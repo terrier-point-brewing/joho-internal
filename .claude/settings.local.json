@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s -X GET https://connect.squareup.com/v2/catalog/list?types=CATEGORY -H 'Authorization: Bearer EAAAl_uGNlwbvUjkHXVwW9ms3hh8GqMnxTQe1Tog3fEZi_LwN9ba7Xnaqq5UhBVI' -H 'Content-Type: application/json')",
+      "Bash(python3 -m json.tool)",
+      "Bash(python3 -c ' *)",
+      "Bash(curl -s -X POST https://connect.squareup.com/v2/catalog/search -H 'Authorization: Bearer EAAAl_uGNlwbvUjkHXVwW9ms3hh8GqMnxTQe1Tog3fEZi_LwN9ba7Xnaqq5UhBVI' -H 'Content-Type: application/json' -d '{ *)",
+      "Bash(curl -s -X POST https://connect.squareup.com/v2/catalog/search -H 'Authorization: Bearer EAAAl_uGNlwbvUjkHXVwW9ms3hh8GqMnxTQe1Tog3fEZi_LwN9ba7Xnaqq5UhBVI' -H 'Content-Type: application/json' -d '{\"object_types\": [\"ITEM\"], \"query\": {\"text_query\": {\"keywords\": [\"combo\"]}}}')",
+      "Bash(curl -s -X GET https://connect.squareup.com/v2/catalog/list?types=ITEM -H 'Authorization: Bearer EAAAl_uGNlwbvUjkHXVwW9ms3hh8GqMnxTQe1Tog3fEZi_LwN9ba7Xnaqq5UhBVI' -H 'Content-Type: application/json')",
+      "Bash(curl -s -X POST https://connect.squareup.com/v2/catalog/search -H 'Authorization: Bearer EAAAl_uGNlwbvUjkHXVwW9ms3hh8GqMnxTQe1Tog3fEZi_LwN9ba7Xnaqq5UhBVI' -H 'Content-Type: application/json' -d '{\"object_types\": [\"ITEM\"]}')",
+      "Bash(npx create-next-app@latest . --typescript --tailwind --eslint --app --no-src-dir --import-alias \"@/*\" --yes)"
+    ]
+  }
+}
