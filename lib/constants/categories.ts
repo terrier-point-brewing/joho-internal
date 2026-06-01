@@ -54,7 +54,35 @@ export const CATEGORY_IDS = {
   ]),
   TANK_FILLS: new Set(["6M5K5FSUDGPCMGIC7BOUDAK2"]),
   DEPOSITS: new Set(["3Y5UG43QKQ6DD2BCSVKECCQL"]),
+  CONTRACT_BREWING: new Set(["CDX2UMLF35B4I3F7ILYLMWMF"]),
 } as const;
+
+// ---------------------------------------------------------------------------
+// Contract Brewing sub-categories
+// ---------------------------------------------------------------------------
+
+export type ContractBrewingSubcategory =
+  | "MATERIALS_PACKAGING"
+  | "PACKAGING_FEES"
+  | "OTHER_SERVICES"
+  | "PASS_THROUGH_TAXES";
+
+export const CONTRACT_BREWING_SUBCATEGORY_LABELS: Record<ContractBrewingSubcategory, string> = {
+  MATERIALS_PACKAGING: "Materials & Packaging",
+  PACKAGING_FEES:      "Packaging Fees",
+  OTHER_SERVICES:      "Other Services",
+  PASS_THROUGH_TAXES:  "Pass-Through Taxes",
+};
+
+// Classify a Contract Brewing line item by its catalog item name (lowercased).
+// Items not matching any rule fall into Other Services.
+export function classifyContractBrewingItem(itemName: string): ContractBrewingSubcategory {
+  const n = itemName.toLowerCase();
+  if (n.includes("ingredient deposit") || n.includes("packaging material")) return "MATERIALS_PACKAGING";
+  if (n.includes("packaging fee"))       return "PACKAGING_FEES";
+  if (n.includes("excise tax") || n.includes("tax"))  return "PASS_THROUGH_TAXES";
+  return "OTHER_SERVICES"; // keg cleaning, forklift, transfer payment, etc.
+}
 
 // Taproom Model report categories and which Square categories roll into each
 export const TAPROOM_MODEL_CATEGORIES = [

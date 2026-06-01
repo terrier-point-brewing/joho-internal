@@ -80,7 +80,9 @@ export interface Order {
   created_at: string;
   updated_at?: string;
   closed_at?: string;
+  customer_id?: string;
   source?: { name?: string };
+  net_amount_due_money?: Money;
   line_items?: OrderLineItem[];
   discounts?: OrderDiscount[];
   total_money?: Money;
