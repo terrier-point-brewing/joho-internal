@@ -1,5 +1,10 @@
 "use client";
 
+export interface GroupOption {
+  value: string;
+  label: string;
+}
+
 interface Props {
   start: string;
   end: string;
@@ -9,14 +14,15 @@ interface Props {
   onExport?: () => void;
   loading: boolean;
   hasData: boolean;
-  groupByItem: boolean;
-  onGroupByItemChange: (v: boolean) => void;
+  groupBy: string;
+  groupOptions: GroupOption[];
+  onGroupByChange: (v: string) => void;
 }
 
 export default function ReportControls({
   start, end, onStartChange, onEndChange,
   onRun, onExport, loading, hasData,
-  groupByItem, onGroupByItemChange,
+  groupBy, groupOptions, onGroupByChange,
 }: Props) {
   return (
     <div className="flex flex-wrap items-end gap-4">
@@ -38,17 +44,20 @@ export default function ReportControls({
           className="border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
       </div>
-      <div>
-        <label className="block text-sm font-medium text-gray-800 mb-1">Group By</label>
-        <select
-          value={groupByItem ? "item" : "date"}
-          onChange={(e) => onGroupByItemChange(e.target.value === "item")}
-          className="border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-        >
-          <option value="date">Date</option>
-          <option value="item">Item</option>
-        </select>
-      </div>
+      {groupOptions.length > 1 && (
+        <div>
+          <label className="block text-sm font-medium text-gray-800 mb-1">Group By</label>
+          <select
+            value={groupBy}
+            onChange={(e) => onGroupByChange(e.target.value)}
+            className="border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            {groupOptions.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+        </div>
+      )}
       <button
         onClick={onRun}
         disabled={loading}

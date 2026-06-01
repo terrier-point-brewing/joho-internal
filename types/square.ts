@@ -85,4 +85,5 @@ export interface Order {
   total_money?: Money;
   total_tax_money?: Money;
   total_discount_money?: Money;
+  total_tip_money?: Money;
 }

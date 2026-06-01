@@ -2,11 +2,8 @@ import type { CatalogItem } from "@/types/square";
 import type { Order } from "@/types/square";
 import type { ComboSale } from "@/types/reports";
 
-// Reporting category IDs for Cocktails (both locations share the same set).
-const COCKTAIL_CATEGORY_IDS = new Set([
-  "IPD6T7FOCCZBXG2HOPOVFB4J",
-  "UE65PMYDYAA3GZVZZE2QXTEF",
-]);
+import { CATEGORY_IDS } from "@/lib/constants/categories";
+const COCKTAIL_CATEGORY_IDS = CATEGORY_IDS.COCKTAILS;
 
 // Describes a single combo item and all its component slots for detection.
 export interface ComboDefinition {

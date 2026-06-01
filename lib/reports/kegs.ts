@@ -3,11 +3,8 @@ import type { Order } from "@/types/square";
 import type { KegSale } from "@/types/reports";
 import { KEG_TRANSFER_DISCOUNT_NAME } from "@/types/reports";
 
-// Reporting category IDs for Kegs
-const KEG_CATEGORY_IDS = new Set([
-  "FXHTXXAICGRPMGJAHGJZ34MY",
-  "L47I4EF3LKJOSWUH47C5JNDA",
-]);
+import { CATEGORY_IDS } from "@/lib/constants/categories";
+const KEG_CATEGORY_IDS = CATEGORY_IDS.KEGS;
 
 // Keg sizes as they appear in variation names — used to exclude deposits
 // (which use "Regular") from the keg index.

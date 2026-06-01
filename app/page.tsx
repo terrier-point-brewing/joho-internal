@@ -1,18 +1,20 @@
 "use client";
 
 import { useState } from "react";
-import ComboSalesReport from "./components/ComboSalesReport";
+import CocktailSalesReport from "./components/CocktailSalesReport";
 import KegSalesReport from "./components/KegSalesReport";
+import TaproomModelReport from "./components/TaproomModelReport";
 
 const REPORTS = [
-  { id: "combo-sales", label: "Combo Sales" },
-  { id: "keg-sales",   label: "Keg Sales"   },
+  { id: "cocktail-sales",  label: "Cocktail Sales" },
+  { id: "keg-sales",       label: "Keg Sales"      },
+  { id: "taproom-model",   label: "Taproom Model Sales" },
 ] as const;
 
 type ReportId = (typeof REPORTS)[number]["id"];
 
 export default function Home() {
-  const [activeReport, setActiveReport] = useState<ReportId>("combo-sales");
+  const [activeReport, setActiveReport] = useState<ReportId>("cocktail-sales");
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -21,7 +23,6 @@ export default function Home() {
       </header>
 
       <main className="max-w-7xl mx-auto px-6 py-8">
-        {/* Report selector */}
         <div className="mb-6 flex items-center gap-3">
           <label className="text-sm font-medium text-gray-800">Report</label>
           <select
@@ -39,8 +40,9 @@ export default function Home() {
           {REPORTS.find((r) => r.id === activeReport)?.label}
         </h2>
 
-        {activeReport === "combo-sales" && <ComboSalesReport />}
-        {activeReport === "keg-sales"   && <KegSalesReport />}
+        {activeReport === "cocktail-sales" && <CocktailSalesReport />}
+        {activeReport === "keg-sales"      && <KegSalesReport />}
+        {activeReport === "taproom-model"  && <TaproomModelReport />}
       </main>
     </div>
   );

@@ -1,7 +1,26 @@
 import type { Order, OrderLineItem } from "./square";
 
 // ---------------------------------------------------------------------------
-// Combo Sales
+// Cocktail Sales (combo + non-combo unified)
+// ---------------------------------------------------------------------------
+
+export interface CocktailSale {
+  orderId: string;
+  orderClosedAt: string;
+  itemName: string;
+  variationName: string;
+  isCombo: boolean;
+  quantity: number;
+  grossSalesCents: number;
+  discountsCents: number;
+  netSalesCents: number;
+  taxCents: number;
+  rawOrder: Order;
+  rawLineItems: OrderLineItem[]; // one entry for non-combo, N for combo components
+}
+
+// ---------------------------------------------------------------------------
+// Combo Sales (internal — used as input to cocktail detection)
 // ---------------------------------------------------------------------------
 
 // A single detected combo cocktail sale.
@@ -36,6 +55,27 @@ export interface ComboSale {
   // Raw objects for future reports to drill into
   rawOrder: Order;
   rawLineItem: OrderLineItem;
+}
+
+// ---------------------------------------------------------------------------
+// Keg Sales
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Taproom Model
+// ---------------------------------------------------------------------------
+
+export interface TaproomCategoryTotals {
+  grossSalesCents: number;
+  discountsCents: number;
+  returnsCents: number;   // refunds attributed to this category
+  taxCents: number;
+  netSalesCents: number;  // gross - discounts - returns
+}
+
+export interface TaproomModelResult {
+  byCategory: Record<string, TaproomCategoryTotals>;
+  totalTipsCents: number;
 }
 
 // ---------------------------------------------------------------------------
