@@ -144,7 +144,9 @@ export function buildTaproomModelReport(
       if (nonComboCocktailIds.has(varId))    continue;
       if (kegClaimedKeys.has(key))           continue;
 
-      const modelCatId = varIdToCategoryId.get(varId);
+      // Gift cards have item_type="GIFT_CARD" and no catalog_object_id — bucket to Other
+      const isGiftCard = line.item_type === "GIFT_CARD";
+      const modelCatId = isGiftCard ? "OTHER" : varIdToCategoryId.get(varId);
       if (!modelCatId || alreadyDone.has(modelCatId)) continue;
 
       const gross     = line.gross_sales_money?.amount     ?? 0;

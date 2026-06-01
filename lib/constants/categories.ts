@@ -67,7 +67,7 @@ export const TAPROOM_MODEL_CATEGORIES = [
   { id: "CANS",               label: "Cans",                 squareCats: [...CATEGORY_IDS.CANS] },
   { id: "MERCHANDISE",        label: "Merchandise",          squareCats: [...CATEGORY_IDS.MERCHANDISE] },
   { id: "CO2",                label: "CO2",                  squareCats: [...CATEGORY_IDS.TANK_FILLS] },
-  { id: "DEPOSITS",           label: "Deposits",             squareCats: [...CATEGORY_IDS.DEPOSITS] },
+  { id: "OTHER",              label: "Other",                squareCats: [...CATEGORY_IDS.DEPOSITS] },
 ] as const;
 
 export type TaproomCategoryId = (typeof TAPROOM_MODEL_CATEGORIES)[number]["id"];
