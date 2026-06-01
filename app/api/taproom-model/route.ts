@@ -18,11 +18,17 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const [catalogItems, orders, refunds] = await Promise.all([
+    const [catalogItems, allOrders, refunds] = await Promise.all([
       fetchCatalogItems(),
       fetchCompletedOrders(start, end),
       fetchRefunds(start, end),
     ]);
+
+    // Taproom Model only counts POS / Square hardware sales.
+    // Exclude orders from Invoices (wholesale, contract brewing, etc.).
+    const orders = allOrders.filter(
+      (o) => (o.source?.name ?? "") !== "Invoices"
+    );
 
     const result = buildTaproomModelReport(orders, catalogItems, refunds);
 

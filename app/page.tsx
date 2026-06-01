@@ -4,11 +4,13 @@ import { useState } from "react";
 import CocktailSalesReport from "./components/CocktailSalesReport";
 import KegSalesReport from "./components/KegSalesReport";
 import TaproomModelReport from "./components/TaproomModelReport";
+import GiftCardReport from "./components/GiftCardReport";
 
 const REPORTS = [
   { id: "cocktail-sales", label: "Cocktail Sales"        },
   { id: "keg-sales",      label: "Keg Sales"             },
   { id: "taproom-model",  label: "Taproom Model Sales"   },
+  { id: "gift-cards",     label: "Gift Card Sales"       },
 ] as const;
 
 type ReportId = (typeof REPORTS)[number]["id"];
@@ -43,6 +45,7 @@ export default function Home() {
         {activeReport === "cocktail-sales" && <CocktailSalesReport />}
         {activeReport === "keg-sales"      && <KegSalesReport />}
         {activeReport === "taproom-model"  && <TaproomModelReport />}
+        {activeReport === "gift-cards"     && <GiftCardReport />}
       </main>
     </div>
   );
