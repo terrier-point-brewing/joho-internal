@@ -40,6 +40,23 @@ export interface CatalogItem {
 
 export type CatalogObject = CatalogItem | CatalogItemVariation | { type: string; id: string };
 
+export interface AppliedDiscount {
+  uid: string;
+  discount_uid: string;
+  applied_money?: Money;
+}
+
+export interface OrderDiscount {
+  uid: string;
+  catalog_object_id?: string;
+  name: string;
+  percentage?: string;
+  amount_money?: Money;
+  applied_money?: Money;
+  type?: string;
+  scope?: string;
+}
+
 export interface OrderLineItem {
   uid: string;
   catalog_object_id?: string;
@@ -53,6 +70,7 @@ export interface OrderLineItem {
   total_tax_money?: Money;
   total_money?: Money;
   item_type?: string;
+  applied_discounts?: AppliedDiscount[];
 }
 
 export interface Order {
@@ -63,6 +81,7 @@ export interface Order {
   updated_at?: string;
   closed_at?: string;
   line_items?: OrderLineItem[];
+  discounts?: OrderDiscount[];
   total_money?: Money;
   total_tax_money?: Money;
   total_discount_money?: Money;
