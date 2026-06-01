@@ -7,7 +7,10 @@ type RawRow = {
   date: string; time: string; item: string; is_combo: boolean;
   qty: number; gross_sales: string; discounts: string; net_sales: string; tax: string;
 };
-type GroupedRow = { item: string; qty: number; gross_sales: string; discounts: string; net_sales: string; tax: string };
+type GroupedRow = {
+  item: string; qty: number;
+  gross_sales: string; discounts: string; net_sales: string; tax: string;
+};
 
 const GROUP_OPTIONS = [
   { value: "date", label: "Date" },
@@ -19,18 +22,21 @@ function currency(v: string | number) {
   return `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 function today() { return new Date().toISOString().slice(0, 10); }
-function firstOfMonth() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-01`; }
+function firstOfMonth() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+}
 
 function groupRows(rows: RawRow[]): GroupedRow[] {
   const map = new Map<string, GroupedRow>();
   for (const r of rows) {
     const cur = map.get(r.item);
     if (cur) {
-      cur.qty += r.qty;
-      cur.gross_sales = (parseFloat(cur.gross_sales) + parseFloat(r.gross_sales)).toFixed(2);
-      cur.discounts   = (parseFloat(cur.discounts)   + parseFloat(r.discounts)).toFixed(2);
-      cur.net_sales   = (parseFloat(cur.net_sales)   + parseFloat(r.net_sales)).toFixed(2);
-      cur.tax         = (parseFloat(cur.tax)         + parseFloat(r.tax)).toFixed(2);
+      cur.qty         += r.qty;
+      cur.gross_sales  = (parseFloat(cur.gross_sales) + parseFloat(r.gross_sales)).toFixed(2);
+      cur.discounts    = (parseFloat(cur.discounts)   + parseFloat(r.discounts)).toFixed(2);
+      cur.net_sales    = (parseFloat(cur.net_sales)   + parseFloat(r.net_sales)).toFixed(2);
+      cur.tax          = (parseFloat(cur.tax)         + parseFloat(r.tax)).toFixed(2);
     } else {
       map.set(r.item, { item: r.item, qty: r.qty, gross_sales: r.gross_sales, discounts: r.discounts, net_sales: r.net_sales, tax: r.tax });
     }
@@ -46,13 +52,16 @@ function exportCSV(rows: RawRow[], groupBy: string) {
       gr.map(r => `"${r.item}",${r.qty},${r.gross_sales},${r.discounts},${r.net_sales},${r.tax}`).join("\n");
   } else {
     csv = "Date,Time,Item,Type,Qty,Gross Sales,Discounts,Net Sales,Tax\n" +
-      rows.map(r => `${r.date},${r.time},"${r.item}",${r.is_combo?"Combo":"Single"},${r.qty},${r.gross_sales},${r.discounts},${r.net_sales},${r.tax}`).join("\n");
+      rows.map(r => `${r.date},${r.time},"${r.item}",${r.is_combo ? "Combo" : "Single"},${r.qty},${r.gross_sales},${r.discounts},${r.net_sales},${r.tax}`).join("\n");
   }
   const blob = new Blob([csv], { type: "text/csv" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a"); a.href = url; a.download = "cocktail-sales.csv"; a.click();
   URL.revokeObjectURL(url);
 }
+
+const thCls = "px-4 py-3 font-medium text-zinc-300";
+const tdCls = "px-4 py-2";
 
 export default function CocktailSalesReport() {
   const [start, setStart] = useState(firstOfMonth());
@@ -91,60 +100,68 @@ export default function CocktailSalesReport() {
         groupBy={groupBy} groupOptions={GROUP_OPTIONS} onGroupByChange={setGroupBy}
       />
 
-      {error && <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-700">{error}</div>}
+      {error && (
+        <div className="mt-4 p-3 bg-red-950 border border-red-700 rounded-md text-sm text-red-300">{error}</div>
+      )}
 
       {displayRows !== null && (
         <div className="mt-4">
-          <p className="text-sm text-gray-600 mb-3">
-            {displayRows.length === 0 ? "No cocktail sales found for this period." : `${displayRows.length} row${displayRows.length !== 1 ? "s" : ""}`}
+          <p className="text-sm text-zinc-400 mb-3">
+            {displayRows.length === 0
+              ? "No cocktail sales found for this period."
+              : `${displayRows.length} row${displayRows.length !== 1 ? "s" : ""}`}
           </p>
           {displayRows.length > 0 && (
-            <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
+            <div className="overflow-x-auto rounded-lg border border-zinc-700">
               <table className="min-w-full text-sm">
                 <thead>
-                  <tr className="border-b border-gray-200 bg-gray-50">
-                    {groupBy === "date" && <><th className="px-4 py-3 text-left font-medium text-gray-700">Date</th><th className="px-4 py-3 text-left font-medium text-gray-700">Time</th></>}
-                    <th className="px-4 py-3 text-left font-medium text-gray-700">Item</th>
-                    {groupBy === "date" && <th className="px-4 py-3 text-left font-medium text-gray-700">Type</th>}
-                    <th className="px-4 py-3 text-right font-medium text-gray-700">Qty</th>
-                    <th className="px-4 py-3 text-right font-medium text-gray-700">Gross Sales</th>
-                    <th className="px-4 py-3 text-right font-medium text-gray-700">Discounts</th>
-                    <th className="px-4 py-3 text-right font-medium text-gray-700">Net Sales</th>
-                    <th className="px-4 py-3 text-right font-medium text-gray-700">Tax</th>
+                  <tr className="border-b border-zinc-700 bg-zinc-800">
+                    {groupBy === "date" && (
+                      <><th className={`${thCls} text-left`}>Date</th><th className={`${thCls} text-left`}>Time</th></>
+                    )}
+                    <th className={`${thCls} text-left`}>Item</th>
+                    {groupBy === "date" && <th className={`${thCls} text-left`}>Type</th>}
+                    <th className={`${thCls} text-right`}>Qty</th>
+                    <th className={`${thCls} text-right`}>Gross Sales</th>
+                    <th className={`${thCls} text-right`}>Discounts</th>
+                    <th className={`${thCls} text-right`}>Net Sales</th>
+                    <th className={`${thCls} text-right`}>Tax</th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className="bg-zinc-900">
                   {displayRows.map((row, i) => (
-                    <tr key={i} className="border-b border-gray-100 hover:bg-gray-50">
+                    <tr key={i} className="border-b border-zinc-800 hover:bg-zinc-800">
                       {groupBy === "date" && "date" in row && (
-                        <><td className="px-4 py-2 text-gray-700 whitespace-nowrap">{(row as RawRow).date}</td>
-                        <td className="px-4 py-2 text-gray-500 whitespace-nowrap">{(row as RawRow).time}</td></>
+                        <>
+                          <td className={`${tdCls} text-zinc-200 whitespace-nowrap`}>{(row as RawRow).date}</td>
+                          <td className={`${tdCls} text-zinc-400 whitespace-nowrap`}>{(row as RawRow).time}</td>
+                        </>
                       )}
-                      <td className="px-4 py-2 font-medium text-gray-900">{row.item}</td>
+                      <td className={`${tdCls} font-medium text-zinc-100`}>{row.item}</td>
                       {groupBy === "date" && "is_combo" in row && (
-                        <td className="px-4 py-2">
+                        <td className={tdCls}>
                           {(row as RawRow).is_combo
-                            ? <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800">Combo</span>
-                            : <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">Single</span>}
+                            ? <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-900 text-purple-200">Combo</span>
+                            : <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-900 text-blue-200">Single</span>}
                         </td>
                       )}
-                      <td className="px-4 py-2 text-right text-gray-700">{row.qty}</td>
-                      <td className="px-4 py-2 text-right text-gray-700">{currency(row.gross_sales)}</td>
-                      <td className="px-4 py-2 text-right text-gray-500">{currency(row.discounts)}</td>
-                      <td className="px-4 py-2 text-right font-medium text-gray-900">{currency(row.net_sales)}</td>
-                      <td className="px-4 py-2 text-right text-gray-500">{currency(row.tax)}</td>
+                      <td className={`${tdCls} text-right text-zinc-200`}>{row.qty}</td>
+                      <td className={`${tdCls} text-right text-zinc-200`}>{currency(row.gross_sales)}</td>
+                      <td className={`${tdCls} text-right text-zinc-400`}>{currency(row.discounts)}</td>
+                      <td className={`${tdCls} text-right font-medium text-zinc-100`}>{currency(row.net_sales)}</td>
+                      <td className={`${tdCls} text-right text-zinc-400`}>{currency(row.tax)}</td>
                     </tr>
                   ))}
                 </tbody>
                 <tfoot>
-                  <tr className="border-t-2 border-gray-300 bg-gray-50 font-semibold">
-                    {groupBy === "date" && <td className="px-4 py-3" colSpan={3} />}
-                    <td className="px-4 py-3 text-gray-700">Totals</td>
-                    <td className="px-4 py-3 text-right text-gray-700">{totals!.qty}</td>
-                    <td className="px-4 py-3 text-right text-gray-700">{currency(totals!.gross)}</td>
-                    <td className="px-4 py-3 text-right text-gray-500">{currency(totals!.disc)}</td>
-                    <td className="px-4 py-3 text-right text-gray-900">{currency(totals!.net)}</td>
-                    <td className="px-4 py-3 text-right text-gray-500">{currency(totals!.tax)}</td>
+                  <tr className="border-t-2 border-zinc-600 bg-zinc-800 font-semibold">
+                    {groupBy === "date" && <td className={tdCls} colSpan={3} />}
+                    <td className={`${tdCls} text-zinc-200`}>Totals</td>
+                    <td className={`${tdCls} text-right text-zinc-200`}>{totals!.qty}</td>
+                    <td className={`${tdCls} text-right text-zinc-200`}>{currency(totals!.gross)}</td>
+                    <td className={`${tdCls} text-right text-zinc-400`}>{currency(totals!.disc)}</td>
+                    <td className={`${tdCls} text-right text-zinc-100`}>{currency(totals!.net)}</td>
+                    <td className={`${tdCls} text-right text-zinc-400`}>{currency(totals!.tax)}</td>
                   </tr>
                 </tfoot>
               </table>
