@@ -7,14 +7,16 @@ import TaproomModelReport from "./components/TaproomModelReport";
 import GiftCardReport from "./components/GiftCardReport";
 import ContractBrewingReport from "./components/ContractBrewingReport";
 import DistributionReport from "./components/DistributionReport";
+import BBLTrackerReport from "./components/BBLTrackerReport";
 
 const REPORTS = [
-  { id: "cocktail-sales", label: "Cocktail Sales"        },
-  { id: "keg-sales",      label: "Keg Sales"             },
-  { id: "taproom-model",  label: "Taproom Model Sales"   },
-  { id: "gift-cards",         label: "Gift Card Sales"          },
-  { id: "contract-brewing",  label: "Contract Brewing Model"   },
-  { id: "distribution",      label: "Distribution Model"       },
+  { id: "cocktail-sales",    label: "Cocktail Sales"    },
+  { id: "keg-sales",         label: "Keg Sales"         },
+  { id: "taproom-model",     label: "Taproom"           },
+  { id: "gift-cards",        label: "Gift Card Sales"   },
+  { id: "contract-brewing",  label: "Contract Brewing"  },
+  { id: "distribution",      label: "Distribution"      },
+  { id: "bbl-tracker",       label: "BBL Tracker"       },
 ] as const;
 
 type ReportId = (typeof REPORTS)[number]["id"];
@@ -52,6 +54,7 @@ export default function Home() {
         {activeReport === "gift-cards"        && <GiftCardReport />}
         {activeReport === "contract-brewing"  && <ContractBrewingReport />}
         {activeReport === "distribution"      && <DistributionReport />}
+        {activeReport === "bbl-tracker"       && <BBLTrackerReport />}
       </main>
     </div>
   );

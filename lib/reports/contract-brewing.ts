@@ -1,5 +1,6 @@
 import type { CatalogItem, Order } from "@/types/square";
 import type { SquareCustomer } from "@/lib/square/customers";
+import { customerDisplayName } from "@/lib/square/customers";
 import {
   CATEGORY_IDS,
   CONTRACT_BREWING_SUBCATEGORY_LABELS,
@@ -106,8 +107,6 @@ export function buildContractBrewingReport(
     discountsCents: catTotals[sc].disc,
     netCents:       catTotals[sc].gross - catTotals[sc].disc,
   }));
-
-  const { customerDisplayName } = require("@/lib/square/customers");
 
   const byCustomer: ContractBrewingCustomerRow[] = Array.from(custTotals.entries())
     .sort((a, b) => b[1].charged - a[1].charged)

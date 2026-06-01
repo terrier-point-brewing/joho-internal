@@ -1,5 +1,6 @@
 import type { CatalogItem, Order } from "@/types/square";
 import type { SquareCustomer } from "@/lib/square/customers";
+import { customerDisplayName } from "@/lib/square/customers";
 import { CATEGORY_IDS } from "@/lib/constants/categories";
 
 const KEG_SIZE_PATTERN = /^\d+\/\d+ Keg$/;
@@ -117,8 +118,6 @@ export function buildDistributionReport(
       return { size, qty: t.qty, grossCents: t.gross, discountsCents: t.disc, netCents: t.gross - t.disc };
     })
     .filter((r) => r.qty > 0);
-
-  const { customerDisplayName } = require("@/lib/square/customers");
 
   const byCustomer: DistributionCustomerRow[] = Array.from(custTotals.entries())
     .sort((a, b) => b[1].charged - a[1].charged)

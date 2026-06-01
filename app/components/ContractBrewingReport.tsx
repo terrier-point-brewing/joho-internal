@@ -85,7 +85,6 @@ export default function ContractBrewingReport() {
                   <tr className="border-b border-zinc-700 bg-zinc-800">
                     <th className={`${thCls} text-left`}>Category</th>
                     <th className={`${thCls} text-right`}>Gross Revenue</th>
-                    <th className={`${thCls} text-right`}>Discounts</th>
                     <th className={`${thCls} text-right`}>Net Revenue</th>
                   </tr>
                 </thead>
@@ -94,9 +93,6 @@ export default function ContractBrewingReport() {
                     <tr key={i} className="border-b border-zinc-800 hover:bg-zinc-800">
                       <td className={`${tdCls} font-medium text-zinc-100`}>{row.category}</td>
                       <td className={`${tdCls} text-right text-zinc-200`}>{currency(row.gross_sales)}</td>
-                      <td className={`${tdCls} text-right ${parseFloat(row.discounts) > 0 ? "text-amber-400" : "text-zinc-600"}`}>
-                        {parseFloat(row.discounts) > 0 ? currency(row.discounts) : "—"}
-                      </td>
                       <td className={`${tdCls} text-right font-medium text-zinc-100`}>{currency(row.net_sales)}</td>
                     </tr>
                   ))}
@@ -106,13 +102,18 @@ export default function ContractBrewingReport() {
                     <tr className="border-t-2 border-zinc-600 bg-zinc-800 font-semibold">
                       <td className={`${tdCls} text-zinc-200`}>Total</td>
                       <td className={`${tdCls} text-right text-zinc-200`}>{currency(catTotals.gross)}</td>
-                      <td className={`${tdCls} text-right text-amber-400`}>{catTotals.disc > 0 ? currency(catTotals.disc) : "—"}</td>
                       <td className={`${tdCls} text-right text-zinc-100`}>{currency(catTotals.net)}</td>
                     </tr>
                   </tfoot>
                 )}
               </table>
             </div>
+            {catTotals && catTotals.disc > 0 && (
+              <div className="mt-3 inline-flex items-center gap-3 px-4 py-3 bg-zinc-900 border border-zinc-700 rounded-lg">
+                <span className="text-sm font-medium text-zinc-300">Total Discounts Applied</span>
+                <span className="text-lg font-semibold text-amber-400">{currency(catTotals.disc)}</span>
+              </div>
+            )}
           </div>
 
           {/* By Customer */}
