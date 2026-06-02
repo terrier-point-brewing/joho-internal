@@ -8,7 +8,7 @@ export type BatchStatus =
 
 export type AdjustmentType = "received" | "used" | "waste" | "inventory_count" | "batch_use";
 
-export type TankType = "fermenter" | "brite" | "unitank" | "serving";
+export type TankType = "fermenter" | "brite" | "unitank" | "serving" | "brewhouse" | "cold_storage";
 
 export interface Ingredient {
   id: string;
@@ -82,7 +82,38 @@ export interface Tank {
   notes: string | null;
   grid_row: number | null;
   grid_col: number | null;
+  grid_width: number;
+  grid_height: number;
   created_at: string;
+}
+
+export interface WorkflowTemplateStep {
+  id: string;
+  template_id: string;
+  step_order: number;
+  equipment_id: string;
+  duration_days: number | null;
+  notes: string | null;
+  tanks: Pick<Tank, "id" | "name" | "type">;
+}
+
+export interface WorkflowTemplate {
+  id: string;
+  name: string;
+  description: string | null;
+  workflow_template_steps: WorkflowTemplateStep[];
+  created_at: string;
+}
+
+export interface BatchWorkflowStep {
+  id: string;
+  batch_id: string;
+  step_order: number;
+  equipment_id: string;
+  scheduled_date: string | null;
+  completed_at: string | null;
+  notes: string | null;
+  tanks: Pick<Tank, "id" | "name" | "type">;
 }
 
 export interface BatchTankAssignment {

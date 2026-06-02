@@ -1,41 +1,72 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useRef, useCallback } from "react";
 import { Tank, BatchTankAssignment, BrewBatch, TankType } from "../types";
 import { StatusBadge, Modal, Field, ModalActions } from "./shared";
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+// ─── Grid constants ───────────────────────────────────────────────────────────
 
-const MIN_ROWS = 3;
-const MIN_COLS = 4;
+const CELL = 48;       // px per grid unit
+const GAP = 3;         // px inset inside each cell
+const GRID_COLS = 24;
+const GRID_ROWS = 16;
 
-const TANK_TYPES: { value: TankType; label: string; color: string }[] = [
-  { value: "fermenter", label: "Fermenter", color: "bg-blue-900/40 text-blue-300 border-blue-800" },
-  { value: "unitank",   label: "Unitank",   color: "bg-indigo-900/40 text-indigo-300 border-indigo-800" },
-  { value: "brite",     label: "Brite",     color: "bg-cyan-900/40 text-cyan-300 border-cyan-800" },
-  { value: "serving",   label: "Serving",   color: "bg-teal-900/40 text-teal-300 border-teal-800" },
-];
-const TANK_TYPE_MAP = Object.fromEntries(
-  TANK_TYPES.map((t) => [t.value, t])
-) as Record<TankType, (typeof TANK_TYPES)[number]>;
+// ─── Equipment metadata ───────────────────────────────────────────────────────
 
-const TANK_EMPTY = { name: "", type: "fermenter" as TankType, capacity_bbl: "", notes: "" };
+const EQ: Record<TankType, {
+  label: string;
+  headerBg: string;
+  border: string;
+  badge: string;
+  defaultW: number;
+  defaultH: number;
+}> = {
+  fermenter:    { label: "Fermenter",    headerBg: "bg-blue-950/80",   border: "border-blue-800",   badge: "bg-blue-900/60 text-blue-300 border-blue-700",    defaultW: 2, defaultH: 4 },
+  unitank:      { label: "Unitank",      headerBg: "bg-indigo-950/80", border: "border-indigo-800", badge: "bg-indigo-900/60 text-indigo-300 border-indigo-700", defaultW: 2, defaultH: 4 },
+  brite:        { label: "Brite",        headerBg: "bg-cyan-950/80",   border: "border-cyan-800",   badge: "bg-cyan-900/60 text-cyan-300 border-cyan-700",     defaultW: 2, defaultH: 3 },
+  serving:      { label: "Serving",      headerBg: "bg-teal-950/80",   border: "border-teal-800",   badge: "bg-teal-900/60 text-teal-300 border-teal-700",     defaultW: 2, defaultH: 2 },
+  brewhouse:    { label: "Brewhouse",    headerBg: "bg-amber-950/80",  border: "border-amber-700",  badge: "bg-amber-900/60 text-amber-300 border-amber-600",  defaultW: 3, defaultH: 3 },
+  cold_storage: { label: "Cold Storage", headerBg: "bg-sky-950/80",    border: "border-sky-800",    badge: "bg-sky-900/60 text-sky-300 border-sky-700",        defaultW: 5, defaultH: 2 },
+};
+
+const EQ_TYPES = Object.entries(EQ) as [TankType, typeof EQ[TankType]][];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function computeGrid(tanks: Tank[]) {
-  const placed = tanks.filter((t) => t.grid_row != null && t.grid_col != null);
-  const maxRow = placed.length ? Math.max(...placed.map((t) => t.grid_row!)) : -1;
-  const maxCol = placed.length ? Math.max(...placed.map((t) => t.grid_col!)) : -1;
+function eqStyle(t: Tank): React.CSSProperties {
   return {
-    rows: Math.max(MIN_ROWS, maxRow + 2),
-    cols: Math.max(MIN_COLS, maxCol + 2),
+    position: "absolute",
+    left:   (t.grid_col ?? 0) * CELL + GAP,
+    top:    (t.grid_row ?? 0) * CELL + GAP,
+    width:  t.grid_width  * CELL - GAP * 2,
+    height: t.grid_height * CELL - GAP * 2,
   };
+}
+
+function isInBounds(t: Tank, row: number, col: number): boolean {
+  return row >= 0 && col >= 0 && row + t.grid_height <= GRID_ROWS && col + t.grid_width <= GRID_COLS;
+}
+
+function wouldCollide(tanks: Tank[], tankId: string, row: number, col: number): boolean {
+  const drag = tanks.find((t) => t.id === tankId)!;
+  return tanks
+    .filter((t) => t.id !== tankId && t.grid_row != null && t.grid_col != null)
+    .some((t) => {
+      const tr = t.grid_row!, tc = t.grid_col!;
+      return !(col + drag.grid_width <= tc || col >= tc + t.grid_width ||
+               row + drag.grid_height <= tr || row >= tr + t.grid_height);
+    });
 }
 
 function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
+
+// ─── Tank form defaults ───────────────────────────────────────────────────────
+
+const TANK_EMPTY = {
+  name: "", type: "fermenter" as TankType, capacity_bbl: "", notes: "", grid_width: "2", grid_height: "4",
+};
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
@@ -50,11 +81,15 @@ export default function BrewStatusTab({
   batches: BrewBatch[];
   onRefresh: () => Promise<void>;
 }) {
-  const [showTankModal, setShowTankModal] = useState(false);
-  const [tankForm, setTankForm] = useState(TANK_EMPTY);
-  const [editingTankId, setEditingTankId] = useState<string | null>(null);
-  const [tankSubmitting, setTankSubmitting] = useState(false);
+  const [editMode, setEditMode] = useState(false);
 
+  // Equipment CRUD
+  const [showEqModal, setShowEqModal] = useState(false);
+  const [eqForm, setEqForm] = useState(TANK_EMPTY);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [eqSubmitting, setEqSubmitting] = useState(false);
+
+  // Batch assign/release
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [assignTankId, setAssignTankId] = useState<string | null>(null);
   const [assignBatchId, setAssignBatchId] = useState("");
@@ -62,153 +97,127 @@ export default function BrewStatusTab({
   const [assignSubmitting, setAssignSubmitting] = useState(false);
 
   // Drag state
-  const [draggingId, setDraggingId] = useState<string | null>(null);
-  const [hoverCell, setHoverCell] = useState<{ row: number; col: number } | null>(null);
+  const [dragging, setDragging] = useState<{ id: string; grabRow: number; grabCol: number } | null>(null);
+  const [dropPreview, setDropPreview] = useState<{ row: number; col: number; valid: boolean } | null>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
 
-  const assignmentByTank = Object.fromEntries(
-    assignments.map((a) => [a.tank_id, a])
-  ) as Record<string, BatchTankAssignment | undefined>;
-
+  const assignmentByTank = Object.fromEntries(assignments.map((a) => [a.tank_id, a])) as Record<string, BatchTankAssignment | undefined>;
   const assignedBatchIds = new Set(assignments.map((a) => a.batch_id));
-  const unassignedBatches = batches.filter(
-    (b) => b.status !== "archived" && !assignedBatchIds.has(b.id)
-  );
+  const unassignedBatches = batches.filter((b) => b.status !== "archived" && !assignedBatchIds.has(b.id));
 
-  const placedTanks = tanks.filter((t) => t.grid_row != null && t.grid_col != null);
-  const unplacedTanks = tanks.filter((t) => t.grid_row == null || t.grid_col == null);
+  const placed   = tanks.filter((t) => t.grid_row != null && t.grid_col != null);
+  const unplaced = tanks.filter((t) => t.grid_row == null || t.grid_col == null);
 
-  const { rows, cols } = computeGrid(tanks);
+  // ── Drag/drop ──────────────────────────────────────────────────────────────
 
-  // ── Tank CRUD ───────────────────────────────────────────────────────────────
-
-  function openNewTank() {
-    setTankForm(TANK_EMPTY);
-    setEditingTankId(null);
-    setShowTankModal(true);
+  function onDragStart(e: React.DragEvent, t: Tank) {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const grabCol = Math.floor((e.clientX - rect.left) / CELL);
+    const grabRow = Math.floor((e.clientY - rect.top)  / CELL);
+    e.dataTransfer.setData("tankId",  t.id);
+    e.dataTransfer.setData("grabCol", String(grabCol));
+    e.dataTransfer.setData("grabRow", String(grabRow));
+    e.dataTransfer.effectAllowed = "move";
+    setDragging({ id: t.id, grabRow, grabCol });
   }
 
-  function openEditTank(t: Tank) {
-    setTankForm({
-      name: t.name,
-      type: t.type,
-      capacity_bbl: t.capacity_bbl != null ? String(t.capacity_bbl) : "",
-      notes: t.notes ?? "",
-    });
-    setEditingTankId(t.id);
-    setShowTankModal(true);
-  }
-
-  async function handleTankSubmit(e: React.FormEvent) {
+  const onGridDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
-    setTankSubmitting(true);
-    try {
-      const payload = {
-        name: tankForm.name,
-        type: tankForm.type,
-        capacity_bbl: tankForm.capacity_bbl ? parseFloat(tankForm.capacity_bbl) : null,
-        notes: tankForm.notes || null,
-      };
-      const res = editingTankId
-        ? await fetch(`/api/production/tanks/${editingTankId}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-          })
-        : await fetch("/api/production/tanks", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-          });
-      if (!res.ok) throw new Error((await res.json()).error ?? "Error");
-      setShowTankModal(false);
-      await onRefresh();
-    } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : "Error");
-    } finally {
-      setTankSubmitting(false);
-    }
-  }
+    if (!dragging || !gridRef.current) return;
+    const rect = gridRef.current.getBoundingClientRect();
+    const col = Math.max(0, Math.floor((e.clientX - rect.left + gridRef.current.scrollLeft)  / CELL) - dragging.grabCol);
+    const row = Math.max(0, Math.floor((e.clientY - rect.top  + gridRef.current.scrollTop)   / CELL) - dragging.grabRow);
+    const tank = tanks.find((t) => t.id === dragging.id)!;
+    const valid = isInBounds(tank, row, col) && !wouldCollide(tanks, dragging.id, row, col);
+    setDropPreview({ row, col, valid });
+  }, [dragging, tanks]);
 
-  async function handleDeleteTank(id: string, name: string) {
-    if (!confirm(`Delete tank "${name}"?`)) return;
-    await fetch(`/api/production/tanks/${id}`, { method: "DELETE" });
-    await onRefresh();
-  }
-
-  // ── Position updates (drag-and-drop) ────────────────────────────────────────
-
-  async function moveTankTo(tankId: string, row: number | null, col: number | null) {
-    // If target cell is occupied, swap positions
-    const occupant = row != null && col != null
-      ? placedTanks.find((t) => t.grid_row === row && t.grid_col === col && t.id !== tankId)
-      : null;
-
-    const draggedTank = tanks.find((t) => t.id === tankId);
-
-    if (occupant) {
-      // Swap: move occupant to dragged tank's old position
-      await Promise.all([
-        fetch(`/api/production/tanks/${tankId}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ grid_row: row, grid_col: col }),
-        }),
-        fetch(`/api/production/tanks/${occupant.id}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ grid_row: draggedTank?.grid_row ?? null, grid_col: draggedTank?.grid_col ?? null }),
-        }),
-      ]);
-    } else {
+  async function onGridDrop(e: React.DragEvent) {
+    e.preventDefault();
+    if (!gridRef.current) return;
+    const tankId  = e.dataTransfer.getData("tankId");
+    const grabCol = parseInt(e.dataTransfer.getData("grabCol") || "0");
+    const grabRow = parseInt(e.dataTransfer.getData("grabRow") || "0");
+    const rect = gridRef.current.getBoundingClientRect();
+    const col  = Math.max(0, Math.floor((e.clientX - rect.left + gridRef.current.scrollLeft) / CELL) - grabCol);
+    const row  = Math.max(0, Math.floor((e.clientY - rect.top  + gridRef.current.scrollTop)  / CELL) - grabRow);
+    const tank = tanks.find((t) => t.id === tankId);
+    if (tank && isInBounds(tank, row, col) && !wouldCollide(tanks, tankId, row, col)) {
       await fetch(`/api/production/tanks/${tankId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ grid_row: row, grid_col: col }),
       });
+      await onRefresh();
     }
+    setDragging(null);
+    setDropPreview(null);
+  }
+
+  async function removeFromGrid(tankId: string) {
+    await fetch(`/api/production/tanks/${tankId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ grid_row: null, grid_col: null }),
+    });
     await onRefresh();
-  }
-
-  // ── Drag handlers ────────────────────────────────────────────────────────────
-
-  function onDragStart(e: React.DragEvent, tankId: string) {
-    e.dataTransfer.setData("tankId", tankId);
-    e.dataTransfer.effectAllowed = "move";
-    setDraggingId(tankId);
-  }
-
-  function onDragEnd() {
-    setDraggingId(null);
-    setHoverCell(null);
-  }
-
-  function onCellDragOver(e: React.DragEvent, row: number, col: number) {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-    setHoverCell({ row, col });
-  }
-
-  function onCellDragLeave() {
-    setHoverCell(null);
-  }
-
-  async function onCellDrop(e: React.DragEvent, row: number, col: number) {
-    e.preventDefault();
-    const tankId = e.dataTransfer.getData("tankId");
-    setDraggingId(null);
-    setHoverCell(null);
-    if (tankId) await moveTankTo(tankId, row, col);
   }
 
   async function onUnplacedDrop(e: React.DragEvent) {
     e.preventDefault();
     const tankId = e.dataTransfer.getData("tankId");
-    setDraggingId(null);
-    setHoverCell(null);
-    if (tankId) await moveTankTo(tankId, null, null);
+    if (tankId) await removeFromGrid(tankId);
+    setDragging(null);
+    setDropPreview(null);
   }
 
-  // ── Batch assign/release ─────────────────────────────────────────────────────
+  // ── Equipment CRUD ─────────────────────────────────────────────────────────
+
+  function openNew() { setEqForm(TANK_EMPTY); setEditingId(null); setShowEqModal(true); }
+
+  function openEdit(t: Tank) {
+    setEqForm({
+      name: t.name, type: t.type,
+      capacity_bbl: t.capacity_bbl != null ? String(t.capacity_bbl) : "",
+      notes: t.notes ?? "",
+      grid_width: String(t.grid_width),
+      grid_height: String(t.grid_height),
+    });
+    setEditingId(t.id);
+    setShowEqModal(true);
+  }
+
+  async function handleEqSubmit(ev: React.FormEvent) {
+    ev.preventDefault();
+    setEqSubmitting(true);
+    try {
+      const payload = {
+        name: eqForm.name, type: eqForm.type,
+        capacity_bbl: eqForm.capacity_bbl ? parseFloat(eqForm.capacity_bbl) : null,
+        notes: eqForm.notes || null,
+        grid_width:  parseInt(eqForm.grid_width)  || 2,
+        grid_height: parseInt(eqForm.grid_height) || 3,
+      };
+      const res = editingId
+        ? await fetch(`/api/production/tanks/${editingId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })
+        : await fetch("/api/production/tanks",              { method: "POST",  headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      if (!res.ok) throw new Error((await res.json()).error ?? "Error");
+      setShowEqModal(false);
+      await onRefresh();
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Error");
+    } finally {
+      setEqSubmitting(false);
+    }
+  }
+
+  async function handleDeleteEq(id: string, name: string) {
+    if (!confirm(`Delete "${name}"?`)) return;
+    await fetch(`/api/production/tanks/${id}`, { method: "DELETE" });
+    await onRefresh();
+  }
+
+  // ── Batch assign/release ───────────────────────────────────────────────────
 
   function openAssign(tankId: string) {
     setAssignTankId(tankId);
@@ -217,8 +226,8 @@ export default function BrewStatusTab({
     setShowAssignModal(true);
   }
 
-  async function handleAssignSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleAssignSubmit(ev: React.FormEvent) {
+    ev.preventDefault();
     if (!assignBatchId || !assignTankId) return;
     setAssignSubmitting(true);
     try {
@@ -243,142 +252,223 @@ export default function BrewStatusTab({
     await onRefresh();
   }
 
-  // ── Render ────────────────────────────────────────────────────────────────────
+  // ── Render ─────────────────────────────────────────────────────────────────
+
+  const draggingTank = dragging ? tanks.find((t) => t.id === dragging.id) : null;
 
   return (
     <>
-      <div className="flex items-center justify-between mb-5">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
         <div>
           <h2 className="text-base font-medium text-zinc-100">Brew Status</h2>
           <p className="text-sm text-zinc-500 mt-0.5">
-            Drag tanks to arrange the shop floor layout · assign batches to tanks
+            {editMode ? "Edit mode — drag equipment to reposition" : "Lock mode — assign batches to equipment"}
           </p>
         </div>
-        <button onClick={openNewTank} className="btn-amber">+ Add Tank</button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setEditMode((v) => !v)}
+            className={`px-3 py-1.5 text-sm font-medium rounded border transition-colors ${
+              editMode
+                ? "border-amber-600 bg-amber-900/30 text-amber-300 hover:bg-amber-900/50"
+                : "border-zinc-700 bg-zinc-800 text-zinc-400 hover:text-zinc-200"
+            }`}
+          >
+            {editMode ? "🔓 Editing Layout" : "🔒 Edit Layout"}
+          </button>
+          {editMode && (
+            <button onClick={openNew} className="btn-amber">+ Add Equipment</button>
+          )}
+        </div>
       </div>
 
-      {/* ── Shop floor grid ── */}
-      {placedTanks.length === 0 && unplacedTanks.length === 0 ? (
-        <p className="text-zinc-600 text-sm mb-6">No tanks configured yet.</p>
-      ) : (
-        <div
-          className="grid gap-2 mb-6"
-          style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
-        >
-          {Array.from({ length: rows * cols }, (_, i) => {
-            const row = Math.floor(i / cols);
-            const col = i % cols;
-            const tank = placedTanks.find((t) => t.grid_row === row && t.grid_col === col);
-            const isHover = hoverCell?.row === row && hoverCell?.col === col;
-            const isDraggingThis = tank?.id === draggingId;
+      {/* Legend */}
+      <div className="flex flex-wrap gap-2 mb-3">
+        {EQ_TYPES.map(([type, meta]) => (
+          <span key={type} className={`text-xs px-2 py-px rounded border ${meta.badge}`}>
+            {meta.label}
+          </span>
+        ))}
+      </div>
 
-            if (tank) {
-              return (
-                <div
-                  key={`${row}-${col}`}
-                  draggable
-                  onDragStart={(e) => onDragStart(e, tank.id)}
-                  onDragEnd={onDragEnd}
-                  onDragOver={(e) => onCellDragOver(e, row, col)}
-                  onDragLeave={onCellDragLeave}
-                  onDrop={(e) => onCellDrop(e, row, col)}
-                  className={`rounded-lg border flex flex-col transition-all cursor-grab active:cursor-grabbing select-none ${
-                    isDraggingThis
-                      ? "opacity-40 border-zinc-700"
-                      : isHover
-                      ? "border-amber-500 ring-1 ring-amber-500/30"
-                      : "border-zinc-800"
-                  }`}
-                  style={{ minHeight: 160 }}
-                >
-                  <TankCardContent
-                    tank={tank}
-                    assignment={assignmentByTank[tank.id]}
-                    unassignedBatches={unassignedBatches}
-                    onEdit={() => openEditTank(tank)}
-                    onDelete={() => handleDeleteTank(tank.id, tank.name)}
-                    onAssign={() => openAssign(tank.id)}
-                    onRelease={handleRelease}
-                  />
-                </div>
-              );
-            }
+      {/* Grid */}
+      <div
+        className="overflow-auto rounded-lg border border-zinc-800 mb-6"
+        style={{ maxHeight: "72vh" }}
+      >
+        <div
+          ref={gridRef}
+          className="relative"
+          style={{
+            width:  GRID_COLS * CELL,
+            height: GRID_ROWS * CELL,
+            backgroundImage: [
+              `linear-gradient(to right, rgba(63,63,70,0.22) 1px, transparent 1px)`,
+              `linear-gradient(to bottom, rgba(63,63,70,0.22) 1px, transparent 1px)`,
+            ].join(","),
+            backgroundSize: `${CELL}px ${CELL}px`,
+          }}
+          onDragOver={editMode ? onGridDragOver : undefined}
+          onDrop={editMode ? onGridDrop : undefined}
+          onDragLeave={() => setDropPreview(null)}
+        >
+          {/* Placed equipment */}
+          {placed.map((tank) => {
+            const eq       = EQ[tank.type];
+            const assign   = assignmentByTank[tank.id];
+            const batch    = assign?.brew_batches;
+            const isDraggingThis = dragging?.id === tank.id;
+            const pixW     = tank.grid_width  * CELL - GAP * 2;
+            const pixH     = tank.grid_height * CELL - GAP * 2;
+            const compact  = pixW < 100 || pixH < 90;
+            const tiny     = pixW < 60  || pixH < 60;
 
             return (
               <div
-                key={`${row}-${col}`}
-                onDragOver={(e) => onCellDragOver(e, row, col)}
-                onDragLeave={onCellDragLeave}
-                onDrop={(e) => onCellDrop(e, row, col)}
-                className={`rounded-lg border-2 border-dashed transition-colors flex items-center justify-center ${
-                  isHover && draggingId
-                    ? "border-amber-500 bg-amber-900/10"
-                    : "border-zinc-800/60"
-                }`}
-                style={{ minHeight: 160 }}
+                key={tank.id}
+                draggable={editMode}
+                onDragStart={editMode ? (e) => onDragStart(e, tank) : undefined}
+                onDragEnd={() => { setDragging(null); setDropPreview(null); }}
+                className={`absolute flex flex-col overflow-hidden rounded border transition-opacity select-none ${
+                  isDraggingThis ? "opacity-30" : "opacity-100"
+                } ${editMode ? "cursor-grab active:cursor-grabbing" : ""} ${eq.border}`}
+                style={{
+                  ...eqStyle(tank),
+                  background: "rgba(9,9,11,0.85)",
+                }}
               >
-                {isHover && draggingId && (
-                  <span className="text-xs text-amber-500">Drop here</span>
+                {/* Header */}
+                <div className={`shrink-0 px-2 py-1 flex items-center justify-between gap-1 ${eq.headerBg}`}>
+                  <span className="font-semibold text-zinc-100 truncate" style={{ fontSize: tiny ? 9 : compact ? 10 : 11 }}>
+                    {tank.name}
+                  </span>
+                  {!tiny && (
+                    <span className={`text-xs px-1 py-px rounded border shrink-0 ${eq.badge}`} style={{ fontSize: 9 }}>
+                      {eq.label}
+                    </span>
+                  )}
+                </div>
+
+                {/* Body — only if not tiny */}
+                {!tiny && (
+                  <div className="flex-1 min-h-0 px-2 py-1 flex flex-col gap-0.5">
+                    {tank.capacity_bbl && !compact && (
+                      <p className="text-zinc-600" style={{ fontSize: 9 }}>{tank.capacity_bbl} BBL</p>
+                    )}
+                    {batch ? (
+                      <>
+                        <p className="text-zinc-200 font-medium leading-tight truncate" style={{ fontSize: compact ? 9 : 10 }}>
+                          {batch.beer_name}
+                        </p>
+                        <p className="text-zinc-500 font-mono" style={{ fontSize: 9 }}>{batch.batch_number ?? "—"}</p>
+                        {!compact && <StatusBadge status={batch.status} />}
+                        {!compact && assign && (
+                          <p className="text-zinc-600" style={{ fontSize: 9 }}>since {fmtDate(assign.assigned_at)}</p>
+                        )}
+                        {!editMode && (
+                          <button
+                            onClick={() => handleRelease(assign!.id)}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            className="mt-auto text-xs text-zinc-600 hover:text-red-400 border border-zinc-700 hover:border-red-800 px-1.5 rounded transition-colors self-start"
+                            style={{ fontSize: 9 }}
+                          >
+                            Release
+                          </button>
+                        )}
+                      </>
+                    ) : (
+                      <div className="flex-1 flex flex-col items-center justify-center gap-1">
+                        <p className="text-zinc-700" style={{ fontSize: 9 }}>Empty</p>
+                        {!editMode && unassignedBatches.length > 0 && (
+                          <button
+                            onClick={() => openAssign(tank.id)}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            className="text-amber-600 hover:text-amber-400 border border-amber-900 hover:border-amber-700 px-1.5 rounded transition-colors"
+                            style={{ fontSize: 9 }}
+                          >
+                            Assign
+                          </button>
+                        )}
+                      </div>
+                    )}
+                    {editMode && (
+                      <div className="mt-auto flex gap-1.5">
+                        <button onClick={() => openEdit(tank)} onMouseDown={(e) => e.stopPropagation()} className="text-zinc-600 hover:text-zinc-300 transition-colors" style={{ fontSize: 9 }}>Edit</button>
+                        <button onClick={() => removeFromGrid(tank.id)} onMouseDown={(e) => e.stopPropagation()} className="text-zinc-600 hover:text-amber-400 transition-colors" style={{ fontSize: 9 }}>Unplace</button>
+                        {!assign && <button onClick={() => handleDeleteEq(tank.id, tank.name)} onMouseDown={(e) => e.stopPropagation()} className="text-zinc-600 hover:text-red-400 transition-colors" style={{ fontSize: 9 }}>Del</button>}
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
             );
           })}
-        </div>
-      )}
 
-      {/* ── Unplaced tanks ── */}
-      {unplacedTanks.length > 0 && (
+          {/* Drop preview ghost */}
+          {dropPreview && draggingTank && (
+            <div
+              className={`absolute pointer-events-none z-20 rounded border-2 border-dashed ${
+                dropPreview.valid
+                  ? "border-amber-400 bg-amber-900/15"
+                  : "border-red-500 bg-red-900/15"
+              }`}
+              style={{
+                left:   dropPreview.col * CELL + GAP,
+                top:    dropPreview.row * CELL + GAP,
+                width:  draggingTank.grid_width  * CELL - GAP * 2,
+                height: draggingTank.grid_height * CELL - GAP * 2,
+              }}
+            />
+          )}
+        </div>
+      </div>
+
+      {/* Unplaced equipment */}
+      {unplaced.length > 0 && (
         <div
-          className="mb-6 p-3 rounded-lg border border-dashed border-zinc-700"
-          onDragOver={(e) => { e.preventDefault(); }}
+          className={`mb-6 p-3 rounded-lg border border-dashed transition-colors ${
+            dragging ? "border-zinc-500 bg-zinc-900/40" : "border-zinc-700"
+          }`}
+          onDragOver={(e) => e.preventDefault()}
           onDrop={onUnplacedDrop}
         >
           <p className="text-xs text-zinc-500 font-medium uppercase tracking-wide mb-2">
-            Unplaced Tanks — drag onto the grid to position
+            Unplaced Equipment {editMode ? "— drag onto the grid to position" : ""}
           </p>
           <div className="flex flex-wrap gap-2">
-            {unplacedTanks.map((tank) => (
-              <div
-                key={tank.id}
-                draggable
-                onDragStart={(e) => onDragStart(e, tank.id)}
-                onDragEnd={onDragEnd}
-                className={`rounded border border-zinc-700 bg-zinc-900 px-3 py-2 cursor-grab active:cursor-grabbing select-none transition-opacity ${
-                  draggingId === tank.id ? "opacity-40" : ""
-                }`}
-              >
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-zinc-200">{tank.name}</span>
-                  <span className={`text-xs px-1.5 py-px rounded border ${TANK_TYPE_MAP[tank.type].color}`}>
-                    {TANK_TYPE_MAP[tank.type].label}
-                  </span>
-                  {tank.capacity_bbl && (
-                    <span className="text-xs text-zinc-500">{tank.capacity_bbl} BBL</span>
+            {unplaced.map((tank) => {
+              const eq = EQ[tank.type];
+              return (
+                <div
+                  key={tank.id}
+                  draggable={editMode}
+                  onDragStart={editMode ? (e) => onDragStart(e, tank) : undefined}
+                  onDragEnd={() => { setDragging(null); setDropPreview(null); }}
+                  className={`rounded border px-3 py-2 bg-zinc-900 ${eq.border} ${
+                    editMode ? "cursor-grab active:cursor-grabbing" : ""
+                  } ${dragging?.id === tank.id ? "opacity-40" : ""}`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-zinc-200">{tank.name}</span>
+                    <span className={`text-xs px-1.5 py-px rounded border ${eq.badge}`}>{eq.label}</span>
+                    {tank.capacity_bbl && <span className="text-xs text-zinc-600">{tank.capacity_bbl} BBL</span>}
+                    <span className="text-xs text-zinc-700">{tank.grid_width}×{tank.grid_height}</span>
+                  </div>
+                  {editMode && (
+                    <div className="flex gap-3 mt-1">
+                      <button onClick={() => openEdit(tank)} onMouseDown={(e) => e.stopPropagation()} className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors">Edit</button>
+                      <button onClick={() => handleDeleteEq(tank.id, tank.name)} onMouseDown={(e) => e.stopPropagation()} className="text-xs text-zinc-600 hover:text-red-400 transition-colors">Delete</button>
+                    </div>
                   )}
                 </div>
-                <div className="flex gap-3 mt-1.5">
-                  <button
-                    onClick={() => openEditTank(tank)}
-                    onMouseDown={(e) => e.stopPropagation()}
-                    className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    onClick={() => handleDeleteTank(tank.id, tank.name)}
-                    onMouseDown={(e) => e.stopPropagation()}
-                    className="text-xs text-zinc-600 hover:text-red-400 transition-colors"
-                  >
-                    Delete
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
 
-      {/* ── Unassigned batches ── */}
+      {/* Unassigned batches */}
       {unassignedBatches.length > 0 && (
         <div>
           <p className="text-xs text-zinc-500 font-medium uppercase tracking-wide mb-2">
@@ -408,158 +498,86 @@ export default function BrewStatusTab({
         </div>
       )}
 
-      {/* ── Modals ── */}
-      {showTankModal && (
-        <Modal title={editingTankId ? "Edit Tank" : "Add Tank"} onClose={() => setShowTankModal(false)}>
-          <form onSubmit={handleTankSubmit} className="space-y-4">
-            <Field label="Tank Name" required>
-              <input className="inp" placeholder="e.g. FV-1, Brite 2" value={tankForm.name} required
-                onChange={(e) => setTankForm((f) => ({ ...f, name: e.target.value }))} />
+      {/* Add/edit equipment modal */}
+      {showEqModal && (
+        <Modal title={editingId ? "Edit Equipment" : "Add Equipment"} onClose={() => setShowEqModal(false)}>
+          <form onSubmit={handleEqSubmit} className="space-y-4">
+            <Field label="Name" required>
+              <input className="inp" placeholder="e.g. FV-1, Brewhouse A" value={eqForm.name} required
+                onChange={(e) => setEqForm((f) => ({ ...f, name: e.target.value }))} />
             </Field>
             <Field label="Type" required>
-              <div className="grid grid-cols-2 gap-2">
-                {TANK_TYPES.map((t) => (
-                  <button key={t.value} type="button"
-                    onClick={() => setTankForm((f) => ({ ...f, type: t.value }))}
-                    className={`px-3 py-2 rounded border text-sm font-medium transition-colors ${
-                      tankForm.type === t.value
+              <div className="grid grid-cols-3 gap-2">
+                {EQ_TYPES.map(([type, meta]) => (
+                  <button key={type} type="button"
+                    onClick={() => setEqForm((f) => ({
+                      ...f, type,
+                      grid_width:  String(meta.defaultW),
+                      grid_height: String(meta.defaultH),
+                    }))}
+                    className={`px-2 py-2 rounded border text-xs font-medium transition-colors ${
+                      eqForm.type === type
                         ? "border-amber-600 bg-amber-900/30 text-amber-300"
                         : "border-zinc-700 bg-zinc-800/50 text-zinc-400 hover:border-zinc-500"
                     }`}
                   >
-                    {t.label}
+                    {meta.label}
                   </button>
                 ))}
               </div>
             </Field>
-            <Field label="Capacity (BBL)">
-              <input type="number" step="0.5" min="0" className="inp" placeholder="e.g. 30"
-                value={tankForm.capacity_bbl}
-                onChange={(e) => setTankForm((f) => ({ ...f, capacity_bbl: e.target.value }))} />
-            </Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Capacity (BBL)">
+                <input type="number" step="0.5" min="0" className="inp" value={eqForm.capacity_bbl}
+                  onChange={(e) => setEqForm((f) => ({ ...f, capacity_bbl: e.target.value }))} />
+              </Field>
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="Width (cells)">
+                  <input type="number" min="1" max="10" className="inp" value={eqForm.grid_width}
+                    onChange={(e) => setEqForm((f) => ({ ...f, grid_width: e.target.value }))} />
+                </Field>
+                <Field label="Height (cells)">
+                  <input type="number" min="1" max="10" className="inp" value={eqForm.grid_height}
+                    onChange={(e) => setEqForm((f) => ({ ...f, grid_height: e.target.value }))} />
+                </Field>
+              </div>
+            </div>
             <Field label="Notes">
-              <input className="inp" value={tankForm.notes}
-                onChange={(e) => setTankForm((f) => ({ ...f, notes: e.target.value }))} />
+              <input className="inp" value={eqForm.notes}
+                onChange={(e) => setEqForm((f) => ({ ...f, notes: e.target.value }))} />
             </Field>
-            <ModalActions submitting={tankSubmitting} onCancel={() => setShowTankModal(false)}
-              label={editingTankId ? "Save Changes" : "Add Tank"} />
+            <p className="text-xs text-zinc-600">
+              Grid preview: {parseInt(eqForm.grid_width) || 2}×{parseInt(eqForm.grid_height) || 3} cells
+              = {(parseInt(eqForm.grid_width) || 2) * CELL}×{(parseInt(eqForm.grid_height) || 3) * CELL}px
+            </p>
+            <ModalActions submitting={eqSubmitting} onCancel={() => setShowEqModal(false)}
+              label={editingId ? "Save Changes" : "Add Equipment"} />
           </form>
         </Modal>
       )}
 
       {showAssignModal && (
-        <Modal title="Assign Batch to Tank" onClose={() => setShowAssignModal(false)}>
+        <Modal title="Assign Batch to Equipment" onClose={() => setShowAssignModal(false)}>
           <form onSubmit={handleAssignSubmit} className="space-y-4">
             <Field label="Batch" required>
               <select className="inp" value={assignBatchId} required
                 onChange={(e) => setAssignBatchId(e.target.value)}>
-                <option value="">— select a batch —</option>
+                <option value="">— select —</option>
                 {unassignedBatches.map((b) => (
                   <option key={b.id} value={b.id}>
-                    {b.batch_number ?? "?"} · {b.beer_name} ({Number(b.volume_bbl).toFixed(1)} BBL)
+                    {b.batch_number ?? "?"} · {b.beer_name}
                   </option>
                 ))}
               </select>
             </Field>
             <Field label="Notes">
-              <input className="inp" placeholder="Optional notes" value={assignNotes}
+              <input className="inp" value={assignNotes}
                 onChange={(e) => setAssignNotes(e.target.value)} />
             </Field>
-            <ModalActions submitting={assignSubmitting} onCancel={() => setShowAssignModal(false)}
-              label="Assign" />
+            <ModalActions submitting={assignSubmitting} onCancel={() => setShowAssignModal(false)} label="Assign" />
           </form>
         </Modal>
       )}
-    </>
-  );
-}
-
-// ─── Tank card content ────────────────────────────────────────────────────────
-
-function TankCardContent({
-  tank,
-  assignment,
-  unassignedBatches,
-  onEdit,
-  onDelete,
-  onAssign,
-  onRelease,
-}: {
-  tank: Tank;
-  assignment: BatchTankAssignment | undefined;
-  unassignedBatches: BrewBatch[];
-  onEdit: () => void;
-  onDelete: () => void;
-  onAssign: () => void;
-  onRelease: (id: string) => void;
-}) {
-  const typeMeta = TANK_TYPE_MAP[tank.type];
-  const batch = assignment?.brew_batches;
-
-  return (
-    <>
-      {/* Tank header */}
-      <div className="flex items-start justify-between px-3 py-2.5 border-b border-zinc-800 bg-zinc-900/60">
-        <div className="min-w-0">
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="font-medium text-zinc-100 text-sm leading-tight">{tank.name}</span>
-            <span className={`text-xs px-1.5 py-px rounded border ${typeMeta.color} shrink-0`}>
-              {typeMeta.label}
-            </span>
-          </div>
-          {tank.capacity_bbl && (
-            <p className="text-xs text-zinc-600 mt-0.5">{tank.capacity_bbl} BBL</p>
-          )}
-        </div>
-        <div className="flex gap-2 shrink-0 ml-1">
-          <button onClick={onEdit} onMouseDown={(e) => e.stopPropagation()}
-            className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors">
-            Edit
-          </button>
-          {!assignment && (
-            <button onClick={onDelete} onMouseDown={(e) => e.stopPropagation()}
-              className="text-xs text-zinc-600 hover:text-red-400 transition-colors">
-              ×
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Batch area */}
-      <div className="flex-1 p-3">
-        {batch ? (
-          <>
-            <p className="text-sm font-medium text-zinc-100 leading-snug">{batch.beer_name}</p>
-            <p className="font-mono text-xs text-zinc-500 mt-0.5">{batch.batch_number ?? "—"}</p>
-            <div className="mt-2">
-              <StatusBadge status={batch.status} />
-            </div>
-            <p className="text-xs text-zinc-600 mt-1.5">
-              {Number(batch.volume_bbl).toFixed(1)} BBL · since {fmtDate(assignment!.assigned_at)}
-            </p>
-            <button
-              onClick={() => onRelease(assignment!.id)}
-              onMouseDown={(e) => e.stopPropagation()}
-              className="mt-2 text-xs text-zinc-500 hover:text-red-400 border border-zinc-700 hover:border-red-800 px-2 py-0.5 rounded transition-colors"
-            >
-              Release
-            </button>
-          </>
-        ) : (
-          <div className="h-full flex flex-col items-center justify-center gap-1.5 min-h-[80px]">
-            <p className="text-xs text-zinc-700">Empty</p>
-            {unassignedBatches.length > 0 && (
-              <button
-                onClick={onAssign}
-                onMouseDown={(e) => e.stopPropagation()}
-                className="text-xs text-amber-600 hover:text-amber-400 border border-amber-900 hover:border-amber-700 px-2 py-0.5 rounded transition-colors"
-              >
-                Assign Batch
-              </button>
-            )}
-          </div>
-        )}
-      </div>
     </>
   );
 }

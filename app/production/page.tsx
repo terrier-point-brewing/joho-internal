@@ -2,30 +2,31 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { Ingredient, StockAdjustment, Recipe, BrewBatch, Tank, BatchTankAssignment } from "./types";
-import BatchLogTab from "./components/BatchLogTab";
+import BatchLogTab   from "./components/BatchLogTab";
 import IngredientsTab from "./components/IngredientsTab";
-import RecipesTab from "./components/RecipesTab";
+import RecipesTab    from "./components/RecipesTab";
 import BrewStatusTab from "./components/BrewStatusTab";
+import WorkflowsTab  from "./components/WorkflowsTab";
 
-const TABS = ["Batch Log", "Ingredients", "Recipes", "Brew Status"] as const;
+const TABS = ["Batch Log", "Ingredients", "Recipes", "Brew Status", "Workflows"] as const;
 type Tab = typeof TABS[number];
 
 export default function ProductionPage() {
   const [tab, setTab] = useState<Tab>("Batch Log");
 
-  const [ingredients, setIngredients]   = useState<Ingredient[]>([]);
-  const [adjustments, setAdjustments]   = useState<StockAdjustment[]>([]);
-  const [recipes, setRecipes]           = useState<Recipe[]>([]);
-  const [batches, setBatches]           = useState<BrewBatch[]>([]);
-  const [tanks, setTanks]               = useState<Tank[]>([]);
-  const [assignments, setAssignments]   = useState<BatchTankAssignment[]>([]);
+  const [ingredients, setIngredients] = useState<Ingredient[]>([]);
+  const [adjustments, setAdjustments] = useState<StockAdjustment[]>([]);
+  const [recipes,     setRecipes]     = useState<Recipe[]>([]);
+  const [batches,     setBatches]     = useState<BrewBatch[]>([]);
+  const [tanks,       setTanks]       = useState<Tank[]>([]);
+  const [assignments, setAssignments] = useState<BatchTankAssignment[]>([]);
 
-  const loadIngredients  = useCallback(async () => { const r = await fetch("/api/production/ingredients");  if (r.ok) setIngredients(await r.json()); }, []);
-  const loadAdjustments  = useCallback(async () => { const r = await fetch("/api/production/stock-adjustments"); if (r.ok) setAdjustments(await r.json()); }, []);
-  const loadRecipes      = useCallback(async () => { const r = await fetch("/api/production/recipes");      if (r.ok) setRecipes(await r.json()); }, []);
-  const loadBatches      = useCallback(async () => { const r = await fetch("/api/production/batches");      if (r.ok) setBatches(await r.json()); }, []);
-  const loadTanks        = useCallback(async () => { const r = await fetch("/api/production/tanks");        if (r.ok) setTanks(await r.json()); }, []);
-  const loadAssignments  = useCallback(async () => { const r = await fetch("/api/production/tank-assignments"); if (r.ok) setAssignments(await r.json()); }, []);
+  const loadIngredients = useCallback(async () => { const r = await fetch("/api/production/ingredients");         if (r.ok) setIngredients(await r.json()); }, []);
+  const loadAdjustments = useCallback(async () => { const r = await fetch("/api/production/stock-adjustments");   if (r.ok) setAdjustments(await r.json()); }, []);
+  const loadRecipes     = useCallback(async () => { const r = await fetch("/api/production/recipes");             if (r.ok) setRecipes(await r.json()); }, []);
+  const loadBatches     = useCallback(async () => { const r = await fetch("/api/production/batches");             if (r.ok) setBatches(await r.json()); }, []);
+  const loadTanks       = useCallback(async () => { const r = await fetch("/api/production/tanks");               if (r.ok) setTanks(await r.json()); }, []);
+  const loadAssignments = useCallback(async () => { const r = await fetch("/api/production/tank-assignments");    if (r.ok) setAssignments(await r.json()); }, []);
 
   const refreshBrewStatus = useCallback(async () => {
     await Promise.all([loadTanks(), loadAssignments(), loadBatches()]);
@@ -42,7 +43,6 @@ export default function ProductionPage() {
 
   return (
     <main className="max-w-7xl mx-auto px-6 py-8">
-      {/* Subtab nav */}
       <div className="flex gap-1 mb-6 border-b border-zinc-800">
         {TABS.map((t) => (
           <button
@@ -59,9 +59,7 @@ export default function ProductionPage() {
         ))}
       </div>
 
-      {tab === "Batch Log" && (
-        <BatchLogTab batches={batches} recipes={recipes} onRefresh={loadBatches} />
-      )}
+      {tab === "Batch Log"  && <BatchLogTab batches={batches} recipes={recipes} onRefresh={loadBatches} />}
       {tab === "Ingredients" && (
         <IngredientsTab
           ingredients={ingredients}
@@ -70,17 +68,11 @@ export default function ProductionPage() {
           onAdjustmentsRefresh={loadAdjustments}
         />
       )}
-      {tab === "Recipes" && (
-        <RecipesTab recipes={recipes} ingredients={ingredients} onRefresh={loadRecipes} />
-      )}
+      {tab === "Recipes"    && <RecipesTab recipes={recipes} ingredients={ingredients} onRefresh={loadRecipes} />}
       {tab === "Brew Status" && (
-        <BrewStatusTab
-          tanks={tanks}
-          assignments={assignments}
-          batches={batches}
-          onRefresh={refreshBrewStatus}
-        />
+        <BrewStatusTab tanks={tanks} assignments={assignments} batches={batches} onRefresh={refreshBrewStatus} />
       )}
+      {tab === "Workflows"  && <WorkflowsTab equipment={tanks} batches={batches} />}
 
       <style>{`
         .inp {
