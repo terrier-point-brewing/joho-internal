@@ -9,3 +9,14 @@ body {
   color: #f4f4f5;      /* zinc-100 */
   font-family: Arial, Helvetica, sans-serif;
 }
+
+.btn-amber {
+  padding: 0.375rem 0.75rem;
+  background: rgb(217 119 6);
+  color: white;
+  font-size: 0.875rem;
+  font-weight: 500;
+  border-radius: 0.375rem;
+  transition: background 0.15s;
+}
+.btn-amber:hover { background: rgb(245 158 11); }
