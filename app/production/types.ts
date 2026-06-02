@@ -8,14 +8,15 @@ export type BatchStatus =
 
 export type AdjustmentType = "received" | "used" | "waste" | "inventory_count" | "batch_use";
 
-// unitank / serving kept for DB backward-compat but hidden in UI
-export type TankType = "fermenter" | "brite" | "unitank" | "serving" | "brewhouse" | "cold_storage" | "kegging" | "canning";
+export type EquipmentType =
+  | "fermenter" | "brite" | "brewhouse"
+  | "cold_storage" | "kegging" | "canning";
 
 // Types that have no capacity constraint and don't hold a single batch
-export const UNCONSTRAINED_TANK_TYPES: TankType[] = ["kegging", "canning", "cold_storage"];
+export const UNCONSTRAINED_EQUIPMENT_TYPES: EquipmentType[] = ["kegging", "canning", "cold_storage"];
 
-// Map tank type to the batch status it implies
-export const TANK_TYPE_TO_STATUS: Partial<Record<TankType, BatchStatus>> = {
+// Map equipment type to the batch status it implies
+export const EQUIPMENT_TYPE_TO_STATUS: Partial<Record<EquipmentType, BatchStatus>> = {
   brewhouse:    "brewing",
   fermenter:    "fermenting",
   brite:        "conditioning",
@@ -50,8 +51,8 @@ export interface BatchTransfer {
   kegging_detail: unknown | null;
   canning_detail: unknown | null;
   transferred_at: string;
-  from_tank?: { id: string; name: string; type: TankType } | null;
-  to_tank?:   { id: string; name: string; type: TankType } | null;
+  from_tank?: { id: string; name: string; type: EquipmentType } | null;
+  to_tank?:   { id: string; name: string; type: EquipmentType } | null;
 }
 
 export interface Ingredient {
@@ -120,10 +121,10 @@ export interface BrewBatch {
   created_at: string;
 }
 
-export interface Tank {
+export interface Equipment {
   id: string;
   name: string;
-  type: TankType;
+  type: EquipmentType;
   capacity_bbl: number | null;
   notes: string | null;
   grid_row: number | null;
@@ -140,7 +141,7 @@ export interface WorkflowTemplateStep {
   equipment_id: string;
   duration_days: number | null;
   notes: string | null;
-  tanks: Pick<Tank, "id" | "name" | "type">;
+  equipment: Pick<Equipment, "id" | "name" | "type">;
 }
 
 export interface WorkflowTemplate {
@@ -159,7 +160,7 @@ export interface BatchWorkflowStep {
   scheduled_date: string | null;
   completed_at: string | null;
   notes: string | null;
-  tanks: Pick<Tank, "id" | "name" | "type">;
+  equipment: Pick<Equipment, "id" | "name" | "type">;
 }
 
 export interface BatchTankAssignment {

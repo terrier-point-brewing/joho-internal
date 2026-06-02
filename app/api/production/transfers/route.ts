@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase/client";
-import { TANK_TYPE_TO_STATUS, UNCONSTRAINED_TANK_TYPES, TankType } from "@/app/production/types";
+import { EQUIPMENT_TYPE_TO_STATUS, UNCONSTRAINED_EQUIPMENT_TYPES, EquipmentType } from "@/app/production/types";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -69,13 +69,13 @@ export async function POST(req: NextRequest) {
   let newStatus: string | null = null;
   if (to_tank_id) {
     const { data: destTank } = await supabase
-      .from("tanks").select("type").eq("id", to_tank_id).single();
+      .from("equipment").select("type").eq("id", to_tank_id).single();
 
     if (destTank) {
-      newStatus = TANK_TYPE_TO_STATUS[destTank.type as TankType] ?? null;
+      newStatus = EQUIPMENT_TYPE_TO_STATUS[destTank.type as EquipmentType] ?? null;
 
       // Create new assignment only for capacity-constrained tanks
-      if (!UNCONSTRAINED_TANK_TYPES.includes(destTank.type as TankType)) {
+      if (!UNCONSTRAINED_EQUIPMENT_TYPES.includes(destTank.type as EquipmentType)) {
         await supabase.from("batch_tank_assignments")
           .insert({ batch_id, tank_id: to_tank_id, notes: null });
       }

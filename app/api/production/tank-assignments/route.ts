@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase/client";
-import { TANK_TYPE_TO_STATUS, TankType } from "@/app/production/types";
+import { EQUIPMENT_TYPE_TO_STATUS, EquipmentType } from "@/app/production/types";
 
 export async function GET() {
   const { data, error } = await supabase
@@ -39,10 +39,10 @@ export async function POST(req: NextRequest) {
 
   // Auto-update batch status based on tank type
   const { data: tank } = await supabase
-    .from("tanks").select("type").eq("id", tank_id).single();
+    .from("equipment").select("type").eq("id", tank_id).single();
 
   if (tank) {
-    const newStatus = TANK_TYPE_TO_STATUS[tank.type as TankType];
+    const newStatus = EQUIPMENT_TYPE_TO_STATUS[tank.type as EquipmentType];
     if (newStatus) {
       const { data: batch } = await supabase
         .from("brew_batches").select("status").eq("id", batch_id).single();

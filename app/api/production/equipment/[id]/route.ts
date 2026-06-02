@@ -9,7 +9,7 @@ export async function PATCH(
   const body = await req.json();
 
   const { data, error } = await supabase
-    .from("tanks")
+    .from("equipment")
     .update(body)
     .eq("id", id)
     .select()
@@ -24,7 +24,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const { error } = await supabase.from("tanks").delete().eq("id", id);
+  const { error } = await supabase.from("equipment").delete().eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return new NextResponse(null, { status: 204 });
 }

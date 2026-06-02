@@ -7,7 +7,7 @@ export async function GET(req: NextRequest) {
 
   const { data, error } = await supabase
     .from("batch_workflow_steps")
-    .select("*, tanks(id,name,type)")
+    .select("*, equipment(id,name,type)")
     .eq("batch_id", batchId)
     .order("step_order");
 
@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
         scheduled_date: step.scheduled_date || null,
         notes: step.notes || null,
       })
-      .select("*, tanks(id,name,type)")
+      .select("*, equipment(id,name,type)")
       .single();
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
     const { data, error } = await supabase
       .from("batch_workflow_steps")
       .insert(rows)
-      .select("*, tanks(id,name,type)");
+      .select("*, equipment(id,name,type)");
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json(data, { status: 201 });

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { Tank, BrewBatch, PackagingItem, UNCONSTRAINED_TANK_TYPES } from "../types";
+import { Equipment, BrewBatch, PackagingItem, UNCONSTRAINED_EQUIPMENT_TYPES } from "../types";
 import { Modal, Field, ModalActions } from "./shared";
 import { EQ } from "../equipmentMeta";
 import { fmtBbl } from "@/lib/utils/formatting";
@@ -14,8 +14,8 @@ interface KegLine { packaging_id: string; quantity: string }
 
 interface TransferModalProps {
   batch: BrewBatch;
-  fromTank: Tank;
-  allTanks: Tank[];
+  fromTank: Equipment;
+  allTanks: Equipment[];
   packaging: PackagingItem[];
   onClose: () => void;
   onDone: () => Promise<void>;
@@ -145,7 +145,7 @@ export default function TransferModal({ batch, fromTank, allTanks, packaging, on
     }
   }
 
-  const destHasCapacity = destTank ? !UNCONSTRAINED_TANK_TYPES.includes(destTank.type) : true;
+  const destHasCapacity = destTank ? !UNCONSTRAINED_EQUIPMENT_TYPES.includes(destTank.type) : true;
 
   return (
     <Modal title="Transfer Batch" onClose={onClose} wide>

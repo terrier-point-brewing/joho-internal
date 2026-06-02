@@ -21,7 +21,7 @@ export async function PATCH(
     .from("batch_workflow_steps")
     .update(body)
     .eq("id", id)
-    .select("*, tanks(id,name,type)")
+    .select("*, equipment(id,name,type)")
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

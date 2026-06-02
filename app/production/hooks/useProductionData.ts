@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect } from "react";
 import {
   Ingredient, StockAdjustment, Recipe, BrewBatch,
-  Tank, BatchTankAssignment, PackagingItem, BatchTransfer,
+  Equipment, BatchTankAssignment, PackagingItem, BatchTransfer,
 } from "../types";
 
 export function useProductionData() {
@@ -11,7 +11,7 @@ export function useProductionData() {
   const [adjustments, setAdjustments] = useState<StockAdjustment[]>([]);
   const [recipes,     setRecipes]     = useState<Recipe[]>([]);
   const [batches,     setBatches]     = useState<BrewBatch[]>([]);
-  const [tanks,       setTanks]       = useState<Tank[]>([]);
+  const [tanks,       setTanks]       = useState<Equipment[]>([]);
   const [assignments, setAssignments] = useState<BatchTankAssignment[]>([]);
   const [packaging,   setPackaging]   = useState<PackagingItem[]>([]);
   const [transfers,   setTransfers]   = useState<BatchTransfer[]>([]);
@@ -20,7 +20,7 @@ export function useProductionData() {
   const loadAdjustments = useCallback(async () => { const r = await fetch("/api/production/stock-adjustments"); if (r.ok) setAdjustments(await r.json()); }, []);
   const loadRecipes     = useCallback(async () => { const r = await fetch("/api/production/recipes");           if (r.ok) setRecipes(await r.json()); }, []);
   const loadBatches     = useCallback(async () => { const r = await fetch("/api/production/batches");           if (r.ok) setBatches(await r.json()); }, []);
-  const loadTanks       = useCallback(async () => { const r = await fetch("/api/production/tanks");             if (r.ok) setTanks(await r.json()); }, []);
+  const loadTanks       = useCallback(async () => { const r = await fetch("/api/production/equipment");             if (r.ok) setTanks(await r.json()); }, []);
   const loadAssignments = useCallback(async () => { const r = await fetch("/api/production/tank-assignments");  if (r.ok) setAssignments(await r.json()); }, []);
   const loadPackaging   = useCallback(async () => { const r = await fetch("/api/production/packaging");         if (r.ok) setPackaging(await r.json()); }, []);
   const loadTransfers   = useCallback(async () => { const r = await fetch("/api/production/transfers");         if (r.ok) setTransfers(await r.json()); }, []);

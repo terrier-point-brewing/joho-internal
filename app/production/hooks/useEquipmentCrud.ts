@@ -1,11 +1,11 @@
 "use client";
 
 import React, { useState } from "react";
-import { Tank, TankType, UNCONSTRAINED_TANK_TYPES } from "../types";
+import { Equipment, EquipmentType, UNCONSTRAINED_EQUIPMENT_TYPES } from "../types";
 import { EQ } from "../equipmentMeta";
 
 const TANK_EMPTY = {
-  name: "", type: "fermenter" as TankType, capacity_bbl: "", notes: "", grid_width: "2", grid_height: "4",
+  name: "", type: "fermenter" as EquipmentType, capacity_bbl: "", notes: "", grid_width: "2", grid_height: "4",
 };
 
 export type TankForm = typeof TANK_EMPTY;
@@ -22,7 +22,7 @@ export function useEquipmentCrud(onRefresh: () => Promise<void>) {
     setShowEqModal(true);
   }
 
-  function openEdit(t: Tank) {
+  function openEdit(t: Equipment) {
     setEqForm({
       name:         t.name,
       type:         t.type,
@@ -38,7 +38,7 @@ export function useEquipmentCrud(onRefresh: () => Promise<void>) {
   async function handleEqSubmit(ev: React.FormEvent) {
     ev.preventDefault();
     setEqSubmitting(true);
-    const isUnconstrained = UNCONSTRAINED_TANK_TYPES.includes(eqForm.type);
+    const isUnconstrained = UNCONSTRAINED_EQUIPMENT_TYPES.includes(eqForm.type);
     try {
       const payload = {
         name:         eqForm.name,
@@ -49,8 +49,8 @@ export function useEquipmentCrud(onRefresh: () => Promise<void>) {
         grid_height:  parseInt(eqForm.grid_height) || EQ[eqForm.type]!.defaultH,
       };
       const res = editingId
-        ? await fetch(`/api/production/tanks/${editingId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })
-        : await fetch("/api/production/tanks",              { method: "POST",  headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        ? await fetch(`/api/production/equipment/${editingId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })
+        : await fetch("/api/production/equipment",              { method: "POST",  headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       if (!res.ok) throw new Error((await res.json()).error ?? "Error");
       setShowEqModal(false);
       await onRefresh();
@@ -63,7 +63,7 @@ export function useEquipmentCrud(onRefresh: () => Promise<void>) {
 
   async function handleDeleteEq(id: string, name: string) {
     if (!confirm(`Delete "${name}"?`)) return;
-    await fetch(`/api/production/tanks/${id}`, { method: "DELETE" });
+    await fetch(`/api/production/equipment/${id}`, { method: "DELETE" });
     await onRefresh();
   }
 

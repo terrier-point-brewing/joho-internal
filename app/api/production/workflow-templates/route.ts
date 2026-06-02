@@ -4,7 +4,7 @@ import { supabase } from "@/lib/supabase/client";
 export async function GET() {
   const { data, error } = await supabase
     .from("workflow_templates")
-    .select("*, workflow_template_steps(*, tanks(id,name,type))")
+    .select("*, workflow_template_steps(*, equipment(id,name,type))")
     .order("name");
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
 
   const { data, error } = await supabase
     .from("workflow_templates")
-    .select("*, workflow_template_steps(*, tanks(id,name,type))")
+    .select("*, workflow_template_steps(*, equipment(id,name,type))")
     .eq("id", tmpl.id)
     .single();
 

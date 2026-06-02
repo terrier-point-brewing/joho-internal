@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Tank, BatchTankAssignment, BrewBatch, PackagingItem, UNCONSTRAINED_TANK_TYPES } from "../types";
+import { Equipment, BatchTankAssignment, BrewBatch, PackagingItem, UNCONSTRAINED_EQUIPMENT_TYPES } from "../types";
 import { StatusBadge, Modal, Field, ModalActions } from "./shared";
 import { EQ, EQ_TYPES } from "../equipmentMeta";
 import { GRID_CELL_PX as CELL, GRID_COLS, GRID_ROWS, GRID_GAP_PX as GAP } from "@/lib/constants/production";
@@ -11,7 +11,7 @@ import { useTankDragDrop } from "../hooks/useTankDragDrop";
 import { useEquipmentCrud } from "../hooks/useEquipmentCrud";
 import { useBatchAssign } from "../hooks/useBatchAssign";
 
-function eqStyle(t: Tank): React.CSSProperties {
+function eqStyle(t: Equipment): React.CSSProperties {
   return {
     position: "absolute",
     left:   (t.grid_col ?? 0) * CELL + GAP,
@@ -27,7 +27,7 @@ export default function BrewStatusTab({
   batches,
   onRefresh,
 }: {
-  tanks: Tank[];
+  tanks: Equipment[];
   assignments: BatchTankAssignment[];
   batches: BrewBatch[];
   onRefresh: () => Promise<void>;
@@ -121,7 +121,7 @@ export default function BrewStatusTab({
             const pixH           = tank.grid_height * CELL - GAP * 2;
             const compact        = pixW < 100 || pixH < 90;
             const tiny           = pixW < 60  || pixH < 60;
-            const isUnconstrained = UNCONSTRAINED_TANK_TYPES.includes(tank.type);
+            const isUnconstrained = UNCONSTRAINED_EQUIPMENT_TYPES.includes(tank.type);
 
             return (
               <div
@@ -317,7 +317,7 @@ export default function BrewStatusTab({
                       ...f, type,
                       grid_width:  String(meta.defaultW),
                       grid_height: String(meta.defaultH),
-                      capacity_bbl: UNCONSTRAINED_TANK_TYPES.includes(type) ? "" : f.capacity_bbl,
+                      capacity_bbl: UNCONSTRAINED_EQUIPMENT_TYPES.includes(type) ? "" : f.capacity_bbl,
                     }))}
                     className={`px-2 py-2 rounded border text-xs font-medium transition-colors ${
                       eqCrud.eqForm.type === type
@@ -334,13 +334,13 @@ export default function BrewStatusTab({
               <Field label="Capacity (BBL)">
                 <input
                   type="number" step="0.5" min="0" className="inp"
-                  disabled={UNCONSTRAINED_TANK_TYPES.includes(eqCrud.eqForm.type)}
-                  placeholder={UNCONSTRAINED_TANK_TYPES.includes(eqCrud.eqForm.type) ? "N/A" : ""}
+                  disabled={UNCONSTRAINED_EQUIPMENT_TYPES.includes(eqCrud.eqForm.type)}
+                  placeholder={UNCONSTRAINED_EQUIPMENT_TYPES.includes(eqCrud.eqForm.type) ? "N/A" : ""}
                   value={eqCrud.eqForm.capacity_bbl}
                   onChange={(e) => eqCrud.setEqForm((f) => ({ ...f, capacity_bbl: e.target.value }))}
-                  style={UNCONSTRAINED_TANK_TYPES.includes(eqCrud.eqForm.type) ? { opacity: 0.35, cursor: "not-allowed" } : {}}
+                  style={UNCONSTRAINED_EQUIPMENT_TYPES.includes(eqCrud.eqForm.type) ? { opacity: 0.35, cursor: "not-allowed" } : {}}
                 />
-                {UNCONSTRAINED_TANK_TYPES.includes(eqCrud.eqForm.type) && (
+                {UNCONSTRAINED_EQUIPMENT_TYPES.includes(eqCrud.eqForm.type) && (
                   <p className="text-xs text-zinc-600 mt-0.5">No capacity constraint for this type</p>
                 )}
               </Field>

@@ -31,7 +31,7 @@ export async function PATCH(
 
   const { data, error } = await supabase
     .from("workflow_templates")
-    .select("*, workflow_template_steps(*, tanks(id,name,type))")
+    .select("*, workflow_template_steps(*, equipment(id,name,type))")
     .eq("id", id)
     .single();
 

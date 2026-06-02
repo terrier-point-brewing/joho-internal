@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
-import { Tank, WorkflowTemplate, WorkflowTemplateStep, BatchWorkflowStep, BrewBatch } from "../types";
+import { Equipment, WorkflowTemplate, WorkflowTemplateStep, BatchWorkflowStep, BrewBatch } from "../types";
 import { Modal, Field, ModalActions } from "./shared";
 
 
@@ -33,7 +33,7 @@ export default function WorkflowsTab({
   equipment,
   batches,
 }: {
-  equipment: Tank[];
+  equipment: Equipment[];
   batches: BrewBatch[];
 }) {
   const [templates, setTemplates] = useState<WorkflowTemplate[]>([]);
@@ -86,7 +86,7 @@ function TemplatesSection({
   onRefresh,
 }: {
   templates: WorkflowTemplate[];
-  equipment: Tank[];
+  equipment: Equipment[];
   onRefresh: () => Promise<void>;
 }) {
   const [showModal, setShowModal] = useState(false);
@@ -202,7 +202,7 @@ function TemplatesSection({
                       {sorted.map((s, i) => (
                         <React.Fragment key={s.id}>
                           <span className="text-xs text-zinc-500 bg-zinc-800 px-1.5 py-px rounded">
-                            {EQ_TYPE_LABELS[s.tanks.type] ?? "?"} {s.tanks.name}
+                            {EQ_TYPE_LABELS[s.equipment.type] ?? "?"} {s.equipment.name}
                           </span>
                           {i < sorted.length - 1 && <span className="text-zinc-700 text-xs">→</span>}
                         </React.Fragment>
@@ -227,8 +227,8 @@ function TemplatesSection({
                         {sorted.map((s, i) => (
                           <tr key={s.id} className={`border-b border-zinc-800/40 ${i % 2 !== 0 ? "bg-zinc-900/20" : ""}`}>
                             <td className="px-4 py-2 text-zinc-600 text-xs">{i + 1}</td>
-                            <td className="px-4 py-2 text-zinc-200">{s.tanks.name}
-                              <span className="ml-1.5 text-xs text-zinc-500">{EQ_TYPE_LABELS[s.tanks.type]}</span>
+                            <td className="px-4 py-2 text-zinc-200">{s.equipment.name}
+                              <span className="ml-1.5 text-xs text-zinc-500">{EQ_TYPE_LABELS[s.equipment.type]}</span>
                             </td>
                             <td className="px-4 py-2 text-right text-zinc-400 text-xs">
                               {s.duration_days ? `${s.duration_days}d` : "—"}
@@ -343,7 +343,7 @@ function BatchWorkflowsSection({
   onRefresh,
 }: {
   batches: BrewBatch[];
-  equipment: Tank[];
+  equipment: Equipment[];
   templates: WorkflowTemplate[];
   batchSteps: BatchWorkflowStep[];
   selectedBatchId: string;
@@ -373,7 +373,7 @@ function BatchWorkflowsSection({
     return tmplSorted.map((s) => {
       const date = d.toISOString().slice(0, 10);
       if (s.duration_days) d = addDays(d, s.duration_days);
-      return { equipment: s.tanks.name, date, duration: s.duration_days };
+      return { equipment: s.equipment.name, date, duration: s.duration_days };
     });
   })();
 
@@ -547,9 +547,9 @@ function BatchWorkflowsSection({
                           <div className="flex items-center gap-2">
                             <span className="text-xs font-medium text-zinc-500 w-5">{i + 1}</span>
                             <span className={`font-medium text-sm ${done ? "line-through text-zinc-500" : "text-zinc-100"}`}>
-                              {step.tanks.name}
+                              {step.equipment.name}
                             </span>
-                            <span className="text-xs text-zinc-600">{EQ_TYPE_LABELS[step.tanks.type] ?? step.tanks.type}</span>
+                            <span className="text-xs text-zinc-600">{EQ_TYPE_LABELS[step.equipment.type] ?? step.equipment.type}</span>
                           </div>
                           <div className="flex items-center gap-3">
                             {/* Date */}
