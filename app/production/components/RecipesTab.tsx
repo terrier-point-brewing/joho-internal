@@ -9,7 +9,7 @@ interface RecipeFormLine {
   quantity_per_bbl: string;
 }
 
-const RECIPE_EMPTY = { beer_name: "", brewery: "", expected_yield_bbl: "", steps: "", notes: "" };
+const RECIPE_EMPTY = { beer_name: "", brewery: "", expected_yield_bbl: "", brew_time_weeks: "", steps: "", notes: "" };
 
 export default function RecipesTab({
   recipes,
@@ -39,6 +39,7 @@ export default function RecipesTab({
       beer_name: r.beer_name,
       brewery: r.brewery ?? "",
       expected_yield_bbl: r.expected_yield_bbl != null ? String(r.expected_yield_bbl) : "",
+      brew_time_weeks: r.brew_time_weeks != null ? String(r.brew_time_weeks) : "",
       steps: r.steps ?? "",
       notes: r.notes ?? "",
     });
@@ -69,6 +70,7 @@ export default function RecipesTab({
         beer_name: form.beer_name,
         brewery: form.brewery || null,
         expected_yield_bbl: form.expected_yield_bbl ? parseFloat(form.expected_yield_bbl) : null,
+        brew_time_weeks: form.brew_time_weeks ? parseInt(form.brew_time_weeks) : null,
         steps: form.steps || null,
         notes: form.notes || null,
         ingredients: lines
@@ -147,6 +149,11 @@ export default function RecipesTab({
                         {r.expected_yield_bbl} BBL / turn
                       </span>
                     )}
+                    {r.brew_time_weeks && (
+                      <span className="text-xs text-zinc-500 shrink-0">
+                        {r.brew_time_weeks}w brew time
+                      </span>
+                    )}
                   </div>
                   <div className="flex items-center gap-4 shrink-0 ml-4">
                     {totalCost > 0 && (
@@ -202,7 +209,7 @@ export default function RecipesTab({
                                   {ing.unit}
                                 </td>
                                 <td className="px-4 py-2 text-zinc-400 text-right tabular-nums">
-                                  {ing.cost_per_unit != null ? `$${costPerBblLine.toFixed(4)}` : "—"}
+                                  {ing.cost_per_unit != null ? `$${costPerBblLine.toFixed(2)}` : "—"}
                                 </td>
                                 {r.expected_yield_bbl && (
                                   <td className="px-4 py-2 text-zinc-300 text-right tabular-nums">
@@ -285,17 +292,30 @@ export default function RecipesTab({
               </Field>
             </div>
 
-            <Field label="Expected Yield / Turn (BBL)" hint={`for a ${20} BBL brewhouse`}>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                className="inp"
-                placeholder="e.g. 18.5"
-                value={form.expected_yield_bbl}
-                onChange={(e) => setForm((f) => ({ ...f, expected_yield_bbl: e.target.value }))}
-              />
-            </Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Expected Yield / Turn (BBL)" hint={`for a ${20} BBL brewhouse`}>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  className="inp"
+                  placeholder="e.g. 18.5"
+                  value={form.expected_yield_bbl}
+                  onChange={(e) => setForm((f) => ({ ...f, expected_yield_bbl: e.target.value }))}
+                />
+              </Field>
+              <Field label="Expected Brew Time (weeks)">
+                <input
+                  type="number"
+                  step="1"
+                  min="1"
+                  className="inp"
+                  placeholder="e.g. 6"
+                  value={form.brew_time_weeks}
+                  onChange={(e) => setForm((f) => ({ ...f, brew_time_weeks: e.target.value }))}
+                />
+              </Field>
+            </div>
 
             {/* Ingredient bill */}
             <div>
@@ -373,7 +393,7 @@ export default function RecipesTab({
                               />
                             </td>
                             <td className="px-3 py-1.5 text-right text-xs text-zinc-500 tabular-nums whitespace-nowrap">
-                              {costPerBbl != null ? `$${costPerBbl.toFixed(4)}` : "—"}
+                              {costPerBbl != null ? `$${costPerBbl.toFixed(2)}` : "—"}
                             </td>
                             <td className="px-3 py-1.5 text-center">
                               <button

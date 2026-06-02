@@ -33,7 +33,7 @@ export async function PATCH(
 
   const { data, error: fetchErr } = await supabase
     .from("brew_batches")
-    .select("*, recipes(beer_name, brewery), batch_status_history(*)")
+    .select("*, recipes(beer_name, brewery, brew_time_weeks, expected_yield_bbl), batch_status_history(*), planned_allocations(*)")
     .eq("id", id)
     .single();
 

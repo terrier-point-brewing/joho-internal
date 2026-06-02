@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { Ingredient, StockAdjustment, AdjustmentType } from "../types";
+import { useState, useEffect, useCallback } from "react";
+import { Ingredient, StockAdjustment, AdjustmentType, Supplier, ContractBrewingPartner } from "../types";
 import { Modal, Field, ModalActions } from "./shared";
 
 const ADJUSTMENT_TYPES: {
@@ -24,7 +24,7 @@ const TYPE_COLORS: Record<AdjustmentType, string> = {
   batch_use:       "text-amber-400",
 };
 
-const ING_EMPTY = { name: "", supplier: "", unit: "", cost_per_unit: "", stock_quantity: "0" };
+const ING_EMPTY = { name: "", supplier_id: "", partner_id: "", unit: "", cost_per_unit: "", stock_quantity: "0" };
 
 function fmtQty(qty: number, sign = true) {
   const abs = Math.abs(qty).toLocaleString(undefined, { maximumFractionDigits: 3 });
@@ -52,6 +52,15 @@ export default function IngredientsTab({
   const [ingForm, setIngForm] = useState(ING_EMPTY);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [suppliersList, setSuppliersList] = useState<Supplier[]>([]);
+  const [partnersList, setPartnersList] = useState<ContractBrewingPartner[]>([]);
+  const loadSuppliersList = useCallback(async () => {
+    const r = await fetch("/api/partners/suppliers"); if (r.ok) setSuppliersList(await r.json());
+  }, []);
+  const loadPartnersList = useCallback(async () => {
+    const r = await fetch("/api/partners/contract-brewing"); if (r.ok) setPartnersList(await r.json());
+  }, []);
+  useEffect(() => { loadSuppliersList(); loadPartnersList(); }, [loadSuppliersList, loadPartnersList]);
 
   const [showAdjModal, setShowAdjModal] = useState(false);
   const [adjIngredient, setAdjIngredient] = useState<Ingredient | null>(null);
@@ -68,7 +77,8 @@ export default function IngredientsTab({
   function openEdit(ing: Ingredient) {
     setIngForm({
       name: ing.name,
-      supplier: ing.supplier ?? "",
+      supplier_id: ing.supplier_id ?? "",
+      partner_id: ing.partner_id ?? "",
       unit: ing.unit,
       cost_per_unit: ing.cost_per_unit != null ? String(ing.cost_per_unit) : "",
       stock_quantity: String(ing.stock_quantity),
@@ -83,7 +93,8 @@ export default function IngredientsTab({
     try {
       const payload = {
         name: ingForm.name,
-        supplier: ingForm.supplier || null,
+        supplier_id: ingForm.supplier_id || null,
+        partner_id: ingForm.partner_id || null,
         unit: ingForm.unit,
         cost_per_unit: ingForm.cost_per_unit !== "" ? parseFloat(ingForm.cost_per_unit) : null,
         stock_quantity: parseFloat(ingForm.stock_quantity) || 0,
@@ -183,7 +194,7 @@ export default function IngredientsTab({
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-zinc-800 bg-zinc-900/50 text-left">
-                {["Name", "Supplier", "Unit", "Cost / Unit", "Stock", "Total Value", ""].map((h) => (
+                {["Name", "Supplier", "Partner", "Unit", "Cost / Unit", "Stock", "Total Value", ""].map((h) => (
                   <th key={h} className={`px-4 py-2.5 text-xs font-medium text-zinc-500 ${
                     ["Cost / Unit", "Stock", "Total Value"].includes(h) ? "text-right" : ""
                   }`}>{h}</th>
@@ -198,7 +209,8 @@ export default function IngredientsTab({
                 return (
                   <tr key={ing.id} className={`border-b border-zinc-800/60 ${i % 2 !== 0 ? "bg-zinc-900/30" : ""}`}>
                     <td className="px-4 py-2.5 text-zinc-100 font-medium">{ing.name}</td>
-                    <td className="px-4 py-2.5 text-zinc-400">{ing.supplier ?? "—"}</td>
+                    <td className="px-4 py-2.5 text-zinc-400">{ing.suppliers?.company_name ?? "—"}</td>
+                    <td className="px-4 py-2.5 text-zinc-400">{ing.contract_brewing_partners?.company_name ?? "—"}</td>
                     <td className="px-4 py-2.5 text-zinc-400">{ing.unit}</td>
                     <td className="px-4 py-2.5 text-zinc-300 text-right tabular-nums">
                       {ing.cost_per_unit != null ? `$${Number(ing.cost_per_unit).toFixed(4)}` : "—"}
@@ -313,10 +325,22 @@ export default function IngredientsTab({
               <input className="inp" value={ingForm.name} required
                 onChange={(e) => setIngForm((f) => ({ ...f, name: e.target.value }))} />
             </Field>
-            <Field label="Supplier">
-              <input className="inp" placeholder="e.g. BSG, Yakima Chief" value={ingForm.supplier}
-                onChange={(e) => setIngForm((f) => ({ ...f, supplier: e.target.value }))} />
-            </Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Supplier">
+                <select className="inp" value={ingForm.supplier_id}
+                  onChange={(e) => setIngForm((f) => ({ ...f, supplier_id: e.target.value }))}>
+                  <option value="">— none —</option>
+                  {suppliersList.map((s) => <option key={s.id} value={s.id}>{s.company_name}</option>)}
+                </select>
+              </Field>
+              <Field label="Partner (contract brewer)">
+                <select className="inp" value={ingForm.partner_id}
+                  onChange={(e) => setIngForm((f) => ({ ...f, partner_id: e.target.value }))}>
+                  <option value="">— none —</option>
+                  {partnersList.map((p) => <option key={p.id} value={p.id}>{p.company_name}</option>)}
+                </select>
+              </Field>
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <Field label="Unit" required>
                 <input className="inp" placeholder="lb, oz, each…" value={ingForm.unit} required

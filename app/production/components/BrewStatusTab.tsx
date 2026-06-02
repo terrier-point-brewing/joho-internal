@@ -1,8 +1,8 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Equipment, BatchTankAssignment, BrewBatch, BatchTransfer, PackagingItem, UNCONSTRAINED_EQUIPMENT_TYPES } from "../types";
-import { StatusBadge, Modal, Field, ModalActions } from "./shared";
+import { Equipment, BatchTankAssignment, BrewBatch, BatchTransfer, PackagingItem, Recipe, UNCONSTRAINED_EQUIPMENT_TYPES } from "../types";
+import { BREWHOUSE_BBL, StatusBadge, Modal, Field, ModalActions } from "./shared";
 import { EQ, EQ_TYPES } from "../equipmentMeta";
 import { GRID_CELL_PX as CELL, GRID_COLS, GRID_ROWS, GRID_GAP_PX as GAP } from "@/lib/constants/production";
 import { fmtDate, fmtBbl } from "@/lib/utils/formatting";
@@ -10,6 +10,18 @@ import TransferModal from "./TransferModal";
 import { useTankDragDrop } from "../hooks/useTankDragDrop";
 import { useEquipmentCrud } from "../hooks/useEquipmentCrud";
 import { useBatchAssign } from "../hooks/useBatchAssign";
+
+const GRID_COLS_KEY = "brewConsole_gridCols";
+const GRID_ROWS_KEY = "brewConsole_gridRows";
+
+
+const BATCH_EMPTY = {
+  recipe_id: "",
+  beer_name: "",
+  planned_brew_date: new Date().toISOString().slice(0, 10),
+  turns: "1",
+  notes: "",
+};
 
 const TANK_TYPES = new Set(["fermenter", "brite", "brewhouse"]);
 
@@ -28,23 +40,81 @@ export default function BrewStatusTab({
   assignments,
   batches,
   transfers,
+  recipes,
   onRefresh,
+  onBatchCreated,
 }: {
   tanks: Equipment[];
   assignments: BatchTankAssignment[];
   batches: BrewBatch[];
   transfers: BatchTransfer[];
+  recipes: Recipe[];
   onRefresh: () => Promise<void>;
+  onBatchCreated: () => Promise<void>;
 }) {
   const [editMode, setEditMode] = useState(false);
   const [transferTankId, setTransferTankId] = useState<string | null>(null);
   const [packaging, setPackaging] = useState<PackagingItem[]>([]);
-  const [gridCols, setGridCols] = useState(GRID_COLS);
-  const [gridRows, setGridRows] = useState(GRID_ROWS);
+  const [gridCols, setGridCols] = useState(() => {
+    if (typeof window === "undefined") return GRID_COLS;
+    return parseInt(localStorage.getItem(GRID_COLS_KEY) ?? String(GRID_COLS)) || GRID_COLS;
+  });
+  const [gridRows, setGridRows] = useState(() => {
+    if (typeof window === "undefined") return GRID_ROWS;
+    return parseInt(localStorage.getItem(GRID_ROWS_KEY) ?? String(GRID_ROWS)) || GRID_ROWS;
+  });
+
+  // New batch modal state
+  const [showNewBatch, setShowNewBatch] = useState(false);
+  const [batchForm, setBatchForm] = useState(BATCH_EMPTY);
+  const [batchSubmitting, setBatchSubmitting] = useState(false);
+
+  function handleRecipeChange(recipeId: string) {
+    const r = recipes.find((r) => r.id === recipeId);
+    setBatchForm((f) => ({
+      ...f,
+      recipe_id: recipeId,
+      beer_name: r?.beer_name ?? f.beer_name,
+      turns: "1",
+    }));
+  }
+
+  async function handleNewBatchSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!batchForm.recipe_id) { alert("Please select a recipe."); return; }
+    const recipe = recipes.find((r) => r.id === batchForm.recipe_id);
+    const turns = parseInt(batchForm.turns) || 1;
+    const volume_bbl = recipe?.expected_yield_bbl != null ? recipe.expected_yield_bbl * turns : null;
+    if (!volume_bbl) { alert("Selected recipe has no expected yield. Set it in the Recipes tab first."); return; }
+    setBatchSubmitting(true);
+    try {
+      const payload = {
+        recipe_id:         batchForm.recipe_id,
+        beer_name:         batchForm.beer_name,
+        planned_brew_date: batchForm.planned_brew_date,
+        volume_bbl,
+        turns,
+        notes:             batchForm.notes || null,
+      };
+      const res = await fetch("/api/production/batches", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      if (!res.ok) throw new Error((await res.json()).error ?? "Error");
+      setShowNewBatch(false);
+      setBatchForm(BATCH_EMPTY);
+      await onBatchCreated();
+      await onRefresh();
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "Error saving batch");
+    } finally {
+      setBatchSubmitting(false);
+    }
+  }
 
   useEffect(() => {
     fetch("/api/production/packaging").then((r) => r.ok ? r.json() : []).then(setPackaging);
   }, []);
+
+  useEffect(() => { localStorage.setItem(GRID_COLS_KEY, String(gridCols)); }, [gridCols]);
+  useEffect(() => { localStorage.setItem(GRID_ROWS_KEY, String(gridRows)); }, [gridRows]);
 
   const assignmentByTank   = Object.fromEntries(assignments.map((a) => [a.tank_id, a])) as Record<string, BatchTankAssignment | undefined>;
   const assignedBatchIds   = new Set(assignments.map((a) => a.batch_id));
@@ -73,7 +143,7 @@ export default function BrewStatusTab({
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h2 className="text-base font-medium text-zinc-100">Brew Status</h2>
+          <h2 className="text-base font-medium text-zinc-100">Brew Console</h2>
           <p className="text-sm text-zinc-500 mt-0.5">
             {editMode ? "Edit mode — drag equipment to reposition" : "Lock mode — assign batches to equipment"}
           </p>
@@ -249,6 +319,18 @@ export default function BrewStatusTab({
                             ))}
                           </div>
                         )}
+                        {!editMode && (
+                          <div className="mt-auto pt-1">
+                            <button
+                              onClick={() => { setBatchForm(BATCH_EMPTY); setShowNewBatch(true); }}
+                              onMouseDown={(e) => e.stopPropagation()}
+                              className="text-amber-600 hover:text-amber-400 border border-amber-900 hover:border-amber-700 px-1.5 rounded transition-colors"
+                              style={{ fontSize: 9 }}
+                            >
+                              + New Batch
+                            </button>
+                          </div>
+                        )}
                       </>
                     )}
 
@@ -287,9 +369,24 @@ export default function BrewStatusTab({
                     {isTank && (
                       <>
                         {!isUnconstrained && tank.capacity_bbl && (
-                          <p className="text-zinc-600" style={{ fontSize: 9 }}>
-                            {batch ? `${Number(batch.volume_bbl).toFixed(1)} / ${tank.capacity_bbl} BBL` : `${tank.capacity_bbl} BBL`}
-                          </p>
+                          <>
+                            <p className="text-zinc-600" style={{ fontSize: 9 }}>
+                              {batch ? `${Number(batch.volume_bbl).toFixed(1)} / ${tank.capacity_bbl} BBL` : `${tank.capacity_bbl} BBL`}
+                            </p>
+                            {/* Fill bar */}
+                            {batch && (
+                              <div className="w-full rounded-full overflow-hidden" style={{ height: 3, background: "rgba(63,63,70,0.6)", marginTop: 2, marginBottom: 2 }}>
+                                <div
+                                  style={{
+                                    height: "100%",
+                                    width: `${Math.min(100, (Number(batch.volume_bbl) / tank.capacity_bbl) * 100).toFixed(1)}%`,
+                                    background: "rgba(245,158,11,0.7)",
+                                    borderRadius: "9999px",
+                                  }}
+                                />
+                              </div>
+                            )}
+                          </>
                         )}
                         {batch ? (
                           <>
@@ -320,7 +417,7 @@ export default function BrewStatusTab({
                         ) : (
                           <div className="flex-1 flex flex-col items-center justify-center gap-1">
                             <p className="text-zinc-700" style={{ fontSize: 9 }}>Empty</p>
-                            {!editMode && unassignedBatches.length > 0 && (
+                            {!editMode && tank.type === "brewhouse" && unassignedBatches.length > 0 && (
                               <button
                                 onClick={() => assign.openAssign(tank.id)}
                                 onMouseDown={(e) => e.stopPropagation()}
@@ -368,16 +465,6 @@ export default function BrewStatusTab({
                         ) : (
                           <div className="flex-1 flex flex-col items-center justify-center gap-1">
                             <p className="text-zinc-700" style={{ fontSize: 9 }}>Empty</p>
-                            {!editMode && !isUnconstrained && unassignedBatches.length > 0 && (
-                              <button
-                                onClick={() => assign.openAssign(tank.id)}
-                                onMouseDown={(e) => e.stopPropagation()}
-                                className="text-amber-600 hover:text-amber-400 border border-amber-900 hover:border-amber-700 px-1.5 rounded transition-colors"
-                                style={{ fontSize: 9 }}
-                              >
-                                Assign
-                              </button>
-                            )}
                           </div>
                         )}
                       </>
@@ -414,35 +501,6 @@ export default function BrewStatusTab({
         </div>
       </div>
 
-      {/* Unassigned batches */}
-      {unassignedBatches.length > 0 && (
-        <div>
-          <p className="text-xs text-zinc-500 font-medium uppercase tracking-wide mb-2">
-            Unassigned Batches ({unassignedBatches.length})
-          </p>
-          <div className="overflow-x-auto rounded-lg border border-zinc-800">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-zinc-800 bg-zinc-900/50 text-left">
-                  {["Batch #", "Beer", "Volume", "Status"].map((h) => (
-                    <th key={h} className="px-4 py-2.5 text-xs font-medium text-zinc-500">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {unassignedBatches.map((b, i) => (
-                  <tr key={b.id} className={`border-b border-zinc-800/60 ${i % 2 !== 0 ? "bg-zinc-900/30" : ""}`}>
-                    <td className="px-4 py-2.5 font-mono text-xs text-zinc-400">{b.batch_number ?? "—"}</td>
-                    <td className="px-4 py-2.5 text-zinc-200">{b.beer_name}</td>
-                    <td className="px-4 py-2.5 text-zinc-400">{Number(b.volume_bbl).toFixed(1)} BBL</td>
-                    <td className="px-4 py-2.5"><StatusBadge status={b.status} /></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
 
       {/* Add/edit equipment modal */}
       {eqCrud.showEqModal && (
@@ -546,6 +604,47 @@ export default function BrewStatusTab({
           onClose={() => setTransferTankId(null)}
           onDone={onRefresh}
         />
+      )}
+
+      {/* New batch modal (triggered from Backlog) */}
+      {showNewBatch && (
+        <Modal title="New Batch" onClose={() => setShowNewBatch(false)}>
+          <form onSubmit={handleNewBatchSubmit} className="space-y-4">
+            <Field label="Recipe" required>
+              <select className="inp" value={batchForm.recipe_id} onChange={(e) => handleRecipeChange(e.target.value)} required>
+                <option value="">— select a recipe —</option>
+                {recipes.map((r) => (
+                  <option key={r.id} value={r.id}>{r.beer_name}{r.brewery ? ` · ${r.brewery}` : ""}</option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Beer Name" required>
+              <input className="inp" value={batchForm.beer_name} required
+                onChange={(e) => setBatchForm((f) => ({ ...f, beer_name: e.target.value }))} />
+            </Field>
+            <Field label="Planned Brew Date" required>
+              <input type="date" className="inp" value={batchForm.planned_brew_date} required
+                onChange={(e) => setBatchForm((f) => ({ ...f, planned_brew_date: e.target.value }))} />
+            </Field>
+            <Field label={`Turns (${BREWHOUSE_BBL} BBL brewhouse)`} required>
+              <input type="number" min="1" step="1" className="inp" value={batchForm.turns} required
+                onChange={(e) => setBatchForm((f) => ({ ...f, turns: e.target.value }))} />
+              {(() => {
+                const r = recipes.find((r) => r.id === batchForm.recipe_id);
+                const vol = r?.expected_yield_bbl != null ? (r.expected_yield_bbl * (parseInt(batchForm.turns) || 1)).toFixed(2) : null;
+                return vol ? (
+                  <p className="text-xs text-zinc-500 mt-1">Computed volume: <span className="text-zinc-300 font-medium">{vol} BBL</span></p>
+                ) : batchForm.recipe_id ? (
+                  <p className="text-xs text-amber-600 mt-1">Recipe has no expected yield — set it in Recipes first.</p>
+                ) : null;
+              })()}</Field>
+            <Field label="Notes">
+              <textarea className="inp resize-none" rows={2} value={batchForm.notes}
+                onChange={(e) => setBatchForm((f) => ({ ...f, notes: e.target.value }))} />
+            </Field>
+            <ModalActions submitting={batchSubmitting} onCancel={() => setShowNewBatch(false)} label="Create Batch" />
+          </form>
+        </Modal>
       )}
     </>
   );

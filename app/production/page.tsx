@@ -1,19 +1,19 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { useProductionData } from "./hooks/useProductionData";
 import BatchLogTab    from "./components/BatchLogTab";
-import IngredientsTab from "./components/IngredientsTab";
 import RecipesTab     from "./components/RecipesTab";
 import BrewStatusTab  from "./components/BrewStatusTab";
 import WorkflowsTab   from "./components/WorkflowsTab";
-import PackagingTab   from "./components/PackagingTab";
+import InventoryTab   from "./components/InventoryTab";
+import PartnersTab    from "./components/PartnersTab";
 
-const TABS = ["Brew Status", "Batch Log", "Ingredients", "Recipes", "Workflows", "Packaging"] as const;
-type Tab = typeof TABS[number];
+function ProductionContent() {
+  const searchParams = useSearchParams();
+  const tab = searchParams.get("tab") ?? "brew-console";
 
-export default function ProductionPage() {
-  const [tab, setTab] = useState<Tab>("Brew Status");
   const {
     ingredients, adjustments, recipes, batches, tanks, assignments, packaging, transfers,
     loadIngredients, loadAdjustments, loadRecipes, loadBatches, loadPackaging,
@@ -21,40 +21,24 @@ export default function ProductionPage() {
   } = useProductionData();
 
   return (
-    <main className="max-w-7xl mx-auto px-6 py-8">
-      <div className="flex gap-1 mb-6 border-b border-zinc-800">
-        {TABS.map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px whitespace-nowrap ${
-              tab === t
-                ? "border-amber-500 text-zinc-100"
-                : "border-transparent text-zinc-500 hover:text-zinc-300"
-            }`}
-          >
-            {t}
-          </button>
-        ))}
-      </div>
-
-      {tab === "Brew Status" && (
-        <BrewStatusTab tanks={tanks} assignments={assignments} batches={batches} transfers={transfers} onRefresh={refreshBrewStatus} />
+    <main className="px-6 py-8">
+      {tab === "brew-console" && (
+        <BrewStatusTab tanks={tanks} assignments={assignments} batches={batches} transfers={transfers} recipes={recipes} onRefresh={refreshBrewStatus} onBatchCreated={loadBatches} />
       )}
-      {tab === "Batch Log" && (
+      {tab === "brew-planner" && (
         <BatchLogTab batches={batches} recipes={recipes} transfers={transfers} onRefresh={loadBatches} />
       )}
-      {tab === "Ingredients" && (
-        <IngredientsTab
-          ingredients={ingredients}
-          adjustments={adjustments}
-          onRefresh={loadIngredients}
-          onAdjustmentsRefresh={loadAdjustments}
+      {tab === "recipes"   && <RecipesTab recipes={recipes} ingredients={ingredients} onRefresh={loadRecipes} />}
+      {tab === "workflows" && <WorkflowsTab equipment={tanks} batches={batches} />}
+      {tab === "inventory" && (
+        <InventoryTab
+          ingredients={ingredients} adjustments={adjustments} packaging={packaging}
+          transfers={transfers} tanks={tanks} batches={batches}
+          onRefreshIngredients={loadIngredients} onRefreshAdjustments={loadAdjustments}
+          onRefreshPackaging={loadPackaging}
         />
       )}
-      {tab === "Recipes"   && <RecipesTab recipes={recipes} ingredients={ingredients} onRefresh={loadRecipes} />}
-      {tab === "Workflows" && <WorkflowsTab equipment={tanks} batches={batches} />}
-      {tab === "Packaging" && <PackagingTab packaging={packaging} onRefresh={loadPackaging} />}
+      {tab === "partners"  && <PartnersTab />}
 
       <style>{`
         .inp {
@@ -71,5 +55,13 @@ export default function ProductionPage() {
         .inp option { background: rgb(39 39 42); }
       `}</style>
     </main>
+  );
+}
+
+export default function ProductionPage() {
+  return (
+    <Suspense>
+      <ProductionContent />
+    </Suspense>
   );
 }

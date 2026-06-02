@@ -13,7 +13,7 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
-  const { beer_name, brewery, expected_yield_bbl, steps, notes, ingredients: lines } = body;
+  const { beer_name, brewery, expected_yield_bbl, brew_time_weeks, steps, notes, ingredients: lines } = body;
 
   const { data: recipe, error: recipeErr } = await supabase
     .from("recipes")
@@ -21,6 +21,7 @@ export async function POST(req: NextRequest) {
       beer_name,
       brewery: brewery || null,
       expected_yield_bbl: expected_yield_bbl || null,
+      brew_time_weeks: brew_time_weeks || null,
       steps: steps || null,
       notes: notes || null,
     })

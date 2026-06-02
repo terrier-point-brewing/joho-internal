@@ -4,21 +4,27 @@ import { supabase } from "@/lib/supabase/client";
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const body = await req.json();
-  const { type, name, supplier, unit_cost, brewery, volume_fl_oz, can_count } = body;
+  const { type, name, partner_id, supplier_id, unit_cost, volume_fl_oz, can_count, is_default } = body;
+
+  // Non-keg types: one default per type — clear any existing default of this type first (excluding self)
+  if (is_default && type !== "keg") {
+    await supabase.from("packaging_items").update({ is_default: false }).eq("type", type).eq("is_default", true).neq("id", id);
+  }
 
   const { data, error } = await supabase
     .from("packaging_items")
     .update({
       type,
       name,
-      supplier: supplier || null,
+      partner_id: partner_id || null,
+      supplier_id: supplier_id || null,
       unit_cost: unit_cost != null ? parseFloat(unit_cost) : null,
-      brewery: brewery || null,
       volume_fl_oz: volume_fl_oz != null ? parseFloat(volume_fl_oz) : null,
       can_count: can_count != null ? parseInt(can_count) : null,
+      is_default: is_default ?? false,
     })
     .eq("id", id)
-    .select()
+    .select("*, contract_brewing_partners(company_name), suppliers(company_name)")
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

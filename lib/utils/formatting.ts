@@ -26,3 +26,7 @@ export function fmtDateTime(iso: string): string {
 export function fmtBbl(v: number): string {
   return v.toFixed(3) + " BBL";
 }
+
+export function fmtBbl2(v: number): string {
+  return v.toFixed(2) + " BBL";
+}

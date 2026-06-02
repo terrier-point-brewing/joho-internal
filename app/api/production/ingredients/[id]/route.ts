@@ -12,7 +12,7 @@ export async function PATCH(
     .from("ingredients")
     .update(body)
     .eq("id", id)
-    .select()
+    .select("*, suppliers(company_name), contract_brewing_partners(company_name)")
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
