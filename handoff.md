@@ -34,22 +34,34 @@ Square Application ID (not used in code, for reference): `sq0idp-Ilv-Dj0we6EVita
 
 ## Project Structure
 
+The app is organized as **modules**. Each module is a top-level route under `app/`. Adding a new module means creating `app/<module>/page.tsx` and adding one entry to `MODULES` in `app/components/NavBar.tsx`.
+
 ```
 app/
-  page.tsx                  — report selector dropdown + renders active report component
-  layout.tsx                — html/body shell, metadata
-  globals.css               — dark mode base styles (zinc-950 background)
+  layout.tsx                    — html/body shell + NavBar (global)
+  page.tsx                      — server redirect → /reports
+  globals.css                   — dark mode base styles (zinc-950 background)
   components/
-    ReportControls.tsx      — shared date range + group-by controls + run/export buttons
-    CocktailSalesReport.tsx
-    KegSalesReport.tsx
-    TaproomModelReport.tsx
-    GiftCardReport.tsx
-    ContractBrewingReport.tsx
-    DistributionReport.tsx
-    BBLTrackerReport.tsx
-    ShrinkageReport.tsx
-  api/
+    NavBar.tsx                  — module tab navigation (Reports / Production)
+
+  reports/                      — Reports module
+    page.tsx                    — report category + report selector, renders active report
+    components/
+      ReportControls.tsx        — shared date range + group-by controls + run/export buttons
+      SortControls.tsx          — useSort<T> hook + SortTh component (sortable column headers)
+      CocktailSalesReport.tsx
+      KegSalesReport.tsx
+      TaproomModelReport.tsx
+      GiftCardReport.tsx
+      ContractBrewingReport.tsx
+      DistributionReport.tsx
+      BBLTrackerReport.tsx
+      ShrinkageReport.tsx
+
+  production/                   — Production module (placeholder, ready to build out)
+    page.tsx
+
+  api/                          — API routes (flat, all reports)
     cocktail-sales/route.ts
     keg-sales/route.ts
     taproom-model/route.ts
@@ -58,32 +70,55 @@ app/
     distribution/route.ts
     bbl-tracker/route.ts
     shrinkage/route.ts
-    combo-sales/route.ts    — legacy, not used by UI but kept for backwards compat
+    combo-sales/route.ts        — legacy, not used by UI but kept for backwards compat
 
 lib/
   square/
-    client.ts               — base fetch wrapper: squareGet, squarePost, squareGetAll, squarePostAll (paginated)
-    catalog.ts              — fetchCatalogItems, buildStandalonePriceMap, buildVariationNameMap
-    orders.ts               — fetchCompletedOrders (POS, COMPLETED only), fetchInvoiceOrders (OPEN+COMPLETED, Invoice source)
-    customers.ts            — fetchCustomers (parallel), customerDisplayName
-    refunds.ts              — fetchRefunds
-    inventory.ts            — fetchPhysicalCounts (PHYSICAL_COUNT changes, paginated)
+    client.ts                   — squareGet, squarePost, squareGetAll, squarePostAll (paginated)
+    catalog.ts                  — fetchCatalogItems, buildStandalonePriceMap, buildVariationNameMap
+    orders.ts                   — fetchCompletedOrders (POS, COMPLETED only), fetchInvoiceOrders (OPEN+COMPLETED)
+    customers.ts                — fetchCustomers (parallel), customerDisplayName
+    refunds.ts                  — fetchRefunds
+    inventory.ts                — fetchPhysicalCounts (PHYSICAL_COUNT changes, paginated)
   constants/
-    categories.ts           — all Square reporting category IDs, TAPROOM_MODEL_CATEGORIES array,
-                              CONTRACT_BREWING_SUBCATEGORY_LABELS, classifyContractBrewingItem()
+    categories.ts               — all Square reporting category IDs, TAPROOM_MODEL_CATEGORIES,
+                                  CONTRACT_BREWING_SUBCATEGORY_LABELS, classifyContractBrewingItem()
   reports/
-    combos.ts               — buildComboIndex, buildComponentIndex, detectComboSales → ComboSale[]
-    cocktails.ts            — detectCocktailSales → { sales: CocktailSale[], comboClaimedKeys }
-    kegs.ts                 — buildKegIndex, detectKegSales → KegSale[]
-    taproom-model.ts        — buildTaproomModelReport → TaproomModelResult
-    contract-brewing.ts     — buildContractBrewingReport → { byCategory, byCustomer }
-    distribution.ts         — buildDistributionReport → { bySize, byCustomer }
-    bbl-tracker.ts          — buildBBLTrackerReport → { byStyle, byChannel, totalExciseTax }
-    shrinkage.ts            — buildShrinkageReport → { draft, liquor, chartData }
+    combos.ts                   — buildComboIndex, buildComponentIndex, detectComboSales → ComboSale[]
+    cocktails.ts                — detectCocktailSales → { sales: CocktailSale[], comboClaimedKeys }
+    kegs.ts                     — buildKegIndex, detectKegSales → KegSale[]
+    taproom-model.ts            — buildTaproomModelReport → TaproomModelResult
+    contract-brewing.ts         — buildContractBrewingReport → { byCategory, byCustomer }
+    distribution.ts             — buildDistributionReport → { bySize, byCustomer }
+    bbl-tracker.ts              — buildBBLTrackerReport → { byStyle, byChannel, totalExciseTax }
+    shrinkage.ts                — buildShrinkageReport → { draft, liquor, chartData }
 
 types/
-  square.ts                 — Square API shapes (Order, OrderLineItem, CatalogItem, etc.)
-  reports.ts                — ComboSale, CocktailSale, KegSale, TaproomModelResult, etc.
+  square.ts                     — Square API shapes (Order, OrderLineItem, CatalogItem, etc.)
+  reports.ts                    — ComboSale, CocktailSale, KegSale, TaproomModelResult, etc.
+```
+
+---
+
+## UI Conventions
+
+### Report selector
+Two dropdowns: **Category** (Net Sales Reports / Sales Reports / Production / Inventory Management) then **Report** (filtered to that category). Date range persists across report switches — start/end state lives in `reports/page.tsx` and is passed as props to each report component.
+
+| Category | Reports |
+|---|---|
+| Net Sales Reports | Taproom, Contract Brewing, Distribution |
+| Sales Reports | Cocktail Sales, Keg Sales, Gift Card Sales |
+| Production | BBL Tracker |
+| Inventory Management | Shrinkage |
+
+### Sortable columns
+Every report table has sortable column headers via `SortTh`. Click a header to sort ascending (↑), click again to flip (↓), dimmed ↕ when unsorted. Reports with multiple sub-tables have independent sort state per table. To add sort to a new table:
+```tsx
+const { sorted, sortKey, sortDir, handleSort } = useSort(rows);
+const sp = { sortKey, sortDir, onSort: handleSort };
+// Replace <th> with <SortTh label="..." col="fieldName" {...sp} />
+// Render sorted ?? rows instead of rows
 ```
 
 ---
@@ -102,7 +137,7 @@ Group-by: Date (transaction rows) or Item (aggregated totals).
 ### 2. Keg Sales (`/api/keg-sales`)
 Items in Kegs reporting category with variation names matching `\d+/\d+ Keg` (excludes Keg Deposit, Pump Deposit).
 
-Key nuance: the `Keg Transfer (Set 660oz to Draft)` discount flags a keg as an internal draft transfer, not a customer sale. Transfers are shown with amber badge, excluded from money totals.
+Key nuance: the `Keg Transfer (Set 660oz to Draft)` discount flags a keg as an internal draft transfer, not a customer sale. Transfers shown with amber badge, excluded from money totals.
 
 Group-by: Date / Beer / Beer + Size.
 
@@ -110,69 +145,70 @@ Group-by: Date / Beer / Beer + Size.
 10 categories: Draft Beer, Liquor, Wine/Cider/Seltzers, Cocktails, NA/Snacks, Kegs, Cans, Merchandise, CO2, Other.
 
 Key nuances:
-- **Invoice orders are excluded** (`source.name === "Invoices"`) — those are wholesale/contract, not taproom sales.
-- **Cocktail combo components** are attributed to the Cocktails category (not Liquor/Draft) using `comboClaimedKeys` from `detectCocktailSales` to prevent double-counting.
-- **Keg transfers** excluded from Kegs gross (same detection as Keg Sales report).
-- **Gift cards** caught by `item_type === "GIFT_CARD"` (no catalog_object_id) → rolled into Other.
-- **Returns** proportionally distributed across categories from the `/v2/refunds` API.
-- **Tips** from `order.total_tip_money` — shown as a separate callout below the table.
+- **Invoice orders excluded** (`source.name === "Invoices"`)
+- **Cocktail combo components** attributed to Cocktails (not Liquor/Draft) via `comboClaimedKeys`
+- **Keg transfers** excluded from Kegs gross
+- **Gift cards** caught by `item_type === "GIFT_CARD"` → Other
+- **Returns** proportionally distributed from `/v2/refunds`
+- **Tips** from `order.total_tip_money` — shown as callout
+- **Taproom Attributed Net Sales** callout — sum of Net Sales for all categories except CO2 and Other
 
 ### 4. Gift Card Sales (`/api/gift-cards`)
-Scans all completed orders for `item_type === "GIFT_CARD"` line items. Shows discount reason (e.g., "Employee Draft Discount") in a Discount Notes column. Comped cards (net=$0) are visually dimmed.
+Scans completed orders for `item_type === "GIFT_CARD"` line items. Shows discount reason in Discount Notes column. Comped cards (net=$0) are visually dimmed.
 
 ### 5. Contract Brewing (`/api/contract-brewing`)
-Invoice orders (OPEN + COMPLETED) that contain items in the **Contract Brewing** reporting category (`CDX2UMLF35B4I3F7ILYLMWMF`).
+Invoice orders (OPEN + COMPLETED) containing items in the **Contract Brewing** category (`CDX2UMLF35B4I3F7ILYLMWMF`).
 
-Sub-categories classified by item name via `classifyContractBrewingItem()`:
+Sub-categories via `classifyContractBrewingItem()`:
 - **Materials & Packaging**: Ingredient Deposit, Packaging Materials
 - **Packaging Fees**: Packaging Fee
 - **Pass-Through Taxes**: Barrel Excise Tax (anything with "tax" in name)
 - **Other Services**: Keg Cleaning Service, Forklift Fee, everything else
 
-Shows revenue by category (Gross, Net) + Total Discounts callout. By-customer table shows # Invoices, Total Charged, Total Outstanding (`net_amount_due_money`). Outstanding amounts are amber-highlighted.
+By-customer table shows # Invoices, Total Charged, Outstanding (`net_amount_due_money`). Outstanding amounts are amber-highlighted.
 
 **Customers in the data:** Argus Beverage Ventures LLC, Local Time Brewing, Fortnight Brewing.
 
 ### 6. Distribution (`/api/distribution`)
-Invoice orders (OPEN + COMPLETED) that contain items in the **Kegs or Cans** reporting categories. Revenue broken down by keg size (1/2, 1/4, 1/6 Keg, Cans). Customer table includes per-size qty columns. Currently only Fortnight Brewing has distribution invoices.
+Invoice orders (OPEN + COMPLETED) containing items in Kegs or Cans categories. Revenue by keg size; customer table with per-size qty columns. Currently only Fortnight Brewing has distribution invoices.
 
 ### 7. BBL Tracker (`/api/bbl-tracker`)
-Tracks beer production volume in BBLs by style and distribution channel. Uses both POS orders and invoice orders.
+Tracks beer production volume in BBLs by style and distribution channel. Uses both POS and invoice orders.
 
 **Channels:**
 - `TAPROOM_DRAFT` — keg transfers (Keg Transfer discount on POS orders)
-- `TAPROOM_PACKAGED` — taproom keg sales (non-transfer) + can sales
-- `DISTRIBUTION` — invoice orders with keg/can items and no contract brewing items
-- `CONTRACT_BREWING` — invoice orders with both keg/can items AND contract brewing items
+- `TAPROOM_PACKAGED` — taproom keg/can sales (non-transfer POS)
+- `DISTRIBUTION` — invoice orders with keg/can items, no contract brewing items
+- `CONTRACT_BREWING` — invoice orders with keg/can items AND contract brewing items
 
 **Volume constants:**
 - 1/2 Keg = 15.5 gal, 1/4 Keg = 7.75 gal, 1/6 Keg = 5.167 gal
-- Cans: oz parsed from variation name (e.g. "16oz 4-Pack" = 64oz = 0.5 gal)
+- Cans: oz parsed from variation name (e.g. "16oz 4-Pack" = 64oz)
 - 1 BBL = 31 gallons
 
 **Excise tax:** NC state $0.6171/gal + Federal $3.50/BBL
 
-Can sizes: most beers are 16oz cans; BBA/Groundhog Imperial Stouts are 12oz cans. Sold as Regular (single), 4-Pack, or Case (24-pack).
+**Contract brewing volume nuance:** Contract brewing invoices use a generic `Packaging Fee` catalog item (in the Contract Brewing category) rather than the beer-specific keg catalog items. The keg size is in `variation_name` ("1/2 Keg", "1/6 Keg") and the beer name is in the line item `note` field (e.g. "Epic Hazy IPA"). `buildCatalogIndex` indexes these Packaging Fee variation IDs separately (`packagingFeeKegVars`), and volume is attributed by matching the note against draft catalog item names (case-insensitive). Lines with no note are skipped. This is implemented in `lib/reports/bbl-tracker.ts`.
+
+Can sizes: most beers 16oz; BBA/Groundhog Imperial Stouts 12oz. Sold as single, 4-Pack, or Case (24).
 
 ### 8. Shrinkage (`/api/shrinkage`)
-Uses Square's `POST /v2/inventory/changes/batch-retrieve` API filtered to `PHYSICAL_COUNT` type (paginated).
+Uses `POST /v2/inventory/changes/batch-retrieve` with `types: ["PHYSICAL_COUNT"]` (paginated).
 
-**Draft** = items in Draft reporting categories with physical count data.  
+**Draft** = items in Draft reporting categories.  
 **Liquor** = items in Bourbon/Whiskey/Tequila/Rum/Vodka/Gin categories.
 
-Quantities are in fl oz when tracked that way:
-- Full 1/6 keg ≈ 660 fl oz
-- 750ml spirit bottle = 25.4 fl oz, 1L = 33.8 fl oz
+Quantities in fl oz: full 1/6 keg ≈ 660 fl oz; 750ml spirit = 25.4 fl oz, 1L = 33.8 fl oz.
 
-**Shrinkage % per period** = `(prev_count - current_count) / prev_count × 100` for decreases. Increases (restocks) produce `null` (no shrinkage event).
+**Shrinkage % per period** = `(prev_count - current_count) / prev_count × 100`. Increases (restocks) → `null`.
 
-Line chart uses **Recharts** — x=ISO week, y=% depletion per count period. Currently sparse (only May 15-16 counts exist); will populate as weekly counts are recorded.
+Line chart (Recharts): x=ISO week, y=% depletion. Sparse until staff record regular weekly counts.
 
 ---
 
 ## Square Catalog Category IDs
 
-All IDs are in `lib/constants/categories.ts`.
+All IDs in `lib/constants/categories.ts`. Second ID in each pair is the Holly Springs Taproom sub-location variant.
 
 | Business Category | Square Category Name | ID(s) |
 |---|---|---|
@@ -197,8 +233,6 @@ All IDs are in `lib/constants/categories.ts`.
 | Other | Deposits | `3Y5UG43QKQ6DD2BCSVKECCQL` |
 | Contract Brewing | Contract Brewing | `CDX2UMLF35B4I3F7ILYLMWMF` |
 
-The second ID in each pair is the Holly Springs Taproom sub-location variant.
-
 ---
 
 ## Square Data Quirks
@@ -214,18 +248,22 @@ Square's `product_type=COMBO` items do **not** appear in order line items as the
 ### Keg Transfers
 A keg "sold" to convert it from packaged inventory to draft is identified by the `Keg Transfer (Set 660oz to Draft)` discount (100% discount, total_money = $0). These appear as COMPLETED orders with the Keg Transfer discount.
 
+### Packaging Fee Line Items on Contract Brewing Invoices
+Contract brewing invoices charge customers using a generic `Packaging Fee` catalog item (Contract Brewing category) rather than the actual beer keg catalog items. The keg size lives in `line.variation_name` ("1/2 Keg", "1/6 Keg") and the beer name lives in `line.note` ("Epic Hazy IPA", "Carolina Pale Ale"). The BBL tracker resolves this by maintaining a separate `packagingFeeKegVars` index and matching notes against draft catalog item names. Lines without a note are skipped entirely.
+
 ### Inventory Physical Counts
-Liquor is tracked in fl oz (decimal quantities like 25.4, 45.4). Draft kegs are currently tracked in whole-unit integer counts — fl oz keg tracking not yet fully deployed. Physical counts are fetched via `POST /v2/inventory/changes/batch-retrieve` with `types: ["PHYSICAL_COUNT"]`.
+Liquor tracked in fl oz (decimal quantities like 25.4). Draft kegs currently tracked in whole-unit integer counts — fl oz keg tracking not yet fully deployed. Fetched via `POST /v2/inventory/changes/batch-retrieve` with `types: ["PHYSICAL_COUNT"]`.
 
 ### Invoice Outstanding
-`order.net_amount_due_money` on OPEN orders gives the remaining unpaid balance. OPEN orders are returned by the orders search API when explicitly requested with `state_filter: { states: ["OPEN", "COMPLETED"] }`.
+`order.net_amount_due_money` on OPEN orders gives the remaining unpaid balance. OPEN orders are returned when explicitly requesting `state_filter: { states: ["OPEN", "COMPLETED"] }`.
 
 ---
 
 ## Known Limitations / Future Work
 
-1. **Shrinkage chart is sparse** — only 2 dates of fl oz physical count data (May 15-16). Chart will populate as staff record weekly counts.
-2. **Draft shrinkage** — kegs are tracked in whole units, not fl oz. If the taproom starts tracking partial keg volumes in Square inventory, the Shrinkage report's Draft section will pick it up automatically.
-3. **Combo detection edge case** — Daisy Pusher Old Fashioned uses Buffalo Trace 2oz ($14 combo vs $13 standalone), correctly detected. If a combo component's standalone price ever equals the combo price, the detection will miss it.
-4. **Returns in Taproom** — refunds are proportionally attributed to categories by order line item composition. Partial refunds on multi-category orders are approximate.
-5. **`combo-sales` API route** — the old route at `/api/combo-sales` is kept for backwards compatibility but is not wired to any UI. Can be removed.
+1. **Shrinkage chart is sparse** — only 2 dates of fl oz physical count data (May 15-16). Will populate as staff record weekly counts.
+2. **Draft shrinkage** — kegs tracked in whole units, not fl oz. Will pick up automatically if Square inventory switches to fl oz tracking.
+3. **Combo detection edge case** — if a combo component's standalone price ever equals the combo price, the detection will miss it. (Current combos all have detectable price deltas.)
+4. **Returns in Taproom** — refunds proportionally attributed across categories by order composition. Partial refunds on multi-category orders are approximate.
+5. **`combo-sales` API route** — `/api/combo-sales` kept for backwards compatibility, not wired to any UI. Can be removed.
+6. **Production module** — `app/production/page.tsx` is a placeholder. Next work: brew batch management, fermentation tracking, production pipelines. Will require a database (Supabase or similar) since this involves mutable structured data beyond Square API reads.
