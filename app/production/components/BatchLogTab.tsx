@@ -1,11 +1,10 @@
 "use client";
 
 import React, { useState } from "react";
-import { BrewBatch, BatchStatus, BatchStatusHistory, Recipe } from "../types";
-import { BREWHOUSE_BBL, BATCH_STATUSES, STATUS_MAP, StatusBadge, Modal, Field, ModalActions } from "./shared";
-import { fmtDateLong } from "@/lib/utils/formatting";
-
-const STATUS_OPTIONS = BATCH_STATUSES.filter((s) => s.value !== "archived");
+import { BrewBatch, BatchTransfer, Recipe } from "../types";
+import { BREWHOUSE_BBL, BATCH_STATUSES, StatusBadge, Modal, Field, ModalActions } from "./shared";
+import { fmtDateLong, fmtBbl } from "@/lib/utils/formatting";
+import { EQ } from "../equipmentMeta";
 
 function computeTurns(bbl: string) {
   const v = parseFloat(bbl);
@@ -24,17 +23,18 @@ const BATCH_EMPTY = {
   planned_brew_date: new Date().toISOString().slice(0, 10),
   volume_bbl: "",
   turns: "1",
-  status: "planning" as BatchStatus,
   notes: "",
 };
 
 export default function BatchLogTab({
   batches,
   recipes,
+  transfers,
   onRefresh,
 }: {
   batches: BrewBatch[];
   recipes: Recipe[];
+  transfers: BatchTransfer[];
   onRefresh: () => Promise<void>;
 }) {
   const [showModal, setShowModal] = useState(false);
@@ -42,35 +42,28 @@ export default function BatchLogTab({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [statusNote, setStatusNote] = useState("");
 
-  // Prefill from recipe when recipe selected
   function handleRecipeChange(recipeId: string) {
     const r = recipes.find((r) => r.id === recipeId);
     setForm((f) => ({
       ...f,
       recipe_id: recipeId,
-      beer_name: r?.beer_name ?? f.beer_name,
+      beer_name:  r?.beer_name ?? f.beer_name,
       volume_bbl: r?.expected_yield_bbl ? String(r.expected_yield_bbl) : f.volume_bbl,
-      turns: r?.expected_yield_bbl ? String(computeTurns(String(r.expected_yield_bbl))) : f.turns,
+      turns:      r?.expected_yield_bbl ? String(computeTurns(String(r.expected_yield_bbl))) : f.turns,
     }));
   }
 
-  function openNew() {
-    setForm(BATCH_EMPTY);
-    setEditingId(null);
-    setShowModal(true);
-  }
+  function openNew() { setForm(BATCH_EMPTY); setEditingId(null); setShowModal(true); }
 
   function openEdit(b: BrewBatch) {
     setForm({
-      recipe_id: b.recipe_id ?? "",
-      beer_name: b.beer_name,
-      planned_brew_date: b.planned_brew_date,
-      volume_bbl: String(b.volume_bbl),
-      turns: String(b.turns),
-      status: b.status,
-      notes: b.notes ?? "",
+      recipe_id:          b.recipe_id ?? "",
+      beer_name:          b.beer_name,
+      planned_brew_date:  b.planned_brew_date,
+      volume_bbl:         String(b.volume_bbl),
+      turns:              String(b.turns),
+      notes:              b.notes ?? "",
     });
     setEditingId(b.id);
     setShowModal(true);
@@ -82,25 +75,16 @@ export default function BatchLogTab({
     setSubmitting(true);
     try {
       const payload = {
-        recipe_id: form.recipe_id,
-        beer_name: form.beer_name,
+        recipe_id:         form.recipe_id,
+        beer_name:         form.beer_name,
         planned_brew_date: form.planned_brew_date,
-        volume_bbl: parseFloat(form.volume_bbl),
-        turns: parseInt(form.turns),
-        status: form.status,
-        notes: form.notes || null,
+        volume_bbl:        parseFloat(form.volume_bbl),
+        turns:             parseInt(form.turns),
+        notes:             form.notes || null,
       };
       const res = editingId
-        ? await fetch(`/api/production/batches/${editingId}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-          })
-        : await fetch("/api/production/batches", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-          });
+        ? await fetch(`/api/production/batches/${editingId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })
+        : await fetch("/api/production/batches",              { method: "POST",  headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       if (!res.ok) throw new Error((await res.json()).error ?? "Error");
       setShowModal(false);
       await onRefresh();
@@ -117,17 +101,7 @@ export default function BatchLogTab({
     await onRefresh();
   }
 
-  async function updateStatus(id: string, status: BatchStatus) {
-    await fetch(`/api/production/batches/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status, status_note: statusNote || null }),
-    });
-    setStatusNote("");
-    await onRefresh();
-  }
-
-  const active = batches.filter((b) => b.status !== "archived");
+  const active   = batches.filter((b) => b.status !== "archived");
   const archived = batches.filter((b) => b.status === "archived");
 
   return (
@@ -136,7 +110,7 @@ export default function BatchLogTab({
         <div>
           <h2 className="text-base font-medium text-zinc-100">Brew Batch Log</h2>
           <p className="text-sm text-zinc-500 mt-0.5">
-            {BREWHOUSE_BBL} BBL brewhouse · batches always started from a recipe
+            {BREWHOUSE_BBL} BBL brewhouse · status set automatically from Brew Status
           </p>
         </div>
         <button onClick={openNew} className="btn-amber">+ New Batch</button>
@@ -154,12 +128,11 @@ export default function BatchLogTab({
         <>
           <BatchTable
             batches={active}
-            recipes={recipes}
+            transfers={transfers}
             expandedId={expandedId}
             onToggle={(id) => setExpandedId(expandedId === id ? null : id)}
             onEdit={openEdit}
             onDelete={handleDelete}
-            onStatusChange={updateStatus}
           />
           {archived.length > 0 && (
             <details className="mt-8">
@@ -168,12 +141,11 @@ export default function BatchLogTab({
               </summary>
               <BatchTable
                 batches={archived}
-                recipes={recipes}
+                transfers={transfers}
                 expandedId={expandedId}
                 onToggle={(id) => setExpandedId(expandedId === id ? null : id)}
                 onEdit={openEdit}
                 onDelete={handleDelete}
-                onStatusChange={updateStatus}
               />
             </details>
           )}
@@ -184,91 +156,41 @@ export default function BatchLogTab({
         <Modal title={editingId ? "Edit Batch" : "New Batch"} onClose={() => setShowModal(false)}>
           <form onSubmit={handleSubmit} className="space-y-4">
             <Field label="Recipe" required>
-              <select
-                className="inp"
-                value={form.recipe_id}
-                onChange={(e) => handleRecipeChange(e.target.value)}
-                required
-              >
+              <select className="inp" value={form.recipe_id} onChange={(e) => handleRecipeChange(e.target.value)} required>
                 <option value="">— select a recipe —</option>
                 {recipes.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.beer_name}{r.brewery ? ` · ${r.brewery}` : ""}
-                  </option>
+                  <option key={r.id} value={r.id}>{r.beer_name}{r.brewery ? ` · ${r.brewery}` : ""}</option>
                 ))}
               </select>
             </Field>
             <Field label="Beer Name" required>
-              <input
-                className="inp"
-                value={form.beer_name}
-                required
-                onChange={(e) => setForm((f) => ({ ...f, beer_name: e.target.value }))}
-              />
+              <input className="inp" value={form.beer_name} required
+                onChange={(e) => setForm((f) => ({ ...f, beer_name: e.target.value }))} />
             </Field>
             <Field label="Planned Brew Date" required>
-              <input
-                type="date"
-                className="inp"
-                value={form.planned_brew_date}
-                required
-                onChange={(e) => setForm((f) => ({ ...f, planned_brew_date: e.target.value }))}
-              />
+              <input type="date" className="inp" value={form.planned_brew_date} required
+                onChange={(e) => setForm((f) => ({ ...f, planned_brew_date: e.target.value }))} />
             </Field>
             <div className="grid grid-cols-2 gap-3">
               <Field label="Volume (BBL)" required>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  className="inp"
-                  value={form.volume_bbl}
-                  required
-                  onChange={(e) =>
-                    setForm((f) => ({
-                      ...f,
-                      volume_bbl: e.target.value,
-                      turns: String(computeTurns(e.target.value)),
-                    }))
-                  }
-                />
+                <input type="number" step="0.01" min="0" className="inp" value={form.volume_bbl} required
+                  onChange={(e) => setForm((f) => ({
+                    ...f,
+                    volume_bbl: e.target.value,
+                    turns: String(computeTurns(e.target.value)),
+                  }))} />
               </Field>
               <Field label={`Turns (${BREWHOUSE_BBL} BBL)`} required>
-                <input
-                  type="number"
-                  min="1"
-                  step="1"
-                  className="inp"
-                  value={form.turns}
-                  required
-                  onChange={(e) => setForm((f) => ({ ...f, turns: e.target.value }))}
-                />
+                <input type="number" min="1" step="1" className="inp" value={form.turns} required
+                  onChange={(e) => setForm((f) => ({ ...f, turns: e.target.value }))} />
               </Field>
             </div>
-            <Field label="Status" required>
-              <select
-                className="inp"
-                value={form.status}
-                onChange={(e) => setForm((f) => ({ ...f, status: e.target.value as BatchStatus }))}
-              >
-                {BATCH_STATUSES.map((s) => (
-                  <option key={s.value} value={s.value}>{s.label}</option>
-                ))}
-              </select>
-            </Field>
             <Field label="Notes">
-              <textarea
-                className="inp resize-none"
-                rows={2}
-                value={form.notes}
-                onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
-              />
+              <textarea className="inp resize-none" rows={2} value={form.notes}
+                onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} />
             </Field>
-            <ModalActions
-              submitting={submitting}
-              onCancel={() => setShowModal(false)}
-              label={editingId ? "Save Changes" : "Create Batch"}
-            />
+            <ModalActions submitting={submitting} onCancel={() => setShowModal(false)}
+              label={editingId ? "Save Changes" : "Create Batch"} />
           </form>
         </Modal>
       )}
@@ -278,20 +200,18 @@ export default function BatchLogTab({
 
 function BatchTable({
   batches,
-  recipes,
+  transfers,
   expandedId,
   onToggle,
   onEdit,
   onDelete,
-  onStatusChange,
 }: {
   batches: BrewBatch[];
-  recipes: Recipe[];
+  transfers: BatchTransfer[];
   expandedId: string | null;
   onToggle: (id: string) => void;
   onEdit: (b: BrewBatch) => void;
   onDelete: (id: string, name: string) => void;
-  onStatusChange: (id: string, s: BatchStatus) => void;
 }) {
   if (!batches.length) return null;
 
@@ -312,21 +232,17 @@ function BatchTable({
         </thead>
         <tbody>
           {batches.map((b, i) => {
-            const isExpanded = expandedId === b.id;
-            const history = [...(b.batch_status_history ?? [])].sort(
-              (a, b) => new Date(a.changed_at).getTime() - new Date(b.changed_at).getTime()
-            );
+            const isExpanded    = expandedId === b.id;
+            const batchTransfers = transfers.filter((t) => t.batch_id === b.id);
 
             return (
               <React.Fragment key={b.id}>
-                <tr
-                  className={`border-b border-zinc-800/60 ${i % 2 !== 0 ? "bg-zinc-900/30" : ""} ${isExpanded ? "border-b-0" : ""}`}
-                >
+                <tr className={`border-b border-zinc-800/60 ${i % 2 !== 0 ? "bg-zinc-900/30" : ""} ${isExpanded ? "border-b-0" : ""}`}>
                   <td className="px-3 py-2.5">
                     <button
                       onClick={() => onToggle(b.id)}
                       className="text-zinc-600 hover:text-zinc-400 transition-colors text-xs"
-                      title="Show status timeline"
+                      title="Show transfer log"
                     >
                       {isExpanded ? "▼" : "▶"}
                     </button>
@@ -339,30 +255,13 @@ function BatchTable({
                     )}
                   </td>
                   <td className="px-4 py-2.5 text-zinc-400">{fmtDate(b.planned_brew_date)}</td>
-                  <td className="px-4 py-2.5 text-zinc-300 text-right tabular-nums">
-                    {Number(b.volume_bbl).toFixed(1)} BBL
-                  </td>
+                  <td className="px-4 py-2.5 text-zinc-300 text-right tabular-nums">{Number(b.volume_bbl).toFixed(1)} BBL</td>
                   <td className="px-4 py-2.5 text-zinc-400 text-right">{b.turns}</td>
-                  <td className="px-4 py-2.5">
-                    <StatusDropdown
-                      status={b.status}
-                      onChange={(s) => onStatusChange(b.id, s)}
-                    />
-                  </td>
+                  <td className="px-4 py-2.5"><StatusBadge status={b.status} /></td>
                   <td className="px-4 py-2.5">
                     <div className="flex gap-3 justify-end">
-                      <button
-                        onClick={() => onEdit(b)}
-                        className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => onDelete(b.id, b.beer_name)}
-                        className="text-xs text-zinc-600 hover:text-red-400 transition-colors"
-                      >
-                        Delete
-                      </button>
+                      <button onClick={() => onEdit(b)} className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors">Edit</button>
+                      <button onClick={() => onDelete(b.id, b.beer_name)} className="text-xs text-zinc-600 hover:text-red-400 transition-colors">Delete</button>
                     </div>
                   </td>
                 </tr>
@@ -370,7 +269,7 @@ function BatchTable({
                 {isExpanded && (
                   <tr className={`border-b border-zinc-800/60 ${i % 2 !== 0 ? "bg-zinc-900/30" : ""}`}>
                     <td colSpan={8} className="px-6 pb-4 pt-1">
-                      <StatusTimeline history={history} currentStatus={b.status} />
+                      <TransferLog transfers={batchTransfers} batchVol={Number(b.volume_bbl)} />
                     </td>
                   </tr>
                 )}
@@ -383,56 +282,62 @@ function BatchTable({
   );
 }
 
-function StatusDropdown({ status, onChange }: { status: BatchStatus; onChange: (s: BatchStatus) => void }) {
-  const s = STATUS_MAP[status];
-  return (
-    <select
-      value={status}
-      onChange={(e) => onChange(e.target.value as BatchStatus)}
-      className={`text-xs px-2 py-0.5 rounded font-medium cursor-pointer border outline-none appearance-none ${s?.color ?? ""}`}
-      style={{ background: "transparent" }}
-    >
-      {BATCH_STATUSES.map((opt) => (
-        <option key={opt.value} value={opt.value} style={{ background: "rgb(39 39 42)", color: "rgb(244 244 245)" }}>
-          {opt.label}
-        </option>
-      ))}
-    </select>
-  );
-}
-
-function StatusTimeline({ history, currentStatus }: { history: BatchStatusHistory[]; currentStatus: BatchStatus }) {
-  if (!history.length) {
-    return <p className="text-xs text-zinc-600">No status history recorded.</p>;
+function TransferLog({ transfers, batchVol }: { transfers: BatchTransfer[]; batchVol: number }) {
+  if (!transfers.length) {
+    return <p className="text-xs text-zinc-600">No transfers recorded yet.</p>;
   }
 
+  const sorted = [...transfers].sort(
+    (a, b) => new Date(a.transferred_at).getTime() - new Date(b.transferred_at).getTime()
+  );
+
   return (
-    <div className="flex flex-col gap-0">
-      <p className="text-xs text-zinc-600 mb-2 font-medium uppercase tracking-wide">Status Timeline</p>
-      <div className="flex flex-col">
-        {history.map((h, i) => {
-          const s = STATUS_MAP[h.status as BatchStatus];
-          const isLast = i === history.length - 1;
-          return (
-            <div key={h.id} className="flex items-start gap-3">
-              {/* Timeline connector */}
-              <div className="flex flex-col items-center w-3 shrink-0 mt-1">
-                <div className={`w-2.5 h-2.5 rounded-full border-2 shrink-0 ${isLast ? "border-amber-500 bg-amber-500/30" : "border-zinc-600 bg-zinc-800"}`} />
-                {!isLast && <div className="w-px flex-1 bg-zinc-700 mt-1 mb-1 min-h-[16px]" />}
-              </div>
-              <div className="pb-3">
-                <div className="flex items-center gap-2">
-                  <span className={`text-xs px-1.5 py-px rounded border font-medium ${s?.color ?? "text-zinc-400"}`}>
-                    {s?.label ?? h.status}
-                  </span>
-                  <span className="text-xs text-zinc-500">{fmtDateTime(h.changed_at)}</span>
-                </div>
-                {h.note && <p className="text-xs text-zinc-600 mt-0.5">{h.note}</p>}
-              </div>
-            </div>
-          );
-        })}
+    <div>
+      <p className="text-xs text-zinc-600 mb-2 font-medium uppercase tracking-wide">Transfer Log</p>
+      <div className="overflow-x-auto rounded border border-zinc-800/60">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="border-b border-zinc-800 bg-zinc-900/40 text-left">
+              {["Date", "From", "To", "Type", "Draw", "Shrinkage", "Notes"].map((h) => (
+                <th key={h} className="px-3 py-2 font-medium text-zinc-500">{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((t, i) => {
+              const fromEq = t.from_tank ? EQ[t.from_tank.type as keyof typeof EQ] : null;
+              const toEq   = t.to_tank   ? EQ[t.to_tank.type   as keyof typeof EQ] : null;
+              return (
+                <tr key={t.id} className={`border-b border-zinc-800/40 ${i % 2 !== 0 ? "bg-zinc-900/20" : ""}`}>
+                  <td className="px-3 py-2 text-zinc-500 whitespace-nowrap">{fmtDateTime(t.transferred_at)}</td>
+                  <td className="px-3 py-2 text-zinc-300">
+                    {t.from_tank
+                      ? <><span className="text-zinc-100">{t.from_tank.name}</span> <span className={`px-1 py-px rounded border text-zinc-500 ${fromEq?.badge ?? ""}`} style={{ fontSize: 9 }}>{fromEq?.label ?? t.from_tank.type}</span></>
+                      : <span className="text-zinc-600">—</span>}
+                  </td>
+                  <td className="px-3 py-2 text-zinc-300">
+                    {t.to_tank
+                      ? <><span className="text-zinc-100">{t.to_tank.name}</span> <span className={`px-1 py-px rounded border text-zinc-500 ${toEq?.badge ?? ""}`} style={{ fontSize: 9 }}>{toEq?.label ?? t.to_tank.type}</span></>
+                      : <span className="text-zinc-600">—</span>}
+                  </td>
+                  <td className="px-3 py-2 text-zinc-400 capitalize">{t.transfer_type}</td>
+                  <td className="px-3 py-2 tabular-nums text-zinc-300">{fmtBbl(Number(t.volume_bbl))}</td>
+                  <td className="px-3 py-2 tabular-nums text-zinc-500">
+                    {Number(t.shrinkage_bbl) > 0 ? fmtBbl(Number(t.shrinkage_bbl)) : "—"}
+                  </td>
+                  <td className="px-3 py-2 text-zinc-500 max-w-[160px] truncate">{t.notes ?? "—"}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
+      <p className="text-xs text-zinc-600 mt-1.5">
+        Batch volume: {fmtBbl(batchVol)} · Total transferred:{" "}
+        {fmtBbl(sorted.reduce((s, t) => s + Number(t.volume_bbl), 0))} ·
+        Total shrinkage:{" "}
+        {fmtBbl(sorted.reduce((s, t) => s + Number(t.shrinkage_bbl), 0))}
+      </p>
     </div>
   );
 }

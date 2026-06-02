@@ -1,11 +1,14 @@
 "use client";
 
 import React, { useState } from "react";
-import { Tank, BrewBatch, PackagingItem } from "../types";
+import { Tank, BrewBatch, PackagingItem, UNCONSTRAINED_TANK_TYPES } from "../types";
 import { Modal, Field, ModalActions } from "./shared";
 import { EQ } from "../equipmentMeta";
 import { fmtBbl } from "@/lib/utils/formatting";
 import { BBL_TO_FL_OZ } from "@/lib/constants/production";
+
+// Cold storage is only reachable from kegging or canning
+const COLD_STORAGE_SOURCES = new Set(["kegging", "canning"]);
 
 interface KegLine { packaging_id: string; quantity: string }
 
@@ -19,7 +22,13 @@ interface TransferModalProps {
 }
 
 export default function TransferModal({ batch, fromTank, allTanks, packaging, onClose, onDone }: TransferModalProps) {
-  const destTanks = allTanks.filter((t) => t.id !== fromTank.id);
+  const destTanks = allTanks.filter((t) => {
+    if (t.id === fromTank.id) return false;
+    // Cold storage only reachable from kegging / canning
+    if (t.type === "cold_storage" && !COLD_STORAGE_SOURCES.has(fromTank.type)) return false;
+    return true;
+  });
+
   const [destId, setDestId] = useState(destTanks[0]?.id ?? "");
   const [volumeMode, setVolumeMode] = useState<"full" | "partial">("full");
   const [partialBbl, setPartialBbl] = useState("");
@@ -38,7 +47,7 @@ export default function TransferModal({ batch, fromTank, allTanks, packaging, on
   const [cases, setCases] = useState("");
   const [looseCans, setLooseCans] = useState("0");
 
-  const destTank = allTanks.find((t) => t.id === destId);
+  const destTank  = allTanks.find((t) => t.id === destId);
   const isKegging = destTank?.type === "kegging";
   const isCanning = destTank?.type === "canning";
   const isSpecial = isKegging || isCanning;
@@ -68,8 +77,11 @@ export default function TransferModal({ batch, fromTank, allTanks, packaging, on
     const totalCans = (parseInt(cases) || 0) * cansPerCase + (parseInt(looseCans) || 0);
     const canVol    = selectedCan?.volume_fl_oz ?? 0;
     drawBbl = (totalCans * canVol) / BBL_TO_FL_OZ;
+  } else if (volumeMode === "full") {
+    // Full transfer: draw is whatever is left after shrinkage
+    drawBbl = Math.max(0, batchVol - shrinkBbl);
   } else {
-    drawBbl = volumeMode === "full" ? batchVol : (parseFloat(partialBbl) || 0);
+    drawBbl = parseFloat(partialBbl) || 0;
   }
 
   const totalDraw = drawBbl + shrinkBbl;
@@ -133,6 +145,8 @@ export default function TransferModal({ batch, fromTank, allTanks, packaging, on
     }
   }
 
+  const destHasCapacity = destTank ? !UNCONSTRAINED_TANK_TYPES.includes(destTank.type) : true;
+
   return (
     <Modal title="Transfer Batch" onClose={onClose} wide>
       <form onSubmit={handleSubmit} className="space-y-4">
@@ -158,9 +172,15 @@ export default function TransferModal({ batch, fromTank, allTanks, packaging, on
           <select className="inp" value={destId} required onChange={(e) => setDestId(e.target.value)}>
             <option value="">— select —</option>
             {destTanks.map((t) => (
-              <option key={t.id} value={t.id}>{t.name} ({EQ[t.type]?.label ?? t.type})</option>
+              <option key={t.id} value={t.id}>
+                {t.name} ({EQ[t.type]?.label ?? t.type})
+                {t.capacity_bbl ? ` · ${t.capacity_bbl} BBL` : ""}
+              </option>
             ))}
           </select>
+          {!destHasCapacity && destTank && (
+            <p className="text-xs text-zinc-500 mt-0.5">{EQ[destTank.type]?.label} has no capacity limit.</p>
+          )}
         </Field>
 
         {/* Regular transfer: full / partial */}
@@ -272,6 +292,9 @@ export default function TransferModal({ batch, fromTank, allTanks, packaging, on
               value={shrinkage} onChange={(e) => setShrinkage(e.target.value)} />
             <span className="text-zinc-500 text-sm">BBL lost</span>
           </div>
+          {!isSpecial && volumeMode === "full" && shrinkBbl > 0 && (
+            <p className="text-xs text-zinc-500 mt-0.5">Shrinkage deducted from full transfer draw automatically.</p>
+          )}
         </Field>
 
         {/* Volume summary */}

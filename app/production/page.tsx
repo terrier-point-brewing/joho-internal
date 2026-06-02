@@ -15,7 +15,7 @@ type Tab = typeof TABS[number];
 export default function ProductionPage() {
   const [tab, setTab] = useState<Tab>("Brew Status");
   const {
-    ingredients, adjustments, recipes, batches, tanks, assignments, packaging,
+    ingredients, adjustments, recipes, batches, tanks, assignments, packaging, transfers,
     loadIngredients, loadAdjustments, loadRecipes, loadBatches, loadPackaging,
     refreshBrewStatus,
   } = useProductionData();
@@ -41,7 +41,9 @@ export default function ProductionPage() {
       {tab === "Brew Status" && (
         <BrewStatusTab tanks={tanks} assignments={assignments} batches={batches} onRefresh={refreshBrewStatus} />
       )}
-      {tab === "Batch Log"   && <BatchLogTab batches={batches} recipes={recipes} onRefresh={loadBatches} />}
+      {tab === "Batch Log" && (
+        <BatchLogTab batches={batches} recipes={recipes} transfers={transfers} onRefresh={loadBatches} />
+      )}
       {tab === "Ingredients" && (
         <IngredientsTab
           ingredients={ingredients}

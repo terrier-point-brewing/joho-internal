@@ -8,7 +8,21 @@ export type BatchStatus =
 
 export type AdjustmentType = "received" | "used" | "waste" | "inventory_count" | "batch_use";
 
+// unitank / serving kept for DB backward-compat but hidden in UI
 export type TankType = "fermenter" | "brite" | "unitank" | "serving" | "brewhouse" | "cold_storage" | "kegging" | "canning";
+
+// Types that have no capacity constraint and don't hold a single batch
+export const UNCONSTRAINED_TANK_TYPES: TankType[] = ["kegging", "canning", "cold_storage"];
+
+// Map tank type to the batch status it implies
+export const TANK_TYPE_TO_STATUS: Partial<Record<TankType, BatchStatus>> = {
+  brewhouse:    "brewing",
+  fermenter:    "fermenting",
+  brite:        "conditioning",
+  kegging:      "ready_to_package",
+  canning:      "ready_to_package",
+  cold_storage: "archived",
+};
 
 export type PackagingItemType = "keg" | "can" | "lid" | "paktech" | "tray";
 
@@ -36,6 +50,8 @@ export interface BatchTransfer {
   kegging_detail: unknown | null;
   canning_detail: unknown | null;
   transferred_at: string;
+  from_tank?: { id: string; name: string; type: TankType } | null;
+  to_tank?:   { id: string; name: string; type: TankType } | null;
 }
 
 export interface Ingredient {
@@ -55,6 +71,8 @@ export interface StockAdjustment {
   type: AdjustmentType;
   note: string | null;
   batch_id: string | null;
+  cost_per_unit: number | null;
+  total_value_change: number | null;
   created_at: string;
   ingredients?: { name: string; unit: string };
   brew_batches?: { beer_name: string; batch_number: string | null } | null;

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { Tank, TankType } from "../types";
+import { Tank, TankType, UNCONSTRAINED_TANK_TYPES } from "../types";
 import { EQ } from "../equipmentMeta";
 
 const TANK_EMPTY = {
@@ -38,14 +38,15 @@ export function useEquipmentCrud(onRefresh: () => Promise<void>) {
   async function handleEqSubmit(ev: React.FormEvent) {
     ev.preventDefault();
     setEqSubmitting(true);
+    const isUnconstrained = UNCONSTRAINED_TANK_TYPES.includes(eqForm.type);
     try {
       const payload = {
         name:         eqForm.name,
         type:         eqForm.type,
-        capacity_bbl: eqForm.capacity_bbl ? parseFloat(eqForm.capacity_bbl) : null,
+        capacity_bbl: (!isUnconstrained && eqForm.capacity_bbl) ? parseFloat(eqForm.capacity_bbl) : null,
         notes:        eqForm.notes || null,
-        grid_width:   parseInt(eqForm.grid_width)  || EQ[eqForm.type].defaultW,
-        grid_height:  parseInt(eqForm.grid_height) || EQ[eqForm.type].defaultH,
+        grid_width:   parseInt(eqForm.grid_width)  || EQ[eqForm.type]!.defaultW,
+        grid_height:  parseInt(eqForm.grid_height) || EQ[eqForm.type]!.defaultH,
       };
       const res = editingId
         ? await fetch(`/api/production/tanks/${editingId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })

@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect } from "react";
 import {
   Ingredient, StockAdjustment, Recipe, BrewBatch,
-  Tank, BatchTankAssignment, PackagingItem,
+  Tank, BatchTankAssignment, PackagingItem, BatchTransfer,
 } from "../types";
 
 export function useProductionData() {
@@ -14,6 +14,7 @@ export function useProductionData() {
   const [tanks,       setTanks]       = useState<Tank[]>([]);
   const [assignments, setAssignments] = useState<BatchTankAssignment[]>([]);
   const [packaging,   setPackaging]   = useState<PackagingItem[]>([]);
+  const [transfers,   setTransfers]   = useState<BatchTransfer[]>([]);
 
   const loadIngredients = useCallback(async () => { const r = await fetch("/api/production/ingredients");       if (r.ok) setIngredients(await r.json()); }, []);
   const loadAdjustments = useCallback(async () => { const r = await fetch("/api/production/stock-adjustments"); if (r.ok) setAdjustments(await r.json()); }, []);
@@ -22,10 +23,11 @@ export function useProductionData() {
   const loadTanks       = useCallback(async () => { const r = await fetch("/api/production/tanks");             if (r.ok) setTanks(await r.json()); }, []);
   const loadAssignments = useCallback(async () => { const r = await fetch("/api/production/tank-assignments");  if (r.ok) setAssignments(await r.json()); }, []);
   const loadPackaging   = useCallback(async () => { const r = await fetch("/api/production/packaging");         if (r.ok) setPackaging(await r.json()); }, []);
+  const loadTransfers   = useCallback(async () => { const r = await fetch("/api/production/transfers");         if (r.ok) setTransfers(await r.json()); }, []);
 
   const refreshBrewStatus = useCallback(async () => {
-    await Promise.all([loadTanks(), loadAssignments(), loadBatches()]);
-  }, [loadTanks, loadAssignments, loadBatches]);
+    await Promise.all([loadTanks(), loadAssignments(), loadBatches(), loadTransfers()]);
+  }, [loadTanks, loadAssignments, loadBatches, loadTransfers]);
 
   useEffect(() => {
     loadIngredients();
@@ -35,12 +37,13 @@ export function useProductionData() {
     loadTanks();
     loadAssignments();
     loadPackaging();
-  }, [loadIngredients, loadAdjustments, loadRecipes, loadBatches, loadTanks, loadAssignments, loadPackaging]);
+    loadTransfers();
+  }, [loadIngredients, loadAdjustments, loadRecipes, loadBatches, loadTanks, loadAssignments, loadPackaging, loadTransfers]);
 
   return {
-    ingredients, adjustments, recipes, batches, tanks, assignments, packaging,
+    ingredients, adjustments, recipes, batches, tanks, assignments, packaging, transfers,
     loadIngredients, loadAdjustments, loadRecipes, loadBatches,
-    loadTanks, loadAssignments, loadPackaging,
+    loadTanks, loadAssignments, loadPackaging, loadTransfers,
     refreshBrewStatus,
   };
 }

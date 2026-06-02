@@ -10,10 +10,10 @@ const ADJUSTMENT_TYPES: {
   hint: string;
   sign: "positive" | "negative" | "count";
 }[] = [
-  { value: "received",        label: "Received",          hint: "Inventory received from supplier",    sign: "positive" },
-  { value: "used",            label: "Used",              hint: "Manually recorded usage",             sign: "negative" },
-  { value: "waste",           label: "Waste / Loss",      hint: "Spillage, spoilage, or write-off",    sign: "negative" },
-  { value: "inventory_count", label: "Inventory Count",   hint: "Enter the new actual stock total",    sign: "count" },
+  { value: "received",        label: "Received",        hint: "Inventory received from supplier",  sign: "positive" },
+  { value: "used",            label: "Used",            hint: "Manually recorded usage",           sign: "negative" },
+  { value: "waste",           label: "Waste / Loss",    hint: "Spillage, spoilage, or write-off",  sign: "negative" },
+  { value: "inventory_count", label: "Inventory Count", hint: "Enter the new actual stock total",  sign: "count"    },
 ];
 
 const TYPE_COLORS: Record<AdjustmentType, string> = {
@@ -30,6 +30,11 @@ function fmtQty(qty: number, sign = true) {
   const abs = Math.abs(qty).toLocaleString(undefined, { maximumFractionDigits: 3 });
   if (!sign) return abs;
   return qty >= 0 ? `+${abs}` : `-${abs}`;
+}
+
+function fmtValue(v: number | null | undefined) {
+  if (v == null) return "—";
+  return `$${v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 export default function IngredientsTab({
@@ -52,6 +57,7 @@ export default function IngredientsTab({
   const [adjIngredient, setAdjIngredient] = useState<Ingredient | null>(null);
   const [adjType, setAdjType] = useState<AdjustmentType>("received");
   const [adjQty, setAdjQty] = useState("");
+  const [adjPurchaseCost, setAdjPurchaseCost] = useState("");
   const [adjNote, setAdjNote] = useState("");
   const [adjSubmitting, setAdjSubmitting] = useState(false);
 
@@ -83,16 +89,8 @@ export default function IngredientsTab({
         stock_quantity: parseFloat(ingForm.stock_quantity) || 0,
       };
       const res = editingId
-        ? await fetch(`/api/production/ingredients/${editingId}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-          })
-        : await fetch("/api/production/ingredients", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-          });
+        ? await fetch(`/api/production/ingredients/${editingId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })
+        : await fetch("/api/production/ingredients",              { method: "POST",  headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       if (!res.ok) throw new Error((await res.json()).error ?? "Error");
       setShowIngModal(false);
       await onRefresh();
@@ -113,6 +111,7 @@ export default function IngredientsTab({
     setAdjIngredient(ing);
     setAdjType("received");
     setAdjQty("");
+    setAdjPurchaseCost("");
     setAdjNote("");
     setShowAdjModal(true);
   }
@@ -131,6 +130,9 @@ export default function IngredientsTab({
         body.new_total = parseFloat(adjQty);
       } else {
         body.quantity = parseFloat(adjQty);
+      }
+      if (adjType === "received" && adjPurchaseCost !== "") {
+        body.purchase_cost = parseFloat(adjPurchaseCost);
       }
       const res = await fetch("/api/production/stock-adjustments", {
         method: "POST",
@@ -152,6 +154,18 @@ export default function IngredientsTab({
     ? adjustments
     : adjustments.filter((a) => a.ingredient_id === logIngFilter);
 
+  // Preview calculations for "received" type
+  const previewQty  = parseFloat(adjQty) || 0;
+  const previewCost = parseFloat(adjPurchaseCost) || 0;
+  const currentStock = adjIngredient?.stock_quantity ?? 0;
+  const currentCost  = adjIngredient?.cost_per_unit ?? null;
+  const currentValue = currentCost != null ? currentStock * currentCost : null;
+  const newStock     = currentStock + previewQty;
+  const newCostPerUnit = adjType === "received" && previewCost > 0 && previewQty > 0 && newStock > 0
+    ? ((currentStock * (currentCost ?? 0)) + (previewQty * previewCost)) / newStock
+    : currentCost;
+  const newValue = newCostPerUnit != null ? newStock * newCostPerUnit : null;
+
   return (
     <>
       <div className="flex items-center justify-between mb-4">
@@ -169,56 +183,44 @@ export default function IngredientsTab({
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-zinc-800 bg-zinc-900/50 text-left">
-                {["Name", "Supplier", "Unit", "Cost / Unit", "Stock", ""].map((h) => (
-                  <th
-                    key={h}
-                    className={`px-4 py-2.5 text-xs font-medium text-zinc-500 ${
-                      h === "Cost / Unit" || h === "Stock" ? "text-right" : ""
-                    }`}
-                  >
-                    {h}
-                  </th>
+                {["Name", "Supplier", "Unit", "Cost / Unit", "Stock", "Total Value", ""].map((h) => (
+                  <th key={h} className={`px-4 py-2.5 text-xs font-medium text-zinc-500 ${
+                    ["Cost / Unit", "Stock", "Total Value"].includes(h) ? "text-right" : ""
+                  }`}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {ingredients.map((ing, i) => (
-                <tr key={ing.id} className={`border-b border-zinc-800/60 ${i % 2 !== 0 ? "bg-zinc-900/30" : ""}`}>
-                  <td className="px-4 py-2.5 text-zinc-100 font-medium">{ing.name}</td>
-                  <td className="px-4 py-2.5 text-zinc-400">{ing.supplier ?? "—"}</td>
-                  <td className="px-4 py-2.5 text-zinc-400">{ing.unit}</td>
-                  <td className="px-4 py-2.5 text-zinc-300 text-right tabular-nums">
-                    {ing.cost_per_unit != null ? `$${Number(ing.cost_per_unit).toFixed(4)}` : "—"}
-                  </td>
-                  <td className="px-4 py-2.5 text-right tabular-nums">
-                    <span className={`${Number(ing.stock_quantity) < 0 ? "text-red-400" : "text-zinc-300"}`}>
-                      {Number(ing.stock_quantity).toLocaleString(undefined, { maximumFractionDigits: 3 })} {ing.unit}
-                    </span>
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <div className="flex gap-3 justify-end">
-                      <button
-                        onClick={() => openAdj(ing)}
-                        className="text-xs text-amber-500 hover:text-amber-400 transition-colors font-medium"
-                      >
-                        Adjust
-                      </button>
-                      <button
-                        onClick={() => openEdit(ing)}
-                        className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => handleDelete(ing.id, ing.name)}
-                        className="text-xs text-zinc-600 hover:text-red-400 transition-colors"
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              {ingredients.map((ing, i) => {
+                const totalValue = ing.cost_per_unit != null
+                  ? ing.cost_per_unit * ing.stock_quantity
+                  : null;
+                return (
+                  <tr key={ing.id} className={`border-b border-zinc-800/60 ${i % 2 !== 0 ? "bg-zinc-900/30" : ""}`}>
+                    <td className="px-4 py-2.5 text-zinc-100 font-medium">{ing.name}</td>
+                    <td className="px-4 py-2.5 text-zinc-400">{ing.supplier ?? "—"}</td>
+                    <td className="px-4 py-2.5 text-zinc-400">{ing.unit}</td>
+                    <td className="px-4 py-2.5 text-zinc-300 text-right tabular-nums">
+                      {ing.cost_per_unit != null ? `$${Number(ing.cost_per_unit).toFixed(4)}` : "—"}
+                    </td>
+                    <td className="px-4 py-2.5 text-right tabular-nums">
+                      <span className={Number(ing.stock_quantity) < 0 ? "text-red-400" : "text-zinc-300"}>
+                        {Number(ing.stock_quantity).toLocaleString(undefined, { maximumFractionDigits: 3 })} {ing.unit}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5 text-right tabular-nums text-zinc-300">
+                      {fmtValue(totalValue)}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <div className="flex gap-3 justify-end">
+                        <button onClick={() => openAdj(ing)} className="text-xs text-amber-500 hover:text-amber-400 transition-colors font-medium">Adjust</button>
+                        <button onClick={() => openEdit(ing)} className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors">Edit</button>
+                        <button onClick={() => handleDelete(ing.id, ing.name)} className="text-xs text-zinc-600 hover:text-red-400 transition-colors">Delete</button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -238,11 +240,7 @@ export default function IngredientsTab({
           <div>
             <div className="flex items-center gap-3 mb-3">
               <label className="text-xs text-zinc-500">Filter by ingredient:</label>
-              <select
-                className="inp w-48"
-                value={logIngFilter}
-                onChange={(e) => setLogIngFilter(e.target.value)}
-              >
+              <select className="inp w-48" value={logIngFilter} onChange={(e) => setLogIngFilter(e.target.value)}>
                 <option value="all">All ingredients</option>
                 {ingredients.map((ing) => (
                   <option key={ing.id} value={ing.id}>{ing.name}</option>
@@ -257,8 +255,8 @@ export default function IngredientsTab({
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-zinc-800 bg-zinc-900/50 text-left">
-                      {["Date", "Ingredient", "Type", "Change", "Note", "Batch"].map((h) => (
-                        <th key={h} className={`px-4 py-2.5 text-xs font-medium text-zinc-500 ${h === "Change" ? "text-right" : ""}`}>
+                      {["Date", "Ingredient", "Type", "Change", "Unit Cost", "Value Δ", "Note", "Batch"].map((h) => (
+                        <th key={h} className={`px-4 py-2.5 text-xs font-medium text-zinc-500 ${["Change", "Unit Cost", "Value Δ"].includes(h) ? "text-right" : ""}`}>
                           {h}
                         </th>
                       ))}
@@ -281,7 +279,18 @@ export default function IngredientsTab({
                           <td className={`px-4 py-2 text-right tabular-nums text-xs font-mono ${adj.quantity >= 0 ? "text-green-400" : "text-red-400"}`}>
                             {fmtQty(adj.quantity)} {ing?.unit ?? adj.ingredients?.unit ?? ""}
                           </td>
-                          <td className="px-4 py-2 text-zinc-500 text-xs max-w-[200px] truncate">{adj.note ?? "—"}</td>
+                          <td className="px-4 py-2 text-right tabular-nums text-xs text-zinc-400">
+                            {adj.cost_per_unit != null ? `$${Number(adj.cost_per_unit).toFixed(4)}` : "—"}
+                          </td>
+                          <td className={`px-4 py-2 text-right tabular-nums text-xs font-mono ${
+                            adj.total_value_change == null ? "text-zinc-600"
+                              : adj.total_value_change >= 0 ? "text-green-400" : "text-red-400"
+                          }`}>
+                            {adj.total_value_change != null
+                              ? (adj.total_value_change >= 0 ? "+" : "") + fmtValue(adj.total_value_change)
+                              : "—"}
+                          </td>
+                          <td className="px-4 py-2 text-zinc-500 text-xs max-w-[160px] truncate">{adj.note ?? "—"}</td>
                           <td className="px-4 py-2 text-zinc-600 text-xs font-mono">
                             {adj.brew_batches?.batch_number ?? "—"}
                           </td>
@@ -331,25 +340,32 @@ export default function IngredientsTab({
 
       {/* Adjustment modal */}
       {showAdjModal && adjIngredient && (
-        <Modal
-          title={`Adjust Stock — ${adjIngredient.name}`}
-          onClose={() => setShowAdjModal(false)}
-        >
+        <Modal title={`Adjust Stock — ${adjIngredient.name}`} onClose={() => setShowAdjModal(false)}>
           <form onSubmit={handleAdjSubmit} className="space-y-4">
-            <div className="p-3 bg-zinc-800/50 rounded text-sm text-zinc-400">
-              Current stock:{" "}
-              <span className="text-zinc-100 font-medium">
-                {Number(adjIngredient.stock_quantity).toLocaleString(undefined, { maximumFractionDigits: 3 })} {adjIngredient.unit}
-              </span>
+            {/* Current state summary */}
+            <div className="p-3 bg-zinc-800/50 rounded text-sm grid grid-cols-3 gap-4">
+              <div>
+                <p className="text-xs text-zinc-500 mb-0.5">Current stock</p>
+                <p className="text-zinc-100 font-medium">
+                  {Number(adjIngredient.stock_quantity).toLocaleString(undefined, { maximumFractionDigits: 3 })} {adjIngredient.unit}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-zinc-500 mb-0.5">Unit cost</p>
+                <p className="text-zinc-100 font-medium">
+                  {adjIngredient.cost_per_unit != null ? `$${Number(adjIngredient.cost_per_unit).toFixed(4)}` : "—"}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-zinc-500 mb-0.5">Total value</p>
+                <p className="text-zinc-100 font-medium">{fmtValue(currentValue)}</p>
+              </div>
             </div>
 
             <Field label="Adjustment Type" required>
               <div className="grid grid-cols-2 gap-2">
                 {ADJUSTMENT_TYPES.map((t) => (
-                  <button
-                    key={t.value}
-                    type="button"
-                    onClick={() => setAdjType(t.value)}
+                  <button key={t.value} type="button" onClick={() => setAdjType(t.value)}
                     className={`px-3 py-2 rounded border text-sm text-left transition-colors ${
                       adjType === t.value
                         ? "border-amber-600 bg-amber-900/30 text-amber-300"
@@ -364,23 +380,12 @@ export default function IngredientsTab({
             </Field>
 
             <Field
-              label={
-                adjType === "inventory_count"
-                  ? `New Stock Total (${adjIngredient.unit})`
-                  : `Quantity (${adjIngredient.unit})`
-              }
+              label={adjType === "inventory_count" ? `New Stock Total (${adjIngredient.unit})` : `Quantity (${adjIngredient.unit})`}
               required
             >
-              <input
-                type="number"
-                step="0.001"
-                min="0"
-                className="inp"
+              <input type="number" step="0.001" min="0" className="inp"
                 placeholder={adjType === "inventory_count" ? "Enter new total" : "Enter quantity"}
-                value={adjQty}
-                required
-                onChange={(e) => setAdjQty(e.target.value)}
-              />
+                value={adjQty} required onChange={(e) => setAdjQty(e.target.value)} />
               {adjQty && adjType !== "inventory_count" && (
                 <p className="text-xs mt-1 text-zinc-500">
                   {adjTypeMeta?.sign === "positive" ? "Adds" : "Removes"}{" "}
@@ -389,26 +394,54 @@ export default function IngredientsTab({
                   </span>{" "}
                   → new total:{" "}
                   <span className="text-zinc-300">
-                    {(
-                      adjIngredient.stock_quantity +
-                      (adjTypeMeta?.sign === "positive" ? 1 : -1) * parseFloat(adjQty || "0")
-                    ).toLocaleString(undefined, { maximumFractionDigits: 3 })}{" "}
+                    {(adjIngredient.stock_quantity + (adjTypeMeta?.sign === "positive" ? 1 : -1) * parseFloat(adjQty || "0"))
+                      .toLocaleString(undefined, { maximumFractionDigits: 3 })}{" "}
                     {adjIngredient.unit}
                   </span>
                 </p>
               )}
             </Field>
 
+            {/* Purchase cost — only shown for "received" */}
+            {adjType === "received" && (
+              <Field label="Purchase Cost ($ per unit)">
+                <input type="number" step="0.0001" min="0" className="inp" placeholder="0.0000"
+                  value={adjPurchaseCost} onChange={(e) => setAdjPurchaseCost(e.target.value)} />
+                {previewQty > 0 && previewCost > 0 && (
+                  <div className="mt-2 p-2.5 rounded bg-zinc-800/60 border border-zinc-700 text-xs space-y-1">
+                    <p className="text-zinc-400 font-medium mb-1">After this receipt:</p>
+                    <div className="flex justify-between">
+                      <span className="text-zinc-500">Unit cost</span>
+                      <span className="text-zinc-200">
+                        {currentCost != null ? `$${Number(currentCost).toFixed(4)}` : "—"}
+                        {" → "}
+                        <span className="text-green-300">${Number(newCostPerUnit).toFixed(4)}</span>
+                        {" (weighted avg)"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-zinc-500">Total value</span>
+                      <span className="text-zinc-200">
+                        {fmtValue(currentValue)}
+                        {" → "}
+                        <span className="text-green-300">{fmtValue(newValue)}</span>
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-zinc-500">Receipt value</span>
+                      <span className="text-green-400">+{fmtValue(previewQty * previewCost)}</span>
+                    </div>
+                  </div>
+                )}
+              </Field>
+            )}
+
             <Field label="Note">
               <input className="inp" placeholder="Optional reason or reference"
                 value={adjNote} onChange={(e) => setAdjNote(e.target.value)} />
             </Field>
 
-            <ModalActions
-              submitting={adjSubmitting}
-              onCancel={() => setShowAdjModal(false)}
-              label="Record Adjustment"
-            />
+            <ModalActions submitting={adjSubmitting} onCancel={() => setShowAdjModal(false)} label="Record Adjustment" />
           </form>
         </Modal>
       )}

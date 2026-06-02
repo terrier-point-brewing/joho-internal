@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase/client";
+import { TANK_TYPE_TO_STATUS, TankType } from "@/app/production/types";
 
 export async function GET() {
-  // Returns all active (unreleased) assignments with batch + tank info
   const { data, error } = await supabase
     .from("batch_tank_assignments")
     .select("*, brew_batches(id, beer_name, batch_number, status, volume_bbl)")
@@ -36,5 +36,27 @@ export async function POST(req: NextRequest) {
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // Auto-update batch status based on tank type
+  const { data: tank } = await supabase
+    .from("tanks").select("type").eq("id", tank_id).single();
+
+  if (tank) {
+    const newStatus = TANK_TYPE_TO_STATUS[tank.type as TankType];
+    if (newStatus) {
+      const { data: batch } = await supabase
+        .from("brew_batches").select("status").eq("id", batch_id).single();
+
+      if (batch?.status !== newStatus) {
+        await supabase.from("brew_batches").update({ status: newStatus }).eq("id", batch_id);
+        await supabase.from("batch_status_history").insert({
+          batch_id,
+          status: newStatus,
+          note: `Auto: assigned to ${tank.type}`,
+        });
+      }
+    }
+  }
+
   return NextResponse.json(data, { status: 201 });
 }

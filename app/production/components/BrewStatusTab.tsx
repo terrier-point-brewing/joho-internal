@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Tank, BatchTankAssignment, BrewBatch, PackagingItem } from "../types";
+import { Tank, BatchTankAssignment, BrewBatch, PackagingItem, UNCONSTRAINED_TANK_TYPES } from "../types";
 import { StatusBadge, Modal, Field, ModalActions } from "./shared";
 import { EQ, EQ_TYPES } from "../equipmentMeta";
 import { GRID_CELL_PX as CELL, GRID_COLS, GRID_ROWS, GRID_GAP_PX as GAP } from "@/lib/constants/production";
@@ -49,11 +49,13 @@ export default function BrewStatusTab({
 
   const transferTank       = transferTankId ? tanks.find((t) => t.id === transferTankId) ?? null : null;
   const transferAssignment = transferTankId ? assignmentByTank[transferTankId] : null;
-  const transferBatch      = transferAssignment ? batches.find((b) => b.id === transferAssignment.batch_id) ?? null : null;
+  const transferBatch      = transferAssignment
+    ? batches.find((b) => b.id === transferAssignment.batch_id) ?? null
+    : null;
 
-  const drag    = useTankDragDrop(tanks, onRefresh);
-  const eqCrud  = useEquipmentCrud(onRefresh);
-  const assign  = useBatchAssign(unassignedBatches, onRefresh);
+  const drag   = useTankDragDrop(tanks, onRefresh);
+  const eqCrud = useEquipmentCrud(onRefresh);
+  const assign = useBatchAssign(unassignedBatches, onRefresh);
 
   return (
     <>
@@ -109,9 +111,9 @@ export default function BrewStatusTab({
           onDrop={editMode ? drag.onGridDrop : undefined}
           onDragLeave={() => drag.clearDrag()}
         >
-          {/* Placed equipment */}
           {placed.map((tank) => {
             const eq             = EQ[tank.type];
+            if (!eq) return null;
             const assignment     = assignmentByTank[tank.id];
             const batch          = assignment?.brew_batches;
             const isDraggingThis = drag.dragging?.id === tank.id;
@@ -119,6 +121,7 @@ export default function BrewStatusTab({
             const pixH           = tank.grid_height * CELL - GAP * 2;
             const compact        = pixW < 100 || pixH < 90;
             const tiny           = pixW < 60  || pixH < 60;
+            const isUnconstrained = UNCONSTRAINED_TANK_TYPES.includes(tank.type);
 
             return (
               <div
@@ -131,13 +134,13 @@ export default function BrewStatusTab({
                 } ${editMode ? "cursor-grab active:cursor-grabbing" : ""} ${eq.border}`}
                 style={{ ...eqStyle(tank), background: "rgba(9,9,11,0.85)" }}
               >
-                {/* Header */}
-                <div className={`shrink-0 px-2 py-1 flex items-center justify-between gap-1 ${eq.headerBg}`}>
-                  <span className="font-semibold text-zinc-100 truncate" style={{ fontSize: tiny ? 9 : compact ? 10 : 11 }}>
+                {/* Header — name on first line, type badge on second */}
+                <div className={`shrink-0 px-2 py-1 flex flex-col gap-0.5 ${eq.headerBg}`}>
+                  <span className="font-semibold text-zinc-100 leading-tight" style={{ fontSize: tiny ? 9 : compact ? 10 : 11 }}>
                     {tank.name}
                   </span>
                   {!tiny && (
-                    <span className={`text-xs px-1 py-px rounded border shrink-0 ${eq.badge}`} style={{ fontSize: 9 }}>
+                    <span className={`self-start text-xs px-1 py-px rounded border ${eq.badge}`} style={{ fontSize: 8 }}>
                       {eq.label}
                     </span>
                   )}
@@ -146,12 +149,18 @@ export default function BrewStatusTab({
                 {/* Body */}
                 {!tiny && (
                   <div className="flex-1 min-h-0 px-2 py-1 flex flex-col gap-0.5">
-                    {tank.capacity_bbl && !compact && (
-                      <p className="text-zinc-600" style={{ fontSize: 9 }}>{tank.capacity_bbl} BBL</p>
+                    {/* Capacity / fill line */}
+                    {!compact && !isUnconstrained && (
+                      <p className="text-zinc-600" style={{ fontSize: 9 }}>
+                        {batch
+                          ? `${Number(batch.volume_bbl).toFixed(1)} BBL${tank.capacity_bbl ? ` / ${tank.capacity_bbl} BBL` : ""}`
+                          : tank.capacity_bbl ? `${tank.capacity_bbl} BBL` : ""}
+                      </p>
                     )}
+
                     {batch ? (
                       <>
-                        <p className="text-zinc-200 font-medium leading-tight truncate" style={{ fontSize: compact ? 9 : 10 }}>
+                        <p className="text-zinc-200 font-medium leading-tight break-words whitespace-normal" style={{ fontSize: compact ? 9 : 10 }}>
                           {batch.beer_name}
                         </p>
                         <p className="text-zinc-500 font-mono" style={{ fontSize: 9 }}>{batch.batch_number ?? "—"}</p>
@@ -169,21 +178,13 @@ export default function BrewStatusTab({
                             >
                               Transfer
                             </button>
-                            <button
-                              onClick={() => assign.handleRelease(assignment!.id)}
-                              onMouseDown={(e) => e.stopPropagation()}
-                              className="text-xs text-zinc-600 hover:text-red-400 border border-zinc-700 hover:border-red-800 px-1.5 rounded transition-colors"
-                              style={{ fontSize: 9 }}
-                            >
-                              Release
-                            </button>
                           </div>
                         )}
                       </>
                     ) : (
                       <div className="flex-1 flex flex-col items-center justify-center gap-1">
                         <p className="text-zinc-700" style={{ fontSize: 9 }}>Empty</p>
-                        {!editMode && unassignedBatches.length > 0 && (
+                        {!editMode && !isUnconstrained && unassignedBatches.length > 0 && (
                           <button
                             onClick={() => assign.openAssign(tank.id)}
                             onMouseDown={(e) => e.stopPropagation()}
@@ -208,13 +209,11 @@ export default function BrewStatusTab({
             );
           })}
 
-          {/* Drop preview ghost */}
+          {/* Drop preview */}
           {drag.dropPreview && drag.draggingTank && (
             <div
               className={`absolute pointer-events-none z-20 rounded border-2 border-dashed ${
-                drag.dropPreview.valid
-                  ? "border-amber-400 bg-amber-900/15"
-                  : "border-red-500 bg-red-900/15"
+                drag.dropPreview.valid ? "border-amber-400 bg-amber-900/15" : "border-red-500 bg-red-900/15"
               }`}
               style={{
                 left:   drag.dropPreview.col * CELL + GAP,
@@ -242,6 +241,7 @@ export default function BrewStatusTab({
           <div className="flex flex-wrap gap-2">
             {unplaced.map((tank) => {
               const eq = EQ[tank.type];
+              if (!eq) return null;
               return (
                 <div
                   key={tank.id}
@@ -310,13 +310,14 @@ export default function BrewStatusTab({
                 onChange={(e) => eqCrud.setEqForm((f) => ({ ...f, name: e.target.value }))} />
             </Field>
             <Field label="Type" required>
-              <div className="grid grid-cols-4 gap-2">
+              <div className="grid grid-cols-3 gap-2">
                 {EQ_TYPES.map(([type, meta]) => (
                   <button key={type} type="button"
                     onClick={() => eqCrud.setEqForm((f) => ({
                       ...f, type,
                       grid_width:  String(meta.defaultW),
                       grid_height: String(meta.defaultH),
+                      capacity_bbl: UNCONSTRAINED_TANK_TYPES.includes(type) ? "" : f.capacity_bbl,
                     }))}
                     className={`px-2 py-2 rounded border text-xs font-medium transition-colors ${
                       eqCrud.eqForm.type === type
@@ -331,8 +332,17 @@ export default function BrewStatusTab({
             </Field>
             <div className="grid grid-cols-2 gap-3">
               <Field label="Capacity (BBL)">
-                <input type="number" step="0.5" min="0" className="inp" value={eqCrud.eqForm.capacity_bbl}
-                  onChange={(e) => eqCrud.setEqForm((f) => ({ ...f, capacity_bbl: e.target.value }))} />
+                <input
+                  type="number" step="0.5" min="0" className="inp"
+                  disabled={UNCONSTRAINED_TANK_TYPES.includes(eqCrud.eqForm.type)}
+                  placeholder={UNCONSTRAINED_TANK_TYPES.includes(eqCrud.eqForm.type) ? "N/A" : ""}
+                  value={eqCrud.eqForm.capacity_bbl}
+                  onChange={(e) => eqCrud.setEqForm((f) => ({ ...f, capacity_bbl: e.target.value }))}
+                  style={UNCONSTRAINED_TANK_TYPES.includes(eqCrud.eqForm.type) ? { opacity: 0.35, cursor: "not-allowed" } : {}}
+                />
+                {UNCONSTRAINED_TANK_TYPES.includes(eqCrud.eqForm.type) && (
+                  <p className="text-xs text-zinc-600 mt-0.5">No capacity constraint for this type</p>
+                )}
               </Field>
               <div className="grid grid-cols-2 gap-2">
                 <Field label="Width (cells)">
