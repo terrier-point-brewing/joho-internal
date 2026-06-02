@@ -1,15 +1,16 @@
 "use client";
 
-import React, { useState, useRef, useCallback } from "react";
-import { Tank, BatchTankAssignment, BrewBatch, TankType } from "../types";
+import React, { useState, useRef, useCallback, useEffect } from "react";
+import { Tank, BatchTankAssignment, BrewBatch, TankType, PackagingItem } from "../types";
 import { StatusBadge, Modal, Field, ModalActions } from "./shared";
 
 // ─── Grid constants ───────────────────────────────────────────────────────────
 
-const CELL = 48;       // px per grid unit
-const GAP = 3;         // px inset inside each cell
+const CELL = 48;
+const GAP = 3;
 const GRID_COLS = 24;
 const GRID_ROWS = 16;
+const BBL_TO_FL_OZ = 3968; // 1 bbl = 31 gal = 3968 fl oz
 
 // ─── Equipment metadata ───────────────────────────────────────────────────────
 
@@ -21,12 +22,14 @@ const EQ: Record<TankType, {
   defaultW: number;
   defaultH: number;
 }> = {
-  fermenter:    { label: "Fermenter",    headerBg: "bg-blue-950/80",   border: "border-blue-800",   badge: "bg-blue-900/60 text-blue-300 border-blue-700",    defaultW: 2, defaultH: 4 },
-  unitank:      { label: "Unitank",      headerBg: "bg-indigo-950/80", border: "border-indigo-800", badge: "bg-indigo-900/60 text-indigo-300 border-indigo-700", defaultW: 2, defaultH: 4 },
-  brite:        { label: "Brite",        headerBg: "bg-cyan-950/80",   border: "border-cyan-800",   badge: "bg-cyan-900/60 text-cyan-300 border-cyan-700",     defaultW: 2, defaultH: 3 },
-  serving:      { label: "Serving",      headerBg: "bg-teal-950/80",   border: "border-teal-800",   badge: "bg-teal-900/60 text-teal-300 border-teal-700",     defaultW: 2, defaultH: 2 },
-  brewhouse:    { label: "Brewhouse",    headerBg: "bg-amber-950/80",  border: "border-amber-700",  badge: "bg-amber-900/60 text-amber-300 border-amber-600",  defaultW: 3, defaultH: 3 },
-  cold_storage: { label: "Cold Storage", headerBg: "bg-sky-950/80",    border: "border-sky-800",    badge: "bg-sky-900/60 text-sky-300 border-sky-700",        defaultW: 5, defaultH: 2 },
+  fermenter:    { label: "Fermenter",    headerBg: "bg-blue-950/80",    border: "border-blue-800",    badge: "bg-blue-900/60 text-blue-300 border-blue-700",       defaultW: 2, defaultH: 4 },
+  unitank:      { label: "Unitank",      headerBg: "bg-indigo-950/80",  border: "border-indigo-800",  badge: "bg-indigo-900/60 text-indigo-300 border-indigo-700",  defaultW: 2, defaultH: 4 },
+  brite:        { label: "Brite",        headerBg: "bg-cyan-950/80",    border: "border-cyan-800",    badge: "bg-cyan-900/60 text-cyan-300 border-cyan-700",        defaultW: 2, defaultH: 3 },
+  serving:      { label: "Serving",      headerBg: "bg-teal-950/80",    border: "border-teal-800",    badge: "bg-teal-900/60 text-teal-300 border-teal-700",        defaultW: 2, defaultH: 2 },
+  brewhouse:    { label: "Brewhouse",    headerBg: "bg-amber-950/80",   border: "border-amber-700",   badge: "bg-amber-900/60 text-amber-300 border-amber-600",     defaultW: 3, defaultH: 3 },
+  cold_storage: { label: "Cold Storage", headerBg: "bg-sky-950/80",     border: "border-sky-800",     badge: "bg-sky-900/60 text-sky-300 border-sky-700",           defaultW: 5, defaultH: 2 },
+  kegging:      { label: "Kegging",      headerBg: "bg-orange-950/80",  border: "border-orange-800",  badge: "bg-orange-900/60 text-orange-300 border-orange-700",  defaultW: 3, defaultH: 2 },
+  canning:      { label: "Canning",      headerBg: "bg-rose-950/80",    border: "border-rose-800",    badge: "bg-rose-900/60 text-rose-300 border-rose-700",        defaultW: 3, defaultH: 2 },
 };
 
 const EQ_TYPES = Object.entries(EQ) as [TankType, typeof EQ[TankType]][];
@@ -62,11 +65,316 @@ function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
+function fmtBbl(v: number) {
+  return v.toFixed(3) + " BBL";
+}
+
 // ─── Tank form defaults ───────────────────────────────────────────────────────
 
 const TANK_EMPTY = {
   name: "", type: "fermenter" as TankType, capacity_bbl: "", notes: "", grid_width: "2", grid_height: "4",
 };
+
+// ─── Transfer modal ───────────────────────────────────────────────────────────
+
+interface KegLine { packaging_id: string; quantity: string }
+
+interface TransferModalProps {
+  batch: BrewBatch;
+  fromTank: Tank;
+  allTanks: Tank[];
+  packaging: PackagingItem[];
+  onClose: () => void;
+  onDone: () => Promise<void>;
+}
+
+function TransferModal({ batch, fromTank, allTanks, packaging, onClose, onDone }: TransferModalProps) {
+  const destTanks = allTanks.filter((t) => t.id !== fromTank.id);
+  const [destId, setDestId] = useState(destTanks[0]?.id ?? "");
+  const [volumeMode, setVolumeMode] = useState<"full" | "partial">("full");
+  const [partialBbl, setPartialBbl] = useState("");
+  const [shrinkage, setShrinkage] = useState("0");
+  const [notes, setNotes] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  // Kegging state
+  const [kegLines, setKegLines] = useState<KegLine[]>([{ packaging_id: "", quantity: "" }]);
+
+  // Canning state
+  const [canId, setCanId] = useState("");
+  const [lidId, setLidId] = useState("");
+  const [paktechId, setPaktechId] = useState("");
+  const [trayId, setTrayId] = useState("");
+  const [cases, setCases] = useState("");
+  const [looseCans, setLooseCans] = useState("0");
+
+  const destTank = allTanks.find((t) => t.id === destId);
+  const isKegging = destTank?.type === "kegging";
+  const isCanning = destTank?.type === "canning";
+  const isSpecial = isKegging || isCanning;
+
+  const kegs   = packaging.filter((p) => p.type === "keg");
+  const cans   = packaging.filter((p) => p.type === "can");
+  const lids   = packaging.filter((p) => p.type === "lid");
+  const paktechs = packaging.filter((p) => p.type === "paktech");
+  const trays  = packaging.filter((p) => p.type === "tray");
+
+  const selectedTray = packaging.find((p) => p.id === trayId);
+  const cansPerCase = selectedTray?.can_count ?? 0;
+  const selectedCan = packaging.find((p) => p.id === canId);
+
+  // Volume calculations
+  const batchVol = Number(batch.volume_bbl);
+  const shrinkBbl = parseFloat(shrinkage) || 0;
+
+  let drawBbl = 0;
+  if (isKegging) {
+    drawBbl = kegLines.reduce((sum, l) => {
+      const pkg = packaging.find((p) => p.id === l.packaging_id);
+      const qty = parseInt(l.quantity) || 0;
+      if (!pkg?.volume_fl_oz) return sum;
+      return sum + (qty * pkg.volume_fl_oz) / BBL_TO_FL_OZ;
+    }, 0);
+  } else if (isCanning) {
+    const totalCans = (parseInt(cases) || 0) * cansPerCase + (parseInt(looseCans) || 0);
+    const canVol = selectedCan?.volume_fl_oz ?? 0;
+    drawBbl = (totalCans * canVol) / BBL_TO_FL_OZ;
+  } else {
+    drawBbl = volumeMode === "full" ? batchVol : (parseFloat(partialBbl) || 0);
+  }
+
+  const totalDraw = drawBbl + shrinkBbl;
+  const remaining = batchVol - totalDraw;
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!destId) return;
+    setSubmitting(true);
+    try {
+      let kegging_detail = null;
+      let canning_detail = null;
+      let transfer_type: "transfer" | "kegging" | "canning" = "transfer";
+
+      if (isKegging) {
+        transfer_type = "kegging";
+        kegging_detail = {
+          kegs: kegLines.map((l) => {
+            const pkg = packaging.find((p) => p.id === l.packaging_id);
+            return { packaging_id: l.packaging_id, name: pkg?.name ?? "", volume_fl_oz: pkg?.volume_fl_oz, quantity: parseInt(l.quantity) || 0 };
+          }),
+          total_kegs: kegLines.reduce((s, l) => s + (parseInt(l.quantity) || 0), 0),
+        };
+      } else if (isCanning) {
+        transfer_type = "canning";
+        const totalCans = (parseInt(cases) || 0) * cansPerCase + (parseInt(looseCans) || 0);
+        canning_detail = {
+          can_packaging_id: canId,
+          lid_packaging_id: lidId || null,
+          paktech_packaging_id: paktechId || null,
+          tray_packaging_id: trayId,
+          cans_per_case: cansPerCase,
+          cases: parseInt(cases) || 0,
+          loose_cans: parseInt(looseCans) || 0,
+          total_cans: totalCans,
+        };
+      }
+
+      const res = await fetch("/api/production/transfers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          batch_id: batch.id,
+          from_tank_id: fromTank.id,
+          to_tank_id: destId,
+          volume_bbl: drawBbl,
+          shrinkage_bbl: shrinkBbl,
+          transfer_type,
+          notes: notes || null,
+          kegging_detail,
+          canning_detail,
+        }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? "Error");
+      await onDone();
+      onClose();
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Error");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <Modal title="Transfer Batch" onClose={onClose} wide>
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="flex gap-3 p-3 rounded bg-zinc-900/60 border border-zinc-800 text-sm">
+          <div>
+            <span className="text-zinc-500 text-xs">Batch</span>
+            <p className="text-zinc-100 font-medium">{batch.beer_name}</p>
+            <p className="text-zinc-500 font-mono text-xs">{batch.batch_number ?? "—"}</p>
+          </div>
+          <div className="mx-2 w-px bg-zinc-800" />
+          <div>
+            <span className="text-zinc-500 text-xs">From</span>
+            <p className="text-zinc-100">{fromTank.name}</p>
+          </div>
+          <div className="mx-2 w-px bg-zinc-800" />
+          <div>
+            <span className="text-zinc-500 text-xs">Batch Volume</span>
+            <p className="text-zinc-100">{fmtBbl(batchVol)}</p>
+          </div>
+        </div>
+
+        <Field label="Destination" required>
+          <select className="inp" value={destId} required onChange={(e) => setDestId(e.target.value)}>
+            <option value="">— select —</option>
+            {destTanks.map((t) => (
+              <option key={t.id} value={t.id}>{t.name} ({EQ[t.type]?.label ?? t.type})</option>
+            ))}
+          </select>
+        </Field>
+
+        {/* Regular transfer: full / partial */}
+        {!isSpecial && (
+          <Field label="Volume">
+            <div className="flex gap-2 mb-2">
+              <button type="button" onClick={() => setVolumeMode("full")}
+                className={`px-3 py-1.5 text-sm rounded border transition-colors ${volumeMode === "full" ? "border-amber-600 bg-amber-900/30 text-amber-300" : "border-zinc-700 bg-zinc-800 text-zinc-400 hover:text-zinc-200"}`}>
+                Full transfer
+              </button>
+              <button type="button" onClick={() => setVolumeMode("partial")}
+                className={`px-3 py-1.5 text-sm rounded border transition-colors ${volumeMode === "partial" ? "border-amber-600 bg-amber-900/30 text-amber-300" : "border-zinc-700 bg-zinc-800 text-zinc-400 hover:text-zinc-200"}`}>
+                Partial
+              </button>
+            </div>
+            {volumeMode === "partial" && (
+              <div className="flex items-center gap-2">
+                <input type="number" step="0.001" min="0" max={batchVol} className="inp w-40" placeholder="0.000"
+                  value={partialBbl} onChange={(e) => setPartialBbl(e.target.value)} />
+                <span className="text-zinc-500 text-sm">BBL</span>
+              </div>
+            )}
+          </Field>
+        )}
+
+        {/* Kegging */}
+        {isKegging && (
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-xs text-zinc-400">Kegs to fill</label>
+              <button type="button" onClick={() => setKegLines((l) => [...l, { packaging_id: "", quantity: "" }])}
+                className="text-xs text-amber-500 hover:text-amber-400">+ Add keg type</button>
+            </div>
+            {kegs.length === 0 && (
+              <p className="text-xs text-zinc-600">No kegs in Packaging. Add them in the Packaging tab first.</p>
+            )}
+            <div className="space-y-2">
+              {kegLines.map((line, i) => (
+                <div key={i} className="flex gap-2 items-center">
+                  <select className="inp flex-1" value={line.packaging_id}
+                    onChange={(e) => setKegLines((ls) => ls.map((l, idx) => idx === i ? { ...l, packaging_id: e.target.value } : l))}>
+                    <option value="">— select keg —</option>
+                    {kegs.map((k) => (
+                      <option key={k.id} value={k.id}>{k.name} ({k.volume_fl_oz} fl oz)</option>
+                    ))}
+                  </select>
+                  <input type="number" min="0" className="inp w-24" placeholder="qty"
+                    value={line.quantity}
+                    onChange={(e) => setKegLines((ls) => ls.map((l, idx) => idx === i ? { ...l, quantity: e.target.value } : l))} />
+                  {kegLines.length > 1 && (
+                    <button type="button" onClick={() => setKegLines((ls) => ls.filter((_, idx) => idx !== i))}
+                      className="text-zinc-600 hover:text-red-400 text-lg leading-none">×</button>
+                  )}
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-zinc-500 mt-2">Draw: {fmtBbl(drawBbl)}</p>
+          </div>
+        )}
+
+        {/* Canning */}
+        {isCanning && (
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Can" required>
+                <select className="inp" value={canId} required onChange={(e) => setCanId(e.target.value)}>
+                  <option value="">— select —</option>
+                  {cans.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.volume_fl_oz} fl oz)</option>)}
+                </select>
+              </Field>
+              <Field label="Lid">
+                <select className="inp" value={lidId} onChange={(e) => setLidId(e.target.value)}>
+                  <option value="">— none —</option>
+                  {lids.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </Field>
+              <Field label="PakTech">
+                <select className="inp" value={paktechId} onChange={(e) => setPaktechId(e.target.value)}>
+                  <option value="">— none —</option>
+                  {paktechs.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.can_count}-pk)</option>)}
+                </select>
+              </Field>
+              <Field label="Tray / Case Format" required>
+                <select className="inp" value={trayId} required onChange={(e) => setTrayId(e.target.value)}>
+                  <option value="">— select —</option>
+                  {trays.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.can_count} cans/case)</option>)}
+                </select>
+              </Field>
+            </div>
+            {cansPerCase > 0 && (
+              <div className="grid grid-cols-2 gap-3">
+                <Field label={`Cases (${cansPerCase} cans each)`}>
+                  <input type="number" min="0" className="inp" placeholder="0" value={cases} onChange={(e) => setCases(e.target.value)} />
+                </Field>
+                <Field label="Loose cans">
+                  <input type="number" min="0" className="inp" placeholder="0" value={looseCans} onChange={(e) => setLooseCans(e.target.value)} />
+                </Field>
+              </div>
+            )}
+            <p className="text-xs text-zinc-500">
+              Total cans: {(parseInt(cases) || 0) * cansPerCase + (parseInt(looseCans) || 0)} · Draw: {fmtBbl(drawBbl)}
+            </p>
+          </div>
+        )}
+
+        <Field label="Shrinkage (BBL)">
+          <div className="flex items-center gap-2">
+            <input type="number" step="0.001" min="0" className="inp w-40" placeholder="0.000"
+              value={shrinkage} onChange={(e) => setShrinkage(e.target.value)} />
+            <span className="text-zinc-500 text-sm">BBL lost</span>
+          </div>
+        </Field>
+
+        {/* Volume summary */}
+        <div className="rounded border border-zinc-800 bg-zinc-900/40 p-3 text-xs space-y-1">
+          <div className="flex justify-between text-zinc-400">
+            <span>Batch volume</span><span>{fmtBbl(batchVol)}</span>
+          </div>
+          <div className="flex justify-between text-zinc-400">
+            <span>Transfer draw</span><span>− {fmtBbl(drawBbl)}</span>
+          </div>
+          {shrinkBbl > 0 && (
+            <div className="flex justify-between text-zinc-400">
+              <span>Shrinkage</span><span>− {fmtBbl(shrinkBbl)}</span>
+            </div>
+          )}
+          <div className={`flex justify-between font-medium border-t border-zinc-800 pt-1 mt-1 ${remaining < 0 ? "text-red-400" : "text-zinc-100"}`}>
+            <span>Remaining</span><span>{fmtBbl(remaining)}</span>
+          </div>
+        </div>
+        {remaining < -0.001 && (
+          <p className="text-xs text-red-400">Warning: transfer exceeds batch volume.</p>
+        )}
+
+        <Field label="Notes">
+          <input className="inp" value={notes} onChange={(e) => setNotes(e.target.value)} />
+        </Field>
+
+        <ModalActions submitting={submitting} onCancel={onClose} label="Record Transfer" />
+      </form>
+    </Modal>
+  );
+}
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
@@ -96,10 +404,18 @@ export default function BrewStatusTab({
   const [assignNotes, setAssignNotes] = useState("");
   const [assignSubmitting, setAssignSubmitting] = useState(false);
 
+  // Transfer
+  const [transferTankId, setTransferTankId] = useState<string | null>(null);
+  const [packaging, setPackaging] = useState<PackagingItem[]>([]);
+
   // Drag state
   const [dragging, setDragging] = useState<{ id: string; grabRow: number; grabCol: number } | null>(null);
   const [dropPreview, setDropPreview] = useState<{ row: number; col: number; valid: boolean } | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    fetch("/api/production/packaging").then((r) => r.ok ? r.json() : []).then(setPackaging);
+  }, []);
 
   const assignmentByTank = Object.fromEntries(assignments.map((a) => [a.tank_id, a])) as Record<string, BatchTankAssignment | undefined>;
   const assignedBatchIds = new Set(assignments.map((a) => a.batch_id));
@@ -107,6 +423,10 @@ export default function BrewStatusTab({
 
   const placed   = tanks.filter((t) => t.grid_row != null && t.grid_col != null);
   const unplaced = tanks.filter((t) => t.grid_row == null || t.grid_col == null);
+
+  const transferTank = transferTankId ? tanks.find((t) => t.id === transferTankId) ?? null : null;
+  const transferAssignment = transferTankId ? assignmentByTank[transferTankId] : null;
+  const transferBatch = transferAssignment ? batches.find((b) => b.id === transferAssignment.batch_id) ?? null : null;
 
   // ── Drag/drop ──────────────────────────────────────────────────────────────
 
@@ -350,7 +670,7 @@ export default function BrewStatusTab({
                   )}
                 </div>
 
-                {/* Body — only if not tiny */}
+                {/* Body */}
                 {!tiny && (
                   <div className="flex-1 min-h-0 px-2 py-1 flex flex-col gap-0.5">
                     {tank.capacity_bbl && !compact && (
@@ -367,14 +687,24 @@ export default function BrewStatusTab({
                           <p className="text-zinc-600" style={{ fontSize: 9 }}>since {fmtDate(assign.assigned_at)}</p>
                         )}
                         {!editMode && (
-                          <button
-                            onClick={() => handleRelease(assign!.id)}
-                            onMouseDown={(e) => e.stopPropagation()}
-                            className="mt-auto text-xs text-zinc-600 hover:text-red-400 border border-zinc-700 hover:border-red-800 px-1.5 rounded transition-colors self-start"
-                            style={{ fontSize: 9 }}
-                          >
-                            Release
-                          </button>
+                          <div className="mt-auto flex gap-1.5 flex-wrap">
+                            <button
+                              onClick={() => setTransferTankId(tank.id)}
+                              onMouseDown={(e) => e.stopPropagation()}
+                              className="text-xs text-amber-700 hover:text-amber-400 border border-amber-900 hover:border-amber-700 px-1.5 rounded transition-colors"
+                              style={{ fontSize: 9 }}
+                            >
+                              Transfer
+                            </button>
+                            <button
+                              onClick={() => handleRelease(assign!.id)}
+                              onMouseDown={(e) => e.stopPropagation()}
+                              className="text-xs text-zinc-600 hover:text-red-400 border border-zinc-700 hover:border-red-800 px-1.5 rounded transition-colors"
+                              style={{ fontSize: 9 }}
+                            >
+                              Release
+                            </button>
+                          </div>
                         )}
                       </>
                     ) : (
@@ -507,7 +837,7 @@ export default function BrewStatusTab({
                 onChange={(e) => setEqForm((f) => ({ ...f, name: e.target.value }))} />
             </Field>
             <Field label="Type" required>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-4 gap-2">
                 {EQ_TYPES.map(([type, meta]) => (
                   <button key={type} type="button"
                     onClick={() => setEqForm((f) => ({
@@ -577,6 +907,18 @@ export default function BrewStatusTab({
             <ModalActions submitting={assignSubmitting} onCancel={() => setShowAssignModal(false)} label="Assign" />
           </form>
         </Modal>
+      )}
+
+      {/* Transfer modal */}
+      {transferTankId && transferTank && transferBatch && (
+        <TransferModal
+          batch={transferBatch}
+          fromTank={transferTank}
+          allTanks={tanks}
+          packaging={packaging}
+          onClose={() => setTransferTankId(null)}
+          onDone={onRefresh}
+        />
       )}
     </>
   );

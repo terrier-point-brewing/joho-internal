@@ -8,7 +8,35 @@ export type BatchStatus =
 
 export type AdjustmentType = "received" | "used" | "waste" | "inventory_count" | "batch_use";
 
-export type TankType = "fermenter" | "brite" | "unitank" | "serving" | "brewhouse" | "cold_storage";
+export type TankType = "fermenter" | "brite" | "unitank" | "serving" | "brewhouse" | "cold_storage" | "kegging" | "canning";
+
+export type PackagingItemType = "keg" | "can" | "lid" | "paktech" | "tray";
+
+export interface PackagingItem {
+  id: string;
+  type: PackagingItemType;
+  name: string;
+  supplier: string | null;
+  unit_cost: number | null;
+  brewery: string | null;
+  volume_fl_oz: number | null;
+  can_count: number | null;
+  created_at: string;
+}
+
+export interface BatchTransfer {
+  id: string;
+  batch_id: string;
+  from_tank_id: string | null;
+  to_tank_id: string | null;
+  volume_bbl: number;
+  shrinkage_bbl: number;
+  transfer_type: "transfer" | "kegging" | "canning";
+  notes: string | null;
+  kegging_detail: unknown | null;
+  canning_detail: unknown | null;
+  transferred_at: string;
+}
 
 export interface Ingredient {
   id: string;

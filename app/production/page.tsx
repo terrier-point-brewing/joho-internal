@@ -1,18 +1,19 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Ingredient, StockAdjustment, Recipe, BrewBatch, Tank, BatchTankAssignment } from "./types";
-import BatchLogTab   from "./components/BatchLogTab";
+import { Ingredient, StockAdjustment, Recipe, BrewBatch, Tank, BatchTankAssignment, PackagingItem } from "./types";
+import BatchLogTab    from "./components/BatchLogTab";
 import IngredientsTab from "./components/IngredientsTab";
-import RecipesTab    from "./components/RecipesTab";
-import BrewStatusTab from "./components/BrewStatusTab";
-import WorkflowsTab  from "./components/WorkflowsTab";
+import RecipesTab     from "./components/RecipesTab";
+import BrewStatusTab  from "./components/BrewStatusTab";
+import WorkflowsTab   from "./components/WorkflowsTab";
+import PackagingTab   from "./components/PackagingTab";
 
-const TABS = ["Batch Log", "Ingredients", "Recipes", "Brew Status", "Workflows"] as const;
+const TABS = ["Brew Status", "Batch Log", "Ingredients", "Recipes", "Workflows", "Packaging"] as const;
 type Tab = typeof TABS[number];
 
 export default function ProductionPage() {
-  const [tab, setTab] = useState<Tab>("Batch Log");
+  const [tab, setTab] = useState<Tab>("Brew Status");
 
   const [ingredients, setIngredients] = useState<Ingredient[]>([]);
   const [adjustments, setAdjustments] = useState<StockAdjustment[]>([]);
@@ -20,13 +21,15 @@ export default function ProductionPage() {
   const [batches,     setBatches]     = useState<BrewBatch[]>([]);
   const [tanks,       setTanks]       = useState<Tank[]>([]);
   const [assignments, setAssignments] = useState<BatchTankAssignment[]>([]);
+  const [packaging,   setPackaging]   = useState<PackagingItem[]>([]);
 
-  const loadIngredients = useCallback(async () => { const r = await fetch("/api/production/ingredients");         if (r.ok) setIngredients(await r.json()); }, []);
-  const loadAdjustments = useCallback(async () => { const r = await fetch("/api/production/stock-adjustments");   if (r.ok) setAdjustments(await r.json()); }, []);
-  const loadRecipes     = useCallback(async () => { const r = await fetch("/api/production/recipes");             if (r.ok) setRecipes(await r.json()); }, []);
-  const loadBatches     = useCallback(async () => { const r = await fetch("/api/production/batches");             if (r.ok) setBatches(await r.json()); }, []);
-  const loadTanks       = useCallback(async () => { const r = await fetch("/api/production/tanks");               if (r.ok) setTanks(await r.json()); }, []);
-  const loadAssignments = useCallback(async () => { const r = await fetch("/api/production/tank-assignments");    if (r.ok) setAssignments(await r.json()); }, []);
+  const loadIngredients = useCallback(async () => { const r = await fetch("/api/production/ingredients");        if (r.ok) setIngredients(await r.json()); }, []);
+  const loadAdjustments = useCallback(async () => { const r = await fetch("/api/production/stock-adjustments");  if (r.ok) setAdjustments(await r.json()); }, []);
+  const loadRecipes     = useCallback(async () => { const r = await fetch("/api/production/recipes");            if (r.ok) setRecipes(await r.json()); }, []);
+  const loadBatches     = useCallback(async () => { const r = await fetch("/api/production/batches");            if (r.ok) setBatches(await r.json()); }, []);
+  const loadTanks       = useCallback(async () => { const r = await fetch("/api/production/tanks");              if (r.ok) setTanks(await r.json()); }, []);
+  const loadAssignments = useCallback(async () => { const r = await fetch("/api/production/tank-assignments");   if (r.ok) setAssignments(await r.json()); }, []);
+  const loadPackaging   = useCallback(async () => { const r = await fetch("/api/production/packaging");          if (r.ok) setPackaging(await r.json()); }, []);
 
   const refreshBrewStatus = useCallback(async () => {
     await Promise.all([loadTanks(), loadAssignments(), loadBatches()]);
@@ -39,7 +42,8 @@ export default function ProductionPage() {
     loadBatches();
     loadTanks();
     loadAssignments();
-  }, [loadIngredients, loadAdjustments, loadRecipes, loadBatches, loadTanks, loadAssignments]);
+    loadPackaging();
+  }, [loadIngredients, loadAdjustments, loadRecipes, loadBatches, loadTanks, loadAssignments, loadPackaging]);
 
   return (
     <main className="max-w-7xl mx-auto px-6 py-8">
@@ -59,7 +63,10 @@ export default function ProductionPage() {
         ))}
       </div>
 
-      {tab === "Batch Log"  && <BatchLogTab batches={batches} recipes={recipes} onRefresh={loadBatches} />}
+      {tab === "Brew Status" && (
+        <BrewStatusTab tanks={tanks} assignments={assignments} batches={batches} onRefresh={refreshBrewStatus} />
+      )}
+      {tab === "Batch Log"   && <BatchLogTab batches={batches} recipes={recipes} onRefresh={loadBatches} />}
       {tab === "Ingredients" && (
         <IngredientsTab
           ingredients={ingredients}
@@ -69,10 +76,8 @@ export default function ProductionPage() {
         />
       )}
       {tab === "Recipes"    && <RecipesTab recipes={recipes} ingredients={ingredients} onRefresh={loadRecipes} />}
-      {tab === "Brew Status" && (
-        <BrewStatusTab tanks={tanks} assignments={assignments} batches={batches} onRefresh={refreshBrewStatus} />
-      )}
       {tab === "Workflows"  && <WorkflowsTab equipment={tanks} batches={batches} />}
+      {tab === "Packaging"  && <PackagingTab packaging={packaging} onRefresh={loadPackaging} />}
 
       <style>{`
         .inp {
