@@ -10,10 +10,10 @@ export type AdjustmentType = "received" | "used" | "waste" | "inventory_count" |
 
 export type EquipmentType =
   | "fermenter" | "brite" | "brewhouse"
-  | "cold_storage" | "kegging" | "canning";
+  | "cold_storage" | "kegging" | "canning" | "backlog";
 
 // Types that have no capacity constraint and don't hold a single batch
-export const UNCONSTRAINED_EQUIPMENT_TYPES: EquipmentType[] = ["kegging", "canning", "cold_storage"];
+export const UNCONSTRAINED_EQUIPMENT_TYPES: EquipmentType[] = ["kegging", "canning", "cold_storage", "backlog"];
 
 // Map equipment type to the batch status it implies
 export const EQUIPMENT_TYPE_TO_STATUS: Partial<Record<EquipmentType, BatchStatus>> = {

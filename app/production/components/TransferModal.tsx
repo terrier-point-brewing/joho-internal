@@ -24,6 +24,7 @@ interface TransferModalProps {
 export default function TransferModal({ batch, fromTank, allTanks, packaging, onClose, onDone }: TransferModalProps) {
   const destTanks = allTanks.filter((t) => {
     if (t.id === fromTank.id) return false;
+    if (t.type === "backlog") return false;
     // Cold storage only reachable from kegging / canning
     if (t.type === "cold_storage" && !COLD_STORAGE_SOURCES.has(fromTank.type)) return false;
     return true;

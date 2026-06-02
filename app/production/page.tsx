@@ -39,7 +39,7 @@ export default function ProductionPage() {
       </div>
 
       {tab === "Brew Status" && (
-        <BrewStatusTab tanks={tanks} assignments={assignments} batches={batches} onRefresh={refreshBrewStatus} />
+        <BrewStatusTab tanks={tanks} assignments={assignments} batches={batches} transfers={transfers} onRefresh={refreshBrewStatus} />
       )}
       {tab === "Batch Log" && (
         <BatchLogTab batches={batches} recipes={recipes} transfers={transfers} onRefresh={loadBatches} />
