@@ -2,11 +2,11 @@
 
 ## What This Is
 
-A Next.js 16 app deployed to Vercel that generates custom reports for **Terrier Point Brewing** by hitting the Square API, and manages production tracking via Supabase. Single location: **Holly Springs Taproom** (`LZ8TH4A632YW0`). Dark mode UI, publicly accessible.
+A Next.js 16 app for **Terrier Point Brewing** — custom Square-API reports and a full production-tracking module backed by Supabase. Single location: **Holly Springs Taproom** (`LZ8TH4A632YW0`). Dark mode UI, publicly accessible.
 
 **Live URL:** https://tpb-square-reports.vercel.app  
 **Repo:** `/Users/will-liao/Desktop/Coding/Git/tpb-square-reports`  
-**Deploy:** `vercel deploy --prod` from the repo root
+**Deploy:** `vercel deploy --prod` from repo root
 
 ---
 
@@ -26,16 +26,14 @@ SUPABASE_ANON_KEY=...
 ## Tech Stack
 
 - **Next.js 16.2.6** — App Router, TypeScript, Tailwind v4
-- **Square API** `2025-04-16` — called directly via `fetch`, no SDK
-- **Supabase** (`@supabase/supabase-js`) — Postgres for production module data
-- **Recharts** — Shrinkage report line chart
+- **Square API** `2025-04-16` — called via `fetch`, no SDK
+- **Supabase** (`@supabase/supabase-js`) — Postgres for production data; project ID `drlsazatrcrdwaihjmex`
+- **Recharts** — Shrinkage chart
 - **Vercel** — hosting
 
 ---
 
 ## Project Structure
-
-Two top-level modules: **Reports** and **Production**. Each is a route under `app/`. Add a new module by creating `app/<module>/page.tsx` and one entry in `app/components/NavBar.tsx`.
 
 ```
 app/
@@ -43,54 +41,64 @@ app/
   components/NavBar.tsx
 
   reports/
-    page.tsx                        ← report selector, renders active report
+    page.tsx                        ← report selector + date range
     components/
-      ReportControls.tsx
-      SortControls.tsx
+      ReportControls.tsx / SortControls.tsx
       CocktailSalesReport / KegSalesReport / TaproomModelReport
       GiftCardReport / ContractBrewingReport / DistributionReport
       BBLTrackerReport / ShrinkageReport
 
   production/
-    page.tsx                        ← 6-tab shell + data loading
+    page.tsx                        ← 6-tab shell, data loaded by useProductionData
     types.ts                        ← all shared TypeScript types
+    equipmentMeta.ts                ← EQ map (label, colors, default grid size per type)
+    hooks/
+      useProductionData.ts          ← all fetch loaders + state (ingredients, batches, tanks…)
+      useEquipmentCrud.ts           ← add/edit/delete equipment modal state + handlers
+      useTankDragDrop.ts            ← drag-and-drop grid state + handlers
+      useBatchAssign.ts             ← assign-batch modal state + handlers
     components/
-      shared.tsx                    ← Modal, Field, ModalActions, StatusBadge
-      BrewStatusTab.tsx
-      BatchLogTab.tsx
-      IngredientsTab.tsx
-      RecipesTab.tsx
-      WorkflowsTab.tsx
-      PackagingTab.tsx
+      shared.tsx                    ← Modal, Field, ModalActions, StatusBadge, constants
+      BrewStatusTab.tsx             ← grid view, uses all three hooks + TransferModal
+      TransferModal.tsx             ← standalone transfer modal component
+      BatchLogTab.tsx               ← batch CRUD + transfer log per batch
+      IngredientsTab.tsx            ← ingredient CRUD + stock adjustments + log
+      RecipesTab.tsx                ← recipe CRUD + per-BBL ingredient bill
+      WorkflowsTab.tsx              ← workflow templates + batch workflow timelines
+      PackagingTab.tsx              ← packaging inventory (kegs, cans, lids, etc.)
 
   api/
-    cocktail-sales / keg-sales / taproom-model / gift-cards /
-    contract-brewing / distribution / bbl-tracker / shrinkage /
+    bbl-tracker / cocktail-sales / combo-sales / contract-brewing /
+    distribution / gift-cards / keg-sales / shrinkage / taproom-model
 
     production/
       batches / batches/[id]
+      equipment / equipment/[id]        ← renamed from tanks/
       ingredients / ingredients/[id]
+      packaging / packaging/[id]
       recipes / recipes/[id]
       stock-adjustments
-      tanks / tanks/[id]
       tank-assignments / tank-assignments/[id]
+      transfers
       workflow-templates / workflow-templates/[id]
       batch-workflows / batch-workflows/[id]
-      packaging / packaging/[id]
-      transfers
 
 lib/
   supabase/client.ts
   square/client.ts + catalog / orders / customers / refunds / inventory
-  constants/categories.ts
-  reports/ (combos / cocktails / kegs / taproom-model / …)
+  constants/categories.ts             ← Square catalog category IDs
+  constants/production.ts             ← GALLONS_PER_BBL, BBL_TO_FL_OZ, grid constants
+  utils/api.ts                        ← requireDateRange(), apiError()
+  utils/formatting.ts                 ← fmt(), cents(), fmtDate/Long/DateTime(), fmtBbl()
+  utils/orders.ts                     ← mapDiscountsByUid()
+  reports/                            ← report-building logic (bbl-tracker, kegs, etc.)
 ```
 
 ---
 
 ## Reports Module
 
-Category → report selector. Date range in `reports/page.tsx`. All tables have sortable headers via `SortTh`.
+Date range in `reports/page.tsx`. All tables have sortable headers via `SortTh`.
 
 | Category | Reports |
 |---|---|
@@ -99,29 +107,55 @@ Category → report selector. Date range in `reports/page.tsx`. All tables have 
 | Production | BBL Tracker |
 | Inventory | Shrinkage |
 
+All API routes share `requireDateRange` / `apiError` from `lib/utils/api.ts` and `cents` / `fmt` from `lib/utils/formatting.ts`.
+
 ---
 
 ## Production Module
 
-Supabase-backed. Six tabs (in order): **Brew Status**, **Batch Log**, **Ingredients**, **Recipes**, **Workflows**, **Packaging**.
+Supabase project `drlsazatrcrdwaihjmex`. Six tabs: **Brew Status**, **Batch Log**, **Ingredients**, **Recipes**, **Workflows**, **Packaging**.
 
-### Supabase Schema
+### Supabase Schema (current)
 
 ```
+equipment                        ← formerly "tanks"
+  id, name, type, capacity_bbl (null for unconstrained types),
+  grid_row, grid_col, grid_width, grid_height, notes, created_at
+  type CHECK: fermenter | brite | brewhouse | cold_storage | kegging | canning
+  constraint name: equipment_type_check
+  capacity_bbl is NULL for kegging, canning, cold_storage (no capacity constraint)
+  grid position null = unplaced
+
 brew_batches
-  id, beer_name, batch_number (auto: B-001…), planned_brew_date,
+  id, beer_name, batch_number (auto B-001…), planned_brew_date,
   volume_bbl, turns, status, notes, recipe_id, created_at
   status: planning | brewing | fermenting | conditioning | ready_to_package | archived
+  status is AUTO-SET by server side when transfers/assignments happen — do not edit directly
 
 batch_status_history
   id, batch_id, status, note, changed_at
+
+batch_tank_assignments           ← column names kept as tank_id (backward compat)
+  id, batch_id, tank_id (→ equipment.id), assigned_at, released_at (null=active), notes
+  Assignments are auto-released when a transfer is recorded.
+  Only created for capacity-constrained equipment (fermenter, brite, brewhouse).
+
+batch_transfers
+  id, batch_id, from_tank_id, to_tank_id (→ equipment.id),
+  volume_bbl, shrinkage_bbl, transfer_type, notes,
+  kegging_detail (jsonb), canning_detail (jsonb), transferred_at
+  transfer_type: transfer | kegging | canning
+  Cold storage only reachable as destination from kegging or canning.
 
 ingredients
   id, name, supplier, unit, cost_per_unit, stock_quantity, created_at
 
 stock_adjustments
-  id, ingredient_id, quantity (signed), type, note, batch_id, created_at
+  id, ingredient_id, quantity (signed), type, note, batch_id,
+  cost_per_unit, total_value_change, created_at
   type: received | used | waste | inventory_count | batch_use
+  "received" type: purchase_cost in POST body → server computes weighted avg cost,
+  updates ingredients.cost_per_unit, stores cost_per_unit + total_value_change on adj row
 
 recipes
   id, beer_name, brewery, expected_yield_bbl, steps, notes, created_at
@@ -129,61 +163,60 @@ recipes
 recipe_ingredients
   id, recipe_id, ingredient_id, quantity_per_bbl, created_at
 
-tanks (equipment — fermenters, brites, brewhouse, packaging lines, etc.)
-  id, name, type, capacity_bbl, grid_row, grid_col, grid_width, grid_height, notes, created_at
-  type: fermenter | brite | unitank | serving | brewhouse | cold_storage | kegging | canning
-  grid position set by drag-and-drop; null = unplaced
-
-batch_tank_assignments
-  id, batch_id, tank_id, assigned_at, released_at (null = active), notes
-
 workflow_templates / workflow_template_steps
-  templates: id, name, description
-  steps: template_id, step_order, equipment_id (→ tanks), duration_days, notes
+  steps: equipment_id (→ equipment.id), step_order, duration_days, notes
+  Supabase join: equipment(id,name,type)  ← not tanks(...)
 
 batch_workflow_steps
-  id, batch_id, step_order, equipment_id (→ tanks),
+  id, batch_id, step_order, equipment_id (→ equipment.id),
   scheduled_date, completed_at, notes
+  Supabase join: equipment(id,name,type)
 
 packaging_items
   id, type, name, supplier, unit_cost, brewery, volume_fl_oz, can_count, created_at
   type: keg | can | lid | paktech | tray
-  volume_fl_oz: set for keg and can (1 BBL = 3968 fl oz)
-  can_count: set for paktech and tray
-
-batch_transfers
-  id, batch_id, from_tank_id, to_tank_id,
-  volume_bbl, shrinkage_bbl, transfer_type, notes,
-  kegging_detail (jsonb), canning_detail (jsonb), transferred_at
-  transfer_type: transfer | kegging | canning
 ```
 
-DB helpers: `adjust_ingredient_stock(p_id, p_delta)` RPC, `set_batch_number()` trigger.
+DB helpers:
+- `adjust_ingredient_stock(p_id uuid, p_delta numeric)` — RPC for atomic stock updates
+- `set_batch_number()` — trigger that auto-assigns `B-001`, `B-002`, …
 
-### Tab Behaviour
+### Equipment Types
 
-**Brew Status** — 24×16 drag-and-drop grid (48px cells). Toggle 🔒 Edit Layout to reposition equipment. In lock mode:
-- Empty tanks show **Assign** button
-- Occupied tanks show **Transfer** and **Release**
-- Transfer modal detects destination type:
-  - *Kegging tank*: select keg types from Packaging, quantities → calculates BBL draw (qty × fl_oz / 3968)
-  - *Canning tank*: select can/lid/paktech/tray; input cases + loose cans; tray can_count = cans/case → BBL draw
-  - *Other tank*: full or partial (BBL) transfer
-  - All flows have a shrinkage field and show remaining volume
-  - Transfer logged to `batch_transfers`
+| Type | Capacity | Holds batch assignment | Status implied |
+|---|---|---|---|
+| fermenter | Yes | Yes | fermenting |
+| brite | Yes | Yes | conditioning |
+| brewhouse | Yes | Yes | brewing |
+| cold_storage | No | No | archived |
+| kegging | No | No | ready_to_package |
+| canning | No | No | ready_to_package |
 
-**Batch Log** — Create from recipe; status changes log to `batch_status_history`. Row expand shows timeline.
+**Auto-status rule**: when a transfer is saved or a batch is assigned, the server looks up the destination equipment type and calls `PATCH /api/production/batches/:id` with the implied status — no manual status editing in the UI.
 
-**Ingredients** — Adjust stock (received/used/waste/count). Batch creation auto-logs `batch_use` per recipe bill.
+### Brew Status Tab Details
 
-**Recipes** — Per-BBL ingredient bill with cost rollup. Brew steps freetext. Brewery = contract partner.
+24×16 drag-and-drop grid (48 px cells, 3 px gap). Toggle 🔒 Edit Layout.
 
-**Workflows** — Single frame with two sections stacked: *Workflow Templates* (named equipment sequences) and *Batch Workflows* (per-batch vertical timeline with "Apply Template").
+- **Lock mode**: Assign button (empty, constrained equipment only) · Transfer button (occupied)
+- **Edit mode**: drag to reposition · Edit · Unplace · Del
+- Equipment header: name on top line, type badge on second line (both tinted)
+- Batch name wraps; volume/capacity shown as `X.X BBL / Y BBL` when both known
+- **Transfer restrictions**: cold storage only reachable from kegging or canning
+- **Full transfer + shrinkage**: draw = `batchVol − shrinkage` (balance always zeroes)
+- On transfer POST: releases old assignment, creates new assignment (if constrained destination), updates batch status
 
-**Packaging** — Inventory of kegs, cans, lids, PakTechs, and trays. Filter pills by type. Required fields per type:
-- Keg / Can: volume in fl oz
-- PakTech / Tray: can count
-- All: name, supplier, unit cost, brewery
+### Batch Log Tab Details
+
+- Expand row shows **Transfer Log** (not status timeline, which is deprecated)
+- Status is read-only badge — set automatically by Brew Status actions
+- Batch form has no status field; status starts as `planning`
+
+### Ingredients Tab Details
+
+- **Total Value** column = `cost_per_unit × stock_quantity`
+- **Received** adjustment: enter purchase cost → server computes weighted avg unit cost, previews before/after unit cost and total value in modal
+- **Adjustment Log** columns: Date · Ingredient · Type · Change · Unit Cost · Value Δ · Note · Batch
 
 ---
 
@@ -201,10 +234,11 @@ All in `lib/constants/categories.ts`.
 
 ---
 
-## Known Limitations / Next Steps
+## Known Limitations / To Do
 
-1. **Shrinkage chart sparse** — only 2 dates of fl oz data; populates as staff log weekly counts.
-2. **Batch volume tracking** — `volume_bbl` on `brew_batches` is the original planned volume; current in-tank volume must be inferred from `batch_transfers` history.
-3. **Combo detection** — misses combos where component price equals combo price.
-4. **Brewery field** — free text; planned to become a dropdown for contract partners.
-5. **`/api/combo-sales`** — legacy route kept for backwards compat, not wired to UI.
+1. **Batch current volume** — `brew_batches.volume_bbl` is the original planned volume; in-tank current volume must be inferred from `batch_transfers` history (draw − shrinkage running total).
+2. **Shrinkage chart** — sparse until staff log more weekly physical counts.
+3. **Combo detection** — misses combos where component price equals standalone price.
+4. **Brewery field on recipes** — free text; intended to become dropdown for known contract partners.
+5. **`/api/combo-sales`** — legacy route, not wired to any UI report.
+6. **Transfer to cold storage** shows batch as "archived" — verify this matches the intended workflow for cold-stored packaged product.
