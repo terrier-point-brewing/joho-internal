@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import ReportControls from "./ReportControls";
+import { useSort, SortTh } from "./SortControls";
 
 type RawRow = {
   date: string; time: string; beer: string; size: string; qty: number;
@@ -25,11 +26,6 @@ const KEG_SIZE_ORDER: Record<string, number> = { "1/6 Keg": 0, "1/4 Keg": 1, "1/
 function currency(v: string | number) {
   const n = typeof v === "string" ? parseFloat(v) : v;
   return `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-function today() { return new Date().toISOString().slice(0, 10); }
-function firstOfMonth() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
 }
 
 function groupRows(rows: RawRow[], mode: "beer" | "beerSize"): GroupedRow[] {
@@ -87,16 +83,23 @@ function exportCSV(rows: RawRow[], groupBy: string) {
   URL.revokeObjectURL(url);
 }
 
-const thCls = "px-4 py-3 font-medium text-zinc-300";
 const tdCls = "px-4 py-2";
 
-export default function KegSalesReport() {
-  const [start, setStart] = useState(firstOfMonth());
-  const [end, setEnd]     = useState(today());
+interface Props { start: string; end: string; onStartChange: (v: string) => void; onEndChange: (v: string) => void; }
+
+export default function KegSalesReport({ start, end, onStartChange, onEndChange }: Props) {
   const [rows, setRows]   = useState<RawRow[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState<string | null>(null);
   const [groupBy, setGroupBy] = useState("date");
+
+  const groupedRows = useMemo(
+    () => (rows && (groupBy === "beer" || groupBy === "beerSize") ? groupRows(rows, groupBy as "beer" | "beerSize") : null),
+    [rows, groupBy]
+  );
+
+  const rawSort     = useSort(rows);
+  const groupedSort = useSort(groupedRows);
 
   async function runReport() {
     setLoading(true); setError(null); setRows(null);
@@ -120,10 +123,14 @@ export default function KegSalesReport() {
     tax:   salesRows.reduce((s, r) => s + parseFloat(r.tax), 0),
   };
 
+  const sp = isGrouped
+    ? { sortKey: groupedSort.sortKey, sortDir: groupedSort.sortDir, onSort: groupedSort.handleSort }
+    : { sortKey: rawSort.sortKey,     sortDir: rawSort.sortDir,     onSort: rawSort.handleSort };
+
   return (
     <div>
       <ReportControls
-        start={start} end={end} onStartChange={setStart} onEndChange={setEnd}
+        start={start} end={end} onStartChange={onStartChange} onEndChange={onEndChange}
         onRun={runReport} loading={loading} hasData={!!rows?.length}
         onExport={() => rows && exportCSV(rows, groupBy)}
         groupBy={groupBy} groupOptions={GROUP_OPTIONS} onGroupByChange={setGroupBy}
@@ -147,18 +154,18 @@ export default function KegSalesReport() {
                   <>
                     <thead>
                       <tr className="border-b border-zinc-700 bg-zinc-800">
-                        <th className={`${thCls} text-left`}>Beer</th>
-                        {groupBy === "beerSize" && <th className={`${thCls} text-left`}>Size</th>}
-                        <th className={`${thCls} text-right`}>Sales Qty</th>
-                        <th className={`${thCls} text-right`}>Transfers</th>
-                        <th className={`${thCls} text-right`}>Gross Sales</th>
-                        <th className={`${thCls} text-right`}>Discounts</th>
-                        <th className={`${thCls} text-right`}>Net Sales</th>
-                        <th className={`${thCls} text-right`}>Tax</th>
+                        <SortTh label="Beer"        col="beer"        {...sp} />
+                        {groupBy === "beerSize" && <SortTh label="Size" col="size" {...sp} />}
+                        <SortTh label="Sales Qty"   col="sales_qty"   {...sp} align="right" />
+                        <SortTh label="Transfers"   col="transfer_qty" {...sp} align="right" />
+                        <SortTh label="Gross Sales" col="gross_sales" {...sp} align="right" />
+                        <SortTh label="Discounts"   col="discounts"   {...sp} align="right" />
+                        <SortTh label="Net Sales"   col="net_sales"   {...sp} align="right" />
+                        <SortTh label="Tax"         col="tax"         {...sp} align="right" />
                       </tr>
                     </thead>
                     <tbody className="bg-zinc-900">
-                      {groupRows(rows, groupBy as "beer" | "beerSize").map((row, i) => (
+                      {(groupedSort.sorted ?? groupedRows ?? []).map((row, i) => (
                         <tr key={i} className="border-b border-zinc-800 hover:bg-zinc-800">
                           <td className={`${tdCls} font-medium text-zinc-100`}>{row.beer}</td>
                           {groupBy === "beerSize" && <td className={`${tdCls} text-zinc-300`}>{row.size}</td>}
@@ -187,20 +194,20 @@ export default function KegSalesReport() {
                   <>
                     <thead>
                       <tr className="border-b border-zinc-700 bg-zinc-800">
-                        <th className={`${thCls} text-left`}>Date</th>
-                        <th className={`${thCls} text-left`}>Time</th>
-                        <th className={`${thCls} text-left`}>Beer</th>
-                        <th className={`${thCls} text-left`}>Size</th>
-                        <th className={`${thCls} text-right`}>Qty</th>
-                        <th className={`${thCls} text-left`}>Type</th>
-                        <th className={`${thCls} text-right`}>Gross Sales</th>
-                        <th className={`${thCls} text-right`}>Discounts</th>
-                        <th className={`${thCls} text-right`}>Net Sales</th>
-                        <th className={`${thCls} text-right`}>Tax</th>
+                        <SortTh label="Date"        col="date"        {...sp} />
+                        <SortTh label="Time"        col="time"        {...sp} />
+                        <SortTh label="Beer"        col="beer"        {...sp} />
+                        <SortTh label="Size"        col="size"        {...sp} />
+                        <SortTh label="Qty"         col="qty"         {...sp} align="right" />
+                        <th className="px-4 py-3 font-medium text-zinc-300 text-left">Type</th>
+                        <SortTh label="Gross Sales" col="gross_sales" {...sp} align="right" />
+                        <SortTh label="Discounts"   col="discounts"   {...sp} align="right" />
+                        <SortTh label="Net Sales"   col="net_sales"   {...sp} align="right" />
+                        <SortTh label="Tax"         col="tax"         {...sp} align="right" />
                       </tr>
                     </thead>
                     <tbody className="bg-zinc-900">
-                      {rows.map((row, i) => (
+                      {(rawSort.sorted ?? rows ?? []).map((row, i) => (
                         <tr key={i} className={`border-b border-zinc-800 hover:bg-zinc-800 ${row.is_transfer ? "bg-zinc-800/50" : ""}`}>
                           <td className={`${tdCls} text-zinc-200 whitespace-nowrap`}>{row.date}</td>
                           <td className={`${tdCls} text-zinc-400 whitespace-nowrap`}>{row.time}</td>

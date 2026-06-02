@@ -1,0 +1,144 @@
+"use client";
+
+import { useState } from "react";
+import CocktailSalesReport   from "./components/CocktailSalesReport";
+import KegSalesReport        from "./components/KegSalesReport";
+import TaproomModelReport    from "./components/TaproomModelReport";
+import GiftCardReport        from "./components/GiftCardReport";
+import ContractBrewingReport from "./components/ContractBrewingReport";
+import DistributionReport    from "./components/DistributionReport";
+import BBLTrackerReport      from "./components/BBLTrackerReport";
+import ShrinkageReport       from "./components/ShrinkageReport";
+
+// ---------------------------------------------------------------------------
+// Report catalogue
+// ---------------------------------------------------------------------------
+
+const REPORT_GROUPS = [
+  {
+    id: "net-sales",
+    label: "Net Sales Reports",
+    reports: [
+      { id: "taproom-model",    label: "Taproom"          },
+      { id: "contract-brewing", label: "Contract Brewing" },
+      { id: "distribution",     label: "Distribution"     },
+    ],
+  },
+  {
+    id: "sales",
+    label: "Sales Reports",
+    reports: [
+      { id: "cocktail-sales", label: "Cocktail Sales"  },
+      { id: "keg-sales",      label: "Keg Sales"       },
+      { id: "gift-cards",     label: "Gift Card Sales" },
+    ],
+  },
+  {
+    id: "production",
+    label: "Production",
+    reports: [
+      { id: "bbl-tracker", label: "BBL Tracker" },
+    ],
+  },
+  {
+    id: "inventory",
+    label: "Inventory Management",
+    reports: [
+      { id: "shrinkage", label: "Shrinkage" },
+    ],
+  },
+] as const;
+
+type GroupId  = (typeof REPORT_GROUPS)[number]["id"];
+type ReportId = (typeof REPORT_GROUPS)[number]["reports"][number]["id"];
+
+function firstOfMonth() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+}
+function today() { return new Date().toISOString().slice(0, 10); }
+
+function getGroup(reportId: ReportId): GroupId {
+  for (const g of REPORT_GROUPS) {
+    if (g.reports.some((r) => r.id === reportId)) return g.id;
+  }
+  return REPORT_GROUPS[0].id;
+}
+
+function getLabel(reportId: ReportId): string {
+  for (const g of REPORT_GROUPS) {
+    const r = g.reports.find((r) => r.id === reportId);
+    if (r) return r.label;
+  }
+  return reportId;
+}
+
+const selectCls =
+  "bg-zinc-800 border border-zinc-600 rounded-md px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-blue-500";
+
+// ---------------------------------------------------------------------------
+
+export default function ReportsPage() {
+  const [activeGroup,  setActiveGroup]  = useState<GroupId>("net-sales");
+  const [activeReport, setActiveReport] = useState<ReportId>("taproom-model");
+
+  // Shared date range — persists across report switches
+  const [start, setStart] = useState(firstOfMonth());
+  const [end,   setEnd]   = useState(today());
+
+  function handleGroupChange(gid: GroupId) {
+    setActiveGroup(gid);
+    const group = REPORT_GROUPS.find((g) => g.id === gid)!;
+    setActiveReport(group.reports[0].id);
+  }
+
+  function handleReportChange(rid: ReportId) {
+    setActiveReport(rid);
+    setActiveGroup(getGroup(rid));
+  }
+
+  const activeGroupReports = REPORT_GROUPS.find((g) => g.id === activeGroup)!.reports;
+  const dateProps = { start, end, onStartChange: setStart, onEndChange: setEnd };
+
+  return (
+    <main className="max-w-7xl mx-auto px-6 py-8">
+      {/* Two-level report selector */}
+      <div className="mb-6 flex flex-wrap items-center gap-3">
+        <label className="text-sm font-medium text-zinc-300">Category</label>
+        <select
+          value={activeGroup}
+          onChange={(e) => handleGroupChange(e.target.value as GroupId)}
+          className={selectCls}
+        >
+          {REPORT_GROUPS.map((g) => (
+            <option key={g.id} value={g.id}>{g.label}</option>
+          ))}
+        </select>
+
+        <label className="text-sm font-medium text-zinc-300">Report</label>
+        <select
+          value={activeReport}
+          onChange={(e) => handleReportChange(e.target.value as ReportId)}
+          className={selectCls}
+        >
+          {activeGroupReports.map((r) => (
+            <option key={r.id} value={r.id}>{r.label}</option>
+          ))}
+        </select>
+      </div>
+
+      <h2 className="text-lg font-medium text-zinc-100 mb-5">
+        {getLabel(activeReport)}
+      </h2>
+
+      {activeReport === "taproom-model"    && <TaproomModelReport    {...dateProps} />}
+      {activeReport === "contract-brewing" && <ContractBrewingReport {...dateProps} />}
+      {activeReport === "distribution"     && <DistributionReport    {...dateProps} />}
+      {activeReport === "cocktail-sales"   && <CocktailSalesReport   {...dateProps} />}
+      {activeReport === "keg-sales"        && <KegSalesReport        {...dateProps} />}
+      {activeReport === "gift-cards"       && <GiftCardReport        {...dateProps} />}
+      {activeReport === "bbl-tracker"      && <BBLTrackerReport      {...dateProps} />}
+      {activeReport === "shrinkage"        && <ShrinkageReport       {...dateProps} />}
+    </main>
+  );
+}

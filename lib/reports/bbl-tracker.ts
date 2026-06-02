@@ -70,10 +70,17 @@ type DistChannel = "TAPROOM_DRAFT" | "TAPROOM_PACKAGED" | "DISTRIBUTION" | "CONT
 interface KegVarInfo  { beerStyle: string; kegSize: string; gallons: number }
 interface CanVarInfo  { beerStyle: string; cansPerUnit: number; ozPerUnit: number }
 
+// Packaging Fee keg/can vars: variation ID → size info (beer style comes from line.note)
+interface PackagingFeeKegInfo { kegSize: string; gallons: number }
+interface PackagingFeeCanInfo { ozPerUnit: number; cansPerUnit: number }
+
 interface CatalogIndex {
   kegVars: Map<string, KegVarInfo>;
   canVars: Map<string, CanVarInfo>;
   contractBrewingVarIds: Set<string>;
+  packagingFeeKegVars: Map<string, PackagingFeeKegInfo>;
+  packagingFeeCanVars: Map<string, PackagingFeeCanInfo>;
+  _draftStyleByNorm: Map<string, string>;
 }
 
 function extractBeerStyle(name: string): string {
@@ -84,10 +91,27 @@ function extractBeerStyle(name: string): string {
     .trim();
 }
 
+// Draft item names, normalized for fuzzy matching from Packaging Fee notes
+function normalizeBeerName(name: string): string {
+  return name.trim().toLowerCase();
+}
+
 function buildCatalogIndex(items: CatalogItem[]): CatalogIndex {
-  const kegVars              = new Map<string, KegVarInfo>();
-  const canVars              = new Map<string, CanVarInfo>();
+  const kegVars               = new Map<string, KegVarInfo>();
+  const canVars               = new Map<string, CanVarInfo>();
   const contractBrewingVarIds = new Set<string>();
+  const packagingFeeKegVars   = new Map<string, PackagingFeeKegInfo>();
+  const packagingFeeCanVars   = new Map<string, PackagingFeeCanInfo>();
+
+  // Build a lookup of normalized draft item names so Packaging Fee notes can be matched
+  const draftStyleByNorm = new Map<string, string>();
+  for (const item of items) {
+    const rc = item.item_data.reporting_category?.id ?? "";
+    if (CATEGORY_IDS.DRAFT.has(rc)) {
+      const style = item.item_data.name;
+      draftStyleByNorm.set(normalizeBeerName(style), style);
+    }
+  }
 
   for (const item of items) {
     const rc     = item.item_data.reporting_category?.id ?? "";
@@ -120,11 +144,32 @@ function buildCatalogIndex(items: CatalogItem[]): CatalogIndex {
         canVars.set(v.id, { beerStyle, cansPerUnit, ozPerUnit: oz });
       }
 
-      if (isCB) contractBrewingVarIds.add(v.id);
+      if (isCB) {
+        contractBrewingVarIds.add(v.id);
+        // Index Packaging Fee keg/can variants so volume can be attributed via line.note
+        if (KEG_SIZE_PATTERN.test(vname) && KEG_GALLONS[vname]) {
+          packagingFeeKegVars.set(v.id, { kegSize: vname, gallons: KEG_GALLONS[vname] });
+        } else if (/^\d+oz\s+(can|case|4-?pack|6-?pack|12-?pack)/i.test(vname)) {
+          const oz = canOzPerUnit(vname);
+          const cansPerUnit = /case/i.test(vname) ? 24
+                            : /4-?pack/i.test(vname) ? 4
+                            : /6-?pack/i.test(vname) ? 6
+                            : /12-?pack/i.test(vname) ? 12
+                            : 1;
+          packagingFeeCanVars.set(v.id, { ozPerUnit: oz, cansPerUnit });
+        }
+      }
     }
   }
 
-  return { kegVars, canVars, contractBrewingVarIds };
+  return { kegVars, canVars, contractBrewingVarIds, packagingFeeKegVars, packagingFeeCanVars, _draftStyleByNorm: draftStyleByNorm };
+}
+
+// Exported only for use within this module
+function resolveBeerStyleFromNote(note: string | null | undefined, draftStyleByNorm: Map<string, string>): string | null {
+  if (!note) return null;
+  const norm = normalizeBeerName(note);
+  return draftStyleByNorm.get(norm) ?? note.trim();
 }
 
 // ---------------------------------------------------------------------------
@@ -268,6 +313,34 @@ export function buildBBLTrackerReport(
         const acc = getStyle(canInfo.beerStyle);
         addGallons(acc, invoiceChannel, gallons);
         acc.totalCans += canInfo.cansPerUnit * qty;
+        continue;
+      }
+
+      // Packaging Fee keg line — beer style comes from line.note, size from variation_name
+      const pfKegInfo = idx.packagingFeeKegVars.get(varId);
+      if (pfKegInfo) {
+        const beerStyle = resolveBeerStyleFromNote(line.note, idx._draftStyleByNorm);
+        if (beerStyle) {
+          const gallons = pfKegInfo.gallons * qty;
+          const acc = getStyle(beerStyle);
+          addGallons(acc, invoiceChannel, gallons);
+          if (pfKegInfo.kegSize === "1/2 Keg") acc.halfKegCount    += qty;
+          if (pfKegInfo.kegSize === "1/4 Keg") acc.quarterKegCount += qty;
+          if (pfKegInfo.kegSize === "1/6 Keg") acc.sixthKegCount   += qty;
+        }
+        continue;
+      }
+
+      // Packaging Fee can line — beer style from line.note
+      const pfCanInfo = idx.packagingFeeCanVars.get(varId);
+      if (pfCanInfo) {
+        const beerStyle = resolveBeerStyleFromNote(line.note, idx._draftStyleByNorm);
+        if (beerStyle) {
+          const gallons = ozToGallons(pfCanInfo.ozPerUnit) * qty;
+          const acc = getStyle(beerStyle);
+          addGallons(acc, invoiceChannel, gallons);
+          acc.totalCans += pfCanInfo.cansPerUnit * qty;
+        }
       }
     }
   }

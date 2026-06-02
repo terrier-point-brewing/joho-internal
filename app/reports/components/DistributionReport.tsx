@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import ReportControls from "./ReportControls";
+import { useSort, SortTh } from "./SortControls";
 
 type SizeRow     = { size: string; qty: number; gross_sales: string; discounts: string; net_sales: string };
 type CustomerRow = {
@@ -13,11 +14,6 @@ type CustomerRow = {
 function currency(v: string | number) {
   const n = typeof v === "string" ? parseFloat(v) : v;
   return `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-function today() { return new Date().toISOString().slice(0, 10); }
-function firstOfMonth() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
 }
 
 function exportCSV(sizeRows: SizeRow[], custRows: CustomerRow[]) {
@@ -36,16 +32,20 @@ function exportCSV(sizeRows: SizeRow[], custRows: CustomerRow[]) {
   URL.revokeObjectURL(url);
 }
 
-const thCls = "px-4 py-3 font-medium text-zinc-300";
 const tdCls = "px-4 py-2";
 
-export default function DistributionReport() {
-  const [start, setStart]         = useState(firstOfMonth());
-  const [end, setEnd]             = useState(today());
+interface Props { start: string; end: string; onStartChange: (v: string) => void; onEndChange: (v: string) => void; }
+
+export default function DistributionReport({ start, end, onStartChange, onEndChange }: Props) {
   const [sizeRows, setSizeRows]   = useState<SizeRow[] | null>(null);
   const [custRows, setCustRows]   = useState<CustomerRow[] | null>(null);
   const [loading, setLoading]     = useState(false);
   const [error, setError]         = useState<string | null>(null);
+
+  const sizeSort = useSort(sizeRows);
+  const custSort = useSort(custRows);
+  const sizeSp = { sortKey: sizeSort.sortKey, sortDir: sizeSort.sortDir, onSort: sizeSort.handleSort };
+  const custSp = { sortKey: custSort.sortKey, sortDir: custSort.sortDir, onSort: custSort.handleSort };
 
   async function runReport() {
     setLoading(true); setError(null); setSizeRows(null); setCustRows(null);
@@ -70,7 +70,7 @@ export default function DistributionReport() {
   return (
     <div>
       <ReportControls
-        start={start} end={end} onStartChange={setStart} onEndChange={setEnd}
+        start={start} end={end} onStartChange={onStartChange} onEndChange={onEndChange}
         onRun={runReport} loading={loading} hasData={hasData}
         onExport={() => sizeRows && custRows && exportCSV(sizeRows, custRows)}
         groupBy="none" groupOptions={[]} onGroupByChange={() => {}}
@@ -91,15 +91,15 @@ export default function DistributionReport() {
                 <table className="min-w-full text-sm">
                   <thead>
                     <tr className="border-b border-zinc-700 bg-zinc-800">
-                      <th className={`${thCls} text-left`}>Size</th>
-                      <th className={`${thCls} text-right`}>Qty</th>
-                      <th className={`${thCls} text-right`}>Gross Sales</th>
-                      <th className={`${thCls} text-right`}>Discounts</th>
-                      <th className={`${thCls} text-right`}>Net Sales</th>
+                      <SortTh label="Size"       col="size"       {...sizeSp} />
+                      <SortTh label="Qty"        col="qty"        {...sizeSp} align="right" />
+                      <SortTh label="Gross Sales" col="gross_sales" {...sizeSp} align="right" />
+                      <SortTh label="Discounts"  col="discounts"  {...sizeSp} align="right" />
+                      <SortTh label="Net Sales"  col="net_sales"  {...sizeSp} align="right" />
                     </tr>
                   </thead>
                   <tbody className="bg-zinc-900">
-                    {sizeRows.map((row, i) => (
+                    {(sizeSort.sorted ?? []).map((row, i) => (
                       <tr key={i} className="border-b border-zinc-800 hover:bg-zinc-800">
                         <td className={`${tdCls} font-medium text-zinc-100`}>{row.size}</td>
                         <td className={`${tdCls} text-right text-zinc-200`}>{row.qty}</td>
@@ -135,18 +135,18 @@ export default function DistributionReport() {
                 <table className="min-w-full text-sm">
                   <thead>
                     <tr className="border-b border-zinc-700 bg-zinc-800">
-                      <th className={`${thCls} text-left`}>Customer</th>
-                      <th className={`${thCls} text-right`}>Invoices</th>
-                      <th className={`${thCls} text-right`}>Total Charged</th>
-                      <th className={`${thCls} text-right`}>Outstanding</th>
-                      <th className={`${thCls} text-right`}>1/2 Kegs</th>
-                      <th className={`${thCls} text-right`}>1/6 Kegs</th>
-                      <th className={`${thCls} text-right`}>1/4 Kegs</th>
-                      <th className={`${thCls} text-right`}>Cans</th>
+                      <SortTh label="Customer"     col="customer"          {...custSp} />
+                      <SortTh label="Invoices"     col="invoices"          {...custSp} align="right" />
+                      <SortTh label="Total Charged" col="total_charged"     {...custSp} align="right" />
+                      <SortTh label="Outstanding"  col="total_outstanding" {...custSp} align="right" />
+                      <SortTh label="½ Kegs"       col="half_keg_qty"      {...custSp} align="right" />
+                      <SortTh label="⅙ Kegs"       col="sixth_keg_qty"     {...custSp} align="right" />
+                      <SortTh label="¼ Kegs"       col="quarter_keg_qty"   {...custSp} align="right" />
+                      <SortTh label="Cans"         col="cans_qty"          {...custSp} align="right" />
                     </tr>
                   </thead>
                   <tbody className="bg-zinc-900">
-                    {custRows.map((row, i) => (
+                    {(custSort.sorted ?? []).map((row, i) => (
                       <tr key={i} className="border-b border-zinc-800 hover:bg-zinc-800">
                         <td className={`${tdCls} font-medium text-zinc-100`}>{row.customer}</td>
                         <td className={`${tdCls} text-right text-zinc-200`}>{row.invoices}</td>

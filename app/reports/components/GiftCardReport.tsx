@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import ReportControls from "./ReportControls";
+import { useSort, SortTh } from "./SortControls";
 
 type Row = {
   date: string; time: string; name: string; qty: number;
@@ -32,15 +33,16 @@ function exportCSV(rows: Row[]) {
   URL.revokeObjectURL(url);
 }
 
-const thCls = "px-4 py-3 font-medium text-zinc-300";
 const tdCls = "px-4 py-2";
 
-export default function GiftCardReport() {
-  const [start, setStart] = useState(firstOfMonth());
-  const [end, setEnd]     = useState(today());
+interface Props { start: string; end: string; onStartChange: (v: string) => void; onEndChange: (v: string) => void; }
+
+export default function GiftCardReport({ start, end, onStartChange, onEndChange }: Props) {
   const [rows, setRows]   = useState<Row[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState<string | null>(null);
+
+  const { sorted, sortKey, sortDir, handleSort } = useSort(rows);
 
   async function runReport() {
     setLoading(true); setError(null); setRows(null);
@@ -62,10 +64,12 @@ export default function GiftCardReport() {
     tax:   rows.reduce((s, r) => s + parseFloat(r.tax), 0),
   } : null;
 
+  const sp = { sortKey, sortDir, onSort: handleSort };
+
   return (
     <div>
       <ReportControls
-        start={start} end={end} onStartChange={setStart} onEndChange={setEnd}
+        start={start} end={end} onStartChange={onStartChange} onEndChange={onEndChange}
         onRun={runReport} loading={loading} hasData={!!rows?.length}
         onExport={() => rows && exportCSV(rows)}
         groupBy="none" groupOptions={[]} onGroupByChange={() => {}}
@@ -87,20 +91,20 @@ export default function GiftCardReport() {
               <table className="min-w-full text-sm">
                 <thead>
                   <tr className="border-b border-zinc-700 bg-zinc-800">
-                    <th className={`${thCls} text-left`}>Date</th>
-                    <th className={`${thCls} text-left`}>Time</th>
-                    <th className={`${thCls} text-left`}>Name</th>
-                    <th className={`${thCls} text-right`}>Qty</th>
-                    <th className={`${thCls} text-right`}>Face Value</th>
-                    <th className={`${thCls} text-right`}>Gross Sales</th>
-                    <th className={`${thCls} text-right`}>Discounts</th>
-                    <th className={`${thCls} text-left`}>Discount Notes</th>
-                    <th className={`${thCls} text-right`}>Net Sales</th>
-                    <th className={`${thCls} text-right`}>Tax</th>
+                    <SortTh label="Date"          col="date"        {...sp} />
+                    <SortTh label="Time"          col="time"        {...sp} />
+                    <SortTh label="Name"          col="name"        {...sp} />
+                    <SortTh label="Qty"           col="qty"         {...sp} align="right" />
+                    <SortTh label="Face Value"    col="face_value"  {...sp} align="right" />
+                    <SortTh label="Gross Sales"   col="gross_sales" {...sp} align="right" />
+                    <SortTh label="Discounts"     col="discounts"   {...sp} align="right" />
+                    <th className="px-4 py-3 font-medium text-zinc-300 text-left">Discount Notes</th>
+                    <SortTh label="Net Sales"     col="net_sales"   {...sp} align="right" />
+                    <SortTh label="Tax"           col="tax"         {...sp} align="right" />
                   </tr>
                 </thead>
                 <tbody className="bg-zinc-900">
-                  {rows.map((row, i) => {
+                  {(sorted ?? []).map((row, i) => {
                     const isComped = parseFloat(row.net_sales) === 0;
                     return (
                       <tr key={i} className="border-b border-zinc-800 hover:bg-zinc-800">

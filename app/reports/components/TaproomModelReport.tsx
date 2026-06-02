@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import ReportControls from "./ReportControls";
+import { useSort, SortTh } from "./SortControls";
 
 type CategoryRow = {
   category: string;
@@ -34,16 +35,18 @@ function exportCSV(rows: CategoryRow[], tips: string) {
   URL.revokeObjectURL(url);
 }
 
-const thCls = "px-4 py-3 font-medium text-zinc-300";
 const tdCls = "px-4 py-2";
+const EXCLUDED_FROM_ATTRIBUTED = new Set(["CO2", "Other"]);
 
-export default function TaproomModelReport() {
-  const [start, setStart]     = useState(firstOfMonth());
-  const [end, setEnd]         = useState(today());
+interface Props { start: string; end: string; onStartChange: (v: string) => void; onEndChange: (v: string) => void; }
+
+export default function TaproomModelReport({ start, end, onStartChange, onEndChange }: Props) {
   const [rows, setRows]       = useState<CategoryRow[] | null>(null);
   const [tips, setTips]       = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState<string | null>(null);
+
+  const { sorted, sortKey, sortDir, handleSort } = useSort(rows);
 
   async function runReport() {
     setLoading(true); setError(null); setRows(null); setTips(null);
@@ -58,6 +61,10 @@ export default function TaproomModelReport() {
   }
 
   const hasData = !!rows?.length;
+  const attributedNetSales = rows
+    ? rows.filter((r) => !EXCLUDED_FROM_ATTRIBUTED.has(r.category))
+          .reduce((s, r) => s + parseFloat(r.net_sales), 0)
+    : null;
   const grandTotals = rows ? {
     gross:     rows.reduce((s, r) => s + parseFloat(r.gross_sales), 0),
     discounts: rows.reduce((s, r) => s + parseFloat(r.discounts),   0),
@@ -66,10 +73,12 @@ export default function TaproomModelReport() {
     tax:       rows.reduce((s, r) => s + parseFloat(r.tax),         0),
   } : null;
 
+  const sp = { sortKey, sortDir, onSort: handleSort };
+
   return (
     <div>
       <ReportControls
-        start={start} end={end} onStartChange={setStart} onEndChange={setEnd}
+        start={start} end={end} onStartChange={onStartChange} onEndChange={onEndChange}
         onRun={runReport} loading={loading} hasData={hasData}
         onExport={() => rows && tips !== null && exportCSV(rows, tips)}
         groupBy="none" groupOptions={[]} onGroupByChange={() => {}}
@@ -85,16 +94,16 @@ export default function TaproomModelReport() {
             <table className="min-w-full text-sm">
               <thead>
                 <tr className="border-b border-zinc-700 bg-zinc-800">
-                  <th className={`${thCls} text-left`}>Category</th>
-                  <th className={`${thCls} text-right`}>Gross Sales</th>
-                  <th className={`${thCls} text-right`}>Discounts</th>
-                  <th className={`${thCls} text-right`}>Returns</th>
-                  <th className={`${thCls} text-right`}>Net Sales</th>
-                  <th className={`${thCls} text-right`}>Tax Collected</th>
+                  <SortTh label="Category"      col="category"   {...sp} />
+                  <SortTh label="Gross Sales"   col="gross_sales" {...sp} align="right" />
+                  <SortTh label="Discounts"     col="discounts"   {...sp} align="right" />
+                  <SortTh label="Returns"       col="returns"     {...sp} align="right" />
+                  <SortTh label="Net Sales"     col="net_sales"   {...sp} align="right" />
+                  <SortTh label="Tax Collected" col="tax"         {...sp} align="right" />
                 </tr>
               </thead>
               <tbody className="bg-zinc-900">
-                {rows.map((row, i) => {
+                {(sorted ?? []).map((row, i) => {
                   const isZero = parseFloat(row.gross_sales) === 0 && parseFloat(row.net_sales) === 0;
                   return (
                     <tr key={i} className="border-b border-zinc-800 hover:bg-zinc-800">
@@ -131,12 +140,20 @@ export default function TaproomModelReport() {
             </table>
           </div>
 
-          {tips !== null && (
-            <div className="inline-flex items-center gap-3 px-4 py-3 bg-zinc-900 border border-zinc-700 rounded-lg">
-              <span className="text-sm font-medium text-zinc-300">Total Tips Collected</span>
-              <span className="text-lg font-semibold text-zinc-100">{currency(tips)}</span>
-            </div>
-          )}
+          <div className="flex flex-wrap gap-3">
+            {attributedNetSales !== null && (
+              <div className="inline-flex items-center gap-3 px-4 py-3 bg-zinc-900 border border-zinc-700 rounded-lg">
+                <span className="text-sm font-medium text-zinc-300">Taproom Attributed Net Sales</span>
+                <span className="text-lg font-semibold text-zinc-100">{currency(attributedNetSales)}</span>
+              </div>
+            )}
+            {tips !== null && (
+              <div className="inline-flex items-center gap-3 px-4 py-3 bg-zinc-900 border border-zinc-700 rounded-lg">
+                <span className="text-sm font-medium text-zinc-300">Total Tips Collected</span>
+                <span className="text-lg font-semibold text-zinc-100">{currency(tips)}</span>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

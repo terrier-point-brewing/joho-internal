@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import ReportControls from "./ReportControls";
+import { useSort, SortTh } from "./SortControls";
 
 type CategoryRow = { category: string; gross_sales: string; discounts: string; net_sales: string };
 type CustomerRow  = { customer: string; invoices: number; total_charged: string; total_outstanding: string };
@@ -9,11 +10,6 @@ type CustomerRow  = { customer: string; invoices: number; total_charged: string;
 function currency(v: string | number) {
   const n = typeof v === "string" ? parseFloat(v) : v;
   return `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-function today() { return new Date().toISOString().slice(0, 10); }
-function firstOfMonth() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
 }
 
 function exportCSV(catRows: CategoryRow[], custRows: CustomerRow[]) {
@@ -32,16 +28,20 @@ function exportCSV(catRows: CategoryRow[], custRows: CustomerRow[]) {
   URL.revokeObjectURL(url);
 }
 
-const thCls = "px-4 py-3 font-medium text-zinc-300";
 const tdCls = "px-4 py-2";
 
-export default function ContractBrewingReport() {
-  const [start, setStart]         = useState(firstOfMonth());
-  const [end, setEnd]             = useState(today());
+interface Props { start: string; end: string; onStartChange: (v: string) => void; onEndChange: (v: string) => void; }
+
+export default function ContractBrewingReport({ start, end, onStartChange, onEndChange }: Props) {
   const [catRows, setCatRows]     = useState<CategoryRow[] | null>(null);
   const [custRows, setCustRows]   = useState<CustomerRow[] | null>(null);
   const [loading, setLoading]     = useState(false);
   const [error, setError]         = useState<string | null>(null);
+
+  const catSort  = useSort(catRows);
+  const custSort = useSort(custRows);
+  const catSp  = { sortKey: catSort.sortKey,  sortDir: catSort.sortDir,  onSort: catSort.handleSort };
+  const custSp = { sortKey: custSort.sortKey, sortDir: custSort.sortDir, onSort: custSort.handleSort };
 
   async function runReport() {
     setLoading(true); setError(null); setCatRows(null); setCustRows(null);
@@ -65,7 +65,7 @@ export default function ContractBrewingReport() {
   return (
     <div>
       <ReportControls
-        start={start} end={end} onStartChange={setStart} onEndChange={setEnd}
+        start={start} end={end} onStartChange={onStartChange} onEndChange={onEndChange}
         onRun={runReport} loading={loading} hasData={hasData}
         onExport={() => catRows && custRows && exportCSV(catRows, custRows)}
         groupBy="none" groupOptions={[]} onGroupByChange={() => {}}
@@ -83,13 +83,13 @@ export default function ContractBrewingReport() {
               <table className="min-w-full text-sm">
                 <thead>
                   <tr className="border-b border-zinc-700 bg-zinc-800">
-                    <th className={`${thCls} text-left`}>Category</th>
-                    <th className={`${thCls} text-right`}>Gross Revenue</th>
-                    <th className={`${thCls} text-right`}>Net Revenue</th>
+                    <SortTh label="Category"      col="category"   {...catSp} />
+                    <SortTh label="Gross Revenue" col="gross_sales" {...catSp} align="right" />
+                    <SortTh label="Net Revenue"   col="net_sales"   {...catSp} align="right" />
                   </tr>
                 </thead>
                 <tbody className="bg-zinc-900">
-                  {catRows.map((row, i) => (
+                  {(catSort.sorted ?? []).map((row, i) => (
                     <tr key={i} className="border-b border-zinc-800 hover:bg-zinc-800">
                       <td className={`${tdCls} font-medium text-zinc-100`}>{row.category}</td>
                       <td className={`${tdCls} text-right text-zinc-200`}>{currency(row.gross_sales)}</td>
@@ -124,14 +124,14 @@ export default function ContractBrewingReport() {
                 <table className="min-w-full text-sm">
                   <thead>
                     <tr className="border-b border-zinc-700 bg-zinc-800">
-                      <th className={`${thCls} text-left`}>Customer</th>
-                      <th className={`${thCls} text-right`}>Invoices</th>
-                      <th className={`${thCls} text-right`}>Total Charged</th>
-                      <th className={`${thCls} text-right`}>Outstanding</th>
+                      <SortTh label="Customer"    col="customer"          {...custSp} />
+                      <SortTh label="Invoices"    col="invoices"          {...custSp} align="right" />
+                      <SortTh label="Total Charged"    col="total_charged"     {...custSp} align="right" />
+                      <SortTh label="Outstanding" col="total_outstanding" {...custSp} align="right" />
                     </tr>
                   </thead>
                   <tbody className="bg-zinc-900">
-                    {custRows.map((row, i) => (
+                    {(custSort.sorted ?? []).map((row, i) => (
                       <tr key={i} className="border-b border-zinc-800 hover:bg-zinc-800">
                         <td className={`${tdCls} font-medium text-zinc-100`}>{row.customer}</td>
                         <td className={`${tdCls} text-right text-zinc-200`}>{row.invoices}</td>

@@ -6,6 +6,7 @@ import {
   Legend, ResponsiveContainer,
 } from "recharts";
 import ReportControls from "./ReportControls";
+import { useSort, SortTh } from "./SortControls";
 
 type CountEvent = {
   date: string; week: string; qty: string; shrinkage_pct: string | null;
@@ -18,7 +19,6 @@ type ItemRow = {
 };
 type ChartItem = { name: string; category: string };
 
-// Colour palette for chart lines
 const LINE_COLORS = [
   "#60a5fa", "#f59e0b", "#34d399", "#f87171", "#a78bfa",
   "#fb923c", "#38bdf8", "#4ade80", "#e879f9", "#facc15",
@@ -30,7 +30,6 @@ function ninetyDaysAgo() {
   return d.toISOString().slice(0, 10);
 }
 
-const thCls = "px-4 py-3 font-medium text-zinc-300";
 const tdCls = "px-4 py-2";
 
 function pctColor(pct: string | null) {
@@ -42,6 +41,9 @@ function pctColor(pct: string | null) {
 }
 
 function ItemTable({ rows, title }: { rows: ItemRow[]; title: string }) {
+  const { sorted, sortKey, sortDir, handleSort } = useSort(rows.length > 0 ? rows : null);
+  const sp = { sortKey, sortDir, onSort: handleSort };
+
   if (rows.length === 0) return (
     <div>
       <h3 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider mb-2">{title}</h3>
@@ -56,16 +58,16 @@ function ItemTable({ rows, title }: { rows: ItemRow[]; title: string }) {
         <table className="min-w-full text-sm">
           <thead>
             <tr className="border-b border-zinc-700 bg-zinc-800">
-              <th className={`${thCls} text-left`}>Item</th>
-              <th className={`${thCls} text-right`}>Peak (fl oz)</th>
-              <th className={`${thCls} text-right`}>Latest (fl oz)</th>
-              <th className={`${thCls} text-right`}>% Remaining</th>
-              <th className={`${thCls} text-right`}>Avg Depletion %</th>
-              <th className={`${thCls} text-left`}>Count History</th>
+              <SortTh label="Item"          col="item_name"         {...sp} />
+              <SortTh label="Peak (fl oz)"  col="peak_qty"          {...sp} align="right" />
+              <SortTh label="Latest (fl oz)" col="latest_qty"       {...sp} align="right" />
+              <SortTh label="% Remaining"   col="pct_remaining"     {...sp} align="right" />
+              <SortTh label="Avg Depletion %" col="avg_shrinkage_pct" {...sp} align="right" />
+              <th className="px-4 py-3 font-medium text-zinc-300 text-left">Count History</th>
             </tr>
           </thead>
           <tbody className="bg-zinc-900">
-            {rows.map((row, i) => (
+            {(sorted ?? rows).map((row, i) => (
               <tr key={i} className="border-b border-zinc-800 hover:bg-zinc-800">
                 <td className={`${tdCls} font-medium text-zinc-100`}>
                   {row.item_name}
@@ -81,7 +83,7 @@ function ItemTable({ rows, title }: { rows: ItemRow[]; title: string }) {
                 <td className={`${tdCls} text-right ${pctColor(row.avg_shrinkage_pct)}`}>
                   {row.avg_shrinkage_pct !== null ? `${row.avg_shrinkage_pct}%` : "—"}
                 </td>
-                <td className={`${tdCls}`}>
+                <td className={tdCls}>
                   <div className="flex flex-wrap gap-2">
                     {row.counts.map((c, j) => (
                       <span key={j} className="inline-flex items-center gap-1 text-xs text-zinc-400">
@@ -105,15 +107,15 @@ function ItemTable({ rows, title }: { rows: ItemRow[]; title: string }) {
   );
 }
 
-export default function ShrinkageReport() {
-  const [start, setStart]     = useState(ninetyDaysAgo());
-  const [end, setEnd]         = useState(today());
-  const [draft, setDraft]     = useState<ItemRow[] | null>(null);
-  const [liquor, setLiquor]   = useState<ItemRow[] | null>(null);
+interface Props { start: string; end: string; onStartChange: (v: string) => void; onEndChange: (v: string) => void; }
+
+export default function ShrinkageReport({ start, end, onStartChange, onEndChange }: Props) {
+  const [draft, setDraft]           = useState<ItemRow[] | null>(null);
+  const [liquor, setLiquor]         = useState<ItemRow[] | null>(null);
   const [chartData, setChartData]   = useState<Record<string, unknown>[] | null>(null);
   const [chartItems, setChartItems] = useState<ChartItem[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError]     = useState<string | null>(null);
+  const [loading, setLoading]       = useState(false);
+  const [error, setError]           = useState<string | null>(null);
 
   async function runReport() {
     setLoading(true); setError(null);
@@ -136,7 +138,7 @@ export default function ShrinkageReport() {
   return (
     <div>
       <ReportControls
-        start={start} end={end} onStartChange={setStart} onEndChange={setEnd}
+        start={start} end={end} onStartChange={onStartChange} onEndChange={onEndChange}
         onRun={runReport} loading={loading} hasData={hasData}
         groupBy="none" groupOptions={[]} onGroupByChange={() => {}}
       />
@@ -145,14 +147,9 @@ export default function ShrinkageReport() {
 
       {draft !== null && (
         <div className="mt-4 space-y-6">
-
-          {/* Draft section */}
           <ItemTable rows={draft} title="Draft Beer" />
-
-          {/* Liquor section */}
           <ItemTable rows={liquor ?? []} title="Liquor" />
 
-          {/* Line chart */}
           {hasChartData ? (
             <div>
               <h3 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider mb-3">
@@ -162,18 +159,9 @@ export default function ShrinkageReport() {
                 <ResponsiveContainer width="100%" height={320}>
                   <LineChart data={chartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#3f3f46" />
-                    <XAxis
-                      dataKey="week"
-                      tick={{ fill: "#a1a1aa", fontSize: 12 }}
-                      tickLine={{ stroke: "#52525b" }}
-                      axisLine={{ stroke: "#52525b" }}
-                    />
-                    <YAxis
-                      tick={{ fill: "#a1a1aa", fontSize: 12 }}
-                      tickLine={{ stroke: "#52525b" }}
-                      axisLine={{ stroke: "#52525b" }}
-                      tickFormatter={(v) => `${v}%`}
-                      domain={[0, 100]}
+                    <XAxis dataKey="week" tick={{ fill: "#a1a1aa", fontSize: 12 }} tickLine={{ stroke: "#52525b" }} axisLine={{ stroke: "#52525b" }} />
+                    <YAxis tick={{ fill: "#a1a1aa", fontSize: 12 }} tickLine={{ stroke: "#52525b" }} axisLine={{ stroke: "#52525b" }}
+                      tickFormatter={(v) => `${v}%`} domain={[0, 100]}
                       label={{ value: "% Depletion", angle: -90, position: "insideLeft", fill: "#71717a", fontSize: 11, dy: 50 }}
                     />
                     <Tooltip
@@ -185,19 +173,12 @@ export default function ShrinkageReport() {
                         return [`${value}%`, String(name)];
                       }}
                     />
-                    <Legend
-                      wrapperStyle={{ color: "#a1a1aa", fontSize: 12, paddingTop: 12 }}
-                    />
+                    <Legend wrapperStyle={{ color: "#a1a1aa", fontSize: 12, paddingTop: 12 }} />
                     {chartItems.map((item, idx) => (
-                      <Line
-                        key={item.name}
-                        type="monotone"
-                        dataKey={item.name}
-                        stroke={LINE_COLORS[idx % LINE_COLORS.length]}
-                        strokeWidth={2}
+                      <Line key={item.name} type="monotone" dataKey={item.name}
+                        stroke={LINE_COLORS[idx % LINE_COLORS.length]} strokeWidth={2}
                         dot={{ r: 4, fill: LINE_COLORS[idx % LINE_COLORS.length] }}
-                        connectNulls={false}
-                        activeDot={{ r: 6 }}
+                        connectNulls={false} activeDot={{ r: 6 }}
                       />
                     ))}
                   </LineChart>
@@ -207,9 +188,7 @@ export default function ShrinkageReport() {
           ) : (
             draft !== null && (
               <div>
-                <h3 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider mb-2">
-                  Shrinkage Over Time
-                </h3>
+                <h3 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider mb-2">Shrinkage Over Time</h3>
                 <p className="text-sm text-zinc-500">
                   Not enough consecutive count data to plot a trend. Shrinkage trends will appear here once items have been counted more than once.
                 </p>

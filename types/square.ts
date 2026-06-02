@@ -64,6 +64,7 @@ export interface OrderLineItem {
   quantity: string;
   name: string;
   variation_name?: string;
+  note?: string;
   base_price_money?: Money;
   gross_sales_money?: Money;
   total_discount_money?: Money;

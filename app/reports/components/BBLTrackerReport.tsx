@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import ReportControls from "./ReportControls";
+import { useSort, SortTh } from "./SortControls";
 
 type StyleRow = {
   style: string;
@@ -12,22 +13,11 @@ type StyleRow = {
 };
 type ChannelRow = { channel: string; bbl: string; gallons: string };
 
-function bbl(v: string | number) {
-  const n = typeof v === "string" ? parseFloat(v) : v;
-  return n.toFixed(3);
-}
-function gal(v: string | number) {
-  const n = typeof v === "string" ? parseFloat(v) : v;
-  return n.toFixed(2);
-}
+function bbl(v: string | number) { return (typeof v === "string" ? parseFloat(v) : v).toFixed(3); }
+function gal(v: string | number) { return (typeof v === "string" ? parseFloat(v) : v).toFixed(2); }
 function currency(v: string | number) {
   const n = typeof v === "string" ? parseFloat(v) : v;
   return `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-function today() { return new Date().toISOString().slice(0, 10); }
-function firstOfMonth() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
 }
 
 function exportCSV(styleRows: StyleRow[], channelRows: ChannelRow[], excise: string) {
@@ -50,17 +40,21 @@ function exportCSV(styleRows: StyleRow[], channelRows: ChannelRow[], excise: str
   URL.revokeObjectURL(url);
 }
 
-const thCls = "px-4 py-3 font-medium text-zinc-300";
 const tdCls = "px-4 py-2";
 
-export default function BBLTrackerReport() {
-  const [start, setStart]           = useState(firstOfMonth());
-  const [end, setEnd]               = useState(today());
-  const [styleRows, setStyleRows]   = useState<StyleRow[] | null>(null);
+interface Props { start: string; end: string; onStartChange: (v: string) => void; onEndChange: (v: string) => void; }
+
+export default function BBLTrackerReport({ start, end, onStartChange, onEndChange }: Props) {
+  const [styleRows, setStyleRows]     = useState<StyleRow[] | null>(null);
   const [channelRows, setChannelRows] = useState<ChannelRow[] | null>(null);
-  const [exciseTax, setExciseTax]   = useState<string | null>(null);
-  const [loading, setLoading]       = useState(false);
-  const [error, setError]           = useState<string | null>(null);
+  const [exciseTax, setExciseTax]     = useState<string | null>(null);
+  const [loading, setLoading]         = useState(false);
+  const [error, setError]             = useState<string | null>(null);
+
+  const styleSort   = useSort(styleRows);
+  const channelSort = useSort(channelRows);
+  const styleSp   = { sortKey: styleSort.sortKey,   sortDir: styleSort.sortDir,   onSort: styleSort.handleSort };
+  const channelSp = { sortKey: channelSort.sortKey, sortDir: channelSort.sortDir, onSort: channelSort.handleSort };
 
   async function runReport() {
     setLoading(true); setError(null); setStyleRows(null); setChannelRows(null); setExciseTax(null);
@@ -95,7 +89,7 @@ export default function BBLTrackerReport() {
   return (
     <div>
       <ReportControls
-        start={start} end={end} onStartChange={setStart} onEndChange={setEnd}
+        start={start} end={end} onStartChange={onStartChange} onEndChange={onEndChange}
         onRun={runReport} loading={loading} hasData={hasData}
         onExport={() => styleRows && channelRows && exciseTax && exportCSV(styleRows, channelRows, exciseTax)}
         groupBy="none" groupOptions={[]} onGroupByChange={() => {}}
@@ -116,22 +110,22 @@ export default function BBLTrackerReport() {
                 <table className="min-w-full text-sm">
                   <thead>
                     <tr className="border-b border-zinc-700 bg-zinc-800">
-                      <th className={`${thCls} text-left`}>Style</th>
-                      <th className={`${thCls} text-right`}>Draft (BBL)</th>
-                      <th className={`${thCls} text-right`}>Taproom Pkg (BBL)</th>
-                      <th className={`${thCls} text-right`}>Distrib (BBL)</th>
-                      <th className={`${thCls} text-right`}>Contract (BBL)</th>
-                      <th className={`${thCls} text-right`}>½ Kegs</th>
-                      {showQuarter && <th className={`${thCls} text-right`}>¼ Kegs</th>}
-                      <th className={`${thCls} text-right`}>⅙ Kegs</th>
-                      <th className={`${thCls} text-right`}>Cans</th>
-                      <th className={`${thCls} text-right`}>Total BBL</th>
-                      <th className={`${thCls} text-right`}>Gallons</th>
-                      <th className={`${thCls} text-right`}>Excise Tax</th>
+                      <SortTh label="Style"           col="style"              {...styleSp} />
+                      <SortTh label="Draft (BBL)"     col="taproom_draft_bbl"  {...styleSp} align="right" />
+                      <SortTh label="Taproom Pkg"     col="taproom_pkg_bbl"    {...styleSp} align="right" />
+                      <SortTh label="Distrib (BBL)"   col="dist_bbl"           {...styleSp} align="right" />
+                      <SortTh label="Contract (BBL)"  col="contract_bbl"       {...styleSp} align="right" />
+                      <SortTh label="½ Kegs"          col="half_keg_count"     {...styleSp} align="right" />
+                      {showQuarter && <SortTh label="¼ Kegs" col="quarter_keg_count" {...styleSp} align="right" />}
+                      <SortTh label="⅙ Kegs"          col="sixth_keg_count"    {...styleSp} align="right" />
+                      <SortTh label="Cans"            col="total_cans"         {...styleSp} align="right" />
+                      <SortTh label="Total BBL"       col="total_bbl"          {...styleSp} align="right" />
+                      <SortTh label="Gallons"         col="total_gallons"      {...styleSp} align="right" />
+                      <SortTh label="Excise Tax"      col="excise_tax"         {...styleSp} align="right" />
                     </tr>
                   </thead>
                   <tbody className="bg-zinc-900">
-                    {styleRows.map((row, i) => (
+                    {(styleSort.sorted ?? []).map((row, i) => (
                       <tr key={i} className="border-b border-zinc-800 hover:bg-zinc-800">
                         <td className={`${tdCls} font-medium text-zinc-100`}>{row.style}</td>
                         <td className={`${tdCls} text-right ${parseFloat(row.taproom_draft_bbl) > 0 ? "text-zinc-200" : "text-zinc-600"}`}>
@@ -187,13 +181,13 @@ export default function BBLTrackerReport() {
                 <table className="min-w-full text-sm">
                   <thead>
                     <tr className="border-b border-zinc-700 bg-zinc-800">
-                      <th className={`${thCls} text-left`}>Channel</th>
-                      <th className={`${thCls} text-right`}>BBL</th>
-                      <th className={`${thCls} text-right`}>Gallons</th>
+                      <SortTh label="Channel" col="channel" {...channelSp} />
+                      <SortTh label="BBL"     col="bbl"     {...channelSp} align="right" />
+                      <SortTh label="Gallons" col="gallons" {...channelSp} align="right" />
                     </tr>
                   </thead>
                   <tbody className="bg-zinc-900">
-                    {channelRows.map((row, i) => (
+                    {(channelSort.sorted ?? []).map((row, i) => (
                       <tr key={i} className="border-b border-zinc-800 hover:bg-zinc-800">
                         <td className={`${tdCls} font-medium text-zinc-100`}>{row.channel}</td>
                         <td className={`${tdCls} text-right text-zinc-200`}>{bbl(row.bbl)}</td>
@@ -213,7 +207,6 @@ export default function BBLTrackerReport() {
             </div>
           )}
 
-          {/* Excise Tax */}
           {exciseTax !== null && (
             <div className="inline-flex items-center gap-3 px-4 py-3 bg-zinc-900 border border-zinc-700 rounded-lg">
               <span className="text-sm font-medium text-zinc-300">Total Excise Tax Due</span>

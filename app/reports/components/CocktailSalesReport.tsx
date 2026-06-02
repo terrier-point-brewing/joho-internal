@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import ReportControls from "./ReportControls";
+import { useSort, SortTh } from "./SortControls";
 
 type RawRow = {
   date: string; time: string; item: string; is_combo: boolean;
@@ -20,11 +21,6 @@ const GROUP_OPTIONS = [
 function currency(v: string | number) {
   const n = typeof v === "string" ? parseFloat(v) : v;
   return `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-function today() { return new Date().toISOString().slice(0, 10); }
-function firstOfMonth() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
 }
 
 function groupRows(rows: RawRow[]): GroupedRow[] {
@@ -60,16 +56,21 @@ function exportCSV(rows: RawRow[], groupBy: string) {
   URL.revokeObjectURL(url);
 }
 
-const thCls = "px-4 py-3 font-medium text-zinc-300";
 const tdCls = "px-4 py-2";
 
-export default function CocktailSalesReport() {
-  const [start, setStart] = useState(firstOfMonth());
-  const [end, setEnd]     = useState(today());
+interface Props { start: string; end: string; onStartChange: (v: string) => void; onEndChange: (v: string) => void; }
+
+export default function CocktailSalesReport({ start, end, onStartChange, onEndChange }: Props) {
   const [rows, setRows]   = useState<RawRow[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState<string | null>(null);
   const [groupBy, setGroupBy] = useState("date");
+
+  const groupedRows = useMemo(() => (rows ? groupRows(rows) : null), [rows]);
+
+  // Separate sort state per view so switching views doesn't bleed sort
+  const rawSort     = useSort(rows);
+  const groupedSort = useSort(groupedRows);
 
   async function runReport() {
     setLoading(true); setError(null); setRows(null);
@@ -82,7 +83,6 @@ export default function CocktailSalesReport() {
     finally { setLoading(false); }
   }
 
-  const displayRows = rows ? (groupBy === "item" ? groupRows(rows) : rows) : null;
   const totals = rows ? {
     qty:   rows.reduce((s, r) => s + r.qty, 0),
     gross: rows.reduce((s, r) => s + parseFloat(r.gross_sales), 0),
@@ -91,10 +91,16 @@ export default function CocktailSalesReport() {
     tax:   rows.reduce((s, r) => s + parseFloat(r.tax), 0),
   } : null;
 
+  const isGrouped = groupBy === "item";
+  const displayRows = isGrouped ? (groupedSort.sorted ?? groupedRows) : (rawSort.sorted ?? rows);
+  const sp = isGrouped
+    ? { sortKey: groupedSort.sortKey, sortDir: groupedSort.sortDir, onSort: groupedSort.handleSort }
+    : { sortKey: rawSort.sortKey,     sortDir: rawSort.sortDir,     onSort: rawSort.handleSort };
+
   return (
     <div>
       <ReportControls
-        start={start} end={end} onStartChange={setStart} onEndChange={setEnd}
+        start={start} end={end} onStartChange={onStartChange} onEndChange={onEndChange}
         onRun={runReport} loading={loading} hasData={!!rows?.length}
         onExport={() => rows && exportCSV(rows, groupBy)}
         groupBy={groupBy} groupOptions={GROUP_OPTIONS} onGroupByChange={setGroupBy}
@@ -116,29 +122,32 @@ export default function CocktailSalesReport() {
               <table className="min-w-full text-sm">
                 <thead>
                   <tr className="border-b border-zinc-700 bg-zinc-800">
-                    {groupBy === "date" && (
-                      <><th className={`${thCls} text-left`}>Date</th><th className={`${thCls} text-left`}>Time</th></>
+                    {!isGrouped && (
+                      <>
+                        <SortTh label="Date" col="date" {...sp} />
+                        <SortTh label="Time" col="time" {...sp} />
+                      </>
                     )}
-                    <th className={`${thCls} text-left`}>Item</th>
-                    {groupBy === "date" && <th className={`${thCls} text-left`}>Type</th>}
-                    <th className={`${thCls} text-right`}>Qty</th>
-                    <th className={`${thCls} text-right`}>Gross Sales</th>
-                    <th className={`${thCls} text-right`}>Discounts</th>
-                    <th className={`${thCls} text-right`}>Net Sales</th>
-                    <th className={`${thCls} text-right`}>Tax</th>
+                    <SortTh label="Item"        col="item"        {...sp} />
+                    {!isGrouped && <SortTh label="Type" col="is_combo" {...sp} />}
+                    <SortTh label="Qty"         col="qty"         {...sp} align="right" />
+                    <SortTh label="Gross Sales" col="gross_sales" {...sp} align="right" />
+                    <SortTh label="Discounts"   col="discounts"   {...sp} align="right" />
+                    <SortTh label="Net Sales"   col="net_sales"   {...sp} align="right" />
+                    <SortTh label="Tax"         col="tax"         {...sp} align="right" />
                   </tr>
                 </thead>
                 <tbody className="bg-zinc-900">
                   {displayRows.map((row, i) => (
                     <tr key={i} className="border-b border-zinc-800 hover:bg-zinc-800">
-                      {groupBy === "date" && "date" in row && (
+                      {!isGrouped && "date" in row && (
                         <>
                           <td className={`${tdCls} text-zinc-200 whitespace-nowrap`}>{(row as RawRow).date}</td>
                           <td className={`${tdCls} text-zinc-400 whitespace-nowrap`}>{(row as RawRow).time}</td>
                         </>
                       )}
                       <td className={`${tdCls} font-medium text-zinc-100`}>{row.item}</td>
-                      {groupBy === "date" && "is_combo" in row && (
+                      {!isGrouped && "is_combo" in row && (
                         <td className={tdCls}>
                           {(row as RawRow).is_combo
                             ? <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-900 text-purple-200">Combo</span>
@@ -155,7 +164,7 @@ export default function CocktailSalesReport() {
                 </tbody>
                 <tfoot>
                   <tr className="border-t-2 border-zinc-600 bg-zinc-800 font-semibold">
-                    {groupBy === "date" && <td className={tdCls} colSpan={3} />}
+                    {!isGrouped && <td className={tdCls} colSpan={3} />}
                     <td className={`${tdCls} text-zinc-200`}>Totals</td>
                     <td className={`${tdCls} text-right text-zinc-200`}>{totals!.qty}</td>
                     <td className={`${tdCls} text-right text-zinc-200`}>{currency(totals!.gross)}</td>
