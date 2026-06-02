@@ -13,17 +13,23 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
-  const { beer_name, style, target_volume_bbl, notes, ingredients: lines } = body;
+  const { beer_name, brewery, expected_yield_bbl, steps, notes, ingredients: lines } = body;
 
   const { data: recipe, error: recipeErr } = await supabase
     .from("recipes")
-    .insert({ beer_name, style: style || null, target_volume_bbl: target_volume_bbl || null, notes: notes || null })
+    .insert({
+      beer_name,
+      brewery: brewery || null,
+      expected_yield_bbl: expected_yield_bbl || null,
+      steps: steps || null,
+      notes: notes || null,
+    })
     .select()
     .single();
 
   if (recipeErr) return NextResponse.json({ error: recipeErr.message }, { status: 500 });
 
-  if (lines && lines.length > 0) {
+  if (lines?.length) {
     const rows = lines.map((l: { ingredient_id: string; quantity_per_bbl: number }) => ({
       recipe_id: recipe.id,
       ingredient_id: l.ingredient_id,

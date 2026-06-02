@@ -8,7 +8,12 @@
       "Bash(curl -s -X POST https://connect.squareup.com/v2/catalog/search -H 'Authorization: Bearer EAAAl_uGNlwbvUjkHXVwW9ms3hh8GqMnxTQe1Tog3fEZi_LwN9ba7Xnaqq5UhBVI' -H 'Content-Type: application/json' -d '{\"object_types\": [\"ITEM\"], \"query\": {\"text_query\": {\"keywords\": [\"combo\"]}}}')",
       "Bash(curl -s -X GET https://connect.squareup.com/v2/catalog/list?types=ITEM -H 'Authorization: Bearer EAAAl_uGNlwbvUjkHXVwW9ms3hh8GqMnxTQe1Tog3fEZi_LwN9ba7Xnaqq5UhBVI' -H 'Content-Type: application/json')",
       "Bash(curl -s -X POST https://connect.squareup.com/v2/catalog/search -H 'Authorization: Bearer EAAAl_uGNlwbvUjkHXVwW9ms3hh8GqMnxTQe1Tog3fEZi_LwN9ba7Xnaqq5UhBVI' -H 'Content-Type: application/json' -d '{\"object_types\": [\"ITEM\"]}')",
-      "Bash(npx create-next-app@latest . --typescript --tailwind --eslint --app --no-src-dir --import-alias \"@/*\" --yes)"
+      "Bash(npx create-next-app@latest . --typescript --tailwind --eslint --app --no-src-dir --import-alias \"@/*\" --yes)",
+      "Bash(npm install *)",
+      "Bash(npx tsc *)",
+      "Bash(npm run *)",
+      "Bash(curl -s \"http://localhost:3000/api/combo-sales?start=2026-05-01&end=2026-05-31\")",
+      "Bash(curl -s https://connect.squareup.com/v2/locations -H 'Authorization: Bearer EAAAl_uGNlwbvUjkHXVwW9ms3hh8GqMnxTQe1Tog3fEZi_LwN9ba7Xnaqq5UhBVI')"
     ]
   }
 }

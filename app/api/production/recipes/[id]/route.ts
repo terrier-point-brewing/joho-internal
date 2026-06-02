@@ -6,11 +6,17 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const { beer_name, style, target_volume_bbl, notes, ingredients: lines } = await req.json();
+  const { beer_name, brewery, expected_yield_bbl, steps, notes, ingredients: lines } = await req.json();
 
   const { error: recipeErr } = await supabase
     .from("recipes")
-    .update({ beer_name, style: style || null, target_volume_bbl: target_volume_bbl || null, notes: notes || null })
+    .update({
+      beer_name,
+      brewery: brewery || null,
+      expected_yield_bbl: expected_yield_bbl || null,
+      steps: steps || null,
+      notes: notes || null,
+    })
     .eq("id", id);
 
   if (recipeErr) return NextResponse.json({ error: recipeErr.message }, { status: 500 });
