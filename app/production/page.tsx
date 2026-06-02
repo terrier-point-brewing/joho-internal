@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { Ingredient, StockAdjustment, Recipe, BrewBatch, Tank, BatchTankAssignment, PackagingItem } from "./types";
+import { useState } from "react";
+import { useProductionData } from "./hooks/useProductionData";
 import BatchLogTab    from "./components/BatchLogTab";
 import IngredientsTab from "./components/IngredientsTab";
 import RecipesTab     from "./components/RecipesTab";
@@ -14,36 +14,11 @@ type Tab = typeof TABS[number];
 
 export default function ProductionPage() {
   const [tab, setTab] = useState<Tab>("Brew Status");
-
-  const [ingredients, setIngredients] = useState<Ingredient[]>([]);
-  const [adjustments, setAdjustments] = useState<StockAdjustment[]>([]);
-  const [recipes,     setRecipes]     = useState<Recipe[]>([]);
-  const [batches,     setBatches]     = useState<BrewBatch[]>([]);
-  const [tanks,       setTanks]       = useState<Tank[]>([]);
-  const [assignments, setAssignments] = useState<BatchTankAssignment[]>([]);
-  const [packaging,   setPackaging]   = useState<PackagingItem[]>([]);
-
-  const loadIngredients = useCallback(async () => { const r = await fetch("/api/production/ingredients");        if (r.ok) setIngredients(await r.json()); }, []);
-  const loadAdjustments = useCallback(async () => { const r = await fetch("/api/production/stock-adjustments");  if (r.ok) setAdjustments(await r.json()); }, []);
-  const loadRecipes     = useCallback(async () => { const r = await fetch("/api/production/recipes");            if (r.ok) setRecipes(await r.json()); }, []);
-  const loadBatches     = useCallback(async () => { const r = await fetch("/api/production/batches");            if (r.ok) setBatches(await r.json()); }, []);
-  const loadTanks       = useCallback(async () => { const r = await fetch("/api/production/tanks");              if (r.ok) setTanks(await r.json()); }, []);
-  const loadAssignments = useCallback(async () => { const r = await fetch("/api/production/tank-assignments");   if (r.ok) setAssignments(await r.json()); }, []);
-  const loadPackaging   = useCallback(async () => { const r = await fetch("/api/production/packaging");          if (r.ok) setPackaging(await r.json()); }, []);
-
-  const refreshBrewStatus = useCallback(async () => {
-    await Promise.all([loadTanks(), loadAssignments(), loadBatches()]);
-  }, [loadTanks, loadAssignments, loadBatches]);
-
-  useEffect(() => {
-    loadIngredients();
-    loadAdjustments();
-    loadRecipes();
-    loadBatches();
-    loadTanks();
-    loadAssignments();
-    loadPackaging();
-  }, [loadIngredients, loadAdjustments, loadRecipes, loadBatches, loadTanks, loadAssignments, loadPackaging]);
+  const {
+    ingredients, adjustments, recipes, batches, tanks, assignments, packaging,
+    loadIngredients, loadAdjustments, loadRecipes, loadBatches, loadPackaging,
+    refreshBrewStatus,
+  } = useProductionData();
 
   return (
     <main className="max-w-7xl mx-auto px-6 py-8">
@@ -75,9 +50,9 @@ export default function ProductionPage() {
           onAdjustmentsRefresh={loadAdjustments}
         />
       )}
-      {tab === "Recipes"    && <RecipesTab recipes={recipes} ingredients={ingredients} onRefresh={loadRecipes} />}
-      {tab === "Workflows"  && <WorkflowsTab equipment={tanks} batches={batches} />}
-      {tab === "Packaging"  && <PackagingTab packaging={packaging} onRefresh={loadPackaging} />}
+      {tab === "Recipes"   && <RecipesTab recipes={recipes} ingredients={ingredients} onRefresh={loadRecipes} />}
+      {tab === "Workflows" && <WorkflowsTab equipment={tanks} batches={batches} />}
+      {tab === "Packaging" && <PackagingTab packaging={packaging} onRefresh={loadPackaging} />}
 
       <style>{`
         .inp {

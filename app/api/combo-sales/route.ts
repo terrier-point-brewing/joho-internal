@@ -3,10 +3,8 @@ import { fetchCatalogItems, buildStandalonePriceMap, buildVariationNameMap } fro
 import { fetchCompletedOrders } from "@/lib/square/orders";
 import { buildComboIndex, buildComponentIndex, detectComboSales } from "@/lib/reports/combos";
 import type { ComboSale } from "@/types/reports";
-
-function cents(n: number) {
-  return (n / 100).toFixed(2);
-}
+import { requireDateRange, apiError } from "@/lib/utils/api";
+import { cents } from "@/lib/utils/formatting";
 
 // Multi-component combos (e.g. Citrus Wheat Wave) produce one ComboSale per
 // component. Merge them into a single row per (order, combo) by summing money
@@ -28,37 +26,33 @@ function aggregateByOrderAndCombo(sales: ComboSale[]) {
     const totalComponentQty = group.reduce((s, g) => s + g.quantity, 0);
     const quantity = first.comboNumSlots > 0 ? totalComponentQty / first.comboNumSlots : totalComponentQty;
     return {
-      orderId: first.orderId,
-      orderClosedAt: first.orderClosedAt,
-      comboName: first.comboName,
+      orderId:         first.orderId,
+      orderClosedAt:   first.orderClosedAt,
+      comboName:       first.comboName,
       quantity,
       grossSalesCents: group.reduce((s, g) => s + g.grossSalesCents, 0),
-      discountsCents: group.reduce((s, g) => s + g.discountsCents, 0),
-      netSalesCents: group.reduce((s, g) => s + g.netSalesCents, 0),
-      taxCents: group.reduce((s, g) => s + g.taxCents, 0),
+      discountsCents:  group.reduce((s, g) => s + g.discountsCents, 0),
+      netSalesCents:   group.reduce((s, g) => s + g.netSalesCents, 0),
+      taxCents:        group.reduce((s, g) => s + g.taxCents, 0),
     };
   });
 }
 
 export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url);
-  const start = searchParams.get("start");
-  const end = searchParams.get("end");
-  if (!start || !end) {
-    return NextResponse.json({ error: "start and end required" }, { status: 400 });
-  }
+  const range = requireDateRange(req);
+  if (range instanceof NextResponse) return range;
+  const { start, end } = range;
 
   try {
-    // Two API calls: catalog + orders (both paginated internally if needed)
     const [catalogItems, orders] = await Promise.all([
       fetchCatalogItems(),
       fetchCompletedOrders(start, end),
     ]);
 
     const standalonePrices = buildStandalonePriceMap(catalogItems);
-    const variationNames = buildVariationNameMap(catalogItems);
-    const combos = buildComboIndex(catalogItems);
-    const componentIndex = buildComponentIndex(combos);
+    const variationNames   = buildVariationNameMap(catalogItems);
+    const combos           = buildComboIndex(catalogItems);
+    const componentIndex   = buildComponentIndex(combos);
 
     // detectComboSales returns one entry per component line item (preserved for
     // future reports that may need component-level detail).
@@ -72,20 +66,19 @@ export async function GET(req: NextRequest) {
       .map((s) => {
         const d = new Date(s.orderClosedAt);
         return {
-          date: d.toLocaleDateString("en-US"),
-          time: d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
-          item: s.comboName,
-          qty: s.quantity,
+          date:        d.toLocaleDateString("en-US"),
+          time:        d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
+          item:        s.comboName,
+          qty:         s.quantity,
           gross_sales: cents(s.grossSalesCents),
-          discounts: cents(s.discountsCents),
-          net_sales: cents(s.netSalesCents),
-          tax: cents(s.taxCents),
+          discounts:   cents(s.discountsCents),
+          net_sales:   cents(s.netSalesCents),
+          tax:         cents(s.taxCents),
         };
       });
 
     return NextResponse.json({ rows });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Unknown error";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return apiError(err);
   }
 }

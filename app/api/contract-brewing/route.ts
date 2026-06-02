@@ -3,14 +3,13 @@ import { fetchCatalogItems } from "@/lib/square/catalog";
 import { fetchInvoiceOrders } from "@/lib/square/orders";
 import { fetchCustomers } from "@/lib/square/customers";
 import { buildContractBrewingReport } from "@/lib/reports/contract-brewing";
-
-function cents(n: number) { return (n / 100).toFixed(2); }
+import { requireDateRange, apiError } from "@/lib/utils/api";
+import { cents } from "@/lib/utils/formatting";
 
 export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url);
-  const start = searchParams.get("start");
-  const end   = searchParams.get("end");
-  if (!start || !end) return NextResponse.json({ error: "start and end required" }, { status: 400 });
+  const range = requireDateRange(req);
+  if (range instanceof NextResponse) return range;
+  const { start, end } = range;
 
   try {
     const [catalogItems, orders] = await Promise.all([
@@ -31,14 +30,13 @@ export async function GET(req: NextRequest) {
         net_sales:   cents(r.netCents),
       })),
       by_customer: result.byCustomer.map((r) => ({
-        customer:     r.customerName,
-        invoices:     r.invoiceCount,
+        customer:          r.customerName,
+        invoices:          r.invoiceCount,
         total_charged:     cents(r.totalChargedCents),
         total_outstanding: cents(r.totalOutstandingCents),
       })),
     });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Unknown error";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return apiError(err);
   }
 }

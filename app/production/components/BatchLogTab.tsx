@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { BrewBatch, BatchStatus, BatchStatusHistory, Recipe } from "../types";
 import { BREWHOUSE_BBL, BATCH_STATUSES, STATUS_MAP, StatusBadge, Modal, Field, ModalActions } from "./shared";
+import { fmtDateLong } from "@/lib/utils/formatting";
 
 const STATUS_OPTIONS = BATCH_STATUSES.filter((s) => s.value !== "archived");
 
@@ -11,9 +12,8 @@ function computeTurns(bbl: string) {
   return !isNaN(v) && v > 0 ? Math.ceil(v / BREWHOUSE_BBL) : 1;
 }
 
-function fmtDate(iso: string) {
-  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-}
+const fmtDate = fmtDateLong;
+
 function fmtDateTime(iso: string) {
   return new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }

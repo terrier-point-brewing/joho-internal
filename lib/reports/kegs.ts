@@ -1,9 +1,8 @@
-import type { CatalogItem } from "@/types/square";
-import type { Order } from "@/types/square";
+import type { CatalogItem, Order } from "@/types/square";
 import type { KegSale } from "@/types/reports";
 import { KEG_TRANSFER_DISCOUNT_NAME } from "@/types/reports";
-
 import { CATEGORY_IDS } from "@/lib/constants/categories";
+import { mapDiscountsByUid } from "@/lib/utils/orders";
 const KEG_CATEGORY_IDS = CATEGORY_IDS.KEGS;
 
 // Keg sizes as they appear in variation names — used to exclude deposits
@@ -52,11 +51,7 @@ export function detectKegSales(
   const sales: KegSale[] = [];
 
   for (const order of orders) {
-    // Build a uid → discount name map for this order
-    const discountByUid = new Map<string, string>();
-    for (const d of order.discounts ?? []) {
-      discountByUid.set(d.uid, d.name);
-    }
+    const discountByUid = mapDiscountsByUid(order);
 
     for (const line of order.line_items ?? []) {
       const varId = line.catalog_object_id;

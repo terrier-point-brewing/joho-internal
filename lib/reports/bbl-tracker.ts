@@ -20,12 +20,8 @@
 import type { CatalogItem, Order } from "@/types/square";
 import { CATEGORY_IDS } from "@/lib/constants/categories";
 import { KEG_TRANSFER_DISCOUNT_NAME } from "@/types/reports";
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-const GALLONS_PER_BBL = 31;
+import { GALLONS_PER_BBL } from "@/lib/constants/production";
+import { mapDiscountsByUid } from "@/lib/utils/orders";
 
 const KEG_GALLONS: Record<string, number> = {
   "1/2 Keg": 15.5,
@@ -247,9 +243,7 @@ export function buildBBLTrackerReport(
 
   // ── POS orders ────────────────────────────────────────────────────────────
   for (const order of posOrders) {
-    const discByUid = new Map(
-      (order.discounts ?? []).map((d) => [d.uid, d.name])
-    );
+    const discByUid = mapDiscountsByUid(order);
 
     for (const line of order.line_items ?? []) {
       const varId = line.catalog_object_id ?? "";

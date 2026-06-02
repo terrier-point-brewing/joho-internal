@@ -2,18 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { fetchCatalogItems } from "@/lib/square/catalog";
 import { fetchCompletedOrders } from "@/lib/square/orders";
 import { detectCocktailSales } from "@/lib/reports/cocktails";
-
-function cents(n: number) {
-  return (n / 100).toFixed(2);
-}
+import { requireDateRange, apiError } from "@/lib/utils/api";
+import { cents } from "@/lib/utils/formatting";
 
 export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url);
-  const start = searchParams.get("start");
-  const end   = searchParams.get("end");
-  if (!start || !end) {
-    return NextResponse.json({ error: "start and end required" }, { status: 400 });
-  }
+  const range = requireDateRange(req);
+  if (range instanceof NextResponse) return range;
+  const { start, end } = range;
 
   try {
     const [catalogItems, orders] = await Promise.all([
@@ -40,7 +35,6 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ rows });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Unknown error";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return apiError(err);
   }
 }
