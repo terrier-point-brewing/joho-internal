@@ -229,8 +229,8 @@ export default function BrewStatusTab({
         </div>
       )}
 
-      {/* Grid */}
-      <div className="overflow-auto rounded-lg border border-zinc-800 mb-6" style={{ maxHeight: "72vh" }}>
+      {/* Grid — frame always matches grid size exactly; page scrolls if needed, no internal scrollbar */}
+      <div className="rounded-lg border border-zinc-800 mb-6 overflow-hidden" style={{ width: gridCols * cell, height: gridRows * cell }}>
         <div
           ref={drag.gridRef}
           className="relative"
