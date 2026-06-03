@@ -4,9 +4,8 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 
 const PRODUCTION_TABS = [
-  { key: "brew-console",  label: "Brew Console"  },
-  { key: "brew-planner",  label: "Brew Planner"  },
-  { key: "workflows",     label: "Workflows"      },
+  { key: "scheduler",     label: "Scheduler"     },
+  { key: "planning",      label: "Planning"       },
   { key: "recipes",       label: "Recipes"        },
   { key: "inventory",     label: "Inventory"      },
   { key: "partners",      label: "Partners"       },
@@ -42,7 +41,7 @@ export default function NavBar() {
 
         {/* Production — always show, subtabs expand below */}
         <Link
-          href="/production?tab=brew-console"
+          href="/production?tab=scheduler"
           className={`px-3 py-2 rounded text-sm font-medium transition-colors ${
             isProduction
               ? "bg-zinc-800 text-zinc-100"

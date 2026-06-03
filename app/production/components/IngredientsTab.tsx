@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Ingredient, StockAdjustment, AdjustmentType, Supplier, ContractBrewingPartner } from "../types";
+import { Ingredient, StockAdjustment, AdjustmentType, Supplier, ContractBrewingPartner, IngredientCategory, INGREDIENT_CATEGORIES } from "../types";
 import { Modal, Field, ModalActions } from "./shared";
 
 const ADJUSTMENT_TYPES: {
@@ -24,7 +24,7 @@ const TYPE_COLORS: Record<AdjustmentType, string> = {
   batch_use:       "text-amber-400",
 };
 
-const ING_EMPTY = { name: "", supplier_id: "", partner_id: "", unit: "", cost_per_unit: "", stock_quantity: "0" };
+const ING_EMPTY = { name: "", category: "" as IngredientCategory | "", supplier_id: "", partner_id: "", unit: "", cost_per_unit: "", stock_quantity: "0" };
 
 function fmtQty(qty: number, sign = true) {
   const abs = Math.abs(qty).toLocaleString(undefined, { maximumFractionDigits: 3 });
@@ -77,6 +77,7 @@ export default function IngredientsTab({
   function openEdit(ing: Ingredient) {
     setIngForm({
       name: ing.name,
+      category: ing.category ?? "",
       supplier_id: ing.supplier_id ?? "",
       partner_id: ing.partner_id ?? "",
       unit: ing.unit,
@@ -93,6 +94,7 @@ export default function IngredientsTab({
     try {
       const payload = {
         name: ingForm.name,
+        category: ingForm.category || null,
         supplier_id: ingForm.supplier_id || null,
         partner_id: ingForm.partner_id || null,
         unit: ingForm.unit,
@@ -190,51 +192,67 @@ export default function IngredientsTab({
       {ingredients.length === 0 ? (
         <p className="text-zinc-600 text-sm">No ingredients yet.</p>
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-zinc-800">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-zinc-800 bg-zinc-900/50 text-left">
-                {["Name", "Supplier", "Partner", "Unit", "Cost / Unit", "Stock", "Total Value", ""].map((h) => (
-                  <th key={h} className={`px-4 py-2.5 text-xs font-medium text-zinc-500 ${
-                    ["Cost / Unit", "Stock", "Total Value"].includes(h) ? "text-right" : ""
-                  }`}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {ingredients.map((ing, i) => {
-                const totalValue = ing.cost_per_unit != null
-                  ? ing.cost_per_unit * ing.stock_quantity
-                  : null;
-                return (
-                  <tr key={ing.id} className={`border-b border-zinc-800/60 ${i % 2 !== 0 ? "bg-zinc-900/30" : ""}`}>
-                    <td className="px-4 py-2.5 text-zinc-100 font-medium">{ing.name}</td>
-                    <td className="px-4 py-2.5 text-zinc-400">{ing.suppliers?.company_name ?? "—"}</td>
-                    <td className="px-4 py-2.5 text-zinc-400">{ing.contract_brewing_partners?.company_name ?? "—"}</td>
-                    <td className="px-4 py-2.5 text-zinc-400">{ing.unit}</td>
-                    <td className="px-4 py-2.5 text-zinc-300 text-right tabular-nums">
-                      {ing.cost_per_unit != null ? `$${Number(ing.cost_per_unit).toFixed(4)}` : "—"}
-                    </td>
-                    <td className="px-4 py-2.5 text-right tabular-nums">
-                      <span className={Number(ing.stock_quantity) < 0 ? "text-red-400" : "text-zinc-300"}>
-                        {Number(ing.stock_quantity).toLocaleString(undefined, { maximumFractionDigits: 3 })} {ing.unit}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2.5 text-right tabular-nums text-zinc-300">
-                      {fmtValue(totalValue)}
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <div className="flex gap-3 justify-end">
-                        <button onClick={() => openAdj(ing)} className="text-xs text-amber-500 hover:text-amber-400 transition-colors font-medium">Adjust</button>
-                        <button onClick={() => openEdit(ing)} className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors">Edit</button>
-                        <button onClick={() => handleDelete(ing.id, ing.name)} className="text-xs text-zinc-600 hover:text-red-400 transition-colors">Delete</button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+        <div className="space-y-6">
+          {(() => {
+            const categorized = INGREDIENT_CATEGORIES.map((cat) => ({
+              cat,
+              items: ingredients.filter((i) => i.category === cat),
+            })).filter((g) => g.items.length > 0);
+            const uncategorized = ingredients.filter((i) => !i.category);
+            const groups = [...categorized, ...(uncategorized.length ? [{ cat: "Uncategorized" as const, items: uncategorized }] : [])];
+
+            return groups.map(({ cat, items }) => (
+              <div key={cat}>
+                <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2 px-1">{cat}</h3>
+                <div className="overflow-x-auto rounded-lg border border-zinc-800">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-zinc-800 bg-zinc-900/50 text-left">
+                        {["Name", "Supplier", "Partner", "Unit", "Cost / Unit", "Stock", "Total Value", ""].map((h) => (
+                          <th key={h} className={`px-4 py-2.5 text-xs font-medium text-zinc-500 ${
+                            ["Cost / Unit", "Stock", "Total Value"].includes(h) ? "text-right" : ""
+                          }`}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {items.map((ing, i) => {
+                        const totalValue = ing.cost_per_unit != null
+                          ? ing.cost_per_unit * ing.stock_quantity
+                          : null;
+                        return (
+                          <tr key={ing.id} className={`border-b border-zinc-800/60 ${i % 2 !== 0 ? "bg-zinc-900/30" : ""}`}>
+                            <td className="px-4 py-2.5 text-zinc-100 font-medium">{ing.name}</td>
+                            <td className="px-4 py-2.5 text-zinc-400">{ing.suppliers?.company_name ?? "—"}</td>
+                            <td className="px-4 py-2.5 text-zinc-400">{ing.contract_brewing_partners?.company_name ?? "—"}</td>
+                            <td className="px-4 py-2.5 text-zinc-400">{ing.unit}</td>
+                            <td className="px-4 py-2.5 text-zinc-300 text-right tabular-nums">
+                              {ing.cost_per_unit != null ? `$${Number(ing.cost_per_unit).toFixed(4)}` : "—"}
+                            </td>
+                            <td className="px-4 py-2.5 text-right tabular-nums">
+                              <span className={Number(ing.stock_quantity) < 0 ? "text-red-400" : "text-zinc-300"}>
+                                {Number(ing.stock_quantity).toLocaleString(undefined, { maximumFractionDigits: 3 })} {ing.unit}
+                              </span>
+                            </td>
+                            <td className="px-4 py-2.5 text-right tabular-nums text-zinc-300">
+                              {fmtValue(totalValue)}
+                            </td>
+                            <td className="px-4 py-2.5">
+                              <div className="flex gap-3 justify-end">
+                                <button onClick={() => openAdj(ing)} className="text-xs text-amber-500 hover:text-amber-400 transition-colors font-medium">Adjust</button>
+                                <button onClick={() => openEdit(ing)} className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors">Edit</button>
+                                <button onClick={() => handleDelete(ing.id, ing.name)} className="text-xs text-zinc-600 hover:text-red-400 transition-colors">Delete</button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ));
+          })()}
         </div>
       )}
 
@@ -321,10 +339,19 @@ export default function IngredientsTab({
       {showIngModal && (
         <Modal title={editingId ? "Edit Ingredient" : "New Ingredient"} onClose={() => setShowIngModal(false)}>
           <form onSubmit={handleIngSubmit} className="space-y-4">
-            <Field label="Name" required>
-              <input className="inp" value={ingForm.name} required
-                onChange={(e) => setIngForm((f) => ({ ...f, name: e.target.value }))} />
-            </Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Name" required>
+                <input className="inp" value={ingForm.name} required
+                  onChange={(e) => setIngForm((f) => ({ ...f, name: e.target.value }))} />
+              </Field>
+              <Field label="Category">
+                <select className="inp" value={ingForm.category}
+                  onChange={(e) => setIngForm((f) => ({ ...f, category: e.target.value as IngredientCategory | "" }))}>
+                  <option value="">— none —</option>
+                  {INGREDIENT_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </Field>
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <Field label="Supplier">
                 <select className="inp" value={ingForm.supplier_id}

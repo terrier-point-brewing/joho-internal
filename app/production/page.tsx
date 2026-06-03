@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense } from "react";
+import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useProductionData } from "./hooks/useProductionData";
 import BatchLogTab    from "./components/BatchLogTab";
@@ -10,9 +10,25 @@ import WorkflowsTab   from "./components/WorkflowsTab";
 import InventoryTab   from "./components/InventoryTab";
 import PartnersTab    from "./components/PartnersTab";
 
+const PLANNING_SUBTABS = [
+  { key: "brew-planner",        label: "Batch Log"           },
+  { key: "workflow-planner",    label: "Workflow Planner"    },
+  { key: "workflow-templates",  label: "Workflow Templates"  },
+] as const;
+
+type PlanningSubtab = typeof PLANNING_SUBTABS[number]["key"];
+
+const SCHEDULER_SUBTABS = [
+  { key: "floorplan", label: "Floorplan" },
+] as const;
+
+type SchedulerSubtab = typeof SCHEDULER_SUBTABS[number]["key"];
+
 function ProductionContent() {
   const searchParams = useSearchParams();
-  const tab = searchParams.get("tab") ?? "brew-console";
+  const tab = searchParams.get("tab") ?? "scheduler";
+  const [planningSubtab, setPlanningSubtab] = useState<PlanningSubtab>("brew-planner");
+  const [schedulerSubtab, setSchedulerSubtab] = useState<SchedulerSubtab>("floorplan");
 
   const {
     ingredients, adjustments, recipes, batches, tanks, assignments, packaging, transfers,
@@ -22,14 +38,59 @@ function ProductionContent() {
 
   return (
     <main className="px-6 py-8">
-      {tab === "brew-console" && (
-        <BrewStatusTab tanks={tanks} assignments={assignments} batches={batches} transfers={transfers} recipes={recipes} onRefresh={refreshBrewStatus} onBatchCreated={loadBatches} />
+      {tab === "scheduler" && (
+        <>
+          <div className="flex gap-1 mb-6 border-b border-zinc-800 pb-0">
+            {SCHEDULER_SUBTABS.map(({ key, label }) => (
+              <button
+                key={key}
+                onClick={() => setSchedulerSubtab(key)}
+                className={`px-4 py-2 text-sm font-medium rounded-t transition-colors -mb-px border-b-2 ${
+                  schedulerSubtab === key
+                    ? "text-amber-400 border-amber-500 bg-amber-900/10"
+                    : "text-zinc-500 border-transparent hover:text-zinc-300"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {schedulerSubtab === "floorplan" && (
+            <BrewStatusTab tanks={tanks} assignments={assignments} batches={batches} transfers={transfers} recipes={recipes} onRefresh={refreshBrewStatus} onBatchCreated={loadBatches} />
+          )}
+        </>
       )}
-      {tab === "brew-planner" && (
-        <BatchLogTab batches={batches} recipes={recipes} transfers={transfers} onRefresh={loadBatches} />
+      {tab === "planning" && (
+        <>
+          {/* Planning subtab bar */}
+          <div className="flex gap-1 mb-6 border-b border-zinc-800 pb-0">
+            {PLANNING_SUBTABS.map(({ key, label }) => (
+              <button
+                key={key}
+                onClick={() => setPlanningSubtab(key)}
+                className={`px-4 py-2 text-sm font-medium rounded-t transition-colors -mb-px border-b-2 ${
+                  planningSubtab === key
+                    ? "text-amber-400 border-amber-500 bg-amber-900/10"
+                    : "text-zinc-500 border-transparent hover:text-zinc-300"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {planningSubtab === "brew-planner" && (
+            <BatchLogTab batches={batches} recipes={recipes} transfers={transfers} onRefresh={loadBatches} />
+          )}
+          {planningSubtab === "workflow-planner" && (
+            <WorkflowsTab equipment={tanks} batches={batches} subtab="planner" />
+          )}
+          {planningSubtab === "workflow-templates" && (
+            <WorkflowsTab equipment={tanks} batches={batches} subtab="templates" />
+          )}
+        </>
       )}
       {tab === "recipes"   && <RecipesTab recipes={recipes} ingredients={ingredients} onRefresh={loadRecipes} />}
-      {tab === "workflows" && <WorkflowsTab equipment={tanks} batches={batches} />}
       {tab === "inventory" && (
         <InventoryTab
           ingredients={ingredients} adjustments={adjustments} packaging={packaging}

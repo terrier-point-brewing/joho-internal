@@ -32,9 +32,11 @@ interface TmplStepLine {
 export default function WorkflowsTab({
   equipment,
   batches,
+  subtab = "planner",
 }: {
   equipment: Equipment[];
   batches: BrewBatch[];
+  subtab?: "planner" | "templates";
 }) {
   const [templates, setTemplates] = useState<WorkflowTemplate[]>([]);
   const [batchSteps, setBatchSteps] = useState<BatchWorkflowStep[]>([]);
@@ -56,25 +58,26 @@ export default function WorkflowsTab({
 
   const activeBatches = batches.filter((b) => b.status !== "archived");
 
-  return (
-    <div className="space-y-10">
+  if (subtab === "templates") {
+    return (
       <TemplatesSection
         templates={templates}
         equipment={equipment}
         onRefresh={loadTemplates}
       />
-      <div className="border-t border-zinc-800 pt-8">
-        <BatchWorkflowsSection
-          batches={activeBatches}
-          equipment={equipment}
-          templates={templates}
-          batchSteps={batchSteps}
-          selectedBatchId={selectedBatchId}
-          onSelectBatch={(id) => setSelectedBatchId(id)}
-          onRefresh={() => loadBatchSteps(selectedBatchId)}
-        />
-      </div>
-    </div>
+    );
+  }
+
+  return (
+    <BatchWorkflowsSection
+      batches={activeBatches}
+      equipment={equipment}
+      templates={templates}
+      batchSteps={batchSteps}
+      selectedBatchId={selectedBatchId}
+      onSelectBatch={(id) => setSelectedBatchId(id)}
+      onRefresh={() => loadBatchSteps(selectedBatchId)}
+    />
   );
 }
 

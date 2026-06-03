@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState } from "react";
-import { BrewBatch, BatchTransfer, Recipe, PlannedAllocation } from "../types";
+import React, { useState, useEffect, useCallback } from "react";
+import { BrewBatch, BatchTransfer, Recipe, PlannedAllocation, ContractBrewingPartner } from "../types";
 import { BREWHOUSE_BBL, StatusBadge, Modal, Field, ModalActions } from "./shared";
 import { fmtDateLong, fmtBbl2 } from "@/lib/utils/formatting";
 import { EQ } from "../equipmentMeta";
@@ -17,6 +17,8 @@ function calcDelivery(brewDate: string, weeks: number | null | undefined): strin
   if (!brewDate || !weeks) return "";
   return new Date(new Date(brewDate).getTime() + weeks * 7 * 86400000).toISOString().slice(0, 10);
 }
+
+type SortCol = "batch_number" | "beer_name" | "planned_brew_date" | "expected_delivery_date" | "volume_bbl" | "status";
 
 const BATCH_EMPTY = {
   recipe_id: "",
@@ -41,8 +43,10 @@ export default function BatchLogTab({
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState(BATCH_EMPTY);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingBatch, setEditingBatch] = useState<BrewBatch | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [sort, setSort] = useState<{ col: SortCol; dir: "asc" | "desc" }>({ col: "planned_brew_date", dir: "desc" });
 
   // Derive computed volume from form state
   const selectedRecipe = recipes.find((r) => r.id === form.recipe_id);
@@ -85,7 +89,29 @@ export default function BatchLogTab({
       notes:                  b.notes ?? "",
     });
     setEditingId(b.id);
+    setEditingBatch(b);
     setShowModal(true);
+  }
+
+  function toggleSort(col: SortCol) {
+    setSort((s) => s.col === col ? { col, dir: s.dir === "asc" ? "desc" : "asc" } : { col, dir: "asc" });
+  }
+
+  function sortBatches(list: BrewBatch[]): BrewBatch[] {
+    return [...list].sort((a, b) => {
+      let av: string | number = "", bv: string | number = "";
+      if (sort.col === "batch_number")          { av = a.batch_number ?? ""; bv = b.batch_number ?? ""; }
+      else if (sort.col === "beer_name")        { av = a.beer_name; bv = b.beer_name; }
+      else if (sort.col === "planned_brew_date"){ av = a.planned_brew_date; bv = b.planned_brew_date; }
+      else if (sort.col === "expected_delivery_date") {
+        av = a.expected_delivery_date ?? ""; bv = b.expected_delivery_date ?? "";
+      }
+      else if (sort.col === "volume_bbl")       { av = Number(a.volume_bbl); bv = Number(b.volume_bbl); }
+      else if (sort.col === "status")           { av = a.status; bv = b.status; }
+      if (av < bv) return sort.dir === "asc" ? -1 : 1;
+      if (av > bv) return sort.dir === "asc" ? 1 : -1;
+      return 0;
+    });
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -114,6 +140,7 @@ export default function BatchLogTab({
         : await fetch("/api/production/batches",              { method: "POST",  headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       if (!res.ok) throw new Error((await res.json()).error ?? "Error");
       setShowModal(false);
+      setEditingBatch(null);
       await onRefresh();
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : "Error saving batch");
@@ -128,14 +155,14 @@ export default function BatchLogTab({
     await onRefresh();
   }
 
-  const active   = batches.filter((b) => b.status !== "archived");
-  const archived = batches.filter((b) => b.status === "archived");
+  const active   = sortBatches(batches.filter((b) => b.status !== "archived"));
+  const archived = sortBatches(batches.filter((b) => b.status === "archived"));
 
   return (
     <>
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h2 className="text-base font-medium text-zinc-100">Brew Planner</h2>
+          <h2 className="text-base font-medium text-zinc-100">Batch Log</h2>
           <p className="text-sm text-zinc-500 mt-0.5">
             {BREWHOUSE_BBL} BBL brewhouse · status set automatically from Brew Console
           </p>
@@ -157,10 +184,12 @@ export default function BatchLogTab({
             batches={active}
             transfers={transfers}
             expandedId={expandedId}
+            sort={sort}
             onToggle={(id) => setExpandedId(expandedId === id ? null : id)}
             onEdit={openEdit}
             onDelete={handleDelete}
             onRefresh={onRefresh}
+            onSort={toggleSort}
           />
           {archived.length > 0 && (
             <details className="mt-8">
@@ -171,10 +200,12 @@ export default function BatchLogTab({
                 batches={archived}
                 transfers={transfers}
                 expandedId={expandedId}
+                sort={sort}
                 onToggle={(id) => setExpandedId(expandedId === id ? null : id)}
                 onEdit={openEdit}
                 onDelete={handleDelete}
                 onRefresh={onRefresh}
+                onSort={toggleSort}
               />
             </details>
           )}
@@ -182,7 +213,7 @@ export default function BatchLogTab({
       )}
 
       {showModal && (
-        <Modal title={editingId ? "Edit Batch" : "New Batch"} onClose={() => setShowModal(false)}>
+        <Modal title={editingId ? "Edit Batch" : "New Batch"} onClose={() => { setShowModal(false); setEditingBatch(null); }} wide={!!editingId}>
           <form onSubmit={handleSubmit} className="space-y-4">
             <Field label="Recipe" required>
               <select className="inp" value={form.recipe_id} onChange={(e) => handleRecipeChange(e.target.value)} required>
@@ -225,7 +256,14 @@ export default function BatchLogTab({
               <textarea className="inp resize-none" rows={2} value={form.notes}
                 onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} />
             </Field>
-            <ModalActions submitting={submitting} onCancel={() => setShowModal(false)}
+
+            {editingBatch && (
+              <div className="pt-4 border-t border-zinc-800">
+                <AllocationManager batch={editingBatch} onRefresh={async () => { await onRefresh(); }} />
+              </div>
+            )}
+
+            <ModalActions submitting={submitting} onCancel={() => { setShowModal(false); setEditingBatch(null); }}
               label={editingId ? "Save Changes" : "Create Batch"} />
           </form>
         </Modal>
@@ -236,20 +274,40 @@ export default function BatchLogTab({
 
 // ─── Allocation mini-manager ────────────────────────────────────────────────
 
+const RECIPIENT_OPTIONS = ["Taproom", "Distribution", "Contract Brewing", "Events"] as const;
+type RecipientOption = typeof RECIPIENT_OPTIONS[number];
+
 function AllocationManager({ batch, onRefresh }: { batch: BrewBatch; onRefresh: () => Promise<void> }) {
-  const [label, setLabel] = useState("");
+  const [recipient, setRecipient] = useState<RecipientOption>("Taproom");
+  const [partnerId, setPartnerId] = useState("");
+  const [partners, setPartners] = useState<ContractBrewingPartner[]>([]);
   const [volBbl, setVolBbl] = useState("");
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
+
+  const loadPartners = useCallback(async () => {
+    const r = await fetch("/api/partners/contract-brewing");
+    if (r.ok) setPartners(await r.json());
+  }, []);
+
+  useEffect(() => { loadPartners(); }, [loadPartners]);
+
+  // Set default partner when list loads
+  useEffect(() => {
+    if (partners.length && !partnerId) setPartnerId(partners[0].id);
+  }, [partners, partnerId]);
 
   const allocations: PlannedAllocation[] = batch.planned_allocations ?? [];
   const totalAllocated = allocations.reduce((s, a) => s + Number(a.volume_bbl), 0);
   const batchVol = Number(batch.volume_bbl);
   const remaining = batchVol - totalAllocated;
 
-  async function handleAdd(e: React.FormEvent) {
-    e.preventDefault();
-    if (!label || !volBbl) return;
+  async function handleAdd() {
+    if (!volBbl) return;
+    const partner = partners.find((p) => p.id === partnerId);
+    const label = recipient === "Contract Brewing" && partner
+      ? `Contract Brewing — ${partner.company_name}`
+      : recipient;
     setSaving(true);
     try {
       const res = await fetch("/api/production/allocations", {
@@ -258,7 +316,7 @@ function AllocationManager({ batch, onRefresh }: { batch: BrewBatch; onRefresh: 
         body: JSON.stringify({ batch_id: batch.id, label, volume_bbl: parseFloat(volBbl), notes: notes || null }),
       });
       if (!res.ok) throw new Error((await res.json()).error ?? "Error");
-      setLabel(""); setVolBbl(""); setNotes("");
+      setVolBbl(""); setNotes("");
       await onRefresh();
     } catch (err: unknown) {
       alert(err instanceof Error ? err.message : "Error");
@@ -275,7 +333,7 @@ function AllocationManager({ batch, onRefresh }: { batch: BrewBatch; onRefresh: 
 
   return (
     <div>
-      <p className="text-xs text-zinc-600 mb-2 font-medium uppercase tracking-wide">Planned Allocation</p>
+      <p className="text-xs text-zinc-500 mb-3 font-medium uppercase tracking-wide">Planned Allocation</p>
 
       {allocations.length > 0 && (
         <>
@@ -313,7 +371,7 @@ function AllocationManager({ batch, onRefresh }: { batch: BrewBatch; onRefresh: 
                     </td>
                     <td className="px-3 py-2 text-zinc-500 max-w-[120px] truncate">{a.notes ?? "—"}</td>
                     <td className="px-3 py-2">
-                      <button onClick={() => handleDelete(a.id)} className="text-zinc-600 hover:text-red-400 transition-colors">×</button>
+                      <button type="button" onClick={() => handleDelete(a.id)} className="text-zinc-600 hover:text-red-400 transition-colors">×</button>
                     </td>
                   </tr>
                 ))}
@@ -335,49 +393,81 @@ function AllocationManager({ batch, onRefresh }: { batch: BrewBatch; onRefresh: 
         </>
       )}
 
-      {/* Add allocation form */}
-      <form onSubmit={handleAdd} className="flex gap-2 items-end flex-wrap">
+      {/* Add allocation row — no nested <form>, uses type="button" to avoid submitting outer form */}
+      <div className="flex gap-2 items-end flex-wrap">
         <div className="flex-1 min-w-[140px]">
           <label className="block text-xs text-zinc-500 mb-1">Recipient</label>
-          <input className="inp" placeholder="e.g. Taproom, Distribution" value={label}
-            onChange={(e) => setLabel(e.target.value)} required />
+          <select className="inp" value={recipient} onChange={(e) => setRecipient(e.target.value as RecipientOption)}>
+            {RECIPIENT_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
         </div>
+        {recipient === "Contract Brewing" && (
+          <div className="flex-1 min-w-[140px]">
+            <label className="block text-xs text-zinc-500 mb-1">Partner</label>
+            <select className="inp" value={partnerId} onChange={(e) => setPartnerId(e.target.value)}>
+              {partners.length === 0
+                ? <option value="">No partners yet</option>
+                : partners.map((p) => <option key={p.id} value={p.id}>{p.company_name}</option>)
+              }
+            </select>
+          </div>
+        )}
         <div className="w-24">
           <label className="block text-xs text-zinc-500 mb-1">BBL</label>
           <input type="number" step="0.01" min="0.01" className="inp" placeholder="0.00"
-            value={volBbl} onChange={(e) => setVolBbl(e.target.value)} required />
+            value={volBbl} onChange={(e) => setVolBbl(e.target.value)} />
         </div>
         <div className="flex-1 min-w-[100px]">
           <label className="block text-xs text-zinc-500 mb-1">Notes (optional)</label>
           <input className="inp" value={notes} onChange={(e) => setNotes(e.target.value)} />
         </div>
-        <button type="submit" disabled={saving}
+        <button type="button" onClick={handleAdd} disabled={saving || !volBbl}
           className="px-3 py-1.5 text-xs bg-zinc-800 border border-zinc-700 hover:border-zinc-500 text-zinc-300 rounded transition-colors disabled:opacity-50 shrink-0">
           {saving ? "…" : "+ Add"}
         </button>
-      </form>
+      </div>
     </div>
   );
 }
 
 // ─── Batch table ─────────────────────────────────────────────────────────────
 
+function SortTh({
+  col, label, sort, onSort, className = "",
+}: {
+  col: SortCol; label: string; sort: { col: SortCol; dir: "asc" | "desc" }; onSort: (c: SortCol) => void; className?: string;
+}) {
+  const active = sort.col === col;
+  return (
+    <th
+      className={`px-4 py-2.5 text-xs font-medium text-zinc-500 cursor-pointer select-none hover:text-zinc-300 transition-colors ${className}`}
+      onClick={() => onSort(col)}
+    >
+      {label}{active ? (sort.dir === "asc" ? " ↑" : " ↓") : ""}
+    </th>
+  );
+}
+
 function BatchTable({
   batches,
   transfers,
   expandedId,
+  sort,
   onToggle,
   onEdit,
   onDelete,
   onRefresh,
+  onSort,
 }: {
   batches: BrewBatch[];
   transfers: BatchTransfer[];
   expandedId: string | null;
+  sort: { col: SortCol; dir: "asc" | "desc" };
   onToggle: (id: string) => void;
   onEdit: (b: BrewBatch) => void;
   onDelete: (id: string, name: string) => void;
   onRefresh: () => Promise<void>;
+  onSort: (col: SortCol) => void;
 }) {
   if (!batches.length) return null;
 
@@ -387,13 +477,13 @@ function BatchTable({
         <thead>
           <tr className="border-b border-zinc-800 text-left bg-zinc-900/50">
             <th className="px-3 py-2.5 text-xs font-medium text-zinc-500 w-6"></th>
-            <th className="px-4 py-2.5 text-xs font-medium text-zinc-500">Batch #</th>
-            <th className="px-4 py-2.5 text-xs font-medium text-zinc-500">Beer</th>
-            <th className="px-4 py-2.5 text-xs font-medium text-zinc-500">Planned Brew Date</th>
-            <th className="px-4 py-2.5 text-xs font-medium text-zinc-500">Expected Delivery</th>
-            <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 text-right">Volume</th>
+            <SortTh col="batch_number"          label="Batch #"           sort={sort} onSort={onSort} />
+            <SortTh col="beer_name"             label="Beer"              sort={sort} onSort={onSort} />
+            <SortTh col="planned_brew_date"     label="Planned Brew Date" sort={sort} onSort={onSort} />
+            <SortTh col="expected_delivery_date" label="Expected Delivery" sort={sort} onSort={onSort} />
+            <SortTh col="volume_bbl"            label="Volume"            sort={sort} onSort={onSort} className="text-right" />
             <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 text-right">Turns</th>
-            <th className="px-4 py-2.5 text-xs font-medium text-zinc-500">Status</th>
+            <SortTh col="status"                label="Status"            sort={sort} onSort={onSort} />
             <th className="px-4 py-2.5 text-xs font-medium text-zinc-500"></th>
           </tr>
         </thead>
@@ -445,10 +535,7 @@ function BatchTable({
                 {isExpanded && (
                   <tr className={`border-b border-zinc-800/60 ${i % 2 !== 0 ? "bg-zinc-900/30" : ""}`}>
                     <td colSpan={9} className="px-6 pb-5 pt-2">
-                      <div className="space-y-5">
-                        <AllocationManager batch={b} onRefresh={onRefresh} />
-                        <TransferLog transfers={batchTransfers} batchVol={Number(b.volume_bbl)} />
-                      </div>
+                      <TransferLog transfers={batchTransfers} batchVol={Number(b.volume_bbl)} />
                     </td>
                   </tr>
                 )}

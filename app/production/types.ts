@@ -85,9 +85,16 @@ export interface BatchTransfer {
   to_tank?:   { id: string; name: string; type: EquipmentType } | null;
 }
 
+export type IngredientCategory = "Malts" | "Hops" | "Yeast" | "Brewing Aids" | "Fruit" | "Abstrax";
+
+export const INGREDIENT_CATEGORIES: IngredientCategory[] = [
+  "Malts", "Hops", "Yeast", "Brewing Aids", "Fruit", "Abstrax",
+];
+
 export interface Ingredient {
   id: string;
   name: string;
+  category: IngredientCategory | null;
   supplier_id: string | null;
   partner_id: string | null;
   /** Joined from suppliers */
@@ -128,6 +135,9 @@ export interface Recipe {
   brewery: string | null;
   expected_yield_bbl: number | null;
   brew_time_weeks: number | null;
+  days_brewhouse: number | null;
+  days_fermenter: number | null;
+  days_brite: number | null;
   steps: string | null;
   notes: string | null;
   recipe_ingredients: RecipeIngredientRow[];

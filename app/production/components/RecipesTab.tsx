@@ -9,7 +9,7 @@ interface RecipeFormLine {
   quantity_per_bbl: string;
 }
 
-const RECIPE_EMPTY = { beer_name: "", brewery: "", expected_yield_bbl: "", brew_time_weeks: "", steps: "", notes: "" };
+const RECIPE_EMPTY = { beer_name: "", brewery: "", expected_yield_bbl: "", brew_time_weeks: "", days_brewhouse: "", days_fermenter: "", days_brite: "", steps: "", notes: "" };
 
 export default function RecipesTab({
   recipes,
@@ -40,6 +40,9 @@ export default function RecipesTab({
       brewery: r.brewery ?? "",
       expected_yield_bbl: r.expected_yield_bbl != null ? String(r.expected_yield_bbl) : "",
       brew_time_weeks: r.brew_time_weeks != null ? String(r.brew_time_weeks) : "",
+      days_brewhouse: r.days_brewhouse != null ? String(r.days_brewhouse) : "",
+      days_fermenter: r.days_fermenter != null ? String(r.days_fermenter) : "",
+      days_brite: r.days_brite != null ? String(r.days_brite) : "",
       steps: r.steps ?? "",
       notes: r.notes ?? "",
     });
@@ -71,6 +74,9 @@ export default function RecipesTab({
         brewery: form.brewery || null,
         expected_yield_bbl: form.expected_yield_bbl ? parseFloat(form.expected_yield_bbl) : null,
         brew_time_weeks: form.brew_time_weeks ? parseInt(form.brew_time_weeks) : null,
+        days_brewhouse: form.days_brewhouse ? parseInt(form.days_brewhouse) : null,
+        days_fermenter: form.days_fermenter ? parseInt(form.days_fermenter) : null,
+        days_brite: form.days_brite ? parseInt(form.days_brite) : null,
         steps: form.steps || null,
         notes: form.notes || null,
         ingredients: lines
@@ -154,6 +160,11 @@ export default function RecipesTab({
                         {r.brew_time_weeks}w brew time
                       </span>
                     )}
+                    {(r.days_brewhouse || r.days_fermenter || r.days_brite) && (
+                      <span className="text-xs text-zinc-600 shrink-0">
+                        {[r.days_brewhouse && `BH ${r.days_brewhouse}d`, r.days_fermenter && `FV ${r.days_fermenter}d`, r.days_brite && `BT ${r.days_brite}d`].filter(Boolean).join(" · ")}
+                      </span>
+                    )}
                   </div>
                   <div className="flex items-center gap-4 shrink-0 ml-4">
                     {totalCost > 0 && (
@@ -232,6 +243,25 @@ export default function RecipesTab({
                       </table>
                     ) : (
                       <p className="text-xs text-zinc-600 px-4 py-3">No ingredients on this recipe.</p>
+                    )}
+
+                    {/* Stage durations */}
+                    {(r.days_brewhouse || r.days_fermenter || r.days_brite) && (
+                      <div className="px-4 py-3 border-t border-zinc-800">
+                        <p className="text-xs font-medium text-zinc-500 mb-2">Stage Duration</p>
+                        <div className="flex gap-6">
+                          {[
+                            { label: "Brewhouse", val: r.days_brewhouse },
+                            { label: "Fermenter", val: r.days_fermenter },
+                            { label: "Brite Tank", val: r.days_brite },
+                          ].map(({ label, val }) => (
+                            <div key={label}>
+                              <p className="text-xs text-zinc-600">{label}</p>
+                              <p className="text-sm text-zinc-300">{val != null ? `${val} days` : "—"}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
                     )}
 
                     {/* Steps */}
@@ -315,6 +345,27 @@ export default function RecipesTab({
                   onChange={(e) => setForm((f) => ({ ...f, brew_time_weeks: e.target.value }))}
                 />
               </Field>
+            </div>
+
+            <div>
+              <p className="text-xs text-zinc-400 mb-2">Stage Duration (days)</p>
+              <div className="grid grid-cols-3 gap-3">
+                <Field label="Brewhouse">
+                  <input type="number" step="1" min="0" className="inp" placeholder="e.g. 1"
+                    value={form.days_brewhouse}
+                    onChange={(e) => setForm((f) => ({ ...f, days_brewhouse: e.target.value }))} />
+                </Field>
+                <Field label="Fermenter">
+                  <input type="number" step="1" min="0" className="inp" placeholder="e.g. 14"
+                    value={form.days_fermenter}
+                    onChange={(e) => setForm((f) => ({ ...f, days_fermenter: e.target.value }))} />
+                </Field>
+                <Field label="Brite Tank">
+                  <input type="number" step="1" min="0" className="inp" placeholder="e.g. 7"
+                    value={form.days_brite}
+                    onChange={(e) => setForm((f) => ({ ...f, days_brite: e.target.value }))} />
+                </Field>
+              </div>
             </div>
 
             {/* Ingredient bill */}
