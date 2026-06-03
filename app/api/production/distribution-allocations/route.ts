@@ -30,6 +30,7 @@ export async function POST(req: NextRequest) {
       packaging,
       quantity,
       unit,
+      packaging_item_id: b.packaging_item_id || null,
       cadence,
       delivery_date: cadence === "one_time" ? b.delivery_date : null,
       start_date: cadence === "recurring" ? b.start_date : null,

@@ -1,12 +1,22 @@
 "use client";
 
 import React, { useEffect, useState, useCallback } from "react";
-import { Recipe, RecipeSquareLink } from "../../types";
+import { Recipe } from "../../types";
 import { fmtDateLong } from "@/lib/utils/formatting";
 import { Modal, Field, ModalActions } from "../shared";
 
+interface LinkRow {
+  id: string;
+  recipe_id: string;
+  packaging: string;
+  square_variation_id: string;
+  square_item_id: string | null;
+  variation_name: string | null;
+  item_name: string | null;
+  recipes?: { beer_name: string } | null;
+}
+
 interface InventoryRow {
-  link_id: string;
   recipe_id: string;
   style: string;
   packaging: string;
@@ -17,6 +27,7 @@ interface InventoryRow {
   min_threshold: number;
   forecast_threshold_date: string | null;
   forecast_stockout_date: string | null;
+  variations: { link_id: string; variation_name: string | null; item_name: string | null; qty: number }[];
 }
 
 interface SquareVariation {
@@ -30,7 +41,7 @@ function LinkManager({
   recipes, links, onClose, onChanged,
 }: {
   recipes: Recipe[];
-  links: (RecipeSquareLink & { recipes?: { beer_name: string } | null })[];
+  links: LinkRow[];
   onClose: () => void;
   onChanged: () => void;
 }) {
@@ -58,7 +69,14 @@ function LinkManager({
       const res = await fetch("/api/production/recipe-square-links", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ recipe_id: recipeId, packaging, square_variation_id: variationId, square_item_id: v?.item_id ?? null }),
+        body: JSON.stringify({
+          recipe_id: recipeId,
+          packaging,
+          square_variation_id: variationId,
+          square_item_id: v?.item_id ?? null,
+          variation_name: v?.variation_name ?? null,
+          item_name: v?.item_name ?? null,
+        }),
       });
       if (!res.ok) throw new Error((await res.json()).error ?? "Error");
       setVariationId("");
@@ -75,8 +93,19 @@ function LinkManager({
     if (r.ok) onChanged();
   }
 
+  // Group existing links by recipe for cleaner display.
+  const byRecipe = new Map<string, { name: string; links: LinkRow[] }>();
+  for (const l of links) {
+    const name = l.recipes?.beer_name ?? l.recipe_id;
+    if (!byRecipe.has(l.recipe_id)) byRecipe.set(l.recipe_id, { name, links: [] });
+    byRecipe.get(l.recipe_id)!.links.push(l);
+  }
+
   return (
     <Modal title="Link Styles to Square" onClose={onClose} wide>
+      <p className="text-xs text-zinc-500 mb-4">
+        A recipe can have multiple Square variations per packaging type (e.g. 1/6 keg, 1/4 keg, 1/2 keg). Inventory is summed across all linked variations.
+      </p>
       <form onSubmit={addLink} className="space-y-4">
         <div className="grid grid-cols-3 gap-3">
           <Field label="Recipe" required>
@@ -92,11 +121,13 @@ function LinkManager({
               <option value="can">Can</option>
             </select>
           </Field>
-          <Field label="Square Item" required>
+          <Field label="Square Variation" required>
             <select className="inp" value={variationId} onChange={(e) => setVariationId(e.target.value)} required>
               <option value="">{loadErr ? "(catalog unavailable)" : "— select —"}</option>
               {variations.map((v) => (
-                <option key={v.variation_id} value={v.variation_id}>{v.item_name}{v.variation_name ? ` · ${v.variation_name}` : ""}</option>
+                <option key={v.variation_id} value={v.variation_id}>
+                  {v.item_name}{v.variation_name ? ` · ${v.variation_name}` : ""}
+                </option>
               ))}
             </select>
           </Field>
@@ -105,21 +136,29 @@ function LinkManager({
         <ModalActions submitting={submitting} onCancel={onClose} label="Add Link" />
       </form>
 
-      <div className="mt-6">
-        <p className="text-xs font-medium text-zinc-500 uppercase tracking-wide mb-2">Existing Links</p>
-        {links.length === 0 ? (
-          <p className="text-xs text-zinc-600">No links yet.</p>
-        ) : (
-          <div className="rounded border border-zinc-800 divide-y divide-zinc-800/60">
-            {links.map((l) => (
-              <div key={l.id} className="flex items-center justify-between px-3 py-2 text-sm">
-                <span className="text-zinc-300">{l.recipes?.beer_name ?? "—"} <span className="text-zinc-600 capitalize">· {l.packaging}</span></span>
-                <button onClick={() => removeLink(l.id)} className="text-xs text-red-400/80 hover:text-red-400">Remove</button>
+      {byRecipe.size > 0 && (
+        <div className="mt-6 space-y-4">
+          <p className="text-xs font-medium text-zinc-500 uppercase tracking-wide">Existing Links</p>
+          {[...byRecipe.entries()].map(([rid, { name, links: rLinks }]) => (
+            <div key={rid}>
+              <p className="text-xs font-medium text-zinc-300 mb-1">{name}</p>
+              <div className="rounded border border-zinc-800 divide-y divide-zinc-800/60">
+                {rLinks.map((l) => (
+                  <div key={l.id} className="flex items-center justify-between px-3 py-2 text-xs">
+                    <span className="text-zinc-400">
+                      <span className="capitalize text-zinc-500">{l.packaging}</span>
+                      {" · "}
+                      {l.item_name ?? "—"}
+                      {l.variation_name ? <span className="text-zinc-600"> · {l.variation_name}</span> : null}
+                    </span>
+                    <button onClick={() => removeLink(l.id)} className="text-red-400/80 hover:text-red-400 ml-4">Remove</button>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        )}
-      </div>
+            </div>
+          ))}
+        </div>
+      )}
     </Modal>
   );
 }
@@ -141,10 +180,11 @@ function Sparkline({ history }: { history: { week: string; qty: number | null }[
 
 export default function TaproomTab({ recipes }: { recipes: Recipe[] }) {
   const [rows, setRows] = useState<InventoryRow[]>([]);
-  const [links, setLinks] = useState<(RecipeSquareLink & { recipes?: { beer_name: string } | null })[]>([]);
+  const [links, setLinks] = useState<LinkRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [showLinks, setShowLinks] = useState(false);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   const loadLinks = useCallback(async () => {
     const r = await fetch("/api/production/recipe-square-links");
@@ -167,17 +207,16 @@ export default function TaproomTab({ recipes }: { recipes: Recipe[] }) {
 
   useEffect(() => { loadLinks(); loadInventory(); }, [loadLinks, loadInventory]);
 
-  function onLinksChanged() {
-    loadLinks();
-    loadInventory();
+  function toggleExpand(key: string) {
+    setExpanded((s) => { const n = new Set(s); n.has(key) ? n.delete(key) : n.add(key); return n; });
   }
 
-  const COLS = ["Style", "Packaging", "Current", "4-wk Trend", "Sell-through/day", "Lead Time", "Min Threshold", "Threshold Date", "Stockout"];
+  const COLS = ["", "Style", "Packaging", "Current", "4-wk Trend", "Sell-through/day", "Lead Time", "Min Threshold", "Threshold Date", "Stockout"];
 
   return (
     <div>
       <div className="flex justify-between items-center mb-4">
-        <p className="text-sm text-zinc-500">Live taproom inventory from Square, with forecasted threshold breach by style and packaging.</p>
+        <p className="text-sm text-zinc-500">Live taproom inventory from Square, aggregated across all linked variations per style and packaging.</p>
         <button onClick={() => setShowLinks(true)} className="px-3 py-1.5 border border-zinc-700 hover:border-zinc-500 text-zinc-300 text-sm font-medium rounded transition-colors">Link to Square</button>
       </div>
 
@@ -185,7 +224,7 @@ export default function TaproomTab({ recipes }: { recipes: Recipe[] }) {
       {loading ? (
         <p className="text-zinc-600 text-sm py-10 text-center">Loading…</p>
       ) : rows.length === 0 ? (
-        <p className="text-zinc-600 text-sm py-10 text-center">No styles linked to Square yet. Use “Link to Square” to map a recipe.</p>
+        <p className="text-zinc-600 text-sm py-10 text-center">No styles linked to Square yet. Use "Link to Square" to map a recipe.</p>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-zinc-800">
           <table className="w-full text-sm">
@@ -196,19 +235,50 @@ export default function TaproomTab({ recipes }: { recipes: Recipe[] }) {
             </thead>
             <tbody>
               {rows.map((row, i) => {
+                const key = `${row.recipe_id}:${row.packaging}`;
                 const near = row.min_threshold > 0 && row.current_qty <= row.min_threshold;
+                const isExpanded = expanded.has(key);
+                const hasVariations = row.variations.length > 1;
                 return (
-                  <tr key={row.link_id} className={`border-b border-zinc-800/60 ${i % 2 !== 0 ? "bg-zinc-900/30" : ""}`}>
-                    <td className="px-4 py-2.5 text-zinc-100 font-medium">{row.style}</td>
-                    <td className="px-4 py-2.5 text-zinc-400 capitalize">{row.packaging}</td>
-                    <td className={`px-4 py-2.5 tabular-nums ${near ? "text-red-400" : "text-zinc-200"}`}>{row.current_qty}</td>
-                    <td className="px-4 py-2.5"><Sparkline history={row.history} /></td>
-                    <td className="px-4 py-2.5 text-zinc-400 tabular-nums">{row.daily_sell_through}</td>
-                    <td className="px-4 py-2.5 text-zinc-400 tabular-nums">{row.lead_time_days}d</td>
-                    <td className="px-4 py-2.5 text-zinc-400 tabular-nums">{row.min_threshold}</td>
-                    <td className="px-4 py-2.5 text-amber-400/90 text-xs whitespace-nowrap">{row.forecast_threshold_date ? fmtDateLong(row.forecast_threshold_date) : "—"}</td>
-                    <td className="px-4 py-2.5 text-zinc-500 text-xs whitespace-nowrap">{row.forecast_stockout_date ? fmtDateLong(row.forecast_stockout_date) : "—"}</td>
-                  </tr>
+                  <React.Fragment key={key}>
+                    <tr className={`border-b border-zinc-800/60 ${i % 2 !== 0 ? "bg-zinc-900/30" : ""} ${isExpanded ? "border-b-0" : ""}`}>
+                      <td className="px-3 py-2.5">
+                        {hasVariations && (
+                          <button onClick={() => toggleExpand(key)} className="text-zinc-600 hover:text-zinc-400 text-xs">
+                            {isExpanded ? "▼" : "▶"}
+                          </button>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5 text-zinc-100 font-medium">{row.style}</td>
+                      <td className="px-4 py-2.5 text-zinc-400 capitalize">{row.packaging}</td>
+                      <td className={`px-4 py-2.5 tabular-nums ${near ? "text-red-400" : "text-zinc-200"}`}>
+                        {row.current_qty}
+                        {hasVariations && <span className="text-zinc-600 text-xs ml-1">({row.variations.length} vars)</span>}
+                      </td>
+                      <td className="px-4 py-2.5"><Sparkline history={row.history} /></td>
+                      <td className="px-4 py-2.5 text-zinc-400 tabular-nums">{row.daily_sell_through}</td>
+                      <td className="px-4 py-2.5 text-zinc-400 tabular-nums">{row.lead_time_days}d</td>
+                      <td className="px-4 py-2.5 text-zinc-400 tabular-nums">{row.min_threshold}</td>
+                      <td className="px-4 py-2.5 text-amber-400/90 text-xs whitespace-nowrap">{row.forecast_threshold_date ? fmtDateLong(row.forecast_threshold_date) : "—"}</td>
+                      <td className="px-4 py-2.5 text-zinc-500 text-xs whitespace-nowrap">{row.forecast_stockout_date ? fmtDateLong(row.forecast_stockout_date) : "—"}</td>
+                    </tr>
+                    {isExpanded && (
+                      <tr className={`border-b border-zinc-800/60 ${i % 2 !== 0 ? "bg-zinc-900/30" : ""}`}>
+                        <td colSpan={10} className="px-8 pb-3 pt-1">
+                          <div className="rounded border border-zinc-800/60 divide-y divide-zinc-800/40">
+                            {row.variations.map((v) => (
+                              <div key={v.link_id} className="flex items-center gap-4 px-3 py-2 text-xs text-zinc-500">
+                                <span className="text-zinc-400 font-medium min-w-[160px]">
+                                  {v.item_name ?? "—"}{v.variation_name ? <span className="text-zinc-600"> · {v.variation_name}</span> : null}
+                                </span>
+                                <span className="tabular-nums text-zinc-300">{v.qty}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
                 );
               })}
             </tbody>
@@ -216,7 +286,7 @@ export default function TaproomTab({ recipes }: { recipes: Recipe[] }) {
         </div>
       )}
 
-      {showLinks && <LinkManager recipes={recipes} links={links} onClose={() => setShowLinks(false)} onChanged={onLinksChanged} />}
+      {showLinks && <LinkManager recipes={recipes} links={links} onClose={() => setShowLinks(false)} onChanged={() => { loadLinks(); loadInventory(); }} />}
     </div>
   );
 }

@@ -1,15 +1,34 @@
 "use client";
 
 import React, { useEffect, useState, useCallback } from "react";
-import { Recipe, ContractBrewingPartner, DistributionAllocation } from "../../types";
+import { Recipe, ContractBrewingPartner, DistributionAllocation, PackagingItem } from "../../types";
 import { fmtDateLong } from "@/lib/utils/formatting";
 import { Modal, Field, ModalActions } from "../shared";
 
-const EMPTY = {
+// 1 BBL = 31 US gallons = 3968 fl oz
+const FL_OZ_PER_BBL = 3968;
+
+type AllocType = "bbl" | "keg" | "can";
+
+interface FormState {
+  recipe_id: string;
+  alloc_type: AllocType;
+  packaging_item_id: string;
+  quantity: string;
+  cadence: "one_time" | "recurring";
+  delivery_date: string;
+  start_date: string;
+  recurrence: "weekly" | "biweekly" | "monthly";
+  end_date: string;
+  partner_id: string;
+  notes: string;
+}
+
+const EMPTY: FormState = {
   recipe_id: "",
-  packaging: "keg",
+  alloc_type: "keg",
+  packaging_item_id: "",
   quantity: "",
-  unit: "keg",
   cadence: "one_time",
   delivery_date: "",
   start_date: "",
@@ -19,6 +38,11 @@ const EMPTY = {
   notes: "",
 };
 
+function bblFromPackagingItem(item: PackagingItem, qty: number): number {
+  if (item.volume_fl_oz) return (qty * item.volume_fl_oz) / FL_OZ_PER_BBL;
+  return 0;
+}
+
 function NewAllocationModal({
   recipes, partners, onClose, onDone,
 }: {
@@ -27,22 +51,47 @@ function NewAllocationModal({
   onClose: () => void;
   onDone: () => void;
 }) {
-  const [form, setForm] = useState(EMPTY);
+  const [form, setForm] = useState<FormState>(EMPTY);
+  const [packaging, setPackaging] = useState<PackagingItem[]>([]);
   const [submitting, setSubmitting] = useState(false);
-  const set = (k: keyof typeof EMPTY, v: string) => setForm((f) => ({ ...f, [k]: v }));
+  const set = <K extends keyof FormState>(k: K, v: FormState[K]) => setForm((f) => ({ ...f, [k]: v }));
+
+  useEffect(() => {
+    (async () => {
+      const r = await fetch("/api/production/packaging");
+      if (r.ok) setPackaging(await r.json());
+    })();
+  }, []);
+
+  const kegs = packaging.filter((p) => p.type === "keg");
+  const cans = packaging.filter((p) => p.type === "can");
+  const subItems = form.alloc_type === "keg" ? kegs : form.alloc_type === "can" ? cans : [];
+  const selectedItem = packaging.find((p) => p.id === form.packaging_item_id) ?? null;
+  const qty = parseFloat(form.quantity) || 0;
+  const bblEquiv = selectedItem && selectedItem.volume_fl_oz
+    ? bblFromPackagingItem(selectedItem, qty)
+    : null;
+
+  // Reset packaging_item_id when alloc_type changes.
+  function setAllocType(t: AllocType) {
+    setForm((f) => ({ ...f, alloc_type: t, packaging_item_id: "" }));
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSubmitting(true);
     try {
+      const packaging_value = form.alloc_type === "bbl" ? "draft" : form.alloc_type;
+      const unit = form.alloc_type === "bbl" ? "bbl" : form.alloc_type;
       const res = await fetch("/api/production/distribution-allocations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           recipe_id: form.recipe_id || null,
-          packaging: form.packaging,
-          quantity: parseFloat(form.quantity),
-          unit: form.unit,
+          packaging: packaging_value,
+          quantity: qty,
+          unit,
+          packaging_item_id: form.packaging_item_id || null,
           cadence: form.cadence,
           delivery_date: form.delivery_date || null,
           start_date: form.start_date || null,
@@ -63,7 +112,7 @@ function NewAllocationModal({
   }
 
   return (
-    <Modal title="New Allocation" onClose={onClose}>
+    <Modal title="New Allocation" onClose={onClose} wide>
       <form onSubmit={handleSubmit} className="space-y-4">
         <Field label="Beer Style">
           <select className="inp" value={form.recipe_id} onChange={(e) => set("recipe_id", e.target.value)}>
@@ -71,27 +120,56 @@ function NewAllocationModal({
             {recipes.map((r) => <option key={r.id} value={r.id}>{r.beer_name}</option>)}
           </select>
         </Field>
-        <div className="grid grid-cols-3 gap-3">
-          <Field label="Packaging" required>
-            <select className="inp" value={form.packaging} onChange={(e) => set("packaging", e.target.value)}>
-              <option value="draft">Draft</option>
-              <option value="keg">Keg</option>
-              <option value="can">Can</option>
+
+        <Field label="Allocation Type" required>
+          <div className="grid grid-cols-3 gap-2">
+            {(["bbl", "keg", "can"] as AllocType[]).map((t) => (
+              <button key={t} type="button" onClick={() => setAllocType(t)}
+                className={`px-3 py-2 rounded border text-sm transition-colors ${form.alloc_type === t ? "border-amber-600 bg-amber-900/30 text-amber-300" : "border-zinc-700 bg-zinc-800/50 text-zinc-400 hover:border-zinc-500"}`}>
+                {t === "bbl" ? "BBL" : t === "keg" ? "Keg" : "Can"}
+              </button>
+            ))}
+          </div>
+        </Field>
+
+        {(form.alloc_type === "keg" || form.alloc_type === "can") && (
+          <Field label={form.alloc_type === "keg" ? "Keg Size" : "Can Size"} required>
+            <select className="inp" value={form.packaging_item_id}
+              onChange={(e) => set("packaging_item_id", e.target.value)} required>
+              <option value="">— select —</option>
+              {subItems.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}{p.volume_fl_oz ? ` (${p.volume_fl_oz} fl oz)` : ""}
+                </option>
+              ))}
             </select>
+            {subItems.length === 0 && (
+              <p className="text-xs text-zinc-600 mt-1">
+                No {form.alloc_type} packaging items found. Add them in Inventory → Packaging.
+              </p>
+            )}
           </Field>
-          <Field label="Quantity" required>
-            <input type="number" step="0.01" min="0" className="inp" required value={form.quantity} onChange={(e) => set("quantity", e.target.value)} />
+        )}
+
+        <div className="grid grid-cols-2 gap-3">
+          <Field label={`Quantity (${form.alloc_type === "bbl" ? "BBL" : form.alloc_type + "s"})`} required>
+            <input type="number" step="0.01" min="0" className="inp" required
+              value={form.quantity} onChange={(e) => set("quantity", e.target.value)} />
           </Field>
-          <Field label="Unit" required>
-            <input className="inp" required value={form.unit} onChange={(e) => set("unit", e.target.value)} placeholder="keg / can / bbl" />
-          </Field>
+          {bblEquiv != null && bblEquiv > 0 && (
+            <Field label="BBL Equivalent">
+              <div className="inp text-zinc-400">{bblEquiv.toFixed(2)} BBL</div>
+            </Field>
+          )}
         </div>
+
         <Field label="Partner">
           <select className="inp" value={form.partner_id} onChange={(e) => set("partner_id", e.target.value)}>
             <option value="">— none —</option>
             {partners.map((p) => <option key={p.id} value={p.id}>{p.company_name}</option>)}
           </select>
         </Field>
+
         <Field label="Cadence" required>
           <div className="grid grid-cols-2 gap-2">
             {(["one_time", "recurring"] as const).map((c) => (
@@ -102,27 +180,32 @@ function NewAllocationModal({
             ))}
           </div>
         </Field>
+
         {form.cadence === "one_time" ? (
           <Field label="Delivery Date" required>
-            <input type="date" className="inp" required value={form.delivery_date} onChange={(e) => set("delivery_date", e.target.value)} />
+            <input type="date" className="inp" required value={form.delivery_date}
+              onChange={(e) => set("delivery_date", e.target.value)} />
           </Field>
         ) : (
           <div className="grid grid-cols-3 gap-3">
             <Field label="Start Date" required>
-              <input type="date" className="inp" required value={form.start_date} onChange={(e) => set("start_date", e.target.value)} />
+              <input type="date" className="inp" required value={form.start_date}
+                onChange={(e) => set("start_date", e.target.value)} />
             </Field>
             <Field label="Frequency" required>
-              <select className="inp" value={form.recurrence} onChange={(e) => set("recurrence", e.target.value)}>
+              <select className="inp" value={form.recurrence} onChange={(e) => set("recurrence", e.target.value as "weekly" | "biweekly" | "monthly")}>
                 <option value="weekly">Weekly</option>
                 <option value="biweekly">Biweekly</option>
                 <option value="monthly">Monthly</option>
               </select>
             </Field>
             <Field label="End Date">
-              <input type="date" className="inp" value={form.end_date} onChange={(e) => set("end_date", e.target.value)} />
+              <input type="date" className="inp" value={form.end_date}
+                onChange={(e) => set("end_date", e.target.value)} />
             </Field>
           </div>
         )}
+
         <Field label="Notes">
           <input className="inp" value={form.notes} onChange={(e) => set("notes", e.target.value)} />
         </Field>
@@ -158,7 +241,7 @@ export default function DistributionTab({
     return `${a.recurrence ?? "—"} from ${a.start_date ? fmtDateLong(a.start_date) : "—"}${a.end_date ? ` to ${fmtDateLong(a.end_date)}` : ""}`;
   }
 
-  const COLS = ["Style", "Packaging", "Quantity", "Partner", "Schedule", "Notes", ""];
+  const COLS = ["Style", "Type", "Quantity", "Partner", "Schedule", "Notes", ""];
 
   return (
     <div>
@@ -180,7 +263,7 @@ export default function DistributionTab({
               {rows.map((a, i) => (
                 <tr key={a.id} className={`border-b border-zinc-800/60 ${i % 2 !== 0 ? "bg-zinc-900/30" : ""}`}>
                   <td className="px-4 py-2.5 text-zinc-100 font-medium">{a.recipes?.beer_name ?? "—"}</td>
-                  <td className="px-4 py-2.5 text-zinc-400 capitalize">{a.packaging}</td>
+                  <td className="px-4 py-2.5 text-zinc-400 capitalize">{a.unit}</td>
                   <td className="px-4 py-2.5 text-zinc-300 tabular-nums">{Number(a.quantity)} {a.unit}</td>
                   <td className="px-4 py-2.5 text-zinc-400">{a.contract_brewing_partners?.company_name ?? "—"}</td>
                   <td className="px-4 py-2.5 text-zinc-400 text-xs">{schedule(a)}</td>

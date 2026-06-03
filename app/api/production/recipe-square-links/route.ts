@@ -11,18 +11,21 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const { recipe_id, packaging, square_variation_id, square_item_id } = await req.json();
+  const { recipe_id, packaging, square_variation_id, square_item_id, variation_name, item_name } = await req.json();
   if (!recipe_id || !packaging || !square_variation_id) {
     return NextResponse.json({ error: "recipe_id, packaging, and square_variation_id are required" }, { status: 400 });
   }
 
-  // Upsert on the (recipe_id, packaging) unique constraint so re-linking replaces.
   const { data, error } = await supabase
     .from("recipe_square_links")
-    .upsert(
-      { recipe_id, packaging, square_variation_id, square_item_id: square_item_id || null },
-      { onConflict: "recipe_id,packaging" },
-    )
+    .insert({
+      recipe_id,
+      packaging,
+      square_variation_id,
+      square_item_id: square_item_id || null,
+      variation_name: variation_name || null,
+      item_name: item_name || null,
+    })
     .select()
     .single();
 
