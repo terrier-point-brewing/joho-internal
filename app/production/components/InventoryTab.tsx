@@ -33,6 +33,12 @@ export default function InventoryTab({
 
   return (
     <>
+      {/* Header */}
+      <div className="mb-4">
+        <h2 className="text-base font-medium text-zinc-100">Inventory</h2>
+        <p className="text-sm text-zinc-500 mt-0.5">Ingredients, packaging materials, and brew inventory</p>
+      </div>
+
       {/* Sub-tab bar */}
       <div className="flex gap-1 mb-6 border-b border-zinc-800">
         {(["ingredients", "packaging", "brews"] as SubTab[]).map((t) => (

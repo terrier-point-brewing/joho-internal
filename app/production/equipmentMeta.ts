@@ -15,6 +15,8 @@ export const EQ: Record<EquipmentType, {
   kegging:      { label: "Kegging",      headerBg: "bg-orange-950/80", border: "border-orange-800", badge: "bg-orange-900/60 text-orange-300 border-orange-700",defaultW: 3, defaultH: 2 },
   canning:      { label: "Canning",      headerBg: "bg-rose-950/80",   border: "border-rose-800",   badge: "bg-rose-900/60 text-rose-300 border-rose-700",      defaultW: 3, defaultH: 2 },
   backlog:      { label: "Backlog",      headerBg: "bg-violet-950/80", border: "border-violet-800", badge: "bg-violet-900/60 text-violet-300 border-violet-700",defaultW: 3, defaultH: 4 },
+  loading_bay:  { label: "Loading Bay",  headerBg: "bg-stone-950/80",  border: "border-stone-700",  badge: "bg-stone-900/60 text-stone-300 border-stone-600",   defaultW: 4, defaultH: 2 },
+  export_bay:   { label: "Export Bay",   headerBg: "bg-emerald-950/80",border: "border-emerald-800",badge: "bg-emerald-900/60 text-emerald-300 border-emerald-700",defaultW: 4, defaultH: 2 },
 };
 
 export const EQ_TYPES = Object.entries(EQ) as [EquipmentType, typeof EQ[EquipmentType]][];

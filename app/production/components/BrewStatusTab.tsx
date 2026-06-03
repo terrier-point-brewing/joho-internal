@@ -141,13 +141,7 @@ export default function BrewStatusTab({
   return (
     <>
       {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h2 className="text-base font-medium text-zinc-100">Brew Console</h2>
-          <p className="text-sm text-zinc-500 mt-0.5">
-            {editMode ? "Edit mode — drag equipment to reposition" : "Lock mode — assign batches to equipment"}
-          </p>
-        </div>
+      <div className="flex items-center justify-end gap-2 mb-4">
         <div className="flex gap-2">
           <button
             onClick={() => setEditMode((v) => !v)}

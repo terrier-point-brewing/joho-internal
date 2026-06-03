@@ -247,11 +247,7 @@ export default function BrewsSubtab({
   if (brewTransfers.length === 0) {
     return (
       <div>
-        <div className="mb-4">
-          <h2 className="text-base font-medium text-zinc-100">Brews</h2>
-          <p className="text-sm text-zinc-500 mt-0.5">Kegged and canned batches in cold storage</p>
-        </div>
-        <p className="text-zinc-600 text-sm">No kegged or canned batches in cold storage yet.</p>
+          <p className="text-zinc-600 text-sm">No kegged or canned batches in cold storage yet.</p>
       </div>
     );
   }
@@ -260,11 +256,6 @@ export default function BrewsSubtab({
 
   return (
     <div className="space-y-8">
-      <div>
-        <h2 className="text-base font-medium text-zinc-100">Brews</h2>
-        <p className="text-sm text-zinc-500 mt-0.5">Kegged and canned batches in cold storage — expand a row to see adjustment history</p>
-      </div>
-
       {[
         { label: "Kegs", lots: kegs },
         { label: "Cans", lots: cans },

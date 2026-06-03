@@ -160,13 +160,7 @@ export default function BatchLogTab({
 
   return (
     <>
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h2 className="text-base font-medium text-zinc-100">Batch Log</h2>
-          <p className="text-sm text-zinc-500 mt-0.5">
-            {BREWHOUSE_BBL} BBL brewhouse · status set automatically from Brew Console
-          </p>
-        </div>
+      <div className="flex justify-end mb-4">
         <button onClick={openNew} className="btn-amber">+ New Batch</button>
       </div>
 

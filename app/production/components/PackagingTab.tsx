@@ -204,11 +204,7 @@ export default function PackagingTab({
 
   return (
     <>
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h2 className="text-base font-medium text-zinc-100">Packaging</h2>
-          <p className="text-sm text-zinc-500 mt-0.5">Kegs, cans, lids, carriers, trays, and labels</p>
-        </div>
+      <div className="flex justify-end mb-4">
         <button onClick={openNew} className="btn-amber">+ Add Item</button>
       </div>
 
