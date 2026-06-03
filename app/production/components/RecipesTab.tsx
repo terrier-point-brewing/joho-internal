@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Recipe, Ingredient } from "../types";
+import { Recipe, Ingredient, leadTimeDays } from "../types";
 import { Modal, Field, ModalActions } from "./shared";
 
 interface RecipeFormLine {
@@ -9,7 +9,7 @@ interface RecipeFormLine {
   quantity_per_bbl: string;
 }
 
-const RECIPE_EMPTY = { beer_name: "", brewery: "", expected_yield_bbl: "", brew_time_weeks: "", days_brewhouse: "", days_fermenter: "", days_brite: "", steps: "", notes: "" };
+const RECIPE_EMPTY = { beer_name: "", brewery: "", expected_yield_bbl: "", days_brewhouse: "", days_fermenter: "", days_brite: "", steps: "", notes: "" };
 
 export default function RecipesTab({
   recipes,
@@ -39,7 +39,6 @@ export default function RecipesTab({
       beer_name: r.beer_name,
       brewery: r.brewery ?? "",
       expected_yield_bbl: r.expected_yield_bbl != null ? String(r.expected_yield_bbl) : "",
-      brew_time_weeks: r.brew_time_weeks != null ? String(r.brew_time_weeks) : "",
       days_brewhouse: r.days_brewhouse != null ? String(r.days_brewhouse) : "",
       days_fermenter: r.days_fermenter != null ? String(r.days_fermenter) : "",
       days_brite: r.days_brite != null ? String(r.days_brite) : "",
@@ -73,7 +72,6 @@ export default function RecipesTab({
         beer_name: form.beer_name,
         brewery: form.brewery || null,
         expected_yield_bbl: form.expected_yield_bbl ? parseFloat(form.expected_yield_bbl) : null,
-        brew_time_weeks: form.brew_time_weeks ? parseInt(form.brew_time_weeks) : null,
         days_brewhouse: form.days_brewhouse ? parseInt(form.days_brewhouse) : null,
         days_fermenter: form.days_fermenter ? parseInt(form.days_fermenter) : null,
         days_brite: form.days_brite ? parseInt(form.days_brite) : null,
@@ -155,9 +153,9 @@ export default function RecipesTab({
                         {r.expected_yield_bbl} BBL / turn
                       </span>
                     )}
-                    {r.brew_time_weeks && (
+                    {leadTimeDays(r) > 0 && (
                       <span className="text-xs text-zinc-500 shrink-0">
-                        {r.brew_time_weeks}w brew time
+                        {leadTimeDays(r)}d lead time
                       </span>
                     )}
                     {(r.days_brewhouse || r.days_fermenter || r.days_brite) && (
@@ -334,16 +332,10 @@ export default function RecipesTab({
                   onChange={(e) => setForm((f) => ({ ...f, expected_yield_bbl: e.target.value }))}
                 />
               </Field>
-              <Field label="Expected Brew Time (weeks)">
-                <input
-                  type="number"
-                  step="1"
-                  min="1"
-                  className="inp"
-                  placeholder="e.g. 6"
-                  value={form.brew_time_weeks}
-                  onChange={(e) => setForm((f) => ({ ...f, brew_time_weeks: e.target.value }))}
-                />
+              <Field label="Lead Time" hint="(sum of stage days)">
+                <div className="inp flex items-center text-zinc-300 tabular-nums">
+                  {(parseInt(form.days_brewhouse) || 0) + (parseInt(form.days_fermenter) || 0) + (parseInt(form.days_brite) || 0)} days
+                </div>
               </Field>
             </div>
 

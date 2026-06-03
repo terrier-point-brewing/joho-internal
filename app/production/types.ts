@@ -145,6 +145,65 @@ export interface Recipe {
   created_at: string;
 }
 
+/** Lead time of a style = total time it occupies brewing equipment, in days. */
+export function leadTimeDays(recipe: Pick<Recipe, "days_brewhouse" | "days_fermenter" | "days_brite">): number {
+  return (recipe.days_brewhouse ?? 0) + (recipe.days_fermenter ?? 0) + (recipe.days_brite ?? 0);
+}
+
+export type Packaging = "draft" | "keg" | "can";
+
+export interface RecipeSquareLink {
+  id: string;
+  recipe_id: string;
+  packaging: Packaging;
+  square_variation_id: string;
+  square_item_id: string | null;
+  created_at: string;
+}
+
+export type AllocationCadence = "one_time" | "recurring";
+export type AllocationRecurrence = "weekly" | "biweekly" | "monthly";
+
+export interface DistributionAllocation {
+  id: string;
+  recipe_id: string | null;
+  packaging: Packaging;
+  quantity: number;
+  unit: string;
+  cadence: AllocationCadence;
+  delivery_date: string | null;
+  start_date: string | null;
+  recurrence: AllocationRecurrence | null;
+  end_date: string | null;
+  partner_id: string | null;
+  notes: string | null;
+  created_at: string;
+  recipes?: { beer_name: string } | null;
+  contract_brewing_partners?: { company_name: string } | null;
+}
+
+export interface ContractBrewingRequest {
+  id: string;
+  recipe_id: string | null;
+  beer_style: string;
+  partner_id: string | null;
+  volume_bbl: number;
+  desired_delivery_date: string | null;
+  status: string;
+  notes: string | null;
+  created_at: string;
+  recipes?: { beer_name: string } | null;
+  contract_brewing_partners?: { company_name: string } | null;
+}
+
+export interface SafetyStockFloor {
+  id: string;
+  recipe_id: string;
+  packaging: "keg" | "can";
+  floor_quantity: number;
+  created_at: string;
+}
+
 export interface BatchStatusHistory {
   id: string;
   batch_id: string;

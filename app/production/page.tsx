@@ -35,7 +35,7 @@ function ProductionContent() {
 
   return (
     <main className="px-6 py-8">
-      {tab === "intake" && <IntakeTab />}
+      {tab === "intake" && <IntakeTab recipes={recipes} transfers={transfers} tanks={tanks} batches={batches} />}
 
       {tab === "brewing" && (
         <>
