@@ -6,6 +6,8 @@ import TaproomTab from "./intake/TaproomTab";
 import DistributionTab from "./intake/DistributionTab";
 import ContractBrewingTab from "./intake/ContractBrewingTab";
 import SafetyStockTab from "./intake/SafetyStockTab";
+import DemandCalendarTab from "./intake/DemandCalendarTab";
+import BatchSchedulerTab from "./intake/BatchSchedulerTab";
 
 type IntakeSubtab = "taproom" | "distribution" | "contract" | "safety" | "demand" | "scheduler";
 
@@ -28,7 +30,6 @@ export default function IntakeTab({
 }) {
   const [sub, setSub] = useState<IntakeSubtab>("taproom");
   const [partners, setPartners] = useState<ContractBrewingPartner[]>([]);
-  const meta = SUBTABS.find((s) => s.key === sub)!;
 
   useEffect(() => {
     (async () => {
@@ -65,13 +66,8 @@ export default function IntakeTab({
       {sub === "contract"     && <ContractBrewingTab recipes={recipes} partners={partners} />}
       {sub === "safety"       && <SafetyStockTab recipes={recipes} transfers={transfers} tanks={tanks} batches={batches} />}
 
-      {(sub === "demand" || sub === "scheduler") && (
-        <div className="flex flex-col items-center justify-center py-20 text-center">
-          <div className="text-zinc-700 text-4xl mb-4">○</div>
-          <p className="text-sm text-zinc-500 font-medium">{meta.label}</p>
-          <p className="text-xs text-zinc-600 mt-1 max-w-sm">{meta.description} (Coming in Phase 2.)</p>
-        </div>
-      )}
+      {sub === "demand"    && <DemandCalendarTab />}
+      {sub === "scheduler" && <BatchSchedulerTab recipes={recipes} tanks={tanks} />}
     </>
   );
 }

@@ -175,6 +175,7 @@ export interface DistributionAllocation {
   start_date: string | null;
   recurrence: AllocationRecurrence | null;
   end_date: string | null;
+  packaging_item_id?: string | null;
   partner_id: string | null;
   notes: string | null;
   created_at: string;
