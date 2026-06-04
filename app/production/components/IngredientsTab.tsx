@@ -1,8 +1,305 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Ingredient, StockAdjustment, AdjustmentType, Supplier, ContractBrewingPartner, IngredientCategory, INGREDIENT_CATEGORIES } from "../types";
 import { Modal, Field, ModalActions } from "./shared";
+
+// ─── CSV bulk upload ──────────────────────────────────────────────────────────
+
+const BULK_COLUMNS = ["name", "category", "unit", "cost_per_unit", "stock_quantity"] as const;
+type BulkCol = typeof BULK_COLUMNS[number];
+
+interface ParsedRow {
+  name: string;
+  category: string;
+  unit: string;
+  cost_per_unit: string;
+  stock_quantity: string;
+  _errors: string[];
+}
+
+const TEMPLATE_CSV =
+  "name,category,unit,cost_per_unit,stock_quantity\n" +
+  "Cascade Hops,Hops,oz,0.45,240\n" +
+  "Pale Malt 2-Row,Malt,lb,0.85,500\n";
+
+const VALID_CATEGORIES = new Set<string>(INGREDIENT_CATEGORIES);
+
+/** Splits one CSV line into fields, correctly handling quoted fields with embedded commas. */
+function splitCSVLine(line: string): string[] {
+  const fields: string[] = [];
+  let current = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQuotes && line[i + 1] === '"') { current += '"'; i++; }
+      else { inQuotes = !inQuotes; }
+    } else if (ch === "," && !inQuotes) {
+      fields.push(current.trim());
+      current = "";
+    } else {
+      current += ch;
+    }
+  }
+  fields.push(current.trim());
+  return fields;
+}
+
+function parseCSV(text: string): ParsedRow[] {
+  const lines = text.split(/\r?\n/).filter((l) => l.trim());
+  if (lines.length === 0) return [];
+
+  // Detect if first line is a header by checking if "name" appears
+  const firstCols = splitCSVLine(lines[0]).map((c) => c.toLowerCase());
+  const hasHeader = firstCols.includes("name");
+  const dataLines = hasHeader ? lines.slice(1) : lines;
+
+  // Build column index map from header (or assume positional)
+  const colIndex: Record<BulkCol, number> = { name: 0, category: 1, unit: 2, cost_per_unit: 3, stock_quantity: 4 };
+  if (hasHeader) {
+    BULK_COLUMNS.forEach((col) => {
+      const idx = firstCols.indexOf(col);
+      if (idx !== -1) colIndex[col] = idx;
+    });
+  }
+
+  return dataLines
+    .filter((l) => l.trim())
+    .map((line) => {
+      const cols = splitCSVLine(line);
+
+      const get = (col: BulkCol) => cols[colIndex[col]]?.trim() ?? "";
+
+      const name          = get("name");
+      const category      = get("category");
+      const unit          = get("unit");
+      const cost_per_unit = get("cost_per_unit");
+      const stock_quantity = get("stock_quantity");
+
+      const errors: string[] = [];
+      if (!name)  errors.push("name is required");
+      if (!unit)  errors.push("unit is required");
+      if (cost_per_unit && isNaN(parseFloat(cost_per_unit)))
+        errors.push("cost_per_unit must be a number");
+      if (stock_quantity && isNaN(parseFloat(stock_quantity)))
+        errors.push("stock_quantity must be a number");
+      if (category && !VALID_CATEGORIES.has(category))
+        errors.push(`unknown category "${category}"`);
+
+      return { name, category, unit, cost_per_unit, stock_quantity, _errors: errors };
+    });
+}
+
+function BulkUploadModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const [csvText, setCsvText]         = useState("");
+  const [rows, setRows]               = useState<ParsedRow[]>([]);
+  const [parsed, setParsed]           = useState(false);
+  const [submitting, setSubmitting]   = useState(false);
+  const [result, setResult]           = useState<{ inserted: number } | null>(null);
+  const [error, setError]             = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  function handleTextChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
+    setCsvText(e.target.value);
+    setParsed(false);
+    setRows([]);
+  }
+
+  function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string;
+      setCsvText(text);
+      setParsed(false);
+      setRows([]);
+    };
+    reader.readAsText(file);
+  }
+
+  function handleParse() {
+    const r = parseCSV(csvText);
+    setRows(r);
+    setParsed(true);
+  }
+
+  async function handleImport() {
+    const validRows = rows.filter((r) => r._errors.length === 0);
+    if (validRows.length === 0) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const payload = validRows.map((r) => ({
+        name:           r.name,
+        category:       r.category || null,
+        unit:           r.unit,
+        cost_per_unit:  r.cost_per_unit ? parseFloat(r.cost_per_unit) : null,
+        stock_quantity: r.stock_quantity ? parseFloat(r.stock_quantity) : 0,
+      }));
+      const res = await fetch("/api/production/ingredients/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rows: payload }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? "Import failed");
+      setResult(await res.json());
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Error");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  const validCount   = rows.filter((r) => r._errors.length === 0).length;
+  const invalidCount = rows.filter((r) => r._errors.length > 0).length;
+
+  if (result) {
+    return (
+      <Modal title="Bulk Upload Complete" onClose={onDone}>
+        <div className="space-y-4 text-center py-4">
+          <p className="text-4xl">✓</p>
+          <p className="text-zinc-100 font-medium">{result.inserted} ingredient{result.inserted !== 1 ? "s" : ""} imported</p>
+          {invalidCount > 0 && (
+            <p className="text-xs text-zinc-500">{invalidCount} row{invalidCount !== 1 ? "s" : ""} with errors were skipped.</p>
+          )}
+          <button onClick={onDone} className="btn-amber mx-auto block">Done</button>
+        </div>
+      </Modal>
+    );
+  }
+
+  return (
+    <Modal title="Bulk Upload Ingredients" onClose={onClose}>
+      <div className="space-y-4">
+        <p className="text-xs text-zinc-500">
+          Upload a CSV file or paste CSV text. Columns:{" "}
+          <span className="font-mono text-zinc-400">name</span>,{" "}
+          <span className="font-mono text-zinc-400">category</span>,{" "}
+          <span className="font-mono text-zinc-400">unit</span>,{" "}
+          <span className="font-mono text-zinc-400">cost_per_unit</span>,{" "}
+          <span className="font-mono text-zinc-400">stock_quantity</span>.
+          A header row is optional.
+        </p>
+
+        {/* File picker */}
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            className="px-3 py-1.5 text-xs rounded border border-zinc-700 bg-zinc-800 text-zinc-300 hover:text-zinc-100 transition-colors"
+          >
+            Choose CSV file…
+          </button>
+          <button
+            type="button"
+            onClick={() => { setCsvText(TEMPLATE_CSV); setParsed(false); setRows([]); }}
+            className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
+          >
+            Load example
+          </button>
+          <input ref={fileRef} type="file" accept=".csv,text/csv" className="hidden" onChange={handleFile} />
+        </div>
+
+        {/* Paste area */}
+        <Field label="CSV text">
+          <textarea
+            className="inp font-mono text-xs resize-none"
+            rows={6}
+            placeholder={"name,category,unit,cost_per_unit,stock_quantity\nCascade Hops,Hops,oz,0.45,240"}
+            value={csvText}
+            onChange={handleTextChange}
+          />
+        </Field>
+
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={handleParse}
+            disabled={!csvText.trim()}
+            className="px-3 py-1.5 text-sm rounded border border-zinc-700 bg-zinc-800 text-zinc-300 hover:text-zinc-100 disabled:opacity-40 transition-colors"
+          >
+            Preview
+          </button>
+          {parsed && rows.length > 0 && (
+            <span className="text-xs text-zinc-500">
+              {validCount} valid
+              {invalidCount > 0 && <span className="text-red-400 ml-1">· {invalidCount} with errors</span>}
+            </span>
+          )}
+        </div>
+
+        {error && <p className="text-xs text-red-400">{error}</p>}
+
+        {/* Preview table */}
+        {parsed && rows.length > 0 && (
+          <div className="border border-zinc-800 rounded-lg overflow-hidden max-h-64 overflow-y-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-zinc-800 bg-zinc-900/70 text-left">
+                  <th className="px-3 py-2 text-zinc-500 font-medium w-5"></th>
+                  <th className="px-3 py-2 text-zinc-500 font-medium">Name</th>
+                  <th className="px-3 py-2 text-zinc-500 font-medium">Category</th>
+                  <th className="px-3 py-2 text-zinc-500 font-medium">Unit</th>
+                  <th className="px-3 py-2 text-zinc-500 font-medium text-right">Cost/Unit</th>
+                  <th className="px-3 py-2 text-zinc-500 font-medium text-right">Stock</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r, i) => (
+                  <tr
+                    key={i}
+                    className={`border-b border-zinc-800/60 last:border-0 ${
+                      r._errors.length > 0 ? "bg-red-950/30" : i % 2 !== 0 ? "bg-zinc-900/30" : ""
+                    }`}
+                    title={r._errors.length > 0 ? r._errors.join("; ") : undefined}
+                  >
+                    <td className="px-3 py-1.5 text-center">
+                      {r._errors.length > 0 ? (
+                        <span className="text-red-400" title={r._errors.join("; ")}>✕</span>
+                      ) : (
+                        <span className="text-green-500">✓</span>
+                      )}
+                    </td>
+                    <td className={`px-3 py-1.5 font-medium ${r._errors.length > 0 ? "text-red-300" : "text-zinc-200"}`}>{r.name || <span className="text-zinc-700">—</span>}</td>
+                    <td className="px-3 py-1.5 text-zinc-400">{r.category || <span className="text-zinc-700">—</span>}</td>
+                    <td className="px-3 py-1.5 text-zinc-400">{r.unit || <span className="text-zinc-700">—</span>}</td>
+                    <td className="px-3 py-1.5 text-right text-zinc-400 tabular-nums">{r.cost_per_unit || <span className="text-zinc-700">—</span>}</td>
+                    <td className="px-3 py-1.5 text-right text-zinc-400 tabular-nums">{r.stock_quantity || "0"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {invalidCount > 0 && (
+              <p className="px-3 py-2 text-xs text-red-400 border-t border-zinc-800">
+                Rows with errors (shown in red) will be skipped. Hover a row to see the error.
+              </p>
+            )}
+          </div>
+        )}
+
+        {parsed && rows.length === 0 && (
+          <p className="text-xs text-zinc-600">No rows found — check your CSV format.</p>
+        )}
+
+        <div className="flex justify-end gap-2 pt-1">
+          <button type="button" onClick={onClose} className="btn-ghost text-sm" disabled={submitting}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleImport}
+            disabled={!parsed || validCount === 0 || submitting}
+            className="btn-amber disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {submitting ? "Importing…" : `Import ${validCount > 0 ? validCount : ""} Ingredient${validCount !== 1 ? "s" : ""}`}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
 
 const ADJUSTMENT_TYPES: {
   value: AdjustmentType;
@@ -48,6 +345,7 @@ export default function IngredientsTab({
   onRefresh: () => Promise<void>;
   onAdjustmentsRefresh: () => Promise<void>;
 }) {
+  const [showBulkModal, setShowBulkModal] = useState(false);
   const [showIngModal, setShowIngModal] = useState(false);
   const [ingForm, setIngForm] = useState(ING_EMPTY);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -72,6 +370,63 @@ export default function IngredientsTab({
 
   const [logExpanded, setLogExpanded] = useState(false);
   const [logIngFilter, setLogIngFilter] = useState<string>("all");
+
+  // Category filter
+  const [filterCat, setFilterCat] = useState<IngredientCategory | "all">("all");
+
+  // Bulk edit
+  type BulkRow = { id: string; name: string; unit: string; cost_per_unit: string };
+  const [bulkEditMode, setBulkEditMode] = useState(false);
+  const [bulkRows, setBulkRows] = useState<BulkRow[]>([]);
+  const [bulkSaving, setBulkSaving] = useState(false);
+
+  function enterBulkEdit() {
+    setBulkRows(
+      ingredients.map((ing) => ({
+        id: ing.id,
+        name: ing.name,
+        unit: ing.unit,
+        cost_per_unit: ing.cost_per_unit != null ? String(ing.cost_per_unit) : "",
+      }))
+    );
+    setBulkEditMode(true);
+  }
+
+  async function saveBulkEdit() {
+    setBulkSaving(true);
+    try {
+      await Promise.all(
+        bulkRows.map((row) => {
+          const orig = ingredients.find((i) => i.id === row.id);
+          if (
+            orig?.name === row.name &&
+            orig?.unit === row.unit &&
+            String(orig?.cost_per_unit ?? "") === row.cost_per_unit
+          )
+            return Promise.resolve();
+          return fetch(`/api/production/ingredients/${row.id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name: row.name,
+              category: orig?.category ?? null,
+              supplier_id: orig?.supplier_id ?? null,
+              partner_id: orig?.partner_id ?? null,
+              unit: row.unit,
+              cost_per_unit: row.cost_per_unit !== "" ? parseFloat(row.cost_per_unit) : null,
+              stock_quantity: orig?.stock_quantity ?? 0,
+            }),
+          });
+        })
+      );
+      setBulkEditMode(false);
+      await onRefresh();
+    } catch {
+      alert("Some saves failed — check network");
+    } finally {
+      setBulkSaving(false);
+    }
+  }
 
   function openNew() { setIngForm(ING_EMPTY); setEditingId(null); setShowIngModal(true); }
   function openEdit(ing: Ingredient) {
@@ -116,7 +471,12 @@ export default function IngredientsTab({
 
   async function handleDelete(id: string, name: string) {
     if (!confirm(`Delete ingredient "${name}"?`)) return;
-    await fetch(`/api/production/ingredients/${id}`, { method: "DELETE" });
+    const res = await fetch(`/api/production/ingredients/${id}`, { method: "DELETE" });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      alert(body?.error ?? "Delete failed");
+      return;
+    }
     await onRefresh();
   }
 
@@ -181,8 +541,39 @@ export default function IngredientsTab({
 
   return (
     <>
-      <div className="flex justify-end mb-4">
-        <button onClick={openNew} className="btn-amber">+ New Ingredient</button>
+      {/* Category pills + action buttons inline */}
+      <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+        <div className="flex gap-2 flex-wrap">
+          <button
+            onClick={() => setFilterCat("all")}
+            className={`text-xs px-2.5 py-1 rounded border transition-colors ${filterCat === "all" ? "border-zinc-500 text-zinc-200 bg-zinc-800" : "border-zinc-700 text-zinc-500 hover:text-zinc-300"}`}
+          >
+            All
+          </button>
+          {INGREDIENT_CATEGORIES.map((cat) => (
+            <button key={cat} onClick={() => setFilterCat(cat)}
+              className={`text-xs px-2.5 py-1 rounded border transition-colors ${filterCat === cat ? "border-amber-600 bg-amber-900/30 text-amber-300" : "border-zinc-700 text-zinc-500 hover:text-zinc-300"}`}
+            >
+              {cat}
+            </button>
+          ))}
+        </div>
+        <div className="flex gap-2 shrink-0">
+          {bulkEditMode ? (
+            <>
+              <button onClick={() => setBulkEditMode(false)} className="btn-ghost text-sm" disabled={bulkSaving}>Cancel</button>
+              <button onClick={saveBulkEdit} className="btn-amber" disabled={bulkSaving}>
+                {bulkSaving ? "Saving…" : "Save All"}
+              </button>
+            </>
+          ) : (
+            <>
+              <button onClick={enterBulkEdit} className="btn-ghost text-sm" disabled={ingredients.length === 0}>Bulk Edit</button>
+              <button onClick={() => setShowBulkModal(true)} className="btn-amber">↑ Bulk Upload</button>
+              <button onClick={openNew} className="btn-amber">+ New Ingredient</button>
+            </>
+          )}
+        </div>
       </div>
 
       {ingredients.length === 0 ? (
@@ -190,54 +581,92 @@ export default function IngredientsTab({
       ) : (
         <div className="space-y-6">
           {(() => {
-            const categorized = INGREDIENT_CATEGORIES.map((cat) => ({
+            const allGroups = INGREDIENT_CATEGORIES.map((cat) => ({
               cat,
               items: ingredients.filter((i) => i.category === cat),
             })).filter((g) => g.items.length > 0);
             const uncategorized = ingredients.filter((i) => !i.category);
-            const groups = [...categorized, ...(uncategorized.length ? [{ cat: "Uncategorized" as const, items: uncategorized }] : [])];
+            const groups = [...allGroups, ...(uncategorized.length ? [{ cat: "Uncategorized" as const, items: uncategorized }] : [])];
+            const visibleGroups = filterCat === "all" ? groups : groups.filter((g) => g.cat === filterCat);
 
-            return groups.map(({ cat, items }) => (
+            return visibleGroups.map(({ cat, items }) => (
               <div key={cat}>
                 <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2 px-1">{cat}</h3>
                 <div className="overflow-x-auto rounded-lg border border-zinc-800">
-                  <table className="w-full text-sm">
+                  <table className="w-full text-sm table-fixed">
+                    <colgroup>
+                      <col style={{ width: "19%" }} />
+                      <col style={{ width: "10%" }} />
+                      <col style={{ width: "10%" }} />
+                      <col style={{ width: "5%" }} />
+                      <col style={{ width: "9%" }} />
+                      <col style={{ width: "12%" }} />
+                      <col style={{ width: "12%" }} />
+                      <col style={{ width: "23%" }} />
+                    </colgroup>
                     <thead>
                       <tr className="border-b border-zinc-800 bg-zinc-900/50 text-left">
-                        {["Name", "Supplier", "Partner", "Unit", "Cost / Unit", "Stock", "Total Value", ""].map((h) => (
-                          <th key={h} className={`px-4 py-2.5 text-xs font-medium text-zinc-500 ${
-                            ["Cost / Unit", "Stock", "Total Value"].includes(h) ? "text-right" : ""
-                          }`}>{h}</th>
-                        ))}
+                        <th className="px-3 py-2.5 text-xs font-medium text-zinc-500">Name</th>
+                        <th className="px-3 py-2.5 text-xs font-medium text-zinc-500">Supplier</th>
+                        <th className="px-3 py-2.5 text-xs font-medium text-zinc-500">Partner</th>
+                        <th className="px-3 py-2.5 text-xs font-medium text-zinc-500">Unit</th>
+                        <th className="px-3 py-2.5 text-xs font-medium text-zinc-500 text-right whitespace-nowrap">Cost / Unit</th>
+                        <th className="px-3 py-2.5 text-xs font-medium text-zinc-500 text-right">Stock</th>
+                        <th className="px-3 py-2.5 text-xs font-medium text-zinc-500 text-right whitespace-nowrap">Total Value</th>
+                        <th className="px-3 py-2.5 text-xs font-medium text-zinc-500"></th>
                       </tr>
                     </thead>
                     <tbody>
                       {items.map((ing, i) => {
-                        const totalValue = ing.cost_per_unit != null
-                          ? ing.cost_per_unit * ing.stock_quantity
-                          : null;
+                        const totalValue = ing.cost_per_unit != null ? ing.cost_per_unit * ing.stock_quantity : null;
+                        const bulkRow = bulkRows.find((r) => r.id === ing.id);
+                        if (bulkEditMode && bulkRow) {
+                          return (
+                            <tr key={ing.id} className={`border-b border-zinc-800/60 ${i % 2 !== 0 ? "bg-zinc-900/30" : ""}`}>
+                              <td className="px-2 py-1.5">
+                                <input className="inp text-sm w-full" value={bulkRow.name}
+                                  onChange={(e) => setBulkRows((rs) => rs.map((r) => r.id === ing.id ? { ...r, name: e.target.value } : r))} />
+                              </td>
+                              <td className="px-2 py-1.5 text-zinc-400 truncate">{ing.suppliers?.company_name ?? "—"}</td>
+                              <td className="px-2 py-1.5 text-zinc-400 truncate">{ing.contract_brewing_partners?.company_name ?? "—"}</td>
+                              <td className="px-2 py-1.5">
+                                <input className="inp text-sm w-full" value={bulkRow.unit}
+                                  onChange={(e) => setBulkRows((rs) => rs.map((r) => r.id === ing.id ? { ...r, unit: e.target.value } : r))} />
+                              </td>
+                              <td className="px-2 py-1.5" colSpan={1}>
+                                <input type="number" step="0.0001" min="0" className="inp text-sm w-full text-right tabular-nums" placeholder="0.0000" value={bulkRow.cost_per_unit}
+                                  onChange={(e) => setBulkRows((rs) => rs.map((r) => r.id === ing.id ? { ...r, cost_per_unit: e.target.value } : r))} />
+                              </td>
+                              <td className="px-4 py-2.5 text-right tabular-nums">
+                                <span className={Number(ing.stock_quantity) < 0 ? "text-red-400" : "text-zinc-300"}>
+                                  {Number(ing.stock_quantity).toLocaleString(undefined, { maximumFractionDigits: 3 })} {ing.unit}
+                                </span>
+                              </td>
+                              <td className="px-4 py-2.5 text-right tabular-nums text-zinc-300">{fmtValue(totalValue)}</td>
+                              <td className="px-4 py-2.5 text-xs text-zinc-600 text-right">editing</td>
+                            </tr>
+                          );
+                        }
                         return (
                           <tr key={ing.id} className={`border-b border-zinc-800/60 ${i % 2 !== 0 ? "bg-zinc-900/30" : ""}`}>
-                            <td className="px-4 py-2.5 text-zinc-100 font-medium">{ing.name}</td>
-                            <td className="px-4 py-2.5 text-zinc-400">{ing.suppliers?.company_name ?? "—"}</td>
-                            <td className="px-4 py-2.5 text-zinc-400">{ing.contract_brewing_partners?.company_name ?? "—"}</td>
-                            <td className="px-4 py-2.5 text-zinc-400">{ing.unit}</td>
-                            <td className="px-4 py-2.5 text-zinc-300 text-right tabular-nums">
-                              {ing.cost_per_unit != null ? `$${Number(ing.cost_per_unit).toFixed(4)}` : "—"}
+                            <td className="px-3 py-2.5 text-zinc-100 font-medium truncate">{ing.name}</td>
+                            <td className="px-3 py-2.5 text-zinc-400 truncate">{ing.suppliers?.company_name ?? "—"}</td>
+                            <td className="px-3 py-2.5 text-zinc-400 truncate">{ing.contract_brewing_partners?.company_name ?? "—"}</td>
+                            <td className="px-3 py-2.5 text-zinc-400 whitespace-nowrap">{ing.unit}</td>
+                            <td className="px-3 py-2.5 text-zinc-300 text-right tabular-nums whitespace-nowrap">
+                              {ing.cost_per_unit != null ? `$${Number(ing.cost_per_unit).toFixed(2)}` : "—"}
                             </td>
-                            <td className="px-4 py-2.5 text-right tabular-nums">
+                            <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap">
                               <span className={Number(ing.stock_quantity) < 0 ? "text-red-400" : "text-zinc-300"}>
                                 {Number(ing.stock_quantity).toLocaleString(undefined, { maximumFractionDigits: 3 })} {ing.unit}
                               </span>
                             </td>
-                            <td className="px-4 py-2.5 text-right tabular-nums text-zinc-300">
-                              {fmtValue(totalValue)}
-                            </td>
-                            <td className="px-4 py-2.5">
-                              <div className="flex gap-3 justify-end">
-                                <button onClick={() => openAdj(ing)} className="text-xs text-amber-500 hover:text-amber-400 transition-colors font-medium">Adjust</button>
-                                <button onClick={() => openEdit(ing)} className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors">Edit</button>
-                                <button onClick={() => handleDelete(ing.id, ing.name)} className="text-xs text-zinc-600 hover:text-red-400 transition-colors">Delete</button>
+                            <td className="px-3 py-2.5 text-right tabular-nums text-zinc-300 whitespace-nowrap">{fmtValue(totalValue)}</td>
+                            <td className="pl-4 pr-3 py-2.5">
+                              <div className="flex gap-2 justify-end w-full">
+                                <button onClick={() => openAdj(ing)} className="text-xs text-amber-500 hover:text-amber-400 transition-colors font-medium whitespace-nowrap">Adjust</button>
+                                <button onClick={() => openEdit(ing)} className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors whitespace-nowrap">Edit</button>
+                                <button onClick={() => handleDelete(ing.id, ing.name)} className="text-xs text-zinc-600 hover:text-red-400 transition-colors whitespace-nowrap">Delete</button>
                               </div>
                             </td>
                           </tr>
@@ -330,6 +759,14 @@ export default function IngredientsTab({
           </div>
         )}
       </div>
+
+      {/* Bulk upload modal */}
+      {showBulkModal && (
+        <BulkUploadModal
+          onClose={() => setShowBulkModal(false)}
+          onDone={async () => { setShowBulkModal(false); await onRefresh(); }}
+        />
+      )}
 
       {/* Ingredient modal */}
       {showIngModal && (

@@ -204,26 +204,25 @@ export default function PackagingTab({
 
   return (
     <>
-      <div className="flex justify-end mb-4">
-        <button onClick={openNew} className="btn-amber">+ Add Item</button>
-      </div>
-
-      {/* Filter pills */}
-      <div className="flex gap-2 mb-4 flex-wrap">
-        <button
-          onClick={() => setFilterType("all")}
-          className={`text-xs px-2.5 py-1 rounded border transition-colors ${filterType === "all" ? "border-zinc-500 text-zinc-200 bg-zinc-800" : "border-zinc-700 text-zinc-500 hover:text-zinc-300"}`}
-        >
-          All
-        </button>
-        {TYPES.map((t) => (
-          <button key={t}
-            onClick={() => setFilterType(t)}
-            className={`text-xs px-2.5 py-1 rounded border transition-colors ${filterType === t ? `border-current ${TYPE_META[t].color}` : "border-zinc-700 text-zinc-500 hover:text-zinc-300"}`}
+      {/* Filter pills + Add Item inline */}
+      <div className="flex items-center justify-between gap-2 mb-4 flex-wrap">
+        <div className="flex gap-2 flex-wrap">
+          <button
+            onClick={() => setFilterType("all")}
+            className={`text-xs px-2.5 py-1 rounded border transition-colors ${filterType === "all" ? "border-zinc-500 text-zinc-200 bg-zinc-800" : "border-zinc-700 text-zinc-500 hover:text-zinc-300"}`}
           >
-            {TYPE_META[t].label}
+            All
           </button>
-        ))}
+          {TYPES.map((t) => (
+            <button key={t}
+              onClick={() => setFilterType(t)}
+              className={`text-xs px-2.5 py-1 rounded border transition-colors ${filterType === t ? `border-current ${TYPE_META[t].color}` : "border-zinc-700 text-zinc-500 hover:text-zinc-300"}`}
+            >
+              {TYPE_META[t].label}
+            </button>
+          ))}
+        </div>
+        <button onClick={openNew} className="btn-amber shrink-0">+ Add Item</button>
       </div>
 
       {packaging.length === 0 ? (
@@ -242,45 +241,59 @@ export default function PackagingTab({
                   <span className="text-xs text-zinc-600">{items.length} item{items.length !== 1 ? "s" : ""}</span>
                 </div>
                 <div className="overflow-x-auto rounded-lg border border-zinc-800">
-                  <table className="w-full text-sm">
+                  <table className="w-full text-sm table-fixed">
+                    <colgroup>
+                      <col style={{ width: "20%" }} />
+                      <col style={{ width: "12%" }} />
+                      <col style={{ width: "12%" }} />
+                      <col style={{ width: "7%" }} />
+                      <col style={{ width: "9%" }} />
+                      <col style={{ width: "11%" }} />
+                      <col style={{ width: "6%" }} />
+                      <col style={{ width: "23%" }} />
+                    </colgroup>
                     <thead>
                       <tr className="border-b border-zinc-800 bg-zinc-900/50 text-left">
-                        <th className="px-4 py-2.5 text-xs font-medium text-zinc-500">Name</th>
-                        <th className="px-4 py-2.5 text-xs font-medium text-zinc-500">Partner</th>
-                        <th className="px-4 py-2.5 text-xs font-medium text-zinc-500">Supplier</th>
-                        <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 text-right">Stock</th>
-                        <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 text-right">Unit Cost</th>
-                        {needsVolume(t) && <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 text-right">Volume</th>}
-                        {needsCanCount(t) && <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 text-right">Can Count</th>}
-                        {canBeDefault && <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 text-center">Default</th>}
-                        <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 w-20"></th>
+                        <th className="px-3 py-2.5 text-xs font-medium text-zinc-500 whitespace-nowrap">Name</th>
+                        <th className="px-3 py-2.5 text-xs font-medium text-zinc-500 whitespace-nowrap">Partner</th>
+                        <th className="px-3 py-2.5 text-xs font-medium text-zinc-500 whitespace-nowrap">Supplier</th>
+                        <th className="px-3 py-2.5 text-xs font-medium text-zinc-500 text-right whitespace-nowrap">Stock</th>
+                        <th className="px-3 py-2.5 text-xs font-medium text-zinc-500 text-right whitespace-nowrap">Unit Cost</th>
+                        <th className="px-3 py-2.5 text-xs font-medium text-zinc-500 text-right whitespace-nowrap">
+                          {needsVolume(t) ? "Volume" : needsCanCount(t) ? "Can Count" : "Details"}
+                        </th>
+                        <th className="px-3 py-2.5 text-xs font-medium text-zinc-500 text-center whitespace-nowrap">Default</th>
+                        <th className="px-3 py-2.5 text-xs font-medium text-zinc-500"></th>
                       </tr>
                     </thead>
                     <tbody>
                       {items.map((item, i) => (
                         <tr key={item.id} className={`border-b border-zinc-800/60 ${i % 2 !== 0 ? "bg-zinc-900/30" : ""}`}>
-                          <td className="px-4 py-2.5 text-zinc-200 font-medium">{item.name}</td>
-                          <td className="px-4 py-2.5 text-zinc-400">{partnerName(item) ?? "—"}</td>
-                          <td className="px-4 py-2.5 text-zinc-400">{supplierName(item) ?? "—"}</td>
-                          <td className="px-4 py-2.5 text-right">
+                          <td className="px-3 py-2.5 text-zinc-200 font-medium truncate">{item.name}</td>
+                          <td className="px-3 py-2.5 text-zinc-400 truncate">{partnerName(item) ?? "—"}</td>
+                          <td className="px-3 py-2.5 text-zinc-400 truncate">{supplierName(item) ?? "—"}</td>
+                          <td className="px-3 py-2.5 text-right tabular-nums">
                             <span className={Number(item.stock_quantity) < 0 ? "text-red-400" : "text-zinc-300"}>
                               {Number(item.stock_quantity).toLocaleString(undefined, { maximumFractionDigits: 0 })}
                             </span>
                           </td>
-                          <td className="px-4 py-2.5 text-zinc-400 text-right">
-                            {item.unit_cost != null ? `$${Number(item.unit_cost).toFixed(2)}` : "—"}
+                          <td className="px-3 py-2.5 text-zinc-400 text-right tabular-nums whitespace-nowrap">
+                            {item.unit_cost != null
+                              ? `$${Number(item.unit_cost).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                              : "—"}
                           </td>
-                          {needsVolume(t) && (
-                            <td className="px-4 py-2.5 text-zinc-400 text-right">
-                              {item.volume_fl_oz != null ? `${item.volume_fl_oz} fl oz` : "—"}
-                            </td>
-                          )}
-                          {needsCanCount(t) && (
-                            <td className="px-4 py-2.5 text-zinc-400 text-right">
-                              {item.can_count != null ? item.can_count : "—"}
-                            </td>
-                          )}
-                          <td className="px-4 py-2.5 text-center">
+                          <td className="px-3 py-2.5 text-zinc-400 text-right tabular-nums whitespace-nowrap">
+                            {needsVolume(t)
+                              ? (item.volume_fl_oz != null
+                                  ? `${Number(item.volume_fl_oz).toLocaleString(undefined, { maximumFractionDigits: 1 })} oz`
+                                  : "—")
+                              : needsCanCount(t)
+                              ? (item.can_count != null
+                                  ? `${Number(item.can_count).toLocaleString(undefined, { maximumFractionDigits: 0 })} cans`
+                                  : "—")
+                              : "—"}
+                          </td>
+                          <td className="px-3 py-2.5 text-center">
                             <button
                               onClick={() => toggleDefault(item)}
                               title={item.is_default ? "Remove default" : "Set as default"}
@@ -293,8 +306,8 @@ export default function PackagingTab({
                               {item.is_default ? "★" : "☆"}
                             </button>
                           </td>
-                          <td className="px-4 py-2.5">
-                            <div className="flex gap-2 justify-end">
+                          <td className="px-3 py-2.5">
+                            <div className="flex gap-2 justify-end whitespace-nowrap">
                               <button onClick={() => openAdj(item)} className="text-xs text-amber-500 hover:text-amber-400 transition-colors font-medium">Adjust</button>
                               <button onClick={() => openEdit(item)} className="text-xs text-zinc-500 hover:text-zinc-200 transition-colors">Edit</button>
                               <button onClick={() => handleDelete(item)} className="text-xs text-zinc-600 hover:text-red-400 transition-colors">Delete</button>
