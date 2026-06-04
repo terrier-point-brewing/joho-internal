@@ -1,0 +1,39 @@
+import { NextRequest, NextResponse } from "next/server";
+import { supabase } from "@/lib/supabase/client";
+import { apiError } from "@/lib/utils/api";
+
+export async function GET() {
+  try {
+    const { data, error } = await supabase
+      .from("quarterly_targets")
+      .select("id, year, quarter, tier, target_cents")
+      .order("year", { ascending: false })
+      .order("quarter", { ascending: false })
+      .order("tier", { ascending: true });
+    if (error) throw error;
+    return NextResponse.json(data);
+  } catch (err) {
+    return apiError(err);
+  }
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const { year, quarter, tier, target_cents } = await req.json();
+    if (!year || !quarter || !tier || target_cents == null) {
+      return NextResponse.json(
+        { error: "year, quarter, tier, target_cents required" },
+        { status: 400 }
+      );
+    }
+    const { data, error } = await supabase
+      .from("quarterly_targets")
+      .upsert({ year, quarter, tier, target_cents }, { onConflict: "year,quarter,tier" })
+      .select()
+      .single();
+    if (error) throw error;
+    return NextResponse.json(data);
+  } catch (err) {
+    return apiError(err);
+  }
+}
