@@ -248,6 +248,7 @@ export interface ContractBrewingPartner {
   address: string | null;
   email: string | null;
   notes: string | null;
+  square_customer_id: string | null;
   created_at: string;
 }
 

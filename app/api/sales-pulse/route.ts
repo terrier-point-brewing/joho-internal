@@ -42,11 +42,14 @@ export async function GET(req: NextRequest) {
     const byCategory = TAPROOM_MODEL_CATEGORIES.map((cat) => {
       const t = result.byCategory[cat.id];
       return {
-        id: cat.id,
-        label: cat.label,
-        gross_sales_cents: t?.grossSalesCents ?? 0,
-        net_sales_cents: t?.netSalesCents ?? 0,
-        excluded: EXCLUDED_CATEGORY_IDS.has(cat.id),
+        id:                 cat.id,
+        label:              cat.label,
+        gross_sales_cents:  t?.grossSalesCents  ?? 0,
+        discounts_cents:    t?.discountsCents   ?? 0,
+        returns_cents:      t?.returnsCents     ?? 0,
+        net_sales_cents:    t?.netSalesCents    ?? 0,
+        tax_cents:          t?.taxCents         ?? 0,
+        excluded:           EXCLUDED_CATEGORY_IDS.has(cat.id),
       };
     });
 

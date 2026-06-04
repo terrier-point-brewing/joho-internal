@@ -294,7 +294,7 @@ export default function RecipesTab({
                                 <td className="px-4 py-2 text-zinc-200">{ing.name}</td>
                                 <td className="px-4 py-2 text-zinc-500 text-right tabular-nums">
                                   {ing.cost_per_unit != null
-                                    ? `$${Number(ing.cost_per_unit).toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 })} / ${ing.unit}`
+                                    ? `$${Number(ing.cost_per_unit).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / ${ing.unit}`
                                     : "—"}
                                 </td>
                                 <td className="px-4 py-2 text-zinc-400 text-right tabular-nums">
@@ -517,7 +517,7 @@ export default function RecipesTab({
                             </td>
                             <td className="px-3 py-1.5 text-right text-xs text-zinc-500 tabular-nums whitespace-nowrap">
                               {ing?.cost_per_unit != null
-                                ? `$${Number(ing.cost_per_unit).toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 })} / ${ing.unit}`
+                                ? `$${Number(ing.cost_per_unit).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / ${ing.unit}`
                                 : "—"}
                             </td>
                             <td className="px-3 py-1.5">

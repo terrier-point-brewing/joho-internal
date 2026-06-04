@@ -39,6 +39,12 @@ function ProductionContent() {
 
       {tab === "brewing" && (
         <>
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-base font-medium text-zinc-100">Brewing</h2>
+              <p className="text-sm text-zinc-500 mt-0.5">Floorplan, batch log, timeline, and calendar for all active and planned brews</p>
+            </div>
+          </div>
           <div className="flex gap-1 mb-6 border-b border-zinc-800 pb-0">
             {BREWING_SUBTABS.map(({ key, label }) => (
               <button

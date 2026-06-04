@@ -373,9 +373,11 @@ export default function AchievementTab() {
           </div>
           {onPace !== null && (
             <div className={`text-xs mt-0.5 ${onPace ? "text-green-500" : "text-red-500"}`}>
-              {onPace ? "On pace" : "Behind pace"}
-              {targetCents !== null && projectedCents !== null && (
-                <> · {onPace ? "+" : ""}{currency(Math.abs(projectedCents - targetCents))}</>
+              {onPace
+                ? "On pace"
+                : `Behind pace by ${currency(Math.abs(projectedCents! - targetCents!))}`}
+              {onPace && targetCents !== null && projectedCents !== null && (
+                <> · +{currency(projectedCents - targetCents)}</>
               )}
             </div>
           )}
@@ -398,7 +400,7 @@ export default function AchievementTab() {
           ) : (
             <>
               <div className="text-xl font-semibold text-red-400">{currency(gapCents)} to go</div>
-              <div className="text-xs text-zinc-500 mt-0.5">vs. {tierLabel} target</div>
+              <div className="text-xs text-zinc-500 mt-0.5">vs. {tierLabel} goal</div>
             </>
           )}
         </div>

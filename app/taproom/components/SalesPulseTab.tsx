@@ -11,7 +11,6 @@ import {
 // ---------------------------------------------------------------------------
 
 type KpiMetric = "net_sales" | "gross_sales" | "avg_ticket" | "guest_count";
-type CategoryMetric = "net_sales" | "gross_sales";
 
 type DayData = {
   date: string;
@@ -25,7 +24,10 @@ type CategoryData = {
   id: string;
   label: string;
   gross_sales_cents: number;
+  discounts_cents: number;
+  returns_cents: number;
   net_sales_cents: number;
+  tax_cents: number;
   excluded: boolean;
 };
 
@@ -98,10 +100,6 @@ function getDayMetricValue(metric: KpiMetric, day: DayData): number {
     case "avg_ticket":  return day.avg_ticket_cents / 100;
     case "guest_count": return day.order_count;
   }
-}
-
-function getCategoryMetricValue(metric: CategoryMetric, cat: CategoryData): number {
-  return metric === "net_sales" ? cat.net_sales_cents : cat.gross_sales_cents;
 }
 
 function pctChange(current: number, prior: number): number | null {
@@ -183,11 +181,6 @@ const KPI_OPTIONS: { value: KpiMetric; label: string }[] = [
   { value: "guest_count", label: "Guest Count"         },
 ];
 
-const CAT_METRIC_OPTIONS: { value: CategoryMetric; label: string }[] = [
-  { value: "net_sales",   label: "Net Sales"  },
-  { value: "gross_sales", label: "Gross Sales" },
-];
-
 const selectCls =
   "bg-zinc-800 border border-zinc-600 rounded px-3 py-1.5 text-sm text-zinc-100 " +
   "focus:outline-none focus:ring-2 focus:ring-amber-500";
@@ -203,7 +196,6 @@ export default function SalesPulseTab() {
 
   const [weekStart,      setWeekStart]      = useState<Date>(() => getMondayOf(today));
   const [chartMetric,    setChartMetric]    = useState<KpiMetric>("net_sales");
-  const [catMetric,      setCatMetric]      = useState<CategoryMetric>("net_sales");
   const [catDayFilter,   setCatDayFilter]   = useState<number | null>(null); // null = whole week; 0=Mon…6=Sun
   const [currentData,    setCurrentData]    = useState<PulseData | null>(null);
   const [priorData,      setPriorData]      = useState<PulseData | null>(null);
@@ -288,13 +280,15 @@ export default function SalesPulseTab() {
   const sortedCategories = catSource
     ? [...catSource.by_category].sort((a, b) => {
         if (a.excluded !== b.excluded) return a.excluded ? 1 : -1;
-        return getCategoryMetricValue(catMetric, b) - getCategoryMetricValue(catMetric, a);
+        return b.net_sales_cents - a.net_sales_cents;
       })
     : [];
 
-  const catTotal = catSource?.by_category
-    .filter((c) => !c.excluded)
-    .reduce((s, c) => s + getCategoryMetricValue(catMetric, c), 0) ?? 0;
+  const catNetTotal   = catSource?.by_category.filter((c) => !c.excluded).reduce((s, c) => s + c.net_sales_cents,   0) ?? 0;
+  const catGrossTotal = catSource?.by_category.filter((c) => !c.excluded).reduce((s, c) => s + c.gross_sales_cents, 0) ?? 0;
+  const catDiscTotal  = catSource?.by_category.filter((c) => !c.excluded).reduce((s, c) => s + c.discounts_cents,   0) ?? 0;
+  const catRetTotal   = catSource?.by_category.filter((c) => !c.excluded).reduce((s, c) => s + c.returns_cents,     0) ?? 0;
+  const catTaxTotal   = catSource?.by_category.filter((c) => !c.excluded).reduce((s, c) => s + c.tax_cents,         0) ?? 0;
 
   // Day pills — only show days that have started (≤ today)
   const todayStr = toISO(today);
@@ -432,20 +426,6 @@ export default function SalesPulseTab() {
       <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-5">
         <div className="flex items-center justify-between mb-3">
           <div className="text-sm font-medium text-zinc-300">Category Breakdown</div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-zinc-500">Show</span>
-            <div className="flex rounded overflow-hidden border border-zinc-700">
-              {CAT_METRIC_OPTIONS.map(({ value, label }) => (
-                <button
-                  key={value}
-                  onClick={() => setCatMetric(value)}
-                  className={toggleBtn(catMetric === value)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
         </div>
 
         {/* Day-of-week filter */}
@@ -491,69 +471,68 @@ export default function SalesPulseTab() {
               </span>
               <span className="flex items-center gap-1.5">
                 <span className="inline-block w-3 h-0.5 bg-zinc-700 rounded" />
-                Excluded from taproom net sales
+                Excluded
               </span>
             </div>
 
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-xs text-zinc-500 uppercase border-b border-zinc-800">
-                  <th className="text-left py-2 pr-6 font-medium">Category</th>
-                  <th className="text-right py-2 pr-6 font-medium">
-                    {catMetric === "net_sales" ? "Net Sales" : "Gross Sales"}
-                  </th>
-                  <th className="text-right py-2 font-medium">% of Total</th>
+                  <th className="text-left py-2 font-medium">Category</th>
+                  <th className="text-right py-2 px-3 font-medium">Gross Sales</th>
+                  <th className="text-right py-2 px-3 font-medium">Discounts</th>
+                  <th className="text-right py-2 px-3 font-medium">Returns</th>
+                  <th className="text-right py-2 px-3 font-medium">Net Sales</th>
+                  <th className="text-right py-2 pl-3 font-medium">Tax</th>
                 </tr>
               </thead>
               <tbody>
                 {sortedCategories.map((cat) => {
-                  const val = getCategoryMetricValue(catMetric, cat);
-                  const pct = catTotal > 0 ? (val / catTotal) * 100 : null;
-                  const barWidth = catTotal > 0 ? Math.max(0, Math.min(100, (val / catTotal) * 100)) : 0;
-
+                  const dim = cat.excluded ? "text-zinc-600" : "text-zinc-200";
+                  const mono = `font-mono ${dim}`;
                   return (
                     <tr
                       key={cat.id}
                       className={`border-b ${cat.excluded ? "border-zinc-800/30" : "border-zinc-800/60"}`}
                     >
-                      <td className={`py-2.5 pr-6 font-medium ${cat.excluded ? "text-zinc-600" : "text-zinc-200"}`}>
+                      <td className={`py-2.5 font-medium ${dim}`}>
                         {cat.label}
                         {cat.excluded && (
-                          <span className="ml-2 text-xs font-normal text-zinc-700 italic">excluded</span>
+                          <span className="ml-2 text-xs font-normal text-zinc-700 italic">excl.</span>
                         )}
                       </td>
-                      <td className={`py-2.5 pr-6 text-right font-mono ${cat.excluded ? "text-zinc-600" : "text-zinc-200"}`}>
-                        {val > 0 ? formatCurrency(val, 0) : <span className="text-zinc-700">—</span>}
+                      <td className={`py-2.5 px-3 text-right ${mono}`}>
+                        {cat.gross_sales_cents > 0 ? formatCurrency(cat.gross_sales_cents) : <span className="text-zinc-700">—</span>}
                       </td>
-                      <td className="py-2.5 text-right">
-                        {cat.excluded || pct === null ? (
-                          <span className="text-zinc-700 text-xs">—</span>
-                        ) : (
-                          <div className="flex items-center justify-end gap-2">
-                            <div className="w-20 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
-                              <div
-                                className="h-full bg-amber-500/70 rounded-full"
-                                style={{ width: `${barWidth}%` }}
-                              />
-                            </div>
-                            <span className="text-zinc-400 text-xs w-10 text-right">{pct.toFixed(1)}%</span>
-                          </div>
-                        )}
+                      <td className={`py-2.5 px-3 text-right ${mono}`}>
+                        {cat.discounts_cents > 0 ? <span className="text-red-400/70">({formatCurrency(cat.discounts_cents)})</span> : <span className="text-zinc-700">—</span>}
+                      </td>
+                      <td className={`py-2.5 px-3 text-right ${mono}`}>
+                        {cat.returns_cents > 0 ? <span className="text-red-400/70">({formatCurrency(cat.returns_cents)})</span> : <span className="text-zinc-700">—</span>}
+                      </td>
+                      <td className={`py-2.5 px-3 text-right font-mono font-medium ${cat.excluded ? "text-zinc-600" : "text-zinc-100"}`}>
+                        {cat.net_sales_cents > 0 ? formatCurrency(cat.net_sales_cents) : <span className="text-zinc-700">—</span>}
+                      </td>
+                      <td className={`py-2.5 pl-3 text-right ${mono}`}>
+                        {cat.tax_cents > 0 ? formatCurrency(cat.tax_cents) : <span className="text-zinc-700">—</span>}
                       </td>
                     </tr>
                   );
                 })}
               </tbody>
-              {catTotal > 0 && (
+              {catNetTotal > 0 && (
                 <tfoot>
-                  <tr className="border-t border-zinc-700">
-                    <td className="py-2 pr-6 text-sm font-semibold text-zinc-200">
-                      Total (included)
+                  <tr className="border-t border-zinc-700 text-zinc-200 font-semibold">
+                    <td className="py-2">Total (included)</td>
+                    <td className="py-2 px-3 text-right font-mono">{formatCurrency(catGrossTotal)}</td>
+                    <td className="py-2 px-3 text-right font-mono text-red-400/70">
+                      {catDiscTotal > 0 ? `(${formatCurrency(catDiscTotal)})` : "—"}
                     </td>
-                    <td className="py-2 pr-6 text-right font-mono font-semibold text-zinc-100">
-                      {formatCurrency(catTotal, 0)}
+                    <td className="py-2 px-3 text-right font-mono text-red-400/70">
+                      {catRetTotal > 0 ? `(${formatCurrency(catRetTotal)})` : "—"}
                     </td>
-                    <td />
+                    <td className="py-2 px-3 text-right font-mono text-zinc-100">{formatCurrency(catNetTotal)}</td>
+                    <td className="py-2 pl-3 text-right font-mono">{formatCurrency(catTaxTotal)}</td>
                   </tr>
                 </tfoot>
               )}

@@ -79,12 +79,6 @@ export default function CalendarTab({ batches }: Props) {
 
   return (
     <div>
-      {/* Header */}
-      <div className="mb-4">
-        <h2 className="text-base font-medium text-zinc-100">Calendar</h2>
-        <p className="text-sm text-zinc-500 mt-0.5">Monthly view of batch schedule entries — see when each batch occupies equipment</p>
-      </div>
-
       {/* Month nav */}
       <div className="flex items-center gap-3 mb-4">
         <button onClick={() => setCurrentMonth(m => subMonths(m, 1))} className="px-3 py-1 text-sm bg-zinc-800 rounded text-zinc-400 hover:text-zinc-200">‹</button>
