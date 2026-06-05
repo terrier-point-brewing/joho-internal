@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Equipment, BrewBatch, BatchTankAssignment, UNCONSTRAINED_EQUIPMENT_TYPES } from "../types";
+import { computeTankVolumes } from "../lib/volumeLedger";
 import { BREWHOUSE_BBL, Modal, Field, ModalActions } from "./shared";
 import { EQ, EQ_TYPES } from "../equipmentMeta";
 import { GRID_CELL_PX as CELL, GRID_COLS, GRID_ROWS, GRID_GAP_PX as GAP } from "@/lib/constants/production";
@@ -62,6 +63,7 @@ export default function BrewStatusTab() {
   const [editMode, setEditMode] = useState(false);
   const [transferTankId, setTransferTankId] = useState<string | null>(null);
   const [transferBatchId, setTransferBatchId] = useState<string | null>(null);
+  const [transferFromVol, setTransferFromVol] = useState<number | undefined>(undefined);
   // Shared with the Inventory tab via the query cache (de-duped, no local fetch).
   const { data: packaging = [] } = usePackagingQuery();
   // Initialize with the SSR default so the server and the client's first render
@@ -153,6 +155,13 @@ export default function BrewStatusTab() {
   const planningBatches    = batches.filter((b) => b.status === "planning")
     .sort((a, b) => new Date(b.planned_brew_date).getTime() - new Date(a.planned_brew_date).getTime());
   const batchById          = Object.fromEntries(batches.map((b) => [b.id, b]));
+
+  // Ledger: current volume per batch per tank, derived from transfer history
+  const tankVolumesByBatch: Record<string, Record<string, number>> = {};
+  for (const b of batches) {
+    const vols = computeTankVolumes(b.id, Number(b.volume_bbl ?? 0), transfers);
+    if (Object.keys(vols).length > 0) tankVolumesByBatch[b.id] = vols;
+  }
 
   const placed   = tanks.filter((t) => t.grid_row != null && t.grid_col != null);
   const unplaced = tanks.filter((t) => t.grid_row == null || t.grid_col == null);
@@ -408,12 +417,17 @@ export default function BrewStatusTab() {
                     )}
 
                     {/* === Regular tank (fermenter / brite / brewhouse) === */}
-                    {isTank && (
+                    {isTank && (() => {
+                      // Ledger volume for this batch in THIS specific tank (may be a partial split)
+                      const ledgerVol = batch
+                        ? (tankVolumesByBatch[batch.id]?.[tank.id] ?? Number(batch.volume_bbl ?? 0))
+                        : 0;
+                      return (
                       <>
                         {!isUnconstrained && tank.capacity_bbl && (
                           <>
                             <p className="text-zinc-600" style={{ fontSize: 9 }}>
-                              {batch ? `${Number(batch.volume_bbl).toFixed(1)} / ${tank.capacity_bbl} BBL` : `${tank.capacity_bbl} BBL`}
+                              {batch ? `${ledgerVol.toFixed(1)} / ${tank.capacity_bbl} BBL` : `${tank.capacity_bbl} BBL`}
                             </p>
                             {/* Fill bar */}
                             {batch && (
@@ -421,7 +435,7 @@ export default function BrewStatusTab() {
                                 <div
                                   style={{
                                     height: "100%",
-                                    width: `${Math.min(100, (Number(batch.volume_bbl) / tank.capacity_bbl) * 100).toFixed(1)}%`,
+                                    width: `${Math.min(100, (ledgerVol / tank.capacity_bbl) * 100).toFixed(1)}%`,
                                     background: "rgba(245,158,11,0.7)",
                                     borderRadius: "9999px",
                                   }}
@@ -446,7 +460,7 @@ export default function BrewStatusTab() {
                             {!editMode && (
                               <div className="mt-auto pt-1">
                                 <button
-                                  onClick={() => setTransferTankId(tank.id)}
+                                  onClick={() => { setTransferTankId(tank.id); setTransferFromVol(ledgerVol); }}
                                   onMouseDown={(e) => e.stopPropagation()}
                                   className="text-amber-700 hover:text-amber-400 border border-amber-900 hover:border-amber-700 px-1.5 rounded transition-colors"
                                   style={{ fontSize: 9 }}
@@ -472,11 +486,22 @@ export default function BrewStatusTab() {
                           </div>
                         )}
                       </>
-                    )}
+                    ); })()}
 
                     {/* === Kegging / Canning (unconstrained — derive active batches from transfers) === */}
                     {!isTank && !isColdStorage && !isBacklog && (
                       (() => {
+                        // Most-recent incoming pkg transfer per batch → used to show packaging output
+                        const incomingByBatch = new Map<string, typeof transfers[0]>();
+                        for (const tr of transfers) {
+                          if (tr.to_tank_id !== tank.id) continue;
+                          if (tr.transfer_type !== "kegging" && tr.transfer_type !== "canning") continue;
+                          const existing = incomingByBatch.get(tr.batch_id);
+                          if (!existing || new Date(tr.transferred_at) > new Date(existing.transferred_at)) {
+                            incomingByBatch.set(tr.batch_id, tr);
+                          }
+                        }
+
                         const pkgBatches = [...new Map(
                           transfers
                             .filter((tr) => tr.to_tank_id === tank.id)
@@ -485,30 +510,65 @@ export default function BrewStatusTab() {
                             .filter((b): b is BrewBatch => b?.status === "packaging")
                             .map((b) => [b.id, b] as [string, BrewBatch])
                         ).values()];
+
                         return pkgBatches.length > 0 ? (
-                          <div className="space-y-0.5">
-                            {pkgBatches.map((b) => (
-                              <div key={b.id} className="flex flex-col gap-0.5">
-                                <div className="flex items-baseline gap-1 flex-wrap">
-                                  {b.batch_number && (
-                                    <span className="text-zinc-500 font-mono shrink-0" style={{ fontSize: 9 }}>#{b.batch_number}</span>
+                          <div className="space-y-1.5">
+                            {pkgBatches.map((b) => {
+                              const incoming = incomingByBatch.get(b.id);
+                              const kd = incoming?.kegging_detail;
+                              const cd = incoming?.canning_detail;
+                              return (
+                                <div key={b.id} className="flex flex-col gap-0.5">
+                                  {/* Batch identity */}
+                                  <div className="flex items-baseline gap-1 flex-wrap">
+                                    {b.batch_number && (
+                                      <span className="text-zinc-500 font-mono shrink-0" style={{ fontSize: 9 }}>#{b.batch_number}</span>
+                                    )}
+                                    <span className="text-zinc-200 font-medium leading-tight break-words" style={{ fontSize: 10 }}>
+                                      {b.beer_name}
+                                    </span>
+                                  </div>
+
+                                  {/* Packaging output */}
+                                  {kd && (
+                                    <div className="space-y-px">
+                                      {kd.kegs && kd.kegs.length > 0
+                                        ? kd.kegs.filter((k) => k.quantity > 0).map((k, i) => (
+                                            <div key={i} className="flex items-center gap-1">
+                                              <span className="text-amber-400 font-mono font-semibold" style={{ fontSize: 9 }}>{k.quantity}×</span>
+                                              <span className="text-zinc-400 truncate" style={{ fontSize: 9 }}>{k.name}</span>
+                                            </div>
+                                          ))
+                                        : kd.total_kegs != null && (
+                                            <span className="text-amber-400 font-mono" style={{ fontSize: 9 }}>{kd.total_kegs} kegs</span>
+                                          )
+                                      }
+                                    </div>
                                   )}
-                                  <span className="text-zinc-200 font-medium leading-tight break-words" style={{ fontSize: 10 }}>
-                                    {b.beer_name}
-                                  </span>
+                                  {cd && cd.total_cans != null && (
+                                    <div className="flex items-center gap-1">
+                                      <span className="text-amber-400 font-mono font-semibold" style={{ fontSize: 9 }}>{cd.total_cans.toLocaleString()}</span>
+                                      <span className="text-zinc-400" style={{ fontSize: 9 }}>cans</span>
+                                      {cd.cases != null && cd.cases > 0 && (
+                                        <span className="text-zinc-600" style={{ fontSize: 8 }}>({cd.cases} cases{cd.loose_cans ? ` + ${cd.loose_cans}` : ""})</span>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  {/* Transfer out button */}
+                                  {!editMode && (
+                                    <button
+                                      onClick={() => { setTransferTankId(tank.id); setTransferBatchId(b.id); }}
+                                      onMouseDown={(e) => e.stopPropagation()}
+                                      className="self-start text-amber-700 hover:text-amber-400 border border-amber-900 hover:border-amber-700 px-1.5 rounded transition-colors mt-0.5"
+                                      style={{ fontSize: 9 }}
+                                    >
+                                      → Cold Storage / Export
+                                    </button>
+                                  )}
                                 </div>
-                                {!editMode && (
-                                  <button
-                                    onClick={() => { setTransferTankId(tank.id); setTransferBatchId(b.id); }}
-                                    onMouseDown={(e) => e.stopPropagation()}
-                                    className="self-start text-amber-700 hover:text-amber-400 border border-amber-900 hover:border-amber-700 px-1.5 rounded transition-colors"
-                                    style={{ fontSize: 9 }}
-                                  >
-                                    Transfer
-                                  </button>
-                                )}
-                              </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         ) : (
                           <div className="flex-1 flex flex-col items-center justify-center gap-1">
@@ -650,7 +710,8 @@ export default function BrewStatusTab() {
           allTanks={tanks}
           occupiedTankIds={new Set(assignments.map((a) => a.tank_id))}
           packaging={packaging}
-          onClose={() => { setTransferTankId(null); setTransferBatchId(null); }}
+          fromTankVolume={transferFromVol}
+          onClose={() => { setTransferTankId(null); setTransferBatchId(null); setTransferFromVol(undefined); }}
           onDone={onRefresh}
         />
       )}

@@ -80,8 +80,8 @@ export interface BatchTransfer {
   shrinkage_bbl: number;
   transfer_type: "transfer" | "kegging" | "canning";
   notes: string | null;
-  kegging_detail: unknown | null;
-  canning_detail: unknown | null;
+  kegging_detail: { total_kegs?: number; kegs?: { name: string; quantity: number; volume_fl_oz?: number }[] } | null;
+  canning_detail: { total_cans?: number; cases?: number; loose_cans?: number; cans_per_case?: number } | null;
   transferred_at: string;
   from_tank?: { id: string; name: string; type: EquipmentType } | null;
   to_tank?:   { id: string; name: string; type: EquipmentType } | null;
