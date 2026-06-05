@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { format, parseISO } from "date-fns";
 import { Recipe, Equipment } from "../../types";
 import { fmtDateLong } from "@/lib/utils/formatting";
 import { Field } from "../shared";
-import type { EquipmentSlot, SchedulerRecommendation } from "@/app/api/production/batch-scheduler/route";
+import { fetchJson } from "../../hooks/queries";
+import type { SchedulerRecommendation } from "@/app/api/production/batch-scheduler/route";
 
 // Editable version of a recommendation row
 interface SchedulerRow {
@@ -178,34 +180,24 @@ export default function BatchSchedulerTab({
   tanks: Equipment[];
   onBatchCommitted?: () => void;
 }) {
-  const [recs, setRecs] = useState<SchedulerRecommendation[]>([]);
+  const { data: recs = [], isLoading: loading, error, refetch } = useQuery({
+    queryKey: ["production", "batch-scheduler"],
+    queryFn: () => fetchJson<SchedulerRecommendation[]>("/api/production/batch-scheduler"),
+  });
   const [rows, setRows] = useState<SchedulerRow[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState<string | null>(null);
   const [committing, setCommitting] = useState(false);
   const [committed, setCommitted] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setErr(null);
-    try {
-      const r = await fetch("/api/production/batch-scheduler");
-      if (!r.ok) throw new Error((await r.json()).error ?? "Failed to load");
-      const data: SchedulerRecommendation[] = await r.json();
-      setRecs(data);
-      setRows(data.map(toRow));
-    } catch (e: unknown) {
-      setErr(e instanceof Error ? e.message : "Error");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  // Seed the editable grid whenever fresh recommendations arrive.
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- editable local copy derived from fetched data
+  useEffect(() => { setRows(recs.map(toRow)); }, [recs]);
 
-  useEffect(() => { load(); }, [load]);
+  const load = () => refetch();
+  const err = error instanceof Error ? error.message : null;
 
   function toggleExpand(id: string) {
-    setExpanded((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+    setExpanded((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   }
 
   function updateRow(updated: SchedulerRow) {
@@ -288,7 +280,6 @@ export default function BatchSchedulerTab({
 
       setCommitted(true);
       setRows([]);
-      setRecs([]);
       onBatchCommitted?.();
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : "Commit failed");
@@ -331,12 +322,12 @@ export default function BatchSchedulerTab({
       {rows.length === 0 && recs.length === 0 && (
         <div className="py-16 text-center space-y-2">
           <p className="text-zinc-600 text-sm">No batches need scheduling right now.</p>
-          <p className="text-xs text-zinc-700">All styles are within safe stock levels, or no demand data exists. Use "+ Add Batch" to schedule manually.</p>
+          <p className="text-xs text-zinc-700">All styles are within safe stock levels, or no demand data exists. Use &quot;+ Add Batch&quot; to schedule manually.</p>
         </div>
       )}
 
       {rows.length === 0 && recs.length > 0 && (
-        <p className="text-zinc-600 text-sm py-4 text-center">All recommendations removed. Use "+ Add Batch" to add one back.</p>
+        <p className="text-zinc-600 text-sm py-4 text-center">All recommendations removed. Use &quot;+ Add Batch&quot; to add one back.</p>
       )}
 
       {/* Batch rows */}

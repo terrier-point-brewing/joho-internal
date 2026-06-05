@@ -2,12 +2,14 @@ import type { CatalogItem, Order } from "@/types/square";
 import type { TaproomModelResult, TaproomCategoryTotals } from "@/types/reports";
 import type { SquareRefund } from "@/lib/square/refunds";
 import { TAPROOM_MODEL_CATEGORIES, type TaproomCategoryId } from "@/lib/constants/categories";
-import { detectCocktailSales } from "./cocktails";
+import { detectCocktailSales, buildNonComboCocktailVariationIds } from "./cocktails";
 import { buildKegIndex, detectKegSales } from "./kegs";
 import { KEG_TRANSFER_DISCOUNT_NAME } from "@/types/reports";
+import { memoizeByRef } from "@/lib/utils/memo";
 
-// Build a reverse-lookup: Square category ID → Taproom Model category ID
-function buildCategoryLookup(): Map<string, TaproomCategoryId> {
+// Build a reverse-lookup: Square category ID → Taproom Model category ID.
+// Independent of orders/catalog, so compute it once at module load.
+const CATEGORY_LOOKUP: Map<string, TaproomCategoryId> = (() => {
   const map = new Map<string, TaproomCategoryId>();
   for (const cat of TAPROOM_MODEL_CATEGORIES) {
     for (const sqId of cat.squareCats) {
@@ -15,7 +17,22 @@ function buildCategoryLookup(): Map<string, TaproomCategoryId> {
     }
   }
   return map;
-}
+})();
+
+// variation_id → Taproom Model category, via each item's reporting_category.
+// Memoized by item-array reference (rebuilt once per catalog, not per day).
+const buildVarIdToCategoryId = memoizeByRef((items: CatalogItem[]): Map<string, TaproomCategoryId> => {
+  const map = new Map<string, TaproomCategoryId>();
+  for (const item of items) {
+    const sqCatId = item.item_data.reporting_category?.id ?? "";
+    const modelCatId = CATEGORY_LOOKUP.get(sqCatId);
+    if (!modelCatId) continue;
+    for (const v of item.item_data.variations ?? []) {
+      map.set(v.id, modelCatId);
+    }
+  }
+  return map;
+});
 
 function zeroCategoryTotals(): TaproomCategoryTotals {
   return { grossSalesCents: 0, discountsCents: 0, returnsCents: 0, taxCents: 0, netSalesCents: 0 };
@@ -45,7 +62,6 @@ export function buildTaproomModelReport(
   items: CatalogItem[],
   refunds: SquareRefund[]
 ): TaproomModelResult {
-  const categoryLookup = buildCategoryLookup();
   const byCategory = initByCategory();
   let totalTipsCents = 0;
 
@@ -73,69 +89,18 @@ export function buildTaproomModelReport(
   }
 
   // ── 3. All other line items ──────────────────────────────────────────────
-  // Build a set of non-combo cocktail variation IDs so we can skip those too
-  // (they're already counted via cocktailSales above)
-  const nonComboCocktailIds = new Set<string>();
-  for (const item of items) {
-    const catId = item.item_data.reporting_category?.id ?? "";
-    if (item.item_data.product_type !== "COMBO") {
-      // Check if any COCKTAILS category ID matches
-      for (const sqId of [...byCategory["COCKTAILS"] ? [] : []]) { void sqId; }
-    }
-    // Simpler: mark non-combo cocktail variation IDs directly
-    if (
-      ["IPD6T7FOCCZBXG2HOPOVFB4J", "UE65PMYDYAA3GZVZZE2QXTEF"].includes(catId) &&
-      item.item_data.product_type !== "COMBO"
-    ) {
-      for (const v of item.item_data.variations ?? []) nonComboCocktailIds.add(v.id);
-    }
-  }
+  // Non-combo cocktails are already counted via cocktailSales above, so skip them.
+  const nonComboCocktailIds = buildNonComboCocktailVariationIds(items);
+
+  // variation_id → Taproom Model category, used to bucket remaining line items.
+  const varIdToCategoryId = buildVarIdToCategoryId(items);
+
+  // Cocktails and Kegs were already summed above; don't re-bucket them here.
+  const alreadyDone = new Set<TaproomCategoryId>(["COCKTAILS", "KEGS"]);
 
   for (const order of orders) {
     totalTipsCents += order.total_tip_money?.amount ?? 0;
 
-    for (const line of order.line_items ?? []) {
-      const key   = `${order.id}:${line.uid}`;
-      const varId = line.catalog_object_id ?? "";
-
-      // Skip line items already claimed by cocktail or keg detection
-      if (comboClaimedKeys.has(key)) continue;
-      if (nonComboCocktailIds.has(varId)) continue; // non-combo cocktails already summed
-      if (kegClaimedKeys.has(key)) continue;
-
-      const reportingCatId = categoryLookup.get(
-        // Try to find the category for this variation by looking it up in items
-        // We use a simple approach: rely on reporting_category from catalog
-        // The lookup is built from TAPROOM_MODEL_CATEGORIES squareCats arrays
-        varId
-      );
-
-      // If we can't resolve via variation ID, we need to look up the item's category
-      // Build a fallback from item reporting_category
-      void reportingCatId; // resolved below via item lookup
-    }
-  }
-
-  // The above approach won't work cleanly without a varId→category map.
-  // Rebuild properly using the items catalog.
-  const varIdToCategoryId = new Map<string, TaproomCategoryId>();
-  for (const item of items) {
-    const sqCatId = item.item_data.reporting_category?.id ?? "";
-    const modelCatId = categoryLookup.get(sqCatId);
-    if (!modelCatId) continue;
-    for (const v of item.item_data.variations ?? []) {
-      varIdToCategoryId.set(v.id, modelCatId);
-    }
-  }
-
-  // Re-do the sweep properly
-  // Reset only non-cocktail, non-keg categories (cocktails/kegs already done)
-  const alreadyDone = new Set<TaproomCategoryId>(["COCKTAILS", "KEGS"]);
-  for (const cat of TAPROOM_MODEL_CATEGORIES) {
-    if (!alreadyDone.has(cat.id)) byCategory[cat.id] = zeroCategoryTotals();
-  }
-
-  for (const order of orders) {
     for (const line of order.line_items ?? []) {
       const key   = `${order.id}:${line.uid}`;
       const varId = line.catalog_object_id ?? "";

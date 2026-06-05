@@ -1,23 +1,13 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useMemo } from "react";
 import {
   format, startOfMonth, endOfMonth, startOfWeek, endOfWeek,
   addDays, addMonths, subMonths, isSameMonth, isSameDay,
-  parseISO, isWithinInterval, startOfDay, endOfDay,
+  parseISO, startOfDay, endOfDay,
 } from "date-fns";
 import { BrewBatch } from "../types";
-
-interface ScheduleEntry {
-  id: string;
-  batch_id: string;
-  equipment_id: string | null;
-  stage: string;
-  planned_start: string;
-  planned_end: string;
-  brew_batches: { id: string; beer_name: string; batch_number: number; status: string } | null;
-  equipment: { id: string; name: string; type: string } | null;
-}
+import { useBatchScheduleQuery } from "../hooks/queries";
 
 interface Props {
   batches: BrewBatch[];
@@ -39,15 +29,8 @@ const STAGE_LABELS: Record<string, string> = {
 };
 
 export default function CalendarTab({ batches }: Props) {
-  const [entries, setEntries] = useState<ScheduleEntry[]>([]);
+  const { data: entries = [] } = useBatchScheduleQuery();
   const [currentMonth, setCurrentMonth] = useState(() => startOfMonth(new Date()));
-
-  async function load() {
-    const res = await fetch("/api/production/batch-schedule");
-    if (res.ok) setEntries(await res.json());
-  }
-
-  useEffect(() => { load(); }, []);
 
   // Stable color map per batch
   const batchColors = useMemo(() => {

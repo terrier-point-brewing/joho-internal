@@ -1,8 +1,10 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { ContractBrewingPartner, Supplier } from "../types";
 import { Modal, Field, ModalActions } from "./shared";
+import { useContractPartnersQuery, useSuppliersQuery, productionKeys } from "../hooks/queries";
 
 type PartnerKind = "contract" | "supplier";
 
@@ -73,7 +75,9 @@ function SquareImportModal({ linkingPartner, onClose, onDone }: SquareImportModa
     }
   }, []);
 
-  // Load on mount (show recent contacts)
+  // Load on mount (show recent contacts). This is an imperative, debounced
+  // search box, not cached list data — the mount fetch is intentional.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { fetchContacts(""); }, [fetchContacts]);
 
   function handleQueryChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -206,9 +210,12 @@ function SquareImportModal({ linkingPartner, onClose, onDone }: SquareImportModa
 
 // ─── Main component ───────────────────────────────────────────────────────────
 export default function PartnersTab() {
+  const qc = useQueryClient();
   const [kind, setKind] = useState<PartnerKind>("contract");
-  const [contractPartners, setContractPartners] = useState<ContractBrewingPartner[]>([]);
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const { data: contractPartners = [] } = useContractPartnersQuery();
+  const { data: suppliers = [] } = useSuppliersQuery();
+  const loadContracts = () => qc.invalidateQueries({ queryKey: productionKeys.contractPartners });
+  const loadSuppliers = () => qc.invalidateQueries({ queryKey: productionKeys.suppliers });
 
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState(PARTNER_EMPTY);
@@ -218,18 +225,6 @@ export default function PartnersTab() {
   // Square import modal state
   const [showSquareModal, setShowSquareModal] = useState(false);
   const [linkingPartner, setLinkingPartner] = useState<ContractBrewingPartner | undefined>(undefined);
-
-  const loadContracts = useCallback(async () => {
-    const r = await fetch("/api/partners/contract-brewing");
-    if (r.ok) setContractPartners(await r.json());
-  }, []);
-
-  const loadSuppliers = useCallback(async () => {
-    const r = await fetch("/api/partners/suppliers");
-    if (r.ok) setSuppliers(await r.json());
-  }, []);
-
-  useEffect(() => { loadContracts(); loadSuppliers(); }, [loadContracts, loadSuppliers]);
 
   const records = kind === "contract" ? contractPartners : suppliers;
 
@@ -272,7 +267,7 @@ export default function PartnersTab() {
         : await fetch(base,                   { method: "POST",  headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       if (!res.ok) throw new Error((await res.json()).error ?? "Error");
       setShowModal(false);
-      kind === "contract" ? await loadContracts() : await loadSuppliers();
+      if (kind === "contract") await loadContracts(); else await loadSuppliers();
     } catch (err: unknown) {
       alert(err instanceof Error ? err.message : "Error");
     } finally {
@@ -283,7 +278,7 @@ export default function PartnersTab() {
   async function handleDelete(id: string, name: string) {
     if (!confirm(`Delete "${name}"? This cannot be undone.`)) return;
     await fetch(`${partnerApiBase(kind)}/${id}`, { method: "DELETE" });
-    kind === "contract" ? await loadContracts() : await loadSuppliers();
+    if (kind === "contract") await loadContracts(); else await loadSuppliers();
   }
 
   async function handleUnlinkSquare(partner: ContractBrewingPartner) {

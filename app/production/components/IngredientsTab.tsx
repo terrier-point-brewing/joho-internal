@@ -1,8 +1,17 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Ingredient, StockAdjustment, AdjustmentType, Supplier, ContractBrewingPartner, IngredientCategory, INGREDIENT_CATEGORIES } from "../types";
+import { Ingredient, AdjustmentType, Supplier, ContractBrewingPartner, IngredientCategory, INGREDIENT_CATEGORIES } from "../types";
 import { Modal, Field, ModalActions } from "./shared";
+
+const INGREDIENT_CATEGORY_META: Record<IngredientCategory, { color: string }> = {
+  "Malts":        { color: "border-amber-700 bg-amber-900/30 text-amber-300" },
+  "Hops":         { color: "border-green-700 bg-green-900/30 text-green-300" },
+  "Yeast":        { color: "border-yellow-700 bg-yellow-900/30 text-yellow-300" },
+  "Brewing Aids": { color: "border-blue-700 bg-blue-900/30 text-blue-300" },
+  "Fruit":        { color: "border-rose-700 bg-rose-900/30 text-rose-300" },
+  "Abstrax":      { color: "border-purple-700 bg-purple-900/30 text-purple-300" },
+};
 
 // ─── CSV bulk upload ──────────────────────────────────────────────────────────
 
@@ -313,21 +322,7 @@ const ADJUSTMENT_TYPES: {
   { value: "inventory_count", label: "Inventory Count", hint: "Enter the new actual stock total",  sign: "count"    },
 ];
 
-const TYPE_COLORS: Record<AdjustmentType, string> = {
-  received:        "text-green-400",
-  used:            "text-zinc-400",
-  waste:           "text-red-400",
-  inventory_count: "text-blue-400",
-  batch_use:       "text-amber-400",
-};
-
-const ING_EMPTY = { name: "", category: "" as IngredientCategory | "", supplier_id: "", partner_id: "", unit: "", cost_per_unit: "", stock_quantity: "0" };
-
-function fmtQty(qty: number, sign = true) {
-  const abs = Math.abs(qty).toLocaleString(undefined, { maximumFractionDigits: 3 });
-  if (!sign) return abs;
-  return qty >= 0 ? `+${abs}` : `-${abs}`;
-}
+const ING_EMPTY = { name: "", category: "" as IngredientCategory | "", supplier_id: "", partner_id: "", unit: "", cost_per_unit: "", stock_quantity: "0", alpha_acid: "", color_lovibond: "" };
 
 function fmtValue(v: number | null | undefined) {
   if (v == null) return "—";
@@ -336,12 +331,10 @@ function fmtValue(v: number | null | undefined) {
 
 export default function IngredientsTab({
   ingredients,
-  adjustments,
   onRefresh,
   onAdjustmentsRefresh,
 }: {
   ingredients: Ingredient[];
-  adjustments: StockAdjustment[];
   onRefresh: () => Promise<void>;
   onAdjustmentsRefresh: () => Promise<void>;
 }) {
@@ -365,11 +358,10 @@ export default function IngredientsTab({
   const [adjType, setAdjType] = useState<AdjustmentType>("received");
   const [adjQty, setAdjQty] = useState("");
   const [adjPurchaseCost, setAdjPurchaseCost] = useState("");
+  const [adjShippingCost, setAdjShippingCost] = useState("");
   const [adjNote, setAdjNote] = useState("");
   const [adjSubmitting, setAdjSubmitting] = useState(false);
 
-  const [logExpanded, setLogExpanded] = useState(false);
-  const [logIngFilter, setLogIngFilter] = useState<string>("all");
 
   // Category filter
   const [filterCat, setFilterCat] = useState<IngredientCategory | "all">("all");
@@ -438,6 +430,8 @@ export default function IngredientsTab({
       unit: ing.unit,
       cost_per_unit: ing.cost_per_unit != null ? String(ing.cost_per_unit) : "",
       stock_quantity: String(ing.stock_quantity),
+      alpha_acid: ing.alpha_acid != null ? String(ing.alpha_acid) : "",
+      color_lovibond: ing.color_lovibond != null ? String(ing.color_lovibond) : "",
     });
     setEditingId(ing.id);
     setShowIngModal(true);
@@ -455,6 +449,8 @@ export default function IngredientsTab({
         unit: ingForm.unit,
         cost_per_unit: ingForm.cost_per_unit !== "" ? parseFloat(ingForm.cost_per_unit) : null,
         stock_quantity: parseFloat(ingForm.stock_quantity) || 0,
+        alpha_acid: ingForm.alpha_acid !== "" ? parseFloat(ingForm.alpha_acid) : null,
+        color_lovibond: ingForm.color_lovibond !== "" ? parseFloat(ingForm.color_lovibond) : null,
       };
       const res = editingId
         ? await fetch(`/api/production/ingredients/${editingId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })
@@ -485,6 +481,7 @@ export default function IngredientsTab({
     setAdjType("received");
     setAdjQty("");
     setAdjPurchaseCost("");
+    setAdjShippingCost("");
     setAdjNote("");
     setShowAdjModal(true);
   }
@@ -507,6 +504,9 @@ export default function IngredientsTab({
       if (adjType === "received" && adjPurchaseCost !== "") {
         body.purchase_cost = parseFloat(adjPurchaseCost);
       }
+      if (adjType === "received" && adjShippingCost !== "") {
+        body.shipping_cost = parseFloat(adjShippingCost);
+      }
       const res = await fetch("/api/production/stock-adjustments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -523,9 +523,6 @@ export default function IngredientsTab({
   }
 
   const adjTypeMeta = ADJUSTMENT_TYPES.find((t) => t.value === adjType);
-  const filteredLog = logIngFilter === "all"
-    ? adjustments
-    : adjustments.filter((a) => a.ingredient_id === logIngFilter);
 
   // Preview calculations for "received" type
   const previewQty  = parseFloat(adjQty) || 0;
@@ -550,13 +547,16 @@ export default function IngredientsTab({
           >
             All
           </button>
-          {INGREDIENT_CATEGORIES.map((cat) => (
-            <button key={cat} onClick={() => setFilterCat(cat)}
-              className={`text-xs px-2.5 py-1 rounded border transition-colors ${filterCat === cat ? "border-amber-600 bg-amber-900/30 text-amber-300" : "border-zinc-700 text-zinc-500 hover:text-zinc-300"}`}
-            >
-              {cat}
-            </button>
-          ))}
+          {INGREDIENT_CATEGORIES.map((cat) => {
+            const meta = INGREDIENT_CATEGORY_META[cat];
+            return (
+              <button key={cat} onClick={() => setFilterCat(cat)}
+                className={`text-xs px-2.5 py-1 rounded border transition-colors ${filterCat === cat ? meta.color : "border-zinc-700 text-zinc-500 hover:text-zinc-300"}`}
+              >
+                {cat}
+              </button>
+            );
+          })}
         </div>
         <div className="flex gap-2 shrink-0">
           {bulkEditMode ? (
@@ -589,27 +589,22 @@ export default function IngredientsTab({
             const groups = [...allGroups, ...(uncategorized.length ? [{ cat: "Uncategorized" as const, items: uncategorized }] : [])];
             const visibleGroups = filterCat === "all" ? groups : groups.filter((g) => g.cat === filterCat);
 
-            return visibleGroups.map(({ cat, items }) => (
+            return visibleGroups.map(({ cat, items }) => {
+              const showAlphaAcid = cat === "Hops";
+              const showColorLovibond = cat === "Malts";
+              return (
               <div key={cat}>
                 <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2 px-1">{cat}</h3>
                 <div className="overflow-x-auto rounded-lg border border-zinc-800">
-                  <table className="w-full text-sm table-fixed">
-                    <colgroup>
-                      <col style={{ width: "19%" }} />
-                      <col style={{ width: "10%" }} />
-                      <col style={{ width: "10%" }} />
-                      <col style={{ width: "5%" }} />
-                      <col style={{ width: "9%" }} />
-                      <col style={{ width: "12%" }} />
-                      <col style={{ width: "12%" }} />
-                      <col style={{ width: "23%" }} />
-                    </colgroup>
+                  <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-zinc-800 bg-zinc-900/50 text-left">
                         <th className="px-3 py-2.5 text-xs font-medium text-zinc-500">Name</th>
                         <th className="px-3 py-2.5 text-xs font-medium text-zinc-500">Supplier</th>
                         <th className="px-3 py-2.5 text-xs font-medium text-zinc-500">Partner</th>
-                        <th className="px-3 py-2.5 text-xs font-medium text-zinc-500">Unit</th>
+                        <th className="px-3 py-2.5 text-xs font-medium text-zinc-500 w-16">Unit</th>
+                        <th className="px-3 py-2.5 text-xs font-medium text-zinc-500 text-right whitespace-nowrap w-14">AA%</th>
+                        <th className="px-3 py-2.5 text-xs font-medium text-zinc-500 text-right whitespace-nowrap w-12">°L</th>
                         <th className="px-3 py-2.5 text-xs font-medium text-zinc-500 text-right whitespace-nowrap">Cost / Unit</th>
                         <th className="px-3 py-2.5 text-xs font-medium text-zinc-500 text-right">Stock</th>
                         <th className="px-3 py-2.5 text-xs font-medium text-zinc-500 text-right whitespace-nowrap">Total Value</th>
@@ -633,7 +628,13 @@ export default function IngredientsTab({
                                 <input className="inp text-sm w-full" value={bulkRow.unit}
                                   onChange={(e) => setBulkRows((rs) => rs.map((r) => r.id === ing.id ? { ...r, unit: e.target.value } : r))} />
                               </td>
-                              <td className="px-2 py-1.5" colSpan={1}>
+                              <td className="px-3 py-2.5 text-zinc-600 text-xs text-right">
+                                {showAlphaAcid ? "—" : <span className="text-zinc-800">—</span>}
+                              </td>
+                              <td className="px-3 py-2.5 text-zinc-600 text-xs text-right">
+                                {showColorLovibond ? "—" : <span className="text-zinc-800">—</span>}
+                              </td>
+                              <td className="px-2 py-1.5">
                                 <input type="number" step="0.0001" min="0" className="inp text-sm w-full text-right tabular-nums" placeholder="0.0000" value={bulkRow.cost_per_unit}
                                   onChange={(e) => setBulkRows((rs) => rs.map((r) => r.id === ing.id ? { ...r, cost_per_unit: e.target.value } : r))} />
                               </td>
@@ -653,6 +654,12 @@ export default function IngredientsTab({
                             <td className="px-3 py-2.5 text-zinc-400 truncate">{ing.suppliers?.company_name ?? "—"}</td>
                             <td className="px-3 py-2.5 text-zinc-400 truncate">{ing.contract_brewing_partners?.company_name ?? "—"}</td>
                             <td className="px-3 py-2.5 text-zinc-400 whitespace-nowrap">{ing.unit}</td>
+                            <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap text-zinc-400">
+                              {showAlphaAcid ? (ing.alpha_acid != null ? `${ing.alpha_acid}%` : "—") : <span className="text-zinc-800">—</span>}
+                            </td>
+                            <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap text-zinc-400">
+                              {showColorLovibond ? (ing.color_lovibond != null ? `${ing.color_lovibond}°L` : "—") : <span className="text-zinc-800">—</span>}
+                            </td>
                             <td className="px-3 py-2.5 text-zinc-300 text-right tabular-nums whitespace-nowrap">
                               {ing.cost_per_unit != null ? `$${Number(ing.cost_per_unit).toFixed(2)}` : "—"}
                             </td>
@@ -676,89 +683,11 @@ export default function IngredientsTab({
                   </table>
                 </div>
               </div>
-            ));
+              );
+            });
           })()}
         </div>
       )}
-
-      {/* Adjustment Log */}
-      <div className="mt-8">
-        <button
-          onClick={() => setLogExpanded((v) => !v)}
-          className="flex items-center gap-2 text-sm text-zinc-400 hover:text-zinc-200 transition-colors mb-3"
-        >
-          <span>{logExpanded ? "▼" : "▶"}</span>
-          <span>Stock Adjustment Log ({adjustments.length})</span>
-        </button>
-
-        {logExpanded && (
-          <div>
-            <div className="flex items-center gap-3 mb-3">
-              <label className="text-xs text-zinc-500">Filter by ingredient:</label>
-              <select className="inp w-48" value={logIngFilter} onChange={(e) => setLogIngFilter(e.target.value)}>
-                <option value="all">All ingredients</option>
-                {ingredients.map((ing) => (
-                  <option key={ing.id} value={ing.id}>{ing.name}</option>
-                ))}
-              </select>
-            </div>
-
-            {filteredLog.length === 0 ? (
-              <p className="text-zinc-600 text-sm">No adjustments recorded.</p>
-            ) : (
-              <div className="overflow-x-auto rounded-lg border border-zinc-800">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-zinc-800 bg-zinc-900/50 text-left">
-                      {["Date", "Ingredient", "Type", "Change", "Unit Cost", "Value Δ", "Note", "Batch"].map((h) => (
-                        <th key={h} className={`px-4 py-2.5 text-xs font-medium text-zinc-500 ${["Change", "Unit Cost", "Value Δ"].includes(h) ? "text-right" : ""}`}>
-                          {h}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredLog.map((adj, i) => {
-                      const ing = ingredients.find((ing) => ing.id === adj.ingredient_id);
-                      return (
-                        <tr key={adj.id} className={`border-b border-zinc-800/60 ${i % 2 !== 0 ? "bg-zinc-900/30" : ""}`}>
-                          <td className="px-4 py-2 text-zinc-500 text-xs whitespace-nowrap">
-                            {new Date(adj.created_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
-                          </td>
-                          <td className="px-4 py-2 text-zinc-300">{adj.ingredients?.name ?? ing?.name ?? "—"}</td>
-                          <td className="px-4 py-2">
-                            <span className={`text-xs font-medium ${TYPE_COLORS[adj.type]}`}>
-                              {ADJUSTMENT_TYPES.find((t) => t.value === adj.type)?.label ?? adj.type}
-                            </span>
-                          </td>
-                          <td className={`px-4 py-2 text-right tabular-nums text-xs font-mono ${adj.quantity >= 0 ? "text-green-400" : "text-red-400"}`}>
-                            {fmtQty(adj.quantity)} {ing?.unit ?? adj.ingredients?.unit ?? ""}
-                          </td>
-                          <td className="px-4 py-2 text-right tabular-nums text-xs text-zinc-400">
-                            {adj.cost_per_unit != null ? `$${Number(adj.cost_per_unit).toFixed(4)}` : "—"}
-                          </td>
-                          <td className={`px-4 py-2 text-right tabular-nums text-xs font-mono ${
-                            adj.total_value_change == null ? "text-zinc-600"
-                              : adj.total_value_change >= 0 ? "text-green-400" : "text-red-400"
-                          }`}>
-                            {adj.total_value_change != null
-                              ? (adj.total_value_change >= 0 ? "+" : "") + fmtValue(adj.total_value_change)
-                              : "—"}
-                          </td>
-                          <td className="px-4 py-2 text-zinc-500 text-xs max-w-[160px] truncate">{adj.note ?? "—"}</td>
-                          <td className="px-4 py-2 text-zinc-600 text-xs font-mono">
-                            {adj.brew_batches?.batch_number ?? "—"}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
 
       {/* Bulk upload modal */}
       {showBulkModal && (
@@ -816,6 +745,20 @@ export default function IngredientsTab({
               <input type="number" step="0.001" min="0" className="inp" value={ingForm.stock_quantity}
                 onChange={(e) => setIngForm((f) => ({ ...f, stock_quantity: e.target.value }))} />
             </Field>
+            {ingForm.category === "Hops" && (
+              <Field label="Alpha Acid (%)">
+                <input type="number" step="0.1" min="0" className="inp" placeholder="e.g. 6.5"
+                  value={ingForm.alpha_acid}
+                  onChange={(e) => setIngForm((f) => ({ ...f, alpha_acid: e.target.value }))} />
+              </Field>
+            )}
+            {ingForm.category === "Malts" && (
+              <Field label="Color (°L — Lovibond)">
+                <input type="number" step="0.1" min="0" className="inp" placeholder="e.g. 2.0"
+                  value={ingForm.color_lovibond}
+                  onChange={(e) => setIngForm((f) => ({ ...f, color_lovibond: e.target.value }))} />
+              </Field>
+            )}
             <ModalActions submitting={submitting} onCancel={() => setShowIngModal(false)}
               label={editingId ? "Save Changes" : "Add Ingredient"} />
           </form>
@@ -837,7 +780,7 @@ export default function IngredientsTab({
               <div>
                 <p className="text-xs text-zinc-500 mb-0.5">Unit cost</p>
                 <p className="text-zinc-100 font-medium">
-                  {adjIngredient.cost_per_unit != null ? `$${Number(adjIngredient.cost_per_unit).toFixed(4)}` : "—"}
+                  {adjIngredient.cost_per_unit != null ? `$${Number(adjIngredient.cost_per_unit).toFixed(2)}` : "—"}
                 </p>
               </div>
               <div>
@@ -886,20 +829,26 @@ export default function IngredientsTab({
               )}
             </Field>
 
-            {/* Purchase cost — only shown for "received" */}
+            {/* Purchase cost + shipping — only shown for "received" */}
             {adjType === "received" && (
-              <Field label="Purchase Cost ($ per unit)">
-                <input type="number" step="0.0001" min="0" className="inp" placeholder="0.0000"
-                  value={adjPurchaseCost} onChange={(e) => setAdjPurchaseCost(e.target.value)} />
+              <>
+                <Field label="Purchase Cost ($ per unit)">
+                  <input type="number" step="0.01" min="0" className="inp" placeholder="0.00"
+                    value={adjPurchaseCost} onChange={(e) => setAdjPurchaseCost(e.target.value)} />
+                </Field>
+                <Field label="Shipping Cost ($ total, optional)">
+                  <input type="number" step="0.01" min="0" className="inp" placeholder="0.00"
+                    value={adjShippingCost} onChange={(e) => setAdjShippingCost(e.target.value)} />
+                </Field>
                 {previewQty > 0 && previewCost > 0 && (
-                  <div className="mt-2 p-2.5 rounded bg-zinc-800/60 border border-zinc-700 text-xs space-y-1">
+                  <div className="p-2.5 rounded bg-zinc-800/60 border border-zinc-700 text-xs space-y-1">
                     <p className="text-zinc-400 font-medium mb-1">After this receipt:</p>
                     <div className="flex justify-between">
                       <span className="text-zinc-500">Unit cost</span>
                       <span className="text-zinc-200">
-                        {currentCost != null ? `$${Number(currentCost).toFixed(4)}` : "—"}
+                        {currentCost != null ? `$${Number(currentCost).toFixed(2)}` : "—"}
                         {" → "}
-                        <span className="text-green-300">${Number(newCostPerUnit).toFixed(4)}</span>
+                        <span className="text-green-300">${Number(newCostPerUnit).toFixed(2)}</span>
                         {" (weighted avg)"}
                       </span>
                     </div>
@@ -915,9 +864,15 @@ export default function IngredientsTab({
                       <span className="text-zinc-500">Receipt value</span>
                       <span className="text-green-400">+{fmtValue(previewQty * previewCost)}</span>
                     </div>
+                    {adjShippingCost !== "" && parseFloat(adjShippingCost) > 0 && (
+                      <div className="flex justify-between">
+                        <span className="text-zinc-500">Shipping</span>
+                        <span className="text-zinc-400">+{fmtValue(parseFloat(adjShippingCost))}</span>
+                      </div>
+                    )}
                   </div>
                 )}
-              </Field>
+              </>
             )}
 
             <Field label="Note">

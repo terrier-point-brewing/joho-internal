@@ -1,10 +1,14 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
-import { BrewBatch, BatchTransfer, Recipe, PlannedAllocation, ContractBrewingPartner } from "../types";
+import React, { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { BrewBatch, BatchTransfer, PlannedAllocation, BrewActivityEntry } from "../types";
 import { BREWHOUSE_BBL, StatusBadge, Modal, Field, ModalActions } from "./shared";
 import { fmtDateLong, fmtBbl2 } from "@/lib/utils/formatting";
 import { EQ } from "../equipmentMeta";
+import {
+  useBatchesQuery, useRecipesQuery, useTransfersQuery, useContractPartnersQuery, productionKeys,
+} from "../hooks/queries";
 
 const fmtDate = fmtDateLong;
 
@@ -27,19 +31,21 @@ const BATCH_EMPTY = {
   expected_delivery_date: "",
   turns: "1",
   notes: "",
+  ibu: "",
+  color: "",
+  original_gravity: "",
+  final_gravity: "",
+  dissolved_oxygen: "",
 };
 
-export default function BatchLogTab({
-  batches,
-  recipes,
-  transfers,
-  onRefresh,
-}: {
-  batches: BrewBatch[];
-  recipes: Recipe[];
-  transfers: BatchTransfer[];
-  onRefresh: () => Promise<void>;
-}) {
+export default function BatchLogTab() {
+  const qc = useQueryClient();
+  const { data: batches = [] } = useBatchesQuery();
+  const { data: recipes = [] } = useRecipesQuery();
+  const { data: transfers = [] } = useTransfersQuery();
+  // Batch CRUD changes the batches list (and allocations nested within it).
+  const refresh = () => qc.invalidateQueries({ queryKey: productionKeys.batches });
+
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState(BATCH_EMPTY);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -87,6 +93,11 @@ export default function BatchLogTab({
       expected_delivery_date: b.expected_delivery_date ?? "",
       turns:                  String(b.turns),
       notes:                  b.notes ?? "",
+      ibu:                    b.ibu != null ? String(b.ibu) : "",
+      color:                  b.color != null ? String(b.color) : "",
+      original_gravity:       b.original_gravity != null ? String(b.original_gravity) : "",
+      final_gravity:          b.final_gravity != null ? String(b.final_gravity) : "",
+      dissolved_oxygen:       b.dissolved_oxygen != null ? String(b.dissolved_oxygen) : "",
     });
     setEditingId(b.id);
     setEditingBatch(b);
@@ -134,6 +145,11 @@ export default function BatchLogTab({
         volume_bbl,
         turns,
         notes: form.notes || null,
+        ibu:               form.ibu !== "" ? parseFloat(form.ibu) : null,
+        color:             form.color !== "" ? parseFloat(form.color) : null,
+        original_gravity:  form.original_gravity !== "" ? parseFloat(form.original_gravity) : null,
+        final_gravity:     form.final_gravity !== "" ? parseFloat(form.final_gravity) : null,
+        dissolved_oxygen:  form.dissolved_oxygen !== "" ? parseFloat(form.dissolved_oxygen) : null,
       };
       const res = editingId
         ? await fetch(`/api/production/batches/${editingId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })
@@ -141,7 +157,7 @@ export default function BatchLogTab({
       if (!res.ok) throw new Error((await res.json()).error ?? "Error");
       setShowModal(false);
       setEditingBatch(null);
-      await onRefresh();
+      await refresh();
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : "Error saving batch");
     } finally {
@@ -152,7 +168,7 @@ export default function BatchLogTab({
   async function handleDelete(id: string, name: string) {
     if (!confirm(`Delete batch "${name}"? This cannot be undone.`)) return;
     await fetch(`/api/production/batches/${id}`, { method: "DELETE" });
-    await onRefresh();
+    await refresh();
   }
 
   const active   = sortBatches(batches.filter((b) => b.status !== "archived"));
@@ -182,7 +198,6 @@ export default function BatchLogTab({
             onToggle={(id) => setExpandedId(expandedId === id ? null : id)}
             onEdit={openEdit}
             onDelete={handleDelete}
-            onRefresh={onRefresh}
             onSort={toggleSort}
           />
           {archived.length > 0 && (
@@ -198,7 +213,6 @@ export default function BatchLogTab({
                 onToggle={(id) => setExpandedId(expandedId === id ? null : id)}
                 onEdit={openEdit}
                 onDelete={handleDelete}
-                onRefresh={onRefresh}
                 onSort={toggleSort}
               />
             </details>
@@ -251,10 +265,44 @@ export default function BatchLogTab({
                 onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} />
             </Field>
 
+            {/* Brew Stats — edit only */}
             {editingBatch && (
-              <div className="pt-4 border-t border-zinc-800">
-                <AllocationManager batch={editingBatch} onRefresh={async () => { await onRefresh(); }} />
+              <div>
+                <p className="text-xs text-zinc-400 mb-2">Brew Stats</p>
+                <div className="grid grid-cols-5 gap-3">
+                  <Field label="IBU">
+                    <input type="number" step="0.1" min="0" className="inp" placeholder="e.g. 45"
+                      value={form.ibu} onChange={(e) => setForm((f) => ({ ...f, ibu: e.target.value }))} />
+                  </Field>
+                  <Field label="Color (SRM)">
+                    <input type="number" step="0.1" min="0" className="inp" placeholder="e.g. 8"
+                      value={form.color} onChange={(e) => setForm((f) => ({ ...f, color: e.target.value }))} />
+                  </Field>
+                  <Field label="OG">
+                    <input type="number" step="0.001" min="0" className="inp" placeholder="e.g. 1.065"
+                      value={form.original_gravity} onChange={(e) => setForm((f) => ({ ...f, original_gravity: e.target.value }))} />
+                  </Field>
+                  <Field label="FG">
+                    <input type="number" step="0.001" min="0" className="inp" placeholder="e.g. 1.012"
+                      value={form.final_gravity} onChange={(e) => setForm((f) => ({ ...f, final_gravity: e.target.value }))} />
+                  </Field>
+                  <Field label="DO (ppb)">
+                    <input type="number" step="0.1" min="0" className="inp" placeholder="e.g. 50"
+                      value={form.dissolved_oxygen} onChange={(e) => setForm((f) => ({ ...f, dissolved_oxygen: e.target.value }))} />
+                  </Field>
+                </div>
               </div>
+            )}
+
+            {editingBatch && (
+              <>
+                <div className="pt-4 border-t border-zinc-800">
+                  <AllocationManager batch={editingBatch} />
+                </div>
+                <div className="pt-4 border-t border-zinc-800">
+                  <BrewActivityLogManager batch={editingBatch} />
+                </div>
+              </>
             )}
 
             <ModalActions submitting={submitting} onCancel={() => { setShowModal(false); setEditingBatch(null); }}
@@ -271,25 +319,19 @@ export default function BatchLogTab({
 const RECIPIENT_OPTIONS = ["Taproom", "Distribution", "Contract Brewing", "Events"] as const;
 type RecipientOption = typeof RECIPIENT_OPTIONS[number];
 
-function AllocationManager({ batch, onRefresh }: { batch: BrewBatch; onRefresh: () => Promise<void> }) {
+function AllocationManager({ batch }: { batch: BrewBatch }) {
+  const qc = useQueryClient();
+  const { data: partners = [] } = useContractPartnersQuery();
   const [recipient, setRecipient] = useState<RecipientOption>("Taproom");
   const [partnerId, setPartnerId] = useState("");
-  const [partners, setPartners] = useState<ContractBrewingPartner[]>([]);
   const [volBbl, setVolBbl] = useState("");
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const loadPartners = useCallback(async () => {
-    const r = await fetch("/api/partners/contract-brewing");
-    if (r.ok) setPartners(await r.json());
-  }, []);
-
-  useEffect(() => { loadPartners(); }, [loadPartners]);
-
-  // Set default partner when list loads
-  useEffect(() => {
-    if (partners.length && !partnerId) setPartnerId(partners[0].id);
-  }, [partners, partnerId]);
+  // Allocations live on the batch, so refreshing means re-fetching batches.
+  const refresh = () => qc.invalidateQueries({ queryKey: productionKeys.batches });
+  // Default to the first partner without a sync-in-effect.
+  const effectivePartnerId = partnerId || partners[0]?.id || "";
 
   const allocations: PlannedAllocation[] = batch.planned_allocations ?? [];
   const totalAllocated = allocations.reduce((s, a) => s + Number(a.volume_bbl), 0);
@@ -298,7 +340,7 @@ function AllocationManager({ batch, onRefresh }: { batch: BrewBatch; onRefresh: 
 
   async function handleAdd() {
     if (!volBbl) return;
-    const partner = partners.find((p) => p.id === partnerId);
+    const partner = partners.find((p) => p.id === effectivePartnerId);
     const label = recipient === "Contract Brewing" && partner
       ? `Contract Brewing — ${partner.company_name}`
       : recipient;
@@ -311,7 +353,7 @@ function AllocationManager({ batch, onRefresh }: { batch: BrewBatch; onRefresh: 
       });
       if (!res.ok) throw new Error((await res.json()).error ?? "Error");
       setVolBbl(""); setNotes("");
-      await onRefresh();
+      await refresh();
     } catch (err: unknown) {
       alert(err instanceof Error ? err.message : "Error");
     } finally {
@@ -322,7 +364,7 @@ function AllocationManager({ batch, onRefresh }: { batch: BrewBatch; onRefresh: 
   async function handleDelete(id: string) {
     if (!confirm("Remove this allocation?")) return;
     await fetch(`/api/production/allocations?id=${id}`, { method: "DELETE" });
-    await onRefresh();
+    await refresh();
   }
 
   return (
@@ -398,7 +440,7 @@ function AllocationManager({ batch, onRefresh }: { batch: BrewBatch; onRefresh: 
         {recipient === "Contract Brewing" && (
           <div className="flex-1 min-w-[140px]">
             <label className="block text-xs text-zinc-500 mb-1">Partner</label>
-            <select className="inp" value={partnerId} onChange={(e) => setPartnerId(e.target.value)}>
+            <select className="inp" value={effectivePartnerId} onChange={(e) => setPartnerId(e.target.value)}>
               {partners.length === 0
                 ? <option value="">No partners yet</option>
                 : partners.map((p) => <option key={p.id} value={p.id}>{p.company_name}</option>)
@@ -450,7 +492,6 @@ function BatchTable({
   onToggle,
   onEdit,
   onDelete,
-  onRefresh,
   onSort,
 }: {
   batches: BrewBatch[];
@@ -460,7 +501,6 @@ function BatchTable({
   onToggle: (id: string) => void;
   onEdit: (b: BrewBatch) => void;
   onDelete: (id: string, name: string) => void;
-  onRefresh: () => Promise<void>;
   onSort: (col: SortCol) => void;
 }) {
   if (!batches.length) return null;
@@ -528,7 +568,18 @@ function BatchTable({
 
                 {isExpanded && (
                   <tr className={`border-b border-zinc-800/60 ${i % 2 !== 0 ? "bg-zinc-900/30" : ""}`}>
-                    <td colSpan={9} className="px-6 pb-5 pt-2">
+                    <td colSpan={9} className="px-6 pb-5 pt-2 space-y-4">
+                      {/* Brew stats row */}
+                      {(b.ibu != null || b.color != null || b.original_gravity != null || b.final_gravity != null || b.dissolved_oxygen != null) && (
+                        <div className="flex gap-6 py-2">
+                          {b.ibu != null && <div><p className="text-xs text-zinc-600 mb-0.5">IBU</p><p className="text-sm text-zinc-300 tabular-nums">{b.ibu}</p></div>}
+                          {b.color != null && <div><p className="text-xs text-zinc-600 mb-0.5">Color (SRM)</p><p className="text-sm text-zinc-300 tabular-nums">{b.color}</p></div>}
+                          {b.original_gravity != null && <div><p className="text-xs text-zinc-600 mb-0.5">OG</p><p className="text-sm text-zinc-300 tabular-nums">{b.original_gravity}</p></div>}
+                          {b.final_gravity != null && <div><p className="text-xs text-zinc-600 mb-0.5">FG</p><p className="text-sm text-zinc-300 tabular-nums">{b.final_gravity}</p></div>}
+                          {b.dissolved_oxygen != null && <div><p className="text-xs text-zinc-600 mb-0.5">DO (ppb)</p><p className="text-sm text-zinc-300 tabular-nums">{b.dissolved_oxygen}</p></div>}
+                        </div>
+                      )}
+                      <BrewActivityLogDisplay entries={b.batch_brew_activity_log ?? []} />
                       <TransferLog transfers={batchTransfers} batchVol={Number(b.volume_bbl)} />
                     </td>
                   </tr>
@@ -538,6 +589,228 @@ function BatchTable({
           })}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// ─── Brew Activity Log (read view) ───────────────────────────────────────────
+
+function BrewActivityLogDisplay({ entries }: { entries: BrewActivityEntry[] }) {
+  if (!entries.length) return null;
+  const sorted = [...entries].sort((a, b) => a.sort_order - b.sort_order);
+  return (
+    <div>
+      <p className="text-xs text-zinc-600 mb-2 font-medium uppercase tracking-wide">Brew Activity Log</p>
+      <div className="overflow-x-auto rounded border border-zinc-800/60">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="border-b border-zinc-800 bg-zinc-900/40 text-left">
+              <th className="px-3 py-2 font-medium text-zinc-500 w-8">#</th>
+              <th className="px-3 py-2 font-medium text-zinc-500">Activity</th>
+              <th className="px-3 py-2 font-medium text-zinc-500">Time</th>
+              <th className="px-3 py-2 font-medium text-zinc-500 text-right">Temp (°F)</th>
+              <th className="px-3 py-2 font-medium text-zinc-500 text-right">Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((e, i) => (
+              <tr key={e.id} className={`border-b border-zinc-800/40 ${i % 2 !== 0 ? "bg-zinc-900/20" : ""}`}>
+                <td className="px-3 py-2 text-zinc-600 tabular-nums">{i + 1}</td>
+                <td className="px-3 py-2 text-zinc-300">{e.activity}</td>
+                <td className="px-3 py-2 text-zinc-500">{e.time_label ?? "—"}</td>
+                <td className="px-3 py-2 text-zinc-500 text-right tabular-nums">{e.temp != null ? `${e.temp}` : "—"}</td>
+                <td className="px-3 py-2 text-zinc-500 text-right tabular-nums">{e.amount != null ? Number(e.amount).toLocaleString() : "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ─── Brew Activity Log Manager (edit view) ────────────────────────────────────
+
+interface ActivityEditRow {
+  id: string;
+  sort_order: number;
+  activity: string;
+  time_label: string;
+  temp: string;
+  amount: string;
+  dirty?: boolean;
+}
+
+function BrewActivityLogManager({ batch }: { batch: BrewBatch }) {
+  const qc = useQueryClient();
+  const refresh = () => qc.invalidateQueries({ queryKey: productionKeys.batches });
+  const existing = [...(batch.batch_brew_activity_log ?? [])].sort((a, b) => a.sort_order - b.sort_order);
+
+  const [rows, setRows] = useState<ActivityEditRow[]>(() =>
+    existing.map((e) => ({
+      id: e.id!,
+      sort_order: e.sort_order,
+      activity: e.activity,
+      time_label: e.time_label ?? "",
+      temp: e.temp != null ? String(e.temp) : "",
+      amount: e.amount != null ? String(e.amount) : "",
+    }))
+  );
+  const [newRow, setNewRow] = useState({ activity: "", time_label: "", temp: "", amount: "" });
+  const [saving, setSaving] = useState(false);
+
+  function markDirty(i: number, field: keyof ActivityEditRow, value: string) {
+    setRows((rs) => rs.map((r, idx) => idx === i ? { ...r, [field]: value, dirty: true } : r));
+  }
+
+  async function saveAll() {
+    setSaving(true);
+    try {
+      const dirty = rows.filter((r) => r.dirty);
+      await Promise.all(dirty.map((r) =>
+        fetch("/api/production/brew-activity-log", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: r.id,
+            activity: r.activity,
+            time_label: r.time_label || null,
+            temp: r.temp !== "" ? parseFloat(r.temp) : null,
+            amount: r.amount !== "" ? parseFloat(r.amount) : null,
+            sort_order: r.sort_order,
+          }),
+        })
+      ));
+      setRows((rs) => rs.map((r) => ({ ...r, dirty: false })));
+      await refresh();
+    } catch {
+      alert("Save failed");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deleteRow(id: string) {
+    if (!confirm("Remove this activity entry?")) return;
+    await fetch(`/api/production/brew-activity-log?id=${id}`, { method: "DELETE" });
+    setRows((rs) => rs.filter((r) => r.id !== id));
+    await refresh();
+  }
+
+  async function addRow() {
+    if (!newRow.activity.trim()) return;
+    setSaving(true);
+    try {
+      const maxOrder = rows.reduce((m, r) => Math.max(m, r.sort_order), -1);
+      const res = await fetch("/api/production/brew-activity-log", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          batch_id: batch.id,
+          sort_order: maxOrder + 1,
+          activity: newRow.activity,
+          time_label: newRow.time_label || null,
+          temp: newRow.temp !== "" ? parseFloat(newRow.temp) : null,
+          amount: newRow.amount !== "" ? parseFloat(newRow.amount) : null,
+        }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? "Error");
+      const created = await res.json();
+      setRows((rs) => [...rs, { id: created.id, sort_order: created.sort_order, activity: created.activity, time_label: created.time_label ?? "", temp: created.temp != null ? String(created.temp) : "", amount: created.amount != null ? String(created.amount) : "" }]);
+      setNewRow({ activity: "", time_label: "", temp: "", amount: "" });
+      await refresh();
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const hasDirty = rows.some((r) => r.dirty);
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-xs text-zinc-500 font-medium uppercase tracking-wide">Brew Activity Log</p>
+        {hasDirty && (
+          <button type="button" onClick={saveAll} disabled={saving}
+            className="text-xs text-amber-500 hover:text-amber-400 disabled:opacity-50 transition-colors">
+            {saving ? "Saving…" : "Save changes"}
+          </button>
+        )}
+      </div>
+
+      {rows.length > 0 && (
+        <div className="overflow-x-auto rounded border border-zinc-800/60 mb-3">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-zinc-800 bg-zinc-900/40 text-left">
+                <th className="px-3 py-2 font-medium text-zinc-500">#</th>
+                <th className="px-3 py-2 font-medium text-zinc-500">Activity</th>
+                <th className="px-3 py-2 font-medium text-zinc-500">Time</th>
+                <th className="px-3 py-2 font-medium text-zinc-500 text-right">Temp (°F)</th>
+                <th className="px-3 py-2 font-medium text-zinc-500 text-right">Amount</th>
+                <th className="px-3 py-2 w-6"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r, i) => (
+                <tr key={r.id} className={`border-b border-zinc-800/40 ${i % 2 !== 0 ? "bg-zinc-900/20" : ""} ${r.dirty ? "bg-amber-950/10" : ""}`}>
+                  <td className="px-3 py-1.5 text-zinc-600 tabular-nums">{i + 1}</td>
+                  <td className="px-3 py-1.5">
+                    <input className="inp text-xs" value={r.activity}
+                      onChange={(e) => markDirty(i, "activity", e.target.value)} />
+                  </td>
+                  <td className="px-3 py-1.5">
+                    <input className="inp text-xs" placeholder="e.g. 0:00" value={r.time_label}
+                      onChange={(e) => markDirty(i, "time_label", e.target.value)} />
+                  </td>
+                  <td className="px-3 py-1.5">
+                    <input type="number" step="0.1" className="inp text-xs text-right" value={r.temp}
+                      onChange={(e) => markDirty(i, "temp", e.target.value)} />
+                  </td>
+                  <td className="px-3 py-1.5">
+                    <input type="number" step="0.01" className="inp text-xs text-right" value={r.amount}
+                      onChange={(e) => markDirty(i, "amount", e.target.value)} />
+                  </td>
+                  <td className="px-3 py-1.5 text-center">
+                    <button type="button" onClick={() => deleteRow(r.id)}
+                      className="text-zinc-600 hover:text-red-400 transition-colors">×</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Add new row */}
+      <div className="flex gap-2 items-end flex-wrap">
+        <div className="flex-1 min-w-[140px]">
+          <label className="block text-xs text-zinc-500 mb-1">Activity</label>
+          <input className="inp text-xs" placeholder="e.g. Mash in" value={newRow.activity}
+            onChange={(e) => setNewRow((r) => ({ ...r, activity: e.target.value }))} />
+        </div>
+        <div className="w-24">
+          <label className="block text-xs text-zinc-500 mb-1">Time</label>
+          <input className="inp text-xs" placeholder="e.g. 0:00" value={newRow.time_label}
+            onChange={(e) => setNewRow((r) => ({ ...r, time_label: e.target.value }))} />
+        </div>
+        <div className="w-24">
+          <label className="block text-xs text-zinc-500 mb-1">Temp (°F)</label>
+          <input type="number" step="0.1" className="inp text-xs text-right" placeholder="152" value={newRow.temp}
+            onChange={(e) => setNewRow((r) => ({ ...r, temp: e.target.value }))} />
+        </div>
+        <div className="w-24">
+          <label className="block text-xs text-zinc-500 mb-1">Amount</label>
+          <input type="number" step="0.01" className="inp text-xs text-right" placeholder="0" value={newRow.amount}
+            onChange={(e) => setNewRow((r) => ({ ...r, amount: e.target.value }))} />
+        </div>
+        <button type="button" onClick={addRow} disabled={saving || !newRow.activity.trim()}
+          className="px-3 py-1.5 text-xs bg-zinc-800 border border-zinc-700 hover:border-zinc-500 text-zinc-300 rounded transition-colors disabled:opacity-50 shrink-0">
+          {saving ? "…" : "+ Add"}
+        </button>
+      </div>
     </div>
   );
 }

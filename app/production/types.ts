@@ -105,6 +105,8 @@ export interface Ingredient {
   unit: string;
   cost_per_unit: number | null;
   stock_quantity: number;
+  alpha_acid: number | null;
+  color_lovibond: number | null;
   created_at: string;
 }
 
@@ -130,6 +132,17 @@ export interface RecipeIngredientRow {
   ingredients: Ingredient;
 }
 
+export interface RecipeBrewActivityTemplate {
+  id: string;
+  recipe_id: string;
+  sort_order: number;
+  activity: string;
+  time_label: string | null;
+  temp: number | null;
+  amount: number | null;
+  created_at: string;
+}
+
 export interface Recipe {
   id: string;
   beer_name: string;
@@ -142,6 +155,7 @@ export interface Recipe {
   steps: string | null;
   notes: string | null;
   recipe_ingredients: RecipeIngredientRow[];
+  recipe_brew_activity_templates: RecipeBrewActivityTemplate[];
   created_at: string;
 }
 
@@ -222,6 +236,18 @@ export interface PlannedAllocation {
   created_at: string;
 }
 
+export interface BrewActivityEntry {
+  id: string;
+  batch_id?: string;
+  recipe_id?: string;
+  sort_order: number;
+  activity: string;
+  time_label: string | null;
+  temp: number | null;
+  amount: number | null;
+  created_at: string;
+}
+
 export interface BrewBatch {
   id: string;
   beer_name: string;
@@ -232,10 +258,16 @@ export interface BrewBatch {
   turns: number;
   status: BatchStatus;
   notes: string | null;
+  ibu: number | null;
+  color: number | null;
+  original_gravity: number | null;
+  final_gravity: number | null;
+  dissolved_oxygen: number | null;
   recipe_id: string | null;
   recipes: { beer_name: string; brewery: string | null; brew_time_weeks: number | null; expected_yield_bbl: number | null } | null;
   batch_status_history: BatchStatusHistory[];
   planned_allocations?: PlannedAllocation[];
+  batch_brew_activity_log?: BrewActivityEntry[];
   created_at: string;
 }
 

@@ -19,6 +19,21 @@ const TIERS: { value: Tier; label: string; color: string; description: string }[
   { value: "stretch",  label: "Stretch",  color: "text-green-400", description: "Ambitious upside" },
 ];
 
+// Shared column header block (module-scoped so it isn't recreated each render).
+function ColHeaders() {
+  return (
+    <div className="grid grid-cols-[80px_1fr_1fr_1fr_1fr] border-b border-zinc-800 bg-zinc-900/60">
+      <div className="px-4 py-3" />
+      {TIERS.map((t) => (
+        <div key={t.value} className="px-3 py-3 text-center">
+          <div className={`text-sm font-semibold ${t.color}`}>{t.label}</div>
+          <div className="text-xs text-zinc-600 mt-0.5">{t.description}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // Grid state: { [quarter]: { [tier]: string } }  — stores comma-formatted display strings
 type GridState = Record<number, Record<Tier, string>>;
 
@@ -174,21 +189,6 @@ export default function TargetSettingTab() {
     const [q, tier] = k.split("-");
     return inputToCents(grid[Number(q)][tier as Tier]) !== null;
   });
-
-  // ---------------------------------------------------------------------------
-  // Shared column header block
-  // ---------------------------------------------------------------------------
-  const ColHeaders = () => (
-    <div className="grid grid-cols-[80px_1fr_1fr_1fr_1fr] border-b border-zinc-800 bg-zinc-900/60">
-      <div className="px-4 py-3" />
-      {TIERS.map((t) => (
-        <div key={t.value} className="px-3 py-3 text-center">
-          <div className={`text-sm font-semibold ${t.color}`}>{t.label}</div>
-          <div className="text-xs text-zinc-600 mt-0.5">{t.description}</div>
-        </div>
-      ))}
-    </div>
-  );
 
   // ---------------------------------------------------------------------------
   // VIEW MODE

@@ -1,15 +1,20 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { Equipment, BatchTankAssignment, BrewBatch, BatchTransfer, PackagingItem, Recipe, UNCONSTRAINED_EQUIPMENT_TYPES } from "../types";
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { Equipment, BatchTankAssignment, UNCONSTRAINED_EQUIPMENT_TYPES } from "../types";
 import { BREWHOUSE_BBL, StatusBadge, Modal, Field, ModalActions } from "./shared";
 import { EQ, EQ_TYPES } from "../equipmentMeta";
 import { GRID_CELL_PX as CELL, GRID_COLS, GRID_ROWS, GRID_GAP_PX as GAP } from "@/lib/constants/production";
-import { fmtDate, fmtBbl } from "@/lib/utils/formatting";
+import { fmtDate } from "@/lib/utils/formatting";
 import TransferModal from "./TransferModal";
 import { useTankDragDrop } from "../hooks/useTankDragDrop";
 import { useEquipmentCrud } from "../hooks/useEquipmentCrud";
 import { useBatchAssign } from "../hooks/useBatchAssign";
+import {
+  usePackagingQuery, useEquipmentQuery, useAssignmentsQuery, useBatchesQuery,
+  useTransfersQuery, useRecipesQuery, productionKeys,
+} from "../hooks/queries";
 
 const GRID_COLS_KEY = "brewConsole_gridCols";
 const GRID_ROWS_KEY = "brewConsole_gridRows";
@@ -19,6 +24,7 @@ const BATCH_EMPTY = {
   recipe_id: "",
   beer_name: "",
   planned_brew_date: new Date().toISOString().slice(0, 10),
+  expected_delivery_date: "",
   turns: "1",
   notes: "",
 };
@@ -35,34 +41,34 @@ function eqStyle(t: Equipment, cell: number): React.CSSProperties {
   };
 }
 
-export default function BrewStatusTab({
-  tanks,
-  assignments,
-  batches,
-  transfers,
-  recipes,
-  onRefresh,
-  onBatchCreated,
-}: {
-  tanks: Equipment[];
-  assignments: BatchTankAssignment[];
-  batches: BrewBatch[];
-  transfers: BatchTransfer[];
-  recipes: Recipe[];
-  onRefresh: () => Promise<void>;
-  onBatchCreated: () => Promise<void>;
-}) {
+export default function BrewStatusTab() {
+  const qc = useQueryClient();
+  const { data: tanks = [] } = useEquipmentQuery();
+  const { data: assignments = [] } = useAssignmentsQuery();
+  const { data: batches = [] } = useBatchesQuery();
+  const { data: transfers = [] } = useTransfersQuery();
+  const { data: recipes = [] } = useRecipesQuery();
+
+  // Floorplan actions touch equipment/assignments/batches/transfers together.
+  const refreshBrewStatus = useCallback(() => Promise.all([
+    qc.invalidateQueries({ queryKey: productionKeys.equipment }),
+    qc.invalidateQueries({ queryKey: productionKeys.assignments }),
+    qc.invalidateQueries({ queryKey: productionKeys.batches }),
+    qc.invalidateQueries({ queryKey: productionKeys.transfers }),
+  ]).then(() => undefined), [qc]);
+  const onRefresh = refreshBrewStatus;
+  const onBatchCreated = useCallback(() => qc.invalidateQueries({ queryKey: productionKeys.batches }), [qc]);
+
   const [editMode, setEditMode] = useState(false);
   const [transferTankId, setTransferTankId] = useState<string | null>(null);
-  const [packaging, setPackaging] = useState<PackagingItem[]>([]);
-  const [gridCols, setGridCols] = useState(() => {
-    if (typeof window === "undefined") return GRID_COLS;
-    return parseInt(localStorage.getItem(GRID_COLS_KEY) ?? String(GRID_COLS)) || GRID_COLS;
-  });
-  const [gridRows, setGridRows] = useState(() => {
-    if (typeof window === "undefined") return GRID_ROWS;
-    return parseInt(localStorage.getItem(GRID_ROWS_KEY) ?? String(GRID_ROWS)) || GRID_ROWS;
-  });
+  // Shared with the Inventory tab via the query cache (de-duped, no local fetch).
+  const { data: packaging = [] } = usePackagingQuery();
+  // Initialize with the SSR default so the server and the client's first render
+  // agree (avoids a hydration mismatch on the grid dimensions); the persisted
+  // value is loaded from localStorage after mount in the effect below.
+  const [gridCols, setGridCols] = useState(GRID_COLS);
+  const [gridRows, setGridRows] = useState(GRID_ROWS);
+  const gridSizeSaveSkip = useRef(true);
 
   // New batch modal state
   const [showNewBatch, setShowNewBatch] = useState(false);
@@ -70,18 +76,28 @@ export default function BrewStatusTab({
   const [batchSubmitting, setBatchSubmitting] = useState(false);
 
   function handleRecipeChange(recipeId: string) {
-    const r = recipes.find((r) => r.id === recipeId);
+    const r = recipes.find((rec) => rec.id === recipeId);
+    const leadDays = r ? ((r.days_brewhouse ?? 0) + (r.days_fermenter ?? 0) + (r.days_brite ?? 0)) : 0;
+    const autoDelivery = leadDays > 0
+      ? (() => {
+          const d = new Date(batchForm.planned_brew_date || new Date().toISOString().slice(0, 10));
+          d.setDate(d.getDate() + leadDays);
+          return d.toISOString().slice(0, 10);
+        })()
+      : "";
     setBatchForm((f) => ({
       ...f,
       recipe_id: recipeId,
       beer_name: r?.beer_name ?? f.beer_name,
       turns: "1",
+      expected_delivery_date: autoDelivery || f.expected_delivery_date,
     }));
   }
 
   async function handleNewBatchSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!batchForm.recipe_id) { alert("Please select a recipe."); return; }
+    if (!batchForm.expected_delivery_date) { alert("Expected delivery date is required."); return; }
     const recipe = recipes.find((r) => r.id === batchForm.recipe_id);
     const turns = parseInt(batchForm.turns) || 1;
     const volume_bbl = recipe?.expected_yield_bbl != null ? recipe.expected_yield_bbl * turns : null;
@@ -89,12 +105,13 @@ export default function BrewStatusTab({
     setBatchSubmitting(true);
     try {
       const payload = {
-        recipe_id:         batchForm.recipe_id,
-        beer_name:         batchForm.beer_name,
-        planned_brew_date: batchForm.planned_brew_date,
+        recipe_id:              batchForm.recipe_id,
+        beer_name:              batchForm.beer_name,
+        planned_brew_date:      batchForm.planned_brew_date,
+        expected_delivery_date: batchForm.expected_delivery_date,
         volume_bbl,
         turns,
-        notes:             batchForm.notes || null,
+        notes:                  batchForm.notes || null,
       };
       const res = await fetch("/api/production/batches", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       if (!res.ok) throw new Error((await res.json()).error ?? "Error");
@@ -109,12 +126,21 @@ export default function BrewStatusTab({
     }
   }
 
+  // Load persisted grid size once, after mount.
   useEffect(() => {
-    fetch("/api/production/packaging").then((r) => r.ok ? r.json() : []).then(setPackaging);
+    const c = parseInt(localStorage.getItem(GRID_COLS_KEY) ?? "");
+    const r = parseInt(localStorage.getItem(GRID_ROWS_KEY) ?? "");
+    if (c) setGridCols(c);
+    if (r) setGridRows(r);
   }, []);
 
-  useEffect(() => { localStorage.setItem(GRID_COLS_KEY, String(gridCols)); }, [gridCols]);
-  useEffect(() => { localStorage.setItem(GRID_ROWS_KEY, String(gridRows)); }, [gridRows]);
+  // Persist on change, but skip the initial mount so we never overwrite the
+  // stored value with the default before the load effect above has run.
+  useEffect(() => {
+    if (gridSizeSaveSkip.current) { gridSizeSaveSkip.current = false; return; }
+    localStorage.setItem(GRID_COLS_KEY, String(gridCols));
+    localStorage.setItem(GRID_ROWS_KEY, String(gridRows));
+  }, [gridCols, gridRows]);
 
   const assignmentByTank   = Object.fromEntries(assignments.map((a) => [a.tank_id, a])) as Record<string, BatchTankAssignment | undefined>;
   const assignedBatchIds   = new Set(assignments.map((a) => a.batch_id));
@@ -132,7 +158,13 @@ export default function BrewStatusTab({
     ? batches.find((b) => b.id === transferAssignment.batch_id) ?? null
     : null;
 
-  const drag   = useTankDragDrop(tanks, onRefresh);
+  // Destructure so the ref (gridRef) and state (dragging/dropPreview/…) keep
+  // distinct identities — otherwise the React Compiler taints every access on
+  // the returned object as "accessing refs during render".
+  const {
+    dragging, dropPreview, gridRef, draggingTank,
+    onDragStart, onGridDragOver, onGridDrop, onUnplacedDrop, removeFromGrid, clearDrag,
+  } = useTankDragDrop(tanks, onRefresh);
   const eqCrud = useEquipmentCrud(onRefresh);
   const assign = useBatchAssign(unassignedBatches, onRefresh);
 
@@ -172,10 +204,10 @@ export default function BrewStatusTab({
       {editMode && unplaced.length > 0 && (
         <div
           className={`mb-4 p-3 rounded-lg border border-dashed transition-colors ${
-            drag.dragging ? "border-zinc-500 bg-zinc-900/40" : "border-zinc-700"
+            dragging ? "border-zinc-500 bg-zinc-900/40" : "border-zinc-700"
           }`}
           onDragOver={(e) => e.preventDefault()}
-          onDrop={drag.onUnplacedDrop}
+          onDrop={onUnplacedDrop}
         >
           <p className="text-xs text-zinc-500 font-medium uppercase tracking-wide mb-2">
             Unplaced Equipment — drag onto the grid to position
@@ -188,10 +220,10 @@ export default function BrewStatusTab({
                 <div
                   key={tank.id}
                   draggable
-                  onDragStart={(e) => drag.onDragStart(e, tank)}
-                  onDragEnd={drag.clearDrag}
+                  onDragStart={(e) => onDragStart(e, tank)}
+                  onDragEnd={clearDrag}
                   className={`rounded border px-3 py-2 bg-zinc-900 ${eq.border} cursor-grab active:cursor-grabbing ${
-                    drag.dragging?.id === tank.id ? "opacity-40" : ""
+                    dragging?.id === tank.id ? "opacity-40" : ""
                   }`}
                 >
                   <div className="flex items-center gap-2">
@@ -232,7 +264,7 @@ export default function BrewStatusTab({
       {/* Grid — frame always matches grid size exactly; page scrolls if needed, no internal scrollbar */}
       <div className="rounded-lg border border-zinc-800 mb-6 overflow-hidden" style={{ width: gridCols * cell, height: gridRows * cell }}>
         <div
-          ref={drag.gridRef}
+          ref={gridRef}
           className="relative"
           style={{
             width:  gridCols * cell,
@@ -243,16 +275,16 @@ export default function BrewStatusTab({
             ].join(","),
             backgroundSize: `${cell}px ${cell}px`,
           }}
-          onDragOver={editMode ? drag.onGridDragOver : undefined}
-          onDrop={editMode ? drag.onGridDrop : undefined}
-          onDragLeave={() => drag.clearDrag()}
+          onDragOver={editMode ? onGridDragOver : undefined}
+          onDrop={editMode ? onGridDrop : undefined}
+          onDragLeave={() => clearDrag()}
         >
           {placed.map((tank) => {
             const eq          = EQ[tank.type];
             if (!eq) return null;
             const assignment  = assignmentByTank[tank.id];
             const batch       = assignment?.brew_batches;
-            const isDragging  = drag.dragging?.id === tank.id;
+            const isDragging  = dragging?.id === tank.id;
             const isTank      = TANK_TYPES.has(tank.type);
             const isColdStorage = tank.type === "cold_storage";
             const isBacklog   = tank.type === "backlog";
@@ -272,8 +304,8 @@ export default function BrewStatusTab({
               <div
                 key={tank.id}
                 draggable={editMode}
-                onDragStart={editMode ? (e) => drag.onDragStart(e, tank) : undefined}
-                onDragEnd={drag.clearDrag}
+                onDragStart={editMode ? (e) => onDragStart(e, tank) : undefined}
+                onDragEnd={clearDrag}
                 className={`absolute flex flex-col rounded border transition-opacity select-none ${
                   isDragging ? "opacity-30" : "opacity-100"
                 } ${editMode ? "cursor-grab active:cursor-grabbing" : ""} ${eq.border}`}
@@ -468,7 +500,7 @@ export default function BrewStatusTab({
                     {editMode && (
                       <div className="mt-auto pt-1 flex gap-1.5">
                         <button onClick={() => eqCrud.openEdit(tank)} onMouseDown={(e) => e.stopPropagation()} className="text-zinc-600 hover:text-zinc-300 transition-colors" style={{ fontSize: 9 }}>Edit</button>
-                        <button onClick={() => drag.removeFromGrid(tank.id)} onMouseDown={(e) => e.stopPropagation()} className="text-zinc-600 hover:text-amber-400 transition-colors" style={{ fontSize: 9 }}>Unplace</button>
+                        <button onClick={() => removeFromGrid(tank.id)} onMouseDown={(e) => e.stopPropagation()} className="text-zinc-600 hover:text-amber-400 transition-colors" style={{ fontSize: 9 }}>Unplace</button>
                         {!assignment && <button onClick={() => eqCrud.handleDeleteEq(tank.id, tank.name)} onMouseDown={(e) => e.stopPropagation()} className="text-zinc-600 hover:text-red-400 transition-colors" style={{ fontSize: 9 }}>Del</button>}
                       </div>
                     )}
@@ -479,16 +511,16 @@ export default function BrewStatusTab({
           })}
 
           {/* Drop preview */}
-          {drag.dropPreview && drag.draggingTank && (
+          {dropPreview && draggingTank && (
             <div
               className={`absolute pointer-events-none z-20 rounded border-2 border-dashed ${
-                drag.dropPreview.valid ? "border-amber-400 bg-amber-900/15" : "border-red-500 bg-red-900/15"
+                dropPreview.valid ? "border-amber-400 bg-amber-900/15" : "border-red-500 bg-red-900/15"
               }`}
               style={{
-                left:   drag.dropPreview.col * cell + GAP,
-                top:    drag.dropPreview.row * cell + GAP,
-                width:  drag.draggingTank.grid_width  * cell - GAP * 2,
-                height: drag.draggingTank.grid_height * cell - GAP * 2,
+                left:   dropPreview.col * cell + GAP,
+                top:    dropPreview.row * cell + GAP,
+                width:  draggingTank.grid_width  * cell - GAP * 2,
+                height: draggingTank.grid_height * cell - GAP * 2,
               }}
             />
           )}
@@ -618,7 +650,28 @@ export default function BrewStatusTab({
             </Field>
             <Field label="Planned Brew Date" required>
               <input type="date" className="inp" value={batchForm.planned_brew_date} required
-                onChange={(e) => setBatchForm((f) => ({ ...f, planned_brew_date: e.target.value }))} />
+                onChange={(e) => {
+                  const newDate = e.target.value;
+                  setBatchForm((f) => {
+                    const recipe = recipes.find((r) => r.id === f.recipe_id);
+                    const leadDays = recipe ? ((recipe.days_brewhouse ?? 0) + (recipe.days_fermenter ?? 0) + (recipe.days_brite ?? 0)) : 0;
+                    const autoDelivery = leadDays > 0 && newDate
+                      ? (() => { const d = new Date(newDate); d.setDate(d.getDate() + leadDays); return d.toISOString().slice(0, 10); })()
+                      : f.expected_delivery_date;
+                    return { ...f, planned_brew_date: newDate, expected_delivery_date: autoDelivery };
+                  });
+                }} />
+            </Field>
+            <Field label="Expected Delivery Date" required>
+              <input type="date" className="inp" value={batchForm.expected_delivery_date} required
+                onChange={(e) => setBatchForm((f) => ({ ...f, expected_delivery_date: e.target.value }))} />
+              {batchForm.recipe_id && (() => {
+                const recipe = recipes.find((r) => r.id === batchForm.recipe_id);
+                const leadDays = recipe ? ((recipe.days_brewhouse ?? 0) + (recipe.days_fermenter ?? 0) + (recipe.days_brite ?? 0)) : 0;
+                return leadDays > 0 ? (
+                  <p className="text-xs text-zinc-600 mt-1">Auto-set from recipe lead time: {leadDays} days</p>
+                ) : null;
+              })()}
             </Field>
             <Field label={`Turns (${BREWHOUSE_BBL} BBL brewhouse)`} required>
               <input type="number" min="1" step="1" className="inp" value={batchForm.turns} required

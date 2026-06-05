@@ -84,15 +84,6 @@ function formatMetricValue(metric: KpiMetric, value: number): string {
   return value.toLocaleString("en-US");
 }
 
-function getMetricValue(metric: KpiMetric, data: PulseData): number {
-  switch (metric) {
-    case "net_sales":   return data.net_sales_cents;
-    case "gross_sales": return data.gross_sales_cents;
-    case "avg_ticket":  return data.avg_ticket_cents;
-    case "guest_count": return data.order_count;
-  }
-}
-
 function getDayMetricValue(metric: KpiMetric, day: DayData): number {
   switch (metric) {
     case "net_sales":   return day.net_sales_cents / 100;
@@ -181,9 +172,6 @@ const KPI_OPTIONS: { value: KpiMetric; label: string }[] = [
   { value: "guest_count", label: "Guest Count"         },
 ];
 
-const selectCls =
-  "bg-zinc-800 border border-zinc-600 rounded px-3 py-1.5 text-sm text-zinc-100 " +
-  "focus:outline-none focus:ring-2 focus:ring-amber-500";
 
 const toggleBtn = (active: boolean) =>
   `px-3 py-1.5 text-xs font-medium transition-colors ${

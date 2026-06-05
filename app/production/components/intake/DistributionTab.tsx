@@ -1,12 +1,12 @@
 "use client";
 
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Recipe, ContractBrewingPartner, DistributionAllocation, PackagingItem } from "../../types";
 import { fmtDateLong } from "@/lib/utils/formatting";
 import { Modal, Field, ModalActions } from "../shared";
-
-// 1 BBL = 31 US gallons = 3968 fl oz
-const FL_OZ_PER_BBL = 3968;
+import { BBL_TO_FL_OZ as FL_OZ_PER_BBL } from "@/lib/constants/production";
+import { usePackagingQuery, fetchJson } from "../../hooks/queries";
 
 type AllocType = "bbl" | "keg" | "can";
 
@@ -52,16 +52,9 @@ function NewAllocationModal({
   onDone: () => void;
 }) {
   const [form, setForm] = useState<FormState>(EMPTY);
-  const [packaging, setPackaging] = useState<PackagingItem[]>([]);
+  const { data: packaging = [] } = usePackagingQuery();
   const [submitting, setSubmitting] = useState(false);
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) => setForm((f) => ({ ...f, [k]: v }));
-
-  useEffect(() => {
-    (async () => {
-      const r = await fetch("/api/production/packaging");
-      if (r.ok) setPackaging(await r.json());
-    })();
-  }, []);
 
   const kegs = packaging.filter((p) => p.type === "keg");
   const cans = packaging.filter((p) => p.type === "can");
@@ -221,14 +214,13 @@ export default function DistributionTab({
   recipes: Recipe[];
   partners: ContractBrewingPartner[];
 }) {
-  const [rows, setRows] = useState<DistributionAllocation[]>([]);
+  const qc = useQueryClient();
+  const { data: rows = [] } = useQuery({
+    queryKey: ["production", "distribution-allocations"],
+    queryFn: () => fetchJson<DistributionAllocation[]>("/api/production/distribution-allocations"),
+  });
+  const load = () => qc.invalidateQueries({ queryKey: ["production", "distribution-allocations"] });
   const [showModal, setShowModal] = useState(false);
-
-  const load = useCallback(async () => {
-    const r = await fetch("/api/production/distribution-allocations");
-    if (r.ok) setRows(await r.json());
-  }, []);
-  useEffect(() => { load(); }, [load]);
 
   async function handleDelete(id: string) {
     if (!confirm("Delete this allocation?")) return;

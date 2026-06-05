@@ -5,6 +5,7 @@ import { fetchRefunds } from "@/lib/square/refunds";
 import { buildTaproomModelReport } from "@/lib/reports/taproom-model";
 import { TAPROOM_MODEL_CATEGORIES } from "@/lib/constants/categories";
 import { requireDateRange, apiError } from "@/lib/utils/api";
+import { localDateString, eachDateString } from "@/lib/utils/datetime";
 
 const EXCLUDED_CATEGORY_IDS = new Set(["CO2", "OTHER"]);
 
@@ -57,14 +58,14 @@ export async function GET(req: NextRequest) {
     // taproom model report per day so the numbers match the weekly totals exactly.
     const dailyOrderMap = new Map<string, typeof orders>();
     for (const order of orders) {
-      const date = (order.closed_at ?? order.created_at ?? "").slice(0, 10);
+      const date = localDateString(order.closed_at ?? order.created_at ?? "");
       if (!dailyOrderMap.has(date)) dailyOrderMap.set(date, []);
       dailyOrderMap.get(date)!.push(order);
     }
 
     const dailyRefundMap = new Map<string, typeof refunds>();
     for (const refund of refunds) {
-      const date = (refund.created_at ?? "").slice(0, 10);
+      const date = localDateString(refund.created_at ?? "");
       if (!dailyRefundMap.has(date)) dailyRefundMap.set(date, []);
       dailyRefundMap.get(date)!.push(refund);
     }
@@ -77,10 +78,7 @@ export async function GET(req: NextRequest) {
       avg_ticket_cents: number;
     }[] = [];
 
-    const cur     = new Date(start + "T00:00:00");
-    const endDate = new Date(end   + "T00:00:00");
-    while (cur <= endDate) {
-      const dateStr   = cur.toISOString().slice(0, 10);
+    for (const dateStr of eachDateString(start, end)) {
       const dayOrders = dailyOrderMap.get(dateStr) ?? [];
       const dayRefunds = dailyRefundMap.get(dateStr) ?? [];
 
@@ -106,7 +104,6 @@ export async function GET(req: NextRequest) {
         order_count:       count,
         avg_ticket_cents:  count > 0 ? Math.round(dayNet / count) : 0,
       });
-      cur.setDate(cur.getDate() + 1);
     }
 
     return NextResponse.json({

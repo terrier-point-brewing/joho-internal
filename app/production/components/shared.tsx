@@ -30,17 +30,19 @@ export function Modal({
   onClose,
   children,
   wide,
+  extraWide,
 }: {
   title: string;
   onClose: () => void;
   children: React.ReactNode;
   wide?: boolean;
+  extraWide?: boolean;
 }) {
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
       <div
         className={`bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl w-full ${
-          wide ? "max-w-2xl" : "max-w-md"
+          extraWide ? "max-w-5xl" : wide ? "max-w-2xl" : "max-w-md"
         } max-h-[90vh] flex flex-col`}
       >
         <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800 shrink-0">

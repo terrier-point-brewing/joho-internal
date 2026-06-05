@@ -1,8 +1,11 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { BrewBatch } from "../types";
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Modal, Field } from "./shared";
+import { useBatchesQuery, fetchJson } from "../hooks/queries";
+
+const EXPORTS_KEY = ["production", "exports"] as const;
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -68,24 +71,20 @@ function fmt(iso: string) {
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
-interface Props {
-  batches: BrewBatch[];
-}
+export default function ExportTab() {
+  const qc = useQueryClient();
+  const { data: batches = [] } = useBatchesQuery();
+  const { data: exports = [] } = useQuery({
+    queryKey: EXPORTS_KEY,
+    queryFn: () => fetchJson<BatchExport[]>("/api/production/exports"),
+  });
+  const refresh = () => qc.invalidateQueries({ queryKey: EXPORTS_KEY });
 
-export default function ExportTab({ batches }: Props) {
   const [channel, setChannel] = useState<ExportChannel>("taproom");
-  const [exports, setExports] = useState<BatchExport[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<ExportForm>(blank());
   const [saving, setSaving] = useState(false);
-
-  const load = useCallback(async () => {
-    const res = await fetch("/api/production/exports");
-    if (res.ok) setExports(await res.json());
-  }, []);
-
-  useEffect(() => { load(); }, [load]);
 
   const channelExports = exports.filter(e => e.channel === channel);
   const channelMeta = CHANNEL_TABS.find(c => c.key === channel)!;
@@ -125,14 +124,14 @@ export default function ExportTab({ batches }: Props) {
     const url = editingId ? `/api/production/exports/${editingId}` : "/api/production/exports";
     const method = editingId ? "PATCH" : "POST";
     const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-    if (res.ok) { await load(); setShowModal(false); }
+    if (res.ok) { await refresh(); setShowModal(false); }
     setSaving(false);
   }
 
   async function remove(id: string) {
     if (!confirm("Delete this export record?")) return;
     await fetch(`/api/production/exports/${id}`, { method: "DELETE" });
-    await load();
+    await refresh();
   }
 
   const f = (k: string, v: string) => setForm(prev => ({ ...prev, [k]: v }));

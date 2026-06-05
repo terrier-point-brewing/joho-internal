@@ -1,4 +1,4 @@
-import { squareGet, squarePost, squarePostAll } from "./client";
+import { squareGet, squarePostAll } from "./client";
 
 export interface SquareCustomer {
   id: string;

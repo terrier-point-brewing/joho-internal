@@ -1,16 +1,28 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { Recipe, Ingredient, ContractBrewingPartner, INGREDIENT_CATEGORIES, IngredientCategory, leadTimeDays } from "../types";
+import { useState, Fragment } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { Recipe, RecipeBrewActivityTemplate, Ingredient, INGREDIENT_CATEGORIES, IngredientCategory, leadTimeDays } from "../types";
 import { Modal, Field, ModalActions } from "./shared";
 import { EQ } from "../equipmentMeta";
+import { useRecipesQuery, useIngredientsQuery, useContractPartnersQuery, productionKeys } from "../hooks/queries";
 
 interface RecipeFormLine {
   ingredient_id: string;
   quantity_per_turn: string;
+  category: IngredientCategory | "";
 }
 
-const RECIPE_EMPTY = { beer_name: "", partner_id: "", expected_yield_bbl: "", days_brewhouse: "", days_fermenter: "", days_brite: "", steps: "", notes: "" };
+interface ActivityFormLine {
+  id?: string;
+  activity: string;
+  time_label: string;
+  temp: string;
+  amount: string;
+  vsp: string;
+}
+
+const RECIPE_EMPTY = { beer_name: "", partner_id: "", expected_yield_bbl: "", days_brewhouse: "", days_fermenter: "", days_brite: "", notes: "" };
 
 const STAGE_BADGES: Record<"brewhouse" | "fermenter" | "brite", { label: string; badge: string }> = {
   brewhouse: { label: EQ.brewhouse.label, badge: EQ.brewhouse.badge },
@@ -18,76 +30,41 @@ const STAGE_BADGES: Record<"brewhouse" | "fermenter" | "brite", { label: string;
   brite:      { label: "Brite Tank",        badge: EQ.brite.badge },
 };
 
-/** Very lightweight markdown → React-safe HTML string renderer. */
-function mdToHtml(text: string): string {
-  const lines = text.split("\n");
-  const out: string[] = [];
-  let inList = false;
-  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const inline = (s: string) =>
-    esc(s)
-      .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
-      .replace(/\*(.*?)\*/g, "<em>$1</em>")
-      .replace(/`(.*?)`/g, "<code>$1</code>");
-
-  for (const raw of lines) {
-    const line = raw.trimEnd();
-    const isItem = /^[-*] /.test(line) || /^\d+\. /.test(line);
-    if (!isItem && inList) { out.push("</ul>"); inList = false; }
-    if (/^### /.test(line)) { out.push(`<h3>${inline(line.slice(4))}</h3>`); }
-    else if (/^## /.test(line))  { out.push(`<h2>${inline(line.slice(3))}</h2>`); }
-    else if (/^# /.test(line))   { out.push(`<h1>${inline(line.slice(2))}</h1>`); }
-    else if (/^[-*] /.test(line)) {
-      if (!inList) { out.push("<ul>"); inList = true; }
-      out.push(`<li>${inline(line.slice(2))}</li>`);
-    } else if (/^\d+\. /.test(line)) {
-      const m = line.match(/^\d+\. (.*)/);
-      if (!inList) { out.push("<ul>"); inList = true; }
-      out.push(`<li>${inline(m![1])}</li>`);
-    } else if (line.trim() === "") {
-      out.push("<br/>");
-    } else {
-      out.push(`<p>${inline(line)}</p>`);
-    }
-  }
-  if (inList) out.push("</ul>");
-  return out.join("\n");
+function templateToFormLine(t: RecipeBrewActivityTemplate): ActivityFormLine {
+  return {
+    id: t.id,
+    activity: t.activity,
+    time_label: t.time_label ?? "",
+    temp: t.temp != null ? String(t.temp) : "",
+    amount: t.amount != null ? String(t.amount) : "",
+    vsp: (t as RecipeBrewActivityTemplate & { vsp?: number | null }).vsp != null
+      ? String((t as RecipeBrewActivityTemplate & { vsp?: number | null }).vsp)
+      : "",
+  };
 }
 
-export default function RecipesTab({
-  recipes,
-  ingredients,
-  onRefresh,
-}: {
-  recipes: Recipe[];
-  ingredients: Ingredient[];
-  onRefresh: () => Promise<void>;
-}) {
+export default function RecipesTab() {
+  const qc = useQueryClient();
+  const { data: recipes = [] } = useRecipesQuery();
+  const { data: ingredients = [] } = useIngredientsQuery();
+  const { data: partners = [] } = useContractPartnersQuery();
+  const refresh = () => qc.invalidateQueries({ queryKey: productionKeys.recipes });
+
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState(RECIPE_EMPTY);
   const [lines, setLines] = useState<RecipeFormLine[]>([]);
+  const [activityLines, setActivityLines] = useState<ActivityFormLine[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
-
-  const [partners, setPartners] = useState<ContractBrewingPartner[]>([]);
-  const loadPartners = useCallback(async () => {
-    const r = await fetch("/api/partners/contract-brewing");
-    if (r.ok) setPartners(await r.json());
-  }, []);
-  useEffect(() => { loadPartners(); }, [loadPartners]);
-
-  // Category filter for ingredient bill picker
-  const [ingCatFilter, setIngCatFilter] = useState<IngredientCategory | "all">("all");
-  const filteredIngredients = ingCatFilter === "all" ? ingredients : ingredients.filter((i) => i.category === ingCatFilter);
 
   const yieldBbl = parseFloat(form.expected_yield_bbl) || 1;
 
   function openNew() {
     setForm(RECIPE_EMPTY);
     setLines([]);
+    setActivityLines([]);
     setEditingId(null);
-    setIngCatFilter("all");
     setShowModal(true);
   }
 
@@ -100,28 +77,36 @@ export default function RecipesTab({
       days_brewhouse: r.days_brewhouse != null ? String(r.days_brewhouse) : "",
       days_fermenter: r.days_fermenter != null ? String(r.days_fermenter) : "",
       days_brite: r.days_brite != null ? String(r.days_brite) : "",
-      steps: r.steps ?? "",
       notes: r.notes ?? "",
     });
     setLines(
       r.recipe_ingredients.map((ri) => ({
         ingredient_id: ri.ingredient_id,
         quantity_per_turn: String(Number((ri.quantity_per_bbl * yld).toFixed(6))),
+        category: (ri.ingredients.category as IngredientCategory) ?? "",
       }))
     );
-    setIngCatFilter("all");
+    setActivityLines(
+      [...(r.recipe_brew_activity_templates ?? [])].sort((a, b) => a.sort_order - b.sort_order).map(templateToFormLine)
+    );
     setEditingId(r.id);
     setShowModal(true);
   }
 
-  function addLine() {
-    const firstIng = filteredIngredients[0] ?? ingredients[0];
-    if (!firstIng) return;
-    setLines((l) => [...l, { ingredient_id: firstIng.id, quantity_per_turn: "" }]);
+  function addIngredientLine() {
+    setLines((l) => [...l, { ingredient_id: "", quantity_per_turn: "", category: "" }]);
   }
 
-  function removeLine(i: number) {
+  function removeIngredientLine(i: number) {
     setLines((l) => l.filter((_, idx) => idx !== i));
+  }
+
+  function addActivityLine() {
+    setActivityLines((l) => [...l, { activity: "", time_label: "", temp: "", amount: "", vsp: "" }]);
+  }
+
+  function removeActivityLine(i: number) {
+    setActivityLines((l) => l.filter((_, idx) => idx !== i));
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -136,13 +121,12 @@ export default function RecipesTab({
         days_brewhouse: form.days_brewhouse ? parseInt(form.days_brewhouse) : null,
         days_fermenter: form.days_fermenter ? parseInt(form.days_fermenter) : null,
         days_brite: form.days_brite ? parseInt(form.days_brite) : null,
-        steps: form.steps || null,
         notes: form.notes || null,
         ingredients: lines
           .filter((l) => l.ingredient_id && l.quantity_per_turn)
           .map((l) => ({
             ingredient_id: l.ingredient_id,
-            quantity_per_bbl: parseFloat(l.quantity_per_turn) / yieldBbl,
+            quantity_per_bbl: parseFloat(l.quantity_per_turn.replace(/,/g, "")) / yieldBbl,
           })),
       };
       const res = editingId
@@ -157,8 +141,35 @@ export default function RecipesTab({
             body: JSON.stringify(payload),
           });
       if (!res.ok) throw new Error((await res.json()).error ?? "Error");
+      const saved = await res.json();
+
+      // Sync activity templates: delete all existing, re-insert
+      if (editingId) {
+        const existingIds = (recipes.find((r) => r.id === editingId)?.recipe_brew_activity_templates ?? []).map((t) => t.id);
+        for (const tid of existingIds) {
+          await fetch(`/api/production/recipe-brew-activity-templates?id=${tid}`, { method: "DELETE" });
+        }
+      }
+      for (let i = 0; i < activityLines.length; i++) {
+        const al = activityLines[i];
+        if (!al.activity.trim()) continue;
+        await fetch("/api/production/recipe-brew-activity-templates", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            recipe_id: saved.id,
+            sort_order: i,
+            activity: al.activity,
+            time_label: al.time_label || null,
+            temp: al.temp !== "" ? parseFloat(al.temp) : null,
+            amount: al.amount !== "" ? parseFloat(al.amount) : null,
+            vsp: al.vsp !== "" ? parseFloat(al.vsp) : null,
+          }),
+        });
+      }
+
       setShowModal(false);
-      await onRefresh();
+      await refresh();
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : "Error");
     } finally {
@@ -174,7 +185,7 @@ export default function RecipesTab({
       alert(body?.error ?? "Delete failed");
       return;
     }
-    await onRefresh();
+    await refresh();
   }
 
   function recipeCostPerTurn(r: Recipe): number {
@@ -270,64 +281,75 @@ export default function RecipesTab({
                 {/* Expanded detail */}
                 {isOpen && (
                   <div className="border-t border-zinc-800">
-                    {/* Ingredient bill table */}
-                    {r.recipe_ingredients.length > 0 ? (
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="border-b border-zinc-800 bg-zinc-900/50 text-left">
-                            <th className="px-4 py-2 text-xs font-medium text-zinc-500">Ingredient</th>
-                            <th className="px-4 py-2 text-xs font-medium text-zinc-500 text-right">Cost / Unit</th>
-                            <th className="px-4 py-2 text-xs font-medium text-zinc-500 text-right">Qty / Turn</th>
-                            <th className="px-4 py-2 text-xs font-medium text-zinc-500 text-right">$ / Turn</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {r.recipe_ingredients.map((ri, idx) => {
-                            const ing = ri.ingredients;
-                            const qtyPerTurn = ri.quantity_per_bbl * (r.expected_yield_bbl ?? 1);
-                            const costPerLine = qtyPerTurn * (ing.cost_per_unit ?? 0);
-                            return (
-                              <tr
-                                key={ri.id}
-                                className={`border-b border-zinc-800/40 ${idx % 2 !== 0 ? "bg-zinc-900/20" : ""}`}
-                              >
-                                <td className="px-4 py-2 text-zinc-200">{ing.name}</td>
-                                <td className="px-4 py-2 text-zinc-500 text-right tabular-nums">
-                                  {ing.cost_per_unit != null
-                                    ? `$${Number(ing.cost_per_unit).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / ${ing.unit}`
-                                    : "—"}
-                                </td>
-                                <td className="px-4 py-2 text-zinc-400 text-right tabular-nums">
-                                  {qtyPerTurn.toLocaleString(undefined, { maximumFractionDigits: 4 })} {ing.unit}
-                                </td>
-                                <td className="px-4 py-2 text-zinc-300 text-right tabular-nums">
-                                  {ing.cost_per_unit != null
-                                    ? `$${costPerLine.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                                    : "—"}
+                    {/* Ingredient bill table — grouped by category */}
+                    {r.recipe_ingredients.length > 0 ? (() => {
+                      const grouped: Record<string, typeof r.recipe_ingredients> = {};
+                      for (const ri of r.recipe_ingredients) {
+                        const cat = ri.ingredients.category ?? "Uncategorized";
+                        if (!grouped[cat]) grouped[cat] = [];
+                        grouped[cat].push(ri);
+                      }
+                      return (
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="border-b border-zinc-800 bg-zinc-900/50 text-left">
+                              <th className="px-4 py-2 text-xs font-medium text-zinc-500">Ingredient</th>
+                              <th className="px-4 py-2 text-xs font-medium text-zinc-500 text-right">Cost / Unit</th>
+                              <th className="px-4 py-2 text-xs font-medium text-zinc-500 text-right">Qty / Turn</th>
+                              <th className="px-4 py-2 text-xs font-medium text-zinc-500 text-right">$ / Turn</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {Object.entries(grouped).map(([cat, items]) => (
+                              <Fragment key={cat}>
+                                <tr className="border-b border-zinc-800/40 bg-zinc-900/60">
+                                  <td colSpan={4} className="px-4 py-1 text-xs font-semibold text-zinc-500 uppercase tracking-wider">{cat}</td>
+                                </tr>
+                                {items.map((ri, idx) => {
+                                  const ing = ri.ingredients;
+                                  const qtyPerTurn = ri.quantity_per_bbl * (r.expected_yield_bbl ?? 1);
+                                  const costPerLine = qtyPerTurn * (ing.cost_per_unit ?? 0);
+                                  return (
+                                    <tr key={ri.id} className={`border-b border-zinc-800/40 ${idx % 2 !== 0 ? "bg-zinc-900/20" : ""}`}>
+                                      <td className="px-4 py-2 text-zinc-200 pl-6">{ing.name}</td>
+                                      <td className="px-4 py-2 text-zinc-500 text-right tabular-nums">
+                                        {ing.cost_per_unit != null
+                                          ? `$${Number(ing.cost_per_unit).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / ${ing.unit}`
+                                          : "—"}
+                                      </td>
+                                      <td className="px-4 py-2 text-zinc-400 text-right tabular-nums">
+                                        {qtyPerTurn.toLocaleString(undefined, { maximumFractionDigits: 4 })} {ing.unit}
+                                      </td>
+                                      <td className="px-4 py-2 text-zinc-300 text-right tabular-nums">
+                                        {ing.cost_per_unit != null
+                                          ? `$${costPerLine.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                                          : "—"}
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </Fragment>
+                            ))}
+                            {costPerTurn > 0 && (
+                              <tr className="border-t border-zinc-700 bg-zinc-900/50">
+                                <td className="px-4 py-2 text-xs font-medium text-zinc-400" colSpan={3}>Total cost / turn</td>
+                                <td className="px-4 py-2 text-right text-zinc-200 font-medium tabular-nums">
+                                  ${costPerTurn.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                 </td>
                               </tr>
-                            );
-                          })}
-                          {/* Totals row */}
-                          {costPerTurn > 0 && (
-                            <tr className="border-t border-zinc-700 bg-zinc-900/50">
-                              <td className="px-4 py-2 text-xs font-medium text-zinc-400" colSpan={3}>Total cost / turn</td>
-                              <td className="px-4 py-2 text-right text-zinc-200 font-medium tabular-nums">
-                                ${costPerTurn.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                              </td>
-                            </tr>
-                          )}
-                          {costPerBblYield != null && costPerTurn > 0 && (
-                            <tr className="bg-zinc-900/30">
-                              <td className="px-4 py-2 text-xs font-medium text-zinc-500" colSpan={3}>Cost / BBL yield</td>
-                              <td className="px-4 py-2 text-right text-zinc-400 tabular-nums text-xs">
-                                ${costPerBblYield.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                              </td>
-                            </tr>
-                          )}
-                        </tbody>
-                      </table>
-                    ) : (
+                            )}
+                            {costPerBblYield != null && costPerTurn > 0 && (
+                              <tr className="bg-zinc-900/30">
+                                <td className="px-4 py-2 text-xs font-medium text-zinc-500" colSpan={3}>Cost / BBL yield</td>
+                                <td className="px-4 py-2 text-right text-zinc-400 tabular-nums text-xs">
+                                  ${costPerBblYield.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      );
+                    })() : (
                       <p className="text-xs text-zinc-600 px-4 py-3">No ingredients on this recipe.</p>
                     )}
 
@@ -352,14 +374,39 @@ export default function RecipesTab({
                       </div>
                     )}
 
-                    {/* Steps — rendered as markdown */}
-                    {r.steps && (
+                    {/* Brew Steps */}
+                    {r.recipe_brew_activity_templates && r.recipe_brew_activity_templates.length > 0 && (
                       <div className="px-4 py-3 border-t border-zinc-800">
-                        <p className="text-xs font-medium text-zinc-500 mb-1.5">Brew Steps</p>
-                        <div
-                          className="text-xs text-zinc-400 leading-relaxed prose-steps"
-                          dangerouslySetInnerHTML={{ __html: mdToHtml(r.steps) }}
-                        />
+                        <p className="text-xs font-medium text-zinc-500 mb-2">Brew Steps</p>
+                        <div className="overflow-x-auto rounded border border-zinc-800/60">
+                          <table className="w-full text-xs">
+                            <thead>
+                              <tr className="border-b border-zinc-800 bg-zinc-900/40 text-left">
+                                <th className="px-3 py-2 font-medium text-zinc-500">#</th>
+                                <th className="px-3 py-2 font-medium text-zinc-500">Activity</th>
+                                <th className="px-3 py-2 font-medium text-zinc-500 text-right">Time (min)</th>
+                                <th className="px-3 py-2 font-medium text-zinc-500 text-right">Temp</th>
+                                <th className="px-3 py-2 font-medium text-zinc-500 text-right">Amount</th>
+                                <th className="px-3 py-2 font-medium text-zinc-500 text-right">VSP</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {[...r.recipe_brew_activity_templates].sort((a, b) => a.sort_order - b.sort_order).map((t, i) => {
+                                const tAny = t as RecipeBrewActivityTemplate & { vsp?: number | null };
+                                return (
+                                <tr key={t.id} className={`border-b border-zinc-800/40 ${i % 2 !== 0 ? "bg-zinc-900/20" : ""}`}>
+                                  <td className="px-3 py-2 text-zinc-600 tabular-nums">{i + 1}</td>
+                                  <td className="px-3 py-2 text-zinc-300">{t.activity}</td>
+                                  <td className="px-3 py-2 text-zinc-500 text-right tabular-nums">{t.time_label ?? "—"}</td>
+                                  <td className="px-3 py-2 text-zinc-500 text-right tabular-nums">{t.temp != null ? `${t.temp}°F` : "—"}</td>
+                                  <td className="px-3 py-2 text-zinc-500 text-right tabular-nums">{t.amount != null ? t.amount.toLocaleString() : "—"}</td>
+                                  <td className="px-3 py-2 text-zinc-500 text-right tabular-nums">{tAny.vsp != null ? tAny.vsp : "—"}</td>
+                                </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
                       </div>
                     )}
 
@@ -397,7 +444,7 @@ export default function RecipesTab({
         <Modal
           title={editingId ? "Edit Recipe" : "New Recipe"}
           onClose={() => setShowModal(false)}
-          wide
+          extraWide
         >
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
@@ -458,38 +505,24 @@ export default function RecipesTab({
             {/* Ingredient bill */}
             <div>
               <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
-                <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-center gap-2">
                   <label className="text-xs text-zinc-400">Ingredient Bill</label>
                   <span className="text-xs text-zinc-600">(qty per turn)</span>
-                  {/* Category filter */}
-                  <div className="flex gap-1 flex-wrap">
-                    <button type="button" onClick={() => setIngCatFilter("all")}
-                      className={`text-xs px-2 py-0.5 rounded border transition-colors ${ingCatFilter === "all" ? "border-zinc-500 text-zinc-200 bg-zinc-800" : "border-zinc-700 text-zinc-600 hover:text-zinc-400"}`}>
-                      All
-                    </button>
-                    {INGREDIENT_CATEGORIES.map((cat) => (
-                      <button key={cat} type="button" onClick={() => setIngCatFilter(cat)}
-                        className={`text-xs px-2 py-0.5 rounded border transition-colors ${ingCatFilter === cat ? "border-amber-600 bg-amber-900/30 text-amber-300" : "border-zinc-700 text-zinc-600 hover:text-zinc-400"}`}>
-                        {cat}
-                      </button>
-                    ))}
-                  </div>
                 </div>
-                {ingredients.length > 0 && (
-                  <button type="button" onClick={addLine}
-                    className="text-xs text-amber-500 hover:text-amber-400 transition-colors shrink-0">
-                    + Add ingredient
-                  </button>
-                )}
+                <button type="button" onClick={addIngredientLine}
+                  className="text-xs text-amber-500 hover:text-amber-400 transition-colors shrink-0">
+                  + Add ingredient
+                </button>
               </div>
               {ingredients.length === 0 && (
-                <p className="text-xs text-zinc-600">Add ingredients in the Ingredients tab first.</p>
+                <p className="text-xs text-zinc-600 mt-1">Add ingredients in the Ingredients tab first.</p>
               )}
               {lines.length > 0 && (
                 <div className="rounded border border-zinc-800 overflow-hidden">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-zinc-800 bg-zinc-900/50">
+                        <th className="px-3 py-2 text-xs font-medium text-zinc-500 text-left">Category</th>
                         <th className="px-3 py-2 text-xs font-medium text-zinc-500 text-left">Ingredient</th>
                         <th className="px-3 py-2 text-xs font-medium text-zinc-500 text-right">Cost / Unit</th>
                         <th className="px-3 py-2 text-xs font-medium text-zinc-500 text-right">Qty / Turn</th>
@@ -499,19 +532,33 @@ export default function RecipesTab({
                     </thead>
                     <tbody>
                       {lines.map((line, i) => {
+                        const filteredIngs = line.category
+                          ? ingredients.filter((ing) => ing.category === line.category)
+                          : [];
                         const ing = ingredients.find((ing) => ing.id === line.ingredient_id);
                         const costPerTurnLine =
                           ing?.cost_per_unit != null && line.quantity_per_turn
-                            ? ing.cost_per_unit * parseFloat(line.quantity_per_turn)
+                            ? ing.cost_per_unit * parseFloat(line.quantity_per_turn.replace(/,/g, ""))
                             : null;
-                        const displayIngredients = filteredIngredients.length > 0 ? filteredIngredients : ingredients;
                         return (
                           <tr key={i} className={`border-b border-zinc-800/60 ${i % 2 !== 0 ? "bg-zinc-900/20" : ""}`}>
                             <td className="px-3 py-1.5">
-                              <select className="inp" value={line.ingredient_id}
+                              <select className="inp" value={line.category}
+                                onChange={(e) => setLines((ls) => ls.map((l, idx) => idx === i
+                                  ? { ...l, category: e.target.value as IngredientCategory | "", ingredient_id: "" }
+                                  : l))}>
+                                <option value="">— select —</option>
+                                {INGREDIENT_CATEGORIES.map((cat) => (
+                                  <option key={cat} value={cat}>{cat}</option>
+                                ))}
+                              </select>
+                            </td>
+                            <td className="px-3 py-1.5 w-64">
+                              <select className="inp w-full" value={line.ingredient_id} disabled={!line.category}
                                 onChange={(e) => setLines((ls) => ls.map((l, idx) => idx === i ? { ...l, ingredient_id: e.target.value } : l))}>
-                                {displayIngredients.map((ing) => (
-                                  <option key={ing.id} value={ing.id}>{ing.name} ({ing.unit})</option>
+                                <option value="">{line.category ? "— select —" : "— pick category first —"}</option>
+                                {filteredIngs.map((ing) => (
+                                  <option key={ing.id} value={ing.id}>{ing.name}</option>
                                 ))}
                               </select>
                             </td>
@@ -520,10 +567,28 @@ export default function RecipesTab({
                                 ? `$${Number(ing.cost_per_unit).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / ${ing.unit}`
                                 : "—"}
                             </td>
-                            <td className="px-3 py-1.5">
-                              <input type="number" step="0.0001" min="0" placeholder="qty/turn"
-                                className="inp text-right" value={line.quantity_per_turn}
-                                onChange={(e) => setLines((ls) => ls.map((l, idx) => idx === i ? { ...l, quantity_per_turn: e.target.value } : l))} />
+                            <td className="px-3 py-1.5 w-32">
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                placeholder="qty/turn"
+                                className="inp text-right w-full"
+                                value={line.quantity_per_turn}
+                                onChange={(e) => {
+                                  const raw = e.target.value.replace(/,/g, "");
+                                  setLines((ls) => ls.map((l, idx) => idx === i ? { ...l, quantity_per_turn: raw } : l));
+                                }}
+                                onBlur={(e) => {
+                                  const num = parseFloat(e.target.value.replace(/,/g, ""));
+                                  if (!isNaN(num)) {
+                                    setLines((ls) => ls.map((l, idx) => idx === i ? { ...l, quantity_per_turn: num.toLocaleString(undefined, { maximumFractionDigits: 4 }) } : l));
+                                  }
+                                }}
+                                onFocus={(e) => {
+                                  const raw = e.target.value.replace(/,/g, "");
+                                  setLines((ls) => ls.map((l, idx) => idx === i ? { ...l, quantity_per_turn: raw } : l));
+                                }}
+                              />
                             </td>
                             <td className="px-3 py-1.5 text-right text-xs tabular-nums whitespace-nowrap">
                               {costPerTurnLine != null
@@ -531,7 +596,7 @@ export default function RecipesTab({
                                 : <span className="text-zinc-600">—</span>}
                             </td>
                             <td className="px-3 py-1.5 text-center">
-                              <button type="button" onClick={() => removeLine(i)}
+                              <button type="button" onClick={() => removeIngredientLine(i)}
                                 className="text-zinc-600 hover:text-red-400 transition-colors">×</button>
                             </td>
                           </tr>
@@ -543,21 +608,60 @@ export default function RecipesTab({
               )}
             </div>
 
-            {/* Brew Steps with live markdown preview */}
+            {/* Brew Steps */}
             <div>
-              <label className="text-xs text-zinc-400 block mb-1.5">Brew Steps</label>
-              <textarea
-                className="inp resize-none font-mono text-xs"
-                rows={6}
-                placeholder={"1. Mash at 152°F for 60 min\n2. Sparge to collect 26 gal\n3. Boil 60 min…"}
-                value={form.steps}
-                onChange={(e) => setForm((f) => ({ ...f, steps: e.target.value }))}
-              />
-              {form.steps.trim() && (
-                <div className="mt-1.5 p-3 rounded bg-zinc-900/60 border border-zinc-800">
-                  <p className="text-xs text-zinc-600 mb-1">Preview</p>
-                  <div className="text-xs text-zinc-400 leading-relaxed prose-steps"
-                    dangerouslySetInnerHTML={{ __html: mdToHtml(form.steps) }} />
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-xs text-zinc-400">Brew Steps</label>
+                <button type="button" onClick={addActivityLine}
+                  className="text-xs text-amber-500 hover:text-amber-400 transition-colors">
+                  + Add step
+                </button>
+              </div>
+              <p className="text-xs text-zinc-600 mb-2">When a new batch is created from this recipe, these steps are copied into the batch&apos;s activity log.</p>
+              {activityLines.length > 0 && (
+                <div className="rounded border border-zinc-800 overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-zinc-800 bg-zinc-900/50">
+                        <th className="px-3 py-2 text-xs font-medium text-zinc-500 text-left">Activity</th>
+                        <th className="px-3 py-2 text-xs font-medium text-zinc-500 text-right w-20">Time (min)</th>
+                        <th className="px-3 py-2 text-xs font-medium text-zinc-500 text-right w-20">Temp (°F)</th>
+                        <th className="px-3 py-2 text-xs font-medium text-zinc-500 text-right w-20">Amount</th>
+                        <th className="px-3 py-2 text-xs font-medium text-zinc-500 text-right w-20">VSP</th>
+                        <th className="px-3 py-2 w-6"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {activityLines.map((al, i) => (
+                        <tr key={i} className={`border-b border-zinc-800/60 ${i % 2 !== 0 ? "bg-zinc-900/20" : ""}`}>
+                          <td className="px-3 py-1.5">
+                            <input className="inp text-xs w-full" placeholder="e.g. Mash in" value={al.activity}
+                              onChange={(e) => setActivityLines((ls) => ls.map((l, idx) => idx === i ? { ...l, activity: e.target.value } : l))} />
+                          </td>
+                          <td className="px-2 py-1.5 w-20">
+                            <input type="number" step="1" className="inp text-xs text-right w-full" placeholder="0" value={al.time_label}
+                              onChange={(e) => setActivityLines((ls) => ls.map((l, idx) => idx === i ? { ...l, time_label: e.target.value } : l))} />
+                          </td>
+                          <td className="px-2 py-1.5 w-20">
+                            <input type="number" step="0.1" className="inp text-xs text-right w-full" placeholder="152" value={al.temp}
+                              onChange={(e) => setActivityLines((ls) => ls.map((l, idx) => idx === i ? { ...l, temp: e.target.value } : l))} />
+                          </td>
+                          <td className="px-2 py-1.5 w-20">
+                            <input type="number" step="0.01" className="inp text-xs text-right w-full" placeholder="0" value={al.amount}
+                              onChange={(e) => setActivityLines((ls) => ls.map((l, idx) => idx === i ? { ...l, amount: e.target.value } : l))} />
+                          </td>
+                          <td className="px-2 py-1.5 w-20">
+                            <input type="number" step="0.1" className="inp text-xs text-right w-full" placeholder="0" value={al.vsp}
+                              onChange={(e) => setActivityLines((ls) => ls.map((l, idx) => idx === i ? { ...l, vsp: e.target.value } : l))} />
+                          </td>
+                          <td className="px-3 py-1.5 text-center">
+                            <button type="button" onClick={() => removeActivityLine(i)}
+                              className="text-zinc-600 hover:text-red-400 transition-colors">×</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               )}
             </div>
@@ -577,4 +681,50 @@ export default function RecipesTab({
       )}
     </>
   );
+}
+
+/** Render markdown to HTML for display (fixes ordered lists using <ol>) */
+function renderMarkdown(text: string): string {
+  const lines = text.split("\n");
+  const out: string[] = [];
+  let listType: "ul" | "ol" | null = null;
+  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const inline = (s: string) =>
+    esc(s)
+      .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
+      .replace(/\*(.*?)\*/g, "<em>$1</em>")
+      .replace(/`(.*?)`/g, "<code>$1</code>");
+
+  const closeList = () => {
+    if (listType === "ul") out.push("</ul>");
+    else if (listType === "ol") out.push("</ol>");
+    listType = null;
+  };
+
+  for (const raw of lines) {
+    const line = raw.trimEnd();
+    const isBullet = /^[-*] /.test(line);
+    const isOrdered = /^\d+\. /.test(line);
+    const isItem = isBullet || isOrdered;
+
+    if (!isItem && listType !== null) closeList();
+
+    if (/^### /.test(line)) { out.push(`<h3>${inline(line.slice(4))}</h3>`); }
+    else if (/^## /.test(line))  { out.push(`<h2>${inline(line.slice(3))}</h2>`); }
+    else if (/^# /.test(line))   { out.push(`<h1>${inline(line.slice(2))}</h1>`); }
+    else if (isBullet) {
+      if (listType !== "ul") { closeList(); out.push("<ul>"); listType = "ul"; }
+      out.push(`<li>${inline(line.slice(2))}</li>`);
+    } else if (isOrdered) {
+      if (listType !== "ol") { closeList(); out.push("<ol>"); listType = "ol"; }
+      const m = line.match(/^\d+\. (.*)/);
+      out.push(`<li>${inline(m![1])}</li>`);
+    } else if (line.trim() === "") {
+      out.push("<br/>");
+    } else {
+      out.push(`<p>${inline(line)}</p>`);
+    }
+  }
+  closeList();
+  return out.join("\n");
 }

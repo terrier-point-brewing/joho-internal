@@ -1,9 +1,11 @@
 "use client";
 
-import React, { useEffect, useState, useCallback } from "react";
-import { Recipe, PackagingItem } from "../../types";
+import React, { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Recipe } from "../../types";
 import { fmtDateLong } from "@/lib/utils/formatting";
 import { Modal, Field, ModalActions } from "../shared";
+import { usePackagingQuery, fetchJson } from "../../hooks/queries";
 
 interface LinkRow {
   id: string;
@@ -61,27 +63,18 @@ function LinkManager({
   onClose: () => void;
   onChanged: () => void;
 }) {
-  const [sqVariations, setSqVariations] = useState<SquareVariation[]>([]);
-  const [packagingItems, setPackagingItems] = useState<PackagingItem[]>([]);
-  const [loadErr, setLoadErr] = useState<string | null>(null);
+  const { data: sqVariations = [], error: sqError } = useQuery({
+    queryKey: ["production", "square-catalog"],
+    queryFn: () => fetchJson<SquareVariation[]>("/api/production/square-catalog"),
+  });
+  const { data: packagingItems = [] } = usePackagingQuery();
+  const loadErr = sqError instanceof Error ? sqError.message : null;
 
   const [recipeId, setRecipeId] = useState("");
   const [packagingType, setPackagingType] = useState<PackagingType>("keg");
   const [packagingItemId, setPackagingItemId] = useState("");
   const [variationId, setVariationId] = useState("");
   const [submitting, setSubmitting] = useState(false);
-
-  useEffect(() => {
-    (async () => {
-      const [sqRes, pkgRes] = await Promise.all([
-        fetch("/api/production/square-catalog"),
-        fetch("/api/production/packaging"),
-      ]);
-      if (sqRes.ok) setSqVariations(await sqRes.json());
-      else setLoadErr((await sqRes.json()).error ?? "Failed to load Square catalog");
-      if (pkgRes.ok) setPackagingItems(await pkgRes.json());
-    })();
-  }, []);
 
   // Sub-items from packaging table filtered to the chosen packaging type.
   const subItems = packagingItems.filter((p) => p.type === packagingType);
@@ -146,7 +139,7 @@ function LinkManager({
     <Modal title="Link Styles to Square" onClose={onClose} wide>
       <p className="text-xs text-zinc-500 mb-4">
         Each link maps a Recipe × Packaging Type × Specific Packaging to a Square catalog variation.
-        For example: Carolina Wheat Wave × Keg × 1/2 Keg → Square variation "Carolina Wheat Wave (Keg) | 1/2 Keg".
+        For example: Carolina Wheat Wave × Keg × 1/2 Keg → Square variation &quot;Carolina Wheat Wave (Keg) | 1/2 Keg&quot;.
       </p>
 
       <form onSubmit={addLink} className="space-y-4">
@@ -284,36 +277,23 @@ function Sparkline({ history }: { history: { week: string; qty: number | null }[
 }
 
 export default function TaproomTab({ recipes }: { recipes: Recipe[] }) {
-  const [rows, setRows] = useState<InventoryRow[]>([]);
-  const [links, setLinks] = useState<LinkRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState<string | null>(null);
+  const qc = useQueryClient();
+  const { data: links = [] } = useQuery({
+    queryKey: ["production", "recipe-square-links"],
+    queryFn: () => fetchJson<LinkRow[]>("/api/production/recipe-square-links"),
+  });
+  const { data: rows = [], isLoading: loading, error } = useQuery({
+    queryKey: ["production", "taproom-inventory"],
+    queryFn: () => fetchJson<InventoryRow[]>("/api/production/taproom-inventory"),
+  });
+  const loadLinks = () => qc.invalidateQueries({ queryKey: ["production", "recipe-square-links"] });
+  const loadInventory = () => qc.invalidateQueries({ queryKey: ["production", "taproom-inventory"] });
+  const err = error instanceof Error ? error.message : null;
   const [showLinks, setShowLinks] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
-  const loadLinks = useCallback(async () => {
-    const r = await fetch("/api/production/recipe-square-links");
-    if (r.ok) setLinks(await r.json());
-  }, []);
-
-  const loadInventory = useCallback(async () => {
-    setLoading(true);
-    setErr(null);
-    try {
-      const r = await fetch("/api/production/taproom-inventory");
-      if (!r.ok) throw new Error((await r.json()).error ?? "Failed to load inventory");
-      setRows(await r.json());
-    } catch (e: unknown) {
-      setErr(e instanceof Error ? e.message : "Error");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { loadLinks(); loadInventory(); }, [loadLinks, loadInventory]);
-
   function toggleExpand(key: string) {
-    setExpanded((s) => { const n = new Set(s); n.has(key) ? n.delete(key) : n.add(key); return n; });
+    setExpanded((s) => { const n = new Set(s); if (n.has(key)) n.delete(key); else n.add(key); return n; });
   }
 
   const COLS = ["", "Style", "Packaging", "Current", "4-wk Trend", "Sell-through/day", "Lead Time", "Min Threshold", "Threshold Date", "Stockout"];
@@ -332,7 +312,7 @@ export default function TaproomTab({ recipes }: { recipes: Recipe[] }) {
       {loading ? (
         <p className="text-zinc-600 text-sm py-10 text-center">Loading…</p>
       ) : rows.length === 0 ? (
-        <p className="text-zinc-600 text-sm py-10 text-center">No styles linked to Square yet. Use "Link to Square" to map a recipe.</p>
+        <p className="text-zinc-600 text-sm py-10 text-center">No styles linked to Square yet. Use &quot;Link to Square&quot; to map a recipe.</p>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-zinc-800">
           <table className="w-full text-sm">

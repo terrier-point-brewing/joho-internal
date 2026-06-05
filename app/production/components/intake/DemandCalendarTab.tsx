@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { format, parseISO } from "date-fns";
 import type { DemandRow, DemandWeek } from "../../lib/demandCalendar";
+import { fetchJson } from "../../hooks/queries";
 
 function cellBg(eow: number, rowStatus: DemandRow["status"], week: DemandWeek, leadTime: number, stockoutDate: string | null): string {
   // Individual cell coloring: red/yellow once the EOW balance triggers thresholds.
@@ -31,28 +32,14 @@ function StatusBadge({ status }: { status: DemandRow["status"] }) {
 }
 
 export default function DemandCalendarTab() {
-  const [rows, setRows] = useState<DemandRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setErr(null);
-    try {
-      const r = await fetch("/api/production/demand-calendar");
-      if (!r.ok) throw new Error((await r.json()).error ?? "Failed to load");
-      setRows(await r.json());
-    } catch (e: unknown) {
-      setErr(e instanceof Error ? e.message : "Error");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { load(); }, [load]);
+  const { data: rows = [], isLoading: loading, error, refetch } = useQuery({
+    queryKey: ["production", "demand-calendar"],
+    queryFn: () => fetchJson<DemandRow[]>("/api/production/demand-calendar"),
+  });
+  const load = () => refetch();
 
   if (loading) return <p className="text-zinc-600 text-sm py-10 text-center">Loading…</p>;
-  if (err) return <p className="text-sm text-red-400 py-6">{err}</p>;
+  if (error) return <p className="text-sm text-red-400 py-6">{error instanceof Error ? error.message : "Error"}</p>;
   if (rows.length === 0) return (
     <div className="py-16 text-center space-y-2">
       <p className="text-zinc-600 text-sm">No demand data yet.</p>

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
-import { PackagingItem, PackagingItemType, PackagingStockAdjustment, PackagingAdjustmentType, ContractBrewingPartner, Supplier } from "../types";
+import { PackagingItem, PackagingItemType, PackagingAdjustmentType, ContractBrewingPartner, Supplier } from "../types";
 import { Modal, Field, ModalActions } from "./shared";
 
 const PKG_ADJ_TYPES: { value: PackagingAdjustmentType; label: string; hint: string; sign: "positive" | "negative" | "count" }[] = [
@@ -80,20 +80,6 @@ export default function PackagingTab({
   const [adjNote, setAdjNote] = useState("");
   const [adjSubmitting, setAdjSubmitting] = useState(false);
 
-  // Adjustment log state
-  const [adjLog, setAdjLog] = useState<PackagingStockAdjustment[]>([]);
-  const [logExpanded, setLogExpanded] = useState(false);
-  const [logItemFilter, setLogItemFilter] = useState<string>("all");
-
-  const loadAdjLog = useCallback(async () => {
-    const url = logItemFilter === "all"
-      ? "/api/production/packaging-adjustments"
-      : `/api/production/packaging-adjustments?packaging_item_id=${logItemFilter}`;
-    const r = await fetch(url);
-    if (r.ok) setAdjLog(await r.json());
-  }, [logItemFilter]);
-
-  useEffect(() => { if (logExpanded) loadAdjLog(); }, [logExpanded, loadAdjLog]);
 
   function openAdj(item: PackagingItem) {
     setAdjItem(item); setAdjType("received"); setAdjQty(""); setAdjCost(""); setAdjNote("");
@@ -122,7 +108,6 @@ export default function PackagingTab({
       if (!res.ok) throw new Error((await res.json()).error ?? "Error");
       setAdjItem(null);
       await onRefresh();
-      if (logExpanded) await loadAdjLog();
     } catch (err: unknown) {
       alert(err instanceof Error ? err.message : "Error");
     } finally {
@@ -233,7 +218,6 @@ export default function PackagingTab({
             const items = grouped[t];
             if (items.length === 0) return null;
             const meta = TYPE_META[t];
-            const canBeDefault = true; // all types support default
             return (
               <div key={t}>
                 <div className="flex items-center gap-2 mb-2">
@@ -466,66 +450,6 @@ export default function PackagingTab({
         </Modal>
       )}
 
-      {/* Adjustment Log */}
-      <div className="mt-8">
-        <button
-          onClick={() => setLogExpanded((v) => !v)}
-          className="flex items-center gap-2 text-sm text-zinc-400 hover:text-zinc-200 transition-colors mb-3"
-        >
-          <span>{logExpanded ? "▼" : "▶"}</span>
-          <span>Stock Adjustment Log</span>
-        </button>
-
-        {logExpanded && (
-          <div>
-            <div className="flex items-center gap-3 mb-3">
-              <label className="text-xs text-zinc-500">Filter by item:</label>
-              <select className="inp w-48" value={logItemFilter} onChange={(e) => { setLogItemFilter(e.target.value); }}>
-                <option value="all">All items</option>
-                {packaging.map((p) => <option key={p.id} value={p.id}>{p.name} ({TYPE_META[p.type].label})</option>)}
-              </select>
-            </div>
-
-            {adjLog.length === 0 ? (
-              <p className="text-zinc-600 text-sm">No adjustments recorded yet.</p>
-            ) : (
-              <div className="overflow-x-auto rounded-lg border border-zinc-800">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-zinc-800 bg-zinc-900/50 text-left">
-                      {["Date", "Item", "Type", "Change", "Unit Cost", "Note"].map((h) => (
-                        <th key={h} className={`px-4 py-2.5 text-xs font-medium text-zinc-500 ${h === "Change" || h === "Unit Cost" ? "text-right" : ""}`}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {adjLog.map((adj, i) => (
-                      <tr key={adj.id} className={`border-b border-zinc-800/60 ${i % 2 !== 0 ? "bg-zinc-900/30" : ""}`}>
-                        <td className="px-4 py-2 text-zinc-500 text-xs whitespace-nowrap">
-                          {new Date(adj.created_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
-                        </td>
-                        <td className="px-4 py-2 text-zinc-300">{adj.packaging_items?.name ?? "—"}</td>
-                        <td className="px-4 py-2">
-                          <span className={`text-xs font-medium ${adj.quantity >= 0 ? "text-green-400" : "text-red-400"}`}>
-                            {PKG_ADJ_TYPES.find((t) => t.value === adj.type)?.label ?? adj.type}
-                          </span>
-                        </td>
-                        <td className={`px-4 py-2 text-right tabular-nums text-xs font-mono ${adj.quantity >= 0 ? "text-green-400" : "text-red-400"}`}>
-                          {adj.quantity >= 0 ? "+" : ""}{Number(adj.quantity).toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                        </td>
-                        <td className="px-4 py-2 text-right tabular-nums text-xs text-zinc-400">
-                          {adj.cost_per_unit != null ? `$${Number(adj.cost_per_unit).toFixed(2)}` : "—"}
-                        </td>
-                        <td className="px-4 py-2 text-zinc-500 text-xs max-w-[160px] truncate">{adj.note ?? "—"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
     </>
   );
 }

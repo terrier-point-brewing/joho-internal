@@ -28,9 +28,8 @@ function ProductionContent() {
   const [brewingSubtab, setBrewingSubtab] = useState<BrewingSubtab>("floorplan");
 
   const {
-    ingredients, adjustments, recipes, batches, tanks, assignments, packaging, transfers,
-    loadIngredients, loadAdjustments, loadRecipes, loadBatches, loadPackaging,
-    refreshBrewStatus,
+    ingredients, adjustments, recipes, batches, tanks, packaging, transfers,
+    loadIngredients, loadAdjustments, loadRecipes, loadPackaging,
   } = useProductionData();
 
   return (
@@ -60,23 +59,15 @@ function ProductionContent() {
               </button>
             ))}
           </div>
-          {brewingSubtab === "floorplan" && (
-            <BrewStatusTab tanks={tanks} assignments={assignments} batches={batches} transfers={transfers} recipes={recipes} onRefresh={refreshBrewStatus} onBatchCreated={loadBatches} />
-          )}
-          {brewingSubtab === "batch-log" && (
-            <BatchLogTab batches={batches} recipes={recipes} transfers={transfers} onRefresh={loadBatches} />
-          )}
-          {brewingSubtab === "timeline" && (
-            <GanttTab equipment={tanks} batches={batches} />
-          )}
-          {brewingSubtab === "calendar" && (
-            <CalendarTab batches={batches} />
-          )}
+          {brewingSubtab === "floorplan" && <BrewStatusTab />}
+          {brewingSubtab === "batch-log" && <BatchLogTab />}
+          {brewingSubtab === "timeline" && <GanttTab equipment={tanks} batches={batches} />}
+          {brewingSubtab === "calendar" && <CalendarTab batches={batches} />}
         </>
       )}
 
-      {tab === "export"    && <ExportTab batches={batches} />}
-      {tab === "recipes"   && <RecipesTab recipes={recipes} ingredients={ingredients} onRefresh={loadRecipes} />}
+      {tab === "export"    && <ExportTab />}
+      {tab === "recipes"   && <RecipesTab />}
       {tab === "inventory" && (
         <InventoryTab
           ingredients={ingredients} adjustments={adjustments} packaging={packaging}

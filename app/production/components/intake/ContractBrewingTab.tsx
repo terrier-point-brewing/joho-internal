@@ -1,9 +1,11 @@
 "use client";
 
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Recipe, ContractBrewingPartner, ContractBrewingRequest } from "../../types";
 import { fmtDateLong } from "@/lib/utils/formatting";
 import { Modal, Field, ModalActions } from "../shared";
+import { fetchJson } from "../../hooks/queries";
 
 interface QuickRecipe {
   beer_name: string;
@@ -204,14 +206,13 @@ export default function ContractBrewingTab({
   recipes: Recipe[];
   partners: ContractBrewingPartner[];
 }) {
-  const [rows, setRows] = useState<ContractBrewingRequest[]>([]);
+  const qc = useQueryClient();
+  const { data: rows = [] } = useQuery({
+    queryKey: ["production", "contract-requests"],
+    queryFn: () => fetchJson<ContractBrewingRequest[]>("/api/production/contract-requests"),
+  });
+  const load = () => qc.invalidateQueries({ queryKey: ["production", "contract-requests"] });
   const [showModal, setShowModal] = useState(false);
-
-  const load = useCallback(async () => {
-    const r = await fetch("/api/production/contract-requests");
-    if (r.ok) setRows(await r.json());
-  }, []);
-  useEffect(() => { load(); }, [load]);
 
   async function handleDelete(id: string) {
     if (!confirm("Delete this request?")) return;

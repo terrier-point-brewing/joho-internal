@@ -6,8 +6,9 @@ import { addWeeks, addMonths, startOfWeek, parseISO, differenceInDays, isAfter, 
 import { DistributionAllocation, ContractBrewingRequest, BrewBatch, Recipe, PackagingItem } from "../types";
 import type { SafetyStockFloor } from "../types";
 import { ColdStorageLot } from "./coldStorage";
+import { BBL_TO_FL_OZ } from "@/lib/constants/production";
 
-export const FL_OZ_PER_BBL = 3968;
+export const FL_OZ_PER_BBL = BBL_TO_FL_OZ;
 export const WEEKS_AHEAD = 12;
 
 // ────────────────────────────────────────────────────────────

@@ -17,11 +17,6 @@ function currency(v: string | number) {
   const n = typeof v === "string" ? parseFloat(v) : v;
   return `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
-function today() { return new Date().toISOString().slice(0, 10); }
-function firstOfMonth() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
-}
 
 function exportCSV(rows: CategoryRow[], tips: string) {
   const lines = [

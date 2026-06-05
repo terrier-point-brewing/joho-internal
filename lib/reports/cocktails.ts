@@ -13,7 +13,7 @@
  * skip combo component line items during category-level sweeps.
  */
 
-import type { CatalogItem, Order, OrderLineItem } from "@/types/square";
+import type { CatalogItem, Order } from "@/types/square";
 import type { CocktailSale } from "@/types/reports";
 import { CATEGORY_IDS } from "@/lib/constants/categories";
 import {
@@ -23,11 +23,13 @@ import {
   type ComboDefinition,
 } from "./combos";
 import { buildStandalonePriceMap, buildVariationNameMap } from "@/lib/square/catalog";
+import { memoizeByRef } from "@/lib/utils/memo";
 
 export { buildComboIndex, buildComponentIndex, type ComboDefinition };
 
 // Build a set of variation IDs for non-COMBO items in the Cocktails category.
-export function buildNonComboСocktailVariationIds(items: CatalogItem[]): Set<string> {
+// Memoized by item-array reference (see memoizeByRef).
+export const buildNonComboCocktailVariationIds = memoizeByRef((items: CatalogItem[]): Set<string> => {
   const ids = new Set<string>();
   for (const item of items) {
     const catId = item.item_data.reporting_category?.id ?? "";
@@ -38,7 +40,7 @@ export function buildNonComboСocktailVariationIds(items: CatalogItem[]): Set<st
     }
   }
   return ids;
-}
+});
 
 export interface CocktailDetectionResult {
   sales: CocktailSale[];
@@ -56,7 +58,7 @@ export function detectCocktailSales(
   const variationNames   = buildVariationNameMap(items);
   const comboDefs        = buildComboIndex(items);
   const componentIndex   = buildComponentIndex(comboDefs);
-  const nonComboIds      = buildNonComboСocktailVariationIds(items);
+  const nonComboIds      = buildNonComboCocktailVariationIds(items);
 
   // ── 1. Combo cocktails ──────────────────────────────────────────────────
   const rawComboSales = detectComboSales(

@@ -3,6 +3,7 @@ import type { Order } from "@/types/square";
 import type { ComboSale } from "@/types/reports";
 
 import { CATEGORY_IDS } from "@/lib/constants/categories";
+import { memoizeByRef } from "@/lib/utils/memo";
 const COCKTAIL_CATEGORY_IDS = CATEGORY_IDS.COCKTAILS;
 
 // Describes a single combo item and all its component slots for detection.
@@ -20,7 +21,8 @@ export interface ComboDefinition {
 
 // Build the index of cocktail combos from catalog items.
 // Returns only COMBO items whose reporting_category is a Cocktails category.
-export function buildComboIndex(items: CatalogItem[]): ComboDefinition[] {
+// Memoized by item-array reference (see memoizeByRef).
+export const buildComboIndex = memoizeByRef((items: CatalogItem[]): ComboDefinition[] => {
   const combos: ComboDefinition[] = [];
 
   for (const item of items) {
@@ -56,13 +58,14 @@ export function buildComboIndex(items: CatalogItem[]): ComboDefinition[] {
   }
 
   return combos;
-}
+});
 
 // Index structure used during detection: component variation ID → combo definition.
 // A component variation ID should only belong to one cocktail combo.
 type ComponentIndex = Map<string, ComboDefinition>;
 
-export function buildComponentIndex(combos: ComboDefinition[]): ComponentIndex {
+// Memoized by the (already-memoized) combos-array reference.
+export const buildComponentIndex = memoizeByRef((combos: ComboDefinition[]): ComponentIndex => {
   const index: ComponentIndex = new Map();
   for (const combo of combos) {
     for (const vid of combo.componentVariationIds) {
@@ -70,7 +73,7 @@ export function buildComponentIndex(combos: ComboDefinition[]): ComponentIndex {
     }
   }
   return index;
-}
+});
 
 // Core detection: scan orders and return one ComboSale per combo component line item
 // whose charged price differs from its standalone catalog price (the combo signal).

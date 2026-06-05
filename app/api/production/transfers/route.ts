@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase/client";
-import { EQUIPMENT_TYPE_TO_STATUS, UNCONSTRAINED_EQUIPMENT_TYPES, EquipmentType } from "@/app/production/types";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -32,69 +31,27 @@ export async function POST(req: NextRequest) {
     canning_detail,
   } = body;
 
+  // One transaction: insert transfer, release the old assignment, create the
+  // new assignment (constrained destinations only), and roll batch status
+  // forward. See record_batch_transfer() — keeps these writes atomic.
   const { data: transfer, error } = await supabase
-    .from("batch_transfers")
-    .insert({
-      batch_id,
-      from_tank_id:  from_tank_id  || null,
-      to_tank_id:    to_tank_id    || null,
-      volume_bbl,
-      shrinkage_bbl: shrinkage_bbl ?? 0,
-      transfer_type: transfer_type ?? "transfer",
-      notes:         notes         || null,
-      kegging_detail:  kegging_detail  ?? null,
-      canning_detail:  canning_detail  ?? null,
+    .rpc("record_batch_transfer", {
+      p_batch_id:       batch_id,
+      p_from_tank_id:   from_tank_id  || null,
+      p_to_tank_id:     to_tank_id    || null,
+      p_volume_bbl:     volume_bbl,
+      p_shrinkage_bbl:  shrinkage_bbl ?? 0,
+      p_transfer_type:  transfer_type ?? "transfer",
+      p_notes:          notes         || null,
+      p_kegging_detail: kegging_detail ?? null,
+      p_canning_detail: canning_detail ?? null,
     })
-    .select()
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-  // Release existing tank assignment for this batch
-  const { data: oldAssignment } = await supabase
-    .from("batch_tank_assignments")
-    .select("id")
-    .eq("batch_id", batch_id)
-    .is("released_at", null)
-    .maybeSingle();
-
-  if (oldAssignment) {
-    await supabase
-      .from("batch_tank_assignments")
-      .update({ released_at: new Date().toISOString() })
-      .eq("id", oldAssignment.id);
-  }
-
-  // Determine new batch status from destination tank type
-  let newStatus: string | null = null;
-  if (to_tank_id) {
-    const { data: destTank } = await supabase
-      .from("equipment").select("type").eq("id", to_tank_id).single();
-
-    if (destTank) {
-      newStatus = EQUIPMENT_TYPE_TO_STATUS[destTank.type as EquipmentType] ?? null;
-
-      // Create new assignment only for capacity-constrained tanks
-      if (!UNCONSTRAINED_EQUIPMENT_TYPES.includes(destTank.type as EquipmentType)) {
-        await supabase.from("batch_tank_assignments")
-          .insert({ batch_id, tank_id: to_tank_id, notes: null });
-      }
-    }
-  }
-
-  // Update batch status if it changed
-  if (newStatus) {
-    const { data: batch } = await supabase
-      .from("brew_batches").select("status").eq("id", batch_id).single();
-
-    if (batch?.status !== newStatus) {
-      await supabase.from("brew_batches").update({ status: newStatus }).eq("id", batch_id);
-      await supabase.from("batch_status_history").insert({
-        batch_id,
-        status: newStatus,
-        note: `Auto: transferred to ${transfer_type}`,
-      });
-    }
+  if (error) {
+    // "Destination tank is already occupied" is a client conflict, not a 500.
+    const status = error.message.includes("already occupied") ? 409 : 500;
+    return NextResponse.json({ error: error.message }, { status });
   }
 
   return NextResponse.json(transfer, { status: 201 });

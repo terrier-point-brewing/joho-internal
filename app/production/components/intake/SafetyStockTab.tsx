@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Recipe, BatchTransfer, Equipment, BrewBatch, SafetyStockFloor, BrewInventoryAdjustment } from "../../types";
 import { coldStorageLots } from "../../lib/coldStorage";
+import { fetchJson } from "../../hooks/queries";
 
 type Pkg = "keg" | "can";
 
@@ -21,23 +23,18 @@ export default function SafetyStockTab({
   tanks: Equipment[];
   batches: BrewBatch[];
 }) {
-  const [floors, setFloors] = useState<SafetyStockFloor[]>([]);
-  const [adjustments, setAdjustments] = useState<BrewInventoryAdjustment[]>([]);
+  const qc = useQueryClient();
+  const { data: floors = [] } = useQuery({
+    queryKey: ["production", "safety-stock"],
+    queryFn: () => fetchJson<SafetyStockFloor[]>("/api/production/safety-stock"),
+  });
+  const { data: adjustments = [] } = useQuery({
+    queryKey: ["production", "brew-adjustments"],
+    queryFn: () => fetchJson<BrewInventoryAdjustment[]>("/api/production/brew-adjustments"),
+  });
+  const loadFloors = () => qc.invalidateQueries({ queryKey: ["production", "safety-stock"] });
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [savingKey, setSavingKey] = useState<string | null>(null);
-
-  const loadFloors = useCallback(async () => {
-    const r = await fetch("/api/production/safety-stock");
-    if (r.ok) setFloors(await r.json());
-  }, []);
-  useEffect(() => { loadFloors(); }, [loadFloors]);
-
-  useEffect(() => {
-    (async () => {
-      const r = await fetch("/api/production/brew-adjustments");
-      if (r.ok) setAdjustments(await r.json());
-    })();
-  }, []);
 
   const recipeName = useMemo(() => new Map(recipes.map((r) => [r.id, r.beer_name])), [recipes]);
 

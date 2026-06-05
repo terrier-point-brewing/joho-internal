@@ -17,25 +17,20 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
   const { batch_id, tank_id, notes } = body;
 
-  // Check tank isn't already occupied
-  const { data: existing } = await supabase
-    .from("batch_tank_assignments")
-    .select("id")
-    .eq("tank_id", tank_id)
-    .is("released_at", null)
-    .maybeSingle();
-
-  if (existing) {
-    return NextResponse.json({ error: "Tank is already occupied" }, { status: 409 });
-  }
-
+  // Occupancy is enforced atomically by the partial unique index
+  // one_active_assignment_per_tank; a double-book surfaces as a 23505 conflict.
   const { data, error } = await supabase
     .from("batch_tank_assignments")
     .insert({ batch_id, tank_id, notes: notes || null })
     .select("*, brew_batches(id, beer_name, batch_number, status, volume_bbl)")
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    if (error.code === "23505") {
+      return NextResponse.json({ error: "Tank is already occupied" }, { status: 409 });
+    }
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
 
   // Auto-update batch status based on tank type
   const { data: tank } = await supabase

@@ -4,7 +4,7 @@ import { supabase } from "@/lib/supabase/client";
 export async function GET() {
   const { data, error } = await supabase
     .from("recipes")
-    .select("*, recipe_ingredients(*, ingredients(*))")
+    .select("*, recipe_ingredients(*, ingredients(*)), recipe_brew_activity_templates(*)")
     .order("beer_name");
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
 
   const { data, error } = await supabase
     .from("recipes")
-    .select("*, recipe_ingredients(*, ingredients(*))")
+    .select("*, recipe_ingredients(*, ingredients(*)), recipe_brew_activity_templates(*)")
     .eq("id", recipe.id)
     .single();
 

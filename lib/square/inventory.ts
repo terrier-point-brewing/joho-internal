@@ -1,5 +1,5 @@
 import { squarePost, squarePostAll } from "./client";
-import type { CatalogObject } from "@/types/square";
+import { dayRangeUtc } from "@/lib/utils/datetime";
 
 interface InventoryCount {
   catalog_object_id: string;
@@ -64,8 +64,7 @@ export async function fetchPhysicalCounts(
   const locationId = process.env.SQUARE_LOCATION_ID;
   if (!locationId) throw new Error("SQUARE_LOCATION_ID not set");
 
-  const updatedAfter  = new Date(startDate + "T00:00:00").toISOString();
-  const updatedBefore = new Date(endDate   + "T23:59:59").toISOString();
+  const { startUtc: updatedAfter, endUtc: updatedBefore } = dayRangeUtc(startDate, endDate);
 
   const results: PhysicalCount[] = [];
   let cursor: string | undefined;

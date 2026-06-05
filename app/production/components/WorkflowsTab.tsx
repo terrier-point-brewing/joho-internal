@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
-import { Equipment, WorkflowTemplate, WorkflowTemplateStep, BatchWorkflowStep, BrewBatch } from "../types";
+import { Equipment, WorkflowTemplate, BatchWorkflowStep, BrewBatch } from "../types";
 import { Modal, Field, ModalActions } from "./shared";
 
 
@@ -362,7 +362,6 @@ function BatchWorkflowsSection({
   const [tmplSubmitting, setTmplSubmitting] = useState(false);
 
   const [editingStepId, setEditingStepId] = useState<string | null>(null);
-  const [editStepDate, setEditStepDate] = useState("");
 
   const sorted = [...batchSteps].sort((a, b) => a.step_order - b.step_order);
   const selectedBatch = batches.find((b) => b.id === selectedBatchId);
@@ -462,7 +461,7 @@ function BatchWorkflowsSection({
       <div className="flex items-start justify-between mb-4">
         <div>
           <h3 className="text-base font-medium text-zinc-100">Batch Workflows</h3>
-          <p className="text-sm text-zinc-500 mt-0.5">Schedule a batch's journey through equipment</p>
+          <p className="text-sm text-zinc-500 mt-0.5">Schedule a batch&apos;s journey through equipment</p>
         </div>
       </div>
 
@@ -512,7 +511,6 @@ function BatchWorkflowsSection({
               <div className="space-y-0">
                 {sorted.map((step, i) => {
                   const done = !!step.completed_at;
-                  const eq = equipment.find((e) => e.id === step.equipment_id);
                   const isEditingDate = editingStepId === step.id;
                   const isLast = i === sorted.length - 1;
 
