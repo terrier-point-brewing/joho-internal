@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchCatalogItems } from "@/lib/square/catalog";
+
+export const dynamic = "force-dynamic";
 import { fetchCompletedOrders } from "@/lib/square/orders";
 import { fetchRefunds } from "@/lib/square/refunds";
 import { buildTaproomModelReport } from "@/lib/reports/taproom-model";
