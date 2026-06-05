@@ -1,9 +1,10 @@
 "use client";
 
 import React, { useState, useCallback } from "react";
-import { BatchTransfer, Equipment, BrewBatch, BrewInventoryAdjustment, BrewAdjustmentType } from "../types";
+import { BrewInventoryAdjustment, BrewAdjustmentType, BatchTransfer, BrewBatch, Equipment } from "../types";
 import { fmtDateLong } from "@/lib/utils/formatting";
 import { Modal, Field, ModalActions } from "./shared";
+import { useTransfersQuery, useEquipmentQuery, useBatchesQuery } from "../hooks/queries";
 
 const fmtDate = fmtDateLong;
 
@@ -218,15 +219,11 @@ function BrewLotRow({
   );
 }
 
-export default function BrewsSubtab({
-  transfers,
-  tanks,
-  batches,
-}: {
-  transfers: BatchTransfer[];
-  tanks: Equipment[];
-  batches: BrewBatch[];
-}) {
+export default function BrewsSubtab() {
+  const { data: transfers = [] } = useTransfersQuery();
+  const { data: tanks = [] } = useEquipmentQuery();
+  const { data: batches = [] } = useBatchesQuery();
+
   const coldStorageTankIds = new Set(tanks.filter((t) => t.type === "cold_storage").map((t) => t.id));
   const brewTransfers = transfers.filter(
     (t) => t.to_tank_id && coldStorageTankIds.has(t.to_tank_id) && (t.transfer_type === "kegging" || t.transfer_type === "canning")

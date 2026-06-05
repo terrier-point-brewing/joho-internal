@@ -6,14 +6,9 @@ import {
   format, addDays, differenceInDays, parseISO,
   startOfToday, subDays,
 } from "date-fns";
-import { Equipment, BrewBatch } from "../types";
+import { Equipment } from "../types";
 import { Modal, Field } from "./shared";
-import { useBatchScheduleQuery, productionKeys, type ScheduleEntry } from "../hooks/queries";
-
-interface Props {
-  equipment: Equipment[];
-  batches: BrewBatch[];
-}
+import { useBatchScheduleQuery, useEquipmentQuery, useBatchesQuery, productionKeys, type ScheduleEntry } from "../hooks/queries";
 
 const EQUIPMENT_STAGE_ORDER = ["brewhouse", "fermenter", "brite", "kegging", "canning", "cold_storage"];
 const STAGE_LABELS: Record<string, string> = {
@@ -48,8 +43,10 @@ function blank() {
   return { batch_id: "", equipment_id: "", stage: "fermenting", planned_start: "", planned_end: "", notes: "" };
 }
 
-export default function GanttTab({ equipment, batches }: Props) {
+export default function GanttTab() {
   const qc = useQueryClient();
+  const { data: equipment = [] } = useEquipmentQuery();
+  const { data: batches = [] } = useBatchesQuery();
   const { data: entries = [] } = useBatchScheduleQuery();
   const [rangeIdx, setRangeIdx] = useState(2);
   const [viewStart, setViewStart] = useState(() => subDays(startOfToday(), 3));

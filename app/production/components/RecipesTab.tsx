@@ -2,7 +2,7 @@
 
 import { useState, Fragment } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Recipe, RecipeBrewActivityTemplate, Ingredient, INGREDIENT_CATEGORIES, IngredientCategory, leadTimeDays } from "../types";
+import { Recipe, RecipeBrewActivityTemplate, INGREDIENT_CATEGORIES, IngredientCategory, leadTimeDays } from "../types";
 import { Modal, Field, ModalActions } from "./shared";
 import { EQ } from "../equipmentMeta";
 import { useRecipesQuery, useIngredientsQuery, useContractPartnersQuery, productionKeys } from "../hooks/queries";
@@ -683,48 +683,4 @@ export default function RecipesTab() {
   );
 }
 
-/** Render markdown to HTML for display (fixes ordered lists using <ol>) */
-function renderMarkdown(text: string): string {
-  const lines = text.split("\n");
-  const out: string[] = [];
-  let listType: "ul" | "ol" | null = null;
-  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const inline = (s: string) =>
-    esc(s)
-      .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
-      .replace(/\*(.*?)\*/g, "<em>$1</em>")
-      .replace(/`(.*?)`/g, "<code>$1</code>");
 
-  const closeList = () => {
-    if (listType === "ul") out.push("</ul>");
-    else if (listType === "ol") out.push("</ol>");
-    listType = null;
-  };
-
-  for (const raw of lines) {
-    const line = raw.trimEnd();
-    const isBullet = /^[-*] /.test(line);
-    const isOrdered = /^\d+\. /.test(line);
-    const isItem = isBullet || isOrdered;
-
-    if (!isItem && listType !== null) closeList();
-
-    if (/^### /.test(line)) { out.push(`<h3>${inline(line.slice(4))}</h3>`); }
-    else if (/^## /.test(line))  { out.push(`<h2>${inline(line.slice(3))}</h2>`); }
-    else if (/^# /.test(line))   { out.push(`<h1>${inline(line.slice(2))}</h1>`); }
-    else if (isBullet) {
-      if (listType !== "ul") { closeList(); out.push("<ul>"); listType = "ul"; }
-      out.push(`<li>${inline(line.slice(2))}</li>`);
-    } else if (isOrdered) {
-      if (listType !== "ol") { closeList(); out.push("<ol>"); listType = "ol"; }
-      const m = line.match(/^\d+\. (.*)/);
-      out.push(`<li>${inline(m![1])}</li>`);
-    } else if (line.trim() === "") {
-      out.push("<br/>");
-    } else {
-      out.push(`<p>${inline(line)}</p>`);
-    }
-  }
-  closeList();
-  return out.join("\n");
-}

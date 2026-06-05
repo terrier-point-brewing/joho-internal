@@ -1,6 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { fetchJson } from "@/app/production/hooks/queries";
+
+const MANUAL_ENTRIES_KEY = ["taproom", "manual-entries"] as const;
 
 type ManualEntry = {
   id: string;
@@ -61,8 +65,13 @@ export default function ManualEntriesTab() {
   const currentYear  = new Date().getFullYear();
   const currentMonth = new Date().getMonth() + 1;
 
-  const [entries,  setEntries]  = useState<ManualEntry[]>([]);
-  const [loading,  setLoading]  = useState(true);
+  const qc = useQueryClient();
+  const { data: entries = [], isLoading: loading } = useQuery({
+    queryKey: MANUAL_ENTRIES_KEY,
+    queryFn: () => fetchJson<ManualEntry[]>("/api/manual-entries"),
+  });
+  const refresh = () => qc.invalidateQueries({ queryKey: MANUAL_ENTRIES_KEY });
+
   const [deleting, setDeleting] = useState<string | null>(null);
 
   // Form state
@@ -73,15 +82,6 @@ export default function ManualEntriesTab() {
   const [saving,     setSaving]     = useState(false);
   const [saved,      setSaved]      = useState(false);
   const [formError,  setFormError]  = useState("");
-
-  useEffect(() => { fetchEntries(); }, []);
-
-  async function fetchEntries() {
-    setLoading(true);
-    const res = await fetch("/api/manual-entries");
-    if (res.ok) setEntries(await res.json());
-    setLoading(false);
-  }
 
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault();
@@ -117,7 +117,7 @@ export default function ManualEntriesTab() {
     setTimeout(() => setSaved(false), 2500);
     setFormAmount("");
     setFormLabel("");
-    await fetchEntries();
+    await refresh();
     // If overwriting, surface a note
     if (existing) setFormError(`Replaced existing entry for ${MONTH_ABBR[formMonth - 1]} ${formYear}.`);
   }
@@ -130,7 +130,7 @@ export default function ManualEntriesTab() {
       body: JSON.stringify({ id }),
     });
     setDeleting(null);
-    await fetchEntries();
+    await refresh();
   }
 
   // Group entries by year for display

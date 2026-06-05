@@ -2,7 +2,6 @@
 
 import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { useProductionData } from "./hooks/useProductionData";
 import BatchLogTab    from "./components/BatchLogTab";
 import RecipesTab     from "./components/RecipesTab";
 import BrewStatusTab  from "./components/BrewStatusTab";
@@ -14,10 +13,10 @@ import ExportTab      from "./components/ExportTab";
 import IntakeTab      from "./components/IntakeTab";
 
 const BREWING_SUBTABS = [
-  { key: "floorplan",  label: "Floorplan"  },
-  { key: "batch-log",  label: "Batch Log"  },
-  { key: "timeline",   label: "Timeline"   },
-  { key: "calendar",   label: "Calendar"   },
+  { key: "floorplan", label: "Floorplan"  },
+  { key: "batch-log", label: "Batch Log"  },
+  { key: "timeline",  label: "Timeline"   },
+  { key: "calendar",  label: "Calendar"   },
 ] as const;
 
 type BrewingSubtab = typeof BREWING_SUBTABS[number]["key"];
@@ -27,14 +26,9 @@ function ProductionContent() {
   const tab = searchParams.get("tab") ?? "intake";
   const [brewingSubtab, setBrewingSubtab] = useState<BrewingSubtab>("floorplan");
 
-  const {
-    ingredients, adjustments, recipes, batches, tanks, packaging, transfers,
-    loadIngredients, loadAdjustments, loadRecipes, loadPackaging,
-  } = useProductionData();
-
   return (
     <main className="px-6 py-8">
-      {tab === "intake" && <IntakeTab recipes={recipes} transfers={transfers} tanks={tanks} batches={batches} />}
+      {tab === "intake" && <IntakeTab />}
 
       {tab === "brewing" && (
         <>
@@ -61,21 +55,14 @@ function ProductionContent() {
           </div>
           {brewingSubtab === "floorplan" && <BrewStatusTab />}
           {brewingSubtab === "batch-log" && <BatchLogTab />}
-          {brewingSubtab === "timeline" && <GanttTab equipment={tanks} batches={batches} />}
-          {brewingSubtab === "calendar" && <CalendarTab batches={batches} />}
+          {brewingSubtab === "timeline"  && <GanttTab />}
+          {brewingSubtab === "calendar"  && <CalendarTab />}
         </>
       )}
 
       {tab === "export"    && <ExportTab />}
       {tab === "recipes"   && <RecipesTab />}
-      {tab === "inventory" && (
-        <InventoryTab
-          ingredients={ingredients} adjustments={adjustments} packaging={packaging}
-          transfers={transfers} tanks={tanks} batches={batches}
-          onRefreshIngredients={loadIngredients} onRefreshAdjustments={loadAdjustments}
-          onRefreshPackaging={loadPackaging}
-        />
-      )}
+      {tab === "inventory" && <InventoryTab />}
       {tab === "partners"  && <PartnersTab />}
 
       <style>{`

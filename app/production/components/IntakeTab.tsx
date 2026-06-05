@@ -1,42 +1,32 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Recipe, BatchTransfer, Equipment, BrewBatch, ContractBrewingPartner } from "../types";
-import TaproomTab from "./intake/TaproomTab";
+import { useState } from "react";
+import TaproomTab      from "./intake/TaproomTab";
 import DistributionTab from "./intake/DistributionTab";
 import ContractBrewingTab from "./intake/ContractBrewingTab";
-import SafetyStockTab from "./intake/SafetyStockTab";
+import SafetyStockTab  from "./intake/SafetyStockTab";
 import DemandCalendarTab from "./intake/DemandCalendarTab";
 import BatchSchedulerTab from "./intake/BatchSchedulerTab";
+import { useRecipesQuery, useTransfersQuery, useEquipmentQuery, useBatchesQuery, useContractPartnersQuery } from "../hooks/queries";
 
 type IntakeSubtab = "taproom" | "distribution" | "contract" | "safety" | "demand" | "scheduler";
 
-const SUBTABS: { key: IntakeSubtab; label: string; description: string }[] = [
-  { key: "taproom",      label: "Taproom",          description: "Live taproom inventory from Square with threshold forecasting." },
-  { key: "distribution", label: "Distribution",     description: "Committed purchase allocations by style and packaging." },
-  { key: "contract",     label: "Contract Brewing", description: "Contract brewing requests from partners." },
-  { key: "safety",       label: "Safety Stock",     description: "Cold-storage inventory and safety stock floors." },
-  { key: "demand",       label: "Demand Calendar",  description: "Aggregated demand schedule by style and packaging, week over week." },
-  { key: "scheduler",    label: "Batch Scheduler",  description: "Recommended batches based on demand and equipment availability." },
+const SUBTABS: { key: IntakeSubtab; label: string }[] = [
+  { key: "taproom",      label: "Taproom" },
+  { key: "distribution", label: "Distribution" },
+  { key: "contract",     label: "Contract Brewing" },
+  { key: "safety",       label: "Safety Stock" },
+  { key: "demand",       label: "Demand Calendar" },
+  { key: "scheduler",    label: "Batch Scheduler" },
 ];
 
-export default function IntakeTab({
-  recipes, transfers, tanks, batches,
-}: {
-  recipes: Recipe[];
-  transfers: BatchTransfer[];
-  tanks: Equipment[];
-  batches: BrewBatch[];
-}) {
+export default function IntakeTab() {
   const [sub, setSub] = useState<IntakeSubtab>("taproom");
-  const [partners, setPartners] = useState<ContractBrewingPartner[]>([]);
-
-  useEffect(() => {
-    (async () => {
-      const r = await fetch("/api/partners/contract-brewing");
-      if (r.ok) setPartners(await r.json());
-    })();
-  }, []);
+  const { data: recipes = [] }  = useRecipesQuery();
+  const { data: transfers = [] } = useTransfersQuery();
+  const { data: tanks = [] }    = useEquipmentQuery();
+  const { data: batches = [] }  = useBatchesQuery();
+  const { data: partners = [] } = useContractPartnersQuery();
 
   return (
     <>
@@ -65,9 +55,8 @@ export default function IntakeTab({
       {sub === "distribution" && <DistributionTab recipes={recipes} partners={partners} />}
       {sub === "contract"     && <ContractBrewingTab recipes={recipes} partners={partners} />}
       {sub === "safety"       && <SafetyStockTab recipes={recipes} transfers={transfers} tanks={tanks} batches={batches} />}
-
-      {sub === "demand"    && <DemandCalendarTab />}
-      {sub === "scheduler" && <BatchSchedulerTab recipes={recipes} tanks={tanks} />}
+      {sub === "demand"       && <DemandCalendarTab />}
+      {sub === "scheduler"    && <BatchSchedulerTab recipes={recipes} tanks={tanks} />}
     </>
   );
 }

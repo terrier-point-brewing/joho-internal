@@ -1,8 +1,10 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
-import { PackagingItem, PackagingItemType, PackagingAdjustmentType, ContractBrewingPartner, Supplier } from "../types";
+import React, { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { PackagingItem, PackagingItemType, PackagingAdjustmentType } from "../types";
 import { Modal, Field, ModalActions } from "./shared";
+import { usePackagingQuery, useContractPartnersQuery, useSuppliersQuery, productionKeys } from "../hooks/queries";
 
 const PKG_ADJ_TYPES: { value: PackagingAdjustmentType; label: string; hint: string; sign: "positive" | "negative" | "count" }[] = [
   { value: "received",        label: "Received",        hint: "Stock received from supplier", sign: "positive" },
@@ -45,32 +47,18 @@ function supplierName(item: PackagingItem): string | null {
   return item.suppliers?.company_name ?? null;
 }
 
-export default function PackagingTab({
-  packaging,
-  onRefresh,
-}: {
-  packaging: PackagingItem[];
-  onRefresh: () => Promise<void>;
-}) {
+export default function PackagingTab() {
+  const qc = useQueryClient();
+  const { data: packaging = [] } = usePackagingQuery();
+  const { data: partners = [] } = useContractPartnersQuery();
+  const { data: suppliers = [] } = useSuppliersQuery();
+  const onRefresh = () => qc.invalidateQueries({ queryKey: productionKeys.packaging });
+
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
   const [filterType, setFilterType] = useState<PackagingItemType | "all">("all");
-
-  const [partners, setPartners] = useState<ContractBrewingPartner[]>([]);
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-
-  const loadPartners = useCallback(async () => {
-    const r = await fetch("/api/partners/contract-brewing");
-    if (r.ok) setPartners(await r.json());
-  }, []);
-  const loadSuppliers = useCallback(async () => {
-    const r = await fetch("/api/partners/suppliers");
-    if (r.ok) setSuppliers(await r.json());
-  }, []);
-
-  useEffect(() => { loadPartners(); loadSuppliers(); }, [loadPartners, loadSuppliers]);
 
   // Adjustment state
   const [adjItem, setAdjItem] = useState<PackagingItem | null>(null);

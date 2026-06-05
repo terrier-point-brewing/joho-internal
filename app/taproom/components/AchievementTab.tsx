@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { fetchJson } from "@/app/production/hooks/queries";
 import {
   ResponsiveContainer, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine,
@@ -140,12 +142,11 @@ export default function AchievementTab() {
   const [quarter,    setQuarter]    = useState<number>(currentQ);
   const [activeTier, setActiveTier] = useState<Tier>("target");
   const [chartView,  setChartView]  = useState<ChartView>("cumulative");
-  const [targets,    setTargets]    = useState<Target[]>([]);
+  const { data: targets = [] } = useQuery({
+    queryKey: ["taproom", "targets"],
+    queryFn: () => fetchJson<Target[]>("/api/targets"),
+  });
   const [periods,    setPeriods]    = useState<Period[]>([]);
-
-  useEffect(() => {
-    fetch("/api/targets").then((r) => r.json()).then(setTargets).catch(() => {});
-  }, []);
 
   const loadPeriods = useCallback(async () => {
     const base =
@@ -175,6 +176,7 @@ export default function AchievementTab() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [grain, scope, year, quarter]);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- progressive parallel fetches require setState in callback
   useEffect(() => { loadPeriods(); }, [loadPeriods]);
 
   // ---------------------------------------------------------------------------

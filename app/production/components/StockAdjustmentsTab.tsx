@@ -1,10 +1,15 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   StockAdjustment, PackagingStockAdjustment, BrewInventoryAdjustment,
-  Ingredient, PackagingItem, BatchTransfer, BrewBatch, AdjustmentType, PackagingAdjustmentType, BrewAdjustmentType,
+  AdjustmentType, PackagingAdjustmentType, BrewAdjustmentType,
+  Ingredient, PackagingItem, BatchTransfer, BrewBatch,
 } from "../types";
+import {
+  useAdjustmentsQuery, useIngredientsQuery, usePackagingQuery, useTransfersQuery, useBatchesQuery, fetchJson,
+} from "../hooks/queries";
 
 type Source = "all" | "ingredients" | "packaging" | "brew";
 type SortDir = "desc" | "asc";
@@ -144,40 +149,26 @@ function buildRows(
   return [...ingRows, ...pkgRows, ...brewRows];
 }
 
-export default function StockAdjustmentsTab({
-  ingAdjustments,
-  ingredients,
-  packaging,
-  transfers,
-  batches,
-}: {
-  ingAdjustments: StockAdjustment[];
-  ingredients: Ingredient[];
-  packaging: PackagingItem[];
-  transfers: BatchTransfer[];
-  batches: BrewBatch[];
-}) {
-  const [pkgAdjs, setPkgAdjs]   = useState<PackagingStockAdjustment[]>([]);
-  const [brewAdjs, setBrewAdjs] = useState<BrewInventoryAdjustment[]>([]);
-  const [loading, setLoading]   = useState(true);
+export default function StockAdjustmentsTab() {
+  const { data: ingAdjustments = [] } = useAdjustmentsQuery();
+  const { data: ingredients = [] } = useIngredientsQuery();
+  const { data: packaging = [] } = usePackagingQuery();
+  const { data: transfers = [] } = useTransfersQuery();
+  const { data: batches = [] } = useBatchesQuery();
+  const { data: pkgAdjs = [], isLoading: pkgLoading } = useQuery({
+    queryKey: ["production", "packaging-adjustments"],
+    queryFn: () => fetchJson<PackagingStockAdjustment[]>("/api/production/packaging-adjustments"),
+  });
+  const { data: brewAdjs = [], isLoading: brewLoading } = useQuery({
+    queryKey: ["production", "brew-adjustments"],
+    queryFn: () => fetchJson<BrewInventoryAdjustment[]>("/api/production/brew-adjustments"),
+  });
+  const loading = pkgLoading || brewLoading;
 
   const [source, setSource]         = useState<Source>("all");
   const [search, setSearch]         = useState("");
   const [sortDir, setSortDir]       = useState<SortDir>("desc");
   const [groupByDate, setGroupByDate] = useState(false);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    const [pkgRes, brewRes] = await Promise.all([
-      fetch("/api/production/packaging-adjustments"),
-      fetch("/api/production/brew-adjustments"),
-    ]);
-    if (pkgRes.ok)  setPkgAdjs(await pkgRes.json());
-    if (brewRes.ok) setBrewAdjs(await brewRes.json());
-    setLoading(false);
-  }, []);
-
-  useEffect(() => { load(); }, [load]);
 
   const allRows = buildRows(ingAdjustments, pkgAdjs, brewAdjs, ingredients, packaging, transfers, batches);
 
@@ -205,7 +196,7 @@ export default function StockAdjustmentsTab({
           if (!map.has(key)) map.set(key, []);
           map.get(key)!.push(r);
         }
-        return Array.from(map.entries()).map(([k, rows]) => ({ label: fmtDay(rows[0].createdAt), rows }));
+        return Array.from(map.entries()).map(([, rows]) => ({ label: fmtDay(rows[0].createdAt), rows }));
       })()
     : [{ label: "", rows: filtered }];
 

@@ -6,12 +6,7 @@ import {
   addDays, addMonths, subMonths, isSameMonth, isSameDay,
   parseISO, startOfDay, endOfDay,
 } from "date-fns";
-import { BrewBatch } from "../types";
-import { useBatchScheduleQuery } from "../hooks/queries";
-
-interface Props {
-  batches: BrewBatch[];
-}
+import { useBatchScheduleQuery, useBatchesQuery } from "../hooks/queries";
 
 const BATCH_PALETTE = [
   "#f59e0b", "#3b82f6", "#10b981", "#8b5cf6",
@@ -28,8 +23,9 @@ const STAGE_LABELS: Record<string, string> = {
   cold_storage: "Cold",
 };
 
-export default function CalendarTab({ batches }: Props) {
+export default function CalendarTab() {
   const { data: entries = [] } = useBatchScheduleQuery();
+  const { data: batches = [] } = useBatchesQuery();
   const [currentMonth, setCurrentMonth] = useState(() => startOfMonth(new Date()));
 
   // Stable color map per batch

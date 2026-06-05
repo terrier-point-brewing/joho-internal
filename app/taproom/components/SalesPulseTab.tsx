@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   ResponsiveContainer, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
@@ -185,58 +186,37 @@ export default function SalesPulseTab() {
   const [weekStart,      setWeekStart]      = useState<Date>(() => getMondayOf(today));
   const [chartMetric,    setChartMetric]    = useState<KpiMetric>("net_sales");
   const [catDayFilter,   setCatDayFilter]   = useState<number | null>(null); // null = whole week; 0=Mon…6=Sun
-  const [currentData,    setCurrentData]    = useState<PulseData | null>(null);
-  const [priorData,      setPriorData]      = useState<PulseData | null>(null);
-  const [catDayData,     setCatDayData]     = useState<PulseData | null>(null);
-  const [catDayLoading,  setCatDayLoading]  = useState(false);
-  const [loading,        setLoading]        = useState(false);
+  // Date bounds for the current week and its prior-week comparator.
+  const curEnd       = toISO(addDays(weekStart, 6));
+  const priorStart   = toISO(addDays(weekStart, -7));
+  const priorEnd     = toISO(addDays(weekStart, -1));
+  const todayStr     = toISO(today);
+  const effectiveEnd = curEnd < todayStr ? curEnd : todayStr;
+  const curStart     = toISO(weekStart);
 
-  const fetchPulse = useCallback(async (start: string, end: string): Promise<PulseData | null> => {
+  async function fetchPulse(start: string, end: string): Promise<PulseData | null> {
     const res = await fetch(`/api/sales-pulse?start=${start}&end=${end}`);
     if (!res.ok) return null;
     return res.json();
-  }, []);
+  }
 
-  useEffect(() => {
-    setLoading(true);
-    setCurrentData(null);
-    setPriorData(null);
+  const { data: currentData = null, isLoading: loading } = useQuery({
+    queryKey: ["taproom", "sales-pulse", curStart, effectiveEnd],
+    queryFn: () => fetchPulse(curStart, effectiveEnd),
+  });
+  const { data: priorData = null } = useQuery({
+    queryKey: ["taproom", "sales-pulse", priorStart, priorEnd],
+    queryFn: () => fetchPulse(priorStart, priorEnd),
+  });
 
-    const curEnd = toISO(addDays(weekStart, 6));
-    const priorStart = toISO(addDays(weekStart, -7));
-    const priorEnd   = toISO(addDays(weekStart, -1));
-    const todayStr   = toISO(today);
-
-    // Cap current week end at today
-    const effectiveEnd = curEnd < todayStr ? curEnd : todayStr;
-
-    Promise.all([
-      fetchPulse(toISO(weekStart), effectiveEnd),
-      fetchPulse(priorStart, priorEnd),
-    ]).then(([cur, prior]) => {
-      setCurrentData(cur);
-      setPriorData(prior);
-      setLoading(false);
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [weekStart]);
-
-  // Fetch category data for a specific day when the day filter is active
-  useEffect(() => {
-    if (catDayFilter === null) { setCatDayData(null); return; }
-    const dayDate  = addDays(weekStart, catDayFilter);
-    const dateStr  = toISO(dayDate);
-    const todayStr = toISO(today);
-    // Don't fetch future days
-    if (dateStr > todayStr) { setCatDayData(null); return; }
-    setCatDayLoading(true);
-    setCatDayData(null);
-    fetchPulse(dateStr, dateStr).then((d) => {
-      setCatDayData(d);
-      setCatDayLoading(false);
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [catDayFilter, weekStart]);
+  // Per-day category breakdown — only fetched when day filter is active.
+  const dayDate   = catDayFilter !== null ? toISO(addDays(weekStart, catDayFilter)) : null;
+  const dayIsFuture = dayDate ? dayDate > todayStr : false;
+  const { data: catDayData = null, isLoading: catDayLoading } = useQuery({
+    queryKey: ["taproom", "sales-pulse-day", dayDate],
+    queryFn: () => fetchPulse(dayDate!, dayDate!),
+    enabled: dayDate !== null && !dayIsFuture,
+  });
 
   // ---------------------------------------------------------------------------
   // Chart data — align both weeks on Mon–Sun index
@@ -278,8 +258,7 @@ export default function SalesPulseTab() {
   const catRetTotal   = catSource?.by_category.filter((c) => !c.excluded).reduce((s, c) => s + c.returns_cents,     0) ?? 0;
   const catTaxTotal   = catSource?.by_category.filter((c) => !c.excluded).reduce((s, c) => s + c.tax_cents,         0) ?? 0;
 
-  // Day pills — only show days that have started (≤ today)
-  const todayStr = toISO(today);
+  // Day pills — only show days that have started (≤ today) — todayStr defined above at data layer
   const dayPills = DAY_LABELS.map((label, i) => {
     const date    = addDays(weekStart, i);
     const dateStr = toISO(date);

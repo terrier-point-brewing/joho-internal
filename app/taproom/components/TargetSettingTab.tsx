@@ -1,6 +1,10 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { fetchJson } from "@/app/production/hooks/queries";
+
+const TARGETS_KEY = ["taproom", "targets"] as const;
 
 type Tier = "baseline" | "recovery" | "target" | "stretch";
 
@@ -85,20 +89,25 @@ const selectCls =
 export default function TargetSettingTab() {
   const currentYear = new Date().getFullYear();
 
+  const qc = useQueryClient();
+  const { data: targets = [], isLoading: loading } = useQuery({
+    queryKey: TARGETS_KEY,
+    queryFn: () => fetchJson<Target[]>("/api/targets"),
+  });
+  const refreshTargets = () => qc.invalidateQueries({ queryKey: TARGETS_KEY });
+
   const [mode,    setMode]    = useState<"view" | "edit">("view");
   const [year,    setYear]    = useState(currentYear);
-  const [targets, setTargets] = useState<Target[]>([]);
   const [grid,    setGrid]    = useState<GridState>(emptyGrid());
   const [dirty,   setDirty]   = useState<Set<string>>(new Set());
   const [saving,  setSaving]  = useState(false);
   const [saved,   setSaved]   = useState(false);
-  const [loading, setLoading] = useState(true);
 
   const populatedYearRef = useRef<number | null>(null);
 
-  useEffect(() => { fetchTargets(); }, []);
-
-  // Re-populate grid from DB whenever year or targets change
+  // Re-populate grid from DB whenever year or targets change.
+  // This is a pure derivation of server data into editable local state — not a
+  // fire-and-forget effect — so the setState is intentional here.
   useEffect(() => {
     if (populatedYearRef.current === year) return;
     populatedYearRef.current = year;
@@ -109,13 +118,6 @@ export default function TargetSettingTab() {
     setGrid(g);
     setDirty(new Set());
   }, [year, targets]);
-
-  async function fetchTargets() {
-    setLoading(true);
-    const res = await fetch("/api/targets");
-    if (res.ok) setTargets(await res.json());
-    setLoading(false);
-  }
 
   function handleCell(quarter: number, tier: Tier, value: string) {
     setGrid((prev) => ({
@@ -170,7 +172,7 @@ export default function TargetSettingTab() {
     setTimeout(() => setSaved(false), 2500);
     setDirty(new Set());
     populatedYearRef.current = null;
-    await fetchTargets();
+    await refreshTargets();
     setMode("view");
   }
 

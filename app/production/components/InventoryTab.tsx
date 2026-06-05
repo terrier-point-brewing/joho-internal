@@ -1,11 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { Ingredient, StockAdjustment, PackagingItem, BatchTransfer, Equipment, BrewBatch } from "../types";
-import IngredientsTab       from "./IngredientsTab";
-import PackagingTab         from "./PackagingTab";
-import BrewsSubtab          from "./BrewsSubtab";
-import StockAdjustmentsTab  from "./StockAdjustmentsTab";
+import IngredientsTab      from "./IngredientsTab";
+import PackagingTab        from "./PackagingTab";
+import BrewsSubtab         from "./BrewsSubtab";
+import StockAdjustmentsTab from "./StockAdjustmentsTab";
 
 type SubTab = "ingredients" | "packaging" | "brews" | "adjustments";
 
@@ -16,27 +15,7 @@ const SUBTAB_LABELS: Record<SubTab, string> = {
   adjustments: "Stock Adjustments",
 };
 
-export default function InventoryTab({
-  ingredients,
-  adjustments,
-  packaging,
-  transfers,
-  tanks,
-  batches,
-  onRefreshIngredients,
-  onRefreshAdjustments,
-  onRefreshPackaging,
-}: {
-  ingredients: Ingredient[];
-  adjustments: StockAdjustment[];
-  packaging: PackagingItem[];
-  transfers: BatchTransfer[];
-  tanks: Equipment[];
-  batches: BrewBatch[];
-  onRefreshIngredients: () => Promise<void>;
-  onRefreshAdjustments: () => Promise<void>;
-  onRefreshPackaging: () => Promise<void>;
-}) {
+export default function InventoryTab() {
   const [sub, setSub] = useState<SubTab>("ingredients");
 
   return (
@@ -64,28 +43,10 @@ export default function InventoryTab({
         ))}
       </div>
 
-      {sub === "ingredients" && (
-        <IngredientsTab
-          ingredients={ingredients}
-          onRefresh={onRefreshIngredients}
-          onAdjustmentsRefresh={onRefreshAdjustments}
-        />
-      )}
-      {sub === "packaging" && (
-        <PackagingTab packaging={packaging} onRefresh={onRefreshPackaging} />
-      )}
-      {sub === "brews" && (
-        <BrewsSubtab transfers={transfers} tanks={tanks} batches={batches} />
-      )}
-      {sub === "adjustments" && (
-        <StockAdjustmentsTab
-          ingAdjustments={adjustments}
-          ingredients={ingredients}
-          packaging={packaging}
-          transfers={transfers}
-          batches={batches}
-        />
-      )}
+      {sub === "ingredients"  && <IngredientsTab />}
+      {sub === "packaging"    && <PackagingTab />}
+      {sub === "brews"        && <BrewsSubtab />}
+      {sub === "adjustments"  && <StockAdjustmentsTab />}
     </>
   );
 }

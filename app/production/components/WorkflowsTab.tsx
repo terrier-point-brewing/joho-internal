@@ -1,8 +1,10 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Equipment, WorkflowTemplate, BatchWorkflowStep, BrewBatch } from "../types";
 import { Modal, Field, ModalActions } from "./shared";
+import { fetchJson } from "../hooks/queries";
 
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -38,23 +40,21 @@ export default function WorkflowsTab({
   batches: BrewBatch[];
   subtab?: "planner" | "templates";
 }) {
-  const [templates, setTemplates] = useState<WorkflowTemplate[]>([]);
-  const [batchSteps, setBatchSteps] = useState<BatchWorkflowStep[]>([]);
+  const qc = useQueryClient();
   const [selectedBatchId, setSelectedBatchId] = useState<string>("");
 
-  const loadTemplates = useCallback(async () => {
-    const r = await fetch("/api/production/workflow-templates");
-    if (r.ok) setTemplates(await r.json());
-  }, []);
+  const { data: templates = [] } = useQuery({
+    queryKey: ["production", "workflow-templates"],
+    queryFn: () => fetchJson<WorkflowTemplate[]>("/api/production/workflow-templates"),
+  });
+  const { data: batchSteps = [] } = useQuery({
+    queryKey: ["production", "batch-workflows", selectedBatchId],
+    queryFn: () => fetchJson<BatchWorkflowStep[]>(`/api/production/batch-workflows?batch_id=${selectedBatchId}`),
+    enabled: !!selectedBatchId,
+  });
 
-  const loadBatchSteps = useCallback(async (batchId: string) => {
-    if (!batchId) { setBatchSteps([]); return; }
-    const r = await fetch(`/api/production/batch-workflows?batch_id=${batchId}`);
-    if (r.ok) setBatchSteps(await r.json());
-  }, []);
-
-  useEffect(() => { loadTemplates(); }, [loadTemplates]);
-  useEffect(() => { loadBatchSteps(selectedBatchId); }, [selectedBatchId, loadBatchSteps]);
+  const loadTemplates = () => qc.invalidateQueries({ queryKey: ["production", "workflow-templates"] });
+  const loadBatchSteps = (batchId: string) => qc.invalidateQueries({ queryKey: ["production", "batch-workflows", batchId] });
 
   const activeBatches = batches.filter((b) => b.status !== "archived");
 

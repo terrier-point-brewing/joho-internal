@@ -7,7 +7,8 @@ import { BREWHOUSE_BBL, StatusBadge, Modal, Field, ModalActions } from "./shared
 import { fmtDateLong, fmtBbl2 } from "@/lib/utils/formatting";
 import { EQ } from "../equipmentMeta";
 import {
-  useBatchesQuery, useRecipesQuery, useTransfersQuery, useContractPartnersQuery, productionKeys,
+  useBatchesQuery, useRecipesQuery, useTransfersQuery, useContractPartnersQuery,
+  useAssignmentsQuery, useEquipmentQuery, productionKeys,
 } from "../hooks/queries";
 
 const fmtDate = fmtDateLong;
@@ -43,6 +44,8 @@ export default function BatchLogTab() {
   const { data: batches = [] } = useBatchesQuery();
   const { data: recipes = [] } = useRecipesQuery();
   const { data: transfers = [] } = useTransfersQuery();
+  const { data: assignments = [] } = useAssignmentsQuery();
+  const { data: tanks = [] } = useEquipmentQuery();
   // Batch CRUD changes the batches list (and allocations nested within it).
   const refresh = () => qc.invalidateQueries({ queryKey: productionKeys.batches });
 
@@ -174,8 +177,93 @@ export default function BatchLogTab() {
   const active   = sortBatches(batches.filter((b) => b.status !== "archived"));
   const archived = sortBatches(batches.filter((b) => b.status === "archived"));
 
+  // ── Volume-by-location metrics ──────────────────────────────────────────────
+  const tankById = Object.fromEntries(tanks.map((t) => [t.id, t]));
+  const batchById = Object.fromEntries(batches.map((b) => [b.id, b]));
+
+  // Volume currently assigned to each tank type (from live assignments)
+  const volByTankType: Record<string, number> = {};
+  for (const a of assignments) {
+    const tank = tankById[a.tank_id];
+    const batch = a.brew_batches ?? batchById[a.batch_id];
+    if (!tank || !batch) continue;
+    volByTankType[tank.type] = (volByTankType[tank.type] ?? 0) + Number(batch.volume_bbl ?? 0);
+  }
+
+  // Planning-status batches not yet assigned to any tank → Backlog
+  const assignedBatchIds = new Set(assignments.map((a) => a.batch_id));
+  const backlogVol = batches
+    .filter((b) => b.status === "planning" && !assignedBatchIds.has(b.id))
+    .reduce((s, b) => s + Number(b.volume_bbl ?? 0), 0);
+
+  // Packaging-status batches not tank-assigned (transferred to kegging/canning)
+  const packagingVol = batches
+    .filter((b) => b.status === "packaging" && !assignedBatchIds.has(b.id))
+    .reduce((s, b) => s + Number(b.volume_bbl ?? 0), 0);
+
+  // Cold storage: sum of kegging/canning transfers whose destination is cold_storage
+  const coldStorageVol = transfers
+    .filter((t) => (t.transfer_type === "kegging" || t.transfer_type === "canning") && t.to_tank?.type === "cold_storage")
+    .reduce((s, t) => s + Number(t.volume_bbl ?? 0), 0);
+
+  // Exported: sum of transfers to export_bay
+  const exportedVol = transfers
+    .filter((t) => t.to_tank?.type === "export_bay")
+    .reduce((s, t) => s + Number(t.volume_bbl ?? 0), 0);
+
+  // Total shrinkage across all recorded transfers
+  const totalShrinkage = transfers.reduce((s, t) => s + Number(t.shrinkage_bbl ?? 0), 0);
+
+  // Active batch total vs sum of tracked locations — flag imbalance
+  const activeBatchTotal = active.reduce((s, b) => s + Number(b.volume_bbl ?? 0), 0);
+  const trackedActive    = backlogVol
+    + (volByTankType["brewhouse"] ?? 0)
+    + (volByTankType["fermenter"] ?? 0)
+    + (volByTankType["brite"]     ?? 0)
+    + packagingVol
+    + (volByTankType["kegging"]   ?? 0)
+    + (volByTankType["canning"]   ?? 0);
+  const imbalance = Math.abs(activeBatchTotal - trackedActive) > 0.01;
+
   return (
     <>
+      {/* ── Volume-by-location metrics ───────────────────────────────────── */}
+      <div className="mb-6 rounded-lg border border-zinc-800 bg-zinc-900/40 p-4">
+        <p className="text-xs font-medium text-zinc-500 uppercase tracking-wide mb-3">Volume by Location</p>
+        <div className="grid grid-cols-3 gap-3 sm:grid-cols-6 mb-3">
+          {([
+            ["Backlog",    backlogVol],
+            ["Brewhouse",  volByTankType["brewhouse"] ?? 0],
+            ["Fermenter",  volByTankType["fermenter"] ?? 0],
+            ["Brite Tank", volByTankType["brite"]     ?? 0],
+            ["Packaging",  packagingVol + (volByTankType["kegging"] ?? 0) + (volByTankType["canning"] ?? 0)],
+            ["Cold Storage", coldStorageVol],
+          ] as [string, number][]).map(([label, vol]) => (
+            <div key={label} className="flex flex-col gap-0.5">
+              <span className="text-xs text-zinc-600">{label}</span>
+              <span className="text-sm font-medium tabular-nums text-zinc-200">{fmtBbl2(vol)}</span>
+            </div>
+          ))}
+        </div>
+        <div className="flex flex-wrap gap-6 border-t border-zinc-800/60 pt-3">
+          <div>
+            <span className="text-xs text-zinc-600">Exported</span>
+            <p className="text-sm font-medium tabular-nums text-zinc-200">{fmtBbl2(exportedVol)}</p>
+          </div>
+          <div>
+            <span className="text-xs text-zinc-600">Total Shrinkage</span>
+            <p className="text-sm font-medium tabular-nums text-amber-400">{fmtBbl2(totalShrinkage)}</p>
+          </div>
+          {imbalance && (
+            <div className="ml-auto self-center">
+              <span className="text-xs text-red-400 border border-red-800 bg-red-900/20 px-2 py-1 rounded">
+                ⚠ Volume imbalance: tracked {fmtBbl2(trackedActive)} vs active batches {fmtBbl2(activeBatchTotal)}
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+
       <div className="flex justify-end mb-4">
         <button onClick={openNew} className="btn-amber">+ New Batch</button>
       </div>
@@ -865,12 +953,6 @@ function TransferLog({ transfers, batchVol }: { transfers: BatchTransfer[]; batc
           </tbody>
         </table>
       </div>
-      <p className="text-xs text-zinc-600 mt-1.5">
-        Batch volume: {fmtBbl2(batchVol)} · Total transferred:{" "}
-        {fmtBbl2(sorted.reduce((s, t) => s + Number(t.volume_bbl), 0))} ·
-        Total shrinkage:{" "}
-        {fmtBbl2(sorted.reduce((s, t) => s + Number(t.shrinkage_bbl), 0))}
-      </p>
     </div>
   );
 }

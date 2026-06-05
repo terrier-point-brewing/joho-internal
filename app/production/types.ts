@@ -3,6 +3,7 @@ export type BatchStatus =
   | "brewing"
   | "fermenting"
   | "conditioning"
+  | "packaging"
   | "archived";
 
 export type AdjustmentType = "received" | "used" | "waste" | "inventory_count" | "batch_use";
@@ -20,8 +21,8 @@ export const EQUIPMENT_TYPE_TO_STATUS: Partial<Record<EquipmentType, BatchStatus
   brewhouse:    "brewing",
   fermenter:    "fermenting",
   brite:        "conditioning",
-  kegging:      "conditioning",
-  canning:      "conditioning",
+  kegging:      "packaging",
+  canning:      "packaging",
   cold_storage: "archived",
 };
 

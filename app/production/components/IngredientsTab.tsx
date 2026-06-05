@@ -1,8 +1,10 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
-import { Ingredient, AdjustmentType, Supplier, ContractBrewingPartner, IngredientCategory, INGREDIENT_CATEGORIES } from "../types";
+import { useState, useRef } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { Ingredient, AdjustmentType, IngredientCategory, INGREDIENT_CATEGORIES } from "../types";
 import { Modal, Field, ModalActions } from "./shared";
+import { useContractPartnersQuery, useSuppliersQuery, useIngredientsQuery, productionKeys } from "../hooks/queries";
 
 const INGREDIENT_CATEGORY_META: Record<IngredientCategory, { color: string }> = {
   "Malts":        { color: "border-amber-700 bg-amber-900/30 text-amber-300" },
@@ -329,29 +331,19 @@ function fmtValue(v: number | null | undefined) {
   return `$${v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-export default function IngredientsTab({
-  ingredients,
-  onRefresh,
-  onAdjustmentsRefresh,
-}: {
-  ingredients: Ingredient[];
-  onRefresh: () => Promise<void>;
-  onAdjustmentsRefresh: () => Promise<void>;
-}) {
+export default function IngredientsTab() {
+  const qc = useQueryClient();
+  const { data: ingredients = [] } = useIngredientsQuery();
+  const { data: suppliersList = [] } = useSuppliersQuery();
+  const { data: partnersList = [] } = useContractPartnersQuery();
+  const onRefresh = () => qc.invalidateQueries({ queryKey: productionKeys.ingredients });
+  const onAdjustmentsRefresh = () => qc.invalidateQueries({ queryKey: productionKeys.adjustments });
+
   const [showBulkModal, setShowBulkModal] = useState(false);
   const [showIngModal, setShowIngModal] = useState(false);
   const [ingForm, setIngForm] = useState(ING_EMPTY);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [suppliersList, setSuppliersList] = useState<Supplier[]>([]);
-  const [partnersList, setPartnersList] = useState<ContractBrewingPartner[]>([]);
-  const loadSuppliersList = useCallback(async () => {
-    const r = await fetch("/api/partners/suppliers"); if (r.ok) setSuppliersList(await r.json());
-  }, []);
-  const loadPartnersList = useCallback(async () => {
-    const r = await fetch("/api/partners/contract-brewing"); if (r.ok) setPartnersList(await r.json());
-  }, []);
-  useEffect(() => { loadSuppliersList(); loadPartnersList(); }, [loadSuppliersList, loadPartnersList]);
 
   const [showAdjModal, setShowAdjModal] = useState(false);
   const [adjIngredient, setAdjIngredient] = useState<Ingredient | null>(null);
