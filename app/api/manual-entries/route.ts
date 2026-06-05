@@ -6,9 +6,8 @@ export async function GET() {
   try {
     const { data, error } = await supabase
       .from("manual_net_sales_entries")
-      .select("id, year, month, amount_cents, label")
-      .order("year",  { ascending: false })
-      .order("month", { ascending: false });
+      .select("id, start_date, end_date, amount_cents, label")
+      .order("start_date", { ascending: false });
     if (error) throw error;
     return NextResponse.json(data);
   } catch (err) {
@@ -18,16 +17,22 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
-    const { year, month, amount_cents, label } = await req.json();
-    if (!year || !month || amount_cents == null) {
+    const { start_date, end_date, amount_cents, label } = await req.json();
+    if (!start_date || !end_date || amount_cents == null) {
       return NextResponse.json(
-        { error: "year, month, amount_cents required" },
+        { error: "start_date, end_date, amount_cents required" },
+        { status: 400 }
+      );
+    }
+    if (start_date > end_date) {
+      return NextResponse.json(
+        { error: "start_date must be on or before end_date" },
         { status: 400 }
       );
     }
     const { data, error } = await supabase
       .from("manual_net_sales_entries")
-      .upsert({ year, month, amount_cents, label: label ?? null }, { onConflict: "year,month" })
+      .insert({ start_date, end_date, amount_cents, label: label ?? null })
       .select()
       .single();
     if (error) throw error;

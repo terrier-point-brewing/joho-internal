@@ -85,9 +85,18 @@ function buildYearlyWeeklyPeriods(year: number): Omit<Period,"net_sales_cents"|"
   return buildWeekRange(new Date(year, 0, 1), new Date(year, 11, 31));
 }
 
+function snapToMonday(d: Date): Date {
+  const day = d.getDay(); // 0=Sun, 1=Mon ...
+  const diff = day === 0 ? -6 : 1 - day;
+  const mon = new Date(d);
+  mon.setDate(d.getDate() + diff);
+  mon.setHours(0, 0, 0, 0);
+  return mon;
+}
+
 function buildWeekRange(start: Date, end: Date): Omit<Period,"net_sales_cents"|"loading">[] {
   const out: Omit<Period,"net_sales_cents"|"loading">[] = [];
-  let cur = start;
+  let cur = snapToMonday(start);
   while (cur <= end) {
     const ae = (() => { const w = addDays(cur, 6); return w > end ? end : w; })();
     const shortLabel = `${MA[cur.getMonth()]} ${cur.getDate()}`;

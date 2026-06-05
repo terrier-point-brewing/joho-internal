@@ -8,18 +8,11 @@ const MANUAL_ENTRIES_KEY = ["taproom", "manual-entries"] as const;
 
 type ManualEntry = {
   id: string;
-  year: number;
-  month: number;
+  start_date: string;
+  end_date: string;
   amount_cents: number;
   label: string | null;
 };
-
-const MONTHS = [
-  "January","February","March","April","May","June",
-  "July","August","September","October","November","December",
-];
-
-const MONTH_ABBR = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
 function currency(cents: number) {
   return (cents / 100).toLocaleString("en-US", {
@@ -29,14 +22,12 @@ function currency(cents: number) {
 }
 
 function formatWithCommas(raw: string): string {
-  // Strip commas for parsing, keep at most one decimal point
   const stripped = raw.replace(/,/g, "");
   if (!stripped) return "";
   const dotIdx = stripped.indexOf(".");
   if (dotIdx !== -1) {
-    // Has decimal — format the integer part with commas, preserve up to 2 decimal places
     const intPart = stripped.slice(0, dotIdx);
-    const decPart = stripped.slice(dotIdx + 1, dotIdx + 3); // max 2 decimal digits
+    const decPart = stripped.slice(dotIdx + 1, dotIdx + 3);
     const intNum  = parseInt(intPart, 10);
     const formattedInt = isNaN(intNum) ? intPart : intNum.toLocaleString("en-US");
     return `${formattedInt}.${decPart}`;
@@ -50,21 +41,29 @@ function inputToCents(s: string): number | null {
   return isNaN(n) || n < 0 ? null : Math.round(n * 100);
 }
 
+function entryDays(entry: ManualEntry): number {
+  const s = new Date(entry.start_date + "T00:00:00");
+  const e = new Date(entry.end_date   + "T00:00:00");
+  return Math.round((e.getTime() - s.getTime()) / 86_400_000) + 1;
+}
+
+function fmtDate(iso: string): string {
+  const [y, m, d] = iso.split("-");
+  return `${m}/${d}/${y}`;
+}
+
+function today(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
 const inputCls =
   "bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm text-zinc-100 " +
   "placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 " +
   "transition-colors w-full";
 
-const selectCls =
-  "bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm text-zinc-100 " +
-  "focus:outline-none focus:ring-1 focus:ring-amber-500 w-full";
-
 // ---------------------------------------------------------------------------
 
 export default function ManualEntriesTab() {
-  const currentYear  = new Date().getFullYear();
-  const currentMonth = new Date().getMonth() + 1;
-
   const qc = useQueryClient();
   const { data: entries = [], isLoading: loading } = useQuery({
     queryKey: MANUAL_ENTRIES_KEY,
@@ -75,8 +74,8 @@ export default function ManualEntriesTab() {
   const [deleting, setDeleting] = useState<string | null>(null);
 
   // Form state
-  const [formYear,   setFormYear]   = useState(currentYear);
-  const [formMonth,  setFormMonth]  = useState(currentMonth);
+  const [formStart,  setFormStart]  = useState(today());
+  const [formEnd,    setFormEnd]    = useState(today());
   const [formAmount, setFormAmount] = useState("");
   const [formLabel,  setFormLabel]  = useState("");
   const [saving,     setSaving]     = useState(false);
@@ -91,17 +90,18 @@ export default function ManualEntriesTab() {
       setFormError("Enter a valid amount greater than $0.");
       return;
     }
-
-    // Warn if an entry already exists for this month
-    const existing = entries.find((x) => x.year === formYear && x.month === formMonth);
+    if (formStart > formEnd) {
+      setFormError("Start date must be on or before end date.");
+      return;
+    }
 
     setSaving(true);
     const res = await fetch("/api/manual-entries", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        year: formYear,
-        month: formMonth,
+        start_date: formStart,
+        end_date: formEnd,
         amount_cents: cents,
         label: formLabel.trim() || null,
       }),
@@ -118,8 +118,6 @@ export default function ManualEntriesTab() {
     setFormAmount("");
     setFormLabel("");
     await refresh();
-    // If overwriting, surface a note
-    if (existing) setFormError(`Replaced existing entry for ${MONTH_ABBR[formMonth - 1]} ${formYear}.`);
   }
 
   async function handleDelete(id: string) {
@@ -133,8 +131,8 @@ export default function ManualEntriesTab() {
     await refresh();
   }
 
-  // Group entries by year for display
-  const years = [...new Set(entries.map((e) => e.year))].sort((a, b) => b - a);
+  // Group entries by year of start_date for display
+  const years = [...new Set(entries.map((e) => e.start_date.slice(0, 4)))].sort((a, b) => b.localeCompare(a));
 
   return (
     <div className="max-w-3xl space-y-6">
@@ -143,34 +141,27 @@ export default function ManualEntriesTab() {
         onSubmit={handleAdd}
         className="bg-zinc-900 border border-zinc-800 rounded-lg p-6 space-y-4"
       >
-
         <div className="grid grid-cols-2 gap-4">
-          {/* Month */}
+          {/* Start date */}
           <div>
-            <label className="block text-xs font-medium text-zinc-400 mb-1.5">Month</label>
-            <select
-              value={formMonth}
-              onChange={(e) => setFormMonth(Number(e.target.value))}
-              className={selectCls}
-            >
-              {MONTHS.map((m, i) => (
-                <option key={i + 1} value={i + 1}>{m}</option>
-              ))}
-            </select>
+            <label className="block text-xs font-medium text-zinc-400 mb-1.5">Start Date</label>
+            <input
+              type="date"
+              value={formStart}
+              onChange={(e) => setFormStart(e.target.value)}
+              className={inputCls}
+            />
           </div>
 
-          {/* Year */}
+          {/* End date */}
           <div>
-            <label className="block text-xs font-medium text-zinc-400 mb-1.5">Year</label>
-            <select
-              value={formYear}
-              onChange={(e) => setFormYear(Number(e.target.value))}
-              className={selectCls}
-            >
-              {[currentYear - 2, currentYear - 1, currentYear, currentYear + 1].map((y) => (
-                <option key={y} value={y}>{y}</option>
-              ))}
-            </select>
+            <label className="block text-xs font-medium text-zinc-400 mb-1.5">End Date</label>
+            <input
+              type="date"
+              value={formEnd}
+              onChange={(e) => setFormEnd(e.target.value)}
+              className={inputCls}
+            />
           </div>
 
           {/* Amount */}
@@ -206,17 +197,14 @@ export default function ManualEntriesTab() {
           </div>
         </div>
 
-        {/* Existing entry warning */}
-        {entries.some((x) => x.year === formYear && x.month === formMonth) && (
-          <p className="text-xs text-amber-500">
-            An entry already exists for {MONTHS[formMonth - 1]} {formYear} — saving will overwrite it.
+        {formStart && formEnd && formStart <= formEnd && (
+          <p className="text-xs text-zinc-500">
+            {Math.round((new Date(formEnd + "T00:00:00").getTime() - new Date(formStart + "T00:00:00").getTime()) / 86_400_000) + 1} day window — amount will be prorated by day overlap when applied to a period.
           </p>
         )}
 
         {formError && (
-          <p className={`text-xs ${formError.startsWith("Replaced") ? "text-zinc-400" : "text-red-400"}`}>
-            {formError}
-          </p>
+          <p className="text-xs text-red-400">{formError}</p>
         )}
 
         <button
@@ -238,8 +226,8 @@ export default function ManualEntriesTab() {
           <div className="space-y-4">
             {years.map((y) => {
               const yearEntries = entries
-                .filter((e) => e.year === y)
-                .sort((a, b) => a.month - b.month);
+                .filter((e) => e.start_date.startsWith(y))
+                .sort((a, b) => b.start_date.localeCompare(a.start_date));
 
               return (
                 <div key={y} className="bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden">
@@ -249,46 +237,56 @@ export default function ManualEntriesTab() {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="text-xs text-zinc-600 border-b border-zinc-800">
-                        <th className="text-left px-4 py-2 font-medium">Month</th>
+                        <th className="text-left px-4 py-2 font-medium">Date Range</th>
+                        <th className="text-right px-4 py-2 font-medium">Days</th>
                         <th className="text-right px-4 py-2 font-medium">Net Sales</th>
-                        <th className="text-right px-4 py-2 font-medium">÷4 (weekly)</th>
+                        <th className="text-right px-4 py-2 font-medium">Per Day</th>
                         <th className="text-left px-4 py-2 font-medium">Label</th>
                         <th className="px-4 py-2" />
                       </tr>
                     </thead>
                     <tbody>
-                      {yearEntries.map((entry) => (
-                        <tr
-                          key={entry.id}
-                          className="border-b border-zinc-800/50 last:border-0 hover:bg-zinc-800/30 transition-colors"
-                        >
-                          <td className="px-4 py-2.5 text-zinc-200 font-medium">
-                            {MONTHS[entry.month - 1]}
-                          </td>
-                          <td className="px-4 py-2.5 text-right font-mono text-zinc-100">
-                            {currency(entry.amount_cents)}
-                          </td>
-                          <td className="px-4 py-2.5 text-right font-mono text-zinc-500">
-                            {currency(Math.round(entry.amount_cents / 4))}
-                          </td>
-                          <td className="px-4 py-2.5 text-zinc-500 text-xs">
-                            {entry.label ?? <span className="text-zinc-700">—</span>}
-                          </td>
-                          <td className="px-4 py-2.5 text-right">
-                            <button
-                              onClick={() => handleDelete(entry.id)}
-                              disabled={deleting === entry.id}
-                              className="text-xs text-zinc-600 hover:text-red-400 disabled:opacity-40 transition-colors"
-                            >
-                              {deleting === entry.id ? "…" : "Delete"}
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
+                      {yearEntries.map((entry) => {
+                        const days = entryDays(entry);
+                        return (
+                          <tr
+                            key={entry.id}
+                            className="border-b border-zinc-800/50 last:border-0 hover:bg-zinc-800/30 transition-colors"
+                          >
+                            <td className="px-4 py-2.5 text-zinc-200 font-medium whitespace-nowrap">
+                              {fmtDate(entry.start_date)}
+                              {entry.start_date !== entry.end_date && (
+                                <> – {fmtDate(entry.end_date)}</>
+                              )}
+                            </td>
+                            <td className="px-4 py-2.5 text-right font-mono text-zinc-500">
+                              {days}
+                            </td>
+                            <td className="px-4 py-2.5 text-right font-mono text-zinc-100">
+                              {currency(entry.amount_cents)}
+                            </td>
+                            <td className="px-4 py-2.5 text-right font-mono text-zinc-500">
+                              {currency(Math.round(entry.amount_cents / days))}
+                            </td>
+                            <td className="px-4 py-2.5 text-zinc-500 text-xs">
+                              {entry.label ?? <span className="text-zinc-700">—</span>}
+                            </td>
+                            <td className="px-4 py-2.5 text-right">
+                              <button
+                                onClick={() => handleDelete(entry.id)}
+                                disabled={deleting === entry.id}
+                                className="text-xs text-zinc-600 hover:text-red-400 disabled:opacity-40 transition-colors"
+                              >
+                                {deleting === entry.id ? "…" : "Delete"}
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                     <tfoot>
                       <tr className="border-t border-zinc-700 text-zinc-300 font-medium">
-                        <td className="px-4 py-2">Total</td>
+                        <td className="px-4 py-2" colSpan={2}>Total</td>
                         <td className="px-4 py-2 text-right font-mono">
                           {currency(yearEntries.reduce((s, e) => s + e.amount_cents, 0))}
                         </td>
