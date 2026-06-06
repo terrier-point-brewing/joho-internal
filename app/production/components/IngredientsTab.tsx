@@ -582,24 +582,45 @@ export default function IngredientsTab() {
             const visibleGroups = filterCat === "all" ? groups : groups.filter((g) => g.cat === filterCat);
 
             return visibleGroups.map(({ cat, items }) => {
-              const showAlphaAcid = cat === "Hops";
+              const showAlphaAcid     = cat === "Hops";
               const showColorLovibond = cat === "Malts";
+              const catMeta = cat !== "Uncategorized" ? INGREDIENT_CATEGORY_META[cat as IngredientCategory] : null;
               return (
               <div key={cat}>
-                <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2 px-1">{cat}</h3>
+                {/* Group header — same pill style as PackagingTab */}
+                <div className="flex items-center gap-2 mb-2">
+                  <span className={`text-xs px-2 py-px rounded border ${catMeta?.color ?? "border-zinc-700 bg-zinc-800/40 text-zinc-400"}`}>
+                    {cat}
+                  </span>
+                  <span className="text-xs text-zinc-600">{items.length} item{items.length !== 1 ? "s" : ""}</span>
+                </div>
                 <div className="overflow-x-auto rounded-lg border border-zinc-800">
-                  <table className="w-full text-sm">
+                  {/* Shared fixed column widths — identical across all category tables so
+                      columns align vertically when tables are stacked. Specialty columns
+                      (AA%, °L) are appended after Total Value only for relevant categories. */}
+                  <table className="w-full text-sm table-fixed">
+                    <colgroup>
+                      <col style={{ width: "20%" }} />{/* Name */}
+                      <col style={{ width: "13%" }} />{/* Supplier */}
+                      <col style={{ width: "13%" }} />{/* Partner */}
+                      <col style={{ width: "7%"  }} />{/* Unit */}
+                      <col style={{ width: "11%" }} />{/* Cost/Unit */}
+                      <col style={{ width: "13%" }} />{/* Stock */}
+                      <col style={{ width: "11%" }} />{/* Total Value */}
+                      {(showAlphaAcid || showColorLovibond) && <col style={{ width: "8%" }} />}{/* AA% or °L */}
+                      <col />{/* Actions */}
+                    </colgroup>
                     <thead>
                       <tr className="border-b border-zinc-800 bg-zinc-900/50 text-left">
                         <th className="px-3 py-2.5 text-xs font-medium text-zinc-500">Name</th>
                         <th className="px-3 py-2.5 text-xs font-medium text-zinc-500">Supplier</th>
                         <th className="px-3 py-2.5 text-xs font-medium text-zinc-500">Partner</th>
-                        <th className="px-3 py-2.5 text-xs font-medium text-zinc-500 w-16">Unit</th>
-                        <th className="px-3 py-2.5 text-xs font-medium text-zinc-500 text-right whitespace-nowrap w-14">AA%</th>
-                        <th className="px-3 py-2.5 text-xs font-medium text-zinc-500 text-right whitespace-nowrap w-12">°L</th>
+                        <th className="px-3 py-2.5 text-xs font-medium text-zinc-500">Unit</th>
                         <th className="px-3 py-2.5 text-xs font-medium text-zinc-500 text-right whitespace-nowrap">Cost / Unit</th>
                         <th className="px-3 py-2.5 text-xs font-medium text-zinc-500 text-right">Stock</th>
                         <th className="px-3 py-2.5 text-xs font-medium text-zinc-500 text-right whitespace-nowrap">Total Value</th>
+                        {showAlphaAcid     && <th className="px-3 py-2.5 text-xs font-medium text-zinc-500 text-right whitespace-nowrap">AA%</th>}
+                        {showColorLovibond && <th className="px-3 py-2.5 text-xs font-medium text-zinc-500 text-right whitespace-nowrap">°L</th>}
                         <th className="px-3 py-2.5 text-xs font-medium text-zinc-500"></th>
                       </tr>
                     </thead>
@@ -620,12 +641,6 @@ export default function IngredientsTab() {
                                 <input className="inp text-sm w-full" value={bulkRow.unit}
                                   onChange={(e) => setBulkRows((rs) => rs.map((r) => r.id === ing.id ? { ...r, unit: e.target.value } : r))} />
                               </td>
-                              <td className="px-3 py-2.5 text-zinc-600 text-xs text-right">
-                                {showAlphaAcid ? "—" : <span className="text-zinc-800">—</span>}
-                              </td>
-                              <td className="px-3 py-2.5 text-zinc-600 text-xs text-right">
-                                {showColorLovibond ? "—" : <span className="text-zinc-800">—</span>}
-                              </td>
                               <td className="px-2 py-1.5">
                                 <input type="number" step="0.0001" min="0" className="inp text-sm w-full text-right tabular-nums" placeholder="0.0000" value={bulkRow.cost_per_unit}
                                   onChange={(e) => setBulkRows((rs) => rs.map((r) => r.id === ing.id ? { ...r, cost_per_unit: e.target.value } : r))} />
@@ -636,6 +651,8 @@ export default function IngredientsTab() {
                                 </span>
                               </td>
                               <td className="px-4 py-2.5 text-right tabular-nums text-zinc-300">{fmtValue(totalValue)}</td>
+                              {showAlphaAcid     && <td className="px-3 py-2.5 text-zinc-600 text-xs text-right">—</td>}
+                              {showColorLovibond && <td className="px-3 py-2.5 text-zinc-600 text-xs text-right">—</td>}
                               <td className="px-4 py-2.5 text-xs text-zinc-600 text-right">editing</td>
                             </tr>
                           );
@@ -646,12 +663,6 @@ export default function IngredientsTab() {
                             <td className="px-3 py-2.5 text-zinc-400 truncate">{ing.suppliers?.company_name ?? "—"}</td>
                             <td className="px-3 py-2.5 text-zinc-400 truncate">{ing.contract_brewing_partners?.company_name ?? "—"}</td>
                             <td className="px-3 py-2.5 text-zinc-400 whitespace-nowrap">{ing.unit}</td>
-                            <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap text-zinc-400">
-                              {showAlphaAcid ? (ing.alpha_acid != null ? `${ing.alpha_acid}%` : "—") : <span className="text-zinc-800">—</span>}
-                            </td>
-                            <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap text-zinc-400">
-                              {showColorLovibond ? (ing.color_lovibond != null ? `${ing.color_lovibond}°L` : "—") : <span className="text-zinc-800">—</span>}
-                            </td>
                             <td className="px-3 py-2.5 text-zinc-300 text-right tabular-nums whitespace-nowrap">
                               {ing.cost_per_unit != null ? `$${Number(ing.cost_per_unit).toFixed(2)}` : "—"}
                             </td>
@@ -661,6 +672,16 @@ export default function IngredientsTab() {
                               </span>
                             </td>
                             <td className="px-3 py-2.5 text-right tabular-nums text-zinc-300 whitespace-nowrap">{fmtValue(totalValue)}</td>
+                            {showAlphaAcid && (
+                              <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap text-zinc-400">
+                                {ing.alpha_acid != null ? `${ing.alpha_acid}%` : "—"}
+                              </td>
+                            )}
+                            {showColorLovibond && (
+                              <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap text-zinc-400">
+                                {ing.color_lovibond != null ? `${ing.color_lovibond}°L` : "—"}
+                              </td>
+                            )}
                             <td className="pl-4 pr-3 py-2.5">
                               <div className="flex gap-2 justify-end w-full">
                                 <button onClick={() => openAdj(ing)} className="text-xs text-amber-500 hover:text-amber-400 transition-colors font-medium whitespace-nowrap">Adjust</button>
