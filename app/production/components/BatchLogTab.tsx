@@ -6,6 +6,7 @@ import { BrewBatch, BatchTransfer, PlannedAllocation, BrewActivityEntry } from "
 import { BREWHOUSE_BBL, StatusBadge, Modal, Field, ModalActions } from "./shared";
 import { fmtDateLong, fmtBbl2 } from "@/lib/utils/formatting";
 import { EQ } from "../equipmentMeta";
+import { computeLocationBreakdown } from "../lib/volumeLedger";
 import {
   useBatchesQuery, useRecipesQuery, useTransfersQuery, useContractPartnersQuery,
   useAssignmentsQuery, useEquipmentQuery, productionKeys,
@@ -33,10 +34,10 @@ const BATCH_EMPTY = {
   turns: "1",
   notes: "",
   ibu: "",
-  color: "",
+  color_srm: "",
   original_gravity: "",
   final_gravity: "",
-  dissolved_oxygen: "",
+  dissolved_oxygen_ppb: "",
 };
 
 export default function BatchLogTab() {
@@ -97,10 +98,10 @@ export default function BatchLogTab() {
       turns:                  String(b.turns),
       notes:                  b.notes ?? "",
       ibu:                    b.ibu != null ? String(b.ibu) : "",
-      color:                  b.color != null ? String(b.color) : "",
+      color_srm:              b.color_srm != null ? String(b.color_srm) : "",
       original_gravity:       b.original_gravity != null ? String(b.original_gravity) : "",
       final_gravity:          b.final_gravity != null ? String(b.final_gravity) : "",
-      dissolved_oxygen:       b.dissolved_oxygen != null ? String(b.dissolved_oxygen) : "",
+      dissolved_oxygen_ppb:   b.dissolved_oxygen_ppb != null ? String(b.dissolved_oxygen_ppb) : "",
     });
     setEditingId(b.id);
     setEditingBatch(b);
@@ -149,10 +150,10 @@ export default function BatchLogTab() {
         turns,
         notes: form.notes || null,
         ibu:               form.ibu !== "" ? parseFloat(form.ibu) : null,
-        color:             form.color !== "" ? parseFloat(form.color) : null,
+        color_srm:         form.color_srm !== "" ? parseFloat(form.color_srm) : null,
         original_gravity:  form.original_gravity !== "" ? parseFloat(form.original_gravity) : null,
         final_gravity:     form.final_gravity !== "" ? parseFloat(form.final_gravity) : null,
-        dissolved_oxygen:  form.dissolved_oxygen !== "" ? parseFloat(form.dissolved_oxygen) : null,
+        dissolved_oxygen_ppb: form.dissolved_oxygen_ppb !== "" ? parseFloat(form.dissolved_oxygen_ppb) : null,
       };
       const res = editingId
         ? await fetch(`/api/production/batches/${editingId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })
@@ -174,96 +175,12 @@ export default function BatchLogTab() {
     await refresh();
   }
 
-  const active   = sortBatches(batches.filter((b) => b.status !== "archived"));
-  const archived = sortBatches(batches.filter((b) => b.status === "archived"));
-
-  // ── Volume-by-location metrics ──────────────────────────────────────────────
-  const tankById = Object.fromEntries(tanks.map((t) => [t.id, t]));
-  const batchById = Object.fromEntries(batches.map((b) => [b.id, b]));
-
-  // Volume currently assigned to each tank type (from live assignments)
-  const volByTankType: Record<string, number> = {};
-  for (const a of assignments) {
-    const tank = tankById[a.tank_id];
-    const batch = a.brew_batches ?? batchById[a.batch_id];
-    if (!tank || !batch) continue;
-    volByTankType[tank.type] = (volByTankType[tank.type] ?? 0) + Number(batch.volume_bbl ?? 0);
-  }
-
-  // Planning-status batches not yet assigned to any tank → Backlog
+  const allBatches = sortBatches(batches);
+  const tankTypeById = Object.fromEntries(tanks.map((t) => [t.id, t.type]));
   const assignedBatchIds = new Set(assignments.map((a) => a.batch_id));
-  const backlogVol = batches
-    .filter((b) => b.status === "planning" && !assignedBatchIds.has(b.id))
-    .reduce((s, b) => s + Number(b.volume_bbl ?? 0), 0);
-
-  // Packaging-status batches not tank-assigned (transferred to kegging/canning)
-  const packagingVol = batches
-    .filter((b) => b.status === "packaging" && !assignedBatchIds.has(b.id))
-    .reduce((s, b) => s + Number(b.volume_bbl ?? 0), 0);
-
-  // Cold storage: sum of kegging/canning transfers whose destination is cold_storage
-  const coldStorageVol = transfers
-    .filter((t) => (t.transfer_type === "kegging" || t.transfer_type === "canning") && t.to_tank?.type === "cold_storage")
-    .reduce((s, t) => s + Number(t.volume_bbl ?? 0), 0);
-
-  // Exported: sum of transfers to export_bay
-  const exportedVol = transfers
-    .filter((t) => t.to_tank?.type === "export_bay")
-    .reduce((s, t) => s + Number(t.volume_bbl ?? 0), 0);
-
-  // Total shrinkage across all recorded transfers
-  const totalShrinkage = transfers.reduce((s, t) => s + Number(t.shrinkage_bbl ?? 0), 0);
-
-  // Active batch total vs sum of tracked locations — flag imbalance
-  const activeBatchTotal = active.reduce((s, b) => s + Number(b.volume_bbl ?? 0), 0);
-  const trackedActive    = backlogVol
-    + (volByTankType["brewhouse"] ?? 0)
-    + (volByTankType["fermenter"] ?? 0)
-    + (volByTankType["brite"]     ?? 0)
-    + packagingVol
-    + (volByTankType["kegging"]   ?? 0)
-    + (volByTankType["canning"]   ?? 0);
-  const imbalance = Math.abs(activeBatchTotal - trackedActive) > 0.01;
 
   return (
     <>
-      {/* ── Volume-by-location metrics ───────────────────────────────────── */}
-      <div className="mb-6 rounded-lg border border-zinc-800 bg-zinc-900/40 p-4">
-        <p className="text-xs font-medium text-zinc-500 uppercase tracking-wide mb-3">Volume by Location</p>
-        <div className="grid grid-cols-3 gap-3 sm:grid-cols-6 mb-3">
-          {([
-            ["Backlog",    backlogVol],
-            ["Brewhouse",  volByTankType["brewhouse"] ?? 0],
-            ["Fermenter",  volByTankType["fermenter"] ?? 0],
-            ["Brite Tank", volByTankType["brite"]     ?? 0],
-            ["Packaging",  packagingVol + (volByTankType["kegging"] ?? 0) + (volByTankType["canning"] ?? 0)],
-            ["Cold Storage", coldStorageVol],
-          ] as [string, number][]).map(([label, vol]) => (
-            <div key={label} className="flex flex-col gap-0.5">
-              <span className="text-xs text-zinc-600">{label}</span>
-              <span className="text-sm font-medium tabular-nums text-zinc-200">{fmtBbl2(vol)}</span>
-            </div>
-          ))}
-        </div>
-        <div className="flex flex-wrap gap-6 border-t border-zinc-800/60 pt-3">
-          <div>
-            <span className="text-xs text-zinc-600">Exported</span>
-            <p className="text-sm font-medium tabular-nums text-zinc-200">{fmtBbl2(exportedVol)}</p>
-          </div>
-          <div>
-            <span className="text-xs text-zinc-600">Total Shrinkage</span>
-            <p className="text-sm font-medium tabular-nums text-amber-400">{fmtBbl2(totalShrinkage)}</p>
-          </div>
-          {imbalance && (
-            <div className="ml-auto self-center">
-              <span className="text-xs text-red-400 border border-red-800 bg-red-900/20 px-2 py-1 rounded">
-                ⚠ Volume imbalance: tracked {fmtBbl2(trackedActive)} vs active batches {fmtBbl2(activeBatchTotal)}
-              </span>
-            </div>
-          )}
-        </div>
-      </div>
-
       <div className="flex justify-end mb-4">
         <button onClick={openNew} className="btn-amber">+ New Batch</button>
       </div>
@@ -274,38 +191,21 @@ export default function BatchLogTab() {
         </div>
       )}
 
-      {active.length === 0 && archived.length === 0 ? (
+      {allBatches.length === 0 ? (
         <p className="text-zinc-600 text-sm">No batches yet.</p>
       ) : (
-        <>
-          <BatchTable
-            batches={active}
-            transfers={transfers}
-            expandedId={expandedId}
-            sort={sort}
-            onToggle={(id) => setExpandedId(expandedId === id ? null : id)}
-            onEdit={openEdit}
-            onDelete={handleDelete}
-            onSort={toggleSort}
-          />
-          {archived.length > 0 && (
-            <details className="mt-8">
-              <summary className="text-sm text-zinc-500 cursor-pointer hover:text-zinc-400 select-none mb-3">
-                Archived ({archived.length})
-              </summary>
-              <BatchTable
-                batches={archived}
-                transfers={transfers}
-                expandedId={expandedId}
-                sort={sort}
-                onToggle={(id) => setExpandedId(expandedId === id ? null : id)}
-                onEdit={openEdit}
-                onDelete={handleDelete}
-                onSort={toggleSort}
-              />
-            </details>
-          )}
-        </>
+        <BatchTable
+          batches={allBatches}
+          transfers={transfers}
+          expandedId={expandedId}
+          sort={sort}
+          onToggle={(id) => setExpandedId(expandedId === id ? null : id)}
+          onEdit={openEdit}
+          onDelete={handleDelete}
+          onSort={toggleSort}
+          tankTypeById={tankTypeById}
+          assignedBatchIds={assignedBatchIds}
+        />
       )}
 
       {showModal && (
@@ -364,7 +264,7 @@ export default function BatchLogTab() {
                   </Field>
                   <Field label="Color (SRM)">
                     <input type="number" step="0.1" min="0" className="inp" placeholder="e.g. 8"
-                      value={form.color} onChange={(e) => setForm((f) => ({ ...f, color: e.target.value }))} />
+                      value={form.color_srm} onChange={(e) => setForm((f) => ({ ...f, color_srm: e.target.value }))} />
                   </Field>
                   <Field label="OG">
                     <input type="number" step="0.001" min="0" className="inp" placeholder="e.g. 1.065"
@@ -376,7 +276,7 @@ export default function BatchLogTab() {
                   </Field>
                   <Field label="DO (ppb)">
                     <input type="number" step="0.1" min="0" className="inp" placeholder="e.g. 50"
-                      value={form.dissolved_oxygen} onChange={(e) => setForm((f) => ({ ...f, dissolved_oxygen: e.target.value }))} />
+                      value={form.dissolved_oxygen_ppb} onChange={(e) => setForm((f) => ({ ...f, dissolved_oxygen_ppb: e.target.value }))} />
                   </Field>
                 </div>
               </div>
@@ -581,6 +481,8 @@ function BatchTable({
   onEdit,
   onDelete,
   onSort,
+  tankTypeById,
+  assignedBatchIds,
 }: {
   batches: BrewBatch[];
   transfers: BatchTransfer[];
@@ -590,6 +492,8 @@ function BatchTable({
   onEdit: (b: BrewBatch) => void;
   onDelete: (id: string, name: string) => void;
   onSort: (col: SortCol) => void;
+  tankTypeById: Record<string, string>;
+  assignedBatchIds: Set<string>;
 }) {
   if (!batches.length) return null;
 
@@ -658,16 +562,22 @@ function BatchTable({
                   <tr className={`border-b border-zinc-800/60 ${i % 2 !== 0 ? "bg-zinc-900/30" : ""}`}>
                     <td colSpan={9} className="px-6 pb-5 pt-2 space-y-4">
                       {/* Brew stats row */}
-                      {(b.ibu != null || b.color != null || b.original_gravity != null || b.final_gravity != null || b.dissolved_oxygen != null) && (
+                      {(b.ibu != null || b.color_srm != null || b.original_gravity != null || b.final_gravity != null || b.dissolved_oxygen_ppb != null) && (
                         <div className="flex gap-6 py-2">
                           {b.ibu != null && <div><p className="text-xs text-zinc-600 mb-0.5">IBU</p><p className="text-sm text-zinc-300 tabular-nums">{b.ibu}</p></div>}
-                          {b.color != null && <div><p className="text-xs text-zinc-600 mb-0.5">Color (SRM)</p><p className="text-sm text-zinc-300 tabular-nums">{b.color}</p></div>}
+                          {b.color_srm != null && <div><p className="text-xs text-zinc-600 mb-0.5">Color (SRM)</p><p className="text-sm text-zinc-300 tabular-nums">{b.color_srm}</p></div>}
                           {b.original_gravity != null && <div><p className="text-xs text-zinc-600 mb-0.5">OG</p><p className="text-sm text-zinc-300 tabular-nums">{b.original_gravity}</p></div>}
                           {b.final_gravity != null && <div><p className="text-xs text-zinc-600 mb-0.5">FG</p><p className="text-sm text-zinc-300 tabular-nums">{b.final_gravity}</p></div>}
-                          {b.dissolved_oxygen != null && <div><p className="text-xs text-zinc-600 mb-0.5">DO (ppb)</p><p className="text-sm text-zinc-300 tabular-nums">{b.dissolved_oxygen}</p></div>}
+                          {b.dissolved_oxygen_ppb != null && <div><p className="text-xs text-zinc-600 mb-0.5">DO (ppb)</p><p className="text-sm text-zinc-300 tabular-nums">{b.dissolved_oxygen_ppb}</p></div>}
                         </div>
                       )}
                       <BrewActivityLogDisplay entries={b.batch_brew_activity_log ?? []} />
+                      <BatchVolumeBreakdown
+                        batch={b}
+                        transfers={batchTransfers}
+                        tankTypeById={tankTypeById}
+                        isAssigned={assignedBatchIds.has(b.id)}
+                      />
                       <TransferLog transfers={batchTransfers} batchVol={Number(b.volume_bbl)} />
                     </td>
                   </tr>
@@ -903,6 +813,58 @@ function BrewActivityLogManager({ batch }: { batch: BrewBatch }) {
   );
 }
 
+// ─── Per-batch volume breakdown ─────────────────────────────────────────────
+function BatchVolumeBreakdown({
+  batch,
+  transfers,
+  tankTypeById,
+  isAssigned,
+}: {
+  batch: BrewBatch;
+  transfers: BatchTransfer[];
+  tankTypeById: Record<string, string>;
+  isAssigned: boolean;
+}) {
+  const originalVol = Number(batch.volume_bbl ?? 0);
+  const bd = computeLocationBreakdown(batch.id, originalVol, transfers, tankTypeById, isAssigned);
+
+  const cols: { label: string; value: number; highlight?: string }[] = [
+    { label: "Backlog",       value: bd.backlog },
+    { label: "Brewhouse",     value: bd.brewhouse },
+    { label: "Fermenter",     value: bd.fermenter },
+    { label: "Brite",         value: bd.brite },
+    { label: "Packaging",     value: bd.packaging },
+    { label: "Cold Storage",  value: bd.coldStorage },
+    { label: "Exported",      value: bd.exported },
+    { label: "Shrinkage",     value: bd.shrinkage, highlight: "text-amber-400" },
+  ];
+
+  const accountedFor = cols.reduce((s, c) => s + c.value, 0);
+  const balanced     = Math.abs(accountedFor - originalVol) < 0.01;
+
+  return (
+    <div className="mt-3">
+      <p className="text-xs font-medium text-zinc-500 uppercase tracking-wide mb-2">Volume Breakdown</p>
+      <div className="flex flex-wrap gap-x-5 gap-y-1.5">
+        {cols.map(({ label, value, highlight }) => (
+          <div key={label} className="flex flex-col gap-0">
+            <span className="text-xs text-zinc-600">{label}</span>
+            <span className={`text-sm tabular-nums font-medium ${highlight ?? (value > 0 ? "text-zinc-200" : "text-zinc-700")}`}>
+              {fmtBbl2(value)}
+            </span>
+          </div>
+        ))}
+        <div className="flex flex-col gap-0">
+          <span className="text-xs text-zinc-600">Total</span>
+          <span className={`text-sm tabular-nums font-medium ${balanced ? "text-zinc-500" : "text-red-400"}`}>
+            {fmtBbl2(originalVol)}{!balanced && " ⚠"}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function TransferLog({ transfers, batchVol }: { transfers: BatchTransfer[]; batchVol: number }) {
   if (!transfers.length) {
     return <p className="text-xs text-zinc-600">No transfers recorded yet.</p>;
@@ -939,10 +901,18 @@ function TransferLog({ transfers, batchVol }: { transfers: BatchTransfer[]; batc
                   <td className="px-3 py-2 text-zinc-300">
                     {t.to_tank
                       ? <><span className="text-zinc-100">{t.to_tank.name}</span> <span className={`px-1 py-px rounded border text-zinc-500 ${toEq?.badge ?? ""}`} style={{ fontSize: 9 }}>{toEq?.label ?? t.to_tank.type}</span></>
-                      : <span className="text-zinc-600">—</span>}
+                      : t.transfer_type === "export"
+                        ? <span className="text-zinc-400">Export Bay</span>
+                        : <span className="text-zinc-600">—</span>}
                   </td>
-                  <td className="px-3 py-2 text-zinc-400 capitalize">{t.transfer_type}</td>
-                  <td className="px-3 py-2 tabular-nums text-zinc-300">{fmtBbl2(Number(t.volume_bbl))}</td>
+                  <td className="px-3 py-2 text-zinc-400 capitalize">
+                    {t.transfer_type === "export" && t.export_detail
+                      ? `Export → ${t.export_detail.channel === "contract_brewing" ? (t.export_detail.partner_name ?? "Contract Brewing") : t.export_detail.channel}`
+                      : t.transfer_type}
+                  </td>
+                  <td className="px-3 py-2 tabular-nums text-zinc-300">
+                    {fmtBbl2(Number(t.volume_bbl))}
+                  </td>
                   <td className="px-3 py-2 tabular-nums text-zinc-500">
                     {Number(t.shrinkage_bbl) > 0 ? fmtBbl2(Number(t.shrinkage_bbl)) : "—"}
                   </td>

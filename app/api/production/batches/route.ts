@@ -43,13 +43,21 @@ export async function POST(req: NextRequest) {
     .order("sort_order");
   if (templates && templates.length > 0) {
     await supabase.from("batch_brew_activity_log").insert(
-      templates.map((t: { sort_order: number; activity: string; time_label: string | null; temp: number | null; amount: number | null }) => ({
-        batch_id: batch.id,
-        sort_order: t.sort_order,
-        activity: t.activity,
-        time_label: t.time_label,
-        temp: t.temp,
-        amount: t.amount,
+      templates.map((t: {
+        sort_order: number; activity: string; time_label: string | null;
+        temp: number | null; temp_unit?: string | null;
+        amount: number | null; amount_unit?: string | null;
+        vsp?: number | null;
+      }) => ({
+        batch_id:    batch.id,
+        sort_order:  t.sort_order,
+        activity:    t.activity,
+        time_label:  t.time_label,
+        temp:        t.temp,
+        temp_unit:   t.temp_unit ?? "F",
+        amount:      t.amount,
+        amount_unit: t.amount_unit ?? null,
+        vsp:         t.vsp ?? null,
       }))
     );
   }

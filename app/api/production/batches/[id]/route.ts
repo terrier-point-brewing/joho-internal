@@ -13,7 +13,7 @@ export async function PATCH(
   const UPDATABLE = [
     "beer_name", "planned_brew_date", "expected_delivery_date",
     "volume_bbl", "turns", "status", "notes", "recipe_id",
-    "ibu", "color", "original_gravity", "final_gravity", "dissolved_oxygen",
+    "ibu", "color_srm", "original_gravity", "final_gravity", "dissolved_oxygen_ppb",
   ] as const;
   const updates: Record<string, unknown> = {};
   for (const col of UPDATABLE) {

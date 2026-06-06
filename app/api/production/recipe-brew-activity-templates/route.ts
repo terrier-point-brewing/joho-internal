@@ -3,13 +3,23 @@ import { supabase } from "@/lib/supabase/client";
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
-  const { recipe_id, sort_order, activity, time_label, temp, amount, vsp } = body;
+  const { recipe_id, sort_order, activity, time_label, temp, temp_unit, amount, amount_unit, vsp } = body;
   if (!recipe_id || !activity) {
     return NextResponse.json({ error: "recipe_id and activity are required" }, { status: 400 });
   }
   const { data, error } = await supabase
     .from("recipe_brew_activity_templates")
-    .insert({ recipe_id, sort_order: sort_order ?? 0, activity, time_label: time_label || null, temp: temp ?? null, amount: amount ?? null, vsp: vsp ?? null })
+    .insert({
+      recipe_id,
+      sort_order:  sort_order ?? 0,
+      activity,
+      time_label:  time_label  || null,
+      temp:        temp        ?? null,
+      temp_unit:   temp_unit   ?? "F",
+      amount:      amount      ?? null,
+      amount_unit: amount_unit ?? null,
+      vsp:         vsp         ?? null,
+    })
     .select()
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -21,7 +31,7 @@ export async function PATCH(req: NextRequest) {
   const { id, ...updates } = body;
   if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
 
-  const ALLOWED = ["sort_order", "activity", "time_label", "temp", "amount", "vsp"] as const;
+  const ALLOWED = ["sort_order", "activity", "time_label", "temp", "temp_unit", "amount", "amount_unit", "vsp"] as const;
   const patch: Record<string, unknown> = {};
   for (const k of ALLOWED) {
     if (k in updates) patch[k] = updates[k];

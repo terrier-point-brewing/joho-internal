@@ -56,6 +56,9 @@ export interface PackagingStockAdjustment {
   note: string | null;
   cost_per_unit: number | null;
   total_value_change: number | null;
+  shipping_cost: number | null;
+  /** FK to the batch_transfer that triggered a "used" deduction, if any. */
+  batch_transfer_id: string | null;
   created_at: string;
   packaging_items?: { name: string; type: PackagingItemType };
 }
@@ -68,6 +71,12 @@ export interface BrewInventoryAdjustment {
   quantity: number;
   type: BrewAdjustmentType;
   note: string | null;
+  /** Packaging format label, e.g. "1/6 BBL" or "can" */
+  product_label: string | null;
+  /** "keg" or "can" */
+  product_type: string | null;
+  /** Unit of quantity, e.g. "kegs" or "cans" */
+  unit: string | null;
   created_at: string;
 }
 
@@ -78,10 +87,17 @@ export interface BatchTransfer {
   to_tank_id: string | null;
   volume_bbl: number;
   shrinkage_bbl: number;
-  transfer_type: "transfer" | "kegging" | "canning";
+  transfer_type: "transfer" | "kegging" | "canning" | "export";
   notes: string | null;
   kegging_detail: { total_kegs?: number; kegs?: { name: string; quantity: number; volume_fl_oz?: number }[] } | null;
   canning_detail: { total_cans?: number; cases?: number; loose_cans?: number; cans_per_case?: number } | null;
+  export_detail: {
+    channel: "taproom" | "distribution" | "contract_brewing";
+    partner_id?: string | null;
+    partner_name?: string | null;
+    recipient_name?: string | null;
+    items: { source_transfer_id: string; product_label: string; product_type: "keg" | "can"; quantity: number }[];
+  } | null;
   transferred_at: string;
   from_tank?: { id: string; name: string; type: EquipmentType } | null;
   to_tank?:   { id: string; name: string; type: EquipmentType } | null;
@@ -120,6 +136,9 @@ export interface StockAdjustment {
   batch_id: string | null;
   cost_per_unit: number | null;
   total_value_change: number | null;
+  shipping_cost: number | null;
+  /** Snapshot of the ingredient's unit at the time of the adjustment (e.g. "lbs", "oz"). */
+  unit: string | null;
   created_at: string;
   ingredients?: { name: string; unit: string };
   brew_batches?: { beer_name: string; batch_number: string | null } | null;
@@ -140,7 +159,12 @@ export interface RecipeBrewActivityTemplate {
   activity: string;
   time_label: string | null;
   temp: number | null;
+  /** Unit for temp — "F" (Fahrenheit) or "C" (Celsius). Defaults to "F". */
+  temp_unit: string;
   amount: number | null;
+  /** Unit for amount — e.g. "lbs", "oz", "gal". */
+  amount_unit: string | null;
+  vsp: number | null;
   created_at: string;
 }
 
@@ -245,7 +269,12 @@ export interface BrewActivityEntry {
   activity: string;
   time_label: string | null;
   temp: number | null;
+  /** Unit for temp — "F" (Fahrenheit) or "C" (Celsius). Defaults to "F". */
+  temp_unit: string;
   amount: number | null;
+  /** Unit for amount — e.g. "lbs", "oz", "gal". */
+  amount_unit: string | null;
+  vsp: number | null;
   created_at: string;
 }
 
@@ -257,13 +286,18 @@ export interface BrewBatch {
   expected_delivery_date: string | null;
   volume_bbl: number;
   turns: number;
+  /** How many brewhouse turns have been started (and had ingredients deducted). */
+  turns_completed: number;
   status: BatchStatus;
   notes: string | null;
   ibu: number | null;
-  color: number | null;
+  /** Beer color in Standard Reference Method (SRM) units. */
+  color_srm: number | null;
   original_gravity: number | null;
   final_gravity: number | null;
-  dissolved_oxygen: number | null;
+  /** Dissolved oxygen in parts per billion (ppb). */
+  dissolved_oxygen_ppb: number | null;
+  square_invoice_id: string | null;
   recipe_id: string | null;
   recipes: { beer_name: string; brewery: string | null; brew_time_weeks: number | null; expected_yield_bbl: number | null } | null;
   batch_status_history: BatchStatusHistory[];
