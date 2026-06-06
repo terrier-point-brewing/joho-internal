@@ -261,6 +261,33 @@ export interface PlannedAllocation {
   created_at: string;
 }
 
+export type AllocationChannel = "taproom" | "distribution" | "contract_brewing" | "safety_stock";
+export type AllocationLockReason = "deposit_paid" | "contract_signed";
+
+export interface BatchAllocation {
+  id: string;
+  batch_id: string;
+  channel: AllocationChannel;
+  contract_request_id: string | null;
+  distribution_allocation_id: string | null;
+  partner_id: string | null;
+  label: string;
+  percentage: number;
+  locked: boolean;
+  lock_reason: AllocationLockReason | null;
+  locked_at: string | null;
+  notes: string | null;
+  created_at: string;
+  // Joined fields
+  brew_batches?: { id: string; beer_name: string; batch_number: number; volume_bbl: number } | null;
+  contract_brewing_partners?: { id: string; company_name: string } | null;
+  // Computed fulfillment fields (returned by API)
+  produced_bbl: number | null;
+  allocated_bbl: number | null;
+  exported_bbl: number;
+  fulfilled: boolean;
+}
+
 export interface BrewActivityEntry {
   id: string;
   batch_id?: string;

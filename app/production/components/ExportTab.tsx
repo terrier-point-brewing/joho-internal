@@ -4,8 +4,10 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRecipesQuery, fetchJson } from "../hooks/queries";
 import { SquareLinkManager, LinkRow } from "./SquareLinkManager";
+import type { BatchAllocation, AllocationChannel, Recipe } from "../types";
 
 const EXPORTS_KEY = ["production", "exports"] as const;
+const ALLOCATIONS_KEY = ["production", "allocations"] as const;
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -35,6 +37,15 @@ interface BatchExport {
   brew_batches: { id: string; beer_name: string; batch_number: number } | null;
 }
 
+type TopTab = "allocations" | ExportChannel;
+
+const TOP_TABS: { key: TopTab; label: string }[] = [
+  { key: "allocations", label: "Allocations" },
+  { key: "taproom", label: "Taproom" },
+  { key: "distribution", label: "Distribution" },
+  { key: "contract_brewing", label: "Contract Brewing" },
+];
+
 const CHANNEL_TABS: { key: ExportChannel; label: string; description: string }[] = [
   {
     key: "taproom",
@@ -53,42 +64,166 @@ const CHANNEL_TABS: { key: ExportChannel; label: string; description: string }[]
   },
 ];
 
-// Federal craft brewer excise tax rate (< 2M BBL/year, first 60k BBL) — used as
-// fallback if the stored value is null (i.e., pre-migration export records).
 const FEDERAL_EXCISE_RATE_PER_BBL = 3.50;
-// NC excise tax rate (beer) per gallon
 const NC_EXCISE_RATE_PER_GAL = 0.62;
 const BBL_TO_GAL = 31;
+
+const CHANNEL_LABELS: Record<AllocationChannel, string> = {
+  taproom: "Taproom",
+  distribution: "Distribution",
+  contract_brewing: "Contract Brewing",
+  safety_stock: "Safety Stock",
+};
 
 function fmt(iso: string) {
   return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
-// ─── Component ───────────────────────────────────────────────────────────────
+// ─── Allocations Tab ─────────────────────────────────────────────────────────
 
-export default function ExportTab() {
-  const qc = useQueryClient();
-  const { data: exports = [] } = useQuery({
-    queryKey: EXPORTS_KEY,
-    queryFn: () => fetchJson<BatchExport[]>("/api/production/exports"),
+function AllocationsTab() {
+  const { data: allocations = [], isLoading } = useQuery({
+    queryKey: ALLOCATIONS_KEY,
+    queryFn: () => fetchJson<BatchAllocation[]>("/api/production/allocations"),
   });
-  const { data: links = [] } = useQuery({
-    queryKey: ["production", "recipe-square-links"],
-    queryFn: () => fetchJson<LinkRow[]>("/api/production/recipe-square-links"),
-  });
-  const { data: recipes = [] } = useRecipesQuery();
-  const refresh = () => qc.invalidateQueries({ queryKey: EXPORTS_KEY });
-  const refreshLinks = () => qc.invalidateQueries({ queryKey: ["production", "recipe-square-links"] });
 
-  const [channel, setChannel] = useState<ExportChannel>("taproom");
+  if (isLoading) return <p className="text-sm text-zinc-600 py-8 text-center">Loading…</p>;
+
+  // Group by batch
+  const byBatch = new Map<string, BatchAllocation[]>();
+  for (const a of allocations) {
+    const list = byBatch.get(a.batch_id) ?? [];
+    list.push(a);
+    byBatch.set(a.batch_id, list);
+  }
+
+  if (byBatch.size === 0) {
+    return (
+      <div className="py-16 text-center space-y-2">
+        <p className="text-zinc-600 text-sm">No allocations yet.</p>
+        <p className="text-xs text-zinc-700">Create allocations from Brewing → Batch Log or Intake → Batch Scheduler.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {[...byBatch.entries()].map(([batchId, allocs]) => {
+        const batch = allocs[0].brew_batches;
+        const totalPct = allocs.reduce((s, a) => s + Number(a.percentage), 0);
+        const produced = allocs[0].produced_bbl;
+        const allFulfilled = allocs.every((a) => a.fulfilled);
+
+        return (
+          <div key={batchId} className="rounded-lg border border-zinc-800 overflow-hidden">
+            {/* Batch header */}
+            <div className="flex items-center justify-between px-4 py-2.5 bg-zinc-900/60 border-b border-zinc-800">
+              <div className="flex items-center gap-3">
+                <span className="text-sm font-medium text-zinc-100">
+                  {batch ? `#${batch.batch_number} ${batch.beer_name}` : batchId}
+                </span>
+                {produced != null && (
+                  <span className="text-xs text-zinc-500">{produced.toFixed(2)} BBL produced</span>
+                )}
+              </div>
+              <div className="flex items-center gap-3">
+                <span className={`text-xs px-2 py-0.5 rounded font-medium ${
+                  Math.abs(totalPct - 100) < 0.01
+                    ? "bg-emerald-900/40 text-emerald-400"
+                    : totalPct > 100
+                    ? "bg-red-900/40 text-red-400"
+                    : "bg-amber-900/40 text-amber-400"
+                }`}>
+                  {totalPct.toFixed(1)}% allocated
+                </span>
+                {allFulfilled && allocs.length > 0 && (
+                  <span className="text-xs text-emerald-400">All fulfilled</span>
+                )}
+              </div>
+            </div>
+
+            {/* Allocations table */}
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-zinc-800 text-left">
+                  <th className="px-4 py-2 text-xs font-medium text-zinc-500">Channel</th>
+                  <th className="px-4 py-2 text-xs font-medium text-zinc-500">Label</th>
+                  <th className="px-4 py-2 text-xs font-medium text-zinc-500 text-right">%</th>
+                  <th className="px-4 py-2 text-xs font-medium text-zinc-500 text-right">Alloc. BBL</th>
+                  <th className="px-4 py-2 text-xs font-medium text-zinc-500 text-right">Exported BBL</th>
+                  <th className="px-4 py-2 text-xs font-medium text-zinc-500">Status</th>
+                  <th className="px-4 py-2 text-xs font-medium text-zinc-500">Lock</th>
+                </tr>
+              </thead>
+              <tbody>
+                {allocs.map((a) => (
+                  <tr key={a.id} className="border-b border-zinc-800 last:border-0 hover:bg-zinc-900/20">
+                    <td className="px-4 py-2.5">
+                      <span className="text-xs px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400">
+                        {CHANNEL_LABELS[a.channel]}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5 text-zinc-200">{a.label}</td>
+                    <td className="px-4 py-2.5 text-right text-zinc-200 tabular-nums font-medium">
+                      {Number(a.percentage).toFixed(1)}%
+                    </td>
+                    <td className="px-4 py-2.5 text-right text-zinc-400 tabular-nums">
+                      {a.allocated_bbl != null ? a.allocated_bbl.toFixed(2) : "—"}
+                    </td>
+                    <td className="px-4 py-2.5 text-right text-zinc-400 tabular-nums">
+                      {a.exported_bbl > 0 ? a.exported_bbl.toFixed(2) : "—"}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      {a.allocated_bbl == null ? (
+                        <span className="text-xs text-zinc-600">Pending production</span>
+                      ) : a.fulfilled ? (
+                        <span className="text-xs text-emerald-400">Fulfilled</span>
+                      ) : (
+                        <span className="text-xs text-amber-400">
+                          {a.allocated_bbl > 0
+                            ? `${((a.exported_bbl / a.allocated_bbl) * 100).toFixed(0)}% fulfilled`
+                            : "Unfulfilled"}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      {a.locked ? (
+                        <span className="text-xs text-blue-400" title={a.lock_reason ?? undefined}>
+                          Locked {a.lock_reason === "deposit_paid" ? "(deposit)" : a.lock_reason === "contract_signed" ? "(contract)" : ""}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-zinc-600">Unlocked</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── Exports Tab ─────────────────────────────────────────────────────────────
+
+function ExportsChannelTab({ channel, exports, links, recipes, onLinksChanged }: {
+  channel: ExportChannel;
+  exports: BatchExport[];
+  links: LinkRow[];
+  recipes: Recipe[];
+  onLinksChanged: () => void;
+}) {
   const [showLinks, setShowLinks] = useState(false);
+  const qc = useQueryClient();
+  const refreshLinks = () => { qc.invalidateQueries({ queryKey: ["production", "recipe-square-links"] }); onLinksChanged(); };
 
   const channelExports = exports.filter(e => e.channel === channel);
   const channelMeta = CHANNEL_TABS.find(c => c.key === channel)!;
 
   const totalBbl     = channelExports.reduce((s, e) => s + (e.volume_bbl ?? 0), 0);
   const totalGal     = totalBbl * BBL_TO_GAL;
-  // Use stored excise values when present; fall back to computed for pre-migration records.
   const totalFederal = channelExports.reduce((s, e) =>
     s + (e.federal_excise_tax_usd ?? (e.volume_bbl ?? 0) * FEDERAL_EXCISE_RATE_PER_BBL), 0);
   const totalNC = channelExports.reduce((s, e) =>
@@ -97,41 +232,13 @@ export default function ExportTab() {
   async function remove(id: string) {
     if (!confirm("Delete this export record?")) return;
     await fetch(`/api/production/exports/${id}`, { method: "DELETE" });
-    await refresh();
+    qc.invalidateQueries({ queryKey: EXPORTS_KEY });
   }
 
   return (
     <>
-      {/* Header */}
-      <div className="mb-4">
-        <h2 className="text-base font-medium text-zinc-100">Export</h2>
-        <p className="text-sm text-zinc-500 mt-0.5">Finished product leaving the brewery — exported via the Floorplan cold storage tiles</p>
-      </div>
-
-      {/* Channel subtab bar */}
-      <div className="flex gap-1 mb-6 border-b border-zinc-800">
-        {CHANNEL_TABS.map(({ key, label }) => (
-          <button
-            key={key}
-            onClick={() => setChannel(key)}
-            className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
-              channel === key
-                ? "border-amber-500 text-zinc-100"
-                : "border-transparent text-zinc-500 hover:text-zinc-300"
-            }`}
-          >
-            {label}
-            <span className="ml-1.5 text-xs text-zinc-600">
-              ({exports.filter(e => e.channel === key).length})
-            </span>
-          </button>
-        ))}
-      </div>
-
-      {/* Channel description */}
       <p className="text-xs text-zinc-600 mb-4">{channelMeta.description}</p>
 
-      {/* Square link manager button for taproom */}
       {channel === "taproom" && (
         <div className="mb-4 flex items-center justify-between px-3 py-2 bg-zinc-800/60 border border-zinc-700 rounded text-xs text-zinc-500">
           <span>
@@ -148,7 +255,6 @@ export default function ExportTab() {
         </div>
       )}
 
-      {/* Exports table */}
       {channelExports.length === 0 ? (
         <p className="text-sm text-zinc-600">No {channelMeta.label.toLowerCase()} exports recorded yet.</p>
       ) : (
@@ -216,7 +322,6 @@ export default function ExportTab() {
         </div>
       )}
 
-      {/* Excise tax summary */}
       {channelExports.length > 0 && totalBbl > 0 && (
         <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-1 px-3 py-2.5 bg-zinc-900/60 border border-zinc-800 rounded text-xs">
           <span className="text-zinc-500">Total volume</span>
@@ -238,6 +343,66 @@ export default function ExportTab() {
           links={links}
           onClose={() => setShowLinks(false)}
           onChanged={refreshLinks}
+        />
+      )}
+    </>
+  );
+}
+
+// ─── Root Component ───────────────────────────────────────────────────────────
+
+export default function ExportTab() {
+  const { data: exports = [] } = useQuery({
+    queryKey: EXPORTS_KEY,
+    queryFn: () => fetchJson<BatchExport[]>("/api/production/exports"),
+  });
+  const { data: links = [] } = useQuery({
+    queryKey: ["production", "recipe-square-links"],
+    queryFn: () => fetchJson<LinkRow[]>("/api/production/recipe-square-links"),
+  });
+  const { data: recipes = [] } = useRecipesQuery();
+
+  const [tab, setTab] = useState<TopTab>("allocations");
+
+  return (
+    <>
+      {/* Header */}
+      <div className="mb-4">
+        <h2 className="text-base font-medium text-zinc-100">Export</h2>
+        <p className="text-sm text-zinc-500 mt-0.5">Commitments and fulfillment — track what has been allocated and what has shipped.</p>
+      </div>
+
+      {/* Top tab bar */}
+      <div className="flex gap-1 mb-6 border-b border-zinc-800">
+        {TOP_TABS.map(({ key, label }) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
+              tab === key
+                ? "border-amber-500 text-zinc-100"
+                : "border-transparent text-zinc-500 hover:text-zinc-300"
+            }`}
+          >
+            {label}
+            {key !== "allocations" && (
+              <span className="ml-1.5 text-xs text-zinc-600">
+                ({exports.filter(e => e.channel === key).length})
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {tab === "allocations" && <AllocationsTab />}
+      {(tab === "taproom" || tab === "distribution" || tab === "contract_brewing") && (
+        <ExportsChannelTab
+          key={tab}
+          channel={tab}
+          exports={exports}
+          links={links}
+          recipes={recipes}
+          onLinksChanged={() => {}}
         />
       )}
     </>
