@@ -24,6 +24,26 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+
+  // Guard: block deletion if the ingredient is used in any recipe
+  const { data: usages, error: usageErr } = await supabase
+    .from("recipe_ingredients")
+    .select("recipe_id, recipes(beer_name)")
+    .eq("ingredient_id", id);
+
+  if (usageErr) return NextResponse.json({ error: usageErr.message }, { status: 500 });
+
+  if (usages && usages.length > 0) {
+    const recipeNames = (usages as unknown as { recipes: { beer_name: string } | null }[])
+      .map((u) => u.recipes?.beer_name)
+      .filter(Boolean)
+      .join(", ");
+    return NextResponse.json(
+      { error: `Ingredient is used in recipe${usages.length > 1 ? "s" : ""}: ${recipeNames}. Remove it from those recipes before deleting.` },
+      { status: 409 }
+    );
+  }
+
   const { error } = await supabase
     .from("ingredients")
     .delete()

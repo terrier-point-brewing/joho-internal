@@ -1,5 +1,6 @@
 import { squarePostAll } from "./client";
 import type { Order } from "@/types/square";
+import { dayRangeUtc } from "@/lib/utils/datetime";
 
 function locationId(): string {
   const id = process.env.SQUARE_LOCATION_ID;
@@ -8,10 +9,8 @@ function locationId(): string {
 }
 
 function dateRange(startDate: string, endDate: string) {
-  return {
-    start_at: new Date(startDate + "T00:00:00").toISOString(),
-    end_at:   new Date(endDate   + "T23:59:59").toISOString(),
-  };
+  const { startUtc, endUtc } = dayRangeUtc(startDate, endDate);
+  return { start_at: startUtc, end_at: endUtc };
 }
 
 // POS / hardware orders — completed only

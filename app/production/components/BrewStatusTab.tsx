@@ -1,15 +1,21 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { Equipment, BatchTankAssignment, BrewBatch, BatchTransfer, PackagingItem, Recipe, UNCONSTRAINED_EQUIPMENT_TYPES } from "../types";
-import { BREWHOUSE_BBL, StatusBadge, Modal, Field, ModalActions } from "./shared";
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { Equipment, BrewBatch, BatchTankAssignment, UNCONSTRAINED_EQUIPMENT_TYPES } from "../types";
+import { computeTankVolumes } from "../lib/volumeLedger";
+import { BREWHOUSE_BBL, Modal, Field, ModalActions } from "./shared";
 import { EQ, EQ_TYPES } from "../equipmentMeta";
 import { GRID_CELL_PX as CELL, GRID_COLS, GRID_ROWS, GRID_GAP_PX as GAP } from "@/lib/constants/production";
-import { fmtDate, fmtBbl } from "@/lib/utils/formatting";
+import { fmtDate } from "@/lib/utils/formatting";
 import TransferModal from "./TransferModal";
 import { useTankDragDrop } from "../hooks/useTankDragDrop";
 import { useEquipmentCrud } from "../hooks/useEquipmentCrud";
 import { useBatchAssign } from "../hooks/useBatchAssign";
+import {
+  usePackagingQuery, useEquipmentQuery, useAssignmentsQuery, useBatchesQuery,
+  useTransfersQuery, useRecipesQuery, productionKeys,
+} from "../hooks/queries";
 
 const GRID_COLS_KEY = "brewConsole_gridCols";
 const GRID_ROWS_KEY = "brewConsole_gridRows";
@@ -19,6 +25,7 @@ const BATCH_EMPTY = {
   recipe_id: "",
   beer_name: "",
   planned_brew_date: new Date().toISOString().slice(0, 10),
+  expected_delivery_date: "",
   turns: "1",
   notes: "",
 };
@@ -35,34 +42,66 @@ function eqStyle(t: Equipment, cell: number): React.CSSProperties {
   };
 }
 
-export default function BrewStatusTab({
-  tanks,
-  assignments,
-  batches,
-  transfers,
-  recipes,
-  onRefresh,
-  onBatchCreated,
-}: {
-  tanks: Equipment[];
-  assignments: BatchTankAssignment[];
-  batches: BrewBatch[];
-  transfers: BatchTransfer[];
-  recipes: Recipe[];
-  onRefresh: () => Promise<void>;
-  onBatchCreated: () => Promise<void>;
-}) {
+export default function BrewStatusTab() {
+  const qc = useQueryClient();
+  const { data: tanks = [] } = useEquipmentQuery();
+  const { data: assignments = [] } = useAssignmentsQuery();
+  const { data: batches = [] } = useBatchesQuery();
+  const { data: transfers = [] } = useTransfersQuery();
+  const { data: recipes = [] } = useRecipesQuery();
+
+  // Floorplan actions touch equipment/assignments/batches/transfers together.
+  const refreshBrewStatus = useCallback(() => Promise.all([
+    qc.invalidateQueries({ queryKey: productionKeys.equipment }),
+    qc.invalidateQueries({ queryKey: productionKeys.assignments }),
+    qc.invalidateQueries({ queryKey: productionKeys.batches }),
+    qc.invalidateQueries({ queryKey: productionKeys.transfers }),
+  ]).then(() => undefined), [qc]);
+  const onRefresh = refreshBrewStatus;
+  const onBatchCreated = useCallback(() => qc.invalidateQueries({ queryKey: productionKeys.batches }), [qc]);
+
   const [editMode, setEditMode] = useState(false);
   const [transferTankId, setTransferTankId] = useState<string | null>(null);
-  const [packaging, setPackaging] = useState<PackagingItem[]>([]);
-  const [gridCols, setGridCols] = useState(() => {
-    if (typeof window === "undefined") return GRID_COLS;
-    return parseInt(localStorage.getItem(GRID_COLS_KEY) ?? String(GRID_COLS)) || GRID_COLS;
-  });
-  const [gridRows, setGridRows] = useState(() => {
-    if (typeof window === "undefined") return GRID_ROWS;
-    return parseInt(localStorage.getItem(GRID_ROWS_KEY) ?? String(GRID_ROWS)) || GRID_ROWS;
-  });
+  const [transferBatchId, setTransferBatchId] = useState<string | null>(null);
+  const [transferFromVol, setTransferFromVol] = useState<number | undefined>(undefined);
+  // Tracks batch IDs currently being sent to cold storage (kegging/canning one-click transfer)
+  const [pkgTransferring, setPkgTransferring] = useState<Set<string>>(new Set());
+
+  async function handleSendToColdStorage(batchId: string, fromTankId: string, incoming: typeof transfers[0]) {
+    const coldStorage = tanks.find((t) => t.type === "cold_storage");
+    if (!coldStorage) { alert("No cold storage tank found on the floorplan."); return; }
+    setPkgTransferring((s) => new Set(s).add(batchId));
+    try {
+      const res = await fetch("/api/production/transfers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          batch_id:       batchId,
+          from_tank_id:   fromTankId,
+          to_tank_id:     coldStorage.id,
+          volume_bbl:     incoming.volume_bbl,
+          shrinkage_bbl:  0,
+          transfer_type:  incoming.transfer_type,
+          kegging_detail: incoming.kegging_detail ?? null,
+          canning_detail: incoming.canning_detail ?? null,
+        }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? "Error");
+      await onRefresh();
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Transfer failed");
+    } finally {
+      setPkgTransferring((s) => { const n = new Set(s); n.delete(batchId); return n; });
+    }
+  }
+  // Shared with the Inventory tab via the query cache (de-duped, no local fetch).
+  const { data: packaging = [] } = usePackagingQuery();
+  // Initialize with the SSR default so the server and the client's first render
+  // agree (avoids a hydration mismatch on the grid dimensions); the persisted
+  // value is loaded from localStorage after mount in the effect below.
+  const [gridCols, setGridCols] = useState(GRID_COLS);
+  const [gridRows, setGridRows] = useState(GRID_ROWS);
+  const gridSizeSaveSkip = useRef(true);
 
   // New batch modal state
   const [showNewBatch, setShowNewBatch] = useState(false);
@@ -70,18 +109,28 @@ export default function BrewStatusTab({
   const [batchSubmitting, setBatchSubmitting] = useState(false);
 
   function handleRecipeChange(recipeId: string) {
-    const r = recipes.find((r) => r.id === recipeId);
+    const r = recipes.find((rec) => rec.id === recipeId);
+    const leadDays = r ? ((r.days_brewhouse ?? 0) + (r.days_fermenter ?? 0) + (r.days_brite ?? 0)) : 0;
+    const autoDelivery = leadDays > 0
+      ? (() => {
+          const d = new Date(batchForm.planned_brew_date || new Date().toISOString().slice(0, 10));
+          d.setDate(d.getDate() + leadDays);
+          return d.toISOString().slice(0, 10);
+        })()
+      : "";
     setBatchForm((f) => ({
       ...f,
       recipe_id: recipeId,
       beer_name: r?.beer_name ?? f.beer_name,
       turns: "1",
+      expected_delivery_date: autoDelivery || f.expected_delivery_date,
     }));
   }
 
   async function handleNewBatchSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!batchForm.recipe_id) { alert("Please select a recipe."); return; }
+    if (!batchForm.expected_delivery_date) { alert("Expected delivery date is required."); return; }
     const recipe = recipes.find((r) => r.id === batchForm.recipe_id);
     const turns = parseInt(batchForm.turns) || 1;
     const volume_bbl = recipe?.expected_yield_bbl != null ? recipe.expected_yield_bbl * turns : null;
@@ -89,12 +138,13 @@ export default function BrewStatusTab({
     setBatchSubmitting(true);
     try {
       const payload = {
-        recipe_id:         batchForm.recipe_id,
-        beer_name:         batchForm.beer_name,
-        planned_brew_date: batchForm.planned_brew_date,
+        recipe_id:              batchForm.recipe_id,
+        beer_name:              batchForm.beer_name,
+        planned_brew_date:      batchForm.planned_brew_date,
+        expected_delivery_date: batchForm.expected_delivery_date,
         volume_bbl,
         turns,
-        notes:             batchForm.notes || null,
+        notes:                  batchForm.notes || null,
       };
       const res = await fetch("/api/production/batches", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       if (!res.ok) throw new Error((await res.json()).error ?? "Error");
@@ -109,30 +159,56 @@ export default function BrewStatusTab({
     }
   }
 
+  // Load persisted grid size once, after mount. Reading localStorage here (not
+  // in the initializer) is required to avoid an SSR/client hydration mismatch.
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
-    fetch("/api/production/packaging").then((r) => r.ok ? r.json() : []).then(setPackaging);
+    const c = parseInt(localStorage.getItem(GRID_COLS_KEY) ?? "");
+    const r = parseInt(localStorage.getItem(GRID_ROWS_KEY) ?? "");
+    if (c) setGridCols(c);
+    if (r) setGridRows(r);
   }, []);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
-  useEffect(() => { localStorage.setItem(GRID_COLS_KEY, String(gridCols)); }, [gridCols]);
-  useEffect(() => { localStorage.setItem(GRID_ROWS_KEY, String(gridRows)); }, [gridRows]);
+  // Persist on change, but skip the initial mount so we never overwrite the
+  // stored value with the default before the load effect above has run.
+  useEffect(() => {
+    if (gridSizeSaveSkip.current) { gridSizeSaveSkip.current = false; return; }
+    localStorage.setItem(GRID_COLS_KEY, String(gridCols));
+    localStorage.setItem(GRID_ROWS_KEY, String(gridRows));
+  }, [gridCols, gridRows]);
 
   const assignmentByTank   = Object.fromEntries(assignments.map((a) => [a.tank_id, a])) as Record<string, BatchTankAssignment | undefined>;
   const assignedBatchIds   = new Set(assignments.map((a) => a.batch_id));
-  const unassignedBatches  = batches.filter((b) => b.status !== "archived" && !assignedBatchIds.has(b.id));
+  // Packaging-status batches live on their kegging/canning tile — don't show in backlog/unassigned
+  const unassignedBatches  = batches.filter((b) => b.status !== "archived" && b.status !== "packaging" && !assignedBatchIds.has(b.id));
   const planningBatches    = batches.filter((b) => b.status === "planning")
     .sort((a, b) => new Date(b.planned_brew_date).getTime() - new Date(a.planned_brew_date).getTime());
   const batchById          = Object.fromEntries(batches.map((b) => [b.id, b]));
+
+  // Ledger: current volume per batch per tank, derived from transfer history
+  const tankVolumesByBatch: Record<string, Record<string, number>> = {};
+  for (const b of batches) {
+    const vols = computeTankVolumes(b.id, Number(b.volume_bbl ?? 0), transfers);
+    if (Object.keys(vols).length > 0) tankVolumesByBatch[b.id] = vols;
+  }
 
   const placed   = tanks.filter((t) => t.grid_row != null && t.grid_col != null);
   const unplaced = tanks.filter((t) => t.grid_row == null || t.grid_col == null);
 
   const transferTank       = transferTankId ? tanks.find((t) => t.id === transferTankId) ?? null : null;
   const transferAssignment = transferTankId ? assignmentByTank[transferTankId] : null;
-  const transferBatch      = transferAssignment
-    ? batches.find((b) => b.id === transferAssignment.batch_id) ?? null
-    : null;
+  const transferBatch: BrewBatch | null = transferBatchId
+    ? (batches.find((b) => b.id === transferBatchId) ?? null)
+    : (transferAssignment ? (batches.find((b) => b.id === transferAssignment.batch_id) ?? null) : null);
 
-  const drag   = useTankDragDrop(tanks, onRefresh);
+  // Destructure so the ref (gridRef) and state (dragging/dropPreview/…) keep
+  // distinct identities — otherwise the React Compiler taints every access on
+  // the returned object as "accessing refs during render".
+  const {
+    dragging, dropPreview, gridRef, draggingTank,
+    onDragStart, onGridDragOver, onGridDrop, onUnplacedDrop, removeFromGrid, clearDrag,
+  } = useTankDragDrop(tanks, onRefresh);
   const eqCrud = useEquipmentCrud(onRefresh);
   const assign = useBatchAssign(unassignedBatches, onRefresh);
 
@@ -172,10 +248,10 @@ export default function BrewStatusTab({
       {editMode && unplaced.length > 0 && (
         <div
           className={`mb-4 p-3 rounded-lg border border-dashed transition-colors ${
-            drag.dragging ? "border-zinc-500 bg-zinc-900/40" : "border-zinc-700"
+            dragging ? "border-zinc-500 bg-zinc-900/40" : "border-zinc-700"
           }`}
           onDragOver={(e) => e.preventDefault()}
-          onDrop={drag.onUnplacedDrop}
+          onDrop={onUnplacedDrop}
         >
           <p className="text-xs text-zinc-500 font-medium uppercase tracking-wide mb-2">
             Unplaced Equipment — drag onto the grid to position
@@ -188,10 +264,10 @@ export default function BrewStatusTab({
                 <div
                   key={tank.id}
                   draggable
-                  onDragStart={(e) => drag.onDragStart(e, tank)}
-                  onDragEnd={drag.clearDrag}
+                  onDragStart={(e) => onDragStart(e, tank)}
+                  onDragEnd={clearDrag}
                   className={`rounded border px-3 py-2 bg-zinc-900 ${eq.border} cursor-grab active:cursor-grabbing ${
-                    drag.dragging?.id === tank.id ? "opacity-40" : ""
+                    dragging?.id === tank.id ? "opacity-40" : ""
                   }`}
                 >
                   <div className="flex items-center gap-2">
@@ -229,10 +305,10 @@ export default function BrewStatusTab({
         </div>
       )}
 
-      {/* Grid */}
-      <div className="overflow-auto rounded-lg border border-zinc-800 mb-6" style={{ maxHeight: "72vh" }}>
+      {/* Grid — frame always matches grid size exactly; page scrolls if needed, no internal scrollbar */}
+      <div className="rounded-lg border border-zinc-800 mb-6 overflow-hidden" style={{ width: gridCols * cell, height: gridRows * cell }}>
         <div
-          ref={drag.gridRef}
+          ref={gridRef}
           className="relative"
           style={{
             width:  gridCols * cell,
@@ -243,16 +319,16 @@ export default function BrewStatusTab({
             ].join(","),
             backgroundSize: `${cell}px ${cell}px`,
           }}
-          onDragOver={editMode ? drag.onGridDragOver : undefined}
-          onDrop={editMode ? drag.onGridDrop : undefined}
-          onDragLeave={() => drag.clearDrag()}
+          onDragOver={editMode ? onGridDragOver : undefined}
+          onDrop={editMode ? onGridDrop : undefined}
+          onDragLeave={() => clearDrag()}
         >
           {placed.map((tank) => {
             const eq          = EQ[tank.type];
             if (!eq) return null;
             const assignment  = assignmentByTank[tank.id];
             const batch       = assignment?.brew_batches;
-            const isDragging  = drag.dragging?.id === tank.id;
+            const isDragging  = dragging?.id === tank.id;
             const isTank      = TANK_TYPES.has(tank.type);
             const isColdStorage = tank.type === "cold_storage";
             const isBacklog   = tank.type === "backlog";
@@ -272,8 +348,8 @@ export default function BrewStatusTab({
               <div
                 key={tank.id}
                 draggable={editMode}
-                onDragStart={editMode ? (e) => drag.onDragStart(e, tank) : undefined}
-                onDragEnd={drag.clearDrag}
+                onDragStart={editMode ? (e) => onDragStart(e, tank) : undefined}
+                onDragEnd={clearDrag}
                 className={`absolute flex flex-col rounded border transition-opacity select-none ${
                   isDragging ? "opacity-30" : "opacity-100"
                 } ${editMode ? "cursor-grab active:cursor-grabbing" : ""} ${eq.border}`}
@@ -334,23 +410,34 @@ export default function BrewStatusTab({
                         {coldTransfers.length === 0 ? (
                           <p className="text-zinc-700 text-center mt-1" style={{ fontSize: 9 }}>Empty</p>
                         ) : (
-                          <div className="space-y-0.5">
+                          <div className="space-y-1">
                             {coldTransfers.map((tr) => {
                               const b = batchById[tr.batch_id];
-                              const detail = tr.transfer_type === "kegging"
-                                ? (tr.kegging_detail as { total_kegs?: number } | null)
-                                : (tr.canning_detail as { total_cans?: number } | null);
-                              const qty = tr.transfer_type === "kegging"
-                                ? (detail as { total_kegs?: number } | null)?.total_kegs
-                                : (detail as { total_cans?: number } | null)?.total_cans;
-                              const unit = tr.transfer_type === "kegging" ? "keg" : "can";
+                              const isKeg = tr.transfer_type === "kegging";
+                              const kegDetail  = isKeg ? (tr.kegging_detail as { total_kegs?: number; kegs?: { name: string; quantity: number }[] } | null) : null;
+                              const canDetail  = !isKeg ? (tr.canning_detail as { total_cans?: number } | null) : null;
+                              const kegLines   = kegDetail?.kegs?.filter((k) => k.quantity > 0) ?? [];
                               return (
-                                <div key={tr.id} className="flex items-baseline gap-1 leading-tight">
-                                  <span className="text-zinc-300 truncate" style={{ fontSize: 9 }}>{b?.beer_name ?? "—"}</span>
-                                  {qty != null && (
-                                    <span className="text-zinc-500 shrink-0" style={{ fontSize: 8 }}>{qty} {unit}{qty !== 1 ? "s" : ""}</span>
+                                <div key={tr.id} className="flex flex-col gap-0 leading-tight">
+                                  <div className="flex items-baseline gap-1">
+                                    <span className="text-zinc-300 truncate font-medium" style={{ fontSize: 9 }}>{b?.beer_name ?? "—"}</span>
+                                    <span className="text-zinc-600 shrink-0 ml-auto" style={{ fontSize: 8 }}>{fmtDate(tr.transferred_at)}</span>
+                                  </div>
+                                  {isKeg && kegLines.length > 0 && (
+                                    <div className="pl-1">
+                                      {kegLines.map((k, i) => (
+                                        <span key={i} className="text-zinc-500 block" style={{ fontSize: 8 }}>
+                                          {k.quantity}× {k.name}
+                                        </span>
+                                      ))}
+                                    </div>
                                   )}
-                                  <span className="text-zinc-600 shrink-0 ml-auto" style={{ fontSize: 8 }}>{fmtDate(tr.transferred_at)}</span>
+                                  {isKeg && kegLines.length === 0 && kegDetail?.total_kegs != null && (
+                                    <span className="text-zinc-500 pl-1" style={{ fontSize: 8 }}>{kegDetail.total_kegs} keg{kegDetail.total_kegs !== 1 ? "s" : ""}</span>
+                                  )}
+                                  {!isKeg && canDetail?.total_cans != null && (
+                                    <span className="text-zinc-500 pl-1" style={{ fontSize: 8 }}>{canDetail.total_cans} can{canDetail.total_cans !== 1 ? "s" : ""}</span>
+                                  )}
                                 </div>
                               );
                             })}
@@ -360,12 +447,17 @@ export default function BrewStatusTab({
                     )}
 
                     {/* === Regular tank (fermenter / brite / brewhouse) === */}
-                    {isTank && (
+                    {isTank && (() => {
+                      // Ledger volume for this batch in THIS specific tank (may be a partial split)
+                      const ledgerVol = batch
+                        ? (tankVolumesByBatch[batch.id]?.[tank.id] ?? Number(batch.volume_bbl ?? 0))
+                        : 0;
+                      return (
                       <>
                         {!isUnconstrained && tank.capacity_bbl && (
                           <>
                             <p className="text-zinc-600" style={{ fontSize: 9 }}>
-                              {batch ? `${Number(batch.volume_bbl).toFixed(1)} / ${tank.capacity_bbl} BBL` : `${tank.capacity_bbl} BBL`}
+                              {batch ? `${ledgerVol.toFixed(1)} / ${tank.capacity_bbl} BBL` : `${tank.capacity_bbl} BBL`}
                             </p>
                             {/* Fill bar */}
                             {batch && (
@@ -373,7 +465,7 @@ export default function BrewStatusTab({
                                 <div
                                   style={{
                                     height: "100%",
-                                    width: `${Math.min(100, (Number(batch.volume_bbl) / tank.capacity_bbl) * 100).toFixed(1)}%`,
+                                    width: `${Math.min(100, (ledgerVol / tank.capacity_bbl) * 100).toFixed(1)}%`,
                                     background: "rgba(245,158,11,0.7)",
                                     borderRadius: "9999px",
                                   }}
@@ -398,7 +490,7 @@ export default function BrewStatusTab({
                             {!editMode && (
                               <div className="mt-auto pt-1">
                                 <button
-                                  onClick={() => setTransferTankId(tank.id)}
+                                  onClick={() => { setTransferTankId(tank.id); setTransferFromVol(ledgerVol); }}
                                   onMouseDown={(e) => e.stopPropagation()}
                                   className="text-amber-700 hover:text-amber-400 border border-amber-900 hover:border-amber-700 px-1.5 rounded transition-colors"
                                   style={{ fontSize: 9 }}
@@ -424,51 +516,104 @@ export default function BrewStatusTab({
                           </div>
                         )}
                       </>
-                    )}
+                    ); })()}
 
-                    {/* === Kegging / Canning (unconstrained, single-assign) === */}
+                    {/* === Kegging / Canning (unconstrained — derive active batches from transfers) === */}
                     {!isTank && !isColdStorage && !isBacklog && (
-                      <>
-                        {batch ? (
-                          <>
-                            <div className="flex items-baseline gap-1 flex-wrap">
-                              {batch.batch_number && (
-                                <span className="text-zinc-500 font-mono shrink-0" style={{ fontSize: 9 }}>#{batch.batch_number}</span>
-                              )}
-                              <span className="text-zinc-200 font-medium leading-tight break-words" style={{ fontSize: 10 }}>
-                                {batch.beer_name}
-                              </span>
-                            </div>
-                            <StatusBadge status={batch.status} />
-                            {assignment && (
-                              <p className="text-zinc-600" style={{ fontSize: 8 }}>since {fmtDate(assignment.assigned_at)}</p>
-                            )}
-                            {!editMode && (
-                              <div className="mt-auto pt-1">
-                                <button
-                                  onClick={() => setTransferTankId(tank.id)}
-                                  onMouseDown={(e) => e.stopPropagation()}
-                                  className="text-amber-700 hover:text-amber-400 border border-amber-900 hover:border-amber-700 px-1.5 rounded transition-colors"
-                                  style={{ fontSize: 9 }}
-                                >
-                                  Transfer
-                                </button>
-                              </div>
-                            )}
-                          </>
+                      (() => {
+                        // Most-recent incoming pkg transfer per batch → used to show packaging output
+                        const incomingByBatch = new Map<string, typeof transfers[0]>();
+                        for (const tr of transfers) {
+                          if (tr.to_tank_id !== tank.id) continue;
+                          if (tr.transfer_type !== "kegging" && tr.transfer_type !== "canning") continue;
+                          const existing = incomingByBatch.get(tr.batch_id);
+                          if (!existing || new Date(tr.transferred_at) > new Date(existing.transferred_at)) {
+                            incomingByBatch.set(tr.batch_id, tr);
+                          }
+                        }
+
+                        const pkgBatches = [...new Map(
+                          transfers
+                            .filter((tr) => tr.to_tank_id === tank.id)
+                            .sort((a, b) => new Date(b.transferred_at).getTime() - new Date(a.transferred_at).getTime())
+                            .map((tr) => batchById[tr.batch_id])
+                            .filter((b): b is BrewBatch => b?.status === "packaging")
+                            .map((b) => [b.id, b] as [string, BrewBatch])
+                        ).values()];
+
+                        return pkgBatches.length > 0 ? (
+                          <div className="space-y-1.5">
+                            {pkgBatches.map((b) => {
+                              const incoming = incomingByBatch.get(b.id);
+                              const kd = incoming?.kegging_detail;
+                              const cd = incoming?.canning_detail;
+                              return (
+                                <div key={b.id} className="flex flex-col gap-0.5">
+                                  {/* Batch identity */}
+                                  <div className="flex items-baseline gap-1 flex-wrap">
+                                    {b.batch_number && (
+                                      <span className="text-zinc-500 font-mono shrink-0" style={{ fontSize: 9 }}>#{b.batch_number}</span>
+                                    )}
+                                    <span className="text-zinc-200 font-medium leading-tight break-words" style={{ fontSize: 10 }}>
+                                      {b.beer_name}
+                                    </span>
+                                  </div>
+
+                                  {/* Packaging output */}
+                                  {kd && (
+                                    <div className="space-y-px">
+                                      {kd.kegs && kd.kegs.length > 0
+                                        ? kd.kegs.filter((k) => k.quantity > 0).map((k, i) => (
+                                            <div key={i} className="flex items-center gap-1">
+                                              <span className="text-amber-400 font-mono font-semibold" style={{ fontSize: 9 }}>{k.quantity}×</span>
+                                              <span className="text-zinc-400 truncate" style={{ fontSize: 9 }}>{k.name}</span>
+                                            </div>
+                                          ))
+                                        : kd.total_kegs != null && (
+                                            <span className="text-amber-400 font-mono" style={{ fontSize: 9 }}>{kd.total_kegs} kegs</span>
+                                          )
+                                      }
+                                    </div>
+                                  )}
+                                  {cd && cd.total_cans != null && (
+                                    <div className="flex items-center gap-1">
+                                      <span className="text-amber-400 font-mono font-semibold" style={{ fontSize: 9 }}>{cd.total_cans.toLocaleString()}</span>
+                                      <span className="text-zinc-400" style={{ fontSize: 9 }}>cans</span>
+                                      {cd.cases != null && cd.cases > 0 && (
+                                        <span className="text-zinc-600" style={{ fontSize: 8 }}>({cd.cases} cases{cd.loose_cans ? ` + ${cd.loose_cans}` : ""})</span>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  {/* One-click transfer to cold storage */}
+                                  {!editMode && incoming && (
+                                    <button
+                                      onClick={() => handleSendToColdStorage(b.id, tank.id, incoming)}
+                                      onMouseDown={(e) => e.stopPropagation()}
+                                      disabled={pkgTransferring.has(b.id)}
+                                      className="self-start text-amber-700 hover:text-amber-400 border border-amber-900 hover:border-amber-700 px-1.5 rounded transition-colors mt-0.5 disabled:opacity-40"
+                                      style={{ fontSize: 9 }}
+                                    >
+                                      {pkgTransferring.has(b.id) ? "…" : "Transfer"}
+                                    </button>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
                         ) : (
                           <div className="flex-1 flex flex-col items-center justify-center gap-1">
                             <p className="text-zinc-700" style={{ fontSize: 9 }}>Empty</p>
                           </div>
-                        )}
-                      </>
+                        );
+                      })()
                     )}
 
                     {/* Edit mode controls */}
                     {editMode && (
                       <div className="mt-auto pt-1 flex gap-1.5">
                         <button onClick={() => eqCrud.openEdit(tank)} onMouseDown={(e) => e.stopPropagation()} className="text-zinc-600 hover:text-zinc-300 transition-colors" style={{ fontSize: 9 }}>Edit</button>
-                        <button onClick={() => drag.removeFromGrid(tank.id)} onMouseDown={(e) => e.stopPropagation()} className="text-zinc-600 hover:text-amber-400 transition-colors" style={{ fontSize: 9 }}>Unplace</button>
+                        <button onClick={() => removeFromGrid(tank.id)} onMouseDown={(e) => e.stopPropagation()} className="text-zinc-600 hover:text-amber-400 transition-colors" style={{ fontSize: 9 }}>Unplace</button>
                         {!assignment && <button onClick={() => eqCrud.handleDeleteEq(tank.id, tank.name)} onMouseDown={(e) => e.stopPropagation()} className="text-zinc-600 hover:text-red-400 transition-colors" style={{ fontSize: 9 }}>Del</button>}
                       </div>
                     )}
@@ -479,16 +624,16 @@ export default function BrewStatusTab({
           })}
 
           {/* Drop preview */}
-          {drag.dropPreview && drag.draggingTank && (
+          {dropPreview && draggingTank && (
             <div
               className={`absolute pointer-events-none z-20 rounded border-2 border-dashed ${
-                drag.dropPreview.valid ? "border-amber-400 bg-amber-900/15" : "border-red-500 bg-red-900/15"
+                dropPreview.valid ? "border-amber-400 bg-amber-900/15" : "border-red-500 bg-red-900/15"
               }`}
               style={{
-                left:   drag.dropPreview.col * cell + GAP,
-                top:    drag.dropPreview.row * cell + GAP,
-                width:  drag.draggingTank.grid_width  * cell - GAP * 2,
-                height: drag.draggingTank.grid_height * cell - GAP * 2,
+                left:   dropPreview.col * cell + GAP,
+                top:    dropPreview.row * cell + GAP,
+                width:  draggingTank.grid_width  * cell - GAP * 2,
+                height: draggingTank.grid_height * cell - GAP * 2,
               }}
             />
           )}
@@ -594,8 +739,10 @@ export default function BrewStatusTab({
           batch={transferBatch}
           fromTank={transferTank}
           allTanks={tanks}
+          occupiedTankIds={new Set(assignments.map((a) => a.tank_id))}
           packaging={packaging}
-          onClose={() => setTransferTankId(null)}
+          fromTankVolume={transferFromVol}
+          onClose={() => { setTransferTankId(null); setTransferBatchId(null); setTransferFromVol(undefined); }}
           onDone={onRefresh}
         />
       )}
@@ -618,7 +765,28 @@ export default function BrewStatusTab({
             </Field>
             <Field label="Planned Brew Date" required>
               <input type="date" className="inp" value={batchForm.planned_brew_date} required
-                onChange={(e) => setBatchForm((f) => ({ ...f, planned_brew_date: e.target.value }))} />
+                onChange={(e) => {
+                  const newDate = e.target.value;
+                  setBatchForm((f) => {
+                    const recipe = recipes.find((r) => r.id === f.recipe_id);
+                    const leadDays = recipe ? ((recipe.days_brewhouse ?? 0) + (recipe.days_fermenter ?? 0) + (recipe.days_brite ?? 0)) : 0;
+                    const autoDelivery = leadDays > 0 && newDate
+                      ? (() => { const d = new Date(newDate); d.setDate(d.getDate() + leadDays); return d.toISOString().slice(0, 10); })()
+                      : f.expected_delivery_date;
+                    return { ...f, planned_brew_date: newDate, expected_delivery_date: autoDelivery };
+                  });
+                }} />
+            </Field>
+            <Field label="Expected Delivery Date" required>
+              <input type="date" className="inp" value={batchForm.expected_delivery_date} required
+                onChange={(e) => setBatchForm((f) => ({ ...f, expected_delivery_date: e.target.value }))} />
+              {batchForm.recipe_id && (() => {
+                const recipe = recipes.find((r) => r.id === batchForm.recipe_id);
+                const leadDays = recipe ? ((recipe.days_brewhouse ?? 0) + (recipe.days_fermenter ?? 0) + (recipe.days_brite ?? 0)) : 0;
+                return leadDays > 0 ? (
+                  <p className="text-xs text-zinc-600 mt-1">Auto-set from recipe lead time: {leadDays} days</p>
+                ) : null;
+              })()}
             </Field>
             <Field label={`Turns (${BREWHOUSE_BBL} BBL brewhouse)`} required>
               <input type="number" min="1" step="1" className="inp" value={batchForm.turns} required

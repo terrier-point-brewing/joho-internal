@@ -40,7 +40,7 @@ export async function PATCH(
 
   const { data, error } = await supabase
     .from("recipes")
-    .select("*, recipe_ingredients(*, ingredients(*))")
+    .select("*, recipe_ingredients(*, ingredients(*)), recipe_brew_activity_templates(*)")
     .eq("id", id)
     .single();
 
@@ -53,6 +53,24 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+
+  // Guard: block deletion if any non-archived batch references this recipe
+  const { data: activeBatches, error: batchErr } = await supabase
+    .from("brew_batches")
+    .select("id, beer_name, status")
+    .eq("recipe_id", id)
+    .neq("status", "archived");
+
+  if (batchErr) return NextResponse.json({ error: batchErr.message }, { status: 500 });
+
+  if (activeBatches && activeBatches.length > 0) {
+    const names = activeBatches.map((b: { beer_name: string }) => b.beer_name).join(", ");
+    return NextResponse.json(
+      { error: `Recipe is used by active batch${activeBatches.length > 1 ? "es" : ""}: ${names}. Archive those batches before deleting the recipe.` },
+      { status: 409 }
+    );
+  }
+
   const { error } = await supabase.from("recipes").delete().eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return new NextResponse(null, { status: 204 });

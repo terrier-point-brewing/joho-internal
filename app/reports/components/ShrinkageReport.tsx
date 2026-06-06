@@ -24,11 +24,6 @@ const LINE_COLORS = [
   "#fb923c", "#38bdf8", "#4ade80", "#e879f9", "#facc15",
 ];
 
-function today() { return new Date().toISOString().slice(0, 10); }
-function ninetyDaysAgo() {
-  const d = new Date(); d.setDate(d.getDate() - 90);
-  return d.toISOString().slice(0, 10);
-}
 
 const tdCls = "px-4 py-2";
 

@@ -1,27 +1,12 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useMemo } from "react";
 import {
   format, startOfMonth, endOfMonth, startOfWeek, endOfWeek,
   addDays, addMonths, subMonths, isSameMonth, isSameDay,
-  parseISO, isWithinInterval, startOfDay, endOfDay,
+  parseISO, startOfDay, endOfDay,
 } from "date-fns";
-import { BrewBatch } from "../types";
-
-interface ScheduleEntry {
-  id: string;
-  batch_id: string;
-  equipment_id: string | null;
-  stage: string;
-  planned_start: string;
-  planned_end: string;
-  brew_batches: { id: string; beer_name: string; batch_number: number; status: string } | null;
-  equipment: { id: string; name: string; type: string } | null;
-}
-
-interface Props {
-  batches: BrewBatch[];
-}
+import { useBatchScheduleQuery, useBatchesQuery } from "../hooks/queries";
 
 const BATCH_PALETTE = [
   "#f59e0b", "#3b82f6", "#10b981", "#8b5cf6",
@@ -38,16 +23,10 @@ const STAGE_LABELS: Record<string, string> = {
   cold_storage: "Cold",
 };
 
-export default function CalendarTab({ batches }: Props) {
-  const [entries, setEntries] = useState<ScheduleEntry[]>([]);
+export default function CalendarTab() {
+  const { data: entries = [] } = useBatchScheduleQuery();
+  const { data: batches = [] } = useBatchesQuery();
   const [currentMonth, setCurrentMonth] = useState(() => startOfMonth(new Date()));
-
-  async function load() {
-    const res = await fetch("/api/production/batch-schedule");
-    if (res.ok) setEntries(await res.json());
-  }
-
-  useEffect(() => { load(); }, []);
 
   // Stable color map per batch
   const batchColors = useMemo(() => {
@@ -79,12 +58,6 @@ export default function CalendarTab({ batches }: Props) {
 
   return (
     <div>
-      {/* Header */}
-      <div className="mb-4">
-        <h2 className="text-base font-medium text-zinc-100">Calendar</h2>
-        <p className="text-sm text-zinc-500 mt-0.5">Monthly view of batch schedule entries — see when each batch occupies equipment</p>
-      </div>
-
       {/* Month nav */}
       <div className="flex items-center gap-3 mb-4">
         <button onClick={() => setCurrentMonth(m => subMonths(m, 1))} className="px-3 py-1 text-sm bg-zinc-800 rounded text-zinc-400 hover:text-zinc-200">‹</button>

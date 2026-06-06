@@ -1,28 +1,40 @@
 "use client";
 
 import { useState } from "react";
+import TaproomTab      from "./intake/TaproomTab";
+import DistributionTab from "./intake/DistributionTab";
+import ContractBrewingTab from "./intake/ContractBrewingTab";
+import SafetyStockTab  from "./intake/SafetyStockTab";
+import DemandCalendarTab from "./intake/DemandCalendarTab";
+import BatchSchedulerTab from "./intake/BatchSchedulerTab";
+import { useRecipesQuery, useTransfersQuery, useEquipmentQuery, useBatchesQuery, useContractPartnersQuery } from "../hooks/queries";
 
-type IntakeSubtab = "requests" | "demand" | "scheduler";
+type IntakeSubtab = "taproom" | "distribution" | "contract" | "safety" | "demand" | "scheduler";
 
-const SUBTABS: { key: IntakeSubtab; label: string; description: string }[] = [
-  { key: "requests",  label: "Requests",  description: "Incoming production requests from taproom, distribution, and contract brewing clients." },
-  { key: "demand",    label: "Demand",    description: "Demand forecasting and inventory targets by product." },
-  { key: "scheduler", label: "Scheduler", description: "Auto-schedule production runs based on demand and available equipment capacity." },
+const SUBTABS: { key: IntakeSubtab; label: string }[] = [
+  { key: "taproom",      label: "Taproom" },
+  { key: "distribution", label: "Distribution" },
+  { key: "contract",     label: "Contract Brewing" },
+  { key: "safety",       label: "Safety Stock" },
+  { key: "demand",       label: "Demand Calendar" },
+  { key: "scheduler",    label: "Batch Scheduler" },
 ];
 
 export default function IntakeTab() {
-  const [sub, setSub] = useState<IntakeSubtab>("requests");
-  const meta = SUBTABS.find(s => s.key === sub)!;
+  const [sub, setSub] = useState<IntakeSubtab>("taproom");
+  const { data: recipes = [] }  = useRecipesQuery();
+  const { data: transfers = [] } = useTransfersQuery();
+  const { data: tanks = [] }    = useEquipmentQuery();
+  const { data: batches = [] }  = useBatchesQuery();
+  const { data: partners = [] } = useContractPartnersQuery();
 
   return (
     <>
-      {/* Header */}
       <div className="mb-4">
         <h2 className="text-base font-medium text-zinc-100">Intake</h2>
-        <p className="text-sm text-zinc-500 mt-0.5">Manage incoming production requests, demand forecasts, and auto-scheduling</p>
+        <p className="text-sm text-zinc-500 mt-0.5">Demand planning across taproom, distribution, and contract brewing</p>
       </div>
 
-      {/* Subtab bar */}
       <div className="flex gap-1 mb-6 border-b border-zinc-800">
         {SUBTABS.map(({ key, label }) => (
           <button
@@ -39,12 +51,12 @@ export default function IntakeTab() {
         ))}
       </div>
 
-      {/* Placeholder content */}
-      <div className="flex flex-col items-center justify-center py-20 text-center">
-        <div className="text-zinc-700 text-4xl mb-4">○</div>
-        <p className="text-sm text-zinc-500 font-medium">{meta.label}</p>
-        <p className="text-xs text-zinc-600 mt-1 max-w-sm">{meta.description}</p>
-      </div>
+      {sub === "taproom"      && <TaproomTab recipes={recipes} />}
+      {sub === "distribution" && <DistributionTab recipes={recipes} partners={partners} />}
+      {sub === "contract"     && <ContractBrewingTab recipes={recipes} partners={partners} />}
+      {sub === "safety"       && <SafetyStockTab recipes={recipes} transfers={transfers} tanks={tanks} batches={batches} />}
+      {sub === "demand"       && <DemandCalendarTab />}
+      {sub === "scheduler"    && <BatchSchedulerTab recipes={recipes} tanks={tanks} />}
     </>
   );
 }

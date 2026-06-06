@@ -1,4 +1,5 @@
 import { squareGetAll } from "./client";
+import { dayRangeUtc } from "@/lib/utils/datetime";
 
 export interface SquareRefund {
   id: string;
@@ -11,11 +12,10 @@ export interface SquareRefund {
 }
 
 export async function fetchRefunds(startDate: string, endDate: string): Promise<SquareRefund[]> {
-  const begin = new Date(startDate + "T00:00:00").toISOString();
-  const end   = new Date(endDate   + "T23:59:59").toISOString();
+  const { startUtc, endUtc } = dayRangeUtc(startDate, endDate);
   return squareGetAll<SquareRefund>("/refunds", "refunds", {
-    begin_time: begin,
-    end_time: end,
+    begin_time: startUtc,
+    end_time: endUtc,
     limit: "100",
   });
 }

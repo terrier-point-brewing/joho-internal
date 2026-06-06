@@ -1,8 +1,10 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
-import { Equipment, WorkflowTemplate, WorkflowTemplateStep, BatchWorkflowStep, BrewBatch } from "../types";
+import React, { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Equipment, WorkflowTemplate, BatchWorkflowStep, BrewBatch } from "../types";
 import { Modal, Field, ModalActions } from "./shared";
+import { fetchJson } from "../hooks/queries";
 
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -38,23 +40,21 @@ export default function WorkflowsTab({
   batches: BrewBatch[];
   subtab?: "planner" | "templates";
 }) {
-  const [templates, setTemplates] = useState<WorkflowTemplate[]>([]);
-  const [batchSteps, setBatchSteps] = useState<BatchWorkflowStep[]>([]);
+  const qc = useQueryClient();
   const [selectedBatchId, setSelectedBatchId] = useState<string>("");
 
-  const loadTemplates = useCallback(async () => {
-    const r = await fetch("/api/production/workflow-templates");
-    if (r.ok) setTemplates(await r.json());
-  }, []);
+  const { data: templates = [] } = useQuery({
+    queryKey: ["production", "workflow-templates"],
+    queryFn: () => fetchJson<WorkflowTemplate[]>("/api/production/workflow-templates"),
+  });
+  const { data: batchSteps = [] } = useQuery({
+    queryKey: ["production", "batch-workflows", selectedBatchId],
+    queryFn: () => fetchJson<BatchWorkflowStep[]>(`/api/production/batch-workflows?batch_id=${selectedBatchId}`),
+    enabled: !!selectedBatchId,
+  });
 
-  const loadBatchSteps = useCallback(async (batchId: string) => {
-    if (!batchId) { setBatchSteps([]); return; }
-    const r = await fetch(`/api/production/batch-workflows?batch_id=${batchId}`);
-    if (r.ok) setBatchSteps(await r.json());
-  }, []);
-
-  useEffect(() => { loadTemplates(); }, [loadTemplates]);
-  useEffect(() => { loadBatchSteps(selectedBatchId); }, [selectedBatchId, loadBatchSteps]);
+  const loadTemplates = () => qc.invalidateQueries({ queryKey: ["production", "workflow-templates"] });
+  const loadBatchSteps = (batchId: string) => qc.invalidateQueries({ queryKey: ["production", "batch-workflows", batchId] });
 
   const activeBatches = batches.filter((b) => b.status !== "archived");
 
@@ -362,7 +362,6 @@ function BatchWorkflowsSection({
   const [tmplSubmitting, setTmplSubmitting] = useState(false);
 
   const [editingStepId, setEditingStepId] = useState<string | null>(null);
-  const [editStepDate, setEditStepDate] = useState("");
 
   const sorted = [...batchSteps].sort((a, b) => a.step_order - b.step_order);
   const selectedBatch = batches.find((b) => b.id === selectedBatchId);
@@ -462,7 +461,7 @@ function BatchWorkflowsSection({
       <div className="flex items-start justify-between mb-4">
         <div>
           <h3 className="text-base font-medium text-zinc-100">Batch Workflows</h3>
-          <p className="text-sm text-zinc-500 mt-0.5">Schedule a batch's journey through equipment</p>
+          <p className="text-sm text-zinc-500 mt-0.5">Schedule a batch&apos;s journey through equipment</p>
         </div>
       </div>
 
@@ -512,7 +511,6 @@ function BatchWorkflowsSection({
               <div className="space-y-0">
                 {sorted.map((step, i) => {
                   const done = !!step.completed_at;
-                  const eq = equipment.find((e) => e.id === step.equipment_id);
                   const isEditingDate = editingStepId === step.id;
                   const isLast = i === sorted.length - 1;
 

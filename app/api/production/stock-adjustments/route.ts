@@ -14,12 +14,12 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
-  const { ingredient_id, type, quantity, new_total, note, purchase_cost } = body;
+  const { ingredient_id, type, quantity, new_total, note, purchase_cost, shipping_cost } = body;
 
   // Fetch current ingredient state upfront (needed for all paths)
   const { data: ing } = await supabase
     .from("ingredients")
-    .select("stock_quantity, cost_per_unit")
+    .select("stock_quantity, cost_per_unit, unit")
     .eq("id", ingredient_id)
     .single();
 
@@ -55,10 +55,12 @@ export async function POST(req: NextRequest) {
     .insert({
       ingredient_id,
       type,
-      quantity: delta,
-      note: note || null,
-      cost_per_unit: adjCostPerUnit,
+      quantity:           delta,
+      note:               note || null,
+      cost_per_unit:      adjCostPerUnit,
       total_value_change: totalValueChange,
+      shipping_cost:      shipping_cost != null && Number(shipping_cost) > 0 ? Number(shipping_cost) : null,
+      unit:               ing?.unit ?? null,   // snapshot unit at write time
     })
     .select()
     .single();

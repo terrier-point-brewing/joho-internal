@@ -3,11 +3,21 @@ import { supabase } from "@/lib/supabase/client";
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const { company_name, first_name, last_name, phone, address, email, notes } = await req.json();
+  const { company_name, first_name, last_name, phone, address, email, notes, square_customer_id } = await req.json();
 
   const { data, error } = await supabase
     .from("contract_brewing_partners")
-    .update({ company_name, first_name: first_name || null, last_name: last_name || null, phone: phone || null, address: address || null, email: email || null, notes: notes || null })
+    .update({
+      company_name,
+      first_name: first_name || null,
+      last_name: last_name || null,
+      phone: phone || null,
+      address: address || null,
+      email: email || null,
+      notes: notes || null,
+      // Allow explicitly clearing the square link by passing null
+      ...(square_customer_id !== undefined ? { square_customer_id: square_customer_id || null } : {}),
+    })
     .eq("id", id)
     .select()
     .single();

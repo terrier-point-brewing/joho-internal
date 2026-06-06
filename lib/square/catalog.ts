@@ -1,15 +1,27 @@
+import { unstable_cache } from "next/cache";
 import { squareGetAll } from "./client";
-import type { CatalogObject, CatalogItem, CatalogItemVariation } from "@/types/square";
+import { memoizeByRef } from "@/lib/utils/memo";
+import type { CatalogObject, CatalogItem } from "@/types/square";
 
 // Returns every ITEM object from the catalog (single paginated call).
-export async function fetchCatalogItems(): Promise<CatalogItem[]> {
+async function fetchCatalogItemsUncached(): Promise<CatalogItem[]> {
   const objects = await squareGetAll<CatalogObject>("/catalog/list", "objects", { types: "ITEM" });
   return objects.filter((o): o is CatalogItem => o.type === "ITEM");
 }
 
+// The full catalog changes infrequently but is fetched by every report route.
+// Cache it cross-request (5 min) so a burst of reports hits Square once, not
+// once per report. Bust via revalidateTag("square-catalog") after a sync.
+export const fetchCatalogItems = unstable_cache(
+  fetchCatalogItemsUncached,
+  ["square-catalog-items"],
+  { revalidate: 300, tags: ["square-catalog"] },
+);
+
 // Standalone price lookup: variation_id → price in cents.
 // Built from ALL catalog items so combo component lookup works.
-export function buildStandalonePriceMap(items: CatalogItem[]): Map<string, number> {
+// Memoized by item-array reference (see memoizeByRef).
+export const buildStandalonePriceMap = memoizeByRef((items: CatalogItem[]): Map<string, number> => {
   const map = new Map<string, number>();
   for (const item of items) {
     for (const v of item.item_data.variations ?? []) {
@@ -18,21 +30,21 @@ export function buildStandalonePriceMap(items: CatalogItem[]): Map<string, numbe
     }
   }
   return map;
-}
+});
 
 // Variation name lookup: variation_id → { itemName, variationName, itemId }
-export function buildVariationNameMap(
-  items: CatalogItem[]
-): Map<string, { itemName: string; variationName: string; itemId: string }> {
-  const map = new Map<string, { itemName: string; variationName: string; itemId: string }>();
-  for (const item of items) {
-    for (const v of item.item_data.variations ?? []) {
-      map.set(v.id, {
-        itemName: item.item_data.name,
-        variationName: v.item_variation_data.name,
-        itemId: item.id,
-      });
+export const buildVariationNameMap = memoizeByRef(
+  (items: CatalogItem[]): Map<string, { itemName: string; variationName: string; itemId: string }> => {
+    const map = new Map<string, { itemName: string; variationName: string; itemId: string }>();
+    for (const item of items) {
+      for (const v of item.item_data.variations ?? []) {
+        map.set(v.id, {
+          itemName: item.item_data.name,
+          variationName: v.item_variation_data.name,
+          itemId: item.id,
+        });
+      }
     }
-  }
-  return map;
-}
+    return map;
+  },
+);

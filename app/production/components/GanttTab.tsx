@@ -1,33 +1,16 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useMemo, useRef } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
-  format, startOfDay, addDays, differenceInDays, parseISO,
+  format, addDays, differenceInDays, parseISO,
   startOfToday, subDays,
 } from "date-fns";
-import { Equipment, BrewBatch } from "../types";
+import { Equipment } from "../types";
 import { Modal, Field } from "./shared";
+import { useBatchScheduleQuery, useEquipmentQuery, useBatchesQuery, productionKeys, type ScheduleEntry } from "../hooks/queries";
 
-interface ScheduleEntry {
-  id: string;
-  batch_id: string;
-  equipment_id: string | null;
-  stage: string;
-  planned_start: string;
-  planned_end: string;
-  actual_start: string | null;
-  actual_end: string | null;
-  notes: string | null;
-  brew_batches: { id: string; beer_name: string; batch_number: number; volume_bbl: number; status: string } | null;
-  equipment: { id: string; name: string; type: string } | null;
-}
-
-interface Props {
-  equipment: Equipment[];
-  batches: BrewBatch[];
-}
-
-const EQUIPMENT_STAGE_ORDER = ["brewhouse", "fermenter", "brite", "cold_storage", "kegging", "canning"];
+const EQUIPMENT_STAGE_ORDER = ["brewhouse", "fermenter", "brite", "kegging", "canning", "cold_storage"];
 const STAGE_LABELS: Record<string, string> = {
   brewhouse: "Brewhouse",
   fermenter: "Fermenter",
@@ -52,7 +35,7 @@ const RANGE_OPTIONS = [
   { label: "6M", days: 180 },
 ];
 
-const ROW_H = 36;
+const ROW_H = 44;
 const LABEL_W = 180;
 const DAY_PX_BASE: Record<number, number> = { 14: 48, 30: 28, 90: 12, 180: 7 };
 
@@ -60,9 +43,12 @@ function blank() {
   return { batch_id: "", equipment_id: "", stage: "fermenting", planned_start: "", planned_end: "", notes: "" };
 }
 
-export default function GanttTab({ equipment, batches }: Props) {
-  const [entries, setEntries] = useState<ScheduleEntry[]>([]);
-  const [rangeIdx, setRangeIdx] = useState(1);
+export default function GanttTab() {
+  const qc = useQueryClient();
+  const { data: equipment = [] } = useEquipmentQuery();
+  const { data: batches = [] } = useBatchesQuery();
+  const { data: entries = [] } = useBatchScheduleQuery();
+  const [rangeIdx, setRangeIdx] = useState(2);
   const [viewStart, setViewStart] = useState(() => subDays(startOfToday(), 3));
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<ScheduleEntry | null>(null);
@@ -75,12 +61,7 @@ export default function GanttTab({ equipment, batches }: Props) {
   const totalDays = rangeDays;
   const viewEnd = addDays(viewStart, totalDays);
 
-  async function load() {
-    const res = await fetch("/api/production/batch-schedule");
-    if (res.ok) setEntries(await res.json());
-  }
-
-  useEffect(() => { load(); }, []);
+  const reloadSchedule = () => qc.invalidateQueries({ queryKey: productionKeys.batchSchedule });
 
   // Group equipment by type, preserving only schedulable types
   const equipmentByType = useMemo(() => {
@@ -168,14 +149,14 @@ export default function GanttTab({ equipment, batches }: Props) {
     const url = editing ? `/api/production/batch-schedule/${editing.id}` : "/api/production/batch-schedule";
     const method = editing ? "PATCH" : "POST";
     const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-    if (res.ok) { await load(); setShowModal(false); }
+    if (res.ok) { await reloadSchedule(); setShowModal(false); }
     setSaving(false);
   }
 
   async function remove() {
     if (!editing) return;
     await fetch(`/api/production/batch-schedule/${editing.id}`, { method: "DELETE" });
-    await load();
+    await reloadSchedule();
     setShowModal(false);
   }
 
@@ -192,14 +173,6 @@ export default function GanttTab({ equipment, batches }: Props) {
 
   return (
     <div>
-      {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h2 className="text-base font-medium text-zinc-100">Timeline</h2>
-          <p className="text-sm text-zinc-500 mt-0.5">Gantt view of equipment occupancy — plan and visualize batch scheduling across the brewery</p>
-        </div>
-      </div>
-
       {/* Toolbar */}
       <div className="flex items-center gap-3 mb-4 flex-wrap">
         <div className="flex gap-1">
@@ -246,7 +219,7 @@ export default function GanttTab({ equipment, batches }: Props) {
         ) : rows.map(({ eq, typeLabel, isFirst }) => (
           <div key={eq.id} className="flex border-b border-zinc-800 last:border-0">
             {/* Row label */}
-            <div className={`flex-none border-r border-zinc-700 px-3 flex flex-col justify-center ${isFirst ? "pt-2" : ""}`} style={{ width: LABEL_W, height: ROW_H }}>
+            <div className="flex-none border-r border-zinc-700 px-3 py-1.5 flex flex-col justify-center" style={{ width: LABEL_W, height: ROW_H }}>
               {isFirst && <span className="text-xs text-zinc-500 font-semibold leading-none mb-0.5">{typeLabel}</span>}
               <span className="text-xs text-zinc-300 truncate">{eq.name}</span>
             </div>

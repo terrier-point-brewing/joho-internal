@@ -3,6 +3,7 @@ import type { KegSale } from "@/types/reports";
 import { KEG_TRANSFER_DISCOUNT_NAME } from "@/types/reports";
 import { CATEGORY_IDS } from "@/lib/constants/categories";
 import { mapDiscountsByUid } from "@/lib/utils/orders";
+import { memoizeByRef } from "@/lib/utils/memo";
 const KEG_CATEGORY_IDS = CATEGORY_IDS.KEGS;
 
 // Keg sizes as they appear in variation names — used to exclude deposits
@@ -17,7 +18,8 @@ export interface KegDefinition {
 }
 
 // Build a map of variation_id → KegDefinition for all keg items.
-export function buildKegIndex(items: CatalogItem[]): Map<string, KegDefinition> {
+// Memoized by item-array reference (see memoizeByRef).
+export const buildKegIndex = memoizeByRef((items: CatalogItem[]): Map<string, KegDefinition> => {
   const index = new Map<string, KegDefinition>();
 
   for (const item of items) {
@@ -39,7 +41,7 @@ export function buildKegIndex(items: CatalogItem[]): Map<string, KegDefinition> 
   }
 
   return index;
-}
+});
 
 // Scan orders and return one KegSale per keg line item.
 // Transfers are included but flagged with isTransfer=true so the caller

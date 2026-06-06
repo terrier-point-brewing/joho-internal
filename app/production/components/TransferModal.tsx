@@ -7,47 +7,46 @@ import { EQ } from "../equipmentMeta";
 import { fmtBbl2 as fmtBbl } from "@/lib/utils/formatting";
 import { BBL_TO_FL_OZ } from "@/lib/constants/production";
 
-// Cold storage is only reachable from kegging or canning
-const COLD_STORAGE_SOURCES = new Set(["kegging", "canning"]);
+// Allowed destinations by source equipment type
+const DEST_RULES: Partial<Record<string, string[]>> = {
+  brewhouse: ["fermenter"],
+  fermenter: ["brite", "kegging", "canning"],
+  brite:     ["fermenter", "kegging", "canning"],
+  kegging:   ["cold_storage", "export_bay"],
+  canning:   ["cold_storage", "export_bay"],
+};
 
 interface KegLine { packaging_id: string; quantity: string }
+
+// Tank types where only one batch is allowed at a time
+const SINGLE_OCCUPANCY_TYPES = new Set(["brewhouse", "fermenter", "brite"]);
 
 interface TransferModalProps {
   batch: BrewBatch;
   fromTank: Equipment;
   allTanks: Equipment[];
+  /** IDs of tanks that currently have an active batch assignment */
+  occupiedTankIds: Set<string>;
   packaging: PackagingItem[];
   onClose: () => void;
   onDone: () => Promise<void>;
 }
 
-/** Display label for a packaging item: "Name (Partner)" or just "Name" */
 function pkgLabel(p: PackagingItem): string {
   const partner = p.contract_brewing_partners?.company_name ?? null;
   return partner ? `${p.name} (${partner})` : p.name;
 }
 
-export default function TransferModal({ batch, fromTank, allTanks, packaging, onClose, onDone }: TransferModalProps) {
-  // Brewhouse → fermenter or brite only
-  // Fermenter/brite → anything except backlog
+export default function TransferModal({ batch, fromTank, allTanks, occupiedTankIds, packaging, onClose, onDone }: TransferModalProps) {
+  const allowed = DEST_RULES[fromTank.type] ?? [];
   const destTanks = allTanks.filter((t) => {
     if (t.id === fromTank.id) return false;
-    if (t.type === "backlog") return false;
-    if (fromTank.type === "brewhouse") {
-      return t.type === "fermenter" || t.type === "brite";
-    }
-    if (t.type === "cold_storage" && !COLD_STORAGE_SOURCES.has(fromTank.type)) return false;
+    if (!allowed.includes(t.type)) return false;
+    // Single-occupancy: exclude tanks that already hold a batch
+    if (SINGLE_OCCUPANCY_TYPES.has(t.type) && occupiedTankIds.has(t.id)) return false;
     return true;
   });
 
-  const [destId, setDestId] = useState(destTanks[0]?.id ?? "");
-  const [volumeMode, setVolumeMode] = useState<"full" | "partial">("full");
-  const [partialBbl, setPartialBbl] = useState("");
-  const [shrinkage, setShrinkage] = useState("0");
-  const [notes, setNotes] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-
-  // Kegging state — pre-populate default kegs
   const defaultKegIds = packaging.filter((p) => p.type === "keg" && p.is_default).map((p) => p.id);
   const [kegLines, setKegLines] = useState<KegLine[]>(
     defaultKegIds.length > 0
@@ -55,12 +54,18 @@ export default function TransferModal({ batch, fromTank, allTanks, packaging, on
       : [{ packaging_id: "", quantity: "" }]
   );
 
-  // Canning state
   const defaultCan     = packaging.find((p) => p.type === "can"     && p.is_default);
   const defaultLid     = packaging.find((p) => p.type === "lid"     && p.is_default);
   const defaultPaktech = packaging.find((p) => p.type === "paktech" && p.is_default);
   const defaultTray    = packaging.find((p) => p.type === "tray"    && p.is_default);
   const defaultLabel   = packaging.find((p) => p.type === "label"   && p.is_default);
+
+  const [destId,    setDestId]    = useState(destTanks[0]?.id ?? "");
+  const [volumeMode, setVolumeMode] = useState<"full" | "partial">("full");
+  const [partialBbl, setPartialBbl] = useState("");
+  const [shrinkage,  setShrinkage]  = useState("0");
+  const [notes,      setNotes]      = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   const [canId,     setCanId]     = useState(defaultCan?.id     ?? "");
   const [lidId,     setLidId]     = useState(defaultLid?.id     ?? "");
@@ -70,10 +75,12 @@ export default function TransferModal({ batch, fromTank, allTanks, packaging, on
   const [cases,     setCases]     = useState("");
   const [looseCans, setLooseCans] = useState("0");
 
-  const destTank  = allTanks.find((t) => t.id === destId);
-  const isKegging = destTank?.type === "kegging";
-  const isCanning = destTank?.type === "canning";
-  const isSpecial = isKegging || isCanning;
+  const destTank = allTanks.find((t) => t.id === destId);
+
+  // Whether to show keg/can packaging forms — based on SOURCE type (out-transfers) or DEST type (packaging transfers)
+  const showKegDetail = fromTank.type === "kegging" || destTank?.type === "kegging";
+  const showCanDetail = fromTank.type === "canning" || destTank?.type === "canning";
+  const isPackagingForm = showKegDetail || showCanDetail;
 
   const kegs     = packaging.filter((p) => p.type === "keg");
   const cans     = packaging.filter((p) => p.type === "can");
@@ -90,14 +97,14 @@ export default function TransferModal({ batch, fromTank, allTanks, packaging, on
   const shrinkBbl = parseFloat(shrinkage) || 0;
 
   let drawBbl = 0;
-  if (isKegging) {
+  if (showKegDetail) {
     drawBbl = kegLines.reduce((sum, l) => {
       const pkg = packaging.find((p) => p.id === l.packaging_id);
       const qty = parseInt(l.quantity) || 0;
       if (!pkg?.volume_fl_oz) return sum;
       return sum + (qty * pkg.volume_fl_oz) / BBL_TO_FL_OZ;
     }, 0);
-  } else if (isCanning) {
+  } else if (showCanDetail) {
     const totalCans = (parseInt(cases) || 0) * cansPerCase + (parseInt(looseCans) || 0);
     const canVol    = selectedCan?.volume_fl_oz ?? 0;
     drawBbl = (totalCans * canVol) / BBL_TO_FL_OZ;
@@ -110,25 +117,41 @@ export default function TransferModal({ batch, fromTank, allTanks, packaging, on
   const totalDraw = drawBbl + shrinkBbl;
   const remaining = batchVol - totalDraw;
 
+  const destIsConstrained = destTank && !UNCONSTRAINED_EQUIPMENT_TYPES.includes(destTank.type);
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!destId) return;
+
+    // Capacity guard for constrained tanks
+    if (destIsConstrained && destTank?.capacity_bbl) {
+      if (drawBbl > destTank.capacity_bbl) {
+        alert(`Transfer volume (${fmtBbl(drawBbl)}) exceeds ${destTank.name} capacity (${fmtBbl(destTank.capacity_bbl)} BBL).`);
+        return;
+      }
+    }
+
     setSubmitting(true);
     try {
       let kegging_detail = null;
       let canning_detail = null;
       let transfer_type: "transfer" | "kegging" | "canning" = "transfer";
 
-      if (isKegging) {
+      if (showKegDetail) {
         transfer_type = "kegging";
         kegging_detail = {
           kegs: kegLines.map((l) => {
             const pkg = packaging.find((p) => p.id === l.packaging_id);
-            return { packaging_id: l.packaging_id, name: pkg?.name ?? "", volume_fl_oz: pkg?.volume_fl_oz, quantity: parseInt(l.quantity) || 0 };
+            return {
+              packaging_id: l.packaging_id,
+              name:         pkg?.name ?? "",
+              volume_fl_oz: pkg?.volume_fl_oz,
+              quantity:     parseInt(l.quantity) || 0,
+            };
           }),
           total_kegs: kegLines.reduce((s, l) => s + (parseInt(l.quantity) || 0), 0),
         };
-      } else if (isCanning) {
+      } else if (showCanDetail) {
         transfer_type = "canning";
         const totalCans = (parseInt(cases) || 0) * cansPerCase + (parseInt(looseCans) || 0);
         canning_detail = {
@@ -169,8 +192,6 @@ export default function TransferModal({ batch, fromTank, allTanks, packaging, on
     }
   }
 
-  const destHasCapacity = destTank ? !UNCONSTRAINED_EQUIPMENT_TYPES.includes(destTank.type) : true;
-
   return (
     <Modal title="Transfer Batch" onClose={onClose} wide>
       <form onSubmit={handleSubmit} className="space-y-4">
@@ -185,6 +206,7 @@ export default function TransferModal({ batch, fromTank, allTanks, packaging, on
           <div>
             <span className="text-zinc-500 text-xs">From</span>
             <p className="text-zinc-100">{fromTank.name}</p>
+            <p className="text-zinc-500 text-xs">{EQ[fromTank.type]?.label ?? fromTank.type}</p>
           </div>
           <div className="mx-2 w-px bg-zinc-800" />
           <div>
@@ -193,11 +215,13 @@ export default function TransferModal({ batch, fromTank, allTanks, packaging, on
           </div>
         </div>
 
-        {fromTank.type === "brewhouse" && (
-          <p className="text-xs text-zinc-500 bg-zinc-800/40 px-3 py-1.5 rounded border border-zinc-700">
-            Brewhouse transfers can only go to a Fermenter or Brite tank.
-          </p>
-        )}
+        {/* Allowed-destinations hint */}
+        <p className="text-xs text-zinc-500 bg-zinc-800/40 px-3 py-1.5 rounded border border-zinc-700">
+          {fromTank.type === "brewhouse" && "Brewhouse → Fermenter only"}
+          {fromTank.type === "fermenter" && "Fermenter → Brite, Kegging, or Canning"}
+          {fromTank.type === "brite"     && "Brite → Fermenter, Kegging, or Canning"}
+          {(fromTank.type === "kegging" || fromTank.type === "canning") && "Packaging → Cold Storage or Export Bay only"}
+        </p>
 
         <Field label="Destination" required>
           <select className="inp" value={destId} required onChange={(e) => setDestId(e.target.value)}>
@@ -209,13 +233,13 @@ export default function TransferModal({ batch, fromTank, allTanks, packaging, on
               </option>
             ))}
           </select>
-          {!destHasCapacity && destTank && (
-            <p className="text-xs text-zinc-500 mt-0.5">{EQ[destTank.type]?.label} has no capacity limit.</p>
+          {destIsConstrained && destTank?.capacity_bbl && (
+            <p className="text-xs text-zinc-500 mt-0.5">Capacity: {fmtBbl(destTank.capacity_bbl)} — transfer will be rejected if it exceeds this.</p>
           )}
         </Field>
 
-        {/* Regular transfer: full / partial */}
-        {!isSpecial && (
+        {/* ── Regular transfer: full / partial ── */}
+        {!isPackagingForm && (
           <Field label="Volume">
             <div className="flex gap-2 mb-2">
               <button type="button" onClick={() => setVolumeMode("full")}
@@ -237,11 +261,11 @@ export default function TransferModal({ batch, fromTank, allTanks, packaging, on
           </Field>
         )}
 
-        {/* ── Kegging ── */}
-        {isKegging && (
+        {/* ── Keg detail (to kegging, or from kegging to cold storage/export) ── */}
+        {showKegDetail && (
           <div>
             <div className="flex items-center justify-between mb-2">
-              <label className="text-xs text-zinc-400">Kegs to fill</label>
+              <label className="text-xs text-zinc-400">Kegs</label>
               <button type="button" onClick={() => setKegLines((l) => [...l, { packaging_id: "", quantity: "" }])}
                 className="text-xs text-amber-500 hover:text-amber-400">+ Add keg type</button>
             </div>
@@ -250,35 +274,36 @@ export default function TransferModal({ batch, fromTank, allTanks, packaging, on
             )}
             <div className="space-y-2">
               {kegLines.map((line, i) => (
-                <div key={i} className="flex gap-2 items-center">
-                  <div className="flex-1">
-                    <select className="inp" value={line.packaging_id}
-                      onChange={(e) => setKegLines((ls) => ls.map((l, idx) => idx === i ? { ...l, packaging_id: e.target.value } : l))}>
-                      <option value="">— select keg —</option>
-                      {kegs.map((k) => (
-                        <option key={k.id} value={k.id}>
-                          {pkgLabel(k)}{k.volume_fl_oz ? ` · ${k.volume_fl_oz} fl oz` : ""}
-                          {k.is_default ? " ★" : ""}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <input type="number" min="0" className="inp w-24 shrink-0" placeholder="qty"
+                /* Grid: select grows, qty is fixed 64 px, × button is auto */
+                <div key={i} className="grid items-center gap-2" style={{ gridTemplateColumns: "1fr 64px auto" }}>
+                  <select className="inp" value={line.packaging_id}
+                    onChange={(e) => setKegLines((ls) => ls.map((l, idx) => idx === i ? { ...l, packaging_id: e.target.value } : l))}>
+                    <option value="">— select keg —</option>
+                    {kegs.map((k) => (
+                      <option key={k.id} value={k.id}>
+                        {pkgLabel(k)}{k.volume_fl_oz ? ` · ${k.volume_fl_oz} fl oz` : ""}
+                        {k.is_default ? " ★" : ""}
+                      </option>
+                    ))}
+                  </select>
+                  <input type="number" min="0" className="inp" placeholder="qty"
                     value={line.quantity}
                     onChange={(e) => setKegLines((ls) => ls.map((l, idx) => idx === i ? { ...l, quantity: e.target.value } : l))} />
-                  {kegLines.length > 1 && (
-                    <button type="button" onClick={() => setKegLines((ls) => ls.filter((_, idx) => idx !== i))}
-                      className="text-zinc-600 hover:text-red-400 text-lg leading-none shrink-0">×</button>
-                  )}
+                  {kegLines.length > 1
+                    ? <button type="button" onClick={() => setKegLines((ls) => ls.filter((_, idx) => idx !== i))}
+                        className="text-zinc-600 hover:text-red-400 text-lg leading-none">×</button>
+                    : <span />}
                 </div>
               ))}
             </div>
-            <p className="text-xs text-zinc-500 mt-2">Draw: {fmtBbl(drawBbl)}</p>
+            <p className="text-xs text-zinc-500 mt-2">
+              Total kegs: {kegLines.reduce((s, l) => s + (parseInt(l.quantity) || 0), 0)} · Draw: {fmtBbl(drawBbl)}
+            </p>
           </div>
         )}
 
-        {/* ── Canning ── */}
-        {isCanning && (
+        {/* ── Can detail (to canning, or from canning to cold storage/export) ── */}
+        {showCanDetail && (
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <Field label="Can" required>
@@ -328,16 +353,16 @@ export default function TransferModal({ batch, fromTank, allTanks, packaging, on
           </div>
         )}
 
-        <Field label="Shrinkage (BBL)">
-          <div className="flex items-center gap-2">
-            <input type="number" step="0.001" min="0" className="inp w-40" placeholder="0.000"
-              value={shrinkage} onChange={(e) => setShrinkage(e.target.value)} />
-            <span className="text-zinc-500 text-sm">BBL lost</span>
-          </div>
-          {!isSpecial && volumeMode === "full" && shrinkBbl > 0 && (
-            <p className="text-xs text-zinc-500 mt-0.5">Shrinkage deducted from full transfer draw automatically.</p>
-          )}
-        </Field>
+        {/* Shrinkage — not applicable for packaging out-transfers */}
+        {!isPackagingForm && (
+          <Field label="Shrinkage (BBL)">
+            <div className="flex items-center gap-2">
+              <input type="number" step="0.001" min="0" className="inp w-40" placeholder="0.000"
+                value={shrinkage} onChange={(e) => setShrinkage(e.target.value)} />
+              <span className="text-zinc-500 text-sm">BBL lost</span>
+            </div>
+          </Field>
+        )}
 
         {/* Volume summary */}
         <div className="rounded border border-zinc-800 bg-zinc-900/40 p-3 text-xs space-y-1">
@@ -358,6 +383,11 @@ export default function TransferModal({ batch, fromTank, allTanks, packaging, on
         </div>
         {remaining < -0.001 && (
           <p className="text-xs text-red-400">Warning: transfer exceeds batch volume.</p>
+        )}
+        {destIsConstrained && destTank?.capacity_bbl && drawBbl > destTank.capacity_bbl && (
+          <p className="text-xs text-red-400">
+            Transfer ({fmtBbl(drawBbl)}) exceeds {destTank.name} capacity ({fmtBbl(destTank.capacity_bbl)}).
+          </p>
         )}
 
         <Field label="Notes">

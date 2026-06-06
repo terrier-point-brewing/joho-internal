@@ -10,12 +10,13 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",
+    "@tanstack/react-query": "^5.101.0",
+    "@uiw/react-md-editor": "^4.1.1",
     "date-fns": "^4.4.0",
     "next": "16.2.6",
     "react": "19.2.4",
     "react-dom": "19.2.4",
-    "recharts": "^3.8.1",
-    "square": "^44.1.0"
+    "recharts": "^3.8.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

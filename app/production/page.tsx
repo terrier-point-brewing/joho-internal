@@ -2,7 +2,6 @@
 
 import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { useProductionData } from "./hooks/useProductionData";
 import BatchLogTab    from "./components/BatchLogTab";
 import RecipesTab     from "./components/RecipesTab";
 import BrewStatusTab  from "./components/BrewStatusTab";
@@ -14,10 +13,10 @@ import ExportTab      from "./components/ExportTab";
 import IntakeTab      from "./components/IntakeTab";
 
 const BREWING_SUBTABS = [
-  { key: "floorplan",  label: "Floorplan"  },
-  { key: "batch-log",  label: "Batch Log"  },
-  { key: "timeline",   label: "Timeline"   },
-  { key: "calendar",   label: "Calendar"   },
+  { key: "floorplan", label: "Floorplan"  },
+  { key: "batch-log", label: "Batch Log"  },
+  { key: "timeline",  label: "Timeline"   },
+  { key: "calendar",  label: "Calendar"   },
 ] as const;
 
 type BrewingSubtab = typeof BREWING_SUBTABS[number]["key"];
@@ -27,18 +26,18 @@ function ProductionContent() {
   const tab = searchParams.get("tab") ?? "intake";
   const [brewingSubtab, setBrewingSubtab] = useState<BrewingSubtab>("floorplan");
 
-  const {
-    ingredients, adjustments, recipes, batches, tanks, assignments, packaging, transfers,
-    loadIngredients, loadAdjustments, loadRecipes, loadBatches, loadPackaging,
-    refreshBrewStatus,
-  } = useProductionData();
-
   return (
     <main className="px-6 py-8">
       {tab === "intake" && <IntakeTab />}
 
       {tab === "brewing" && (
         <>
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-base font-medium text-zinc-100">Brewing</h2>
+              <p className="text-sm text-zinc-500 mt-0.5">Floorplan, batch log, timeline, and calendar for all active and planned brews</p>
+            </div>
+          </div>
           <div className="flex gap-1 mb-6 border-b border-zinc-800 pb-0">
             {BREWING_SUBTABS.map(({ key, label }) => (
               <button
@@ -54,31 +53,16 @@ function ProductionContent() {
               </button>
             ))}
           </div>
-          {brewingSubtab === "floorplan" && (
-            <BrewStatusTab tanks={tanks} assignments={assignments} batches={batches} transfers={transfers} recipes={recipes} onRefresh={refreshBrewStatus} onBatchCreated={loadBatches} />
-          )}
-          {brewingSubtab === "batch-log" && (
-            <BatchLogTab batches={batches} recipes={recipes} transfers={transfers} onRefresh={loadBatches} />
-          )}
-          {brewingSubtab === "timeline" && (
-            <GanttTab equipment={tanks} batches={batches} />
-          )}
-          {brewingSubtab === "calendar" && (
-            <CalendarTab batches={batches} />
-          )}
+          {brewingSubtab === "floorplan" && <BrewStatusTab />}
+          {brewingSubtab === "batch-log" && <BatchLogTab />}
+          {brewingSubtab === "timeline"  && <GanttTab />}
+          {brewingSubtab === "calendar"  && <CalendarTab />}
         </>
       )}
 
-      {tab === "export"    && <ExportTab batches={batches} />}
-      {tab === "recipes"   && <RecipesTab recipes={recipes} ingredients={ingredients} onRefresh={loadRecipes} />}
-      {tab === "inventory" && (
-        <InventoryTab
-          ingredients={ingredients} adjustments={adjustments} packaging={packaging}
-          transfers={transfers} tanks={tanks} batches={batches}
-          onRefreshIngredients={loadIngredients} onRefreshAdjustments={loadAdjustments}
-          onRefreshPackaging={loadPackaging}
-        />
-      )}
+      {tab === "export"    && <ExportTab />}
+      {tab === "recipes"   && <RecipesTab />}
+      {tab === "inventory" && <InventoryTab />}
       {tab === "partners"  && <PartnersTab />}
 
       <style>{`

@@ -9,6 +9,7 @@ export const BATCH_STATUSES: { value: BatchStatus; label: string; color: string 
   { value: "brewing",         label: "Brewing",         color: "bg-amber-900/50 text-amber-300 border-amber-700" },
   { value: "fermenting",      label: "Fermenting",      color: "bg-blue-900/50 text-blue-300 border-blue-700" },
   { value: "conditioning",    label: "Conditioning",    color: "bg-purple-900/50 text-purple-300 border-purple-700" },
+  { value: "packaging",       label: "Packaging",       color: "bg-green-900/50 text-green-300 border-green-700" },
   { value: "archived",        label: "Archived",        color: "bg-zinc-800/50 text-zinc-500 border-zinc-700" },
 ];
 
@@ -30,17 +31,19 @@ export function Modal({
   onClose,
   children,
   wide,
+  extraWide,
 }: {
   title: string;
   onClose: () => void;
   children: React.ReactNode;
   wide?: boolean;
+  extraWide?: boolean;
 }) {
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
       <div
         className={`bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl w-full ${
-          wide ? "max-w-2xl" : "max-w-md"
+          extraWide ? "max-w-5xl" : wide ? "max-w-2xl" : "max-w-md"
         } max-h-[90vh] flex flex-col`}
       >
         <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800 shrink-0">
@@ -61,7 +64,7 @@ export function Field({
   children,
   hint,
 }: {
-  label: string;
+  label: React.ReactNode;
   required?: boolean;
   children: React.ReactNode;
   hint?: string;

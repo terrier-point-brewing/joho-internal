@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
-  const { batch_transfer_id, type, quantity: rawQty, note, new_total, initial_qty } = body;
+  const { batch_transfer_id, type, quantity: rawQty, note, new_total, initial_qty, product_label, product_type, unit } = body;
   if (!batch_transfer_id || !type) {
     return NextResponse.json({ error: "batch_transfer_id and type required" }, { status: 400 });
   }
@@ -39,7 +39,15 @@ export async function POST(req: NextRequest) {
 
   const { data, error } = await supabase
     .from("brew_inventory_adjustments")
-    .insert({ batch_transfer_id, quantity, type, note: note || null })
+    .insert({
+      batch_transfer_id,
+      quantity,
+      type,
+      note:          note          || null,
+      product_label: product_label || null,
+      product_type:  product_type  || null,
+      unit:          unit          || null,
+    })
     .select()
     .single();
 
