@@ -64,6 +64,36 @@ export default function BrewStatusTab() {
   const [transferTankId, setTransferTankId] = useState<string | null>(null);
   const [transferBatchId, setTransferBatchId] = useState<string | null>(null);
   const [transferFromVol, setTransferFromVol] = useState<number | undefined>(undefined);
+  // Tracks batch IDs currently being sent to cold storage (kegging/canning one-click transfer)
+  const [pkgTransferring, setPkgTransferring] = useState<Set<string>>(new Set());
+
+  async function handleSendToColdStorage(batchId: string, fromTankId: string, incoming: typeof transfers[0]) {
+    const coldStorage = tanks.find((t) => t.type === "cold_storage");
+    if (!coldStorage) { alert("No cold storage tank found on the floorplan."); return; }
+    setPkgTransferring((s) => new Set(s).add(batchId));
+    try {
+      const res = await fetch("/api/production/transfers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          batch_id:       batchId,
+          from_tank_id:   fromTankId,
+          to_tank_id:     coldStorage.id,
+          volume_bbl:     incoming.volume_bbl,
+          shrinkage_bbl:  0,
+          transfer_type:  incoming.transfer_type,
+          kegging_detail: incoming.kegging_detail ?? null,
+          canning_detail: incoming.canning_detail ?? null,
+        }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? "Error");
+      await onRefresh();
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Transfer failed");
+    } finally {
+      setPkgTransferring((s) => { const n = new Set(s); n.delete(batchId); return n; });
+    }
+  }
   // Shared with the Inventory tab via the query cache (de-duped, no local fetch).
   const { data: packaging = [] } = usePackagingQuery();
   // Initialize with the SSR default so the server and the client's first render
@@ -555,15 +585,16 @@ export default function BrewStatusTab() {
                                     </div>
                                   )}
 
-                                  {/* Transfer out button */}
-                                  {!editMode && (
+                                  {/* One-click transfer to cold storage */}
+                                  {!editMode && incoming && (
                                     <button
-                                      onClick={() => { setTransferTankId(tank.id); setTransferBatchId(b.id); }}
+                                      onClick={() => handleSendToColdStorage(b.id, tank.id, incoming)}
                                       onMouseDown={(e) => e.stopPropagation()}
-                                      className="self-start text-amber-700 hover:text-amber-400 border border-amber-900 hover:border-amber-700 px-1.5 rounded transition-colors mt-0.5"
+                                      disabled={pkgTransferring.has(b.id)}
+                                      className="self-start text-amber-700 hover:text-amber-400 border border-amber-900 hover:border-amber-700 px-1.5 rounded transition-colors mt-0.5 disabled:opacity-40"
                                       style={{ fontSize: 9 }}
                                     >
-                                      → Cold Storage / Export
+                                      {pkgTransferring.has(b.id) ? "…" : "Transfer"}
                                     </button>
                                   )}
                                 </div>
