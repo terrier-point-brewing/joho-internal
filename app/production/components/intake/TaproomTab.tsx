@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Recipe } from "../../types";
 import { fmtDateLong } from "@/lib/utils/formatting";
 import { Modal, Field, ModalActions } from "../shared";
-import { usePackagingQuery, fetchJson } from "../../hooks/queries";
+import { fetchJson, usePackagingQuery } from "../../hooks/queries";
 
 interface LinkRow {
   id: string;
@@ -17,30 +17,6 @@ interface LinkRow {
   item_name: string | null;
   recipes?: { beer_name: string } | null;
   packaging_items?: { id: string; name: string; type: string; volume_fl_oz: number | null } | null;
-}
-
-interface VariationBreakdown {
-  link_id: string;
-  packaging_item_id: string | null;
-  packaging_item_name: string | null;
-  packaging_item_volume_fl_oz: number | null;
-  variation_name: string | null;
-  item_name: string | null;
-  qty: number;
-}
-
-interface InventoryRow {
-  recipe_id: string;
-  style: string;
-  packaging: string;
-  current_qty: number;
-  history: { week: string; qty: number | null }[];
-  daily_sell_through: number;
-  lead_time_days: number;
-  min_threshold: number;
-  forecast_threshold_date: string | null;
-  forecast_stockout_date: string | null;
-  variations: VariationBreakdown[];
 }
 
 interface SquareVariation {
@@ -261,19 +237,54 @@ function LinkManager({
   );
 }
 
-function Sparkline({ history }: { history: { week: string; qty: number | null }[] }) {
-  const vals = history.map((h) => h.qty).filter((q): q is number => q != null);
+
+interface TaproomRow {
+  recipe_id: string;
+  style: string;
+  lead_time_days: number;
+  current_bbl: number;
+  daily_sell_through_bbl: number;
+  min_threshold_bbl: number;
+  forecast_threshold_date: string | null;
+  forecast_stockout_date: string | null;
+  needed_bbl: number;
+  brew_by_date: string | null;
+  history_bbl: { week: string; bbl: number | null }[];
+  packaging_breakdown: {
+    link_id: string;
+    packaging: string;
+    packaging_item_name: string | null;
+    variation_name: string | null;
+    item_name: string | null;
+    volume_fl_oz: number | null;
+    current_qty: number;
+    current_bbl: number;
+    daily_sell_through_units: number;
+    daily_sell_through_bbl: number;
+  }[];
+}
+
+function BblSparkline({ history }: { history: { week: string; bbl: number | null }[] }) {
+  const vals = history.map((h) => h.bbl).filter((q): q is number => q != null);
   if (vals.length === 0) return <span className="text-zinc-600 text-xs">no data</span>;
-  const max = Math.max(...vals, 1);
+  const max = Math.max(...vals, 0.1);
   return (
     <span className="inline-flex items-end gap-0.5 h-6">
       {history.map((h, i) => (
-        <span key={i} title={`${h.week}: ${h.qty ?? "—"}`}
+        <span key={i} title={`${h.week}: ${h.bbl != null ? h.bbl.toFixed(2) + " BBL" : "—"}`}
           className="w-1.5 bg-amber-500/70 rounded-sm"
-          style={{ height: h.qty != null ? `${Math.max((h.qty / max) * 24, 2)}px` : "2px", opacity: h.qty != null ? 1 : 0.3 }} />
+          style={{ height: h.bbl != null ? `${Math.max((h.bbl / max) * 24, 2)}px` : "2px", opacity: h.bbl != null ? 1 : 0.3 }} />
       ))}
     </span>
   );
+}
+
+function urgencyColor(row: TaproomRow): "red" | "amber" | "green" | "none" {
+  if (!row.forecast_stockout_date || row.daily_sell_through_bbl === 0) return "none";
+  const daysToStockout = Math.ceil((new Date(row.forecast_stockout_date).getTime() - Date.now()) / 86400000);
+  if (daysToStockout <= row.lead_time_days) return "red";
+  if (daysToStockout <= row.lead_time_days * 1.5) return "amber";
+  return "green";
 }
 
 export default function TaproomTab({ recipes }: { recipes: Recipe[] }) {
@@ -281,10 +292,12 @@ export default function TaproomTab({ recipes }: { recipes: Recipe[] }) {
   const { data: links = [] } = useQuery({
     queryKey: ["production", "recipe-square-links"],
     queryFn: () => fetchJson<LinkRow[]>("/api/production/recipe-square-links"),
+    staleTime: 5 * 60 * 1000,
   });
   const { data: rows = [], isLoading: loading, error } = useQuery({
     queryKey: ["production", "taproom-inventory"],
-    queryFn: () => fetchJson<InventoryRow[]>("/api/production/taproom-inventory"),
+    queryFn: () => fetchJson<TaproomRow[]>("/api/production/taproom-inventory"),
+    staleTime: 5 * 60 * 1000, // Square data: treat as fresh for 5 min, avoids re-fetch on tab switch
   });
   const loadLinks = () => qc.invalidateQueries({ queryKey: ["production", "recipe-square-links"] });
   const loadInventory = () => qc.invalidateQueries({ queryKey: ["production", "taproom-inventory"] });
@@ -292,92 +305,144 @@ export default function TaproomTab({ recipes }: { recipes: Recipe[] }) {
   const [showLinks, setShowLinks] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
-  function toggleExpand(key: string) {
-    setExpanded((s) => { const n = new Set(s); if (n.has(key)) n.delete(key); else n.add(key); return n; });
+  function toggleExpand(id: string) {
+    setExpanded((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   }
-
-  const COLS = ["", "Style", "Packaging", "Current", "4-wk Trend", "Sell-through/day", "Lead Time", "Min Threshold", "Threshold Date", "Stockout"];
 
   return (
     <div>
       <div className="flex justify-between items-center mb-4">
-        <p className="text-sm text-zinc-500">Live taproom inventory from Square, aggregated across all linked variations per style and packaging.</p>
-        <button onClick={() => setShowLinks(true)}
-          className="px-3 py-1.5 border border-zinc-700 hover:border-zinc-500 text-zinc-300 text-sm font-medium rounded transition-colors">
-          Link to Square
-        </button>
+        <p className="text-sm text-zinc-500">
+          Taproom sell-through by recipe — BBL on hand, daily rate, and brew-by date to avoid stockout.
+        </p>
+        <div className="flex gap-2">
+          <button onClick={() => loadInventory()}
+            className="px-3 py-1.5 border border-zinc-700 hover:border-zinc-500 text-zinc-300 text-sm font-medium rounded transition-colors">
+            Refresh
+          </button>
+          <button onClick={() => setShowLinks(true)}
+            className="px-3 py-1.5 border border-zinc-700 hover:border-zinc-500 text-zinc-300 text-sm font-medium rounded transition-colors">
+            Link to Square
+          </button>
+        </div>
       </div>
 
       {err && <p className="text-sm text-red-400 mb-3">{err}</p>}
       {loading ? (
-        <p className="text-zinc-600 text-sm py-10 text-center">Loading…</p>
+        <p className="text-zinc-600 text-sm py-10 text-center">Loading inventory from Square…</p>
       ) : rows.length === 0 ? (
         <p className="text-zinc-600 text-sm py-10 text-center">No styles linked to Square yet. Use &quot;Link to Square&quot; to map a recipe.</p>
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-zinc-800">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-zinc-800 bg-zinc-900/50 text-left">
-                {COLS.map((h, i) => <th key={i} className="px-4 py-2.5 text-xs font-medium text-zinc-500 whitespace-nowrap">{h}</th>)}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row, i) => {
-                const key = `${row.recipe_id}:${row.packaging}`;
-                const near = row.min_threshold > 0 && row.current_qty <= row.min_threshold;
-                const isExpanded = expanded.has(key);
-                const hasVariations = row.variations.length > 1;
-                return (
-                  <React.Fragment key={key}>
-                    <tr className={`border-b border-zinc-800/60 ${i % 2 !== 0 ? "bg-zinc-900/30" : ""} ${isExpanded ? "border-b-0" : ""}`}>
-                      <td className="px-3 py-2.5 w-6">
-                        {hasVariations && (
-                          <button onClick={() => toggleExpand(key)} className="text-zinc-600 hover:text-zinc-400 text-xs">
-                            {isExpanded ? "▼" : "▶"}
-                          </button>
-                        )}
-                      </td>
-                      <td className="px-4 py-2.5 text-zinc-100 font-medium">{row.style}</td>
-                      <td className="px-4 py-2.5 text-zinc-400 capitalize">{row.packaging}</td>
-                      <td className={`px-4 py-2.5 tabular-nums ${near ? "text-red-400" : "text-zinc-200"}`}>
-                        {row.current_qty}
-                        {hasVariations && <span className="text-zinc-600 text-xs ml-1">({row.variations.length} sizes)</span>}
-                      </td>
-                      <td className="px-4 py-2.5"><Sparkline history={row.history} /></td>
-                      <td className="px-4 py-2.5 text-zinc-400 tabular-nums">{row.daily_sell_through}</td>
-                      <td className="px-4 py-2.5 text-zinc-400 tabular-nums">{row.lead_time_days}d</td>
-                      <td className="px-4 py-2.5 text-zinc-400 tabular-nums">{row.min_threshold}</td>
-                      <td className="px-4 py-2.5 text-amber-400/90 text-xs whitespace-nowrap">{row.forecast_threshold_date ? fmtDateLong(row.forecast_threshold_date) : "—"}</td>
-                      <td className="px-4 py-2.5 text-zinc-500 text-xs whitespace-nowrap">{row.forecast_stockout_date ? fmtDateLong(row.forecast_stockout_date) : "—"}</td>
-                    </tr>
-                    {isExpanded && (
-                      <tr className={`border-b border-zinc-800/60 ${i % 2 !== 0 ? "bg-zinc-900/30" : ""}`}>
-                        <td colSpan={10} className="px-8 pb-3 pt-1">
-                          <div className="rounded border border-zinc-800/60 divide-y divide-zinc-800/40">
-                            {row.variations.map((v) => (
-                              <div key={v.link_id} className="flex items-center gap-6 px-3 py-2 text-xs text-zinc-500">
-                                <span className="text-zinc-300 font-medium min-w-[120px]">
-                                  {v.packaging_item_name ?? "—"}
-                                  {v.packaging_item_volume_fl_oz && (
-                                    <span className="text-zinc-600 font-normal"> ({v.packaging_item_volume_fl_oz} fl oz)</span>
-                                  )}
-                                </span>
-                                <span className="text-zinc-600 min-w-[8px]">→</span>
-                                <span className="text-zinc-500 truncate">
-                                  {v.item_name ?? "—"}{v.variation_name ? ` | ${v.variation_name}` : ""}
-                                </span>
-                                <span className="tabular-nums text-zinc-300 ml-auto">{v.qty}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </td>
-                      </tr>
+        <div className="rounded-lg border border-zinc-800 overflow-hidden">
+          {rows.map((row, i) => {
+            const color = urgencyColor(row);
+            const isExpanded = expanded.has(row.recipe_id);
+            const hasPkgBreakdown = row.packaging_breakdown.length > 0;
+            const belowThreshold = row.min_threshold_bbl > 0 && row.current_bbl <= row.min_threshold_bbl;
+
+            return (
+              <div key={row.recipe_id} className={`${i > 0 ? "border-t border-zinc-800" : ""}`}>
+                {/* Main recipe row */}
+                <div className={`flex items-center gap-4 px-4 py-3 ${i % 2 !== 0 ? "bg-zinc-900/30" : ""}`}>
+                  {/* Expand toggle */}
+                  <button
+                    onClick={() => toggleExpand(row.recipe_id)}
+                    className="text-zinc-600 hover:text-zinc-400 text-xs shrink-0 w-4"
+                  >
+                    {isExpanded ? "▼" : "▶"}
+                  </button>
+
+                  {/* Urgency dot */}
+                  <div className={`w-2 h-2 rounded-full shrink-0 ${
+                    color === "red" ? "bg-red-500" :
+                    color === "amber" ? "bg-amber-500" :
+                    color === "green" ? "bg-green-500/50" :
+                    "bg-zinc-700"
+                  }`} />
+
+                  {/* Style name */}
+                  <span className="font-semibold text-zinc-100 min-w-[160px]">{row.style}</span>
+
+                  {/* BBL on hand */}
+                  <div className="flex flex-col min-w-[80px]">
+                    <span className={`text-sm tabular-nums font-medium ${belowThreshold ? "text-red-400" : "text-zinc-200"}`}>
+                      {row.current_bbl.toFixed(2)} BBL
+                    </span>
+                    <span className="text-xs text-zinc-600">on hand</span>
+                  </div>
+
+                  {/* Sell-through */}
+                  <div className="flex flex-col min-w-[80px]">
+                    <span className="text-sm tabular-nums text-zinc-300">
+                      {row.daily_sell_through_bbl > 0 ? row.daily_sell_through_bbl.toFixed(2) : "—"}
+                    </span>
+                    <span className="text-xs text-zinc-600">BBL/day</span>
+                  </div>
+
+                  {/* 4-week sparkline */}
+                  <div className="min-w-[60px]">
+                    <BblSparkline history={row.history_bbl} />
+                  </div>
+
+                  {/* Stockout date */}
+                  <div className="flex flex-col min-w-[100px]">
+                    {row.forecast_stockout_date ? (
+                      <>
+                        <span className={`text-sm ${color === "red" ? "text-red-400" : color === "amber" ? "text-amber-400" : "text-zinc-400"}`}>
+                          {fmtDateLong(row.forecast_stockout_date)}
+                        </span>
+                        <span className="text-xs text-zinc-600">stockout</span>
+                      </>
+                    ) : (
+                      <span className="text-zinc-600 text-sm">no stockout</span>
                     )}
-                  </React.Fragment>
-                );
-              })}
-            </tbody>
-          </table>
+                  </div>
+
+                  {/* Brew-by callout */}
+                  {row.needed_bbl > 0 && (
+                    <div className={`ml-auto flex items-center gap-2 px-3 py-1.5 rounded border text-xs ${
+                      color === "red"
+                        ? "border-red-700/60 bg-red-950/30 text-red-300"
+                        : color === "amber"
+                        ? "border-amber-700/60 bg-amber-950/30 text-amber-300"
+                        : "border-zinc-700/60 bg-zinc-800/30 text-zinc-400"
+                    }`}>
+                      <span>Brew <span className="font-semibold tabular-nums">{row.needed_bbl.toFixed(1)} BBL</span></span>
+                      {row.brew_by_date && (
+                        <span className="text-zinc-500">by {fmtDateLong(row.brew_by_date)}</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Packaging breakdown */}
+                {isExpanded && hasPkgBreakdown && (
+                  <div className={`border-t border-zinc-800/60 divide-y divide-zinc-800/40 ${i % 2 !== 0 ? "bg-zinc-900/20" : "bg-zinc-950/40"}`}>
+                    <div className="grid grid-cols-5 gap-4 px-10 py-1.5 text-xs text-zinc-600 font-medium">
+                      <span>Variation</span>
+                      <span className="text-right">Qty</span>
+                      <span className="text-right">BBL</span>
+                      <span className="text-right">Units/day</span>
+                      <span className="text-right">BBL/day</span>
+                    </div>
+                    {row.packaging_breakdown.map((p) => (
+                      <div key={p.link_id} className="grid grid-cols-5 gap-4 px-10 py-2 text-xs text-zinc-500">
+                        <span className="text-zinc-300">
+                          {p.item_name ?? "—"}
+                          {p.variation_name && <span className="text-zinc-600"> | {p.variation_name}</span>}
+                          {p.packaging_item_name && <span className="text-zinc-600"> · {p.packaging_item_name}</span>}
+                        </span>
+                        <span className="text-right tabular-nums text-zinc-400">{p.current_qty}</span>
+                        <span className="text-right tabular-nums text-zinc-400">{p.current_bbl.toFixed(2)}</span>
+                        <span className="text-right tabular-nums">{p.daily_sell_through_units > 0 ? p.daily_sell_through_units.toFixed(2) : "—"}</span>
+                        <span className="text-right tabular-nums">{p.daily_sell_through_bbl > 0 ? p.daily_sell_through_bbl.toFixed(2) : "—"}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 

@@ -56,10 +56,86 @@ interface ChangesResponse {
   errors?: Array<{ detail: string }>;
 }
 
-// Fetch all physical count inventory changes for a date range, paginated.
+interface OrderLineItem {
+  catalog_object_id?: string;
+  quantity?: string;
+}
+
+interface Order {
+  id: string;
+  state?: string;
+  source?: { name?: string };
+  line_items?: OrderLineItem[];
+}
+
+interface OrderSearchResponse {
+  orders?: Order[];
+  cursor?: string;
+  errors?: Array<{ detail: string }>;
+}
+
+/**
+ * Fetch completed taproom sales for a date range.
+ * Returns a map of variation_id → total units sold.
+ * Excludes orders sourced from Invoices (those are contract/wholesale, not taproom).
+ */
+export async function fetchOrderSales(
+  startDate: string,
+  endDate: string,
+  catalogObjectIds?: string[],
+): Promise<Map<string, number>> {
+  const locationId = process.env.SQUARE_LOCATION_ID;
+  if (!locationId) throw new Error("SQUARE_LOCATION_ID not set");
+
+  const totals = new Map<string, number>();
+  let cursor: string | undefined;
+
+  do {
+    const body: Record<string, unknown> = {
+      location_ids: [locationId],
+      query: {
+        filter: {
+          state_filter: { states: ["COMPLETED"] },
+          date_time_filter: {
+            closed_at: {
+              start_at: new Date(startDate).toISOString(),
+              end_at: new Date(endDate).toISOString(),
+            },
+          },
+        },
+      },
+      limit: 500,
+    };
+    if (cursor) body.cursor = cursor;
+
+    const data = await squarePost<OrderSearchResponse>("/orders/search", body);
+    if (data.errors?.length) throw new Error(data.errors[0].detail);
+
+    for (const order of data.orders ?? []) {
+      // Skip invoice-sourced orders — those are wholesale/contract, not taproom.
+      if (order.source?.name === "Invoices") continue;
+
+      for (const item of order.line_items ?? []) {
+        const varId = item.catalog_object_id;
+        if (!varId) continue;
+        if (catalogObjectIds && !catalogObjectIds.includes(varId)) continue;
+        const qty = parseFloat(item.quantity ?? "0");
+        if (qty > 0) totals.set(varId, (totals.get(varId) ?? 0) + qty);
+      }
+    }
+
+    cursor = data.cursor;
+  } while (cursor);
+
+  return totals;
+}
+
+// Fetch physical count inventory changes for a date range.
+// Pass catalogObjectIds to filter server-side (much faster than fetching all and filtering).
 export async function fetchPhysicalCounts(
   startDate: string,
-  endDate: string
+  endDate: string,
+  catalogObjectIds?: string[],
 ): Promise<PhysicalCount[]> {
   const locationId = process.env.SQUARE_LOCATION_ID;
   if (!locationId) throw new Error("SQUARE_LOCATION_ID not set");
@@ -78,6 +154,7 @@ export async function fetchPhysicalCounts(
       limit:          1000,
     };
     if (cursor) body.cursor = cursor;
+    if (catalogObjectIds?.length) body.catalog_object_ids = catalogObjectIds;
 
     const data = await squarePost<ChangesResponse>("/inventory/changes/batch-retrieve", body);
 

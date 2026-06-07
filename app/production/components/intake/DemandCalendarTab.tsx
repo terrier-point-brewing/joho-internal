@@ -1,34 +1,59 @@
 "use client";
 
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { format, parseISO } from "date-fns";
 import type { DemandRow, DemandWeek } from "../../lib/demandCalendar";
 import { fetchJson } from "../../hooks/queries";
 
-function cellBg(eow: number, rowStatus: DemandRow["status"], week: DemandWeek, leadTime: number, stockoutDate: string | null): string {
-  // Individual cell coloring: red/yellow once the EOW balance triggers thresholds.
-  if (eow <= 0) return "bg-red-900/60 text-red-200";
-  if (!stockoutDate || leadTime === 0) return "";
-  // Days from this week's start to stockout
-  const weekDate = parseISO(week.weekStart);
-  const stockout = parseISO(stockoutDate);
-  const days = Math.ceil((stockout.getTime() - weekDate.getTime()) / 86400000);
-  if (days <= leadTime) return "bg-red-900/40 text-red-300";
-  if (days <= leadTime * 1.5) return "bg-amber-900/40 text-amber-300";
-  return "";
+function rowUrgency(row: DemandRow): "red" | "amber" | "none" {
+  if (row.status === "red") return "red";
+  if (row.status === "yellow") return "amber";
+  return "none";
 }
 
-function StatusBadge({ status }: { status: DemandRow["status"] }) {
-  const map = {
-    green: "bg-green-900/50 text-green-400 border-green-800",
-    yellow: "bg-amber-900/50 text-amber-400 border-amber-800",
-    red: "bg-red-900/50 text-red-400 border-red-800",
-  };
+function cellTextColor(eow: number, week: DemandWeek, leadTime: number, stockoutDate: string | null): string {
+  if (eow <= 0) return "text-red-400 font-semibold";
+  if (!stockoutDate || leadTime === 0) return "text-zinc-400";
+  const days = Math.ceil((parseISO(stockoutDate).getTime() - parseISO(week.weekStart).getTime()) / 86400000);
+  if (days <= leadTime) return "text-red-400";
+  if (days <= leadTime * 1.5) return "text-amber-400";
+  return "text-zinc-400";
+}
+
+function cellTitle(w: DemandWeek): string {
+  const lines: string[] = [`EOW: ${w.projected_eow_bbl.toFixed(2)} BBL`];
+  if (w.inflow_bbl > 0) lines.push(`  + Inflow: ${w.inflow_bbl.toFixed(2)} BBL`);
+  if (w.taproom_outflow_bbl > 0) lines.push(`  − Taproom: ${w.taproom_outflow_bbl.toFixed(2)} BBL`);
+  if (w.distribution_outflow_bbl > 0) lines.push(`  − Distribution: ${w.distribution_outflow_bbl.toFixed(2)} BBL`);
+  if (w.contract_outflow_bbl > 0) lines.push(`  − Contract: ${w.contract_outflow_bbl.toFixed(2)} BBL`);
+  return lines.join("\n");
+}
+
+function StatusDot({ status }: { status: DemandRow["status"] }) {
+  const cls = status === "red" ? "bg-red-500" : status === "yellow" ? "bg-amber-400" : "bg-green-500/60";
+  const label = status === "red" ? "Alert" : status === "yellow" ? "Warn" : "OK";
   return (
-    <span className={`text-xs px-1.5 py-0.5 rounded border font-medium ${map[status]}`}>
-      {status === "green" ? "OK" : status === "yellow" ? "Warn" : "Alert"}
+    <span className="flex items-center gap-1.5">
+      <span className={`inline-block w-2 h-2 rounded-full ${cls}`} />
+      <span className={`text-xs ${status === "red" ? "text-red-400" : status === "yellow" ? "text-amber-400" : "text-zinc-500"}`}>{label}</span>
     </span>
   );
+}
+
+const CHANNEL_ROWS: {
+  key: "taproom_outflow_bbl" | "distribution_outflow_bbl" | "contract_outflow_bbl";
+  label: string;
+  dotCls: string;
+}[] = [
+  { key: "taproom_outflow_bbl",      label: "Taproom",      dotCls: "bg-green-500/70" },
+  { key: "distribution_outflow_bbl", label: "Distribution", dotCls: "bg-blue-400/70"  },
+  { key: "contract_outflow_bbl",     label: "Contract",     dotCls: "bg-purple-400/70" },
+];
+
+function fmtOutflow(val: number): string {
+  if (val <= 0) return "—";
+  return val.toFixed(2);
 }
 
 export default function DemandCalendarTab() {
@@ -36,87 +61,130 @@ export default function DemandCalendarTab() {
     queryKey: ["production", "demand-calendar"],
     queryFn: () => fetchJson<DemandRow[]>("/api/production/demand-calendar"),
   });
-  const load = () => refetch();
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  function toggle(recipeId: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(recipeId)) next.delete(recipeId);
+      else next.add(recipeId);
+      return next;
+    });
+  }
 
   if (loading) return <p className="text-zinc-600 text-sm py-10 text-center">Loading…</p>;
   if (error) return <p className="text-sm text-red-400 py-6">{error instanceof Error ? error.message : "Error"}</p>;
   if (rows.length === 0) return (
     <div className="py-16 text-center space-y-2">
       <p className="text-zinc-600 text-sm">No demand data yet.</p>
-      <p className="text-xs text-zinc-700">Add distribution allocations, contract requests, or safety stock floors to see projections.</p>
+      <p className="text-xs text-zinc-700">Add distribution allocations, contract requests, or link recipes to Square for taproom sell-through.</p>
     </div>
   );
 
-  // Derive week headers from first row
   const weekHeaders = rows[0]?.weeks.map((w) => format(parseISO(w.weekStart), "MMM d")) ?? [];
+  const NUM_FIXED = 6; // Recipe, Now, Floor, Tap/wk, Lead, Status
 
   return (
     <div>
       <div className="flex justify-between items-center mb-4">
         <p className="text-sm text-zinc-500">
-          12-week BBL projection per style × packaging. Color: <span className="text-red-400">red</span> = within 1× lead time of stockout, <span className="text-amber-400">yellow</span> = within 1.5×.
+          12-week cold storage BBL projection per recipe. Click a recipe row to see per-channel breakdown.
         </p>
-        <button onClick={load} className="px-3 py-1.5 border border-zinc-700 hover:border-zinc-500 text-zinc-300 text-sm rounded transition-colors">Refresh</button>
+        <button onClick={() => refetch()} className="px-3 py-1.5 border border-zinc-700 hover:border-zinc-500 text-zinc-300 text-sm rounded transition-colors">
+          Refresh
+        </button>
       </div>
 
       <div className="overflow-x-auto rounded-lg border border-zinc-800">
         <table className="w-full text-xs">
           <thead>
-            <tr className="border-b border-zinc-800 bg-zinc-900/60">
-              <th className="sticky left-0 z-10 bg-zinc-900/95 px-4 py-2.5 text-left font-medium text-zinc-500 whitespace-nowrap min-w-[140px]">Style</th>
-              <th className="sticky left-[140px] z-10 bg-zinc-900/95 px-3 py-2.5 text-left font-medium text-zinc-500 whitespace-nowrap w-12">Pkg</th>
-              <th className="px-3 py-2.5 text-right font-medium text-zinc-500 whitespace-nowrap">Now (BBL)</th>
-              <th className="px-3 py-2.5 text-right font-medium text-zinc-500 whitespace-nowrap">Floor</th>
-              <th className="px-3 py-2.5 text-center font-medium text-zinc-500 whitespace-nowrap">Lead</th>
-              <th className="px-3 py-2.5 text-center font-medium text-zinc-500 whitespace-nowrap">Status</th>
+            <tr className="border-b border-zinc-800 bg-zinc-900/40 text-left">
+              <th className="sticky left-0 z-10 bg-zinc-900/95 px-4 py-3 text-left font-medium text-zinc-500 whitespace-nowrap min-w-[200px]">Recipe</th>
+              <th className="px-3 py-3 text-right font-medium text-zinc-500 whitespace-nowrap">Now</th>
+              <th className="px-3 py-3 text-right font-medium text-zinc-500 whitespace-nowrap">Floor</th>
+              <th className="px-3 py-3 text-right font-medium text-zinc-500 whitespace-nowrap">Tap/wk</th>
+              <th className="px-3 py-3 text-center font-medium text-zinc-500 whitespace-nowrap">Lead</th>
+              <th className="px-3 py-3 font-medium text-zinc-500 whitespace-nowrap">Status</th>
               {weekHeaders.map((h, i) => (
-                <th key={i} className="px-3 py-2.5 text-right font-medium text-zinc-500 whitespace-nowrap min-w-[68px]">{h}</th>
+                <th key={i} className="px-3 py-3 text-right font-medium text-zinc-500 whitespace-nowrap min-w-[60px]">{h}</th>
               ))}
             </tr>
           </thead>
-          <tbody>
-            {rows.map((row, ri) => (
-              <tr key={`${row.recipe_id}:${row.packaging}`}
-                className={`border-b border-zinc-800/60 ${ri % 2 !== 0 ? "bg-zinc-900/30" : ""}`}>
-                <td className={`sticky left-0 z-10 px-4 py-2 font-medium text-zinc-100 whitespace-nowrap ${ri % 2 !== 0 ? "bg-zinc-900/80" : "bg-zinc-950/80"}`}>
-                  {row.style}
-                </td>
-                <td className={`sticky left-[140px] z-10 px-3 py-2 text-zinc-500 capitalize ${ri % 2 !== 0 ? "bg-zinc-900/80" : "bg-zinc-950/80"}`}>
-                  {row.packaging}
-                </td>
-                <td className="px-3 py-2 text-right tabular-nums text-zinc-200">{row.current_bbl.toFixed(2)}</td>
-                <td className="px-3 py-2 text-right tabular-nums text-zinc-500">{row.safety_floor_bbl > 0 ? row.safety_floor_bbl.toFixed(2) : "—"}</td>
-                <td className="px-3 py-2 text-center text-zinc-500">{row.lead_time_days > 0 ? `${row.lead_time_days}d` : "—"}</td>
-                <td className="px-3 py-2 text-center"><StatusBadge status={row.status} /></td>
-                {row.weeks.map((w, wi) => {
-                  const bg = cellBg(w.projected_eow_bbl, row.status, w, row.lead_time_days, row.stockout_date);
-                  return (
-                    <td key={wi}
-                      title={`Inflow: +${w.inflow_bbl.toFixed(2)} BBL\nOutflow: -${w.outflow_bbl.toFixed(2)} BBL\nEOW: ${w.projected_eow_bbl.toFixed(2)} BBL`}
-                      className={`px-3 py-2 text-right tabular-nums whitespace-nowrap rounded-sm ${bg || "text-zinc-400"}`}>
-                      {w.projected_eow_bbl.toFixed(2)}
-                      {(w.inflow_bbl > 0 || w.outflow_bbl > 0) && (
-                        <div className="text-zinc-600 text-[10px] leading-none mt-0.5">
-                          {w.inflow_bbl > 0 && <span className="text-green-700">+{w.inflow_bbl.toFixed(1)}</span>}
-                          {w.inflow_bbl > 0 && w.outflow_bbl > 0 && " "}
-                          {w.outflow_bbl > 0 && <span className="text-red-700">-{w.outflow_bbl.toFixed(1)}</span>}
-                        </div>
-                      )}
+          <tbody className="divide-y divide-zinc-800/50">
+            {rows.map((row) => {
+              const urgency = rowUrgency(row);
+              const borderCls = urgency === "red" ? "border-l-2 border-l-red-500" : urgency === "amber" ? "border-l-2 border-l-amber-500" : "border-l-2 border-l-transparent";
+              const isExpanded = expanded.has(row.recipe_id);
+
+              return (
+                <>
+                  {/* Recipe row */}
+                  <tr key={row.recipe_id} className={`${borderCls} cursor-pointer hover:bg-zinc-900/30`}
+                    onClick={() => toggle(row.recipe_id)}>
+                    <td className="sticky left-0 z-10 bg-zinc-950 px-4 py-2.5 font-medium text-zinc-100 whitespace-nowrap">
+                      <span className="flex items-center gap-2">
+                        <span className={`text-zinc-600 text-[10px] transition-transform ${isExpanded ? "rotate-90" : ""}`}>▶</span>
+                        {row.style}
+                      </span>
                     </td>
-                  );
-                })}
-              </tr>
-            ))}
+                    <td className="px-3 py-2.5 text-right tabular-nums text-zinc-300">{row.current_bbl.toFixed(2)}</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums text-zinc-600">{row.safety_floor_bbl > 0 ? row.safety_floor_bbl.toFixed(2) : "—"}</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums text-zinc-600">
+                      {row.taproom_bbl_per_week > 0 ? row.taproom_bbl_per_week.toFixed(2) : "—"}
+                    </td>
+                    <td className="px-3 py-2.5 text-center text-zinc-600">{row.lead_time_days > 0 ? `${row.lead_time_days}d` : "—"}</td>
+                    <td className="px-3 py-2.5"><StatusDot status={row.status} /></td>
+                    {row.weeks.map((w, wi) => {
+                      const textCls = cellTextColor(w.projected_eow_bbl, w, row.lead_time_days, row.stockout_date);
+                      return (
+                        <td key={wi} title={cellTitle(w)}
+                          className={`px-3 py-2.5 text-right tabular-nums whitespace-nowrap ${textCls}`}>
+                          {w.projected_eow_bbl.toFixed(2)}
+                        </td>
+                      );
+                    })}
+                  </tr>
+
+                  {/* Channel sub-rows (expanded) */}
+                  {isExpanded && CHANNEL_ROWS.map((ch) => {
+                    const hasAnyData = row.weeks.some((w) => w[ch.key] > 0);
+                    return (
+                      <tr key={`${row.recipe_id}-${ch.key}`}
+                        className="bg-zinc-900/40 border-l-2 border-l-transparent">
+                        <td className="sticky left-0 z-10 bg-zinc-900/60 px-4 py-1.5 whitespace-nowrap">
+                          <span className="flex items-center gap-2 pl-5">
+                            <span className={`inline-block w-1.5 h-1.5 rounded-full ${ch.dotCls}`} />
+                            <span className="text-zinc-500">{ch.label}</span>
+                          </span>
+                        </td>
+                        {/* Fixed blank columns */}
+                        {Array.from({ length: NUM_FIXED - 1 }).map((_, ci) => (
+                          <td key={ci} className="px-3 py-1.5" />
+                        ))}
+                        {/* Weekly outflow cells */}
+                        {row.weeks.map((w, wi) => {
+                          const val = w[ch.key];
+                          return (
+                            <td key={wi}
+                              className={`px-3 py-1.5 text-right tabular-nums whitespace-nowrap ${val > 0 ? "text-zinc-500" : "text-zinc-700"}`}>
+                              {hasAnyData ? fmtOutflow(val) : "—"}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    );
+                  })}
+                </>
+              );
+            })}
           </tbody>
         </table>
       </div>
 
-      {/* Legend */}
-      <div className="flex items-center gap-4 mt-3 text-xs text-zinc-600">
-        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-red-900/60 inline-block" /> Stockout</span>
-        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-red-900/40 inline-block" /> Within 1× lead time</span>
-        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-amber-900/40 inline-block" /> Within 1.5× lead time</span>
-        <span className="text-zinc-700">Cell tooltip shows inflow/outflow breakdown. +green = inflow, -red = outflow.</span>
+      <div className="flex items-center gap-5 mt-3 text-xs text-zinc-600">
+        <span className="flex items-center gap-1.5"><span className="w-0.5 h-4 bg-red-500 rounded inline-block" /> Alert — within 1× lead time of stockout</span>
+        <span className="flex items-center gap-1.5"><span className="w-0.5 h-4 bg-amber-500 rounded inline-block" /> Warn — within 1.5× lead time</span>
+        <span className="text-zinc-700">Hover cells to see inflow / outflow breakdown · Click recipe to expand channel breakdown</span>
       </div>
     </div>
   );

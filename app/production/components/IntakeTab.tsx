@@ -2,22 +2,20 @@
 
 import { useState } from "react";
 import TaproomTab      from "./intake/TaproomTab";
-import DistributionTab from "./intake/DistributionTab";
-import ContractBrewingTab from "./intake/ContractBrewingTab";
+import CommitmentsTab  from "./intake/CommitmentsTab";
 import SafetyStockTab  from "./intake/SafetyStockTab";
 import DemandCalendarTab from "./intake/DemandCalendarTab";
 import BatchSchedulerTab from "./intake/BatchSchedulerTab";
 import { useRecipesQuery, useTransfersQuery, useEquipmentQuery, useBatchesQuery, useContractPartnersQuery } from "../hooks/queries";
 
-type IntakeSubtab = "taproom" | "distribution" | "contract" | "safety" | "demand" | "scheduler";
+type IntakeSubtab = "taproom" | "commitments" | "safety" | "demand" | "scheduler";
 
 const SUBTABS: { key: IntakeSubtab; label: string }[] = [
-  { key: "taproom",      label: "Taproom" },
-  { key: "distribution", label: "Distribution" },
-  { key: "contract",     label: "Contract Brewing" },
-  { key: "safety",       label: "Safety Stock" },
-  { key: "demand",       label: "Demand Calendar" },
-  { key: "scheduler",    label: "Batch Scheduler" },
+  { key: "taproom",     label: "Taproom" },
+  { key: "commitments", label: "Commitments" },
+  { key: "safety",      label: "Safety Stock" },
+  { key: "demand",      label: "Demand Calendar" },
+  { key: "scheduler",   label: "Batch Scheduler" },
 ];
 
 export default function IntakeTab() {
@@ -51,12 +49,11 @@ export default function IntakeTab() {
         ))}
       </div>
 
-      {sub === "taproom"      && <TaproomTab recipes={recipes} />}
-      {sub === "distribution" && <DistributionTab recipes={recipes} partners={partners} />}
-      {sub === "contract"     && <ContractBrewingTab recipes={recipes} partners={partners} />}
-      {sub === "safety"       && <SafetyStockTab recipes={recipes} transfers={transfers} tanks={tanks} batches={batches} />}
-      {sub === "demand"       && <DemandCalendarTab />}
-      {sub === "scheduler"    && <BatchSchedulerTab recipes={recipes} tanks={tanks} />}
+      {sub === "taproom"     && <TaproomTab recipes={recipes} />}
+      {sub === "commitments" && <CommitmentsTab recipes={recipes} partners={partners} />}
+      {sub === "safety"      && <SafetyStockTab recipes={recipes} transfers={transfers} tanks={tanks} batches={batches} />}
+      {sub === "demand"      && <DemandCalendarTab />}
+      {sub === "scheduler"   && <BatchSchedulerTab recipes={recipes} tanks={tanks} partners={partners} />}
     </>
   );
 }

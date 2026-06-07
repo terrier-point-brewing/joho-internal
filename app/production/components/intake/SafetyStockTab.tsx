@@ -1,19 +1,11 @@
 "use client";
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Recipe, BatchTransfer, Equipment, BrewBatch, SafetyStockFloor, BrewInventoryAdjustment } from "../../types";
+import { Recipe, BatchTransfer, Equipment, BrewBatch, SafetyStockFloor, BrewInventoryAdjustment, PackagingItem } from "../../types";
 import { coldStorageLots } from "../../lib/coldStorage";
-import { fetchJson } from "../../hooks/queries";
-
-type Pkg = "keg" | "can";
-
-interface Row {
-  recipe_id: string;
-  style: string;
-  packaging: Pkg;
-  onHand: number;
-}
+import { fetchJson, usePackagingQuery } from "../../hooks/queries";
+import { BBL_TO_FL_OZ } from "@/lib/constants/production";
 
 export default function SafetyStockTab({
   recipes, transfers, tanks, batches,
@@ -32,99 +24,101 @@ export default function SafetyStockTab({
     queryKey: ["production", "brew-adjustments"],
     queryFn: () => fetchJson<BrewInventoryAdjustment[]>("/api/production/brew-adjustments"),
   });
+  const { data: packagingItems = [] } = usePackagingQuery();
   const loadFloors = () => qc.invalidateQueries({ queryKey: ["production", "safety-stock"] });
   const [drafts, setDrafts] = useState<Record<string, string>>({});
-  const [savingKey, setSavingKey] = useState<string | null>(null);
+  const [savingId, setSavingId] = useState<string | null>(null);
 
-  const recipeName = useMemo(() => new Map(recipes.map((r) => [r.id, r.beer_name])), [recipes]);
-
-  // Aggregate cold-storage on-hand per recipe × packaging.
-  const rows: Row[] = useMemo(() => {
+  // On-hand BBL per recipe (summed across keg + can).
+  const onHandBblByRecipe = useMemo(() => {
     const adjByTransfer = new Map<string, number>();
     for (const a of adjustments) {
       adjByTransfer.set(a.batch_transfer_id, (adjByTransfer.get(a.batch_transfer_id) ?? 0) + Number(a.quantity));
     }
-    const lots = coldStorageLots(transfers, tanks, batches);
-    const agg = new Map<string, Row>();
-    for (const lot of lots) {
+    // Build a default packaging item lookup by type for BBL conversion.
+    const pkgByType = new Map<string, PackagingItem>();
+    for (const p of packagingItems) {
+      if (p.volume_fl_oz && !pkgByType.has(p.type)) pkgByType.set(p.type, p);
+    }
+
+    const map = new Map<string, number>();
+    for (const lot of coldStorageLots(transfers, tanks, batches)) {
       const recipeId = lot.batch?.recipe_id;
       if (!recipeId) continue;
-      const key = `${recipeId}:${lot.packaging}`;
-      const onHand = lot.initialQty + (adjByTransfer.get(lot.transfer.id) ?? 0);
-      const existing = agg.get(key);
-      if (existing) existing.onHand += onHand;
-      else agg.set(key, { recipe_id: recipeId, style: recipeName.get(recipeId) ?? lot.batch?.beer_name ?? "—", packaging: lot.packaging, onHand });
+      const netQty = lot.initialQty + (adjByTransfer.get(lot.transfer.id) ?? 0);
+      if (netQty <= 0) continue;
+      const pkg = pkgByType.get(lot.packaging);
+      const bbl = pkg?.volume_fl_oz ? (netQty * pkg.volume_fl_oz) / BBL_TO_FL_OZ : 0;
+      map.set(recipeId, (map.get(recipeId) ?? 0) + bbl);
     }
-    // Include floors that have no current stock so they stay visible/editable.
-    for (const f of floors) {
-      const key = `${f.recipe_id}:${f.packaging}`;
-      if (!agg.has(key)) {
-        agg.set(key, { recipe_id: f.recipe_id, style: recipeName.get(f.recipe_id) ?? "—", packaging: f.packaging, onHand: 0 });
-      }
-    }
-    return [...agg.values()].sort((a, b) => a.style.localeCompare(b.style) || a.packaging.localeCompare(b.packaging));
-  }, [transfers, tanks, batches, adjustments, floors, recipeName]);
+    return map;
+  }, [transfers, tanks, batches, adjustments, packagingItems]);
 
-  const floorFor = useCallback(
-    (recipeId: string, pkg: Pkg) => floors.find((f) => f.recipe_id === recipeId && f.packaging === pkg)?.floor_quantity ?? null,
-    [floors],
-  );
-
-  async function saveFloor(recipeId: string, pkg: Pkg) {
-    const key = `${recipeId}:${pkg}`;
-    const value = drafts[key];
+  async function saveFloor(recipeId: string) {
+    const value = drafts[recipeId];
     if (value == null || value === "") return;
-    setSavingKey(key);
+    setSavingId(recipeId);
     try {
       const res = await fetch("/api/production/safety-stock", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ recipe_id: recipeId, packaging: pkg, floor_quantity: parseFloat(value) }),
+        // Store with packaging="keg" as a canonical placeholder; floor_quantity is BBL.
+        body: JSON.stringify({ recipe_id: recipeId, packaging: "keg", floor_quantity: parseFloat(value) }),
       });
       if (!res.ok) throw new Error((await res.json()).error ?? "Error");
       await loadFloors();
     } catch (err: unknown) {
       alert(err instanceof Error ? err.message : "Error");
     } finally {
-      setSavingKey(null);
+      setSavingId(null);
     }
   }
 
-  const COLS = ["Style", "Packaging", "On Hand (cold storage)", "Safety Floor", ""];
-
   return (
     <div>
-      <p className="text-sm text-zinc-500 mb-4">Current cold-storage inventory by style and packaging, with designated safety stock floors.</p>
-      {rows.length === 0 ? (
-        <p className="text-zinc-600 text-sm py-10 text-center">No kegged or canned inventory in cold storage yet.</p>
+      <p className="text-sm text-zinc-500 mb-4">
+        Minimum BBL floor per style. The demand calendar uses these floors to flag reorder urgency.
+      </p>
+      {recipes.length === 0 ? (
+        <p className="text-zinc-600 text-sm py-10 text-center">No recipes found.</p>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-zinc-800">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-zinc-800 bg-zinc-900/50 text-left">
-                {COLS.map((h, i) => <th key={i} className={`px-4 py-2.5 text-xs font-medium text-zinc-500 ${i === 2 ? "text-right" : ""}`}>{h}</th>)}
+                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500">Style</th>
+                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 text-right">On Hand (BBL)</th>
+                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500">Safety Floor (BBL)</th>
+                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500"></th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((row, i) => {
-                const key = `${row.recipe_id}:${row.packaging}`;
-                const floor = floorFor(row.recipe_id, row.packaging);
-                const draft = drafts[key] ?? (floor != null ? String(floor) : "");
-                const below = floor != null && row.onHand < floor;
+              {[...recipes].sort((a, b) => a.beer_name.localeCompare(b.beer_name)).map((recipe, i) => {
+                const floor = floors.find((f) => f.recipe_id === recipe.id);
+                const draft = drafts[recipe.id] ?? (floor != null ? String(floor.floor_quantity) : "");
+                const onHand = onHandBblByRecipe.get(recipe.id) ?? 0;
+                const below = floor != null && onHand < floor.floor_quantity;
                 return (
-                  <tr key={key} className={`border-b border-zinc-800/60 ${i % 2 !== 0 ? "bg-zinc-900/30" : ""}`}>
-                    <td className="px-4 py-2.5 text-zinc-100 font-medium">{row.style}</td>
-                    <td className="px-4 py-2.5 text-zinc-400 capitalize">{row.packaging}</td>
-                    <td className={`px-4 py-2.5 text-right tabular-nums ${below ? "text-red-400" : "text-green-400"}`}>{row.onHand}</td>
-                    <td className="px-4 py-2.5">
-                      <input type="number" step="1" min="0" className="inp max-w-[120px]"
-                        value={draft}
-                        onChange={(e) => setDrafts((d) => ({ ...d, [key]: e.target.value }))} />
+                  <tr key={recipe.id} className={`border-b border-zinc-800/60 last:border-0 ${i % 2 !== 0 ? "bg-zinc-900/30" : ""}`}>
+                    <td className="px-4 py-2.5 text-zinc-100 font-medium">{recipe.beer_name}</td>
+                    <td className={`px-4 py-2.5 text-right tabular-nums ${below ? "text-red-400" : onHand > 0 ? "text-green-400" : "text-zinc-600"}`}>
+                      {onHand.toFixed(2)}
                     </td>
                     <td className="px-4 py-2.5">
-                      <button onClick={() => saveFloor(row.recipe_id, row.packaging)} disabled={savingKey === key}
-                        className="text-xs text-amber-500 hover:text-amber-400 font-medium disabled:opacity-50">
-                        {savingKey === key ? "Saving…" : "Save"}
+                      <input
+                        type="number" step="0.1" min="0" className="inp max-w-[120px]"
+                        placeholder="0.0"
+                        value={draft}
+                        onChange={(e) => setDrafts((d) => ({ ...d, [recipe.id]: e.target.value }))}
+                      />
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <button
+                        onClick={() => saveFloor(recipe.id)}
+                        disabled={savingId === recipe.id || draft === ""}
+                        className="text-xs text-amber-500 hover:text-amber-400 font-medium disabled:opacity-50"
+                      >
+                        {savingId === recipe.id ? "Saving…" : "Save"}
                       </button>
                     </td>
                   </tr>

@@ -3,10 +3,10 @@ import { supabase } from "@/lib/supabase/client";
 import { apiError } from "@/lib/utils/api";
 import { buildDemandCalendar } from "@/app/production/lib/demandCalendar";
 import { coldStorageLots } from "@/app/production/lib/coldStorage";
-import { addDays, parseISO, differenceInDays } from "date-fns";
+import { addDays, parseISO } from "date-fns";
 import type {
   BatchTransfer, Equipment, BrewBatch, Recipe, PackagingItem,
-  DistributionAllocation, ContractBrewingRequest,
+  ContractBrewingRequest,
 } from "@/app/production/types";
 import type { SafetyStockFloor } from "@/app/production/types";
 
@@ -21,7 +21,6 @@ export interface EquipmentSlot {
 export interface SchedulerRecommendation {
   recipe_id: string;
   style: string;
-  packaging: string;
   stockout_date: string;
   demand_bbl: number;
   recommended_turns: number;
@@ -89,10 +88,13 @@ export async function GET() {
         .in("status", ["planning", "brewing", "fermenting", "conditioning", "packaging"]),
       supabase.from("packaging_items").select("*"),
       supabase.from("safety_stock_floors").select("*"),
-      supabase.from("distribution_allocations")
-        .select("*, recipes(beer_name), contract_brewing_partners(company_name), packaging_items(id, name, type, volume_fl_oz)"),
+      supabase.from("contract_brewing_requests")
+        .select("*, recipes(beer_name), contract_brewing_partners(company_name), packaging_items(id, name, type, volume_fl_oz)")
+        .eq("channel", "distribution")
+        .in("status", ["open"]),
       supabase.from("contract_brewing_requests")
         .select("*, recipes(beer_name), contract_brewing_partners(company_name)")
+        .eq("channel", "contract_brewing")
         .eq("status", "open"),
       supabase.from("recipes").select("*, recipe_ingredients(*, ingredients(*))"),
       supabase.from("brew_inventory_adjustments").select("*"),
@@ -104,7 +106,7 @@ export async function GET() {
     const typedBatches = (batches ?? []) as unknown as BrewBatch[];
     const typedPkg = (packagingItems ?? []) as PackagingItem[];
     const typedFloors = (floors ?? []) as SafetyStockFloor[];
-    const typedAllocs = (allocs ?? []) as (DistributionAllocation & { packaging_items?: PackagingItem | null })[];
+    const typedAllocs = (allocs ?? []) as ContractBrewingRequest[];
     const typedContracts = (contracts ?? []) as ContractBrewingRequest[];
     const typedRecipes = (recipes ?? []) as Recipe[];
     const typedEntries = (scheduleEntries ?? []) as ScheduleEntry[];
@@ -189,8 +191,11 @@ export async function GET() {
         let bestEq: Equipment | null = null;
         let bestStart: Date | null = null;
 
+        // Brewhouse: multiple turns run sequentially on the same day — capacity is per-turn volume.
+        const effectiveVolume = stage.type === "brewhouse" ? recommendedVolume / recommendedTurns : recommendedVolume;
+
         for (const eq of stage.pool) {
-          const slot = findEarliestSlot(eq, stage.days, stageStart, typedEntries, recommendedVolume);
+          const slot = findEarliestSlot(eq, stage.days, stageStart, typedEntries, effectiveVolume);
           if (slot && (!bestStart || slot < bestStart)) {
             bestStart = slot;
             bestEq = eq;
@@ -217,7 +222,6 @@ export async function GET() {
       recommendations.push({
         recipe_id: row.recipe_id,
         style: row.style,
-        packaging: row.packaging,
         stockout_date: row.stockout_date,
         demand_bbl: Math.round(demandBbl * 100) / 100,
         recommended_turns: recommendedTurns,
@@ -227,17 +231,7 @@ export async function GET() {
       });
     }
 
-    // Deduplicate by recipe_id — if a recipe appears as both keg and can, keep the one
-    // with the earlier stockout date.
-    const deduped = new Map<string, SchedulerRecommendation>();
-    for (const r of recommendations) {
-      const existing = deduped.get(r.recipe_id);
-      if (!existing || differenceInDays(parseISO(r.stockout_date), parseISO(existing.stockout_date)) < 0) {
-        deduped.set(r.recipe_id, r);
-      }
-    }
-
-    return NextResponse.json([...deduped.values()]);
+    return NextResponse.json(recommendations);
   } catch (err) {
     return apiError(err);
   }

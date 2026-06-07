@@ -203,6 +203,8 @@ export interface RecipeSquareLink {
 export type AllocationCadence = "one_time" | "recurring";
 export type AllocationRecurrence = "weekly" | "biweekly" | "monthly";
 
+export type AllocationStatus = "active" | "paused" | "fulfilled" | "cancelled";
+
 export interface DistributionAllocation {
   id: string;
   recipe_id: string | null;
@@ -217,10 +219,15 @@ export interface DistributionAllocation {
   packaging_item_id?: string | null;
   partner_id: string | null;
   notes: string | null;
+  status: AllocationStatus;
   created_at: string;
   recipes?: { beer_name: string } | null;
   contract_brewing_partners?: { company_name: string } | null;
+  packaging_items?: { id: string; name: string; volume_fl_oz: number | null } | null;
 }
+
+export type ContractRequestStatus = "open" | "in_progress" | "fulfilled" | "cancelled";
+export type CommitmentChannel = "distribution" | "contract_brewing";
 
 export interface ContractBrewingRequest {
   id: string;
@@ -229,11 +236,19 @@ export interface ContractBrewingRequest {
   partner_id: string | null;
   volume_bbl: number;
   desired_delivery_date: string | null;
-  status: string;
+  status: ContractRequestStatus;
   notes: string | null;
+  packaging_item_id: string | null;
+  packaging_qty: number | null;
+  channel: CommitmentChannel;
+  cadence: "one_time" | "recurring";
+  recurrence: "weekly" | "biweekly" | "monthly" | null;
+  start_date: string | null;
+  end_date: string | null;
   created_at: string;
   recipes?: { beer_name: string } | null;
   contract_brewing_partners?: { company_name: string } | null;
+  packaging_items?: { id: string; name: string; volume_fl_oz: number | null } | null;
 }
 
 export interface SafetyStockFloor {

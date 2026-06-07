@@ -3,9 +3,11 @@ import { supabase } from "@/lib/supabase/client";
 import { apiError } from "@/lib/utils/api";
 import { coldStorageLots } from "@/app/production/lib/coldStorage";
 import { buildDemandCalendar } from "@/app/production/lib/demandCalendar";
+import { fetchOrderSales } from "@/lib/square/inventory";
+import { BBL_TO_FL_OZ } from "@/lib/constants/production";
 import type {
   BatchTransfer, Equipment, BrewBatch, Recipe, PackagingItem,
-  DistributionAllocation, ContractBrewingRequest,
+  ContractBrewingRequest,
 } from "@/app/production/types";
 import type { SafetyStockFloor } from "@/app/production/types";
 
@@ -21,6 +23,7 @@ export async function GET() {
       { data: contracts },
       { data: recipes },
       { data: adjustments },
+      { data: squareLinks },
     ] = await Promise.all([
       supabase.from("batch_transfers").select("*"),
       supabase.from("equipment").select("*"),
@@ -29,14 +32,19 @@ export async function GET() {
         .in("status", ["planning", "brewing", "fermenting", "conditioning", "packaging"]),
       supabase.from("packaging_items").select("*"),
       supabase.from("safety_stock_floors").select("*"),
-      supabase.from("distribution_allocations")
-        .select("*, recipes(beer_name), contract_brewing_partners(company_name), packaging_items(id, name, type, volume_fl_oz)"),
+      supabase.from("contract_brewing_requests")
+        .select("*, recipes(beer_name), contract_brewing_partners(company_name), packaging_items(id, name, volume_fl_oz)")
+        .eq("channel", "distribution")
+        .in("status", ["open"]),
       supabase.from("contract_brewing_requests")
         .select("*, recipes(beer_name), contract_brewing_partners(company_name)")
+        .eq("channel", "contract_brewing")
         .eq("status", "open"),
       supabase.from("recipes")
         .select("*, recipe_ingredients(*, ingredients(*))"),
       supabase.from("brew_inventory_adjustments").select("*"),
+      supabase.from("recipe_square_links")
+        .select("id, recipe_id, square_variation_id, packaging_items(volume_fl_oz)"),
     ]);
 
     const typedTransfers = (transfers ?? []) as BatchTransfer[];
@@ -44,7 +52,7 @@ export async function GET() {
     const typedBatches = (batches ?? []) as unknown as BrewBatch[];
     const typedPkg = (packagingItems ?? []) as PackagingItem[];
     const typedFloors = (floors ?? []) as SafetyStockFloor[];
-    const typedAllocs = (allocs ?? []) as (DistributionAllocation & { packaging_items?: PackagingItem | null })[];
+    const typedAllocs = (allocs ?? []) as ContractBrewingRequest[];
     const typedContracts = (contracts ?? []) as ContractBrewingRequest[];
     const typedRecipes = (recipes ?? []) as Recipe[];
 
@@ -70,6 +78,33 @@ export async function GET() {
       if (defaultItem) packagingByBatchTransfer.set(lot.transfer.id, defaultItem);
     }
 
+    // Taproom demand: Square order sales (excl. invoices) → BBL/day per recipe.
+    // This represents the ongoing draw on cold storage via taproom exports.
+    let taproomDailyBblByRecipe: Map<string, number> | undefined;
+    if (squareLinks && squareLinks.length > 0) {
+      const variationIds = squareLinks.map((l) => l.square_variation_id as string);
+      const now = new Date();
+      const windowStart = new Date(now.getTime() - 28 * 86400000);
+      try {
+        const salesTotals = await fetchOrderSales(
+          windowStart.toISOString().slice(0, 10),
+          now.toISOString().slice(0, 10),
+          variationIds,
+        );
+        taproomDailyBblByRecipe = new Map();
+        for (const link of squareLinks) {
+          const recipeId = link.recipe_id as string;
+          const varId = link.square_variation_id as string;
+          const volFlOz = ((link.packaging_items as unknown) as { volume_fl_oz: number | null } | null)?.volume_fl_oz ?? null;
+          const totalSold = salesTotals.get(varId) ?? 0;
+          const dailyBbl = volFlOz ? (totalSold / 28 * volFlOz) / BBL_TO_FL_OZ : 0;
+          taproomDailyBblByRecipe.set(recipeId, (taproomDailyBblByRecipe.get(recipeId) ?? 0) + dailyBbl);
+        }
+      } catch {
+        // Square unavailable — demand calendar still works, taproom channel shows 0.
+      }
+    }
+
     const rows = buildDemandCalendar({
       lots,
       adjustmentsByTransfer: adjByTransfer,
@@ -80,6 +115,7 @@ export async function GET() {
       contractRequests: typedContracts,
       activeBatches: typedBatches,
       recipes: typedRecipes,
+      taproomDailyBblByRecipe,
     });
 
     return NextResponse.json(rows);
