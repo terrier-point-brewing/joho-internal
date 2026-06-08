@@ -4,6 +4,8 @@ import { apiError } from "@/lib/utils/api";
 import { buildDemandCalendar } from "@/app/production/lib/demandCalendar";
 import { coldStorageLots } from "@/app/production/lib/coldStorage";
 import { addDays, parseISO } from "date-fns";
+import { fetchOrderSales, fetchCurrentCounts } from "@/lib/square/inventory";
+import { BBL_TO_FL_OZ } from "@/lib/constants/production";
 import type {
   BatchTransfer, Equipment, BrewBatch, Recipe, PackagingItem,
   ContractBrewingRequest,
@@ -11,11 +13,13 @@ import type {
 import type { SafetyStockFloor } from "@/app/production/types";
 
 export interface EquipmentSlot {
-  stage: "brewhouse" | "fermenter" | "brite";
+  stage: "brewhouse" | "fermenter" | "brite" | "kegging" | "canning";
   equipment_id: string;
   equipment_name: string;
   scheduled_start: string;
   scheduled_end: string;
+  /** Kegging/canning only: daily BBL load on that date exceeds 60 BBL soft cap */
+  soft_cap_warning?: boolean;
 }
 
 export interface SchedulerRecommendation {
@@ -27,18 +31,26 @@ export interface SchedulerRecommendation {
   recommended_volume_bbl: number;
   recommended_brew_date: string;
   equipment_sequence: EquipmentSlot[];
+  soft_cap_warning?: string;
 }
 
 interface ScheduleEntry {
   equipment_id: string | null;
   planned_start: string;
   planned_end: string;
+  actual_start: string | null;
+  actual_end: string | null;
+  cancelled_at: string | null;
 }
 
 /** Return true if [aStart, aEnd) overlaps [bStart, bEnd). */
 function overlaps(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date): boolean {
   return aStart < bEnd && aEnd > bStart;
 }
+
+/** Effective start/end: prefer actuals over planned */
+function effStart(e: ScheduleEntry): Date { return parseISO(e.actual_start ?? e.planned_start); }
+function effEnd(e: ScheduleEntry): Date   { return parseISO(e.actual_end   ?? e.planned_end);   }
 
 /** Find the earliest start date ≥ earliestStart on which equipment eq is free
  *  for durationDays days, given existing schedule entries. */
@@ -52,8 +64,8 @@ function findEarliestSlot(
   if (eq.capacity_bbl != null && batchVolumeBbl > eq.capacity_bbl) return null;
 
   const busy = entries
-    .filter((e) => e.equipment_id === eq.id)
-    .map((e) => ({ start: parseISO(e.planned_start), end: parseISO(e.planned_end) }));
+    .filter((e) => e.equipment_id === eq.id && !e.cancelled_at)
+    .map((e) => ({ start: effStart(e), end: effEnd(e) }));
 
   let candidate = new Date(earliestStart);
   // Try up to 365 days out
@@ -80,6 +92,7 @@ export async function GET() {
       { data: recipes },
       { data: adjustments },
       { data: scheduleEntries },
+      { data: squareLinks },
     ] = await Promise.all([
       supabase.from("batch_transfers").select("*"),
       supabase.from("equipment").select("*"),
@@ -88,17 +101,18 @@ export async function GET() {
         .in("status", ["planning", "brewing", "fermenting", "conditioning", "packaging"]),
       supabase.from("packaging_items").select("*"),
       supabase.from("safety_stock_floors").select("*"),
-      supabase.from("contract_brewing_requests")
+      supabase.from("commitments")
         .select("*, recipes(beer_name), contract_brewing_partners(company_name), packaging_items(id, name, type, volume_fl_oz)")
         .eq("channel", "distribution")
         .in("status", ["open"]),
-      supabase.from("contract_brewing_requests")
+      supabase.from("commitments")
         .select("*, recipes(beer_name), contract_brewing_partners(company_name)")
         .eq("channel", "contract_brewing")
         .eq("status", "open"),
       supabase.from("recipes").select("*, recipe_ingredients(*, ingredients(*))"),
       supabase.from("brew_inventory_adjustments").select("*"),
-      supabase.from("batch_schedule_entries").select("equipment_id, planned_start, planned_end"),
+      supabase.from("batch_schedule_entries").select("equipment_id, planned_start, planned_end, actual_start, actual_end, cancelled_at"),
+      supabase.from("recipe_square_links").select("id, recipe_id, square_variation_id, packaging_items(volume_fl_oz)"),
     ]);
 
     const typedTransfers = (transfers ?? []) as BatchTransfer[];
@@ -127,10 +141,36 @@ export async function GET() {
       if (defaultItem) packagingByBatchTransfer.set(lot.transfer.id, defaultItem);
     }
 
+    let taproomDailyBblByRecipe: Map<string, number> | undefined;
+    let taproomCurrentBblByRecipe: Map<string, number> | undefined;
+    if (squareLinks && squareLinks.length > 0) {
+      const variationIds = (squareLinks as { square_variation_id: string }[]).map((l) => l.square_variation_id);
+      const now = new Date();
+      const windowStart = new Date(now.getTime() - 28 * 86400000);
+      try {
+        const [salesTotals, currentCounts] = await Promise.all([
+          fetchOrderSales(windowStart.toISOString().slice(0, 10), now.toISOString().slice(0, 10), variationIds),
+          fetchCurrentCounts(variationIds),
+        ]);
+        taproomDailyBblByRecipe = new Map();
+        taproomCurrentBblByRecipe = new Map();
+        for (const link of squareLinks as unknown as { recipe_id: string; square_variation_id: string; packaging_items: { volume_fl_oz: number | null } | null }[]) {
+          const volFlOz = link.packaging_items?.volume_fl_oz ?? null;
+          const totalSold = salesTotals.get(link.square_variation_id) ?? 0;
+          const dailyBbl = volFlOz ? (totalSold / 28 * volFlOz) / BBL_TO_FL_OZ : 0;
+          taproomDailyBblByRecipe.set(link.recipe_id, (taproomDailyBblByRecipe.get(link.recipe_id) ?? 0) + dailyBbl);
+          const currentQty = currentCounts.get(link.square_variation_id) ?? 0;
+          const currentBbl = volFlOz ? (currentQty * volFlOz) / BBL_TO_FL_OZ : 0;
+          taproomCurrentBblByRecipe.set(link.recipe_id, (taproomCurrentBblByRecipe.get(link.recipe_id) ?? 0) + currentBbl);
+        }
+      } catch { /* Square unavailable */ }
+    }
+
     const demandRows = buildDemandCalendar({
       lots, adjustmentsByTransfer: adjByTransfer, packagingById,
       packagingByBatchTransfer, safetyFloors: typedFloors, allocations: typedAllocs,
       contractRequests: typedContracts, activeBatches: typedBatches, recipes: typedRecipes,
+      taproomDailyBblByRecipe, taproomCurrentBblByRecipe,
     });
 
     const recipeById = new Map(typedRecipes.map((r) => [r.id, r]));
@@ -163,8 +203,13 @@ export async function GET() {
         const weekDate = parseISO(w.weekStart);
         if (weekDate <= windowEnd) demandBbl += w.outflow_bbl;
       }
+      // Also consider total open commitments for this recipe as a floor on demand
+      const commitmentBbl = [...typedAllocs, ...typedContracts]
+        .filter((c) => c.recipe_id === row.recipe_id && (c.status === "open" || c.status === "in_progress"))
+        .reduce((s, c) => s + Number(c.volume_bbl), 0);
+      const effectiveDemand = Math.max(demandBbl, commitmentBbl);
       // Need at least enough to cover demand, capped at 4 turns
-      const rawTurns = Math.ceil(demandBbl / recipe.expected_yield_bbl);
+      const rawTurns = Math.ceil(effectiveDemand / recipe.expected_yield_bbl);
       const recommendedTurns = Math.min(Math.max(rawTurns, 1), 4);
       const recommendedVolume = recommendedTurns * recipe.expected_yield_bbl;
 
@@ -173,10 +218,11 @@ export async function GET() {
       // Don't recommend a brew date in the past
       const brewStart = idealBrewDate < today ? today : idealBrewDate;
 
-      // Find equipment slots greedily: brewhouse → fermenter → brite
+      // Find equipment slots greedily: brewhouse → fermenter (same-day as brewhouse) → brite
       const eqSeq: EquipmentSlot[] = [];
       let stageStart = brewStart;
       let feasible = true;
+      let brewhouseStart: Date = brewStart; // used by fermenter to anchor same-day start
 
       const stages: { type: "brewhouse" | "fermenter" | "brite"; days: number; pool: Equipment[] }[] = [
         { type: "brewhouse", days: daysBrewhouse, pool: brewhouses },
@@ -187,6 +233,10 @@ export async function GET() {
       for (const stage of stages) {
         if (stage.pool.length === 0) { feasible = false; break; }
 
+        // Fermenter begins on the same day as the brewhouse (beer moves in same day),
+        // not after brewhouse completes.
+        const searchFrom = stage.type === "fermenter" ? brewhouseStart : stageStart;
+
         // Find the earliest available piece in this stage's pool
         let bestEq: Equipment | null = null;
         let bestStart: Date | null = null;
@@ -195,7 +245,7 @@ export async function GET() {
         const effectiveVolume = stage.type === "brewhouse" ? recommendedVolume / recommendedTurns : recommendedVolume;
 
         for (const eq of stage.pool) {
-          const slot = findEarliestSlot(eq, stage.days, stageStart, typedEntries, effectiveVolume);
+          const slot = findEarliestSlot(eq, stage.days, searchFrom, typedEntries, effectiveVolume);
           if (slot && (!bestStart || slot < bestStart)) {
             bestStart = slot;
             bestEq = eq;
@@ -203,6 +253,8 @@ export async function GET() {
         }
 
         if (!bestEq || !bestStart) { feasible = false; break; }
+
+        if (stage.type === "brewhouse") brewhouseStart = bestStart;
 
         eqSeq.push({
           stage: stage.type,

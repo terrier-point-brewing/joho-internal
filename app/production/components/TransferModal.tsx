@@ -6,6 +6,8 @@ import { Modal, Field, ModalActions } from "./shared";
 import { EQ } from "../equipmentMeta";
 import { fmtBbl2 as fmtBbl } from "@/lib/utils/formatting";
 import { BBL_TO_FL_OZ } from "@/lib/constants/production";
+import type { ScheduleEntry } from "../hooks/queries";
+import { format, parseISO } from "date-fns";
 
 // Allowed destinations by source equipment type
 const DEST_RULES: Partial<Record<string, string[]>> = {
@@ -28,8 +30,12 @@ interface TransferModalProps {
   /** IDs of tanks that currently have an active batch assignment */
   occupiedTankIds: Set<string>;
   packaging: PackagingItem[];
+  /** Ledger volume currently in fromTank; falls back to batch.volume_bbl if omitted */
+  fromTankVolume?: number;
+  /** Next planned schedule entry for the next stage of this batch (from batch_schedule_entries) */
+  plannedEntry?: ScheduleEntry | null;
   onClose: () => void;
-  onDone: () => Promise<void>;
+  onDone: (response?: { schedule_update?: { action: string; was_deviation?: boolean; equipment_name?: string }[] }) => Promise<void>;
 }
 
 function pkgLabel(p: PackagingItem): string {
@@ -37,7 +43,7 @@ function pkgLabel(p: PackagingItem): string {
   return partner ? `${p.name} (${partner})` : p.name;
 }
 
-export default function TransferModal({ batch, fromTank, allTanks, occupiedTankIds, packaging, onClose, onDone }: TransferModalProps) {
+export default function TransferModal({ batch, fromTank, allTanks, occupiedTankIds, packaging, fromTankVolume, plannedEntry, onClose, onDone }: TransferModalProps) {
   const allowed = DEST_RULES[fromTank.type] ?? [];
   const destTanks = allTanks.filter((t) => {
     if (t.id === fromTank.id) return false;
@@ -60,7 +66,10 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
   const defaultTray    = packaging.find((p) => p.type === "tray"    && p.is_default);
   const defaultLabel   = packaging.find((p) => p.type === "label"   && p.is_default);
 
-  const [destId,    setDestId]    = useState(destTanks[0]?.id ?? "");
+  // Pre-select planned destination if the planned entry points to a valid available tank
+  const plannedDestId = plannedEntry?.equipment_id ?? null;
+  const plannedDestValid = plannedDestId ? destTanks.some((t) => t.id === plannedDestId) : false;
+  const [destId,    setDestId]    = useState(plannedDestValid && plannedDestId ? plannedDestId : (destTanks[0]?.id ?? ""));
   const [volumeMode, setVolumeMode] = useState<"full" | "partial">("full");
   const [partialBbl, setPartialBbl] = useState("");
   const [shrinkage,  setShrinkage]  = useState("0");
@@ -93,7 +102,7 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
   const cansPerCase  = selectedTray?.can_count ?? 0;
   const selectedCan  = packaging.find((p) => p.id === canId);
 
-  const batchVol  = Number(batch.volume_bbl);
+  const batchVol  = fromTankVolume ?? Number(batch.volume_bbl);
   const shrinkBbl = parseFloat(shrinkage) || 0;
 
   let drawBbl = 0;
@@ -183,7 +192,8 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
         }),
       });
       if (!res.ok) throw new Error((await res.json()).error ?? "Error");
-      await onDone();
+      const responseData = await res.json();
+      await onDone(responseData);
       onClose();
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : "Error");
@@ -224,6 +234,16 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
         </p>
 
         <Field label="Destination" required>
+          {/* Planned booking pill */}
+          {plannedEntry && plannedEntry.equipment_id && (
+            <div className="flex items-center gap-2 mb-2 px-2 py-1.5 rounded bg-zinc-800/60 border border-zinc-700 text-xs text-zinc-400">
+              <span>📋 Planned:</span>
+              <span className="text-zinc-200 font-medium">{plannedEntry.equipment?.name ?? "Unknown"}</span>
+              <span className="text-zinc-500">
+                {format(parseISO(plannedEntry.planned_start), "MMM d")}–{format(parseISO(plannedEntry.planned_end), "MMM d")}
+              </span>
+            </div>
+          )}
           <select className="inp" value={destId} required onChange={(e) => setDestId(e.target.value)}>
             <option value="">— select —</option>
             {destTanks.map((t) => (
@@ -233,6 +253,14 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
               </option>
             ))}
           </select>
+          {/* Deviation warning: selected tank differs from planned */}
+          {plannedEntry && plannedEntry.equipment_id && destId && destId !== plannedEntry.equipment_id && (
+            <div className="mt-1.5 px-3 py-2 rounded border border-amber-700/60 bg-amber-950/40 text-xs text-amber-300">
+              ⚠ <span className="font-semibold">Deviation from plan:</span> this batch was scheduled for{" "}
+              <span className="text-amber-200 font-medium">{plannedEntry.equipment?.name ?? "another tank"}</span>.
+              Proceeding will cancel that booking and may cause conflicts with downstream schedule entries that will need to be resolved.
+            </div>
+          )}
           {destIsConstrained && destTank?.capacity_bbl && (
             <p className="text-xs text-zinc-500 mt-0.5">Capacity: {fmtBbl(destTank.capacity_bbl)} — transfer will be rejected if it exceeds this.</p>
           )}

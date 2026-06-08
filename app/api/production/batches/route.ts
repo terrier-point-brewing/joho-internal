@@ -18,13 +18,31 @@ export async function POST(req: NextRequest) {
 
   if (!recipe_id) return NextResponse.json({ error: "recipe_id is required" }, { status: 400 });
 
+  // Auto-derive expected_delivery_date from recipe lead time when not explicitly provided.
+  let resolvedDeliveryDate: string | null = expected_delivery_date || null;
+  if (!resolvedDeliveryDate && planned_brew_date) {
+    const { data: recipeData } = await supabase
+      .from("recipes")
+      .select("days_brewhouse, days_fermenter, days_brite")
+      .eq("id", recipe_id)
+      .single();
+    if (recipeData) {
+      const leadDays = (recipeData.days_brewhouse ?? 0) + (recipeData.days_fermenter ?? 0) + (recipeData.days_brite ?? 0);
+      if (leadDays > 0) {
+        const brewDate = new Date(planned_brew_date);
+        brewDate.setUTCDate(brewDate.getUTCDate() + leadDays);
+        resolvedDeliveryDate = brewDate.toISOString().slice(0, 10);
+      }
+    }
+  }
+
   // One transaction: create the batch (batch_number assigned by trigger), log
   // the initial status, and consume recipe ingredients with cost tracking.
   const { data: batch, error: batchErr } = await supabase
     .rpc("create_batch_with_consumption", {
       p_beer_name:              beer_name,
       p_planned_brew_date:      planned_brew_date,
-      p_expected_delivery_date: expected_delivery_date || null,
+      p_expected_delivery_date: resolvedDeliveryDate,
       p_volume_bbl:             volume_bbl,
       p_turns:                  turns,
       p_status:                 status,
@@ -34,6 +52,15 @@ export async function POST(req: NextRequest) {
     .single<{ id: string }>();
 
   if (batchErr) return NextResponse.json({ error: batchErr.message }, { status: 500 });
+
+  // Explicitly persist expected_delivery_date — the RPC may not forward it,
+  // so we write it directly after creation to guarantee it's saved.
+  if (resolvedDeliveryDate) {
+    await supabase
+      .from("brew_batches")
+      .update({ expected_delivery_date: resolvedDeliveryDate })
+      .eq("id", batch.id);
+  }
 
   // Copy recipe activity templates into the new batch's activity log
   const { data: templates } = await supabase
@@ -65,7 +92,7 @@ export async function POST(req: NextRequest) {
   // Create a Square Invoice ("project") for this batch.
   // Look up the recipe's partner to get their square_customer_id.
   let squareInvoiceId: string | null = null;
-  if (expected_delivery_date) {
+  if (resolvedDeliveryDate) {
     try {
       const { data: recipeRow } = await supabase
         .from("recipes")
@@ -87,7 +114,7 @@ export async function POST(req: NextRequest) {
         beerName: beer_name,
         volumeBbl: volume_bbl,
         plannedBrewDate: planned_brew_date,
-        expectedDeliveryDate: expected_delivery_date,
+        expectedDeliveryDate: resolvedDeliveryDate,
         squareCustomerId,
       });
 

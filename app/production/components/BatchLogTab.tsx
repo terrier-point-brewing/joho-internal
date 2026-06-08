@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { BrewBatch, BatchTransfer, BrewActivityEntry, BatchAllocation, AllocationChannel, AllocationLockReason } from "../types";
+import { BrewBatch, BatchTransfer, BrewActivityEntry, BatchAllocation, AllocationChannel, AllocationLockReason, ContractBrewingRequest } from "../types";
 import { BREWHOUSE_BBL, StatusBadge, Modal, Field, ModalActions } from "./shared";
 import { fmtDateLong, fmtBbl2 } from "@/lib/utils/formatting";
 import { EQ } from "../equipmentMeta";
@@ -10,7 +10,8 @@ import { computeLocationBreakdown } from "../lib/volumeLedger";
 import { fetchJson } from "../hooks/queries";
 import {
   useBatchesQuery, useRecipesQuery, useTransfersQuery, useContractPartnersQuery,
-  useAssignmentsQuery, useEquipmentQuery, productionKeys,
+  useAssignmentsQuery, useEquipmentQuery, useBatchScheduleQuery, productionKeys,
+  type ScheduleEntry,
 } from "../hooks/queries";
 
 const fmtDate = fmtDateLong;
@@ -48,6 +49,7 @@ export default function BatchLogTab() {
   const { data: transfers = [] } = useTransfersQuery();
   const { data: assignments = [] } = useAssignmentsQuery();
   const { data: tanks = [] } = useEquipmentQuery();
+  const { data: scheduleEntries = [] } = useBatchScheduleQuery();
   // Batch CRUD changes the batches list (and allocations nested within it).
   const refresh = () => qc.invalidateQueries({ queryKey: productionKeys.batches });
 
@@ -198,6 +200,8 @@ export default function BatchLogTab() {
         <BatchTable
           batches={allBatches}
           transfers={transfers}
+          scheduleEntries={scheduleEntries}
+          equipment={tanks}
           expandedId={expandedId}
           sort={sort}
           onToggle={(id) => setExpandedId(expandedId === id ? null : id)}
@@ -289,6 +293,13 @@ export default function BatchLogTab() {
                   <AllocationManager batch={editingBatch} />
                 </div>
                 <div className="pt-4 border-t border-zinc-800">
+                  <EquipmentScheduleSection
+                    batchId={editingBatch.id}
+                    entries={scheduleEntries.filter((e) => e.batch_id === editingBatch.id)}
+                    equipment={tanks}
+                  />
+                </div>
+                <div className="pt-4 border-t border-zinc-800">
                   <BrewActivityLogManager batch={editingBatch} />
                 </div>
               </>
@@ -306,83 +317,76 @@ export default function BatchLogTab() {
 // ─── Allocation manager (batch_allocations) ──────────────────────────────────
 
 const CHANNEL_OPTIONS: { value: AllocationChannel; label: string }[] = [
-  { value: "taproom", label: "Taproom" },
-  { value: "distribution", label: "Distribution" },
+  { value: "taproom",          label: "Taproom" },
+  { value: "distribution",     label: "Distribution" },
   { value: "contract_brewing", label: "Contract Brewing" },
-  { value: "safety_stock", label: "Safety Stock" },
+  { value: "safety_stock",     label: "Safety Stock" },
 ];
 
 const LOCK_REASON_OPTIONS: { value: AllocationLockReason; label: string }[] = [
-  { value: "deposit_paid", label: "Deposit Paid" },
+  { value: "deposit_paid",    label: "Deposit Paid" },
   { value: "contract_signed", label: "Contract Signed" },
 ];
 
+// Color per channel for badges + stacked bar
+const CHANNEL_COLOR: Record<AllocationChannel, { bg: string; text: string; bar: string }> = {
+  taproom:          { bg: "bg-blue-900/50",    text: "text-blue-300",   bar: "#3b82f6" },
+  distribution:     { bg: "bg-emerald-900/50", text: "text-emerald-300",bar: "#10b981" },
+  contract_brewing: { bg: "bg-purple-900/50",  text: "text-purple-300", bar: "#8b5cf6" },
+  safety_stock:     { bg: "bg-zinc-800",        text: "text-zinc-400",  bar: "#52525b" },
+};
+
+function ChannelBadge({ channel }: { channel: AllocationChannel }) {
+  const c = CHANNEL_COLOR[channel] ?? { bg: "bg-zinc-800", text: "text-zinc-400" };
+  const label = CHANNEL_OPTIONS.find(o => o.value === channel)?.label ?? channel;
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium border border-white/5 ${c.bg} ${c.text}`}>
+      {label}
+    </span>
+  );
+}
+
 function AllocationManager({ batch }: { batch: BrewBatch }) {
   const qc = useQueryClient();
-  const { data: partners = [] } = useContractPartnersQuery();
 
   const allocKey = ["production", "allocations", batch.id] as const;
   const { data: allocations = [] } = useQuery({
     queryKey: allocKey,
     queryFn: () => fetchJson<BatchAllocation[]>(`/api/production/allocations?batch_id=${batch.id}`),
   });
+
+  const { data: allCommitments = [] } = useQuery({
+    queryKey: ["production", "commitments"],
+    queryFn: () => fetchJson<ContractBrewingRequest[]>("/api/production/contract-requests"),
+  });
+  const recipeCommitments = allCommitments.filter(
+    (c) => c.recipe_id === batch.recipe_id && (c.status === "open" || c.status === "in_progress")
+  );
+
   const refresh = () => qc.invalidateQueries({ queryKey: allocKey });
-
-  const [channel, setChannel] = useState<AllocationChannel>("taproom");
-  const [partnerId, setPartnerId] = useState("");
-  const [pct, setPct] = useState("");
-  const [label, setLabel] = useState("");
-  const [notes, setNotes] = useState("");
-  const [saving, setSaving] = useState(false);
-
+  const batchVol = Number(batch.volume_bbl);
   const totalPct = allocations.reduce((s, a) => s + Number(a.percentage), 0);
   const remaining = 100 - totalPct;
+  const overAllocated = totalPct > 100;
 
-  // Auto-build label when channel/partner changes
-  function buildDefaultLabel(ch: AllocationChannel, pid: string) {
-    if (ch === "contract_brewing") {
-      const p = partners.find((x) => x.id === pid);
-      return p ? `Contract Brewing — ${p.company_name}` : "Contract Brewing";
+  // ── Inline % editing ──────────────────────────────────────────────────────
+  const [editingPct, setEditingPct] = useState<Record<string, string>>({});
+
+  async function savePct(a: BatchAllocation) {
+    const raw = editingPct[a.id];
+    if (raw === undefined) return;
+    const pct = parseFloat(raw);
+    if (isNaN(pct) || pct === Number(a.percentage)) {
+      setEditingPct(p => { const n = { ...p }; delete n[a.id]; return n; });
+      return;
     }
-    return CHANNEL_OPTIONS.find((o) => o.value === ch)?.label ?? ch;
-  }
-
-  function handleChannelChange(ch: AllocationChannel) {
-    setChannel(ch);
-    setLabel(buildDefaultLabel(ch, partnerId));
-  }
-
-  function handlePartnerChange(pid: string) {
-    setPartnerId(pid);
-    setLabel(buildDefaultLabel(channel, pid));
-  }
-
-  async function handleAdd() {
-    if (!pct) return;
-    const partner = channel === "contract_brewing" ? (partners.find((p) => p.id === partnerId) ?? partners[0]) : null;
-    const effectiveLabel = label.trim() || buildDefaultLabel(channel, partner?.id ?? "");
-    setSaving(true);
-    try {
-      const res = await fetch("/api/production/allocations", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          batch_id: batch.id,
-          channel,
-          label: effectiveLabel,
-          percentage: parseFloat(pct),
-          partner_id: partner?.id ?? null,
-          notes: notes || null,
-        }),
-      });
-      if (!res.ok) throw new Error((await res.json()).error ?? "Error");
-      setPct(""); setNotes(""); setLabel("");
-      await refresh();
-    } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Error");
-    } finally {
-      setSaving(false);
-    }
+    const res = await fetch(`/api/production/allocations/${a.id}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ percentage: pct }),
+    });
+    if (!res.ok) { alert((await res.json()).error ?? "Error"); return; }
+    setEditingPct(p => { const n = { ...p }; delete n[a.id]; return n; });
+    await refresh();
   }
 
   async function handleDelete(id: string, locked: boolean) {
@@ -395,8 +399,7 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
 
   async function handleLock(id: string, reason: AllocationLockReason) {
     const res = await fetch(`/api/production/allocations/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      method: "PATCH", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ locked: true, lock_reason: reason }),
     });
     if (!res.ok) alert((await res.json()).error ?? "Error");
@@ -404,147 +407,515 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
   }
 
   async function handleUnlock(id: string) {
-    if (!confirm("Unlock this allocation? The percentage can be reduced again.")) return;
+    if (!confirm("Unlock this allocation?")) return;
     const res = await fetch(`/api/production/allocations/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      method: "PATCH", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ locked: false }),
     });
     if (!res.ok) alert((await res.json()).error ?? "Error");
     await refresh();
   }
 
+  // ── Add new allocation ──────────────────────────────────────────────────────
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newChannel, setNewChannel] = useState<AllocationChannel>("taproom");
+  const [newCommitmentId, setNewCommitmentId] = useState("");
+  const [newPct, setNewPct] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const isTaproomChannel = (ch: AllocationChannel) => ch === "taproom" || ch === "safety_stock";
+
+  const newChannelCommitments = recipeCommitments.filter(c =>
+    c.channel === (newChannel === "distribution" ? "distribution" : "contract_brewing")
+  );
+  const selectedNewCommitment = recipeCommitments.find(c => c.id === newCommitmentId) ?? null;
+
+  function handleNewChannelChange(ch: AllocationChannel) {
+    setNewChannel(ch);
+    setNewCommitmentId("");
+    setNewPct("");
+  }
+  function handleNewCommitmentChange(cid: string) {
+    setNewCommitmentId(cid);
+    const c = recipeCommitments.find(x => x.id === cid);
+    if (c && batchVol > 0) {
+      const pct = Math.round((Number(c.volume_bbl) / batchVol) * 1000) / 10;
+      setNewPct(String(pct));
+    }
+  }
+
+  async function handleAdd() {
+    if (!newPct) return;
+    setSaving(true);
+    try {
+      const res = await fetch("/api/production/allocations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          batch_id: batch.id,
+          channel: newChannel,
+          percentage: parseFloat(newPct),
+          partner_id: selectedNewCommitment?.partner_id ?? null,
+          contract_request_id: newCommitmentId || null,
+        }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? "Error");
+      setNewPct(""); setNewCommitmentId(""); setNewChannel("taproom"); setShowAddForm(false);
+      await refresh();
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "Error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
-    <div>
-      <p className="text-xs text-zinc-500 mb-3 font-medium uppercase tracking-wide">Allocations</p>
-
-      {allocations.length > 0 && (
-        <>
-          {/* Percentage fill bar */}
-          <div className="w-full rounded-full overflow-hidden mb-2" style={{ height: 4, background: "rgba(63,63,70,0.5)" }}>
-            <div
-              style={{
-                height: "100%",
-                width: `${Math.min(100, totalPct).toFixed(1)}%`,
-                background: totalPct > 100 ? "rgb(239,68,68)" : "rgb(245,158,11)",
-                borderRadius: "9999px",
-                transition: "width 0.3s",
-              }}
-            />
-          </div>
-
-          <div className="overflow-x-auto rounded border border-zinc-800/60 mb-3">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="border-b border-zinc-800 bg-zinc-900/40 text-left">
-                  <th className="px-3 py-2 font-medium text-zinc-500">Label</th>
-                  <th className="px-3 py-2 font-medium text-zinc-500">Channel</th>
-                  <th className="px-3 py-2 font-medium text-zinc-500 text-right">%</th>
-                  <th className="px-3 py-2 font-medium text-zinc-500">Lock</th>
-                  <th className="px-3 py-2 font-medium text-zinc-500">Status</th>
-                  <th className="px-3 py-2 w-6"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {allocations.map((a, i) => (
-                  <tr key={a.id} className={`border-b border-zinc-800/40 ${i % 2 !== 0 ? "bg-zinc-900/20" : ""}`}>
-                    <td className="px-3 py-2 text-zinc-200 font-medium max-w-[160px] truncate">{a.label}</td>
-                    <td className="px-3 py-2 text-zinc-400">
-                      {CHANNEL_OPTIONS.find((o) => o.value === a.channel)?.label ?? a.channel}
-                    </td>
-                    <td className="px-3 py-2 text-zinc-300 text-right tabular-nums font-medium">
-                      {Number(a.percentage).toFixed(1)}%
-                    </td>
-                    <td className="px-3 py-2">
-                      {a.locked ? (
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-blue-400">
-                            {a.lock_reason === "deposit_paid" ? "Deposit" : "Contract"}
-                          </span>
-                          <button type="button" onClick={() => handleUnlock(a.id)}
-                            className="text-zinc-600 hover:text-zinc-400 text-[10px]">unlock</button>
-                        </div>
-                      ) : (
-                        <select
-                          className="text-[10px] bg-zinc-900 border border-zinc-700 rounded px-1 py-0.5 text-zinc-500 hover:border-zinc-500 cursor-pointer"
-                          defaultValue=""
-                          onChange={(e) => { if (e.target.value) handleLock(a.id, e.target.value as AllocationLockReason); e.target.value = ""; }}
-                        >
-                          <option value="">Lock…</option>
-                          {LOCK_REASON_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                        </select>
-                      )}
-                    </td>
-                    <td className="px-3 py-2">
-                      {a.allocated_bbl == null ? (
-                        <span className="text-zinc-600">Pending</span>
-                      ) : a.fulfilled ? (
-                        <span className="text-emerald-400">Fulfilled</span>
-                      ) : (
-                        <span className="text-amber-400">
-                          {a.exported_bbl > 0 && a.allocated_bbl > 0
-                            ? `${((a.exported_bbl / a.allocated_bbl) * 100).toFixed(0)}%`
-                            : "Unfulfilled"}
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2">
-                      <button type="button" onClick={() => handleDelete(a.id, a.locked)}
-                        className="text-zinc-600 hover:text-red-400 transition-colors">×</button>
-                    </td>
-                  </tr>
-                ))}
-                <tr className="border-t border-zinc-700 bg-zinc-900/30">
-                  <td colSpan={2} className="px-3 py-1.5 text-zinc-500 font-medium">Total</td>
-                  <td className={`px-3 py-1.5 text-right tabular-nums font-medium ${totalPct > 100 ? "text-red-400" : "text-zinc-300"}`}>
-                    {totalPct.toFixed(1)}%
-                  </td>
-                  <td colSpan={3} className="px-3 py-1.5 text-zinc-600 text-xs">
-                    {remaining > 0 ? `${remaining.toFixed(1)}% unallocated` : remaining < 0 ? `${Math.abs(remaining).toFixed(1)}% over-allocated` : "Fully allocated"}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </>
-      )}
-
-      {/* Add allocation row */}
-      <div className="flex gap-2 items-end flex-wrap">
-        <div className="flex-1 min-w-[120px]">
-          <label className="block text-xs text-zinc-500 mb-1">Channel</label>
-          <select className="inp" value={channel} onChange={(e) => handleChannelChange(e.target.value as AllocationChannel)}>
-            {CHANNEL_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
-        </div>
-        {channel === "contract_brewing" && (
-          <div className="flex-1 min-w-[120px]">
-            <label className="block text-xs text-zinc-500 mb-1">Partner</label>
-            <select className="inp" value={partnerId} onChange={(e) => handlePartnerChange(e.target.value)}>
-              <option value="">— select —</option>
-              {partners.map((p) => <option key={p.id} value={p.id}>{p.company_name}</option>)}
-            </select>
-          </div>
-        )}
-        <div className="flex-1 min-w-[120px]">
-          <label className="block text-xs text-zinc-500 mb-1">Label</label>
-          <input className="inp" value={label} placeholder={buildDefaultLabel(channel, partnerId)}
-            onChange={(e) => setLabel(e.target.value)} />
-        </div>
-        <div className="w-20">
-          <label className="block text-xs text-zinc-500 mb-1">%</label>
-          <input type="number" step="0.1" min="0.1" max="100" className="inp" placeholder="0.0"
-            value={pct} onChange={(e) => setPct(e.target.value)} />
-        </div>
-        <div className="flex-1 min-w-[80px]">
-          <label className="block text-xs text-zinc-500 mb-1">Notes</label>
-          <input className="inp" value={notes} onChange={(e) => setNotes(e.target.value)} />
-        </div>
-        <button type="button" onClick={handleAdd} disabled={saving || !pct}
-          className="px-3 py-1.5 text-xs bg-zinc-800 border border-zinc-700 hover:border-zinc-500 text-zinc-300 rounded transition-colors disabled:opacity-50 shrink-0">
-          {saving ? "…" : "+ Add"}
+    <div className="space-y-3">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wide">Allocation Plan</p>
+        <button type="button" onClick={() => setShowAddForm(v => !v)}
+          className="text-xs text-amber-500 hover:text-amber-400 transition-colors">
+          {showAddForm ? "Cancel" : "+ Add allocation"}
         </button>
       </div>
+
+      {/* Stacked allocation bar */}
+      {allocations.length > 0 && (
+        <div className="space-y-1.5">
+          <div className="w-full h-3 rounded-full bg-zinc-800 overflow-hidden flex">
+            {allocations.map(a => {
+              const pct = Math.min(Number(a.percentage), 100);
+              const color = (CHANNEL_COLOR[a.channel as AllocationChannel] ?? CHANNEL_COLOR.safety_stock).bar;
+              return (
+                <div key={a.id} style={{ width: `${pct}%`, background: color }} title={`${CHANNEL_OPTIONS.find(o => o.value === a.channel)?.label ?? a.channel}: ${pct}%`} />
+              );
+            })}
+            {/* Unallocated remainder */}
+            {remaining > 0.1 && (
+              <div style={{ width: `${Math.min(remaining, 100)}%` }} className="bg-zinc-700/40" />
+            )}
+          </div>
+          <div className="flex items-center justify-between">
+            <div className="flex flex-wrap gap-2">
+              {allocations.map(a => (
+                <span key={a.id} className="text-[10px] text-zinc-500 flex items-center gap-1">
+                  <span className="inline-block w-2 h-2 rounded-sm flex-none" style={{ background: (CHANNEL_COLOR[a.channel as AllocationChannel] ?? CHANNEL_COLOR.safety_stock).bar }} />
+                  {CHANNEL_OPTIONS.find(o => o.value === a.channel)?.label ?? a.channel}
+                  {" "}<span className="tabular-nums text-zinc-400">{Number(a.percentage).toFixed(1)}%</span>
+                </span>
+              ))}
+            </div>
+            <span className={`text-xs tabular-nums whitespace-nowrap ${overAllocated ? "text-red-400" : "text-zinc-500"}`}>
+              {totalPct.toFixed(1)}% · {((totalPct / 100) * batchVol).toFixed(1)} BBL
+              {overAllocated && <span className="ml-1">⚠ over 100%</span>}
+              {!overAllocated && remaining > 0.1 && <span className="ml-1 text-zinc-600">({remaining.toFixed(1)}% open)</span>}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Allocation rows */}
+      {allocations.length === 0 && !showAddForm && (
+        <p className="text-xs text-zinc-600 py-1">No allocations yet. Click &quot;+ Add allocation&quot; to start.</p>
+      )}
+
+      {allocations.length > 0 && (
+        <div className="rounded-lg border border-zinc-800 divide-y divide-zinc-800/60 overflow-hidden">
+          {allocations.map(a => {
+            const req = a.commitments;
+            const partner = a.contract_brewing_partners;
+            const allocBbl = batchVol > 0 ? (Number(a.percentage) / 100) * batchVol : null;
+            const pctVal = editingPct[a.id] ?? String(Number(a.percentage).toFixed(1));
+            const pctNum = parseFloat(pctVal) || 0;
+            const barColor = (CHANNEL_COLOR[a.channel as AllocationChannel] ?? CHANNEL_COLOR.safety_stock).bar;
+
+            return (
+              <div key={a.id} className="px-3 py-2.5 hover:bg-zinc-900/40 transition-colors">
+                {/* Top line: channel badge + partner/commitment + right-side controls */}
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-center gap-2 flex-wrap min-w-0">
+                    <ChannelBadge channel={a.channel as AllocationChannel} />
+                    {partner && (
+                      <span className="text-xs text-zinc-300 font-medium">{partner.company_name}</span>
+                    )}
+                    {req && (
+                      <span className="text-xs text-zinc-500">
+                        {Number(req.volume_bbl)} BBL
+                        {req.desired_delivery_date && <span className="ml-1">· due {fmtDateLong(req.desired_delivery_date)}</span>}
+                      </span>
+                    )}
+                    {a.locked && (
+                      <span className="inline-flex items-center gap-1 text-[10px] text-blue-400 bg-blue-900/30 border border-blue-800/40 rounded px-1.5 py-0.5">
+                        🔒 {a.lock_reason === "deposit_paid" ? "Deposit paid" : "Contract signed"}
+                      </span>
+                    )}
+                    {a.fulfilled && (
+                      <span className="text-[10px] text-emerald-400">✓ Fulfilled</span>
+                    )}
+                  </div>
+
+                  {/* Controls: % input + BBL + lock + delete */}
+                  <div className="flex items-center gap-2 flex-none">
+                    {/* Inline % */}
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="number" step="0.1" min="0" max="100"
+                        className="w-16 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-right tabular-nums text-zinc-200 focus:outline-none focus:border-amber-600 disabled:opacity-40"
+                        value={pctVal}
+                        disabled={a.locked}
+                        onChange={e => setEditingPct(p => ({ ...p, [a.id]: e.target.value }))}
+                        onBlur={() => savePct(a)}
+                        onKeyDown={e => { if (e.key === "Enter") savePct(a); }}
+                      />
+                      <span className="text-xs text-zinc-500">%</span>
+                    </div>
+                    {allocBbl != null && (
+                      <span className="text-xs tabular-nums text-zinc-400 w-16 text-right">{allocBbl.toFixed(1)} BBL</span>
+                    )}
+                    {/* Lock / unlock */}
+                    {!a.locked ? (
+                      <select
+                        className="text-[10px] bg-zinc-800 border border-zinc-700 rounded px-1.5 py-1 text-zinc-500 cursor-pointer hover:border-zinc-500"
+                        defaultValue=""
+                        onChange={e => { if (e.target.value) handleLock(a.id, e.target.value as AllocationLockReason); e.target.value = ""; }}>
+                        <option value="">Lock…</option>
+                        {LOCK_REASON_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      </select>
+                    ) : (
+                      <button type="button" onClick={() => handleUnlock(a.id)}
+                        className="text-[10px] text-zinc-500 hover:text-zinc-300 border border-zinc-700 rounded px-1.5 py-1 transition-colors">
+                        Unlock
+                      </button>
+                    )}
+                    <button type="button" onClick={() => handleDelete(a.id, a.locked)}
+                      className="text-zinc-600 hover:text-red-400 text-sm leading-none transition-colors px-1">✕</button>
+                  </div>
+                </div>
+
+                {/* Mini allocation bar for this row */}
+                <div className="mt-2 h-1 rounded-full bg-zinc-800 overflow-hidden">
+                  <div style={{ width: `${Math.min(pctNum, 100)}%`, background: barColor }} className="h-full rounded-full transition-all" />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Add allocation form */}
+      {showAddForm && (
+        <div className="rounded-lg border border-zinc-700 bg-zinc-900/60 p-3 space-y-3">
+          <p className="text-xs font-medium text-zinc-400">New Allocation</p>
+
+          {/* Channel selector — horizontal chips */}
+          <div>
+            <label className="block text-xs text-zinc-500 mb-1.5">Channel</label>
+            <div className="flex flex-wrap gap-1.5">
+              {CHANNEL_OPTIONS.map(o => {
+                const active = newChannel === o.value;
+                const c = CHANNEL_COLOR[o.value as AllocationChannel];
+                return (
+                  <button key={o.value} type="button" onClick={() => handleNewChannelChange(o.value as AllocationChannel)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                      active
+                        ? `${c.bg} ${c.text} border-white/10`
+                        : "bg-zinc-800 text-zinc-500 border-zinc-700 hover:border-zinc-500 hover:text-zinc-300"
+                    }`}>
+                    {o.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Commitment (for dist/contract channels) */}
+          {!isTaproomChannel(newChannel) && (
+            <div>
+              <label className="block text-xs text-zinc-500 mb-1">Commitment</label>
+              {newChannelCommitments.length === 0 ? (
+                <p className="text-xs text-zinc-600 italic">No open commitments for this recipe &amp; channel.</p>
+              ) : (
+                <select className="inp text-xs w-full" value={newCommitmentId} onChange={e => handleNewCommitmentChange(e.target.value)}>
+                  <option value="">— select commitment —</option>
+                  {newChannelCommitments.map(c => (
+                    <option key={c.id} value={c.id}>
+                      {c.contract_brewing_partners?.company_name
+                        ? `${c.contract_brewing_partners.company_name} · `
+                        : ""}{Number(c.volume_bbl)} BBL
+                      {c.desired_delivery_date ? ` · due ${fmtDateLong(c.desired_delivery_date)}` : ""}
+                    </option>
+                  ))}
+                </select>
+              )}
+              {selectedNewCommitment?.contract_brewing_partners && (
+                <p className="text-xs text-zinc-500 mt-1">
+                  Partner: <span className="text-zinc-300">{selectedNewCommitment.contract_brewing_partners.company_name}</span>
+                  {selectedNewCommitment.received_on && (
+                    <span className="ml-2 text-zinc-600">· received {fmtDateLong(selectedNewCommitment.received_on)}</span>
+                  )}
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* % and BBL */}
+          <div className="flex items-end gap-3">
+            <div className="flex-none">
+              <label className="block text-xs text-zinc-500 mb-1">Allocation %</label>
+              <div className="flex items-center gap-1">
+                <input type="number" step="0.1" min="0.1" max="100" className="inp w-24 text-xs text-right"
+                  placeholder="0.0" value={newPct} onChange={e => setNewPct(e.target.value)} />
+                <span className="text-xs text-zinc-500">%</span>
+              </div>
+            </div>
+            {newPct && batchVol > 0 && (
+              <div className="pb-1 text-xs text-zinc-400 tabular-nums">
+                = <span className="text-zinc-200 font-medium">{((parseFloat(newPct) / 100) * batchVol).toFixed(2)} BBL</span>
+              </div>
+            )}
+            {remaining > 0.1 && !newPct && (
+              <button type="button" onClick={() => setNewPct(remaining.toFixed(1))}
+                className="pb-1 text-xs text-zinc-600 hover:text-zinc-400 underline underline-offset-2 transition-colors">
+                Fill remaining ({remaining.toFixed(1)}%)
+              </button>
+            )}
+          </div>
+
+          <div className="flex gap-2 pt-1">
+            <button type="button" onClick={handleAdd} disabled={saving || !newPct}
+              className="px-4 py-1.5 text-xs bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white rounded font-medium transition-colors">
+              {saving ? "Adding…" : "Add"}
+            </button>
+            <button type="button" onClick={() => { setShowAddForm(false); setNewPct(""); setNewCommitmentId(""); setNewChannel("taproom"); }}
+              className="px-3 py-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors">
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Equipment Schedule Section ──────────────────────────────────────────────
+
+const STAGE_LABELS: Record<string, string> = {
+  brewhouse:    "Brewhouse",
+  fermenter:    "Fermenter",
+  conditioning: "Brite / Conditioning",
+  kegging:      "Kegging",
+  canning:      "Canning",
+  cold_storage: "Cold Storage",
+};
+const STAGE_TO_EQ_TYPE: Record<string, string> = {
+  brewhouse:    "brewhouse",
+  fermenter:    "fermenter",
+  conditioning: "brite",
+  kegging:      "kegging",
+  canning:      "canning",
+  cold_storage: "cold_storage",
+};
+const STAGE_OPTIONS = ["brewhouse", "fermenter", "conditioning", "kegging", "canning", "cold_storage"] as const;
+
+function fmtD(iso: string | null | undefined) {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+function EquipmentScheduleSection({
+  batchId,
+  entries,
+  equipment,
+}: {
+  batchId: string;
+  entries: ScheduleEntry[];
+  equipment: import("../types").Equipment[];
+}) {
+  const qc = useQueryClient();
+  const reload = () => qc.invalidateQueries({ queryKey: productionKeys.batchSchedule });
+
+  const [editing, setEditing] = useState<ScheduleEntry | null>(null);
+  const [showAdd, setShowAdd] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const blankForm = () => ({
+    equipment_id: "", stage: "fermenting" as string,
+    planned_start: "", planned_end: "",
+    actual_start: "", actual_end: "", notes: "",
+  });
+  const [form, setForm] = useState(blankForm());
+  const f = (k: keyof typeof form, v: string) => setForm((p) => ({ ...p, [k]: v }));
+
+  function openEdit(entry: ScheduleEntry) {
+    setEditing(entry);
+    setShowAdd(false);
+    setForm({
+      equipment_id: entry.equipment_id ?? "",
+      stage: entry.stage,
+      planned_start: entry.planned_start?.slice(0, 10) ?? "",
+      planned_end: entry.planned_end?.slice(0, 10) ?? "",
+      actual_start: entry.actual_start?.slice(0, 10) ?? "",
+      actual_end: entry.actual_end?.slice(0, 10) ?? "",
+      notes: entry.notes ?? "",
+    });
+  }
+
+  function openAdd() {
+    setEditing(null);
+    setShowAdd(true);
+    setForm(blankForm());
+  }
+
+  async function save() {
+    setSaving(true);
+    try {
+      const payload = {
+        batch_id: batchId,
+        equipment_id: form.equipment_id || null,
+        stage: form.stage,
+        planned_start: form.planned_start ? new Date(form.planned_start).toISOString() : null,
+        planned_end: form.planned_end ? new Date(form.planned_end).toISOString() : null,
+        actual_start: form.actual_start ? new Date(form.actual_start).toISOString() : null,
+        actual_end: form.actual_end ? new Date(form.actual_end).toISOString() : null,
+        notes: form.notes || null,
+      };
+      const url = editing ? `/api/production/batch-schedule/${editing.id}` : "/api/production/batch-schedule";
+      const method = editing ? "PATCH" : "POST";
+      const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      if (!res.ok) throw new Error((await res.json()).error ?? "Error");
+      await reload();
+      setEditing(null);
+      setShowAdd(false);
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function remove(id: string) {
+    if (!confirm("Remove this schedule entry?")) return;
+    await fetch(`/api/production/batch-schedule/${id}`, { method: "DELETE" });
+    await reload();
+    setEditing(null);
+  }
+
+  const sorted = [...entries].sort((a, b) => a.planned_start.localeCompare(b.planned_start));
+  const showForm = editing !== null || showAdd;
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wide">Equipment Schedule</p>
+        <button type="button" onClick={openAdd} className="text-xs text-amber-500 hover:text-amber-400">+ Add entry</button>
+      </div>
+
+      {sorted.length > 0 && (
+        <div className="overflow-x-auto rounded border border-zinc-800/60 mb-3">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-zinc-800 bg-zinc-900/40 text-left">
+                <th className="px-3 py-2 font-medium text-zinc-500">Stage</th>
+                <th className="px-3 py-2 font-medium text-zinc-500">Equipment</th>
+                <th className="px-3 py-2 font-medium text-zinc-500">Planned Start</th>
+                <th className="px-3 py-2 font-medium text-zinc-500">Planned End</th>
+                <th className="px-3 py-2 font-medium text-zinc-500">Actual Start</th>
+                <th className="px-3 py-2 font-medium text-zinc-500">Actual End</th>
+                <th className="px-3 py-2 w-16"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.map((e, i) => {
+                const isActual = !!(e.actual_start);
+                return (
+                  <tr key={e.id} className={`border-b border-zinc-800/40 ${i % 2 !== 0 ? "bg-zinc-900/20" : ""} ${editing?.id === e.id ? "ring-1 ring-amber-700/50" : ""}`}>
+                    <td className="px-3 py-2 text-zinc-300">{STAGE_LABELS[e.stage] ?? e.stage}</td>
+                    <td className="px-3 py-2 text-zinc-300">{e.equipment?.name ?? <span className="text-zinc-600">—</span>}</td>
+                    <td className="px-3 py-2 text-zinc-400 tabular-nums">{fmtD(e.planned_start)}</td>
+                    <td className="px-3 py-2 text-zinc-400 tabular-nums">{fmtD(e.planned_end)}</td>
+                    <td className="px-3 py-2 tabular-nums">
+                      {isActual
+                        ? <span className="text-emerald-400">{fmtD(e.actual_start)}</span>
+                        : <span className="text-zinc-600">—</span>}
+                    </td>
+                    <td className="px-3 py-2 tabular-nums">
+                      {e.actual_end
+                        ? <span className="text-emerald-400">{fmtD(e.actual_end)}</span>
+                        : <span className="text-zinc-600">—</span>}
+                    </td>
+                    <td className="px-3 py-2">
+                      <div className="flex gap-2">
+                        <button type="button" onClick={() => openEdit(e)} className="text-zinc-500 hover:text-zinc-300">Edit</button>
+                        <button type="button" onClick={() => remove(e.id)} className="text-zinc-600 hover:text-red-400">×</button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {sorted.length === 0 && !showForm && (
+        <p className="text-xs text-zinc-700 mb-3">No equipment schedule entries.</p>
+      )}
+
+      {showForm && (
+        <div className="rounded border border-zinc-700 bg-zinc-900/60 p-3 mb-3 space-y-3">
+          <p className="text-xs text-zinc-400 font-medium">{editing ? "Edit entry" : "New entry"}</p>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-zinc-500 mb-1">Stage</label>
+              <select className="inp text-xs" value={form.stage} onChange={(e) => { f("stage", e.target.value); f("equipment_id", ""); }}>
+                {STAGE_OPTIONS.map((s) => <option key={s} value={s}>{STAGE_LABELS[s] ?? s}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-zinc-500 mb-1">Equipment</label>
+              <select className="inp text-xs" value={form.equipment_id} onChange={(e) => f("equipment_id", e.target.value)}>
+                <option value="">— none —</option>
+                {equipment.filter((eq) => eq.type === STAGE_TO_EQ_TYPE[form.stage]).map((eq) => (
+                  <option key={eq.id} value={eq.id}>{eq.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-zinc-500 mb-1">Planned Start</label>
+              <input type="date" className="inp text-xs" value={form.planned_start} onChange={(e) => f("planned_start", e.target.value)} />
+            </div>
+            <div>
+              <label className="block text-xs text-zinc-500 mb-1">Planned End</label>
+              <input type="date" className="inp text-xs" value={form.planned_end} onChange={(e) => f("planned_end", e.target.value)} />
+            </div>
+            <div>
+              <label className="block text-xs text-zinc-500 mb-1">Actual Start</label>
+              <input type="date" className="inp text-xs" value={form.actual_start} onChange={(e) => f("actual_start", e.target.value)} />
+            </div>
+            <div>
+              <label className="block text-xs text-zinc-500 mb-1">Actual End</label>
+              <input type="date" className="inp text-xs" value={form.actual_end} onChange={(e) => f("actual_end", e.target.value)} />
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs text-zinc-500 mb-1">Notes</label>
+            <input type="text" className="inp text-xs" value={form.notes} onChange={(e) => f("notes", e.target.value)} placeholder="Optional" />
+          </div>
+          <div className="flex gap-2">
+            <button type="button" onClick={save} disabled={saving || !form.planned_start || !form.planned_end}
+              className="px-3 py-1.5 text-xs bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white rounded font-medium">
+              {saving ? "Saving…" : editing ? "Save changes" : "Add entry"}
+            </button>
+            {editing && (
+              <button type="button" onClick={() => remove(editing.id)}
+                className="px-3 py-1.5 text-xs bg-zinc-700 hover:bg-red-800 text-zinc-300 rounded">Delete</button>
+            )}
+            <button type="button" onClick={() => { setEditing(null); setShowAdd(false); }}
+              className="px-3 py-1.5 text-xs text-zinc-500 hover:text-zinc-300">Cancel</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -570,6 +941,8 @@ function SortTh({
 function BatchTable({
   batches,
   transfers,
+  scheduleEntries,
+  equipment,
   expandedId,
   sort,
   onToggle,
@@ -581,6 +954,8 @@ function BatchTable({
 }: {
   batches: BrewBatch[];
   transfers: BatchTransfer[];
+  scheduleEntries: ScheduleEntry[];
+  equipment: import("../types").Equipment[];
   expandedId: string | null;
   sort: { col: SortCol; dir: "asc" | "desc" };
   onToggle: (id: string) => void;
@@ -655,10 +1030,10 @@ function BatchTable({
 
                 {isExpanded && (
                   <tr className={`border-b border-zinc-800/60 ${i % 2 !== 0 ? "bg-zinc-900/30" : ""}`}>
-                    <td colSpan={9} className="px-6 pb-5 pt-2 space-y-4">
+                    <td colSpan={9} className="px-6 pb-6 pt-3">
                       {/* Brew stats row */}
                       {(b.ibu != null || b.color_srm != null || b.original_gravity != null || b.final_gravity != null || b.dissolved_oxygen_ppb != null) && (
-                        <div className="flex gap-6 py-2">
+                        <div className="flex gap-6 pb-4 mb-4 border-b border-zinc-800/60">
                           {b.ibu != null && <div><p className="text-xs text-zinc-600 mb-0.5">IBU</p><p className="text-sm text-zinc-300 tabular-nums">{b.ibu}</p></div>}
                           {b.color_srm != null && <div><p className="text-xs text-zinc-600 mb-0.5">Color (SRM)</p><p className="text-sm text-zinc-300 tabular-nums">{b.color_srm}</p></div>}
                           {b.original_gravity != null && <div><p className="text-xs text-zinc-600 mb-0.5">OG</p><p className="text-sm text-zinc-300 tabular-nums">{b.original_gravity}</p></div>}
@@ -666,14 +1041,35 @@ function BatchTable({
                           {b.dissolved_oxygen_ppb != null && <div><p className="text-xs text-zinc-600 mb-0.5">DO (ppb)</p><p className="text-sm text-zinc-300 tabular-nums">{b.dissolved_oxygen_ppb}</p></div>}
                         </div>
                       )}
-                      <BrewActivityLogDisplay entries={b.batch_brew_activity_log ?? []} />
-                      <BatchVolumeBreakdown
-                        batch={b}
-                        transfers={batchTransfers}
-                        tankTypeById={tankTypeById}
-                        isAssigned={assignedBatchIds.has(b.id)}
-                      />
-                      <TransferLog transfers={batchTransfers} batchVol={Number(b.volume_bbl)} />
+
+                      {/* 1 — Allocations */}
+                      <div className="mb-5">
+                        <AllocationManager batch={b} />
+                      </div>
+
+                      {/* 2 — Equipment Schedule */}
+                      <div className="mb-5 pt-4 border-t border-zinc-800/60">
+                        <EquipmentScheduleSection
+                          batchId={b.id}
+                          entries={scheduleEntries.filter((e) => e.batch_id === b.id)}
+                          equipment={equipment}
+                        />
+                      </div>
+
+                      {/* 3 — Volume Breakdown */}
+                      <div className="mb-5 pt-4 border-t border-zinc-800/60">
+                        <BatchVolumeBreakdown
+                          batch={b}
+                          transfers={batchTransfers}
+                          tankTypeById={tankTypeById}
+                          isAssigned={assignedBatchIds.has(b.id)}
+                        />
+                      </div>
+
+                      {/* 4 — Transfer Log */}
+                      <div className="pt-4 border-t border-zinc-800/60">
+                        <TransferLog transfers={batchTransfers} batchVol={Number(b.volume_bbl)} />
+                      </div>
                     </td>
                   </tr>
                 )}
@@ -693,7 +1089,7 @@ function BrewActivityLogDisplay({ entries }: { entries: BrewActivityEntry[] }) {
   const sorted = [...entries].sort((a, b) => a.sort_order - b.sort_order);
   return (
     <div>
-      <p className="text-xs text-zinc-600 mb-2 font-medium uppercase tracking-wide">Brew Activity Log</p>
+      <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wide mb-2">Brew Activity Log</p>
       <div className="overflow-x-auto rounded border border-zinc-800/60">
         <table className="w-full text-xs">
           <thead>
@@ -824,7 +1220,7 @@ function BrewActivityLogManager({ batch }: { batch: BrewBatch }) {
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
-        <p className="text-xs text-zinc-500 font-medium uppercase tracking-wide">Brew Activity Log</p>
+        <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wide">Brew Activity Log</p>
         {hasDirty && (
           <button type="button" onClick={saveAll} disabled={saving}
             className="text-xs text-amber-500 hover:text-amber-400 disabled:opacity-50 transition-colors">
@@ -939,7 +1335,7 @@ function BatchVolumeBreakdown({
 
   return (
     <div className="mt-3">
-      <p className="text-xs font-medium text-zinc-500 uppercase tracking-wide mb-2">Volume Breakdown</p>
+      <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wide mb-2">Volume Breakdown</p>
       <div className="flex flex-wrap gap-x-5 gap-y-1.5">
         {cols.map(({ label, value, highlight }) => (
           <div key={label} className="flex flex-col gap-0">
@@ -971,7 +1367,7 @@ function TransferLog({ transfers, batchVol }: { transfers: BatchTransfer[]; batc
 
   return (
     <div>
-      <p className="text-xs text-zinc-600 mb-2 font-medium uppercase tracking-wide">Transfer Log</p>
+      <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wide mb-2">Transfer Log</p>
       <div className="overflow-x-auto rounded border border-zinc-800/60">
         <table className="w-full text-xs">
           <thead>

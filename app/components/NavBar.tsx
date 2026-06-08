@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
+import { useState, useEffect } from "react";
 
 const TAPROOM_TABS = [
   { key: "performance", label: "Performance" },
@@ -18,10 +19,21 @@ const PRODUCTION_TABS = [
   { key: "partners",  label: "Partners"  },
 ] as const;
 
+const STORAGE_KEY = "tpb-sidebar-collapsed";
+
 export default function NavBar() {
   const pathname     = usePathname();
   const searchParams = useSearchParams();
   const activeTab    = searchParams.get("tab") ?? "";
+
+  const [collapsed, setCollapsed] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem(STORAGE_KEY) === "true";
+  });
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, String(collapsed));
+  }, [collapsed]);
 
   const isProduction = pathname === "/production" || pathname.startsWith("/production/");
   const isTaproom    = pathname === "/taproom"    || pathname.startsWith("/taproom/") ||
@@ -35,65 +47,121 @@ export default function NavBar() {
     }`;
 
   return (
-    <aside className="w-48 shrink-0 bg-zinc-900 border-r border-zinc-800 flex flex-col min-h-screen">
-      {/* Logo */}
-      <div className="px-4 py-5 border-b border-zinc-800">
-        <span className="text-base font-bold text-zinc-100 tracking-wide">TPB</span>
+    <aside
+      className={`shrink-0 bg-zinc-900 border-r border-zinc-800 flex flex-col min-h-screen transition-all duration-200 ${
+        collapsed ? "w-10" : "w-48"
+      }`}
+    >
+      {/* Logo / toggle row */}
+      <div className={`flex items-center border-b border-zinc-800 ${collapsed ? "justify-center px-0 py-5" : "px-4 py-5"}`}>
+        {!collapsed && (
+          <span className="text-base font-bold text-zinc-100 tracking-wide flex-1">TPB</span>
+        )}
+        <button
+          onClick={() => setCollapsed((c) => !c)}
+          className="text-zinc-500 hover:text-zinc-200 transition-colors p-1 rounded hover:bg-zinc-800/60"
+          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+        >
+          {collapsed ? (
+            // chevron right
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <path d="M5 3l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          ) : (
+            // chevron left
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <path d="M9 3L5 7l4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          )}
+        </button>
       </div>
 
-      <nav className="flex flex-col gap-0.5 p-2">
-        {/* Taproom Management */}
-        <Link
-          href="/taproom?tab=targets"
-          className={`px-3 py-2 rounded text-sm font-medium transition-colors ${
-            isTaproom
-              ? "bg-zinc-800 text-zinc-100"
-              : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50"
-          }`}
-        >
-          Taproom Management
-        </Link>
+      {/* Nav — hidden when collapsed */}
+      {!collapsed && (
+        <nav className="flex flex-col gap-0.5 p-2">
+          {/* Taproom Management */}
+          <Link
+            href="/taproom?tab=targets"
+            className={`px-3 py-2 rounded text-sm font-medium transition-colors ${
+              isTaproom
+                ? "bg-zinc-800 text-zinc-100"
+                : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50"
+            }`}
+          >
+            Taproom Management
+          </Link>
 
-        {isTaproom && (
-          <div className="mt-1 ml-2 flex flex-col gap-0.5 border-l border-zinc-800 pl-2">
-            {TAPROOM_TABS.map(({ key, label }) => (
-              <Link
-                key={key}
-                href={`/taproom?tab=${key}`}
-                className={subtabCls(activeTab === key || (key === "targets" && activeTab === ""))}
-              >
-                {label}
-              </Link>
-            ))}
-          </div>
-        )}
+          {isTaproom && (
+            <div className="mt-1 ml-2 flex flex-col gap-0.5 border-l border-zinc-800 pl-2">
+              {TAPROOM_TABS.map(({ key, label }) => (
+                <Link
+                  key={key}
+                  href={`/taproom?tab=${key}`}
+                  className={subtabCls(activeTab === key || (key === "targets" && activeTab === ""))}
+                >
+                  {label}
+                </Link>
+              ))}
+            </div>
+          )}
 
-        {/* Production */}
-        <Link
-          href="/production?tab=intake"
-          className={`px-3 py-2 rounded text-sm font-medium transition-colors ${
-            isProduction
-              ? "bg-zinc-800 text-zinc-100"
-              : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50"
-          }`}
-        >
-          Production
-        </Link>
+          {/* Production */}
+          <Link
+            href="/production?tab=intake"
+            className={`px-3 py-2 rounded text-sm font-medium transition-colors ${
+              isProduction
+                ? "bg-zinc-800 text-zinc-100"
+                : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50"
+            }`}
+          >
+            Production
+          </Link>
 
-        {isProduction && (
-          <div className="mt-1 ml-2 flex flex-col gap-0.5 border-l border-zinc-800 pl-2">
-            {PRODUCTION_TABS.map(({ key, label }) => (
-              <Link
-                key={key}
-                href={`/production?tab=${key}`}
-                className={subtabCls(activeTab === key)}
-              >
-                {label}
-              </Link>
-            ))}
-          </div>
-        )}
-      </nav>
+          {isProduction && (
+            <div className="mt-1 ml-2 flex flex-col gap-0.5 border-l border-zinc-800 pl-2">
+              {PRODUCTION_TABS.map(({ key, label }) => (
+                <Link
+                  key={key}
+                  href={`/production?tab=${key}`}
+                  className={subtabCls(activeTab === key)}
+                >
+                  {label}
+                </Link>
+              ))}
+            </div>
+          )}
+        </nav>
+      )}
+
+      {/* Collapsed: icon-only nav dots so user can still navigate */}
+      {collapsed && (
+        <nav className="flex flex-col items-center gap-1 p-1 pt-2">
+          <Link
+            href="/taproom?tab=targets"
+            title="Taproom Management"
+            className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${
+              isTaproom ? "bg-zinc-800 text-amber-400" : "text-zinc-600 hover:text-zinc-300 hover:bg-zinc-800/50"
+            }`}
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <rect x="1" y="3" width="12" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.4"/>
+              <path d="M4 3V2.5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1V3" stroke="currentColor" strokeWidth="1.4"/>
+            </svg>
+          </Link>
+          <Link
+            href="/production?tab=intake"
+            title="Production"
+            className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${
+              isProduction ? "bg-zinc-800 text-amber-400" : "text-zinc-600 hover:text-zinc-300 hover:bg-zinc-800/50"
+            }`}
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <path d="M2 11V6l3-3h4l3 3v5H2z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
+              <path d="M5 11V8h4v3" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
+            </svg>
+          </Link>
+        </nav>
+      )}
     </aside>
   );
 }

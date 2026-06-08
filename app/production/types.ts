@@ -205,31 +205,10 @@ export type AllocationRecurrence = "weekly" | "biweekly" | "monthly";
 
 export type AllocationStatus = "active" | "paused" | "fulfilled" | "cancelled";
 
-export interface DistributionAllocation {
-  id: string;
-  recipe_id: string | null;
-  packaging: Packaging;
-  quantity: number;
-  unit: string;
-  cadence: AllocationCadence;
-  delivery_date: string | null;
-  start_date: string | null;
-  recurrence: AllocationRecurrence | null;
-  end_date: string | null;
-  packaging_item_id?: string | null;
-  partner_id: string | null;
-  notes: string | null;
-  status: AllocationStatus;
-  created_at: string;
-  recipes?: { beer_name: string } | null;
-  contract_brewing_partners?: { company_name: string } | null;
-  packaging_items?: { id: string; name: string; volume_fl_oz: number | null } | null;
-}
-
 export type ContractRequestStatus = "open" | "in_progress" | "fulfilled" | "cancelled";
 export type CommitmentChannel = "distribution" | "contract_brewing";
 
-export interface ContractBrewingRequest {
+export interface Commitment {
   id: string;
   recipe_id: string | null;
   beer_style: string;
@@ -245,11 +224,17 @@ export interface ContractBrewingRequest {
   recurrence: "weekly" | "biweekly" | "monthly" | null;
   start_date: string | null;
   end_date: string | null;
+  received_on: string | null;
+  last_edited_on: string | null;
+  locked_on: string | null;
   created_at: string;
   recipes?: { beer_name: string } | null;
   contract_brewing_partners?: { company_name: string } | null;
   packaging_items?: { id: string; name: string; volume_fl_oz: number | null } | null;
 }
+
+/** @deprecated Use Commitment instead */
+export type ContractBrewingRequest = Commitment;
 
 export interface SafetyStockFloor {
   id: string;
@@ -284,9 +269,8 @@ export interface BatchAllocation {
   batch_id: string;
   channel: AllocationChannel;
   contract_request_id: string | null;
-  distribution_allocation_id: string | null;
   partner_id: string | null;
-  label: string;
+  label: string | null;
   percentage: number;
   locked: boolean;
   lock_reason: AllocationLockReason | null;
@@ -296,6 +280,7 @@ export interface BatchAllocation {
   // Joined fields
   brew_batches?: { id: string; beer_name: string; batch_number: number; volume_bbl: number } | null;
   contract_brewing_partners?: { id: string; company_name: string } | null;
+  commitments?: { id: string; beer_style: string; volume_bbl: number; received_on: string | null; created_at: string; desired_delivery_date: string | null } | null;
   // Computed fulfillment fields (returned by API)
   produced_bbl: number | null;
   allocated_bbl: number | null;

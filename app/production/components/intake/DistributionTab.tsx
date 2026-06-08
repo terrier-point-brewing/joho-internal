@@ -2,49 +2,47 @@
 
 import React, { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Recipe, ContractBrewingPartner, DistributionAllocation, PackagingItem, AllocationStatus } from "../../types";
+import { Recipe, ContractBrewingPartner, Commitment, ContractRequestStatus } from "../../types";
 import { fmtDateLong } from "@/lib/utils/formatting";
 import { Modal, Field, ModalActions } from "../shared";
-import { BBL_TO_FL_OZ as FL_OZ_PER_BBL } from "@/lib/constants/production";
 import { usePackagingQuery, fetchJson } from "../../hooks/queries";
+import { BBL_TO_FL_OZ as FL_OZ_PER_BBL } from "@/lib/constants/production";
 
 type AllocType = "bbl" | "keg" | "can";
 
 interface FormState {
   recipe_id: string;
+  partner_id: string;
   alloc_type: AllocType;
   packaging_item_id: string;
-  quantity: string;
+  packaging_qty: string;
+  volume_bbl: string;
   cadence: "one_time" | "recurring";
   delivery_date: string;
   start_date: string;
   recurrence: "weekly" | "biweekly" | "monthly";
   end_date: string;
-  partner_id: string;
   notes: string;
-  status: AllocationStatus;
+  status: ContractRequestStatus;
 }
 
 const EMPTY: FormState = {
-  recipe_id: "", alloc_type: "keg", packaging_item_id: "", quantity: "",
-  cadence: "one_time", delivery_date: "", start_date: "", recurrence: "weekly",
-  end_date: "", partner_id: "", notes: "", status: "active",
+  recipe_id: "", partner_id: "", alloc_type: "keg",
+  packaging_item_id: "", packaging_qty: "", volume_bbl: "",
+  cadence: "one_time", delivery_date: "", start_date: "",
+  recurrence: "weekly", end_date: "", notes: "", status: "open",
 };
 
-const STATUS_META: Record<AllocationStatus, { label: string; cls: string }> = {
-  active:    { label: "Active",    cls: "bg-green-900/50 text-green-400 border-green-800" },
-  paused:    { label: "Paused",    cls: "bg-zinc-800/80 text-zinc-400 border-zinc-700" },
-  fulfilled: { label: "Fulfilled", cls: "bg-blue-900/50 text-blue-400 border-blue-800" },
-  cancelled: { label: "Cancelled", cls: "bg-red-900/40 text-red-400 border-red-800" },
+const STATUS_META: Record<ContractRequestStatus, { label: string; cls: string }> = {
+  open:        { label: "Open",        cls: "bg-amber-900/50 text-amber-400 border-amber-800" },
+  in_progress: { label: "In Progress", cls: "bg-blue-900/50 text-blue-400 border-blue-800" },
+  fulfilled:   { label: "Fulfilled",   cls: "bg-green-900/50 text-green-400 border-green-800" },
+  cancelled:   { label: "Cancelled",   cls: "bg-red-900/40 text-red-400 border-red-800" },
 };
 
-function StatusBadge({ status }: { status: AllocationStatus }) {
-  const m = STATUS_META[status] ?? STATUS_META.active;
+function StatusBadge({ status }: { status: ContractRequestStatus }) {
+  const m = STATUS_META[status] ?? STATUS_META.open;
   return <span className={`text-xs px-1.5 py-0.5 rounded border font-medium ${m.cls}`}>{m.label}</span>;
-}
-
-function bblFromPackagingItem(item: PackagingItem, qty: number): number {
-  return item.volume_fl_oz ? (qty * item.volume_fl_oz) / FL_OZ_PER_BBL : 0;
 }
 
 function AllocationModal({
@@ -52,7 +50,7 @@ function AllocationModal({
 }: {
   recipes: Recipe[];
   partners: ContractBrewingPartner[];
-  existing?: DistributionAllocation;
+  existing?: Commitment;
   onClose: () => void;
   onDone: () => void;
 }) {
@@ -60,17 +58,20 @@ function AllocationModal({
   const { data: packaging = [] } = usePackagingQuery();
   const [form, setForm] = useState<FormState>(existing ? {
     recipe_id: existing.recipe_id ?? "",
-    alloc_type: (existing.unit === "bbl" ? "bbl" : existing.unit === "keg" ? "keg" : "can") as AllocType,
+    partner_id: existing.partner_id ?? "",
+    alloc_type: existing.packaging_items?.volume_fl_oz
+      ? (existing.packaging_items.name?.toLowerCase().includes("can") ? "can" : "keg")
+      : "bbl",
     packaging_item_id: existing.packaging_item_id ?? "",
-    quantity: String(existing.quantity),
+    packaging_qty: existing.packaging_qty != null ? String(existing.packaging_qty) : "",
+    volume_bbl: String(existing.volume_bbl),
     cadence: existing.cadence,
-    delivery_date: existing.delivery_date ?? "",
+    delivery_date: existing.desired_delivery_date ?? "",
     start_date: existing.start_date ?? "",
     recurrence: existing.recurrence ?? "weekly",
     end_date: existing.end_date ?? "",
-    partner_id: existing.partner_id ?? "",
     notes: existing.notes ?? "",
-    status: existing.status ?? "active",
+    status: existing.status,
   } : EMPTY);
   const [submitting, setSubmitting] = useState(false);
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) => setForm((f) => ({ ...f, [k]: v }));
@@ -79,35 +80,63 @@ function AllocationModal({
   const cans = packaging.filter((p) => p.type === "can");
   const subItems = form.alloc_type === "keg" ? kegs : form.alloc_type === "can" ? cans : [];
   const selectedItem = packaging.find((p) => p.id === form.packaging_item_id) ?? null;
-  const qty = parseFloat(form.quantity) || 0;
-  const bblEquiv = selectedItem?.volume_fl_oz ? bblFromPackagingItem(selectedItem, qty) : null;
+  const qty = parseFloat(form.packaging_qty) || 0;
+  const bblEquiv = selectedItem?.volume_fl_oz && qty > 0
+    ? (qty * selectedItem.volume_fl_oz) / FL_OZ_PER_BBL
+    : null;
 
-  function setAllocType(t: AllocType) { setForm((f) => ({ ...f, alloc_type: t, packaging_item_id: "" })); }
+  // Auto-compute volume_bbl when packaging qty changes
+  function handleQtyChange(v: string) {
+    set("packaging_qty", v);
+    const q = parseFloat(v) || 0;
+    if (selectedItem?.volume_fl_oz && q > 0) {
+      const bbl = (q * selectedItem.volume_fl_oz) / FL_OZ_PER_BBL;
+      set("volume_bbl", bbl.toFixed(2));
+    }
+  }
+
+  function handleItemChange(id: string) {
+    set("packaging_item_id", id);
+    const item = packaging.find((p) => p.id === id);
+    const q = parseFloat(form.packaging_qty) || 0;
+    if (item?.volume_fl_oz && q > 0) {
+      const bbl = (q * item.volume_fl_oz) / FL_OZ_PER_BBL;
+      set("volume_bbl", bbl.toFixed(2));
+    }
+  }
+
+  function setAllocType(t: AllocType) {
+    setForm((f) => ({ ...f, alloc_type: t, packaging_item_id: "" }));
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (!form.recipe_id) { alert("Please select a recipe."); return; }
+    const vol = parseFloat(form.volume_bbl);
+    if (!vol || vol <= 0) { alert("Please enter a volume."); return; }
     setSubmitting(true);
     try {
-      const packaging_value = form.alloc_type === "bbl" ? "draft" : form.alloc_type;
-      const unit = form.alloc_type === "bbl" ? "bbl" : form.alloc_type;
+      const beer_style = recipes.find((r) => r.id === form.recipe_id)?.beer_name ?? "";
+      const isRecurring = form.cadence === "recurring";
       const body = {
-        recipe_id: form.recipe_id || null,
-        packaging: packaging_value,
-        quantity: qty,
-        unit,
-        packaging_item_id: form.packaging_item_id || null,
-        cadence: form.cadence,
-        delivery_date: form.delivery_date || null,
-        start_date: form.start_date || null,
-        recurrence: form.recurrence,
-        end_date: form.end_date || null,
+        channel: "distribution",
+        recipe_id: form.recipe_id,
+        beer_style,
         partner_id: form.partner_id || null,
-        notes: form.notes || null,
+        volume_bbl: vol,
+        packaging_item_id: form.packaging_item_id || null,
+        packaging_qty: form.packaging_qty ? parseFloat(form.packaging_qty) : null,
+        cadence: form.cadence,
+        desired_delivery_date: !isRecurring ? (form.delivery_date || null) : null,
+        start_date: isRecurring ? (form.start_date || null) : null,
+        recurrence: isRecurring ? form.recurrence : null,
+        end_date: isRecurring ? (form.end_date || null) : null,
         status: form.status,
+        notes: form.notes || null,
       };
       const url = isEdit
-        ? `/api/production/distribution-allocations?id=${existing!.id}`
-        : "/api/production/distribution-allocations";
+        ? `/api/production/contract-requests?id=${existing!.id}`
+        : "/api/production/contract-requests";
       const res = await fetch(url, {
         method: isEdit ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
@@ -121,17 +150,19 @@ function AllocationModal({
   }
 
   return (
-    <Modal title={isEdit ? "Edit Allocation" : "New Allocation"} onClose={onClose} wide>
+    <Modal title={isEdit ? "Edit Allocation" : "New Distribution Allocation"} onClose={onClose} wide>
       <form onSubmit={handleSubmit} className="space-y-4">
-        <Field label="Beer Style">
-          <select className="inp" value={form.recipe_id} onChange={(e) => set("recipe_id", e.target.value)}>
+        <Field label="Beer Style" required>
+          <select className="inp" value={form.recipe_id}
+            onChange={(e) => set("recipe_id", e.target.value)} required>
             <option value="">— select a recipe —</option>
             {recipes.map((r) => <option key={r.id} value={r.id}>{r.beer_name}</option>)}
           </select>
         </Field>
 
-        <Field label="Partner">
-          <select className="inp" value={form.partner_id} onChange={(e) => set("partner_id", e.target.value)}>
+        <Field label="Partner / Distributor">
+          <select className="inp" value={form.partner_id}
+            onChange={(e) => set("partner_id", e.target.value)}>
             <option value="">— none —</option>
             {partners.map((p) => <option key={p.id} value={p.id}>{p.company_name}</option>)}
           </select>
@@ -146,28 +177,35 @@ function AllocationModal({
               </button>
             ))}
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            {(form.alloc_type === "keg" || form.alloc_type === "can") && (
+          {form.alloc_type === "bbl" ? (
+            <Field label="Volume (BBL)" required>
+              <input type="number" step="0.01" min="0" className="inp" required
+                value={form.volume_bbl} onChange={(e) => set("volume_bbl", e.target.value)} />
+            </Field>
+          ) : (
+            <div className="grid grid-cols-2 gap-3">
               <Field label={form.alloc_type === "keg" ? "Keg Size" : "Can Size"} required>
                 <select className="inp" value={form.packaging_item_id}
-                  onChange={(e) => set("packaging_item_id", e.target.value)} required>
+                  onChange={(e) => handleItemChange(e.target.value)} required>
                   <option value="">— select —</option>
                   {subItems.map((p) => (
-                    <option key={p.id} value={p.id}>{p.name}{p.volume_fl_oz ? ` (${p.volume_fl_oz} fl oz)` : ""}</option>
+                    <option key={p.id} value={p.id}>
+                      {p.name}{p.volume_fl_oz ? ` (${p.volume_fl_oz} fl oz)` : ""}
+                    </option>
                   ))}
                 </select>
               </Field>
-            )}
-            <Field label={`Qty (${form.alloc_type === "bbl" ? "BBL" : form.alloc_type + "s"})`} required>
-              <input type="number" step="0.01" min="0" className="inp" required
-                value={form.quantity} onChange={(e) => set("quantity", e.target.value)} />
-            </Field>
-            {bblEquiv != null && bblEquiv > 0 && (
-              <Field label="≈ BBL">
-                <div className="inp text-zinc-400">{bblEquiv.toFixed(2)}</div>
+              <Field label={`Qty (${form.alloc_type}s)`} required>
+                <input type="number" step="1" min="0" className="inp" required
+                  value={form.packaging_qty} onChange={(e) => handleQtyChange(e.target.value)} />
               </Field>
-            )}
-          </div>
+              {bblEquiv != null && bblEquiv > 0 && (
+                <Field label="≈ BBL (auto)">
+                  <div className="inp text-zinc-400 bg-zinc-900">{bblEquiv.toFixed(2)}</div>
+                </Field>
+              )}
+            </div>
+          )}
         </Field>
 
         <Field label="Cadence" required>
@@ -209,8 +247,9 @@ function AllocationModal({
 
         <div className="grid grid-cols-2 gap-3">
           <Field label="Status">
-            <select className="inp" value={form.status} onChange={(e) => set("status", e.target.value as AllocationStatus)}>
-              {(["active", "paused", "fulfilled", "cancelled"] as AllocationStatus[]).map((s) => (
+            <select className="inp" value={form.status}
+              onChange={(e) => set("status", e.target.value as ContractRequestStatus)}>
+              {(["open", "in_progress", "fulfilled", "cancelled"] as ContractRequestStatus[]).map((s) => (
                 <option key={s} value={s}>{STATUS_META[s].label}</option>
               ))}
             </select>
@@ -229,41 +268,52 @@ function AllocationModal({
 export default function DistributionTab({ recipes, partners }: { recipes: Recipe[]; partners: ContractBrewingPartner[] }) {
   const qc = useQueryClient();
   const { data: rows = [] } = useQuery({
-    queryKey: ["production", "distribution-allocations"],
-    queryFn: () => fetchJson<DistributionAllocation[]>("/api/production/distribution-allocations"),
+    queryKey: ["production", "contract-requests", "distribution"],
+    queryFn: () => fetchJson<Commitment[]>("/api/production/contract-requests?channel=distribution"),
   });
-  const load = () => qc.invalidateQueries({ queryKey: ["production", "distribution-allocations"] });
+  const load = () => qc.invalidateQueries({ queryKey: ["production", "contract-requests"] });
   const [showModal, setShowModal] = useState(false);
-  const [editing, setEditing] = useState<DistributionAllocation | null>(null);
+  const [editing, setEditing] = useState<Commitment | null>(null);
 
   async function handleDelete(id: string) {
     if (!confirm("Delete this allocation?")) return;
-    const r = await fetch(`/api/production/distribution-allocations?id=${id}`, { method: "DELETE" });
+    const r = await fetch(`/api/production/contract-requests?id=${id}`, { method: "DELETE" });
     if (r.ok) load();
   }
 
-  function pkgLabel(a: DistributionAllocation): string {
-    if (a.unit === "bbl") return `${Number(a.quantity).toFixed(2)} BBL`;
-    const name = a.packaging_items?.name ?? a.unit;
-    return `${Number(a.quantity)} × ${name}`;
+  function pkgLabel(a: Commitment): string {
+    if (!a.packaging_item_id || !a.packaging_items) {
+      return `${Number(a.volume_bbl).toFixed(2)} BBL`;
+    }
+    const qty = a.packaging_qty != null ? `${a.packaging_qty} × ` : "";
+    return `${qty}${a.packaging_items.name}`;
   }
 
-  function scheduleLabel(a: DistributionAllocation): string {
-    if (a.cadence === "one_time") return a.delivery_date ? fmtDateLong(a.delivery_date) : "—";
-    const freq = a.recurrence ?? "—";
-    const from = a.start_date ? fmtDateLong(a.start_date) : "—";
-    const to = a.end_date ? ` → ${fmtDateLong(a.end_date)}` : "";
-    return `${freq.charAt(0).toUpperCase() + freq.slice(1)} from ${from}${to}`;
+  function scheduleLabel(a: Commitment): string {
+    if (a.cadence === "recurring") {
+      const freq = a.recurrence ?? "—";
+      const from = a.start_date ? fmtDateLong(a.start_date) : "—";
+      const to = a.end_date ? ` → ${fmtDateLong(a.end_date)}` : "";
+      return `${freq.charAt(0).toUpperCase() + freq.slice(1)} from ${from}${to}`;
+    }
+    return a.desired_delivery_date ? fmtDateLong(a.desired_delivery_date) : "—";
   }
 
   return (
     <div>
       <div className="flex justify-between items-center mb-4">
-        <p className="text-sm text-zinc-500">Committed purchase allocations by style and packaging. All are outflows from cold storage.</p>
-        <button onClick={() => setShowModal(true)} className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white text-sm font-medium rounded transition-colors">+ New Allocation</button>
+        <p className="text-sm text-zinc-500">
+          Committed distribution allocations by style and packaging. All are outflows from cold storage.
+        </p>
+        <button
+          onClick={() => setShowModal(true)}
+          className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white text-sm font-medium rounded transition-colors"
+        >
+          + New Allocation
+        </button>
       </div>
       {rows.length === 0 ? (
-        <p className="text-zinc-600 text-sm py-10 text-center">No allocations recorded yet.</p>
+        <p className="text-zinc-600 text-sm py-10 text-center">No distribution allocations recorded yet.</p>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-zinc-800">
           <table className="w-full text-sm">
@@ -277,11 +327,11 @@ export default function DistributionTab({ recipes, partners }: { recipes: Recipe
             <tbody>
               {rows.map((a, i) => (
                 <tr key={a.id} className={`border-b border-zinc-800/60 ${i % 2 !== 0 ? "bg-zinc-900/30" : ""}`}>
-                  <td className="px-4 py-2.5 text-zinc-100 font-medium">{a.recipes?.beer_name ?? "—"}</td>
+                  <td className="px-4 py-2.5 text-zinc-100 font-medium">{a.recipes?.beer_name ?? a.beer_style}</td>
                   <td className="px-4 py-2.5 text-zinc-400">{a.contract_brewing_partners?.company_name ?? "—"}</td>
                   <td className="px-4 py-2.5 text-zinc-300 tabular-nums">{pkgLabel(a)}</td>
                   <td className="px-4 py-2.5 text-zinc-400 text-xs whitespace-nowrap">{scheduleLabel(a)}</td>
-                  <td className="px-4 py-2.5"><StatusBadge status={a.status ?? "active"} /></td>
+                  <td className="px-4 py-2.5"><StatusBadge status={a.status} /></td>
                   <td className="px-4 py-2.5 text-zinc-500 text-xs max-w-[160px] truncate">{a.notes ?? "—"}</td>
                   <td className="px-4 py-2.5">
                     <div className="flex items-center gap-3">

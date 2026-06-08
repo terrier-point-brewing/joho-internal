@@ -1,16 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase/client";
 
-export async function GET() {
-  const { data, error } = await supabase
+export async function GET(req: NextRequest) {
+  const includeCanc = req.nextUrl.searchParams.get("include_cancelled") === "true";
+  let query = supabase
     .from("batch_schedule_entries")
-    .select(`
-      *,
-      brew_batches(id, beer_name, batch_number, volume_bbl, status),
-      equipment(id, name, type)
-    `)
+    .select(`*, brew_batches(id, beer_name, batch_number, volume_bbl, status), equipment(id, name, type)`)
     .order("planned_start", { ascending: true });
-
+  if (!includeCanc) query = query.is("cancelled_at", null);
+  const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data);
 }

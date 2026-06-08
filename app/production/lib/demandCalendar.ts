@@ -112,6 +112,8 @@ export interface BuildDemandCalendarInput {
   recipes: Recipe[];
   /** Taproom daily sell-through in BBL per recipe_id (from Square order sales, excl. invoices). */
   taproomDailyBblByRecipe?: Map<string, number>;
+  /** Current taproom on-hand BBL per recipe_id (from Square live inventory counts). */
+  taproomCurrentBblByRecipe?: Map<string, number>;
   today?: Date;
 }
 
@@ -119,7 +121,7 @@ export function buildDemandCalendar(input: BuildDemandCalendarInput): DemandRow[
   const {
     lots, adjustmentsByTransfer, packagingById, packagingByBatchTransfer,
     safetyFloors, allocations, contractRequests, activeBatches, recipes,
-    taproomDailyBblByRecipe,
+    taproomDailyBblByRecipe, taproomCurrentBblByRecipe,
   } = input;
   const today = input.today ?? new Date();
 
@@ -213,14 +215,36 @@ export function buildDemandCalendar(input: BuildDemandCalendarInput): DemandRow[
     const distMap = distributionOutflows.get(recipeId) ?? new Map<string, number>();
     const contMap = contractOutflows.get(recipeId) ?? new Map<string, number>();
     const inflowMap = batchInflows.get(recipeId) ?? new Map<string, number>();
-    const taproomWeeklyBbl = (taproomDailyBblByRecipe?.get(recipeId) ?? 0) * 7;
+    const taproomDailyBbl = taproomDailyBblByRecipe?.get(recipeId) ?? 0;
+    const taproomWeeklyBbl = taproomDailyBbl * 7;
+
+    // When taproom has existing on-hand stock, cold storage doesn't need to replenish
+    // until that stock is exhausted. Calculate the date when taproom stock runs out.
+    const taproomCurrentBbl = taproomCurrentBblByRecipe?.get(recipeId) ?? 0;
+    const taproomExhaustionDate: Date | null =
+      taproomDailyBbl > 0 && taproomCurrentBbl > 0
+        ? addDays(today, taproomCurrentBbl / taproomDailyBbl)
+        : null;
 
     let balance = startBbl;
     let stockoutDate: string | null = null;
     const weeks: DemandWeek[] = [];
 
     for (const wk of weekStarts) {
-      const taproomOut = taproomWeeklyBbl;
+      // Determine how many days of this week draw from cold storage (vs. taproom on-hand).
+      let taproomOut: number;
+      if (!taproomExhaustionDate || taproomWeeklyBbl === 0) {
+        taproomOut = taproomWeeklyBbl;
+      } else {
+        const weekStart = parseISO(wk);
+        const weekEnd = addDays(weekStart, 7);
+        // Days of this week that fall after taproom stock is exhausted
+        const daysFromColdStorage = Math.max(0, Math.min(7,
+          differenceInDays(weekEnd, taproomExhaustionDate)
+        ));
+        taproomOut = taproomDailyBbl * daysFromColdStorage;
+      }
+
       const distOut = distMap.get(wk) ?? 0;
       const contOut = contMap.get(wk) ?? 0;
       const totalOut = taproomOut + distOut + contOut;

@@ -3,7 +3,7 @@ import { supabase } from "@/lib/supabase/client";
 import { apiError } from "@/lib/utils/api";
 import { coldStorageLots } from "@/app/production/lib/coldStorage";
 import { buildDemandCalendar } from "@/app/production/lib/demandCalendar";
-import { fetchOrderSales } from "@/lib/square/inventory";
+import { fetchOrderSales, fetchCurrentCounts } from "@/lib/square/inventory";
 import { BBL_TO_FL_OZ } from "@/lib/constants/production";
 import type {
   BatchTransfer, Equipment, BrewBatch, Recipe, PackagingItem,
@@ -32,11 +32,11 @@ export async function GET() {
         .in("status", ["planning", "brewing", "fermenting", "conditioning", "packaging"]),
       supabase.from("packaging_items").select("*"),
       supabase.from("safety_stock_floors").select("*"),
-      supabase.from("contract_brewing_requests")
+      supabase.from("commitments")
         .select("*, recipes(beer_name), contract_brewing_partners(company_name), packaging_items(id, name, volume_fl_oz)")
         .eq("channel", "distribution")
         .in("status", ["open"]),
-      supabase.from("contract_brewing_requests")
+      supabase.from("commitments")
         .select("*, recipes(beer_name), contract_brewing_partners(company_name)")
         .eq("channel", "contract_brewing")
         .eq("status", "open"),
@@ -79,19 +79,25 @@ export async function GET() {
     }
 
     // Taproom demand: Square order sales (excl. invoices) → BBL/day per recipe.
-    // This represents the ongoing draw on cold storage via taproom exports.
+    // Also fetch live inventory counts so we can defer cold-storage draws until
+    // existing taproom stock is exhausted.
     let taproomDailyBblByRecipe: Map<string, number> | undefined;
+    let taproomCurrentBblByRecipe: Map<string, number> | undefined;
     if (squareLinks && squareLinks.length > 0) {
       const variationIds = squareLinks.map((l) => l.square_variation_id as string);
       const now = new Date();
       const windowStart = new Date(now.getTime() - 28 * 86400000);
       try {
-        const salesTotals = await fetchOrderSales(
-          windowStart.toISOString().slice(0, 10),
-          now.toISOString().slice(0, 10),
-          variationIds,
-        );
+        const [salesTotals, currentCounts] = await Promise.all([
+          fetchOrderSales(
+            windowStart.toISOString().slice(0, 10),
+            now.toISOString().slice(0, 10),
+            variationIds,
+          ),
+          fetchCurrentCounts(variationIds),
+        ]);
         taproomDailyBblByRecipe = new Map();
+        taproomCurrentBblByRecipe = new Map();
         for (const link of squareLinks) {
           const recipeId = link.recipe_id as string;
           const varId = link.square_variation_id as string;
@@ -99,6 +105,9 @@ export async function GET() {
           const totalSold = salesTotals.get(varId) ?? 0;
           const dailyBbl = volFlOz ? (totalSold / 28 * volFlOz) / BBL_TO_FL_OZ : 0;
           taproomDailyBblByRecipe.set(recipeId, (taproomDailyBblByRecipe.get(recipeId) ?? 0) + dailyBbl);
+          const currentQty = currentCounts.get(varId) ?? 0;
+          const currentBbl = volFlOz ? (currentQty * volFlOz) / BBL_TO_FL_OZ : 0;
+          taproomCurrentBblByRecipe.set(recipeId, (taproomCurrentBblByRecipe.get(recipeId) ?? 0) + currentBbl);
         }
       } catch {
         // Square unavailable — demand calendar still works, taproom channel shows 0.
@@ -116,6 +125,7 @@ export async function GET() {
       activeBatches: typedBatches,
       recipes: typedRecipes,
       taproomDailyBblByRecipe,
+      taproomCurrentBblByRecipe,
     });
 
     return NextResponse.json(rows);

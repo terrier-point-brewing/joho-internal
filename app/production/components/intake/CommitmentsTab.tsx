@@ -46,6 +46,8 @@ interface FormState {
   packaging_qty: string;
   status: ContractRequestStatus;
   notes: string;
+  received_on: string;
+  locked_on: string;
 }
 
 const FORM_EMPTY: FormState = {
@@ -55,6 +57,7 @@ const FORM_EMPTY: FormState = {
   recurrence: "weekly", start_date: "", end_date: "",
   packaging_item_id: "", packaging_qty: "",
   status: "open", notes: "",
+  received_on: "", locked_on: "",
 };
 
 function CommitmentModal({
@@ -83,6 +86,8 @@ function CommitmentModal({
     packaging_qty: existing.packaging_qty != null ? String(existing.packaging_qty) : "",
     status: existing.status,
     notes: existing.notes ?? "",
+    received_on: existing.received_on ?? "",
+    locked_on: existing.locked_on ?? "",
   } : FORM_EMPTY);
   const set = (k: keyof FormState, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
@@ -113,6 +118,8 @@ function CommitmentModal({
         packaging_qty: form.packaging_qty ? parseFloat(form.packaging_qty) : null,
         status: form.status,
         notes: form.notes || null,
+        received_on: form.received_on || null,
+        locked_on: form.locked_on || null,
       };
       const url = isEdit ? `/api/production/contract-requests?id=${existing!.id}` : "/api/production/contract-requests";
       const res = await fetch(url, { method: isEdit ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -242,6 +249,17 @@ function CommitmentModal({
           </Field>
         </div>
 
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Received On">
+            <input type="date" className="inp" value={form.received_on}
+              onChange={(e) => set("received_on", e.target.value)} />
+          </Field>
+          <Field label="Locked On">
+            <input type="date" className="inp" value={form.locked_on}
+              onChange={(e) => set("locked_on", e.target.value)} />
+          </Field>
+        </div>
+
         <ModalActions submitting={submitting} onCancel={onClose} label={isEdit ? "Save Changes" : "Create"} />
       </form>
     </Modal>
@@ -307,8 +325,8 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-zinc-800 bg-zinc-900/50 text-left">
-                {["Channel", "Style", "Partner", "Volume", "Packaging Pref.", "Schedule", "Status", "Notes", ""].map((h, i) => (
-                  <th key={i} className="px-4 py-2.5 text-xs font-medium text-zinc-500">{h}</th>
+                {["Channel", "Style", "Partner", "Volume", "Packaging Pref.", "Desired Delivery On", "Received On", "Last Edited", "Locked On", "Status", "Notes", ""].map((h, i) => (
+                  <th key={i} className="px-4 py-2.5 text-xs font-medium text-zinc-500 whitespace-nowrap">{h}</th>
                 ))}
               </tr>
             </thead>
@@ -321,6 +339,9 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
                   <td className="px-4 py-2.5 text-zinc-300 tabular-nums">{Number(q.volume_bbl)} BBL</td>
                   <td className="px-4 py-2.5 text-zinc-400 text-xs">{pkgLabel(q)}</td>
                   <td className="px-4 py-2.5 text-zinc-400 text-xs whitespace-nowrap">{scheduleLabel(q)}</td>
+                  <td className="px-4 py-2.5 text-zinc-500 text-xs whitespace-nowrap">{q.received_on ? fmtDateLong(q.received_on) : "—"}</td>
+                  <td className="px-4 py-2.5 text-zinc-500 text-xs whitespace-nowrap">{q.last_edited_on ? fmtDateLong(q.last_edited_on.slice(0, 10)) : "—"}</td>
+                  <td className="px-4 py-2.5 text-zinc-500 text-xs whitespace-nowrap">{q.locked_on ? fmtDateLong(q.locked_on) : "—"}</td>
                   <td className="px-4 py-2.5"><StatusBadge status={q.status} /></td>
                   <td className="px-4 py-2.5 text-zinc-500 text-xs max-w-[160px] truncate">{q.notes ?? "—"}</td>
                   <td className="px-4 py-2.5 flex items-center gap-3">

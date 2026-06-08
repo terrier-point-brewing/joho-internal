@@ -14,7 +14,8 @@ import { useEquipmentCrud } from "../hooks/useEquipmentCrud";
 import { useBatchAssign } from "../hooks/useBatchAssign";
 import {
   usePackagingQuery, useEquipmentQuery, useAssignmentsQuery, useBatchesQuery,
-  useTransfersQuery, useRecipesQuery, productionKeys,
+  useTransfersQuery, useRecipesQuery, useBatchScheduleQuery, productionKeys,
+  type ScheduleEntry,
 } from "../hooks/queries";
 
 const GRID_COLS_KEY = "brewConsole_gridCols";
@@ -49,6 +50,10 @@ export default function BrewStatusTab() {
   const { data: batches = [] } = useBatchesQuery();
   const { data: transfers = [] } = useTransfersQuery();
   const { data: recipes = [] } = useRecipesQuery();
+  const { data: scheduleEntries = [] } = useBatchScheduleQuery();
+
+  // Deviation toast state
+  const [deviationToast, setDeviationToast] = useState<{ message: string; equipment_name?: string } | null>(null);
 
   // Floorplan actions touch equipment/assignments/batches/transfers together.
   const refreshBrewStatus = useCallback(() => Promise.all([
@@ -56,9 +61,21 @@ export default function BrewStatusTab() {
     qc.invalidateQueries({ queryKey: productionKeys.assignments }),
     qc.invalidateQueries({ queryKey: productionKeys.batches }),
     qc.invalidateQueries({ queryKey: productionKeys.transfers }),
+    qc.invalidateQueries({ queryKey: productionKeys.batchSchedule }),
+    qc.invalidateQueries({ queryKey: productionKeys.scheduleConflicts }),
   ]).then(() => undefined), [qc]);
   const onRefresh = refreshBrewStatus;
   const onBatchCreated = useCallback(() => qc.invalidateQueries({ queryKey: productionKeys.batches }), [qc]);
+
+  const handleTransferDone = useCallback(async (response?: { schedule_update?: { action: string; was_deviation?: boolean; equipment_name?: string }[] }) => {
+    await refreshBrewStatus();
+    const updates = response?.schedule_update ?? [];
+    const deviation = updates.find(u => u.was_deviation);
+    if (deviation) {
+      setDeviationToast({ message: `Batch rebooked to ${deviation.equipment_name ?? "new tank"}`, equipment_name: deviation.equipment_name });
+      setTimeout(() => setDeviationToast(null), 6000);
+    }
+  }, [refreshBrewStatus]);
 
   const [editMode, setEditMode] = useState(false);
   const [transferTankId, setTransferTankId] = useState<string | null>(null);
@@ -193,6 +210,23 @@ export default function BrewStatusTab() {
     if (Object.keys(vols).length > 0) tankVolumesByBatch[b.id] = vols;
   }
 
+  // Next planned batch per tank (for empty tank tiles) — earliest future uncancelled entry per equipment_id
+  const nextPlannedByTank = React.useMemo(() => {
+    const map = new Map<string, ScheduleEntry>();
+    const now = new Date().toISOString();
+    for (const entry of scheduleEntries) {
+      if (!entry.equipment_id) continue;
+      if (entry.actual_start) continue; // already started
+      if (entry.planned_start < now.slice(0, 10)) continue; // past planned start, skip
+      const existing = map.get(entry.equipment_id);
+      if (!existing || entry.planned_start < existing.planned_start) {
+        map.set(entry.equipment_id, entry);
+      }
+    }
+    return map;
+  }, [scheduleEntries]);
+
+  // Planned entry for the NEXT stage of the batch being transferred
   const placed   = tanks.filter((t) => t.grid_row != null && t.grid_col != null);
   const unplaced = tanks.filter((t) => t.grid_row == null || t.grid_col == null);
 
@@ -201,6 +235,14 @@ export default function BrewStatusTab() {
   const transferBatch: BrewBatch | null = transferBatchId
     ? (batches.find((b) => b.id === transferBatchId) ?? null)
     : (transferAssignment ? (batches.find((b) => b.id === transferAssignment.batch_id) ?? null) : null);
+
+  const transferPlannedEntry = React.useMemo((): ScheduleEntry | null => {
+    if (!transferBatch) return null;
+    const NEXT_STAGE: Record<string, string> = { brewhouse: "fermenter", fermenter: "conditioning", conditioning: "" };
+    const nextStage = transferTankId ? NEXT_STAGE[tanks.find(t => t.id === transferTankId)?.type ?? ""] : null;
+    if (!nextStage) return null;
+    return scheduleEntries.find(e => e.batch_id === transferBatch.id && e.stage === nextStage) ?? null;
+  }, [transferBatch, transferTankId, scheduleEntries, tanks]);
 
   // Destructure so the ref (gridRef) and state (dragging/dropPreview/…) keep
   // distinct identities — otherwise the React Compiler taints every access on
@@ -216,6 +258,21 @@ export default function BrewStatusTab() {
 
   return (
     <>
+      {/* Deviation toast */}
+      {deviationToast && (
+        <div className="fixed bottom-6 right-6 z-50 flex items-start gap-3 px-4 py-3 rounded-lg border border-amber-700/60 bg-amber-950 shadow-xl text-sm text-amber-200 max-w-sm">
+          <span className="text-lg leading-none">📋</span>
+          <div className="flex-1">
+            <p className="font-semibold text-amber-300">Schedule updated</p>
+            <p className="text-xs text-amber-400 mt-0.5">
+              Batch rebooked to <span className="font-medium text-amber-200">{deviationToast.equipment_name}</span>.
+              Check the Timeline tab for any cascading conflicts.
+            </p>
+          </div>
+          <button onClick={() => setDeviationToast(null)} className="text-amber-600 hover:text-amber-400 text-lg leading-none ml-1">×</button>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-end gap-2 mb-4">
         <div className="flex gap-2">
@@ -500,21 +557,35 @@ export default function BrewStatusTab() {
                               </div>
                             )}
                           </>
-                        ) : (
-                          <div className="flex-1 flex flex-col items-center justify-center gap-1">
-                            <p className="text-zinc-700" style={{ fontSize: 9 }}>Empty</p>
+                        ) : (() => {
+                          const nextPlanned = nextPlannedByTank.get(tank.id);
+                          return (
+                          <div className="flex-1 flex flex-col gap-0.5 justify-center">
+                            <p className="text-zinc-700 text-center" style={{ fontSize: 9 }}>Empty</p>
+                            {nextPlanned && nextPlanned.brew_batches && (
+                              <div className="mt-0.5 px-1 py-0.5 rounded bg-zinc-800/60 border border-zinc-700/50">
+                                <p className="text-zinc-500 font-semibold uppercase tracking-wide" style={{ fontSize: 7 }}>Next planned</p>
+                                <p className="text-zinc-300 font-medium truncate" style={{ fontSize: 8 }}>
+                                  #{nextPlanned.brew_batches.batch_number} {nextPlanned.brew_batches.beer_name}
+                                </p>
+                                <p className="text-zinc-600" style={{ fontSize: 7 }}>
+                                  {nextPlanned.planned_start.slice(0, 10)} · {nextPlanned.brew_batches.volume_bbl} BBL
+                                </p>
+                              </div>
+                            )}
                             {!editMode && tank.type === "brewhouse" && unassignedBatches.length > 0 && (
                               <button
                                 onClick={() => assign.openAssign(tank.id)}
                                 onMouseDown={(e) => e.stopPropagation()}
-                                className="text-amber-600 hover:text-amber-400 border border-amber-900 hover:border-amber-700 px-1.5 rounded transition-colors"
+                                className="text-amber-600 hover:text-amber-400 border border-amber-900 hover:border-amber-700 px-1.5 rounded transition-colors mt-0.5"
                                 style={{ fontSize: 9 }}
                               >
                                 Assign
                               </button>
                             )}
                           </div>
-                        )}
+                          );
+                        })()}
                       </>
                     ); })()}
 
@@ -742,8 +813,9 @@ export default function BrewStatusTab() {
           occupiedTankIds={new Set(assignments.map((a) => a.tank_id))}
           packaging={packaging}
           fromTankVolume={transferFromVol}
+          plannedEntry={transferPlannedEntry}
           onClose={() => { setTransferTankId(null); setTransferBatchId(null); setTransferFromVol(undefined); }}
-          onDone={onRefresh}
+          onDone={handleTransferDone}
         />
       )}
 

@@ -158,6 +158,135 @@ export async function POST(req: NextRequest) {
   // by transfers — the transfer ledger (batch_transfers) is the source of truth
   // for current per-tank volumes.
 
+  // ── Schedule reconciliation ───────────────────────────────────────────────
+  // When beer arrives in a fermenter or brite (conditioning) tank, update or
+  // create the matching schedule entry so actuals are recorded.
+  // When beer leaves a fermenter or brite and the tank drains, close out the entry.
+  const RECONCILE_TYPES = new Set(["fermenter", "brite"]);
+  // Maps equipment.type → stage key stored in batch_schedule_entries
+  const EQ_TYPE_TO_STAGE: Record<string, string> = { fermenter: "fermenter", brite: "conditioning" };
+
+  const scheduleUpdate: {
+    action: string;
+    entry_id: string;
+    equipment_name?: string;
+    was_deviation?: boolean;
+  }[] = [];
+
+  // 1. Handle arrival (to_tank is fermenter or brite)
+  if (to_tank_id) {
+    const { data: destTankInfo } = await supabase
+      .from("equipment")
+      .select("id, name, type")
+      .eq("id", to_tank_id)
+      .single();
+
+    if (destTankInfo && RECONCILE_TYPES.has(destTankInfo.type)) {
+      const targetStage = EQ_TYPE_TO_STAGE[destTankInfo.type];
+      const today = new Date().toISOString().split("T")[0];
+
+      // Look for an existing uncancelled entry for this batch+stage
+      const { data: existingEntries } = await supabase
+        .from("batch_schedule_entries")
+        .select("id, equipment_id, planned_start, planned_end, actual_start, actual_end")
+        .eq("batch_id", batch_id)
+        .eq("stage", targetStage)
+        .is("cancelled_at", null)
+        .order("planned_start", { ascending: true })
+        .limit(1);
+
+      const existing = existingEntries?.[0];
+
+      if (existing) {
+        if (existing.equipment_id === to_tank_id) {
+          // Same tank as planned — just stamp actual_start
+          await supabase
+            .from("batch_schedule_entries")
+            .update({ actual_start: today, updated_at: new Date().toISOString() })
+            .eq("id", existing.id);
+          scheduleUpdate.push({ action: "actual_start_set", entry_id: existing.id, equipment_name: destTankInfo.name, was_deviation: false });
+        } else {
+          // Different tank — cancel the original and create a new entry for the actual tank
+          const durationMs = new Date(existing.planned_end).getTime() - new Date(existing.planned_start).getTime();
+          const durationDays = Math.max(1, Math.round(durationMs / 86400000));
+          const newEnd = new Date(Date.now() + durationDays * 86400000).toISOString().split("T")[0];
+
+          await supabase
+            .from("batch_schedule_entries")
+            .update({ cancelled_at: new Date().toISOString(), cancellation_reason: `Batch transferred to ${destTankInfo.name} instead`, updated_at: new Date().toISOString() })
+            .eq("id", existing.id);
+
+          const { data: newEntry } = await supabase
+            .from("batch_schedule_entries")
+            .insert({ batch_id, equipment_id: to_tank_id, stage: targetStage, planned_start: today, planned_end: newEnd, actual_start: today, notes: `Auto-created: deviation from planned equipment` })
+            .select("id")
+            .single();
+
+          scheduleUpdate.push({ action: "deviation_rebooked", entry_id: newEntry?.id ?? "", equipment_name: destTankInfo.name, was_deviation: true });
+        }
+      } else {
+        // No entry existed — create one
+        const defaultDays = targetStage === "fermenter" ? 14 : 21;
+        const newEnd = new Date(Date.now() + defaultDays * 86400000).toISOString().split("T")[0];
+        const { data: newEntry } = await supabase
+          .from("batch_schedule_entries")
+          .insert({ batch_id, equipment_id: to_tank_id, stage: targetStage, planned_start: today, planned_end: newEnd, actual_start: today, notes: `Auto-created on transfer` })
+          .select("id")
+          .single();
+        scheduleUpdate.push({ action: "created", entry_id: newEntry?.id ?? "", equipment_name: destTankInfo.name, was_deviation: false });
+      }
+    }
+  }
+
+  // 2. Handle departure (from_tank is fermenter or brite AND tank drains to zero)
+  if (from_tank_id) {
+    const { data: srcTankInfo } = await supabase
+      .from("equipment")
+      .select("id, name, type")
+      .eq("id", from_tank_id)
+      .single();
+
+    if (srcTankInfo && RECONCILE_TYPES.has(srcTankInfo.type)) {
+      // We'll compute remaining volume AFTER this transfer using the full ledger
+      const { data: allLedger } = await supabase
+        .from("batch_transfers")
+        .select("from_tank_id, to_tank_id, volume_bbl, shrinkage_bbl")
+        .eq("batch_id", batch_id)
+        .or(`from_tank_id.eq.${from_tank_id},to_tank_id.eq.${from_tank_id}`);
+
+      const netInSrc = (allLedger ?? []).reduce((sum, row) => {
+        if (row.to_tank_id === from_tank_id) return sum + Number(row.volume_bbl);
+        if (row.from_tank_id === from_tank_id) return sum - Number(row.volume_bbl) - Number(row.shrinkage_bbl ?? 0);
+        return sum;
+      }, 0);
+
+      if (netInSrc <= 0.001) {
+        // Tank is drained — close out the active schedule entry
+        const sourceStage = EQ_TYPE_TO_STAGE[srcTankInfo.type];
+        const today = new Date().toISOString().split("T")[0];
+
+        const { data: activeEntries } = await supabase
+          .from("batch_schedule_entries")
+          .select("id")
+          .eq("batch_id", batch_id)
+          .eq("stage", sourceStage)
+          .eq("equipment_id", from_tank_id)
+          .is("cancelled_at", null)
+          .is("actual_end", null)
+          .limit(1);
+
+        const activeEntry = activeEntries?.[0];
+        if (activeEntry) {
+          await supabase
+            .from("batch_schedule_entries")
+            .update({ actual_end: today, updated_at: new Date().toISOString() })
+            .eq("id", activeEntry.id);
+          scheduleUpdate.push({ action: "actual_end_set", entry_id: activeEntry.id, equipment_name: srcTankInfo.name });
+        }
+      }
+    }
+  }
+
   // Partial-transfer: the RPC always releases the from_tank assignment, but if
   // volume remains in the source tank we need to re-insert the assignment so the
   // floorplan tile keeps showing the batch there.
@@ -184,5 +313,5 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  return NextResponse.json(transfer, { status: 201 });
+  return NextResponse.json({ transfer, schedule_update: scheduleUpdate }, { status: 201 });
 }

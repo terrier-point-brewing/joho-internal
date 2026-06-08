@@ -46,6 +46,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (body.percentage != null) update.percentage = Number(body.percentage);
   if (body.notes !== undefined) update.notes = body.notes || null;
   if (body.partner_id !== undefined) update.partner_id = body.partner_id || null;
+  if (body.contract_request_id !== undefined) update.contract_request_id = body.contract_request_id || null;
 
   // Lock / unlock logic
   if (body.locked === true && !current.locked) {

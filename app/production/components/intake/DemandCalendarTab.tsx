@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import React, { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { format, parseISO } from "date-fns";
 import type { DemandRow, DemandWeek } from "../../lib/demandCalendar";
@@ -117,9 +117,9 @@ export default function DemandCalendarTab() {
               const isExpanded = expanded.has(row.recipe_id);
 
               return (
-                <>
+                <React.Fragment key={row.recipe_id}>
                   {/* Recipe row */}
-                  <tr key={row.recipe_id} className={`${borderCls} cursor-pointer hover:bg-zinc-900/30`}
+                  <tr className={`${borderCls} cursor-pointer hover:bg-zinc-900/30`}
                     onClick={() => toggle(row.recipe_id)}>
                     <td className="sticky left-0 z-10 bg-zinc-950 px-4 py-2.5 font-medium text-zinc-100 whitespace-nowrap">
                       <span className="flex items-center gap-2">
@@ -174,7 +174,7 @@ export default function DemandCalendarTab() {
                       </tr>
                     );
                   })}
-                </>
+                </React.Fragment>
               );
             })}
           </tbody>

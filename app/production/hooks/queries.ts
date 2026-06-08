@@ -17,9 +17,26 @@ export interface ScheduleEntry {
   planned_end: string;
   actual_start: string | null;
   actual_end: string | null;
+  cancelled_at: string | null;
+  cancellation_reason: string | null;
   notes: string | null;
   brew_batches?: { id: string; beer_name: string; batch_number: string; volume_bbl: number; status: string } | null;
   equipment?: { id: string; name: string; type: string } | null;
+}
+
+export interface ScheduleConflict {
+  id: string;
+  entry_a: { id: string; batch_id: string; batch_number: string | null; beer_name: string | null };
+  entry_b: { id: string; batch_id: string; batch_number: string | null; beer_name: string | null };
+  equipment: { id: string | null; name: string | null };
+  overlap_start: string;
+  overlap_end: string;
+  suggested_resolution: {
+    equipment_id: string;
+    equipment_name: string;
+    new_start: string;
+    new_end: string;
+  } | null;
 }
 
 // Shared fetch helper. Throws on non-2xx (surfaced via query.error) and parses
@@ -50,6 +67,7 @@ export const productionKeys = {
   packaging:   ["production", "packaging"] as const,
   transfers:   ["production", "transfers"] as const,
   batchSchedule: ["production", "batch-schedule"] as const,
+  scheduleConflicts: ["production", "schedule-conflicts"] as const,
   contractPartners: ["partners", "contract-brewing"] as const,
   suppliers:   ["partners", "suppliers"] as const,
 };
@@ -114,6 +132,14 @@ export function useBatchScheduleQuery() {
   return useQuery({
     queryKey: productionKeys.batchSchedule,
     queryFn: () => fetchJson<ScheduleEntry[]>("/api/production/batch-schedule"),
+  });
+}
+
+export function useScheduleConflictsQuery() {
+  return useQuery({
+    queryKey: productionKeys.scheduleConflicts,
+    queryFn: () => fetchJson<ScheduleConflict[]>("/api/production/schedule-conflicts"),
+    refetchInterval: 60_000,
   });
 }
 

@@ -12,8 +12,7 @@ export async function GET(req: NextRequest) {
       *,
       brew_batches(id, beer_name, batch_number, volume_bbl),
       contract_brewing_partners(id, company_name),
-      contract_brewing_requests(id, beer_style, volume_bbl),
-      distribution_allocations(id, packaging, quantity, unit)
+      commitments(id, beer_style, volume_bbl, desired_delivery_date, received_on, created_at)
     `)
     .order("created_at");
 
@@ -67,10 +66,10 @@ export async function GET(req: NextRequest) {
 // POST /api/production/allocations
 export async function POST(req: NextRequest) {
   const body = await req.json();
-  const { batch_id, channel, label, percentage, partner_id, contract_request_id, distribution_allocation_id, notes } = body;
+  const { batch_id, channel, label, percentage, partner_id, contract_request_id, notes } = body;
 
-  if (!batch_id || !channel || !label || percentage == null) {
-    return NextResponse.json({ error: "batch_id, channel, label, and percentage are required" }, { status: 400 });
+  if (!batch_id || !channel || percentage == null) {
+    return NextResponse.json({ error: "batch_id, channel, and percentage are required" }, { status: 400 });
   }
 
   const pct = Number(percentage);
@@ -102,7 +101,6 @@ export async function POST(req: NextRequest) {
       percentage: pct,
       partner_id: partner_id || null,
       contract_request_id: contract_request_id || null,
-      distribution_allocation_id: distribution_allocation_id || null,
       notes: notes || null,
     })
     .select(`

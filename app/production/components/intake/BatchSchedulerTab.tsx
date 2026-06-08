@@ -12,7 +12,6 @@ import type { SchedulerRecommendation } from "@/app/api/production/batch-schedul
 interface PendingAllocation {
   id: string; // local key only
   channel: AllocationChannel;
-  label: string;
   percentage: string; // string for input binding
   partner_id: string;
   contract_request_id: string;
@@ -43,18 +42,16 @@ interface SchedulerRow {
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
 
+/** Build commitment allocations and always append a taproom row for the remainder. */
 function buildAutoAllocations(relevant: ContractBrewingRequest[], volumeBbl: number): PendingAllocation[] {
-  return relevant.map((c) => {
+  const commitmentAllocs = relevant.map((c) => {
     const pct = volumeBbl > 0 ? Math.round((Number(c.volume_bbl) / volumeBbl) * 100 * 10) / 10 : 0;
     const ch: AllocationChannel = c.channel === "distribution" ? "distribution" : "contract_brewing";
-    return newAlloc({
-      channel: ch,
-      label: c.beer_style + (c.contract_brewing_partners ? ` – ${c.contract_brewing_partners.company_name}` : ""),
-      percentage: String(pct),
-      partner_id: c.partner_id ?? "",
-      contract_request_id: c.id,
-    });
+    return newAlloc({ channel: ch, percentage: String(pct), partner_id: c.partner_id ?? "", contract_request_id: c.id });
   });
+  const usedPct = commitmentAllocs.reduce((s, a) => s + (parseFloat(a.percentage) || 0), 0);
+  const taproomPct = Math.max(0, Math.round((100 - usedPct) * 10) / 10);
+  return [...commitmentAllocs, newAlloc({ channel: "taproom", percentage: String(taproomPct) })];
 }
 
 const STAGE_LABELS: Record<string, string> = { brewhouse: "Brewhouse", fermenter: "Fermenter", brite: "Brite Tank" };
@@ -98,93 +95,19 @@ function toRow(rec: SchedulerRecommendation): SchedulerRow {
     volume_bbl: rec.recommended_volume_bbl,
     brew_date: rec.recommended_brew_date,
     notes: "",
-    equipment_sequence: rec.equipment_sequence.map((s) => ({
-      stage: s.stage,
-      equipment_id: s.equipment_id,
-      scheduled_start: s.scheduled_start,
-      scheduled_end: s.scheduled_end,
-    })),
+    equipment_sequence: rec.equipment_sequence
+      .filter((s): s is typeof s & { stage: "brewhouse" | "fermenter" | "brite" } =>
+        s.stage === "brewhouse" || s.stage === "fermenter" || s.stage === "brite"
+      )
+      .map((s) => ({
+        stage: s.stage,
+        equipment_id: s.equipment_id,
+        scheduled_start: s.scheduled_start,
+        scheduled_end: s.scheduled_end,
+      })),
     allocations: [],
     isManual: false,
   };
-}
-
-const CHANNEL_LABELS: Record<string, string> = {
-  distribution: "Distribution",
-  contract_brewing: "Contract",
-};
-
-// ─── Demand section ───────────────────────────────────────────────────────────
-
-function DemandSection({
-  recipeId,
-  volumeBbl,
-  commitments,
-  brewDate,
-  leadTimeDays,
-}: {
-  recipeId: string;
-  volumeBbl: number;
-  commitments: ContractBrewingRequest[];
-  brewDate: string;
-  leadTimeDays: number;
-}) {
-  const windowEnd = brewDate ? addDays(parseISO(brewDate), leadTimeDays + 28) : null;
-
-  const relevant = commitments.filter((c) => {
-    if (c.recipe_id !== recipeId) return false;
-    if (c.status === "fulfilled" || c.status === "cancelled") return false;
-    if (!windowEnd) return true;
-    if (c.cadence === "one_time" && c.desired_delivery_date) {
-      return parseISO(c.desired_delivery_date) <= windowEnd;
-    }
-    return true; // recurring always relevant
-  });
-
-  if (relevant.length === 0) {
-    return (
-      <div className="rounded border border-zinc-800 px-4 py-3 text-xs text-zinc-600">
-        No open demand commitments for this style.
-      </div>
-    );
-  }
-
-  let totalDemandBbl = 0;
-  for (const c of relevant) totalDemandBbl += Number(c.volume_bbl);
-
-  const coverage = totalDemandBbl > 0 ? volumeBbl / totalDemandBbl : 1;
-  const coveragePct = Math.min(coverage, 1);
-  const barColor = coverage >= 1 ? "bg-green-500" : coverage >= 0.5 ? "bg-amber-500" : "bg-red-500";
-
-  return (
-    <div className="space-y-2">
-      {relevant.map((c) => (
-        <div key={c.id} className="flex items-start gap-3 text-xs text-zinc-400 px-1">
-          <span className="text-zinc-600 shrink-0 mt-0.5">▸</span>
-          <div className="flex-1">
-            <span className="text-zinc-300">{c.beer_style}</span>
-            <span className="text-zinc-600"> · {CHANNEL_LABELS[c.channel] ?? c.channel} · </span>
-            <span>{Number(c.volume_bbl)} BBL</span>
-            {c.contract_brewing_partners && <span className="text-zinc-600"> → {c.contract_brewing_partners.company_name}</span>}
-            {c.cadence === "recurring"
-              ? <span className="text-zinc-600"> · {c.recurrence ?? "recurring"}</span>
-              : c.desired_delivery_date
-                ? <span className="text-zinc-600"> · Due {fmtDateLong(c.desired_delivery_date)}</span>
-                : null}
-          </div>
-        </div>
-      ))}
-      <div className="flex items-center gap-3 pt-1 px-1">
-        <div className="flex-1 h-1.5 rounded-full bg-zinc-800 overflow-hidden">
-          <div className={`h-full rounded-full transition-all ${barColor}`} style={{ width: `${Math.round(coveragePct * 100)}%` }} />
-        </div>
-        <span className={`text-xs shrink-0 ${coverage < 1 ? "text-amber-400" : "text-zinc-500"}`}>
-          {volumeBbl.toFixed(1)} BBL batch / {totalDemandBbl.toFixed(1)} BBL demand
-          {coverage < 1 && <span className="ml-1 text-red-400">({((1 - coverage) * totalDemandBbl).toFixed(1)} BBL short)</span>}
-        </span>
-      </div>
-    </div>
-  );
 }
 
 // ─── Equipment schedule section ───────────────────────────────────────────────
@@ -265,14 +188,22 @@ function EquipmentSection({
 
   function autoFillDates() {
     if (!row.brew_date) return;
-    let cursor = parseISO(row.brew_date);
+    const brewDate = parseISO(row.brew_date);
     const newSeq: EditableSlot[] = [];
+
+    // Fermenter starts same day as brewhouse (beer moves in on brew day).
+    // brite starts after fermenter ends.
+    const stageStarts: Record<string, Date> = {
+      brewhouse: brewDate,
+      fermenter: brewDate, // same day as brewhouse
+      brite:     addDays(brewDate, stageDays["fermenter"]),
+    };
+
     for (const stage of stages) {
       const stageSlots = slotsForStage(stage);
       const slots = stageSlots.length > 0 ? stageSlots : [{ stage, equipment_id: "", scheduled_start: "", scheduled_end: "" }];
-      const start = cursor.toISOString().slice(0, 10);
-      const end = addDays(cursor, stageDays[stage]).toISOString().slice(0, 10);
-      cursor = addDays(cursor, stageDays[stage]);
+      const start = stageStarts[stage].toISOString().slice(0, 10);
+      const end = addDays(stageStarts[stage], stageDays[stage]).toISOString().slice(0, 10);
       for (const s of slots) newSeq.push({ ...s, scheduled_start: start, scheduled_end: end });
     }
     onChange({ ...row, equipment_sequence: newSeq });
@@ -373,27 +304,12 @@ function EquipmentSection({
   );
 }
 
-// ─── Allocations section ─────────────────────────────────────────────────────
-
-const CHANNEL_OPTIONS: { value: AllocationChannel; label: string }[] = [
-  { value: "taproom",          label: "Taproom" },
-  { value: "distribution",     label: "Distribution" },
-  { value: "contract_brewing", label: "Contract Brewing" },
-  { value: "safety_stock",     label: "Safety Stock" },
-];
-
-const CHANNEL_COLORS: Record<AllocationChannel, string> = {
-  taproom:          "bg-green-900/40 text-green-300 border-green-800",
-  distribution:     "bg-blue-900/40 text-blue-300 border-blue-800",
-  contract_brewing: "bg-purple-900/40 text-purple-300 border-purple-800",
-  safety_stock:     "bg-zinc-800 text-zinc-400 border-zinc-700",
-};
+// ─── Allocation plan section ─────────────────────────────────────────────────
 
 function newAlloc(overrides?: Partial<PendingAllocation>): PendingAllocation {
   return {
     id: `alloc-${Date.now()}-${Math.random()}`,
     channel: "taproom",
-    label: "",
     percentage: "",
     partner_id: "",
     contract_request_id: "",
@@ -402,10 +318,21 @@ function newAlloc(overrides?: Partial<PendingAllocation>): PendingAllocation {
   };
 }
 
-function AllocationsSection({
+// ─── Unified Allocation Plan section ─────────────────────────────────────────
+
+const CHANNEL_OPTIONS: { value: AllocationChannel; label: string }[] = [
+  { value: "taproom",          label: "Taproom" },
+  { value: "distribution",     label: "Distribution" },
+  { value: "contract_brewing", label: "Contract Brewing" },
+  { value: "safety_stock",     label: "Safety Stock" },
+];
+
+// 25/10/25/10/10/10/10 proportions via fr units; ✕ gets a fixed 20px
+const ALLOC_COLS = "25fr 10fr 25fr 10fr 10fr 10fr 10fr 20px";
+
+function AllocationPlanSection({
   row,
   commitments,
-  partners,
   onChange,
 }: {
   row: SchedulerRow;
@@ -418,6 +345,10 @@ function AllocationsSection({
   const remaining = Math.max(0, 100 - totalPct);
   const overAllocated = totalPct > 100;
 
+  const recipeCommitments = commitments.filter(
+    (c) => c.recipe_id === row.recipe_id && (c.status === "open" || c.status === "in_progress")
+  );
+
   function setAlloc(id: string, patch: Partial<PendingAllocation>) {
     onChange({ ...row, allocations: allocs.map((a) => a.id === id ? { ...a, ...patch } : a) });
   }
@@ -425,103 +356,128 @@ function AllocationsSection({
     onChange({ ...row, allocations: allocs.filter((a) => a.id !== id) });
   }
   function addAlloc() {
-    onChange({ ...row, allocations: [...allocs, newAlloc({ percentage: remaining > 0 ? String(Math.round(remaining)) : "" })] });
+    onChange({ ...row, allocations: [...allocs, newAlloc({ percentage: remaining > 0 ? String(Math.round(remaining * 10) / 10) : "" })] });
   }
-
-  // Re-populate from relevant open commitments for this recipe (keeps existing allocations)
   function autoFill() {
-    if (row.volume_bbl <= 0) return;
-    const relevant = commitments.filter(
-      (c) => c.recipe_id === row.recipe_id && (c.status === "open" || c.status === "in_progress")
-    );
-    if (relevant.length === 0) return;
-    const generated = buildAutoAllocations(relevant, row.volume_bbl);
-    // Replace current allocations with fresh auto-fill
-    onChange({ ...row, allocations: generated });
+    onChange({ ...row, allocations: buildAutoAllocations(recipeCommitments, row.volume_bbl) });
   }
-
-  const relevantCommitments = commitments.filter(
-    (c) => c.recipe_id === row.recipe_id && (c.status === "open" || c.status === "in_progress")
-  );
+  function handleCommitmentChange(id: string, commitmentId: string) {
+    const c = commitments.find((x) => x.id === commitmentId);
+    setAlloc(id, { contract_request_id: commitmentId, partner_id: c?.partner_id ?? "" });
+  }
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-medium text-zinc-500">Batch Allocations</span>
-        <div className="flex items-center gap-2">
-          {relevantCommitments.length > 0 && (
+      <div className="flex items-start justify-between">
+        <div>
+          <span className="text-xs font-medium text-zinc-400">Allocation Plan</span>
+          <p className="text-[11px] text-zinc-600 mt-0.5">
+            Pre-filled from open commitments. Adjust percentages before committing.
+          </p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          {recipeCommitments.length > 0 && (
             <button type="button" onClick={autoFill}
               className="text-xs text-amber-500 hover:text-amber-400">
-              ↻ Fill from commitments ({relevantCommitments.length})
+              ↻ Reset from commitments
             </button>
           )}
           <button type="button" onClick={addAlloc}
             className="text-xs text-zinc-500 hover:text-zinc-300 border border-zinc-700 hover:border-zinc-500 px-2 py-0.5 rounded transition-colors">
-            + Add
+            + Add row
           </button>
         </div>
       </div>
 
-      {allocs.length === 0 ? (
-        <p className="text-xs text-zinc-700 px-1">No allocations yet. Add manually or fill from commitments.</p>
-      ) : (
-        <div className="space-y-2">
-          {allocs.map((a) => {
-            const needsPartner = a.channel !== "taproom" && a.channel !== "safety_stock";
-            return (
-              <div key={a.id} className="rounded border border-zinc-800 px-3 py-2.5 space-y-2">
-                <div className="flex items-center gap-2">
-                  <select
-                    className="inp flex-shrink-0 w-36 text-xs"
-                    value={a.channel}
-                    onChange={(e) => setAlloc(a.id, { channel: e.target.value as AllocationChannel })}>
-                    {CHANNEL_OPTIONS.map((o) => (
-                      <option key={o.value} value={o.value}>{o.label}</option>
-                    ))}
-                  </select>
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded border hidden sm:inline ${CHANNEL_COLORS[a.channel]}`}>
-                    {a.channel.replace("_", " ")}
-                  </span>
-                  <input className="inp flex-1 text-xs min-w-0" placeholder="Label / description"
-                    value={a.label} onChange={(e) => setAlloc(a.id, { label: e.target.value })} />
-                  <div className="flex items-center gap-1 flex-shrink-0">
-                    <input type="number" step="0.1" min="0.1" max="100" className="inp w-16 text-xs text-right"
-                      placeholder="%" value={a.percentage}
-                      onChange={(e) => setAlloc(a.id, { percentage: e.target.value })} />
-                    <span className="text-xs text-zinc-500">%</span>
-                  </div>
-                  <button onClick={() => removeAlloc(a.id)} className="text-xs text-red-400/60 hover:text-red-400 flex-shrink-0">✕</button>
-                </div>
-                {needsPartner && (
-                  <div className="grid grid-cols-2 gap-2">
-                    <Field label="Partner (for invoice)">
-                      <select className="inp text-xs" value={a.partner_id}
-                        onChange={(e) => setAlloc(a.id, { partner_id: e.target.value })}>
-                        <option value="">— none —</option>
-                        {partners.map((p) => <option key={p.id} value={p.id}>{p.company_name}</option>)}
-                      </select>
-                    </Field>
-                    <Field label="Linked commitment">
-                      <select className="inp text-xs" value={a.contract_request_id}
-                        onChange={(e) => setAlloc(a.id, { contract_request_id: e.target.value })}>
-                        <option value="">— none —</option>
-                        {relevantCommitments.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.channel === "distribution" ? "Dist" : "Contract"}: {Number(c.volume_bbl)} BBL
-                            {c.contract_brewing_partners ? ` – ${c.contract_brewing_partners.company_name}` : ""}
-                          </option>
-                        ))}
-                      </select>
-                    </Field>
-                  </div>
-                )}
-              </div>
-            );
-          })}
+      <div className="rounded border border-zinc-800 overflow-x-auto">
+        {/* Column headers */}
+        <div className="grid gap-2 px-3 py-1.5 bg-zinc-900/60 border-b border-zinc-800 text-[10px] font-medium text-zinc-600 uppercase tracking-wide"
+          style={{ gridTemplateColumns: ALLOC_COLS }}>
+          <span>Channel</span>
+          <span>Commitment</span>
+          <span>Partner</span>
+          <span>Submitted On</span>
+          <span>Due</span>
+          <span className="text-right">%</span>
+          <span className="text-right">BBLs</span>
+          <span />
         </div>
-      )}
 
-      {/* Allocation total bar */}
+        {allocs.length === 0 ? (
+          <p className="text-xs text-zinc-700 px-3 py-3">No allocations yet.</p>
+        ) : allocs.map((a, idx) => {
+          const isTaproom = a.channel === "taproom" || a.channel === "safety_stock";
+          const channelKey = a.channel === "distribution" ? "distribution" : "contract_brewing";
+          const channelCommitments = recipeCommitments.filter((c) => c.channel === channelKey);
+          const sel = isTaproom ? null : commitments.find((c) => c.id === a.contract_request_id);
+          const pct = parseFloat(a.percentage) || 0;
+          const allocBbl = row.volume_bbl > 0 ? (pct / 100) * row.volume_bbl : 0;
+          const rowBg = idx % 2 !== 0 ? "bg-zinc-900/25" : "";
+
+          return (
+            <div key={a.id} className={`grid gap-2 items-center px-3 py-2 border-b border-zinc-800/40 last:border-b-0 ${rowBg}`}
+              style={{ gridTemplateColumns: ALLOC_COLS }}>
+              {/* Channel */}
+              <select className="inp text-xs py-1" value={a.channel}
+                onChange={(e) => setAlloc(a.id, { channel: e.target.value as AllocationChannel, contract_request_id: "", partner_id: "" })}>
+                {CHANNEL_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+
+              {/* Commitment selector */}
+              {isTaproom ? (
+                <span className="text-xs text-zinc-600 italic px-1 truncate">— taproom stock —</span>
+              ) : (
+                <select className="inp text-xs py-1 min-w-0" value={a.contract_request_id}
+                  onChange={(e) => handleCommitmentChange(a.id, e.target.value)}>
+                  <option value="">— select —</option>
+                  {channelCommitments.length === 0
+                    ? <option disabled value="">No open commitments</option>
+                    : channelCommitments.map((c) => {
+                        return <option key={c.id} value={c.id}>{Number(c.volume_bbl)} BBL</option>;
+                      })}
+                </select>
+              )}
+
+              {/* Partner — read-only from selected commitment */}
+              <span className={`text-xs truncate ${sel?.contract_brewing_partners ? "text-zinc-300" : "text-zinc-700"}`}>
+                {sel?.contract_brewing_partners?.company_name ?? (isTaproom ? "" : "—")}
+              </span>
+
+              {/* Submitted On — read-only from selected commitment */}
+              <span className={`text-xs truncate tabular-nums ${sel ? "text-zinc-400" : "text-zinc-700"}`}>
+                {sel
+                  ? fmtDateLong((sel.received_on ?? sel.created_at).slice(0, 10))
+                  : (isTaproom ? "" : "—")}
+              </span>
+
+              {/* Due date — read-only from selected commitment */}
+              <span className={`text-xs truncate ${sel?.desired_delivery_date ? "text-zinc-400" : "text-zinc-700"}`}>
+                {sel?.desired_delivery_date ? fmtDateLong(sel.desired_delivery_date) : (isTaproom ? "" : "—")}
+              </span>
+
+              {/* Percentage input */}
+              <div className="flex items-center gap-0.5">
+                <input type="number" step="0.1" min="0" max="100"
+                  className="inp w-full text-xs text-right py-1"
+                  placeholder="0" value={a.percentage}
+                  onChange={(e) => setAlloc(a.id, { percentage: e.target.value })} />
+                <span className="text-[10px] text-zinc-600 shrink-0">%</span>
+              </div>
+
+              {/* BBLs — computed from % × batch volume */}
+              <span className={`text-xs text-right tabular-nums pr-1 ${pct > 0 ? "text-zinc-300" : "text-zinc-700"}`}>
+                {pct > 0 && row.volume_bbl > 0 ? `${allocBbl.toFixed(1)}` : "—"}
+              </span>
+
+              {/* Remove */}
+              <button onClick={() => removeAlloc(a.id)}
+                className="text-zinc-700 hover:text-red-400 text-xs leading-none justify-self-center">✕</button>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Totals bar */}
       {allocs.length > 0 && (
         <div className="flex items-center gap-3">
           <div className="flex-1 h-1.5 rounded-full bg-zinc-800 overflow-hidden">
@@ -530,10 +486,10 @@ function AllocationsSection({
               style={{ width: `${Math.min(totalPct, 100)}%` }}
             />
           </div>
-          <span className={`text-xs whitespace-nowrap ${overAllocated ? "text-red-400" : "text-zinc-500"}`}>
-            {totalPct.toFixed(1)}% allocated
+          <span className={`text-xs whitespace-nowrap tabular-nums ${overAllocated ? "text-red-400" : "text-zinc-500"}`}>
+            {totalPct.toFixed(1)}% · {((totalPct / 100) * row.volume_bbl).toFixed(1)} BBL allocated
             {overAllocated && <span className="ml-1 text-red-400">⚠ exceeds 100%</span>}
-            {!overAllocated && remaining > 0.1 && <span className="ml-1 text-zinc-600">({remaining.toFixed(1)}% unallocated)</span>}
+            {!overAllocated && remaining > 0.1 && <span className="ml-1 text-zinc-600">({remaining.toFixed(1)}% → taproom)</span>}
           </span>
         </div>
       )}
@@ -569,10 +525,17 @@ export default function BatchSchedulerTab({
   const [activeId, setActiveId] = useState<string | null>(null);
   const [committing, setCommitting] = useState(false);
   const [suggesting, setSuggesting] = useState(false);
+  const [commitSuccess, setCommitSuccess] = useState<{
+    style: string;
+    batch_number: string | null;
+    brew_date: string;
+    stockout_date: string | null;
+    resolvedUrgency: boolean;
+  } | null>(null);
 
-  // Seed queue from fresh recommendations (preserve manual rows and user edits).
-  // Guard on `recs` being defined so the default `= []` trick doesn't create a new
-  // array reference every render and cause an infinite effect loop.
+  // Seed queue from recommendations and immediately fill allocations from commitments.
+  // Running both in one effect (with both as deps) means whichever loads second triggers
+  // the final hydration — no separate auto-fill pass needed.
   useEffect(() => {
     if (!recs) return;
     setQueue((prev) => {
@@ -582,27 +545,17 @@ export default function BatchSchedulerTab({
         const existing = prev.find((p) => p.id === fresh.id && !p.isManual);
         return existing ?? fresh;
       });
-      return [...merged, ...manuals];
-    });
-    setActiveId((prev) => prev ?? (recs.length > 0 ? toRow(recs[0]).id : null));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [recs]);
-
-  // Auto-fill allocations from commitments for any queue row that has none yet.
-  // Uses functional setQueue so commitments reference is stable and won't loop.
-  useEffect(() => {
-    if (!commitments.length) return;
-    setQueue((prev) => {
-      if (!prev.some((r) => r.allocations.length === 0)) return prev; // nothing to do
-      return prev.map((row) => {
-        if (row.allocations.length > 0) return row;
+      return [...merged, ...manuals].map((row) => {
+        if (row.allocations.length > 0) return row; // preserve user edits
         const relevant = commitments.filter(
           (c) => c.recipe_id === row.recipe_id && (c.status === "open" || c.status === "in_progress")
         );
-        return relevant.length ? { ...row, allocations: buildAutoAllocations(relevant, row.volume_bbl) } : row;
+        return { ...row, allocations: buildAutoAllocations(relevant, row.volume_bbl) };
       });
     });
-  }, [commitments]);
+    setActiveId((prev) => prev ?? (recs.length > 0 ? toRow(recs[0]).id : null));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recs, commitments]);
 
   const activeRow = useMemo(() => queue.find((r) => r.id === activeId) ?? queue[0] ?? null, [queue, activeId]);
 
@@ -719,6 +672,9 @@ export default function BatchSchedulerTab({
     setCommitting(true);
     try {
       const recipe = recipes.find((r) => r.id === row.recipe_id);
+
+      // expected_delivery_date is derived server-side from recipe lead time —
+      // no need to calculate it here.
       const batchRes = await fetch("/api/production/batches", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -734,8 +690,9 @@ export default function BatchSchedulerTab({
       if (!batchRes.ok) throw new Error((await batchRes.json()).error ?? "Failed to create batch");
       const batch = await batchRes.json();
 
+      // Save each schedule entry — check for errors so failures aren't silent
       for (const slot of row.equipment_sequence) {
-        await fetch("/api/production/batch-schedule", {
+        const schedRes = await fetch("/api/production/batch-schedule", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -746,31 +703,50 @@ export default function BatchSchedulerTab({
             planned_end: `${slot.scheduled_end}T00:00:00.000Z`,
           }),
         });
+        if (!schedRes.ok) {
+          const err = await schedRes.json();
+          throw new Error(`Failed to save ${slot.stage} schedule: ${err.error ?? "unknown error"}`);
+        }
       }
 
-      // POST pending allocations
-      const validAllocs = row.allocations.filter((a) => a.label && parseFloat(a.percentage) > 0);
+      // POST pending allocations — check for errors
+      const validAllocs = row.allocations.filter((a) => parseFloat(a.percentage) > 0);
       for (const a of validAllocs) {
-        await fetch("/api/production/allocations", {
+        const allocRes = await fetch("/api/production/allocations", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             batch_id: batch.id,
             channel: a.channel,
-            label: a.label,
             percentage: parseFloat(a.percentage),
             partner_id: a.partner_id || null,
             contract_request_id: a.contract_request_id || null,
             notes: a.notes || null,
           }),
         });
+        if (!allocRes.ok) {
+          const err = await allocRes.json();
+          throw new Error(`Failed to save allocation: ${err.error ?? "unknown error"}`);
+        }
       }
 
-      // Remove committed row, refresh data so next batch adjusts
+      // Show success banner with batch number from the API response
+      setCommitSuccess({
+        style: row.style,
+        batch_number: batch.batch_number ?? null,
+        brew_date: row.brew_date,
+        stockout_date: row.stockout_date,
+        resolvedUrgency: !row.isManual && !!row.stockout_date,
+      });
+
+      // Remove committed row, refresh scheduler + schedule entries.
+      // The demand calendar will naturally resolve because expected_delivery_date
+      // is now set on the new batch — no need to force-invalidate it here.
       removeRow(row.id);
       await Promise.all([
         refetch(),
         qc.invalidateQueries({ queryKey: ["production", "batch-schedule"] }),
+        qc.invalidateQueries({ queryKey: ["production", "batches"] }),
       ]);
       onBatchCommitted?.();
     } catch (e) {
@@ -780,11 +756,6 @@ export default function BatchSchedulerTab({
     }
   }
 
-  const leadTimeDays = useMemo(() => {
-    if (!activeRow?.recipe_id) return 0;
-    const r = recipes.find((x) => x.id === activeRow.recipe_id);
-    return (r?.days_brewhouse ?? 0) + (r?.days_fermenter ?? 0) + (r?.days_brite ?? 0);
-  }, [activeRow?.recipe_id, recipes]);
 
   if (loading) return <p className="text-zinc-600 text-sm py-10 text-center">Loading recommendations…</p>;
   if (error) return <p className="text-sm text-red-400 py-6">{error instanceof Error ? error.message : "Error"}</p>;
@@ -805,6 +776,32 @@ export default function BatchSchedulerTab({
           </button>
         </div>
       </div>
+
+      {/* Success banner */}
+      {commitSuccess && (
+        <div className="flex items-start gap-3 rounded-lg border border-green-700/50 bg-green-900/20 px-4 py-3">
+          <span className="text-green-400 text-base leading-none mt-0.5">✓</span>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-green-300">
+              Batch committed —{" "}
+              {commitSuccess.batch_number && (
+                <span className="font-mono text-green-400 mr-1">#{commitSuccess.batch_number}</span>
+              )}
+              <span className="font-semibold">{commitSuccess.style}</span>
+              {" "}brewing {fmtDateLong(commitSuccess.brew_date)}
+            </p>
+            {commitSuccess.resolvedUrgency && commitSuccess.stockout_date && (
+              <p className="text-xs text-green-500/80 mt-0.5">
+                Addresses projected stockout on {fmtDateLong(commitSuccess.stockout_date)}. Demand calendar will update shortly.
+              </p>
+            )}
+          </div>
+          <button
+            onClick={() => setCommitSuccess(null)}
+            className="text-green-600 hover:text-green-400 text-xs leading-none shrink-0"
+          >✕</button>
+        </div>
+      )}
 
       {/* Queue strip */}
       {queue.length > 0 && (
@@ -845,6 +842,11 @@ export default function BatchSchedulerTab({
             {activeRow.demand_bbl > 0 && (
               <span className="text-xs text-zinc-500">{activeRow.demand_bbl.toFixed(1)} BBL demand</span>
             )}
+            {!activeRow.isManual && activeRow.stockout_date && (
+              <span className="ml-auto text-xs text-emerald-500/80 flex items-center gap-1">
+                <span>↳ committing will address this stockout</span>
+              </span>
+            )}
           </div>
 
           <div className="p-4 space-y-6">
@@ -859,7 +861,11 @@ export default function BatchSchedulerTab({
                       value={activeRow.recipe_id}
                       onChange={(e) => {
                         const r = recipes.find((x) => x.id === e.target.value);
-                        const updated = { ...activeRow, recipe_id: e.target.value, style: r?.beer_name ?? activeRow.style, volume_bbl: (r?.expected_yield_bbl ?? 0) * activeRow.turns };
+                        const newVol = (r?.expected_yield_bbl ?? 0) * activeRow.turns;
+                        const relevant = commitments.filter(
+                          (c) => c.recipe_id === e.target.value && (c.status === "open" || c.status === "in_progress")
+                        );
+                        const updated = { ...activeRow, recipe_id: e.target.value, style: r?.beer_name ?? activeRow.style, volume_bbl: newVol, allocations: buildAutoAllocations(relevant, newVol) };
                         updateRow(updated);
                         suggestEquipment(updated);
                       }}
@@ -876,7 +882,13 @@ export default function BatchSchedulerTab({
                     onChange={(e) => {
                       const t = Math.min(4, Math.max(1, parseInt(e.target.value) || 1));
                       const r = recipes.find((x) => x.id === activeRow.recipe_id);
-                      const updated = { ...activeRow, turns: t, volume_bbl: r?.expected_yield_bbl ? t * r.expected_yield_bbl : activeRow.volume_bbl };
+                      const newVol = r?.expected_yield_bbl ? t * r.expected_yield_bbl : activeRow.volume_bbl;
+                      // Recalculate allocation percentages against the new volume
+                      const relevant = commitments.filter(
+                        (c) => c.recipe_id === activeRow.recipe_id && (c.status === "open" || c.status === "in_progress")
+                      );
+                      const newAllocs = buildAutoAllocations(relevant, newVol);
+                      const updated = { ...activeRow, turns: t, volume_bbl: newVol, allocations: newAllocs };
                       updateRow(updated);
                       if (updated.recipe_id) suggestEquipment(updated);
                     }}
@@ -907,27 +919,13 @@ export default function BatchSchedulerTab({
               )}
             </div>
 
-            {/* Demand fulfillment */}
-            <div>
-              <p className="text-xs font-medium text-zinc-500 mb-3">Demand This Batch Fulfills</p>
-              <DemandSection
-                recipeId={activeRow.recipe_id}
-                volumeBbl={activeRow.volume_bbl}
-                commitments={commitments}
-                brewDate={activeRow.brew_date}
-                leadTimeDays={leadTimeDays}
-              />
-            </div>
-
-            {/* Allocations */}
-            <div>
-              <AllocationsSection
-                row={activeRow}
-                commitments={commitments}
-                partners={partners}
-                onChange={updateRow}
-              />
-            </div>
+            {/* Unified allocation plan */}
+            <AllocationPlanSection
+              row={activeRow}
+              commitments={commitments}
+              partners={partners}
+              onChange={updateRow}
+            />
 
             {/* Equipment schedule */}
             <EquipmentSection
@@ -958,6 +956,11 @@ export default function BatchSchedulerTab({
                     )}
                     {overAllocated && (
                       <span className="text-xs text-red-400">Allocations exceed 100% — reduce before committing</span>
+                    )}
+                    {!hasConflict && !overAllocated && !activeRow.isManual && activeRow.stockout_date && (
+                      <span className="text-xs text-emerald-500/70">
+                        Will resolve {fmtDateLong(activeRow.stockout_date)} stockout
+                      </span>
                     )}
                     <button
                       onClick={() => commitBatch(activeRow)}

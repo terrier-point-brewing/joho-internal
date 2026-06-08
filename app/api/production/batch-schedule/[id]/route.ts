@@ -4,7 +4,7 @@ import { supabase } from "@/lib/supabase/client";
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const body = await req.json();
-  const { equipment_id, stage, planned_start, planned_end, actual_start, actual_end, notes } = body;
+  const { equipment_id, stage, planned_start, planned_end, actual_start, actual_end, notes, cancelled_at, cancellation_reason } = body;
 
   const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (equipment_id !== undefined) updates.equipment_id = equipment_id;
@@ -14,6 +14,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (actual_start !== undefined) updates.actual_start = actual_start;
   if (actual_end !== undefined) updates.actual_end = actual_end;
   if (notes !== undefined) updates.notes = notes;
+  if (cancelled_at !== undefined) updates.cancelled_at = cancelled_at;
+  if (cancellation_reason !== undefined) updates.cancellation_reason = cancellation_reason;
 
   const { data, error } = await supabase
     .from("batch_schedule_entries")
