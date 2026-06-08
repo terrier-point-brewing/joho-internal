@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useSearchParams, useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
+import { useUserRole } from "@/lib/hooks/useUserRole";
 
 const TAPROOM_TABS = [
   { key: "performance", label: "Performance" },
@@ -28,6 +29,9 @@ export default function NavBar() {
   const activeTab    = searchParams.get("tab") ?? "";
   const router       = useRouter();
 
+  const { role } = useUserRole();
+  const isAdmin = role === "admin";
+
   const [collapsed, setCollapsed] = useState(() => {
     if (typeof window === "undefined") return false;
     return localStorage.getItem(STORAGE_KEY) === "true";
@@ -50,6 +54,7 @@ export default function NavBar() {
   const isProduction = pathname === "/production" || pathname.startsWith("/production/");
   const isTaproom    = pathname === "/taproom"    || pathname.startsWith("/taproom/") ||
                        pathname === "/reports"    || pathname.startsWith("/reports/");
+  const isFinance    = pathname === "/finance"    || pathname.startsWith("/finance/");
 
   const subtabCls = (active: boolean) =>
     `px-2 py-1.5 rounded text-xs font-medium transition-colors ${
@@ -143,6 +148,20 @@ export default function NavBar() {
             </div>
           )}
 
+          {/* Finance (admin only) */}
+          {isAdmin && (
+            <Link
+              href="/finance/pl"
+              className={`px-3 py-2 rounded text-sm font-medium transition-colors mt-2 ${
+                isFinance
+                  ? "bg-zinc-800 text-zinc-100"
+                  : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50"
+              }`}
+            >
+              Finance
+            </Link>
+          )}
+
           {/* Settings (admin) */}
           <Link
             href="/settings/users"
@@ -184,6 +203,21 @@ export default function NavBar() {
               <path d="M5 11V8h4v3" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
             </svg>
           </Link>
+          {isAdmin && (
+            <Link
+              href="/finance/pl"
+              title="Finance"
+              className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${
+                isFinance ? "bg-zinc-800 text-amber-400" : "text-zinc-600 hover:text-zinc-300 hover:bg-zinc-800/50"
+              }`}
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <rect x="1" y="4" width="12" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.4"/>
+                <path d="M4 4V3a2 2 0 014 0v1" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+                <path d="M7 7.5v1M5.5 8.5h3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+              </svg>
+            </Link>
+          )}
           <Link
             href="/settings/users"
             title="Settings"
