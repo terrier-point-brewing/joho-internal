@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format, parseISO, addDays, differenceInDays } from "date-fns";
-import { Recipe, Equipment, ContractBrewingRequest, AllocationChannel } from "../../types";
+import { Recipe, Equipment, ContractBrewingRequest, AllocationChannel, leadTimeDays } from "../../types";
 import { fmtDateLong } from "@/lib/utils/formatting";
 import { Field } from "../shared";
 import { fetchJson, useBatchScheduleQuery, type ScheduleEntry } from "../../hooks/queries";
@@ -34,6 +34,7 @@ interface SchedulerRow {
   turns: number;
   volume_bbl: number;
   brew_date: string;
+  expected_delivery_date: string;
   notes: string;
   equipment_sequence: EditableSlot[];
   allocations: PendingAllocation[];
@@ -55,6 +56,13 @@ function buildAutoAllocations(relevant: ContractBrewingRequest[], volumeBbl: num
 }
 
 const STAGE_LABELS: Record<string, string> = { brewhouse: "Brewhouse", fermenter: "Fermenter", brite: "Brite Tank" };
+
+function calcDeliveryDate(brewDate: string, recipe: Recipe | undefined): string {
+  if (!brewDate || !recipe) return "";
+  const lead = leadTimeDays(recipe);
+  if (lead <= 0) return "";
+  return addDays(parseISO(brewDate), lead).toISOString().slice(0, 10);
+}
 const STAGE_COLORS: Record<string, string> = {
   brewhouse: "bg-amber-900/50 text-amber-300 border-amber-700",
   fermenter: "bg-blue-900/50 text-blue-300 border-blue-700",
@@ -94,6 +102,7 @@ function toRow(rec: SchedulerRecommendation): SchedulerRow {
     turns: rec.recommended_turns,
     volume_bbl: rec.recommended_volume_bbl,
     brew_date: rec.recommended_brew_date,
+    expected_delivery_date: "",
     notes: "",
     equipment_sequence: rec.equipment_sequence
       .filter((s): s is typeof s & { stage: "brewhouse" | "fermenter" | "brite" } =>
@@ -546,11 +555,13 @@ export default function BatchSchedulerTab({
         return existing ?? fresh;
       });
       return [...merged, ...manuals].map((row) => {
-        if (row.allocations.length > 0) return row; // preserve user edits
+        const recipe = recipes.find((r) => r.id === row.recipe_id);
+        const delivery = row.expected_delivery_date || calcDeliveryDate(row.brew_date, recipe);
+        if (row.allocations.length > 0) return { ...row, expected_delivery_date: delivery };
         const relevant = commitments.filter(
           (c) => c.recipe_id === row.recipe_id && (c.status === "open" || c.status === "in_progress")
         );
-        return { ...row, allocations: buildAutoAllocations(relevant, row.volume_bbl) };
+        return { ...row, expected_delivery_date: delivery, allocations: buildAutoAllocations(relevant, row.volume_bbl) };
       });
     });
     setActiveId((prev) => prev ?? (recs.length > 0 ? toRow(recs[0]).id : null));
@@ -606,6 +617,7 @@ export default function BatchSchedulerTab({
       turns: 1,
       volume_bbl: 0,
       brew_date: today,
+      expected_delivery_date: "",
       notes: "",
       equipment_sequence: [],
       allocations: [],
@@ -637,9 +649,11 @@ export default function BatchSchedulerTab({
         recommended_volume_bbl: number;
         equipment_sequence: { stage: "brewhouse" | "fermenter" | "brite"; equipment_id: string; equipment_name: string; scheduled_start: string; scheduled_end: string }[];
       };
+      const recipe = recipes.find((r) => r.id === row.recipe_id);
       updateRow({
         ...row,
         brew_date: result.recommended_brew_date,
+        expected_delivery_date: calcDeliveryDate(result.recommended_brew_date, recipe),
         turns: result.recommended_turns,
         volume_bbl: result.recommended_volume_bbl,
         equipment_sequence: result.equipment_sequence.map((s) => ({
@@ -673,8 +687,6 @@ export default function BatchSchedulerTab({
     try {
       const recipe = recipes.find((r) => r.id === row.recipe_id);
 
-      // expected_delivery_date is derived server-side from recipe lead time —
-      // no need to calculate it here.
       const batchRes = await fetch("/api/production/batches", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -682,6 +694,7 @@ export default function BatchSchedulerTab({
           recipe_id: row.recipe_id,
           beer_name: recipe?.beer_name ?? row.style,
           planned_brew_date: row.brew_date,
+          expected_delivery_date: row.expected_delivery_date || null,
           volume_bbl: row.volume_bbl,
           turns: row.turns,
           notes: row.notes || null,
@@ -865,7 +878,7 @@ export default function BatchSchedulerTab({
                         const relevant = commitments.filter(
                           (c) => c.recipe_id === e.target.value && (c.status === "open" || c.status === "in_progress")
                         );
-                        const updated = { ...activeRow, recipe_id: e.target.value, style: r?.beer_name ?? activeRow.style, volume_bbl: newVol, allocations: buildAutoAllocations(relevant, newVol) };
+                        const updated = { ...activeRow, recipe_id: e.target.value, style: r?.beer_name ?? activeRow.style, volume_bbl: newVol, expected_delivery_date: calcDeliveryDate(activeRow.brew_date, r), allocations: buildAutoAllocations(relevant, newVol) };
                         updateRow(updated);
                         suggestEquipment(updated);
                       }}
@@ -900,8 +913,22 @@ export default function BatchSchedulerTab({
                 <Field label="Brew Date" required>
                   <input
                     type="date" className="inp" value={activeRow.brew_date}
-                    onChange={(e) => updateRow({ ...activeRow, brew_date: e.target.value })}
+                    onChange={(e) => {
+                      const recipe = recipes.find((r) => r.id === activeRow.recipe_id);
+                      updateRow({ ...activeRow, brew_date: e.target.value, expected_delivery_date: calcDeliveryDate(e.target.value, recipe) });
+                    }}
                   />
+                </Field>
+                <Field label="Expected Delivery">
+                  <input
+                    type="date" className="inp" value={activeRow.expected_delivery_date}
+                    onChange={(e) => updateRow({ ...activeRow, expected_delivery_date: e.target.value })}
+                  />
+                  {(() => {
+                    const recipe = recipes.find((r) => r.id === activeRow.recipe_id);
+                    const lead = recipe ? leadTimeDays(recipe) : 0;
+                    return lead > 0 ? <p className="text-xs text-zinc-600 mt-1">Auto from recipe: {lead}d lead</p> : null;
+                  })()}
                 </Field>
                 <Field label="Notes">
                   <input className="inp" value={activeRow.notes}

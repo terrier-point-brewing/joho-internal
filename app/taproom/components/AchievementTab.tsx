@@ -229,31 +229,41 @@ export default function AchievementTab() {
   // ---------------------------------------------------------------------------
 
   const now = toISO(today);
-  const completedPeriods    = periods.filter((p) => p.net_sales_cents !== null);
-  const avgDollarsPerPeriod = completedPeriods.length > 0 ? (actualCents / completedPeriods.length) / 100 : 0;
-  const lastActualIdx       = periods.reduce<number>((last, p, i) => (p.net_sales_cents !== null ? i : last), -1);
+  // Only fully-elapsed periods count toward the actuals average; the current in-progress
+  // week is partial data and would pull the average down if included.
+  const completedPeriods    = periods.filter((p) => p.end <= now && p.net_sales_cents !== null);
+  const completedActualCents = completedPeriods.reduce((s, p) => s + (p.net_sales_cents ?? 0), 0);
+  const avgDollarsPerPeriod = completedPeriods.length > 0 ? (completedActualCents / completedPeriods.length) / 100 : 0;
+  const lastCompletedIdx    = periods.reduce<number>((last, p, i) => (p.end <= now && p.net_sales_cents !== null ? i : last), -1);
 
   const chartData = periods.map((p, i) => {
-    const isStarted        = p.start <= now;
+    const isComplete       = p.end <= now;
+    const isInProgress     = p.start <= now && !isComplete;
     const dollars          = p.net_sales_cents !== null ? p.net_sales_cents / 100 : null;
-    const cumActualDollars = periods.slice(0, i + 1).reduce((s, x) => s + (x.net_sales_cents !== null ? x.net_sales_cents / 100 : 0), 0);
+    // Cumulative sum of completed periods only (no partial weeks in the solid line)
+    const cumCompletedDollars = periods.slice(0, i + 1).reduce(
+      (s, x) => s + (x.end <= now && x.net_sales_cents !== null ? x.net_sales_cents / 100 : 0), 0
+    );
 
+    // Dashed forecast covers the in-progress week and all future weeks
     const forecastPerPeriod: number | undefined =
-      !isStarted && avgDollarsPerPeriod > 0 ? Math.round(avgDollarsPerPeriod) : undefined;
+      !isComplete && avgDollarsPerPeriod > 0 ? Math.round(avgDollarsPerPeriod) : undefined;
 
     let forecastCumulative: number | undefined;
-    if (i === lastActualIdx && lastActualIdx >= 0) {
-      forecastCumulative = Math.round(cumActualDollars);
-    } else if (i > lastActualIdx && lastActualIdx >= 0 && avgDollarsPerPeriod > 0) {
-      forecastCumulative = Math.round(actualCents / 100 + (i - lastActualIdx) * avgDollarsPerPeriod);
+    if (i === lastCompletedIdx && lastCompletedIdx >= 0) {
+      forecastCumulative = Math.round(cumCompletedDollars);
+    } else if (i > lastCompletedIdx && lastCompletedIdx >= 0 && avgDollarsPerPeriod > 0) {
+      forecastCumulative = Math.round(completedActualCents / 100 + (i - lastCompletedIdx) * avgDollarsPerPeriod);
     }
 
     return {
       name:             p.shortLabel,
-      "Net Sales":      isStarted && dollars !== null ? Math.round(dollars) : undefined,
+      // Solid lines: completed periods only
+      "Net Sales":      isComplete && dollars !== null ? Math.round(dollars) : undefined,
       "Forecast":       forecastPerPeriod,
-      "Cumulative":     isStarted ? Math.round(cumActualDollars) : undefined,
+      "Cumulative":     isComplete ? Math.round(cumCompletedDollars) : undefined,
       "Forecast Total": forecastCumulative,
+      _isInProgress:    isInProgress,
     };
   });
 
@@ -521,7 +531,8 @@ export default function AchievementTab() {
         </thead>
         <tbody>
           {periods.map((p) => {
-            const isFuture   = p.start > now;
+            const isFuture     = p.start > now;
+            const isInProgress = p.start <= now && p.end > now;
             // For future periods, use the avg per-period forecast as a projected value
             const displayCents: number | null = isFuture
               ? (avgDollarsPerPeriod > 0 ? Math.round(avgDollarsPerPeriod * 100) : null)
@@ -544,6 +555,9 @@ export default function AchievementTab() {
                   {isFuture && (
                     <span className="ml-2 text-xs text-zinc-600 italic">proj.</span>
                   )}
+                  {isInProgress && (
+                    <span className="ml-2 text-xs text-amber-600 italic">in progress</span>
+                  )}
                 </td>
                 <td className="py-2 pr-6 text-right font-mono">
                   {p.loading ? (
@@ -552,6 +566,8 @@ export default function AchievementTab() {
                     displayCents !== null
                       ? <span className="text-zinc-500 italic">{currency(displayCents)}</span>
                       : <span className="text-zinc-700">—</span>
+                  ) : isInProgress && p.net_sales_cents !== null ? (
+                    <span className="text-zinc-400 italic">{currency(p.net_sales_cents)}</span>
                   ) : p.net_sales_cents !== null ? (
                     currency(p.net_sales_cents)
                   ) : (
@@ -561,7 +577,7 @@ export default function AchievementTab() {
                 {targetCents !== null && (
                   <>
                     <td className={`py-2 pr-4 text-right font-mono ${
-                      isFuture       ? "text-zinc-600 italic"
+                      isFuture || isInProgress ? "text-zinc-600 italic"
                       : actualPct === null ? "text-zinc-600"
                       : ahead            ? "text-green-400"
                       : "text-red-400"
@@ -569,12 +585,12 @@ export default function AchievementTab() {
                       {actualPct !== null ? pct(actualPct) : "—"}
                     </td>
                     <td className={`py-2 text-right font-mono text-xs ${
-                      isFuture        ? "text-zinc-700"
+                      isFuture || isInProgress ? "text-zinc-700"
                       : variance === null ? "text-zinc-600"
                       : ahead             ? "text-green-500"
                       : "text-red-500"
                     }`}>
-                      {!isFuture && variance !== null
+                      {!isFuture && !isInProgress && variance !== null
                         ? `${variance >= 0 ? "+" : ""}${pct(variance)}`
                         : "—"}
                     </td>

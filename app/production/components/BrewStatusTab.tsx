@@ -254,7 +254,22 @@ export default function BrewStatusTab() {
   const eqCrud = useEquipmentCrud(onRefresh);
   const assign = useBatchAssign(unassignedBatches, onRefresh);
 
-  const cell = CELL; // could wire to a slider later
+  const cell = CELL;
+
+  // Scale the grid to fit the available container dimensions.
+  const scaleContainerRef = useRef<HTMLDivElement>(null);
+  const [gridScale, setGridScale] = useState(1);
+  useEffect(() => {
+    const el = scaleContainerRef.current;
+    if (!el) return;
+    const obs = new ResizeObserver(([entry]) => {
+      const { width } = entry.contentRect;
+      const naturalW = gridCols * cell;
+      setGridScale(width / naturalW);
+    });
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [gridCols, gridRows, cell]);
 
   return (
     <>
@@ -362,24 +377,25 @@ export default function BrewStatusTab() {
         </div>
       )}
 
-      {/* Grid — frame always matches grid size exactly; page scrolls if needed, no internal scrollbar */}
-      <div className="rounded-lg border border-zinc-800 mb-6 overflow-hidden" style={{ width: gridCols * cell, height: gridRows * cell }}>
-        <div
-          ref={gridRef}
-          className="relative"
-          style={{
-            width:  gridCols * cell,
-            height: gridRows * cell,
-            backgroundImage: [
-              `linear-gradient(to right, rgba(63,63,70,0.22) 1px, transparent 1px)`,
-              `linear-gradient(to bottom, rgba(63,63,70,0.22) 1px, transparent 1px)`,
-            ].join(","),
-            backgroundSize: `${cell}px ${cell}px`,
-          }}
-          onDragOver={editMode ? onGridDragOver : undefined}
-          onDrop={editMode ? onGridDrop : undefined}
-          onDragLeave={() => clearDrag()}
-        >
+      {/* Grid — scales to fit available width/height */}
+      <div ref={scaleContainerRef} className="w-full mb-6" style={{ height: gridRows * cell * gridScale }}>
+        <div className="rounded-lg border border-zinc-800 overflow-hidden origin-top-left" style={{ width: gridCols * cell, height: gridRows * cell, transform: `scale(${gridScale})`, transformOrigin: "top left" }}>
+          <div
+            ref={gridRef}
+            className="relative"
+            style={{
+              width:  gridCols * cell,
+              height: gridRows * cell,
+              backgroundImage: [
+                `linear-gradient(to right, rgba(63,63,70,0.22) 1px, transparent 1px)`,
+                `linear-gradient(to bottom, rgba(63,63,70,0.22) 1px, transparent 1px)`,
+              ].join(","),
+              backgroundSize: `${cell}px ${cell}px`,
+            }}
+            onDragOver={editMode ? onGridDragOver : undefined}
+            onDrop={editMode ? onGridDrop : undefined}
+            onDragLeave={() => clearDrag()}
+          >
           {placed.map((tank) => {
             const eq          = EQ[tank.type];
             if (!eq) return null;
@@ -451,7 +467,7 @@ export default function BrewStatusTab() {
                             <button
                               onClick={() => { setBatchForm(BATCH_EMPTY); setShowNewBatch(true); }}
                               onMouseDown={(e) => e.stopPropagation()}
-                              className="text-amber-600 hover:text-amber-400 border border-amber-900 hover:border-amber-700 px-1.5 rounded transition-colors"
+                              className="w-full text-amber-600 hover:text-amber-400 border border-amber-900 hover:border-amber-700 px-1.5 rounded transition-colors"
                               style={{ fontSize: 9 }}
                             >
                               + New Batch
@@ -549,7 +565,7 @@ export default function BrewStatusTab() {
                                 <button
                                   onClick={() => { setTransferTankId(tank.id); setTransferFromVol(ledgerVol); }}
                                   onMouseDown={(e) => e.stopPropagation()}
-                                  className="text-amber-700 hover:text-amber-400 border border-amber-900 hover:border-amber-700 px-1.5 rounded transition-colors"
+                                  className="w-full text-amber-700 hover:text-amber-400 border border-amber-900 hover:border-amber-700 px-1.5 rounded transition-colors"
                                   style={{ fontSize: 9 }}
                                 >
                                   Transfer
@@ -560,28 +576,33 @@ export default function BrewStatusTab() {
                         ) : (() => {
                           const nextPlanned = nextPlannedByTank.get(tank.id);
                           return (
-                          <div className="flex-1 flex flex-col gap-0.5 justify-center">
-                            <p className="text-zinc-700 text-center" style={{ fontSize: 9 }}>Empty</p>
-                            {nextPlanned && nextPlanned.brew_batches && (
-                              <div className="mt-0.5 px-1 py-0.5 rounded bg-zinc-800/60 border border-zinc-700/50">
-                                <p className="text-zinc-500 font-semibold uppercase tracking-wide" style={{ fontSize: 7 }}>Next planned</p>
-                                <p className="text-zinc-300 font-medium truncate" style={{ fontSize: 8 }}>
-                                  #{nextPlanned.brew_batches.batch_number} {nextPlanned.brew_batches.beer_name}
-                                </p>
-                                <p className="text-zinc-600" style={{ fontSize: 7 }}>
-                                  {nextPlanned.planned_start.slice(0, 10)} · {nextPlanned.brew_batches.volume_bbl} BBL
-                                </p>
-                              </div>
-                            )}
+                          <div className="flex-1 flex flex-col min-h-0">
+                            <div className="flex-1 flex flex-col items-center justify-center gap-0.5">
+                              {nextPlanned && nextPlanned.brew_batches ? (
+                                <div className="px-1 py-0.5 rounded bg-zinc-800/60 border border-zinc-700/50 w-full">
+                                  <p className="text-zinc-500 font-semibold uppercase tracking-wide" style={{ fontSize: 7 }}>Next planned</p>
+                                  <p className="text-zinc-300 font-medium truncate" style={{ fontSize: 8 }}>
+                                    #{nextPlanned.brew_batches.batch_number} {nextPlanned.brew_batches.beer_name}
+                                  </p>
+                                  <p className="text-zinc-600" style={{ fontSize: 7 }}>
+                                    {nextPlanned.planned_start.slice(0, 10)} · {nextPlanned.brew_batches.volume_bbl} BBL
+                                  </p>
+                                </div>
+                              ) : (
+                                <p className="text-zinc-700 text-center" style={{ fontSize: 9 }}>Empty</p>
+                              )}
+                            </div>
                             {!editMode && tank.type === "brewhouse" && unassignedBatches.length > 0 && (
-                              <button
-                                onClick={() => assign.openAssign(tank.id)}
-                                onMouseDown={(e) => e.stopPropagation()}
-                                className="text-amber-600 hover:text-amber-400 border border-amber-900 hover:border-amber-700 px-1.5 rounded transition-colors mt-0.5"
-                                style={{ fontSize: 9 }}
-                              >
-                                Assign
-                              </button>
+                              <div className="mt-auto pt-1">
+                                <button
+                                  onClick={() => assign.openAssign(tank.id)}
+                                  onMouseDown={(e) => e.stopPropagation()}
+                                  className="w-full text-amber-600 hover:text-amber-400 border border-amber-900 hover:border-amber-700 px-1.5 rounded transition-colors"
+                                  style={{ fontSize: 9 }}
+                                >
+                                  Assign
+                                </button>
+                              </div>
                             )}
                           </div>
                           );
@@ -658,15 +679,17 @@ export default function BrewStatusTab() {
 
                                   {/* One-click transfer to cold storage */}
                                   {!editMode && incoming && (
-                                    <button
-                                      onClick={() => handleSendToColdStorage(b.id, tank.id, incoming)}
-                                      onMouseDown={(e) => e.stopPropagation()}
-                                      disabled={pkgTransferring.has(b.id)}
-                                      className="self-start text-amber-700 hover:text-amber-400 border border-amber-900 hover:border-amber-700 px-1.5 rounded transition-colors mt-0.5 disabled:opacity-40"
-                                      style={{ fontSize: 9 }}
-                                    >
-                                      {pkgTransferring.has(b.id) ? "…" : "Transfer"}
-                                    </button>
+                                    <div className="mt-auto pt-1">
+                                      <button
+                                        onClick={() => handleSendToColdStorage(b.id, tank.id, incoming)}
+                                        onMouseDown={(e) => e.stopPropagation()}
+                                        disabled={pkgTransferring.has(b.id)}
+                                        className="w-full text-amber-700 hover:text-amber-400 border border-amber-900 hover:border-amber-700 px-1.5 rounded transition-colors disabled:opacity-40"
+                                        style={{ fontSize: 9 }}
+                                      >
+                                        {pkgTransferring.has(b.id) ? "…" : "Transfer"}
+                                      </button>
+                                    </div>
                                   )}
                                 </div>
                               );
@@ -708,6 +731,7 @@ export default function BrewStatusTab() {
               }}
             />
           )}
+          </div>
         </div>
       </div>
 
