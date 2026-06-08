@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase/client";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export async function GET() {
+  const supabase = await createSupabaseServerClient();
+
   const { data, error } = await supabase
     .from("ingredients")
     .select("*, suppliers(company_name), contract_brewing_partners(company_name)")
@@ -12,6 +14,8 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  const supabase = await createSupabaseServerClient();
+
   const body = await req.json();
   const { name, category, supplier_id, partner_id, unit, cost_per_unit, stock_quantity } = body;
 

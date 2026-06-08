@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase/client";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { IngredientCategory, INGREDIENT_CATEGORIES } from "@/app/production/types";
 
 interface BulkRow {
@@ -16,6 +16,8 @@ interface BulkRow {
  * Inserts all rows and returns { inserted, errors }.
  */
 export async function POST(req: NextRequest) {
+  const supabase = await createSupabaseServerClient();
+
   const body = await req.json();
   const rows: BulkRow[] = body.rows;
 

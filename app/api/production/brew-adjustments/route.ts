@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase/client";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export async function GET(req: NextRequest) {
+  const supabase = await createSupabaseServerClient();
+
   const transfer_id = req.nextUrl.searchParams.get("batch_transfer_id");
   let query = supabase
     .from("brew_inventory_adjustments")
@@ -15,6 +17,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const supabase = await createSupabaseServerClient();
+
   const body = await req.json();
   const { batch_transfer_id, type, quantity: rawQty, note, new_total, initial_qty, product_label, product_type, unit } = body;
   if (!batch_transfer_id || !type) {

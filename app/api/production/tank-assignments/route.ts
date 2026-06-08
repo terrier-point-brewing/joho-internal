@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase/client";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { EQUIPMENT_TYPE_TO_STATUS, EquipmentType } from "@/app/production/types";
 
 export async function GET() {
+  const supabase = await createSupabaseServerClient();
+
   const { data, error } = await supabase
     .from("batch_tank_assignments")
     .select("*, brew_batches(id, beer_name, batch_number, status, volume_bbl)")
@@ -14,6 +16,8 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  const supabase = await createSupabaseServerClient();
+
   const body = await req.json();
   const { batch_id, tank_id, notes } = body;
 

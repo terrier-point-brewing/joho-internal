@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase/client";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { apiError } from "@/lib/utils/api";
 
 export async function GET() {
+  const supabase = await createSupabaseServerClient();
+
   try {
     const { data, error } = await supabase
       .from("quarterly_targets")
@@ -18,6 +20,8 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  const supabase = await createSupabaseServerClient();
+
   try {
     const { year, quarter, tier, target_cents } = await req.json();
     if (!year || !quarter || !tier || target_cents == null) {

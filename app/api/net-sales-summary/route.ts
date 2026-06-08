@@ -7,11 +7,13 @@ import { fetchRefunds } from "@/lib/square/refunds";
 import { buildTaproomModelReport } from "@/lib/reports/taproom-model";
 import { TAPROOM_MODEL_CATEGORIES } from "@/lib/constants/categories";
 import { requireDateRange, apiError } from "@/lib/utils/api";
-import { supabase } from "@/lib/supabase/client";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const EXCLUDED_CATEGORY_IDS = new Set(["CO2", "OTHER"]);
 
 export async function GET(req: NextRequest) {
+  const supabase = await createSupabaseServerClient();
+
   const range = requireDateRange(req);
   if (range instanceof NextResponse) return range;
   const { start, end } = range;

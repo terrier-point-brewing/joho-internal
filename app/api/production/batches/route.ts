@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase/client";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSquareProject } from "@/lib/square/projects";
 
 export async function GET() {
+  const supabase = await createSupabaseServerClient();
+
   const { data, error } = await supabase
     .from("brew_batches")
-    .select("*, recipes(beer_name, brewery, brew_time_weeks, expected_yield_bbl), batch_status_history(*), planned_allocations(*), batch_brew_activity_log(*)")
+    .select("*, recipes(beer_name, brewery, brew_time_weeks, expected_yield_bbl), batch_status_history(*), batch_brew_activity_log(*)")
     .order("planned_brew_date", { ascending: false });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -13,6 +15,8 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  const supabase = await createSupabaseServerClient();
+
   const body = await req.json();
   const { beer_name, planned_brew_date, expected_delivery_date, volume_bbl, turns, status = "planning", notes, recipe_id } = body;
 
@@ -71,12 +75,13 @@ export async function POST(req: NextRequest) {
   if (templates && templates.length > 0) {
     await supabase.from("batch_brew_activity_log").insert(
       templates.map((t: {
-        sort_order: number; activity: string; time_label: string | null;
+        id: string; sort_order: number; activity: string; time_label: string | null;
         temp: number | null; temp_unit?: string | null;
         amount: number | null; amount_unit?: string | null;
         vsp?: number | null;
       }) => ({
         batch_id:    batch.id,
+        template_id: t.id,
         sort_order:  t.sort_order,
         activity:    t.activity,
         time_label:  t.time_label,
@@ -133,7 +138,7 @@ export async function POST(req: NextRequest) {
 
   const { data, error } = await supabase
     .from("brew_batches")
-    .select("*, recipes(beer_name, brewery, brew_time_weeks, expected_yield_bbl), batch_status_history(*), planned_allocations(*), batch_brew_activity_log(*)")
+    .select("*, recipes(beer_name, brewery, brew_time_weeks, expected_yield_bbl), batch_status_history(*), batch_brew_activity_log(*)")
     .eq("id", batch.id)
     .single();
 

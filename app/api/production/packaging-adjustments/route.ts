@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase/client";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export async function GET(req: NextRequest) {
+  const supabase = await createSupabaseServerClient();
+
   const item_id = req.nextUrl.searchParams.get("packaging_item_id");
   let query = supabase
     .from("packaging_stock_adjustments")
@@ -15,6 +17,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const supabase = await createSupabaseServerClient();
+
   const body = await req.json();
   const { packaging_item_id, type, quantity: rawQty, note, purchase_cost, new_total } = body;
   if (!packaging_item_id || !type) return NextResponse.json({ error: "packaging_item_id and type required" }, { status: 400 });

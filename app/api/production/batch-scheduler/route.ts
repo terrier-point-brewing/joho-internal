@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase/client";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { apiError } from "@/lib/utils/api";
 import { buildDemandCalendar } from "@/app/production/lib/demandCalendar";
 import { coldStorageLots } from "@/app/production/lib/coldStorage";
@@ -80,6 +80,8 @@ function findEarliestSlot(
 }
 
 export async function GET() {
+  const supabase = await createSupabaseServerClient();
+
   try {
     const [
       { data: transfers },

@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase/client";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export async function GET(req: NextRequest) {
+  const supabase = await createSupabaseServerClient();
+
   const { searchParams } = new URL(req.url);
   const batch_id = searchParams.get("batch_id");
 
@@ -18,6 +20,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const supabase = await createSupabaseServerClient();
+
   const body = await req.json();
   const {
     batch_id,

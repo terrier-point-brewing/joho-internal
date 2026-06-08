@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase/client";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const supabase = await createSupabaseServerClient();
+
   const { id } = await params;
   const body = await req.json();
 
@@ -23,6 +25,8 @@ export async function DELETE(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const supabase = await createSupabaseServerClient();
+
   const { id } = await params;
 
   // Guard: block deletion if the ingredient is used in any recipe

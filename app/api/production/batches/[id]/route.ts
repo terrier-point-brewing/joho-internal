@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase/client";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { requireRole } from "@/lib/auth";
 
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const supabase = await createSupabaseServerClient();
+
   const { id } = await params;
   const body = await req.json();
 
@@ -38,18 +41,43 @@ export async function PATCH(
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // Log status change if status changed
-  if (body.status && current?.status !== body.status) {
+  const newStatus: string | undefined = body.status;
+  const statusChanged = newStatus && current?.status !== newStatus;
+
+  // Log status change
+  if (statusChanged) {
     await supabase.from("batch_status_history").insert({
       batch_id: id,
-      status: body.status,
+      status: newStatus,
       note: body.status_note ?? null,
     });
   }
 
+  // Archive cascade: release operational records but preserve financial ones.
+  if (statusChanged && newStatus === "archived") {
+    // Release any active tank assignments — tank is no longer occupied.
+    await supabase
+      .from("batch_tank_assignments")
+      .update({ released_at: new Date().toISOString() })
+      .eq("batch_id", id)
+      .is("released_at", null);
+
+    // Cancel open schedule entries that haven't actually ended yet.
+    await supabase
+      .from("batch_schedule_entries")
+      .update({ cancelled_at: new Date().toISOString(), cancellation_reason: "batch archived" })
+      .eq("batch_id", id)
+      .is("cancelled_at", null)
+      .is("actual_end", null);
+
+    // batch_allocations, batch_exports, batch_transfers, batch_status_history,
+    // and batch_brew_activity_log are intentionally left untouched — they are
+    // financial or historical records and must not be invalidated on archive.
+  }
+
   const { data, error: fetchErr } = await supabase
     .from("brew_batches")
-    .select("*, recipes(beer_name, brewery, brew_time_weeks, expected_yield_bbl), batch_status_history(*), planned_allocations(*), batch_brew_activity_log(*)")
+    .select("*, recipes(beer_name, brewery, brew_time_weeks, expected_yield_bbl), batch_status_history(*), batch_brew_activity_log(*)")
     .eq("id", id)
     .single();
 
@@ -61,6 +89,10 @@ export async function DELETE(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  // Hard delete is admin-only. All child records cascade via FK constraints.
+  try { await requireRole("admin"); } catch (res) { return res as Response; }
+
+  const supabase = await createSupabaseServerClient();
   const { id } = await params;
   const { error } = await supabase.from("brew_batches").delete().eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

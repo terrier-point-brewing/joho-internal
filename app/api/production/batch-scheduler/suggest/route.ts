@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase/client";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { apiError } from "@/lib/utils/api";
 import { addDays, parseISO } from "date-fns";
 import type { EquipmentSlot } from "../route";
@@ -37,6 +37,8 @@ function findEarliestSlot(
 }
 
 export async function POST(req: NextRequest) {
+  const supabase = await createSupabaseServerClient();
+
   try {
     const body = await req.json();
     const { recipe_id, earliest_start, volume_bbl: requestedVolume, turns: requestedTurns } = body as {

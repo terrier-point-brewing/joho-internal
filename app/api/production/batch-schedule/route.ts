@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase/client";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export async function GET(req: NextRequest) {
+  const supabase = await createSupabaseServerClient();
+
   const includeCanc = req.nextUrl.searchParams.get("include_cancelled") === "true";
   let query = supabase
     .from("batch_schedule_entries")
@@ -14,6 +16,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const supabase = await createSupabaseServerClient();
+
   const body = await req.json();
   const { batch_id, equipment_id, stage, planned_start, planned_end, actual_start, actual_end, notes } = body;
 

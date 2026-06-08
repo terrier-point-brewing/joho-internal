@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useUserRole } from "@/lib/hooks/useUserRole";
 import { BrewBatch, BatchTransfer, BrewActivityEntry, BatchAllocation, AllocationChannel, AllocationLockReason, ContractBrewingRequest } from "../types";
 import { BREWHOUSE_BBL, StatusBadge, Modal, Field, ModalActions } from "./shared";
 import { fmtDateLong, fmtBbl2 } from "@/lib/utils/formatting";
@@ -43,6 +44,8 @@ const BATCH_EMPTY = {
 };
 
 export default function BatchLogTab() {
+  const { role } = useUserRole();
+  const isAdmin = role === "admin";
   const qc = useQueryClient();
   const { data: batches = [] } = useBatchesQuery();
   const { data: recipes = [] } = useRecipesQuery();
@@ -172,9 +175,20 @@ export default function BatchLogTab() {
     }
   }
 
+  async function handleArchive(id: string, name: string) {
+    if (!confirm(`Archive batch "${name}"? Equipment will be released and scheduled work cancelled. Financial records will be preserved.`)) return;
+    await fetch(`/api/production/batches/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "archived" }),
+    });
+    await refresh();
+  }
+
   async function handleDelete(id: string, name: string) {
-    if (!confirm(`Delete batch "${name}"? This cannot be undone.`)) return;
-    await fetch(`/api/production/batches/${id}`, { method: "DELETE" });
+    if (!confirm(`Permanently delete batch "${name}" and ALL related records? This cannot be undone.`)) return;
+    const res = await fetch(`/api/production/batches/${id}`, { method: "DELETE" });
+    if (!res.ok) { alert("Delete failed — you may not have permission."); return; }
     await refresh();
   }
 
@@ -206,7 +220,9 @@ export default function BatchLogTab() {
           sort={sort}
           onToggle={(id) => setExpandedId(expandedId === id ? null : id)}
           onEdit={openEdit}
+          onArchive={handleArchive}
           onDelete={handleDelete}
+          isAdmin={isAdmin}
           onSort={toggleSort}
           tankTypeById={tankTypeById}
           assignedBatchIds={assignedBatchIds}
@@ -947,7 +963,9 @@ function BatchTable({
   sort,
   onToggle,
   onEdit,
+  onArchive,
   onDelete,
+  isAdmin,
   onSort,
   tankTypeById,
   assignedBatchIds,
@@ -960,7 +978,9 @@ function BatchTable({
   sort: { col: SortCol; dir: "asc" | "desc" };
   onToggle: (id: string) => void;
   onEdit: (b: BrewBatch) => void;
+  onArchive: (id: string, name: string) => void;
   onDelete: (id: string, name: string) => void;
+  isAdmin: boolean;
   onSort: (col: SortCol) => void;
   tankTypeById: Record<string, string>;
   assignedBatchIds: Set<string>;
@@ -1023,7 +1043,12 @@ function BatchTable({
                   <td className="px-4 py-2.5">
                     <div className="flex gap-3 justify-end">
                       <button onClick={() => onEdit(b)} className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors">Edit</button>
-                      <button onClick={() => onDelete(b.id, b.beer_name)} className="text-xs text-zinc-600 hover:text-red-400 transition-colors">Delete</button>
+                      {b.status !== "archived" && (
+                        <button onClick={() => onArchive(b.id, b.beer_name)} className="text-xs text-zinc-500 hover:text-amber-400 transition-colors">Archive</button>
+                      )}
+                      {isAdmin && (
+                        <button onClick={() => onDelete(b.id, b.beer_name)} className="text-xs text-zinc-600 hover:text-red-400 transition-colors">Delete</button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -1397,9 +1422,7 @@ function TransferLog({ transfers, batchVol }: { transfers: BatchTransfer[]; batc
                         : <span className="text-zinc-600">—</span>}
                   </td>
                   <td className="px-3 py-2 text-zinc-400 capitalize">
-                    {t.transfer_type === "export" && t.export_detail
-                      ? `Export → ${t.export_detail.channel === "contract_brewing" ? (t.export_detail.partner_name ?? "Contract Brewing") : t.export_detail.channel}`
-                      : t.transfer_type}
+                    {t.transfer_type === "export" ? "Export" : t.transfer_type}
                   </td>
                   <td className="px-3 py-2 tabular-nums text-zinc-300">
                     {fmtBbl2(Number(t.volume_bbl))}

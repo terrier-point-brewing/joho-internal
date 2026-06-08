@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase/client";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { fetchCurrentCounts, fetchOrderSales } from "@/lib/square/inventory";
 import { apiError } from "@/lib/utils/api";
 import { BBL_TO_FL_OZ } from "@/lib/constants/production";
@@ -35,6 +35,8 @@ function unitsToBbl(qty: number, volumeFlOz: number | null): number {
 }
 
 export async function GET() {
+  const supabase = await createSupabaseServerClient();
+
   try {
     const { data: links, error } = await supabase
       .from("recipe_square_links")

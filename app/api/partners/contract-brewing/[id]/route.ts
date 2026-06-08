@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase/client";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const supabase = await createSupabaseServerClient();
+
   const { id } = await params;
   const { company_name, first_name, last_name, phone, address, email, notes, square_customer_id } = await req.json();
 
@@ -27,6 +29,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const supabase = await createSupabaseServerClient();
+
   const { id } = await params;
   const { error } = await supabase.from("contract_brewing_partners").delete().eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

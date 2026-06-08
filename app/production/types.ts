@@ -92,10 +92,6 @@ export interface BatchTransfer {
   kegging_detail: { total_kegs?: number; kegs?: { name: string; quantity: number; volume_fl_oz?: number }[] } | null;
   canning_detail: { total_cans?: number; cases?: number; loose_cans?: number; cans_per_case?: number } | null;
   export_detail: {
-    channel: "taproom" | "distribution" | "contract_brewing";
-    partner_id?: string | null;
-    partner_name?: string | null;
-    recipient_name?: string | null;
     items: { source_transfer_id: string; product_label: string; product_type: "keg" | "can"; quantity: number }[];
   } | null;
   transferred_at: string;
@@ -252,14 +248,6 @@ export interface BatchStatusHistory {
   changed_at: string;
 }
 
-export interface PlannedAllocation {
-  id: string;
-  batch_id: string;
-  label: string;
-  volume_bbl: number;
-  notes: string | null;
-  created_at: string;
-}
 
 export type AllocationChannel = "taproom" | "distribution" | "contract_brewing" | "safety_stock";
 export type AllocationLockReason = "deposit_paid" | "contract_signed";
@@ -292,6 +280,7 @@ export interface BrewActivityEntry {
   id: string;
   batch_id?: string;
   recipe_id?: string;
+  template_id?: string | null;
   sort_order: number;
   activity: string;
   time_label: string | null;
@@ -328,7 +317,6 @@ export interface BrewBatch {
   recipe_id: string | null;
   recipes: { beer_name: string; brewery: string | null; brew_time_weeks: number | null; expected_yield_bbl: number | null } | null;
   batch_status_history: BatchStatusHistory[];
-  planned_allocations?: PlannedAllocation[];
   batch_brew_activity_log?: BrewActivityEntry[];
   created_at: string;
 }
@@ -389,16 +377,6 @@ export interface WorkflowTemplate {
   created_at: string;
 }
 
-export interface BatchWorkflowStep {
-  id: string;
-  batch_id: string;
-  step_order: number;
-  equipment_id: string;
-  scheduled_date: string | null;
-  completed_at: string | null;
-  notes: string | null;
-  equipment: Pick<Equipment, "id" | "name" | "type">;
-}
 
 export interface BatchTankAssignment {
   id: string;

@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase/client";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 // GET /api/production/allocations?batch_id=<uuid>
 // Returns allocations enriched with fulfillment data computed from batch_exports and batch_transfers.
 export async function GET(req: NextRequest) {
+  const supabase = await createSupabaseServerClient();
+
   const batch_id = req.nextUrl.searchParams.get("batch_id");
 
   let query = supabase
@@ -65,6 +67,8 @@ export async function GET(req: NextRequest) {
 
 // POST /api/production/allocations
 export async function POST(req: NextRequest) {
+  const supabase = await createSupabaseServerClient();
+
   const body = await req.json();
   const { batch_id, channel, label, percentage, partner_id, contract_request_id, notes } = body;
 

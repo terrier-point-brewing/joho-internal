@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase/client";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const supabase = await createSupabaseServerClient();
+
   const { id } = await params;
   const body = await req.json();
   const { type, name, partner_id, supplier_id, unit_cost, volume_fl_oz, can_count, is_default } = body;
@@ -32,6 +34,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const supabase = await createSupabaseServerClient();
+
   const { id } = await params;
   const { error } = await supabase.from("packaging_items").delete().eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

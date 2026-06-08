@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase/client";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { apiError } from "@/lib/utils/api";
 import { coldStorageLots } from "@/app/production/lib/coldStorage";
 import { buildDemandCalendar } from "@/app/production/lib/demandCalendar";
@@ -12,6 +12,8 @@ import type {
 import type { SafetyStockFloor } from "@/app/production/types";
 
 export async function GET() {
+  const supabase = await createSupabaseServerClient();
+
   try {
     const [
       { data: transfers },

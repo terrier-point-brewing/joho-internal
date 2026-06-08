@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase/client";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const supabase = await createSupabaseServerClient();
+
   const { id } = await params;
   const { beer_name, brewery, expected_yield_bbl, brew_time_weeks, days_brewhouse, days_fermenter, days_brite, steps, notes, ingredients: lines } = await req.json();
 
@@ -52,6 +54,8 @@ export async function DELETE(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const supabase = await createSupabaseServerClient();
+
   const { id } = await params;
 
   // Guard: block deletion if any non-archived batch references this recipe

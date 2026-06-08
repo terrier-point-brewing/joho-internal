@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase/client";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { squareGet } from "@/lib/square/client";
 import { SquareCustomer, customerAddressString } from "@/lib/square/customers";
 
@@ -13,6 +13,8 @@ import { SquareCustomer, customerAddressString } from "@/lib/square/customers";
  * In both cases the partner's fields are synced from Square.
  */
 export async function POST(req: NextRequest) {
+  const supabase = await createSupabaseServerClient();
+
   const body = await req.json();
   const { square_customer_id, partner_id } = body as {
     square_customer_id: string;

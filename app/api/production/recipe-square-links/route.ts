@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase/client";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export async function GET() {
+  const supabase = await createSupabaseServerClient();
+
   const { data, error } = await supabase
     .from("recipe_square_links")
     .select("*, recipes(beer_name), packaging_items(id, name, type, volume_fl_oz)")
@@ -11,6 +13,8 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  const supabase = await createSupabaseServerClient();
+
   const { recipe_id, packaging, packaging_item_id, square_variation_id, square_item_id, variation_name, item_name } = await req.json();
   if (!recipe_id || !packaging || !square_variation_id) {
     return NextResponse.json({ error: "recipe_id, packaging, and square_variation_id are required" }, { status: 400 });
@@ -40,6 +44,8 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  const supabase = await createSupabaseServerClient();
+
   const id = req.nextUrl.searchParams.get("id");
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
   const { error } = await supabase.from("recipe_square_links").delete().eq("id", id);

@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase/client";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export async function GET() {
+  const supabase = await createSupabaseServerClient();
+
   const { data, error } = await supabase
     .from("safety_stock_floors")
     .select("*")
@@ -12,6 +14,8 @@ export async function GET() {
 
 // Upsert a floor for a (recipe_id, packaging) pair.
 export async function POST(req: NextRequest) {
+  const supabase = await createSupabaseServerClient();
+
   const { recipe_id, packaging, floor_quantity } = await req.json();
   if (!recipe_id || !packaging || floor_quantity == null) {
     return NextResponse.json({ error: "recipe_id, packaging, and floor_quantity are required" }, { status: 400 });
@@ -28,6 +32,8 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  const supabase = await createSupabaseServerClient();
+
   const id = req.nextUrl.searchParams.get("id");
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
   const { error } = await supabase.from("safety_stock_floors").delete().eq("id", id);

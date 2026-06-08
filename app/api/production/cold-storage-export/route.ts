@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase/client";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export interface ExportLineItem {
   /** The keg/can label from kegging_detail/canning_detail, e.g. "1/6 BBL" or "can" */
@@ -21,6 +21,8 @@ export interface ColdStorageExportRequest {
 }
 
 export async function POST(req: NextRequest) {
+  const supabase = await createSupabaseServerClient();
+
   const body: ColdStorageExportRequest = await req.json();
   const { cold_storage_tank_id, items, channel, partner_id, partner_name, recipient_name, notes } = body;
 
@@ -193,11 +195,9 @@ export async function POST(req: NextRequest) {
 
   const created = [];
   for (const [batchId, allocs] of byBatch) {
+    // export_detail stores only the FIFO source ledger — which inbound transfers
+    // contributed to this export. Destination/channel lives in batch_exports.
     const exportDetail = {
-      channel,
-      partner_id: partner_id ?? null,
-      partner_name: partner_name ?? null,
-      recipient_name: recipient_name ?? null,
       items: allocs.map((a) => ({
         source_transfer_id: a.batchTransferId,
         product_label: a.productLabel,
@@ -245,6 +245,7 @@ export async function POST(req: NextRequest) {
 
       const { error: exErr } = await supabase.from("batch_exports").insert({
         batch_id: batchId,
+        transfer_id: transfer.id,
         channel,
         recipient_id: channel === "contract_brewing" ? (partner_id ?? null) : null,
         recipient_name: channel === "contract_brewing"

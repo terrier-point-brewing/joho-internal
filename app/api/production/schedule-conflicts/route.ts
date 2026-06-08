@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase/client";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { parseISO, addDays } from "date-fns";
 
 // Equipment types where multi-batch overlap is allowed (no conflict detection)
@@ -53,6 +53,8 @@ function findNextSlot(
 }
 
 export async function GET() {
+  const supabase = await createSupabaseServerClient();
+
   try {
     const { data: entries, error } = await supabase
       .from("batch_schedule_entries")

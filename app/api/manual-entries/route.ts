@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase/client";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { apiError } from "@/lib/utils/api";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
+  const supabase = await createSupabaseServerClient();
+
   try {
     const { data, error } = await supabase
       .from("manual_net_sales_entries")
@@ -18,6 +20,8 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  const supabase = await createSupabaseServerClient();
+
   try {
     const { start_date, end_date, amount_cents, label } = await req.json();
     if (!start_date || !end_date || amount_cents == null) {
@@ -45,6 +49,8 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  const supabase = await createSupabaseServerClient();
+
   try {
     const { id } = await req.json();
     if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });

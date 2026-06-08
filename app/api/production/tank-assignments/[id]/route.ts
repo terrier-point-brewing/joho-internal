@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase/client";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 // PATCH releases a tank assignment (sets released_at = now)
 export async function PATCH(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const supabase = await createSupabaseServerClient();
+
   const { id } = await params;
 
   const { data, error } = await supabase
