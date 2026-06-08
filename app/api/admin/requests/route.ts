@@ -1,7 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Resend } from "resend";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+
+const ADMIN_EMAIL = "will.liao@terrierpoint.com";
+
+async function notifyAdminOfRequest(name: string, email: string, reason: string | null) {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) return; // silently skip if not configured
+  const resend = new Resend(apiKey);
+  await resend.emails.send({
+    from: "onboarding@resend.dev",
+    to: ADMIN_EMAIL,
+    subject: `New account request from ${name}`,
+    html: `
+      <p><strong>${name}</strong> (${email}) has requested access to TPB Square Reports.</p>
+      ${reason ? `<p><strong>Reason:</strong> ${reason}</p>` : ""}
+      <p>Log in to review and approve or deny the request.</p>
+    `,
+  });
+}
 
 // Anyone (unauthenticated) can POST a request; only admins can GET/PATCH.
 export async function POST(req: NextRequest) {
@@ -15,6 +34,12 @@ export async function POST(req: NextRequest) {
   const { error } = await supabase.from("account_requests").insert({ name, email, reason });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // Fire-and-forget — don't block the response on email delivery.
+  notifyAdminOfRequest(name, email, reason ?? null).catch((err) =>
+    console.error("[Resend] Failed to send account request notification:", err)
+  );
+
   return NextResponse.json({ ok: true }, { status: 201 });
 }
 
