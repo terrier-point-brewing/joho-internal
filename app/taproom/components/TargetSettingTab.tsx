@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchJson } from "@/app/production/hooks/queries";
-import { useUserRole } from "@/app/hooks/useUserRole";
+import { useUserRole } from "@/lib/hooks/useUserRole";
 
 const TARGETS_KEY = ["taproom", "targets"] as const;
 
