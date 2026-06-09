@@ -150,16 +150,37 @@ export default function NavBar() {
 
           {/* Finance (admin only) */}
           {isAdmin && (
-            <Link
-              href="/finance/pl"
-              className={`px-3 py-2 rounded text-sm font-medium transition-colors mt-2 ${
-                isFinance
-                  ? "bg-zinc-800 text-zinc-100"
-                  : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50"
-              }`}
-            >
-              Finance
-            </Link>
+            <>
+              <Link
+                href="/finance/model"
+                className={`px-3 py-2 rounded text-sm font-medium transition-colors mt-2 ${
+                  isFinance
+                    ? "bg-zinc-800 text-zinc-100"
+                    : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50"
+                }`}
+              >
+                Finance
+              </Link>
+
+              {isFinance && (
+                <div className="mt-1 ml-2 flex flex-col gap-0.5 border-l border-zinc-800 pl-2">
+                  {[
+                    { key: "model",    label: "Model",    href: "/finance/model",    match: "/finance/model"    },
+                    { key: "sales",    label: "Sales",    href: "/finance/sales/taproom", match: "/finance/sales" },
+                    { key: "invoices", label: "Invoices", href: "/finance/invoices",  match: "/finance/invoices" },
+                    { key: "import",   label: "Import",   href: "/finance/import",    match: "/finance/import"   },
+                  ].map(({ key, label, href, match }) => (
+                    <Link
+                      key={key}
+                      href={href}
+                      className={subtabCls(pathname.startsWith(match))}
+                    >
+                      {label}
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </>
           )}
 
           {/* Settings (admin) */}

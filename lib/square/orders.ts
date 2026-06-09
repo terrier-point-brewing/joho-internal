@@ -1,5 +1,5 @@
 import { squarePostAll } from "./client";
-import type { Order } from "@/types/square";
+import type { Order, SquareInvoice } from "@/types/square";
 import { dayRangeUtc } from "@/lib/utils/datetime";
 
 function locationId(): string {
@@ -25,6 +25,19 @@ export async function fetchCompletedOrders(startDate: string, endDate: string): 
     },
     return_entries: false,
     limit: 500,
+  });
+}
+
+// Fetch Square invoices via the Invoices API.
+// The Square Invoices search API does not support date-range filtering — we
+// fetch all invoices for the location and let callers filter by year.
+export async function fetchSquareInvoices(): Promise<SquareInvoice[]> {
+  return squarePostAll<SquareInvoice>("/invoices/search", "invoices", {
+    query: {
+      filter: { location_ids: [locationId()] },
+      sort:   { field: "INVOICE_SORT_DATE", order: "DESC" },
+    },
+    limit: 200,
   });
 }
 

@@ -3,18 +3,17 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const TABS = [
-  { href: "/finance/model",    label: "Model"    },
-  { href: "/finance/sales/taproom", label: "Sales", match: "/finance/sales" },
-  { href: "/finance/invoices", label: "Invoices" },
-  { href: "/finance/import",   label: "Import"   },
+  { href: "/finance/sales/taproom",          label: "Taproom"          },
+  { href: "/finance/sales/contract-brewing", label: "Contract Brewing" },
+  { href: "/finance/sales/distribution",     label: "Distribution"     },
 ];
 
-export default function FinanceNav() {
+export default function SalesNav() {
   const pathname = usePathname();
   return (
-    <div className="flex items-center gap-1">
-      {TABS.map(({ href, label, match }) => {
-        const active = pathname === href || pathname.startsWith(match ?? href);
+    <div className="flex items-center gap-1 px-6 pb-4 border-b border-zinc-800">
+      {TABS.map(({ href, label }) => {
+        const active = pathname === href;
         return (
           <Link key={href} href={href}
             className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${

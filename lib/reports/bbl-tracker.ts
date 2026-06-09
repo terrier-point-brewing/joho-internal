@@ -39,7 +39,7 @@ const KEG_SIZE_PATTERN = /^\d+\/\d+ Keg$/;
 // ---------------------------------------------------------------------------
 
 /** Returns total oz for one sold unit of the given can variation. */
-function canOzPerUnit(variationName: string): number {
+export function canOzPerUnit(variationName: string): number {
   const ozMatch    = variationName.match(/(\d+)oz/i);
   const ozPerCan   = ozMatch ? parseInt(ozMatch[1]) : 16; // default 16 oz
 

@@ -1,5 +1,38 @@
 // Raw Square API shapes — only fields we actually use
 
+// ── Square Invoices API ───────────────────────────────────────────────────────
+
+export interface SquareInvoiceRecipient {
+  customer_id?: string;
+  given_name?: string;
+  family_name?: string;
+  company_name?: string;
+  email_address?: string;
+}
+
+export interface SquareInvoicePaymentRequest {
+  uid: string;
+  request_type: string;
+  due_date?: string;
+  computed_amount_money?: Money;
+  total_completed_amount_money?: Money;
+}
+
+export interface SquareInvoice {
+  id: string;
+  version: number;
+  location_id: string;
+  order_id: string;
+  invoice_number?: string;
+  title?: string;
+  primary_recipient?: SquareInvoiceRecipient;
+  payment_requests?: SquareInvoicePaymentRequest[];
+  status: string;   // DRAFT | UNPAID | SCHEDULED | PARTIALLY_PAID | PAID | REFUNDED | CANCELED | FAILED
+  created_at: string;
+  updated_at?: string;
+  scheduled_at?: string;
+}
+
 export interface Money {
   amount: number;
   currency: string;
