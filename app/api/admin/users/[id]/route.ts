@@ -22,6 +22,12 @@ export async function PATCH(
     return NextResponse.json({ ok: true });
   }
 
+  if (body.email_confirm) {
+    const { error } = await admin.auth.admin.updateUserById(id, { email_confirm: true });
+    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+    return NextResponse.json({ ok: true });
+  }
+
   const { role } = body;
   if (!role) return NextResponse.json({ error: "role or password is required" }, { status: 400 });
 

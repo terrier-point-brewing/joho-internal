@@ -9,6 +9,7 @@ interface Profile {
   email: string;
   role: UserRole;
   created_at: string;
+  email_confirmed: boolean;
 }
 
 const ROLES: UserRole[] = ["viewer", "brewer", "manager", "admin"];
@@ -83,6 +84,15 @@ export default function UserManagement() {
     if (!res.ok) fetchUsers();
   }
 
+  async function handleConfirmEmail(userId: string) {
+    const res = await fetch(`/api/admin/users/${userId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email_confirm: true }),
+    });
+    if (res.ok) setUsers((u) => u.map((x) => (x.id === userId ? { ...x, email_confirmed: true } : x)));
+  }
+
   async function handleDeleteUser(userId: string) {
     if (!confirm("Delete this user? This cannot be undone.")) return;
     const res = await fetch(`/api/admin/users/${userId}`, { method: "DELETE" });
@@ -141,6 +151,7 @@ export default function UserManagement() {
                 <tr className="border-b border-zinc-800 text-zinc-500 text-xs uppercase tracking-wide">
                   <th className="text-left px-4 py-3 font-medium">Email</th>
                   <th className="text-left px-4 py-3 font-medium">Role</th>
+                  <th className="text-left px-4 py-3 font-medium">Confirmed</th>
                   <th className="text-left px-4 py-3 font-medium">Joined</th>
                   <th className="px-4 py-3" />
                 </tr>
@@ -161,6 +172,20 @@ export default function UserManagement() {
                           </option>
                         ))}
                       </select>
+                    </td>
+                    <td className="px-4 py-3">
+                      {u.email_confirmed ? (
+                        <span className="text-xs font-medium text-green-400 bg-green-900/30 px-2 py-0.5 rounded">
+                          Confirmed
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => handleConfirmEmail(u.id)}
+                          className="text-xs font-medium text-amber-400 bg-amber-900/30 hover:bg-amber-900/50 px-2 py-0.5 rounded transition-colors"
+                        >
+                          Confirm
+                        </button>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-zinc-500">
                       {new Date(u.created_at).toLocaleDateString()}
@@ -189,7 +214,7 @@ export default function UserManagement() {
                 ))}
                 {users.length === 0 && (
                   <tr>
-                    <td colSpan={4} className="px-4 py-6 text-center text-zinc-600 text-sm">
+                    <td colSpan={5} className="px-4 py-6 text-center text-zinc-600 text-sm">
                       No users yet
                     </td>
                   </tr>

@@ -10,12 +10,22 @@ export async function GET() {
   }
 
   const admin = createSupabaseAdminClient();
-  const { data, error } = await admin
-    .from("profiles")
-    .select("id, email, role, created_at")
-    .order("created_at", { ascending: true });
+  const [profilesRes, authRes] = await Promise.all([
+    admin.from("profiles").select("id, email, role, created_at").order("created_at", { ascending: true }),
+    admin.auth.admin.listUsers({ perPage: 1000 }),
+  ]);
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (profilesRes.error) return NextResponse.json({ error: profilesRes.error.message }, { status: 500 });
+
+  const authById = Object.fromEntries(
+    (authRes.data?.users ?? []).map((u) => [u.id, u])
+  );
+
+  const data = profilesRes.data.map((p) => ({
+    ...p,
+    email_confirmed: !!authById[p.id]?.email_confirmed_at,
+  }));
+
   return NextResponse.json(data);
 }
 

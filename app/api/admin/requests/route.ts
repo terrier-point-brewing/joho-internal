@@ -109,10 +109,6 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: linkError.message }, { status: 400 });
     }
 
-    // Pre-confirm the email so the user can log in after setting their password
-    // without hitting "Email not confirmed". The invite link flow normally does
-    // this automatically, but we bypass it by calling setSession() client-side.
-    await admin.auth.admin.updateUserById(linkData.user.id, { email_confirm: true });
 
     // Send the invite email ourselves via Resend.
     const inviteUrl = linkData.properties.action_link;
