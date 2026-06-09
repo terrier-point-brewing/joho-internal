@@ -13,12 +13,19 @@ export async function PATCH(
   }
 
   const { id } = await params;
-  const { role } = await req.json();
-  if (!role) return NextResponse.json({ error: "role is required" }, { status: 400 });
-
+  const body = await req.json();
   const admin = createSupabaseAdminClient();
-  const { error } = await admin.from("profiles").update({ role }).eq("id", id);
 
+  if (body.password) {
+    const { error } = await admin.auth.admin.updateUserById(id, { password: body.password });
+    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+    return NextResponse.json({ ok: true });
+  }
+
+  const { role } = body;
+  if (!role) return NextResponse.json({ error: "role or password is required" }, { status: 400 });
+
+  const { error } = await admin.from("profiles").update({ role }).eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ id, role });
 }

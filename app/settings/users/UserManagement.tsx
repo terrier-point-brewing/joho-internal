@@ -36,6 +36,32 @@ export default function UserManagement() {
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<"users" | "requests">("users");
 
+  // Set password modal state
+  const [pwUserId, setPwUserId] = useState<string | null>(null);
+  const [pwValue, setPwValue] = useState("");
+  const [pwError, setPwError] = useState<string | null>(null);
+  const [pwSaving, setPwSaving] = useState(false);
+
+  async function handleSetPassword(e: React.FormEvent) {
+    e.preventDefault();
+    setPwError(null);
+    if (pwValue.length < 8) { setPwError("Password must be at least 8 characters"); return; }
+    setPwSaving(true);
+    const res = await fetch(`/api/admin/users/${pwUserId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: pwValue }),
+    });
+    setPwSaving(false);
+    if (res.ok) {
+      setPwUserId(null);
+      setPwValue("");
+    } else {
+      const data = await res.json().catch(() => ({}));
+      setPwError(data.error ?? "Failed to set password");
+    }
+  }
+
   // Create user modal state
   const [showCreate, setShowCreate] = useState(false);
   const [createForm, setCreateForm] = useState({ email: "", password: "", role: "viewer" as UserRole });
@@ -106,7 +132,12 @@ export default function UserManagement() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id, status }),
     });
-    if (res.ok) setRequests((r) => r.map((x) => (x.id === id ? { ...x, status } : x)));
+    if (res.ok) {
+      setRequests((r) => r.map((x) => (x.id === id ? { ...x, status } : x)));
+    } else {
+      const data = await res.json().catch(() => ({}));
+      setError(data.error ?? `Failed to ${status} request`);
+    }
   }
 
   const pendingCount = requests.filter((r) => r.status === "pending").length;
@@ -190,15 +221,24 @@ export default function UserManagement() {
                       {new Date(u.created_at).toLocaleDateString()}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <button
-                        onClick={() => handleDeleteUser(u.id)}
-                        className="text-zinc-600 hover:text-red-400 transition-colors"
-                        title="Delete user"
-                      >
-                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                          <path d="M2 4h10M5 4V2.5a.5.5 0 0 1 .5-.5h3a.5.5 0 0 1 .5.5V4M11 4l-.7 7.5a1 1 0 0 1-1 .9H4.7a1 1 0 0 1-1-.9L3 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-                        </svg>
-                      </button>
+                      <div className="flex gap-2 justify-end items-center">
+                        <button
+                          onClick={() => { setPwUserId(u.id); setPwValue(""); setPwError(null); }}
+                          className="text-xs text-zinc-500 hover:text-zinc-200 transition-colors"
+                          title="Set password"
+                        >
+                          Set pwd
+                        </button>
+                        <button
+                          onClick={() => handleDeleteUser(u.id)}
+                          className="text-zinc-600 hover:text-red-400 transition-colors"
+                          title="Delete user"
+                        >
+                          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                            <path d="M2 4h10M5 4V2.5a.5.5 0 0 1 .5-.5h3a.5.5 0 0 1 .5.5V4M11 4l-.7 7.5a1 1 0 0 1-1 .9H4.7a1 1 0 0 1-1-.9L3 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+                          </svg>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -280,6 +320,56 @@ export default function UserManagement() {
               )}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Set password modal */}
+      {pwUserId && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-6 w-full max-w-sm mx-4">
+            <h2 className="text-base font-semibold text-zinc-100 mb-1">Set password</h2>
+            <p className="text-sm text-zinc-500 mb-4">
+              Set a new password for{" "}
+              <span className="text-zinc-300">{users.find((u) => u.id === pwUserId)?.email}</span>.
+            </p>
+
+            {pwError && (
+              <p className="text-sm text-red-400 bg-red-950/30 border border-red-900/50 rounded px-3 py-2 mb-4">
+                {pwError}
+              </p>
+            )}
+
+            <form onSubmit={handleSetPassword} className="flex flex-col gap-3">
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-medium text-zinc-400">New password</label>
+                <input
+                  type="password"
+                  required
+                  minLength={8}
+                  value={pwValue}
+                  onChange={(e) => setPwValue(e.target.value)}
+                  autoFocus
+                  className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-amber-500 transition-colors"
+                />
+              </div>
+              <div className="flex gap-2 mt-1">
+                <button
+                  type="button"
+                  onClick={() => { setPwUserId(null); setPwValue(""); setPwError(null); }}
+                  className="flex-1 py-2 rounded border border-zinc-700 text-sm text-zinc-400 hover:text-zinc-200 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={pwSaving}
+                  className="flex-1 py-2 rounded bg-amber-500 hover:bg-amber-400 disabled:bg-amber-500/50 text-zinc-950 text-sm font-semibold transition-colors"
+                >
+                  {pwSaving ? "Saving…" : "Set password"}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
 

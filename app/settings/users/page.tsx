@@ -4,7 +4,6 @@ import UserManagement from "./UserManagement";
 
 export default async function UsersSettingsPage() {
   const session = await getSessionUser();
-  if (!session || session.role !== "admin") redirect("/");
-
+  if (!session || session.role !== "admin") redirect("/settings/account");
   return <UserManagement />;
 }
