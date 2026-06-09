@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchJson } from "@/app/production/hooks/queries";
+import { useUserRole } from "@/app/hooks/useUserRole";
 
 const TARGETS_KEY = ["taproom", "targets"] as const;
 
@@ -88,6 +89,8 @@ const selectCls =
 
 export default function TargetSettingTab() {
   const currentYear = new Date().getFullYear();
+  const { role } = useUserRole();
+  const isAdmin = role === "admin";
 
   const qc = useQueryClient();
   const { data: targets = [], isLoading: loading } = useQuery({
@@ -213,13 +216,17 @@ export default function TargetSettingTab() {
               {y}
             </button>
           ))}
-          <div className="w-px h-5 bg-zinc-700 mx-1" />
-          <button
-            onClick={handleEnterEdit}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded border border-zinc-700 text-sm text-zinc-400 hover:text-zinc-100 hover:border-zinc-500 transition-colors"
-          >
-            <span>✎</span> Edit
-          </button>
+          {isAdmin && (
+            <>
+              <div className="w-px h-5 bg-zinc-700 mx-1" />
+              <button
+                onClick={handleEnterEdit}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded border border-zinc-700 text-sm text-zinc-400 hover:text-zinc-100 hover:border-zinc-500 transition-colors"
+              >
+                <span>✎</span> Edit
+              </button>
+            </>
+          )}
         </div>
 
         {loading ? (
@@ -252,9 +259,11 @@ export default function TargetSettingTab() {
             {!hasAnyForYear && (
               <div className="px-4 py-6 text-center text-sm text-zinc-600">
                 No targets set for {year}.{" "}
-                <button onClick={handleEnterEdit} className="text-amber-500 hover:text-amber-400 underline">
-                  Add some
-                </button>
+                {isAdmin && (
+                  <button onClick={handleEnterEdit} className="text-amber-500 hover:text-amber-400 underline">
+                    Add some
+                  </button>
+                )}
               </div>
             )}
           </div>
