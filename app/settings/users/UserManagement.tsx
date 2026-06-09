@@ -11,15 +11,6 @@ interface Profile {
   created_at: string;
 }
 
-interface AccountRequest {
-  id: string;
-  name: string;
-  email: string;
-  reason: string | null;
-  status: "pending" | "approved" | "denied";
-  created_at: string;
-}
-
 const ROLES: UserRole[] = ["viewer", "brewer", "manager", "admin"];
 
 const ROLE_COLORS: Record<UserRole, string> = {
@@ -31,10 +22,8 @@ const ROLE_COLORS: Record<UserRole, string> = {
 
 export default function UserManagement() {
   const [users, setUsers] = useState<Profile[]>([]);
-  const [requests, setRequests] = useState<AccountRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<"users" | "requests">("users");
 
   // Set password modal state
   const [pwUserId, setPwUserId] = useState<string | null>(null);
@@ -68,18 +57,13 @@ export default function UserManagement() {
   const [createError, setCreateError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
 
-  const fetchAll = useCallback(async () => {
+  const fetchUsers = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [usersRes, reqsRes] = await Promise.all([
-        fetch("/api/admin/users"),
-        fetch("/api/admin/requests"),
-      ]);
-      if (!usersRes.ok) throw new Error("Failed to load users");
-      if (!reqsRes.ok) throw new Error("Failed to load requests");
-      setUsers(await usersRes.json());
-      setRequests(await reqsRes.json());
+      const res = await fetch("/api/admin/users");
+      if (!res.ok) throw new Error("Failed to load users");
+      setUsers(await res.json());
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unknown error");
     } finally {
@@ -87,7 +71,7 @@ export default function UserManagement() {
     }
   }, []);
 
-  useEffect(() => { fetchAll(); }, [fetchAll]);
+  useEffect(() => { fetchUsers(); }, [fetchUsers]);
 
   async function handleRoleChange(userId: string, role: UserRole) {
     setUsers((u) => u.map((x) => (x.id === userId ? { ...x, role } : x)));
@@ -96,7 +80,7 @@ export default function UserManagement() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ role }),
     });
-    if (!res.ok) fetchAll(); // revert on failure
+    if (!res.ok) fetchUsers();
   }
 
   async function handleDeleteUser(userId: string) {
@@ -123,50 +107,12 @@ export default function UserManagement() {
     setShowCreate(false);
     setCreateForm({ email: "", password: "", role: "viewer" });
     setCreating(false);
-    fetchAll();
+    fetchUsers();
   }
-
-  async function handleRequestAction(id: string, status: "approved" | "denied") {
-    const res = await fetch("/api/admin/requests", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, status }),
-    });
-    if (res.ok) {
-      setRequests((r) => r.map((x) => (x.id === id ? { ...x, status } : x)));
-    } else {
-      const data = await res.json().catch(() => ({}));
-      setError(data.error ?? `Failed to ${status} request`);
-    }
-  }
-
-  const pendingCount = requests.filter((r) => r.status === "pending").length;
 
   return (
     <div className="p-6 max-w-4xl mx-auto">
-      <h1 className="text-lg font-semibold text-zinc-100 mb-6">User Management</h1>
-
-      {/* Tabs */}
-      <div className="flex gap-1 mb-6 border-b border-zinc-800">
-        {(["users", "requests"] as const).map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={`px-4 py-2 text-sm font-medium rounded-t transition-colors relative ${
-              tab === t
-                ? "text-zinc-100 bg-zinc-800"
-                : "text-zinc-500 hover:text-zinc-300"
-            }`}
-          >
-            {t === "users" ? "Users" : "Access Requests"}
-            {t === "requests" && pendingCount > 0 && (
-              <span className="ml-1.5 text-xs bg-amber-500 text-zinc-950 font-bold rounded-full px-1.5 py-0.5">
-                {pendingCount}
-              </span>
-            )}
-          </button>
-        ))}
-      </div>
+      <h2 className="text-base font-semibold text-zinc-100 mb-6">Users</h2>
 
       {loading && <p className="text-sm text-zinc-500">Loading…</p>}
       {error && (
@@ -175,8 +121,7 @@ export default function UserManagement() {
         </p>
       )}
 
-      {/* Users tab */}
-      {!loading && tab === "users" && (
+      {!loading && (
         <>
           <div className="flex justify-end mb-4">
             <button
@@ -253,74 +198,6 @@ export default function UserManagement() {
             </table>
           </div>
         </>
-      )}
-
-      {/* Requests tab */}
-      {!loading && tab === "requests" && (
-        <div className="bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-zinc-800 text-zinc-500 text-xs uppercase tracking-wide">
-                <th className="text-left px-4 py-3 font-medium">Name</th>
-                <th className="text-left px-4 py-3 font-medium">Email</th>
-                <th className="text-left px-4 py-3 font-medium">Reason</th>
-                <th className="text-left px-4 py-3 font-medium">Requested</th>
-                <th className="text-left px-4 py-3 font-medium">Status</th>
-                <th className="px-4 py-3" />
-              </tr>
-            </thead>
-            <tbody>
-              {requests.map((r) => (
-                <tr key={r.id} className="border-b border-zinc-800/50 last:border-0">
-                  <td className="px-4 py-3 text-zinc-200">{r.name}</td>
-                  <td className="px-4 py-3 text-zinc-400">{r.email}</td>
-                  <td className="px-4 py-3 text-zinc-500 max-w-xs truncate">{r.reason ?? "—"}</td>
-                  <td className="px-4 py-3 text-zinc-500">
-                    {new Date(r.created_at).toLocaleDateString()}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={`text-xs font-medium px-2 py-0.5 rounded ${
-                        r.status === "pending"
-                          ? "text-amber-400 bg-amber-900/30"
-                          : r.status === "approved"
-                          ? "text-green-400 bg-green-900/30"
-                          : "text-zinc-500 bg-zinc-800"
-                      }`}
-                    >
-                      {r.status}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    {r.status === "pending" && (
-                      <div className="flex gap-2 justify-end">
-                        <button
-                          onClick={() => handleRequestAction(r.id, "approved")}
-                          className="text-xs px-2 py-1 rounded bg-green-900/30 text-green-400 hover:bg-green-900/50 transition-colors"
-                        >
-                          Approve
-                        </button>
-                        <button
-                          onClick={() => handleRequestAction(r.id, "denied")}
-                          className="text-xs px-2 py-1 rounded bg-zinc-800 text-zinc-500 hover:text-red-400 transition-colors"
-                        >
-                          Deny
-                        </button>
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              ))}
-              {requests.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="px-4 py-6 text-center text-zinc-600 text-sm">
-                    No access requests
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
       )}
 
       {/* Set password modal */}
