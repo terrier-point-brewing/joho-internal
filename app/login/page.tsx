@@ -36,8 +36,7 @@ export default function LoginPage() {
       setLoginError(error.message);
       setLoggingIn(false);
     } else {
-      router.push("/");
-      router.refresh();
+      window.location.href = "/";
     }
   }
 

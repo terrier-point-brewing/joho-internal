@@ -1,7 +1,8 @@
 "use client";
 
-import { Suspense, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { Suspense, useState, useEffect } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
+import { useUserRole } from "@/lib/hooks/useUserRole";
 import BatchLogTab    from "./components/BatchLogTab";
 import RecipesTab     from "./components/RecipesTab";
 import BrewStatusTab  from "./components/BrewStatusTab";
@@ -23,8 +24,18 @@ type BrewingSubtab = typeof BREWING_SUBTABS[number]["key"];
 
 function ProductionContent() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const tab = searchParams.get("tab") ?? "intake";
   const [brewingSubtab, setBrewingSubtab] = useState<BrewingSubtab>("floorplan");
+  const { role, loading } = useUserRole();
+
+  useEffect(() => {
+    if (!loading && role === "viewer") {
+      router.replace("/taproom");
+    }
+  }, [role, loading, router]);
+
+  if (loading || role === "viewer") return null;
 
   return (
     <main className="px-6 py-8">

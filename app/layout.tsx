@@ -35,7 +35,7 @@ export default function RootLayout({
           <Suspense>
             <NavBar />
           </Suspense>
-          <div className="flex-1 min-w-0 overflow-auto">
+          <div className="flex-1 min-w-0 overflow-auto pt-11 md:pt-0 pb-16 md:pb-0">
             {children}
           </div>
         </Providers>

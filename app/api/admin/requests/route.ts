@@ -10,7 +10,7 @@ async function sendEmail(to: string, subject: string, html: string) {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) return;
   const resend = new Resend(apiKey);
-  await resend.emails.send({ from: "onboarding@resend.dev", to, subject, html });
+  await resend.emails.send({ from: "noreply@terrierpoint.com", to, subject, html });
 }
 
 async function notifyAdminOfRequest(name: string, email: string, reason: string | null) {
