@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "@/lib/query-keys";
 import { Recipe, ContractBrewingPartner, ContractBrewingRequest, ContractRequestStatus } from "../../types";
 import { fmtDateLong } from "@/lib/utils/formatting";
 import { Modal, Field, ModalActions } from "../shared";
@@ -249,10 +250,10 @@ function RequestModal({
 export default function ContractBrewingTab({ recipes, partners }: { recipes: Recipe[]; partners: ContractBrewingPartner[] }) {
   const qc = useQueryClient();
   const { data: rows = [] } = useQuery({
-    queryKey: ["production", "contract-requests"],
+    queryKey: queryKeys.production.contractRequests(),
     queryFn: () => fetchJson<ContractBrewingRequest[]>("/api/production/contract-requests"),
   });
-  const load = () => qc.invalidateQueries({ queryKey: ["production", "contract-requests"] });
+  const load = () => qc.invalidateQueries({ queryKey: queryKeys.production.contractRequests() });
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<ContractBrewingRequest | null>(null);
 

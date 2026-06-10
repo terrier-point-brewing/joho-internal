@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchJson } from "@/app/production/hooks/queries";
+import { queryKeys } from "@/lib/query-keys";
 import {
   ResponsiveContainer, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine,
@@ -152,7 +153,7 @@ export default function AchievementTab() {
   const [activeTier, setActiveTier] = useState<Tier>("target");
   const [chartView,  setChartView]  = useState<ChartView>("cumulative");
   const { data: targets = [] } = useQuery({
-    queryKey: ["taproom", "targets"],
+    queryKey: queryKeys.taproom.targets(),
     queryFn: () => fetchJson<Target[]>("/api/targets"),
   });
   const [periods,    setPeriods]    = useState<Period[]>([]);

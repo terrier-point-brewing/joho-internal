@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { queryKeys } from "@/lib/query-keys";
 import {
   StockAdjustment, PackagingStockAdjustment, BrewInventoryAdjustment,
   AdjustmentType, PackagingAdjustmentType, BrewAdjustmentType,
@@ -156,11 +157,11 @@ export default function StockAdjustmentsTab() {
   const { data: transfers = [] } = useTransfersQuery();
   const { data: batches = [] } = useBatchesQuery();
   const { data: pkgAdjs = [], isLoading: pkgLoading } = useQuery({
-    queryKey: ["production", "packaging-adjustments"],
+    queryKey: queryKeys.production.packagingAdjustments(),
     queryFn: () => fetchJson<PackagingStockAdjustment[]>("/api/production/packaging-adjustments"),
   });
   const { data: brewAdjs = [], isLoading: brewLoading } = useQuery({
-    queryKey: ["production", "brew-adjustments"],
+    queryKey: queryKeys.production.brewAdjustments(),
     queryFn: () => fetchJson<BrewInventoryAdjustment[]>("/api/production/brew-adjustments"),
   });
   const loading = pkgLoading || brewLoading;

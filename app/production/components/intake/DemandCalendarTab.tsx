@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { queryKeys } from "@/lib/query-keys";
 import { format, parseISO } from "date-fns";
 import type { DemandRow, DemandWeek } from "../../lib/demandCalendar";
 import { fetchJson } from "../../hooks/queries";
@@ -58,7 +59,7 @@ function fmtOutflow(val: number): string {
 
 export default function DemandCalendarTab() {
   const { data: rows = [], isLoading: loading, error, refetch } = useQuery({
-    queryKey: ["production", "demand-calendar"],
+    queryKey: queryKeys.production.demandCalendar(),
     queryFn: () => fetchJson<DemandRow[]>("/api/production/demand-calendar"),
   });
   const [expanded, setExpanded] = useState<Set<string>>(new Set());

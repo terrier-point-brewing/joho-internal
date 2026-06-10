@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { queryKeys } from "@/lib/query-keys";
 import {
   ResponsiveContainer, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
@@ -201,11 +202,11 @@ export default function SalesPulseTab() {
   }
 
   const { data: currentData = null, isLoading: loading } = useQuery({
-    queryKey: ["taproom", "sales-pulse", curStart, effectiveEnd],
+    queryKey: queryKeys.taproom.salesPulse(curStart, effectiveEnd),
     queryFn: () => fetchPulse(curStart, effectiveEnd),
   });
   const { data: priorData = null } = useQuery({
-    queryKey: ["taproom", "sales-pulse", priorStart, priorEnd],
+    queryKey: queryKeys.taproom.salesPulse(priorStart, priorEnd),
     queryFn: () => fetchPulse(priorStart, priorEnd),
   });
 
@@ -213,7 +214,7 @@ export default function SalesPulseTab() {
   const dayDate   = catDayFilter !== null ? toISO(addDays(weekStart, catDayFilter)) : null;
   const dayIsFuture = dayDate ? dayDate > todayStr : false;
   const { data: catDayData = null, isLoading: catDayLoading } = useQuery({
-    queryKey: ["taproom", "sales-pulse-day", dayDate],
+    queryKey: queryKeys.taproom.salesPulseDay(dayDate),
     queryFn: () => fetchPulse(dayDate!, dayDate!),
     enabled: dayDate !== null && !dayIsFuture,
   });

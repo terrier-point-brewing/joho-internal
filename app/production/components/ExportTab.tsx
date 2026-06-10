@@ -5,9 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRecipesQuery, fetchJson } from "../hooks/queries";
 import { SquareLinkManager, LinkRow } from "./SquareLinkManager";
 import type { BatchAllocation, AllocationChannel, Recipe } from "../types";
-
-const EXPORTS_KEY = ["production", "exports"] as const;
-const ALLOCATIONS_KEY = ["production", "allocations"] as const;
+import { queryKeys } from "@/lib/query-keys";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -83,7 +81,7 @@ function fmt(iso: string) {
 
 function AllocationsTab() {
   const { data: allocations = [], isLoading } = useQuery({
-    queryKey: ALLOCATIONS_KEY,
+    queryKey: queryKeys.production.allocations(),
     queryFn: () => fetchJson<BatchAllocation[]>("/api/production/allocations"),
   });
 
@@ -217,7 +215,7 @@ function ExportsChannelTab({ channel, exports, links, recipes, onLinksChanged }:
 }) {
   const [showLinks, setShowLinks] = useState(false);
   const qc = useQueryClient();
-  const refreshLinks = () => { qc.invalidateQueries({ queryKey: ["production", "recipe-square-links"] }); onLinksChanged(); };
+  const refreshLinks = () => { qc.invalidateQueries({ queryKey: queryKeys.production.recipeSquareLinks() }); onLinksChanged(); };
 
   const channelExports = exports.filter(e => e.channel === channel);
   const channelMeta = CHANNEL_TABS.find(c => c.key === channel)!;
@@ -232,7 +230,7 @@ function ExportsChannelTab({ channel, exports, links, recipes, onLinksChanged }:
   async function remove(id: string) {
     if (!confirm("Delete this export record?")) return;
     await fetch(`/api/production/exports/${id}`, { method: "DELETE" });
-    qc.invalidateQueries({ queryKey: EXPORTS_KEY });
+    qc.invalidateQueries({ queryKey: queryKeys.production.exports() });
   }
 
   return (
@@ -353,11 +351,11 @@ function ExportsChannelTab({ channel, exports, links, recipes, onLinksChanged }:
 
 export default function ExportTab() {
   const { data: exports = [] } = useQuery({
-    queryKey: EXPORTS_KEY,
+    queryKey: queryKeys.production.exports(),
     queryFn: () => fetchJson<BatchExport[]>("/api/production/exports"),
   });
   const { data: links = [] } = useQuery({
-    queryKey: ["production", "recipe-square-links"],
+    queryKey: queryKeys.production.recipeSquareLinks(),
     queryFn: () => fetchJson<LinkRow[]>("/api/production/recipe-square-links"),
   });
   const { data: recipes = [] } = useRecipesQuery();

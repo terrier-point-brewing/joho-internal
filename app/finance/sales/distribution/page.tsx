@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { queryKeys } from "@/lib/query-keys";
 import SalesNav from "../SalesNav";
 import SalesTable, { type SalesRow } from "../SalesTable";
 import { fetchJson } from "@/app/production/hooks/queries";
@@ -52,7 +53,7 @@ export default function DistributionSalesPage() {
   const [year, setYear] = useState(currentYear);
 
   const { data, isFetching, error, refetch } = useQuery({
-    queryKey: ["finance", "sales", "invoices", year] as const,
+    queryKey: queryKeys.finance.salesInvoices(year),
     queryFn:  () => fetchJson<InvoiceSalesData>(`/api/finance/sales/invoices?year=${year}`),
   });
 

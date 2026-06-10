@@ -4,8 +4,7 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchJson } from "@/app/production/hooks/queries";
 import { useUserRole } from "@/lib/hooks/useUserRole";
-
-const MANUAL_ENTRIES_KEY = ["taproom", "manual-entries"] as const;
+import { queryKeys } from "@/lib/query-keys";
 
 type ManualEntry = {
   id: string;
@@ -69,10 +68,10 @@ export default function ManualEntriesTab() {
   const isAdmin = role === "admin";
   const qc = useQueryClient();
   const { data: entries = [], isLoading: loading } = useQuery({
-    queryKey: MANUAL_ENTRIES_KEY,
+    queryKey: queryKeys.taproom.manualEntries(),
     queryFn: () => fetchJson<ManualEntry[]>("/api/manual-entries"),
   });
-  const refresh = () => qc.invalidateQueries({ queryKey: MANUAL_ENTRIES_KEY });
+  const refresh = () => qc.invalidateQueries({ queryKey: queryKeys.taproom.manualEntries() });
 
   const [deleting, setDeleting] = useState<string | null>(null);
 

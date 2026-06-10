@@ -4,8 +4,7 @@ import { useEffect, useState, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchJson } from "@/app/production/hooks/queries";
 import { useUserRole } from "@/lib/hooks/useUserRole";
-
-const TARGETS_KEY = ["taproom", "targets"] as const;
+import { queryKeys } from "@/lib/query-keys";
 
 type Tier = "baseline" | "recovery" | "target" | "stretch";
 
@@ -94,10 +93,10 @@ export default function TargetSettingTab() {
 
   const qc = useQueryClient();
   const { data: targets = [], isLoading: loading } = useQuery({
-    queryKey: TARGETS_KEY,
+    queryKey: queryKeys.taproom.targets(),
     queryFn: () => fetchJson<Target[]>("/api/targets"),
   });
-  const refreshTargets = () => qc.invalidateQueries({ queryKey: TARGETS_KEY });
+  const refreshTargets = () => qc.invalidateQueries({ queryKey: queryKeys.taproom.targets() });
 
   const [mode,    setMode]    = useState<"view" | "edit">("view");
   const [year,    setYear]    = useState(currentYear);

@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "@/lib/query-keys";
 import { Recipe, BatchTransfer, Equipment, BrewBatch, SafetyStockFloor, BrewInventoryAdjustment, PackagingItem } from "../../types";
 import { coldStorageLots } from "../../lib/coldStorage";
 import { fetchJson, usePackagingQuery } from "../../hooks/queries";
@@ -17,15 +18,15 @@ export default function SafetyStockTab({
 }) {
   const qc = useQueryClient();
   const { data: floors = [] } = useQuery({
-    queryKey: ["production", "safety-stock"],
+    queryKey: queryKeys.production.safetyStock(),
     queryFn: () => fetchJson<SafetyStockFloor[]>("/api/production/safety-stock"),
   });
   const { data: adjustments = [] } = useQuery({
-    queryKey: ["production", "brew-adjustments"],
+    queryKey: queryKeys.production.brewAdjustments(),
     queryFn: () => fetchJson<BrewInventoryAdjustment[]>("/api/production/brew-adjustments"),
   });
   const { data: packagingItems = [] } = usePackagingQuery();
-  const loadFloors = () => qc.invalidateQueries({ queryKey: ["production", "safety-stock"] });
+  const loadFloors = () => qc.invalidateQueries({ queryKey: queryKeys.production.safetyStock() });
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
 

@@ -37,6 +37,9 @@ export const queryKeys = {
     demandCalendar:       () => ["production", "demand-calendar"] as const,
     contractRequests:     () => ["production", "contract-requests"] as const,
     contractRequestsByType: (type: string) => ["production", "contract-requests", type] as const,
+    safetyStock:          () => ["production", "safety-stock"] as const,
+    taproomInventory:     () => ["production", "taproom-inventory"] as const,
+    batchScheduler:       () => ["production", "batch-scheduler"] as const,
   },
 
   // ─── Partners ─────────────────────────────────────────────────────────────

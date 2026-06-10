@@ -2,6 +2,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
+import { queryKeys } from "@/lib/query-keys";
 import { fetchJson } from "@/app/production/hooks/queries";
 import type { Invoice } from "@/types/finance";
 
@@ -86,7 +87,7 @@ export default function InvoicesPage() {
   if (source !== "all") params.set("source", source);
 
   const { data: raw, isFetching, error, refetch } = useQuery({
-    queryKey: ["finance", "ledger", "invoices", year, source] as const,
+    queryKey: queryKeys.finance.ledgerInvoices(year, source),
     queryFn:  () => fetchJson<InvoiceRow[]>(`/api/finance/ledger/invoices?${params}`),
   });
 

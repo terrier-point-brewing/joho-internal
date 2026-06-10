@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { queryKeys } from "@/lib/query-keys";
 import { Recipe } from "../types";
 import { Modal } from "./shared";
 import { usePackagingQuery, fetchJson } from "../hooks/queries";
@@ -52,7 +53,7 @@ export function SquareLinkManager({
   onChanged: () => void;
 }) {
   const { data: sqVariations = [], error: sqError } = useQuery({
-    queryKey: ["production", "square-catalog"],
+    queryKey: queryKeys.production.squareCatalog(),
     queryFn: () => fetchJson<SquareVariation[]>("/api/production/square-catalog"),
   });
   const { data: packagingItems = [] } = usePackagingQuery();

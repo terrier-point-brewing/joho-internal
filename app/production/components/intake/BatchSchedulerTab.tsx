@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "@/lib/query-keys";
 import { format, parseISO, addDays, differenceInDays } from "date-fns";
 import { Recipe, Equipment, ContractBrewingRequest, AllocationChannel, leadTimeDays } from "../../types";
 import { fmtDateLong } from "@/lib/utils/formatting";
@@ -521,12 +522,12 @@ export default function BatchSchedulerTab({
 }) {
   const qc = useQueryClient();
   const { data: recs, isLoading: loading, error, refetch } = useQuery({
-    queryKey: ["production", "batch-scheduler"],
+    queryKey: queryKeys.production.batchScheduler(),
     queryFn: () => fetchJson<SchedulerRecommendation[]>("/api/production/batch-scheduler"),
   });
   const { data: scheduleEntries = [] } = useBatchScheduleQuery();
   const { data: commitments = [] } = useQuery({
-    queryKey: ["production", "commitments"],
+    queryKey: queryKeys.production.commitments(),
     queryFn: () => fetchJson<ContractBrewingRequest[]>("/api/production/contract-requests"),
   });
 
@@ -758,8 +759,8 @@ export default function BatchSchedulerTab({
       removeRow(row.id);
       await Promise.all([
         refetch(),
-        qc.invalidateQueries({ queryKey: ["production", "batch-schedule"] }),
-        qc.invalidateQueries({ queryKey: ["production", "batches"] }),
+        qc.invalidateQueries({ queryKey: queryKeys.production.batchSchedule() }),
+        qc.invalidateQueries({ queryKey: queryKeys.production.batches() }),
       ]);
       onBatchCommitted?.();
     } catch (e) {

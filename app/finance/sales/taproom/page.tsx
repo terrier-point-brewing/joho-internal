@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { queryKeys } from "@/lib/query-keys";
 import SalesNav from "../SalesNav";
 import SalesTable, { type SalesRow } from "../SalesTable";
 import { fetchJson } from "@/app/production/hooks/queries";
@@ -82,7 +83,7 @@ export default function TaproomSalesPage() {
   const [year, setYear] = useState(currentYear);
 
   const { data, isFetching, error, refetch } = useQuery({
-    queryKey: ["finance", "sales", "taproom", year] as const,
+    queryKey: queryKeys.finance.salesTaproom(year),
     queryFn:  () => fetchJson<TaproomSalesData>(`/api/finance/sales/taproom?year=${year}`),
   });
 

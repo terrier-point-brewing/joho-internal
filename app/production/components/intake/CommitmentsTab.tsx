@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "@/lib/query-keys";
 import {
   Recipe, ContractBrewingPartner, ContractBrewingRequest,
   ContractRequestStatus, CommitmentChannel,
@@ -269,10 +270,10 @@ function CommitmentModal({
 export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[]; partners: ContractBrewingPartner[] }) {
   const qc = useQueryClient();
   const { data: rows = [] } = useQuery({
-    queryKey: ["production", "commitments"],
+    queryKey: queryKeys.production.commitments(),
     queryFn: () => fetchJson<ContractBrewingRequest[]>("/api/production/contract-requests"),
   });
-  const load = () => qc.invalidateQueries({ queryKey: ["production", "commitments"] });
+  const load = () => qc.invalidateQueries({ queryKey: queryKeys.production.commitments() });
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<ContractBrewingRequest | null>(null);
   const [channelFilter, setChannelFilter] = useState<CommitmentChannel | "all">("all");

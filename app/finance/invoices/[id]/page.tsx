@@ -2,6 +2,7 @@
 import { useState, use } from "react";
 import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "@/lib/query-keys";
 import { fetchJson } from "@/app/production/hooks/queries";
 import type { Invoice, InvoiceLineItem, InvoiceBatchLink } from "@/types/finance";
 import type { BrewBatch, ContractBrewingPartner } from "@/app/production/types";
@@ -73,7 +74,7 @@ function BatchLinkPanel({ invoiceId, links, onChanged }: {
   const [err, setErr]               = useState<string | null>(null);
 
   const { data: batches } = useQuery({
-    queryKey: ["production", "batches"],
+    queryKey: queryKeys.production.batches(),
     queryFn:  () => fetchJson<BrewBatch[]>("/api/production/batches"),
     staleTime: 60_000,
   });
@@ -207,7 +208,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
   const qc = useQueryClient();
 
   const { data: inv, isFetching, error, refetch } = useQuery({
-    queryKey: ["finance", "ledger", "invoice", id] as const,
+    queryKey: queryKeys.finance.ledgerInvoice(id),
     queryFn:  () => fetchJson<InvoiceDetail>(`/api/finance/ledger/invoices/${id}`),
   });
 
@@ -218,7 +219,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
   const [patchErr,       setPatchErr]       = useState<string | null>(null);
 
   const { data: partners } = useQuery({
-    queryKey: ["partners", "contract-brewing"],
+    queryKey: queryKeys.partners.contractBrewing(),
     queryFn:  () => fetchJson<ContractBrewingPartner[]>("/api/partners/contract-brewing"),
     staleTime: 60_000,
     enabled: editingPartner,
@@ -467,7 +468,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
                 links={inv.invoice_batch_links}
                 onChanged={() => {
                   void refetch();
-                  void qc.invalidateQueries({ queryKey: ["production", "batches"] });
+                  void qc.invalidateQueries({ queryKey: queryKeys.production.batches() });
                 }}
               />
             </div>

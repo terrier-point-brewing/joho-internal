@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "@/lib/query-keys";
 import { useUserRole } from "@/lib/hooks/useUserRole";
 import { BrewBatch, BatchTransfer, BrewActivityEntry, BatchAllocation, AllocationChannel, AllocationLockReason, ContractBrewingRequest } from "../types";
 import { BREWHOUSE_BBL, StatusBadge, Modal, Field, ModalActions } from "./shared";
@@ -365,14 +366,14 @@ function ChannelBadge({ channel }: { channel: AllocationChannel }) {
 function AllocationManager({ batch }: { batch: BrewBatch }) {
   const qc = useQueryClient();
 
-  const allocKey = ["production", "allocations", batch.id] as const;
+  const allocKey = queryKeys.production.allocationsByBatch(batch.id);
   const { data: allocations = [] } = useQuery({
     queryKey: allocKey,
     queryFn: () => fetchJson<BatchAllocation[]>(`/api/production/allocations?batch_id=${batch.id}`),
   });
 
   const { data: allCommitments = [] } = useQuery({
-    queryKey: ["production", "commitments"],
+    queryKey: queryKeys.production.commitments(),
     queryFn: () => fetchJson<ContractBrewingRequest[]>("/api/production/contract-requests"),
   });
   const recipeCommitments = allCommitments.filter(
