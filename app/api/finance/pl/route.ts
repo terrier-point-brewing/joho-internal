@@ -7,6 +7,7 @@ import { fetchRefunds } from "@/lib/square/refunds";
 import { fetchCatalogItems } from "@/lib/square/catalog";
 import { buildTaproomModelReport } from "@/lib/reports/taproom-model";
 import { TAPROOM_MODEL_CATEGORIES } from "@/lib/constants/categories";
+import { apiError } from "@/lib/utils/api";
 
 const EXCLUDED_CATEGORY_IDS = new Set(["CO2", "OTHER"]);
 
@@ -21,6 +22,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "from and to date params are required" }, { status: 400 });
   }
 
+  try {
   const supabase = await createSupabaseServerClient();
 
   const [
@@ -129,4 +131,7 @@ export async function GET(req: NextRequest) {
     ),
     operating_income:  Math.round(operatingIncome  * 100) / 100,
   });
+  } catch (err) {
+    return apiError(err);
+  }
 }

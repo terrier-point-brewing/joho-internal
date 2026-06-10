@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth";
 import { getRampTransactions } from "@/lib/ramp";
+import { apiError } from "@/lib/utils/api";
 
 export async function GET(req: NextRequest) {
   try { await requireRole("admin"); } catch (res) { return res as Response; }
@@ -13,6 +14,6 @@ export async function GET(req: NextRequest) {
     const transactions = await getRampTransactions(from, to);
     return NextResponse.json(transactions);
   } catch (err) {
-    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
+    return apiError(err);
   }
 }

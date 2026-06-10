@@ -80,6 +80,9 @@ export async function POST(req: NextRequest) {
   // ── Packaging deduction ───────────────────────────────────────────────────
   // When kegging or canning product arrives in cold storage, consume the
   // packaging items used so inventory stays accurate.
+  // Runs after the transfer is committed — failures are logged but don't roll
+  // back the transfer, since the DB record is already the source of truth.
+  try {
   if (transfer_type === "kegging" && kegging_detail?.kegs?.length) {
     for (const keg of kegging_detail.kegs as { packaging_id?: string; quantity: number }[]) {
       if (!keg.packaging_id || !keg.quantity) continue;
@@ -161,6 +164,9 @@ export async function POST(req: NextRequest) {
   // brew_batches.volume_bbl is the ORIGINAL brew volume and must not be mutated
   // by transfers — the transfer ledger (batch_transfers) is the source of truth
   // for current per-tank volumes.
+  } catch (deductionErr) {
+    console.error("[transfers] Packaging deduction failed (transfer committed):", deductionErr);
+  }
 
   // ── Schedule reconciliation ───────────────────────────────────────────────
   // When beer arrives in a fermenter or brite (conditioning) tank, update or
