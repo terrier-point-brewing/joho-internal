@@ -6,6 +6,7 @@ import {
   Equipment, BatchTankAssignment, PackagingItem, BatchTransfer,
   ContractBrewingPartner, Supplier,
 } from "../types";
+import { queryKeys } from "@/lib/query-keys";
 
 // A planned/actual occupancy row from /api/production/batch-schedule.
 export interface ScheduleEntry {
@@ -56,20 +57,21 @@ export async function fetchJson<T>(url: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-// Centralized query keys so reads and invalidations can never drift apart.
+// Flat-value alias kept for the components that already import productionKeys.
+// New code should import queryKeys from @/lib/query-keys directly.
 export const productionKeys = {
-  ingredients: ["production", "ingredients"] as const,
-  adjustments: ["production", "stock-adjustments"] as const,
-  recipes:     ["production", "recipes"] as const,
-  batches:     ["production", "batches"] as const,
-  equipment:   ["production", "equipment"] as const,
-  assignments: ["production", "tank-assignments"] as const,
-  packaging:   ["production", "packaging"] as const,
-  transfers:   ["production", "transfers"] as const,
-  batchSchedule: ["production", "batch-schedule"] as const,
-  scheduleConflicts: ["production", "schedule-conflicts"] as const,
-  contractPartners: ["partners", "contract-brewing"] as const,
-  suppliers:   ["partners", "suppliers"] as const,
+  ingredients:       queryKeys.production.ingredients(),
+  adjustments:       queryKeys.production.stockAdjustments(),
+  recipes:           queryKeys.production.recipes(),
+  batches:           queryKeys.production.batches(),
+  equipment:         queryKeys.production.equipment(),
+  assignments:       queryKeys.production.tankAssignments(),
+  packaging:         queryKeys.production.packaging(),
+  transfers:         queryKeys.production.transfers(),
+  batchSchedule:     queryKeys.production.batchSchedule(),
+  scheduleConflicts: queryKeys.production.scheduleConflicts(),
+  contractPartners:  queryKeys.partners.contractBrewing(),
+  suppliers:         queryKeys.partners.suppliers(),
 };
 
 export function useIngredientsQuery() {
