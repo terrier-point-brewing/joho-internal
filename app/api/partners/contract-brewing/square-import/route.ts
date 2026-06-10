@@ -3,6 +3,8 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { squareGet } from "@/lib/square/client";
 import { SquareCustomer, customerAddressString } from "@/lib/square/customers";
 
+export const dynamic = "force-dynamic";
+
 /**
  * POST /api/partners/contract-brewing/square-import
  *

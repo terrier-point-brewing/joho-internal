@@ -3,6 +3,8 @@ import { requireRole } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getSessionUser } from "@/lib/auth";
 
+export const dynamic = "force-dynamic";
+
 // ── POST /api/finance/ledger/invoice-batch-links ───────────────────────────────
 // Body: { invoice_id, batch_id, note? }
 export async function POST(req: NextRequest) {

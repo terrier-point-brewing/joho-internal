@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
+export const dynamic = "force-dynamic";
+
 // GET /api/production/allocations?batch_id=<uuid>
 // Returns allocations enriched with fulfillment data computed from batch_exports and batch_transfers.
 export async function GET(req: NextRequest) {

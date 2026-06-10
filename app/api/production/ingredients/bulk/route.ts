@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { IngredientCategory, INGREDIENT_CATEGORIES } from "@/app/production/types";
 
+export const dynamic = "force-dynamic";
+
 interface BulkRow {
   name: string;
   category?: string | null;

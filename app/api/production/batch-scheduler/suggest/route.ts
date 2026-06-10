@@ -4,6 +4,8 @@ import { apiError } from "@/lib/utils/api";
 import { addDays, parseISO } from "date-fns";
 import type { EquipmentSlot } from "../route";
 
+export const dynamic = "force-dynamic";
+
 interface ScheduleEntry {
   equipment_id: string | null;
   planned_start: string;

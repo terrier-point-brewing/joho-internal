@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
+export const dynamic = "force-dynamic";
+
 // Federal and NC excise tax rates
 const FEDERAL_EXCISE_PER_BBL = 3.50;   // USD/BBL (craft < 60k BBL/yr)
 const NC_EXCISE_PER_GAL      = 0.62;   // USD/gal (NC beer tax)

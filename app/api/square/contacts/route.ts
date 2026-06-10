@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { searchSquareCustomers } from "@/lib/square/customers";
 
+export const dynamic = "force-dynamic";
+
 export async function GET(req: NextRequest) {
   const query = req.nextUrl.searchParams.get("query") ?? "";
   try {

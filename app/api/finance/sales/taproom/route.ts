@@ -10,6 +10,8 @@ import { TAPROOM_MODEL_CATEGORIES, type TaproomCategoryId, CATEGORY_IDS } from "
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { CatalogItem } from "@/types/square";
 
+export const dynamic = "force-dynamic";
+
 // Returns month-over-month taproom sales for a given year.
 // Each month is fetched in parallel from Square.
 export async function GET(req: NextRequest) {

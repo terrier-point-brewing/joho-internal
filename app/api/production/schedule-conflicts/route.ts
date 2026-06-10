@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { parseISO, addDays } from "date-fns";
 
+export const dynamic = "force-dynamic";
+
 // Equipment types where multi-batch overlap is allowed (no conflict detection)
 const MULTI_BATCH_TYPES = new Set(["kegging", "canning", "cold_storage"]);
 

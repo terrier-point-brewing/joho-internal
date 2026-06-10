@@ -4,6 +4,8 @@ import { fetchPhysicalCounts } from "@/lib/square/inventory";
 import { buildShrinkageReport } from "@/lib/reports/shrinkage";
 import { requireDateRange, apiError } from "@/lib/utils/api";
 
+export const dynamic = "force-dynamic";
+
 export async function GET(req: NextRequest) {
   const range = requireDateRange(req);
   if (range instanceof NextResponse) return range;

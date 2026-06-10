@@ -3,6 +3,8 @@ import { requireRole } from "@/lib/auth";
 import { getRampStatements } from "@/lib/ramp";
 import { apiError } from "@/lib/utils/api";
 
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   try { await requireRole("admin"); } catch (res) { return res as Response; }
 

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSquareProject } from "@/lib/square/projects";
 
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   const supabase = await createSupabaseServerClient();
 

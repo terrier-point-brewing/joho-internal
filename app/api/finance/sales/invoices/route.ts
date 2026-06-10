@@ -8,6 +8,8 @@ import { CATEGORY_IDS } from "@/lib/constants/categories";
 import { apiError } from "@/lib/utils/api";
 import type { CatalogItem } from "@/types/square";
 
+export const dynamic = "force-dynamic";
+
 // Volume / excise constants
 const KEG_BBL: Record<string, number> = {
   "1/2 Keg": 15.5 / 31,

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
+export const dynamic = "force-dynamic";
+
 // ── DELETE /api/finance/ledger/invoice-batch-links/[id] ──────────────────────
 export async function DELETE(
   _req: NextRequest,

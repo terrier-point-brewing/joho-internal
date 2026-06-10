@@ -12,6 +12,8 @@ import type {
 } from "@/app/production/types";
 import type { SafetyStockFloor } from "@/app/production/types";
 
+export const dynamic = "force-dynamic";
+
 export interface EquipmentSlot {
   stage: "brewhouse" | "fermenter" | "brite" | "kegging" | "canning";
   equipment_id: string;

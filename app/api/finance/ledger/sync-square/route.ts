@@ -24,6 +24,8 @@ import { classifyLineItem } from "@/lib/finance/classify";
 import type { CatalogItem, Order, SquareInvoice } from "@/types/square";
 import type { InvoiceStatus, InvoiceLineCategory } from "@/types/finance";
 
+export const dynamic = "force-dynamic";
+
 function squareStatusToLedger(status: string): InvoiceStatus {
   switch (status.toUpperCase()) {
     case "PAID":                         return "paid";

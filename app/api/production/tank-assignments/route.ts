@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { EQUIPMENT_TYPE_TO_STATUS, EquipmentType } from "@/app/production/types";
 
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   const supabase = await createSupabaseServerClient();
 

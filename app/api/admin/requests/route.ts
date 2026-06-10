@@ -5,6 +5,8 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { sendEmail, ADMIN_EMAIL } from "@/lib/resend";
 import { env } from "@/lib/env";
 
+export const dynamic = "force-dynamic";
+
 async function notifyAdminOfRequest(name: string, email: string, reason: string | null) {
   await sendEmail(
     ADMIN_EMAIL,

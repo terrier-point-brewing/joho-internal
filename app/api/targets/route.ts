@@ -3,6 +3,8 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth";
 import { apiError } from "@/lib/utils/api";
 
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   const supabase = await createSupabaseServerClient();
 

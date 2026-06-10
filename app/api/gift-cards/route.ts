@@ -4,6 +4,8 @@ import { requireDateRange, apiError } from "@/lib/utils/api";
 import { cents } from "@/lib/utils/formatting";
 import { mapDiscountsByUid } from "@/lib/utils/orders";
 
+export const dynamic = "force-dynamic";
+
 export async function GET(req: NextRequest) {
   const range = requireDateRange(req);
   if (range instanceof NextResponse) return range;

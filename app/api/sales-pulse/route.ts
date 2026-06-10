@@ -7,6 +7,8 @@ import { TAPROOM_MODEL_CATEGORIES } from "@/lib/constants/categories";
 import { requireDateRange, apiError } from "@/lib/utils/api";
 import { localDateString, eachDateString } from "@/lib/utils/datetime";
 
+export const dynamic = "force-dynamic";
+
 const EXCLUDED_CATEGORY_IDS = new Set(["CO2", "OTHER"]);
 
 export async function GET(req: NextRequest) {

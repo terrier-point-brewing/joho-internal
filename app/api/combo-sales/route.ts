@@ -6,6 +6,8 @@ import type { ComboSale } from "@/types/reports";
 import { requireDateRange, apiError } from "@/lib/utils/api";
 import { cents } from "@/lib/utils/formatting";
 
+export const dynamic = "force-dynamic";
+
 // Multi-component combos (e.g. Citrus Wheat Wave) produce one ComboSale per
 // component. Merge them into a single row per (order, combo) by summing money
 // fields and taking quantity from the first component seen (all slots have the

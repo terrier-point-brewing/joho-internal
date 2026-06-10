@@ -6,6 +6,8 @@ import { buildDistributionReport } from "@/lib/reports/distribution";
 import { requireDateRange, apiError } from "@/lib/utils/api";
 import { cents } from "@/lib/utils/formatting";
 
+export const dynamic = "force-dynamic";
+
 export async function GET(req: NextRequest) {
   const range = requireDateRange(req);
   if (range instanceof NextResponse) return range;

@@ -4,6 +4,8 @@ import { fetchCurrentCounts, fetchOrderSales } from "@/lib/square/inventory";
 import { apiError } from "@/lib/utils/api";
 import { BBL_TO_FL_OZ } from "@/lib/constants/production";
 
+export const dynamic = "force-dynamic";
+
 interface LinkRow {
   id: string;
   packaging: "draft" | "keg" | "can";

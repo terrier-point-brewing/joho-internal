@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { fetchCatalogItems } from "@/lib/square/catalog";
 import { apiError } from "@/lib/utils/api";
 
+export const dynamic = "force-dynamic";
+
 // Flattened list of catalog item variations, for linking recipes to Square inventory.
 export async function GET() {
   try {

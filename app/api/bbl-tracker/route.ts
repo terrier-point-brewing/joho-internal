@@ -5,6 +5,8 @@ import { buildBBLTrackerReport } from "@/lib/reports/bbl-tracker";
 import { requireDateRange, apiError } from "@/lib/utils/api";
 import { fmt } from "@/lib/utils/formatting";
 
+export const dynamic = "force-dynamic";
+
 export async function GET(req: NextRequest) {
   const range = requireDateRange(req);
   if (range instanceof NextResponse) return range;

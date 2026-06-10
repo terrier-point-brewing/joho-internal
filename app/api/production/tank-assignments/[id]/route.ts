@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
+export const dynamic = "force-dynamic";
+
 // PATCH releases a tank assignment (sets released_at = now)
 export async function PATCH(
   _req: NextRequest,

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
+export const dynamic = "force-dynamic";
+
 export interface ExportLineItem {
   /** The keg/can label from kegging_detail/canning_detail, e.g. "1/6 BBL" or "can" */
   product_label: string;

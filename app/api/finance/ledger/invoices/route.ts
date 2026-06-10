@@ -4,6 +4,8 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { classifyLineItem } from "@/lib/finance/classify";
 import type { InvoiceImportPayload, InvoiceStatus } from "@/types/finance";
 
+export const dynamic = "force-dynamic";
+
 // ── GET /api/finance/ledger/invoices ──────────────────────────────────────────
 // Returns all invoices with line-item counts and batch-link counts.
 // Optional query params: ?source=quickbooks&year=2024&partner_id=<uuid>

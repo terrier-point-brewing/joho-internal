@@ -9,6 +9,8 @@ import { buildTaproomModelReport } from "@/lib/reports/taproom-model";
 import { TAPROOM_MODEL_CATEGORIES } from "@/lib/constants/categories";
 import { apiError } from "@/lib/utils/api";
 
+export const dynamic = "force-dynamic";
+
 const EXCLUDED_CATEGORY_IDS = new Set(["CO2", "OTHER"]);
 
 export async function GET(req: NextRequest) {

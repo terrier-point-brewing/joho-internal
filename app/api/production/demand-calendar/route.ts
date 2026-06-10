@@ -11,6 +11,8 @@ import type {
 } from "@/app/production/types";
 import type { SafetyStockFloor } from "@/app/production/types";
 
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   const supabase = await createSupabaseServerClient();
 
