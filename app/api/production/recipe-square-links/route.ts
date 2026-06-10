@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -15,6 +16,9 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  try { await requireRole("admin"); } catch (res) { return res as Response; }
+
+
   const supabase = await createSupabaseServerClient();
 
   const { recipe_id, packaging, packaging_item_id, square_variation_id, square_item_id, variation_name, item_name } = await req.json();
@@ -46,6 +50,9 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  try { await requireRole("admin"); } catch (res) { return res as Response; }
+
+
   const supabase = await createSupabaseServerClient();
 
   const id = req.nextUrl.searchParams.get("id");

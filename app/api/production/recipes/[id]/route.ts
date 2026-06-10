@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -7,6 +8,9 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  try { await requireRole("brewer"); } catch (res) { return res as Response; }
+
+
   const supabase = await createSupabaseServerClient();
 
   const { id } = await params;
@@ -56,6 +60,9 @@ export async function DELETE(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  try { await requireRole("brewer"); } catch (res) { return res as Response; }
+
+
   const supabase = await createSupabaseServerClient();
 
   const { id } = await params;

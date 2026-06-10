@@ -8,6 +8,9 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  try { await requireRole("brewer"); } catch (res) { return res as Response; }
+
+
   const supabase = await createSupabaseServerClient();
 
   const { id } = await params;

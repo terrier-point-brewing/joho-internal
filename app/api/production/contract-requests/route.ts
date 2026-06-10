@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -18,6 +19,9 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  try { await requireRole("brewer"); } catch (res) { return res as Response; }
+
+
   const supabase = await createSupabaseServerClient();
 
   const b = await req.json();
@@ -55,6 +59,9 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
+  try { await requireRole("brewer"); } catch (res) { return res as Response; }
+
+
   const supabase = await createSupabaseServerClient();
 
   const id = req.nextUrl.searchParams.get("id");
@@ -71,6 +78,9 @@ export async function PATCH(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  try { await requireRole("brewer"); } catch (res) { return res as Response; }
+
+
   const supabase = await createSupabaseServerClient();
 
   const id = req.nextUrl.searchParams.get("id");

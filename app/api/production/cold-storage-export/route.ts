@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -23,6 +24,9 @@ export interface ColdStorageExportRequest {
 }
 
 export async function POST(req: NextRequest) {
+  try { await requireRole("brewer"); } catch (res) { return res as Response; }
+
+
   const supabase = await createSupabaseServerClient();
 
   const body: ColdStorageExportRequest = await req.json();
