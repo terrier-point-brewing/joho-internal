@@ -2,6 +2,7 @@
 
 import { Suspense, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
+import Link from "next/link";
 
 // Reports
 import CocktailSalesReport   from "../reports/components/CocktailSalesReport";
@@ -146,19 +147,19 @@ function TaproomContent() {
     <main className="px-4 sm:px-6 py-4 sm:py-8">
 
       {/* Mobile top-level tab nav (hidden on md+ where sidebar handles this) */}
-      <div className="md:hidden flex border-b border-zinc-800 mb-4 -mx-4 px-4 overflow-x-auto scrollbar-none">
+      <div className="md:hidden flex border-b border-zinc-800 mb-4 -mx-4 px-4">
         {TOP_TABS.map(({ key, label }) => (
-          <button
+          <Link
             key={key}
-            onClick={() => router.push(`/taproom?tab=${key}`)}
-            className={`flex-1 py-2.5 text-sm font-medium whitespace-nowrap transition-colors border-b-2 -mb-px ${
+            href={`/taproom?tab=${key}`}
+            className={`flex-1 text-center py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${
               tab === key
                 ? "text-amber-400 border-amber-500"
                 : "text-zinc-500 border-transparent hover:text-zinc-300"
             }`}
           >
             {label}
-          </button>
+          </Link>
         ))}
       </div>
 
