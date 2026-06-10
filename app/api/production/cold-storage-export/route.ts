@@ -53,11 +53,12 @@ export async function POST(req: NextRequest) {
   if (exErr) return NextResponse.json({ error: exErr.message }, { status: 500 });
 
   // ── 3a. Fetch can volume for BBL conversion ──────────────────────────────────
-  const { data: canItems } = await supabase
+  const { data: canItems, error: canItemsErr } = await supabase
     .from("packaging_items")
     .select("volume_fl_oz, is_default")
     .eq("type", "can")
     .order("is_default", { ascending: false });
+  if (canItemsErr) return NextResponse.json({ error: canItemsErr.message }, { status: 500 });
 
   // Use default can volume, fall back to first available
   const canVolumeFlOz: number | null =
@@ -179,12 +180,13 @@ export async function POST(req: NextRequest) {
   }
 
   // ── 5. Look up the export_bay tank to use as destination ────────────────────
-  const { data: exportBayTank } = await supabase
+  const { data: exportBayTank, error: exportBayErr } = await supabase
     .from("equipment")
     .select("id")
     .eq("type", "export_bay")
     .limit(1)
     .single();
+  if (exportBayErr && exportBayErr.code !== "PGRST116") return NextResponse.json({ error: exportBayErr.message }, { status: 500 });
 
   const exportBayId = exportBayTank?.id ?? null;
 

@@ -23,11 +23,12 @@ export async function POST(req: NextRequest) {
   const { ingredient_id, type, quantity, new_total, note, purchase_cost, shipping_cost } = body;
 
   // Fetch current ingredient state upfront (needed for all paths)
-  const { data: ing } = await supabase
+  const { data: ing, error: ingErr } = await supabase
     .from("ingredients")
     .select("stock_quantity, cost_per_unit, unit")
     .eq("id", ingredient_id)
     .single();
+  if (ingErr) return NextResponse.json({ error: ingErr.message }, { status: 500 });
 
   const currentQty  = ing?.stock_quantity ?? 0;
   const currentCost = ing?.cost_per_unit  ?? null;
@@ -75,14 +76,17 @@ export async function POST(req: NextRequest) {
 
   // Update stock quantity
   if (type === "inventory_count") {
-    await supabase.from("ingredients").update({ stock_quantity: new_total }).eq("id", ingredient_id);
+    const { error: qtyErr } = await supabase.from("ingredients").update({ stock_quantity: new_total }).eq("id", ingredient_id);
+    if (qtyErr) return NextResponse.json({ error: qtyErr.message }, { status: 500 });
   } else {
-    await supabase.rpc("adjust_ingredient_stock", { p_id: ingredient_id, p_delta: delta });
+    const { error: rpcErr } = await supabase.rpc("adjust_ingredient_stock", { p_id: ingredient_id, p_delta: delta });
+    if (rpcErr) return NextResponse.json({ error: rpcErr.message }, { status: 500 });
   }
 
   // Update ingredient cost if it changed
   if (newCostPerUnit != null && newCostPerUnit !== currentCost) {
-    await supabase.from("ingredients").update({ cost_per_unit: newCostPerUnit }).eq("id", ingredient_id);
+    const { error: costErr } = await supabase.from("ingredients").update({ cost_per_unit: newCostPerUnit }).eq("id", ingredient_id);
+    if (costErr) return NextResponse.json({ error: costErr.message }, { status: 500 });
   }
 
   return NextResponse.json(adj, { status: 201 });

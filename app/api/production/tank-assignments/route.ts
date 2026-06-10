@@ -39,22 +39,26 @@ export async function POST(req: NextRequest) {
   }
 
   // Auto-update batch status based on tank type; deduct per-turn ingredients for brewhouse.
-  const { data: tank } = await supabase
+  const { data: tank, error: tankErr } = await supabase
     .from("equipment").select("type").eq("id", tank_id).single();
+  if (tankErr) return NextResponse.json({ error: tankErr.message }, { status: 500 });
 
   if (tank) {
     const newStatus = EQUIPMENT_TYPE_TO_STATUS[tank.type as EquipmentType];
     if (newStatus) {
-      const { data: batch } = await supabase
+      const { data: batch, error: batchErr } = await supabase
         .from("brew_batches").select("status, recipe_id, volume_bbl, turns, turns_completed").eq("id", batch_id).single();
+      if (batchErr) return NextResponse.json({ error: batchErr.message }, { status: 500 });
 
       if (batch?.status !== newStatus) {
-        await supabase.from("brew_batches").update({ status: newStatus }).eq("id", batch_id);
-        await supabase.from("batch_status_history").insert({
+        const { error: statusErr } = await supabase.from("brew_batches").update({ status: newStatus }).eq("id", batch_id);
+        if (statusErr) return NextResponse.json({ error: statusErr.message }, { status: 500 });
+        const { error: histErr } = await supabase.from("batch_status_history").insert({
           batch_id,
           status: newStatus,
           note: `Auto: assigned to ${tank.type}`,
         });
+        if (histErr) return NextResponse.json({ error: histErr.message }, { status: 500 });
       }
 
       // Deduct one turn's worth of ingredients when a brew turn starts.
@@ -62,16 +66,18 @@ export async function POST(req: NextRequest) {
         const turns   = Math.max(1, Number(batch.turns ?? 1));
         const turnVol = Number(batch.volume_bbl) / turns;
 
-        const { data: recipeIngredients } = await supabase
+        const { data: recipeIngredients, error: riErr } = await supabase
           .from("recipe_ingredients")
           .select("ingredient_id, quantity_per_bbl, ingredients(cost_per_unit, unit)")
           .eq("recipe_id", batch.recipe_id);
+        if (riErr) return NextResponse.json({ error: riErr.message }, { status: 500 });
 
-        const { data: batchRow } = await supabase
+        const { data: batchRow, error: batchRowErr } = await supabase
           .from("brew_batches")
           .select("batch_number, beer_name")
           .eq("id", batch_id)
           .single();
+        if (batchRowErr) return NextResponse.json({ error: batchRowErr.message }, { status: 500 });
 
         if (recipeIngredients?.length) {
           type IngMeta = { cost_per_unit: number | null; unit: string | null };
@@ -88,31 +94,34 @@ export async function POST(req: NextRequest) {
               batch_id,
               cost_per_unit:      costPU,
               total_value_change: costPU != null ? -qty * costPU : null,
-              unit,                          // snapshot ingredient unit at write time
+              unit,
             };
           });
 
-          await supabase.from("stock_adjustments").insert(adjustments);
+          const { error: adjErr } = await supabase.from("stock_adjustments").insert(adjustments);
+          if (adjErr) return NextResponse.json({ error: adjErr.message }, { status: 500 });
 
-          // Increment turns_completed counter on the batch.
-          await supabase
+          const { error: turnsErr } = await supabase
             .from("brew_batches")
             .update({ turns_completed: Number(batch.turns_completed ?? 0) + 1 })
             .eq("id", batch_id);
+          if (turnsErr) return NextResponse.json({ error: turnsErr.message }, { status: 500 });
 
           // Apply stock deltas one by one (no batch-update RPC available).
           for (const ri of recipeIngredients) {
             const delta = ri.quantity_per_bbl * turnVol;
-            const { data: ing } = await supabase
+            const { data: ing, error: ingFetchErr } = await supabase
               .from("ingredients")
               .select("stock_quantity")
               .eq("id", ri.ingredient_id)
               .single();
+            if (ingFetchErr) return NextResponse.json({ error: ingFetchErr.message }, { status: 500 });
             if (ing) {
-              await supabase
+              const { error: ingUpdateErr } = await supabase
                 .from("ingredients")
                 .update({ stock_quantity: Number(ing.stock_quantity) - delta })
                 .eq("id", ri.ingredient_id);
+              if (ingUpdateErr) return NextResponse.json({ error: ingUpdateErr.message }, { status: 500 });
             }
           }
         }

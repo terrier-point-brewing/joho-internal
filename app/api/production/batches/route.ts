@@ -27,11 +27,12 @@ export async function POST(req: NextRequest) {
   // Auto-derive expected_delivery_date from recipe lead time when not explicitly provided.
   let resolvedDeliveryDate: string | null = expected_delivery_date || null;
   if (!resolvedDeliveryDate && planned_brew_date) {
-    const { data: recipeData } = await supabase
+    const { data: recipeData, error: recipeErr } = await supabase
       .from("recipes")
       .select("days_brewhouse, days_fermenter, days_brite")
       .eq("id", recipe_id)
       .single();
+    if (recipeErr) return NextResponse.json({ error: recipeErr.message }, { status: 500 });
     if (recipeData) {
       const leadDays = (recipeData.days_brewhouse ?? 0) + (recipeData.days_fermenter ?? 0) + (recipeData.days_brite ?? 0);
       if (leadDays > 0) {
@@ -62,20 +63,22 @@ export async function POST(req: NextRequest) {
   // Explicitly persist expected_delivery_date — the RPC may not forward it,
   // so we write it directly after creation to guarantee it's saved.
   if (resolvedDeliveryDate) {
-    await supabase
+    const { error: deliveryErr } = await supabase
       .from("brew_batches")
       .update({ expected_delivery_date: resolvedDeliveryDate })
       .eq("id", batch.id);
+    if (deliveryErr) return NextResponse.json({ error: deliveryErr.message }, { status: 500 });
   }
 
   // Copy recipe activity templates into the new batch's activity log
-  const { data: templates } = await supabase
+  const { data: templates, error: templatesErr } = await supabase
     .from("recipe_brew_activity_templates")
     .select("*")
     .eq("recipe_id", recipe_id)
     .order("sort_order");
+  if (templatesErr) return NextResponse.json({ error: templatesErr.message }, { status: 500 });
   if (templates && templates.length > 0) {
-    await supabase.from("batch_brew_activity_log").insert(
+    const { error: logErr } = await supabase.from("batch_brew_activity_log").insert(
       templates.map((t: {
         id: string; sort_order: number; activity: string; time_label: string | null;
         temp: number | null; temp_unit?: string | null;
@@ -94,6 +97,7 @@ export async function POST(req: NextRequest) {
         vsp:         t.vsp ?? null,
       }))
     );
+    if (logErr) return NextResponse.json({ error: logErr.message }, { status: 500 });
   }
 
   // Create a Square Invoice ("project") for this batch.
