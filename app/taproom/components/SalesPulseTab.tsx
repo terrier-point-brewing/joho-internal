@@ -214,7 +214,7 @@ export default function SalesPulseTab() {
   const dayDate   = catDayFilter !== null ? toISO(addDays(weekStart, catDayFilter)) : null;
   const dayIsFuture = dayDate ? dayDate > todayStr : false;
   const { data: catDayData = null, isLoading: catDayLoading } = useQuery({
-    queryKey: queryKeys.taproom.salesPulseDay(dayDate),
+    queryKey: queryKeys.taproom.salesPulseDay(dayDate ?? ""),
     queryFn: () => fetchPulse(dayDate!, dayDate!),
     enabled: dayDate !== null && !dayIsFuture,
   });
