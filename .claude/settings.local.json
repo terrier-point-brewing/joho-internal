@@ -13,7 +13,11 @@
       "Bash(npx tsc *)",
       "Bash(npm run *)",
       "Bash(curl -s \"http://localhost:3000/api/combo-sales?start=2026-05-01&end=2026-05-31\")",
-      "Bash(curl -s https://connect.squareup.com/v2/locations -H 'Authorization: Bearer EAAAl_uGNlwbvUjkHXVwW9ms3hh8GqMnxTQe1Tog3fEZi_LwN9ba7Xnaqq5UhBVI')"
+      "Bash(curl -s https://connect.squareup.com/v2/locations -H 'Authorization: Bearer EAAAl_uGNlwbvUjkHXVwW9ms3hh8GqMnxTQe1Tog3fEZi_LwN9ba7Xnaqq5UhBVI')",
+      "mcp__Vercel__list_teams",
+      "mcp__Vercel__list_projects",
+      "mcp__Vercel__list_deployments",
+      "mcp__Vercel__get_deployment_build_logs"
     ]
   }
 }
