@@ -247,7 +247,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
   if (isFetching && !inv) {
     return (
       <div className="flex flex-col h-full bg-zinc-950 text-zinc-100">
-        <div className="shrink-0 px-6 pt-5 pb-4 border-b border-zinc-800">
+        <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-5 pb-4 border-b border-zinc-800">
           <h1 className="text-base font-semibold text-zinc-100">Finance</h1>
           <p className="text-xs text-zinc-500 mt-0.5">Admin only</p>
         </div>
@@ -259,7 +259,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
   if (error || !inv) {
     return (
       <div className="flex flex-col h-full bg-zinc-950 text-zinc-100">
-        <div className="shrink-0 px-6 pt-5 pb-4 border-b border-zinc-800">
+        <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-5 pb-4 border-b border-zinc-800">
           <div className="flex items-center justify-between mb-3">
             <div>
               <h1 className="text-base font-semibold text-zinc-100">Finance</h1>
@@ -267,7 +267,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
             </div>
           </div>
         </div>
-        <div className="mx-6 mt-4 bg-red-900/30 border border-red-700 rounded p-3 text-sm text-red-300">
+        <div className="mx-4 sm:mx-6 mt-4 bg-red-900/30 border border-red-700 rounded p-3 text-sm text-red-300">
           {error instanceof Error ? error.message : "Invoice not found"}
         </div>
       </div>
@@ -284,9 +284,9 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
   return (
     <div className="flex flex-col h-full bg-zinc-950 text-zinc-100">
       {/* Header */}
-      <div className="shrink-0 px-6 pt-5 pb-4 border-b border-zinc-800">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-3">
+      <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-5 pb-4 border-b border-zinc-800">
+        <div className="flex flex-wrap items-start justify-between gap-2 mb-3">
+          <div className="flex flex-wrap items-center gap-2">
             <Link href="/finance/invoices" className="text-zinc-600 hover:text-zinc-400 transition-colors text-xs">
               ← Invoices
             </Link>
@@ -302,7 +302,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
               {inv.source === "square" ? "Square" : "QuickBooks"}
             </span>
           </div>
-          <div className="text-right">
+          <div className="text-right shrink-0">
             <div className="text-lg font-bold text-zinc-100 tabular-nums">
               {fmtDollars(inv.total_cents)}
             </div>
@@ -312,12 +312,12 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
       </div>
 
       <div className="flex-1 overflow-auto">
-        <div className="grid grid-cols-[1fr_280px] gap-0 h-full">
+        <div className="grid grid-cols-1 md:grid-cols-[1fr_280px] gap-0 md:h-full">
 
           {/* Left: line items */}
-          <div className="overflow-auto px-6 py-5 border-r border-zinc-800">
+          <div className="overflow-auto px-4 sm:px-6 py-4 sm:py-5 border-b md:border-b-0 md:border-r border-zinc-800">
             {/* Meta row */}
-            <div className="flex items-start gap-8 mb-6">
+            <div className="flex flex-wrap items-start gap-6 mb-6">
               {/* Customer / Partner */}
               <div>
                 <div className="text-[10px] text-zinc-600 uppercase tracking-wider mb-1">Customer</div>

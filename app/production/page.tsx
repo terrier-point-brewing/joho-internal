@@ -38,7 +38,7 @@ function ProductionContent() {
   if (loading || role === "viewer") return null;
 
   return (
-    <main className="px-6 py-8">
+    <main className="px-4 sm:px-6 py-4 sm:py-8">
       {tab === "intake" && <IntakeTab />}
 
       {tab === "brewing" && (
@@ -49,7 +49,8 @@ function ProductionContent() {
               <p className="text-sm text-zinc-500 mt-0.5">Floorplan, batch log, timeline, and calendar for all active and planned brews</p>
             </div>
           </div>
-          <div className="flex gap-1 mb-6 border-b border-zinc-800 pb-0">
+          <div className="overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0">
+          <div className="flex gap-1 mb-6 border-b border-zinc-800 pb-0 min-w-max sm:min-w-0">
             {BREWING_SUBTABS.map(({ key, label }) => (
               <button
                 key={key}
@@ -63,6 +64,7 @@ function ProductionContent() {
                 {label}
               </button>
             ))}
+          </div>
           </div>
           {brewingSubtab === "floorplan" && <BrewStatusTab />}
           {brewingSubtab === "batch-log" && <BatchLogTab />}
