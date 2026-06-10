@@ -5,6 +5,7 @@ import { fetchCatalogItems } from "@/lib/square/catalog";
 import { buildKegIndex } from "@/lib/reports/kegs";
 import { canOzPerUnit } from "@/lib/reports/bbl-tracker";
 import { CATEGORY_IDS } from "@/lib/constants/categories";
+import { apiError } from "@/lib/utils/api";
 import type { CatalogItem } from "@/types/square";
 
 // Volume / excise constants
@@ -47,6 +48,7 @@ function isBET(name: string) {
 export async function GET(req: NextRequest) {
   try { await requireRole("admin"); } catch (res) { return res as Response; }
 
+  try {
   const year = parseInt(req.nextUrl.searchParams.get("year") ?? String(new Date().getFullYear()));
   const now  = new Date();
 
@@ -201,4 +203,7 @@ export async function GET(req: NextRequest) {
   }
 
   return NextResponse.json({ year, months, contractBrewing: cbMonthly, distribution: distMonthly });
+  } catch (err) {
+    return apiError(err);
+  }
 }

@@ -51,6 +51,9 @@ export async function GET(req: NextRequest) {
       .lte("created_at", to + "T23:59:59"),
   ]);
 
+  if (ingResult.error) throw new Error(`COGS ingredients query failed: ${ingResult.error.message}`);
+  if (pkgResult.error) throw new Error(`COGS packaging query failed: ${pkgResult.error.message}`);
+
   // ── Revenue ────────────────────────────────────────────────────────────────
   const posOrders = allOrders.filter((o) => (o.source?.name ?? "") !== "Invoices");
   const invoiceOrders = allOrders.filter((o) => o.source?.name === "Invoices");
