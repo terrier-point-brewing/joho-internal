@@ -132,9 +132,9 @@ function ChartTooltip({ active, payload, label }: {
   );
 }
 
-const selectCls = "bg-zinc-800 border border-zinc-600 rounded px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-amber-500";
+const selectCls = "bg-zinc-800 border border-zinc-600 rounded px-1.5 py-1 sm:px-3 sm:py-2 text-xs sm:text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-amber-500";
 const toggleBtn = (active: boolean) =>
-  `px-4 py-2 text-sm font-medium transition-colors ${active ? "bg-zinc-700 text-zinc-100" : "bg-zinc-800 text-zinc-400 hover:text-zinc-200"}`;
+  `px-2 py-1 sm:px-4 sm:py-2 text-xs sm:text-sm font-medium transition-colors ${active ? "bg-zinc-700 text-zinc-100" : "bg-zinc-800 text-zinc-400 hover:text-zinc-200"}`;
 
 // ---------------------------------------------------------------------------
 // Component
@@ -300,9 +300,8 @@ export default function AchievementTab() {
   return (
     <div className="space-y-6 max-w-5xl">
 
-      {/* Controls */}
-      <div className="flex flex-wrap items-center gap-3">
-        {/* Scope */}
+      {/* Controls — one row, no scroll */}
+      <div className="flex items-center gap-2 flex-wrap">
         <div className="flex rounded overflow-hidden border border-zinc-700">
           {(["quarter","year"] as Scope[]).map((s) => (
             <button key={s} onClick={() => setScope(s)} className={toggleBtn(scope === s)}>
@@ -323,49 +322,51 @@ export default function AchievementTab() {
           </select>
         )}
 
-        {/* Grain */}
         <div className="flex rounded overflow-hidden border border-zinc-700">
-          {(["monthly","weekly"] as Grain[]).map((g) => (
-            <button key={g} onClick={() => setGrain(g)} className={toggleBtn(grain === g)}>
-              {g.charAt(0).toUpperCase() + g.slice(1)}
+          {([["monthly","Mo"],["weekly","Wk"]] as const).map(([g, lbl]) => (
+            <button key={g} onClick={() => setGrain(g as Grain)} className={toggleBtn(grain === g)}>
+              <span className="sm:hidden">{lbl}</span>
+              <span className="hidden sm:inline">{g.charAt(0).toUpperCase() + g.slice(1)}</span>
             </button>
           ))}
         </div>
       </div>
 
-      {/* Tier selector */}
-      <div className="flex items-center gap-2">
-        <span className="text-xs text-zinc-500 mr-1">Compare vs.</span>
-        {TIERS.map((t) => {
-          const has = targets.some((x) =>
-            scope === "quarter"
-              ? x.year === year && x.quarter === quarter && x.tier === t.value
-              : x.year === year && x.tier === t.value
-          );
-          return (
-            <button key={t.value} onClick={() => setActiveTier(t.value)} disabled={!has}
-              className={`px-3 py-1.5 rounded text-xs font-medium border transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${
-                activeTier === t.value ? "border-current bg-zinc-800" : "border-zinc-700 text-zinc-400 hover:border-zinc-500 hover:text-zinc-200"
-              }`}
-              style={activeTier === t.value ? { color: t.color, borderColor: t.color } : {}}>
-              {t.label}
-            </button>
-          );
-        })}
-        {quarterTiers.length === 0 && (
-          <span className="text-xs text-zinc-600 italic">
-            {scope === "year" ? "Need all 4 quarters set for year total" : "No targets set for this quarter"}
-          </span>
-        )}
+      {/* Tier selector — label + 2×2 on mobile, single row on sm+ */}
+      <div className="space-y-1.5 sm:space-y-0">
+        <span className="text-xs text-zinc-500">Compare vs.</span>
+        <div className="grid grid-cols-2 gap-1.5 sm:flex sm:flex-wrap sm:gap-2 sm:items-center mt-1.5 sm:mt-0">
+          {TIERS.map((t) => {
+            const has = targets.some((x) =>
+              scope === "quarter"
+                ? x.year === year && x.quarter === quarter && x.tier === t.value
+                : x.year === year && x.tier === t.value
+            );
+            return (
+              <button key={t.value} onClick={() => setActiveTier(t.value)} disabled={!has}
+                className={`px-3 py-1.5 rounded text-xs font-medium border transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${
+                  activeTier === t.value ? "border-current bg-zinc-800" : "border-zinc-700 text-zinc-400 hover:border-zinc-500 hover:text-zinc-200"
+                }`}
+                style={activeTier === t.value ? { color: t.color, borderColor: t.color } : {}}>
+                {t.label}
+              </button>
+            );
+          })}
+          {quarterTiers.length === 0 && (
+            <span className="col-span-2 text-xs text-zinc-600 italic">
+              {scope === "year" ? "Need all 4 quarters set for year total" : "No targets set for this quarter"}
+            </span>
+          )}
+        </div>
       </div>
 
-      {/* Summary cards — 4 across */}
-      <div className="grid grid-cols-4 gap-4">
+      {/* Summary cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
 
         <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
           <div className="text-xs text-zinc-400 mb-1">{scope === "year" ? "Annual" : "Quarterly"} Target</div>
-          <div className="text-xl font-semibold text-zinc-100">
-            {targetCents !== null ? currency(targetCents) : <span className="text-zinc-500 text-base">Not set</span>}
+          <div className="text-base sm:text-xl font-semibold text-zinc-100">
+            {targetCents !== null ? currency(targetCents) : <span className="text-zinc-500 text-sm sm:text-base">Not set</span>}
           </div>
           {scope === "year" && targetCents === null && targets.filter(t => t.year === year && t.tier === activeTier).length > 0 && (
             <div className="text-xs text-zinc-600 mt-0.5">
@@ -375,7 +376,7 @@ export default function AchievementTab() {
         </div>
 
         <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
-          <div className="text-xs text-zinc-400 mb-1">Actual Net Sales (to date)</div>
+          <div className="text-xs text-zinc-400 mb-1">Actual Net Sales</div>
           <div className="text-xl font-semibold text-zinc-100">{currency(actualCents)}</div>
           {targetCents !== null && (
             <div className="text-xs text-zinc-500 mt-0.5">{pct((actualCents / targetCents) * 100)} of target</div>
@@ -387,7 +388,7 @@ export default function AchievementTab() {
           onPace === true ? "border-green-700" : onPace === false ? "border-red-700" : "border-zinc-800"
         }`}>
           <div className="text-xs text-zinc-400 mb-1">Projected {scope === "year" ? "Full Year" : "Full Quarter"}</div>
-          <div className={`text-xl font-semibold ${
+          <div className={`text-base sm:text-xl font-semibold ${
             onPace === true ? "text-green-400" : onPace === false ? "text-red-400" : "text-zinc-100"
           }`}>
             {projectedCents !== null ? currency(projectedCents) : "—"}
@@ -412,15 +413,15 @@ export default function AchievementTab() {
         }`}>
           <div className="text-xs text-zinc-400 mb-1">Gap to {scope === "year" ? "Annual" : "Quarter"} Target</div>
           {gapCents === null ? (
-            <div className="text-xl font-semibold text-zinc-500">—</div>
+            <div className="text-base sm:text-xl font-semibold text-zinc-500">—</div>
           ) : gapCents <= 0 ? (
             <>
-              <div className="text-xl font-semibold text-green-400">{currency(Math.abs(gapCents))} ahead</div>
+              <div className="text-base sm:text-xl font-semibold text-green-400">{currency(Math.abs(gapCents))} ahead</div>
               <div className="text-xs text-green-600 mt-0.5">Target exceeded</div>
             </>
           ) : (
             <>
-              <div className="text-xl font-semibold text-red-400">{currency(gapCents)} to go</div>
+              <div className="text-base sm:text-xl font-semibold text-red-400">{currency(gapCents)} to go</div>
               <div className="text-xs text-zinc-500 mt-0.5">vs. {tierLabel} goal</div>
             </>
           )}
@@ -449,14 +450,14 @@ export default function AchievementTab() {
 
       {/* Chart */}
       {periods.length > 0 && (
-        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-5">
-          <div className="flex items-center justify-between mb-4">
+        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-3 sm:p-5">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
             <div className="text-sm font-medium text-zinc-300">
               {chartView === "per-period"
                 ? `Net Sales per ${grain === "monthly" ? "Month" : "Week"}`
                 : `Cumulative Net Sales`}
             </div>
-            <div className="flex rounded overflow-hidden border border-zinc-700">
+            <div className="flex rounded overflow-hidden border border-zinc-700 self-start sm:self-auto">
               {([["per-period","Per Period"],["cumulative","Cumulative"]] as const).map(([v, lbl]) => (
                 <button key={v} onClick={() => setChartView(v)}
                   className={`px-3 py-1.5 text-xs font-medium transition-colors ${
@@ -479,7 +480,7 @@ export default function AchievementTab() {
                 axisLine={false} tickLine={false}
                 height={grain === "weekly" ? 52 : 24} />
               <YAxis tickFormatter={yAxisFmt} domain={yDomain}
-                tick={{ fill:"#a1a1aa", fontSize:11 }} axisLine={false} tickLine={false} width={56} />
+                tick={{ fill:"#a1a1aa", fontSize:11 }} axisLine={false} tickLine={false} width={44} />
               <Tooltip content={<ChartTooltip />} />
 
               {chartView === "per-period" && (
@@ -516,15 +517,16 @@ export default function AchievementTab() {
       )}
 
       {/* Period table */}
-      <table className="w-full text-sm border-collapse">
+      <div className="overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0">
+      <table className="w-full text-sm border-collapse min-w-[460px]">
         <thead>
           <tr className="text-xs text-zinc-400 uppercase border-b border-zinc-800">
-            <th className="text-left py-2 pr-6">Period</th>
-            <th className="text-right py-2 pr-6">Net Sales</th>
+            <th className="text-left py-2 pr-3 sm:pr-6">Period</th>
+            <th className="text-right py-2 pr-3 sm:pr-6">Net Sales</th>
             {targetCents !== null && (
               <>
-                <th className="text-right py-2 pr-4">% of Target</th>
-                <th className="text-right py-2">vs. Pace</th>
+                <th className="text-right py-2 pr-2 sm:pr-4">% of Target</th>
+                <th className="text-right py-2 whitespace-nowrap">vs. Pace</th>
               </>
             )}
           </tr>
@@ -548,18 +550,18 @@ export default function AchievementTab() {
               <tr key={p.start} className={`border-b text-zinc-200 ${
                 isFuture ? "border-zinc-800/20 opacity-60" : "border-zinc-800/40"
               }`}>
-                <td className="py-2 pr-6">
+                <td className="py-2 pr-3 sm:pr-6">
                   <span className={isFuture ? "text-zinc-500" : "text-zinc-300"}>
                     {p.label}
                   </span>
                   {isFuture && (
-                    <span className="ml-2 text-xs text-zinc-600 italic">proj.</span>
+                    <span className="ml-1 text-xs text-zinc-600 italic">proj.</span>
                   )}
                   {isInProgress && (
-                    <span className="ml-2 text-xs text-amber-600 italic">in progress</span>
+                    <span className="ml-1 text-xs text-amber-600 italic">in prog.</span>
                   )}
                 </td>
-                <td className="py-2 pr-6 text-right font-mono">
+                <td className="py-2 pr-3 sm:pr-6 text-right font-mono">
                   {p.loading ? (
                     <span className="text-zinc-500">Loading…</span>
                   ) : isFuture ? (
@@ -576,7 +578,7 @@ export default function AchievementTab() {
                 </td>
                 {targetCents !== null && (
                   <>
-                    <td className={`py-2 pr-4 text-right font-mono ${
+                    <td className={`py-2 pr-2 sm:pr-4 text-right font-mono ${
                       isFuture || isInProgress ? "text-zinc-600 italic"
                       : actualPct === null ? "text-zinc-600"
                       : ahead            ? "text-green-400"
@@ -601,11 +603,11 @@ export default function AchievementTab() {
           })}
           {periods.length > 0 && (
             <tr className="text-zinc-100 font-medium border-t border-zinc-700">
-              <td className="py-2 pr-6">Total (actual)</td>
-              <td className="py-2 pr-6 text-right font-mono">{currency(actualCents)}</td>
+              <td className="py-2 pr-3 sm:pr-6">Total (actual)</td>
+              <td className="py-2 pr-3 sm:pr-6 text-right font-mono">{currency(actualCents)}</td>
               {targetCents !== null && (
                 <>
-                  <td className={`py-2 pr-4 text-right font-mono ${
+                  <td className={`py-2 pr-2 sm:pr-4 text-right font-mono ${
                     actualCents >= targetCents ? "text-green-400" : "text-red-400"
                   }`}>
                     {pct((actualCents / targetCents) * 100)}
@@ -624,6 +626,7 @@ export default function AchievementTab() {
           )}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }

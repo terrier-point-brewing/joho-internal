@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchJson } from "@/app/production/hooks/queries";
+import { useUserRole } from "@/lib/hooks/useUserRole";
 
 const MANUAL_ENTRIES_KEY = ["taproom", "manual-entries"] as const;
 
@@ -64,6 +65,8 @@ const inputCls =
 // ---------------------------------------------------------------------------
 
 export default function ManualEntriesTab() {
+  const { role } = useUserRole();
+  const isAdmin = role === "admin";
   const qc = useQueryClient();
   const { data: entries = [], isLoading: loading } = useQuery({
     queryKey: MANUAL_ENTRIES_KEY,
@@ -136,8 +139,13 @@ export default function ManualEntriesTab() {
 
   return (
     <div className="max-w-3xl space-y-6">
-      {/* Add form */}
-      <form
+      {/* Add form — admin only */}
+      {!isAdmin && (
+        <div className="bg-zinc-900 border border-zinc-800 rounded-lg px-5 py-4 text-sm text-zinc-500">
+          Manual entries can only be created by admins.
+        </div>
+      )}
+      {isAdmin && <form
         onSubmit={handleAdd}
         className="bg-zinc-900 border border-zinc-800 rounded-lg p-6 space-y-4"
       >
@@ -214,7 +222,7 @@ export default function ManualEntriesTab() {
         >
           {saving ? "Saving…" : saved ? "✓ Saved" : "Save Entry"}
         </button>
-      </form>
+      </form>}
 
       {/* Entries list */}
       <div>
@@ -230,11 +238,12 @@ export default function ManualEntriesTab() {
                 .sort((a, b) => b.start_date.localeCompare(a.start_date));
 
               return (
-                <div key={y} className="bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden">
+                <div key={y} className="bg-zinc-900 border border-zinc-800 rounded-lg">
                   <div className="px-4 py-2 border-b border-zinc-800 text-xs font-semibold text-zinc-400 uppercase tracking-wide">
                     {y}
                   </div>
-                  <table className="w-full text-sm">
+                  <div className="overflow-x-auto">
+                  <table className="w-full text-sm min-w-[520px]">
                     <thead>
                       <tr className="text-xs text-zinc-600 border-b border-zinc-800">
                         <th className="text-left px-4 py-2 font-medium">Date Range</th>
@@ -294,6 +303,7 @@ export default function ManualEntriesTab() {
                       </tr>
                     </tfoot>
                   </table>
+                  </div>
                 </div>
               );
             })}

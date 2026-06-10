@@ -147,7 +147,7 @@ function KpiCard({
   return (
     <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
       <div className="text-xs text-zinc-500 mb-1">{label}</div>
-      <div className="text-xl font-semibold text-zinc-100">
+      <div className="text-base sm:text-xl font-semibold text-zinc-100">
         {current !== null ? formatMetricValue(metric, current) : <span className="text-zinc-600">—</span>}
       </div>
       {change !== null && (
@@ -275,14 +275,14 @@ export default function SalesPulseTab() {
     <div className="space-y-6 max-w-5xl">
 
       {/* Week selector */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
         <button
           onClick={() => setWeekStart((w) => addDays(w, -7))}
           className="px-3 py-1.5 text-sm bg-zinc-800 border border-zinc-700 rounded hover:bg-zinc-700 text-zinc-300"
         >
           ‹ Prev
         </button>
-        <div className="text-sm font-medium text-zinc-200 min-w-[180px] text-center">
+        <div className="text-sm font-medium text-zinc-200 text-center">
           {isCurrentWeek ? (
             <><span className="text-amber-400 text-xs font-medium mr-2">This Week</span>{weekLabel(weekStart)}</>
           ) : weekLabel(weekStart)}
@@ -298,7 +298,7 @@ export default function SalesPulseTab() {
       </div>
 
       {/* 4 KPI cards */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         <KpiCard
           label="Net Sales"
           metric="net_sales"
@@ -326,18 +326,28 @@ export default function SalesPulseTab() {
       </div>
 
       {/* Chart */}
-      <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-5">
-        <div className="flex items-center justify-between mb-4">
+      <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-3 sm:p-5">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
           <div className="text-sm font-medium text-zinc-300">Daily Performance</div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-zinc-500">Metric</span>
-            <div className="flex rounded overflow-hidden border border-zinc-700">
+          <div className="flex items-start sm:items-center gap-2">
+            <span className="text-xs text-zinc-500 shrink-0 pt-1.5 sm:pt-0">Metric</span>
+            {/* Mobile: 2×2 grid */}
+            <div className="sm:hidden grid grid-cols-2 gap-1 flex-1">
               {KPI_OPTIONS.map(({ value, label }) => (
-                <button
-                  key={value}
-                  onClick={() => setChartMetric(value)}
-                  className={toggleBtn(chartMetric === value)}
-                >
+                <button key={value} onClick={() => setChartMetric(value)}
+                  className={`px-2 py-1.5 text-xs font-medium rounded border transition-colors ${
+                    chartMetric === value
+                      ? "bg-zinc-700 text-zinc-100 border-zinc-600"
+                      : "bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-zinc-200"
+                  }`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            {/* Desktop: horizontal strip */}
+            <div className="hidden sm:flex rounded overflow-hidden border border-zinc-700">
+              {KPI_OPTIONS.map(({ value, label }) => (
+                <button key={value} onClick={() => setChartMetric(value)} className={toggleBtn(chartMetric === value)}>
                   {label}
                 </button>
               ))}
@@ -359,7 +369,7 @@ export default function SalesPulseTab() {
               tick={{ fill: "#a1a1aa", fontSize: 11 }}
               axisLine={false}
               tickLine={false}
-              width={60}
+              width={44}
             />
             <Tooltip content={<ChartTooltip metric={chartMetric} />} />
             <Legend
@@ -390,17 +400,17 @@ export default function SalesPulseTab() {
       </div>
 
       {/* Category breakdown */}
-      <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-5">
+      <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-3 sm:p-5">
         <div className="flex items-center justify-between mb-3">
           <div className="text-sm font-medium text-zinc-300">Category Breakdown</div>
         </div>
 
         {/* Day-of-week filter */}
-        <div className="flex items-center gap-1.5 mb-4">
+        <div className="flex items-center gap-1.5 mb-4 overflow-x-auto scrollbar-none pb-0.5">
           <span className="text-xs text-zinc-600 mr-1">Day</span>
           <button
             onClick={() => setCatDayFilter(null)}
-            className={`px-2.5 py-1 rounded text-xs font-medium border transition-colors ${
+            className={`shrink-0 px-2.5 py-1 rounded text-xs font-medium border transition-colors ${
               catDayFilter === null
                 ? "border-amber-600 bg-amber-900/20 text-amber-300"
                 : "border-zinc-700 text-zinc-500 hover:text-zinc-300 hover:border-zinc-600"
@@ -413,7 +423,7 @@ export default function SalesPulseTab() {
               key={i}
               onClick={() => !isFuture && setCatDayFilter(i)}
               disabled={isFuture}
-              className={`px-2.5 py-1 rounded text-xs font-medium border transition-colors disabled:opacity-25 disabled:cursor-not-allowed ${
+              className={`shrink-0 px-2.5 py-1 rounded text-xs font-medium border transition-colors disabled:opacity-25 disabled:cursor-not-allowed ${
                 catDayFilter === i
                   ? "border-amber-600 bg-amber-900/20 text-amber-300"
                   : "border-zinc-700 text-zinc-500 hover:text-zinc-300 hover:border-zinc-600"
@@ -442,7 +452,8 @@ export default function SalesPulseTab() {
               </span>
             </div>
 
-            <table className="w-full text-sm">
+            <div className="overflow-x-auto -mx-5 px-5">
+            <table className="w-full text-sm min-w-[540px]">
               <thead>
                 <tr className="text-xs text-zinc-500 uppercase border-b border-zinc-800">
                   <th className="text-left py-2 font-medium">Category</th>
@@ -504,6 +515,7 @@ export default function SalesPulseTab() {
                 </tfoot>
               )}
             </table>
+            </div>
           </>
         )}
       </div>

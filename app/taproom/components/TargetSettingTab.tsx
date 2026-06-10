@@ -232,7 +232,8 @@ export default function TargetSettingTab() {
         {loading ? (
           <p className="text-sm text-zinc-500">Loading…</p>
         ) : (
-          <div className="bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden overflow-x-auto">
+            <div className="min-w-[480px]">
             <ColHeaders />
             {[1, 2, 3, 4].map((q) => (
               <div
@@ -266,6 +267,7 @@ export default function TargetSettingTab() {
                 )}
               </div>
             )}
+            </div>
           </div>
         )}
 
@@ -310,7 +312,8 @@ export default function TargetSettingTab() {
         </select>
       </div>
 
-      <div className="bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden">
+      <div className="bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden overflow-x-auto">
+        <div className="min-w-[480px]">
         <ColHeaders />
         {[1, 2, 3, 4].map((q) => (
           <div
@@ -356,6 +359,7 @@ export default function TargetSettingTab() {
             })}
           </div>
         ))}
+        </div>
       </div>
 
       {!hasChanges && (

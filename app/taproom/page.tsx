@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 
 // Reports
 import CocktailSalesReport   from "../reports/components/CocktailSalesReport";
@@ -102,8 +102,14 @@ type PerformanceSubtab = typeof PERFORMANCE_SUBTABS[number]["key"];
 // ---------------------------------------------------------------------------
 
 const selectCls =
-  "bg-zinc-800 border border-zinc-600 rounded-md px-3 py-2 text-sm text-zinc-100 " +
+  "bg-zinc-800 border border-zinc-600 rounded-md px-2 py-1.5 sm:px-3 sm:py-2 text-xs sm:text-sm text-zinc-100 " +
   "focus:outline-none focus:ring-2 focus:ring-blue-500";
+
+const TOP_TABS = [
+  { key: "targets",     label: "Targets"     },
+  { key: "performance", label: "Performance" },
+  { key: "reports",     label: "Reports"     },
+] as const;
 
 // ---------------------------------------------------------------------------
 // Page content (needs Suspense for useSearchParams)
@@ -111,6 +117,7 @@ const selectCls =
 
 function TaproomContent() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const tab = searchParams.get("tab") ?? "targets";
 
   // Targets subtab uses local state (mirrors Production's brewingSubtab pattern)
@@ -136,7 +143,24 @@ function TaproomContent() {
   const dateProps = { start, end, onStartChange: setStart, onEndChange: setEnd };
 
   return (
-    <main className="px-6 py-8">
+    <main className="px-4 sm:px-6 py-4 sm:py-8">
+
+      {/* Mobile top-level tab nav (hidden on md+ where sidebar handles this) */}
+      <div className="md:hidden flex border-b border-zinc-800 mb-4 -mx-4 px-4 overflow-x-auto scrollbar-none">
+        {TOP_TABS.map(({ key, label }) => (
+          <button
+            key={key}
+            onClick={() => router.push(`/taproom?tab=${key}`)}
+            className={`flex-1 py-2.5 text-sm font-medium whitespace-nowrap transition-colors border-b-2 -mb-px ${
+              tab === key
+                ? "text-amber-400 border-amber-500"
+                : "text-zinc-500 border-transparent hover:text-zinc-300"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
 
       {/* ------------------------------------------------------------------ */}
       {/* Reports tab                                                         */}
@@ -204,13 +228,13 @@ function TaproomContent() {
             </div>
           </div>
 
-          {/* Targets subtab nav — mirrors Brewing subtabs in Production */}
-          <div className="flex gap-1 mb-6 border-b border-zinc-800 pb-0">
+          {/* Targets subtab nav */}
+          <div className="flex gap-0.5 mb-4 sm:mb-6 border-b border-zinc-800 pb-0 overflow-x-auto scrollbar-none">
             {TARGETS_SUBTABS.map(({ key, label }) => (
               <button
                 key={key}
                 onClick={() => setTargetsSubtab(key)}
-                className={`px-4 py-2 text-sm font-medium rounded-t transition-colors -mb-px border-b-2 ${
+                className={`px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium rounded-t transition-colors -mb-px border-b-2 whitespace-nowrap ${
                   targetsSubtab === key
                     ? "text-amber-400 border-amber-500 bg-amber-900/10"
                     : "text-zinc-500 border-transparent hover:text-zinc-300"
@@ -241,12 +265,12 @@ function TaproomContent() {
             </div>
           </div>
 
-          <div className="flex gap-1 mb-6 border-b border-zinc-800 pb-0">
+          <div className="flex gap-0.5 mb-4 sm:mb-6 border-b border-zinc-800 pb-0 overflow-x-auto scrollbar-none">
             {PERFORMANCE_SUBTABS.map(({ key, label }) => (
               <button
                 key={key}
                 onClick={() => setPerformanceSubtab(key)}
-                className={`px-4 py-2 text-sm font-medium rounded-t transition-colors -mb-px border-b-2 ${
+                className={`px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium rounded-t transition-colors -mb-px border-b-2 whitespace-nowrap ${
                   performanceSubtab === key
                     ? "text-amber-400 border-amber-500 bg-amber-900/10"
                     : "text-zinc-500 border-transparent hover:text-zinc-300"

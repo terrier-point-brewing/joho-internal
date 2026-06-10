@@ -108,7 +108,7 @@ export default function NavBar() {
     <>
       {/* ── Desktop sidebar ─────────────────────────────────────────────────── */}
       <aside
-        className={`hidden md:flex shrink-0 bg-zinc-900 border-r border-zinc-800 flex-col min-h-screen transition-all duration-200 ${
+        className={`hidden md:flex shrink-0 bg-zinc-900 border-r border-zinc-800 flex-col h-screen sticky top-0 transition-all duration-200 ${
           collapsed ? "w-10" : "w-48"
         }`}
       >
@@ -307,6 +307,13 @@ export default function NavBar() {
             <SettingsIcon />
           </MobileNavItem>
         )}
+        <button
+          onClick={handleLogout}
+          className="flex-1 flex flex-col items-center justify-center gap-1 py-2 text-zinc-500 hover:text-red-400 transition-colors"
+        >
+          <LogoutIcon />
+          <span className="text-[10px] font-medium leading-none">Sign out</span>
+        </button>
       </nav>
     </>
   );
