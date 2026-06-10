@@ -1,17 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Resend } from "resend";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-
-const ADMIN_EMAIL = "will.liao@terrierpoint.com";
-
-async function sendEmail(to: string, subject: string, html: string) {
-  const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey) return;
-  const resend = new Resend(apiKey);
-  await resend.emails.send({ from: "noreply@terrierpoint.com", to, subject, html });
-}
+import { sendEmail, ADMIN_EMAIL } from "@/lib/resend";
+import { env } from "@/lib/env";
 
 async function notifyAdminOfRequest(name: string, email: string, reason: string | null) {
   await sendEmail(
@@ -86,7 +78,7 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "Request not found" }, { status: 404 });
     }
 
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+    const appUrl = env.appUrl();
 
     // If a stale auth user exists for this email, delete them first so we can
     // issue a clean invite. listUsers() with a per-page filter avoids scanning

@@ -1,4 +1,4 @@
-import { squarePost, squarePostAll } from "./client";
+import { squarePost, squarePostAll, squareLocationId } from "./client";
 import { dayRangeUtc } from "@/lib/utils/datetime";
 
 interface InventoryCount {
@@ -20,8 +20,7 @@ export async function fetchCurrentCounts(
   const map = new Map<string, number>();
   if (variationIds.length === 0) return map;
 
-  const locationId = process.env.SQUARE_LOCATION_ID;
-  if (!locationId) throw new Error("SQUARE_LOCATION_ID not set");
+  const locationId = squareLocationId();
 
   // Square caps batch-retrieve at 1000 catalog ids per request.
   for (let i = 0; i < variationIds.length; i += 1000) {
@@ -84,8 +83,7 @@ export async function fetchOrderSales(
   endDate: string,
   catalogObjectIds?: string[],
 ): Promise<Map<string, number>> {
-  const locationId = process.env.SQUARE_LOCATION_ID;
-  if (!locationId) throw new Error("SQUARE_LOCATION_ID not set");
+  const locationId = squareLocationId();
 
   const totals = new Map<string, number>();
   let cursor: string | undefined;
@@ -137,8 +135,7 @@ export async function fetchPhysicalCounts(
   endDate: string,
   catalogObjectIds?: string[],
 ): Promise<PhysicalCount[]> {
-  const locationId = process.env.SQUARE_LOCATION_ID;
-  if (!locationId) throw new Error("SQUARE_LOCATION_ID not set");
+  const locationId = squareLocationId();
 
   const { startUtc: updatedAfter, endUtc: updatedBefore } = dayRangeUtc(startDate, endDate);
 

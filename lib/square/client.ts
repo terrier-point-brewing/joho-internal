@@ -1,14 +1,19 @@
+import { env } from "@/lib/env";
+
 const BASE = "https://connect.squareup.com/v2";
 const SQUARE_VERSION = "2025-04-16";
 
 function makeHeaders(): Record<string, string> {
-  const token = process.env.SQUARE_ACCESS_TOKEN;
-  if (!token) throw new Error("SQUARE_ACCESS_TOKEN not set");
   return {
-    Authorization: `Bearer ${token}`,
+    Authorization: `Bearer ${env.squareAccessToken()}`,
     "Content-Type": "application/json",
     "Square-Version": SQUARE_VERSION,
   };
+}
+
+/** Validated Square location ID from env, shared across all Square modules. */
+export function squareLocationId(): string {
+  return env.squareLocationId();
 }
 
 export async function squareGet<T>(path: string, params?: Record<string, string>): Promise<T> {

@@ -1,12 +1,6 @@
-import { squarePostAll } from "./client";
+import { squarePostAll, squareLocationId } from "./client";
 import type { Order, SquareInvoice } from "@/types/square";
 import { dayRangeUtc } from "@/lib/utils/datetime";
-
-function locationId(): string {
-  const id = process.env.SQUARE_LOCATION_ID;
-  if (!id) throw new Error("SQUARE_LOCATION_ID not set");
-  return id;
-}
 
 function dateRange(startDate: string, endDate: string) {
   const { startUtc, endUtc } = dayRangeUtc(startDate, endDate);
@@ -16,7 +10,7 @@ function dateRange(startDate: string, endDate: string) {
 // POS / hardware orders — completed only
 export async function fetchCompletedOrders(startDate: string, endDate: string): Promise<Order[]> {
   return squarePostAll<Order>("/orders/search", "orders", {
-    location_ids: [locationId()],
+    location_ids: [squareLocationId()],
     query: {
       filter: {
         date_time_filter: { created_at: dateRange(startDate, endDate) },
@@ -34,7 +28,7 @@ export async function fetchCompletedOrders(startDate: string, endDate: string): 
 export async function fetchSquareInvoices(): Promise<SquareInvoice[]> {
   return squarePostAll<SquareInvoice>("/invoices/search", "invoices", {
     query: {
-      filter: { location_ids: [locationId()] },
+      filter: { location_ids: [squareLocationId()] },
       sort:   { field: "INVOICE_SORT_DATE", order: "DESC" },
     },
     limit: 200,
@@ -44,7 +38,7 @@ export async function fetchSquareInvoices(): Promise<SquareInvoice[]> {
 // Invoice orders — includes OPEN (unpaid) and COMPLETED so we can show outstanding balances
 export async function fetchInvoiceOrders(startDate: string, endDate: string): Promise<Order[]> {
   const all = await squarePostAll<Order>("/orders/search", "orders", {
-    location_ids: [locationId()],
+    location_ids: [squareLocationId()],
     query: {
       filter: {
         date_time_filter: { created_at: dateRange(startDate, endDate) },

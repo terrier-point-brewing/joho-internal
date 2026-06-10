@@ -1,7 +1,4 @@
-/**
- * Ramp API client — OAuth client-credentials flow with module-level token cache.
- * All functions are server-side only.
- */
+import { env } from "./env";
 
 const RAMP_TOKEN_URL = "https://api.ramp.com/developer/v1/token";
 const RAMP_BASE      = "https://api.ramp.com/developer/v1";
@@ -14,8 +11,8 @@ export async function getRampToken(): Promise<string> {
   const now = Date.now();
   if (_tokenCache && _tokenCache.expiresAt > now + 60_000) return _tokenCache.token;
 
-  const clientId     = process.env.RAMP_CLIENT_ID!;
-  const clientSecret = process.env.RAMP_CLIENT_SECRET!;
+  const clientId     = env.rampClientId();
+  const clientSecret = env.rampClientSecret();
   const credentials  = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
 
   const res  = await fetch(RAMP_TOKEN_URL, {

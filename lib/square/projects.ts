@@ -17,14 +17,8 @@
  *   ALTER TABLE brew_batches ADD COLUMN IF NOT EXISTS square_invoice_id text;
  */
 
-import { squarePost } from "./client";
+import { squarePost, squareLocationId } from "./client";
 import crypto from "crypto";
-
-function locationId(): string {
-  const id = process.env.SQUARE_LOCATION_ID;
-  if (!id) throw new Error("SQUARE_LOCATION_ID not set");
-  return id;
-}
 
 interface CreateSquareProjectParams {
   beerName: string;
@@ -53,7 +47,7 @@ export async function createSquareProject(
 ): Promise<SquareProjectResult> {
   const { beerName, volumeBbl, plannedBrewDate, expectedDeliveryDate, squareCustomerId } = params;
   const title = `${beerName} (${volumeBbl} BBLs)`;
-  const loc = locationId();
+  const loc = squareLocationId();
   const idempotencyKey = crypto.randomUUID();
 
   // 1. Create a draft Square Order
