@@ -250,7 +250,9 @@ export function buildDemandCalendar(input: BuildDemandCalendarInput): DemandRow[
       const totalOut = taproomOut + distOut + contOut;
       const inflow = inflowMap.get(wk) ?? 0;
       balance = balance + inflow - totalOut;
-      if (balance < 0 && !stockoutDate) stockoutDate = wk;
+      // Stockout occurs when balance drops below the safety floor (not just below zero).
+      // This ensures the floor reserve is treated as untouchable committed inventory.
+      if (balance < floorBbl && !stockoutDate) stockoutDate = wk;
       weeks.push({
         weekStart: wk,
         taproom_outflow_bbl: Math.round(taproomOut * 100) / 100,
