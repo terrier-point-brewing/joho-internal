@@ -79,6 +79,7 @@ export default function BrewStatusTab() {
   }, [refreshBrewStatus]);
 
   const [editMode, setEditMode] = useState(false);
+  const [mobileFilter, setMobileFilter] = useState<string>("all");
   const [transferTankId, setTransferTankId] = useState<string | null>(null);
   const [transferBatchId, setTransferBatchId] = useState<string | null>(null);
   const [transferFromVol, setTransferFromVol] = useState<number | undefined>(undefined);
@@ -287,10 +288,18 @@ export default function BrewStatusTab() {
         </div>
       )}
 
-      {/* Header */}
-      <div className="flex items-center justify-end gap-2 mb-4">
+      {/* Header — edit layout controls (desktop only) + mobile new batch */}
+      <div className="flex items-center justify-between gap-2 mb-4">
+        {/* Mobile: New Batch shortcut */}
+        <button
+          onClick={() => { setBatchForm(BATCH_EMPTY); setShowNewBatch(true); }}
+          className="md:hidden btn-amber text-xs"
+        >
+          + New Batch
+        </button>
+        {/* Desktop: Edit layout controls */}
         {canEditEquipment && (
-          <div className="flex gap-2">
+          <div className="hidden md:flex gap-2 ml-auto">
             <button
               onClick={() => setEditMode((v) => !v)}
               className={`px-3 py-1.5 text-sm font-medium rounded border transition-colors ${
@@ -308,8 +317,8 @@ export default function BrewStatusTab() {
         )}
       </div>
 
-      {/* Legend */}
-      <div className="flex flex-wrap gap-2 mb-3">
+      {/* Legend (desktop only — mobile uses filter buttons below) */}
+      <div className="hidden md:flex flex-wrap gap-2 mb-3">
         {EQ_TYPES.map(([type, meta]) => (
           <span key={type} className={`text-xs px-2 py-px rounded border ${meta.badge}`}>
             {meta.label}
@@ -317,6 +326,224 @@ export default function BrewStatusTab() {
         ))}
       </div>
 
+      {/* ── Mobile card list (hidden on md+) ── */}
+      <div className="md:hidden">
+        {/* Filter bar */}
+        <div className="flex gap-2 mb-4 -mx-4 px-4 overflow-x-auto scrollbar-none pb-1">
+          <button
+            onClick={() => setMobileFilter("all")}
+            className={`text-xs px-3 py-1 rounded border whitespace-nowrap transition-colors ${
+              mobileFilter === "all" ? "border-zinc-500 text-zinc-100 bg-zinc-800" : "border-zinc-700 text-zinc-500"
+            }`}
+          >
+            All
+          </button>
+          {EQ_TYPES.map(([type, meta]) => (
+            <button
+              key={type}
+              onClick={() => setMobileFilter(type)}
+              className={`text-xs px-3 py-1 rounded border whitespace-nowrap transition-colors ${
+                mobileFilter === type ? meta.badge : "border-zinc-700 text-zinc-500"
+              }`}
+            >
+              {meta.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Tank cards */}
+        <div className="space-y-3">
+          {placed
+            .filter((tank) => mobileFilter === "all" || tank.type === mobileFilter)
+            .map((tank) => {
+              const eq = EQ[tank.type];
+              if (!eq) return null;
+              const assignment = assignmentByTank[tank.id];
+              const batch = assignment?.brew_batches;
+              const isTank = TANK_TYPES.has(tank.type);
+              const isColdStorage = tank.type === "cold_storage";
+              const isBacklog = tank.type === "backlog";
+              const isUnconstrained = UNCONSTRAINED_EQUIPMENT_TYPES.includes(tank.type);
+              const ledgerVol = batch
+                ? (tankVolumesByBatch[batch.id]?.[tank.id] ?? Number(batch.volume_bbl ?? 0))
+                : 0;
+
+              return (
+                <div key={tank.id} className={`rounded-lg border ${eq.border} overflow-hidden`} style={{ background: "rgba(9,9,11,0.95)" }}>
+                  {/* Card header */}
+                  <div className={`flex items-center justify-between px-3 py-2 ${eq.headerBg}`}>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-sm font-semibold text-zinc-100 truncate">{tank.name}</span>
+                      <span className={`text-xs px-1.5 py-px rounded border shrink-0 ${eq.badge}`}>{eq.label}</span>
+                    </div>
+                    {tank.capacity_bbl && !isUnconstrained && (
+                      <span className="text-xs text-zinc-400 shrink-0 ml-2">{tank.capacity_bbl} BBL</span>
+                    )}
+                  </div>
+
+                  {/* Card body */}
+                  <div className="px-3 py-2.5">
+                    {isBacklog ? (
+                      <>
+                        {planningBatches.length === 0 ? (
+                          <p className="text-sm text-zinc-600">No planned batches</p>
+                        ) : (
+                          <div className="space-y-1.5">
+                            {planningBatches.slice(0, 6).map((b) => (
+                              <div key={b.id} className="flex items-baseline gap-2">
+                                {b.batch_number && <span className="text-zinc-600 font-mono text-xs shrink-0">#{b.batch_number}</span>}
+                                <span className="text-zinc-200 text-sm truncate">{b.beer_name}</span>
+                                <span className="text-zinc-600 text-xs shrink-0 ml-auto">{fmtDate(b.planned_brew_date)}</span>
+                              </div>
+                            ))}
+                            {planningBatches.length > 6 && (
+                              <p className="text-xs text-zinc-600">+{planningBatches.length - 6} more</p>
+                            )}
+                          </div>
+                        )}
+                      </>
+                    ) : isTank ? (
+                      <>
+                        {batch ? (
+                          <>
+                            <div className="flex items-center gap-2 mb-2">
+                              {batch.batch_number && <span className="text-zinc-500 font-mono text-xs">#{batch.batch_number}</span>}
+                              <span className="text-zinc-100 font-medium text-sm">{batch.beer_name}</span>
+                            </div>
+                            {!isUnconstrained && tank.capacity_bbl && (
+                              <>
+                                <div className="flex items-center justify-between text-xs mb-1">
+                                  <span className="text-zinc-500">{ledgerVol.toFixed(1)} / {tank.capacity_bbl} BBL</span>
+                                  <span className="text-zinc-600">{Math.round((ledgerVol / tank.capacity_bbl) * 100)}%</span>
+                                </div>
+                                <div className="w-full rounded-full overflow-hidden mb-2.5" style={{ height: 4, background: "rgba(63,63,70,0.6)" }}>
+                                  <div style={{ height: "100%", width: `${Math.min(100, (ledgerVol / tank.capacity_bbl) * 100).toFixed(1)}%`, background: "rgba(245,158,11,0.7)", borderRadius: "9999px" }} />
+                                </div>
+                              </>
+                            )}
+                            {assignment && (
+                              <p className="text-xs text-zinc-600 mb-2">since {fmtDate(assignment.assigned_at)}</p>
+                            )}
+                            {!editMode && (
+                              <button
+                                onClick={() => { setTransferTankId(tank.id); setTransferFromVol(ledgerVol); }}
+                                className="text-xs text-amber-600 hover:text-amber-400 border border-amber-900 hover:border-amber-700 px-3 py-1.5 rounded transition-colors"
+                              >
+                                Transfer
+                              </button>
+                            )}
+                          </>
+                        ) : (() => {
+                          const nextPlanned = nextPlannedByTank.get(tank.id);
+                          return (
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                {nextPlanned && nextPlanned.brew_batches ? (
+                                  <>
+                                    <p className="text-xs text-zinc-500 font-semibold uppercase tracking-wide mb-0.5">Next planned</p>
+                                    <p className="text-sm text-zinc-300 font-medium truncate">
+                                      #{nextPlanned.brew_batches.batch_number} {nextPlanned.brew_batches.beer_name}
+                                    </p>
+                                    <p className="text-xs text-zinc-600">{nextPlanned.planned_start.slice(0, 10)} · {nextPlanned.brew_batches.volume_bbl} BBL</p>
+                                  </>
+                                ) : (
+                                  <p className="text-sm text-zinc-600">Empty</p>
+                                )}
+                              </div>
+                              {!editMode && tank.type === "brewhouse" && unassignedBatches.length > 0 && (
+                                <button
+                                  onClick={() => assign.openAssign(tank.id)}
+                                  className="text-xs text-amber-600 hover:text-amber-400 border border-amber-900 hover:border-amber-700 px-3 py-1.5 rounded transition-colors shrink-0"
+                                >
+                                  Assign
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })()}
+                      </>
+                    ) : isColdStorage ? (
+                      <>
+                        {(() => {
+                          const coldXfers = transfers.filter(
+                            (tr) => tr.to_tank_id === tank.id && (tr.transfer_type === "kegging" || tr.transfer_type === "canning")
+                          );
+                          return coldXfers.length === 0 ? (
+                            <p className="text-sm text-zinc-600">Empty</p>
+                          ) : (
+                            <div className="space-y-1.5">
+                              {coldXfers.map((tr) => {
+                                const b = batchById[tr.batch_id];
+                                const isKeg = tr.transfer_type === "kegging";
+                                const kd = isKeg ? (tr.kegging_detail as { total_kegs?: number } | null) : null;
+                                const cd = !isKeg ? (tr.canning_detail as { total_cans?: number } | null) : null;
+                                return (
+                                  <div key={tr.id} className="flex items-baseline justify-between gap-2">
+                                    <span className="text-sm text-zinc-300 truncate">{b?.beer_name ?? "—"}</span>
+                                    <span className="text-xs text-zinc-500 shrink-0">
+                                      {isKeg && kd?.total_kegs != null ? `${kd.total_kegs} keg${kd.total_kegs !== 1 ? "s" : ""}`
+                                        : cd?.total_cans != null ? `${cd.total_cans.toLocaleString()} cans`
+                                        : fmtDate(tr.transferred_at)}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          );
+                        })()}
+                      </>
+                    ) : (
+                      // Kegging / Canning
+                      (() => {
+                        const pkgBatches = [...new Map(
+                          transfers
+                            .filter((tr) => tr.to_tank_id === tank.id)
+                            .sort((a, b) => new Date(b.transferred_at).getTime() - new Date(a.transferred_at).getTime())
+                            .map((tr) => batchById[tr.batch_id])
+                            .filter((b): b is BrewBatch => b?.status === "packaging")
+                            .map((b) => [b.id, b] as [string, BrewBatch])
+                        ).values()];
+                        return pkgBatches.length === 0 ? (
+                          <p className="text-sm text-zinc-600">Empty</p>
+                        ) : (
+                          <div className="space-y-2">
+                            {pkgBatches.map((b) => {
+                              const incoming = transfers
+                                .filter((tr) => tr.to_tank_id === tank.id && tr.batch_id === b.id)
+                                .sort((a, bb) => new Date(bb.transferred_at).getTime() - new Date(a.transferred_at).getTime())[0];
+                              return (
+                                <div key={b.id} className="flex items-center justify-between gap-2">
+                                  <div className="min-w-0">
+                                    {b.batch_number && <span className="text-xs text-zinc-500 font-mono mr-1">#{b.batch_number}</span>}
+                                    <span className="text-sm text-zinc-200 font-medium">{b.beer_name}</span>
+                                  </div>
+                                  {!editMode && incoming && (
+                                    <button
+                                      onClick={() => handleSendToColdStorage(b.id, tank.id, incoming)}
+                                      disabled={pkgTransferring.has(b.id)}
+                                      className="text-xs text-amber-600 hover:text-amber-400 border border-amber-900 hover:border-amber-700 px-2 py-1 rounded transition-colors disabled:opacity-40 shrink-0"
+                                    >
+                                      {pkgTransferring.has(b.id) ? "…" : "→ Cold"}
+                                    </button>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      })()
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          {placed.filter((t) => mobileFilter === "all" || t.type === mobileFilter).length === 0 && (
+            <p className="text-sm text-zinc-600 text-center py-8">No equipment of this type on the floorplan.</p>
+          )}
+        </div>
+      </div>
+
+      {/* ── Desktop-only: unplaced equipment, grid controls, and grid ── */}
       {/* Unplaced equipment — visible in edit mode for brewers/admins */}
       {editMode && canEditEquipment && unplaced.length > 0 && (
         <div
@@ -388,8 +615,8 @@ export default function BrewStatusTab() {
         </div>
       )}
 
-      {/* Grid — scales to fit available width/height */}
-      <div ref={scaleContainerRef} className="w-full mb-6" style={{ height: gridRows * cell * gridScale }}>
+      {/* Grid — scales to fit available width/height (desktop only) */}
+      <div ref={scaleContainerRef} className="hidden md:block w-full mb-6" style={{ height: gridRows * cell * gridScale }}>
         <div className="rounded-lg border border-zinc-800 overflow-hidden origin-top-left" style={{ width: gridCols * cell, height: gridRows * cell, transform: `scale(${gridScale})`, transformOrigin: "top left" }}>
           <div
             ref={gridRef}
