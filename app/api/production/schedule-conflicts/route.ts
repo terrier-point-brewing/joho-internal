@@ -58,20 +58,60 @@ export async function GET() {
   const supabase = await createSupabaseServerClient();
 
   try {
-    const { data: entries, error } = await supabase
-      .from("batch_schedule_entries")
-      .select(`
-        id, batch_id, equipment_id, stage, planned_start, planned_end,
-        actual_start, actual_end, cancelled_at,
-        brew_batches(id, beer_name, batch_number, volume_bbl, recipe_id),
-        equipment(id, name, type)
-      `)
-      .is("cancelled_at", null)
-      .order("planned_start", { ascending: true });
+    const [{ data: entries, error }, { data: activeAssignments }] = await Promise.all([
+      supabase
+        .from("batch_schedule_entries")
+        .select(`
+          id, batch_id, equipment_id, stage, planned_start, planned_end,
+          actual_start, actual_end, cancelled_at,
+          brew_batches(id, beer_name, batch_number, volume_bbl, recipe_id),
+          equipment(id, name, type)
+        `)
+        .is("cancelled_at", null)
+        .order("planned_start", { ascending: true }),
+      supabase
+        .from("batch_tank_assignments")
+        .select("tank_id, batch_id, assigned_at, equipment(id, name, type), brew_batches(id, beer_name, batch_number, volume_bbl, recipe_id)")
+        .is("released_at", null),
+    ]);
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-    const rows = (entries ?? []) as unknown as RawEntry[];
+    const scheduleRows = (entries ?? []) as unknown as RawEntry[];
+
+    // Synthesize RawEntry records for active assignments that lack a schedule entry,
+    // so physically occupied tanks surface as conflicts.
+    const scheduledPairs = new Set(
+      scheduleRows.filter((r) => r.equipment_id).map((r) => `${r.batch_id}:${r.equipment_id}`)
+    );
+    const farFuture = new Date(Date.now() + 60 * 86400000).toISOString();
+    const syntheticRows: RawEntry[] = (activeAssignments ?? [])
+      .filter((a) => {
+        const key = `${(a as { batch_id: string }).batch_id}:${(a as { tank_id: string }).tank_id}`;
+        return !scheduledPairs.has(key);
+      })
+      .map((a) => {
+        const typed = a as unknown as {
+          tank_id: string; batch_id: string; assigned_at: string;
+          equipment: { id: string; name: string; type: string } | null;
+          brew_batches: { id: string; beer_name: string; batch_number: string; volume_bbl: number; recipe_id: string | null } | null;
+        };
+        return {
+          id:            `synthetic:${typed.batch_id}:${typed.tank_id}`,
+          batch_id:      typed.batch_id,
+          equipment_id:  typed.tank_id,
+          stage:         typed.equipment?.type ?? "unknown",
+          planned_start: typed.assigned_at,
+          planned_end:   farFuture,
+          actual_start:  typed.assigned_at,
+          actual_end:    null,
+          cancelled_at:  null,
+          brew_batches:  typed.brew_batches,
+          equipment:     typed.equipment,
+        };
+      });
+
+    const rows = [...scheduleRows, ...syntheticRows];
 
     // Group by equipment_id, skip multi-batch-allowed types
     const byEquipment = new Map<string, RawEntry[]>();

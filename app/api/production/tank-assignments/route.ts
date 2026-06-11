@@ -57,10 +57,21 @@ export async function POST(req: NextRequest) {
       if (batch?.status !== newStatus) {
         const { error: statusErr } = await supabase.from("brew_batches").update({ status: newStatus }).eq("id", batch_id);
         if (statusErr) return NextResponse.json({ error: statusErr.message }, { status: 500 });
+      }
+
+      // Always write history for brewhouse assignments so every turn start is
+      // recorded even when the batch status stays "brewing" (turn 2+).
+      // For other equipment types only write on actual status transitions.
+      const turnsCompleted = Number(batch?.turns_completed ?? 0);
+      const shouldWriteHistory = batch?.status !== newStatus || tank.type === "brewhouse";
+      if (shouldWriteHistory) {
+        const note = tank.type === "brewhouse" && batch?.status === newStatus
+          ? `Auto: brewhouse turn ${turnsCompleted + 1}`
+          : `Auto: assigned to ${tank.type}`;
         const { error: histErr } = await supabase.from("batch_status_history").insert({
           batch_id,
           status: newStatus,
-          note: `Auto: assigned to ${tank.type}`,
+          note,
         });
         if (histErr) return NextResponse.json({ error: histErr.message }, { status: 500 });
       }

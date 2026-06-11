@@ -170,7 +170,8 @@ export async function POST(req: NextRequest) {
     if (wasInserted) synced++; else updated++;
 
     // ── Classify and upsert line items ──────────────────────────────────────
-    await supabase.from("invoice_line_items").delete().eq("invoice_id", invRow.id);
+    // Use upsert on (invoice_id, sort_order) to avoid the delete-then-insert
+    // window where a concurrent read would see zero line items.
 
     const lineItems: {
       invoice_id: string; sort_order: number; description: string;
@@ -229,8 +230,18 @@ export async function POST(req: NextRequest) {
     });
 
     if (lineItems.length) {
-      const { error: liErr } = await supabase.from("invoice_line_items").insert(lineItems);
+      const { error: liErr } = await supabase
+        .from("invoice_line_items")
+        .upsert(lineItems, { onConflict: "invoice_id,sort_order", ignoreDuplicates: false });
       if (liErr) errors.push(`Line items for ${inv.invoice_number ?? inv.id}: ${liErr.message}`);
+      // Remove any stale line items at positions beyond the new count (e.g. order was edited to fewer items).
+      if (!liErr && lineItems.length > 0) {
+        await supabase
+          .from("invoice_line_items")
+          .delete()
+          .eq("invoice_id", invRow.id)
+          .gt("sort_order", lineItems.length - 1);
+      }
     }
   }
 
