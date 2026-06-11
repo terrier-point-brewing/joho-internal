@@ -21,7 +21,8 @@
       "mcp__Vercel__get_runtime_logs",
       "mcp__Vercel__web_fetch_vercel_url",
       "mcp__Supabase__list_projects",
-      "mcp__Supabase__apply_migration"
+      "mcp__Supabase__apply_migration",
+      "mcp__Supabase__execute_sql"
     ]
   }
 }
