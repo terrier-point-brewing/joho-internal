@@ -27,9 +27,9 @@ export default function SettingsTabs({ isAdmin }: { isAdmin: boolean }) {
   ];
 
   return (
-    <div className="border-b border-zinc-800 px-6 pt-6">
+    <div className="border-b border-zinc-800 px-4 sm:px-6 pt-4 sm:pt-6">
       <h1 className="text-lg font-semibold text-zinc-100 mb-4">Settings</h1>
-      <div className="flex gap-1">
+      <div className="flex flex-wrap gap-1">
         {tabs.map(({ label, href, badge }) => (
           <Link
             key={href}

@@ -11,7 +11,7 @@ const TABS = [
 export default function SalesNav() {
   const pathname = usePathname();
   return (
-    <div className="flex items-center gap-1 px-6 pb-4 border-b border-zinc-800">
+    <div className="flex items-center gap-1 pb-4 border-b border-zinc-800 overflow-x-auto">
       {TABS.map(({ href, label }) => {
         const active = pathname === href;
         return (

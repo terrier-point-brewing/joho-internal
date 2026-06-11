@@ -93,6 +93,12 @@ export async function GET(req: NextRequest) {
   const totalRevenue = taproomRevenue + invoiceRevenue + manualRevenue;
 
   // ── COGS ───────────────────────────────────────────────────────────────────
+  // KNOWN TIMING POLICY: ingredient costs accrue at brew-turn start (tank assignment)
+  // while packaging costs accrue at kegging/canning transfer time. These are two
+  // different points in the batch lifecycle and can fall in different reporting periods.
+  // TODO: align both to "COGS on cold-storage arrival" by joining stock_adjustments
+  // through batch_transfers WHERE transfer_type IN ('kegging','canning') to match
+  // ingredient costs to the period the batch was actually packaged.
   const ingredientCost = (ingResult.data ?? []).reduce((s, r) => {
     return s + Math.abs(r.total_value_change ?? (r.quantity * (r.cost_per_unit ?? 0)));
   }, 0);
@@ -128,6 +134,9 @@ export async function GET(req: NextRequest) {
       ingredients: Math.round(ingredientCost * 100) / 100,
       packaging:   Math.round(packagingCost  * 100) / 100,
       total:       Math.round(totalCogs      * 100) / 100,
+      // Ingredients accrue at brew-turn start; packaging at kegging/canning transfer.
+      // Both costs for the same batch may therefore land in different reporting periods.
+      policy: "accrual_at_activity_date",
     },
     gross_profit:      Math.round(grossProfit      * 100) / 100,
     operating_expenses: Math.round(totalExpenses   * 100) / 100,

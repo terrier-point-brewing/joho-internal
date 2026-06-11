@@ -42,7 +42,7 @@ export default function AccountSettings() {
   }
 
   return (
-    <div className="p-6 max-w-md">
+    <div className="p-4 sm:p-6 max-w-md">
       <h2 className="text-base font-semibold text-zinc-100 mb-1">Change Password</h2>
       <p className="text-sm text-zinc-500 mb-6">Set a new password for your account.</p>
 

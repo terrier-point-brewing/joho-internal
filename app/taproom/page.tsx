@@ -119,7 +119,7 @@ const TOP_TABS = [
 function TaproomContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const tab = searchParams.get("tab") ?? "targets";
+  const tab = searchParams.get("tab") ?? "performance";
 
   // Targets subtab uses local state (mirrors Production's brewingSubtab pattern)
   const [targetsSubtab,     setTargetsSubtab]     = useState<TargetsSubtab>("achievement");
@@ -178,28 +178,31 @@ function TaproomContent() {
           </div>
 
           {/* Report selectors */}
-          <div className="flex flex-wrap items-center gap-3 mb-6">
-            <label className="text-sm font-medium text-zinc-300">Category</label>
-            <select
-              value={activeGroup}
-              onChange={(e) => handleGroupChange(e.target.value as GroupId)}
-              className={selectCls}
-            >
-              {REPORT_GROUPS.map((g) => (
-                <option key={g.id} value={g.id}>{g.label}</option>
-              ))}
-            </select>
-
-            <label className="text-sm font-medium text-zinc-300">Report</label>
-            <select
-              value={activeReport}
-              onChange={(e) => handleReportChange(e.target.value as ReportId)}
-              className={selectCls}
-            >
-              {activeGroupReports.map((r) => (
-                <option key={r.id} value={r.id}>{r.label}</option>
-              ))}
-            </select>
+          <div className="flex flex-col sm:flex-row flex-wrap gap-2 sm:gap-3 sm:items-center mb-6">
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
+              <label className="text-sm font-medium text-zinc-300">Category</label>
+              <select
+                value={activeGroup}
+                onChange={(e) => handleGroupChange(e.target.value as GroupId)}
+                className={selectCls}
+              >
+                {REPORT_GROUPS.map((g) => (
+                  <option key={g.id} value={g.id}>{g.label}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
+              <label className="text-sm font-medium text-zinc-300">Report</label>
+              <select
+                value={activeReport}
+                onChange={(e) => handleReportChange(e.target.value as ReportId)}
+                className={selectCls}
+              >
+                {activeGroupReports.map((r) => (
+                  <option key={r.id} value={r.id}>{r.label}</option>
+                ))}
+              </select>
+            </div>
           </div>
 
           <h3 className="text-sm font-medium text-zinc-400 mb-5">{getLabel(activeReport)}</h3>

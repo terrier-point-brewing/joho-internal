@@ -28,22 +28,22 @@ export async function POST(req: NextRequest) {
 
   if (!recipe_id) return NextResponse.json({ error: "recipe_id is required" }, { status: 400 });
 
+  // Always fetch recipe lead time — used for delivery date and brewhouse schedule entry.
+  const { data: recipeData, error: recipeErr } = await supabase
+    .from("recipes")
+    .select("days_brewhouse, days_fermenter, days_brite")
+    .eq("id", recipe_id)
+    .single();
+  if (recipeErr) return NextResponse.json({ error: recipeErr.message }, { status: 500 });
+
   // Auto-derive expected_delivery_date from recipe lead time when not explicitly provided.
   let resolvedDeliveryDate: string | null = expected_delivery_date || null;
-  if (!resolvedDeliveryDate && planned_brew_date) {
-    const { data: recipeData, error: recipeErr } = await supabase
-      .from("recipes")
-      .select("days_brewhouse, days_fermenter, days_brite")
-      .eq("id", recipe_id)
-      .single();
-    if (recipeErr) return NextResponse.json({ error: recipeErr.message }, { status: 500 });
-    if (recipeData) {
-      const leadDays = (recipeData.days_brewhouse ?? 0) + (recipeData.days_fermenter ?? 0) + (recipeData.days_brite ?? 0);
-      if (leadDays > 0) {
-        const brewDate = new Date(planned_brew_date);
-        brewDate.setUTCDate(brewDate.getUTCDate() + leadDays);
-        resolvedDeliveryDate = brewDate.toISOString().slice(0, 10);
-      }
+  if (!resolvedDeliveryDate && planned_brew_date && recipeData) {
+    const leadDays = (recipeData.days_brewhouse ?? 0) + (recipeData.days_fermenter ?? 0) + (recipeData.days_brite ?? 0);
+    if (leadDays > 0) {
+      const brewDate = new Date(planned_brew_date);
+      brewDate.setUTCDate(brewDate.getUTCDate() + leadDays);
+      resolvedDeliveryDate = brewDate.toISOString().slice(0, 10);
     }
   }
 
@@ -72,6 +72,22 @@ export async function POST(req: NextRequest) {
       .update({ expected_delivery_date: resolvedDeliveryDate })
       .eq("id", batch.id);
     if (deliveryErr) return NextResponse.json({ error: deliveryErr.message }, { status: 500 });
+  }
+
+  // Seed a brewhouse schedule entry so the scheduler sees it as occupied.
+  // equipment_id is null at creation time (tank assigned later via tank-assignments).
+  if (planned_brew_date) {
+    const brewhouseDays = Math.max(1, recipeData?.days_brewhouse ?? 1);
+    const brewEnd = new Date(planned_brew_date);
+    brewEnd.setUTCDate(brewEnd.getUTCDate() + brewhouseDays);
+    await supabase.from("batch_schedule_entries").insert({
+      batch_id:      batch.id,
+      equipment_id:  null,
+      stage:         "brewhouse",
+      planned_start: planned_brew_date,
+      planned_end:   brewEnd.toISOString().slice(0, 10),
+      notes:         "Auto-created on batch planning",
+    });
   }
 
   // Copy recipe activity templates into the new batch's activity log
@@ -135,11 +151,11 @@ export async function POST(req: NextRequest) {
 
       squareInvoiceId = result.invoiceId;
 
-      // Persist invoice ID — requires: ALTER TABLE brew_batches ADD COLUMN IF NOT EXISTS square_invoice_id text;
-      await supabase
+      const { error: invIdErr } = await supabase
         .from("brew_batches")
         .update({ square_invoice_id: squareInvoiceId })
         .eq("id", batch.id);
+      if (invIdErr) console.error("[Square] Failed to persist square_invoice_id:", invIdErr.message);
     } catch (err) {
       // Square invoice creation is non-blocking — log and continue
       console.error("[Square] Failed to create project invoice:", err);

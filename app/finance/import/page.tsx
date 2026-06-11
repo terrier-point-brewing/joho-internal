@@ -1,5 +1,6 @@
 "use client";
 import { useState, useCallback } from "react";
+import FinanceNav from "../FinanceNav";
 import { autoDetectColumns, buildImportPayloads, type ColumnMap } from "@/lib/finance/qb-csv";
 import type { InvoiceImportPayload, InvoiceStatus } from "@/types/finance";
 
@@ -458,12 +459,13 @@ export default function ImportPage() {
 
   return (
     <div className="flex flex-col h-full bg-zinc-950 text-zinc-100">
-      <div className="shrink-0 px-6 pt-5 pb-4 border-b border-zinc-800">
+      <FinanceNav mobile />
+      <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-5 pb-4 border-b border-zinc-800">
         <h1 className="text-base font-semibold text-zinc-100">Finance · Import</h1>
         <p className="text-xs text-zinc-500 mt-0.5">Admin only</p>
       </div>
 
-      <div className="flex-1 overflow-auto px-6 py-6 max-w-3xl space-y-8">
+      <div className="flex-1 overflow-auto px-4 sm:px-6 py-4 sm:py-6 max-w-3xl space-y-8">
 
         {/* Square sync */}
         <SquareSyncPanel />

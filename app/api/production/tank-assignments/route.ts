@@ -57,12 +57,45 @@ export async function POST(req: NextRequest) {
       if (batch?.status !== newStatus) {
         const { error: statusErr } = await supabase.from("brew_batches").update({ status: newStatus }).eq("id", batch_id);
         if (statusErr) return NextResponse.json({ error: statusErr.message }, { status: 500 });
+      }
+
+      // Always write history for brewhouse assignments so every turn start is
+      // recorded even when the batch status stays "brewing" (turn 2+).
+      // For other equipment types only write on actual status transitions.
+      const turnsCompleted = Number(batch?.turns_completed ?? 0);
+      const shouldWriteHistory = batch?.status !== newStatus || tank.type === "brewhouse";
+      if (shouldWriteHistory) {
+        const note = tank.type === "brewhouse" && batch?.status === newStatus
+          ? `Auto: brewhouse turn ${turnsCompleted + 1}`
+          : `Auto: assigned to ${tank.type}`;
         const { error: histErr } = await supabase.from("batch_status_history").insert({
           batch_id,
           status: newStatus,
-          note: `Auto: assigned to ${tank.type}`,
+          note,
         });
         if (histErr) return NextResponse.json({ error: histErr.message }, { status: 500 });
+      }
+
+      // When a brewhouse is assigned, resolve the pending schedule entry created at
+      // batch planning time (equipment_id was null until now).
+      if (tank.type === "brewhouse") {
+        const today = new Date().toISOString().split("T")[0];
+        const { data: pendingEntry } = await supabase
+          .from("batch_schedule_entries")
+          .select("id")
+          .eq("batch_id", batch_id)
+          .eq("stage", "brewhouse")
+          .is("equipment_id", null)
+          .is("cancelled_at", null)
+          .order("planned_start", { ascending: true })
+          .limit(1)
+          .maybeSingle();
+        if (pendingEntry) {
+          await supabase
+            .from("batch_schedule_entries")
+            .update({ equipment_id: tank_id, actual_start: today, updated_at: new Date().toISOString() })
+            .eq("id", pendingEntry.id);
+        }
       }
 
       // Deduct one turn's worth of ingredients when a brew turn starts.
@@ -111,22 +144,14 @@ export async function POST(req: NextRequest) {
             .eq("id", batch_id);
           if (turnsErr) return NextResponse.json({ error: turnsErr.message }, { status: 500 });
 
-          // Apply stock deltas one by one (no batch-update RPC available).
+          // Atomically decrement each ingredient via RPC (no TOCTOU race).
           for (const ri of recipeIngredients) {
             const delta = ri.quantity_per_bbl * turnVol;
-            const { data: ing, error: ingFetchErr } = await supabase
-              .from("ingredients")
-              .select("stock_quantity")
-              .eq("id", ri.ingredient_id)
-              .single();
-            if (ingFetchErr) return NextResponse.json({ error: ingFetchErr.message }, { status: 500 });
-            if (ing) {
-              const { error: ingUpdateErr } = await supabase
-                .from("ingredients")
-                .update({ stock_quantity: Number(ing.stock_quantity) - delta })
-                .eq("id", ri.ingredient_id);
-              if (ingUpdateErr) return NextResponse.json({ error: ingUpdateErr.message }, { status: 500 });
-            }
+            const { error: rpcErr } = await supabase.rpc("adjust_ingredient_stock", {
+              p_id:    ri.ingredient_id,
+              p_delta: -delta,
+            });
+            if (rpcErr) return NextResponse.json({ error: rpcErr.message }, { status: 500 });
           }
         }
       }

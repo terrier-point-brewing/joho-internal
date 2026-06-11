@@ -139,7 +139,7 @@ export default function NavBar() {
           <nav className="flex flex-col gap-0.5 p-2">
             {/* Taproom — everyone */}
             <Link
-              href="/taproom?tab=targets"
+              href="/taproom?tab=performance"
               className={`px-3 py-2 rounded text-sm font-medium transition-colors ${
                 isTaproom ? "bg-zinc-800 text-zinc-100" : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50"
               }`}
@@ -150,7 +150,7 @@ export default function NavBar() {
               <div className="mt-1 ml-2 flex flex-col gap-0.5 border-l border-zinc-800 pl-2">
                 {TAPROOM_TABS.map(({ key, label }) => (
                   <Link key={key} href={`/taproom?tab=${key}`}
-                    className={subtabCls(activeTab === key || (key === "targets" && activeTab === ""))}>
+                    className={subtabCls(activeTab === key || (key === "performance" && activeTab === ""))}>
                     {label}
                   </Link>
                 ))}
@@ -226,7 +226,7 @@ export default function NavBar() {
         {/* Collapsed: icon-only nav */}
         {collapsed && (
           <nav className="flex flex-col items-center gap-1 p-1 pt-2">
-            <Link href="/taproom?tab=targets" title="Taproom Management"
+            <Link href="/taproom?tab=performance" title="Taproom Management"
               className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${isTaproom ? "bg-zinc-800 text-amber-400" : "text-zinc-600 hover:text-zinc-300 hover:bg-zinc-800/50"}`}>
               <TaproomIcon />
             </Link>
@@ -289,7 +289,7 @@ export default function NavBar() {
 
       {/* ── Mobile bottom nav ────────────────────────────────────────────────── */}
       <nav className="md:hidden fixed bottom-0 inset-x-0 z-50 bg-zinc-900 border-t border-zinc-800 flex items-stretch">
-        <MobileNavItem href="/taproom?tab=targets" active={isTaproom} label="Taproom">
+        <MobileNavItem href="/taproom?tab=performance" active={isTaproom} label="Taproom">
           <TaproomIcon />
         </MobileNavItem>
         {!loading && canAccessProduction && (

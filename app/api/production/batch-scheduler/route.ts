@@ -97,11 +97,12 @@ export async function GET() {
       { data: adjustments },
       { data: scheduleEntries },
       { data: squareLinks },
+      { data: activeAssignments },
     ] = await Promise.all([
       supabase.from("batch_transfers").select("*"),
       supabase.from("equipment").select("*"),
       supabase.from("brew_batches")
-        .select("id, beer_name, batch_number, planned_brew_date, expected_delivery_date, volume_bbl, turns, status, notes, recipe_id, created_at, recipes(beer_name, brewery, brew_time_weeks, expected_yield_bbl), batch_status_history(*), planned_allocations(*)")
+        .select("id, beer_name, batch_number, planned_brew_date, expected_delivery_date, volume_bbl, turns, status, notes, recipe_id, created_at, recipes(beer_name, brewery, brew_time_weeks, expected_yield_bbl), batch_status_history(*), batch_allocations(*)")
         .in("status", ["planning", "brewing", "fermenting", "conditioning", "packaging"]),
       supabase.from("packaging_items").select("*"),
       supabase.from("safety_stock_floors").select("*"),
@@ -117,6 +118,7 @@ export async function GET() {
       supabase.from("brew_inventory_adjustments").select("*"),
       supabase.from("batch_schedule_entries").select("equipment_id, planned_start, planned_end, actual_start, actual_end, cancelled_at"),
       supabase.from("recipe_square_links").select("id, recipe_id, square_variation_id, packaging_items(volume_fl_oz)"),
+      supabase.from("batch_tank_assignments").select("tank_id, assigned_at").is("released_at", null),
     ]);
 
     const typedTransfers = (transfers ?? []) as BatchTransfer[];
@@ -127,7 +129,22 @@ export async function GET() {
     const typedAllocs = (allocs ?? []) as ContractBrewingRequest[];
     const typedContracts = (contracts ?? []) as ContractBrewingRequest[];
     const typedRecipes = (recipes ?? []) as Recipe[];
-    const typedEntries = (scheduleEntries ?? []) as ScheduleEntry[];
+    // Merge active tank assignments as synthetic schedule entries so tanks that
+    // are physically occupied (but have no schedule entry) are treated as busy.
+    const scheduledTankIds = new Set(
+      (scheduleEntries ?? []).map((e) => e.equipment_id).filter(Boolean)
+    );
+    const syntheticEntries: ScheduleEntry[] = (activeAssignments ?? [])
+      .filter((a) => !scheduledTankIds.has(a.tank_id))
+      .map((a) => ({
+        equipment_id: a.tank_id as string,
+        planned_start: a.assigned_at as string,
+        planned_end:   new Date(Date.now() + 60 * 86400000).toISOString(),
+        actual_start:  a.assigned_at as string,
+        actual_end:    null,
+        cancelled_at:  null,
+      }));
+    const typedEntries = [...(scheduleEntries ?? []) as ScheduleEntry[], ...syntheticEntries];
 
     const packagingById = new Map(typedPkg.map((p) => [p.id, p]));
 

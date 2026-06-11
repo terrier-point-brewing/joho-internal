@@ -121,7 +121,7 @@ export default function UserManagement() {
   }
 
   return (
-    <div className="p-6 max-w-4xl mx-auto">
+    <div className="p-4 sm:p-6 max-w-4xl mx-auto">
       <h2 className="text-base font-semibold text-zinc-100 mb-6">Users</h2>
 
       {loading && <p className="text-sm text-zinc-500">Loading…</p>}

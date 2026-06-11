@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import { fetchJson } from "@/app/production/hooks/queries";
 import type { Invoice } from "@/types/finance";
+import FinanceNav from "../FinanceNav";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -121,14 +122,15 @@ export default function InvoicesPage() {
 
   return (
     <div className="flex flex-col h-full bg-zinc-950 text-zinc-100">
+      <FinanceNav mobile />
       {/* Header */}
-      <div className="shrink-0 px-6 pt-5 pb-4 border-b border-zinc-800">
-        <div className="flex items-center justify-between mb-3">
+      <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-5 pb-4 border-b border-zinc-800">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
           <div>
             <h1 className="text-base font-semibold text-zinc-100">Finance</h1>
             <p className="text-xs text-zinc-500 mt-0.5">Admin only</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <select value={year} onChange={(e) => setYear(Number(e.target.value))}
               className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200">
               {years.map((y) => <option key={y} value={y}>{y}</option>)}
@@ -157,7 +159,7 @@ export default function InvoicesPage() {
 
       {/* Summary bar */}
       {!isFetching && invoices.length > 0 && (
-        <div className="shrink-0 flex items-center gap-6 px-6 py-3 border-b border-zinc-800/60 bg-zinc-900/30">
+        <div className="shrink-0 flex flex-wrap items-center gap-4 sm:gap-6 px-4 sm:px-6 py-3 border-b border-zinc-800/60 bg-zinc-900/30">
           <div>
             <span className="text-xs text-zinc-500">Invoices </span>
             <span className="text-sm font-semibold text-zinc-200">{invoices.length}</span>
@@ -188,7 +190,7 @@ export default function InvoicesPage() {
       )}
 
       {/* Table */}
-      <div className="flex-1 overflow-auto px-6 py-4">
+      <div className="flex-1 overflow-auto px-4 sm:px-6 py-4">
         <div className="bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden">
           <table className="w-full text-xs border-collapse">
             <thead>
