@@ -76,6 +76,28 @@ export async function POST(req: NextRequest) {
         if (histErr) return NextResponse.json({ error: histErr.message }, { status: 500 });
       }
 
+      // When a brewhouse is assigned, resolve the pending schedule entry created at
+      // batch planning time (equipment_id was null until now).
+      if (tank.type === "brewhouse") {
+        const today = new Date().toISOString().split("T")[0];
+        const { data: pendingEntry } = await supabase
+          .from("batch_schedule_entries")
+          .select("id")
+          .eq("batch_id", batch_id)
+          .eq("stage", "brewhouse")
+          .is("equipment_id", null)
+          .is("cancelled_at", null)
+          .order("planned_start", { ascending: true })
+          .limit(1)
+          .maybeSingle();
+        if (pendingEntry) {
+          await supabase
+            .from("batch_schedule_entries")
+            .update({ equipment_id: tank_id, actual_start: today, updated_at: new Date().toISOString() })
+            .eq("id", pendingEntry.id);
+        }
+      }
+
       // Deduct one turn's worth of ingredients when a brew turn starts.
       if (tank.type === "brewhouse" && batch?.recipe_id) {
         const turns   = Math.max(1, Number(batch.turns ?? 1));
