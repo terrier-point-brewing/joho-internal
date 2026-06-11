@@ -2,6 +2,7 @@
 
 import { Suspense, useState, useEffect } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
+import Link from "next/link";
 import { useUserRole } from "@/lib/hooks/useUserRole";
 import BatchLogTab    from "./components/BatchLogTab";
 import RecipesTab     from "./components/RecipesTab";
@@ -12,6 +13,15 @@ import InventoryTab   from "./components/InventoryTab";
 import PartnersTab    from "./components/PartnersTab";
 import ExportTab      from "./components/ExportTab";
 import IntakeTab      from "./components/IntakeTab";
+
+const PRODUCTION_TABS = [
+  { key: "intake",    label: "Intake"    },
+  { key: "brewing",   label: "Brewing"   },
+  { key: "export",    label: "Export"    },
+  { key: "recipes",   label: "Recipes"   },
+  { key: "inventory", label: "Inventory" },
+  { key: "partners",  label: "Partners"  },
+] as const;
 
 const BREWING_SUBTABS = [
   { key: "floorplan", label: "Floorplan"  },
@@ -39,6 +49,24 @@ function ProductionContent() {
 
   return (
     <main className="px-4 sm:px-6 py-4 sm:py-8">
+
+      {/* Mobile-only tab nav — desktop uses the sidebar */}
+      <div className="md:hidden flex border-b border-zinc-800 mb-4 -mx-4 overflow-x-auto scrollbar-none">
+        {PRODUCTION_TABS.map(({ key, label }) => (
+          <Link
+            key={key}
+            href={`/production?tab=${key}`}
+            className={`px-4 py-2.5 text-sm font-medium whitespace-nowrap transition-colors border-b-2 -mb-px ${
+              tab === key
+                ? "text-amber-400 border-amber-500"
+                : "text-zinc-500 border-transparent"
+            }`}
+          >
+            {label}
+          </Link>
+        ))}
+      </div>
+
       {tab === "intake" && <IntakeTab />}
 
       {tab === "brewing" && (

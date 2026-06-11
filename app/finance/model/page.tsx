@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import SalesTable, { type SalesRow } from "../sales/SalesTable";
+import FinanceNav from "../FinanceNav";
 import { fetchJson } from "@/app/production/hooks/queries";
 
 const ROWS: SalesRow[] = [
@@ -115,6 +116,7 @@ export default function ModelPage() {
 
   return (
     <div className="flex flex-col h-full bg-zinc-950 text-zinc-100">
+      <FinanceNav mobile />
       <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-5 pb-4">
         <div className="flex items-center justify-between mb-4">
           <div>

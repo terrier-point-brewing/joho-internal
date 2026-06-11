@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import { fetchJson } from "@/app/production/hooks/queries";
 import type { Invoice } from "@/types/finance";
+import FinanceNav from "../FinanceNav";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -121,6 +122,7 @@ export default function InvoicesPage() {
 
   return (
     <div className="flex flex-col h-full bg-zinc-950 text-zinc-100">
+      <FinanceNav mobile />
       {/* Header */}
       <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-5 pb-4 border-b border-zinc-800">
         <div className="flex flex-wrap items-center justify-between gap-2 mb-3">

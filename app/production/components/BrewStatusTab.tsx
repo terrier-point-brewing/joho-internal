@@ -17,9 +17,7 @@ import {
   useTransfersQuery, useRecipesQuery, useBatchScheduleQuery, productionKeys,
   type ScheduleEntry,
 } from "../hooks/queries";
-
-const GRID_COLS_KEY = "brewConsole_gridCols";
-const GRID_ROWS_KEY = "brewConsole_gridRows";
+import { useUserRole } from "@/lib/hooks/useUserRole";
 
 
 const BATCH_EMPTY = {
@@ -45,6 +43,9 @@ function eqStyle(t: Equipment, cell: number): React.CSSProperties {
 
 export default function BrewStatusTab() {
   const qc = useQueryClient();
+  const { role } = useUserRole();
+  const isAdmin          = role === "admin";
+  const canEditEquipment = role === "brewer" || role === "admin";
   const { data: tanks = [] } = useEquipmentQuery();
   const { data: assignments = [] } = useAssignmentsQuery();
   const { data: batches = [] } = useBatchesQuery();
@@ -113,12 +114,10 @@ export default function BrewStatusTab() {
   }
   // Shared with the Inventory tab via the query cache (de-duped, no local fetch).
   const { data: packaging = [] } = usePackagingQuery();
-  // Initialize with the SSR default so the server and the client's first render
-  // agree (avoids a hydration mismatch on the grid dimensions); the persisted
-  // value is loaded from localStorage after mount in the effect below.
+  // Grid size — initialized to defaults to avoid SSR/client hydration mismatch;
+  // actual server value is fetched once after mount.
   const [gridCols, setGridCols] = useState(GRID_COLS);
   const [gridRows, setGridRows] = useState(GRID_ROWS);
-  const gridSizeSaveSkip = useRef(true);
 
   // New batch modal state
   const [showNewBatch, setShowNewBatch] = useState(false);
@@ -176,24 +175,24 @@ export default function BrewStatusTab() {
     }
   }
 
-  // Load persisted grid size once, after mount. Reading localStorage here (not
-  // in the initializer) is required to avoid an SSR/client hydration mismatch.
-  /* eslint-disable react-hooks/set-state-in-effect */
+  // Load shared grid size from server once after mount.
   useEffect(() => {
-    const c = parseInt(localStorage.getItem(GRID_COLS_KEY) ?? "");
-    const r = parseInt(localStorage.getItem(GRID_ROWS_KEY) ?? "");
-    if (c) setGridCols(c);
-    if (r) setGridRows(r);
+    fetch("/api/production/floorplan-settings")
+      .then((r) => r.json())
+      .then((d: { cols: number; rows: number }) => {
+        if (d.cols) setGridCols(d.cols);
+        if (d.rows) setGridRows(d.rows);
+      })
+      .catch(() => {});
   }, []);
-  /* eslint-enable react-hooks/set-state-in-effect */
 
-  // Persist on change, but skip the initial mount so we never overwrite the
-  // stored value with the default before the load effect above has run.
-  useEffect(() => {
-    if (gridSizeSaveSkip.current) { gridSizeSaveSkip.current = false; return; }
-    localStorage.setItem(GRID_COLS_KEY, String(gridCols));
-    localStorage.setItem(GRID_ROWS_KEY, String(gridRows));
-  }, [gridCols, gridRows]);
+  function saveGridSize(cols: number, rows: number) {
+    fetch("/api/production/floorplan-settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cols, rows }),
+    }).catch(() => {});
+  }
 
   const assignmentByTank   = Object.fromEntries(assignments.map((a) => [a.tank_id, a])) as Record<string, BatchTankAssignment | undefined>;
   const assignedBatchIds   = new Set(assignments.map((a) => a.batch_id));
@@ -290,21 +289,23 @@ export default function BrewStatusTab() {
 
       {/* Header */}
       <div className="flex items-center justify-end gap-2 mb-4">
-        <div className="flex gap-2">
-          <button
-            onClick={() => setEditMode((v) => !v)}
-            className={`px-3 py-1.5 text-sm font-medium rounded border transition-colors ${
-              editMode
-                ? "border-amber-600 bg-amber-900/30 text-amber-300 hover:bg-amber-900/50"
-                : "border-zinc-700 bg-zinc-800 text-zinc-400 hover:text-zinc-200"
-            }`}
-          >
-            {editMode ? "🔓 Editing Layout" : "🔒 Edit Layout"}
-          </button>
-          {editMode && (
-            <button onClick={eqCrud.openNew} className="btn-amber">+ Add Equipment</button>
-          )}
-        </div>
+        {canEditEquipment && (
+          <div className="flex gap-2">
+            <button
+              onClick={() => setEditMode((v) => !v)}
+              className={`px-3 py-1.5 text-sm font-medium rounded border transition-colors ${
+                editMode
+                  ? "border-amber-600 bg-amber-900/30 text-amber-300 hover:bg-amber-900/50"
+                  : "border-zinc-700 bg-zinc-800 text-zinc-400 hover:text-zinc-200"
+              }`}
+            >
+              {editMode ? "🔓 Editing Layout" : "🔒 Edit Layout"}
+            </button>
+            {editMode && (
+              <button onClick={eqCrud.openNew} className="btn-amber">+ Add Equipment</button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Legend */}
@@ -316,8 +317,8 @@ export default function BrewStatusTab() {
         ))}
       </div>
 
-      {/* Unplaced equipment — only visible in edit mode */}
-      {editMode && unplaced.length > 0 && (
+      {/* Unplaced equipment — visible in edit mode for brewers/admins */}
+      {editMode && canEditEquipment && unplaced.length > 0 && (
         <div
           className={`mb-4 p-3 rounded-lg border border-dashed transition-colors ${
             dragging ? "border-zinc-500 bg-zinc-900/40" : "border-zinc-700"
@@ -359,18 +360,28 @@ export default function BrewStatusTab() {
         </div>
       )}
 
-      {/* Grid size controls — only in edit mode */}
-      {editMode && (
+      {/* Grid size controls — edit mode, admin only */}
+      {editMode && isAdmin && (
         <div className="flex items-center gap-4 mb-3 text-xs text-zinc-500">
           <span className="font-medium text-zinc-400">Grid size:</span>
           <label className="flex items-center gap-1.5">
             Cols
-            <input type="number" min={8} max={40} value={gridCols} onChange={(e) => setGridCols(Math.max(8, Math.min(40, parseInt(e.target.value) || GRID_COLS)))}
+            <input type="number" min={8} max={40} value={gridCols}
+              onChange={(e) => {
+                const v = Math.max(8, Math.min(40, parseInt(e.target.value) || GRID_COLS));
+                setGridCols(v);
+                saveGridSize(v, gridRows);
+              }}
               className="w-16 bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5 text-zinc-200 text-xs" />
           </label>
           <label className="flex items-center gap-1.5">
             Rows
-            <input type="number" min={4} max={32} value={gridRows} onChange={(e) => setGridRows(Math.max(4, Math.min(32, parseInt(e.target.value) || GRID_ROWS)))}
+            <input type="number" min={4} max={32} value={gridRows}
+              onChange={(e) => {
+                const v = Math.max(4, Math.min(32, parseInt(e.target.value) || GRID_ROWS));
+                setGridRows(v);
+                saveGridSize(gridCols, v);
+              }}
               className="w-16 bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5 text-zinc-200 text-xs" />
           </label>
           <span className="text-zinc-700">{gridCols * cell}×{gridRows * cell}px</span>
@@ -392,8 +403,8 @@ export default function BrewStatusTab() {
               ].join(","),
               backgroundSize: `${cell}px ${cell}px`,
             }}
-            onDragOver={editMode ? onGridDragOver : undefined}
-            onDrop={editMode ? onGridDrop : undefined}
+            onDragOver={editMode && canEditEquipment ? onGridDragOver : undefined}
+            onDrop={editMode && canEditEquipment ? onGridDrop : undefined}
             onDragLeave={() => clearDrag()}
           >
           {placed.map((tank) => {
@@ -420,12 +431,12 @@ export default function BrewStatusTab() {
             return (
               <div
                 key={tank.id}
-                draggable={editMode}
-                onDragStart={editMode ? (e) => onDragStart(e, tank) : undefined}
+                draggable={editMode && canEditEquipment}
+                onDragStart={editMode && canEditEquipment ? (e) => onDragStart(e, tank) : undefined}
                 onDragEnd={clearDrag}
                 className={`absolute flex flex-col rounded border transition-opacity select-none ${
                   isDragging ? "opacity-30" : "opacity-100"
-                } ${editMode ? "cursor-grab active:cursor-grabbing" : ""} ${eq.border}`}
+                } ${editMode && canEditEquipment ? "cursor-grab active:cursor-grabbing" : ""} ${eq.border}`}
                 style={{ ...style, background: "rgba(9,9,11,0.88)" }}
               >
                 {/* Header: name + type badge on one line */}
@@ -703,8 +714,8 @@ export default function BrewStatusTab() {
                       })()
                     )}
 
-                    {/* Edit mode controls */}
-                    {editMode && (
+                    {/* Edit mode controls — brewer/admin only */}
+                    {editMode && canEditEquipment && (
                       <div className="mt-auto pt-1 flex gap-1.5">
                         <button onClick={() => eqCrud.openEdit(tank)} onMouseDown={(e) => e.stopPropagation()} className="text-zinc-600 hover:text-zinc-300 transition-colors" style={{ fontSize: 9 }}>Edit</button>
                         <button onClick={() => removeFromGrid(tank.id)} onMouseDown={(e) => e.stopPropagation()} className="text-zinc-600 hover:text-amber-400 transition-colors" style={{ fontSize: 9 }}>Unplace</button>

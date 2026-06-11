@@ -6,6 +6,7 @@ import { queryKeys } from "@/lib/query-keys";
 import { fetchJson } from "@/app/production/hooks/queries";
 import type { Invoice, InvoiceLineItem, InvoiceBatchLink } from "@/types/finance";
 import type { BrewBatch, ContractBrewingPartner } from "@/app/production/types";
+import FinanceNav from "../../FinanceNav";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -247,7 +248,8 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
   if (isFetching && !inv) {
     return (
       <div className="flex flex-col h-full bg-zinc-950 text-zinc-100">
-        <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-5 pb-4 border-b border-zinc-800">
+        <FinanceNav mobile />
+      <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-5 pb-4 border-b border-zinc-800">
           <h1 className="text-base font-semibold text-zinc-100">Finance</h1>
           <p className="text-xs text-zinc-500 mt-0.5">Admin only</p>
         </div>
@@ -259,7 +261,8 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
   if (error || !inv) {
     return (
       <div className="flex flex-col h-full bg-zinc-950 text-zinc-100">
-        <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-5 pb-4 border-b border-zinc-800">
+        <FinanceNav mobile />
+      <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-5 pb-4 border-b border-zinc-800">
           <div className="flex items-center justify-between mb-3">
             <div>
               <h1 className="text-base font-semibold text-zinc-100">Finance</h1>
@@ -284,6 +287,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
   return (
     <div className="flex flex-col h-full bg-zinc-950 text-zinc-100">
       {/* Header */}
+      <FinanceNav mobile />
       <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-5 pb-4 border-b border-zinc-800">
         <div className="flex flex-wrap items-start justify-between gap-2 mb-3">
           <div className="flex flex-wrap items-center gap-2">
