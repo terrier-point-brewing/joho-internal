@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
@@ -28,7 +29,9 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "rows must be 4–32" }, { status: 400 });
   }
 
-  const supabase = await createSupabaseServerClient();
+  // system_settings RLS only allows service_role writes; use admin client after
+  // role has been verified above.
+  const supabase = createSupabaseAdminClient();
   const { error } = await supabase
     .from("system_settings")
     .upsert({ key: "floorplan_grid", value: { cols, rows }, updated_at: new Date().toISOString() });

@@ -102,7 +102,7 @@ export async function GET() {
       supabase.from("batch_transfers").select("*"),
       supabase.from("equipment").select("*"),
       supabase.from("brew_batches")
-        .select("id, beer_name, batch_number, planned_brew_date, expected_delivery_date, volume_bbl, turns, status, notes, recipe_id, created_at, recipes(beer_name, brewery, brew_time_weeks, expected_yield_bbl), batch_status_history(*), planned_allocations(*)")
+        .select("id, beer_name, batch_number, planned_brew_date, expected_delivery_date, volume_bbl, turns, status, notes, recipe_id, created_at, recipes(beer_name, brewery, brew_time_weeks, expected_yield_bbl), batch_status_history(*), batch_allocations(*)")
         .in("status", ["planning", "brewing", "fermenting", "conditioning", "packaging"]),
       supabase.from("packaging_items").select("*"),
       supabase.from("safety_stock_floors").select("*"),
