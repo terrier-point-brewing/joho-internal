@@ -323,9 +323,13 @@ export async function POST(req: NextRequest) {
     }, 0);
 
     if (netInTank > 0.001) {
-      await supabase
+      const { error: reassignErr } = await supabase
         .from("batch_tank_assignments")
         .insert({ batch_id, tank_id: from_tank_id });
+      // 23505 = active assignment already exists (acceptable for in-progress partial transfers).
+      if (reassignErr && reassignErr.code !== "23505") {
+        return NextResponse.json({ error: reassignErr.message }, { status: 500 });
+      }
     }
   }
 

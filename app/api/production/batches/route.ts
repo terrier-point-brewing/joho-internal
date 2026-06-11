@@ -135,11 +135,11 @@ export async function POST(req: NextRequest) {
 
       squareInvoiceId = result.invoiceId;
 
-      // Persist invoice ID — requires: ALTER TABLE brew_batches ADD COLUMN IF NOT EXISTS square_invoice_id text;
-      await supabase
+      const { error: invIdErr } = await supabase
         .from("brew_batches")
         .update({ square_invoice_id: squareInvoiceId })
         .eq("id", batch.id);
+      if (invIdErr) console.error("[Square] Failed to persist square_invoice_id:", invIdErr.message);
     } catch (err) {
       // Square invoice creation is non-blocking — log and continue
       console.error("[Square] Failed to create project invoice:", err);

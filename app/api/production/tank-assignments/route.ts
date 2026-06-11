@@ -111,22 +111,14 @@ export async function POST(req: NextRequest) {
             .eq("id", batch_id);
           if (turnsErr) return NextResponse.json({ error: turnsErr.message }, { status: 500 });
 
-          // Apply stock deltas one by one (no batch-update RPC available).
+          // Atomically decrement each ingredient via RPC (no TOCTOU race).
           for (const ri of recipeIngredients) {
             const delta = ri.quantity_per_bbl * turnVol;
-            const { data: ing, error: ingFetchErr } = await supabase
-              .from("ingredients")
-              .select("stock_quantity")
-              .eq("id", ri.ingredient_id)
-              .single();
-            if (ingFetchErr) return NextResponse.json({ error: ingFetchErr.message }, { status: 500 });
-            if (ing) {
-              const { error: ingUpdateErr } = await supabase
-                .from("ingredients")
-                .update({ stock_quantity: Number(ing.stock_quantity) - delta })
-                .eq("id", ri.ingredient_id);
-              if (ingUpdateErr) return NextResponse.json({ error: ingUpdateErr.message }, { status: 500 });
-            }
+            const { error: rpcErr } = await supabase.rpc("adjust_ingredient_stock", {
+              p_id:    ri.ingredient_id,
+              p_delta: -delta,
+            });
+            if (rpcErr) return NextResponse.json({ error: rpcErr.message }, { status: 500 });
           }
         }
       }
