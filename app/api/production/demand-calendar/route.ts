@@ -5,6 +5,7 @@ import { coldStorageLots } from "@/app/production/lib/coldStorage";
 import { buildDemandCalendar } from "@/app/production/lib/demandCalendar";
 import { fetchOrderSales, fetchCurrentCounts } from "@/lib/square/inventory";
 import { BBL_TO_FL_OZ } from "@/lib/constants/production";
+import { canOzPerUnit } from "@/lib/reports/bbl-tracker";
 import type {
   BatchTransfer, Equipment, BrewBatch, Recipe, PackagingItem,
   ContractBrewingRequest,
@@ -48,7 +49,7 @@ export async function GET() {
         .select("*, recipe_ingredients(*, ingredients(*))"),
       supabase.from("brew_inventory_adjustments").select("*"),
       supabase.from("recipe_square_links")
-        .select("id, recipe_id, square_variation_id, packaging_items(volume_fl_oz)"),
+        .select("id, recipe_id, packaging, variation_name, square_variation_id, packaging_items(volume_fl_oz)"),
     ]);
 
     const typedTransfers = (transfers ?? []) as BatchTransfer[];
@@ -105,12 +106,20 @@ export async function GET() {
         for (const link of squareLinks) {
           const recipeId = link.recipe_id as string;
           const varId = link.square_variation_id as string;
-          const volFlOz = ((link.packaging_items as unknown) as { volume_fl_oz: number | null } | null)?.volume_fl_oz ?? null;
+          const packaging = (link as unknown as { packaging: string }).packaging;
+          const variationName = (link as unknown as { variation_name: string | null }).variation_name;
+          const pkgVolFlOz = ((link.packaging_items as unknown) as { volume_fl_oz: number | null } | null)?.volume_fl_oz ?? null;
+          let ozPerUnit: number | null = pkgVolFlOz;
+          if (packaging === "can" && variationName) ozPerUnit = canOzPerUnit(variationName);
+          else if (packaging === "draft") {
+            const m = variationName?.match(/(\d+(?:\.\d+)?)oz/i);
+            ozPerUnit = m ? parseFloat(m[1]) : null;
+          }
           const totalSold = salesTotals.get(varId) ?? 0;
-          const dailyBbl = volFlOz ? (totalSold / 28 * volFlOz) / BBL_TO_FL_OZ : 0;
+          const dailyBbl = ozPerUnit ? (totalSold / 28 * ozPerUnit) / BBL_TO_FL_OZ : 0;
           taproomDailyBblByRecipe.set(recipeId, (taproomDailyBblByRecipe.get(recipeId) ?? 0) + dailyBbl);
           const currentQty = currentCounts.get(varId) ?? 0;
-          const currentBbl = volFlOz ? (currentQty * volFlOz) / BBL_TO_FL_OZ : 0;
+          const currentBbl = ozPerUnit ? (currentQty * ozPerUnit) / BBL_TO_FL_OZ : 0;
           taproomCurrentBblByRecipe.set(recipeId, (taproomCurrentBblByRecipe.get(recipeId) ?? 0) + currentBbl);
         }
       } catch {

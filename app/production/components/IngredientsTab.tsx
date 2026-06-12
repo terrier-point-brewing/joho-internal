@@ -598,17 +598,17 @@ export default function IngredientsTab() {
                   {/* Shared fixed column widths — identical across all category tables so
                       columns align vertically when tables are stacked. Specialty columns
                       (AA%, °L) are appended after Total Value only for relevant categories. */}
-                  <table className="w-full text-sm table-fixed min-w-[720px]">
+                  <table className="w-full text-sm table-fixed min-w-[780px]">
                     <colgroup>
-                      <col style={{ width: "19%" }} />{/* Name */}
-                      <col style={{ width: "13%" }} />{/* Supplier */}
-                      <col style={{ width: "13%" }} />{/* Partner */}
-                      <col style={{ width: "8%"  }} />{/* AA% or °L — always present for alignment */}
+                      <col style={{ width: "18%" }} />{/* Name */}
+                      <col style={{ width: "12%" }} />{/* Supplier */}
+                      <col style={{ width: "11%" }} />{/* Partner */}
+                      <col style={{ width: "7%"  }} />{/* AA% or °L — always present for alignment */}
                       <col style={{ width: "5%"  }} />{/* Unit */}
-                      <col style={{ width: "8%"  }} />{/* Cost/Unit */}
+                      <col style={{ width: "9%"  }} />{/* Cost/Unit */}
                       <col style={{ width: "10%" }} />{/* Stock */}
                       <col style={{ width: "10%" }} />{/* Total Value */}
-                      <col style={{ width: "14%" }} />{/* Actions */}
+                      <col style={{ width: "18%" }} />{/* Actions */}
                     </colgroup>
                     <thead>
                       <tr className="border-b border-zinc-800 bg-zinc-900/50 text-left">
@@ -679,11 +679,13 @@ export default function IngredientsTab() {
                               </span>
                             </td>
                             <td className="px-3 py-2.5 text-right tabular-nums text-zinc-300 whitespace-nowrap">{fmtValue(totalValue)}</td>
-                            <td className="pl-4 pr-3 py-2.5">
-                              <div className="flex gap-1.5 justify-end w-full">
+                            <td className="px-3 py-2.5">
+                              <div className="flex gap-2 justify-end w-full">
                                 <button onClick={() => openAdj(ing)} className="text-xs text-amber-500 hover:text-amber-400 transition-colors font-medium whitespace-nowrap">Adjust</button>
+                                <span className="text-zinc-700">·</span>
                                 <button onClick={() => openEdit(ing)} className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors whitespace-nowrap">Edit</button>
-                                <button onClick={() => handleDelete(ing.id, ing.name)} className="text-xs text-zinc-600 hover:text-red-400 transition-colors whitespace-nowrap">Delete</button>
+                                <span className="text-zinc-700">·</span>
+                                <button onClick={() => handleDelete(ing.id, ing.name)} className="text-xs text-zinc-600 hover:text-red-400 transition-colors whitespace-nowrap">Del</button>
                               </div>
                             </td>
                           </tr>

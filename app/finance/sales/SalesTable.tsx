@@ -60,7 +60,7 @@ export default function SalesTable({ rows, months, monthly, loading }: Props) {
       <table className="w-full text-xs border-collapse">
         <thead>
           <tr className="border-b border-zinc-800">
-            <th className="sticky left-0 bg-zinc-950 px-4 py-2 text-left text-zinc-500 font-medium w-52 min-w-[208px]" />
+            <th className="sticky left-0 bg-zinc-950 px-4 py-2 text-left text-zinc-500 font-medium w-36 min-w-[144px] sm:w-52 sm:min-w-[208px]" />
             {MONTHS.map((ym) => (
               <th key={ym} className="px-3 py-2 text-right text-zinc-500 font-medium min-w-[80px]">
                 {monthLabel(ym)}
@@ -81,7 +81,7 @@ export default function SalesTable({ rows, months, monthly, loading }: Props) {
               return (
                 <tr key={i}>
                   <td colSpan={MONTHS.length + 2}
-                    className="sticky left-0 bg-zinc-950 px-4 pt-3 pb-1 text-zinc-500 uppercase tracking-wider text-[10px] font-semibold">
+                    className="sticky left-0 bg-zinc-950 px-4 pt-3 pb-1 text-zinc-500 uppercase tracking-wider text-[10px] font-semibold w-36 min-w-[144px] sm:w-52 sm:min-w-[208px]">
                     {row.label}
                   </td>
                 </tr>
@@ -94,7 +94,7 @@ export default function SalesTable({ rows, months, monthly, loading }: Props) {
 
             return (
               <tr key={i} className={`border-t ${isSubtotal ? "border-zinc-700 bg-zinc-900/40" : "border-zinc-800/40 hover:bg-zinc-900/30"}`}>
-                <td className={`sticky left-0 ${isSubtotal ? "bg-zinc-900" : "bg-zinc-950 hover:bg-zinc-900/30"} px-4 py-1.5 font-${isSubtotal ? "semibold" : "normal"} ${isSubtotal ? "text-zinc-200" : row.indent ? "text-zinc-500 pl-8" : "text-zinc-400"}`}>
+                <td className={`sticky left-0 ${isSubtotal ? "bg-zinc-900" : "bg-zinc-950 hover:bg-zinc-900/30"} px-4 py-1.5 font-${isSubtotal ? "semibold" : "normal"} ${isSubtotal ? "text-zinc-200" : row.indent ? "text-zinc-500 pl-8" : "text-zinc-400"} w-36 min-w-[144px] sm:w-52 sm:min-w-[208px] max-w-[144px] sm:max-w-[208px] truncate`}>
                   {row.label}
                 </td>
                 {loading ? (

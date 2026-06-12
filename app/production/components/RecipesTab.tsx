@@ -218,63 +218,57 @@ export default function RecipesTab() {
               <div key={r.id} className="rounded-lg border border-zinc-800 overflow-hidden">
                 {/* Header row */}
                 <div
-                  className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-zinc-900/40 transition-colors"
+                  className="px-4 py-3 cursor-pointer hover:bg-zinc-900/40 transition-colors"
                   onClick={() => setExpanded(isOpen ? null : r.id)}
                 >
-                  <div className="flex items-center gap-3 min-w-0 flex-wrap">
-                    <span className="text-sm font-medium text-zinc-100 truncate">{r.beer_name}</span>
+                  {/* Name + chevron row */}
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <span className="text-sm font-medium text-zinc-100">{r.beer_name}</span>
+                    <span className="text-zinc-600 text-xs shrink-0">{isOpen ? "▲" : "▼"}</span>
+                  </div>
+                  {/* Metadata row — wraps freely on mobile */}
+                  <div className="flex items-center gap-x-3 gap-y-1 flex-wrap">
                     {r.brewery && (
-                      <span className="text-xs text-zinc-500 bg-zinc-800 px-2 py-0.5 rounded shrink-0">
+                      <span className="text-xs text-zinc-500 bg-zinc-800 px-2 py-0.5 rounded">
                         {r.brewery}
                       </span>
                     )}
                     {r.expected_yield_bbl && (
-                      <span className="text-xs text-zinc-500 shrink-0">
-                        {r.expected_yield_bbl.toLocaleString()} BBL Yield / 20 BBL Turn
+                      <span className="text-xs text-zinc-500">
+                        {r.expected_yield_bbl.toLocaleString()} BBL / turn
                       </span>
                     )}
                     {leadTimeDays(r) > 0 && (
-                      <span className="text-xs text-zinc-500 shrink-0">
-                        {leadTimeDays(r)}d lead time
+                      <span className="text-xs text-zinc-500">{leadTimeDays(r)}d lead</span>
+                    )}
+                    {r.days_brewhouse != null && (
+                      <span className={`text-xs px-1.5 py-px rounded border ${STAGE_BADGES.brewhouse.badge}`}>
+                        {STAGE_BADGES.brewhouse.label} {r.days_brewhouse}d
                       </span>
                     )}
-                    {(r.days_brewhouse || r.days_fermenter || r.days_brite) && (
-                      <span className="flex items-center gap-1 shrink-0">
-                        {r.days_brewhouse != null && (
-                          <span className={`text-xs px-1.5 py-px rounded border ${STAGE_BADGES.brewhouse.badge}`}>
-                            {STAGE_BADGES.brewhouse.label} {r.days_brewhouse}d
-                          </span>
-                        )}
-                        {r.days_fermenter != null && (
-                          <span className={`text-xs px-1.5 py-px rounded border ${STAGE_BADGES.fermenter.badge}`}>
-                            {STAGE_BADGES.fermenter.label} {r.days_fermenter}d
-                          </span>
-                        )}
-                        {r.days_brite != null && (
-                          <span className={`text-xs px-1.5 py-px rounded border ${STAGE_BADGES.brite.badge}`}>
-                            {STAGE_BADGES.brite.label} {r.days_brite}d
-                          </span>
-                        )}
+                    {r.days_fermenter != null && (
+                      <span className={`text-xs px-1.5 py-px rounded border ${STAGE_BADGES.fermenter.badge}`}>
+                        {STAGE_BADGES.fermenter.label} {r.days_fermenter}d
                       </span>
                     )}
-                  </div>
-                  <div className="flex items-center gap-4 shrink-0 ml-4">
+                    {r.days_brite != null && (
+                      <span className={`text-xs px-1.5 py-px rounded border ${STAGE_BADGES.brite.badge}`}>
+                        {STAGE_BADGES.brite.label} {r.days_brite}d
+                      </span>
+                    )}
                     {costPerTurn > 0 && (
-                      <div className="text-right">
-                        <span className="text-xs text-zinc-400 tabular-nums">
-                          ${costPerTurn.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / turn
-                        </span>
-                        {costPerBblYield != null && (
-                          <span className="text-xs text-zinc-600 ml-2 tabular-nums">
-                            ${costPerBblYield.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / BBL
-                          </span>
-                        )}
-                      </div>
+                      <span className="text-xs text-zinc-400 tabular-nums">
+                        ${costPerTurn.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/turn
+                      </span>
+                    )}
+                    {costPerBblYield != null && costPerTurn > 0 && (
+                      <span className="text-xs text-zinc-600 tabular-nums">
+                        ${costPerBblYield.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/BBL
+                      </span>
                     )}
                     <span className="text-xs text-zinc-600">
                       {r.recipe_ingredients.length} ingredient{r.recipe_ingredients.length !== 1 ? "s" : ""}
                     </span>
-                    <span className="text-zinc-600 text-xs w-3">{isOpen ? "▲" : "▼"}</span>
                   </div>
                 </div>
 
@@ -290,13 +284,14 @@ export default function RecipesTab() {
                         grouped[cat].push(ri);
                       }
                       return (
-                        <table className="w-full text-sm">
+                        <div className="overflow-x-auto">
+                        <table className="w-full text-sm min-w-[360px]">
                           <thead>
                             <tr className="border-b border-zinc-800 bg-zinc-900/50 text-left">
                               <th className="px-4 py-2 text-xs font-medium text-zinc-500">Ingredient</th>
-                              <th className="px-4 py-2 text-xs font-medium text-zinc-500 text-right">Cost / Unit</th>
-                              <th className="px-4 py-2 text-xs font-medium text-zinc-500 text-right">Qty / Turn</th>
-                              <th className="px-4 py-2 text-xs font-medium text-zinc-500 text-right">$ / Turn</th>
+                              <th className="px-4 py-2 text-xs font-medium text-zinc-500 text-right whitespace-nowrap">Cost / Unit</th>
+                              <th className="px-4 py-2 text-xs font-medium text-zinc-500 text-right whitespace-nowrap">Qty / Turn</th>
+                              <th className="px-4 py-2 text-xs font-medium text-zinc-500 text-right whitespace-nowrap">$ / Turn</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -348,6 +343,7 @@ export default function RecipesTab() {
                             )}
                           </tbody>
                         </table>
+                        </div>
                       );
                     })() : (
                       <p className="text-xs text-zinc-600 px-4 py-3">No ingredients on this recipe.</p>
@@ -447,7 +443,7 @@ export default function RecipesTab() {
           extraWide
         >
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field label="Beer Name" required>
                 <input className="inp" value={form.beer_name} required
                   onChange={(e) => setForm((f) => ({ ...f, beer_name: e.target.value }))} />
@@ -463,7 +459,7 @@ export default function RecipesTab() {
               </Field>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field label="Expected Yield / Turn (BBL)" hint="for a 20 BBL brewhouse">
                 <input
                   type="number" step="0.01" min="0" className="inp" placeholder="e.g. 18.5"
@@ -476,7 +472,7 @@ export default function RecipesTab() {
                   <span className="text-zinc-300 tabular-nums font-medium">
                     {(parseInt(form.days_brewhouse) || 0) + (parseInt(form.days_fermenter) || 0) + (parseInt(form.days_brite) || 0)} days
                   </span>
-                  <span className="text-xs text-zinc-600">← auto-calculated from stage days below</span>
+                  <span className="text-xs text-zinc-600">← auto-calc</span>
                 </div>
               </Field>
             </div>
@@ -518,8 +514,86 @@ export default function RecipesTab() {
                 <p className="text-xs text-zinc-600 mt-1">Add ingredients in the Ingredients tab first.</p>
               )}
               {lines.length > 0 && (
-                <div className="rounded border border-zinc-800 overflow-hidden">
-                  <table className="w-full text-sm">
+                <div className="space-y-2 sm:space-y-0">
+                  {/* Mobile: stacked card layout */}
+                  <div className="sm:hidden space-y-2">
+                    {lines.map((line, i) => {
+                      const filteredIngs = line.category
+                        ? ingredients.filter((ing) => ing.category === line.category)
+                        : [];
+                      const ing = ingredients.find((ing) => ing.id === line.ingredient_id);
+                      const costPerTurnLine =
+                        ing?.cost_per_unit != null && line.quantity_per_turn
+                          ? ing.cost_per_unit * parseFloat(line.quantity_per_turn.replace(/,/g, ""))
+                          : null;
+                      return (
+                        <div key={i} className="rounded border border-zinc-800 p-3 space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-xs text-zinc-500 font-medium">Ingredient {i + 1}</span>
+                            <button type="button" onClick={() => removeIngredientLine(i)}
+                              className="text-zinc-600 hover:text-red-400 transition-colors text-sm">× Remove</button>
+                          </div>
+                          <div>
+                            <label className="text-xs text-zinc-500 mb-1 block">Category</label>
+                            <select className="inp" value={line.category}
+                              onChange={(e) => setLines((ls) => ls.map((l, idx) => idx === i
+                                ? { ...l, category: e.target.value as IngredientCategory | "", ingredient_id: "" }
+                                : l))}>
+                              <option value="">— select —</option>
+                              {INGREDIENT_CATEGORIES.map((cat) => (
+                                <option key={cat} value={cat}>{cat}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="text-xs text-zinc-500 mb-1 block">Ingredient</label>
+                            <select className="inp" value={line.ingredient_id} disabled={!line.category}
+                              onChange={(e) => setLines((ls) => ls.map((l, idx) => idx === i ? { ...l, ingredient_id: e.target.value } : l))}>
+                              <option value="">{line.category ? "— select —" : "— pick category first —"}</option>
+                              {filteredIngs.map((ing) => (
+                                <option key={ing.id} value={ing.id}>{ing.name}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="flex gap-2 items-end">
+                            <div className="flex-1">
+                              <label className="text-xs text-zinc-500 mb-1 block">Qty / Turn</label>
+                              <input
+                                type="text" inputMode="decimal" placeholder="qty/turn"
+                                className="inp text-right w-full"
+                                value={line.quantity_per_turn}
+                                onChange={(e) => {
+                                  const raw = e.target.value.replace(/,/g, "");
+                                  setLines((ls) => ls.map((l, idx) => idx === i ? { ...l, quantity_per_turn: raw } : l));
+                                }}
+                                onBlur={(e) => {
+                                  const num = parseFloat(e.target.value.replace(/,/g, ""));
+                                  if (!isNaN(num)) {
+                                    setLines((ls) => ls.map((l, idx) => idx === i ? { ...l, quantity_per_turn: num.toLocaleString(undefined, { maximumFractionDigits: 4 }) } : l));
+                                  }
+                                }}
+                                onFocus={(e) => {
+                                  const raw = e.target.value.replace(/,/g, "");
+                                  setLines((ls) => ls.map((l, idx) => idx === i ? { ...l, quantity_per_turn: raw } : l));
+                                }}
+                              />
+                            </div>
+                            {costPerTurnLine != null && (
+                              <div className="text-right shrink-0 pb-1.5">
+                                <span className="text-xs text-zinc-500">$ / turn</span>
+                                <p className="text-sm text-zinc-300 tabular-nums">
+                                  ${costPerTurnLine.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {/* Desktop: table layout */}
+                  <div className="hidden sm:block rounded border border-zinc-800 overflow-x-auto">
+                  <table className="w-full text-sm min-w-[520px]">
                     <thead>
                       <tr className="border-b border-zinc-800 bg-zinc-900/50">
                         <th className="px-3 py-2 text-xs font-medium text-zinc-500 text-left">Category</th>
@@ -604,6 +678,7 @@ export default function RecipesTab() {
                       })}
                     </tbody>
                   </table>
+                  </div>
                 </div>
               )}
             </div>
@@ -619,8 +694,8 @@ export default function RecipesTab() {
               </div>
               <p className="text-xs text-zinc-600 mb-2">When a new batch is created from this recipe, these steps are copied into the batch&apos;s activity log.</p>
               {activityLines.length > 0 && (
-                <div className="rounded border border-zinc-800 overflow-hidden">
-                  <table className="w-full text-sm">
+                <div className="rounded border border-zinc-800 overflow-x-auto">
+                  <table className="w-full text-sm min-w-[480px]">
                     <thead>
                       <tr className="border-b border-zinc-800 bg-zinc-900/50">
                         <th className="px-3 py-2 text-xs font-medium text-zinc-500 text-left">Activity</th>

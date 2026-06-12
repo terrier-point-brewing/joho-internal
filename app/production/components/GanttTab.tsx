@@ -280,6 +280,13 @@ export default function GanttTab() {
 
   return (
     <div>
+      {/* Mobile placeholder */}
+      <div className="md:hidden flex flex-col items-center justify-center py-16 px-6 text-center">
+        <p className="text-zinc-400 font-medium mb-1">Timeline view is desktop-only</p>
+        <p className="text-sm text-zinc-600">Open this page on a larger screen to view and manage the equipment schedule Gantt chart.</p>
+      </div>
+
+      <div className="hidden md:block">
       {/* Toolbar */}
       <div className="flex items-center gap-3 mb-4 flex-wrap">
         <div className="flex gap-1">
@@ -487,6 +494,7 @@ export default function GanttTab() {
           </div>
         </Modal>
       )}
+      </div>
     </div>
   );
 }

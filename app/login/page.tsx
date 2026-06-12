@@ -61,7 +61,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-zinc-950">
+    <div className="min-h-[calc(100svh-6.75rem)] md:min-h-screen flex items-center justify-center bg-zinc-950">
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
           <span className="text-2xl font-bold text-zinc-100 tracking-wide">TPB</span>

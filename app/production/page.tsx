@@ -51,7 +51,7 @@ function ProductionContent() {
     <main className="px-4 sm:px-6 py-4 sm:py-8">
 
       {/* Mobile-only tab nav — desktop uses the sidebar */}
-      <div className="md:hidden flex border-b border-zinc-800 mb-4 -mx-4 overflow-x-auto scrollbar-none">
+      <div className="md:hidden flex border-b border-zinc-800 mb-4 -mx-4 overflow-x-auto scrollbar-none sticky top-11 z-40 bg-zinc-950/95">
         {PRODUCTION_TABS.map(({ key, label }) => (
           <Link
             key={key}
@@ -77,8 +77,8 @@ function ProductionContent() {
               <p className="text-sm text-zinc-500 mt-0.5">Floorplan, batch log, timeline, and calendar for all active and planned brews</p>
             </div>
           </div>
-          <div className="overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0">
-          <div className="flex gap-1 mb-6 border-b border-zinc-800 pb-0 min-w-max sm:min-w-0">
+          <div className="overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0 sticky top-[5.25rem] md:static z-30 bg-zinc-950/95">
+          <div className="flex gap-1 mb-0 md:mb-6 border-b border-zinc-800 pb-0 min-w-max sm:min-w-0">
             {BREWING_SUBTABS.map(({ key, label }) => (
               <button
                 key={key}
