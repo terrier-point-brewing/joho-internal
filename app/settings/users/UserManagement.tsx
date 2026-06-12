@@ -72,6 +72,7 @@ export default function UserManagement() {
     }
   }, []);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { fetchUsers(); }, [fetchUsers]);
 
   async function handleRoleChange(userId: string, role: UserRole) {

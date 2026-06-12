@@ -30,6 +30,7 @@ export default function AccessRequests() {
     }
   }, []);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { fetchRequests(); }, [fetchRequests]);
 
   async function handleAction(id: string, status: "approved" | "denied") {
