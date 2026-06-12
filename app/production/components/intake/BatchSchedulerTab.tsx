@@ -451,6 +451,11 @@ function AllocationPlanSection({
               {/* Partner — read-only from selected commitment */}
               <span className={`text-xs truncate ${sel?.contract_brewing_partners ? "text-zinc-300" : "text-zinc-700"}`}>
                 {sel?.contract_brewing_partners?.company_name ?? (isTaproom ? "" : "—")}
+                {a.channel === "contract_brewing" && sel?.contract_brewing_partners && (
+                  <span className="ml-1 text-[10px] text-amber-600" title="A deposit invoice will need to be generated for this allocation after the batch is committed.">
+                    · deposit req&apos;d
+                  </span>
+                )}
               </span>
 
               {/* Submitted On — read-only from selected commitment */}
