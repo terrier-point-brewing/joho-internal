@@ -77,6 +77,14 @@ interface InvoiceRow extends Omit<Invoice, "invoice_line_items"> {
 
 type SortKey = "invoice_date" | "customer_name" | "total_cents" | "status";
 
+function SortIcon({ k, sortKey, sortAsc }: { k: SortKey; sortKey: SortKey; sortAsc: boolean }) {
+  return (
+    <span className={`ml-1 ${sortKey === k ? "text-amber-400" : "text-zinc-700"}`}>
+      {sortKey === k ? (sortAsc ? "↑" : "↓") : "↕"}
+    </span>
+  );
+}
+
 export default function InvoicesPage() {
   const currentYear = new Date().getFullYear();
   const [year,       setYear]   = useState(currentYear);
@@ -112,12 +120,6 @@ export default function InvoicesPage() {
     if (sortKey === key) setSortAsc((v) => !v);
     else { setSort(key); setSortAsc(false); }
   }
-
-  const SortIcon = ({ k }: { k: SortKey }) => (
-    <span className={`ml-1 ${sortKey === k ? "text-amber-400" : "text-zinc-700"}`}>
-      {sortKey === k ? (sortAsc ? "↑" : "↓") : "↕"}
-    </span>
-  );
 
   // Summary stats
   const totalValue    = invoices.reduce((s, i) => s + i.total_cents, 0);
@@ -208,21 +210,21 @@ export default function InvoicesPage() {
                 <th className="px-4 py-2 text-left text-zinc-500 font-medium">Invoice #</th>
                 <th className="px-4 py-2 text-left text-zinc-500 font-medium cursor-pointer select-none hover:text-zinc-300"
                   onClick={() => handleSort("invoice_date")}>
-                  Date <SortIcon k="invoice_date" />
+                  Date <SortIcon k="invoice_date" sortKey={sortKey} sortAsc={sortAsc} />
                 </th>
                 <th className="px-4 py-2 text-left text-zinc-500 font-medium cursor-pointer select-none hover:text-zinc-300"
                   onClick={() => handleSort("customer_name")}>
-                  Customer <SortIcon k="customer_name" />
+                  Customer <SortIcon k="customer_name" sortKey={sortKey} sortAsc={sortAsc} />
                 </th>
                 <th className="px-4 py-2 text-left text-zinc-500 font-medium">Source / Type</th>
                 <th className="px-4 py-2 text-left text-zinc-500 font-medium cursor-pointer select-none hover:text-zinc-300"
                   onClick={() => handleSort("status")}>
-                  Status <SortIcon k="status" />
+                  Status <SortIcon k="status" sortKey={sortKey} sortAsc={sortAsc} />
                 </th>
                 <th className="px-4 py-2 text-left text-zinc-500 font-medium">Categories</th>
                 <th className="px-4 py-2 text-right text-zinc-500 font-medium cursor-pointer select-none hover:text-zinc-300"
                   onClick={() => handleSort("total_cents")}>
-                  Total <SortIcon k="total_cents" />
+                  Total <SortIcon k="total_cents" sortKey={sortKey} sortAsc={sortAsc} />
                 </th>
                 <th className="px-4 py-2 text-center text-zinc-500 font-medium">Batches</th>
               </tr>

@@ -10,7 +10,7 @@
  */
 
 import crypto from "crypto";
-import { squarePost, squarePut, squareGet, squareLocationId } from "./client";
+import { squarePost, squareGet, squareLocationId } from "./client";
 import { findIngredientDepositVariationId } from "./catalog";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
