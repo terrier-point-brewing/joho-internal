@@ -17,6 +17,8 @@ type RouteParams = { params: Promise<{ id: string }> };
 // ── GET /api/production/allocations/[id]/invoice ──────────────────────────────
 // Preview the deposit calculation without creating anything in Square.
 export async function GET(_req: NextRequest, { params }: RouteParams) {
+  try { await requireRole("brewer"); } catch (res) { return res as Response; }
+
   const supabase = await createSupabaseServerClient();
   const { id } = await params;
 
@@ -180,7 +182,17 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: "Invoice has already been sent — sync to check payment status" }, { status: 400 });
     }
 
-    await publishDepositInvoice(allocation.square_deposit_invoice_id);
+    // Check Square status first — if the invoice is already UNPAID/PAID (e.g. a
+    // prior send succeeded but our DB update failed), skip the publish call to
+    // avoid a Square error and just record the sent timestamp below.
+    const currentSquareStatus = await getDepositInvoiceStatus(allocation.square_deposit_invoice_id);
+    if (currentSquareStatus.status === "PAID") {
+      return NextResponse.json({ error: "Invoice is already paid in Square — use sync to update status" }, { status: 422 });
+    }
+    if (currentSquareStatus.status === "DRAFT") {
+      await publishDepositInvoice(allocation.square_deposit_invoice_id);
+    }
+    // If UNPAID/SCHEDULED: already published, just record the timestamp below.
 
     const sentAt = new Date().toISOString();
     const { data: updated, error: updateErr } = await supabase
