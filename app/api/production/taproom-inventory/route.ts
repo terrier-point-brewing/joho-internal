@@ -54,12 +54,20 @@ export async function GET() {
   const supabase = await createSupabaseServerClient();
 
   try {
-    const { data: links, error } = await supabase
-      .from("recipe_square_links")
-      .select("id, packaging, packaging_item_id, square_variation_id, variation_name, item_name, recipe_id, recipes(beer_name, days_brewhouse, days_fermenter, days_brite), packaging_items(id, name, type, volume_fl_oz)")
-      .returns<LinkRow[]>();
+    const [{ data: links, error }, { data: retiredSettings }] = await Promise.all([
+      supabase
+        .from("recipe_square_links")
+        .select("id, packaging, packaging_item_id, square_variation_id, variation_name, item_name, recipe_id, recipes(beer_name, days_brewhouse, days_fermenter, days_brite), packaging_items(id, name, type, volume_fl_oz)")
+        .returns<LinkRow[]>(),
+      supabase
+        .from("taproom_recipe_settings")
+        .select("recipe_id, is_retired"),
+    ]);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     if (!links || links.length === 0) return NextResponse.json([]);
+    const retiredMap = new Map(
+      (retiredSettings ?? []).map((r) => [r.recipe_id as string, Boolean(r.is_retired)])
+    );
 
     const variationIds = [...new Set(links.map((l) => l.square_variation_id))];
 
@@ -163,6 +171,7 @@ export async function GET() {
         brew_by_date: brewByDate,
         history_bbl: historyBbl,
         packaging_breakdown: packagingBreakdown,
+        is_retired: retiredMap.get(recipeId) ?? false,
       };
     });
 

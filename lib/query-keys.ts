@@ -40,6 +40,8 @@ export const queryKeys = {
     safetyStock:          () => ["production", "safety-stock"] as const,
     taproomInventory:     () => ["production", "taproom-inventory"] as const,
     batchScheduler:       () => ["production", "batch-scheduler"] as const,
+    brewStepTemplates:    () => ["production", "brew-step-templates"] as const,
+    taproomRecipeSettings: () => ["production", "taproom-recipe-settings"] as const,
   },
 
   // ─── Partners ─────────────────────────────────────────────────────────────
@@ -69,5 +71,7 @@ export const queryKeys = {
     salesPulseDay: (date: string) => ["taproom", "sales-pulse-day", date] as const,
     targets:       () => ["taproom", "targets"] as const,
     manualEntries: () => ["taproom", "manual-entries"] as const,
+    tapConfig:     () => ["taproom", "tap-config"] as const,
+    draftStats:    () => ["taproom", "draft-stats"] as const,
   },
 } as const;

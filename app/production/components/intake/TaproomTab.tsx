@@ -20,6 +20,7 @@ interface TaproomRow {
   needed_bbl: number;
   brew_by_date: string | null;
   history_bbl: { week: string; bbl: number | null }[];
+  is_retired: boolean;
   packaging_breakdown: {
     link_id: string;
     packaging: string;
@@ -50,6 +51,7 @@ function BblSparkline({ history }: { history: { week: string; bbl: number | null
 }
 
 function urgencyColor(row: TaproomRow): "red" | "amber" | "green" | "none" {
+  if (row.is_retired) return "none";
   if (!row.forecast_stockout_date || row.daily_sell_through_bbl === 0) return "none";
   const daysToStockout = Math.ceil((new Date(row.forecast_stockout_date).getTime() - Date.now()) / 86400000);
   if (daysToStockout <= row.lead_time_days) return "red";
@@ -74,9 +76,24 @@ export default function TaproomTab({ recipes }: { recipes: Recipe[] }) {
   const err = error instanceof Error ? error.message : null;
   const [showLinks, setShowLinks] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [retiring, setRetiring] = useState<string | null>(null);
 
   function toggleExpand(id: string) {
     setExpanded((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  }
+
+  async function toggleRetire(recipeId: string, currentlyRetired: boolean) {
+    setRetiring(recipeId);
+    try {
+      await fetch("/api/production/taproom-recipe-settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ recipe_id: recipeId, is_retired: !currentlyRetired }),
+      });
+      await loadInventory();
+    } finally {
+      setRetiring(null);
+    }
   }
 
   return (
@@ -104,14 +121,15 @@ export default function TaproomTab({ recipes }: { recipes: Recipe[] }) {
         <p className="text-zinc-600 text-sm py-10 text-center">No styles linked to Square yet. Use &quot;Link to Square&quot; to map a recipe.</p>
       ) : (
         <div className="rounded-lg border border-zinc-800 overflow-hidden">
+          <div className="overflow-x-auto">
           {rows.map((row, i) => {
             const color = urgencyColor(row);
             const isExpanded = expanded.has(row.recipe_id);
             const hasPkgBreakdown = row.packaging_breakdown.length > 0;
-            const belowThreshold = row.min_threshold_bbl > 0 && row.current_bbl <= row.min_threshold_bbl;
+            const belowThreshold = !row.is_retired && row.min_threshold_bbl > 0 && row.current_bbl <= row.min_threshold_bbl;
 
             return (
-              <div key={row.recipe_id} className={`${i > 0 ? "border-t border-zinc-800" : ""}`}>
+              <div key={row.recipe_id} className={`min-w-[700px] ${i > 0 ? "border-t border-zinc-800" : ""}`}>
                 {/* Main recipe row */}
                 <div className={`flex items-center gap-4 px-4 py-3 ${i % 2 !== 0 ? "bg-zinc-900/30" : ""}`}>
                   {/* Expand toggle */}
@@ -131,10 +149,15 @@ export default function TaproomTab({ recipes }: { recipes: Recipe[] }) {
                   }`} />
 
                   {/* Style name */}
-                  <span className="font-semibold text-zinc-100 min-w-[160px]">{row.style}</span>
+                  <div className="flex items-center gap-2 w-[180px] shrink-0">
+                    <span className="font-semibold text-zinc-100 truncate">{row.style}</span>
+                    {row.is_retired && (
+                      <span className="text-[10px] px-1.5 py-px rounded border border-zinc-700 text-zinc-500 whitespace-nowrap shrink-0">Retired</span>
+                    )}
+                  </div>
 
                   {/* BBL on hand */}
-                  <div className="flex flex-col min-w-[80px]">
+                  <div className="flex flex-col w-[90px] shrink-0">
                     <span className={`text-sm tabular-nums font-medium ${belowThreshold ? "text-red-400" : "text-zinc-200"}`}>
                       {row.current_bbl.toFixed(2)} BBL
                     </span>
@@ -142,7 +165,7 @@ export default function TaproomTab({ recipes }: { recipes: Recipe[] }) {
                   </div>
 
                   {/* Sell-through */}
-                  <div className="flex flex-col min-w-[80px]">
+                  <div className="flex flex-col w-[90px] shrink-0">
                     <span className="text-sm tabular-nums text-zinc-300">
                       {row.daily_sell_through_bbl > 0 ? row.daily_sell_through_bbl.toFixed(2) : "—"}
                     </span>
@@ -150,39 +173,54 @@ export default function TaproomTab({ recipes }: { recipes: Recipe[] }) {
                   </div>
 
                   {/* 4-week sparkline */}
-                  <div className="min-w-[60px]">
+                  <div className="w-[60px] shrink-0">
                     <BblSparkline history={row.history_bbl} />
                   </div>
 
                   {/* Stockout date */}
-                  <div className="flex flex-col min-w-[100px]">
-                    {row.forecast_stockout_date ? (
+                  <div className="flex flex-col w-[110px] shrink-0">
+                    {!row.is_retired && row.forecast_stockout_date ? (
                       <>
                         <span className={`text-sm ${color === "red" ? "text-red-400" : color === "amber" ? "text-amber-400" : "text-zinc-400"}`}>
                           {fmtDateLong(row.forecast_stockout_date)}
                         </span>
                         <span className="text-xs text-zinc-600">stockout</span>
                       </>
+                    ) : row.is_retired ? (
+                      <span className="text-zinc-600 text-sm italic">retired</span>
                     ) : (
                       <span className="text-zinc-600 text-sm">no stockout</span>
                     )}
                   </div>
 
-                  {/* Brew-by callout */}
-                  {row.needed_bbl > 0 && (
-                    <div className={`ml-auto flex items-center gap-2 px-3 py-1.5 rounded border text-xs ${
-                      color === "red"
-                        ? "border-red-700/60 bg-red-950/30 text-red-300"
-                        : color === "amber"
-                        ? "border-amber-700/60 bg-amber-950/30 text-amber-300"
-                        : "border-zinc-700/60 bg-zinc-800/30 text-zinc-400"
-                    }`}>
-                      <span>Brew <span className="font-semibold tabular-nums">{row.needed_bbl.toFixed(1)} BBL</span></span>
-                      {row.brew_by_date && (
-                        <span className="text-zinc-500">by {fmtDateLong(row.brew_by_date)}</span>
-                      )}
-                    </div>
-                  )}
+                  {/* Brew-by callout or retire action */}
+                  <div className="ml-auto flex items-center gap-2 shrink-0">
+                    {!row.is_retired && row.needed_bbl > 0 && (
+                      <div className={`flex items-center gap-2 px-3 py-1.5 rounded border text-xs ${
+                        color === "red"
+                          ? "border-red-700/60 bg-red-950/30 text-red-300"
+                          : color === "amber"
+                          ? "border-amber-700/60 bg-amber-950/30 text-amber-300"
+                          : "border-zinc-700/60 bg-zinc-800/30 text-zinc-400"
+                      }`}>
+                        <span>Brew <span className="font-semibold tabular-nums">{row.needed_bbl.toFixed(1)} BBL</span></span>
+                        {row.brew_by_date && (
+                          <span className="text-zinc-500">by {fmtDateLong(row.brew_by_date)}</span>
+                        )}
+                      </div>
+                    )}
+                    <button
+                      onClick={() => toggleRetire(row.recipe_id, row.is_retired)}
+                      disabled={retiring === row.recipe_id}
+                      className={`text-xs px-2 py-1 rounded border transition-colors ${
+                        row.is_retired
+                          ? "border-zinc-600 text-zinc-400 hover:border-zinc-400 hover:text-zinc-200"
+                          : "border-zinc-700 text-zinc-600 hover:border-zinc-500 hover:text-zinc-400"
+                      } disabled:opacity-50`}
+                    >
+                      {retiring === row.recipe_id ? "…" : row.is_retired ? "Unretire" : "Retire"}
+                    </button>
+                  </div>
                 </div>
 
                 {/* Packaging breakdown */}
@@ -213,6 +251,7 @@ export default function TaproomTab({ recipes }: { recipes: Recipe[] }) {
               </div>
             );
           })}
+          </div>
         </div>
       )}
 

@@ -99,6 +99,7 @@ export async function GET() {
       { data: scheduleEntries },
       { data: squareLinks },
       { data: activeAssignments },
+      { data: retiredSettings },
     ] = await Promise.all([
       supabase.from("batch_transfers").select("*"),
       supabase.from("equipment").select("*"),
@@ -120,7 +121,10 @@ export async function GET() {
       supabase.from("batch_schedule_entries").select("equipment_id, planned_start, planned_end, actual_start, actual_end, cancelled_at"),
       supabase.from("recipe_square_links").select("id, recipe_id, packaging, variation_name, square_variation_id, packaging_items(volume_fl_oz)"),
       supabase.from("batch_tank_assignments").select("tank_id, assigned_at").is("released_at", null),
+      supabase.from("taproom_recipe_settings").select("recipe_id").eq("is_retired", true),
     ]);
+
+    const retiredRecipeIds = new Set((retiredSettings ?? []).map((r) => r.recipe_id as string));
 
     const typedTransfers = (transfers ?? []) as BatchTransfer[];
     const typedTanks = (tanks ?? []) as Equipment[];
@@ -214,6 +218,7 @@ export async function GET() {
     for (const row of demandRows) {
       if (row.status === "green") continue;
       if (!row.stockout_date) continue;
+      if (retiredRecipeIds.has(row.recipe_id)) continue;
 
       const recipe = recipeById.get(row.recipe_id);
       if (!recipe?.expected_yield_bbl) continue;
