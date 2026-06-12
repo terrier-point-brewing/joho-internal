@@ -1,6 +1,8 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { fetchJson } from "@/app/production/hooks/queries";
 
 type UserRole = "viewer" | "brewer" | "manager" | "admin";
 
@@ -21,16 +23,29 @@ const ROLE_COLORS: Record<UserRole, string> = {
   admin:   "text-red-400 bg-red-900/30",
 };
 
+const QUERY_KEY = ["admin", "users"] as const;
+
 export default function UserManagement() {
-  const [users, setUsers] = useState<Profile[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const qc = useQueryClient();
+
+  const { data: users = [], isLoading, error } = useQuery({
+    queryKey: QUERY_KEY,
+    queryFn: () => fetchJson<Profile[]>("/api/admin/users"),
+  });
+
+  const [apiError, setApiError] = useState<string | null>(null);
 
   // Set password modal state
   const [pwUserId, setPwUserId] = useState<string | null>(null);
   const [pwValue, setPwValue] = useState("");
   const [pwError, setPwError] = useState<string | null>(null);
   const [pwSaving, setPwSaving] = useState(false);
+
+  // Create user modal state
+  const [showCreate, setShowCreate] = useState(false);
+  const [createForm, setCreateForm] = useState({ email: "", password: "", role: "viewer" as UserRole });
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
 
   async function handleSetPassword(e: React.FormEvent) {
     e.preventDefault();
@@ -52,37 +67,17 @@ export default function UserManagement() {
     }
   }
 
-  // Create user modal state
-  const [showCreate, setShowCreate] = useState(false);
-  const [createForm, setCreateForm] = useState({ email: "", password: "", role: "viewer" as UserRole });
-  const [createError, setCreateError] = useState<string | null>(null);
-  const [creating, setCreating] = useState(false);
-
-  const fetchUsers = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/admin/users");
-      if (!res.ok) throw new Error("Failed to load users");
-      setUsers(await res.json());
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Unknown error");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { fetchUsers(); }, [fetchUsers]);
-
   async function handleRoleChange(userId: string, role: UserRole) {
-    setUsers((u) => u.map((x) => (x.id === userId ? { ...x, role } : x)));
+    // Optimistic update
+    qc.setQueryData<Profile[]>(QUERY_KEY, (prev) =>
+      prev?.map((u) => (u.id === userId ? { ...u, role } : u))
+    );
     const res = await fetch(`/api/admin/users/${userId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ role }),
     });
-    if (!res.ok) fetchUsers();
+    if (!res.ok) qc.invalidateQueries({ queryKey: QUERY_KEY });
   }
 
   async function handleConfirmEmail(userId: string) {
@@ -91,13 +86,19 @@ export default function UserManagement() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email_confirm: true }),
     });
-    if (res.ok) setUsers((u) => u.map((x) => (x.id === userId ? { ...x, email_confirmed: true } : x)));
+    if (res.ok) {
+      qc.setQueryData<Profile[]>(QUERY_KEY, (prev) =>
+        prev?.map((u) => (u.id === userId ? { ...u, email_confirmed: true } : u))
+      );
+    }
   }
 
   async function handleDeleteUser(userId: string) {
     if (!confirm("Delete this user? This cannot be undone.")) return;
     const res = await fetch(`/api/admin/users/${userId}`, { method: "DELETE" });
-    if (res.ok) setUsers((u) => u.filter((x) => x.id !== userId));
+    if (res.ok) {
+      qc.setQueryData<Profile[]>(QUERY_KEY, (prev) => prev?.filter((u) => u.id !== userId));
+    }
   }
 
   async function handleCreateUser(e: React.FormEvent) {
@@ -118,21 +119,23 @@ export default function UserManagement() {
     setShowCreate(false);
     setCreateForm({ email: "", password: "", role: "viewer" });
     setCreating(false);
-    fetchUsers();
+    qc.invalidateQueries({ queryKey: QUERY_KEY });
   }
+
+  const displayError = apiError ?? (error as Error)?.message ?? null;
 
   return (
     <div className="p-4 sm:p-6 max-w-4xl mx-auto">
       <h2 className="text-base font-semibold text-zinc-100 mb-6">Users</h2>
 
-      {loading && <p className="text-sm text-zinc-500">Loading…</p>}
-      {error && (
+      {isLoading && <p className="text-sm text-zinc-500">Loading…</p>}
+      {displayError && (
         <p className="text-sm text-red-400 bg-red-950/30 border border-red-900/50 rounded px-3 py-2 mb-4">
-          {error}
+          {displayError}
         </p>
       )}
 
-      {!loading && (
+      {!isLoading && (
         <>
           <div className="flex justify-end mb-4">
             <button
@@ -194,7 +197,7 @@ export default function UserManagement() {
                     <td className="px-4 py-3 text-right">
                       <div className="flex gap-2 justify-end items-center">
                         <button
-                          onClick={() => { setPwUserId(u.id); setPwValue(""); setPwError(null); }}
+                          onClick={() => { setPwUserId(u.id); setPwValue(""); setPwError(null); setApiError(null); }}
                           className="text-xs text-zinc-500 hover:text-zinc-200 transition-colors"
                           title="Set password"
                         >
