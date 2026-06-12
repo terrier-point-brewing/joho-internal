@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import { Recipe } from "../types";
@@ -41,6 +41,110 @@ function newRow(): PendingRow {
   return { uid: uidSeed++, recipe_id: "", packaging: "keg", packaging_item_id: "", variation_id: "" };
 }
 
+// ─── Searchable combobox for Square variations ────────────────────────────────
+
+function VariationCombobox({
+  value,
+  onChange,
+  variations,
+  disabled,
+}: {
+  value: string;
+  onChange: (id: string) => void;
+  variations: SquareVariation[];
+  disabled?: boolean;
+}) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  const selected = variations.find((v) => v.variation_id === value);
+  const displayName = selected
+    ? `${selected.item_name}${selected.variation_name ? ` · ${selected.variation_name}` : ""}`
+    : "";
+
+  const filtered = query
+    ? variations.filter((v) =>
+        `${v.item_name} ${v.variation_name ?? ""}`.toLowerCase().includes(query.toLowerCase())
+      )
+    : variations;
+
+  useEffect(() => {
+    if (!open) return;
+    function onDown(e: MouseEvent) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        setOpen(false);
+        setQuery("");
+      }
+    }
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open]);
+
+  return (
+    <div ref={wrapRef} className="relative">
+      <div className="relative">
+        <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500 pointer-events-none text-xs">
+          {disabled ? "" : "⌕"}
+        </span>
+        <input
+          className="inp text-sm w-full pl-6"
+          value={open ? query : displayName}
+          placeholder={disabled ? "← select size first" : "Search variations…"}
+          disabled={disabled}
+          onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
+          onFocus={() => { if (!disabled) { setOpen(true); setQuery(""); } }}
+          onKeyDown={(e) => { if (e.key === "Escape") { setOpen(false); setQuery(""); } }}
+        />
+        {value && !disabled && (
+          <button
+            type="button"
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-600 hover:text-zinc-400 text-xs leading-none"
+            onMouseDown={(e) => { e.preventDefault(); onChange(""); }}
+          >
+            ×
+          </button>
+        )}
+      </div>
+
+      {open && !disabled && (
+        <div className="absolute z-50 left-0 right-0 mt-1 max-h-56 overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-900 shadow-xl">
+          {filtered.length === 0 ? (
+            <div className="px-3 py-3 text-xs text-zinc-600 italic text-center">
+              No matches{query ? ` for "${query}"` : ""}
+            </div>
+          ) : (
+            filtered.map((v) => (
+              <button
+                key={v.variation_id}
+                type="button"
+                className={`w-full text-left px-3 py-2.5 text-xs transition-colors border-b border-zinc-800/40 last:border-0 ${
+                  v.variation_id === value
+                    ? "bg-amber-900/30 text-amber-300"
+                    : "text-zinc-300 hover:bg-zinc-800"
+                }`}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  onChange(v.variation_id);
+                  setOpen(false);
+                  setQuery("");
+                }}
+              >
+                <span className="font-medium">{v.item_name}</span>
+                {v.variation_name && (
+                  <span className="text-zinc-500 ml-1.5">· {v.variation_name}</span>
+                )}
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Main manager ─────────────────────────────────────────────────────────────
+
 export function SquareLinkManager({
   recipes,
   links,
@@ -66,7 +170,6 @@ export function SquareLinkManager({
   function updateRow(uid: number, patch: Partial<PendingRow>) {
     setRows((rs) => rs.map((r) => {
       if (r.uid !== uid) return r;
-      // Reset downstream selections when packaging type changes
       const next = { ...r, ...patch };
       if (patch.packaging && patch.packaging !== r.packaging) {
         next.packaging_item_id = "";
@@ -137,102 +240,157 @@ export function SquareLinkManager({
 
   return (
     <Modal title="Link Styles to Square" onClose={onClose} wide>
-      <p className="text-xs text-zinc-500 mb-4">
-        Map Recipe × Packaging combinations to Square catalog variations (Keg and Can items).
-        Mappings are shared across Taproom intake and Export.
+      <p className="text-xs text-zinc-500 mb-5">
+        Map each recipe + packaging combination to a Square catalog variation.
+        Links apply to both Taproom intake and Export.
       </p>
 
       {/* Pending rows */}
-      <div className="space-y-2 mb-3">
-        {/* Header */}
-        <div className="grid gap-2 text-xs text-zinc-500 font-medium px-0.5" style={{ gridTemplateColumns: "1fr 80px 1fr 1fr 24px" }}>
-          <span>Recipe</span>
-          <span>Type</span>
-          <span>Size</span>
-          <span>Square Variation</span>
-          <span />
-        </div>
-
-        {rows.map((row) => {
+      <div className="space-y-3 mb-4">
+        {rows.map((row, idx) => {
           const subItems = packagingItems.filter((p) => p.type === row.packaging);
+          const isComplete = row.recipe_id && row.packaging_item_id && row.variation_id;
+
           return (
-            <div key={row.uid} className="grid gap-2 items-center" style={{ gridTemplateColumns: "1fr 80px 1fr 1fr 24px" }}>
-              {/* Recipe */}
-              <select
-                className="inp text-sm"
-                value={row.recipe_id}
-                onChange={(e) => updateRow(row.uid, { recipe_id: e.target.value })}
-              >
-                <option value="">— recipe —</option>
-                {recipes.map((r) => <option key={r.id} value={r.id}>{r.beer_name}</option>)}
-              </select>
+            <div
+              key={row.uid}
+              className={`rounded-lg border transition-colors ${
+                isComplete ? "border-amber-700/40 bg-amber-950/10" : "border-zinc-800 bg-zinc-900/20"
+              }`}
+            >
+              {/* Row number badge + remove */}
+              <div className="flex items-center justify-between px-3 pt-2.5 pb-0">
+                <span className="text-[10px] text-zinc-700 font-medium uppercase tracking-wide">
+                  Link {idx + 1}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => removeRow(row.uid)}
+                  disabled={rows.length === 1}
+                  className="text-zinc-700 hover:text-red-400 transition-colors text-sm leading-none disabled:opacity-20 disabled:pointer-events-none"
+                >
+                  Remove
+                </button>
+              </div>
 
-              {/* Packaging type */}
-              <select
-                className="inp text-sm"
-                value={row.packaging}
-                onChange={(e) => updateRow(row.uid, { packaging: e.target.value as PackagingType })}
-              >
-                <option value="keg">Keg</option>
-                <option value="can">Can</option>
-              </select>
+              <div className="flex flex-col sm:flex-row items-stretch gap-0 sm:gap-0">
+                {/* Left: Recipe & Packaging */}
+                <div className="flex-1 px-3 pb-3 pt-2 space-y-2">
+                  <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wide">
+                    Recipe &amp; Packaging
+                  </p>
+                  <div>
+                    <label className="block text-[10px] text-zinc-600 mb-1">Recipe</label>
+                    <select
+                      className="inp text-sm w-full"
+                      value={row.recipe_id}
+                      onChange={(e) => updateRow(row.uid, { recipe_id: e.target.value })}
+                    >
+                      <option value="">— select recipe —</option>
+                      {recipes.map((r) => (
+                        <option key={r.id} value={r.id}>{r.beer_name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex gap-2">
+                    <div>
+                      <label className="block text-[10px] text-zinc-600 mb-1">Type</label>
+                      {/* Segmented toggle */}
+                      <div className="flex rounded overflow-hidden border border-zinc-700 h-[30px]">
+                        <button
+                          type="button"
+                          onClick={() => updateRow(row.uid, { packaging: "keg" })}
+                          className={`px-3 text-xs font-medium transition-colors ${
+                            row.packaging === "keg"
+                              ? "bg-amber-600 text-white"
+                              : "bg-zinc-800 text-zinc-400 hover:text-zinc-200"
+                          }`}
+                        >
+                          Keg
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => updateRow(row.uid, { packaging: "can" })}
+                          className={`px-3 text-xs font-medium transition-colors border-l border-zinc-700 ${
+                            row.packaging === "can"
+                              ? "bg-amber-600 text-white"
+                              : "bg-zinc-800 text-zinc-400 hover:text-zinc-200"
+                          }`}
+                        >
+                          Can
+                        </button>
+                      </div>
+                    </div>
+                    <div className="flex-1">
+                      <label className="block text-[10px] text-zinc-600 mb-1">
+                        {row.packaging === "keg" ? "Keg Size" : "Can Size"}
+                      </label>
+                      <select
+                        className="inp text-sm w-full"
+                        value={row.packaging_item_id}
+                        onChange={(e) => updateRow(row.uid, { packaging_item_id: e.target.value })}
+                        disabled={!row.recipe_id}
+                      >
+                        <option value="">{!row.recipe_id ? "← recipe first" : "— select size —"}</option>
+                        {subItems.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name}{p.volume_fl_oz ? ` (${p.volume_fl_oz} fl oz)` : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </div>
 
-              {/* Size */}
-              <select
-                className="inp text-sm"
-                value={row.packaging_item_id}
-                onChange={(e) => updateRow(row.uid, { packaging_item_id: e.target.value })}
-                disabled={!row.recipe_id}
-              >
-                <option value="">— size —</option>
-                {subItems.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}{p.volume_fl_oz ? ` (${p.volume_fl_oz} fl oz)` : ""}
-                  </option>
-                ))}
-              </select>
+                {/* Connector */}
+                <div className="hidden sm:flex flex-col items-center justify-center px-2 py-3 gap-1 text-zinc-700">
+                  <span className="text-[9px] uppercase tracking-widest rotate-0">maps</span>
+                  <span className="text-[9px] uppercase tracking-widest">to</span>
+                  <span className="text-base leading-none">→</span>
+                </div>
+                {/* Mobile connector */}
+                <div className="sm:hidden flex items-center gap-2 px-3 py-1 text-zinc-700">
+                  <div className="flex-1 h-px bg-zinc-800" />
+                  <span className="text-[10px] uppercase tracking-widest">maps to ↓</span>
+                  <div className="flex-1 h-px bg-zinc-800" />
+                </div>
 
-              {/* Square variation */}
-              <select
-                className="inp text-sm"
-                value={row.variation_id}
-                onChange={(e) => updateRow(row.uid, { variation_id: e.target.value })}
-                disabled={!row.packaging_item_id}
-              >
-                <option value="">
-                  {loadErr ? "(unavailable)" : !row.packaging_item_id ? "← size first" : "— variation —"}
-                </option>
-                {sqVariations.map((v) => (
-                  <option key={v.variation_id} value={v.variation_id}>
-                    {v.item_name}{v.variation_name ? ` | ${v.variation_name}` : ""}
-                  </option>
-                ))}
-              </select>
-
-              {/* Remove row */}
-              <button
-                type="button"
-                onClick={() => removeRow(row.uid)}
-                disabled={rows.length === 1}
-                className="text-zinc-600 hover:text-red-400 transition-colors text-lg leading-none disabled:opacity-20"
-              >
-                ×
-              </button>
+                {/* Right: Square Variation */}
+                <div className="flex-1 px-3 pb-3 pt-2 sm:pt-2 space-y-2 border-t sm:border-t-0 sm:border-l border-zinc-800/60">
+                  <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wide">
+                    Square Catalog Variation
+                  </p>
+                  <div>
+                    <label className="block text-[10px] text-zinc-600 mb-1">Variation</label>
+                    <VariationCombobox
+                      value={row.variation_id}
+                      onChange={(id) => updateRow(row.uid, { variation_id: id })}
+                      variations={sqVariations}
+                      disabled={!row.packaging_item_id}
+                    />
+                  </div>
+                  {row.variation_id && (
+                    <p className="text-[10px] text-amber-500/80">✓ linked</p>
+                  )}
+                </div>
+              </div>
             </div>
           );
         })}
       </div>
 
-      {loadErr && <p className="text-xs text-red-400 mb-2">{loadErr}</p>}
-      {error && <p className="text-xs text-red-400 mb-2">{error}</p>}
+      {loadErr && <p className="text-xs text-red-400 mb-3">{loadErr}</p>}
+      {error && <p className="text-xs text-red-400 mb-3">{error}</p>}
 
+      {/* Actions */}
       <div className="flex items-center justify-between">
         <button
           type="button"
           onClick={addRow}
-          className="text-xs text-amber-500 hover:text-amber-400 transition-colors"
+          className="flex items-center gap-1.5 text-xs text-amber-500 hover:text-amber-400 transition-colors"
         >
-          + Add row
+          <span className="text-base leading-none">+</span>
+          Add another link
         </button>
         <div className="flex gap-2">
           <button type="button" onClick={onClose} className="btn-ghost text-sm" disabled={submitting}>
@@ -244,50 +402,52 @@ export function SquareLinkManager({
             disabled={!validRows.length || submitting}
             className="btn-amber disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            {submitting ? "Saving…" : `Save ${validRows.length > 0 ? validRows.length : ""} Link${validRows.length !== 1 ? "s" : ""}`}
+            {submitting
+              ? "Saving…"
+              : validRows.length > 0
+              ? `Save ${validRows.length} Link${validRows.length !== 1 ? "s" : ""}`
+              : "Save"}
           </button>
         </div>
       </div>
 
       {/* Existing links */}
       {byRecipe.size > 0 && (
-        <div className="mt-6 space-y-5 border-t border-zinc-800 pt-5">
-          <p className="text-xs font-medium text-zinc-500 uppercase tracking-wide">Existing Links</p>
+        <div className="mt-6 space-y-4 border-t border-zinc-800 pt-5">
+          <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">Existing Links</p>
           {[...byRecipe.entries()].map(([, { name, byType }]) => (
             <div key={name}>
               <p className="text-xs font-semibold text-zinc-200 mb-2">{name}</p>
-              <div className="rounded border border-zinc-800 overflow-hidden">
-                {[...byType.entries()].map(([type, typeLinks]) => (
-                  <div key={type}>
-                    <div className="px-3 py-1.5 bg-zinc-800/60 text-xs font-medium text-zinc-500 capitalize border-b border-zinc-800/60">
-                      {type}
+              <div className="rounded-lg border border-zinc-800 overflow-hidden divide-y divide-zinc-800/60">
+                {[...byType.entries()].map(([type, typeLinks]) =>
+                  typeLinks.map((l) => (
+                    <div key={l.id} className="flex items-center gap-3 px-3 py-2.5 text-xs">
+                      <span className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded border font-medium ${
+                        type === "keg"
+                          ? "border-orange-700 text-orange-300 bg-orange-900/30"
+                          : "border-blue-700 text-blue-300 bg-blue-900/30"
+                      }`}>
+                        {type === "keg" ? "Keg" : "Can"}
+                      </span>
+                      <span className="text-zinc-300 font-medium shrink-0">
+                        {l.packaging_items?.name ?? "—"}
+                        {l.packaging_items?.volume_fl_oz && (
+                          <span className="text-zinc-600 font-normal"> ({l.packaging_items.volume_fl_oz} fl oz)</span>
+                        )}
+                      </span>
+                      <span className="text-zinc-700 shrink-0">→</span>
+                      <span className="text-zinc-400 truncate min-w-0">
+                        {l.item_name ?? "—"}{l.variation_name ? ` · ${l.variation_name}` : ""}
+                      </span>
+                      <button
+                        onClick={() => removeLink(l.id)}
+                        className="ml-auto shrink-0 text-zinc-700 hover:text-red-400 transition-colors text-xs"
+                      >
+                        Remove
+                      </button>
                     </div>
-                    {typeLinks.map((l) => (
-                      <div key={l.id} className="flex items-center justify-between px-3 py-2 text-xs border-b border-zinc-800/40 last:border-0">
-                        <div className="flex items-center gap-2 min-w-0">
-                          {l.packaging_items && (
-                            <span className="text-zinc-300 font-medium shrink-0">
-                              {l.packaging_items.name}
-                              {l.packaging_items.volume_fl_oz && (
-                                <span className="text-zinc-600 font-normal"> ({l.packaging_items.volume_fl_oz} fl oz)</span>
-                              )}
-                            </span>
-                          )}
-                          {l.packaging_items && <span className="text-zinc-700">→</span>}
-                          <span className="text-zinc-500 truncate">
-                            {l.item_name ?? "—"}{l.variation_name ? ` | ${l.variation_name}` : ""}
-                          </span>
-                        </div>
-                        <button
-                          onClick={() => removeLink(l.id)}
-                          className="text-red-400/70 hover:text-red-400 ml-4 shrink-0"
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                ))}
+                  ))
+                )}
               </div>
             </div>
           ))}
