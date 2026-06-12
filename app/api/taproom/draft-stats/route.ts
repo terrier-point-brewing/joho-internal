@@ -81,7 +81,7 @@ export async function GET(req: NextRequest) {
             tap_number: i + 1,
             recipe_id: tap?.recipe_id ?? null,
             label: tap?.label ?? null,
-            beer_name: (tap?.recipes as { beer_name: string } | null)?.beer_name ?? null,
+            beer_name: (tap?.recipes as unknown as { beer_name: string }[] | null)?.[0]?.beer_name ?? null,
             metrics: null,
           };
         }),
@@ -190,7 +190,7 @@ export async function GET(req: NextRequest) {
         tap_number: i + 1,
         recipe_id:  recipeId ?? null,
         label:      tap?.label ?? null,
-        beer_name:  (tap?.recipes as { beer_name: string } | null)?.beer_name ?? null,
+        beer_name:  (tap?.recipes as unknown as { beer_name: string }[] | null)?.[0]?.beer_name ?? null,
         metrics: metrics
           ? {
               current_fl_oz:    Number(metrics.current_fl_oz.toFixed(1)),

@@ -548,6 +548,7 @@ export default function BatchSchedulerTab({
   // the final hydration — no separate auto-fill pass needed.
   useEffect(() => {
     if (!recs) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setQueue((prev) => {
       const manuals = prev.filter((r) => r.isManual);
       const fromRecs = recs.map(toRow);
@@ -591,6 +592,7 @@ export default function BatchSchedulerTab({
       }
       changed = true;
     }
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (changed) setQueue((prev) => prev.map((r) => r.id === activeRow.id ? { ...activeRow, equipment_sequence: seq } : r));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeRow?.id, activeRow?.volume_bbl, activeRow?.equipment_sequence.length]);
