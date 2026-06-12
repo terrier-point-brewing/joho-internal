@@ -6,6 +6,7 @@ import { coldStorageLots } from "@/app/production/lib/coldStorage";
 import { addDays, parseISO } from "date-fns";
 import { fetchOrderSales, fetchCurrentCounts } from "@/lib/square/inventory";
 import { BBL_TO_FL_OZ } from "@/lib/constants/production";
+import { canOzPerUnit } from "@/lib/reports/bbl-tracker";
 import type {
   BatchTransfer, Equipment, BrewBatch, Recipe, PackagingItem,
   ContractBrewingRequest,
@@ -117,7 +118,7 @@ export async function GET() {
       supabase.from("recipes").select("*, recipe_ingredients(*, ingredients(*))"),
       supabase.from("brew_inventory_adjustments").select("*"),
       supabase.from("batch_schedule_entries").select("equipment_id, planned_start, planned_end, actual_start, actual_end, cancelled_at"),
-      supabase.from("recipe_square_links").select("id, recipe_id, square_variation_id, packaging_items(volume_fl_oz)"),
+      supabase.from("recipe_square_links").select("id, recipe_id, packaging, variation_name, square_variation_id, packaging_items(volume_fl_oz)"),
       supabase.from("batch_tank_assignments").select("tank_id, assigned_at").is("released_at", null),
     ]);
 
@@ -175,13 +176,19 @@ export async function GET() {
         ]);
         taproomDailyBblByRecipe = new Map();
         taproomCurrentBblByRecipe = new Map();
-        for (const link of squareLinks as unknown as { recipe_id: string; square_variation_id: string; packaging_items: { volume_fl_oz: number | null } | null }[]) {
-          const volFlOz = link.packaging_items?.volume_fl_oz ?? null;
+        for (const link of squareLinks as unknown as { recipe_id: string; packaging: string; variation_name: string | null; square_variation_id: string; packaging_items: { volume_fl_oz: number | null } | null }[]) {
+          const pkgVolFlOz = link.packaging_items?.volume_fl_oz ?? null;
+          let ozPerUnit: number | null = pkgVolFlOz;
+          if (link.packaging === "can" && link.variation_name) ozPerUnit = canOzPerUnit(link.variation_name);
+          else if (link.packaging === "draft") {
+            const m = link.variation_name?.match(/(\d+(?:\.\d+)?)oz/i);
+            ozPerUnit = m ? parseFloat(m[1]) : null;
+          }
           const totalSold = salesTotals.get(link.square_variation_id) ?? 0;
-          const dailyBbl = volFlOz ? (totalSold / 28 * volFlOz) / BBL_TO_FL_OZ : 0;
+          const dailyBbl = ozPerUnit ? (totalSold / 28 * ozPerUnit) / BBL_TO_FL_OZ : 0;
           taproomDailyBblByRecipe.set(link.recipe_id, (taproomDailyBblByRecipe.get(link.recipe_id) ?? 0) + dailyBbl);
           const currentQty = currentCounts.get(link.square_variation_id) ?? 0;
-          const currentBbl = volFlOz ? (currentQty * volFlOz) / BBL_TO_FL_OZ : 0;
+          const currentBbl = ozPerUnit ? (currentQty * ozPerUnit) / BBL_TO_FL_OZ : 0;
           taproomCurrentBblByRecipe.set(link.recipe_id, (taproomCurrentBblByRecipe.get(link.recipe_id) ?? 0) + currentBbl);
         }
       } catch { /* Square unavailable */ }

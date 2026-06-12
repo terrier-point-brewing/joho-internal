@@ -10,7 +10,7 @@ import { usePackagingQuery, fetchJson } from "../hooks/queries";
 export interface LinkRow {
   id: string;
   recipe_id: string;
-  packaging: "keg" | "can";
+  packaging: "draft" | "keg" | "can";
   packaging_item_id: string | null;
   square_variation_id: string;
   variation_name: string | null;
@@ -26,7 +26,7 @@ interface SquareVariation {
   variation_name: string;
 }
 
-type PackagingType = "keg" | "can";
+type PackagingType = "keg" | "can" | "draft";
 
 interface PendingRow {
   uid: number;
@@ -41,7 +41,14 @@ function newRow(): PendingRow {
   return { uid: uidSeed++, recipe_id: "", packaging: "keg", packaging_item_id: "", variation_id: "" };
 }
 
-// ─── Searchable combobox for Square variations ────────────────────────────────
+const TYPE_LABELS: Record<PackagingType, string> = { keg: "Keg", can: "Can", draft: "Draft" };
+const TYPE_BADGE: Record<PackagingType, string> = {
+  keg:   "border-orange-700 text-orange-300 bg-orange-900/30",
+  can:   "border-blue-700 text-blue-300 bg-blue-900/30",
+  draft: "border-emerald-700 text-emerald-300 bg-emerald-900/30",
+};
+
+// ─── Searchable combobox ───────────────────────────────────────────────────────
 
 function VariationCombobox({
   value,
@@ -55,10 +62,10 @@ function VariationCombobox({
   disabled?: boolean;
 }) {
   const [query, setQuery] = useState("");
-  const [open, setOpen] = useState(false);
-  const wrapRef = useRef<HTMLDivElement>(null);
+  const [open, setOpen]   = useState(false);
+  const wrapRef           = useRef<HTMLDivElement>(null);
 
-  const selected = variations.find((v) => v.variation_id === value);
+  const selected    = variations.find((v) => v.variation_id === value);
   const displayName = selected
     ? `${selected.item_name}${selected.variation_name ? ` · ${selected.variation_name}` : ""}`
     : "";
@@ -73,8 +80,7 @@ function VariationCombobox({
     if (!open) return;
     function onDown(e: MouseEvent) {
       if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
-        setOpen(false);
-        setQuery("");
+        setOpen(false); setQuery("");
       }
     }
     document.addEventListener("mousedown", onDown);
@@ -101,9 +107,7 @@ function VariationCombobox({
             type="button"
             className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-600 hover:text-zinc-400 text-xs leading-none"
             onMouseDown={(e) => { e.preventDefault(); onChange(""); }}
-          >
-            ×
-          </button>
+          >×</button>
         )}
       </div>
 
@@ -119,21 +123,16 @@ function VariationCombobox({
                 key={v.variation_id}
                 type="button"
                 className={`w-full text-left px-3 py-2.5 text-xs transition-colors border-b border-zinc-800/40 last:border-0 ${
-                  v.variation_id === value
-                    ? "bg-amber-900/30 text-amber-300"
-                    : "text-zinc-300 hover:bg-zinc-800"
+                  v.variation_id === value ? "bg-amber-900/30 text-amber-300" : "text-zinc-300 hover:bg-zinc-800"
                 }`}
                 onMouseDown={(e) => {
                   e.preventDefault();
                   onChange(v.variation_id);
-                  setOpen(false);
-                  setQuery("");
+                  setOpen(false); setQuery("");
                 }}
               >
                 <span className="font-medium">{v.item_name}</span>
-                {v.variation_name && (
-                  <span className="text-zinc-500 ml-1.5">· {v.variation_name}</span>
-                )}
+                {v.variation_name && <span className="text-zinc-500 ml-1.5">· {v.variation_name}</span>}
               </button>
             ))
           )}
@@ -163,17 +162,40 @@ export function SquareLinkManager({
   const { data: packagingItems = [] } = usePackagingQuery();
   const loadErr = sqError instanceof Error ? sqError.message : null;
 
-  const [rows, setRows] = useState<PendingRow[]>([newRow()]);
+  const [rows, setRows]           = useState<PendingRow[]>([newRow()]);
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError]         = useState<string | null>(null);
+  const [expandRecipeId, setExpandRecipeId] = useState("");
+
+  // Quick-add: expand all packaging types for a chosen recipe in one click.
+  function expandRecipe() {
+    if (!expandRecipeId) return;
+    const kegItems = packagingItems.filter((p) => p.type === "keg");
+    const canItems = packagingItems.filter((p) => p.type === "can");
+    const newRows: PendingRow[] = [
+      ...kegItems.map((item) => ({
+        uid: uidSeed++, recipe_id: expandRecipeId,
+        packaging: "keg" as PackagingType, packaging_item_id: item.id, variation_id: "",
+      })),
+      ...canItems.map((item) => ({
+        uid: uidSeed++, recipe_id: expandRecipeId,
+        packaging: "can" as PackagingType, packaging_item_id: item.id, variation_id: "",
+      })),
+      { uid: uidSeed++, recipe_id: expandRecipeId, packaging: "draft" as PackagingType, packaging_item_id: "", variation_id: "" },
+    ];
+    setRows((rs) => {
+      const isDefaultBlank = rs.length === 1 && !rs[0].recipe_id && !rs[0].variation_id;
+      return isDefaultBlank ? newRows : [...rs, ...newRows];
+    });
+    setExpandRecipeId("");
+  }
 
   function updateRow(uid: number, patch: Partial<PendingRow>) {
     setRows((rs) => rs.map((r) => {
       if (r.uid !== uid) return r;
       const next = { ...r, ...patch };
       if (patch.packaging && patch.packaging !== r.packaging) {
-        next.packaging_item_id = "";
-        next.variation_id = "";
+        next.packaging_item_id = ""; next.variation_id = "";
       }
       if (patch.packaging_item_id && patch.packaging_item_id !== r.packaging_item_id) {
         next.variation_id = "";
@@ -186,16 +208,14 @@ export function SquareLinkManager({
     setRows((rs) => rs.length > 1 ? rs.filter((r) => r.uid !== uid) : rs);
   }
 
-  function addRow() {
-    setRows((rs) => [...rs, newRow()]);
-  }
-
-  const validRows = rows.filter((r) => r.recipe_id && r.packaging_item_id && r.variation_id);
+  const validRows = rows.filter((r) => {
+    if (!r.recipe_id || !r.variation_id) return false;
+    return r.packaging === "draft" ? true : !!r.packaging_item_id;
+  });
 
   async function saveAll() {
     if (!validRows.length) return;
-    setSubmitting(true);
-    setError(null);
+    setSubmitting(true); setError(null);
     try {
       await Promise.all(validRows.map((r) => {
         const sv = sqVariations.find((v) => v.variation_id === r.variation_id);
@@ -205,7 +225,7 @@ export function SquareLinkManager({
           body: JSON.stringify({
             recipe_id: r.recipe_id,
             packaging: r.packaging,
-            packaging_item_id: r.packaging_item_id,
+            packaging_item_id: r.packaging_item_id || null,
             square_variation_id: r.variation_id,
             square_item_id: sv?.item_id ?? null,
             variation_name: sv?.variation_name ?? null,
@@ -215,8 +235,7 @@ export function SquareLinkManager({
           if (!res.ok) throw new Error((await res.json()).error ?? "Error");
         });
       }));
-      setRows([newRow()]);
-      onChanged();
+      setRows([newRow()]); onChanged();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Save failed");
     } finally {
@@ -245,11 +264,38 @@ export function SquareLinkManager({
         Links apply to both Taproom intake and Export.
       </p>
 
+      {/* Quick-add: expand all packaging types for a recipe */}
+      <div className="flex items-end gap-2 p-3 bg-zinc-900/40 border border-zinc-800/60 rounded-lg mb-4">
+        <div className="flex-1">
+          <label className="block text-[10px] text-zinc-500 uppercase tracking-wide mb-1.5">
+            Quick-add — expands rows for all keg sizes, can sizes, and draft at once
+          </label>
+          <select
+            className="inp text-sm w-full"
+            value={expandRecipeId}
+            onChange={(e) => setExpandRecipeId(e.target.value)}
+          >
+            <option value="">— choose a recipe —</option>
+            {recipes.map((r) => <option key={r.id} value={r.id}>{r.beer_name}</option>)}
+          </select>
+        </div>
+        <button
+          type="button"
+          onClick={expandRecipe}
+          disabled={!expandRecipeId}
+          className="px-3 py-1.5 text-sm bg-zinc-800 border border-zinc-700 hover:border-zinc-500 rounded text-zinc-300 disabled:opacity-30 disabled:cursor-not-allowed whitespace-nowrap transition-colors"
+        >
+          + Expand all packaging
+        </button>
+      </div>
+
       {/* Pending rows */}
       <div className="space-y-3 mb-4">
         {rows.map((row, idx) => {
-          const subItems = packagingItems.filter((p) => p.type === row.packaging);
-          const isComplete = row.recipe_id && row.packaging_item_id && row.variation_id;
+          const subItems         = packagingItems.filter((p) => p.type === row.packaging);
+          const needsPackagingItem = row.packaging === "keg" || row.packaging === "can";
+          const isComplete = row.recipe_id && row.variation_id &&
+            (row.packaging === "draft" ? true : !!row.packaging_item_id);
 
           return (
             <div
@@ -258,27 +304,22 @@ export function SquareLinkManager({
                 isComplete ? "border-amber-700/40 bg-amber-950/10" : "border-zinc-800 bg-zinc-900/20"
               }`}
             >
-              {/* Row number badge + remove */}
               <div className="flex items-center justify-between px-3 pt-2.5 pb-0">
-                <span className="text-[10px] text-zinc-700 font-medium uppercase tracking-wide">
-                  Link {idx + 1}
-                </span>
+                <span className="text-[10px] text-zinc-700 font-medium uppercase tracking-wide">Link {idx + 1}</span>
                 <button
                   type="button"
                   onClick={() => removeRow(row.uid)}
                   disabled={rows.length === 1}
-                  className="text-zinc-700 hover:text-red-400 transition-colors text-sm leading-none disabled:opacity-20 disabled:pointer-events-none"
+                  className="text-zinc-700 hover:text-red-400 transition-colors text-xs disabled:opacity-20 disabled:pointer-events-none"
                 >
                   Remove
                 </button>
               </div>
 
-              <div className="flex flex-col sm:flex-row items-stretch gap-0 sm:gap-0">
+              <div className="flex flex-col sm:flex-row items-stretch">
                 {/* Left: Recipe & Packaging */}
                 <div className="flex-1 px-3 pb-3 pt-2 space-y-2">
-                  <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wide">
-                    Recipe &amp; Packaging
-                  </p>
+                  <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wide">Recipe &amp; Packaging</p>
                   <div>
                     <label className="block text-[10px] text-zinc-600 mb-1">Recipe</label>
                     <select
@@ -287,68 +328,73 @@ export function SquareLinkManager({
                       onChange={(e) => updateRow(row.uid, { recipe_id: e.target.value })}
                     >
                       <option value="">— select recipe —</option>
-                      {recipes.map((r) => (
-                        <option key={r.id} value={r.id}>{r.beer_name}</option>
-                      ))}
+                      {recipes.map((r) => <option key={r.id} value={r.id}>{r.beer_name}</option>)}
                     </select>
                   </div>
                   <div className="flex gap-2">
                     <div>
                       <label className="block text-[10px] text-zinc-600 mb-1">Type</label>
-                      {/* Segmented toggle */}
-                      <div className="flex rounded overflow-hidden border border-zinc-700 h-[30px]">
-                        <button
-                          type="button"
-                          onClick={() => updateRow(row.uid, { packaging: "keg" })}
-                          className={`px-3 text-xs font-medium transition-colors ${
-                            row.packaging === "keg"
-                              ? "bg-amber-600 text-white"
-                              : "bg-zinc-800 text-zinc-400 hover:text-zinc-200"
-                          }`}
-                        >
-                          Keg
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => updateRow(row.uid, { packaging: "can" })}
-                          className={`px-3 text-xs font-medium transition-colors border-l border-zinc-700 ${
-                            row.packaging === "can"
-                              ? "bg-amber-600 text-white"
-                              : "bg-zinc-800 text-zinc-400 hover:text-zinc-200"
-                          }`}
-                        >
-                          Can
-                        </button>
+                      <div className="flex rounded overflow-hidden border border-zinc-700">
+                        {(["keg", "can", "draft"] as PackagingType[]).map((t, i) => (
+                          <button
+                            key={t}
+                            type="button"
+                            onClick={() => updateRow(row.uid, { packaging: t })}
+                            className={`px-2.5 py-1.5 text-xs font-medium transition-colors ${i > 0 ? "border-l border-zinc-700" : ""} ${
+                              row.packaging === t ? "bg-amber-600 text-white" : "bg-zinc-800 text-zinc-400 hover:text-zinc-200"
+                            }`}
+                          >
+                            {TYPE_LABELS[t]}
+                          </button>
+                        ))}
                       </div>
                     </div>
-                    <div className="flex-1">
-                      <label className="block text-[10px] text-zinc-600 mb-1">
-                        {row.packaging === "keg" ? "Keg Size" : "Can Size"}
-                      </label>
-                      <select
-                        className="inp text-sm w-full"
-                        value={row.packaging_item_id}
-                        onChange={(e) => updateRow(row.uid, { packaging_item_id: e.target.value })}
-                        disabled={!row.recipe_id}
-                      >
-                        <option value="">{!row.recipe_id ? "← recipe first" : "— select size —"}</option>
-                        {subItems.map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.name}{p.volume_fl_oz ? ` (${p.volume_fl_oz} fl oz)` : ""}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+
+                    {needsPackagingItem && (
+                      <div className="flex-1">
+                        <label className="block text-[10px] text-zinc-600 mb-1">
+                          {row.packaging === "keg" ? "Keg Size" : "Can Size"}
+                        </label>
+                        <select
+                          className="inp text-sm w-full"
+                          value={row.packaging_item_id}
+                          onChange={(e) => updateRow(row.uid, { packaging_item_id: e.target.value })}
+                          disabled={!row.recipe_id}
+                        >
+                          <option value="">{!row.recipe_id ? "← recipe first" : "— select size —"}</option>
+                          {subItems.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.name}{p.volume_fl_oz ? ` (${p.volume_fl_oz} fl oz)` : ""}
+                            </option>
+                          ))}
+                        </select>
+                        {subItems.length === 0 && row.recipe_id && (
+                          <p className="text-[10px] text-zinc-700 mt-0.5">
+                            No {row.packaging} items — add in Inventory → Packaging
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    {row.packaging === "draft" && (
+                      <div className="flex-1">
+                        <label className="block text-[10px] text-zinc-600 mb-1">Pour size</label>
+                        <p className="text-[10px] text-zinc-600 py-1.5 leading-relaxed">
+                          Read from variation name<br />
+                          <span className="text-zinc-500">e.g. 5oz Sample · 16oz Pint</span>
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </div>
 
-                {/* Connector */}
-                <div className="hidden sm:flex flex-col items-center justify-center px-2 py-3 gap-1 text-zinc-700">
-                  <span className="text-[9px] uppercase tracking-widest rotate-0">maps</span>
+                {/* Connector — desktop */}
+                <div className="hidden sm:flex flex-col items-center justify-center px-2 py-3 gap-0.5 text-zinc-700">
+                  <span className="text-[9px] uppercase tracking-widest">maps</span>
                   <span className="text-[9px] uppercase tracking-widest">to</span>
                   <span className="text-base leading-none">→</span>
                 </div>
-                {/* Mobile connector */}
+                {/* Connector — mobile */}
                 <div className="sm:hidden flex items-center gap-2 px-3 py-1 text-zinc-700">
                   <div className="flex-1 h-px bg-zinc-800" />
                   <span className="text-[10px] uppercase tracking-widest">maps to ↓</span>
@@ -356,22 +402,18 @@ export function SquareLinkManager({
                 </div>
 
                 {/* Right: Square Variation */}
-                <div className="flex-1 px-3 pb-3 pt-2 sm:pt-2 space-y-2 border-t sm:border-t-0 sm:border-l border-zinc-800/60">
-                  <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wide">
-                    Square Catalog Variation
-                  </p>
+                <div className="flex-1 px-3 pb-3 pt-2 space-y-2 border-t sm:border-t-0 sm:border-l border-zinc-800/60">
+                  <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wide">Square Catalog Variation</p>
                   <div>
                     <label className="block text-[10px] text-zinc-600 mb-1">Variation</label>
                     <VariationCombobox
                       value={row.variation_id}
                       onChange={(id) => updateRow(row.uid, { variation_id: id })}
                       variations={sqVariations}
-                      disabled={!row.packaging_item_id}
+                      disabled={needsPackagingItem && !row.packaging_item_id}
                     />
                   </div>
-                  {row.variation_id && (
-                    <p className="text-[10px] text-amber-500/80">✓ linked</p>
-                  )}
+                  {row.variation_id && <p className="text-[10px] text-amber-500/80">✓ linked</p>}
                 </div>
               </div>
             </div>
@@ -380,13 +422,12 @@ export function SquareLinkManager({
       </div>
 
       {loadErr && <p className="text-xs text-red-400 mb-3">{loadErr}</p>}
-      {error && <p className="text-xs text-red-400 mb-3">{error}</p>}
+      {error   && <p className="text-xs text-red-400 mb-3">{error}</p>}
 
-      {/* Actions */}
       <div className="flex items-center justify-between">
         <button
           type="button"
-          onClick={addRow}
+          onClick={() => setRows((rs) => [...rs, newRow()])}
           className="flex items-center gap-1.5 text-xs text-amber-500 hover:text-amber-400 transition-colors"
         >
           <span className="text-base leading-none">+</span>
@@ -402,11 +443,7 @@ export function SquareLinkManager({
             disabled={!validRows.length || submitting}
             className="btn-amber disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            {submitting
-              ? "Saving…"
-              : validRows.length > 0
-              ? `Save ${validRows.length} Link${validRows.length !== 1 ? "s" : ""}`
-              : "Save"}
+            {submitting ? "Saving…" : validRows.length > 0 ? `Save ${validRows.length} Link${validRows.length !== 1 ? "s" : ""}` : "Save"}
           </button>
         </div>
       </div>
@@ -422,20 +459,18 @@ export function SquareLinkManager({
                 {[...byType.entries()].map(([type, typeLinks]) =>
                   typeLinks.map((l) => (
                     <div key={l.id} className="flex items-center gap-3 px-3 py-2.5 text-xs">
-                      <span className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded border font-medium ${
-                        type === "keg"
-                          ? "border-orange-700 text-orange-300 bg-orange-900/30"
-                          : "border-blue-700 text-blue-300 bg-blue-900/30"
-                      }`}>
-                        {type === "keg" ? "Keg" : "Can"}
+                      <span className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded border font-medium ${TYPE_BADGE[type as PackagingType] ?? "border-zinc-700 text-zinc-500 bg-zinc-800"}`}>
+                        {TYPE_LABELS[type as PackagingType] ?? type}
                       </span>
-                      <span className="text-zinc-300 font-medium shrink-0">
-                        {l.packaging_items?.name ?? "—"}
-                        {l.packaging_items?.volume_fl_oz && (
-                          <span className="text-zinc-600 font-normal"> ({l.packaging_items.volume_fl_oz} fl oz)</span>
-                        )}
-                      </span>
-                      <span className="text-zinc-700 shrink-0">→</span>
+                      {l.packaging_items && (
+                        <span className="text-zinc-300 font-medium shrink-0">
+                          {l.packaging_items.name}
+                          {l.packaging_items.volume_fl_oz && (
+                            <span className="text-zinc-600 font-normal"> ({l.packaging_items.volume_fl_oz} fl oz)</span>
+                          )}
+                        </span>
+                      )}
+                      {l.packaging_items && <span className="text-zinc-700 shrink-0">→</span>}
                       <span className="text-zinc-400 truncate min-w-0">
                         {l.item_name ?? "—"}{l.variation_name ? ` · ${l.variation_name}` : ""}
                       </span>

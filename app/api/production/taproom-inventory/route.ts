@@ -3,6 +3,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { fetchCurrentCounts, fetchOrderSales } from "@/lib/square/inventory";
 import { apiError } from "@/lib/utils/api";
 import { BBL_TO_FL_OZ } from "@/lib/constants/production";
+import { canOzPerUnit } from "@/lib/reports/bbl-tracker";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +35,19 @@ const MS_DAY = 86400000;
 function unitsToBbl(qty: number, volumeFlOz: number | null): number {
   if (!volumeFlOz) return 0;
   return (qty * volumeFlOz) / BBL_TO_FL_OZ;
+}
+
+function resolveOzPerUnit(link: LinkRow): number | null {
+  if (link.packaging === "keg") return link.packaging_items?.volume_fl_oz ?? null;
+  if (link.packaging === "can") {
+    if (link.variation_name) return canOzPerUnit(link.variation_name);
+    return link.packaging_items?.volume_fl_oz ?? null;
+  }
+  if (link.packaging === "draft") {
+    const m = link.variation_name?.match(/(\d+(?:\.\d+)?)oz/i);
+    return m ? parseFloat(m[1]) : null;
+  }
+  return null;
 }
 
 export async function GET() {
@@ -80,7 +94,7 @@ export async function GET() {
         const totalSold = salesTotals.get(l.square_variation_id) ?? 0;
         const dailySellThrough = totalSold / WINDOW_DAYS;
 
-        const volFlOz = l.packaging_items?.volume_fl_oz ?? null;
+        const volFlOz = resolveOzPerUnit(l);
         return {
           link_id: l.id,
           packaging: l.packaging,
