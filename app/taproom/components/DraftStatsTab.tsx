@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
+import type { Recipe } from "../../production/types";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   Legend, ResponsiveContainer, Cell,
@@ -499,9 +500,9 @@ export default function DraftStatsTab() {
             // The full recipes list isn't available here; use what we have from links.
             links
               .filter((l) => l.recipes?.beer_name)
-              .reduce<{ id: string; beer_name: string; recipe_ingredients: []; recipe_brew_activity_templates: [] }[]>((acc, l) => {
+              .reduce<Recipe[]>((acc, l) => {
                 if (!acc.find((r) => r.id === l.recipe_id)) {
-                  acc.push({ id: l.recipe_id, beer_name: l.recipes!.beer_name!, recipe_ingredients: [], recipe_brew_activity_templates: [] });
+                  acc.push({ id: l.recipe_id, beer_name: l.recipes!.beer_name! } as Recipe);
                 }
                 return acc;
               }, [])

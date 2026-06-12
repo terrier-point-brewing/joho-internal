@@ -149,10 +149,10 @@ export async function GET(req: NextRequest) {
       countsByVar.set(pc.catalog_object_id, arr);
     }
 
-    const varToRecipeId = new Map(
+    const varToRecipeId = new Map<string, string>(
       draftLinks.map((l) => [l.square_variation_id as string, l.recipe_id as string])
     );
-    const varToName = new Map(
+    const varToName = new Map<string, string>(
       draftLinks.map((l) => [l.square_variation_id as string, l.item_name as string ?? "—"])
     );
 

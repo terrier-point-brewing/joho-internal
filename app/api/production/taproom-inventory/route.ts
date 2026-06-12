@@ -54,22 +54,22 @@ export async function GET() {
   const supabase = await createSupabaseServerClient();
 
   try {
-    const [{ data: links, error }, { data: retiredSettings }] = await Promise.all([
-      supabase
-        .from("recipe_square_links")
-        .select("id, packaging, packaging_item_id, square_variation_id, variation_name, item_name, recipe_id, recipes(beer_name, days_brewhouse, days_fermenter, days_brite), packaging_items(id, name, type, volume_fl_oz)")
-        .returns<LinkRow[]>(),
-      supabase
-        .from("taproom_recipe_settings")
-        .select("recipe_id, is_retired"),
-    ]);
+    const { data: links, error } = await supabase
+      .from("recipe_square_links")
+      .select("id, packaging, packaging_item_id, square_variation_id, variation_name, item_name, recipe_id, recipes(beer_name, days_brewhouse, days_fermenter, days_brite), packaging_items(id, name, type, volume_fl_oz)")
+      .returns<LinkRow[]>();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     if (!links || links.length === 0) return NextResponse.json([]);
+    const typedLinks = links as LinkRow[];
+
+    const { data: retiredSettings } = await supabase
+      .from("taproom_recipe_settings")
+      .select("recipe_id, is_retired");
     const retiredMap = new Map(
       (retiredSettings ?? []).map((r) => [r.recipe_id as string, Boolean(r.is_retired)])
     );
 
-    const variationIds = [...new Set(links.map((l) => l.square_variation_id))];
+    const variationIds = [...new Set(typedLinks.map((l) => l.square_variation_id))];
 
     const end = new Date();
     const start = new Date(end.getTime() - WINDOW_DAYS * MS_DAY);
@@ -85,7 +85,7 @@ export async function GET() {
 
     // Group all links by recipe_id — collapse keg + can + draft into one recipe row.
     const byRecipe = new Map<string, LinkRow[]>();
-    for (const link of links) {
+    for (const link of typedLinks) {
       const arr = byRecipe.get(link.recipe_id) ?? [];
       arr.push(link);
       byRecipe.set(link.recipe_id, arr);

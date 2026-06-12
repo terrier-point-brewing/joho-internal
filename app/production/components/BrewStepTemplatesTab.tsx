@@ -187,7 +187,7 @@ function TemplateModal({
                 </tr>
               </thead>
               <tbody>
-                {steps.map((s, i) => (
+                {(steps as TemplateStep[]).map((s: TemplateStep, i: number) => (
                   <StepRow key={i} step={s} index={i}
                     onChange={(ns) => updateStep(i, ns)}
                     onRemove={() => removeStep(i)} />
