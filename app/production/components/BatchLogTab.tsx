@@ -245,7 +245,7 @@ export default function BatchLogTab() {
               <input className="inp" value={form.beer_name} required
                 onChange={(e) => setForm((f) => ({ ...f, beer_name: e.target.value }))} />
             </Field>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field label="Planned Brew Date" required>
                 <input type="date" className="inp" value={form.planned_brew_date} required
                   onChange={(e) => handleBrewDateChange(e.target.value)} />
@@ -279,7 +279,7 @@ export default function BatchLogTab() {
             {editingBatch && (
               <div>
                 <p className="text-xs text-zinc-400 mb-2">Brew Stats</p>
-                <div className="grid grid-cols-5 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                   <Field label="IBU">
                     <input type="number" step="0.1" min="0" className="inp" placeholder="e.g. 45"
                       value={form.ibu} onChange={(e) => setForm((f) => ({ ...f, ibu: e.target.value }))} />
@@ -882,7 +882,7 @@ function EquipmentScheduleSection({
       {showForm && (
         <div className="rounded border border-zinc-700 bg-zinc-900/60 p-3 mb-3 space-y-3">
           <p className="text-xs text-zinc-400 font-medium">{editing ? "Edit entry" : "New entry"}</p>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs text-zinc-500 mb-1">Stage</label>
               <select className="inp text-xs" value={form.stage} onChange={(e) => { f("stage", e.target.value); f("equipment_id", ""); }}>
@@ -990,7 +990,7 @@ function BatchTable({
 
   return (
     <div className="overflow-x-auto rounded-lg border border-zinc-800">
-      <table className="w-full text-sm">
+      <table className="w-full text-sm min-w-[700px]">
         <thead>
           <tr className="border-b border-zinc-800 text-left bg-zinc-900/50">
             <th className="px-3 py-2.5 text-xs font-medium text-zinc-500 w-6"></th>

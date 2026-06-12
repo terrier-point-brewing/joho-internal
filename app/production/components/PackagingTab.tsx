@@ -213,7 +213,7 @@ export default function PackagingTab() {
                   <span className="text-xs text-zinc-600">{items.length} item{items.length !== 1 ? "s" : ""}</span>
                 </div>
                 <div className="overflow-x-auto rounded-lg border border-zinc-800">
-                  <table className="w-full text-sm table-fixed">
+                  <table className="w-full text-sm table-fixed min-w-[680px]">
                     <colgroup>
                       <col style={{ width: "20%" }} />
                       <col style={{ width: "12%" }} />
@@ -279,10 +279,12 @@ export default function PackagingTab() {
                             </button>
                           </td>
                           <td className="px-3 py-2.5">
-                            <div className="flex gap-2 justify-end whitespace-nowrap">
+                            <div className="flex gap-1.5 justify-end items-center whitespace-nowrap text-zinc-700">
                               <button onClick={() => openAdj(item)} className="text-xs text-amber-500 hover:text-amber-400 transition-colors font-medium">Adjust</button>
+                              <span aria-hidden>·</span>
                               <button onClick={() => openEdit(item)} className="text-xs text-zinc-500 hover:text-zinc-200 transition-colors">Edit</button>
-                              <button onClick={() => handleDelete(item)} className="text-xs text-zinc-600 hover:text-red-400 transition-colors">Delete</button>
+                              <span aria-hidden>·</span>
+                              <button onClick={() => handleDelete(item)} className="text-xs text-zinc-600 hover:text-red-400 transition-colors">Del</button>
                             </div>
                           </td>
                         </tr>
@@ -321,7 +323,7 @@ export default function PackagingTab() {
                 onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
             </Field>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field label="Partner (contract brewer)">
                 <select className="inp" value={form.partner_id}
                   onChange={(e) => setForm((f) => ({ ...f, partner_id: e.target.value }))}>
