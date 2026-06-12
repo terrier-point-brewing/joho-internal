@@ -4,9 +4,10 @@ import { Suspense, useState, useEffect } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useUserRole } from "@/lib/hooks/useUserRole";
-import BatchLogTab    from "./components/BatchLogTab";
-import RecipesTab     from "./components/RecipesTab";
-import BrewStatusTab  from "./components/BrewStatusTab";
+import BatchLogTab          from "./components/BatchLogTab";
+import RecipesTab           from "./components/RecipesTab";
+import BrewStepTemplatesTab from "./components/BrewStepTemplatesTab";
+import BrewStatusTab        from "./components/BrewStatusTab";
 import GanttTab       from "./components/GanttTab";
 import CalendarTab    from "./components/CalendarTab";
 import InventoryTab   from "./components/InventoryTab";
@@ -32,11 +33,19 @@ const BREWING_SUBTABS = [
 
 type BrewingSubtab = typeof BREWING_SUBTABS[number]["key"];
 
+const RECIPES_SUBTABS = [
+  { key: "recipes",             label: "Recipes"             },
+  { key: "brew-step-templates", label: "Brew Step Templates" },
+] as const;
+
+type RecipesSubtab = typeof RECIPES_SUBTABS[number]["key"];
+
 function ProductionContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const tab = searchParams.get("tab") ?? "intake";
   const [brewingSubtab, setBrewingSubtab] = useState<BrewingSubtab>("floorplan");
+  const [recipesSubtab, setRecipesSubtab] = useState<RecipesSubtab>("recipes");
   const { role, loading } = useUserRole();
 
   useEffect(() => {
@@ -101,8 +110,32 @@ function ProductionContent() {
         </>
       )}
 
-      {tab === "export"    && <ExportTab />}
-      {tab === "recipes"   && <RecipesTab />}
+      {tab === "export" && <ExportTab />}
+
+      {tab === "recipes" && (
+        <>
+          <div className="overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0 sticky top-[5.25rem] md:static z-30 bg-zinc-950/95">
+          <div className="flex gap-1 mb-0 md:mb-6 border-b border-zinc-800 pb-0 min-w-max sm:min-w-0">
+            {RECIPES_SUBTABS.map(({ key, label }) => (
+              <button
+                key={key}
+                onClick={() => setRecipesSubtab(key)}
+                className={`px-4 py-2 text-sm font-medium rounded-t transition-colors -mb-px border-b-2 ${
+                  recipesSubtab === key
+                    ? "text-amber-400 border-amber-500 bg-amber-900/10"
+                    : "text-zinc-500 border-transparent hover:text-zinc-300"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          </div>
+          {recipesSubtab === "recipes"             && <RecipesTab />}
+          {recipesSubtab === "brew-step-templates" && <BrewStepTemplatesTab />}
+        </>
+      )}
+
       {tab === "inventory" && <InventoryTab />}
       {tab === "partners"  && <PartnersTab />}
 

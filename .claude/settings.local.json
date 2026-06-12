@@ -23,7 +23,12 @@
       "mcp__Supabase__list_projects",
       "mcp__Supabase__apply_migration",
       "mcp__Supabase__execute_sql",
-      "mcp__Vercel__get_project"
+      "mcp__Vercel__get_project",
+      "mcp__0f21e420-bf27-4610-9dc9-566db26bf81c__list_projects",
+      "mcp__0f21e420-bf27-4610-9dc9-566db26bf81c__apply_migration",
+      "mcp__07981768-2acb-437b-81cd-ccc174956548__list_teams",
+      "mcp__07981768-2acb-437b-81cd-ccc174956548__list_projects",
+      "mcp__07981768-2acb-437b-81cd-ccc174956548__list_deployments"
     ]
   }
 }

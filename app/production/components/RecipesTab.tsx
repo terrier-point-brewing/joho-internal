@@ -1,11 +1,25 @@
 "use client";
 
 import { useState, Fragment } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, useQuery } from "@tanstack/react-query";
+import { queryKeys } from "@/lib/query-keys";
 import { Recipe, RecipeBrewActivityTemplate, INGREDIENT_CATEGORIES, IngredientCategory, leadTimeDays } from "../types";
 import { Modal, Field, ModalActions } from "./shared";
 import { EQ } from "../equipmentMeta";
-import { useRecipesQuery, useIngredientsQuery, useContractPartnersQuery, productionKeys } from "../hooks/queries";
+import { useRecipesQuery, useIngredientsQuery, useContractPartnersQuery, productionKeys, fetchJson } from "../hooks/queries";
+
+interface BrewStepTemplateData {
+  id: string;
+  name: string;
+  steps: {
+    sort_order: number;
+    activity: string;
+    time_label: string | null;
+    temp: number | null;
+    amount: number | null;
+    vsp: number | null;
+  }[];
+}
 
 interface RecipeFormLine {
   ingredient_id: string;
@@ -48,6 +62,11 @@ export default function RecipesTab() {
   const { data: recipes = [] } = useRecipesQuery();
   const { data: ingredients = [] } = useIngredientsQuery();
   const { data: partners = [] } = useContractPartnersQuery();
+  const { data: stepTemplates = [] } = useQuery({
+    queryKey: queryKeys.production.brewStepTemplates(),
+    queryFn: () => fetchJson<BrewStepTemplateData[]>("/api/production/brew-step-templates"),
+    staleTime: 5 * 60 * 1000,
+  });
   const refresh = () => qc.invalidateQueries({ queryKey: productionKeys.recipes });
 
   const [showModal, setShowModal] = useState(false);
@@ -103,6 +122,20 @@ export default function RecipesTab() {
 
   function addActivityLine() {
     setActivityLines((l) => [...l, { activity: "", time_label: "", temp: "", amount: "", vsp: "" }]);
+  }
+
+  function loadFromTemplate(templateId: string) {
+    const tpl = stepTemplates.find((t) => t.id === templateId);
+    if (!tpl) return;
+    setActivityLines(
+      [...tpl.steps].sort((a, b) => a.sort_order - b.sort_order).map((s) => ({
+        activity:   s.activity,
+        time_label: s.time_label ?? "",
+        temp:       s.temp != null   ? String(s.temp)   : "",
+        amount:     s.amount != null ? String(s.amount) : "",
+        vsp:        s.vsp != null    ? String(s.vsp)    : "",
+      }))
+    );
   }
 
   function removeActivityLine(i: number) {
@@ -685,12 +718,26 @@ export default function RecipesTab() {
 
             {/* Brew Steps */}
             <div>
-              <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
                 <label className="text-xs text-zinc-400">Brew Steps</label>
-                <button type="button" onClick={addActivityLine}
-                  className="text-xs text-amber-500 hover:text-amber-400 transition-colors">
-                  + Add step
-                </button>
+                <div className="flex items-center gap-2">
+                  {stepTemplates.length > 0 && (
+                    <select
+                      value=""
+                      onChange={(e) => { if (e.target.value) loadFromTemplate(e.target.value); }}
+                      className="text-xs bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-zinc-400 hover:border-zinc-500 focus:outline-none"
+                    >
+                      <option value="">Load from template…</option>
+                      {stepTemplates.map((t) => (
+                        <option key={t.id} value={t.id}>{t.name}</option>
+                      ))}
+                    </select>
+                  )}
+                  <button type="button" onClick={addActivityLine}
+                    className="text-xs text-amber-500 hover:text-amber-400 transition-colors">
+                    + Add step
+                  </button>
+                </div>
               </div>
               <p className="text-xs text-zinc-600 mb-2">When a new batch is created from this recipe, these steps are copied into the batch&apos;s activity log.</p>
               {activityLines.length > 0 && (

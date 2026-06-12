@@ -60,8 +60,16 @@ export async function GET() {
       .returns<LinkRow[]>();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     if (!links || links.length === 0) return NextResponse.json([]);
+    const typedLinks = links as LinkRow[];
 
-    const variationIds = [...new Set(links.map((l) => l.square_variation_id))];
+    const { data: retiredSettings } = await supabase
+      .from("taproom_recipe_settings")
+      .select("recipe_id, is_retired");
+    const retiredMap = new Map(
+      (retiredSettings ?? []).map((r) => [r.recipe_id as string, Boolean(r.is_retired)])
+    );
+
+    const variationIds = [...new Set(typedLinks.map((l) => l.square_variation_id))];
 
     const end = new Date();
     const start = new Date(end.getTime() - WINDOW_DAYS * MS_DAY);
@@ -77,7 +85,7 @@ export async function GET() {
 
     // Group all links by recipe_id — collapse keg + can + draft into one recipe row.
     const byRecipe = new Map<string, LinkRow[]>();
-    for (const link of links) {
+    for (const link of typedLinks) {
       const arr = byRecipe.get(link.recipe_id) ?? [];
       arr.push(link);
       byRecipe.set(link.recipe_id, arr);
@@ -163,6 +171,7 @@ export async function GET() {
         brew_by_date: brewByDate,
         history_bbl: historyBbl,
         packaging_breakdown: packagingBreakdown,
+        is_retired: retiredMap.get(recipeId) ?? false,
       };
     });
 

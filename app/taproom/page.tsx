@@ -12,7 +12,6 @@ import GiftCardReport        from "../reports/components/GiftCardReport";
 import ContractBrewingReport from "../reports/components/ContractBrewingReport";
 import DistributionReport    from "../reports/components/DistributionReport";
 import BBLTrackerReport      from "../reports/components/BBLTrackerReport";
-import ShrinkageReport       from "../reports/components/ShrinkageReport";
 
 // Targets
 import AchievementTab   from "./components/AchievementTab";
@@ -21,6 +20,7 @@ import ManualEntriesTab from "./components/ManualEntriesTab";
 
 // Performance
 import SalesPulseTab from "./components/SalesPulseTab";
+import DraftStatsTab from "./components/DraftStatsTab";
 
 // ---------------------------------------------------------------------------
 // Report catalogue
@@ -49,11 +49,6 @@ const REPORT_GROUPS = [
     id: "production",
     label: "Production",
     reports: [{ id: "bbl-tracker", label: "BBL Tracker" }],
-  },
-  {
-    id: "inventory",
-    label: "Inventory Management",
-    reports: [{ id: "shrinkage", label: "Shrinkage" }],
   },
 ] as const;
 
@@ -94,6 +89,7 @@ type TargetsSubtab = typeof TARGETS_SUBTABS[number]["key"];
 
 const PERFORMANCE_SUBTABS = [
   { key: "sales-pulse", label: "Sales Pulse" },
+  { key: "draft-stats", label: "Draft Stats" },
 ] as const;
 
 type PerformanceSubtab = typeof PERFORMANCE_SUBTABS[number]["key"];
@@ -214,7 +210,6 @@ function TaproomContent() {
           {activeReport === "keg-sales"        && <KegSalesReport        {...dateProps} />}
           {activeReport === "gift-cards"       && <GiftCardReport        {...dateProps} />}
           {activeReport === "bbl-tracker"      && <BBLTrackerReport      {...dateProps} />}
-          {activeReport === "shrinkage"        && <ShrinkageReport       {...dateProps} />}
         </>
       )}
 
@@ -286,6 +281,7 @@ function TaproomContent() {
           </div>
 
           {performanceSubtab === "sales-pulse" && <SalesPulseTab />}
+          {performanceSubtab === "draft-stats" && <DraftStatsTab />}
         </>
       )}
 
