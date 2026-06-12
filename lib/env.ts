@@ -40,4 +40,12 @@ export const env = {
    * Used when constructing absolute links in emails.
    */
   appUrl: (): string => process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",
+
+  /**
+   * Optional Square catalog variation ID for the "Ingredient Deposit" item.
+   * When set, deposit invoices reference this catalog variation for consistent
+   * naming in the Square dashboard. Falls back to a catalog name search if unset.
+   */
+  squareIngredientDepositVariationId: (): string | undefined =>
+    process.env.SQUARE_INGREDIENT_DEPOSIT_VARIATION_ID,
 } as const;

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import { fetchJson } from "@/app/production/hooks/queries";
-import type { Invoice } from "@/types/finance";
+import type { Invoice, InvoiceType } from "@/types/finance";
 import FinanceNav from "../FinanceNav";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -71,6 +71,8 @@ interface InvoiceRow extends Omit<Invoice, "invoice_line_items"> {
   invoice_line_items: { category: string | null; total_cents: number }[];
   invoice_batch_links: { count: number }[];
   contract_brewing_partners: { company_name: string } | null;
+  invoice_type: InvoiceType;
+  allocation_id: string | null;
 }
 
 type SortKey = "invoice_date" | "customer_name" | "total_cents" | "status";
@@ -88,6 +90,7 @@ export default function InvoicesPage() {
   const [year,       setYear]   = useState(currentYear);
   const [source,     setSource] = useState<"all" | "square" | "quickbooks">("all");
   const [status,     setStatus] = useState<"all" | "open" | "paid" | "partial" | "voided" | "unknown">("all");
+  const [typeFilter, setTypeFilter] = useState<"all" | InvoiceType>("all");
   const [sortKey,    setSort]   = useState<SortKey>("invoice_date");
   const [sortAsc,    setSortAsc] = useState(false);
   const years = Array.from({ length: 5 }, (_, i) => currentYear - i);
@@ -100,9 +103,10 @@ export default function InvoicesPage() {
     queryFn:  () => fetchJson<InvoiceRow[]>(`/api/finance/ledger/invoices?${params}`),
   });
 
-  // Client-side status filter + sort (avoids extra API params for now)
+  // Client-side status + type filter + sort
   const invoices = (raw ?? [])
     .filter((inv) => status === "all" || inv.status === status)
+    .filter((inv) => typeFilter === "all" || (inv as InvoiceRow).invoice_type === typeFilter)
     .sort((a, b) => {
       let diff = 0;
       if (sortKey === "invoice_date") diff = (a.invoice_date ?? "").localeCompare(b.invoice_date ?? "");
@@ -116,8 +120,6 @@ export default function InvoicesPage() {
     if (sortKey === key) setSortAsc((v) => !v);
     else { setSort(key); setSortAsc(false); }
   }
-
-
 
   // Summary stats
   const totalValue    = invoices.reduce((s, i) => s + i.total_cents, 0);
@@ -152,6 +154,12 @@ export default function InvoicesPage() {
               <option value="paid">Paid</option>
               <option value="partial">Partial</option>
               <option value="voided">Voided</option>
+            </select>
+            <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value as typeof typeFilter)}
+              className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200">
+              <option value="all">All types</option>
+              <option value="standard">Standard</option>
+              <option value="allocation_deposit">Deposit invoices</option>
             </select>
             <button onClick={() => refetch()}
               className="px-3 py-1 bg-amber-600 hover:bg-amber-500 text-white text-xs rounded transition-colors">
@@ -208,7 +216,7 @@ export default function InvoicesPage() {
                   onClick={() => handleSort("customer_name")}>
                   Customer <SortIcon k="customer_name" sortKey={sortKey} sortAsc={sortAsc} />
                 </th>
-                <th className="px-4 py-2 text-left text-zinc-500 font-medium">Source</th>
+                <th className="px-4 py-2 text-left text-zinc-500 font-medium">Source / Type</th>
                 <th className="px-4 py-2 text-left text-zinc-500 font-medium cursor-pointer select-none hover:text-zinc-300"
                   onClick={() => handleSort("status")}>
                   Status <SortIcon k="status" sortKey={sortKey} sortAsc={sortAsc} />
@@ -244,11 +252,18 @@ export default function InvoicesPage() {
                         {inv.contract_brewing_partners?.company_name ?? inv.customer_name ?? "—"}
                       </td>
                       <td className="px-4 py-2">
-                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                          inv.source === "square" ? "bg-blue-900/40 text-blue-400" : "bg-violet-900/40 text-violet-400"
-                        }`}>
-                          {inv.source === "square" ? "Square" : "QuickBooks"}
-                        </span>
+                        <div className="flex flex-wrap gap-1">
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                            inv.source === "square" ? "bg-blue-900/40 text-blue-400" : "bg-violet-900/40 text-violet-400"
+                          }`}>
+                            {inv.source === "square" ? "Square" : "QuickBooks"}
+                          </span>
+                          {(inv as InvoiceRow).invoice_type === "allocation_deposit" && (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-900/40 text-amber-400">
+                              Deposit
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-4 py-2">
                         <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${STATUS_CLS[inv.status] ?? STATUS_CLS.unknown}`}>

@@ -36,6 +36,17 @@ export async function squarePost<T>(path: string, body: unknown): Promise<T> {
   return data as T;
 }
 
+export async function squarePut<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    method: "PUT",
+    headers: makeHeaders(),
+    body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.errors?.[0]?.detail ?? `Square PUT ${path} failed`);
+  return data as T;
+}
+
 // Fetches all pages of a GET endpoint that uses cursor-based pagination.
 // `key` is the array field name in the response (e.g. "objects").
 export async function squareGetAll<T>(

@@ -31,6 +31,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     );
   }
 
+  // A paid allocation cannot have its percentage changed at all
+  if (current.invoice_paid_at && body.percentage != null && Number(body.percentage) !== Number(current.percentage)) {
+    return NextResponse.json(
+      { error: "This allocation has a paid invoice and cannot be adjusted. Contact support for a partial refund or additional invoice." },
+      { status: 422 }
+    );
+  }
+
   // If increasing percentage, validate total across batch won't exceed 100
   if (body.percentage != null && Number(body.percentage) !== Number(current.percentage)) {
     const { data: siblings } = await supabase
@@ -55,6 +63,22 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (body.notes !== undefined) update.notes = body.notes || null;
   if (body.partner_id !== undefined) update.partner_id = body.partner_id || null;
   if (body.contract_request_id !== undefined) update.contract_request_id = body.contract_request_id || null;
+
+  // When percentage changes on a contract_brewing allocation that has a generated
+  // (but not paid) deposit invoice, mark the invoice as stale by clearing its
+  // sent/generated timestamps so the user must regenerate via the invoice modal.
+  // This keeps the PATCH handler fast and Square-API-free.
+  const percentageChanged =
+    body.percentage != null && Number(body.percentage) !== Number(current.percentage);
+  if (
+    percentageChanged &&
+    current.channel === "contract_brewing" &&
+    current.square_deposit_invoice_id &&
+    !current.invoice_paid_at
+  ) {
+    update.invoice_generated_at = null;
+    update.invoice_sent_at = null;
+  }
 
   // Lock / unlock logic
   if (body.locked === true && !current.locked) {
