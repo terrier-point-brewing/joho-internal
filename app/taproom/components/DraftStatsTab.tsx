@@ -266,21 +266,25 @@ export default function DraftStatsTab() {
             const daysLeft = tap?.metrics
               ? daysUntilEmpty(tap.metrics.current_bbl, tap.metrics.daily_bbl)
               : null;
+            // Retired taps still on-hand keep their urgency color so staff know
+            // the keg is running low — they just also show the "Retired" badge.
+            // Only grey out once the tap is empty (daysLeft === 0 or null).
             const urgency =
               !tap?.recipe_id ? "none"
-              : isRetired ? "retired"
-              : daysLeft === null ? "none"
+              : daysLeft === null || daysLeft === 0 ? (isRetired ? "retired" : "none")
               : daysLeft <= 3 ? "red"
               : daysLeft <= 7 ? "amber"
+              : isRetired ? "retiring"
               : "green";
 
             return (
               <div
                 key={tapNum}
                 className={`rounded-lg border p-3 flex flex-col gap-2 ${
-                  urgency === "red"     ? "border-red-700/60"
-                  : urgency === "amber" ? "border-amber-700/40"
-                  : urgency === "green" ? "border-zinc-700"
+                  urgency === "red"      ? "border-red-700/60"
+                  : urgency === "amber"  ? "border-amber-700/40"
+                  : urgency === "green"  ? "border-zinc-700"
+                  : urgency === "retiring" ? "border-zinc-700 border-dashed"
                   : urgency === "retired" ? "border-zinc-800 opacity-60"
                   : "border-zinc-800"
                 }`}
@@ -448,8 +452,9 @@ export default function DraftStatsTab() {
                     label={{ value: "fl oz", angle: -90, position: "insideLeft", fill: "#71717a", fontSize: 11, dy: 30 }}
                   />
                   <Tooltip
-                    contentStyle={{ backgroundColor: "#18181b", border: "1px solid #3f3f46", borderRadius: "6px", fontSize: 12 }}
+                    contentStyle={{ backgroundColor: "#18181b", border: "1px solid #3f3f46", borderRadius: "6px", fontSize: 12, color: "#e4e4e7" }}
                     labelStyle={{ color: "#e4e4e7", fontWeight: 600 }}
+                    itemStyle={{ color: "#a1a1aa" }}
                     formatter={(val, _name, props) => [
                       `${val} fl oz (${props.payload?.shrinkage_pct ?? 0}%)`,
                       props.payload?.recipe ?? "",
