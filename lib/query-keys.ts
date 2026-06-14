@@ -56,6 +56,7 @@ export const queryKeys = {
     all:            () => ["finance"] as const,
     /** Year-scoped taproom sales (used in model + taproom sales page). */
     salesTaproom:   (year: number) => ["finance", "sales", "taproom", year] as const,
+    salesEvents:    (year: number) => ["finance", "sales", "events",  year] as const,
     /** Year-scoped invoice sales (used in model, contract-brewing, distribution). */
     salesInvoices:  (year: number) => ["finance", "sales", "invoices", year] as const,
     /** Single invoice detail. */
