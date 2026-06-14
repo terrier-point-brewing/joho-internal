@@ -21,6 +21,7 @@ import ManualEntriesTab from "./components/ManualEntriesTab";
 // Performance
 import SalesPulseTab from "./components/SalesPulseTab";
 import DraftStatsTab from "./components/DraftStatsTab";
+import EventsTab     from "./components/EventsTab";
 
 // ---------------------------------------------------------------------------
 // Report catalogue
@@ -90,6 +91,7 @@ type TargetsSubtab = typeof TARGETS_SUBTABS[number]["key"];
 const PERFORMANCE_SUBTABS = [
   { key: "sales-pulse", label: "Sales Pulse" },
   { key: "draft-stats", label: "Draft Stats" },
+  { key: "events",      label: "Events"      },
 ] as const;
 
 type PerformanceSubtab = typeof PERFORMANCE_SUBTABS[number]["key"];
@@ -282,6 +284,7 @@ function TaproomContent() {
 
           {performanceSubtab === "sales-pulse" && <SalesPulseTab />}
           {performanceSubtab === "draft-stats" && <DraftStatsTab />}
+          {performanceSubtab === "events"      && <EventsTab />}
         </>
       )}
 

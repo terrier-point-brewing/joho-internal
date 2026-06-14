@@ -74,5 +74,7 @@ export const queryKeys = {
     manualEntries: () => ["taproom", "manual-entries"] as const,
     tapConfig:     () => ["taproom", "tap-config"] as const,
     draftStats:    () => ["taproom", "draft-stats"] as const,
+    events:        () => ["taproom", "events"] as const,
+    eventPours:    (id: string) => ["taproom", "event-pours", id] as const,
   },
 } as const;
