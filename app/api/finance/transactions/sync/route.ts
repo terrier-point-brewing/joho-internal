@@ -99,8 +99,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Count new vs updated by comparing timestamps
-  let synced = 0, updated = 0;
+  let synced = 0;
 
   // Delete existing line items for all upserted transactions, then re-insert
   const allDbIds = [...upsertedIds.values()];
@@ -151,7 +150,7 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({
     synced,
-    updated,
+    updated: 0,
     skipped: 0,
     total: orders.length,
     dateRange: { startDate, endDate },
