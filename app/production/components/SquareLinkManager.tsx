@@ -163,6 +163,15 @@ export function SquareLinkManager({
   const { data: packagingItems = [] } = usePackagingQuery();
   const loadErr = sqError instanceof Error ? sqError.message : null;
 
+  // Derive unique category list from loaded variations
+  const categories = Array.from(
+    new Map(
+      sqVariations
+        .filter((v) => v.category_name)
+        .map((v) => [v.category_name!, v.category_name!]),
+    ).entries(),
+  ).sort(([a], [b]) => a.localeCompare(b));
+
   // Map packaging type → allowed Square category name + variation name filter
   const CATEGORY_FOR: Record<PackagingType, string> = { draft: "Draft", keg: "Kegs", can: "Cans" };
   function filterVariations(packaging: PackagingType): SquareVariation[] {
@@ -189,6 +198,7 @@ export function SquareLinkManager({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError]           = useState<string | null>(null);
   const [expandRecipeId, setExpandRecipeId] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState<string>("");
 
   // Quick-add: expand all packaging types for a chosen recipe in one click.
   function expandRecipe() {
@@ -285,11 +295,24 @@ export function SquareLinkManager({
 
   return (
     <Modal title="Link Styles to Square" onClose={onClose} wide>
-      <div className="mb-5">
+      <div className="flex items-center justify-between mb-5">
         <p className="text-xs text-zinc-500">
           Map each recipe + packaging combination to a Square catalog variation.
           Links apply to both Taproom intake and Export.
         </p>
+        {categories.length > 0 && (
+          <div className="flex items-center gap-2 shrink-0 ml-4">
+            <label className="text-[10px] text-zinc-500 whitespace-nowrap">Filter by category:</label>
+            <select
+              value={categoryFilter}
+              onChange={(e) => setCategoryFilter(e.target.value)}
+              className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 focus:outline-none focus:border-amber-600"
+            >
+              <option value="">All categories</option>
+              {categories.map(([cat]) => <option key={cat} value={cat}>{cat}</option>)}
+            </select>
+          </div>
+        )}
       </div>
 
       {/* Quick-add: expand all packaging types for a recipe */}
@@ -437,7 +460,9 @@ export function SquareLinkManager({
                     <VariationCombobox
                       value={row.variation_id}
                       onChange={(id) => updateRow(row.uid, { variation_id: id })}
-                      variations={filterVariations(row.packaging)}
+                      variations={filterVariations(row.packaging).filter(
+                        (v) => !categoryFilter || v.category_name === categoryFilter
+                      )}
                       disabled={needsPackagingItem && !row.packaging_item_id}
                     />
                   </div>
