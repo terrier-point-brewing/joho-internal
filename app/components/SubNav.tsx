@@ -1,0 +1,43 @@
+"use client";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import type { NavEntry } from "@/app/taproom/nav-config";
+
+export default function SubNav({
+  entries,
+  mobile = false,
+  sticky = false,
+}: {
+  entries: NavEntry[];
+  mobile?: boolean;
+  sticky?: boolean;
+}) {
+  const pathname = usePathname();
+
+  const cls = mobile
+    ? "md:hidden flex border-b border-zinc-800 overflow-x-auto scrollbar-none"
+    : sticky
+    ? "flex gap-1 border-b border-zinc-800 overflow-x-auto scrollbar-none sticky top-11 md:static z-40 bg-zinc-950/95"
+    : "flex gap-1 border-b border-zinc-800 overflow-x-auto scrollbar-none";
+
+  return (
+    <div className={cls}>
+      {entries.map(({ href, match, label }) => {
+        const active = pathname === href || pathname.startsWith(match ?? href + "/");
+        return (
+          <Link
+            key={href}
+            href={href}
+            className={`px-4 py-2.5 text-sm font-medium whitespace-nowrap transition-colors border-b-2 -mb-px ${
+              active
+                ? "text-amber-400 border-amber-500"
+                : "text-zinc-500 border-transparent hover:text-zinc-300"
+            }`}
+          >
+            {label}
+          </Link>
+        );
+      })}
+    </div>
+  );
+}
