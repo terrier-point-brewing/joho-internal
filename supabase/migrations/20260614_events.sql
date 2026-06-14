@@ -21,9 +21,9 @@ create policy "manager write events"
   on events for insert
   with check (
     exists (
-      select 1 from user_roles
-      where user_id = auth.uid()
-        and role in ('manager', 'admin')
+      select 1 from profiles p
+      where p.id = auth.uid()
+        and p.role in ('manager', 'admin')
     )
   );
 
@@ -31,9 +31,9 @@ create policy "manager update events"
   on events for update
   using (
     exists (
-      select 1 from user_roles
-      where user_id = auth.uid()
-        and role in ('manager', 'admin')
+      select 1 from profiles p
+      where p.id = auth.uid()
+        and p.role in ('manager', 'admin')
     )
   );
 
@@ -41,8 +41,8 @@ create policy "manager delete events"
   on events for delete
   using (
     exists (
-      select 1 from user_roles
-      where user_id = auth.uid()
-        and role in ('manager', 'admin')
+      select 1 from profiles p
+      where p.id = auth.uid()
+        and p.role in ('manager', 'admin')
     )
   );

@@ -47,8 +47,12 @@ function fmtUsd(cents: number) {
 }
 
 function fmtDatetimeLocal(iso: string) {
-  // Convert ISO timestamptz to datetime-local input value (YYYY-MM-DDTHH:mm)
-  return iso.slice(0, 16);
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return (
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
+    `T${pad(d.getHours())}:${pad(d.getMinutes())}`
+  );
 }
 
 function fmtDisplay(iso: string) {
