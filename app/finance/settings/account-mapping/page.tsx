@@ -1,0 +1,646 @@
+"use client";
+import { useState, useEffect, useCallback, useRef } from "react";
+import FinanceNav from "../../FinanceNav";
+import SettingsNav from "../SettingsNav";
+
+interface CoAAccount {
+  id: string;
+  account_name: string;
+  account_number: string | null;
+  account_type: string;
+}
+
+interface VariationRow {
+  id: string;
+  square_variation_id: string;
+  variation_name: string;
+  sku: string | null;
+  upc: string | null;
+  price_amount: number | null;
+  price_currency: string | null;
+  pricing_type: string | null;
+  chart_of_accounts_id: string | null;
+  chart_of_accounts: { account_name: string; account_number: string | null; account_type: string } | null;
+  square_catalog_items: {
+    id: string;
+    square_item_id: string;
+    item_name: string;
+    category_id: string | null;
+    category_name: string | null;
+    parent_category_id: string | null;
+    parent_category_name: string | null;
+    is_top_level_category: boolean | null;
+    product_type: string | null;
+    is_archived: boolean;
+  } | null;
+}
+
+interface GroupedItem {
+  square_item_id: string;
+  item_name: string;
+  is_archived: boolean;
+  variations: VariationRow[];
+}
+
+interface GroupedSubcategory {
+  category_id: string | null;
+  category_name: string;
+  items: GroupedItem[];
+}
+
+interface GroupedParent {
+  parent_id: string | null;   // null = top-level with no children, or uncategorized
+  parent_name: string;
+  subcategories: GroupedSubcategory[];
+}
+
+function fmtPrice(amount: number | null, currency: string | null, pricingType: string | null) {
+  if (pricingType === "VARIABLE_PRICING") return "Variable";
+  if (amount === null) return "—";
+  return (amount / 100).toLocaleString("en-US", { style: "currency", currency: currency ?? "USD" });
+}
+
+function accountLabel(a: { account_name: string; account_number: string | null }) {
+  return a.account_number ? `${a.account_number} · ${a.account_name}` : a.account_name;
+}
+
+function AccountSelect({
+  value,
+  onChange,
+  accounts,
+  placeholder = "— no mapping —",
+}: {
+  value: string | null;
+  onChange: (id: string | null) => void;
+  accounts: CoAAccount[];
+  placeholder?: string;
+}) {
+  const [open, setOpen]   = useState(false);
+  const [query, setQuery] = useState("");
+  const wrapRef           = useRef<HTMLDivElement>(null);
+  const inputRef          = useRef<HTMLInputElement>(null);
+
+  const selected = accounts.find((a) => a.id === value) ?? null;
+
+  const filtered = query.trim()
+    ? accounts.filter((a) =>
+        `${a.account_number ?? ""} ${a.account_name} ${a.account_type}`
+          .toLowerCase()
+          .includes(query.toLowerCase())
+      )
+    : accounts;
+
+  // Group filtered results by account_type
+  const grouped = filtered.reduce<Record<string, CoAAccount[]>>((acc, a) => {
+    (acc[a.account_type] ??= []).push(a);
+    return acc;
+  }, {});
+  const groupEntries = Object.entries(grouped).sort(([a], [b]) => a.localeCompare(b));
+
+  useEffect(() => {
+    if (!open) return;
+    function onDown(e: MouseEvent) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        setOpen(false);
+        setQuery("");
+      }
+    }
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open]);
+
+  function handleOpen() {
+    setOpen(true);
+    setQuery("");
+    setTimeout(() => inputRef.current?.focus(), 0);
+  }
+
+  function handleSelect(id: string | null) {
+    onChange(id);
+    setOpen(false);
+    setQuery("");
+  }
+
+  return (
+    <div ref={wrapRef} className="relative w-full max-w-[360px]">
+      {/* Trigger */}
+      <button
+        type="button"
+        onClick={handleOpen}
+        className="w-full flex items-center justify-between gap-1 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-left focus:outline-none focus:border-amber-600 hover:border-zinc-500 transition-colors"
+      >
+        <span className={`truncate ${selected ? "text-zinc-200" : "text-zinc-500"}`}>
+          {selected ? accountLabel(selected) : placeholder}
+        </span>
+        <span className="text-zinc-600 shrink-0">⌄</span>
+      </button>
+
+      {open && (
+        <div className="absolute z-50 left-0 right-0 mt-1 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl flex flex-col max-h-64">
+          {/* Search input */}
+          <div className="p-1.5 border-b border-zinc-800 shrink-0">
+            <input
+              ref={inputRef}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Escape") { setOpen(false); setQuery(""); } }}
+              placeholder="Search accounts…"
+              className="w-full bg-zinc-800 rounded px-2 py-1 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none"
+            />
+          </div>
+
+          {/* Options */}
+          <div className="overflow-y-auto">
+            {/* Clear option */}
+            <button
+              type="button"
+              onMouseDown={(e) => { e.preventDefault(); handleSelect(null); }}
+              className={`w-full text-left px-3 py-2 text-xs border-b border-zinc-800/50 transition-colors ${
+                !value ? "text-amber-400 bg-amber-900/20" : "text-zinc-500 hover:bg-zinc-800"
+              }`}
+            >
+              {placeholder}
+            </button>
+
+            {groupEntries.length === 0 && (
+              <p className="px-3 py-3 text-xs text-zinc-600 italic text-center">No matches</p>
+            )}
+
+            {groupEntries.map(([type, accs]) => (
+              <div key={type}>
+                <div className="px-3 py-1 text-[10px] text-zinc-600 uppercase tracking-wider bg-zinc-900/80 sticky top-0">
+                  {type}
+                </div>
+                {accs
+                  .sort((a, b) => (a.account_number ?? "").localeCompare(b.account_number ?? "") || a.account_name.localeCompare(b.account_name))
+                  .map((a) => (
+                    <button
+                      key={a.id}
+                      type="button"
+                      onMouseDown={(e) => { e.preventDefault(); handleSelect(a.id); }}
+                      className={`w-full text-left px-3 py-2 text-xs transition-colors border-t border-zinc-800/30 ${
+                        a.id === value
+                          ? "bg-amber-900/30 text-amber-300"
+                          : "text-zinc-300 hover:bg-zinc-800"
+                      }`}
+                    >
+                      {a.account_number && (
+                        <span className="text-zinc-500 font-mono mr-1.5">{a.account_number}</span>
+                      )}
+                      {a.account_name}
+                    </button>
+                  ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function VariationMappingRow({
+  variation,
+  accounts,
+  onSave,
+}: {
+  variation: VariationRow;
+  accounts: CoAAccount[];
+  onSave: (squareVariationId: string, accountId: string | null) => Promise<void>;
+}) {
+  const [saving, setSaving] = useState(false);
+
+  async function handleChange(accountId: string | null) {
+    setSaving(true);
+    await onSave(variation.square_variation_id, accountId);
+    setSaving(false);
+  }
+
+  return (
+    <div className="flex items-center gap-3 px-4 py-2 border-t border-zinc-800/40 bg-zinc-950/30">
+      <div className="flex-1 min-w-0 grid grid-cols-[minmax(0,1fr)_80px_100px_90px] gap-3 items-center">
+        <span className="text-xs text-zinc-400 truncate">{variation.variation_name}</span>
+        <span className="text-[10px] text-zinc-600 font-mono truncate">{variation.sku ?? "—"}</span>
+        <span className="text-[10px] text-zinc-600 font-mono truncate">{variation.upc ?? "—"}</span>
+        <span className="text-xs text-zinc-500 text-right tabular-nums">
+          {fmtPrice(variation.price_amount, variation.price_currency, variation.pricing_type)}
+        </span>
+      </div>
+      <div className="shrink-0 flex items-center gap-2">
+        {saving && <span className="text-[10px] text-zinc-600">Saving…</span>}
+        <AccountSelect
+          value={variation.chart_of_accounts_id}
+          onChange={handleChange}
+          accounts={accounts}
+        />
+      </div>
+    </div>
+  );
+}
+
+function BulkMapper({
+  unmappedCount,
+  accounts,
+  onApply,
+}: {
+  unmappedCount: number;
+  accounts: CoAAccount[];
+  onApply: (accountId: string | null, overwrite: boolean) => Promise<void>;
+}) {
+  const [draft, setDraft]       = useState<string | null>(null);
+  const [applying, setApplying] = useState(false);
+
+  async function apply(ow: boolean) {
+    if (!draft) return;
+    setApplying(true);
+    await onApply(draft, ow);
+    setApplying(false);
+  }
+
+  return (
+    <div className="flex items-center gap-2 shrink-0">
+      <span className="text-[10px] text-zinc-600 hidden sm:block">Bulk map:</span>
+      <AccountSelect value={draft} onChange={setDraft} accounts={accounts} />
+      {draft && (
+        <>
+          <button
+            onClick={() => apply(false)}
+            disabled={applying || unmappedCount === 0}
+            title={`Apply to ${unmappedCount} unmapped variation${unmappedCount !== 1 ? "s" : ""}`}
+            className="px-2 py-1 bg-amber-600 hover:bg-amber-500 disabled:opacity-40 text-white text-xs rounded transition-colors whitespace-nowrap">
+            {applying ? "…" : `Fill ${unmappedCount} unmapped`}
+          </button>
+          <button
+            onClick={() => apply(true)}
+            disabled={applying}
+            title="Overwrite all existing mappings in this category"
+            className="px-2 py-1 bg-zinc-700 hover:bg-zinc-600 disabled:opacity-40 text-zinc-300 text-xs rounded transition-colors whitespace-nowrap">
+            Overwrite all
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
+export default function AccountMappingPage() {
+  const [accounts, setAccounts] = useState<CoAAccount[]>([]);
+  const [variations, setVariations] = useState<VariationRow[]>([]);
+  const [loading, setLoading]   = useState(true);
+  const [error, setError]       = useState<string | null>(null);
+  const [syncing, setSyncing]   = useState(false);
+  const [syncResult, setSyncResult] = useState<{ items: number; variations: number } | null>(null);
+  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
+  const [expandedItems, setExpandedItems]           = useState<Set<string>>(new Set());
+
+  const loadAll = useCallback(async () => {
+    try {
+      const [coaRes, mappingsRes] = await Promise.all([
+        fetch("/api/finance/chart-of-accounts"),
+        fetch("/api/finance/account-mappings"),
+      ]);
+      const [coa, maps] = await Promise.all([coaRes.json(), mappingsRes.json()]);
+      setAccounts(Array.isArray(coa) ? coa : []);
+      setVariations(Array.isArray(maps) ? maps : []);
+    } catch {
+      setError("Failed to load data.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { loadAll(); }, [loadAll]);
+
+  async function handleSync() {
+    setSyncing(true); setSyncResult(null); setError(null);
+    try {
+      const res = await fetch("/api/finance/sync-catalog", { method: "POST" });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        let msg = "Sync failed";
+        try { msg = (JSON.parse(text) as { error?: string }).error ?? msg; } catch { msg = text || msg; }
+        setError(msg);
+        return;
+      }
+      const json = await res.json();
+      setSyncResult(json);
+      await loadAll();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Sync failed");
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  function applyToVariations(
+    predicate: (v: VariationRow) => boolean,
+    accountId: string,
+    overwrite: boolean
+  ) {
+    const acct = accounts.find((a) => a.id === accountId) ?? null;
+    setVariations((vs) =>
+      vs.map((v) => {
+        if (!predicate(v)) return v;
+        if (!overwrite && v.chart_of_accounts_id) return v;
+        return {
+          ...v,
+          chart_of_accounts_id: accountId,
+          chart_of_accounts: acct ? { account_name: acct.account_name, account_number: acct.account_number, account_type: acct.account_type } : null,
+        };
+      })
+    );
+  }
+
+  async function handleBulkCategory(categoryId: string | null, accountId: string | null, overwrite: boolean) {
+    if (!accountId) return;
+    const res = await fetch("/api/finance/account-mappings/bulk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ category_id: categoryId, chart_of_accounts_id: accountId, overwrite }),
+    });
+    if (!res.ok) return;
+    applyToVariations(
+      (v) => categoryId === null ? !v.square_catalog_items?.category_id : v.square_catalog_items?.category_id === categoryId,
+      accountId, overwrite
+    );
+  }
+
+  async function handleBulkParent(parentGroupId: string | null, accountId: string | null, overwrite: boolean) {
+    if (!accountId) return;
+    const res = await fetch("/api/finance/account-mappings/bulk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ parent_group_id: parentGroupId, chart_of_accounts_id: accountId, overwrite }),
+    });
+    if (!res.ok) return;
+    applyToVariations((v) => {
+      const item = v.square_catalog_items;
+      if (!item) return false;
+      const effectiveParent = item.parent_category_id ?? item.category_id ?? null;
+      return effectiveParent === parentGroupId;
+    }, accountId, overwrite);
+  }
+
+  async function handleBulkItem(catalogItemId: string, accountId: string | null, overwrite: boolean) {
+    if (!accountId) return;
+    const res = await fetch("/api/finance/account-mappings/bulk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ catalog_item_id: catalogItemId, chart_of_accounts_id: accountId, overwrite }),
+    });
+    if (!res.ok) return;
+    applyToVariations(
+      (v) => v.square_catalog_items?.id === catalogItemId,
+      accountId, overwrite
+    );
+  }
+
+  async function handleSave(squareVariationId: string, accountId: string | null) {
+    await fetch("/api/finance/account-mappings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ square_variation_id: squareVariationId, chart_of_accounts_id: accountId }),
+    });
+    setVariations((vs) =>
+      vs.map((v) =>
+        v.square_variation_id === squareVariationId
+          ? { ...v, chart_of_accounts_id: accountId, chart_of_accounts: accounts.find((a) => a.id === accountId) ? { account_name: accounts.find((a) => a.id === accountId)!.account_name, account_number: accounts.find((a) => a.id === accountId)!.account_number, account_type: accounts.find((a) => a.id === accountId)!.account_type } : null }
+          : v
+      )
+    );
+  }
+
+  // Group: parent category → subcategory → item → variations
+  // Items with no parent_category_id go directly under a top-level group using their own category name.
+  const parentMap = new Map<string, GroupedParent>();
+
+  for (const v of variations) {
+    const item = v.square_catalog_items;
+    if (!item) continue;
+
+    const parentId   = item.parent_category_id ?? item.category_id ?? "__uncategorized__";
+    const parentName = item.parent_category_name ?? item.category_name ?? "Uncategorized";
+    const catId      = item.category_id ?? "__uncategorized__";
+    const catName    = item.category_name ?? "Uncategorized";
+
+    if (!parentMap.has(parentId)) {
+      parentMap.set(parentId, { parent_id: item.parent_category_id ?? item.category_id, parent_name: parentName, subcategories: [] });
+    }
+    const parent = parentMap.get(parentId)!;
+
+    let sub = parent.subcategories.find((s) => s.category_id === catId);
+    if (!sub) {
+      sub = { category_id: item.category_id, category_name: catName, items: [] };
+      parent.subcategories.push(sub);
+    }
+
+    let gi = sub.items.find((i) => i.square_item_id === item.square_item_id);
+    if (!gi) {
+      gi = { square_item_id: item.square_item_id, item_name: item.item_name, is_archived: item.is_archived, variations: [] };
+      sub.items.push(gi);
+    }
+    gi.variations.push(v);
+  }
+
+  const groups = [...parentMap.values()].sort((a, b) => a.parent_name.localeCompare(b.parent_name));
+  const totalVariations = variations.length;
+  const mappedVariations = variations.filter((v) => v.chart_of_accounts_id).length;
+
+  function toggleCategory(key: string) {
+    setExpandedCategories((s) => { const n = new Set(s); n.has(key) ? n.delete(key) : n.add(key); return n; });
+  }
+  function toggleItem(key: string) {
+    setExpandedItems((s) => { const n = new Set(s); n.has(key) ? n.delete(key) : n.add(key); return n; });
+  }
+
+  if (loading) return (
+    <div className="flex flex-col h-full bg-zinc-950 text-zinc-100">
+      <FinanceNav mobile /><SettingsNav />
+      <div className="flex-1 flex items-center justify-center"><p className="text-xs text-zinc-500">Loading…</p></div>
+    </div>
+  );
+
+  return (
+    <div className="flex flex-col h-full bg-zinc-950 text-zinc-100">
+      <FinanceNav mobile />
+      <SettingsNav />
+
+      <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-5 pb-3 border-b border-zinc-800 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-base font-semibold text-zinc-100">Account Mapping</h1>
+          <p className="text-xs text-zinc-500 mt-0.5">
+            {totalVariations > 0
+              ? `${mappedVariations} of ${totalVariations} variations mapped`
+              : "Sync the catalog first to load variations."}
+          </p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          {syncResult && (
+            <span className="text-xs text-green-400">{syncResult.items} items · {syncResult.variations} variations synced</span>
+          )}
+          <button onClick={handleSync} disabled={syncing}
+            className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 text-zinc-200 text-xs rounded border border-zinc-700 transition-colors">
+            {syncing ? "Syncing…" : "Sync Catalog"}
+          </button>
+        </div>
+      </div>
+
+      {error && <p className="text-xs text-red-400 px-4 sm:px-6 py-2">{error}</p>}
+
+      {accounts.length === 0 ? (
+        <div className="flex-1 flex items-center justify-center text-center px-6">
+          <div>
+            <p className="text-sm text-zinc-400">Upload a chart of accounts first.</p>
+            <p className="text-xs text-zinc-600 mt-1">Go to Chart of Accounts → Upload CSV.</p>
+          </div>
+        </div>
+      ) : variations.length === 0 ? (
+        <div className="flex-1 flex items-center justify-center text-center px-6">
+          <div>
+            <p className="text-sm text-zinc-400">No catalog items yet.</p>
+            <p className="text-xs text-zinc-600 mt-1">Click "Sync Catalog" to pull from Square.</p>
+          </div>
+        </div>
+      ) : (
+        <div className="flex-1 overflow-auto pb-8">
+          {/* Column headers */}
+          <div className="sticky top-0 z-10 bg-zinc-900 border-b border-zinc-800 px-4 sm:px-6 py-2 flex items-center gap-3">
+            <div className="flex-1 min-w-0 grid grid-cols-[minmax(0,1fr)_80px_100px_90px] gap-3">
+              <span className="text-[10px] text-zinc-600 uppercase tracking-wider pl-[52px]">Variation</span>
+              <span className="text-[10px] text-zinc-600 uppercase tracking-wider">SKU</span>
+              <span className="text-[10px] text-zinc-600 uppercase tracking-wider">UPC / GTIN</span>
+              <span className="text-[10px] text-zinc-600 uppercase tracking-wider text-right">Price</span>
+            </div>
+            <span className="text-[10px] text-zinc-600 uppercase tracking-wider shrink-0 w-[260px]">GL Account</span>
+          </div>
+
+          <div className="divide-y divide-zinc-800/60">
+            {groups.map((parent) => {
+              const parentKey     = parent.parent_id ?? "__uncategorized__";
+              const isParentExpanded = expandedCategories.has(parentKey);
+              const allVars       = parent.subcategories.flatMap((s) => s.items.flatMap((i) => i.variations));
+              const parentMapped  = allVars.filter((v) => v.chart_of_accounts_id).length;
+              const parentTotal   = allVars.length;
+
+              return (
+                <div key={parentKey}>
+                  {/* Parent category row */}
+                  <div className="flex items-center gap-2 px-4 sm:px-6 py-2.5 bg-zinc-900/80 border-b border-zinc-800">
+                    <button onClick={() => toggleCategory(parentKey)} className="flex items-center gap-2 flex-1 min-w-0 text-left">
+                      <span className="text-zinc-500 text-xs w-3 shrink-0">{isParentExpanded ? "▾" : "▸"}</span>
+                      <span className="text-sm font-semibold text-zinc-100 truncate">{parent.parent_name}</span>
+                      <span className="text-[10px] text-zinc-600 shrink-0">{parentTotal} variations</span>
+                      {parentMapped > 0 && parentMapped < parentTotal && (
+                        <span className="text-[10px] text-amber-500 shrink-0">{parentMapped} mapped</span>
+                      )}
+                      {parentMapped === parentTotal && parentTotal > 0 && (
+                        <span className="text-[10px] text-green-500 shrink-0">✓ all mapped</span>
+                      )}
+                    </button>
+                    <BulkMapper
+                      unmappedCount={parentTotal - parentMapped}
+                      accounts={accounts}
+                      onApply={(accountId, overwrite) => handleBulkParent(parent.parent_id, accountId, overwrite)}
+                    />
+                  </div>
+
+                  {isParentExpanded && parent.subcategories
+                    .sort((a, b) => a.category_name.localeCompare(b.category_name))
+                    .map((cat) => {
+                      const catKey       = cat.category_id ?? "__uncategorized__";
+                      const isCatExpanded = expandedCategories.has(catKey);
+                      const catVars      = cat.items.flatMap((i) => i.variations);
+                      const catMapped    = catVars.filter((v) => v.chart_of_accounts_id).length;
+                      const catTotal     = catVars.length;
+
+                      // If parent === subcategory (top-level item with no parent), skip the extra level
+                      const isSingleLevel = parentKey === catKey;
+
+                      return (
+                        <div key={catKey}>
+                          {/* Subcategory row — only shown when there's actual nesting */}
+                          {!isSingleLevel && (
+                            <div className="flex items-center gap-2 pl-8 pr-4 sm:pr-6 py-2 bg-zinc-900/50 border-b border-zinc-800/70">
+                              <button onClick={() => toggleCategory(catKey)} className="flex items-center gap-2 flex-1 min-w-0 text-left">
+                                <span className="text-zinc-600 text-xs w-3 shrink-0">{isCatExpanded ? "▾" : "▸"}</span>
+                                <span className="text-xs font-semibold text-zinc-300 truncate">{cat.category_name}</span>
+                                <span className="text-[10px] text-zinc-600 shrink-0">{catTotal} variations</span>
+                                {catMapped > 0 && catMapped < catTotal && (
+                                  <span className="text-[10px] text-amber-500 shrink-0">{catMapped} mapped</span>
+                                )}
+                                {catMapped === catTotal && catTotal > 0 && (
+                                  <span className="text-[10px] text-green-500 shrink-0">✓ all mapped</span>
+                                )}
+                              </button>
+                              <BulkMapper
+                                unmappedCount={catTotal - catMapped}
+                                accounts={accounts}
+                                onApply={(accountId, overwrite) => handleBulkCategory(cat.category_id, accountId, overwrite)}
+                              />
+                            </div>
+                          )}
+
+                          {(isSingleLevel ? isParentExpanded : isCatExpanded) && cat.items
+                            .sort((a, b) => a.item_name.localeCompare(b.item_name))
+                            .map((item) => {
+                            const itemKey = item.square_item_id;
+                            const isItemExpanded = expandedItems.has(itemKey);
+                            const itemMapped = item.variations.filter((v) => v.chart_of_accounts_id).length;
+
+                            return (
+                      <div key={itemKey}>
+                        {/* Item row */}
+                        {(() => {
+                          const catalogItemId = item.variations[0]?.square_catalog_items?.id ?? null;
+                          return (
+                            <div className={`flex items-center gap-2 pr-4 sm:pr-6 py-2 border-t border-zinc-800/40 ${isSingleLevel ? "pl-8" : "pl-14"}`}>
+                              <button
+                                onClick={() => toggleItem(itemKey)}
+                                className="flex items-center gap-2 flex-1 min-w-0 text-left hover:bg-zinc-800/10 transition-colors">
+                                <span className="text-zinc-700 text-xs w-3">{isItemExpanded ? "▾" : "▸"}</span>
+                                <span className={`text-xs font-medium flex-1 truncate ${item.is_archived ? "text-zinc-600 line-through" : "text-zinc-200"}`}>
+                                  {item.item_name}
+                                </span>
+                                <span className="text-[10px] text-zinc-600 shrink-0">{item.variations.length} variation{item.variations.length !== 1 ? "s" : ""}</span>
+                                {itemMapped > 0 && itemMapped < item.variations.length && (
+                                  <span className="text-[10px] text-amber-600 ml-2 shrink-0">{itemMapped}/{item.variations.length}</span>
+                                )}
+                                {itemMapped === item.variations.length && item.variations.length > 0 && (
+                                  <span className="text-[10px] text-green-500 ml-2 shrink-0">✓ all mapped</span>
+                                )}
+                              </button>
+                              {catalogItemId && (
+                                <BulkMapper
+                                  unmappedCount={item.variations.length - itemMapped}
+                                  accounts={accounts}
+                                  onApply={(accountId, overwrite) => handleBulkItem(catalogItemId, accountId, overwrite)}
+                                />
+                              )}
+                            </div>
+                          );
+                        })()}
+
+                        {/* Variation rows */}
+                        {isItemExpanded && item.variations.map((v) => (
+                          <VariationMappingRow
+                            key={v.square_variation_id}
+                            variation={v}
+                            accounts={accounts}
+                            onSave={handleSave}
+                          />
+                        ))}
+                            </div>
+                          );
+                        })}
+                        </div>
+                      );
+                    })}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

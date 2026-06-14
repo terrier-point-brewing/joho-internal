@@ -197,8 +197,9 @@ export default function NavBar() {
                         {[
                           { key: "model",    label: "Model",    href: "/finance/model",        match: "/finance/model"    },
                           { key: "sales",    label: "Sales",    href: "/finance/sales/taproom", match: "/finance/sales"    },
-                          { key: "invoices", label: "Invoices", href: "/finance/invoices",      match: "/finance/invoices" },
-                          { key: "import",   label: "Import",   href: "/finance/import",        match: "/finance/import"   },
+                          { key: "invoices", label: "Invoices", href: "/finance/invoices",                        match: "/finance/invoices"  },
+                          { key: "import",   label: "Import",   href: "/finance/import",                          match: "/finance/import"   },
+                          { key: "settings", label: "Settings", href: "/finance/settings/chart-of-accounts",      match: "/finance/settings" },
                         ].map(({ key, label, href, match }) => (
                           <Link key={key} href={href} className={subtabCls(pathname.startsWith(match))}>
                             {label}

@@ -31,6 +31,28 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "packaging_item_id is required for keg and can links" }, { status: 400 });
   }
 
+  // Resolve catalog FKs from the master tables
+  let catalog_item_id: string | null = null;
+  let catalog_variation_id: string | null = null;
+
+  if (square_item_id) {
+    const { data: master } = await supabase
+      .from("square_catalog_items")
+      .select("id")
+      .eq("square_item_id", square_item_id)
+      .single();
+    catalog_item_id = master?.id ?? null;
+  }
+
+  if (square_variation_id) {
+    const { data: variation } = await supabase
+      .from("square_catalog_variations")
+      .select("id")
+      .eq("square_variation_id", square_variation_id)
+      .single();
+    catalog_variation_id = variation?.id ?? null;
+  }
+
   const { data, error } = await supabase
     .from("recipe_square_links")
     .insert({
@@ -41,6 +63,8 @@ export async function POST(req: NextRequest) {
       square_item_id: square_item_id || null,
       variation_name: variation_name || null,
       item_name: item_name || null,
+      catalog_item_id,
+      catalog_variation_id,
     })
     .select()
     .single();

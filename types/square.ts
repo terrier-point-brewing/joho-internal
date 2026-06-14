@@ -44,8 +44,25 @@ export interface CatalogItemVariation {
   item_variation_data: {
     item_id: string;
     name: string;
-    pricing_type?: string;
+    sku?: string;
+    upc?: string;
+    pricing_type?: string;       // FIXED_PRICING | VARIABLE_PRICING
     price_money?: Money;
+    track_inventory?: boolean;
+    sellable?: boolean;
+    stockable?: boolean;
+    service_duration?: number;   // ms, for service items
+  };
+}
+
+export interface CatalogTax {
+  type: "TAX";
+  id: string;
+  tax_data: {
+    name: string;
+    percentage?: string;
+    inclusion_type?: string;     // ADDITIVE | INCLUSIVE
+    enabled?: boolean;
   };
 }
 
@@ -61,17 +78,33 @@ export interface ComboSlot {
 export interface CatalogItem {
   type: "ITEM";
   id: string;
+  is_deleted?: boolean;
   item_data: {
     name: string;
+    description?: string;
     product_type: string;
     variations: CatalogItemVariation[];
     reporting_category?: { id: string; ordinal: number };
     categories?: { id: string; ordinal: number }[];
+    tax_ids?: string[];
+    is_archived?: boolean;
     combo_type_details?: { slots: ComboSlot[] };
   };
 }
 
-export type CatalogObject = CatalogItem | CatalogItemVariation | { type: string; id: string };
+export interface CatalogCategory {
+  type: "CATEGORY";
+  id: string;
+  category_data: {
+    name: string;
+    is_top_level?: boolean;
+    parent_category?: { id?: string; ordinal?: number };
+    root_category?: string;
+    category_type?: string;  // REGULAR_CATEGORY | MENU_CATEGORY
+  };
+}
+
+export type CatalogObject = CatalogItem | CatalogItemVariation | CatalogCategory | CatalogTax | { type: string; id: string };
 
 export interface AppliedDiscount {
   uid: string;
