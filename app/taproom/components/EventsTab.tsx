@@ -29,7 +29,7 @@ interface PourRow {
 interface PourData {
   event:  TaproomEvent;
   rows:   PourRow[];
-  totals: { quantity: number; gross_cents: number; discount_cents: number; tax_cents: number };
+  totals: { quantity: number; gross_cents: number; discount_cents: number; tax_cents: number; tip_cents: number };
 }
 
 interface EventFormState {
@@ -139,43 +139,67 @@ function PourTable({ eventId }: { eventId: string }) {
   );
 
   const { rows, totals } = data;
+  const netSales = totals.gross_cents - totals.discount_cents;
 
   return (
-    <div className="overflow-x-auto rounded-lg border border-zinc-800">
-      <table className="w-full text-xs">
-        <thead>
-          <tr className="border-b border-zinc-800 bg-zinc-900/60">
-            <th className="text-left px-3 py-2.5 text-zinc-500 font-medium">Variation</th>
-            <th className="text-right px-3 py-2.5 text-zinc-500 font-medium">Qty</th>
-            <th className="text-right px-3 py-2.5 text-zinc-500 font-medium">Gross</th>
-            <th className="text-right px-3 py-2.5 text-zinc-500 font-medium">Discounts</th>
-            <th className="text-right px-3 py-2.5 text-zinc-500 font-medium">Net</th>
-            <th className="text-right px-3 py-2.5 text-zinc-500 font-medium">Tax</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-zinc-800/60">
-          {rows.map((r) => (
-            <tr key={r.variation_id} className="hover:bg-zinc-800/30 transition-colors">
-              <td className="px-3 py-2.5 text-zinc-200">{r.variation_name}</td>
-              <td className="px-3 py-2.5 text-right text-zinc-300">{r.quantity}</td>
-              <td className="px-3 py-2.5 text-right text-zinc-300">{fmtUsd(r.gross_cents)}</td>
-              <td className="px-3 py-2.5 text-right text-zinc-500">{r.discount_cents ? `(${fmtUsd(r.discount_cents)})` : "—"}</td>
-              <td className="px-3 py-2.5 text-right text-zinc-200 font-medium">{fmtUsd(r.gross_cents - r.discount_cents)}</td>
-              <td className="px-3 py-2.5 text-right text-zinc-500">{fmtUsd(r.tax_cents)}</td>
+    <div className="space-y-3">
+      {/* Summary stat strip */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <div className="rounded-md bg-zinc-900 border border-zinc-800 px-3 py-2.5">
+          <p className="text-[10px] text-zinc-500 uppercase tracking-wide mb-0.5">Net Sales</p>
+          <p className="text-sm font-semibold text-amber-400">{fmtUsd(netSales)}</p>
+        </div>
+        <div className="rounded-md bg-zinc-900 border border-zinc-800 px-3 py-2.5">
+          <p className="text-[10px] text-zinc-500 uppercase tracking-wide mb-0.5">Sales Tax</p>
+          <p className="text-sm font-semibold text-zinc-200">{fmtUsd(totals.tax_cents)}</p>
+        </div>
+        <div className="rounded-md bg-zinc-900 border border-zinc-800 px-3 py-2.5">
+          <p className="text-[10px] text-zinc-500 uppercase tracking-wide mb-0.5">Tips</p>
+          <p className="text-sm font-semibold text-zinc-200">{fmtUsd(totals.tip_cents)}</p>
+        </div>
+        <div className="rounded-md bg-zinc-900 border border-zinc-800 px-3 py-2.5">
+          <p className="text-[10px] text-zinc-500 uppercase tracking-wide mb-0.5">Total Collected</p>
+          <p className="text-sm font-semibold text-zinc-100">{fmtUsd(netSales + totals.tax_cents + totals.tip_cents)}</p>
+        </div>
+      </div>
+
+      {/* Variation breakdown table */}
+      <div className="overflow-x-auto rounded-lg border border-zinc-800">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="border-b border-zinc-800 bg-zinc-900/60">
+              <th className="text-left px-3 py-2.5 text-zinc-500 font-medium">Variation</th>
+              <th className="text-right px-3 py-2.5 text-zinc-500 font-medium">Qty</th>
+              <th className="text-right px-3 py-2.5 text-zinc-500 font-medium">Gross</th>
+              <th className="text-right px-3 py-2.5 text-zinc-500 font-medium">Discounts</th>
+              <th className="text-right px-3 py-2.5 text-zinc-500 font-medium">Net</th>
+              <th className="text-right px-3 py-2.5 text-zinc-500 font-medium">Tax</th>
             </tr>
-          ))}
-        </tbody>
-        <tfoot>
-          <tr className="border-t border-zinc-700 bg-zinc-900/60 font-semibold">
-            <td className="px-3 py-2.5 text-zinc-300">Total</td>
-            <td className="px-3 py-2.5 text-right text-zinc-300">{totals.quantity}</td>
-            <td className="px-3 py-2.5 text-right text-zinc-200">{fmtUsd(totals.gross_cents)}</td>
-            <td className="px-3 py-2.5 text-right text-zinc-400">{totals.discount_cents ? `(${fmtUsd(totals.discount_cents)})` : "—"}</td>
-            <td className="px-3 py-2.5 text-right text-amber-400">{fmtUsd(totals.gross_cents - totals.discount_cents)}</td>
-            <td className="px-3 py-2.5 text-right text-zinc-400">{fmtUsd(totals.tax_cents)}</td>
-          </tr>
-        </tfoot>
-      </table>
+          </thead>
+          <tbody className="divide-y divide-zinc-800/60">
+            {rows.map((r) => (
+              <tr key={r.variation_id} className="hover:bg-zinc-800/30 transition-colors">
+                <td className="px-3 py-2.5 text-zinc-200">{r.variation_name}</td>
+                <td className="px-3 py-2.5 text-right text-zinc-300">{r.quantity}</td>
+                <td className="px-3 py-2.5 text-right text-zinc-300">{fmtUsd(r.gross_cents)}</td>
+                <td className="px-3 py-2.5 text-right text-zinc-500">{r.discount_cents ? `(${fmtUsd(r.discount_cents)})` : "—"}</td>
+                <td className="px-3 py-2.5 text-right text-zinc-200 font-medium">{fmtUsd(r.gross_cents - r.discount_cents)}</td>
+                <td className="px-3 py-2.5 text-right text-zinc-500">{fmtUsd(r.tax_cents)}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr className="border-t border-zinc-700 bg-zinc-900/60 font-semibold">
+              <td className="px-3 py-2.5 text-zinc-300">Total</td>
+              <td className="px-3 py-2.5 text-right text-zinc-300">{totals.quantity}</td>
+              <td className="px-3 py-2.5 text-right text-zinc-200">{fmtUsd(totals.gross_cents)}</td>
+              <td className="px-3 py-2.5 text-right text-zinc-400">{totals.discount_cents ? `(${fmtUsd(totals.discount_cents)})` : "—"}</td>
+              <td className="px-3 py-2.5 text-right text-amber-400">{fmtUsd(netSales)}</td>
+              <td className="px-3 py-2.5 text-right text-zinc-400">{fmtUsd(totals.tax_cents)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
     </div>
   );
 }

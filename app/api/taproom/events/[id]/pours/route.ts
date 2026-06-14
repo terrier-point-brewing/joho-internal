@@ -48,15 +48,20 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 
   const eventStart = new Date(event.event_start).getTime();
   const eventEnd   = new Date(event.event_end).getTime();
+  let totalTipsCents = 0;
 
   for (const order of orders) {
     const closedAt = order.closed_at ? new Date(order.closed_at).getTime() : null;
     if (!closedAt || closedAt < eventStart || closedAt > eventEnd) continue;
     if ((order.source?.name ?? "") === "Invoices") continue;
 
+    let orderHasEventPour = false;
+
     for (const li of order.line_items ?? []) {
       const varId = li.catalog_object_id ?? "";
       if (!variationNames.has(varId)) continue;
+
+      orderHasEventPour = true;
 
       const qty      = parseFloat(li.quantity ?? "0");
       const gross    = li.gross_sales_money?.amount ?? 0;
@@ -80,6 +85,10 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
         });
       }
     }
+
+    if (orderHasEventPour) {
+      totalTipsCents += order.total_tip_money?.amount ?? 0;
+    }
   }
 
   const rows = [...byVariation.values()].sort((a, b) => b.gross_cents - a.gross_cents);
@@ -90,8 +99,9 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
       gross_cents:    acc.gross_cents    + r.gross_cents,
       discount_cents: acc.discount_cents + r.discount_cents,
       tax_cents:      acc.tax_cents      + r.tax_cents,
+      tip_cents:      acc.tip_cents,
     }),
-    { quantity: 0, gross_cents: 0, discount_cents: 0, tax_cents: 0 }
+    { quantity: 0, gross_cents: 0, discount_cents: 0, tax_cents: 0, tip_cents: totalTipsCents }
   );
 
   return NextResponse.json({ event, rows, totals });
