@@ -186,9 +186,18 @@ function EditPanel({
   const [saving, setSaving] = useState(false);
   const [error, setError]   = useState<string | null>(null);
 
-  const parentOptions = accounts.filter(
-    (a) => a.id !== account.id && !a.parent_id // only top-level accounts as parents
-  );
+  // Collect all descendant ids to prevent creating cycles
+  function getDescendants(id: string): Set<string> {
+    const result = new Set<string>();
+    const queue = [id];
+    while (queue.length) {
+      const cur = queue.shift()!;
+      accounts.forEach((a) => { if (a.parent_id === cur && !result.has(a.id)) { result.add(a.id); queue.push(a.id); } });
+    }
+    return result;
+  }
+  const descendants = getDescendants(account.id);
+  const parentOptions = accounts.filter((a) => a.id !== account.id && !descendants.has(a.id));
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
@@ -314,6 +323,41 @@ function EditPanel({
 
 // ── Statement View ────────────────────────────────────────────────────────────
 
+function renderAccountTree(
+  sectionAccounts: CoAAccount[],
+  allAccounts: CoAAccount[],
+  parentId: string | null,
+  indent: number,
+  editingId: string | null,
+  onEdit: (id: string) => void,
+  onSave: (updated: CoAAccount) => void,
+  onCloseEdit: () => void,
+): React.ReactNode {
+  const sectionIds = new Set(sectionAccounts.map((a) => a.id));
+  const children = sectionAccounts.filter((a) => {
+    if (parentId === null) {
+      // root: parent_id is null OR parent is outside this section
+      return !a.parent_id || !sectionIds.has(a.parent_id);
+    }
+    return a.parent_id === parentId;
+  });
+
+  return children.map((acct) => (
+    <div key={acct.id}>
+      <AccountRow
+        account={acct}
+        allAccounts={allAccounts}
+        indent={indent}
+        isEditing={editingId === acct.id}
+        onEdit={() => onEdit(acct.id)}
+        onSave={onSave}
+        onCloseEdit={onCloseEdit}
+      />
+      {renderAccountTree(sectionAccounts, allAccounts, acct.id, indent + 1, editingId, onEdit, onSave, onCloseEdit)}
+    </div>
+  ));
+}
+
 function StatementSection({
   sectionKey,
   accounts,
@@ -333,9 +377,6 @@ function StatementSection({
 }) {
   const [expanded, setExpanded] = useState(true);
 
-  const parents  = accounts.filter((a) => !a.parent_id);
-  const children = accounts.filter((a) => a.parent_id);
-
   if (accounts.length === 0) return null;
 
   return (
@@ -349,47 +390,7 @@ function StatementSection({
 
       {expanded && (
         <div className="pb-1">
-          {parents.map((acct) => {
-            const subs = children.filter((c) => c.parent_id === acct.id);
-            return (
-              <div key={acct.id}>
-                <AccountRow
-                  account={acct}
-                  allAccounts={allAccounts}
-                  indent={0}
-                  isEditing={editingId === acct.id}
-                  onEdit={() => onEdit(acct.id)}
-                  onSave={onSave}
-                  onCloseEdit={onCloseEdit}
-                />
-                {subs.map((sub) => (
-                  <AccountRow
-                    key={sub.id}
-                    account={sub}
-                    allAccounts={allAccounts}
-                    indent={1}
-                    isEditing={editingId === sub.id}
-                    onEdit={() => onEdit(sub.id)}
-                    onSave={onSave}
-                    onCloseEdit={onCloseEdit}
-                  />
-                ))}
-              </div>
-            );
-          })}
-          {/* orphaned children whose parent is in a different section */}
-          {children.filter((c) => !parents.find((p) => p.id === c.parent_id)).map((acct) => (
-            <AccountRow
-              key={acct.id}
-              account={acct}
-              allAccounts={allAccounts}
-              indent={1}
-              isEditing={editingId === acct.id}
-              onEdit={() => onEdit(acct.id)}
-              onSave={onSave}
-              onCloseEdit={onCloseEdit}
-            />
-          ))}
+          {renderAccountTree(accounts, allAccounts, null, 0, editingId, onEdit, onSave, onCloseEdit)}
         </div>
       )}
     </div>
@@ -420,10 +421,10 @@ function AccountRow({
       <button
         onClick={onEdit}
         className={`w-full grid grid-cols-[minmax(0,1fr)_auto] gap-3 text-left border-t border-zinc-800/30 transition-colors hover:bg-zinc-900/30 ${isEditing ? "bg-zinc-900/50" : ""} ${!account.is_active ? "opacity-40" : ""}`}
-        style={{ paddingLeft: `${(indent + 1) * 1.5 + 1}rem`, paddingRight: "1rem", paddingTop: "0.375rem", paddingBottom: "0.375rem" }}
+        style={{ paddingLeft: `${(indent + 1) * 1.25 + 0.75}rem`, paddingRight: "1rem", paddingTop: "0.375rem", paddingBottom: "0.375rem" }}
       >
         <div className="flex items-center gap-2 min-w-0">
-          {indent > 0 && <span className="text-zinc-700 shrink-0">└</span>}
+          {indent > 0 && <span className="text-zinc-700 shrink-0 font-mono text-[10px]">{"·".repeat(indent)}└</span>}
           {account.account_number && (
             <span className="text-zinc-600 font-mono text-xs shrink-0">{account.account_number}</span>
           )}
@@ -709,7 +710,7 @@ export default function ChartOfAccountsPage() {
                   onChange={(e) => setAddForm((f) => ({ ...f, parent_id: e.target.value }))}
                   className="w-full bg-zinc-800 border border-zinc-700 rounded px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-amber-600">
                   <option value="">— none (top-level) —</option>
-                  {accounts.filter((a) => !a.parent_id)
+                  {accounts
                     .sort((a, b) => (a.account_number ?? "").localeCompare(b.account_number ?? "") || a.account_name.localeCompare(b.account_name))
                     .map((a) => (
                       <option key={a.id} value={a.id}>
