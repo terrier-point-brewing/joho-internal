@@ -283,15 +283,19 @@ function TransactionRow({
 
 // ── Sync panel ────────────────────────────────────────────────────────────────
 
+const MONTH_LABELS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
 function SyncPanel({ year, onSynced }: { year: number; onSynced: () => void }) {
+  const currentMonth = new Date().getMonth() + 1;
+  const [month, setMonth]   = useState(currentMonth);
   const [syncing, setSyncing] = useState(false);
-  const [result, setResult]   = useState<{ synced: number; updated: number; total: number; errors?: string[] } | null>(null);
+  const [result, setResult]   = useState<{ synced: number; updated: number; total: number; dateRange?: { startDate: string; endDate: string }; errors?: string[] } | null>(null);
   const [error, setError]     = useState<string | null>(null);
 
   async function handleSync() {
     setSyncing(true); setError(null); setResult(null);
     try {
-      const res  = await fetch(`/api/finance/transactions/sync?year=${year}`, { method: "POST" });
+      const res  = await fetch(`/api/finance/transactions/sync?year=${year}&month=${month}`, { method: "POST" });
       const json = await res.json();
       if (!res.ok) { setError(json.error ?? "Sync failed"); return; }
       setResult(json);
@@ -301,18 +305,24 @@ function SyncPanel({ year, onSynced }: { year: number; onSynced: () => void }) {
     } finally { setSyncing(false); }
   }
 
+  const monthLabel = month === 0 ? "full year" : MONTH_LABELS[month - 1];
+
   return (
-    <div className="flex items-center gap-3 flex-wrap">
+    <div className="flex items-center gap-2 flex-wrap">
+      <select value={month} onChange={(e) => { setMonth(Number(e.target.value)); setResult(null); }}
+        className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-xs text-zinc-200">
+        {MONTH_LABELS.map((lbl, i) => <option key={i + 1} value={i + 1}>{lbl}</option>)}
+        <option value={0}>Full year</option>
+      </select>
       <button onClick={handleSync} disabled={syncing}
-        className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 text-zinc-200 text-xs rounded border border-zinc-700 transition-colors">
-        {syncing ? "Syncing…" : `Sync ${year} from Square`}
+        className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 text-zinc-200 text-xs rounded border border-zinc-700 transition-colors whitespace-nowrap">
+        {syncing ? `Syncing ${monthLabel}…` : `Sync ${monthLabel} from Square`}
       </button>
       {error && <span className="text-xs text-red-400">{error}</span>}
       {result && (
         <span className="text-xs text-zinc-400">
-          {result.synced > 0 && <span className="text-green-400 mr-2">{result.synced} new</span>}
-          {result.updated > 0 && <span className="text-zinc-300 mr-2">{result.updated} updated</span>}
-          {result.total === 0 && <span className="text-zinc-600">No transactions found</span>}
+          {result.synced > 0 && <span className="text-green-400 mr-2">{result.synced} orders</span>}
+          {result.total === 0 && <span className="text-zinc-600">No orders found</span>}
           {result.errors?.length ? <span className="text-red-400 ml-2">{result.errors.length} errors</span> : null}
         </span>
       )}
@@ -349,9 +359,12 @@ export default function SquareTransactionsPage() {
 
   // Load CoA for dropdowns
   useEffect(() => {
-    fetch("/api/finance/chart-of-accounts")
-      .then((r) => r.json())
-      .then((d) => setAccounts(Array.isArray(d) ? d : []));
+    async function loadAccounts() {
+      const r = await fetch("/api/finance/chart-of-accounts");
+      const d = await r.json();
+      setAccounts(Array.isArray(d) ? d : []);
+    }
+    loadAccounts();
   }, []);
 
   useEffect(() => { loadTransactions(year, page); }, [year, page, loadTransactions]);

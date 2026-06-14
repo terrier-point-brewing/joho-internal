@@ -68,7 +68,7 @@ export async function GET(req: NextRequest) {
     .filter((v): v is string => !!v && true);
 
   const uniqueVarIds = [...new Set(variationIds)];
-  let mappingLookup: Record<string, { id: string; account_name: string; account_number: string | null; account_type: string }> = {};
+  const mappingLookup: Record<string, { id: string; account_name: string; account_number: string | null; account_type: string }> = {};
 
   if (uniqueVarIds.length > 0) {
     const { data: mappings } = await supabase
