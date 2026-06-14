@@ -367,6 +367,7 @@ export default function SquareTransactionsPage() {
     loadAccounts();
   }, []);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { loadTransactions(year, page); }, [year, page, loadTransactions]);
 
   function handleYearChange(y: number) { setYear(y); setPage(1); }
