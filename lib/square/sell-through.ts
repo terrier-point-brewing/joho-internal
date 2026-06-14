@@ -92,11 +92,10 @@ export async function fetchSellThrough(
 
   const draftVarsByItem = new Map<string, { id: string; oz: number | null }[]>();
   if (draftItemIds.length > 0) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: siblings } = await (supabase as any)
+    const { data: siblings } = await supabase
       .from("square_catalog_variations")
       .select("square_variation_id, square_item_id, variation_name")
-      .in("square_item_id", draftItemIds) as { data: any[] | null };
+      .in("square_item_id", draftItemIds);
     for (const v of siblings ?? []) {
       const itemId = v.square_item_id as string;
       const list = draftVarsByItem.get(itemId) ?? [];
