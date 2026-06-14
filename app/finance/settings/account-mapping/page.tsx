@@ -309,6 +309,7 @@ export default function AccountMappingPage() {
     }
   }, []);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { loadAll(); }, [loadAll]);
 
   async function handleSync() {
@@ -498,7 +499,7 @@ export default function AccountMappingPage() {
         <div className="flex-1 flex items-center justify-center text-center px-6">
           <div>
             <p className="text-sm text-zinc-400">No catalog items yet.</p>
-            <p className="text-xs text-zinc-600 mt-1">Click "Sync Catalog" to pull from Square.</p>
+            <p className="text-xs text-zinc-600 mt-1">Click &ldquo;Sync Catalog&rdquo; to pull from Square.</p>
           </div>
         </div>
       ) : (
