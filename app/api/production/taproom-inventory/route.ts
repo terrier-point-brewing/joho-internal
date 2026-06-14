@@ -1,126 +1,69 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { fetchCurrentCounts, fetchOrderSales } from "@/lib/square/inventory";
+import { fetchSellThrough, SELL_THROUGH_WINDOW_DAYS } from "@/lib/square/sell-through";
 import { apiError } from "@/lib/utils/api";
-import { BBL_TO_FL_OZ } from "@/lib/constants/production";
-import { canOzPerUnit } from "@/lib/reports/bbl-tracker";
 
 export const dynamic = "force-dynamic";
 
-interface LinkRow {
-  id: string;
-  packaging: "draft" | "keg" | "can";
-  packaging_item_id: string | null;
-  square_variation_id: string;
-  variation_name: string | null;
-  item_name: string | null;
-  recipe_id: string;
-  recipes: {
-    beer_name: string;
-    days_brewhouse: number | null;
-    days_fermenter: number | null;
-    days_brite: number | null;
-  } | null;
-  packaging_items: {
-    id: string;
-    name: string;
-    type: string;
-    volume_fl_oz: number | null;
-  } | null;
-}
-
-const WINDOW_DAYS = 28;
 const MS_DAY = 86400000;
-
-function unitsToBbl(qty: number, volumeFlOz: number | null): number {
-  if (!volumeFlOz) return 0;
-  return (qty * volumeFlOz) / BBL_TO_FL_OZ;
-}
-
-function resolveOzPerUnit(link: LinkRow): number | null {
-  if (link.packaging === "keg") return link.packaging_items?.volume_fl_oz ?? null;
-  if (link.packaging === "can") {
-    if (link.variation_name) return canOzPerUnit(link.variation_name);
-    return link.packaging_items?.volume_fl_oz ?? null;
-  }
-  if (link.packaging === "draft") {
-    const m = link.variation_name?.match(/(\d+(?:\.\d+)?)oz/i);
-    return m ? parseFloat(m[1]) : null;
-  }
-  return null;
-}
 
 export async function GET() {
   const supabase = await createSupabaseServerClient();
 
   try {
-    const { data: links, error } = await supabase
-      .from("recipe_square_links")
-      .select("id, packaging, packaging_item_id, square_variation_id, variation_name, item_name, recipe_id, recipes(beer_name, days_brewhouse, days_fermenter, days_brite), packaging_items(id, name, type, volume_fl_oz)")
-      .returns<LinkRow[]>();
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    if (!links || links.length === 0) return NextResponse.json([]);
-    const typedLinks = links as LinkRow[];
-
-    const { data: retiredSettings } = await supabase
-      .from("taproom_recipe_settings")
-      .select("recipe_id, is_retired");
-    const retiredMap = new Map(
-      (retiredSettings ?? []).map((r) => [r.recipe_id as string, Boolean(r.is_retired)])
-    );
-
-    const variationIds = [...new Set(typedLinks.map((l) => l.square_variation_id))];
-
-    const end = new Date();
-    const start = new Date(end.getTime() - WINDOW_DAYS * MS_DAY);
-
-    const [current, salesTotals] = await Promise.all([
-      fetchCurrentCounts(variationIds),
-      fetchOrderSales(
-        start.toISOString().slice(0, 10),
-        end.toISOString().slice(0, 10),
-        variationIds,
-      ),
+    const [sellThrough, retiredRes] = await Promise.all([
+      fetchSellThrough(supabase),
+      supabase.from("taproom_recipe_settings").select("recipe_id, is_retired"),
     ]);
 
-    // Group all links by recipe_id — collapse keg + can + draft into one recipe row.
-    const byRecipe = new Map<string, LinkRow[]>();
-    for (const link of typedLinks) {
+    if (sellThrough.length === 0) return NextResponse.json([]);
+
+    const retiredMap = new Map(
+      (retiredRes.data ?? []).map((r) => [r.recipe_id as string, Boolean(r.is_retired)])
+    );
+
+    // Group links by recipe
+    const byRecipe = new Map<string, typeof sellThrough>();
+    for (const link of sellThrough) {
       const arr = byRecipe.get(link.recipe_id) ?? [];
       arr.push(link);
       byRecipe.set(link.recipe_id, arr);
     }
 
+    const end = new Date();
+
     const rows = [...byRecipe.entries()].map(([recipeId, recipeLinks]) => {
-      const recipe = recipeLinks[0].recipes;
-      const leadTimeDays = (recipe?.days_brewhouse ?? 0) + (recipe?.days_fermenter ?? 0) + (recipe?.days_brite ?? 0);
+      const recipe = recipeLinks[0].recipe;
+      const leadTimeDays =
+        (recipe?.days_brewhouse ?? 0) +
+        (recipe?.days_fermenter ?? 0) +
+        (recipe?.days_brite ?? 0);
 
-      // Per-packaging breakdown.
-      const packagingBreakdown = recipeLinks.map((l) => {
-        const qty = current.get(l.square_variation_id) ?? 0;
-        // Units sold over the window, divided by window days → daily rate.
-        const totalSold = salesTotals.get(l.square_variation_id) ?? 0;
-        const dailySellThrough = totalSold / WINDOW_DAYS;
+      const PACKAGING_ORDER: Record<string, number> = { draft: 0, keg: 1, can: 2 };
 
-        const volFlOz = resolveOzPerUnit(l);
-        return {
-          link_id: l.id,
-          packaging: l.packaging,
-          packaging_item_name: l.packaging_items?.name ?? null,
-          variation_name: l.variation_name,
-          item_name: l.item_name,
-          volume_fl_oz: volFlOz,
-          current_qty: qty,
-          current_bbl: unitsToBbl(qty, volFlOz),
-          daily_sell_through_units: Number(dailySellThrough.toFixed(2)),
-          daily_sell_through_bbl: Number(unitsToBbl(dailySellThrough, volFlOz).toFixed(2)),
-        };
-      });
+      const packagingBreakdown = recipeLinks
+        .map((l) => ({
+          link_id:                   l.link_id,
+          packaging:                 l.packaging,
+          packaging_item_name:       l.packaging_item_name,
+          variation_name:            l.variation_name,
+          item_name:                 l.item_name,
+          volume_fl_oz:              l.volume_fl_oz,
+          current_qty:               l.current_qty,
+          current_bbl:               l.current_bbl,
+          daily_sell_through_units:  l.daily_sell_through_units,
+          daily_sell_through_bbl:    l.daily_sell_through_bbl,
+        }))
+        .sort((a, b) => {
+          const po = (PACKAGING_ORDER[a.packaging] ?? 9) - (PACKAGING_ORDER[b.packaging] ?? 9);
+          if (po !== 0) return po;
+          // Within kegs: sort alphabetically by size name (1/2 < 1/4 < 1/6 = largest first)
+          return (a.packaging_item_name ?? "").localeCompare(b.packaging_item_name ?? "");
+        });
 
-      // Aggregate to recipe level in BBL.
-      const currentBbl = packagingBreakdown.reduce((s, p) => s + p.current_bbl, 0);
+      const currentBbl         = packagingBreakdown.reduce((s, p) => s + p.current_bbl, 0);
       const dailySellThroughBbl = packagingBreakdown.reduce((s, p) => s + p.daily_sell_through_bbl, 0);
-      const minThresholdBbl = 1.5 * dailySellThroughBbl * leadTimeDays;
+      const minThresholdBbl    = 1.5 * dailySellThroughBbl * leadTimeDays;
 
       let stockoutDate: string | null = null;
       let thresholdDate: string | null = null;
@@ -128,13 +71,18 @@ export async function GET() {
       let neededBbl = 0;
 
       if (dailySellThroughBbl > 0) {
-        stockoutDate = new Date(end.getTime() + (currentBbl / dailySellThroughBbl) * MS_DAY).toISOString().slice(0, 10);
+        stockoutDate = new Date(
+          end.getTime() + (currentBbl / dailySellThroughBbl) * MS_DAY
+        ).toISOString().slice(0, 10);
+
         const daysToThreshold = (currentBbl - minThresholdBbl) / dailySellThroughBbl;
         if (daysToThreshold > 0) {
-          thresholdDate = new Date(end.getTime() + daysToThreshold * MS_DAY).toISOString().slice(0, 10);
+          thresholdDate = new Date(end.getTime() + daysToThreshold * MS_DAY)
+            .toISOString()
+            .slice(0, 10);
         }
-        // How much to brew: enough to cover demand through the next production cycle.
-        neededBbl = dailySellThroughBbl * (leadTimeDays + 7); // lead time + 1 week buffer
+
+        neededBbl = dailySellThroughBbl * (leadTimeDays + 7);
         if (stockoutDate && leadTimeDays > 0) {
           brewByDate = new Date(
             new Date(stockoutDate).getTime() - leadTimeDays * MS_DAY
@@ -142,48 +90,35 @@ export async function GET() {
         }
       }
 
-      // 4-week BBL history: fetch weekly sales totals per variation.
-      // We use the pre-fetched salesTotals (28-day window) as a proxy for the trend sparkline.
-      // For a proper weekly breakdown we'd need 4 separate API calls; instead we build
-      // the sparkline from the single window total distributed evenly (flat line),
-      // since the orders API doesn't return per-week breakdowns without extra calls.
-      // The history is used for sparkline display only, not for any calculation.
-      const recipeWeeklyBbl = packagingBreakdown.reduce((s, p) => s + unitsToBbl(p.daily_sell_through_units * 7, p.volume_fl_oz), 0);
+      // Sparkline: 4 weeks of weekly bbl (flat from the 90-day average)
+      const weeklyBbl = dailySellThroughBbl * 7;
       const historyBbl: { week: string; bbl: number | null }[] = [];
       for (let w = 4; w >= 1; w--) {
-        const weekStart = end.getTime() - w * 7 * MS_DAY;
         historyBbl.push({
-          week: new Date(weekStart).toISOString().slice(0, 10),
-          bbl: recipeWeeklyBbl > 0 ? Number(recipeWeeklyBbl.toFixed(2)) : null,
+          week: new Date(end.getTime() - w * 7 * MS_DAY).toISOString().slice(0, 10),
+          bbl:  weeklyBbl > 0 ? Number(weeklyBbl.toFixed(2)) : null,
         });
       }
 
       return {
-        recipe_id: recipeId,
-        style: recipe?.beer_name ?? "—",
-        lead_time_days: leadTimeDays,
-        current_bbl: Number(currentBbl.toFixed(2)),
-        daily_sell_through_bbl: Number(dailySellThroughBbl.toFixed(4)),
-        min_threshold_bbl: Number(minThresholdBbl.toFixed(2)),
-        forecast_threshold_date: thresholdDate,
-        forecast_stockout_date: stockoutDate,
-        needed_bbl: Number(neededBbl.toFixed(2)),
-        brew_by_date: brewByDate,
-        history_bbl: historyBbl,
-        packaging_breakdown: packagingBreakdown,
-        is_retired: retiredMap.get(recipeId) ?? false,
+        recipe_id:                recipeId,
+        style:                    recipe?.beer_name ?? "—",
+        lead_time_days:           leadTimeDays,
+        current_bbl:              Number(currentBbl.toFixed(2)),
+        daily_sell_through_bbl:   Number(dailySellThroughBbl.toFixed(4)),
+        min_threshold_bbl:        Number(minThresholdBbl.toFixed(2)),
+        forecast_threshold_date:  thresholdDate,
+        forecast_stockout_date:   stockoutDate,
+        needed_bbl:               Number(neededBbl.toFixed(2)),
+        brew_by_date:             brewByDate,
+        history_bbl:              historyBbl,
+        packaging_breakdown:      packagingBreakdown,
+        is_retired:               retiredMap.get(recipeId) ?? false,
+        sell_through_window_days: SELL_THROUGH_WINDOW_DAYS,
       };
     });
 
-    return NextResponse.json(rows.sort((a, b) => {
-      // Sort: styles with earlier stockouts first, then alphabetical.
-      if (a.forecast_stockout_date && b.forecast_stockout_date) {
-        return a.forecast_stockout_date.localeCompare(b.forecast_stockout_date);
-      }
-      if (a.forecast_stockout_date) return -1;
-      if (b.forecast_stockout_date) return 1;
-      return a.style.localeCompare(b.style);
-    }));
+    return NextResponse.json(rows.sort((a, b) => a.style.localeCompare(b.style)));
   } catch (err) {
     return apiError(err);
   }

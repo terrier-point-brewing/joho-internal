@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { apiError } from "@/lib/utils/api";
 
 export const dynamic = "force-dynamic";
@@ -21,6 +22,7 @@ export async function GET() {
 
 export async function PUT(req: NextRequest) {
   const supabase = await createSupabaseServerClient();
+  const adminSupabase = createSupabaseAdminClient();
   try {
     const body = await req.json() as {
       tap_count?: number;
@@ -29,7 +31,7 @@ export async function PUT(req: NextRequest) {
     const { tap_count, taps } = body;
 
     if (tap_count !== undefined) {
-      await supabase
+      await adminSupabase
         .from("system_settings")
         .upsert(
           { key: "tap_count", value: tap_count, updated_at: new Date().toISOString() },
