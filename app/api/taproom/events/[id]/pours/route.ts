@@ -75,7 +75,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
         byVariation.set(varId, {
           variation_id:   varId,
           variation_name: variationNames.get(varId)!,
-          quantity,
+          quantity:       qty,
           gross_cents:    gross,
           discount_cents: discount,
           tax_cents:      tax,
