@@ -52,7 +52,7 @@ export async function GET(req: NextRequest) {
   // Load all CoA accounts
   const { data: accounts, error: coaErr } = await supabase
     .from("chart_of_accounts")
-    .select("id, account_number, account_name, account_type")
+    .select("id, account_number, account_name, account_type, statement_section")
     .order("account_type")
     .order("account_number", { nullsFirst: false })
     .order("account_name");
@@ -112,7 +112,7 @@ export async function GET(req: NextRequest) {
       account_number: acct.account_number,
       account_name:  acct.account_name,
       account_type:  acct.account_type,
-      section:       ACCOUNT_TYPE_SECTION[acct.account_type] ?? "other",
+      section:       (acct as { statement_section?: string | null }).statement_section ?? ACCOUNT_TYPE_SECTION[acct.account_type] ?? "other",
       balance_cents: bal.cents,
       source_count:  bal.count,
     };

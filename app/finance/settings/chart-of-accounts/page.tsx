@@ -3,6 +3,8 @@ import { useState, useCallback, useEffect } from "react";
 import FinanceNav from "../../FinanceNav";
 import SettingsNav from "../SettingsNav";
 
+// ── Constants ─────────────────────────────────────────────────────────────────
+
 const ACCOUNT_TYPES = [
   "Bank",
   "Accounts receivable (A/R)",
@@ -20,25 +22,48 @@ const ACCOUNT_TYPES = [
   "Other Expense",
 ];
 
-interface CoAAccount {
-  id: string;
-  account_name: string;
-  account_number: string | null;
-  account_type: string;
-  detail_type: string | null;
-  description: string | null;
-  is_active: boolean;
-  uploaded_at: string;
-}
+type SectionKey =
+  | "revenue" | "other_income" | "cogs" | "expenses" | "other_expense"
+  | "bank" | "ar" | "other_current_assets" | "fixed_assets"
+  | "ap" | "credit_card" | "other_current_liabilities" | "long_term_liabilities"
+  | "equity";
 
-interface ParsedRow {
-  account_name: string;
-  account_number: string | null;
-  account_type: string;
-  detail_type: string | null;
-  description: string | null;
-  is_active: boolean;
-}
+const SECTION_LABELS: Record<SectionKey, string> = {
+  revenue:                   "Revenue (Income)",
+  other_income:              "Other Income",
+  cogs:                      "Cost of Goods Sold",
+  expenses:                  "Operating Expenses",
+  other_expense:             "Other Expense",
+  bank:                      "Bank & Cash",
+  ar:                        "Accounts Receivable",
+  other_current_assets:      "Other Current Assets",
+  fixed_assets:              "Fixed Assets",
+  ap:                        "Accounts Payable",
+  credit_card:               "Credit Cards",
+  other_current_liabilities: "Other Current Liabilities",
+  long_term_liabilities:     "Long-Term Liabilities",
+  equity:                    "Equity",
+};
+
+const PL_SECTIONS:  SectionKey[] = ["revenue","other_income","cogs","expenses","other_expense"];
+const BS_SECTIONS:  SectionKey[] = ["bank","ar","other_current_assets","fixed_assets","ap","credit_card","other_current_liabilities","long_term_liabilities","equity"];
+
+const ACCOUNT_TYPE_SECTION: Record<string, SectionKey> = {
+  "Income":                      "revenue",
+  "Other Income":                "other_income",
+  "Cost of Goods Sold":          "cogs",
+  "Expenses":                    "expenses",
+  "Other Expense":               "other_expense",
+  "Bank":                        "bank",
+  "Accounts receivable (A/R)":   "ar",
+  "Other Current Assets":        "other_current_assets",
+  "Fixed Assets":                "fixed_assets",
+  "Accounts payable (A/P)":      "ap",
+  "Credit Card":                 "credit_card",
+  "Other Current Liabilities":   "other_current_liabilities",
+  "Long Term Liabilities":       "long_term_liabilities",
+  "Equity":                      "equity",
+};
 
 // QBO standard export header aliases
 const HEADER_MAP: Record<string, keyof ParsedRow> = {
@@ -56,6 +81,32 @@ const HEADER_MAP: Record<string, keyof ParsedRow> = {
   "description":    "description",
   "active":         "is_active",
 };
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+interface CoAAccount {
+  id: string;
+  account_name: string;
+  account_number: string | null;
+  account_type: string;
+  detail_type: string | null;
+  description: string | null;
+  is_active: boolean;
+  uploaded_at: string;
+  parent_id: string | null;
+  statement_section: string | null;
+}
+
+interface ParsedRow {
+  account_name: string;
+  account_number: string | null;
+  account_type: string;
+  detail_type: string | null;
+  description: string | null;
+  is_active: boolean;
+}
+
+// ── CSV Parser ────────────────────────────────────────────────────────────────
 
 function parseCSV(text: string): { rows: ParsedRow[]; warnings: string[] } {
   const lines = text.split(/\r?\n/).filter((l) => l.trim());
@@ -97,16 +148,397 @@ function parseCSV(text: string): { rows: ParsedRow[]; warnings: string[] } {
   return { rows, warnings };
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
 function fmt(dt: string) {
   return new Date(dt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
-const BLANK_FORM = { account_name: "", account_number: "", account_type: "", detail_type: "", description: "", is_active: true };
+function effectiveSection(a: CoAAccount): SectionKey {
+  if (a.statement_section && a.statement_section in SECTION_LABELS)
+    return a.statement_section as SectionKey;
+  return ACCOUNT_TYPE_SECTION[a.account_type] ?? ("other" as SectionKey);
+}
+
+// ── Inline Edit Row ───────────────────────────────────────────────────────────
+
+function EditPanel({
+  account,
+  accounts,
+  onSave,
+  onClose,
+}: {
+  account: CoAAccount;
+  accounts: CoAAccount[];
+  onSave: (updated: CoAAccount) => void;
+  onClose: () => void;
+}) {
+  const [form, setForm] = useState({
+    account_name:      account.account_name,
+    account_number:    account.account_number ?? "",
+    account_type:      account.account_type,
+    detail_type:       account.detail_type ?? "",
+    description:       account.description ?? "",
+    is_active:         account.is_active,
+    parent_id:         account.parent_id ?? "",
+    statement_section: account.statement_section ?? "",
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError]   = useState<string | null>(null);
+
+  const parentOptions = accounts.filter(
+    (a) => a.id !== account.id && !a.parent_id // only top-level accounts as parents
+  );
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true); setError(null);
+    try {
+      const res = await fetch("/api/finance/chart-of-accounts", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id:               account.id,
+          account_name:     form.account_name.trim(),
+          account_number:   form.account_number.trim() || null,
+          account_type:     form.account_type,
+          detail_type:      form.detail_type.trim() || null,
+          description:      form.description.trim() || null,
+          is_active:        form.is_active,
+          parent_id:        form.parent_id || null,
+          statement_section: form.statement_section || null,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) { setError(json.error ?? "Failed to save"); return; }
+      onSave({
+        ...account,
+        account_name:      form.account_name.trim(),
+        account_number:    form.account_number.trim() || null,
+        account_type:      form.account_type,
+        detail_type:       form.detail_type.trim() || null,
+        description:       form.description.trim() || null,
+        is_active:         form.is_active,
+        parent_id:         form.parent_id || null,
+        statement_section: form.statement_section || null,
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Network error");
+    } finally { setSaving(false); }
+  }
+
+  return (
+    <form onSubmit={handleSave} className="bg-zinc-900/80 border-t border-zinc-700 px-4 py-4 space-y-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="space-y-1">
+          <label className="text-[10px] uppercase tracking-wider text-zinc-500">Account Name <span className="text-red-400">*</span></label>
+          <input required value={form.account_name} onChange={(e) => setForm((f) => ({ ...f, account_name: e.target.value }))}
+            className="w-full bg-zinc-800 border border-zinc-700 rounded px-2.5 py-1.5 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-amber-600" />
+        </div>
+        <div className="space-y-1">
+          <label className="text-[10px] uppercase tracking-wider text-zinc-500">Account Number</label>
+          <input value={form.account_number} onChange={(e) => setForm((f) => ({ ...f, account_number: e.target.value }))}
+            placeholder="e.g. 4100"
+            className="w-full bg-zinc-800 border border-zinc-700 rounded px-2.5 py-1.5 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-amber-600" />
+        </div>
+        <div className="space-y-1">
+          <label className="text-[10px] uppercase tracking-wider text-zinc-500">Account Type <span className="text-red-400">*</span></label>
+          <select required value={form.account_type} onChange={(e) => setForm((f) => ({ ...f, account_type: e.target.value }))}
+            className="w-full bg-zinc-800 border border-zinc-700 rounded px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-amber-600">
+            {ACCOUNT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </div>
+        <div className="space-y-1">
+          <label className="text-[10px] uppercase tracking-wider text-zinc-500">Parent Account</label>
+          <select value={form.parent_id} onChange={(e) => setForm((f) => ({ ...f, parent_id: e.target.value }))}
+            className="w-full bg-zinc-800 border border-zinc-700 rounded px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-amber-600">
+            <option value="">— none (top-level) —</option>
+            {parentOptions.sort((a, b) => (a.account_number ?? "").localeCompare(b.account_number ?? "") || a.account_name.localeCompare(b.account_name))
+              .map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.account_number ? `${a.account_number} · ` : ""}{a.account_name}
+                </option>
+              ))}
+          </select>
+        </div>
+        <div className="space-y-1">
+          <label className="text-[10px] uppercase tracking-wider text-zinc-500">
+            Statement Section Override
+            <span className="ml-1 text-zinc-600 normal-case">(auto if blank)</span>
+          </label>
+          <select value={form.statement_section} onChange={(e) => setForm((f) => ({ ...f, statement_section: e.target.value }))}
+            className="w-full bg-zinc-800 border border-zinc-700 rounded px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-amber-600">
+            <option value="">— auto from account type —</option>
+            <optgroup label="P&L">
+              {PL_SECTIONS.map((s) => <option key={s} value={s}>{SECTION_LABELS[s]}</option>)}
+            </optgroup>
+            <optgroup label="Balance Sheet">
+              {BS_SECTIONS.map((s) => <option key={s} value={s}>{SECTION_LABELS[s]}</option>)}
+            </optgroup>
+          </select>
+        </div>
+        <div className="space-y-1">
+          <label className="text-[10px] uppercase tracking-wider text-zinc-500">Detail Type</label>
+          <input value={form.detail_type} onChange={(e) => setForm((f) => ({ ...f, detail_type: e.target.value }))}
+            placeholder="e.g. Sales of Product Income"
+            className="w-full bg-zinc-800 border border-zinc-700 rounded px-2.5 py-1.5 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-amber-600" />
+        </div>
+        <div className="space-y-1 sm:col-span-2">
+          <label className="text-[10px] uppercase tracking-wider text-zinc-500">Description</label>
+          <input value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+            placeholder="Optional description"
+            className="w-full bg-zinc-800 border border-zinc-700 rounded px-2.5 py-1.5 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-amber-600" />
+        </div>
+      </div>
+      <div className="flex items-center justify-between">
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" checked={form.is_active} onChange={(e) => setForm((f) => ({ ...f, is_active: e.target.checked }))}
+            className="accent-amber-500" />
+          <span className="text-xs text-zinc-400">Active</span>
+        </label>
+        <div className="flex gap-2">
+          {error && <span className="text-xs text-red-400 self-center">{error}</span>}
+          <button type="button" onClick={onClose}
+            className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs rounded transition-colors">
+            Cancel
+          </button>
+          <button type="submit" disabled={saving}
+            className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 disabled:opacity-40 text-white text-xs rounded transition-colors">
+            {saving ? "Saving…" : "Save"}
+          </button>
+        </div>
+      </div>
+    </form>
+  );
+}
+
+// ── Statement View ────────────────────────────────────────────────────────────
+
+function StatementSection({
+  sectionKey,
+  accounts,
+  allAccounts,
+  editingId,
+  onEdit,
+  onSave,
+  onCloseEdit,
+}: {
+  sectionKey: SectionKey;
+  accounts: CoAAccount[];
+  allAccounts: CoAAccount[];
+  editingId: string | null;
+  onEdit: (id: string) => void;
+  onSave: (updated: CoAAccount) => void;
+  onCloseEdit: () => void;
+}) {
+  const [expanded, setExpanded] = useState(true);
+
+  const parents  = accounts.filter((a) => !a.parent_id);
+  const children = accounts.filter((a) => a.parent_id);
+
+  if (accounts.length === 0) return null;
+
+  return (
+    <div className="border-b border-zinc-800/60">
+      <button onClick={() => setExpanded((e) => !e)}
+        className="w-full flex items-center gap-2 px-4 sm:px-6 py-2.5 hover:bg-zinc-900/40 text-left transition-colors">
+        <span className="text-zinc-600 text-[10px] w-3">{expanded ? "▾" : "▸"}</span>
+        <span className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">{SECTION_LABELS[sectionKey]}</span>
+        <span className="ml-auto text-[10px] text-zinc-600">{accounts.length} account{accounts.length !== 1 ? "s" : ""}</span>
+      </button>
+
+      {expanded && (
+        <div className="pb-1">
+          {parents.map((acct) => {
+            const subs = children.filter((c) => c.parent_id === acct.id);
+            return (
+              <div key={acct.id}>
+                <AccountRow
+                  account={acct}
+                  allAccounts={allAccounts}
+                  indent={0}
+                  isEditing={editingId === acct.id}
+                  onEdit={() => onEdit(acct.id)}
+                  onSave={onSave}
+                  onCloseEdit={onCloseEdit}
+                />
+                {subs.map((sub) => (
+                  <AccountRow
+                    key={sub.id}
+                    account={sub}
+                    allAccounts={allAccounts}
+                    indent={1}
+                    isEditing={editingId === sub.id}
+                    onEdit={() => onEdit(sub.id)}
+                    onSave={onSave}
+                    onCloseEdit={onCloseEdit}
+                  />
+                ))}
+              </div>
+            );
+          })}
+          {/* orphaned children whose parent is in a different section */}
+          {children.filter((c) => !parents.find((p) => p.id === c.parent_id)).map((acct) => (
+            <AccountRow
+              key={acct.id}
+              account={acct}
+              allAccounts={allAccounts}
+              indent={1}
+              isEditing={editingId === acct.id}
+              onEdit={() => onEdit(acct.id)}
+              onSave={onSave}
+              onCloseEdit={onCloseEdit}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AccountRow({
+  account,
+  allAccounts,
+  indent,
+  isEditing,
+  onEdit,
+  onSave,
+  onCloseEdit,
+}: {
+  account: CoAAccount;
+  allAccounts: CoAAccount[];
+  indent: number;
+  isEditing: boolean;
+  onEdit: () => void;
+  onSave: (updated: CoAAccount) => void;
+  onCloseEdit: () => void;
+}) {
+  const hasOverride = !!account.statement_section;
+
+  return (
+    <>
+      <button
+        onClick={onEdit}
+        className={`w-full grid grid-cols-[minmax(0,1fr)_auto] gap-3 text-left border-t border-zinc-800/30 transition-colors hover:bg-zinc-900/30 ${isEditing ? "bg-zinc-900/50" : ""} ${!account.is_active ? "opacity-40" : ""}`}
+        style={{ paddingLeft: `${(indent + 1) * 1.5 + 1}rem`, paddingRight: "1rem", paddingTop: "0.375rem", paddingBottom: "0.375rem" }}
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          {indent > 0 && <span className="text-zinc-700 shrink-0">└</span>}
+          {account.account_number && (
+            <span className="text-zinc-600 font-mono text-xs shrink-0">{account.account_number}</span>
+          )}
+          <span className="text-xs text-zinc-200 truncate">{account.account_name}</span>
+          {hasOverride && (
+            <span className="text-[9px] px-1 py-0.5 rounded bg-amber-900/40 text-amber-400 border border-amber-800/40 shrink-0">override</span>
+          )}
+          {!account.is_active && <span className="text-[9px] text-zinc-600 shrink-0">inactive</span>}
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          {account.detail_type && (
+            <span className="text-[10px] text-zinc-600 hidden sm:block truncate max-w-[120px]">{account.detail_type}</span>
+          )}
+          <span className="text-zinc-600 text-xs">✎</span>
+        </div>
+      </button>
+      {isEditing && (
+        <EditPanel
+          account={account}
+          accounts={allAccounts}
+          onSave={onSave}
+          onClose={onCloseEdit}
+        />
+      )}
+    </>
+  );
+}
+
+// ── Type View (existing grouped-by-type) ─────────────────────────────────────
+
+function TypeViewTable({ accounts, allAccounts, editingId, onEdit, onSave, onCloseEdit }: {
+  accounts: CoAAccount[];
+  allAccounts: CoAAccount[];
+  editingId: string | null;
+  onEdit: (id: string) => void;
+  onSave: (updated: CoAAccount) => void;
+  onCloseEdit: () => void;
+}) {
+  const typeGroups = accounts.reduce<Record<string, CoAAccount[]>>((acc, a) => {
+    (acc[a.account_type] ??= []).push(a);
+    return acc;
+  }, {});
+
+  return (
+    <div className="space-y-5">
+      {Object.entries(typeGroups).sort(([a], [b]) => a.localeCompare(b)).map(([type, rows]) => (
+        <div key={type}>
+          <h3 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-2">{type}</h3>
+          <div className="bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden">
+            <table className="w-full text-xs border-collapse">
+              <thead>
+                <tr className="border-b border-zinc-800">
+                  <th className="px-3 py-2 text-left text-zinc-500 font-medium w-6"></th>
+                  <th className="px-3 py-2 text-left text-zinc-500 font-medium w-24">Number</th>
+                  <th className="px-3 py-2 text-left text-zinc-500 font-medium">Name</th>
+                  <th className="px-3 py-2 text-left text-zinc-500 font-medium hidden sm:table-cell">Section</th>
+                  <th className="px-3 py-2 text-left text-zinc-500 font-medium hidden md:table-cell">Detail Type</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.sort((a, b) => (a.account_number ?? "").localeCompare(b.account_number ?? "") || a.account_name.localeCompare(b.account_name)).map((a) => {
+                  const sec = effectiveSection(a);
+                  const hasOverride = !!a.statement_section;
+                  return (
+                    <>
+                      <tr key={a.id}
+                        onClick={() => onEdit(a.id)}
+                        className={`border-t border-zinc-800/50 cursor-pointer hover:bg-zinc-800/40 transition-colors ${!a.is_active ? "opacity-40" : ""} ${editingId === a.id ? "bg-zinc-800/60" : ""}`}>
+                        <td className="px-3 py-1.5 text-zinc-600 text-center">
+                          {a.parent_id && <span className="text-zinc-700">└</span>}
+                        </td>
+                        <td className="px-3 py-1.5 font-mono text-zinc-500">{a.account_number ?? "—"}</td>
+                        <td className="px-3 py-1.5 text-zinc-200">{a.account_name}</td>
+                        <td className="px-3 py-1.5 hidden sm:table-cell">
+                          <span className={`text-[10px] ${hasOverride ? "text-amber-400" : "text-zinc-600"}`}>
+                            {SECTION_LABELS[sec] ?? sec}
+                            {hasOverride && " ✎"}
+                          </span>
+                        </td>
+                        <td className="px-3 py-1.5 text-zinc-500 hidden md:table-cell">{a.detail_type ?? "—"}</td>
+                      </tr>
+                      {editingId === a.id && (
+                        <tr key={`${a.id}-edit`}>
+                          <td colSpan={5} className="p-0">
+                            <EditPanel
+                              account={a}
+                              accounts={allAccounts}
+                              onSave={onSave}
+                              onClose={onCloseEdit}
+                            />
+                          </td>
+                        </tr>
+                      )}
+                    </>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Page ──────────────────────────────────────────────────────────────────────
+
+const BLANK_FORM = { account_name: "", account_number: "", account_type: "", detail_type: "", description: "", is_active: true, parent_id: "", statement_section: "" };
 
 export default function ChartOfAccountsPage() {
   const [accounts, setAccounts]   = useState<CoAAccount[]>([]);
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState<string | null>(null);
+  const [viewMode, setViewMode]   = useState<"type" | "statement">("statement");
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   // upload state
   const [step, setStep]           = useState<"idle" | "preview" | "done">("idle");
@@ -157,7 +589,6 @@ export default function ChartOfAccountsPage() {
       if (!res.ok) { setUploadError(json.error ?? "Upload failed"); return; }
       setInserted(json.upserted ?? json.inserted ?? 0);
       setStep("done");
-      // Reload the list
       const fresh = await fetch("/api/finance/chart-of-accounts").then((r) => r.json());
       setAccounts(Array.isArray(fresh) ? fresh : []);
     } catch (e) {
@@ -176,12 +607,14 @@ export default function ChartOfAccountsPage() {
         body: JSON.stringify({
           keepExtras: true,
           accounts: [{
-            account_name:   addForm.account_name.trim(),
-            account_number: addForm.account_number.trim() || null,
-            account_type:   addForm.account_type,
-            detail_type:    addForm.detail_type.trim() || null,
-            description:    addForm.description.trim() || null,
-            is_active:      addForm.is_active,
+            account_name:      addForm.account_name.trim(),
+            account_number:    addForm.account_number.trim() || null,
+            account_type:      addForm.account_type,
+            detail_type:       addForm.detail_type.trim() || null,
+            description:       addForm.description.trim() || null,
+            is_active:         addForm.is_active,
+            parent_id:         addForm.parent_id || null,
+            statement_section: addForm.statement_section || null,
           }],
         }),
       });
@@ -196,11 +629,21 @@ export default function ChartOfAccountsPage() {
     } finally { setAddSaving(false); }
   }
 
+  function handleSaveEdit(updated: CoAAccount) {
+    setAccounts((prev) => prev.map((a) => a.id === updated.id ? updated : a));
+    setEditingId(null);
+  }
+
+  function handleEdit(id: string) {
+    setEditingId((cur) => cur === id ? null : id);
+  }
+
   const uploadedAt = accounts[0]?.uploaded_at;
-  const typeGroups = accounts.reduce<Record<string, CoAAccount[]>>((acc, a) => {
-    (acc[a.account_type] ??= []).push(a);
-    return acc;
-  }, {});
+
+  // Build statement view data
+  const allSections = [...PL_SECTIONS, ...BS_SECTIONS];
+  const sectionAccounts = (key: SectionKey) => accounts.filter((a) => effectiveSection(a) === key);
+  const uncategorized   = accounts.filter((a) => !allSections.includes(effectiveSection(a)));
 
   return (
     <div className="flex flex-col h-full bg-zinc-950 text-zinc-100">
@@ -218,7 +661,7 @@ export default function ChartOfAccountsPage() {
         {step === "idle" && (
           <div className="flex items-center gap-2 shrink-0">
             <button
-              onClick={() => { setShowAddForm((v) => !v); setAddError(null); }}
+              onClick={() => { setShowAddForm((v) => !v); setAddError(null); setEditingId(null); }}
               className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium rounded border border-zinc-700 transition-colors">
               {showAddForm ? "Cancel" : "Add Account"}
             </button>
@@ -239,28 +682,21 @@ export default function ChartOfAccountsPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
                 <label className="text-[10px] uppercase tracking-wider text-zinc-500">Account Name <span className="text-red-400">*</span></label>
-                <input
-                  required
-                  value={addForm.account_name}
+                <input required value={addForm.account_name}
                   onChange={(e) => setAddForm((f) => ({ ...f, account_name: e.target.value }))}
                   placeholder="e.g. Merchandise Sales"
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded px-2.5 py-1.5 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-amber-600"
-                />
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded px-2.5 py-1.5 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-amber-600" />
               </div>
               <div className="space-y-1">
                 <label className="text-[10px] uppercase tracking-wider text-zinc-500">Account Number</label>
-                <input
-                  value={addForm.account_number}
+                <input value={addForm.account_number}
                   onChange={(e) => setAddForm((f) => ({ ...f, account_number: e.target.value }))}
                   placeholder="e.g. 4100"
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded px-2.5 py-1.5 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-amber-600"
-                />
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded px-2.5 py-1.5 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-amber-600" />
               </div>
               <div className="space-y-1">
                 <label className="text-[10px] uppercase tracking-wider text-zinc-500">Account Type <span className="text-red-400">*</span></label>
-                <select
-                  required
-                  value={addForm.account_type}
+                <select required value={addForm.account_type}
                   onChange={(e) => setAddForm((f) => ({ ...f, account_type: e.target.value }))}
                   className="w-full bg-zinc-800 border border-zinc-700 rounded px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-amber-600">
                   <option value="">— select type —</option>
@@ -268,32 +704,57 @@ export default function ChartOfAccountsPage() {
                 </select>
               </div>
               <div className="space-y-1">
+                <label className="text-[10px] uppercase tracking-wider text-zinc-500">Parent Account</label>
+                <select value={addForm.parent_id}
+                  onChange={(e) => setAddForm((f) => ({ ...f, parent_id: e.target.value }))}
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-amber-600">
+                  <option value="">— none (top-level) —</option>
+                  {accounts.filter((a) => !a.parent_id)
+                    .sort((a, b) => (a.account_number ?? "").localeCompare(b.account_number ?? "") || a.account_name.localeCompare(b.account_name))
+                    .map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.account_number ? `${a.account_number} · ` : ""}{a.account_name}
+                      </option>
+                    ))}
+                </select>
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] uppercase tracking-wider text-zinc-500">
+                  Statement Section Override
+                  <span className="ml-1 text-zinc-600 normal-case">(auto if blank)</span>
+                </label>
+                <select value={addForm.statement_section}
+                  onChange={(e) => setAddForm((f) => ({ ...f, statement_section: e.target.value }))}
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-amber-600">
+                  <option value="">— auto from account type —</option>
+                  <optgroup label="P&L">
+                    {PL_SECTIONS.map((s) => <option key={s} value={s}>{SECTION_LABELS[s]}</option>)}
+                  </optgroup>
+                  <optgroup label="Balance Sheet">
+                    {BS_SECTIONS.map((s) => <option key={s} value={s}>{SECTION_LABELS[s]}</option>)}
+                  </optgroup>
+                </select>
+              </div>
+              <div className="space-y-1">
                 <label className="text-[10px] uppercase tracking-wider text-zinc-500">Detail Type</label>
-                <input
-                  value={addForm.detail_type}
+                <input value={addForm.detail_type}
                   onChange={(e) => setAddForm((f) => ({ ...f, detail_type: e.target.value }))}
                   placeholder="e.g. Sales of Product Income"
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded px-2.5 py-1.5 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-amber-600"
-                />
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded px-2.5 py-1.5 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-amber-600" />
               </div>
               <div className="space-y-1 sm:col-span-2">
                 <label className="text-[10px] uppercase tracking-wider text-zinc-500">Description</label>
-                <input
-                  value={addForm.description}
+                <input value={addForm.description}
                   onChange={(e) => setAddForm((f) => ({ ...f, description: e.target.value }))}
                   placeholder="Optional description"
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded px-2.5 py-1.5 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-amber-600"
-                />
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded px-2.5 py-1.5 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-amber-600" />
               </div>
             </div>
             <div className="flex items-center gap-3">
               <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={addForm.is_active}
+                <input type="checkbox" checked={addForm.is_active}
                   onChange={(e) => setAddForm((f) => ({ ...f, is_active: e.target.checked }))}
-                  className="accent-amber-500"
-                />
+                  className="accent-amber-500" />
                 <span className="text-xs text-zinc-400">Active</span>
               </label>
             </div>
@@ -333,21 +794,21 @@ export default function ChartOfAccountsPage() {
             return { row, status: hasChanged(row, existing) ? "updated" : "unchanged" };
           });
 
-          const toDelete   = accounts.filter((a) => !csvNames.has(a.account_name));
-          const newCount   = taggedRows.filter((r) => r.status === "new").length;
-          const updCount   = taggedRows.filter((r) => r.status === "updated").length;
-          const sameCount  = taggedRows.filter((r) => r.status === "unchanged").length;
-          const delCount   = toDelete.length;
+          const toDelete  = accounts.filter((a) => !csvNames.has(a.account_name));
+          const newCount  = taggedRows.filter((r) => r.status === "new").length;
+          const updCount  = taggedRows.filter((r) => r.status === "updated").length;
+          const sameCount = taggedRows.filter((r) => r.status === "unchanged").length;
+          const delCount  = toDelete.length;
 
           return (
             <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-5 space-y-4">
               <div>
                 <h2 className="text-sm font-semibold text-zinc-200">Review before uploading</h2>
                 <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1.5">
-                  {newCount > 0 && <span className="text-xs text-green-400"><span className="font-semibold">{newCount}</span> new</span>}
-                  {updCount > 0 && <span className="text-xs text-amber-400"><span className="font-semibold">{updCount}</span> updated</span>}
+                  {newCount  > 0 && <span className="text-xs text-green-400"><span className="font-semibold">{newCount}</span> new</span>}
+                  {updCount  > 0 && <span className="text-xs text-amber-400"><span className="font-semibold">{updCount}</span> updated</span>}
                   {sameCount > 0 && <span className="text-xs text-zinc-500"><span className="font-semibold">{sameCount}</span> unchanged</span>}
-                  {delCount > 0 && <span className="text-xs text-red-400"><span className="font-semibold">{delCount}</span> deleted</span>}
+                  {delCount  > 0 && <span className="text-xs text-red-400"><span className="font-semibold">{delCount}</span> deleted</span>}
                 </div>
               </div>
 
@@ -438,37 +899,77 @@ export default function ChartOfAccountsPage() {
             <p className="text-sm text-zinc-400">No chart of accounts loaded yet.</p>
             <p className="text-xs text-zinc-600">Upload a QuickBooks Online CSV export to get started.</p>
           </div>
-        ) : (
-          <div className="space-y-5">
-            {Object.entries(typeGroups).sort(([a], [b]) => a.localeCompare(b)).map(([type, rows]) => (
-              <div key={type}>
-                <h3 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-2">{type}</h3>
-                <div className="bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden">
-                  <table className="w-full text-xs border-collapse">
-                    <thead>
-                      <tr className="border-b border-zinc-800">
-                        <th className="px-3 py-2 text-left text-zinc-500 font-medium w-24">Number</th>
-                        <th className="px-3 py-2 text-left text-zinc-500 font-medium">Name</th>
-                        <th className="px-3 py-2 text-left text-zinc-500 font-medium hidden sm:table-cell">Detail Type</th>
-                        <th className="px-3 py-2 text-left text-zinc-500 font-medium hidden md:table-cell">Description</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rows.sort((a, b) => (a.account_number ?? "").localeCompare(b.account_number ?? "") || a.account_name.localeCompare(b.account_name)).map((a) => (
-                        <tr key={a.id} className={`border-t border-zinc-800/50 ${!a.is_active ? "opacity-40" : ""}`}>
-                          <td className="px-3 py-1.5 font-mono text-zinc-500">{a.account_number ?? "—"}</td>
-                          <td className="px-3 py-1.5 text-zinc-200">{a.account_name}</td>
-                          <td className="px-3 py-1.5 text-zinc-500 hidden sm:table-cell">{a.detail_type ?? "—"}</td>
-                          <td className="px-3 py-1.5 text-zinc-600 hidden md:table-cell truncate max-w-xs">{a.description ?? "—"}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+        ) : step === "idle" ? (
+          <>
+            {/* View toggle */}
+            <div className="flex items-center gap-1 bg-zinc-900 border border-zinc-800 rounded p-0.5 w-fit">
+              <button onClick={() => setViewMode("statement")}
+                className={`px-3 py-1 text-xs rounded transition-colors ${viewMode === "statement" ? "bg-zinc-700 text-zinc-100" : "text-zinc-500 hover:text-zinc-300"}`}>
+                Statement View
+              </button>
+              <button onClick={() => setViewMode("type")}
+                className={`px-3 py-1 text-xs rounded transition-colors ${viewMode === "type" ? "bg-zinc-700 text-zinc-100" : "text-zinc-500 hover:text-zinc-300"}`}>
+                By Type
+              </button>
+            </div>
+
+            {viewMode === "statement" ? (
+              <div className="bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden">
+                {/* P&L */}
+                <div className="px-4 sm:px-6 py-2 bg-zinc-900 border-b border-zinc-800">
+                  <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest">Profit & Loss</span>
+                </div>
+                {PL_SECTIONS.map((key) => (
+                  <StatementSection key={key} sectionKey={key}
+                    accounts={sectionAccounts(key)} allAccounts={accounts}
+                    editingId={editingId} onEdit={handleEdit}
+                    onSave={handleSaveEdit} onCloseEdit={() => setEditingId(null)} />
+                ))}
+
+                {/* Balance Sheet */}
+                <div className="px-4 sm:px-6 py-2 bg-zinc-900 border-t border-zinc-800 border-b border-zinc-800 mt-2">
+                  <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest">Balance Sheet</span>
+                </div>
+                {BS_SECTIONS.map((key) => (
+                  <StatementSection key={key} sectionKey={key}
+                    accounts={sectionAccounts(key)} allAccounts={accounts}
+                    editingId={editingId} onEdit={handleEdit}
+                    onSave={handleSaveEdit} onCloseEdit={() => setEditingId(null)} />
+                ))}
+
+                {/* Uncategorized */}
+                {uncategorized.length > 0 && (
+                  <>
+                    <div className="px-4 sm:px-6 py-2 bg-zinc-900 border-t border-zinc-800 mt-2">
+                      <span className="text-[11px] font-bold text-zinc-600 uppercase tracking-widest">Uncategorized</span>
+                    </div>
+                    {uncategorized.map((acct) => (
+                      <AccountRow key={acct.id} account={acct} allAccounts={accounts}
+                        indent={0}
+                        isEditing={editingId === acct.id}
+                        onEdit={() => handleEdit(acct.id)}
+                        onSave={handleSaveEdit}
+                        onCloseEdit={() => setEditingId(null)} />
+                    ))}
+                  </>
+                )}
+
+                <div className="px-4 sm:px-6 py-2.5 border-t border-zinc-800 bg-zinc-900/40">
+                  <p className="text-[10px] text-zinc-600">Click any account to edit. Statement Section Override remaps an account to a different P&L or Balance Sheet section regardless of its Account Type.</p>
                 </div>
               </div>
-            ))}
-          </div>
-        )}
+            ) : (
+              <TypeViewTable
+                accounts={accounts}
+                allAccounts={accounts}
+                editingId={editingId}
+                onEdit={handleEdit}
+                onSave={handleSaveEdit}
+                onCloseEdit={() => setEditingId(null)}
+              />
+            )}
+          </>
+        ) : null}
       </div>
     </div>
   );
