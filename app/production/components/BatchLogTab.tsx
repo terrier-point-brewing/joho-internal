@@ -10,6 +10,7 @@ import { fmtDateLong, fmtBbl2 } from "@/lib/utils/formatting";
 import { EQ } from "../equipmentMeta";
 import { computeLocationBreakdown } from "../lib/volumeLedger";
 import { fetchJson } from "../hooks/queries";
+import type { DepositCalculation } from "@/lib/square/deposit-invoices";
 import {
   useBatchesQuery, useRecipesQuery, useTransfersQuery, useContractPartnersQuery,
   useAssignmentsQuery, useEquipmentQuery, useBatchScheduleQuery, productionKeys,
@@ -363,6 +364,37 @@ function ChannelBadge({ channel }: { channel: AllocationChannel }) {
   );
 }
 
+function InvoiceStatusBadge({ allocation }: { allocation: BatchAllocation }) {
+  if (allocation.channel !== "contract_brewing") return null;
+
+  if (allocation.invoice_paid_at) {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] text-green-400 bg-green-900/30 border border-green-800/40 rounded px-1.5 py-0.5">
+        ✓ Deposit paid
+      </span>
+    );
+  }
+  if (allocation.invoice_sent_at) {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] text-amber-400 bg-amber-900/30 border border-amber-800/40 rounded px-1.5 py-0.5">
+        ● Invoice sent
+      </span>
+    );
+  }
+  if (allocation.invoice_generated_at) {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] text-zinc-400 bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5">
+        Draft invoice ready
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 text-[10px] text-zinc-600 bg-zinc-900 border border-zinc-800 rounded px-1.5 py-0.5">
+      Invoice pending
+    </span>
+  );
+}
+
 function AllocationManager({ batch }: { batch: BrewBatch }) {
   const qc = useQueryClient();
 
@@ -385,6 +417,84 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
   const totalPct = allocations.reduce((s, a) => s + Number(a.percentage), 0);
   const remaining = 100 - totalPct;
   const overAllocated = totalPct > 100;
+
+  // ── Deposit invoice state ──────────────────────────────────────────────────
+  const [invoiceModalAlloc, setInvoiceModalAlloc] = useState<BatchAllocation | null>(null);
+  const [invoicePreview, setInvoicePreview] = useState<{ calculation: DepositCalculation } | null>(null);
+  const [invoicePreviewLoading, setInvoicePreviewLoading] = useState(false);
+  const [invoiceActionLoading, setInvoiceActionLoading] = useState<string | null>(null); // alloc ID
+
+  async function openInvoiceModal(a: BatchAllocation) {
+    setInvoiceModalAlloc(a);
+    setInvoicePreview(null);
+    setInvoicePreviewLoading(true);
+    try {
+      const data = await fetchJson<{ calculation: DepositCalculation }>(`/api/production/allocations/${a.id}/invoice`);
+      setInvoicePreview(data);
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Failed to load invoice preview");
+      setInvoiceModalAlloc(null);
+    } finally {
+      setInvoicePreviewLoading(false);
+    }
+  }
+
+  async function handleGenerateInvoice(allocId: string) {
+    setInvoiceActionLoading(allocId);
+    try {
+      const res = await fetch(`/api/production/allocations/${allocId}/invoice`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "generate" }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? "Error");
+      setInvoiceModalAlloc(null);
+      await refresh();
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Failed to generate invoice");
+    } finally {
+      setInvoiceActionLoading(null);
+    }
+  }
+
+  async function handleSendInvoice(allocId: string) {
+    if (!confirm("Send this invoice to the partner via email?")) return;
+    setInvoiceActionLoading(allocId);
+    try {
+      const res = await fetch(`/api/production/allocations/${allocId}/invoice`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "send" }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? "Error");
+      await refresh();
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Failed to send invoice");
+    } finally {
+      setInvoiceActionLoading(null);
+    }
+  }
+
+  async function handleSyncInvoice(allocId: string) {
+    setInvoiceActionLoading(allocId);
+    try {
+      const res = await fetch(`/api/production/allocations/${allocId}/invoice`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "sync" }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Error");
+      await refresh();
+      if (data.squareStatus === "PAID") {
+        // Allocation auto-locked by server
+      }
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Failed to sync invoice");
+    } finally {
+      setInvoiceActionLoading(null);
+    }
+  }
 
   // ── Inline % editing ──────────────────────────────────────────────────────
   const [editingPct, setEditingPct] = useState<Record<string, string>>({});
@@ -570,6 +680,7 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
                     {a.fulfilled && (
                       <span className="text-[10px] text-emerald-400">✓ Fulfilled</span>
                     )}
+                    <InvoiceStatusBadge allocation={a} />
                   </div>
 
                   {/* Controls: % input + BBL + lock + delete */}
@@ -580,7 +691,7 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
                         type="number" step="0.1" min="0" max="100"
                         className="w-16 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-right tabular-nums text-zinc-200 focus:outline-none focus:border-amber-600 disabled:opacity-40"
                         value={pctVal}
-                        disabled={a.locked}
+                        disabled={a.locked || !!a.invoice_paid_at}
                         onChange={e => setEditingPct(p => ({ ...p, [a.id]: e.target.value }))}
                         onBlur={() => savePct(a)}
                         onKeyDown={e => { if (e.key === "Enter") savePct(a); }}
@@ -590,8 +701,44 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
                     {allocBbl != null && (
                       <span className="text-xs tabular-nums text-zinc-400 w-16 text-right">{allocBbl.toFixed(1)} BBL</span>
                     )}
-                    {/* Lock / unlock */}
-                    {!a.locked ? (
+                    {/* Invoice controls for contract_brewing allocations */}
+                    {a.channel === "contract_brewing" && !a.invoice_paid_at && (
+                      <div className="flex items-center gap-1">
+                        {!a.invoice_generated_at && (
+                          <button type="button"
+                            onClick={() => openInvoiceModal(a)}
+                            disabled={invoiceActionLoading === a.id}
+                            className="text-[10px] text-amber-500 hover:text-amber-400 border border-amber-800/50 hover:border-amber-600 rounded px-1.5 py-1 transition-colors disabled:opacity-40 whitespace-nowrap">
+                            Generate Invoice
+                          </button>
+                        )}
+                        {a.invoice_generated_at && !a.invoice_sent_at && (
+                          <>
+                            <button type="button"
+                              onClick={() => openInvoiceModal(a)}
+                              className="text-[10px] text-zinc-500 hover:text-zinc-300 border border-zinc-700 rounded px-1.5 py-1 transition-colors whitespace-nowrap">
+                              Preview
+                            </button>
+                            <button type="button"
+                              onClick={() => handleSendInvoice(a.id)}
+                              disabled={invoiceActionLoading === a.id}
+                              className="text-[10px] text-amber-500 hover:text-amber-400 border border-amber-800/50 hover:border-amber-600 rounded px-1.5 py-1 transition-colors disabled:opacity-40 whitespace-nowrap">
+                              {invoiceActionLoading === a.id ? "Sending…" : "Send Invoice"}
+                            </button>
+                          </>
+                        )}
+                        {a.invoice_sent_at && (
+                          <button type="button"
+                            onClick={() => handleSyncInvoice(a.id)}
+                            disabled={invoiceActionLoading === a.id}
+                            className="text-[10px] text-zinc-500 hover:text-zinc-300 border border-zinc-700 rounded px-1.5 py-1 transition-colors disabled:opacity-40 whitespace-nowrap">
+                            {invoiceActionLoading === a.id ? "Syncing…" : "Sync Status"}
+                          </button>
+                        )}
+                      </div>
+                    )}
+                    {/* Lock / unlock — only show manual lock for non-CB or unpaid allocations */}
+                    {!a.locked && !a.invoice_paid_at && (
                       <select
                         className="text-[10px] bg-zinc-800 border border-zinc-700 rounded px-1.5 py-1 text-zinc-500 cursor-pointer hover:border-zinc-500"
                         defaultValue=""
@@ -599,7 +746,8 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
                         <option value="">Lock…</option>
                         {LOCK_REASON_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                       </select>
-                    ) : (
+                    )}
+                    {a.locked && !a.invoice_paid_at && (
                       <button type="button" onClick={() => handleUnlock(a.id)}
                         className="text-[10px] text-zinc-500 hover:text-zinc-300 border border-zinc-700 rounded px-1.5 py-1 transition-colors">
                         Unlock
@@ -711,7 +859,131 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
           </div>
         </div>
       )}
+
+      {/* Deposit invoice preview modal */}
+      {invoiceModalAlloc && (
+        <DepositInvoiceModal
+          allocation={invoiceModalAlloc}
+          preview={invoicePreview}
+          loading={invoicePreviewLoading}
+          generating={invoiceActionLoading === invoiceModalAlloc.id}
+          onGenerate={() => handleGenerateInvoice(invoiceModalAlloc.id)}
+          onClose={() => setInvoiceModalAlloc(null)}
+        />
+      )}
     </div>
+  );
+}
+
+// ─── Deposit Invoice Preview Modal ───────────────────────────────────────────
+
+function DepositInvoiceModal({
+  allocation,
+  preview,
+  loading,
+  generating,
+  onGenerate,
+  onClose,
+}: {
+  allocation: BatchAllocation;
+  preview: { calculation: DepositCalculation } | null;
+  loading: boolean;
+  generating: boolean;
+  onGenerate: () => void;
+  onClose: () => void;
+}) {
+  const partner = allocation.contract_brewing_partners;
+  const calc = preview?.calculation;
+  const isRevision = !!allocation.invoice_generated_at;
+
+  return (
+    <Modal title={isRevision ? "Revise Deposit Invoice" : "Generate Deposit Invoice"} onClose={onClose}>
+      <div className="space-y-4">
+        {/* Invoice summary */}
+        <div className="rounded-lg bg-zinc-900 border border-zinc-800 p-4 space-y-2">
+          <div className="flex justify-between text-sm">
+            <span className="text-zinc-500">Partner</span>
+            <span className="text-zinc-200 font-medium">{partner?.company_name ?? "—"}</span>
+          </div>
+          <div className="flex justify-between text-sm">
+            <span className="text-zinc-500">Batch</span>
+            <span className="text-zinc-200">{allocation.brew_batches?.beer_name ?? "—"}</span>
+          </div>
+          <div className="flex justify-between text-sm">
+            <span className="text-zinc-500">Allocation</span>
+            <span className="text-zinc-200 tabular-nums">{Number(allocation.percentage).toFixed(1)}%</span>
+          </div>
+        </div>
+
+        {/* Deposit calculation */}
+        {loading && (
+          <p className="text-xs text-zinc-500 text-center py-4">Calculating deposit…</p>
+        )}
+
+        {calc && !loading && (
+          <div className="space-y-3">
+            <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wide">Ingredient Cost Breakdown</p>
+            <div className="rounded-lg border border-zinc-800 overflow-hidden">
+              <div className="max-h-48 overflow-y-auto divide-y divide-zinc-800/60">
+                {calc.breakdown.map((item, i) => (
+                  <div key={i} className="flex justify-between px-3 py-1.5 text-xs">
+                    <span className="text-zinc-400">{item.name}</span>
+                    <span className="text-zinc-500 tabular-nums ml-4">
+                      {item.quantity_per_bbl.toFixed(2)} {item.unit}/BBL × ${item.cost_per_unit.toFixed(2)} = <span className="text-zinc-300">${item.line_total_usd.toFixed(2)}</span>
+                    </span>
+                  </div>
+                ))}
+                {calc.breakdown.length === 0 && (
+                  <p className="text-xs text-zinc-600 px-3 py-3">No ingredients with costs found on this recipe.</p>
+                )}
+              </div>
+
+              <div className="border-t border-zinc-700 px-3 py-2 bg-zinc-900/60 space-y-1">
+                <div className="flex justify-between text-xs">
+                  <span className="text-zinc-500">Total ingredient cost (batch)</span>
+                  <span className="text-zinc-300 tabular-nums">${calc.total_ingredient_cost_usd.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-zinc-500">Allocation share ({Number(allocation.percentage).toFixed(1)}%)</span>
+                  <span className="text-zinc-300 tabular-nums">× {(Number(allocation.percentage) / 100).toFixed(4)}</span>
+                </div>
+                <div className="flex justify-between text-sm font-semibold border-t border-zinc-700 pt-2 mt-1">
+                  <span className="text-zinc-300">Ingredient Deposit</span>
+                  <span className="text-amber-400 tabular-nums">${calc.deposit_usd.toFixed(2)}</span>
+                </div>
+                <p className="text-[10px] text-zinc-600 mt-1">No sales tax charged · payment by card or bank transfer</p>
+              </div>
+            </div>
+
+            {isRevision && (
+              <div className="rounded bg-amber-900/20 border border-amber-800/40 px-3 py-2 text-xs text-amber-300">
+                This will cancel the existing draft invoice and create a revised one. The invoice will need to be re-sent.
+              </div>
+            )}
+          </div>
+        )}
+
+        {calc && calc.deposit_cents === 0 && (
+          <div className="rounded bg-red-900/20 border border-red-800/40 px-3 py-2 text-xs text-red-300">
+            Deposit amount is $0. Ensure recipe ingredients have costs set before generating.
+          </div>
+        )}
+
+        <div className="flex gap-2 justify-end pt-2">
+          <button type="button" onClick={onClose}
+            className="px-4 py-1.5 text-sm text-zinc-500 hover:text-zinc-300 transition-colors">
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onGenerate}
+            disabled={generating || loading || !calc || calc.deposit_cents === 0}
+            className="px-4 py-1.5 text-sm bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white rounded font-medium transition-colors">
+            {generating ? "Generating…" : isRevision ? "Revise Draft Invoice" : "Create Draft Invoice"}
+          </button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 

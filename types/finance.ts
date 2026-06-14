@@ -3,6 +3,7 @@
 
 export type InvoiceSource = "quickbooks" | "square";
 export type InvoiceStatus = "open" | "paid" | "voided" | "partial" | "unknown" | "draft";
+export type InvoiceType = "standard" | "allocation_deposit";
 
 export type InvoiceLineCategory =
   | "materials_packaging"
@@ -37,6 +38,8 @@ export interface Invoice {
   customer_name: string | null;
   partner_id: string | null;
   status: InvoiceStatus;
+  invoice_type: InvoiceType;
+  allocation_id: string | null;
   subtotal_cents: number;
   tax_cents: number;
   total_cents: number;

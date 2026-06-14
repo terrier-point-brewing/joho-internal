@@ -172,6 +172,28 @@ export function SquareLinkManager({
     ).entries(),
   ).sort(([a], [b]) => a.localeCompare(b));
 
+  // Map packaging type → allowed Square category name + variation name filter
+  const CATEGORY_FOR: Record<PackagingType, string> = { draft: "Draft", keg: "Kegs", can: "Cans" };
+  function filterVariations(packaging: PackagingType): SquareVariation[] {
+    const cat = CATEGORY_FOR[packaging];
+    return sqVariations.filter((v) => {
+      if (v.category_name !== cat) return false;
+      if (packaging === "draft") return !/- \d+oz$/i.test(v.variation_name);  // keep plain "Draft"
+      if (packaging === "can")   return !/pack|case/i.test(v.variation_name); // keep plain "Regular"
+      return true; // keg: keep all (1/2, 1/4, 1/6)
+    });
+  }
+
+  // Already-linked combos: recipe_id|packaging|packaging_item_id
+  const linkedCombos = new Set(
+    links.map((l) => `${l.recipe_id}|${l.packaging}|${l.packaging_item_id ?? ""}`)
+  );
+  function availableRecipes(row: PendingRow): Recipe[] {
+    const needsItem = row.packaging === "keg" || row.packaging === "can";
+    if (needsItem && !row.packaging_item_id) return recipes; // item not chosen yet, show all
+    return recipes.filter((r) => !linkedCombos.has(`${r.id}|${row.packaging}|${row.packaging_item_id}`));
+  }
+
   const [rows, setRows]             = useState<PendingRow[]>([newRow()]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError]           = useState<string | null>(null);
@@ -259,6 +281,8 @@ export function SquareLinkManager({
     if (r.ok) onChanged();
   }
 
+  const TYPE_ORDER: Record<string, number> = { keg: 0, can: 1, draft: 2 };
+
   const byRecipe = new Map<string, { name: string; byType: Map<string, LinkRow[]> }>();
   for (const l of links) {
     const name = l.recipes?.beer_name ?? l.recipe_id;
@@ -267,6 +291,7 @@ export function SquareLinkManager({
     if (!entry.byType.has(l.packaging)) entry.byType.set(l.packaging, []);
     entry.byType.get(l.packaging)!.push(l);
   }
+  const sortedByRecipe = [...byRecipe.entries()].sort(([, a], [, b]) => a.name.localeCompare(b.name));
 
   return (
     <Modal title="Link Styles to Square" onClose={onClose} wide>
@@ -354,7 +379,7 @@ export function SquareLinkManager({
                       onChange={(e) => updateRow(row.uid, { recipe_id: e.target.value })}
                     >
                       <option value="">— select recipe —</option>
-                      {recipes.map((r) => <option key={r.id} value={r.id}>{r.beer_name}</option>)}
+                      {availableRecipes(row).map((r) => <option key={r.id} value={r.id}>{r.beer_name}</option>)}
                     </select>
                   </div>
                   <div className="flex gap-2">
@@ -435,9 +460,9 @@ export function SquareLinkManager({
                     <VariationCombobox
                       value={row.variation_id}
                       onChange={(id) => updateRow(row.uid, { variation_id: id })}
-                      variations={categoryFilter
-                        ? sqVariations.filter((v) => v.category_name === categoryFilter)
-                        : sqVariations}
+                      variations={filterVariations(row.packaging).filter(
+                        (v) => !categoryFilter || v.category_name === categoryFilter
+                      )}
                       disabled={needsPackagingItem && !row.packaging_item_id}
                     />
                   </div>
@@ -480,12 +505,16 @@ export function SquareLinkManager({
       {byRecipe.size > 0 && (
         <div className="mt-6 space-y-4 border-t border-zinc-800 pt-5">
           <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">Existing Links</p>
-          {[...byRecipe.entries()].map(([, { name, byType }]) => (
+          {sortedByRecipe.map(([, { name, byType }]) => (
             <div key={name}>
               <p className="text-xs font-semibold text-zinc-200 mb-2">{name}</p>
               <div className="rounded-lg border border-zinc-800 overflow-hidden divide-y divide-zinc-800/60">
-                {[...byType.entries()].map(([type, typeLinks]) =>
-                  typeLinks.map((l) => (
+                {[...byType.entries()]
+                  .sort(([a], [b]) => (TYPE_ORDER[a] ?? 99) - (TYPE_ORDER[b] ?? 99))
+                  .flatMap(([type, typeLinks]) =>
+                  typeLinks
+                    .sort((a, b) => (a.packaging_items?.name ?? "").localeCompare(b.packaging_items?.name ?? ""))
+                    .map((l) => (
                     <div key={l.id} className="flex items-center gap-3 px-3 py-2.5 text-xs">
                       <span className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded border font-medium ${TYPE_BADGE[type as PackagingType] ?? "border-zinc-700 text-zinc-500 bg-zinc-800"}`}>
                         {TYPE_LABELS[type as PackagingType] ?? type}

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { fetchJson } from "@/app/production/hooks/queries";
 
 interface AccountRequest {
   id: string;
@@ -11,54 +12,43 @@ interface AccountRequest {
   created_at: string;
 }
 
+const QUERY_KEY = ["admin", "requests"] as const;
+
 export default function AccessRequests() {
-  const [requests, setRequests] = useState<AccountRequest[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const qc = useQueryClient();
 
-  const fetchRequests = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/admin/requests");
-      if (!res.ok) throw new Error("Failed to load requests");
-      setRequests(await res.json());
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Unknown error");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const { data: requests = [], isLoading, error } = useQuery({
+    queryKey: QUERY_KEY,
+    queryFn: () => fetchJson<AccountRequest[]>("/api/admin/requests"),
+  });
 
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { fetchRequests(); }, [fetchRequests]);
-
-  async function handleAction(id: string, status: "approved" | "denied") {
-    const res = await fetch("/api/admin/requests", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, status }),
-    });
-    if (res.ok) {
-      setRequests((r) => r.map((x) => (x.id === id ? { ...x, status } : x)));
-    } else {
-      const data = await res.json().catch(() => ({}));
-      setError(data.error ?? `Failed to ${status} request`);
-    }
-  }
+  const action = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: "approved" | "denied" }) =>
+      fetch("/api/admin/requests", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, status }),
+      }).then(async (res) => {
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error ?? `Failed to ${status} request`);
+        }
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: QUERY_KEY }),
+  });
 
   return (
     <div className="p-4 sm:p-6 max-w-4xl mx-auto">
       <h2 className="text-base font-semibold text-zinc-100 mb-6">Access Requests</h2>
 
-      {loading && <p className="text-sm text-zinc-500">Loading…</p>}
-      {error && (
+      {isLoading && <p className="text-sm text-zinc-500">Loading…</p>}
+      {(error || action.error) && (
         <p className="text-sm text-red-400 bg-red-950/30 border border-red-900/50 rounded px-3 py-2 mb-4">
-          {error}
+          {(error as Error)?.message ?? (action.error as Error)?.message ?? "Unknown error"}
         </p>
       )}
 
-      {!loading && (
+      {!isLoading && (
         <div className="bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden">
           <table className="w-full text-sm">
             <thead>
@@ -97,14 +87,16 @@ export default function AccessRequests() {
                     {r.status === "pending" && (
                       <div className="flex gap-2 justify-end">
                         <button
-                          onClick={() => handleAction(r.id, "approved")}
-                          className="text-xs px-2 py-1 rounded bg-green-900/30 text-green-400 hover:bg-green-900/50 transition-colors"
+                          onClick={() => action.mutate({ id: r.id, status: "approved" })}
+                          disabled={action.isPending}
+                          className="text-xs px-2 py-1 rounded bg-green-900/30 text-green-400 hover:bg-green-900/50 transition-colors disabled:opacity-50"
                         >
                           Approve
                         </button>
                         <button
-                          onClick={() => handleAction(r.id, "denied")}
-                          className="text-xs px-2 py-1 rounded bg-zinc-800 text-zinc-500 hover:text-red-400 transition-colors"
+                          onClick={() => action.mutate({ id: r.id, status: "denied" })}
+                          disabled={action.isPending}
+                          className="text-xs px-2 py-1 rounded bg-zinc-800 text-zinc-500 hover:text-red-400 transition-colors disabled:opacity-50"
                         >
                           Deny
                         </button>

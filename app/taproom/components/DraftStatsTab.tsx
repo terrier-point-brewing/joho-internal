@@ -264,7 +264,7 @@ export default function DraftStatsTab() {
             const edit = getTapEdit(tapNum);
             const isRetired = tap?.metrics?.is_retired ?? false;
             const daysLeft = tap?.metrics
-              ? daysUntilEmpty(tap.metrics.current_fl_oz, tap.metrics.daily_fl_oz)
+              ? daysUntilEmpty(tap.metrics.current_bbl, tap.metrics.daily_bbl)
               : null;
             const urgency =
               !tap?.recipe_id ? "none"

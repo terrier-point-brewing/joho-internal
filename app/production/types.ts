@@ -265,7 +265,13 @@ export interface BatchAllocation {
   locked_at: string | null;
   notes: string | null;
   created_at: string;
-  // Joined fields
+  // ── Deposit invoice tracking ─────────────────────────────────────────────
+  square_deposit_invoice_id: string | null;
+  square_deposit_order_id: string | null;
+  invoice_generated_at: string | null;
+  invoice_sent_at: string | null;
+  invoice_paid_at: string | null;
+  // ── Joined fields ────────────────────────────────────────────────────────
   brew_batches?: { id: string; beer_name: string; batch_number: number; volume_bbl: number } | null;
   contract_brewing_partners?: { id: string; company_name: string } | null;
   commitments?: { id: string; beer_style: string; volume_bbl: number; received_on: string | null; created_at: string; desired_delivery_date: string | null } | null;
