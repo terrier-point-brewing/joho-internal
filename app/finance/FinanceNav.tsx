@@ -5,9 +5,9 @@ import { usePathname } from "next/navigation";
 const TABS = [
   { href: "/finance/model",          label: "Model"    },
   { href: "/finance/sales/taproom",  label: "Sales",    match: "/finance/sales"    },
-  { href: "/finance/invoices",       label: "Invoices"  },
-  { href: "/finance/import",         label: "Import"    },
-  { href: "/finance/settings",       label: "Settings", match: "/finance/settings" },
+  { href: "/finance/invoices",                          label: "Invoices"     },
+  { href: "/finance/transactions/square-transactions", label: "Transactions", match: "/finance/transactions" },
+  { href: "/finance/settings",                         label: "Settings",     match: "/finance/settings" },
 ];
 
 export default function FinanceNav({ mobile = false }: { mobile?: boolean }) {

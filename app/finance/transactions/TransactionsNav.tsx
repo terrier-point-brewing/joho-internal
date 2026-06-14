@@ -3,12 +3,10 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const SUBTABS = [
-  { href: "/finance/settings/chart-of-accounts", label: "Chart of Accounts" },
-  { href: "/finance/settings/account-mapping",   label: "Account Mapping"   },
-  { href: "/finance/settings/import",            label: "Import"            },
+  { href: "/finance/transactions/square-transactions", label: "Square Transactions" },
 ];
 
-export default function SettingsNav() {
+export default function TransactionsNav() {
   const pathname = usePathname();
   return (
     <div className="flex gap-1 border-b border-zinc-800 px-4 sm:px-6">
