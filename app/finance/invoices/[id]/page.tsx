@@ -123,7 +123,7 @@ function BatchLinkPanel({ invoiceId, links, onChanged }: {
         <div key={link.id} className="flex items-center justify-between bg-zinc-800/50 rounded px-3 py-2">
           <div>
             <Link
-              href={`/production?tab=brewing&batch=${link.brew_batches.id}`}
+              href={`/production/brewing/batch-log?batch=${link.brew_batches.id}`}
               className="text-xs font-medium text-amber-400 hover:text-amber-300"
             >
               {link.brew_batches.beer_name}

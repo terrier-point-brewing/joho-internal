@@ -182,14 +182,20 @@ function LineItemRow({
   }
 
   return (
-    <div className="grid grid-cols-[minmax(0,2fr)_60px_90px_90px_minmax(0,1fr)_18px] gap-2 items-center px-4 py-2 border-t border-zinc-800/40 bg-zinc-950/20 text-xs">
+    <div className="grid grid-cols-[minmax(0,2fr)_50px_80px_60px_60px_90px_minmax(0,1fr)_18px] gap-2 items-center px-4 py-2 border-t border-zinc-800/40 bg-zinc-950/20 text-xs">
       <div className="truncate text-zinc-400 flex items-center gap-1.5">
         <span className="text-zinc-600">└</span>
         <span className="truncate">{item.name}</span>
       </div>
       <div className="text-zinc-600 text-right tabular-nums">{item.quantity}×</div>
-      <div className="text-zinc-500 text-right tabular-nums font-mono">{fmtMoney(item.net_sales_cents)}</div>
-      <div className="col-span-1">
+      <div className="text-zinc-500 text-right tabular-nums font-mono">{fmtMoney(item.gross_sales_cents)}</div>
+      <div className={`text-right tabular-nums font-mono ${item.discount_cents > 0 ? "text-red-400/70" : "text-zinc-700"}`}>
+        {item.discount_cents > 0 ? fmtMoney(-item.discount_cents) : "—"}
+      </div>
+      <div className="text-zinc-600 text-right tabular-nums font-mono">
+        {item.tax_cents > 0 ? fmtMoney(item.tax_cents) : "—"}
+      </div>
+      <div>
         <AccountSelect
           value={effectiveCoaId}
           onChange={handleChange}
@@ -254,11 +260,30 @@ function TransactionRow({
 
       {expanded && (
         <div className="pb-1">
+          {/* Transaction breakdown summary */}
+          <div className="grid grid-cols-4 gap-px mx-4 mb-2 mt-1 bg-zinc-800 rounded overflow-hidden text-center">
+            {[
+              { label: "Gross Sales", cents: lineItems.reduce((s, li) => s + li.gross_sales_cents, 0) },
+              { label: "Discounts",   cents: -txn.discount_cents },
+              { label: "Tax",         cents: txn.tax_cents },
+              { label: "Tips",        cents: txn.tip_cents },
+            ].map(({ label, cents }) => (
+              <div key={label} className="bg-zinc-900 px-2 py-2">
+                <div className="text-[10px] text-zinc-600 mb-0.5">{label}</div>
+                <div className={`text-xs font-mono tabular-nums font-medium ${cents < 0 ? "text-red-400" : cents > 0 ? "text-zinc-200" : "text-zinc-600"}`}>
+                  {cents === 0 ? "—" : fmtMoney(cents)}
+                </div>
+              </div>
+            ))}
+          </div>
+
           {/* Line item column headers */}
-          <div className="grid grid-cols-[minmax(0,2fr)_60px_90px_90px_minmax(0,1fr)_18px] gap-2 px-4 py-1.5 bg-zinc-900/30">
+          <div className="grid grid-cols-[minmax(0,2fr)_50px_80px_60px_60px_90px_minmax(0,1fr)_18px] gap-2 px-4 py-1.5 bg-zinc-900/30">
             <span className="text-[10px] text-zinc-600 uppercase tracking-wider pl-4">Item</span>
             <span className="text-[10px] text-zinc-600 uppercase tracking-wider text-right">Qty</span>
-            <span className="text-[10px] text-zinc-600 uppercase tracking-wider text-right">Net</span>
+            <span className="text-[10px] text-zinc-600 uppercase tracking-wider text-right">Gross</span>
+            <span className="text-[10px] text-zinc-600 uppercase tracking-wider text-right">Disc</span>
+            <span className="text-[10px] text-zinc-600 uppercase tracking-wider text-right">Tax</span>
             <span className="text-[10px] text-zinc-600 uppercase tracking-wider">GL Account</span>
             <span></span>
             <span></span>
@@ -268,13 +293,6 @@ function TransactionRow({
             : lineItems.map((li) => (
                 <LineItemRow key={li.id} item={li} accounts={accounts} onSave={onSaveLineItem} />
               ))}
-          {txn.tax_cents > 0 && (
-            <div className="grid grid-cols-[minmax(0,2fr)_60px_90px_90px_minmax(0,1fr)_18px] gap-2 px-4 py-1.5 border-t border-zinc-800/30">
-              <span className="text-[10px] text-zinc-600 pl-4">Tax</span>
-              <span></span>
-              <span className="text-[10px] text-zinc-600 text-right tabular-nums font-mono">{fmtMoney(txn.tax_cents)}</span>
-            </div>
-          )}
         </div>
       )}
     </div>

@@ -1,14 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-
-const TABS = [
-  { href: "/finance/model",          label: "Model"    },
-  { href: "/finance/sales/taproom",  label: "Sales",    match: "/finance/sales"    },
-  { href: "/finance/invoices",                          label: "Invoices"     },
-  { href: "/finance/transactions/square-transactions", label: "Transactions", match: "/finance/transactions" },
-  { href: "/finance/settings",                         label: "Settings",     match: "/finance/settings" },
-];
+import { FINANCE_NAV } from "./nav-config";
 
 export default function FinanceNav({ mobile = false }: { mobile?: boolean }) {
   const pathname = usePathname();
@@ -16,7 +9,7 @@ export default function FinanceNav({ mobile = false }: { mobile?: boolean }) {
   if (mobile) {
     return (
       <div className="md:hidden flex border-b border-zinc-800 overflow-x-auto scrollbar-none">
-        {TABS.map(({ href, label, match }) => {
+        {FINANCE_NAV.map(({ href, label, match }) => {
           const active = pathname === href || pathname.startsWith(match ?? href);
           return (
             <Link key={href} href={href}
@@ -35,7 +28,7 @@ export default function FinanceNav({ mobile = false }: { mobile?: boolean }) {
 
   return (
     <div className="flex items-center gap-1">
-      {TABS.map(({ href, label, match }) => {
+      {FINANCE_NAV.map(({ href, label, match }) => {
         const active = pathname === href || pathname.startsWith(match ?? href);
         return (
           <Link key={href} href={href}

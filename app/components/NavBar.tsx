@@ -1,25 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useSearchParams, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useState, useEffect } from "react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { useUserRole } from "@/lib/hooks/useUserRole";
-
-const TAPROOM_TABS = [
-  { key: "performance", label: "Performance" },
-  { key: "targets",     label: "Targets"     },
-  { key: "reports",     label: "Reports"     },
-] as const;
-
-const PRODUCTION_TABS = [
-  { key: "intake",    label: "Intake"    },
-  { key: "brewing",   label: "Brewing"   },
-  { key: "export",    label: "Export"    },
-  { key: "recipes",   label: "Recipes"   },
-  { key: "inventory", label: "Inventory" },
-  { key: "partners",  label: "Partners"  },
-] as const;
+import { FINANCE_NAV } from "@/app/finance/nav-config";
+import { TAPROOM_NAV } from "@/app/taproom/nav-config";
+import { PRODUCTION_NAV } from "@/app/production/nav-config";
 
 const ROLE_LABELS: Record<string, string> = {
   viewer: "Viewer", brewer: "Brewer", manager: "Manager", admin: "Admin",
@@ -63,10 +51,7 @@ const LogoutIcon = () => (
 // ── Component ──────────────────────────────────────────────────────────────────
 
 export default function NavBar() {
-  const pathname     = usePathname();
-  const searchParams = useSearchParams();
-  const activeTab    = searchParams.get("tab") ?? "";
-  const router       = useRouter();
+  const pathname = usePathname();
 
   const { role, user, loading } = useUserRole();
 
@@ -88,8 +73,7 @@ export default function NavBar() {
   }
 
   const isProduction = pathname === "/production" || pathname.startsWith("/production/");
-  const isTaproom    = pathname === "/taproom"    || pathname.startsWith("/taproom/") ||
-                       pathname === "/reports"    || pathname.startsWith("/reports/");
+  const isTaproom    = pathname === "/taproom" || pathname.startsWith("/taproom/");
   const isFinance    = pathname === "/finance"    || pathname.startsWith("/finance/");
   const isSettings   = pathname.startsWith("/settings");
 
@@ -139,7 +123,7 @@ export default function NavBar() {
           <nav className="flex flex-col gap-0.5 p-2">
             {/* Taproom — everyone */}
             <Link
-              href="/taproom?tab=performance"
+              href="/taproom/performance"
               className={`px-3 py-2 rounded text-sm font-medium transition-colors ${
                 isTaproom ? "bg-zinc-800 text-zinc-100" : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50"
               }`}
@@ -148,9 +132,8 @@ export default function NavBar() {
             </Link>
             {isTaproom && (
               <div className="mt-1 ml-2 flex flex-col gap-0.5 border-l border-zinc-800 pl-2">
-                {TAPROOM_TABS.map(({ key, label }) => (
-                  <Link key={key} href={`/taproom?tab=${key}`}
-                    className={subtabCls(activeTab === key || (key === "performance" && activeTab === ""))}>
+                {TAPROOM_NAV.map(({ href, label }) => (
+                  <Link key={href} href={href} className={subtabCls(pathname.startsWith(href))}>
                     {label}
                   </Link>
                 ))}
@@ -163,7 +146,7 @@ export default function NavBar() {
                 {canAccessProduction && (
                   <>
                     <Link
-                      href="/production?tab=intake"
+                      href="/production/intake"
                       className={`px-3 py-2 rounded text-sm font-medium transition-colors ${
                         isProduction ? "bg-zinc-800 text-zinc-100" : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50"
                       }`}
@@ -172,8 +155,8 @@ export default function NavBar() {
                     </Link>
                     {isProduction && (
                       <div className="mt-1 ml-2 flex flex-col gap-0.5 border-l border-zinc-800 pl-2">
-                        {PRODUCTION_TABS.map(({ key, label }) => (
-                          <Link key={key} href={`/production?tab=${key}`} className={subtabCls(activeTab === key)}>
+                        {PRODUCTION_NAV.map(({ href, label }) => (
+                          <Link key={href} href={href} className={subtabCls(pathname.startsWith(href))}>
                             {label}
                           </Link>
                         ))}
@@ -194,14 +177,8 @@ export default function NavBar() {
                     </Link>
                     {isFinance && (
                       <div className="mt-1 ml-2 flex flex-col gap-0.5 border-l border-zinc-800 pl-2">
-                        {[
-                          { key: "model",    label: "Model",    href: "/finance/model",        match: "/finance/model"    },
-                          { key: "sales",    label: "Sales",    href: "/finance/sales/taproom", match: "/finance/sales"    },
-                          { key: "invoices", label: "Invoices", href: "/finance/invoices",                        match: "/finance/invoices"  },
-                          { key: "import",   label: "Import",   href: "/finance/import",                          match: "/finance/import"   },
-                          { key: "settings", label: "Settings", href: "/finance/settings/chart-of-accounts",      match: "/finance/settings" },
-                        ].map(({ key, label, href, match }) => (
-                          <Link key={key} href={href} className={subtabCls(pathname.startsWith(match))}>
+                        {FINANCE_NAV.map(({ href, label, match }) => (
+                          <Link key={href} href={href} className={subtabCls(pathname.startsWith(match ?? href))}>
                             {label}
                           </Link>
                         ))}
@@ -227,12 +204,12 @@ export default function NavBar() {
         {/* Collapsed: icon-only nav */}
         {collapsed && (
           <nav className="flex flex-col items-center gap-1 p-1 pt-2">
-            <Link href="/taproom?tab=performance" title="Taproom Management"
+            <Link href="/taproom/performance" title="Taproom Management"
               className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${isTaproom ? "bg-zinc-800 text-amber-400" : "text-zinc-600 hover:text-zinc-300 hover:bg-zinc-800/50"}`}>
               <TaproomIcon />
             </Link>
             {!loading && canAccessProduction && (
-              <Link href="/production?tab=intake" title="Production"
+              <Link href="/production/intake" title="Production"
                 className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${isProduction ? "bg-zinc-800 text-amber-400" : "text-zinc-600 hover:text-zinc-300 hover:bg-zinc-800/50"}`}>
                 <ProductionIcon />
               </Link>
@@ -290,11 +267,11 @@ export default function NavBar() {
 
       {/* ── Mobile bottom nav ────────────────────────────────────────────────── */}
       <nav className="md:hidden fixed bottom-0 inset-x-0 z-50 bg-zinc-900 border-t border-zinc-800 flex items-stretch">
-        <MobileNavItem href="/taproom?tab=performance" active={isTaproom} label="Taproom">
+        <MobileNavItem href="/taproom/performance" active={isTaproom} label="Taproom">
           <TaproomIcon />
         </MobileNavItem>
         {!loading && canAccessProduction && (
-          <MobileNavItem href="/production?tab=intake" active={isProduction} label="Production">
+          <MobileNavItem href="/production/intake" active={isProduction} label="Production">
             <ProductionIcon />
           </MobileNavItem>
         )}
