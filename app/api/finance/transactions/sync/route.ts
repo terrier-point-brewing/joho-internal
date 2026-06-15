@@ -114,7 +114,6 @@ export async function POST(req: NextRequest) {
   }
 
   let synced = 0;
-  const allDbIds = [...upsertedIds.values()];
 
   // Separate order ids into POS vs invoice-backed
   const posOrderDbIds: string[] = [];

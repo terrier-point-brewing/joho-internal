@@ -96,6 +96,7 @@ function AccountRow({
 
   // Sync with global expand/collapse signal
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (expandAll !== null) setExpanded(expandAll);
   }, [expandAll]);
 
@@ -172,6 +173,7 @@ function SectionRows({
   const [expanded, setExpanded] = useState(true);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (expandAll !== null) setExpanded(expandAll);
   }, [expandAll]);
 
@@ -313,9 +315,9 @@ export default function PLPage() {
 
   const handleExpandAll = useCallback((val: boolean) => {
     setExpandAll(val);
-    // Reset to uncontrolled after a tick so individual toggles work again
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setTimeout(() => setExpandAll(null), 50);
-  }, []);
+  }, [setExpandAll]);
 
   return (
     <div className="flex flex-col h-full bg-zinc-950 text-zinc-100">
