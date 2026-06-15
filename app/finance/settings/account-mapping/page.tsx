@@ -20,7 +20,11 @@ interface VariationRow {
   price_currency: string | null;
   pricing_type: string | null;
   chart_of_accounts_id: string | null;
+  chart_of_accounts_id_pos: string | null;
+  chart_of_accounts_id_invoice: string | null;
   chart_of_accounts: { account_name: string; account_number: string | null; account_type: string } | null;
+  coa_pos: { account_name: string; account_number: string | null; account_type: string } | null;
+  coa_invoice: { account_name: string; account_number: string | null; account_type: string } | null;
   square_catalog_items: {
     id: string;
     square_item_id: string;
@@ -62,6 +66,11 @@ function fmtPrice(amount: number | null, currency: string | null, pricingType: s
 
 function accountLabel(a: { account_name: string; account_number: string | null }) {
   return a.account_number ? `${a.account_number} · ${a.account_name}` : a.account_name;
+}
+
+function shortAccountName(name: string) {
+  const parts = name.split(":");
+  return parts[parts.length - 1].trim();
 }
 
 function AccountSelect({
@@ -129,8 +138,12 @@ function AccountSelect({
         onClick={handleOpen}
         className="w-full flex items-center justify-between gap-1 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-left focus:outline-none focus:border-amber-600 hover:border-zinc-500 transition-colors"
       >
-        <span className={`truncate ${selected ? "text-zinc-200" : "text-zinc-500"}`}>
-          {selected ? accountLabel(selected) : placeholder}
+        <span className={`truncate ${selected ? "text-zinc-200" : "text-zinc-500"}`} title={selected ? accountLabel(selected) : undefined}>
+          {selected
+            ? (selected.account_number
+                ? `${selected.account_number} · ${shortAccountName(selected.account_name)}`
+                : shortAccountName(selected.account_name))
+            : placeholder}
         </span>
         <span className="text-zinc-600 shrink-0">⌄</span>
       </button>
@@ -203,12 +216,16 @@ function VariationMappingRow({
   variation,
   accounts,
   onSave,
+  onSaveSource,
 }: {
   variation: VariationRow;
   accounts: CoAAccount[];
   onSave: (squareVariationId: string, accountId: string | null) => Promise<void>;
+  onSaveSource: (squareVariationId: string, field: "chart_of_accounts_id_pos" | "chart_of_accounts_id_invoice", accountId: string | null) => Promise<void>;
 }) {
   const [saving, setSaving] = useState(false);
+  const hasSplit = !!(variation.chart_of_accounts_id_pos || variation.chart_of_accounts_id_invoice);
+  const [splitOpen, setSplitOpen] = useState(false);
 
   async function handleChange(accountId: string | null) {
     setSaving(true);
@@ -216,24 +233,88 @@ function VariationMappingRow({
     setSaving(false);
   }
 
+  async function handleSourceChange(field: "chart_of_accounts_id_pos" | "chart_of_accounts_id_invoice", accountId: string | null) {
+    setSaving(true);
+    await onSaveSource(variation.square_variation_id, field, accountId);
+    setSaving(false);
+  }
+
+  async function handleClearSplit() {
+    setSaving(true);
+    await onSaveSource(variation.square_variation_id, "chart_of_accounts_id_pos", null);
+    await onSaveSource(variation.square_variation_id, "chart_of_accounts_id_invoice", null);
+    setSaving(false);
+    setSplitOpen(false);
+  }
+
+  const price = fmtPrice(variation.price_amount, variation.price_currency, variation.pricing_type);
+
   return (
-    <div className="flex items-center gap-3 px-4 py-2 border-t border-zinc-800/40 bg-zinc-950/30">
-      <div className="flex-1 min-w-0 grid grid-cols-[minmax(0,1fr)_80px_100px_90px] gap-3 items-center">
-        <span className="text-xs text-zinc-400 truncate">{variation.variation_name}</span>
-        <span className="text-[10px] text-zinc-600 font-mono truncate">{variation.sku ?? "—"}</span>
-        <span className="text-[10px] text-zinc-600 font-mono truncate">{variation.upc ?? "—"}</span>
-        <span className="text-xs text-zinc-500 text-right tabular-nums">
-          {fmtPrice(variation.price_amount, variation.price_currency, variation.pricing_type)}
-        </span>
+    <div className="border-t border-zinc-800/30">
+      {/* Main row — 3 columns: name+price | default account | split toggle */}
+      <div className="flex items-center gap-3 pl-6 pr-4 py-2.5 bg-zinc-950/40 hover:bg-zinc-900/30 transition-colors">
+        {/* Left: variation name + price */}
+        <div className="w-44 shrink-0 min-w-0">
+          <div className="text-xs text-zinc-300 truncate">{variation.variation_name}</div>
+          <div className="text-[10px] text-zinc-600 tabular-nums mt-0.5">{price}</div>
+        </div>
+        {/* Middle: default GL account */}
+        <div className="flex-1 min-w-0 flex items-center gap-2">
+          {saving && <span className="text-[10px] text-zinc-600 shrink-0">Saving…</span>}
+          <AccountSelect
+            value={variation.chart_of_accounts_id}
+            onChange={handleChange}
+            accounts={accounts}
+            placeholder="— no mapping —"
+          />
+        </div>
+        {/* Right: split toggle */}
+        <button
+          type="button"
+          onClick={() => setSplitOpen((o) => !o)}
+          title={splitOpen ? "Hide source overrides" : "Split by POS / Invoice source"}
+          className={`shrink-0 px-2 py-1.5 text-[10px] rounded border transition-colors ${
+            hasSplit
+              ? "bg-blue-900/40 border-blue-700 text-blue-300 hover:bg-blue-900/60"
+              : "bg-zinc-900 border-zinc-700 text-zinc-500 hover:text-zinc-300 hover:border-zinc-500"
+          }`}
+        >
+          {splitOpen ? "▴ split" : "split ▾"}
+        </button>
       </div>
-      <div className="shrink-0 flex items-center gap-2">
-        {saving && <span className="text-[10px] text-zinc-600">Saving…</span>}
-        <AccountSelect
-          value={variation.chart_of_accounts_id}
-          onChange={handleChange}
-          accounts={accounts}
-        />
-      </div>
+
+      {/* Source override rows */}
+      {splitOpen && (
+        <div className="pl-6 pr-4 pb-3 pt-2 flex flex-col gap-2 bg-blue-950/10 border-t border-blue-900/20">
+          <div className="flex items-center gap-3">
+            <span className="text-[10px] text-zinc-500 w-16 shrink-0 text-right">POS</span>
+            <AccountSelect
+              value={variation.chart_of_accounts_id_pos}
+              onChange={(id) => handleSourceChange("chart_of_accounts_id_pos", id)}
+              accounts={accounts}
+              placeholder="— same as default —"
+            />
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-[10px] text-zinc-500 w-16 shrink-0 text-right">Invoice</span>
+            <AccountSelect
+              value={variation.chart_of_accounts_id_invoice}
+              onChange={(id) => handleSourceChange("chart_of_accounts_id_invoice", id)}
+              accounts={accounts}
+              placeholder="— same as default —"
+            />
+          </div>
+          {hasSplit && (
+            <button
+              type="button"
+              onClick={handleClearSplit}
+              className="self-end text-[10px] text-zinc-600 hover:text-red-400 transition-colors"
+            >
+              Clear overrides
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -254,32 +335,114 @@ function BulkMapper({
     if (!draft) return;
     setApplying(true);
     await onApply(draft, ow);
+    setDraft(null);
     setApplying(false);
   }
 
   return (
-    <div className="flex items-center gap-2 shrink-0">
-      <span className="text-[10px] text-zinc-600 hidden sm:block">Bulk map:</span>
-      <AccountSelect value={draft} onChange={setDraft} accounts={accounts} />
+    <div className="flex items-center gap-1.5 shrink-0">
+      <AccountSelect value={draft} onChange={setDraft} accounts={accounts} placeholder="Bulk map…" />
       {draft && (
         <>
           <button
             onClick={() => apply(false)}
             disabled={applying || unmappedCount === 0}
-            title={`Apply to ${unmappedCount} unmapped variation${unmappedCount !== 1 ? "s" : ""}`}
-            className="px-2 py-1 bg-amber-600 hover:bg-amber-500 disabled:opacity-40 text-white text-xs rounded transition-colors whitespace-nowrap">
-            {applying ? "…" : `Fill ${unmappedCount} unmapped`}
+            title={`Fill ${unmappedCount} unmapped`}
+            className="px-2 py-1 bg-amber-600 hover:bg-amber-500 disabled:opacity-40 text-white text-[10px] rounded transition-colors whitespace-nowrap">
+            {applying ? "…" : `Fill ${unmappedCount}`}
           </button>
           <button
             onClick={() => apply(true)}
             disabled={applying}
-            title="Overwrite all existing mappings in this category"
-            className="px-2 py-1 bg-zinc-700 hover:bg-zinc-600 disabled:opacity-40 text-zinc-300 text-xs rounded transition-colors whitespace-nowrap">
-            Overwrite all
+            title="Overwrite all"
+            className="px-2 py-1 bg-zinc-700 hover:bg-zinc-600 disabled:opacity-40 text-zinc-300 text-[10px] rounded transition-colors whitespace-nowrap">
+            All
           </button>
         </>
       )}
     </div>
+  );
+}
+
+function BulkSourceMapper({
+  accounts,
+  hasSplits,
+  onApply,
+}: {
+  accounts: CoAAccount[];
+  hasSplits: boolean;
+  onApply: (field: "chart_of_accounts_id_pos" | "chart_of_accounts_id_invoice", accountId: string | null, overwrite: boolean) => Promise<void>;
+}) {
+  const [open, setOpen]         = useState(false);
+  const [draftPos, setDraftPos] = useState<string | null>(null);
+  const [draftInv, setDraftInv] = useState<string | null>(null);
+  const [applying, setApplying] = useState(false);
+
+  async function apply(field: "chart_of_accounts_id_pos" | "chart_of_accounts_id_invoice", draft: string | null, ow: boolean) {
+    if (!draft) return;
+    setApplying(true);
+    await onApply(field, draft, ow);
+    setApplying(false);
+  }
+
+  return (
+    <>
+      {/* Toggle button */}
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className={`shrink-0 px-1.5 py-1 text-[10px] rounded border transition-colors ${
+          open
+            ? "bg-blue-900/60 border-blue-600 text-blue-200"
+            : hasSplits
+            ? "bg-blue-900/40 border-blue-700 text-blue-300 hover:bg-blue-900/60"
+            : "bg-zinc-800 border-zinc-700 text-zinc-500 hover:text-zinc-300 hover:border-zinc-500"
+        }`}
+        title="Set POS vs Invoice source overrides in bulk"
+      >
+        {hasSplits ? "✦ split" : "split"}
+      </button>
+
+      {/* Expanded panel — anchored below the row */}
+      {open && (
+        <div className="absolute top-full left-0 right-0 z-20 border-t border-blue-900/40 bg-zinc-950 px-4 py-2.5 flex flex-col gap-2 shadow-lg">
+          <div className="flex items-center justify-between mb-0.5">
+            <span className="text-[10px] text-blue-400 font-medium uppercase tracking-wider">Source overrides</span>
+            <button type="button" onClick={() => setOpen(false)} className="text-[10px] text-zinc-600 hover:text-zinc-300 px-1">✕ close</button>
+          </div>
+          {/* POS row */}
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-zinc-400 w-16 shrink-0">POS</span>
+            <div className="flex-1 min-w-0">
+              <AccountSelect value={draftPos} onChange={setDraftPos} accounts={accounts} placeholder="— select account —" />
+            </div>
+            <button onClick={() => apply("chart_of_accounts_id_pos", draftPos, false)} disabled={applying || !draftPos}
+              className="px-2 py-1 bg-amber-600 hover:bg-amber-500 disabled:opacity-30 text-white text-[10px] rounded whitespace-nowrap transition-colors">
+              {applying ? "…" : "Fill unmapped"}
+            </button>
+            <button onClick={() => apply("chart_of_accounts_id_pos", draftPos, true)} disabled={applying || !draftPos}
+              className="px-2 py-1 bg-zinc-700 hover:bg-zinc-600 disabled:opacity-30 text-zinc-300 text-[10px] rounded whitespace-nowrap transition-colors">
+              Overwrite all
+            </button>
+          </div>
+          {/* Invoice row */}
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-zinc-400 w-16 shrink-0">Invoice</span>
+            <div className="flex-1 min-w-0">
+              <AccountSelect value={draftInv} onChange={setDraftInv} accounts={accounts} placeholder="— select account —" />
+            </div>
+            <button onClick={() => apply("chart_of_accounts_id_invoice", draftInv, false)} disabled={applying || !draftInv}
+              className="px-2 py-1 bg-amber-600 hover:bg-amber-500 disabled:opacity-30 text-white text-[10px] rounded whitespace-nowrap transition-colors">
+              {applying ? "…" : "Fill unmapped"}
+            </button>
+            <button onClick={() => apply("chart_of_accounts_id_invoice", draftInv, true)} disabled={applying || !draftInv}
+              className="px-2 py-1 bg-zinc-700 hover:bg-zinc-600 disabled:opacity-30 text-zinc-300 text-[10px] rounded whitespace-nowrap transition-colors">
+              Overwrite all
+            </button>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -396,16 +559,113 @@ export default function AccountMappingPage() {
     );
   }
 
+  function applySourceToVariations(
+    predicate: (v: VariationRow) => boolean,
+    field: "chart_of_accounts_id_pos" | "chart_of_accounts_id_invoice",
+    accountId: string,
+    overwrite: boolean
+  ) {
+    const acct = accounts.find((a) => a.id === accountId) ?? null;
+    const coaField = field === "chart_of_accounts_id_pos" ? "coa_pos" : "coa_invoice";
+    setVariations((vs) =>
+      vs.map((v) => {
+        if (!predicate(v)) return v;
+        if (!overwrite && v[field]) return v;
+        return { ...v, [field]: accountId, [coaField]: acct ? { account_name: acct.account_name, account_number: acct.account_number, account_type: acct.account_type } : null };
+      })
+    );
+  }
+
+  async function handleBulkSourceParent(
+    parentGroupId: string | null,
+    field: "chart_of_accounts_id_pos" | "chart_of_accounts_id_invoice",
+    accountId: string | null,
+    overwrite: boolean
+  ) {
+    if (!accountId) return;
+    const res = await fetch("/api/finance/account-mappings/bulk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ parent_group_id: parentGroupId, [field]: accountId, overwrite }),
+    });
+    if (!res.ok) return;
+    applySourceToVariations((v) => {
+      const item = v.square_catalog_items;
+      if (!item) return false;
+      return (item.parent_category_id ?? item.category_id ?? null) === parentGroupId;
+    }, field, accountId, overwrite);
+  }
+
+  async function handleBulkSourceCategory(
+    categoryId: string | null,
+    field: "chart_of_accounts_id_pos" | "chart_of_accounts_id_invoice",
+    accountId: string | null,
+    overwrite: boolean
+  ) {
+    if (!accountId) return;
+    const res = await fetch("/api/finance/account-mappings/bulk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ category_id: categoryId, [field]: accountId, overwrite }),
+    });
+    if (!res.ok) return;
+    applySourceToVariations(
+      (v) => categoryId === null ? !v.square_catalog_items?.category_id : v.square_catalog_items?.category_id === categoryId,
+      field, accountId, overwrite
+    );
+  }
+
+  async function handleBulkSourceItem(
+    catalogItemId: string,
+    field: "chart_of_accounts_id_pos" | "chart_of_accounts_id_invoice",
+    accountId: string | null,
+    overwrite: boolean
+  ) {
+    if (!accountId) return;
+    const res = await fetch("/api/finance/account-mappings/bulk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ catalog_item_id: catalogItemId, [field]: accountId, overwrite }),
+    });
+    if (!res.ok) return;
+    applySourceToVariations(
+      (v) => v.square_catalog_items?.id === catalogItemId,
+      field, accountId, overwrite
+    );
+  }
+
   async function handleSave(squareVariationId: string, accountId: string | null) {
     await fetch("/api/finance/account-mappings", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ square_variation_id: squareVariationId, chart_of_accounts_id: accountId }),
     });
+    const acct = accounts.find((a) => a.id === accountId) ?? null;
     setVariations((vs) =>
       vs.map((v) =>
         v.square_variation_id === squareVariationId
-          ? { ...v, chart_of_accounts_id: accountId, chart_of_accounts: accounts.find((a) => a.id === accountId) ? { account_name: accounts.find((a) => a.id === accountId)!.account_name, account_number: accounts.find((a) => a.id === accountId)!.account_number, account_type: accounts.find((a) => a.id === accountId)!.account_type } : null }
+          ? { ...v, chart_of_accounts_id: accountId, chart_of_accounts: acct ? { account_name: acct.account_name, account_number: acct.account_number, account_type: acct.account_type } : null }
+          : v
+      )
+    );
+  }
+
+  async function handleSaveSource(
+    squareVariationId: string,
+    field: "chart_of_accounts_id_pos" | "chart_of_accounts_id_invoice",
+    accountId: string | null
+  ) {
+    await fetch("/api/finance/account-mappings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ square_variation_id: squareVariationId, [field]: accountId }),
+    });
+    const acct = accounts.find((a) => a.id === accountId) ?? null;
+    const coaField = field === "chart_of_accounts_id_pos" ? "coa_pos" : "coa_invoice";
+    setVariations((vs) =>
+      vs.map((v) =>
+        v.square_variation_id === squareVariationId
+          ? { ...v, [field]: accountId, [coaField]: acct ? { account_name: acct.account_name, account_number: acct.account_number, account_type: acct.account_type } : null }
           : v
       )
     );
@@ -504,17 +764,6 @@ export default function AccountMappingPage() {
         </div>
       ) : (
         <div className="flex-1 overflow-auto pb-8">
-          {/* Column headers */}
-          <div className="sticky top-0 z-10 bg-zinc-900 border-b border-zinc-800 px-4 sm:px-6 py-2 flex items-center gap-3">
-            <div className="flex-1 min-w-0 grid grid-cols-[minmax(0,1fr)_80px_100px_90px] gap-3">
-              <span className="text-[10px] text-zinc-600 uppercase tracking-wider pl-[52px]">Variation</span>
-              <span className="text-[10px] text-zinc-600 uppercase tracking-wider">SKU</span>
-              <span className="text-[10px] text-zinc-600 uppercase tracking-wider">UPC / GTIN</span>
-              <span className="text-[10px] text-zinc-600 uppercase tracking-wider text-right">Price</span>
-            </div>
-            <span className="text-[10px] text-zinc-600 uppercase tracking-wider shrink-0 w-[260px]">GL Account</span>
-          </div>
-
           <div className="divide-y divide-zinc-800/60">
             {groups.map((parent) => {
               const parentKey     = parent.parent_id ?? "__uncategorized__";
@@ -522,27 +771,40 @@ export default function AccountMappingPage() {
               const allVars       = parent.subcategories.flatMap((s) => s.items.flatMap((i) => i.variations));
               const parentMapped  = allVars.filter((v) => v.chart_of_accounts_id).length;
               const parentTotal   = allVars.length;
+              const parentHasSplit = allVars.some((v) => v.chart_of_accounts_id_pos || v.chart_of_accounts_id_invoice);
 
               return (
                 <div key={parentKey}>
                   {/* Parent category row */}
-                  <div className="flex items-center gap-2 px-4 sm:px-6 py-2.5 bg-zinc-900/80 border-b border-zinc-800">
-                    <button onClick={() => toggleCategory(parentKey)} className="flex items-center gap-2 flex-1 min-w-0 text-left">
-                      <span className="text-zinc-500 text-xs w-3 shrink-0">{isParentExpanded ? "▾" : "▸"}</span>
-                      <span className="text-sm font-semibold text-zinc-100 truncate">{parent.parent_name}</span>
-                      <span className="text-[10px] text-zinc-600 shrink-0">{parentTotal} variations</span>
-                      {parentMapped > 0 && parentMapped < parentTotal && (
-                        <span className="text-[10px] text-amber-500 shrink-0">{parentMapped} mapped</span>
-                      )}
-                      {parentMapped === parentTotal && parentTotal > 0 && (
-                        <span className="text-[10px] text-green-500 shrink-0">✓ all mapped</span>
-                      )}
-                    </button>
-                    <BulkMapper
-                      unmappedCount={parentTotal - parentMapped}
-                      accounts={accounts}
-                      onApply={(accountId, overwrite) => handleBulkParent(parent.parent_id, accountId, overwrite)}
-                    />
+                  <div className="relative px-4 sm:px-6 py-3 bg-zinc-900 border-b border-zinc-800">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <button onClick={() => toggleCategory(parentKey)} className="flex items-center gap-2 flex-1 min-w-0 text-left">
+                        <span className="text-zinc-500 text-xs w-3 shrink-0">{isParentExpanded ? "▾" : "▸"}</span>
+                        <span className="text-sm font-semibold text-zinc-100 truncate">{parent.parent_name}</span>
+                        <span className="text-[10px] text-zinc-600 shrink-0">{parentTotal} var.</span>
+                        {parentMapped > 0 && parentMapped < parentTotal && (
+                          <span className="text-[10px] text-amber-500 shrink-0">{parentMapped}/{parentTotal}</span>
+                        )}
+                        {parentMapped === parentTotal && parentTotal > 0 && (
+                          <span className="text-[10px] text-green-500 shrink-0">✓ all</span>
+                        )}
+                        {parentHasSplit && (
+                          <span className="text-[10px] text-blue-400 shrink-0 px-1 bg-blue-900/30 rounded">split</span>
+                        )}
+                      </button>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <BulkMapper
+                          unmappedCount={parentTotal - parentMapped}
+                          accounts={accounts}
+                          onApply={(accountId, overwrite) => handleBulkParent(parent.parent_id, accountId, overwrite)}
+                        />
+                        <BulkSourceMapper
+                          accounts={accounts}
+                          hasSplits={parentHasSplit}
+                          onApply={(field, accountId, overwrite) => handleBulkSourceParent(parent.parent_id, field, accountId, overwrite)}
+                        />
+                      </div>
+                    </div>
                   </div>
 
                   {isParentExpanded && parent.subcategories
@@ -553,6 +815,7 @@ export default function AccountMappingPage() {
                       const catVars      = cat.items.flatMap((i) => i.variations);
                       const catMapped    = catVars.filter((v) => v.chart_of_accounts_id).length;
                       const catTotal     = catVars.length;
+                      const catHasSplit  = catVars.some((v) => v.chart_of_accounts_id_pos || v.chart_of_accounts_id_invoice);
 
                       // If parent === subcategory (top-level item with no parent), skip the extra level
                       const isSingleLevel = parentKey === catKey;
@@ -561,23 +824,35 @@ export default function AccountMappingPage() {
                         <div key={catKey}>
                           {/* Subcategory row — only shown when there's actual nesting */}
                           {!isSingleLevel && (
-                            <div className="flex items-center gap-2 pl-8 pr-4 sm:pr-6 py-2 bg-zinc-900/50 border-b border-zinc-800/70">
-                              <button onClick={() => toggleCategory(catKey)} className="flex items-center gap-2 flex-1 min-w-0 text-left">
-                                <span className="text-zinc-600 text-xs w-3 shrink-0">{isCatExpanded ? "▾" : "▸"}</span>
-                                <span className="text-xs font-semibold text-zinc-300 truncate">{cat.category_name}</span>
-                                <span className="text-[10px] text-zinc-600 shrink-0">{catTotal} variations</span>
-                                {catMapped > 0 && catMapped < catTotal && (
-                                  <span className="text-[10px] text-amber-500 shrink-0">{catMapped} mapped</span>
-                                )}
-                                {catMapped === catTotal && catTotal > 0 && (
-                                  <span className="text-[10px] text-green-500 shrink-0">✓ all mapped</span>
-                                )}
-                              </button>
-                              <BulkMapper
-                                unmappedCount={catTotal - catMapped}
-                                accounts={accounts}
-                                onApply={(accountId, overwrite) => handleBulkCategory(cat.category_id, accountId, overwrite)}
-                              />
+                            <div className="relative pl-8 pr-4 sm:pr-6 py-2.5 bg-zinc-900/40 border-b border-zinc-800/50">
+                              <div className="flex items-center gap-3 min-w-0">
+                                <button onClick={() => toggleCategory(catKey)} className="flex items-center gap-2 flex-1 min-w-0 text-left">
+                                  <span className="text-zinc-600 text-xs w-3 shrink-0">{isCatExpanded ? "▾" : "▸"}</span>
+                                  <span className="text-xs font-semibold text-zinc-300 truncate">{cat.category_name}</span>
+                                  <span className="text-[10px] text-zinc-600 shrink-0">{catTotal} var.</span>
+                                  {catMapped > 0 && catMapped < catTotal && (
+                                    <span className="text-[10px] text-amber-500 shrink-0">{catMapped}/{catTotal}</span>
+                                  )}
+                                  {catMapped === catTotal && catTotal > 0 && (
+                                    <span className="text-[10px] text-green-500 shrink-0">✓ all</span>
+                                  )}
+                                  {catHasSplit && (
+                                    <span className="text-[10px] text-blue-400 shrink-0 px-1 bg-blue-900/30 rounded">split</span>
+                                  )}
+                                </button>
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <BulkMapper
+                                    unmappedCount={catTotal - catMapped}
+                                    accounts={accounts}
+                                    onApply={(accountId, overwrite) => handleBulkCategory(cat.category_id, accountId, overwrite)}
+                                  />
+                                  <BulkSourceMapper
+                                    accounts={accounts}
+                                    hasSplits={catHasSplit}
+                                    onApply={(field, accountId, overwrite) => handleBulkSourceCategory(cat.category_id, field, accountId, overwrite)}
+                                  />
+                                </div>
+                              </div>
                             </div>
                           )}
 
@@ -587,6 +862,7 @@ export default function AccountMappingPage() {
                             const itemKey = item.square_item_id;
                             const isItemExpanded = expandedItems.has(itemKey);
                             const itemMapped = item.variations.filter((v) => v.chart_of_accounts_id).length;
+                            const itemHasSplit = item.variations.some((v) => v.chart_of_accounts_id_pos || v.chart_of_accounts_id_invoice);
 
                             return (
                       <div key={itemKey}>
@@ -594,42 +870,64 @@ export default function AccountMappingPage() {
                         {(() => {
                           const catalogItemId = item.variations[0]?.square_catalog_items?.id ?? null;
                           return (
-                            <div className={`flex items-center gap-2 pr-4 sm:pr-6 py-2 border-t border-zinc-800/40 ${isSingleLevel ? "pl-8" : "pl-14"}`}>
-                              <button
-                                onClick={() => toggleItem(itemKey)}
-                                className="flex items-center gap-2 flex-1 min-w-0 text-left hover:bg-zinc-800/10 transition-colors">
-                                <span className="text-zinc-700 text-xs w-3">{isItemExpanded ? "▾" : "▸"}</span>
-                                <span className={`text-xs font-medium flex-1 truncate ${item.is_archived ? "text-zinc-600 line-through" : "text-zinc-200"}`}>
-                                  {item.item_name}
-                                </span>
-                                <span className="text-[10px] text-zinc-600 shrink-0">{item.variations.length} variation{item.variations.length !== 1 ? "s" : ""}</span>
-                                {itemMapped > 0 && itemMapped < item.variations.length && (
-                                  <span className="text-[10px] text-amber-600 ml-2 shrink-0">{itemMapped}/{item.variations.length}</span>
+                            <div className={`relative pr-4 sm:pr-6 py-2.5 border-t border-zinc-800/30 ${isSingleLevel ? "pl-8" : "pl-14"}`}>
+                              <div className="flex items-center gap-3 min-w-0">
+                                <button
+                                  onClick={() => toggleItem(itemKey)}
+                                  className="flex items-center gap-2 flex-1 min-w-0 text-left">
+                                  <span className="text-zinc-700 text-xs w-3 shrink-0">{isItemExpanded ? "▾" : "▸"}</span>
+                                  <span className={`text-xs font-medium flex-1 truncate ${item.is_archived ? "text-zinc-600 line-through" : "text-zinc-200"}`}>
+                                    {item.item_name}
+                                  </span>
+                                  <span className="text-[10px] text-zinc-600 shrink-0">{item.variations.length} var.</span>
+                                  {itemMapped > 0 && itemMapped < item.variations.length && (
+                                    <span className="text-[10px] text-amber-600 shrink-0">{itemMapped}/{item.variations.length}</span>
+                                  )}
+                                  {itemMapped === item.variations.length && item.variations.length > 0 && (
+                                    <span className="text-[10px] text-green-500 shrink-0">✓</span>
+                                  )}
+                                  {itemHasSplit && (
+                                    <span className="text-[10px] text-blue-400 shrink-0 px-1 bg-blue-900/30 rounded">split</span>
+                                  )}
+                                </button>
+                                {catalogItemId && (
+                                  <div className="flex items-center gap-2 shrink-0">
+                                    <BulkMapper
+                                      unmappedCount={item.variations.length - itemMapped}
+                                      accounts={accounts}
+                                      onApply={(accountId, overwrite) => handleBulkItem(catalogItemId, accountId, overwrite)}
+                                    />
+                                    <BulkSourceMapper
+                                      accounts={accounts}
+                                      hasSplits={itemHasSplit}
+                                      onApply={(field, accountId, overwrite) => handleBulkSourceItem(catalogItemId, field, accountId, overwrite)}
+                                    />
+                                  </div>
                                 )}
-                                {itemMapped === item.variations.length && item.variations.length > 0 && (
-                                  <span className="text-[10px] text-green-500 ml-2 shrink-0">✓ all mapped</span>
-                                )}
-                              </button>
-                              {catalogItemId && (
-                                <BulkMapper
-                                  unmappedCount={item.variations.length - itemMapped}
-                                  accounts={accounts}
-                                  onApply={(accountId, overwrite) => handleBulkItem(catalogItemId, accountId, overwrite)}
-                                />
-                              )}
+                              </div>
                             </div>
                           );
                         })()}
 
-                        {/* Variation rows */}
-                        {isItemExpanded && item.variations.map((v) => (
-                          <VariationMappingRow
-                            key={v.square_variation_id}
-                            variation={v}
-                            accounts={accounts}
-                            onSave={handleSave}
-                          />
-                        ))}
+                        {/* Variation sub-header + rows */}
+                        {isItemExpanded && (
+                          <>
+                            <div className="flex items-center gap-3 pl-6 pr-4 py-1 bg-zinc-900/60 border-t border-zinc-800/40">
+                              <span className="text-[10px] text-zinc-600 uppercase tracking-wider w-44 shrink-0">Variation · Price</span>
+                              <span className="text-[10px] text-zinc-600 uppercase tracking-wider flex-1">Default GL Account</span>
+                              <span className="text-[10px] text-zinc-600 uppercase tracking-wider w-14 text-right">Split</span>
+                            </div>
+                            {item.variations.map((v) => (
+                              <VariationMappingRow
+                                key={v.square_variation_id}
+                                variation={v}
+                                accounts={accounts}
+                                onSave={handleSave}
+                                onSaveSource={handleSaveSource}
+                              />
+                            ))}
+                          </>
+                        )}
                             </div>
                           );
                         })}

@@ -14,18 +14,31 @@ export async function POST(req: NextRequest) {
   try { await requireRole("manager"); } catch (res) { return res as Response; }
 
   const body = await req.json() as {
-    chart_of_accounts_id: string | null;
+    chart_of_accounts_id?: string | null;
+    chart_of_accounts_id_pos?: string | null;
+    chart_of_accounts_id_invoice?: string | null;
     overwrite?: boolean;
     catalog_item_id?: string;
     parent_group_id?: string | null;
     category_id?: string | null;
   };
 
-  const { chart_of_accounts_id, overwrite = false } = body;
+  const { overwrite = false } = body;
 
-  if (chart_of_accounts_id === undefined) {
-    return NextResponse.json({ error: "chart_of_accounts_id required" }, { status: 400 });
+  // Build the update patch — at least one CoA field must be present
+  const patch: Record<string, string | null> = {};
+  if ("chart_of_accounts_id" in body)         patch.chart_of_accounts_id         = body.chart_of_accounts_id ?? null;
+  if ("chart_of_accounts_id_pos" in body)     patch.chart_of_accounts_id_pos     = body.chart_of_accounts_id_pos ?? null;
+  if ("chart_of_accounts_id_invoice" in body) patch.chart_of_accounts_id_invoice = body.chart_of_accounts_id_invoice ?? null;
+
+  if (Object.keys(patch).length === 0) {
+    return NextResponse.json({ error: "At least one CoA field required" }, { status: 400 });
   }
+
+  // For the primary CoA field used in overwrite checks
+  const primaryField = "chart_of_accounts_id" in body ? "chart_of_accounts_id"
+    : "chart_of_accounts_id_pos" in body ? "chart_of_accounts_id_pos"
+    : "chart_of_accounts_id_invoice";
 
   const supabase = createSupabaseAdminClient();
 
@@ -33,9 +46,9 @@ export async function POST(req: NextRequest) {
     if (!itemIds.length) return 0;
     let q = supabase
       .from("square_catalog_variations")
-      .update({ chart_of_accounts_id })
+      .update(patch)
       .in("catalog_item_id", itemIds);
-    if (!overwrite) q = q.is("chart_of_accounts_id", null);
+    if (!overwrite) q = q.is(primaryField, null);
     const { data, error } = await q.select("id");
     if (error) throw error;
     return data?.length ?? 0;

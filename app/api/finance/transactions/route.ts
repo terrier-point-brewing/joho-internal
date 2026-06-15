@@ -1,7 +1,7 @@
 /**
  * GET /api/finance/transactions?year=YYYY&page=N&pageSize=N
  *
- * Returns paginated square_transactions joined with their line items
+ * Returns paginated square_orders (POS only) joined with their pos_line_items
  * (including prefilled CoA from account mapping when no manual override exists).
  */
 import { NextRequest, NextResponse } from "next/server";
@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
   const supabase = createSupabaseAdminClient();
 
   const { data, error, count } = await supabase
-    .from("square_transactions")
+    .from("square_orders")
     .select(`
       id,
       square_order_id,
@@ -39,11 +39,12 @@ export async function GET(req: NextRequest) {
       discount_cents,
       status,
       notes,
-      square_transaction_line_items (
+      pos_line_items (
         id,
         square_line_item_uid,
         square_variation_id,
         name,
+        variation_name,
         quantity,
         base_price_cents,
         gross_sales_cents,
@@ -55,6 +56,7 @@ export async function GET(req: NextRequest) {
         chart_of_accounts ( id, account_name, account_number, account_type )
       )
     `, { count: "exact" })
+    .is("invoice_id", null)
     .gte("transaction_date", startDate)
     .lt("transaction_date", endDate)
     .order("transaction_date", { ascending: false })
@@ -64,7 +66,7 @@ export async function GET(req: NextRequest) {
 
   // For line items without a manual CoA override, prefill from account mapping
   const variationIds = (data ?? [])
-    .flatMap((t) => (t.square_transaction_line_items ?? []).map((li) => li.square_variation_id))
+    .flatMap((t) => (t.pos_line_items ?? []).map((li) => li.square_variation_id))
     .filter((v): v is string => !!v && true);
 
   const uniqueVarIds = [...new Set(variationIds)];
@@ -87,7 +89,7 @@ export async function GET(req: NextRequest) {
 
   const enriched = (data ?? []).map((txn) => ({
     ...txn,
-    square_transaction_line_items: (txn.square_transaction_line_items ?? []).map((li) => {
+    pos_line_items: (txn.pos_line_items ?? []).map((li) => {
       const prefill = li.square_variation_id ? mappingLookup[li.square_variation_id] : null;
       return {
         ...li,

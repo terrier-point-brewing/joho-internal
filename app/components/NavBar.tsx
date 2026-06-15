@@ -55,10 +55,14 @@ export default function NavBar() {
 
   const { role, user, loading } = useUserRole();
 
-  const [collapsed, setCollapsed] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return localStorage.getItem(STORAGE_KEY) === "true";
-  });
+  const [collapsed, setCollapsed] = useState(false);
+
+  // Read persisted state after hydration to avoid server/client mismatch
+  useEffect(() => {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (stored === "true") setCollapsed(true);
+  }, []);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, String(collapsed));
