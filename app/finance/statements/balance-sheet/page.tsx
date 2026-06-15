@@ -88,9 +88,14 @@ function GroupTotal({ label, cents }: { label: string; cents: number }) {
   );
 }
 
+const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
 export default function BalanceSheetPage() {
-  const currentYear = new Date().getFullYear();
+  const now = new Date();
+  const currentYear  = now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
   const [year, setYear]       = useState(currentYear);
+  const [month, setMonth]     = useState(currentMonth);
   const [data, setData]       = useState<{ year: number; accounts: AccountBalance[] } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState<string | null>(null);
@@ -100,7 +105,8 @@ export default function BalanceSheetPage() {
     async function load() {
       setLoading(true); setError(null);
       try {
-        const r = await fetch(`/api/finance/statements?year=${year}`);
+        const params = month > 0 ? `year=${year}&month=${month}` : `year=${year}`;
+        const r = await fetch(`/api/finance/statements?${params}`);
         const d = await r.json();
         setData(d);
       } catch (e) {
@@ -110,7 +116,7 @@ export default function BalanceSheetPage() {
       }
     }
     load();
-  }, [year]);
+  }, [year, month]);
 
   const accounts = data?.accounts ?? [];
   const sum = (list: AccountBalance[]) => list.reduce((s, a) => s + a.balance_cents, 0);
@@ -149,12 +155,21 @@ export default function BalanceSheetPage() {
       <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-5 pb-3 border-b border-zinc-800 flex items-center justify-between gap-4">
         <div>
           <h1 className="text-base font-semibold text-zinc-100">Balance Sheet</h1>
-          <p className="text-xs text-zinc-500 mt-0.5">As of Dec 31, {year} — based on Chart of Accounts structure</p>
+          <p className="text-xs text-zinc-500 mt-0.5">
+            As of {month > 0 ? `${MONTH_NAMES[month - 1]} ${year}` : `Dec 31, ${year}`} — based on Chart of Accounts structure
+          </p>
         </div>
-        <select value={year} onChange={(e) => setYear(Number(e.target.value))}
-          className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-xs text-zinc-200">
-          {years.map((y) => <option key={y} value={y}>{y}</option>)}
-        </select>
+        <div className="flex items-center gap-2 shrink-0">
+          <select value={month} onChange={(e) => setMonth(Number(e.target.value))}
+            className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-xs text-zinc-200">
+            <option value={0}>Annual</option>
+            {MONTH_NAMES.map((m, i) => <option key={i + 1} value={i + 1}>{m}</option>)}
+          </select>
+          <select value={year} onChange={(e) => setYear(Number(e.target.value))}
+            className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-xs text-zinc-200">
+            {years.map((y) => <option key={y} value={y}>{y}</option>)}
+          </select>
+        </div>
       </div>
 
       <div className="flex-1 overflow-auto">

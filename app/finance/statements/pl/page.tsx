@@ -99,9 +99,14 @@ function Subtotal({ label, cents, highlight }: { label: string; cents: number; h
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
+const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
 export default function PLPage() {
-  const currentYear = new Date().getFullYear();
+  const now = new Date();
+  const currentYear  = now.getFullYear();
+  const currentMonth = now.getMonth() + 1; // 1-based
   const [year, setYear]           = useState(currentYear);
+  const [month, setMonth]         = useState(currentMonth); // 0 = annual
   const [data, setData]           = useState<{ year: number; accounts: AccountBalance[] } | null>(null);
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState<string | null>(null);
@@ -111,7 +116,8 @@ export default function PLPage() {
     async function load() {
       setLoading(true); setError(null);
       try {
-        const r = await fetch(`/api/finance/statements?year=${year}`);
+        const params = month > 0 ? `year=${year}&month=${month}` : `year=${year}`;
+        const r = await fetch(`/api/finance/statements?${params}`);
         const d = await r.json();
         setData(d);
       } catch (e) {
@@ -121,7 +127,7 @@ export default function PLPage() {
       }
     }
     load();
-  }, [year]);
+  }, [year, month]);
 
   const accounts = data?.accounts ?? [];
 
@@ -148,12 +154,22 @@ export default function PLPage() {
       <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-5 pb-3 border-b border-zinc-800 flex items-center justify-between gap-4">
         <div>
           <h1 className="text-base font-semibold text-zinc-100">Profit & Loss</h1>
-          <p className="text-xs text-zinc-500 mt-0.5">Based on Square POS transactions and invoices mapped to Chart of Accounts</p>
+          <p className="text-xs text-zinc-500 mt-0.5">
+            {month > 0 ? `${MONTH_NAMES[month - 1]} ${year}` : `Full Year ${year}`}
+            {" · "}Square POS transactions and invoices mapped to Chart of Accounts
+          </p>
         </div>
-        <select value={year} onChange={(e) => setYear(Number(e.target.value))}
-          className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-xs text-zinc-200">
-          {years.map((y) => <option key={y} value={y}>{y}</option>)}
-        </select>
+        <div className="flex items-center gap-2 shrink-0">
+          <select value={month} onChange={(e) => setMonth(Number(e.target.value))}
+            className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-xs text-zinc-200">
+            <option value={0}>Annual</option>
+            {MONTH_NAMES.map((m, i) => <option key={i + 1} value={i + 1}>{m}</option>)}
+          </select>
+          <select value={year} onChange={(e) => setYear(Number(e.target.value))}
+            className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-xs text-zinc-200">
+            {years.map((y) => <option key={y} value={y}>{y}</option>)}
+          </select>
+        </div>
       </div>
 
       <div className="flex-1 overflow-auto">
@@ -170,7 +186,9 @@ export default function PLPage() {
             <div className="grid grid-cols-[minmax(0,1fr)_80px_100px] gap-4 px-4 sm:px-6 py-2 bg-zinc-900 border-b border-zinc-800 sticky top-0 z-10">
               <span className="text-[10px] text-zinc-600 uppercase tracking-wider">Account</span>
               <span className="text-[10px] text-zinc-600 uppercase tracking-wider text-right">Transactions</span>
-              <span className="text-[10px] text-zinc-600 uppercase tracking-wider text-right">{year}</span>
+              <span className="text-[10px] text-zinc-600 uppercase tracking-wider text-right">
+              {month > 0 ? `${MONTH_NAMES[month - 1]} ${year}` : year}
+            </span>
             </div>
 
             <Section title="Revenue" accounts={revenue} totalLabel="Total Revenue" totalCents={sum(revenue)} />

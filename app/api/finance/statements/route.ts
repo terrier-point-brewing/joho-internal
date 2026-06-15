@@ -45,8 +45,13 @@ export async function GET(req: NextRequest) {
   try { await requireRole("viewer"); } catch (res) { return res as Response; }
 
   const year    = Number(req.nextUrl.searchParams.get("year") ?? new Date().getFullYear());
-  const start   = `${year}-01-01T00:00:00Z`;
-  const end     = `${year + 1}-01-01T00:00:00Z`;
+  const month   = Number(req.nextUrl.searchParams.get("month") ?? 0); // 0 = full year
+  const start   = month > 0
+    ? `${year}-${String(month).padStart(2, "0")}-01T00:00:00Z`
+    : `${year}-01-01T00:00:00Z`;
+  const end     = month > 0
+    ? new Date(Date.UTC(year, month, 1)).toISOString()   // first of next month
+    : `${year + 1}-01-01T00:00:00Z`;
   const supabase = createSupabaseAdminClient();
 
   // Load all CoA accounts
