@@ -109,7 +109,7 @@ export async function GET(req: NextRequest) {
 
     for (const row of txnRows ?? []) {
       if (!row.chart_of_accounts_id) continue;
-      const txn = row.square_orders as { transaction_date: string };
+      const txn = row.square_orders as unknown as { transaction_date: string };
       const d = new Date(txn.transaction_date);
       const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
       const cur = getOrCreate(row.chart_of_accounts_id, key);
@@ -119,7 +119,7 @@ export async function GET(req: NextRequest) {
 
     for (const row of invRows ?? []) {
       if (!row.chart_of_accounts_id) continue;
-      const inv = row.invoices as { invoice_date: string; status: string };
+      const inv = row.invoices as unknown as { invoice_date: string; status: string };
       const parts = inv.invoice_date.split("-");
       const key = `${parts[0]}-${parts[1]}`;
       const cur = getOrCreate(row.chart_of_accounts_id, key);
