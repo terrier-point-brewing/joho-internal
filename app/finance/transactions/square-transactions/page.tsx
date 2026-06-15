@@ -17,6 +17,7 @@ interface LineItem {
   square_line_item_uid: string | null;
   square_variation_id: string | null;
   name: string;
+  variation_name: string | null;
   quantity: number;
   base_price_cents: number;
   gross_sales_cents: number;
@@ -42,7 +43,7 @@ interface Transaction {
   discount_cents: number;
   status: string;
   notes: string | null;
-  square_transaction_line_items: LineItem[];
+  pos_line_items: LineItem[];
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -183,9 +184,14 @@ function LineItemRow({
 
   return (
     <div className="grid grid-cols-[minmax(0,2fr)_50px_80px_60px_60px_90px_minmax(0,1fr)_18px] gap-2 items-center px-4 py-2 border-t border-zinc-800/40 bg-zinc-950/20 text-xs">
-      <div className="truncate text-zinc-400 flex items-center gap-1.5">
-        <span className="text-zinc-600">└</span>
-        <span className="truncate">{item.name}</span>
+      <div className="min-w-0 flex flex-col gap-0.5">
+        <div className="truncate text-zinc-400 flex items-center gap-1.5">
+          <span className="text-zinc-600">└</span>
+          <span className="truncate">{item.name}</span>
+        </div>
+        {item.variation_name && (
+          <span className="pl-4 text-[10px] text-zinc-600 truncate">{item.variation_name}</span>
+        )}
       </div>
       <div className="text-zinc-600 text-right tabular-nums">{item.quantity}×</div>
       <div className="text-zinc-500 text-right tabular-nums font-mono">{fmtMoney(item.gross_sales_cents)}</div>
@@ -226,7 +232,7 @@ function TransactionRow({
   onSaveLineItem: (id: string, patch: { chart_of_accounts_id: string | null }) => Promise<void>;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const lineItems = txn.square_transaction_line_items ?? [];
+  const lineItems = txn.pos_line_items ?? [];
   const mappedCount = lineItems.filter((li) => li.effective_chart_of_accounts_id).length;
   const allMapped = lineItems.length > 0 && mappedCount === lineItems.length;
 
@@ -400,7 +406,7 @@ export default function SquareTransactionsPage() {
     setTransactions((txns) =>
       txns.map((t) => ({
         ...t,
-        square_transaction_line_items: t.square_transaction_line_items.map((li) => {
+        pos_line_items: t.pos_line_items.map((li) => {
           if (li.id !== id) return li;
           const newCoa = accounts.find((a) => a.id === patch.chart_of_accounts_id) ?? null;
           return {
@@ -417,7 +423,7 @@ export default function SquareTransactionsPage() {
   }
 
   const totalPages = Math.ceil(total / pageSize);
-  const unmappedTotal = transactions.flatMap((t) => t.square_transaction_line_items)
+  const unmappedTotal = transactions.flatMap((t) => t.pos_line_items)
     .filter((li) => !li.effective_chart_of_accounts_id).length;
 
   return (

@@ -6,6 +6,7 @@ import { queryKeys } from "@/lib/query-keys";
 import { fetchJson } from "@/app/production/hooks/queries";
 import type { Invoice, InvoiceType } from "@/types/finance";
 import FinanceNav from "../FinanceNav";
+import TransactionsNav from "../transactions/TransactionsNav";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -400,12 +401,13 @@ export default function InvoicesPage() {
   return (
     <div className="flex flex-col h-full bg-zinc-950 text-zinc-100">
       <FinanceNav mobile />
+      <TransactionsNav />
       {/* Header */}
       <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-5 pb-4 border-b border-zinc-800">
         <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
           <div>
-            <h1 className="text-base font-semibold text-zinc-100">Finance</h1>
-            <p className="text-xs text-zinc-500 mt-0.5">Admin only</p>
+            <h1 className="text-base font-semibold text-zinc-100">Invoices</h1>
+            <p className="text-xs text-zinc-500 mt-0.5">Square and QuickBooks invoices · map line items to GL accounts</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <select value={year} onChange={(e) => setYear(Number(e.target.value))}

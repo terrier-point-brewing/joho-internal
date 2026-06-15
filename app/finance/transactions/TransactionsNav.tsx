@@ -3,7 +3,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const SUBTABS = [
-  { href: "/finance/transactions/square-transactions", label: "Square Transactions" },
+  { href: "/finance/transactions/square-transactions", label: "POS Transactions" },
+  { href: "/finance/invoices",                         label: "Invoices"          },
 ];
 
 export default function TransactionsNav() {

@@ -25,7 +25,7 @@ export async function PATCH(req: NextRequest) {
   if ("notes" in body) patch.notes = body.notes ?? null;
 
   const { error } = await supabase
-    .from("square_transaction_line_items")
+    .from("pos_line_items")
     .update(patch)
     .eq("id", body.id);
 

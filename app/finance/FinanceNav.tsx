@@ -9,8 +9,8 @@ export default function FinanceNav({ mobile = false }: { mobile?: boolean }) {
   if (mobile) {
     return (
       <div className="md:hidden flex border-b border-zinc-800 overflow-x-auto scrollbar-none">
-        {FINANCE_NAV.map(({ href, label, match }) => {
-          const active = pathname === href || pathname.startsWith(match ?? href);
+        {FINANCE_NAV.map(({ href, label, match, also }) => {
+          const active = pathname === href || pathname.startsWith(match ?? href) || (!!also && pathname.startsWith(also));
           return (
             <Link key={href} href={href}
               className={`px-4 py-2.5 text-sm font-medium whitespace-nowrap transition-colors border-b-2 -mb-px ${
@@ -28,7 +28,7 @@ export default function FinanceNav({ mobile = false }: { mobile?: boolean }) {
 
   return (
     <div className="flex items-center gap-1">
-      {FINANCE_NAV.map(({ href, label, match }) => {
+      {FINANCE_NAV.map(({ href, label, match, also }) => {
         const active = pathname === href || pathname.startsWith(match ?? href);
         return (
           <Link key={href} href={href}
