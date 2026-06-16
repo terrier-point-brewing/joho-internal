@@ -25,7 +25,7 @@ export async function GET() {
       chart_of_accounts_id_invoice,
       bs_chart_of_accounts_id,
       pl_chart_of_accounts_id,
-      chart_of_accounts!chart_of_accounts_id ( account_name, account_number, account_type ),
+      chart_of_accounts!square_catalog_variations_chart_of_accounts_id_fkey ( account_name, account_number, account_type ),
       square_catalog_items (
         id,
         square_item_id,
