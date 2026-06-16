@@ -29,42 +29,6 @@ const STATUS_CLS: Record<string, string> = {
   unknown: "bg-zinc-800 text-zinc-500",
 };
 
-const CATEGORY_COLORS: Record<string, string> = {
-  materials_packaging: "bg-blue-500",
-  packaging_fees:      "bg-violet-500",
-  other_services:      "bg-cyan-500",
-  pass_through_taxes:  "bg-orange-500",
-  distribution_keg:    "bg-emerald-500",
-  distribution_can:    "bg-teal-500",
-  other:               "bg-zinc-500",
-};
-
-// Mini stacked bar representing the invoice's category mix by dollar value
-function CategoryBar({ items }: { items: { category: string | null; total_cents: number }[] }) {
-  const total = items.reduce((s, li) => s + Math.abs(li.total_cents), 0);
-  if (total === 0) return <span className="text-zinc-700 text-[10px]">—</span>;
-
-  // Group by category
-  const grouped: Record<string, number> = {};
-  for (const li of items) {
-    const k = li.category ?? "other";
-    grouped[k] = (grouped[k] ?? 0) + Math.abs(li.total_cents);
-  }
-
-  return (
-    <div className="flex h-2 w-24 rounded overflow-hidden gap-px" title={
-      Object.entries(grouped).map(([k, v]) => `${k}: $${(v / 100).toFixed(0)}`).join("\n")
-    }>
-      {Object.entries(grouped).map(([cat, cents]) => (
-        <div
-          key={cat}
-          className={`${CATEGORY_COLORS[cat] ?? "bg-zinc-500"} h-full`}
-          style={{ width: `${(cents / total) * 100}%` }}
-        />
-      ))}
-    </div>
-  );
-}
 
 // ── Invoice list with joined data ─────────────────────────────────────────────
 
@@ -243,10 +207,9 @@ function InvoiceExpandableRow({
               ? <span className="text-zinc-700">—</span>
               : allMapped
                 ? <span className="text-[10px] text-green-500">✓ all mapped</span>
-                : <div className="flex items-center gap-1.5">
-                    <CategoryBar items={lineItems} />
-                    {mappedCount > 0 && <span className="text-[10px] text-amber-500 shrink-0">{mappedCount}/{lineItems.length}</span>}
-                  </div>}
+                : mappedCount > 0
+                  ? <span className="text-[10px] text-amber-500">{mappedCount}/{lineItems.length} mapped</span>
+                  : <span className="text-[10px] text-zinc-600">unmapped</span>}
             {missingDelivery && (
               <span className="text-[10px] text-amber-400">⚠ deposit missing delivery</span>
             )}
@@ -337,11 +300,6 @@ function InvoiceLineItemRow({
         <div className="min-w-0 pt-0.5">
           <span className="text-zinc-400 truncate block">{item.description}</span>
           {item.variation_name && <span className="text-[10px] text-zinc-600">{item.variation_name}</span>}
-          {item.category && (
-            <span className={`inline-block mt-0.5 px-1 py-0.5 rounded text-[9px] font-medium ${CATEGORY_CLS[item.category] ?? "bg-zinc-800 text-zinc-500"}`}>
-              {item.category.replace(/_/g, " ")}
-            </span>
-          )}
           {isDeposit && (
             <span className="inline-block mt-0.5 ml-1 px-1 py-0.5 rounded text-[9px] font-medium bg-violet-900/40 text-violet-400">
               deposit
@@ -405,15 +363,6 @@ function InvoiceLineItemRow({
   );
 }
 
-const CATEGORY_CLS: Record<string, string> = {
-  materials_packaging: "bg-blue-900/40 text-blue-300",
-  packaging_fees:      "bg-violet-900/40 text-violet-300",
-  other_services:      "bg-cyan-900/40 text-cyan-300",
-  pass_through_taxes:  "bg-orange-900/40 text-orange-300",
-  distribution_keg:    "bg-emerald-900/40 text-emerald-300",
-  distribution_can:    "bg-teal-900/40 text-teal-300",
-  other:               "bg-zinc-800 text-zinc-500",
-};
 
 // ── Batch types ───────────────────────────────────────────────────────────────
 
@@ -583,7 +532,8 @@ export default function InvoicesPage() {
   const [year,       setYear]   = useState(currentYear);
   const [source,     setSource] = useState<"all" | "square" | "quickbooks">("all");
   const [status,     setStatus] = useState<"all" | "open" | "paid" | "partial" | "voided" | "unknown">("all");
-  const [typeFilter, setTypeFilter] = useState<"all" | InvoiceType>("all");
+  const [typeFilter,    setTypeFilter]    = useState<"all" | InvoiceType>("all");
+  const [mappingFilter, setMappingFilter] = useState<"all" | "mapped" | "partial" | "unmapped">("all");
   const [sortKey,    setSort]   = useState<SortKey>("invoice_date");
   const [sortAsc,    setSortAsc] = useState(false);
   const [accounts,     setAccounts]     = useState<CoARef[]>([]);
@@ -631,10 +581,20 @@ export default function InvoicesPage() {
     queryFn:  () => fetchJson<InvoiceRow[]>(`/api/finance/ledger/invoices?${params}`),
   });
 
-  // Client-side status + type filter + sort
+  // Client-side status + type + mapping filter + sort
   const invoices = (raw ?? [])
     .filter((inv) => status === "all" || inv.status === status)
     .filter((inv) => typeFilter === "all" || (inv as InvoiceRow).invoice_type === typeFilter)
+    .filter((inv) => {
+      if (mappingFilter === "all") return true;
+      const items = (inv as InvoiceRow).invoice_line_items ?? [];
+      if (items.length === 0) return mappingFilter === "unmapped";
+      const mapped = items.filter((li) => li.chart_of_accounts_id || li.bs_chart_of_accounts_id).length;
+      if (mappingFilter === "mapped")   return mapped === items.length;
+      if (mappingFilter === "partial")  return mapped > 0 && mapped < items.length;
+      if (mappingFilter === "unmapped") return mapped === 0;
+      return true;
+    })
     .sort((a, b) => {
       let diff = 0;
       if (sortKey === "invoice_date") diff = (a.invoice_date ?? "").localeCompare(b.invoice_date ?? "");
@@ -690,6 +650,13 @@ export default function InvoicesPage() {
               <option value="standard">Standard</option>
               <option value="allocation_deposit">Deposit invoices</option>
             </select>
+            <select value={mappingFilter} onChange={(e) => setMappingFilter(e.target.value as typeof mappingFilter)}
+              className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200">
+              <option value="all">All GL mappings</option>
+              <option value="mapped">Fully mapped</option>
+              <option value="partial">Partially mapped</option>
+              <option value="unmapped">Unmapped</option>
+            </select>
             <InvoiceSyncPanel year={year} onSynced={() => refetch()} />
             <div className="flex items-center gap-2">
               <button onClick={handleAutoMap} disabled={autoMapping}
@@ -704,10 +671,6 @@ export default function InvoicesPage() {
                 </span>
               )}
             </div>
-            <button onClick={() => refetch()}
-              className="px-3 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs rounded border border-zinc-700 transition-colors">
-              Refresh
-            </button>
           </div>
         </div>
       </div>
