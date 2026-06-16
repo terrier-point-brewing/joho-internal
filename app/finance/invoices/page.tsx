@@ -176,11 +176,8 @@ function InvoiceExpandableRow({
         <td className="px-4 py-2 w-6">
           <span className="text-zinc-600 text-[10px]">{expanded ? "▾" : "▸"}</span>
         </td>
-        <td className="px-4 py-2">
-          <Link href={`/finance/invoices/${inv.id}`} className="font-mono text-amber-400 hover:text-amber-300"
-            onClick={(e) => e.stopPropagation()}>
-            {inv.invoice_number ?? inv.external_id}
-          </Link>
+        <td className="px-4 py-2 font-mono text-amber-400">
+          {inv.invoice_number ?? inv.external_id}
         </td>
         <td className="px-4 py-2 text-zinc-400">{fmtDate(inv.invoice_date)}</td>
         <td className="px-4 py-2 text-zinc-300">
