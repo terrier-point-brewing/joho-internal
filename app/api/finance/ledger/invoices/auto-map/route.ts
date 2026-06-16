@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
   // Fetch all line items for invoices in the given year (both mapped and unmapped)
   const { data: allItems, error } = await supabase
     .from("invoice_line_items")
-    .select("id, description, chart_of_accounts_id, invoices!inner(invoice_date)")
+    .select("id, description, chart_of_accounts_id, invoices!invoice_line_items_invoice_id_fkey!inner(invoice_date)")
     .gte("invoices.invoice_date", `${year}-01-01`)
     .lte("invoices.invoice_date", `${year}-12-31`);
 
