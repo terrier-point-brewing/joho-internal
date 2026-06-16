@@ -327,8 +327,8 @@ export default function BalanceSheetPage() {
             <GroupTotal label="Total Liabilities + Equity" cents={totalLiabEquity} />
 
             <div className="px-4 sm:px-6 py-4 text-[10px] text-zinc-600">
-              Balance Sheet balances reflect transactions mapped to balance sheet accounts (e.g. deposits pending delivery).
-              Bank, A/R, liability, and equity balances require journal entry imports or a connected GL source.
+              Deposit invoices with a BS account mapped (pending delivery) are reflected here.
+              Open invoice A/R, Ramp credit card balances, bank balances, and equity require additional data sources.
             </div>
           </>
         )}
