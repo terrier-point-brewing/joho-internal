@@ -102,7 +102,21 @@ export async function POST(req: NextRequest) {
   // Index orders by their Square order ID for O(1) lookup
   const orderById = new Map<string, Order>(orders.map((o) => [o.id, o]));
 
-  // ── 4. Upsert each invoice ────────────────────────────────────────────────
+  // ── 4. Load variation deposit mappings (BS/PL) ───────────────────────────
+  const { data: variationMappings } = await supabase
+    .from("square_catalog_variations")
+    .select("square_variation_id, chart_of_accounts_id_invoice, bs_chart_of_accounts_id, pl_chart_of_accounts_id")
+    .or("bs_chart_of_accounts_id.not.is.null,pl_chart_of_accounts_id.not.is.null,chart_of_accounts_id_invoice.not.is.null");
+
+  const variationById = new Map<string, {
+    chart_of_accounts_id_invoice: string | null;
+    bs_chart_of_accounts_id: string | null;
+    pl_chart_of_accounts_id: string | null;
+  }>(
+    (variationMappings ?? []).map((v) => [v.square_variation_id, v])
+  );
+
+  // ── 5. Upsert each invoice ────────────────────────────────────────────────
   let synced  = 0;
   let updated = 0;
   let skipped = 0;
@@ -178,6 +192,9 @@ export async function POST(req: NextRequest) {
       category: InvoiceLineCategory | null; quantity: number;
       unit_price_cents: number; total_cents: number;
       variation_name: string | null; raw_data: Record<string, string | number>;
+      chart_of_accounts_id?: string | null;
+      bs_chart_of_accounts_id?: string | null;
+      pl_chart_of_accounts_id?: string | null;
     }[] = [];
 
     // BET carve-out detection (same logic as sales route)
@@ -210,15 +227,19 @@ export async function POST(req: NextRequest) {
       // CB / service items
       if (!category) category = classifyLineItem(li.name);
 
+      const varMapping = varId ? variationById.get(varId) : undefined;
       lineItems.push({
-        invoice_id:       invRow.id,
-        sort_order:       i,
-        description:      li.name + (varName ? ` — ${varName}` : ""),
+        invoice_id:              invRow.id,
+        sort_order:              i,
+        description:             li.name + (varName ? ` — ${varName}` : ""),
         category,
-        quantity:         qty,
-        unit_price_cents: li.base_price_money?.amount ?? 0,
-        total_cents:      li.total_money?.amount ?? 0,
-        variation_name:   varName || null,
+        quantity:                qty,
+        unit_price_cents:        li.base_price_money?.amount ?? 0,
+        total_cents:             li.total_money?.amount ?? 0,
+        variation_name:          varName || null,
+        chart_of_accounts_id:    varMapping?.chart_of_accounts_id_invoice ?? null,
+        bs_chart_of_accounts_id: varMapping?.bs_chart_of_accounts_id ?? null,
+        pl_chart_of_accounts_id: varMapping?.pl_chart_of_accounts_id ?? null,
         raw_data: {
           uid:       li.uid,
           name:      li.name,

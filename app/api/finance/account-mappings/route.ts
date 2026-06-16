@@ -23,6 +23,8 @@ export async function GET() {
       chart_of_accounts_id,
       chart_of_accounts_id_pos,
       chart_of_accounts_id_invoice,
+      bs_chart_of_accounts_id,
+      pl_chart_of_accounts_id,
       chart_of_accounts!chart_of_accounts_id ( account_name, account_number, account_type ),
       square_catalog_items (
         id,
@@ -48,6 +50,8 @@ export async function GET() {
   for (const v of data ?? []) {
     if (v.chart_of_accounts_id_pos)     sourceCoAIds.add(v.chart_of_accounts_id_pos);
     if (v.chart_of_accounts_id_invoice) sourceCoAIds.add(v.chart_of_accounts_id_invoice);
+    if (v.bs_chart_of_accounts_id)      sourceCoAIds.add(v.bs_chart_of_accounts_id);
+    if (v.pl_chart_of_accounts_id)      sourceCoAIds.add(v.pl_chart_of_accounts_id);
   }
 
   const coaById = new Map<string, { account_name: string; account_number: string | null; account_type: string }>();
@@ -61,8 +65,10 @@ export async function GET() {
 
   const enriched = (data ?? []).map((v) => ({
     ...v,
-    coa_pos:     v.chart_of_accounts_id_pos     ? (coaById.get(v.chart_of_accounts_id_pos)     ?? null) : null,
+    coa_pos:     v.chart_of_accounts_id_pos  ? (coaById.get(v.chart_of_accounts_id_pos)  ?? null) : null,
     coa_invoice: v.chart_of_accounts_id_invoice ? (coaById.get(v.chart_of_accounts_id_invoice) ?? null) : null,
+    coa_bs:      v.bs_chart_of_accounts_id   ? (coaById.get(v.bs_chart_of_accounts_id)   ?? null) : null,
+    coa_pl:      v.pl_chart_of_accounts_id   ? (coaById.get(v.pl_chart_of_accounts_id)   ?? null) : null,
   }));
 
   return NextResponse.json(enriched);
@@ -77,6 +83,8 @@ export async function PATCH(req: NextRequest) {
     chart_of_accounts_id?: string | null;
     chart_of_accounts_id_pos?: string | null;
     chart_of_accounts_id_invoice?: string | null;
+    bs_chart_of_accounts_id?: string | null;
+    pl_chart_of_accounts_id?: string | null;
   };
 
   if (!body.square_variation_id) {
@@ -87,6 +95,8 @@ export async function PATCH(req: NextRequest) {
   if ("chart_of_accounts_id" in body)         patch.chart_of_accounts_id         = body.chart_of_accounts_id ?? null;
   if ("chart_of_accounts_id_pos" in body)     patch.chart_of_accounts_id_pos     = body.chart_of_accounts_id_pos ?? null;
   if ("chart_of_accounts_id_invoice" in body) patch.chart_of_accounts_id_invoice = body.chart_of_accounts_id_invoice ?? null;
+  if ("bs_chart_of_accounts_id" in body)      patch.bs_chart_of_accounts_id      = body.bs_chart_of_accounts_id ?? null;
+  if ("pl_chart_of_accounts_id" in body)      patch.pl_chart_of_accounts_id      = body.pl_chart_of_accounts_id ?? null;
 
   if (Object.keys(patch).length === 0) {
     return NextResponse.json({ error: "No fields to update" }, { status: 400 });
@@ -97,7 +107,7 @@ export async function PATCH(req: NextRequest) {
     .from("square_catalog_variations")
     .update(patch)
     .eq("square_variation_id", body.square_variation_id)
-    .select("id, chart_of_accounts_id, chart_of_accounts_id_pos, chart_of_accounts_id_invoice")
+    .select("id, chart_of_accounts_id, chart_of_accounts_id_pos, chart_of_accounts_id_invoice, bs_chart_of_accounts_id, pl_chart_of_accounts_id")
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

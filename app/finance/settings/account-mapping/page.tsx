@@ -22,9 +22,13 @@ interface VariationRow {
   chart_of_accounts_id: string | null;
   chart_of_accounts_id_pos: string | null;
   chart_of_accounts_id_invoice: string | null;
+  bs_chart_of_accounts_id: string | null;
+  pl_chart_of_accounts_id: string | null;
   chart_of_accounts: { account_name: string; account_number: string | null; account_type: string } | null;
   coa_pos: { account_name: string; account_number: string | null; account_type: string } | null;
   coa_invoice: { account_name: string; account_number: string | null; account_type: string } | null;
+  coa_bs: { account_name: string; account_number: string | null; account_type: string } | null;
+  coa_pl: { account_name: string; account_number: string | null; account_type: string } | null;
   square_catalog_items: {
     id: string;
     square_item_id: string;
@@ -217,15 +221,19 @@ function VariationMappingRow({
   accounts,
   onSave,
   onSaveSource,
+  onSaveDeposit,
 }: {
   variation: VariationRow;
   accounts: CoAAccount[];
   onSave: (squareVariationId: string, accountId: string | null) => Promise<void>;
   onSaveSource: (squareVariationId: string, field: "chart_of_accounts_id_pos" | "chart_of_accounts_id_invoice", accountId: string | null) => Promise<void>;
+  onSaveDeposit: (squareVariationId: string, field: "bs_chart_of_accounts_id" | "pl_chart_of_accounts_id", accountId: string | null) => Promise<void>;
 }) {
   const [saving, setSaving] = useState(false);
-  const hasSplit = !!(variation.chart_of_accounts_id_pos || variation.chart_of_accounts_id_invoice);
-  const [splitOpen, setSplitOpen] = useState(false);
+  const hasSplit   = !!(variation.chart_of_accounts_id_pos || variation.chart_of_accounts_id_invoice);
+  const hasDeposit = !!(variation.bs_chart_of_accounts_id || variation.pl_chart_of_accounts_id);
+  const [splitOpen, setSplitOpen]     = useState(false);
+  const [depositOpen, setDepositOpen] = useState(false);
 
   async function handleChange(accountId: string | null) {
     setSaving(true);
@@ -239,6 +247,12 @@ function VariationMappingRow({
     setSaving(false);
   }
 
+  async function handleDepositChange(field: "bs_chart_of_accounts_id" | "pl_chart_of_accounts_id", accountId: string | null) {
+    setSaving(true);
+    await onSaveDeposit(variation.square_variation_id, field, accountId);
+    setSaving(false);
+  }
+
   async function handleClearSplit() {
     setSaving(true);
     await onSaveSource(variation.square_variation_id, "chart_of_accounts_id_pos", null);
@@ -247,11 +261,19 @@ function VariationMappingRow({
     setSplitOpen(false);
   }
 
+  async function handleClearDeposit() {
+    setSaving(true);
+    await onSaveDeposit(variation.square_variation_id, "bs_chart_of_accounts_id", null);
+    await onSaveDeposit(variation.square_variation_id, "pl_chart_of_accounts_id", null);
+    setSaving(false);
+    setDepositOpen(false);
+  }
+
   const price = fmtPrice(variation.price_amount, variation.price_currency, variation.pricing_type);
 
   return (
     <div className="border-t border-zinc-800/30">
-      {/* Main row — 3 columns: name+price | default account | split toggle */}
+      {/* Main row */}
       <div className="flex items-center gap-3 pl-6 pr-4 py-2.5 bg-zinc-950/40 hover:bg-zinc-900/30 transition-colors">
         {/* Left: variation name + price */}
         <div className="w-44 shrink-0 min-w-0">
@@ -268,22 +290,36 @@ function VariationMappingRow({
             placeholder="— no mapping —"
           />
         </div>
-        {/* Right: split toggle */}
-        <button
-          type="button"
-          onClick={() => setSplitOpen((o) => !o)}
-          title={splitOpen ? "Hide source overrides" : "Split by POS / Invoice source"}
-          className={`shrink-0 px-2 py-1.5 text-[10px] rounded border transition-colors ${
-            hasSplit
-              ? "bg-blue-900/40 border-blue-700 text-blue-300 hover:bg-blue-900/60"
-              : "bg-zinc-900 border-zinc-700 text-zinc-500 hover:text-zinc-300 hover:border-zinc-500"
-          }`}
-        >
-          {splitOpen ? "▴ split" : "split ▾"}
-        </button>
+        {/* Right: toggles */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          <button
+            type="button"
+            onClick={() => { setSplitOpen((o) => !o); setDepositOpen(false); }}
+            title={splitOpen ? "Hide POS/Invoice overrides" : "Split by POS / Invoice source"}
+            className={`px-2 py-1.5 text-[10px] rounded border transition-colors ${
+              hasSplit
+                ? "bg-blue-900/40 border-blue-700 text-blue-300 hover:bg-blue-900/60"
+                : "bg-zinc-900 border-zinc-700 text-zinc-500 hover:text-zinc-300 hover:border-zinc-500"
+            }`}
+          >
+            {splitOpen ? "▴ split" : "split ▾"}
+          </button>
+          <button
+            type="button"
+            onClick={() => { setDepositOpen((o) => !o); setSplitOpen(false); }}
+            title={depositOpen ? "Hide deposit BS/PL mapping" : "Set deposit recognition accounts (BS → P&L)"}
+            className={`px-2 py-1.5 text-[10px] rounded border transition-colors ${
+              hasDeposit
+                ? "bg-violet-900/40 border-violet-700 text-violet-300 hover:bg-violet-900/60"
+                : "bg-zinc-900 border-zinc-700 text-zinc-500 hover:text-zinc-300 hover:border-zinc-500"
+            }`}
+          >
+            {depositOpen ? "▴ deposit" : "deposit ▾"}
+          </button>
+        </div>
       </div>
 
-      {/* Source override rows */}
+      {/* Source override rows (POS / Invoice) */}
       {splitOpen && (
         <div className="pl-6 pr-4 pb-3 pt-2 flex flex-col gap-2 bg-blue-950/10 border-t border-blue-900/20">
           <div className="flex items-center gap-3">
@@ -305,12 +341,40 @@ function VariationMappingRow({
             />
           </div>
           {hasSplit && (
-            <button
-              type="button"
-              onClick={handleClearSplit}
-              className="self-end text-[10px] text-zinc-600 hover:text-red-400 transition-colors"
-            >
+            <button type="button" onClick={handleClearSplit} className="self-end text-[10px] text-zinc-600 hover:text-red-400 transition-colors">
               Clear overrides
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Deposit recognition rows (BS / P&L) */}
+      {depositOpen && (
+        <div className="pl-6 pr-4 pb-3 pt-2 flex flex-col gap-2 bg-violet-950/10 border-t border-violet-900/20">
+          <p className="text-[10px] text-zinc-500 leading-relaxed">
+            When a line item has deposit accounts set, it records to <span className="text-violet-300">Balance Sheet</span> until the linked delivery invoice is paid, then moves to <span className="text-violet-300">P&amp;L</span>.
+          </p>
+          <div className="flex items-center gap-3">
+            <span className="text-[10px] text-zinc-400 w-16 shrink-0 text-right">BS account</span>
+            <AccountSelect
+              value={variation.bs_chart_of_accounts_id}
+              onChange={(id) => handleDepositChange("bs_chart_of_accounts_id", id)}
+              accounts={accounts}
+              placeholder="— none —"
+            />
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-[10px] text-zinc-400 w-16 shrink-0 text-right">P&amp;L account</span>
+            <AccountSelect
+              value={variation.pl_chart_of_accounts_id}
+              onChange={(id) => handleDepositChange("pl_chart_of_accounts_id", id)}
+              accounts={accounts}
+              placeholder="— none —"
+            />
+          </div>
+          {hasDeposit && (
+            <button type="button" onClick={handleClearDeposit} className="self-end text-[10px] text-zinc-600 hover:text-red-400 transition-colors">
+              Clear deposit mapping
             </button>
           )}
         </div>
@@ -671,6 +735,27 @@ export default function AccountMappingPage() {
     );
   }
 
+  async function handleSaveDeposit(
+    squareVariationId: string,
+    field: "bs_chart_of_accounts_id" | "pl_chart_of_accounts_id",
+    accountId: string | null
+  ) {
+    await fetch("/api/finance/account-mappings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ square_variation_id: squareVariationId, [field]: accountId }),
+    });
+    const acct = accounts.find((a) => a.id === accountId) ?? null;
+    const coaField = field === "bs_chart_of_accounts_id" ? "coa_bs" : "coa_pl";
+    setVariations((vs) =>
+      vs.map((v) =>
+        v.square_variation_id === squareVariationId
+          ? { ...v, [field]: accountId, [coaField]: acct ? { account_name: acct.account_name, account_number: acct.account_number, account_type: acct.account_type } : null }
+          : v
+      )
+    );
+  }
+
   // Group: parent category → subcategory → item → variations
   // Items with no parent_category_id go directly under a top-level group using their own category name.
   const parentMap = new Map<string, GroupedParent>();
@@ -708,10 +793,10 @@ export default function AccountMappingPage() {
   const mappedVariations = variations.filter((v) => v.chart_of_accounts_id).length;
 
   function toggleCategory(key: string) {
-    setExpandedCategories((s) => { const n = new Set(s); n.has(key) ? n.delete(key) : n.add(key); return n; });
+    setExpandedCategories((s) => { const n = new Set(s); if (n.has(key)) { n.delete(key); } else { n.add(key); } return n; });
   }
   function toggleItem(key: string) {
-    setExpandedItems((s) => { const n = new Set(s); n.has(key) ? n.delete(key) : n.add(key); return n; });
+    setExpandedItems((s) => { const n = new Set(s); if (n.has(key)) { n.delete(key); } else { n.add(key); } return n; });
   }
 
   if (loading) return (
@@ -768,10 +853,11 @@ export default function AccountMappingPage() {
             {groups.map((parent) => {
               const parentKey     = parent.parent_id ?? "__uncategorized__";
               const isParentExpanded = expandedCategories.has(parentKey);
-              const allVars       = parent.subcategories.flatMap((s) => s.items.flatMap((i) => i.variations));
-              const parentMapped  = allVars.filter((v) => v.chart_of_accounts_id).length;
-              const parentTotal   = allVars.length;
-              const parentHasSplit = allVars.some((v) => v.chart_of_accounts_id_pos || v.chart_of_accounts_id_invoice);
+              const allVars        = parent.subcategories.flatMap((s) => s.items.flatMap((i) => i.variations));
+              const parentMapped   = allVars.filter((v) => v.chart_of_accounts_id).length;
+              const parentTotal    = allVars.length;
+              const parentHasSplit   = allVars.some((v) => v.chart_of_accounts_id_pos || v.chart_of_accounts_id_invoice);
+              const parentHasDeposit = allVars.some((v) => v.bs_chart_of_accounts_id || v.pl_chart_of_accounts_id);
 
               return (
                 <div key={parentKey}>
@@ -790,6 +876,9 @@ export default function AccountMappingPage() {
                         )}
                         {parentHasSplit && (
                           <span className="text-[10px] text-blue-400 shrink-0 px-1 bg-blue-900/30 rounded">split</span>
+                        )}
+                        {parentHasDeposit && (
+                          <span className="text-[10px] text-violet-400 shrink-0 px-1 bg-violet-900/30 rounded">deposit</span>
                         )}
                       </button>
                       <div className="flex items-center gap-2 shrink-0">
@@ -812,10 +901,11 @@ export default function AccountMappingPage() {
                     .map((cat) => {
                       const catKey       = cat.category_id ?? "__uncategorized__";
                       const isCatExpanded = expandedCategories.has(catKey);
-                      const catVars      = cat.items.flatMap((i) => i.variations);
-                      const catMapped    = catVars.filter((v) => v.chart_of_accounts_id).length;
-                      const catTotal     = catVars.length;
-                      const catHasSplit  = catVars.some((v) => v.chart_of_accounts_id_pos || v.chart_of_accounts_id_invoice);
+                      const catVars       = cat.items.flatMap((i) => i.variations);
+                      const catMapped     = catVars.filter((v) => v.chart_of_accounts_id).length;
+                      const catTotal      = catVars.length;
+                      const catHasSplit    = catVars.some((v) => v.chart_of_accounts_id_pos || v.chart_of_accounts_id_invoice);
+                      const catHasDeposit  = catVars.some((v) => v.bs_chart_of_accounts_id || v.pl_chart_of_accounts_id);
 
                       // If parent === subcategory (top-level item with no parent), skip the extra level
                       const isSingleLevel = parentKey === catKey;
@@ -839,6 +929,9 @@ export default function AccountMappingPage() {
                                   {catHasSplit && (
                                     <span className="text-[10px] text-blue-400 shrink-0 px-1 bg-blue-900/30 rounded">split</span>
                                   )}
+                                  {catHasDeposit && (
+                                    <span className="text-[10px] text-violet-400 shrink-0 px-1 bg-violet-900/30 rounded">deposit</span>
+                                  )}
                                 </button>
                                 <div className="flex items-center gap-2 shrink-0">
                                   <BulkMapper
@@ -861,8 +954,9 @@ export default function AccountMappingPage() {
                             .map((item) => {
                             const itemKey = item.square_item_id;
                             const isItemExpanded = expandedItems.has(itemKey);
-                            const itemMapped = item.variations.filter((v) => v.chart_of_accounts_id).length;
-                            const itemHasSplit = item.variations.some((v) => v.chart_of_accounts_id_pos || v.chart_of_accounts_id_invoice);
+                            const itemMapped     = item.variations.filter((v) => v.chart_of_accounts_id).length;
+                            const itemHasSplit   = item.variations.some((v) => v.chart_of_accounts_id_pos || v.chart_of_accounts_id_invoice);
+                            const itemHasDeposit = item.variations.some((v) => v.bs_chart_of_accounts_id || v.pl_chart_of_accounts_id);
 
                             return (
                       <div key={itemKey}>
@@ -888,6 +982,9 @@ export default function AccountMappingPage() {
                                   )}
                                   {itemHasSplit && (
                                     <span className="text-[10px] text-blue-400 shrink-0 px-1 bg-blue-900/30 rounded">split</span>
+                                  )}
+                                  {itemHasDeposit && (
+                                    <span className="text-[10px] text-violet-400 shrink-0 px-1 bg-violet-900/30 rounded">deposit</span>
                                   )}
                                 </button>
                                 {catalogItemId && (
@@ -924,6 +1021,7 @@ export default function AccountMappingPage() {
                                 accounts={accounts}
                                 onSave={handleSave}
                                 onSaveSource={handleSaveSource}
+                                onSaveDeposit={handleSaveDeposit}
                               />
                             ))}
                           </>

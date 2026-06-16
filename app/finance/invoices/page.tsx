@@ -80,6 +80,10 @@ interface InvoiceLineItemRow {
   total_cents: number;
   variation_name: string | null;
   chart_of_accounts_id: string | null;
+  bs_chart_of_accounts_id: string | null;
+  pl_chart_of_accounts_id: string | null;
+  delivery_invoice_id: string | null;
+  account_mode: "force_bs" | "force_pl" | null;
   chart_of_accounts: CoARef | null;
 }
 
@@ -176,23 +180,27 @@ function CoASelect({
 
 // ── Expandable invoice row ────────────────────────────────────────────────────
 
+interface InvoiceSummary { id: string; invoice_number: string | null; external_id: string | null; invoice_date: string | null; customer_name: string | null; status: string }
+
 function InvoiceExpandableRow({
   inv,
   accounts,
   batches,
+  allInvoices,
   onSaveLineItem,
   onBatchChanged,
 }: {
   inv: InvoiceRow;
   accounts: CoARef[];
   batches: BrewBatch[];
-  onSaveLineItem: (id: string, coaId: string | null) => Promise<void>;
+  allInvoices: InvoiceSummary[];
+  onSaveLineItem: (id: string, patch: Record<string, string | null>) => Promise<void>;
   onBatchChanged: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const linkCount = (inv.invoice_batch_links as unknown as { count: number }[])[0]?.count ?? 0;
   const lineItems = inv.invoice_line_items ?? [];
-  const mappedCount = lineItems.filter((li) => li.chart_of_accounts_id).length;
+  const mappedCount = lineItems.filter((li) => li.chart_of_accounts_id || li.bs_chart_of_accounts_id).length;
   const allMapped = lineItems.length > 0 && mappedCount === lineItems.length;
 
   return (
@@ -269,6 +277,7 @@ function InvoiceExpandableRow({
                         key={li.id}
                         item={li}
                         accounts={accounts}
+                        allInvoices={allInvoices.filter((i) => i.id !== inv.id)}
                         onSave={onSaveLineItem}
                       />
                     ))}
@@ -284,43 +293,106 @@ function InvoiceExpandableRow({
 function InvoiceLineItemRow({
   item,
   accounts,
+  allInvoices,
   onSave,
 }: {
   item: InvoiceLineItemRow;
   accounts: CoARef[];
-  onSave: (id: string, coaId: string | null) => Promise<void>;
+  allInvoices: InvoiceSummary[];
+  onSave: (id: string, patch: Record<string, string | null>) => Promise<void>;
 }) {
-  const [coaId, setCoaId] = useState<string | null>(item.chart_of_accounts_id);
-  const [saving, setSaving] = useState(false);
+  const [coaId,   setCoaId]   = useState<string | null>(item.chart_of_accounts_id);
+  const [bsId,    setBsId]    = useState<string | null>(item.bs_chart_of_accounts_id);
+  const [plId,    setPlId]    = useState<string | null>(item.pl_chart_of_accounts_id);
+  const [delivId, setDelivId] = useState<string | null>(item.delivery_invoice_id);
+  const [saving,  setSaving]  = useState(false);
+  const isDeposit = !!(bsId || plId);
 
-  async function handleChange(id: string | null) {
-    setCoaId(id);
+  async function save(patch: Record<string, string | null>) {
     setSaving(true);
-    await onSave(item.id, id);
+    await onSave(item.id, patch);
     setSaving(false);
   }
 
+  async function handleCoaChange(id: string | null) { setCoaId(id); await save({ chart_of_accounts_id: id }); }
+  async function handleBsChange(id: string | null)  { setBsId(id);  await save({ bs_chart_of_accounts_id: id }); }
+  async function handlePlChange(id: string | null)  { setPlId(id);  await save({ pl_chart_of_accounts_id: id }); }
+  async function handleDelivChange(id: string | null) { setDelivId(id); await save({ delivery_invoice_id: id }); }
+
+  // Determine effective account for display hint
+  const deliveryInv = allInvoices.find((i) => i.id === delivId);
+  const deliveryPaid = deliveryInv?.status === "paid";
+
   return (
-    <div className="grid grid-cols-[minmax(0,2fr)_60px_80px_80px_minmax(0,1fr)] gap-3 px-10 py-2 border-t border-zinc-800/30 text-xs items-center hover:bg-zinc-900/20">
-      <div className="min-w-0">
-        <span className="text-zinc-400 truncate block">{item.description}</span>
-        {item.variation_name && <span className="text-[10px] text-zinc-600">{item.variation_name}</span>}
-        {item.category && (
-          <span className={`inline-block mt-0.5 px-1 py-0.5 rounded text-[9px] font-medium ${CATEGORY_CLS[item.category] ?? "bg-zinc-800 text-zinc-500"}`}>
-            {item.category.replace(/_/g, " ")}
-          </span>
-        )}
-      </div>
-      <span className="text-zinc-600 text-right tabular-nums">{item.quantity ?? 1}×</span>
-      <span className="text-zinc-500 text-right tabular-nums font-mono">
-        {item.unit_price_cents ? "$" + (item.unit_price_cents / 100).toFixed(2) : "—"}
-      </span>
-      <span className="text-zinc-300 text-right tabular-nums font-mono">
-        ${(item.total_cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2 })}
-      </span>
-      <div className="flex items-center gap-2">
-        <CoASelect value={coaId} accounts={accounts} onChange={handleChange} />
-        {saving && <span className="text-[10px] text-zinc-600 animate-pulse shrink-0">…</span>}
+    <div className="border-t border-zinc-800/30 hover:bg-zinc-900/20 transition-colors">
+      {/* Main row */}
+      <div className="grid grid-cols-[minmax(0,2fr)_60px_80px_80px_minmax(0,1fr)] gap-3 px-10 py-2 text-xs items-start">
+        <div className="min-w-0 pt-0.5">
+          <span className="text-zinc-400 truncate block">{item.description}</span>
+          {item.variation_name && <span className="text-[10px] text-zinc-600">{item.variation_name}</span>}
+          {item.category && (
+            <span className={`inline-block mt-0.5 px-1 py-0.5 rounded text-[9px] font-medium ${CATEGORY_CLS[item.category] ?? "bg-zinc-800 text-zinc-500"}`}>
+              {item.category.replace(/_/g, " ")}
+            </span>
+          )}
+          {isDeposit && (
+            <span className="inline-block mt-0.5 ml-1 px-1 py-0.5 rounded text-[9px] font-medium bg-violet-900/40 text-violet-400">
+              deposit
+            </span>
+          )}
+        </div>
+        <span className="text-zinc-600 text-right tabular-nums pt-0.5">{item.quantity ?? 1}×</span>
+        <span className="text-zinc-500 text-right tabular-nums font-mono pt-0.5">
+          {item.unit_price_cents ? "$" + (item.unit_price_cents / 100).toFixed(2) : "—"}
+        </span>
+        <span className="text-zinc-300 text-right tabular-nums font-mono pt-0.5">
+          ${(item.total_cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+        </span>
+        <div className="flex flex-col gap-1.5">
+          {!isDeposit && (
+            <div className="flex items-center gap-2">
+              <CoASelect value={coaId} accounts={accounts} onChange={handleCoaChange} />
+              {saving && <span className="text-[10px] text-zinc-600 animate-pulse shrink-0">…</span>}
+            </div>
+          )}
+          {isDeposit && (
+            <div className="flex flex-col gap-1.5">
+              {/* BS account */}
+              <div className="flex items-center gap-1.5">
+                <span className={`text-[9px] font-medium px-1 py-0.5 rounded shrink-0 ${!deliveryPaid ? "bg-violet-900/60 text-violet-300" : "bg-zinc-800 text-zinc-500"}`}>BS</span>
+                <CoASelect value={bsId} accounts={accounts} onChange={handleBsChange} />
+              </div>
+              {/* PL account */}
+              <div className="flex items-center gap-1.5">
+                <span className={`text-[9px] font-medium px-1 py-0.5 rounded shrink-0 ${deliveryPaid ? "bg-green-900/60 text-green-300" : "bg-zinc-800 text-zinc-500"}`}>P&L</span>
+                <CoASelect value={plId} accounts={accounts} onChange={handlePlChange} />
+              </div>
+              {/* Delivery invoice */}
+              <div className="flex items-center gap-1.5">
+                <span className="text-[9px] text-zinc-600 shrink-0">delivery</span>
+                <select
+                  value={delivId ?? ""}
+                  onChange={(e) => handleDelivChange(e.target.value || null)}
+                  className="flex-1 bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5 text-[10px] text-zinc-300 focus:outline-none">
+                  <option value="">— no delivery invoice —</option>
+                  {allInvoices.map((inv) => (
+                    <option key={inv.id} value={inv.id}>
+                      {inv.invoice_number ?? inv.external_id ?? inv.id.slice(0, 8)}
+                      {inv.invoice_date ? ` · ${inv.invoice_date.slice(0, 7)}` : ""}
+                      {inv.customer_name ? ` · ${inv.customer_name}` : ""}
+                      {inv.status === "paid" ? " ✓" : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {/* Warning */}
+              {!delivId && (
+                <p className="text-[9px] text-amber-500/80">No delivery invoice linked — showing as Balance Sheet</p>
+              )}
+              {saving && <span className="text-[10px] text-zinc-600 animate-pulse">…</span>}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -370,7 +442,7 @@ function BatchLinkEditor({
   const [addError, setAddError] = useState<string | null>(null);
 
   useEffect(() => {
-    setLoadingLinks(true);
+    setLoadingLinks(true); // eslint-disable-line react-hooks/set-state-in-effect
     fetch(`/api/finance/ledger/invoice-batch-links?invoice_id=${invoiceId}`)
       .then((r) => r.json())
       .then((d) => setLinks(Array.isArray(d) ? d : []))
@@ -513,7 +585,6 @@ export default function InvoicesPage() {
   const [autoMapResult, setAutoMapResult] = useState<{ mapped: number } | null>(null);
   const years = Array.from({ length: 5 }, (_, i) => currentYear - i);
 
-  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => {
     fetch("/api/finance/chart-of-accounts")
       .then((r) => r.json())
@@ -536,11 +607,11 @@ export default function InvoicesPage() {
     setAutoMapping(false);
   }
 
-  async function handleSaveLineItem(id: string, coaId: string | null) {
+  async function handleSaveLineItem(id: string, patch: Record<string, string | null>) {
     await fetch("/api/finance/ledger/invoice-line-items", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, chart_of_accounts_id: coaId }),
+      body: JSON.stringify({ id, ...patch }),
     });
     refetch();
   }
@@ -710,6 +781,7 @@ export default function InvoicesPage() {
                     inv={inv}
                     accounts={accounts}
                     batches={batches}
+                    allInvoices={(raw ?? []).map((i) => ({ id: i.id, invoice_number: i.invoice_number ?? null, external_id: i.external_id ?? null, invoice_date: i.invoice_date ?? null, customer_name: i.customer_name ?? null, status: i.status }))}
                     onSaveLineItem={handleSaveLineItem}
                     onBatchChanged={() => refetch()}
                   />

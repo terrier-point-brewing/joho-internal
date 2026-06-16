@@ -6,6 +6,10 @@
  *   1. pos_line_items mapped to chart_of_accounts (POS revenue)
  *   2. invoice_line_items mapped to chart_of_accounts (invoice revenue/COGS)
  *
+ * Deposit recognition: invoice line items with bs/pl split accounts are
+ * recorded to BS until their linked delivery invoice is paid, then shift to P&L.
+ * Manual account_mode overrides ('force_bs' | 'force_pl') take priority.
+ *
  * With view=mom: returns all months of the year as columns, plus parent_id for hierarchy.
  */
 import { NextRequest, NextResponse } from "next/server";
@@ -51,6 +55,34 @@ export interface AccountBalanceMoM {
   monthly: Record<string, { cents: number; count: number }>; // key = "YYYY-MM"
 }
 
+type InvRow = {
+  chart_of_accounts_id: string | null;
+  bs_chart_of_accounts_id: string | null;
+  pl_chart_of_accounts_id: string | null;
+  delivery_invoice_id: string | null;
+  account_mode: string | null;
+  total_cents: number;
+  invoices: { invoice_date: string; status: string };
+};
+
+/** Resolve the effective chart_of_accounts_id for a deposit-aware line item. */
+function resolveCoaId(row: InvRow, paidDeliveryIds: Set<string>): string | null {
+  const { account_mode, bs_chart_of_accounts_id, pl_chart_of_accounts_id, delivery_invoice_id, chart_of_accounts_id } = row;
+
+  // Manual overrides take priority
+  if (account_mode === "force_bs" && bs_chart_of_accounts_id) return bs_chart_of_accounts_id;
+  if (account_mode === "force_pl" && pl_chart_of_accounts_id) return pl_chart_of_accounts_id;
+
+  // Deposit recognition: has both BS and PL accounts
+  if (bs_chart_of_accounts_id && pl_chart_of_accounts_id) {
+    const deliveryPaid = delivery_invoice_id && paidDeliveryIds.has(delivery_invoice_id);
+    return deliveryPaid ? pl_chart_of_accounts_id : bs_chart_of_accounts_id;
+  }
+
+  // Standard mapping
+  return chart_of_accounts_id;
+}
+
 export async function GET(req: NextRequest) {
   try { await requireRole("viewer"); } catch (res) { return res as Response; }
 
@@ -70,7 +102,6 @@ export async function GET(req: NextRequest) {
   if (coaErr) return NextResponse.json({ error: coaErr.message }, { status: 500 });
 
   if (view === "mom") {
-    // Month-over-month: fetch all 12 months at once by pulling raw rows with month extracted
     const start = `${year}-01-01T00:00:00Z`;
     const end   = `${year + 1}-01-01T00:00:00Z`;
 
@@ -85,17 +116,42 @@ export async function GET(req: NextRequest) {
       .lt("square_orders.transaction_date", end)
       .not("chart_of_accounts_id", "is", null);
 
-    const { data: invRows } = await supabase
+    const { data: rawInvRows } = await supabase
       .from("invoice_line_items")
       .select(`
         chart_of_accounts_id,
+        bs_chart_of_accounts_id,
+        pl_chart_of_accounts_id,
+        delivery_invoice_id,
+        account_mode,
         total_cents,
         invoices!inner ( invoice_date, status )
       `)
       .gte("invoices.invoice_date", `${year}-01-01`)
       .lte("invoices.invoice_date", `${year}-12-31`)
       .neq("invoices.status", "voided")
-      .not("chart_of_accounts_id", "is", null);
+      .or("chart_of_accounts_id.not.is.null,bs_chart_of_accounts_id.not.is.null");
+
+    // Fetch paid-delivery invoice statuses for deposit recognition
+    const deliveryIds = [...new Set(
+      (rawInvRows ?? [])
+        .map((r) => r.delivery_invoice_id)
+        .filter((id): id is string => !!id)
+    )];
+    const paidDeliveryIds = new Set<string>();
+    if (deliveryIds.length > 0) {
+      const { data: deliveries } = await supabase
+        .from("invoices")
+        .select("id, status")
+        .in("id", deliveryIds)
+        .eq("status", "paid");
+      for (const d of deliveries ?? []) paidDeliveryIds.add(d.id);
+    }
+
+    const invRows = (rawInvRows ?? []).map((r) => ({
+      ...r,
+      invoices: r.invoices as unknown as { invoice_date: string; status: string },
+    }));
 
     // balanceMap: coa_id → month_key → { cents, count }
     const balanceMap = new Map<string, Map<string, { cents: number; count: number }>>();
@@ -117,12 +173,12 @@ export async function GET(req: NextRequest) {
       cur.count += 1;
     }
 
-    for (const row of invRows ?? []) {
-      if (!row.chart_of_accounts_id) continue;
-      const inv = row.invoices as unknown as { invoice_date: string; status: string };
-      const parts = inv.invoice_date.split("-");
+    for (const row of invRows) {
+      const coaId = resolveCoaId(row as InvRow, paidDeliveryIds);
+      if (!coaId) continue;
+      const parts = row.invoices.invoice_date.split("-");
       const key = `${parts[0]}-${parts[1]}`;
-      const cur = getOrCreate(row.chart_of_accounts_id, key);
+      const cur = getOrCreate(coaId, key);
       cur.cents += row.total_cents ?? 0;
       cur.count += 1;
     }
@@ -147,7 +203,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ year, view: "mom", accounts: result });
   }
 
-  // Single-period mode (backward compat)
+  // Single-period mode
   const month = Number(req.nextUrl.searchParams.get("month") ?? 0);
   const start = month > 0
     ? `${year}-${String(month).padStart(2, "0")}-01T00:00:00Z`
@@ -167,17 +223,42 @@ export async function GET(req: NextRequest) {
     .lt("square_orders.transaction_date", end)
     .not("chart_of_accounts_id", "is", null);
 
-  const { data: invAgg } = await supabase
+  const { data: rawInvAgg } = await supabase
     .from("invoice_line_items")
     .select(`
       chart_of_accounts_id,
+      bs_chart_of_accounts_id,
+      pl_chart_of_accounts_id,
+      delivery_invoice_id,
+      account_mode,
       total_cents,
       invoices!inner ( invoice_date, status )
     `)
     .gte("invoices.invoice_date", `${year}-01-01`)
     .lte("invoices.invoice_date", `${year}-12-31`)
     .neq("invoices.status", "voided")
-    .not("chart_of_accounts_id", "is", null);
+    .or("chart_of_accounts_id.not.is.null,bs_chart_of_accounts_id.not.is.null");
+
+  // Fetch paid-delivery invoice statuses
+  const deliveryIds = [...new Set(
+    (rawInvAgg ?? [])
+      .map((r) => r.delivery_invoice_id)
+      .filter((id): id is string => !!id)
+  )];
+  const paidDeliveryIds = new Set<string>();
+  if (deliveryIds.length > 0) {
+    const { data: deliveries } = await supabase
+      .from("invoices")
+      .select("id, status")
+      .in("id", deliveryIds)
+      .eq("status", "paid");
+    for (const d of deliveries ?? []) paidDeliveryIds.add(d.id);
+  }
+
+  const invAgg = (rawInvAgg ?? []).map((r) => ({
+    ...r,
+    invoices: r.invoices as unknown as { invoice_date: string; status: string },
+  }));
 
   const balanceMap = new Map<string, { cents: number; count: number }>();
 
@@ -190,10 +271,11 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  for (const row of invAgg ?? []) {
-    if (!row.chart_of_accounts_id) continue;
-    const cur = balanceMap.get(row.chart_of_accounts_id) ?? { cents: 0, count: 0 };
-    balanceMap.set(row.chart_of_accounts_id, {
+  for (const row of invAgg) {
+    const coaId = resolveCoaId(row as InvRow, paidDeliveryIds);
+    if (!coaId) continue;
+    const cur = balanceMap.get(coaId) ?? { cents: 0, count: 0 };
+    balanceMap.set(coaId, {
       cents: cur.cents + (row.total_cents ?? 0),
       count: cur.count + 1,
     });

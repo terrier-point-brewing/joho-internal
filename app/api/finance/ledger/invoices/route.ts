@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
     .select(`
       *,
       contract_brewing_partners(company_name),
-      invoice_line_items( id, sort_order, description, category, quantity, unit_price_cents, total_cents, variation_name, chart_of_accounts_id, chart_of_accounts( id, account_name, account_number, account_type ) ),
+      invoice_line_items( id, sort_order, description, category, quantity, unit_price_cents, total_cents, variation_name, chart_of_accounts_id, bs_chart_of_accounts_id, pl_chart_of_accounts_id, delivery_invoice_id, account_mode, chart_of_accounts( id, account_name, account_number, account_type ) ),
       invoice_batch_links(count)
     `)
     .order("invoice_date", { ascending: false });
