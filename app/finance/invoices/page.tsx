@@ -477,10 +477,22 @@ function BatchLinkEditor({
 
 // ── Invoice sync panel ─────────────────────────────────────────────────────────
 
+const INVOICE_LAST_SYNC_KEY = "tpb-invoices-last-sync";
+
+function daysSince(isoStr: string): number {
+  return Math.floor((Date.now() - new Date(isoStr).getTime()) / 86_400_000);
+}
+
 function InvoiceSyncPanel({ year, onSynced }: { year: number; onSynced: () => void }) {
   const [syncing, setSyncing] = useState(false);
   const [result, setResult] = useState<{ synced: number; updated: number; total: number; errors?: string[] } | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [lastSync, setLastSync] = useState<string | null>(null);
+
+  useEffect(() => {
+    const stored = localStorage.getItem(INVOICE_LAST_SYNC_KEY);
+    if (stored) setLastSync(stored);
+  }, []);
 
   async function handleSync() {
     setSyncing(true); setSyncError(null); setResult(null);
@@ -489,14 +501,24 @@ function InvoiceSyncPanel({ year, onSynced }: { year: number; onSynced: () => vo
       const json = await res.json();
       if (!res.ok) { setSyncError(json.error ?? "Sync failed"); return; }
       setResult(json);
+      const now = new Date().toISOString();
+      localStorage.setItem(INVOICE_LAST_SYNC_KEY, now);
+      setLastSync(now);
       onSynced();
     } catch (e) {
       setSyncError(e instanceof Error ? e.message : "Network error");
     } finally { setSyncing(false); }
   }
 
+  const days = lastSync != null ? daysSince(lastSync) : null;
+
   return (
     <div className="flex items-center gap-2 flex-wrap">
+      {days != null && (
+        <span className={`text-xs ${days >= 7 ? "text-amber-400" : "text-zinc-500"}`}>
+          Last sync: {days === 0 ? "today" : `${days}d ago`}
+        </span>
+      )}
       <button onClick={handleSync} disabled={syncing}
         className="px-3 py-1 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 text-zinc-200 text-xs rounded border border-zinc-700 transition-colors whitespace-nowrap">
         {syncing ? "Syncing invoices…" : "Sync from Square"}
@@ -514,7 +536,7 @@ function InvoiceSyncPanel({ year, onSynced }: { year: number; onSynced: () => vo
   );
 }
 
-type SortKey = "invoice_date" | "customer_name" | "total_cents" | "status";
+type SortKey = "invoice_number" | "invoice_date" | "customer_name" | "source" | "total_cents" | "status";
 
 function SortIcon({ k, sortKey, sortAsc }: { k: SortKey; sortKey: SortKey; sortAsc: boolean }) {
   return (
@@ -594,8 +616,10 @@ export default function InvoicesPage() {
     })
     .sort((a, b) => {
       let diff = 0;
-      if (sortKey === "invoice_date") diff = (a.invoice_date ?? "").localeCompare(b.invoice_date ?? "");
+      if (sortKey === "invoice_number") diff = (a.invoice_number ?? a.external_id ?? "").localeCompare(b.invoice_number ?? b.external_id ?? "");
+      else if (sortKey === "invoice_date") diff = (a.invoice_date ?? "").localeCompare(b.invoice_date ?? "");
       else if (sortKey === "customer_name") diff = (a.customer_name ?? "").localeCompare(b.customer_name ?? "");
+      else if (sortKey === "source") diff = a.source.localeCompare(b.source);
       else if (sortKey === "total_cents") diff = a.total_cents - b.total_cents;
       else if (sortKey === "status") diff = a.status.localeCompare(b.status);
       return sortAsc ? diff : -diff;
@@ -711,7 +735,10 @@ export default function InvoicesPage() {
             <thead>
               <tr className="border-b border-zinc-800">
                 <th className="w-6 px-2" />
-                <th className="px-4 py-2 text-left text-zinc-500 font-medium">Invoice #</th>
+                <th className="px-4 py-2 text-left text-zinc-500 font-medium cursor-pointer select-none hover:text-zinc-300"
+                  onClick={() => handleSort("invoice_number")}>
+                  Invoice # <SortIcon k="invoice_number" sortKey={sortKey} sortAsc={sortAsc} />
+                </th>
                 <th className="px-4 py-2 text-left text-zinc-500 font-medium cursor-pointer select-none hover:text-zinc-300"
                   onClick={() => handleSort("invoice_date")}>
                   Date <SortIcon k="invoice_date" sortKey={sortKey} sortAsc={sortAsc} />
@@ -720,7 +747,10 @@ export default function InvoicesPage() {
                   onClick={() => handleSort("customer_name")}>
                   Customer <SortIcon k="customer_name" sortKey={sortKey} sortAsc={sortAsc} />
                 </th>
-                <th className="px-4 py-2 text-left text-zinc-500 font-medium">Source / Type</th>
+                <th className="px-4 py-2 text-left text-zinc-500 font-medium cursor-pointer select-none hover:text-zinc-300"
+                  onClick={() => handleSort("source")}>
+                  Source / Type <SortIcon k="source" sortKey={sortKey} sortAsc={sortAsc} />
+                </th>
                 <th className="px-4 py-2 text-left text-zinc-500 font-medium cursor-pointer select-none hover:text-zinc-300"
                   onClick={() => handleSort("status")}>
                   Status <SortIcon k="status" sortKey={sortKey} sortAsc={sortAsc} />
