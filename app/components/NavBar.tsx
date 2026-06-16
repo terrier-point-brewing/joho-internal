@@ -181,8 +181,10 @@ export default function NavBar() {
                     </Link>
                     {isFinance && (
                       <div className="mt-1 ml-2 flex flex-col gap-0.5 border-l border-zinc-800 pl-2">
-                        {FINANCE_NAV.map(({ href, label, match }) => (
-                          <Link key={href} href={href} className={subtabCls(pathname.startsWith(match ?? href))}>
+                        {FINANCE_NAV.map(({ href, label, match, also }) => (
+                          <Link key={href} href={href} className={subtabCls(
+                            pathname.startsWith(match ?? href) || (also != null && pathname.startsWith(also))
+                          )}>
                             {label}
                           </Link>
                         ))}

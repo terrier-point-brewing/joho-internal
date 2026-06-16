@@ -179,11 +179,15 @@ function CoASelect({
 function InvoiceExpandableRow({
   inv,
   accounts,
+  batches,
   onSaveLineItem,
+  onBatchChanged,
 }: {
   inv: InvoiceRow;
   accounts: CoARef[];
+  batches: BrewBatch[];
   onSaveLineItem: (id: string, coaId: string | null) => Promise<void>;
+  onBatchChanged: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const linkCount = (inv.invoice_batch_links as unknown as { count: number }[])[0]?.count ?? 0;
@@ -268,6 +272,7 @@ function InvoiceExpandableRow({
                         onSave={onSaveLineItem}
                       />
                     ))}
+              <BatchLinkEditor invoiceId={inv.id} batches={batches} onChanged={onBatchChanged} />
             </div>
           </td>
         </tr>
@@ -331,6 +336,159 @@ const CATEGORY_CLS: Record<string, string> = {
   other:               "bg-zinc-800 text-zinc-500",
 };
 
+// ── Batch types ───────────────────────────────────────────────────────────────
+
+interface BrewBatch {
+  id: string;
+  batch_number: number | null;
+  beer_name: string;
+  planned_brew_date: string | null;
+}
+
+interface BatchLink {
+  id: string;
+  note: string | null;
+  created_at: string;
+  brew_batches: { id: string; beer_name: string; batch_number: number | null; planned_brew_date: string | null } | null;
+}
+
+// ── Batch link editor (shown in expanded invoice row) ─────────────────────────
+
+function BatchLinkEditor({
+  invoiceId,
+  batches,
+  onChanged,
+}: {
+  invoiceId: string;
+  batches: BrewBatch[];
+  onChanged: () => void;
+}) {
+  const [links, setLinks] = useState<BatchLink[]>([]);
+  const [loadingLinks, setLoadingLinks] = useState(true);
+  const [selectedBatch, setSelectedBatch] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLoadingLinks(true);
+    fetch(`/api/finance/ledger/invoice-batch-links?invoice_id=${invoiceId}`)
+      .then((r) => r.json())
+      .then((d) => setLinks(Array.isArray(d) ? d : []))
+      .finally(() => setLoadingLinks(false));
+  }, [invoiceId]);
+
+  async function handleAdd() {
+    if (!selectedBatch) return;
+    setAdding(true); setAddError(null);
+    const res = await fetch("/api/finance/ledger/invoice-batch-links", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ invoice_id: invoiceId, batch_id: selectedBatch }),
+    });
+    if (!res.ok) {
+      const d = await res.json();
+      setAddError(d.error ?? "Failed to link");
+    } else {
+      const link = await res.json() as BatchLink;
+      setLinks((prev) => [link, ...prev]);
+      setSelectedBatch("");
+      onChanged();
+    }
+    setAdding(false);
+  }
+
+  async function handleRemove(linkId: string) {
+    await fetch(`/api/finance/ledger/invoice-batch-links/${linkId}`, { method: "DELETE" });
+    setLinks((prev) => prev.filter((l) => l.id !== linkId));
+    onChanged();
+  }
+
+  const linkedBatchIds = new Set(links.map((l) => l.brew_batches?.id).filter(Boolean));
+  const availableBatches = batches.filter((b) => !linkedBatchIds.has(b.id));
+
+  return (
+    <div className="px-10 py-3 border-t border-zinc-800/40 bg-zinc-950/40">
+      <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-2">Batch Links</div>
+      {loadingLinks ? (
+        <p className="text-xs text-zinc-600">Loading…</p>
+      ) : (
+        <>
+          {links.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-2">
+              {links.map((link) => (
+                <div key={link.id} className="flex items-center gap-1.5 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs">
+                  <span className="text-zinc-300">
+                    {link.brew_batches?.batch_number != null ? `#${link.brew_batches.batch_number} · ` : ""}
+                    {link.brew_batches?.beer_name ?? "Unknown batch"}
+                  </span>
+                  <button onClick={() => handleRemove(link.id)}
+                    className="text-zinc-600 hover:text-red-400 transition-colors ml-1">×</button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="flex items-center gap-2 flex-wrap">
+            <select value={selectedBatch} onChange={(e) => setSelectedBatch(e.target.value)}
+              className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 min-w-[200px]">
+              <option value="">Select a batch…</option>
+              {availableBatches.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.batch_number != null ? `#${b.batch_number} · ` : ""}{b.beer_name}
+                  {b.planned_brew_date ? ` (${b.planned_brew_date.slice(0, 7)})` : ""}
+                </option>
+              ))}
+            </select>
+            <button onClick={handleAdd} disabled={!selectedBatch || adding}
+              className="px-2.5 py-1 bg-zinc-700 hover:bg-zinc-600 disabled:opacity-40 text-zinc-200 text-xs rounded transition-colors">
+              {adding ? "Linking…" : "Link"}
+            </button>
+            {addError && <span className="text-xs text-red-400">{addError}</span>}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── Invoice sync panel ─────────────────────────────────────────────────────────
+
+function InvoiceSyncPanel({ year, onSynced }: { year: number; onSynced: () => void }) {
+  const [syncing, setSyncing] = useState(false);
+  const [result, setResult] = useState<{ synced: number; updated: number; total: number; errors?: string[] } | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
+
+  async function handleSync() {
+    setSyncing(true); setSyncError(null); setResult(null);
+    try {
+      const res = await fetch(`/api/finance/ledger/sync-square?year=${year}`, { method: "POST" });
+      const json = await res.json();
+      if (!res.ok) { setSyncError(json.error ?? "Sync failed"); return; }
+      setResult(json);
+      onSynced();
+    } catch (e) {
+      setSyncError(e instanceof Error ? e.message : "Network error");
+    } finally { setSyncing(false); }
+  }
+
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      <button onClick={handleSync} disabled={syncing}
+        className="px-3 py-1 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 text-zinc-200 text-xs rounded border border-zinc-700 transition-colors whitespace-nowrap">
+        {syncing ? "Syncing invoices…" : "Sync from Square"}
+      </button>
+      {syncError && <span className="text-xs text-red-400">{syncError}</span>}
+      {result && (
+        <span className="text-xs text-zinc-400">
+          {result.synced > 0 && <span className="text-green-400 mr-1">{result.synced} new</span>}
+          {result.updated > 0 && <span className="text-zinc-400 mr-1">{result.updated} updated</span>}
+          {result.total === 0 && <span className="text-zinc-600">No invoices found</span>}
+          {result.errors?.length ? <span className="text-red-400">{result.errors.length} errors</span> : null}
+        </span>
+      )}
+    </div>
+  );
+}
+
 type SortKey = "invoice_date" | "customer_name" | "total_cents" | "status";
 
 function SortIcon({ k, sortKey, sortAsc }: { k: SortKey; sortKey: SortKey; sortAsc: boolean }) {
@@ -349,7 +507,10 @@ export default function InvoicesPage() {
   const [typeFilter, setTypeFilter] = useState<"all" | InvoiceType>("all");
   const [sortKey,    setSort]   = useState<SortKey>("invoice_date");
   const [sortAsc,    setSortAsc] = useState(false);
-  const [accounts,   setAccounts] = useState<CoARef[]>([]);
+  const [accounts,     setAccounts]     = useState<CoARef[]>([]);
+  const [batches,      setBatches]      = useState<BrewBatch[]>([]);
+  const [autoMapping,  setAutoMapping]  = useState(false);
+  const [autoMapResult, setAutoMapResult] = useState<{ mapped: number } | null>(null);
   const years = Array.from({ length: 5 }, (_, i) => currentYear - i);
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -357,7 +518,23 @@ export default function InvoicesPage() {
     fetch("/api/finance/chart-of-accounts")
       .then((r) => r.json())
       .then((d: CoARef[]) => setAccounts(Array.isArray(d) ? d : []));
+    fetch("/api/production/batches")
+      .then((r) => r.json())
+      .then((d: { id: string; batch_number: number | null; beer_name: string; planned_brew_date: string | null }[]) => {
+        if (Array.isArray(d)) {
+          setBatches(d.map((b) => ({ id: b.id, batch_number: b.batch_number, beer_name: b.beer_name, planned_brew_date: b.planned_brew_date })));
+        }
+      });
   }, []);
+
+  async function handleAutoMap() {
+    setAutoMapping(true); setAutoMapResult(null);
+    const res = await fetch(`/api/finance/ledger/invoices/auto-map?year=${year}`, { method: "POST" });
+    const json = await res.json();
+    setAutoMapResult(json);
+    if (json.mapped > 0) refetch();
+    setAutoMapping(false);
+  }
 
   async function handleSaveLineItem(id: string, coaId: string | null) {
     await fetch("/api/finance/ledger/invoice-line-items", {
@@ -365,6 +542,7 @@ export default function InvoicesPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id, chart_of_accounts_id: coaId }),
     });
+    refetch();
   }
 
   const params = new URLSearchParams({ year: String(year) });
@@ -434,8 +612,22 @@ export default function InvoicesPage() {
               <option value="standard">Standard</option>
               <option value="allocation_deposit">Deposit invoices</option>
             </select>
+            <InvoiceSyncPanel year={year} onSynced={() => refetch()} />
+            <div className="flex items-center gap-2">
+              <button onClick={handleAutoMap} disabled={autoMapping}
+                className="px-3 py-1 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 text-zinc-200 text-xs rounded border border-zinc-700 transition-colors whitespace-nowrap">
+                {autoMapping ? "Mapping…" : "Auto-map all"}
+              </button>
+              {autoMapResult && (
+                <span className="text-xs">
+                  {autoMapResult.mapped > 0
+                    ? <span className="text-green-400">{autoMapResult.mapped} mapped</span>
+                    : <span className="text-zinc-600">Nothing to map</span>}
+                </span>
+              )}
+            </div>
             <button onClick={() => refetch()}
-              className="px-3 py-1 bg-amber-600 hover:bg-amber-500 text-white text-xs rounded transition-colors">
+              className="px-3 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs rounded border border-zinc-700 transition-colors">
               Refresh
             </button>
           </div>
@@ -517,7 +709,9 @@ export default function InvoicesPage() {
                     key={inv.id}
                     inv={inv}
                     accounts={accounts}
+                    batches={batches}
                     onSaveLineItem={handleSaveLineItem}
+                    onBatchChanged={() => refetch()}
                   />
                 ))
               )}
