@@ -41,6 +41,7 @@ export interface AccountBalance {
   account_name: string;
   account_type: string;
   section: string;
+  parent_id: string | null;
   balance_cents: number;
   source_count: number;
 }
@@ -204,26 +205,35 @@ export async function GET(req: NextRequest) {
   }
 
   // Single-period mode
-  const month = Number(req.nextUrl.searchParams.get("month") ?? 0);
-  const start = month > 0
-    ? `${year}-${String(month).padStart(2, "0")}-01T00:00:00Z`
-    : `${year}-01-01T00:00:00Z`;
+  // cumulative=true → BS mode: accumulate from inception through end of period
+  const month      = Number(req.nextUrl.searchParams.get("month") ?? 0);
+  const cumulative = req.nextUrl.searchParams.get("cumulative") === "true";
+
   const end = month > 0
     ? new Date(Date.UTC(year, month, 1)).toISOString()
     : `${year + 1}-01-01T00:00:00Z`;
+  const endDate = month > 0
+    ? new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10)  // last day of month
+    : `${year}-12-31`;
 
-  const { data: txnAgg } = await supabase
+  // For P&L mode use a bounded start; for BS cumulative mode accumulate from all time
+  const start = cumulative ? null : (
+    month > 0
+      ? `${year}-${String(month).padStart(2, "0")}-01T00:00:00Z`
+      : `${year}-01-01T00:00:00Z`
+  );
+  const invStart = cumulative ? null : (month > 0 ? `${year}-${String(month).padStart(2, "0")}-01` : `${year}-01-01`);
+
+  let txnQuery = supabase
     .from("pos_line_items")
-    .select(`
-      chart_of_accounts_id,
-      net_sales_cents,
-      square_orders!inner ( transaction_date )
-    `)
-    .gte("square_orders.transaction_date", start)
+    .select(`chart_of_accounts_id, net_sales_cents, square_orders!inner ( transaction_date )`)
     .lt("square_orders.transaction_date", end)
     .not("chart_of_accounts_id", "is", null);
+  if (start) txnQuery = txnQuery.gte("square_orders.transaction_date", start);
 
-  const { data: rawInvAgg } = await supabase
+  const { data: txnAgg } = await txnQuery;
+
+  let invQuery = supabase
     .from("invoice_line_items")
     .select(`
       chart_of_accounts_id,
@@ -234,10 +244,12 @@ export async function GET(req: NextRequest) {
       total_cents,
       invoices!invoice_line_items_invoice_id_fkey ( invoice_date, status )
     `)
-    .gte("invoices.invoice_date", `${year}-01-01`)
-    .lte("invoices.invoice_date", `${year}-12-31`)
+    .lte("invoices.invoice_date", endDate)
     .neq("invoices.status", "voided")
     .or("chart_of_accounts_id.not.is.null,bs_chart_of_accounts_id.not.is.null");
+  if (invStart) invQuery = invQuery.gte("invoices.invoice_date", invStart);
+
+  const { data: rawInvAgg } = await invQuery;
 
   // Fetch paid-delivery invoice statuses
   const deliveryIds = [...new Set(
@@ -281,6 +293,22 @@ export async function GET(req: NextRequest) {
     });
   }
 
+  // A/R from open invoices: sum total_cents of open invoices as of the period end
+  // and credit the first A/R account found in the CoA.
+  const arAccount = (accounts ?? []).find(a => a.account_type === "Accounts receivable (A/R)");
+  if (arAccount) {
+    const { data: openInvoices } = await supabase
+      .from("invoices")
+      .select("total_cents")
+      .eq("status", "open")
+      .lte("invoice_date", endDate);
+    const arCents = (openInvoices ?? []).reduce((s, inv) => s + inv.total_cents, 0);
+    if (arCents > 0) {
+      const cur = balanceMap.get(arAccount.id) ?? { cents: 0, count: 0 };
+      balanceMap.set(arAccount.id, { cents: cur.cents + arCents, count: cur.count + (openInvoices?.length ?? 0) });
+    }
+  }
+
   const result: AccountBalance[] = (accounts ?? []).map((acct) => {
     const bal = balanceMap.get(acct.id) ?? { cents: 0, count: 0 };
     return {
@@ -289,10 +317,11 @@ export async function GET(req: NextRequest) {
       account_name:   acct.account_name,
       account_type:   acct.account_type,
       section:        (acct as { statement_section?: string | null }).statement_section ?? ACCOUNT_TYPE_SECTION[acct.account_type] ?? "other",
+      parent_id:      (acct as { parent_id?: string | null }).parent_id ?? null,
       balance_cents:  bal.cents,
       source_count:   bal.count,
     };
   });
 
-  return NextResponse.json({ year, accounts: result });
+  return NextResponse.json({ year, month: month || null, cumulative, accounts: result });
 }

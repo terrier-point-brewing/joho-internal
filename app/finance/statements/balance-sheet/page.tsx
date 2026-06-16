@@ -27,11 +27,11 @@ function shortName(name: string, parentName: string | undefined): string {
 // ── Tree ─────────────────────────────────────────────────────────────────────
 
 interface TreeNode {
-  acct: AccountBalance & { parent_id?: string | null };
+  acct: AccountBalance;
   children: TreeNode[];
 }
 
-function buildTree(accounts: (AccountBalance & { parent_id?: string | null })[]): TreeNode[] {
+function buildTree(accounts: AccountBalance[]): TreeNode[] {
   const byId = new Map<string, TreeNode>();
   for (const acct of accounts) byId.set(acct.id, { acct, children: [] });
   const roots: TreeNode[] = [];
@@ -47,7 +47,7 @@ function nodeBalance(node: TreeNode): number {
   return node.acct.balance_cents + node.children.reduce((s, c) => s + nodeBalance(c), 0);
 }
 
-// ── Row ───────────────────────────────────────────────────────────────────────
+// ── AccountRow ────────────────────────────────────────────────────────────────
 
 function AccountRow({
   node,
@@ -74,8 +74,8 @@ function AccountRow({
   return (
     <>
       <div
-        className={`grid grid-cols-[minmax(0,1fr)_100px] gap-4 py-1.5 text-xs border-t border-zinc-800/30 hover:bg-zinc-900/20 ${total === 0 ? "opacity-40" : ""}`}
-        style={{ paddingLeft: `${(depth + 1) * 20 + 16}px`, paddingRight: "24px" }}
+        className={`grid grid-cols-[minmax(0,1fr)_100px] gap-4 py-1.5 border-t border-zinc-800/30 hover:bg-zinc-900/20 ${total === 0 ? "opacity-40" : ""}`}
+        style={{ paddingLeft: `${(depth + 1) * 20 + 12}px`, paddingRight: "24px" }}
       >
         <div className="flex items-center gap-1.5 min-w-0">
           {hasChildren ? (
@@ -88,11 +88,11 @@ function AccountRow({
           {node.acct.account_number && (
             <span className="text-zinc-600 font-mono text-[10px] shrink-0">{node.acct.account_number}</span>
           )}
-          <span className={`truncate ${hasChildren ? "font-medium text-zinc-200" : "text-zinc-400"}`}>
+          <span className={`truncate text-xs ${hasChildren ? "font-medium text-zinc-200" : "text-zinc-400"}`}>
             {displayName}
           </span>
         </div>
-        <span className="text-right font-mono tabular-nums self-center text-zinc-400">
+        <span className="text-right font-mono tabular-nums text-xs self-center text-zinc-400">
           {hasChildren && !expanded ? fmtMoney(total) : fmtMoney(node.acct.balance_cents)}
         </span>
       </div>
@@ -140,7 +140,7 @@ function Section({
         <div className="flex items-center gap-2">
           <span className="text-zinc-600 text-xs w-3">{expanded ? "▾" : "▸"}</span>
           <span className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">{title}</span>
-          {!hasData && <span className="text-[10px] text-zinc-600 italic">no mapped transactions</span>}
+          {!hasData && <span className="text-[10px] text-zinc-600 italic">no mapped data</span>}
         </div>
         <span className="text-xs font-mono font-semibold text-zinc-200 tabular-nums">{fmtMoney(totalCents)}</span>
       </button>
@@ -182,15 +182,13 @@ function GroupTotal({ label, cents }: { label: string; cents: number }) {
 
 // ── Page ─────────────────────────────────────────────────────────────────────
 
-type BSAccount = AccountBalance & { parent_id?: string | null };
-
 export default function BalanceSheetPage() {
   const now = new Date();
   const currentYear  = now.getFullYear();
   const currentMonth = now.getMonth() + 1;
   const [year, setYear]   = useState(currentYear);
   const [month, setMonth] = useState(currentMonth);
-  const [data, setData]   = useState<{ year: number; accounts: BSAccount[] } | null>(null);
+  const [data, setData]   = useState<{ year: number; accounts: AccountBalance[] } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError]    = useState<string | null>(null);
   const [expandAll, setExpandAll] = useState<boolean | null>(null);
@@ -200,30 +198,29 @@ export default function BalanceSheetPage() {
     async function load() {
       setLoading(true); setError(null);
       try {
-        const params = month > 0 ? `year=${year}&month=${month}` : `year=${year}`;
+        const params = new URLSearchParams({ year: String(year), cumulative: "true" });
+        if (month > 0) params.set("month", String(month));
         const r = await fetch(`/api/finance/statements?${params}`);
         const d = await r.json();
         setData(d);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Failed to load");
-      } finally {
-        setLoading(false);
-      }
+      } finally { setLoading(false); }
     }
     load();
   }, [year, month]);
 
   const handleExpandAll = useCallback((val: boolean) => {
     setExpandAll(val);
-    setTimeout(() => setExpandAll(null), 50); // eslint-disable-line react-hooks/set-state-in-effect
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setTimeout(() => setExpandAll(null), 50);
   }, []);
 
   const accounts = data?.accounts ?? [];
   const sum = (nodes: TreeNode[]) => nodes.reduce((s, n) => s + nodeBalance(n), 0);
 
-  const bsSections = new Set(["bank", "ar", "other_current_assets", "fixed_assets", "ap", "credit_card", "other_current_liabilities", "long_term_liabilities", "equity"]);
-  const bsAccounts = accounts.filter(a => bsSections.has(a.section));
-  const treeAll = buildTree(bsAccounts);
+  const bsSections = new Set(["bank","ar","other_current_assets","fixed_assets","ap","credit_card","other_current_liabilities","long_term_liabilities","equity"]);
+  const treeAll = buildTree(accounts.filter(a => bsSections.has(a.section)));
 
   const filterSection = (section: string) => treeAll.filter(n => n.acct.section === section);
 
@@ -242,14 +239,20 @@ export default function BalanceSheetPage() {
   const totalLiab         = totalCurrentLiab + sum(longTermLiab);
 
   const equity            = filterSection("equity");
-  const revenue           = accounts.filter(a => a.section === "revenue" || a.section === "other_income");
-  const cogs              = accounts.filter(a => a.section === "cogs");
-  const expenses          = accounts.filter(a => a.section === "expenses" || a.section === "other_expense");
-  const netIncome         = revenue.reduce((s, a) => s + a.balance_cents, 0)
-                          - cogs.reduce((s, a) => s + a.balance_cents, 0)
-                          - expenses.reduce((s, a) => s + a.balance_cents, 0);
+  // Net income rolls into equity: use all P&L accounts (cumulative through period)
+  const plAccounts        = accounts.filter(a => ["revenue","other_income","cogs","expenses","other_expense"].includes(a.section));
+  const netIncome         = plAccounts
+    .filter(a => ["revenue","other_income"].includes(a.section))
+    .reduce((s, a) => s + a.balance_cents, 0)
+    - plAccounts
+    .filter(a => ["cogs","expenses","other_expense"].includes(a.section))
+    .reduce((s, a) => s + a.balance_cents, 0);
   const totalEquity       = sum(equity) + netIncome;
   const totalLiabEquity   = totalLiab + totalEquity;
+
+  const periodLabel = month > 0
+    ? `${MONTH_NAMES[month - 1]} ${year}`
+    : `Dec 31, ${year}`;
 
   return (
     <div className="flex flex-col h-full bg-zinc-950 text-zinc-100">
@@ -259,9 +262,7 @@ export default function BalanceSheetPage() {
       <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-5 pb-3 border-b border-zinc-800 flex items-center justify-between gap-4">
         <div>
           <h1 className="text-base font-semibold text-zinc-100">Balance Sheet</h1>
-          <p className="text-xs text-zinc-500 mt-0.5">
-            As of {month > 0 ? `${MONTH_NAMES[month - 1]} ${year}` : `Dec 31, ${year}`} · based on Chart of Accounts structure
-          </p>
+          <p className="text-xs text-zinc-500 mt-0.5">As of {periodLabel} · cumulative from inception</p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <button onClick={() => handleExpandAll(true)}
@@ -274,7 +275,7 @@ export default function BalanceSheetPage() {
           </button>
           <select value={month} onChange={(e) => setMonth(Number(e.target.value))}
             className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-xs text-zinc-200">
-            <option value={0}>Annual</option>
+            <option value={0}>Annual (Dec 31)</option>
             {MONTH_NAMES.map((m, i) => <option key={i + 1} value={i + 1}>{m}</option>)}
           </select>
           <select value={year} onChange={(e) => setYear(Number(e.target.value))}
@@ -285,11 +286,7 @@ export default function BalanceSheetPage() {
       </div>
 
       <div className="flex-1 overflow-auto">
-        {loading && (
-          <div className="flex items-center justify-center h-32">
-            <p className="text-xs text-zinc-600">Loading…</p>
-          </div>
-        )}
+        {loading && <div className="flex items-center justify-center h-32"><p className="text-xs text-zinc-600">Loading…</p></div>}
         {error && <p className="text-xs text-red-400 px-6 py-4">{error}</p>}
 
         {!loading && !error && (
@@ -317,7 +314,7 @@ export default function BalanceSheetPage() {
             <GroupHeader label="Equity" />
             <Section title="Equity" nodes={equity} totalLabel="Total Equity Accounts" expandAll={expandAll} />
             <div className="flex items-center justify-between px-10 py-1.5 text-xs border-t border-zinc-800/30">
-              <span className="text-zinc-400">Net Income ({year})</span>
+              <span className="text-zinc-400">Net Income (cumulative through {periodLabel})</span>
               <span className={`font-mono tabular-nums ${netIncome < 0 ? "text-red-400" : "text-zinc-300"}`}>{fmtMoney(netIncome)}</span>
             </div>
             <div className="flex items-center justify-between px-4 sm:px-6 py-2 bg-zinc-900/40 border-t border-zinc-800/60 border-b border-zinc-800/60">
@@ -327,8 +324,8 @@ export default function BalanceSheetPage() {
             <GroupTotal label="Total Liabilities + Equity" cents={totalLiabEquity} />
 
             <div className="px-4 sm:px-6 py-4 text-[10px] text-zinc-600">
-              Deposit invoices with a BS account mapped (pending delivery) are reflected here.
-              Open invoice A/R, Ramp credit card balances, bank balances, and equity require additional data sources.
+              A/R reflects open invoices as of this date. Deposit invoices pending delivery are recorded to their mapped BS account.
+              Bank, credit card, and equity balances require Ramp integration and/or manual journal entries.
             </div>
           </>
         )}
