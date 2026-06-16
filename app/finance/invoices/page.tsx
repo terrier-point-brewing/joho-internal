@@ -202,6 +202,7 @@ function InvoiceExpandableRow({
   const lineItems = inv.invoice_line_items ?? [];
   const mappedCount = lineItems.filter((li) => li.chart_of_accounts_id || li.bs_chart_of_accounts_id).length;
   const allMapped = lineItems.length > 0 && mappedCount === lineItems.length;
+  const missingDelivery = lineItems.some((li) => li.bs_chart_of_accounts_id && !li.delivery_invoice_id);
 
   return (
     <>
@@ -237,14 +238,19 @@ function InvoiceExpandableRow({
           </span>
         </td>
         <td className="px-4 py-2">
-          {lineItems.length === 0
-            ? <span className="text-zinc-700">—</span>
-            : allMapped
-              ? <span className="text-[10px] text-green-500">✓ all mapped</span>
-              : <div className="flex items-center gap-1.5">
-                  <CategoryBar items={lineItems} />
-                  {mappedCount > 0 && <span className="text-[10px] text-amber-500 shrink-0">{mappedCount}/{lineItems.length}</span>}
-                </div>}
+          <div className="flex flex-col gap-1">
+            {lineItems.length === 0
+              ? <span className="text-zinc-700">—</span>
+              : allMapped
+                ? <span className="text-[10px] text-green-500">✓ all mapped</span>
+                : <div className="flex items-center gap-1.5">
+                    <CategoryBar items={lineItems} />
+                    {mappedCount > 0 && <span className="text-[10px] text-amber-500 shrink-0">{mappedCount}/{lineItems.length}</span>}
+                  </div>}
+            {missingDelivery && (
+              <span className="text-[10px] text-amber-400">⚠ deposit missing delivery</span>
+            )}
+          </div>
         </td>
         <td className="px-4 py-2 text-right font-mono text-zinc-200 tabular-nums">
           {fmtDollars(inv.total_cents)}
