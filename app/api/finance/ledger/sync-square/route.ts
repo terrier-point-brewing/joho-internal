@@ -32,7 +32,7 @@ function squareStatusToLedger(status: string): InvoiceStatus {
     case "DRAFT":                        return "draft";
     case "UNPAID": case "SCHEDULED":     return "open";
     case "PARTIALLY_PAID":               return "partial";
-    case "CANCELED": case "REFUNDED":    return "voided";
+    case "CANCELED": case "REFUNDED": case "PARTIALLY_REFUNDED": return "voided";
     default:                             return "unknown";
   }
 }

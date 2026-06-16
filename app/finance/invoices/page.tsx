@@ -237,13 +237,14 @@ function InvoiceExpandableRow({
           </span>
         </td>
         <td className="px-4 py-2">
-          {allMapped
-            ? <span className="text-[10px] text-green-500">✓ all mapped</span>
-            : mappedCount > 0
-              ? <span className="text-[10px] text-amber-500">{mappedCount}/{lineItems.length}</span>
-              : lineItems.length > 0
-                ? <CategoryBar items={lineItems} />
-                : <span className="text-zinc-700">—</span>}
+          {lineItems.length === 0
+            ? <span className="text-zinc-700">—</span>
+            : allMapped
+              ? <span className="text-[10px] text-green-500">✓ all mapped</span>
+              : <div className="flex items-center gap-1.5">
+                  <CategoryBar items={lineItems} />
+                  {mappedCount > 0 && <span className="text-[10px] text-amber-500 shrink-0">{mappedCount}/{lineItems.length}</span>}
+                </div>}
         </td>
         <td className="px-4 py-2 text-right font-mono text-zinc-200 tabular-nums">
           {fmtDollars(inv.total_cents)}
