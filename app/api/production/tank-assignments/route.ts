@@ -160,3 +160,57 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json(data, { status: 201 });
 }
+
+/**
+ * PATCH /api/production/tank-assignments
+ * Admin-only: close the batch's current active assignment and open a new one
+ * for the correct tank, without creating a transfer record.
+ *
+ * Body: { batch_id, correct_tank_id, reason? }
+ */
+export async function PATCH(req: NextRequest) {
+  try { await requireRole("admin"); } catch (res) { return res as Response; }
+
+  const supabase = await createSupabaseServerClient();
+  const { batch_id, correct_tank_id, reason } = await req.json();
+
+  if (!batch_id || !correct_tank_id) {
+    return NextResponse.json({ error: "batch_id and correct_tank_id are required" }, { status: 400 });
+  }
+
+  // Close all active assignments for this batch
+  const { error: releaseErr } = await supabase
+    .from("batch_tank_assignments")
+    .update({ released_at: new Date().toISOString() })
+    .eq("batch_id", batch_id)
+    .is("released_at", null);
+
+  if (releaseErr) return NextResponse.json({ error: releaseErr.message }, { status: 500 });
+
+  // Open assignment on the correct tank
+  const { data, error: insertErr } = await supabase
+    .from("batch_tank_assignments")
+    .insert({
+      batch_id,
+      tank_id: correct_tank_id,
+      notes: reason ? `Admin correction: ${reason}` : "Admin correction",
+    })
+    .select("id")
+    .single();
+
+  if (insertErr) {
+    if (insertErr.code === "23505") {
+      return NextResponse.json({ error: "That tank is already occupied by another batch" }, { status: 409 });
+    }
+    return NextResponse.json({ error: insertErr.message }, { status: 500 });
+  }
+
+  // Log to batch_status_history so the correction is auditable
+  await supabase.from("batch_status_history").insert({
+    batch_id,
+    status: (await supabase.from("brew_batches").select("status").eq("id", batch_id).single()).data?.status ?? "fermenting",
+    note: `Admin: tank reassigned${reason ? ` — ${reason}` : ""}`,
+  });
+
+  return NextResponse.json({ assignment_id: data.id });
+}

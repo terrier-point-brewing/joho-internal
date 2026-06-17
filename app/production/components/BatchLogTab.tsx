@@ -1361,6 +1361,13 @@ function BatchTable({
                       <div className="pt-4 border-t border-zinc-800/60">
                         <TransferLog transfers={batchTransfers} batchVol={Number(b.volume_bbl)} />
                       </div>
+
+                      {/* 5 — Admin: Reassign Tank */}
+                      {isAdmin && (
+                        <div className="pt-4 border-t border-zinc-800/60">
+                          <ReassignTankSection batchId={b.id} equipment={equipment} />
+                        </div>
+                      )}
                     </td>
                   </tr>
                 )}
@@ -1643,6 +1650,76 @@ function BatchVolumeBreakdown({
           </span>
         </div>
       </div>
+    </div>
+  );
+}
+
+function ReassignTankSection({ batchId, equipment }: { batchId: string; equipment: import("../types").Equipment[] }) {
+  const queryClient = useQueryClient();
+  const [tankId, setTankId]   = useState("");
+  const [reason, setReason]   = useState("");
+  const [saving, setSaving]   = useState(false);
+  const [done, setDone]       = useState(false);
+
+  const tanks = equipment.filter((e) =>
+    ["brewhouse", "fermenter", "brite"].includes(e.type)
+  );
+
+  async function handleReassign(e: React.FormEvent) {
+    e.preventDefault();
+    if (!tankId) return;
+    if (!confirm("Reassign this batch to the selected tank? This closes the current assignment without creating a transfer record.")) return;
+    setSaving(true);
+    try {
+      const res = await fetch("/api/production/tank-assignments", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ batch_id: batchId, correct_tank_id: tankId, reason: reason || undefined }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? "Error");
+      await queryClient.invalidateQueries({ queryKey: productionKeys.assignments });
+      await queryClient.invalidateQueries({ queryKey: productionKeys.batches });
+      setDone(true);
+      setTankId(""); setReason("");
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div>
+      <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wide mb-2">
+        Admin — Reassign Tank
+      </p>
+      {done && (
+        <p className="text-xs text-green-400 mb-2">Tank reassigned successfully.</p>
+      )}
+      <form onSubmit={handleReassign} className="flex flex-wrap items-end gap-3">
+        <div className="flex flex-col gap-1">
+          <label className="text-xs text-zinc-500">Correct Tank</label>
+          <select className="inp text-sm" value={tankId} required onChange={(e) => { setTankId(e.target.value); setDone(false); }}>
+            <option value="">— select tank —</option>
+            {tanks.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}{t.capacity_bbl ? ` · ${t.capacity_bbl} BBL` : ""}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="flex flex-col gap-1 flex-1 min-w-[160px]">
+          <label className="text-xs text-zinc-500">Reason (optional)</label>
+          <input className="inp text-sm" placeholder="e.g. entered wrong tank" value={reason} onChange={(e) => { setReason(e.target.value); setDone(false); }} />
+        </div>
+        <button type="submit" disabled={saving || !tankId}
+          className="px-3 py-1.5 text-sm rounded border border-red-800 bg-red-950/40 text-red-300 hover:bg-red-900/40 disabled:opacity-40 transition-colors">
+          {saving ? "Saving…" : "Reassign"}
+        </button>
+      </form>
+      <p className="text-xs text-zinc-600 mt-1.5">
+        Closes the current tank assignment and opens a new one. No transfer record is created.
+      </p>
     </div>
   );
 }
