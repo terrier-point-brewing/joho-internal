@@ -178,6 +178,15 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "batch_id and correct_tank_id are required" }, { status: 400 });
   }
 
+  // Capture which tanks are currently assigned so we can fix the transfer log
+  const { data: activeAssignments } = await supabase
+    .from("batch_tank_assignments")
+    .select("tank_id")
+    .eq("batch_id", batch_id)
+    .is("released_at", null);
+
+  const wrongTankIds = (activeAssignments ?? []).map((a) => a.tank_id as string);
+
   // Close all active assignments for this batch
   const { error: releaseErr } = await supabase
     .from("batch_tank_assignments")
@@ -186,6 +195,17 @@ export async function PATCH(req: NextRequest) {
     .is("released_at", null);
 
   if (releaseErr) return NextResponse.json({ error: releaseErr.message }, { status: 500 });
+
+  // Fix transfer records: any transfer that arrived at a wrong tank should
+  // now point to the correct tank, so the volume ledger reflects the correction.
+  for (const wrongTankId of wrongTankIds) {
+    if (wrongTankId === correct_tank_id) continue;
+    await supabase
+      .from("batch_transfers")
+      .update({ to_tank_id: correct_tank_id })
+      .eq("batch_id", batch_id)
+      .eq("to_tank_id", wrongTankId);
+  }
 
   // Open assignment on the correct tank
   const { data, error: insertErr } = await supabase
