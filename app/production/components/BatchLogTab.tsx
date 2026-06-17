@@ -1117,7 +1117,7 @@ function EquipmentScheduleSection({
         <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wide">Equipment Schedule</p>
         <button type="button" onClick={openAdd} className="text-xs text-amber-500 hover:text-amber-400">+ Add entry</button>
       </div>
-      {entries.length === 0 && batch && recipes && (
+      {batch && recipes && !["brewhouse", "fermenting", "conditioning"].every((s) => entries.some((e) => e.stage === s)) && (
         <BuildScheduleSection
           batchId={batchId}
           batch={batch}
@@ -1861,62 +1861,56 @@ function BatchVolumeBreakdown({
   const originalVol = Number(batch.volume_bbl ?? 0);
   const bd = computeLocationBreakdown(batch.id, originalVol, transfers, tankTypeById, isAssigned);
 
-  const cols: { label: string; value: number; highlight?: string }[] = [
-    { label: "Backlog",       value: bd.backlog },
-    { label: "Brewhouse",     value: bd.brewhouse },
-    { label: "Fermenter",     value: bd.fermenter },
-    { label: "Brite",         value: bd.brite },
-    { label: "Packaging",     value: bd.packaging },
-    { label: "Cold Storage",  value: bd.coldStorage },
-    { label: "Exported",      value: bd.exported },
-    { label: "Shrinkage",     value: bd.shrinkage, highlight: "text-amber-400" },
-  ];
-
-  const accountedFor = cols.reduce((s, c) => s + c.value, 0);
-  const balanced     = Math.abs(accountedFor - originalVol) < 0.01;
   const available    = Math.max(0, originalVol - bd.exported - bd.shrinkage);
   const availablePct = originalVol > 0 ? (available / originalVol) * 100 : 0;
   const exportedPct  = originalVol > 0 ? (bd.exported / originalVol) * 100 : 0;
   const shrinkagePct = originalVol > 0 ? (bd.shrinkage / originalVol) * 100 : 0;
 
+  // Only show location stages with nonzero volume
+  const locationCols: { label: string; value: number }[] = [
+    { label: "Backlog",      value: bd.backlog },
+    { label: "Brewhouse",    value: bd.brewhouse },
+    { label: "Fermenter",    value: bd.fermenter },
+    { label: "Brite",        value: bd.brite },
+    { label: "Packaging",    value: bd.packaging },
+    { label: "Cold Storage", value: bd.coldStorage },
+  ].filter((c) => c.value > 0.001);
+
+  const accountedFor = [bd.backlog, bd.brewhouse, bd.fermenter, bd.brite, bd.packaging, bd.coldStorage, bd.exported, bd.shrinkage].reduce((s, v) => s + v, 0);
+  const balanced     = Math.abs(accountedFor - originalVol) < 0.01;
+
   return (
     <div className="mt-3">
       <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wide mb-2">Volume Breakdown</p>
 
-      {/* Available BBL summary + bar */}
+      {/* Bar + headline */}
       <div className="mb-3">
-        <div className="flex items-baseline gap-2 mb-1">
-          <span className="text-sm font-semibold text-green-400 tabular-nums">{fmtBbl2(available)} BBL</span>
-          <span className="text-xs text-zinc-500">available of {fmtBbl2(originalVol)} BBL total</span>
+        <div className="flex items-baseline gap-2 mb-1.5">
+          <span className="text-sm font-semibold text-green-400 tabular-nums">{fmtBbl2(available)}</span>
+          <span className="text-xs text-zinc-500">
+            available of {fmtBbl2(originalVol)} total{!balanced && <span className="text-red-400 ml-1">⚠ unbalanced</span>}
+          </span>
+          {bd.exported > 0 && <span className="text-xs text-zinc-500 ml-auto">{fmtBbl2(bd.exported)} exported</span>}
+          {bd.shrinkage > 0 && <span className="text-xs text-amber-500/80">{fmtBbl2(bd.shrinkage)} shrinkage</span>}
         </div>
         <div className="h-2 rounded-full bg-zinc-800 overflow-hidden flex">
-          <div className="h-full bg-green-600/70 transition-all" style={{ width: `${availablePct}%` }} />
-          <div className="h-full bg-blue-600/50 transition-all" style={{ width: `${exportedPct}%` }} />
-          <div className="h-full bg-amber-600/50 transition-all" style={{ width: `${shrinkagePct}%` }} />
-        </div>
-        <div className="flex gap-3 mt-1">
-          <span className="flex items-center gap-1 text-[10px] text-zinc-500"><span className="w-2 h-2 rounded-sm bg-green-600/70 inline-block" />Available</span>
-          <span className="flex items-center gap-1 text-[10px] text-zinc-500"><span className="w-2 h-2 rounded-sm bg-blue-600/50 inline-block" />Exported</span>
-          <span className="flex items-center gap-1 text-[10px] text-zinc-500"><span className="w-2 h-2 rounded-sm bg-amber-600/50 inline-block" />Shrinkage</span>
+          <div className="h-full bg-green-600/70" style={{ width: `${availablePct}%` }} />
+          <div className="h-full bg-blue-600/50" style={{ width: `${exportedPct}%` }} />
+          <div className="h-full bg-amber-600/50" style={{ width: `${shrinkagePct}%` }} />
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-x-5 gap-y-1.5">
-        {cols.map(({ label, value, highlight }) => (
-          <div key={label} className="flex flex-col gap-0">
-            <span className="text-xs text-zinc-600">{label}</span>
-            <span className={`text-sm tabular-nums font-medium ${highlight ?? (value > 0 ? "text-zinc-200" : "text-zinc-700")}`}>
-              {fmtBbl2(value)}
-            </span>
-          </div>
-        ))}
-        <div className="flex flex-col gap-0">
-          <span className="text-xs text-zinc-600">Total</span>
-          <span className={`text-sm tabular-nums font-medium ${balanced ? "text-zinc-500" : "text-red-400"}`}>
-            {fmtBbl2(originalVol)}{!balanced && " ⚠"}
-          </span>
+      {/* Active location breakdown — only nonzero stages */}
+      {locationCols.length > 0 && (
+        <div className="flex flex-wrap gap-x-4 gap-y-1">
+          {locationCols.map(({ label, value }) => (
+            <div key={label} className="flex items-center gap-1.5 text-xs">
+              <span className="text-zinc-600">{label}</span>
+              <span className="text-zinc-300 tabular-nums font-medium">{fmtBbl2(value)}</span>
+            </div>
+          ))}
         </div>
-      </div>
+      )}
     </div>
   );
 }
