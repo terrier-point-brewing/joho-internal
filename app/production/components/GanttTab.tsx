@@ -80,6 +80,9 @@ export default function GanttTab() {
   const [dismissedConflicts, setDismissedConflicts] = useState<Set<string>>(new Set());
   const [resolvingConflict, setResolvingConflict] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const [showFlow, setShowFlow] = useState(false);
+  const [filteredBatchIds, setFilteredBatchIds] = useState<Set<string> | null>(null); // null = all
+  const [showBatchFilter, setShowBatchFilter] = useState(false);
 
   const rangeDays = RANGE_OPTIONS[rangeIdx].days;
   const dayPx = DAY_PX_BASE[rangeDays] ?? 12;
@@ -142,6 +145,60 @@ export default function GanttTab() {
     batches.forEach((b, i) => { map[b.id] = BATCH_PALETTE[i % BATCH_PALETTE.length]; });
     return map;
   }, [batches]);
+
+  // Filtered entries (null = show all)
+  const visibleEntries = useMemo(() =>
+    filteredBatchIds ? entries.filter((e) => e.batch_id && filteredBatchIds.has(e.batch_id)) : entries,
+  [entries, filteredBatchIds]);
+
+  // Equipment row Y positions (for flow connector arrows).
+  // Layout: 40px chart header; then for each type: 24px group header + n×ROW_H rows.
+  const equipRowY = useMemo(() => {
+    const map: Record<string, number> = {};
+    let y = 40; // chart header
+    for (const type of EQUIPMENT_STAGE_ORDER) {
+      const eqs = equipmentByType[type] ?? [];
+      if (!eqs.length) continue;
+      y += 24; // group header
+      eqs.forEach((eq) => { map[eq.id] = y; y += ROW_H; });
+    }
+    return map;
+  }, [equipmentByType]);
+
+  // Flow connectors: for each batch, sort entries by planned_start and draw an
+  // arrow from the right edge of entry[i] to the left edge of entry[i+1].
+  const flowConnectors = useMemo(() => {
+    if (!showFlow) return [];
+    const byBatch: Record<string, ScheduleEntry[]> = {};
+    for (const e of visibleEntries) {
+      if (!e.batch_id || !e.equipment_id) continue;
+      (byBatch[e.batch_id] ??= []).push(e);
+    }
+    const paths: { d: string; color: string; key: string }[] = [];
+    for (const [batchId, bEntries] of Object.entries(byBatch)) {
+      const sorted = [...bEntries].sort((a, b) => a.planned_start.localeCompare(b.planned_start));
+      const color = batchColors[batchId] ?? "#6b7280";
+      for (let i = 0; i < sorted.length - 1; i++) {
+        const a = sorted[i], b = sorted[i + 1];
+        if (!a.equipment_id || !b.equipment_id) continue;
+        const aEndOffset = differenceInDays(parseISO(a.planned_end.slice(0, 10) + "T12:00:00"), viewStart);
+        const bStartOffset = differenceInDays(parseISO(b.planned_start.slice(0, 10) + "T12:00:00"), viewStart);
+        if (aEndOffset < 0 && bStartOffset < 0) continue;
+        if (aEndOffset > totalDays && bStartOffset > totalDays) continue;
+        const x1 = LABEL_W + aEndOffset * dayPx;
+        const x2 = LABEL_W + bStartOffset * dayPx;
+        const y1 = (equipRowY[a.equipment_id] ?? 0) + ROW_H / 2;
+        const y2 = (equipRowY[b.equipment_id] ?? 0) + ROW_H / 2;
+        const dx = Math.abs(x2 - x1) * 0.4;
+        paths.push({
+          key: `${a.id}-${b.id}`,
+          color,
+          d: `M${x1},${y1} C${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}`,
+        });
+      }
+    }
+    return paths;
+  }, [showFlow, visibleEntries, batchColors, viewStart, dayPx, totalDays, equipRowY]);
 
   function entryBar(entry: ScheduleEntry, eqId: string) {
     if (entry.equipment_id !== eqId) return null;
@@ -310,6 +367,56 @@ export default function GanttTab() {
           <button onClick={() => setViewStart(d => addDays(d, Math.floor(rangeDays / 3)))} className="px-2 py-1 text-xs bg-zinc-800 rounded text-zinc-400 hover:text-zinc-200">›</button>
         </div>
         <span className="text-xs text-zinc-500">{format(viewStart, "MMM d")} – {format(viewEnd, "MMM d, yyyy")}</span>
+
+        {/* Flow toggle */}
+        <button
+          onClick={() => setShowFlow((v) => !v)}
+          className={`px-3 py-1 text-xs rounded font-medium transition-colors ${showFlow ? "bg-indigo-700 text-indigo-100" : "bg-zinc-800 text-zinc-400 hover:text-zinc-200"}`}
+          title="Show/hide batch flow arrows between stages"
+        >
+          {showFlow ? "⇢ Flow on" : "⇢ Flow"}
+        </button>
+
+        {/* Batch filter */}
+        <div className="relative">
+          <button
+            onClick={() => setShowBatchFilter((v) => !v)}
+            className={`px-3 py-1 text-xs rounded font-medium transition-colors ${filteredBatchIds ? "bg-blue-700 text-blue-100" : "bg-zinc-800 text-zinc-400 hover:text-zinc-200"}`}
+          >
+            Filter{filteredBatchIds ? ` (${filteredBatchIds.size})` : ""}
+          </button>
+          {showBatchFilter && (
+            <div className="absolute top-8 left-0 z-50 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl p-2 min-w-[220px] max-h-72 overflow-y-auto">
+              <div className="flex items-center justify-between mb-2 px-1">
+                <span className="text-xs font-semibold text-zinc-400">Filter by Batch</span>
+                <button onClick={() => { setFilteredBatchIds(null); setShowBatchFilter(false); }}
+                  className="text-[10px] text-zinc-500 hover:text-zinc-300">Clear</button>
+              </div>
+              {batches.map((b, i) => {
+                const color = BATCH_PALETTE[i % BATCH_PALETTE.length];
+                const selected = filteredBatchIds ? filteredBatchIds.has(b.id) : true;
+                return (
+                  <label key={b.id} className="flex items-center gap-2 px-1 py-1 rounded hover:bg-zinc-800 cursor-pointer">
+                    <input type="checkbox" checked={selected} onChange={(e) => {
+                      setFilteredBatchIds((prev) => {
+                        const base = prev ?? new Set(batches.map((x) => x.id));
+                        const next = new Set(base);
+                        if (e.target.checked) next.add(b.id); else next.delete(b.id);
+                        return next.size === batches.length ? null : next.size === 0 ? prev : next;
+                      });
+                    }} className="sr-only" />
+                    <span className="w-2.5 h-2.5 rounded-sm flex-none" style={{ background: selected ? color : "#3f3f46" }} />
+                    <span className={`text-xs truncate ${selected ? "text-zinc-200" : "text-zinc-600"}`}>
+                      #{b.batch_number} {b.beer_name}
+                    </span>
+                  </label>
+                );
+              })}
+              <button onClick={() => setShowBatchFilter(false)} className="mt-2 w-full text-xs text-zinc-500 hover:text-zinc-300 py-1">Done</button>
+            </div>
+          )}
+        </div>
+
         <button onClick={openAdd} className="ml-auto px-3 py-1 text-xs bg-amber-600 hover:bg-amber-500 text-white rounded font-medium">+ Schedule Entry</button>
       </div>
 
@@ -361,7 +468,7 @@ export default function GanttTab() {
       )}
 
       {/* Gantt */}
-      <div className="border border-zinc-700 rounded-lg overflow-auto bg-zinc-900" ref={containerRef}>
+      <div className="relative border border-zinc-700 rounded-lg overflow-auto bg-zinc-900" ref={containerRef}>
         {/* Header */}
         <div className="flex sticky top-0 z-10 bg-zinc-900 border-b border-zinc-700">
           <div className="flex-none bg-zinc-900 border-r border-zinc-700 text-xs text-zinc-500 font-medium flex items-end px-3 pb-2" style={{ width: LABEL_W }}>Equipment</div>
@@ -410,12 +517,42 @@ export default function GanttTab() {
                   {todayOffset >= 0 && todayOffset <= totalDays && (
                     <div className="absolute top-0 bottom-0 w-px bg-amber-500/40" style={{ left: todayOffset * dayPx }} />
                   )}
-                  {entries.map(e => entryBar(e, eq.id))}
+                  {visibleEntries.map(e => entryBar(e, eq.id))}
                 </div>
               </div>
             )),
           ];
         })}
+
+        {/* Flow connector overlay */}
+        {showFlow && flowConnectors.length > 0 && (() => {
+          const totalH = 40 + EQUIPMENT_STAGE_ORDER.reduce((sum, type) => {
+            const eqs = equipmentByType[type] ?? [];
+            return sum + (eqs.length ? 24 + eqs.length * ROW_H : 0);
+          }, 0);
+          return (
+            <svg
+              className="absolute top-0 left-0 pointer-events-none"
+              style={{ width: LABEL_W + totalDays * dayPx, height: totalH }}
+            >
+              <defs>
+                {Object.entries(batchColors).map(([id, color]) => (
+                  <marker key={id} id={`arrow-${id}`} markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+                    <path d="M0,0 L0,6 L6,3 z" fill={color} fillOpacity="0.7" />
+                  </marker>
+                ))}
+              </defs>
+              {flowConnectors.map(({ d, color, key }) => {
+                const batchId = Object.entries(batchColors).find(([, c]) => c === color)?.[0] ?? "";
+                return (
+                  <path key={key} d={d} fill="none" stroke={color} strokeWidth="1.5"
+                    strokeOpacity="0.65" strokeDasharray="4 2"
+                    markerEnd={`url(#arrow-${batchId})`} />
+                );
+              })}
+            </svg>
+          );
+        })()}
       </div>
 
       {/* Legend */}

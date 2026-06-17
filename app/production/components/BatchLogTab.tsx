@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import { addDays, parseISO } from "date-fns";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import { useUserRole } from "@/lib/hooks/useUserRole";
@@ -229,6 +230,7 @@ export default function BatchLogTab() {
           onSort={toggleSort}
           tankTypeById={tankTypeById}
           assignedBatchIds={assignedBatchIds}
+          recipes={recipes}
         />
       )}
 
@@ -318,6 +320,8 @@ export default function BatchLogTab() {
                     batchId={editingBatch.id}
                     entries={scheduleEntries.filter((e) => e.batch_id === editingBatch.id)}
                     equipment={tanks}
+                    batch={editingBatch}
+                    recipes={recipes}
                   />
                 </div>
                 <div className="pt-4 border-t border-zinc-800">
@@ -1022,10 +1026,14 @@ function EquipmentScheduleSection({
   batchId,
   entries,
   equipment,
+  batch,
+  recipes,
 }: {
   batchId: string;
   entries: ScheduleEntry[];
   equipment: import("../types").Equipment[];
+  batch?: BrewBatch;
+  recipes?: import("../types").Recipe[];
 }) {
   const qc = useQueryClient();
   const reload = () => qc.invalidateQueries({ queryKey: productionKeys.batchSchedule });
@@ -1109,6 +1117,15 @@ function EquipmentScheduleSection({
         <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wide">Equipment Schedule</p>
         <button type="button" onClick={openAdd} className="text-xs text-amber-500 hover:text-amber-400">+ Add entry</button>
       </div>
+      {entries.length === 0 && batch && recipes && (
+        <BuildScheduleSection
+          batchId={batchId}
+          batch={batch}
+          recipes={recipes}
+          equipment={equipment}
+          onSaved={reload}
+        />
+      )}
 
       {sorted.length > 0 && (
         <div className="overflow-x-auto rounded border border-zinc-800/60 mb-3">
@@ -1219,6 +1236,199 @@ function EquipmentScheduleSection({
   );
 }
 
+// ─── Build-Schedule helper (for manually-created batches) ────────────────────
+
+interface BuildSlot {
+  stage: "brewhouse" | "fermenter" | "brite";
+  equipment_id: string;
+  scheduled_start: string;
+  scheduled_end: string;
+}
+
+const BUILD_STAGE_LABELS: Record<string, string> = { brewhouse: "Brewhouse", fermenter: "Fermenter", brite: "Brite Tank" };
+const BUILD_STAGE_COLORS: Record<string, string> = {
+  brewhouse: "bg-amber-900/50 text-amber-300 border-amber-700",
+  fermenter:  "bg-blue-900/50 text-blue-300 border-blue-700",
+  brite:      "bg-purple-900/50 text-purple-300 border-purple-700",
+};
+
+function BuildScheduleSection({
+  batchId,
+  batch,
+  recipes,
+  equipment,
+  onSaved,
+}: {
+  batchId: string;
+  batch: BrewBatch;
+  recipes: import("../types").Recipe[];
+  equipment: import("../types").Equipment[];
+  onSaved: () => void;
+}) {
+  const defaultSlots = (): BuildSlot[] => [
+    { stage: "brewhouse", equipment_id: "", scheduled_start: "", scheduled_end: "" },
+    { stage: "fermenter",  equipment_id: "", scheduled_start: "", scheduled_end: "" },
+    { stage: "brite",      equipment_id: "", scheduled_start: "", scheduled_end: "" },
+  ];
+  const [slots, setSlots] = useState<BuildSlot[]>(defaultSlots);
+  const [suggesting, setSuggesting] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [open, setOpen] = useState(false);
+
+  const recipe = recipes.find((r) => r.id === batch.recipe_id);
+  const stageDays = {
+    brewhouse: recipe?.days_brewhouse ?? 1,
+    fermenter:  recipe?.days_fermenter ?? 14,
+    brite:      recipe?.days_brite ?? 7,
+  };
+  const brewhouses = equipment.filter((e) => e.type === "brewhouse");
+  const fermenters  = equipment.filter((e) => e.type === "fermenter");
+  const brites      = equipment.filter((e) => e.type === "brite");
+  const poolFor = (stage: BuildSlot["stage"]) =>
+    stage === "brewhouse" ? brewhouses : stage === "fermenter" ? fermenters : brites;
+
+  function autoFill() {
+    const brewDate = batch.planned_brew_date;
+    if (!brewDate) return;
+    const bd = parseISO(brewDate);
+    const fermStart = bd;
+    const briteStart = addDays(bd, stageDays.fermenter);
+    setSlots((prev) => prev.map((s) => {
+      const start =
+        s.stage === "brewhouse" ? bd :
+        s.stage === "fermenter"  ? fermStart :
+        briteStart;
+      const end = addDays(start, Math.max(0, (stageDays[s.stage] ?? 1) - 1));
+      return { ...s, scheduled_start: start.toISOString().slice(0, 10), scheduled_end: end.toISOString().slice(0, 10) };
+    }));
+  }
+
+  async function suggest() {
+    if (!batch.recipe_id) return;
+    setSuggesting(true);
+    try {
+      const res = await fetch("/api/production/batch-scheduler/suggest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          recipe_id: batch.recipe_id,
+          earliest_start: batch.planned_brew_date || undefined,
+          volume_bbl: Number(batch.volume_bbl) || undefined,
+          turns: batch.turns || 1,
+        }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? "Suggestion failed");
+      const result = await res.json() as {
+        equipment_sequence: { stage: "brewhouse" | "fermenter" | "brite"; equipment_id: string; scheduled_start: string; scheduled_end: string }[];
+      };
+      setSlots(result.equipment_sequence.map((s) => ({
+        stage: s.stage, equipment_id: s.equipment_id,
+        scheduled_start: s.scheduled_start, scheduled_end: s.scheduled_end,
+      })));
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Suggestion failed");
+    } finally {
+      setSuggesting(false);
+    }
+  }
+
+  async function save() {
+    if (slots.some((s) => !s.scheduled_start || !s.scheduled_end)) {
+      alert("Fill in start and end dates for all stages before saving."); return;
+    }
+    setSaving(true);
+    try {
+      for (const slot of slots) {
+        const dbStage = slot.stage === "brite" ? "conditioning" : slot.stage === "fermenter" ? "fermenting" : slot.stage;
+        const res = await fetch("/api/production/batch-schedule", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            batch_id: batchId,
+            equipment_id: slot.equipment_id || null,
+            stage: dbStage,
+            planned_start: slot.scheduled_start + "T12:00:00",
+            planned_end:   slot.scheduled_end   + "T12:00:00",
+          }),
+        });
+        if (!res.ok) throw new Error((await res.json()).error ?? "Save failed");
+      }
+      onSaved();
+      setOpen(false);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => { autoFill(); setOpen(true); }}
+        className="text-xs text-amber-500 hover:text-amber-400 border border-amber-700/40 hover:border-amber-600 px-2 py-1 rounded transition-colors"
+      >
+        ✦ Build schedule from recipe
+      </button>
+    );
+  }
+
+  return (
+    <div className="mt-2 rounded border border-zinc-700 bg-zinc-900/60 p-3 space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-medium text-zinc-400">Build Equipment Schedule</span>
+        <div className="flex gap-2">
+          <button type="button" onClick={suggest} disabled={suggesting || !batch.recipe_id}
+            className="text-xs text-amber-500 hover:text-amber-400 disabled:opacity-40">
+            {suggesting ? "Suggesting…" : "✦ Auto-suggest"}
+          </button>
+          <button type="button" onClick={autoFill} disabled={!batch.planned_brew_date}
+            className="text-xs text-zinc-500 hover:text-zinc-300 disabled:opacity-40">
+            Auto-fill dates
+          </button>
+          <button type="button" onClick={() => setOpen(false)} className="text-xs text-zinc-600 hover:text-zinc-400">✕</button>
+        </div>
+      </div>
+      {slots.map((slot, idx) => {
+        const pool = poolFor(slot.stage);
+        return (
+          <div key={slot.stage} className={`rounded border px-2.5 py-2 space-y-1.5 ${BUILD_STAGE_COLORS[slot.stage]}`}>
+            <span className="text-xs font-mono font-medium">{BUILD_STAGE_LABELS[slot.stage]}</span>
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <label className="block text-[10px] mb-0.5 opacity-70">Tank</label>
+                <select className="inp text-xs w-full" value={slot.equipment_id}
+                  onChange={(e) => setSlots((prev) => prev.map((s, i) => i === idx ? { ...s, equipment_id: e.target.value } : s))}>
+                  <option value="">— select —</option>
+                  {pool.map((eq) => <option key={eq.id} value={eq.id}>{eq.name}{eq.capacity_bbl ? ` (${eq.capacity_bbl} BBL)` : ""}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-[10px] mb-0.5 opacity-70">Start</label>
+                <input type="date" className="inp text-xs w-full" value={slot.scheduled_start}
+                  onChange={(e) => setSlots((prev) => prev.map((s, i) => i === idx ? { ...s, scheduled_start: e.target.value } : s))} />
+              </div>
+              <div>
+                <label className="block text-[10px] mb-0.5 opacity-70">End</label>
+                <input type="date" className="inp text-xs w-full" value={slot.scheduled_end}
+                  onChange={(e) => setSlots((prev) => prev.map((s, i) => i === idx ? { ...s, scheduled_end: e.target.value } : s))} />
+              </div>
+            </div>
+          </div>
+        );
+      })}
+      <div className="flex gap-2 pt-1">
+        <button type="button" onClick={save} disabled={saving}
+          className="px-3 py-1.5 text-xs bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white rounded font-medium">
+          {saving ? "Saving…" : "Save schedule"}
+        </button>
+        <button type="button" onClick={() => setOpen(false)} className="px-3 py-1.5 text-xs text-zinc-500 hover:text-zinc-300">Cancel</button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Batch table ─────────────────────────────────────────────────────────────
 
 function SortTh({
@@ -1252,6 +1462,7 @@ function BatchTable({
   onSort,
   tankTypeById,
   assignedBatchIds,
+  recipes,
 }: {
   batches: BrewBatch[];
   transfers: BatchTransfer[];
@@ -1267,6 +1478,7 @@ function BatchTable({
   onSort: (col: SortCol) => void;
   tankTypeById: Record<string, string>;
   assignedBatchIds: Set<string>;
+  recipes: import("../types").Recipe[];
 }) {
   if (!batches.length) return null;
 
@@ -1281,6 +1493,7 @@ function BatchTable({
             <SortTh col="planned_brew_date"     label="Planned Brew Date" sort={sort} onSort={onSort} />
             <SortTh col="expected_delivery_date" label="Expected Delivery" sort={sort} onSort={onSort} />
             <SortTh col="volume_bbl"            label="Volume"            sort={sort} onSort={onSort} className="text-right" />
+            <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 text-right">Available</th>
             <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 text-right">Turns</th>
             <SortTh col="status"                label="Status"            sort={sort} onSort={onSort} />
             <th className="px-4 py-2.5 text-xs font-medium text-zinc-500"></th>
@@ -1326,6 +1539,13 @@ function BatchTable({
                     {deliveryDate ? fmtDate(deliveryDate) : <span className="text-zinc-700">—</span>}
                   </td>
                   <td className="px-4 py-2.5 text-zinc-300 text-right tabular-nums">{Number(b.volume_bbl).toFixed(2)} BBL</td>
+                  <td className="px-4 py-2.5 text-right tabular-nums">
+                    {(() => {
+                      const bd = computeLocationBreakdown(b.id, Number(b.volume_bbl), transfers, tankTypeById, assignedBatchIds.has(b.id));
+                      const avail = Math.max(0, Number(b.volume_bbl) - bd.exported - bd.shrinkage);
+                      return <span className={avail > 0 ? "text-green-400" : "text-zinc-700"}>{avail.toFixed(2)} BBL</span>;
+                    })()}
+                  </td>
                   <td className="px-4 py-2.5 text-zinc-400 text-right">{b.turns}</td>
                   <td className="px-4 py-2.5"><StatusBadge status={b.status} /></td>
                   <td className="px-4 py-2.5">
@@ -1343,7 +1563,7 @@ function BatchTable({
 
                 {isExpanded && (
                   <tr className={`border-b border-zinc-800/60 ${i % 2 !== 0 ? "bg-zinc-900/30" : ""}`}>
-                    <td colSpan={9} className="px-6 pb-6 pt-3">
+                    <td colSpan={10} className="px-6 pb-6 pt-3">
                       {/* Brew stats row */}
                       {(b.ibu != null || b.color_srm != null || b.original_gravity != null || b.final_gravity != null || b.dissolved_oxygen_ppb != null) && (
                         <div className="flex gap-6 pb-4 mb-4 border-b border-zinc-800/60">
@@ -1366,6 +1586,8 @@ function BatchTable({
                           batchId={b.id}
                           entries={scheduleEntries.filter((e) => e.batch_id === b.id)}
                           equipment={equipment}
+                          batch={b}
+                          recipes={recipes}
                         />
                       </div>
 
