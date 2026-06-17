@@ -315,7 +315,6 @@ export default function PLPage() {
 
   const handleExpandAll = useCallback((val: boolean) => {
     setExpandAll(val);
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setTimeout(() => setExpandAll(null), 50);
   }, [setExpandAll]);
 

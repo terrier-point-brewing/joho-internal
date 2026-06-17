@@ -325,6 +325,7 @@ function SyncPanel({ year, onSynced }: { year: number; onSynced: () => void }) {
 
   useEffect(() => {
     const stored = localStorage.getItem(LAST_SYNC_KEY);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (stored) setLastSync(stored);
   }, []);
 

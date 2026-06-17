@@ -491,6 +491,7 @@ function InvoiceSyncPanel({ year, onSynced }: { year: number; onSynced: () => vo
 
   useEffect(() => {
     const stored = localStorage.getItem(INVOICE_LAST_SYNC_KEY);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (stored) setLastSync(stored);
   }, []);
 

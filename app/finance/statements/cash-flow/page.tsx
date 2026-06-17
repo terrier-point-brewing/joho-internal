@@ -220,9 +220,9 @@ export default function CashFlowPage() {
     load();
   }, [year]);
 
+  // eslint-disable-next-line react-hooks/preserve-manual-memoization
   const handleExpandAll = useCallback((val: boolean) => {
     setExpandAll(val);
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setTimeout(() => setExpandAll(null), 50);
   }, []);
 
