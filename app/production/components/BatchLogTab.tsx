@@ -995,6 +995,7 @@ function DepositInvoiceModal({
 const STAGE_LABELS: Record<string, string> = {
   brewhouse:    "Brewhouse",
   fermenter:    "Fermenter",
+  fermenting:   "Fermenting",
   conditioning: "Brite / Conditioning",
   kegging:      "Kegging",
   canning:      "Canning",
@@ -1003,16 +1004,18 @@ const STAGE_LABELS: Record<string, string> = {
 const STAGE_TO_EQ_TYPE: Record<string, string> = {
   brewhouse:    "brewhouse",
   fermenter:    "fermenter",
+  fermenting:   "fermenter",
   conditioning: "brite",
   kegging:      "kegging",
   canning:      "canning",
   cold_storage: "cold_storage",
 };
-const STAGE_OPTIONS = ["brewhouse", "fermenter", "conditioning", "kegging", "canning", "cold_storage"] as const;
+const STAGE_OPTIONS = ["brewhouse", "fermenting", "conditioning", "kegging", "canning", "cold_storage"] as const;
 
 function fmtD(iso: string | null | undefined) {
   if (!iso) return "—";
-  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  // Use noon local time to avoid UTC-midnight timezone shifting the displayed date.
+  return new Date(iso.slice(0, 10) + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
 function EquipmentScheduleSection({
@@ -1066,10 +1069,10 @@ function EquipmentScheduleSection({
         batch_id: batchId,
         equipment_id: form.equipment_id || null,
         stage: form.stage,
-        planned_start: form.planned_start ? new Date(form.planned_start).toISOString() : null,
-        planned_end: form.planned_end ? new Date(form.planned_end).toISOString() : null,
-        actual_start: form.actual_start ? new Date(form.actual_start).toISOString() : null,
-        actual_end: form.actual_end ? new Date(form.actual_end).toISOString() : null,
+        planned_start: form.planned_start ? form.planned_start + "T12:00:00" : null,
+        planned_end: form.planned_end ? form.planned_end + "T12:00:00" : null,
+        actual_start: form.actual_start ? form.actual_start + "T12:00:00" : null,
+        actual_end: form.actual_end ? form.actual_end + "T12:00:00" : null,
         notes: form.notes || null,
       };
       const url = editing ? `/api/production/batch-schedule/${editing.id}` : "/api/production/batch-schedule";
@@ -1093,7 +1096,11 @@ function EquipmentScheduleSection({
     setEditing(null);
   }
 
-  const sorted = [...entries].sort((a, b) => a.planned_start.localeCompare(b.planned_start));
+  const sorted = [...entries].sort((a, b) => {
+    const startCmp = a.planned_start.localeCompare(b.planned_start);
+    if (startCmp !== 0) return startCmp;
+    return a.planned_end.localeCompare(b.planned_end);
+  });
   const showForm = editing !== null || showAdd;
 
   return (

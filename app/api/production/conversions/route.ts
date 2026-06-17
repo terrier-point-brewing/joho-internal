@@ -149,13 +149,32 @@ export async function POST(req: NextRequest) {
     return sum;
   }, 0);
 
-  if (netInTank > 0.001) {
+  const isFullConversion = netInTank <= 0.001;
+
+  if (!isFullConversion) {
     const { error: reassignErr } = await supabase
       .from("batch_tank_assignments")
       .insert({ batch_id, tank_id: from_tank_id });
     if (reassignErr && reassignErr.code !== "23505") {
       return NextResponse.json({ error: reassignErr.message }, { status: 500 });
     }
+  } else {
+    // Full conversion — archive the parent batch
+    await supabase.from("brew_batches").update({ status: "archived" }).eq("id", batch_id);
+
+    // Close any open schedule entries on the parent
+    await supabase
+      .from("batch_schedule_entries")
+      .update({ cancelled_at: new Date().toISOString(), cancellation_reason: "fully converted" })
+      .eq("batch_id", batch_id)
+      .is("cancelled_at", null)
+      .is("actual_end", null);
+
+    await supabase.from("batch_status_history").insert({
+      batch_id,
+      status: "archived",
+      note:   `Fully converted — all ${volume_bbl} BBL transferred to ${childBatch.batch_number}`,
+    });
   }
 
   // 6. Status history entry for the child batch

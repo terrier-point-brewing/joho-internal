@@ -80,7 +80,7 @@ export async function POST(req: NextRequest) {
       // brewhouse → "brewhouse", fermenter → "fermenter", brite → "conditioning"
       const STAGE_MAP: Partial<Record<string, string>> = {
         brewhouse: "brewhouse",
-        fermenter: "fermenter",
+        fermenter: "fermenting",
         brite:     "conditioning",
       };
       const stage = STAGE_MAP[tank.type];
@@ -94,7 +94,8 @@ export async function POST(req: NextRequest) {
           : stage === "fermenter"  ? (recipeDays?.days_fermenter  ?? defaultDays.fermenter)
           :                          (recipeDays?.days_brite       ?? defaultDays.conditioning);
         const plannedEnd = new Date(today);
-        plannedEnd.setDate(plannedEnd.getDate() + recipeDayCount);
+        // "1 day" means the equipment is occupied on that single day (start = end).
+        plannedEnd.setDate(plannedEnd.getDate() + Math.max(0, recipeDayCount - 1));
         const plannedEndStr = plannedEnd.toISOString().slice(0, 10);
 
         // Check for an existing uncancelled entry for this batch+stage

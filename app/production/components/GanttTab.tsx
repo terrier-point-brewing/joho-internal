@@ -14,6 +14,7 @@ const EQUIPMENT_STAGE_ORDER = ["brewhouse", "fermenter", "brite", "kegging", "ca
 const STAGE_LABELS: Record<string, string> = {
   brewhouse:    "Brewhouse",
   fermenter:    "Fermenter",
+  fermenting:   "Fermenting",
   conditioning: "Brite / Conditioning",
   kegging:      "Kegging",
   canning:      "Canning",
@@ -23,12 +24,13 @@ const STAGE_LABELS: Record<string, string> = {
 const STAGE_TO_EQ_TYPE: Record<string, string> = {
   brewhouse:    "brewhouse",
   fermenter:    "fermenter",
+  fermenting:   "fermenter",
   conditioning: "brite",
   kegging:      "kegging",
   canning:      "canning",
   cold_storage: "cold_storage",
 };
-const STAGE_OPTIONS = ["brewhouse", "fermenter", "conditioning", "kegging", "canning", "cold_storage"] as const;
+const STAGE_OPTIONS = ["brewhouse", "fermenting", "conditioning", "kegging", "canning", "cold_storage"] as const;
 
 // Left-border accent color per equipment type for the group header rows
 const TYPE_ACCENT: Record<string, string> = {
@@ -150,10 +152,12 @@ export default function GanttTab() {
       : "?";
     const today = startOfToday();
 
-    const pStart = parseISO(entry.planned_start);
-    const pEnd   = parseISO(entry.planned_end);
-    const aStart = entry.actual_start ? parseISO(entry.actual_start) : null;
-    const aEnd   = entry.actual_end   ? parseISO(entry.actual_end)   : null;
+    // Append T12:00:00 so local-time format() always resolves to the correct
+    // calendar date regardless of the user's UTC offset.
+    const pStart = parseISO(entry.planned_start.slice(0, 10) + "T12:00:00");
+    const pEnd   = parseISO(entry.planned_end.slice(0, 10) + "T12:00:00");
+    const aStart = entry.actual_start ? parseISO(entry.actual_start.slice(0, 10) + "T12:00:00") : null;
+    const aEnd   = entry.actual_end   ? parseISO(entry.actual_end.slice(0, 10) + "T12:00:00")   : null;
 
     // Unified bar: always spans barStart→barEnd as one visual element.
     // "Split point" separates the solid (actual/elapsed) left from the dashed (planned/remaining) right.
@@ -247,10 +251,10 @@ export default function GanttTab() {
       batch_id: form.batch_id,
       equipment_id: form.equipment_id || null,
       stage: form.stage,
-      planned_start: form.planned_start ? new Date(form.planned_start).toISOString() : null,
-      planned_end: form.planned_end ? new Date(form.planned_end).toISOString() : null,
-      actual_start: formActualStart ? new Date(formActualStart).toISOString() : null,
-      actual_end: formActualEnd ? new Date(formActualEnd).toISOString() : null,
+      planned_start: form.planned_start ? form.planned_start + "T12:00:00" : null,
+      planned_end: form.planned_end ? form.planned_end + "T12:00:00" : null,
+      actual_start: formActualStart ? formActualStart + "T12:00:00" : null,
+      actual_end: formActualEnd ? formActualEnd + "T12:00:00" : null,
       notes: form.notes || null,
     };
     const url = editing ? `/api/production/batch-schedule/${editing.id}` : "/api/production/batch-schedule";

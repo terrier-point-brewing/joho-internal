@@ -11,7 +11,8 @@ export async function GET(req: NextRequest) {
   let query = supabase
     .from("batch_schedule_entries")
     .select(`*, brew_batches(id, beer_name, batch_number, volume_bbl, status), equipment(id, name, type)`)
-    .order("planned_start", { ascending: true });
+    .order("planned_start", { ascending: true })
+    .order("planned_end", { ascending: true });
   if (!includeCanc) query = query.is("cancelled_at", null);
   const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

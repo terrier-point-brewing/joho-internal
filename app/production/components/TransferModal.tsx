@@ -380,6 +380,11 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
                   value={convertBbl} onChange={(e) => setConvertBbl(e.target.value)} />
                 <span className="text-zinc-500 text-sm">BBL</span>
               </div>
+              {drawBbl > 0 && remaining <= 0 && (
+                <p className="text-amber-400 text-xs mt-1">
+                  Full conversion — the parent batch will be archived after this.
+                </p>
+              )}
             </Field>
           </>
         )}

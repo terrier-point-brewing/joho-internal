@@ -181,14 +181,24 @@ export function buildDemandCalendar(input: BuildDemandCalendarInput): DemandRow[
   }
 
   // ── 4. Batch inflows per recipe per week ────────────────────────────────────────
-  // Each batch contributes its volume_bbl once to the recipe (not doubled across packaging types).
+  // Only count batches not yet in cold storage (packaged batches are already in
+  // currentBblByRecipe via lots — including them here would double-count).
+  // Use recipe.expected_yield_bbl × turns so shrinkage is accounted for.
+  const batchesAlreadyPackaged = new Set(
+    lots.map((l) => l.batch?.id).filter((id): id is string => !!id)
+  );
   const batchInflows = new Map<string, Map<string, number>>(); // recipe_id → weekKey → bbl
   for (const b of activeBatches) {
     if (!b.recipe_id || !b.expected_delivery_date) continue;
+    if (batchesAlreadyPackaged.has(b.id)) continue;
     const wk = weekKey(b.expected_delivery_date);
     if (!weekStarts.includes(wk)) continue;
+    const recipe = recipeById.get(b.recipe_id);
+    const yieldBbl = recipe?.expected_yield_bbl != null
+      ? recipe.expected_yield_bbl * (b.turns ?? 1)
+      : Number(b.volume_bbl);
     const wkMap = batchInflows.get(b.recipe_id) ?? new Map<string, number>();
-    wkMap.set(wk, (wkMap.get(wk) ?? 0) + Number(b.volume_bbl));
+    wkMap.set(wk, (wkMap.get(wk) ?? 0) + yieldBbl);
     batchInflows.set(b.recipe_id, wkMap);
   }
 
