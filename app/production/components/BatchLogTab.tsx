@@ -68,10 +68,7 @@ export default function BatchLogTab() {
 
   // Derive computed volume from form state
   const selectedRecipe = recipes.find((r) => r.id === form.recipe_id);
-  const computedVolume =
-    selectedRecipe?.expected_yield_bbl != null
-      ? (selectedRecipe.expected_yield_bbl * (parseInt(form.turns) || 1)).toFixed(2)
-      : null;
+  const computedVolume = (BREWHOUSE_BBL * (parseInt(form.turns) || 1)).toFixed(2);
 
   function handleRecipeChange(recipeId: string) {
     const r = recipes.find((r) => r.id === recipeId);
@@ -140,12 +137,8 @@ export default function BatchLogTab() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!form.recipe_id) { alert("Please select a recipe."); return; }
-    const recipe = recipes.find((r) => r.id === form.recipe_id);
     const turns = parseInt(form.turns) || 1;
-    const volume_bbl = recipe?.expected_yield_bbl != null
-      ? recipe.expected_yield_bbl * turns
-      : null;
-    if (!volume_bbl) { alert("Selected recipe has no expected yield configured."); return; }
+    const volume_bbl = BREWHOUSE_BBL * turns;
 
     setSubmitting(true);
     try {
@@ -259,17 +252,12 @@ export default function BatchLogTab() {
             <Field label={`Turns (${BREWHOUSE_BBL} BBL brewhouse)`} required>
               <input type="number" min="1" step="1" className="inp" value={form.turns} required
                 onChange={(e) => setForm((f) => ({ ...f, turns: e.target.value }))} />
-              {computedVolume && (
-                <p className="text-xs text-zinc-500 mt-1">
-                  Computed volume: <span className="text-zinc-300 font-medium">{computedVolume} BBL</span>
-                  {selectedRecipe?.expected_yield_bbl && (
-                    <span className="text-zinc-600 ml-1">({selectedRecipe.expected_yield_bbl} BBL/turn × {parseInt(form.turns) || 1})</span>
-                  )}
-                </p>
-              )}
-              {!computedVolume && form.recipe_id && (
-                <p className="text-xs text-amber-600 mt-1">Recipe has no expected yield — set it in the Recipes tab first.</p>
-              )}
+              <p className="text-xs text-zinc-500 mt-1">
+                Brew volume: <span className="text-zinc-300 font-medium">{computedVolume} BBL</span>
+                {selectedRecipe?.expected_yield_bbl && (
+                  <span className="text-zinc-600 ml-1">· expected yield {(selectedRecipe.expected_yield_bbl * (parseInt(form.turns) || 1)).toFixed(2)} BBL after shrinkage</span>
+                )}
+              </p>
             </Field>
             <Field label="Notes">
               <textarea className="inp resize-none" rows={2} value={form.notes}

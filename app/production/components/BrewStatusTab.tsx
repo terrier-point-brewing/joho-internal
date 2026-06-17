@@ -150,8 +150,7 @@ export default function BrewStatusTab() {
     if (!batchForm.expected_delivery_date) { alert("Expected delivery date is required."); return; }
     const recipe = recipes.find((r) => r.id === batchForm.recipe_id);
     const turns = parseInt(batchForm.turns) || 1;
-    const volume_bbl = recipe?.expected_yield_bbl != null ? recipe.expected_yield_bbl * turns : null;
-    if (!volume_bbl) { alert("Selected recipe has no expected yield. Set it in the Recipes tab first."); return; }
+    const volume_bbl = BREWHOUSE_BBL * turns;
     setBatchSubmitting(true);
     try {
       const payload = {
@@ -1128,12 +1127,14 @@ export default function BrewStatusTab() {
                 onChange={(e) => setBatchForm((f) => ({ ...f, turns: e.target.value }))} />
               {(() => {
                 const r = recipes.find((r) => r.id === batchForm.recipe_id);
-                const vol = r?.expected_yield_bbl != null ? (r.expected_yield_bbl * (parseInt(batchForm.turns) || 1)).toFixed(2) : null;
-                return vol ? (
-                  <p className="text-xs text-zinc-500 mt-1">Computed volume: <span className="text-zinc-300 font-medium">{vol} BBL</span></p>
-                ) : batchForm.recipe_id ? (
-                  <p className="text-xs text-amber-600 mt-1">Recipe has no expected yield — set it in Recipes first.</p>
-                ) : null;
+                const brewVol = (BREWHOUSE_BBL * (parseInt(batchForm.turns) || 1)).toFixed(2);
+                const expectedYield = r?.expected_yield_bbl != null ? (r.expected_yield_bbl * (parseInt(batchForm.turns) || 1)).toFixed(2) : null;
+                return (
+                  <p className="text-xs text-zinc-500 mt-1">
+                    Brew volume: <span className="text-zinc-300 font-medium">{brewVol} BBL</span>
+                    {expectedYield && <span className="text-zinc-600 ml-1">· expected yield {expectedYield} BBL after shrinkage</span>}
+                  </p>
+                );
               })()}</Field>
             <Field label="Notes">
               <textarea className="inp resize-none" rows={2} value={batchForm.notes}
