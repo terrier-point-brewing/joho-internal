@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
     const newStatus = EQUIPMENT_TYPE_TO_STATUS[tank.type as EquipmentType];
     if (newStatus) {
       const { data: batch, error: batchErr } = await supabase
-        .from("brew_batches").select("status, recipe_id, volume_bbl, turns, turns_completed").eq("id", batch_id).single();
+        .from("brew_batches").select("status, recipe_id, volume_bbl, turns, turns_completed, recipes(days_brewhouse, days_fermenter, days_brite)").eq("id", batch_id).single();
       if (batchErr) return NextResponse.json({ error: batchErr.message }, { status: 500 });
 
       if (batch?.status !== newStatus) {
@@ -76,25 +76,54 @@ export async function POST(req: NextRequest) {
         if (histErr) return NextResponse.json({ error: histErr.message }, { status: 500 });
       }
 
-      // When a brewhouse is assigned, resolve the pending schedule entry created at
-      // batch planning time (equipment_id was null until now).
-      if (tank.type === "brewhouse") {
+      // Upsert a schedule entry whenever a batch lands in a tracked tank type.
+      // brewhouse → "brewhouse", fermenter → "fermenter", brite → "conditioning"
+      const STAGE_MAP: Partial<Record<string, string>> = {
+        brewhouse: "brewhouse",
+        fermenter: "fermenter",
+        brite:     "conditioning",
+      };
+      const stage = STAGE_MAP[tank.type];
+      if (stage) {
         const today = new Date().toISOString().split("T")[0];
-        const { data: pendingEntry } = await supabase
+        type RecipeDays = { days_brewhouse: number | null; days_fermenter: number | null; days_brite: number | null } | null;
+        const recipeDays = (batch as unknown as { recipes: RecipeDays }).recipes;
+        const defaultDays: Record<string, number> = { brewhouse: 1, fermenter: 14, conditioning: 21 };
+        const recipeDayCount =
+          stage === "brewhouse"    ? (recipeDays?.days_brewhouse  ?? defaultDays.brewhouse)
+          : stage === "fermenter"  ? (recipeDays?.days_fermenter  ?? defaultDays.fermenter)
+          :                          (recipeDays?.days_brite       ?? defaultDays.conditioning);
+        const plannedEnd = new Date(today);
+        plannedEnd.setDate(plannedEnd.getDate() + recipeDayCount);
+        const plannedEndStr = plannedEnd.toISOString().slice(0, 10);
+
+        // Check for an existing uncancelled entry for this batch+stage
+        const { data: existing } = await supabase
           .from("batch_schedule_entries")
-          .select("id")
+          .select("id, equipment_id")
           .eq("batch_id", batch_id)
-          .eq("stage", "brewhouse")
-          .is("equipment_id", null)
+          .eq("stage", stage)
           .is("cancelled_at", null)
           .order("planned_start", { ascending: true })
           .limit(1)
           .maybeSingle();
-        if (pendingEntry) {
-          await supabase
-            .from("batch_schedule_entries")
-            .update({ equipment_id: tank_id, actual_start: today, updated_at: new Date().toISOString() })
-            .eq("id", pendingEntry.id);
+
+        if (existing) {
+          // Resolve a placeholder entry (no equipment yet) or stamp actual_start
+          const updates: Record<string, string> = { actual_start: today, updated_at: new Date().toISOString() };
+          if (!existing.equipment_id) updates.equipment_id = tank_id;
+          await supabase.from("batch_schedule_entries").update(updates).eq("id", existing.id);
+        } else {
+          // No entry at all — create one now
+          await supabase.from("batch_schedule_entries").insert({
+            batch_id,
+            equipment_id: tank_id,
+            stage,
+            planned_start: today,
+            planned_end:   plannedEndStr,
+            actual_start:  today,
+            notes: "Auto-created on tank assignment",
+          });
         }
       }
 
