@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { NavEntry } from "@/app/taproom/nav-config";
+import { useUserRole } from "@/lib/hooks/useUserRole";
 
 export default function SubNav({
   entries,
@@ -13,6 +14,9 @@ export default function SubNav({
   sticky?: boolean;
 }) {
   const pathname = usePathname();
+  const { role } = useUserRole();
+  const isAdmin = role === "admin";
+  const visible = entries.filter((e) => !e.adminOnly || isAdmin);
 
   const cls = mobile
     ? "md:hidden flex border-b border-zinc-800 overflow-x-auto scrollbar-none"
@@ -22,7 +26,7 @@ export default function SubNav({
 
   return (
     <div className={cls}>
-      {entries.map(({ href, match, label }) => {
+      {visible.map(({ href, match, label }) => {
         const active = pathname === href || pathname.startsWith(match ?? href + "/");
         return (
           <Link

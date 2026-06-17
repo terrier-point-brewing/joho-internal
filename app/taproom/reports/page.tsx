@@ -1,7 +1,9 @@
 "use client";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import SubNav from "@/app/components/SubNav";
 import { TAPROOM_NAV } from "@/app/taproom/nav-config";
+import { useUserRole } from "@/lib/hooks/useUserRole";
 import CocktailSalesReport   from "@/app/reports/components/CocktailSalesReport";
 import KegSalesReport        from "@/app/reports/components/KegSalesReport";
 import TaproomModelReport    from "@/app/reports/components/TaproomModelReport";
@@ -64,10 +66,14 @@ const selectCls =
   "focus:outline-none focus:ring-2 focus:ring-blue-500";
 
 export default function ReportsPage() {
+  const router = useRouter();
+  const { role, loading } = useUserRole();
   const [activeGroup,  setActiveGroup]  = useState<GroupId>("net-sales");
   const [activeReport, setActiveReport] = useState<ReportId>("taproom-model");
   const [start, setStart] = useState(firstOfMonth());
   const [end,   setEnd]   = useState(today());
+
+  if (!loading && role !== "admin") { router.replace("/taproom/performance"); return null; }
 
   function handleGroupChange(gid: GroupId) {
     setActiveGroup(gid);

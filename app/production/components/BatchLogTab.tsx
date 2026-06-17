@@ -1652,10 +1652,33 @@ function BatchVolumeBreakdown({
 
   const accountedFor = cols.reduce((s, c) => s + c.value, 0);
   const balanced     = Math.abs(accountedFor - originalVol) < 0.01;
+  const available    = Math.max(0, originalVol - bd.exported - bd.shrinkage);
+  const availablePct = originalVol > 0 ? (available / originalVol) * 100 : 0;
+  const exportedPct  = originalVol > 0 ? (bd.exported / originalVol) * 100 : 0;
+  const shrinkagePct = originalVol > 0 ? (bd.shrinkage / originalVol) * 100 : 0;
 
   return (
     <div className="mt-3">
       <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wide mb-2">Volume Breakdown</p>
+
+      {/* Available BBL summary + bar */}
+      <div className="mb-3">
+        <div className="flex items-baseline gap-2 mb-1">
+          <span className="text-sm font-semibold text-green-400 tabular-nums">{fmtBbl2(available)} BBL</span>
+          <span className="text-xs text-zinc-500">available of {fmtBbl2(originalVol)} BBL total</span>
+        </div>
+        <div className="h-2 rounded-full bg-zinc-800 overflow-hidden flex">
+          <div className="h-full bg-green-600/70 transition-all" style={{ width: `${availablePct}%` }} />
+          <div className="h-full bg-blue-600/50 transition-all" style={{ width: `${exportedPct}%` }} />
+          <div className="h-full bg-amber-600/50 transition-all" style={{ width: `${shrinkagePct}%` }} />
+        </div>
+        <div className="flex gap-3 mt-1">
+          <span className="flex items-center gap-1 text-[10px] text-zinc-500"><span className="w-2 h-2 rounded-sm bg-green-600/70 inline-block" />Available</span>
+          <span className="flex items-center gap-1 text-[10px] text-zinc-500"><span className="w-2 h-2 rounded-sm bg-blue-600/50 inline-block" />Exported</span>
+          <span className="flex items-center gap-1 text-[10px] text-zinc-500"><span className="w-2 h-2 rounded-sm bg-amber-600/50 inline-block" />Shrinkage</span>
+        </div>
+      </div>
+
       <div className="flex flex-wrap gap-x-5 gap-y-1.5">
         {cols.map(({ label, value, highlight }) => (
           <div key={label} className="flex flex-col gap-0">

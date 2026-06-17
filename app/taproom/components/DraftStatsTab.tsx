@@ -386,7 +386,7 @@ export default function DraftStatsTab() {
                       <div>
                         <span className="text-zinc-600">oz / day</span>
                         <p className="text-zinc-300 tabular-nums">
-                          {tap.metrics.daily_fl_oz > 0 ? tap.metrics.daily_fl_oz.toFixed(0) : "—"}
+                          {tap.metrics.daily_fl_oz > 0 ? Math.round(tap.metrics.daily_fl_oz).toLocaleString() : "—"}
                         </p>
                       </div>
                       <div>

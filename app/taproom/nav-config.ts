@@ -1,9 +1,9 @@
-export type NavEntry = { href: string; match?: string; label: string };
+export type NavEntry = { href: string; match?: string; label: string; adminOnly?: boolean };
 
 export const TAPROOM_NAV: NavEntry[] = [
   { href: "/taproom/performance", label: "Performance" },
   { href: "/taproom/targets",     label: "Targets"     },
-  { href: "/taproom/reports",     label: "Reports"     },
+  { href: "/taproom/reports",     label: "Reports",     adminOnly: true },
 ];
 
 export const PERFORMANCE_NAV: NavEntry[] = [
