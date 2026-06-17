@@ -70,21 +70,28 @@ export default function BatchLogTab() {
   const selectedRecipe = recipes.find((r) => r.id === form.recipe_id);
   const computedVolume = (BREWHOUSE_BBL * (parseInt(form.turns) || 1)).toFixed(2);
 
+  function autoDelivery(brewDate: string, r: typeof selectedRecipe): string {
+    const leadDays = r ? ((r.days_brewhouse ?? 0) + (r.days_fermenter ?? 0) + (r.days_brite ?? 0)) : 0;
+    if (!leadDays || !brewDate) return "";
+    const d = new Date(brewDate);
+    d.setDate(d.getDate() + leadDays);
+    return d.toISOString().slice(0, 10);
+  }
+
   function handleRecipeChange(recipeId: string) {
     const r = recipes.find((r) => r.id === recipeId);
-    const newTurns = "1";
-    const delivery = calcDelivery(form.planned_brew_date, r?.brew_time_weeks);
+    const delivery = autoDelivery(form.planned_brew_date, r);
     setForm((f) => ({
       ...f,
       recipe_id: recipeId,
       beer_name: r?.beer_name ?? f.beer_name,
-      turns: newTurns,
-      expected_delivery_date: delivery,
+      turns: "1",
+      expected_delivery_date: delivery || f.expected_delivery_date,
     }));
   }
 
   function handleBrewDateChange(date: string) {
-    const delivery = calcDelivery(date, selectedRecipe?.brew_time_weeks);
+    const delivery = autoDelivery(date, selectedRecipe);
     setForm((f) => ({
       ...f,
       planned_brew_date: date,
@@ -137,6 +144,7 @@ export default function BatchLogTab() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!form.recipe_id) { alert("Please select a recipe."); return; }
+    if (!editingId && !form.expected_delivery_date) { alert("Expected delivery date is required."); return; }
     const turns = parseInt(form.turns) || 1;
     const volume_bbl = BREWHOUSE_BBL * turns;
 
@@ -244,9 +252,16 @@ export default function BatchLogTab() {
                 <input type="date" className="inp" value={form.planned_brew_date} required
                   onChange={(e) => handleBrewDateChange(e.target.value)} />
               </Field>
-              <Field label="Expected Delivery Date">
+              <Field label="Expected Delivery Date" required={!editingId}>
                 <input type="date" className="inp" value={form.expected_delivery_date}
+                  required={!editingId}
                   onChange={(e) => setForm((f) => ({ ...f, expected_delivery_date: e.target.value }))} />
+                {!editingId && selectedRecipe && (() => {
+                  const leadDays = (selectedRecipe.days_brewhouse ?? 0) + (selectedRecipe.days_fermenter ?? 0) + (selectedRecipe.days_brite ?? 0);
+                  return leadDays > 0
+                    ? <p className="text-xs text-zinc-600 mt-1">Auto-set from recipe lead time: {leadDays} days</p>
+                    : null;
+                })()}
               </Field>
             </div>
             <Field label={`Turns (${BREWHOUSE_BBL} BBL brewhouse)`} required>
