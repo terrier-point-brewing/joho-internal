@@ -10,7 +10,7 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from("brew_batches")
-    .select("*, recipes(beer_name, brewery, brew_time_weeks, expected_yield_bbl), batch_status_history(*), batch_brew_activity_log(*)")
+    .select("*, recipes(beer_name, brewery, brew_time_weeks, expected_yield_bbl), batch_status_history(*), batch_brew_activity_log(*), converted_from_batch:converted_from_batch_id(id, beer_name, batch_number)")
     .order("planned_brew_date", { ascending: false });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -164,7 +164,7 @@ export async function POST(req: NextRequest) {
 
   const { data, error } = await supabase
     .from("brew_batches")
-    .select("*, recipes(beer_name, brewery, brew_time_weeks, expected_yield_bbl), batch_status_history(*), batch_brew_activity_log(*)")
+    .select("*, recipes(beer_name, brewery, brew_time_weeks, expected_yield_bbl), batch_status_history(*), batch_brew_activity_log(*), converted_from_batch:converted_from_batch_id(id, beer_name, batch_number)")
     .eq("id", batch.id)
     .single();
 

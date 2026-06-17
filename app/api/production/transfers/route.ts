@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
 
   let query = supabase
     .from("batch_transfers")
-    .select("*, from_tank:from_tank_id(id, name, type), to_tank:to_tank_id(id, name, type)")
+    .select("*, from_tank:from_tank_id(id, name, type), to_tank:to_tank_id(id, name, type), to_batch:to_batch_id(id, beer_name, batch_number)")
     .order("transferred_at", { ascending: false });
 
   if (batch_id) query = query.eq("batch_id", batch_id);

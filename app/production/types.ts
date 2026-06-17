@@ -87,7 +87,7 @@ export interface BatchTransfer {
   to_tank_id: string | null;
   volume_bbl: number;
   shrinkage_bbl: number;
-  transfer_type: "transfer" | "kegging" | "canning" | "export";
+  transfer_type: "transfer" | "kegging" | "canning" | "export" | "conversion";
   notes: string | null;
   kegging_detail: { total_kegs?: number; kegs?: { name: string; quantity: number; volume_fl_oz?: number }[] } | null;
   canning_detail: { total_cans?: number; cases?: number; loose_cans?: number; cans_per_case?: number } | null;
@@ -95,8 +95,10 @@ export interface BatchTransfer {
     items: { source_transfer_id: string; product_label: string; product_type: "keg" | "can"; quantity: number }[];
   } | null;
   transferred_at: string;
+  to_batch_id: string | null;
   from_tank?: { id: string; name: string; type: EquipmentType } | null;
   to_tank?:   { id: string; name: string; type: EquipmentType } | null;
+  to_batch?:  { id: string; beer_name: string; batch_number: string | null } | null;
 }
 
 export type IngredientCategory = "Malts" | "Hops" | "Yeast" | "Brewing Aids" | "Fruit" | "Abstrax";
@@ -303,6 +305,9 @@ export interface BrewActivityEntry {
 export interface BrewBatch {
   id: string;
   beer_name: string;
+  converted_from_batch_id: string | null;
+  converted_volume_bbl: number | null;
+  converted_from_batch?: { id: string; beer_name: string; batch_number: string | null } | null;
   batch_number: string | null;
   planned_brew_date: string;
   expected_delivery_date: string | null;

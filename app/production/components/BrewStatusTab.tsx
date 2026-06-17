@@ -1074,6 +1074,7 @@ export default function BrewStatusTab() {
           allTanks={tanks}
           occupiedTankIds={new Set(assignments.map((a) => a.tank_id))}
           packaging={packaging}
+          recipes={recipes}
           fromTankVolume={transferFromVol}
           plannedEntry={transferPlannedEntry}
           onClose={() => { setTransferTankId(null); setTransferBatchId(null); setTransferFromVol(undefined); }}

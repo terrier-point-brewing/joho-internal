@@ -1305,6 +1305,11 @@ function BatchTable({
                     {b.recipes?.brewery && (
                       <span className="ml-1.5 text-xs text-zinc-500">{b.recipes.brewery}</span>
                     )}
+                    {b.converted_from_batch && (
+                      <span className="ml-1.5 px-1.5 py-px rounded border border-amber-700/50 bg-amber-950/40 text-amber-400 text-[10px] font-normal whitespace-nowrap">
+                        converted from {b.converted_from_batch.beer_name}
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 py-2.5 text-zinc-400">{fmtDate(b.planned_brew_date)}</td>
                   <td className="px-4 py-2.5 text-zinc-400">
@@ -1688,14 +1693,18 @@ function TransferLog({ transfers, batchVol }: { transfers: BatchTransfer[]; batc
                       : <span className="text-zinc-600">—</span>}
                   </td>
                   <td className="px-3 py-2 text-zinc-300">
-                    {t.to_tank
-                      ? <><span className="text-zinc-100">{t.to_tank.name}</span> <span className={`px-1 py-px rounded border text-zinc-500 ${toEq?.badge ?? ""}`} style={{ fontSize: 9 }}>{toEq?.label ?? t.to_tank.type}</span></>
-                      : t.transfer_type === "export"
-                        ? <span className="text-zinc-400">Export Bay</span>
-                        : <span className="text-zinc-600">—</span>}
+                    {t.transfer_type === "conversion" && t.to_batch
+                      ? <span className="text-amber-300">{t.to_batch.beer_name}{t.to_batch.batch_number ? <span className="text-zinc-500 font-mono ml-1">#{t.to_batch.batch_number}</span> : null}</span>
+                      : t.to_tank
+                        ? <><span className="text-zinc-100">{t.to_tank.name}</span> <span className={`px-1 py-px rounded border text-zinc-500 ${toEq?.badge ?? ""}`} style={{ fontSize: 9 }}>{toEq?.label ?? t.to_tank.type}</span></>
+                        : t.transfer_type === "export"
+                          ? <span className="text-zinc-400">Export Bay</span>
+                          : <span className="text-zinc-600">—</span>}
                   </td>
                   <td className="px-3 py-2 text-zinc-400 capitalize">
-                    {t.transfer_type === "export" ? "Export" : t.transfer_type}
+                    {t.transfer_type === "conversion"
+                      ? <span className="text-amber-400">Conversion</span>
+                      : t.transfer_type === "export" ? "Export" : t.transfer_type}
                   </td>
                   <td className="px-3 py-2 tabular-nums text-zinc-300">
                     {fmtBbl2(Number(t.volume_bbl))}
