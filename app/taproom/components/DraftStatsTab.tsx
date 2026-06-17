@@ -266,28 +266,56 @@ export default function DraftStatsTab() {
             const daysLeft = tap?.metrics
               ? daysUntilEmpty(tap.metrics.current_bbl, tap.metrics.daily_bbl)
               : null;
-            // Retired taps still on-hand keep their urgency color so staff know
-            // the keg is running low — they just also show the "Retired" badge.
-            // Only grey out once the tap is empty (daysLeft === 0 or null).
-            const urgency =
-              !tap?.recipe_id ? "none"
-              : daysLeft === null || daysLeft === 0 ? (isRetired ? "retired" : "none")
-              : daysLeft <= 3 ? "red"
-              : daysLeft <= 7 ? "amber"
-              : isRetired ? "retiring"
-              : "green";
+            // Urgency tiers based on days remaining.
+            // Retired taps keep their urgency color while stock remains so staff
+            // know the keg is still running low. Grey out only when truly empty.
+            type Urgency = "critical" | "low" | "watch" | "soon" | "good" | "retiring" | "retired" | "none";
+            const urgency: Urgency =
+              !tap?.recipe_id                          ? "none"
+              : daysLeft === null || daysLeft === 0    ? (isRetired ? "retired" : "none")
+              : daysLeft <= 3                          ? "critical"
+              : daysLeft <= 7                          ? "low"
+              : daysLeft <= 14                         ? "watch"
+              : daysLeft <= 30                         ? "soon"
+              : isRetired                              ? "retiring"
+              : "good";
+
+            const cardCls: Record<Urgency, string> = {
+              critical: "border-red-500     bg-red-950/25",
+              low:      "border-orange-500  bg-orange-950/20",
+              watch:    "border-amber-500   bg-amber-950/15",
+              soon:     "border-yellow-500/70 bg-yellow-950/10",
+              good:     "border-green-700/60 bg-green-950/10",
+              retiring: "border-zinc-700 border-dashed",
+              retired:  "border-zinc-800 opacity-55",
+              none:     "border-zinc-800",
+            };
+
+            const badgeCls: Partial<Record<Urgency, { wrap: string; text: string }>> = {
+              critical: { wrap: "bg-red-950/60 border-red-500/70",       text: "text-red-400"    },
+              low:      { wrap: "bg-orange-950/50 border-orange-500/60", text: "text-orange-400" },
+              watch:    { wrap: "bg-amber-950/40 border-amber-500/50",   text: "text-amber-400"  },
+              soon:     { wrap: "bg-yellow-950/30 border-yellow-600/50", text: "text-yellow-400" },
+            };
+            const badgeLabel: Partial<Record<Urgency, string>> = {
+              critical: "Critical",
+              low:      "Low",
+              watch:    "Watch",
+              soon:     "Soon",
+            };
+
+            const daysLeftCls =
+              urgency === "critical" ? "text-red-400"
+              : urgency === "low"    ? "text-orange-400"
+              : urgency === "watch"  ? "text-amber-400"
+              : urgency === "soon"   ? "text-yellow-400"
+              : urgency === "good"   ? "text-green-400"
+              : "text-zinc-600";
 
             return (
               <div
                 key={tapNum}
-                className={`rounded-lg border p-3 flex flex-col gap-2 ${
-                  urgency === "red"      ? "border-red-700/60"
-                  : urgency === "amber"  ? "border-amber-700/40"
-                  : urgency === "green"  ? "border-zinc-700"
-                  : urgency === "retiring" ? "border-zinc-700 border-dashed"
-                  : urgency === "retired" ? "border-zinc-800 opacity-60"
-                  : "border-zinc-800"
-                }`}
+                className={`rounded-lg border p-3 flex flex-col gap-2 transition-colors ${cardCls[urgency]}`}
               >
                 {/* Tap number + urgency badge */}
                 <div className="flex items-center justify-between">
@@ -300,14 +328,9 @@ export default function DraftStatsTab() {
                         Retired
                       </span>
                     )}
-                    {urgency === "red" && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-950/50 border border-red-700/50 text-red-400">
-                        Low
-                      </span>
-                    )}
-                    {urgency === "amber" && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-950/30 border border-amber-700/40 text-amber-400">
-                        Watch
+                    {badgeLabel[urgency] && (
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded border font-medium ${badgeCls[urgency]!.wrap} ${badgeCls[urgency]!.text}`}>
+                        {badgeLabel[urgency]}
                       </span>
                     )}
                   </div>
@@ -368,12 +391,7 @@ export default function DraftStatsTab() {
                       </div>
                       <div>
                         <span className="text-zinc-600">days left</span>
-                        <p className={`tabular-nums font-medium ${
-                          daysLeft === null ? "text-zinc-600"
-                          : daysLeft <= 3 ? "text-red-400"
-                          : daysLeft <= 7 ? "text-amber-400"
-                          : "text-zinc-300"
-                        }`}>
+                        <p className={`tabular-nums font-semibold ${daysLeftCls}`}>
                           {daysLeft !== null ? `~${daysLeft}d` : "—"}
                         </p>
                       </div>
