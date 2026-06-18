@@ -12,14 +12,31 @@ export async function GET(req: NextRequest) {
 
   let query = supabase
     .from("batch_transfers")
-    .select("*, from_tank:from_tank_id(id, name, type), to_tank:to_tank_id(id, name, type), to_batch:to_batch_id(id, beer_name, batch_number), created_by_profile:created_by(email)")
+    .select("*, from_tank:from_tank_id(id, name, type), to_tank:to_tank_id(id, name, type), to_batch:to_batch_id(id, beer_name, batch_number), created_by")
     .order("transferred_at", { ascending: false });
 
   if (batch_id) query = query.eq("batch_id", batch_id);
 
   const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json(data);
+
+  // Resolve actor emails via profiles (auth.users FK is not in PostgREST schema cache).
+  const actorIds = [...new Set((data ?? []).map((r) => r.created_by).filter(Boolean))];
+  let profileMap: Record<string, string> = {};
+  if (actorIds.length > 0) {
+    const { data: profiles } = await supabase
+      .from("profiles")
+      .select("id, email")
+      .in("id", actorIds);
+    profileMap = Object.fromEntries((profiles ?? []).map((p) => [p.id, p.email]));
+  }
+
+  const enriched = (data ?? []).map((r) => ({
+    ...r,
+    created_by_profile: r.created_by ? { email: profileMap[r.created_by] ?? null } : null,
+  }));
+
+  return NextResponse.json(enriched);
 }
 
 export async function POST(req: NextRequest) {
@@ -74,6 +91,7 @@ export async function POST(req: NextRequest) {
       p_notes:          notes         || null,
       p_kegging_detail: kegging_detail ?? null,
       p_canning_detail: canning_detail ?? null,
+      p_created_by:     currentUser?.id ?? null,
     })
     .single();
 
@@ -81,14 +99,6 @@ export async function POST(req: NextRequest) {
     // "Destination tank is already occupied" is a client conflict, not a 500.
     const status = error.message.includes("already occupied") ? 409 : 500;
     return NextResponse.json({ error: error.message }, { status });
-  }
-
-  // Stamp created_by on the newly-created transfer row
-  if (currentUser && (transfer as { id?: string })?.id) {
-    await supabase
-      .from("batch_transfers")
-      .update({ created_by: currentUser.id })
-      .eq("id", (transfer as { id: string }).id);
   }
 
   // ── Packaging deduction ───────────────────────────────────────────────────
@@ -183,16 +193,22 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Schedule reconciliation ───────────────────────────────────────────────
-  // When beer arrives in a fermenter or brite (conditioning) tank, update or
-  // create the matching schedule entry so actuals are recorded.
+  // When beer arrives in a tracked tank type, update or create the matching
+  // schedule entry so actuals are recorded.
   // When beer leaves a fermenter or brite and the tank drains, close out the entry.
-  const RECONCILE_TYPES = new Set(["brewhouse", "fermenter", "brite"]);
+  // Kegging/canning entries are stamped with actual_start = actual_end = today
+  // because packaging is a point-in-time event, not an ongoing occupancy.
+  const RECONCILE_TYPES = new Set(["brewhouse", "fermenter", "brite", "kegging", "canning"]);
   // Maps equipment.type → stage key stored in batch_schedule_entries
   const EQ_TYPE_TO_STAGE: Record<string, string> = {
     brewhouse: "brewhouse",
     fermenter: "fermenting",   // NOTE: stage name is "fermenting", not "fermenter"
     brite:     "conditioning",
+    kegging:   "kegging",
+    canning:   "canning",
   };
+  // Packaging stages are instantaneous — both start and end are stamped on arrival.
+  const PACKAGING_STAGES = new Set(["kegging", "canning"]);
 
   const scheduleUpdate: {
     action: string;
@@ -238,12 +254,16 @@ export async function POST(req: NextRequest) {
           .is("cancelled_at", null);
       }
 
+      const isPackagingStage = PACKAGING_STAGES.has(destTankInfo.type);
+
       if (existing) {
         if (existing.equipment_id === to_tank_id) {
-          // Same tank as planned — just stamp actual_start
+          // Same tank as planned — stamp actual_start (and actual_end for packaging)
+          const updates: Record<string, string> = { actual_start: today, updated_at: new Date().toISOString() };
+          if (isPackagingStage) updates.actual_end = today;
           await supabase
             .from("batch_schedule_entries")
-            .update({ actual_start: today, updated_at: new Date().toISOString() })
+            .update(updates)
             .eq("id", existing.id);
           scheduleUpdate.push({ action: "actual_start_set", entry_id: existing.id, equipment_name: destTankInfo.name, was_deviation: false });
           // Ensure upstream chain is wired (may have been missing before)
@@ -252,7 +272,7 @@ export async function POST(req: NextRequest) {
           // Different tank — cancel the original and create a new entry for the actual tank
           const durationMs = new Date(existing.planned_end).getTime() - new Date(existing.planned_start).getTime();
           const durationDays = Math.max(1, Math.round(durationMs / 86400000));
-          const newEnd = new Date(Date.now() + durationDays * 86400000).toISOString().split("T")[0];
+          const newEnd = isPackagingStage ? today : new Date(Date.now() + durationDays * 86400000).toISOString().split("T")[0];
 
           await supabase
             .from("batch_schedule_entries")
@@ -261,7 +281,14 @@ export async function POST(req: NextRequest) {
 
           const { data: newEntry } = await supabase
             .from("batch_schedule_entries")
-            .insert({ batch_id, equipment_id: to_tank_id, stage: targetStage, planned_start: today, planned_end: newEnd, actual_start: today, downstream_entry_id: existing.downstream_entry_id ?? null, notes: `Auto-created: deviation from planned equipment` })
+            .insert({
+              batch_id, equipment_id: to_tank_id, stage: targetStage,
+              planned_start: today, planned_end: newEnd,
+              actual_start: today, actual_end: isPackagingStage ? today : null,
+              volume_bbl: volume_bbl ?? null,
+              downstream_entry_id: existing.downstream_entry_id ?? null,
+              notes: `Auto-created: deviation from planned equipment`,
+            })
             .select("id")
             .single();
 
@@ -270,11 +297,17 @@ export async function POST(req: NextRequest) {
         }
       } else {
         // No entry existed — create one
-        const defaultDays = targetStage === "fermenting" ? 14 : 21;
-        const newEnd = new Date(Date.now() + defaultDays * 86400000).toISOString().split("T")[0];
+        const defaultDays = targetStage === "fermenting" ? 14 : targetStage === "conditioning" ? 21 : 1;
+        const newEnd = isPackagingStage ? today : new Date(Date.now() + defaultDays * 86400000).toISOString().split("T")[0];
         const { data: newEntry } = await supabase
           .from("batch_schedule_entries")
-          .insert({ batch_id, equipment_id: to_tank_id, stage: targetStage, planned_start: today, planned_end: newEnd, actual_start: today, notes: `Auto-created on transfer` })
+          .insert({
+            batch_id, equipment_id: to_tank_id, stage: targetStage,
+            planned_start: today, planned_end: newEnd,
+            actual_start: today, actual_end: isPackagingStage ? today : null,
+            volume_bbl: isPackagingStage ? (volume_bbl ?? null) : null,
+            notes: `Auto-created on transfer`,
+          })
           .select("id")
           .single();
         if (newEntry) await wireUpstreamChain(newEntry.id);
@@ -283,7 +316,9 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // 2. Handle departure (from_tank is fermenter or brite AND tank drains to zero)
+  // 2. Handle departure (from_tank drains to zero — close out its schedule entry).
+  // Only applies to tanks with ongoing occupancy (brewhouse/fermenter/brite);
+  // kegging/canning entries are already closed at arrival time.
   if (from_tank_id) {
     const { data: srcTankInfo } = await supabase
       .from("equipment")
@@ -291,7 +326,7 @@ export async function POST(req: NextRequest) {
       .eq("id", from_tank_id)
       .single();
 
-    if (srcTankInfo && RECONCILE_TYPES.has(srcTankInfo.type)) {
+    if (srcTankInfo && RECONCILE_TYPES.has(srcTankInfo.type) && !PACKAGING_STAGES.has(srcTankInfo.type)) {
       // We'll compute remaining volume AFTER this transfer using the full ledger
       const { data: allLedger } = await supabase
         .from("batch_transfers")
@@ -358,6 +393,25 @@ export async function POST(req: NextRequest) {
       // 23505 = active assignment already exists (acceptable for in-progress partial transfers).
       if (reassignErr && reassignErr.code !== "23505") {
         return NextResponse.json({ error: reassignErr.message }, { status: 500 });
+      }
+
+      // Fix 5: keep the source schedule entry's volume_bbl in sync so capacity
+      // planning reflects the actual remaining volume rather than the original.
+      const { data: srcInfo } = await supabase
+        .from("equipment")
+        .select("type")
+        .eq("id", from_tank_id)
+        .maybeSingle();
+      const srcStage = srcInfo ? EQ_TYPE_TO_STAGE[srcInfo.type] : null;
+      if (srcStage && !PACKAGING_STAGES.has(srcInfo!.type)) {
+        await supabase
+          .from("batch_schedule_entries")
+          .update({ volume_bbl: netInTank, updated_at: new Date().toISOString() })
+          .eq("batch_id", batch_id)
+          .eq("stage", srcStage)
+          .eq("equipment_id", from_tank_id)
+          .is("cancelled_at", null)
+          .is("actual_end", null);
       }
     }
   }

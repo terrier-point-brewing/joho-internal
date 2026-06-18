@@ -27,6 +27,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (downstream_entry_id !== undefined) updates.downstream_entry_id = downstream_entry_id;
   if (volume_bbl !== undefined) updates.volume_bbl = volume_bbl;
 
+  // Fetch current row before update to detect first-time actual_start on brewhouse
+  const { data: before } = await supabase
+    .from("batch_schedule_entries")
+    .select("stage, batch_id, equipment_id, volume_bbl, actual_start")
+    .eq("id", id)
+    .single();
+
   const { data, error } = await supabase
     .from("batch_schedule_entries")
     .update(updates)
@@ -35,6 +42,27 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // When actual_start is set for the first time on a brewhouse entry, record a
+  // "backlog → brewing" transfer so the Transfer Log captures the movement.
+  const isBrewhouseStart =
+    actual_start !== undefined &&
+    before?.stage === "brewhouse" &&
+    !before?.actual_start &&
+    before?.batch_id &&
+    before?.equipment_id;
+
+  if (isBrewhouseStart) {
+    await supabase.from("batch_transfers").insert({
+      batch_id:      before!.batch_id,
+      from_tank_id:  null,
+      to_tank_id:    before!.equipment_id,
+      transfer_type: "brewing",
+      volume_bbl:    before!.volume_bbl ?? data?.brew_batches?.volume_bbl ?? null,
+      transferred_at: actual_start,
+      notes:         "Moved from backlog into brewing",
+    });
+  }
 
   // Cascade: when planned_start changes, update the planned_end of any upstream
   // entry that chains into this one (downstream_entry_id = id).

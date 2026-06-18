@@ -25,7 +25,11 @@ export async function POST(req: NextRequest) {
   const supabase = await createSupabaseServerClient();
 
   const body = await req.json();
-  const { beer_name, planned_brew_date, expected_delivery_date, volume_bbl, turns, status = "planning", notes, recipe_id } = body;
+  const {
+    beer_name, planned_brew_date, expected_delivery_date, volume_bbl, turns,
+    status = "planning", notes, recipe_id,
+    converted_from_batch_id, converted_volume_bbl,
+  } = body;
 
   if (!recipe_id) return NextResponse.json({ error: "recipe_id is required" }, { status: 400 });
 
@@ -68,14 +72,14 @@ export async function POST(req: NextRequest) {
   // Reserve ingredient stock for this batch's planning period.
   await upsertCommitments(supabase, batch.id, recipe_id, volume_bbl);
 
-  // Explicitly persist expected_delivery_date — the RPC may not forward it,
-  // so we write it directly after creation to guarantee it's saved.
-  if (resolvedDeliveryDate) {
-    const { error: deliveryErr } = await supabase
-      .from("brew_batches")
-      .update({ expected_delivery_date: resolvedDeliveryDate })
-      .eq("id", batch.id);
-    if (deliveryErr) return NextResponse.json({ error: deliveryErr.message }, { status: 500 });
+  // Persist extra fields not handled by the RPC
+  const extras: Record<string, unknown> = {};
+  if (resolvedDeliveryDate)    extras.expected_delivery_date    = resolvedDeliveryDate;
+  if (converted_from_batch_id) extras.converted_from_batch_id  = converted_from_batch_id;
+  if (converted_volume_bbl)    extras.converted_volume_bbl     = converted_volume_bbl;
+  if (Object.keys(extras).length) {
+    const { error: extrasErr } = await supabase.from("brew_batches").update(extras).eq("id", batch.id);
+    if (extrasErr) return NextResponse.json({ error: extrasErr.message }, { status: 500 });
   }
 
   // Seed a brewhouse schedule entry so the scheduler sees it as occupied.

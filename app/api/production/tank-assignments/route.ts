@@ -22,8 +22,8 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try { await requireRole("brewer"); } catch (res) { return res as Response; }
 
-
   const supabase = await createSupabaseServerClient();
+  const { data: { user: currentUser } } = await supabase.auth.getUser();
 
   const body = await req.json();
   const { batch_id, tank_id, notes } = body;
@@ -80,8 +80,9 @@ export async function POST(req: NextRequest) {
           : `Auto: assigned to ${tank.type}`;
         const { error: histErr } = await supabase.from("batch_status_history").insert({
           batch_id,
-          status: newStatus,
+          status:     newStatus,
           note,
+          changed_by: currentUser?.id ?? null,
         });
         if (histErr) return NextResponse.json({ error: histErr.message }, { status: 500 });
       }
@@ -215,6 +216,7 @@ export async function PATCH(req: NextRequest) {
   try { await requireRole("admin"); } catch (res) { return res as Response; }
 
   const supabase = await createSupabaseServerClient();
+  const { data: { user: adminUser } } = await supabase.auth.getUser();
   const { batch_id, correct_tank_id, reason } = await req.json();
 
   if (!batch_id || !correct_tank_id) {
@@ -271,8 +273,9 @@ export async function PATCH(req: NextRequest) {
   // Log to batch_status_history so the correction is auditable
   await supabase.from("batch_status_history").insert({
     batch_id,
-    status: (await supabase.from("brew_batches").select("status").eq("id", batch_id).single()).data?.status ?? "fermenting",
-    note: `Admin: tank reassigned${reason ? ` — ${reason}` : ""}`,
+    status:     (await supabase.from("brew_batches").select("status").eq("id", batch_id).single()).data?.status ?? "fermenting",
+    note:       `Admin: tank reassigned${reason ? ` — ${reason}` : ""}`,
+    changed_by: adminUser?.id ?? null,
   });
 
   return NextResponse.json({ assignment_id: data.id });

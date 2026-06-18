@@ -87,7 +87,7 @@ export interface BatchTransfer {
   to_tank_id: string | null;
   volume_bbl: number;
   shrinkage_bbl: number;
-  transfer_type: "transfer" | "kegging" | "canning" | "export" | "conversion";
+  transfer_type: "transfer" | "kegging" | "canning" | "export" | "conversion" | "brewing";
   notes: string | null;
   kegging_detail: { total_kegs?: number; kegs?: { name: string; quantity: number; volume_fl_oz?: number }[] } | null;
   canning_detail: { total_cans?: number; cases?: number; loose_cans?: number; cans_per_case?: number } | null;
