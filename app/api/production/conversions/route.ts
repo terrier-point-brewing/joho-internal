@@ -18,6 +18,7 @@ export async function POST(req: NextRequest) {
   try { await requireRole("brewer"); } catch (res) { return res as Response; }
 
   const supabase = await createSupabaseServerClient();
+  const { data: { user: currentUser } } = await supabase.auth.getUser();
 
   const body = await req.json();
   const {
@@ -66,12 +67,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `${destTank?.name ?? "Destination tank"} is already occupied.` }, { status: 409 });
   }
 
-  // Fetch parent batch for date/volume context
+  // Fetch parent batch and child recipe for date/volume/duration context
   const { data: parentBatch } = await supabase
     .from("brew_batches")
     .select("planned_brew_date, volume_bbl")
     .eq("id", batch_id)
     .single();
+
+  const { data: childRecipe } = await supabase
+    .from("recipes")
+    .select("days_fermenter")
+    .eq("id", recipe_id)
+    .maybeSingle();
 
   if (!parentBatch) {
     return NextResponse.json({ error: "Parent batch not found." }, { status: 404 });
@@ -128,6 +135,25 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: assignErr.message }, { status: 500 });
   }
 
+  // 3b. Create a schedule entry for the child batch so it appears on the Gantt
+  // and the fermenter's capacity is correctly reserved.
+  {
+    const today = new Date().toISOString().split("T")[0];
+    const daysInFermenter = childRecipe?.days_fermenter ?? 14;
+    const plannedEnd = new Date();
+    plannedEnd.setDate(plannedEnd.getDate() + Math.max(0, daysInFermenter - 1));
+    await supabase.from("batch_schedule_entries").insert({
+      batch_id:      childBatch.id,
+      equipment_id:  to_tank_id,
+      stage:         "fermenting",
+      planned_start: today,
+      planned_end:   plannedEnd.toISOString().slice(0, 10),
+      actual_start:  today,
+      volume_bbl:    volume_bbl,
+      notes:         `Auto-created on conversion from ${batch_id}`,
+    });
+  }
+
   // 4. Release the parent's current tank assignment (mirrors record_batch_transfer RPC)
   await supabase
     .from("batch_tank_assignments")
@@ -172,16 +198,18 @@ export async function POST(req: NextRequest) {
 
     await supabase.from("batch_status_history").insert({
       batch_id,
-      status: "archived",
-      note:   `Fully converted — all ${volume_bbl} BBL transferred to ${childBatch.batch_number}`,
+      status:     "archived",
+      note:       `Fully converted — all ${volume_bbl} BBL transferred to ${childBatch.batch_number}`,
+      changed_by: currentUser?.id ?? null,
     });
   }
 
   // 6. Status history entry for the child batch
   await supabase.from("batch_status_history").insert({
-    batch_id: childBatch.id,
-    status:   "fermenting",
-    note:     `Converted from batch — ${volume_bbl} BBL split`,
+    batch_id:   childBatch.id,
+    status:     "fermenting",
+    note:       `Converted from batch — ${volume_bbl} BBL split`,
+    changed_by: currentUser?.id ?? null,
   });
 
   return NextResponse.json({ transfer: transfer.id, child_batch: childBatch }, { status: 201 });

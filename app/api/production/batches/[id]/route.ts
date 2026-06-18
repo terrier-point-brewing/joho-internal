@@ -11,8 +11,8 @@ export async function PATCH(
 ) {
   try { await requireRole("brewer"); } catch (res) { return res as Response; }
 
-
   const supabase = await createSupabaseServerClient();
+  const { data: { user: currentUser } } = await supabase.auth.getUser();
 
   const { id } = await params;
   const body = await req.json();
@@ -53,9 +53,10 @@ export async function PATCH(
   // Log status change
   if (statusChanged) {
     await supabase.from("batch_status_history").insert({
-      batch_id: id,
-      status: newStatus,
-      note: body.status_note ?? null,
+      batch_id:   id,
+      status:     newStatus,
+      note:       body.status_note ?? null,
+      changed_by: currentUser?.id ?? null,
     });
   }
 

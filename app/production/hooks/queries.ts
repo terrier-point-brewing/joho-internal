@@ -23,6 +23,7 @@ export interface ScheduleEntry {
   notes: string | null;
   volume_bbl: number | null;
   downstream_entry_id: string | null;
+  planned_branch: string | null;
   brew_batches?: { id: string; beer_name: string; batch_number: string; volume_bbl: number; status: string } | null;
   equipment?: { id: string; name: string; type: string } | null;
 }
