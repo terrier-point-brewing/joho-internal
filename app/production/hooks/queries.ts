@@ -21,6 +21,8 @@ export interface ScheduleEntry {
   cancelled_at: string | null;
   cancellation_reason: string | null;
   notes: string | null;
+  volume_bbl: number | null;
+  downstream_entry_id: string | null;
   brew_batches?: { id: string; beer_name: string; batch_number: string; volume_bbl: number; status: string } | null;
   equipment?: { id: string; name: string; type: string } | null;
 }
@@ -156,5 +158,24 @@ export function useSuppliersQuery() {
   return useQuery({
     queryKey: productionKeys.suppliers,
     queryFn: () => fetchJson<Supplier[]>("/api/partners/suppliers"),
+  });
+}
+
+export interface IngredientShortfall {
+  ingredient_id: string;
+  name: string;
+  unit: string;
+  stock_quantity: number;
+  total_committed: number;
+  this_batch_committed: number;
+  shortfall: number;
+}
+
+export function useIngredientShortfallsQuery(batchId: string, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.production.ingredientShortfalls(batchId),
+    queryFn: () => fetchJson<IngredientShortfall[]>(`/api/production/ingredient-shortfalls?batch_id=${batchId}`),
+    enabled,
+    staleTime: 60_000,
   });
 }

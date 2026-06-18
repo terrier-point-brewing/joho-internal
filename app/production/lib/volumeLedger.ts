@@ -35,7 +35,9 @@ export function computeTankVolumes(
     const vol    = Number(t.volume_bbl    ?? 0);
     const shrink = Number(t.shrinkage_bbl ?? 0);
     if (t.from_tank_id) vols[t.from_tank_id] = (vols[t.from_tank_id] ?? 0) - vol - shrink;
-    if (t.to_tank_id)   vols[t.to_tank_id]   = (vols[t.to_tank_id]   ?? 0) + vol;
+    // Conversion transfers: volume goes to a DIFFERENT batch's tank — do not
+    // credit the destination to this batch's ledger.
+    if (t.to_tank_id && !t.to_batch_id) vols[t.to_tank_id] = (vols[t.to_tank_id] ?? 0) + vol;
   }
 
   return Object.fromEntries(Object.entries(vols).filter(([, v]) => v > 0.001));
@@ -49,6 +51,7 @@ export interface LocationBreakdown {
   packaging:   number;   // kegging + canning stations
   coldStorage: number;
   exported:    number;
+  converted:   number;   // volume moved to a different batch via conversion
   shrinkage:   number;
 }
 
@@ -74,17 +77,23 @@ export function computeLocationBreakdown(
   // Totals that come purely from transfer records
   let shrinkage = 0;
   let exported  = 0;
+  let converted = 0;
   for (const t of batchTransfers) {
     shrinkage += Number(t.shrinkage_bbl ?? 0);
-    const destType = resolveType(t.to_tank_id, t.to_tank?.type, tankTypeById);
-    if (destType === "export_bay" || destType === "loading_bay") {
-      exported += Number(t.volume_bbl ?? 0);
+    if (t.to_batch_id) {
+      // Volume moved to a sibling batch via conversion — no longer this batch's
+      converted += Number(t.volume_bbl ?? 0);
+    } else {
+      const destType = resolveType(t.to_tank_id, t.to_tank?.type, tankTypeById);
+      if (destType === "export_bay" || destType === "loading_bay") {
+        exported += Number(t.volume_bbl ?? 0);
+      }
     }
   }
 
   const result: LocationBreakdown = {
     backlog: 0, brewhouse: 0, fermenter: 0, brite: 0,
-    packaging: 0, coldStorage: 0, exported, shrinkage,
+    packaging: 0, coldStorage: 0, exported, converted, shrinkage,
   };
 
   if (batchTransfers.length === 0) {

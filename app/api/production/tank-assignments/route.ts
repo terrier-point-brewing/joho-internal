@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { EQUIPMENT_TYPE_TO_STATUS, EquipmentType } from "@/app/production/types";
+import { getShortfalls, releaseCommitments } from "@/lib/production/commitments";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +27,15 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json();
   const { batch_id, tank_id, notes } = body;
+
+  // Before allowing a brewhouse assignment, verify ingredient stock is sufficient.
+  const { data: tankType } = await supabase.from("equipment").select("type").eq("id", tank_id).single();
+  if (tankType?.type === "brewhouse") {
+    const shortfalls = await getShortfalls(supabase, batch_id);
+    if (shortfalls.length > 0) {
+      return NextResponse.json({ error: "Insufficient ingredient stock", shortfalls }, { status: 422 });
+    }
+  }
 
   // Occupancy is enforced atomically by the partial unique index
   // one_active_assignment_per_tank; a double-book surfaces as a 23505 conflict.
@@ -183,6 +193,9 @@ export async function POST(req: NextRequest) {
             });
             if (rpcErr) return NextResponse.json({ error: rpcErr.message }, { status: 500 });
           }
+
+          // Stock has been consumed — release planning commitments.
+          await releaseCommitments(supabase, batch_id);
         }
       }
     }

@@ -42,6 +42,7 @@ export const queryKeys = {
     batchScheduler:       () => ["production", "batch-scheduler"] as const,
     brewStepTemplates:    () => ["production", "brew-step-templates"] as const,
     taproomRecipeSettings: () => ["production", "taproom-recipe-settings"] as const,
+    ingredientShortfalls:  (batchId: string) => ["production", "ingredient-shortfalls", batchId] as const,
   },
 
   // ─── Partners ─────────────────────────────────────────────────────────────

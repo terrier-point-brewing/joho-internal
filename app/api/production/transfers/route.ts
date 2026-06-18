@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
 
   let query = supabase
     .from("batch_transfers")
-    .select("*, from_tank:from_tank_id(id, name, type), to_tank:to_tank_id(id, name, type), to_batch:to_batch_id(id, beer_name, batch_number)")
+    .select("*, from_tank:from_tank_id(id, name, type), to_tank:to_tank_id(id, name, type), to_batch:to_batch_id(id, beer_name, batch_number), created_by_profile:created_by(email)")
     .order("transferred_at", { ascending: false });
 
   if (batch_id) query = query.eq("batch_id", batch_id);
@@ -25,8 +25,8 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try { await requireRole("brewer"); } catch (res) { return res as Response; }
 
-
   const supabase = await createSupabaseServerClient();
+  const { data: { user: currentUser } } = await supabase.auth.getUser();
 
   const body = await req.json();
   const {
@@ -81,6 +81,14 @@ export async function POST(req: NextRequest) {
     // "Destination tank is already occupied" is a client conflict, not a 500.
     const status = error.message.includes("already occupied") ? 409 : 500;
     return NextResponse.json({ error: error.message }, { status });
+  }
+
+  // Stamp created_by on the newly-created transfer row
+  if (currentUser && (transfer as { id?: string })?.id) {
+    await supabase
+      .from("batch_transfers")
+      .update({ created_by: currentUser.id })
+      .eq("id", (transfer as { id: string }).id);
   }
 
   // ── Packaging deduction ───────────────────────────────────────────────────
@@ -178,9 +186,13 @@ export async function POST(req: NextRequest) {
   // When beer arrives in a fermenter or brite (conditioning) tank, update or
   // create the matching schedule entry so actuals are recorded.
   // When beer leaves a fermenter or brite and the tank drains, close out the entry.
-  const RECONCILE_TYPES = new Set(["fermenter", "brite"]);
+  const RECONCILE_TYPES = new Set(["brewhouse", "fermenter", "brite"]);
   // Maps equipment.type → stage key stored in batch_schedule_entries
-  const EQ_TYPE_TO_STAGE: Record<string, string> = { fermenter: "fermenter", brite: "conditioning" };
+  const EQ_TYPE_TO_STAGE: Record<string, string> = {
+    brewhouse: "brewhouse",
+    fermenter: "fermenting",   // NOTE: stage name is "fermenting", not "fermenter"
+    brite:     "conditioning",
+  };
 
   const scheduleUpdate: {
     action: string;
@@ -204,7 +216,7 @@ export async function POST(req: NextRequest) {
       // Look for an existing uncancelled entry for this batch+stage
       const { data: existingEntries } = await supabase
         .from("batch_schedule_entries")
-        .select("id, equipment_id, planned_start, planned_end, actual_start, actual_end")
+        .select("id, equipment_id, planned_start, planned_end, actual_start, actual_end, downstream_entry_id")
         .eq("batch_id", batch_id)
         .eq("stage", targetStage)
         .is("cancelled_at", null)
@@ -212,6 +224,19 @@ export async function POST(req: NextRequest) {
         .limit(1);
 
       const existing = existingEntries?.[0];
+
+      // Helper: upstream stage whose downstream_entry_id should point to this stage's entry
+      const upstreamStage = targetStage === "fermenting" ? "brewhouse" : targetStage === "conditioning" ? "fermenting" : null;
+
+      async function wireUpstreamChain(newEntryId: string) {
+        if (!upstreamStage) return;
+        await supabase
+          .from("batch_schedule_entries")
+          .update({ downstream_entry_id: newEntryId, updated_at: new Date().toISOString() })
+          .eq("batch_id", batch_id)
+          .eq("stage", upstreamStage)
+          .is("cancelled_at", null);
+      }
 
       if (existing) {
         if (existing.equipment_id === to_tank_id) {
@@ -221,6 +246,8 @@ export async function POST(req: NextRequest) {
             .update({ actual_start: today, updated_at: new Date().toISOString() })
             .eq("id", existing.id);
           scheduleUpdate.push({ action: "actual_start_set", entry_id: existing.id, equipment_name: destTankInfo.name, was_deviation: false });
+          // Ensure upstream chain is wired (may have been missing before)
+          await wireUpstreamChain(existing.id);
         } else {
           // Different tank — cancel the original and create a new entry for the actual tank
           const durationMs = new Date(existing.planned_end).getTime() - new Date(existing.planned_start).getTime();
@@ -234,21 +261,23 @@ export async function POST(req: NextRequest) {
 
           const { data: newEntry } = await supabase
             .from("batch_schedule_entries")
-            .insert({ batch_id, equipment_id: to_tank_id, stage: targetStage, planned_start: today, planned_end: newEnd, actual_start: today, notes: `Auto-created: deviation from planned equipment` })
+            .insert({ batch_id, equipment_id: to_tank_id, stage: targetStage, planned_start: today, planned_end: newEnd, actual_start: today, downstream_entry_id: existing.downstream_entry_id ?? null, notes: `Auto-created: deviation from planned equipment` })
             .select("id")
             .single();
 
+          if (newEntry) await wireUpstreamChain(newEntry.id);
           scheduleUpdate.push({ action: "deviation_rebooked", entry_id: newEntry?.id ?? "", equipment_name: destTankInfo.name, was_deviation: true });
         }
       } else {
         // No entry existed — create one
-        const defaultDays = targetStage === "fermenter" ? 14 : 21;
+        const defaultDays = targetStage === "fermenting" ? 14 : 21;
         const newEnd = new Date(Date.now() + defaultDays * 86400000).toISOString().split("T")[0];
         const { data: newEntry } = await supabase
           .from("batch_schedule_entries")
           .insert({ batch_id, equipment_id: to_tank_id, stage: targetStage, planned_start: today, planned_end: newEnd, actual_start: today, notes: `Auto-created on transfer` })
           .select("id")
           .single();
+        if (newEntry) await wireUpstreamChain(newEntry.id);
         scheduleUpdate.push({ action: "created", entry_id: newEntry?.id ?? "", equipment_name: destTankInfo.name, was_deviation: false });
       }
     }

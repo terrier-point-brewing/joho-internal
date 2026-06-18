@@ -6,12 +6,18 @@ export function cents(n: number): string {
   return (n / 100).toFixed(2);
 }
 
+// Anchor date-only strings to local noon so UTC-behind timezones don't roll
+// them back a day.  Full ISO timestamps (containing "T") are left unchanged.
+function anchored(iso: string): Date {
+  return new Date(iso.includes("T") ? iso : iso.slice(0, 10) + "T12:00:00");
+}
+
 export function fmtDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return anchored(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
 export function fmtDateLong(iso: string): string {
-  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  return anchored(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
 export function fmtDateTime(iso: string): string {

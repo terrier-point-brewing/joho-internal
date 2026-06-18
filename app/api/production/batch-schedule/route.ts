@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
   const supabase = await createSupabaseServerClient();
 
   const body = await req.json();
-  const { batch_id, equipment_id, stage, planned_start, planned_end, actual_start, actual_end, notes } = body;
+  const { batch_id, equipment_id, stage, planned_start, planned_end, actual_start, actual_end, notes, downstream_entry_id, volume_bbl } = body;
 
   if (!batch_id || !stage || !planned_start || !planned_end) {
     return NextResponse.json({ error: "batch_id, stage, planned_start, planned_end are required" }, { status: 400 });
@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
 
   const { data, error } = await supabase
     .from("batch_schedule_entries")
-    .insert({ batch_id, equipment_id: equipment_id || null, stage, planned_start, planned_end, actual_start: actual_start || null, actual_end: actual_end || null, notes: notes || null })
+    .insert({ batch_id, equipment_id: equipment_id || null, stage, planned_start, planned_end, actual_start: actual_start || null, actual_end: actual_end || null, notes: notes || null, downstream_entry_id: downstream_entry_id || null, volume_bbl: volume_bbl ?? null })
     .select(`*, brew_batches(id, beer_name, batch_number, volume_bbl, status), equipment(id, name, type)`)
     .single();
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSquareProject } from "@/lib/square/projects";
+import { upsertCommitments } from "@/lib/production/commitments";
 
 export const dynamic = "force-dynamic";
 
@@ -63,6 +64,9 @@ export async function POST(req: NextRequest) {
     .single<{ id: string }>();
 
   if (batchErr) return NextResponse.json({ error: batchErr.message }, { status: 500 });
+
+  // Reserve ingredient stock for this batch's planning period.
+  await upsertCommitments(supabase, batch.id, recipe_id, volume_bbl);
 
   // Explicitly persist expected_delivery_date — the RPC may not forward it,
   // so we write it directly after creation to guarantee it's saved.

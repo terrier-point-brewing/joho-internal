@@ -12,7 +12,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   const { id } = await params;
   const body = await req.json();
-  const { equipment_id, stage, planned_start, planned_end, actual_start, actual_end, notes, cancelled_at, cancellation_reason } = body;
+  const { equipment_id, stage, planned_start, planned_end, actual_start, actual_end, notes, cancelled_at, cancellation_reason, downstream_entry_id, volume_bbl } = body;
 
   const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (equipment_id !== undefined) updates.equipment_id = equipment_id;
@@ -24,6 +24,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (notes !== undefined) updates.notes = notes;
   if (cancelled_at !== undefined) updates.cancelled_at = cancelled_at;
   if (cancellation_reason !== undefined) updates.cancellation_reason = cancellation_reason;
+  if (downstream_entry_id !== undefined) updates.downstream_entry_id = downstream_entry_id;
+  if (volume_bbl !== undefined) updates.volume_bbl = volume_bbl;
 
   const { data, error } = await supabase
     .from("batch_schedule_entries")
@@ -33,6 +35,17 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // Cascade: when planned_start changes, update the planned_end of any upstream
+  // entry that chains into this one (downstream_entry_id = id).
+  if (planned_start !== undefined) {
+    await supabase
+      .from("batch_schedule_entries")
+      .update({ planned_end: planned_start, updated_at: new Date().toISOString() })
+      .eq("downstream_entry_id", id)
+      .is("cancelled_at", null);
+  }
+
   return NextResponse.json(data);
 }
 

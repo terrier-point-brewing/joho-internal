@@ -15,6 +15,7 @@ import type { DepositCalculation } from "@/lib/square/deposit-invoices";
 import {
   useBatchesQuery, useRecipesQuery, useTransfersQuery, useContractPartnersQuery,
   useAssignmentsQuery, useEquipmentQuery, useBatchScheduleQuery, productionKeys,
+  useIngredientShortfallsQuery,
   type ScheduleEntry,
 } from "../hooks/queries";
 
@@ -24,10 +25,13 @@ function fmtDateTime(iso: string) {
   return new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
-/** Compute expected delivery ISO date string from brew date + weeks */
+/** Compute expected delivery ISO date string from brew date + weeks.
+ *  Anchors to T12:00:00 to avoid UTC-midnight off-by-one in UTC-behind timezones. */
 function calcDelivery(brewDate: string, weeks: number | null | undefined): string {
   if (!brewDate || !weeks) return "";
-  return new Date(new Date(brewDate).getTime() + weeks * 7 * 86400000).toISOString().slice(0, 10);
+  const base = new Date(brewDate.slice(0, 10) + "T12:00:00");
+  base.setDate(base.getDate() + Math.round(weeks * 7));
+  return base.toISOString().slice(0, 10);
 }
 
 type SortCol = "batch_number" | "beer_name" | "planned_brew_date" | "expected_delivery_date" | "volume_bbl" | "status";
@@ -997,10 +1001,10 @@ function DepositInvoiceModal({
 // ─── Equipment Schedule Section ──────────────────────────────────────────────
 
 const STAGE_LABELS: Record<string, string> = {
-  brewhouse:    "Brewhouse",
-  fermenter:    "Fermenter",
+  brewhouse:    "Brewing",
+  fermenter:    "Fermenting",
   fermenting:   "Fermenting",
-  conditioning: "Brite / Conditioning",
+  conditioning: "Conditioning",
   kegging:      "Kegging",
   canning:      "Canning",
   cold_storage: "Cold Storage",
@@ -1018,9 +1022,289 @@ const STAGE_OPTIONS = ["brewhouse", "fermenting", "conditioning", "kegging", "ca
 
 function fmtD(iso: string | null | undefined) {
   if (!iso) return "—";
-  // Use noon local time to avoid UTC-midnight timezone shifting the displayed date.
   return new Date(iso.slice(0, 10) + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
+function fmtShort(iso: string | null | undefined) {
+  if (!iso) return "—";
+  return new Date(iso.slice(0, 10) + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+function stageDuration(entry: ScheduleEntry): number {
+  const s = (entry.actual_start ?? entry.planned_start).slice(0, 10);
+  const e = (entry.actual_end   ?? entry.planned_end).slice(0, 10);
+  return Math.max(1, Math.round(
+    (new Date(e + "T12:00:00").getTime() - new Date(s + "T12:00:00").getTime()) / 86400000
+  ));
+}
+
+const STAGE_CARD_STYLE: Record<string, { border: string; activeBorder: string; bg: string; label: string; dot: string }> = {
+  brewhouse:    { border: "border-amber-700/50",  activeBorder: "border-amber-500",  bg: "bg-amber-950/30",  label: "text-amber-400",  dot: "bg-amber-500"  },
+  fermenting:   { border: "border-blue-700/50",   activeBorder: "border-blue-500",   bg: "bg-blue-950/30",   label: "text-blue-400",   dot: "bg-blue-500"   },
+  conditioning: { border: "border-teal-700/50",   activeBorder: "border-teal-500",   bg: "bg-teal-950/30",   label: "text-teal-400",   dot: "bg-teal-500"   },
+  kegging:      { border: "border-purple-700/50", activeBorder: "border-purple-500", bg: "bg-purple-950/30", label: "text-purple-400", dot: "bg-purple-500" },
+  canning:      { border: "border-violet-700/50", activeBorder: "border-violet-500", bg: "bg-violet-950/30", label: "text-violet-400", dot: "bg-violet-500" },
+  cold_storage: { border: "border-zinc-600/50",   activeBorder: "border-zinc-400",   bg: "bg-zinc-900/50",   label: "text-zinc-400",   dot: "bg-zinc-400"   },
+};
+
+// ── Flow tree types ───────────────────────────────────────────────────────────
+
+type FlowItem =
+  | { kind: "entry"; entry: ScheduleEntry; children: FlowItem[] }
+  | { kind: "conversion"; toBatch: { id: string; beer_name: string; batch_number: string | null }; volumeBbl: number; children: FlowItem[] }
+  | { kind: "ghost"; stage: string; label: string; isRequired: boolean; children: FlowItem[] };
+
+const REQUIRED_PIPELINE: { dbStage: string; label: string }[] = [
+  { dbStage: "brewhouse",    label: "Brewing" },
+  { dbStage: "fermenting",   label: "Fermenting" },
+  { dbStage: "conditioning", label: "Conditioning" },
+];
+
+function nextRequiredStageAfter(stage: string): { dbStage: string; label: string } | null {
+  const norm = stage === "fermenter" ? "fermenting" : stage;
+  const idx = REQUIRED_PIPELINE.findIndex(s => s.dbStage === norm);
+  return (idx >= 0 && idx < REQUIRED_PIPELINE.length - 1) ? REQUIRED_PIPELINE[idx + 1] : null;
+}
+
+function buildFlowTree(
+  entries: ScheduleEntry[],
+  batchTransfers: BatchTransfer[],
+  allTransfers: BatchTransfer[],
+  allBatches: BrewBatch[],
+  batch?: BrewBatch,
+): FlowItem | null {
+  const active = entries.filter(e => !e.cancelled_at);
+  if (!active.length) return null;
+
+  const packagingEntries = active.filter(e => e.stage === "kegging" || e.stage === "canning");
+  const mainEntries = active.filter(e => e.stage !== "kegging" && e.stage !== "canning");
+
+  const entryByTank = new Map<string, ScheduleEntry>();
+  for (const e of mainEntries) {
+    if (e.equipment_id) entryByTank.set(e.equipment_id, e);
+  }
+
+  // Tank→child-tanks from this batch's transfers
+  const childTanks = new Map<string, Set<string>>();
+  for (const t of batchTransfers) {
+    if (t.from_tank_id && t.to_tank_id) {
+      if (!childTanks.has(t.from_tank_id)) childTanks.set(t.from_tank_id, new Set());
+      childTanks.get(t.from_tank_id)!.add(t.to_tank_id);
+    }
+  }
+
+  // Conversion children: batches where converted_from_batch_id = this batch
+  const batchTankIds = new Set(entryByTank.keys());
+  const convsByTank = new Map<string, Array<{ toBatch: BrewBatch; volumeBbl: number }>>();
+  for (const cb of allBatches.filter(b => b.converted_from_batch_id === batch?.id)) {
+    const sourceTx = allTransfers
+      .filter(t => t.batch_id === cb.id && t.from_tank_id && batchTankIds.has(t.from_tank_id))
+      .sort((a, b) => new Date(a.transferred_at).getTime() - new Date(b.transferred_at).getTime())[0];
+    if (sourceTx?.from_tank_id) {
+      const src = sourceTx.from_tank_id;
+      if (!convsByTank.has(src)) convsByTank.set(src, []);
+      convsByTank.get(src)!.push({ toBatch: cb, volumeBbl: Number(sourceTx.volume_bbl) });
+    }
+  }
+
+  // Root = brewhouse entry, else first entry with no inbound transfer
+  const tanksWithInflow = new Set(batchTransfers.filter(t => t.to_tank_id).map(t => t.to_tank_id!));
+  let rootEntry = mainEntries.find(e => e.stage === "brewhouse")
+    ?? mainEntries.find(e => e.equipment_id && !tanksWithInflow.has(e.equipment_id))
+    ?? mainEntries[0];
+  if (!rootEntry) return null;
+
+  const visitedIds = new Set<string>();
+
+  function buildNode(entry: ScheduleEntry): FlowItem {
+    visitedIds.add(entry.id);
+    const tankId = entry.equipment_id ?? "";
+    const children: FlowItem[] = [];
+
+    // Children via tank transfers
+    for (const childTankId of childTanks.get(tankId) ?? []) {
+      const childEntry = entryByTank.get(childTankId);
+      if (childEntry && !visitedIds.has(childEntry.id)) {
+        children.push(buildNode(childEntry));
+      }
+    }
+
+    // Conversion terminal nodes
+    for (const conv of convsByTank.get(tankId) ?? []) {
+      children.push({ kind: "conversion", toBatch: conv.toBatch, volumeBbl: conv.volumeBbl, children: [] });
+    }
+
+    // Packaging entries attached to conditioning leaf
+    if (entry.stage === "conditioning") {
+      const kEntry = packagingEntries.filter(e => e.stage === "kegging" && !visitedIds.has(e.id));
+      const cEntry = packagingEntries.filter(e => e.stage === "canning" && !visitedIds.has(e.id));
+      for (const pe of [...kEntry, ...cEntry]) {
+        visitedIds.add(pe.id);
+        // Multiple kegging entries chain as siblings
+        children.push({ kind: "entry", entry: pe, children: [] });
+      }
+      // Ghost optional slots if not yet scheduled
+      if (!kEntry.length) children.push({ kind: "ghost", stage: "kegging", label: "Kegging", isRequired: false, children: [] });
+      if (!cEntry.length) children.push({ kind: "ghost", stage: "canning", label: "Canning", isRequired: false, children: [] });
+    }
+
+    // Ghost next required stage if this is a leaf and not complete
+    if (children.length === 0 && !entry.actual_end) {
+      const next = nextRequiredStageAfter(entry.stage);
+      if (next) children.push({ kind: "ghost", stage: next.dbStage, label: next.label, isRequired: true, children: [] });
+    }
+
+    return { kind: "entry", entry, children };
+  }
+
+  return buildNode(rootEntry);
+}
+
+// ── Flow tree renderer ────────────────────────────────────────────────────────
+
+function FlowNode({
+  item,
+  onEdit,
+  onBuild,
+  editing,
+  onRemove,
+}: {
+  item: FlowItem;
+  onEdit: (e: ScheduleEntry) => void;
+  onBuild: () => void;
+  editing: ScheduleEntry | null;
+  onRemove: (id: string) => void;
+}) {
+  const card = (() => {
+    if (item.kind === "conversion") {
+      return (
+        <div className="flex-none w-44 rounded-lg border border-dashed border-amber-700/50 bg-amber-950/20 select-none">
+          <div className="h-0.5 w-full rounded-t-lg bg-amber-700/40" />
+          <div className="p-3 min-h-[96px] flex flex-col justify-center gap-1">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-amber-500">Converted →</span>
+            <p className="text-xs font-semibold text-amber-300 truncate">{item.toBatch.beer_name}</p>
+            {item.toBatch.batch_number && (
+              <p className="text-[10px] font-mono text-amber-600">#{item.toBatch.batch_number}</p>
+            )}
+            <p className="text-[10px] text-amber-700 mt-0.5">{fmtBbl2(item.volumeBbl)}</p>
+          </div>
+        </div>
+      );
+    }
+    if (item.kind === "ghost") {
+      const isRequired = item.isRequired;
+      return (
+        <div
+          onClick={onBuild}
+          className={`flex-none w-44 rounded-lg border border-dashed cursor-pointer transition-all select-none
+            ${isRequired
+              ? "border-zinc-600 hover:border-amber-600/60 bg-zinc-900/20 hover:bg-amber-950/10"
+              : "border-zinc-700 hover:border-zinc-500 bg-zinc-900/10 hover:bg-zinc-800/20"}`}
+        >
+          <div className={`h-0.5 w-full rounded-t-lg ${isRequired ? "bg-zinc-700/50" : "bg-zinc-800/30"}`} />
+          <div className="p-3 flex flex-col items-start justify-center min-h-[96px] gap-1">
+            <span className={`text-[10px] font-bold uppercase tracking-wider ${isRequired ? "text-zinc-500" : "text-zinc-600"}`}>
+              {item.label}
+            </span>
+            <span className={`text-xs ${isRequired ? "text-zinc-500" : "text-zinc-600"}`}>
+              {isRequired ? "Not scheduled" : `+ Add ${item.label.toLowerCase()}`}
+            </span>
+            {isRequired && <span className="text-[10px] text-amber-600/70 mt-0.5">⚠ Schedule needed</span>}
+          </div>
+        </div>
+      );
+    }
+    // entry
+    const e = item.entry;
+    const style = STAGE_CARD_STYLE[e.stage === "fermenter" ? "fermenting" : e.stage] ?? STAGE_CARD_STYLE.cold_storage;
+    const isEditingThis = editing?.id === e.id;
+    const isDone   = !!e.actual_end;
+    const isActive = !!e.actual_start && !isDone;
+    const days     = stageDuration(e);
+    return (
+      <div
+        onClick={() => onEdit(e)}
+        className={`relative group flex-none w-44 rounded-lg border cursor-pointer transition-all select-none
+          ${style.bg}
+          ${isEditingThis ? style.activeBorder + " ring-2 ring-amber-600/40 border-2" : style.border + " border hover:border-opacity-100"}`}
+      >
+        <div className={`h-0.5 w-full rounded-t-lg ${isDone ? "bg-emerald-500" : isActive ? "bg-amber-400" : "bg-zinc-700"}`} />
+        <div className="p-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className={`text-[10px] font-bold uppercase tracking-wider ${style.label}`}>
+              {STAGE_LABELS[e.stage] ?? e.stage}
+            </span>
+            <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
+              isDone ? "bg-emerald-900/50 text-emerald-400" : isActive ? "bg-amber-900/50 text-amber-400" : "bg-zinc-800 text-zinc-500"
+            }`}>{isDone ? "Done" : isActive ? "Active" : "Planned"}</span>
+          </div>
+          <p className="text-xs font-semibold text-zinc-200 truncate mb-2 min-h-[1rem]">
+            {e.equipment?.name ?? <span className="text-zinc-600 font-normal italic">No tank assigned</span>}
+          </p>
+          <div className="text-[11px] text-zinc-400 space-y-0.5">
+            {e.actual_start ? (
+              <div className="flex items-center gap-1">
+                <span className="text-emerald-500">●</span>
+                <span>{fmtShort(e.actual_start)}</span>
+                {e.actual_end && <><span className="text-zinc-600">→</span><span>{fmtShort(e.actual_end)}</span></>}
+              </div>
+            ) : (
+              <div className="flex items-center gap-1 text-zinc-500">
+                <span className="text-zinc-700">○</span>
+                <span>{fmtShort(e.planned_start)}</span>
+                <span className="text-zinc-700">→</span>
+                <span>{fmtShort(e.planned_end)}</span>
+              </div>
+            )}
+            <div className="text-zinc-600">{days}d</div>
+          </div>
+        </div>
+        <button type="button" onClick={ev => { ev.stopPropagation(); onRemove(e.id); }}
+          className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 text-zinc-600 hover:text-red-400 text-xs transition-opacity leading-none"
+          title="Remove">×</button>
+      </div>
+    );
+  })();
+
+  const { children } = item;
+
+  if (!children.length) return <div className="flex-none">{card}</div>;
+
+  const childProps = { onEdit, onBuild, editing, onRemove };
+
+  if (children.length === 1) {
+    return (
+      <div className="flex items-center gap-0">
+        <div className="flex-none">{card}</div>
+        <div className="flex-none flex items-center w-10">
+          <div className="flex-1 border-t border-dashed border-zinc-600" />
+          <span className="text-zinc-500 text-sm">›</span>
+        </div>
+        <FlowNode item={children[0]} {...childProps} />
+      </div>
+    );
+  }
+
+  // Fork: multiple children branch downward
+  return (
+    <div className="flex items-center gap-0">
+      <div className="flex-none">{card}</div>
+      <div className="flex-none w-6 flex items-center self-stretch">
+        <div className="w-full border-t border-dashed border-zinc-600" />
+      </div>
+      <div className="flex-none self-stretch border-l border-dashed border-zinc-600" />
+      <div className="flex flex-col gap-3 py-1">
+        {children.map((child, i) => (
+          <div key={i} className="flex items-center">
+            <div className="w-6 border-t border-dashed border-zinc-600" />
+            <span className="text-zinc-500 text-sm mr-0.5">›</span>
+            <FlowNode item={child} {...childProps} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── EquipmentScheduleSection ──────────────────────────────────────────────────
 
 function EquipmentScheduleSection({
   batchId,
@@ -1037,9 +1321,12 @@ function EquipmentScheduleSection({
 }) {
   const qc = useQueryClient();
   const reload = () => qc.invalidateQueries({ queryKey: productionKeys.batchSchedule });
+  const { data: allScheduleEntries = [] } = useBatchScheduleQuery();
+  const { data: allTransfers = [] } = useTransfersQuery();
+  const { data: allBatches = [] } = useBatchesQuery();
 
   const [editing, setEditing] = useState<ScheduleEntry | null>(null);
-  const [showAdd, setShowAdd] = useState(false);
+  const [showBuildPanel, setShowBuildPanel] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const blankForm = () => ({
@@ -1052,7 +1339,7 @@ function EquipmentScheduleSection({
 
   function openEdit(entry: ScheduleEntry) {
     setEditing(entry);
-    setShowAdd(false);
+    setShowBuildPanel(false);
     setForm({
       equipment_id: entry.equipment_id ?? "",
       stage: entry.stage,
@@ -1064,13 +1351,21 @@ function EquipmentScheduleSection({
     });
   }
 
-  function openAdd() {
-    setEditing(null);
-    setShowAdd(true);
-    setForm(blankForm());
-  }
-
   async function save() {
+    if (form.equipment_id && form.planned_start && form.planned_end) {
+      const conflict = allScheduleEntries.find(e =>
+        e.id !== editing?.id && e.batch_id !== batchId &&
+        e.equipment_id === form.equipment_id && !e.cancelled_at &&
+        e.planned_start.slice(0, 10) < form.planned_end &&
+        e.planned_end.slice(0, 10) > form.planned_start
+      );
+      if (conflict) {
+        const name = conflict.brew_batches
+          ? `#${conflict.brew_batches.batch_number} ${conflict.brew_batches.beer_name}`
+          : "another batch";
+        if (!confirm(`Warning: this equipment is already scheduled for ${name} during the selected dates. Save anyway?`)) return;
+      }
+    }
     setSaving(true);
     try {
       const payload = {
@@ -1087,9 +1382,24 @@ function EquipmentScheduleSection({
       const method = editing ? "PATCH" : "POST";
       const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       if (!res.ok) throw new Error((await res.json()).error ?? "Error");
+
+      const isPackaging = form.stage === "kegging" || form.stage === "canning";
+      if (isPackaging && form.planned_end) {
+        const otherEnds = entries
+          .filter(e => !e.cancelled_at && (e.stage === "kegging" || e.stage === "canning") && e.id !== editing?.id)
+          .map(e => e.planned_end.slice(0, 10));
+        const latestEnd = [...otherEnds, form.planned_end].sort().at(-1)!;
+        const cond = entries.find(e => !e.cancelled_at && e.stage === "conditioning");
+        if (cond) {
+          await fetch(`/api/production/batch-schedule/${cond.id}`, {
+            method: "PATCH", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ planned_end: latestEnd + "T12:00:00" }),
+          });
+        }
+      }
+
       await reload();
       setEditing(null);
-      setShowAdd(false);
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : "Error");
     } finally {
@@ -1099,138 +1409,138 @@ function EquipmentScheduleSection({
 
   async function remove(id: string) {
     if (!confirm("Remove this schedule entry?")) return;
+    const removed = entries.find(e => e.id === id);
     await fetch(`/api/production/batch-schedule/${id}`, { method: "DELETE" });
+
+    if (removed && (removed.stage === "kegging" || removed.stage === "canning")) {
+      const remaining = entries
+        .filter(e => !e.cancelled_at && (e.stage === "kegging" || e.stage === "canning") && e.id !== id)
+        .map(e => e.planned_end.slice(0, 10)).sort();
+      const cond = entries.find(e => !e.cancelled_at && e.stage === "conditioning");
+      if (cond && remaining.length > 0) {
+        await fetch(`/api/production/batch-schedule/${cond.id}`, {
+          method: "PATCH", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ planned_end: remaining.at(-1)! + "T12:00:00" }),
+        });
+      }
+    }
+
     await reload();
     setEditing(null);
   }
 
-  const sorted = [...entries].sort((a, b) => {
-    const startCmp = a.planned_start.localeCompare(b.planned_start);
-    if (startCmp !== 0) return startCmp;
-    return a.planned_end.localeCompare(b.planned_end);
-  });
-  const showForm = editing !== null || showAdd;
+  // Build flow tree from transfers + schedule entries
+  const batchTransfers = allTransfers.filter(t => t.batch_id === batchId);
+  const flowRoot = buildFlowTree(entries, batchTransfers, allTransfers, allBatches, batch);
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-2">
+      <div className="flex items-center justify-between mb-3">
         <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wide">Equipment Schedule</p>
-        <button type="button" onClick={openAdd} className="text-xs text-amber-500 hover:text-amber-400">+ Add entry</button>
       </div>
-      {batch && recipes && !["brewhouse", "fermenting", "conditioning"].every((s) => entries.some((e) => e.stage === s)) && (
-        <BuildScheduleSection
-          batchId={batchId}
-          batch={batch}
-          recipes={recipes}
-          equipment={equipment}
-          onSaved={reload}
-        />
-      )}
 
-      {sorted.length > 0 && (
-        <div className="overflow-x-auto rounded border border-zinc-800/60 mb-3">
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="border-b border-zinc-800 bg-zinc-900/40 text-left">
-                <th className="px-3 py-2 font-medium text-zinc-500">Stage</th>
-                <th className="px-3 py-2 font-medium text-zinc-500">Equipment</th>
-                <th className="px-3 py-2 font-medium text-zinc-500">Planned Start</th>
-                <th className="px-3 py-2 font-medium text-zinc-500">Planned End</th>
-                <th className="px-3 py-2 font-medium text-zinc-500">Actual Start</th>
-                <th className="px-3 py-2 font-medium text-zinc-500">Actual End</th>
-                <th className="px-3 py-2 w-16"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {sorted.map((e, i) => {
-                const isActual = !!(e.actual_start);
-                return (
-                  <tr key={e.id} className={`border-b border-zinc-800/40 ${i % 2 !== 0 ? "bg-zinc-900/20" : ""} ${editing?.id === e.id ? "ring-1 ring-amber-700/50" : ""}`}>
-                    <td className="px-3 py-2 text-zinc-300">{STAGE_LABELS[e.stage] ?? e.stage}</td>
-                    <td className="px-3 py-2 text-zinc-300">{e.equipment?.name ?? <span className="text-zinc-600">—</span>}</td>
-                    <td className="px-3 py-2 text-zinc-400 tabular-nums">{fmtD(e.planned_start)}</td>
-                    <td className="px-3 py-2 text-zinc-400 tabular-nums">{fmtD(e.planned_end)}</td>
-                    <td className="px-3 py-2 tabular-nums">
-                      {isActual
-                        ? <span className="text-emerald-400">{fmtD(e.actual_start)}</span>
-                        : <span className="text-zinc-600">—</span>}
-                    </td>
-                    <td className="px-3 py-2 tabular-nums">
-                      {e.actual_end
-                        ? <span className="text-emerald-400">{fmtD(e.actual_end)}</span>
-                        : <span className="text-zinc-600">—</span>}
-                    </td>
-                    <td className="px-3 py-2">
-                      <div className="flex gap-2">
-                        <button type="button" onClick={() => openEdit(e)} className="text-zinc-500 hover:text-zinc-300">Edit</button>
-                        <button type="button" onClick={() => remove(e.id)} className="text-zinc-600 hover:text-red-400">×</button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+      {/* ── Transfer-graph flow tree ──────────────────────────────────── */}
+      <div className="overflow-x-auto pb-2 mb-3">
+        <div className="flex items-center min-w-max">
+          {flowRoot ? (
+            <FlowNode
+              item={flowRoot}
+              onEdit={openEdit}
+              onBuild={() => { setEditing(null); setShowBuildPanel(true); }}
+              editing={editing}
+              onRemove={remove}
+            />
+          ) : (
+            <button
+              type="button"
+              onClick={() => { setEditing(null); setShowBuildPanel(true); }}
+              className="w-44 min-h-[96px] rounded-lg border border-dashed border-zinc-700 hover:border-zinc-500 bg-zinc-900/30 hover:bg-zinc-800/30 transition-colors flex flex-col items-center justify-center gap-1 text-zinc-600 hover:text-zinc-400"
+            >
+              <span className="text-lg leading-none">+</span>
+              <span className="text-[10px]">Build schedule</span>
+            </button>
+          )}
+          {/* Extra stage button */}
+          {flowRoot && (
+            <div className="flex-none flex items-center ml-3">
+              <button
+                type="button"
+                onClick={() => { setEditing(null); setShowBuildPanel(true); }}
+                className="w-20 min-h-[64px] rounded-lg border border-dashed border-zinc-700 hover:border-zinc-500 bg-zinc-900/20 hover:bg-zinc-800/20 transition-colors flex flex-col items-center justify-center gap-1 text-zinc-600 hover:text-zinc-400"
+              >
+                <span className="text-base leading-none">+</span>
+                <span className="text-[10px] text-center leading-tight">Add extra stage</span>
+              </button>
+            </div>
+          )}
         </div>
-      )}
+      </div>
 
-      {sorted.length === 0 && !showForm && (
-        <p className="text-xs text-zinc-700 mb-3">No equipment schedule entries.</p>
-      )}
-
-      {showForm && (
+      {/* Inline edit form */}
+      {editing !== null && (
         <div className="rounded border border-zinc-700 bg-zinc-900/60 p-3 mb-3 space-y-3">
-          <p className="text-xs text-zinc-400 font-medium">{editing ? "Edit entry" : "New entry"}</p>
+          <p className="text-xs text-zinc-400 font-medium">Edit entry</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs text-zinc-500 mb-1">Stage</label>
-              <select className="inp text-xs" value={form.stage} onChange={(e) => { f("stage", e.target.value); f("equipment_id", ""); }}>
-                {STAGE_OPTIONS.map((s) => <option key={s} value={s}>{STAGE_LABELS[s] ?? s}</option>)}
+              <select className="inp text-xs" value={form.stage} onChange={e => { f("stage", e.target.value); f("equipment_id", ""); }}>
+                {STAGE_OPTIONS.map(s => <option key={s} value={s}>{STAGE_LABELS[s] ?? s}</option>)}
               </select>
             </div>
             <div>
               <label className="block text-xs text-zinc-500 mb-1">Equipment</label>
-              <select className="inp text-xs" value={form.equipment_id} onChange={(e) => f("equipment_id", e.target.value)}>
+              <select className="inp text-xs" value={form.equipment_id} onChange={e => f("equipment_id", e.target.value)}>
                 <option value="">— none —</option>
-                {equipment.filter((eq) => eq.type === STAGE_TO_EQ_TYPE[form.stage]).map((eq) => (
+                {equipment.filter(eq => eq.type === STAGE_TO_EQ_TYPE[form.stage]).map(eq => (
                   <option key={eq.id} value={eq.id}>{eq.name}</option>
                 ))}
               </select>
             </div>
             <div>
               <label className="block text-xs text-zinc-500 mb-1">Planned Start</label>
-              <input type="date" className="inp text-xs" value={form.planned_start} onChange={(e) => f("planned_start", e.target.value)} />
+              <input type="date" className="inp text-xs" value={form.planned_start} onChange={e => f("planned_start", e.target.value)} />
             </div>
             <div>
               <label className="block text-xs text-zinc-500 mb-1">Planned End</label>
-              <input type="date" className="inp text-xs" value={form.planned_end} onChange={(e) => f("planned_end", e.target.value)} />
+              <input type="date" className="inp text-xs" value={form.planned_end} onChange={e => f("planned_end", e.target.value)} />
             </div>
             <div>
               <label className="block text-xs text-zinc-500 mb-1">Actual Start</label>
-              <input type="date" className="inp text-xs" value={form.actual_start} onChange={(e) => f("actual_start", e.target.value)} />
+              <input type="date" className="inp text-xs" value={form.actual_start} onChange={e => f("actual_start", e.target.value)} />
             </div>
             <div>
               <label className="block text-xs text-zinc-500 mb-1">Actual End</label>
-              <input type="date" className="inp text-xs" value={form.actual_end} onChange={(e) => f("actual_end", e.target.value)} />
+              <input type="date" className="inp text-xs" value={form.actual_end} onChange={e => f("actual_end", e.target.value)} />
             </div>
           </div>
           <div>
             <label className="block text-xs text-zinc-500 mb-1">Notes</label>
-            <input type="text" className="inp text-xs" value={form.notes} onChange={(e) => f("notes", e.target.value)} placeholder="Optional" />
+            <input type="text" className="inp text-xs" value={form.notes} onChange={e => f("notes", e.target.value)} placeholder="Optional" />
           </div>
           <div className="flex gap-2">
             <button type="button" onClick={save} disabled={saving || !form.planned_start || !form.planned_end}
               className="px-3 py-1.5 text-xs bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white rounded font-medium">
-              {saving ? "Saving…" : editing ? "Save changes" : "Add entry"}
+              {saving ? "Saving…" : "Save changes"}
             </button>
-            {editing && (
-              <button type="button" onClick={() => remove(editing.id)}
-                className="px-3 py-1.5 text-xs bg-zinc-700 hover:bg-red-800 text-zinc-300 rounded">Delete</button>
-            )}
-            <button type="button" onClick={() => { setEditing(null); setShowAdd(false); }}
+            <button type="button" onClick={() => remove(editing.id)}
+              className="px-3 py-1.5 text-xs bg-zinc-700 hover:bg-red-800 text-zinc-300 rounded">Delete</button>
+            <button type="button" onClick={() => setEditing(null)}
               className="px-3 py-1.5 text-xs text-zinc-500 hover:text-zinc-300">Cancel</button>
           </div>
         </div>
+      )}
+
+      {/* Build panel */}
+      {showBuildPanel && batch && recipes && (
+        <BuildScheduleSection
+          batchId={batchId}
+          batch={batch}
+          recipes={recipes}
+          equipment={equipment}
+          entries={entries}
+          onSaved={reload}
+          onClose={() => setShowBuildPanel(false)}
+        />
       )}
     </div>
   );
@@ -1239,68 +1549,206 @@ function EquipmentScheduleSection({
 // ─── Build-Schedule helper (for manually-created batches) ────────────────────
 
 interface BuildSlot {
-  stage: "brewhouse" | "fermenter" | "brite";
+  stage: "brewhouse" | "fermenter" | "brite" | "kegging" | "canning";
   equipment_id: string;
   scheduled_start: string;
   scheduled_end: string;
+  volume_bbl?: string; // kegging/canning only — partial batch barrelage
 }
 
-const BUILD_STAGE_LABELS: Record<string, string> = { brewhouse: "Brewhouse", fermenter: "Fermenter", brite: "Brite Tank" };
+const BUILD_STAGE_LABELS: Record<string, string> = {
+  brewhouse: "Brewing",
+  fermenter: "Fermenting",
+  brite:     "Conditioning",
+  kegging:   "Kegging",
+  canning:   "Canning",
+};
 const BUILD_STAGE_COLORS: Record<string, string> = {
   brewhouse: "bg-amber-900/50 text-amber-300 border-amber-700",
   fermenter:  "bg-blue-900/50 text-blue-300 border-blue-700",
-  brite:      "bg-purple-900/50 text-purple-300 border-purple-700",
+  brite:      "bg-teal-900/50 text-teal-300 border-teal-700",
+  kegging:    "bg-purple-900/50 text-purple-300 border-purple-700",
+  canning:    "bg-violet-900/50 text-violet-300 border-violet-700",
 };
+
+// Required stages — also determines when the "Build schedule" button appears
+const PIPELINE: { slot: BuildSlot["stage"]; dbStage: string }[] = [
+  { slot: "brewhouse", dbStage: "brewhouse"    },
+  { slot: "fermenter", dbStage: "fermenting"   },
+  { slot: "brite",     dbStage: "conditioning" },
+];
+// Optional packaging stages — added on demand in the build panel
+const OPTIONAL_PIPELINE: { slot: BuildSlot["stage"]; dbStage: string; label: string }[] = [
+  { slot: "kegging", dbStage: "kegging", label: "+ Add Kegging" },
+  { slot: "canning", dbStage: "canning", label: "+ Add Canning" },
+];
+
+// Shows upcoming kegging/canning days already scheduled for OTHER batches,
+// so users can pick an existing day to aggregate onto rather than creating a new one.
+function PackagingDaysSummary({
+  stage,
+  excludeBatchId,
+  onPickDate,
+}: {
+  stage: "kegging" | "canning";
+  excludeBatchId: string;
+  onPickDate: (date: string) => void;
+}) {
+  const { data: allEntries = [] } = useBatchScheduleQuery();
+  const today = new Date().toISOString().slice(0, 10);
+
+  // Group by planned_start date, summing volume_bbl across batches
+  const dayMap = new Map<string, { totalBbl: number; batchCount: number }>();
+  for (const e of allEntries) {
+    if (e.stage !== stage) continue;
+    if (e.batch_id === excludeBatchId) continue;
+    if (e.cancelled_at) continue;
+    const date = e.planned_start.slice(0, 10);
+    if (date < today) continue; // skip past days
+    const existing = dayMap.get(date) ?? { totalBbl: 0, batchCount: 0 };
+    dayMap.set(date, {
+      totalBbl:    existing.totalBbl + Number(e.volume_bbl ?? 0),
+      batchCount:  existing.batchCount + 1,
+    });
+  }
+
+  const days = [...dayMap.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .slice(0, 5); // show next 5 upcoming days
+
+  if (days.length === 0) return null;
+
+  return (
+    <div className="rounded border border-zinc-800 bg-zinc-900/40 p-2 space-y-1">
+      <p className="text-[10px] text-zinc-600 uppercase tracking-wide">
+        Upcoming {stage === "kegging" ? "keg" : "can"} days — click to join
+      </p>
+      {days.map(([date, { totalBbl, batchCount }]) => (
+        <button
+          key={date}
+          type="button"
+          onClick={() => onPickDate(date)}
+          className="w-full flex items-center justify-between text-[11px] px-2 py-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition-colors"
+        >
+          <span>{new Date(date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
+          <span className="text-zinc-600">
+            {batchCount} batch{batchCount !== 1 ? "es" : ""}
+            {totalBbl > 0 ? ` · ${totalBbl.toFixed(2)} BBL planned` : ""}
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
 
 function BuildScheduleSection({
   batchId,
   batch,
   recipes,
   equipment,
+  entries,
   onSaved,
+  onClose,
 }: {
   batchId: string;
   batch: BrewBatch;
   recipes: import("../types").Recipe[];
   equipment: import("../types").Equipment[];
+  entries: ScheduleEntry[];
   onSaved: () => void;
+  onClose: () => void;
 }) {
-  const defaultSlots = (): BuildSlot[] => [
-    { stage: "brewhouse", equipment_id: "", scheduled_start: "", scheduled_end: "" },
-    { stage: "fermenter",  equipment_id: "", scheduled_start: "", scheduled_end: "" },
-    { stage: "brite",      equipment_id: "", scheduled_start: "", scheduled_end: "" },
-  ];
-  const [slots, setSlots] = useState<BuildSlot[]>(defaultSlots);
-  const [suggesting, setSuggesting] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [open, setOpen] = useState(false);
-
   const recipe = recipes.find((r) => r.id === batch.recipe_id);
-  const stageDays = {
+  const stageDays: Record<BuildSlot["stage"], number> = {
     brewhouse: recipe?.days_brewhouse ?? 1,
     fermenter:  recipe?.days_fermenter ?? 14,
     brite:      recipe?.days_brite ?? 7,
+    kegging:    1,
+    canning:    1,
   };
-  const brewhouses = equipment.filter((e) => e.type === "brewhouse");
-  const fermenters  = equipment.filter((e) => e.type === "fermenter");
-  const brites      = equipment.filter((e) => e.type === "brite");
+
+  // Only create slots for stages that have no existing uncancelled entry
+  const activeEntryByDbStage = Object.fromEntries(
+    entries.filter((e) => !e.cancelled_at).map((e) => [e.stage, e])
+  );
+  const missingPipeline = PIPELINE.filter(({ dbStage }) => !activeEntryByDbStage[dbStage]);
+
+  const defaultSlots = (): BuildSlot[] =>
+    missingPipeline.map(({ slot }) => ({ stage: slot, equipment_id: "", scheduled_start: "", scheduled_end: "" }));
+
+  const [slots, setSlots] = useState<BuildSlot[]>(defaultSlots);
+  const [suggesting, setSuggesting] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const EQ_TYPE_FOR_SLOT: Record<BuildSlot["stage"], string> = {
+    brewhouse: "brewhouse", fermenter: "fermenter", brite: "brite",
+    kegging: "kegging", canning: "canning",
+  };
   const poolFor = (stage: BuildSlot["stage"]) =>
-    stage === "brewhouse" ? brewhouses : stage === "fermenter" ? fermenters : brites;
+    equipment.filter((e) => e.type === EQ_TYPE_FOR_SLOT[stage]);
+
+  function computeStartsForSlots(currentSlots: BuildSlot[]): Partial<Record<BuildSlot["stage"], Date>> {
+    if (!batch.planned_brew_date) return {};
+    let cursor = parseISO(batch.planned_brew_date.slice(0, 10) + "T12:00:00");
+
+    const startForSlot: Partial<Record<BuildSlot["stage"], Date>> = {};
+
+    // Brewing and Fermenting share the same start date (pitch day).
+    // Only Fermenting's duration advances the cursor to Conditioning.
+    for (const { slot, dbStage } of PIPELINE) {
+      const existing = activeEntryByDbStage[dbStage];
+      if (existing) {
+        // Only advance cursor past fermenter's end (not brewhouse — it's same-day)
+        if (slot !== "brewhouse") {
+          cursor = parseISO(existing.planned_end.slice(0, 10) + "T12:00:00");
+        }
+      } else {
+        startForSlot[slot] = cursor;
+        // Brewhouse occupies the same start day — don't advance cursor
+        if (slot !== "brewhouse") {
+          cursor = addDays(cursor, stageDays[slot]);
+        }
+      }
+    }
+    // Optional slots chain from conditioning's end
+    for (const { slot, dbStage } of OPTIONAL_PIPELINE) {
+      const existing = activeEntryByDbStage[dbStage];
+      if (existing) {
+        cursor = parseISO(existing.planned_end.slice(0, 10) + "T12:00:00");
+      } else if (currentSlots.some((s) => s.stage === slot)) {
+        startForSlot[slot] = cursor;
+        cursor = addDays(cursor, stageDays[slot]);
+      }
+    }
+    return startForSlot;
+  }
 
   function autoFill() {
-    const brewDate = batch.planned_brew_date;
-    if (!brewDate) return;
-    const bd = parseISO(brewDate);
-    const fermStart = bd;
-    const briteStart = addDays(bd, stageDays.fermenter);
+    const starts = computeStartsForSlots(slots);
     setSlots((prev) => prev.map((s) => {
-      const start =
-        s.stage === "brewhouse" ? bd :
-        s.stage === "fermenter"  ? fermStart :
-        briteStart;
-      const end = addDays(start, Math.max(0, (stageDays[s.stage] ?? 1) - 1));
+      const start = starts[s.stage];
+      if (!start) return s;
+      const end = addDays(start, stageDays[s.stage]);
       return { ...s, scheduled_start: start.toISOString().slice(0, 10), scheduled_end: end.toISOString().slice(0, 10) };
     }));
+  }
+
+  function addOptionalSlot(slot: "kegging" | "canning", pinDate?: string) {
+    if (slots.some((s) => s.stage === slot)) return;
+    const newSlots = [...slots, { stage: slot, equipment_id: "", scheduled_start: "", scheduled_end: "" }];
+    const starts = computeStartsForSlots(newSlots);
+    const autoStart = starts[slot];
+    setSlots(newSlots.map((s) => {
+      if (s.stage !== slot) return s;
+      const startDate = pinDate ? parseISO(pinDate + "T12:00:00") : autoStart;
+      if (!startDate) return s;
+      const end = addDays(startDate, stageDays[slot]);
+      return { ...s, scheduled_start: startDate.toISOString().slice(0, 10), scheduled_end: end.toISOString().slice(0, 10) };
+    }));
+  }
+
+  function removeOptionalSlot(slot: "kegging" | "canning") {
+    setSlots((prev) => prev.filter((s) => s.stage !== slot));
   }
 
   async function suggest() {
@@ -1321,10 +1769,13 @@ function BuildScheduleSection({
       const result = await res.json() as {
         equipment_sequence: { stage: "brewhouse" | "fermenter" | "brite"; equipment_id: string; scheduled_start: string; scheduled_end: string }[];
       };
-      setSlots(result.equipment_sequence.map((s) => ({
-        stage: s.stage, equipment_id: s.equipment_id,
-        scheduled_start: s.scheduled_start, scheduled_end: s.scheduled_end,
-      })));
+      // Only apply suggestions for missing stages
+      const missingStageSlugs = new Set(missingPipeline.map((p) => p.slot));
+      setSlots(
+        result.equipment_sequence
+          .filter((s) => missingStageSlugs.has(s.stage))
+          .map((s) => ({ stage: s.stage, equipment_id: s.equipment_id, scheduled_start: s.scheduled_start, scheduled_end: s.scheduled_end }))
+      );
     } catch (e) {
       alert(e instanceof Error ? e.message : "Suggestion failed");
     } finally {
@@ -1338,23 +1789,77 @@ function BuildScheduleSection({
     }
     setSaving(true);
     try {
-      for (const slot of slots) {
-        const dbStage = slot.stage === "brite" ? "conditioning" : slot.stage === "fermenter" ? "fermenting" : slot.stage;
-        const res = await fetch("/api/production/batch-schedule", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            batch_id: batchId,
-            equipment_id: slot.equipment_id || null,
-            stage: dbStage,
-            planned_start: slot.scheduled_start + "T12:00:00",
-            planned_end:   slot.scheduled_end   + "T12:00:00",
-          }),
-        });
-        if (!res.ok) throw new Error((await res.json()).error ?? "Save failed");
+      // Resolve IDs for all pipeline stages (existing + newly saved)
+      const resolvedIds: Partial<Record<BuildSlot["stage"], string>> = {};
+
+      // Seed with already-existing entry IDs for required and optional stages
+      const allPipelineStages = [...PIPELINE, ...OPTIONAL_PIPELINE];
+      for (const { slot, dbStage } of allPipelineStages) {
+        const existing = activeEntryByDbStage[dbStage];
+        if (existing) resolvedIds[slot] = existing.id;
       }
+
+      // Save each slot (POST new entries, PATCH existing ones)
+      for (const slot of slots) {
+        const pipelineDef = [...PIPELINE, ...OPTIONAL_PIPELINE].find((p) => p.slot === slot.stage);
+        if (!pipelineDef) continue;
+        const existing = activeEntryByDbStage[pipelineDef.dbStage];
+        const isPackaging = slot.stage === "kegging" || slot.stage === "canning";
+        const payload: Record<string, unknown> = {
+          batch_id:      batchId,
+          equipment_id:  slot.equipment_id || null,
+          stage:         pipelineDef.dbStage,
+          planned_start: slot.scheduled_start + "T12:00:00",
+          planned_end:   slot.scheduled_end   + "T12:00:00",
+          ...(isPackaging && slot.volume_bbl ? { volume_bbl: Number(slot.volume_bbl) } : {}),
+        };
+        const url    = existing ? `/api/production/batch-schedule/${existing.id}` : "/api/production/batch-schedule";
+        const method = existing ? "PATCH" : "POST";
+        const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        if (!res.ok) throw new Error((await res.json()).error ?? "Save failed");
+        const saved = await res.json();
+        resolvedIds[slot.stage] = saved.id;
+      }
+
+      // Conditioning's planned_end = latest packaging planned_end across ALL kegging/canning
+      // entries for this batch (existing + newly saved). Brite isn't free until the last pull.
+      const existingPackagingEnds = entries
+        .filter((e) => !e.cancelled_at && (e.stage === "kegging" || e.stage === "canning"))
+        .map((e) => e.planned_end.slice(0, 10));
+      const newPackagingEnds = slots
+        .filter((s) => s.stage === "kegging" || s.stage === "canning")
+        .map((s) => s.scheduled_end)
+        .filter(Boolean);
+      const allPackagingEnds = [...existingPackagingEnds, ...newPackagingEnds].sort();
+      const latestPackagingEnd = allPackagingEnds[allPackagingEnds.length - 1];
+      if (latestPackagingEnd) {
+        const conditioningEntryId = resolvedIds["brite"] ?? activeEntryByDbStage["conditioning"]?.id;
+        if (conditioningEntryId) {
+          await fetch(`/api/production/batch-schedule/${conditioningEntryId}`, {
+            method: "PATCH", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ planned_end: latestPackagingEnd + "T12:00:00" }),
+          });
+        }
+      }
+
+      // Build the full ordered chain: required pipeline + any optional stages that were saved
+      const activeOptionalSlots = OPTIONAL_PIPELINE.filter(({ slot }) => resolvedIds[slot]);
+      const fullChain = [...PIPELINE, ...activeOptionalSlots];
+
+      // Wire downstream chain across the full pipeline (existing + new)
+      for (let i = 0; i < fullChain.length - 1; i++) {
+        const fromId = resolvedIds[fullChain[i].slot];
+        const toId   = resolvedIds[fullChain[i + 1].slot];
+        if (fromId && toId) {
+          await fetch(`/api/production/batch-schedule/${fromId}`, {
+            method: "PATCH", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ downstream_entry_id: toId }),
+          });
+        }
+      }
+
       onSaved();
-      setOpen(false);
+      onClose();
     } catch (e) {
       alert(e instanceof Error ? e.message : "Save failed");
     } finally {
@@ -1362,22 +1867,15 @@ function BuildScheduleSection({
     }
   }
 
-  if (!open) {
-    return (
-      <button
-        type="button"
-        onClick={() => { autoFill(); setOpen(true); }}
-        className="text-xs text-amber-500 hover:text-amber-400 border border-amber-700/40 hover:border-amber-600 px-2 py-1 rounded transition-colors"
-      >
-        ✦ Build schedule from recipe
-      </button>
-    );
-  }
+  const hasExisting = missingPipeline.length < PIPELINE.length;
+  const sectionTitle = hasExisting
+    ? `Add stages (${missingPipeline.map((p) => BUILD_STAGE_LABELS[p.slot]).join(", ")} missing)`
+    : "Build Equipment Schedule";
 
   return (
     <div className="mt-2 rounded border border-zinc-700 bg-zinc-900/60 p-3 space-y-3">
       <div className="flex items-center justify-between">
-        <span className="text-xs font-medium text-zinc-400">Build Equipment Schedule</span>
+        <span className="text-xs font-medium text-zinc-400">{sectionTitle}</span>
         <div className="flex gap-2">
           <button type="button" onClick={suggest} disabled={suggesting || !batch.recipe_id}
             className="text-xs text-amber-500 hover:text-amber-400 disabled:opacity-40">
@@ -1387,15 +1885,22 @@ function BuildScheduleSection({
             className="text-xs text-zinc-500 hover:text-zinc-300 disabled:opacity-40">
             Auto-fill dates
           </button>
-          <button type="button" onClick={() => setOpen(false)} className="text-xs text-zinc-600 hover:text-zinc-400">✕</button>
+          <button type="button" onClick={onClose} className="text-xs text-zinc-600 hover:text-zinc-400">✕</button>
         </div>
       </div>
       {slots.map((slot, idx) => {
         const pool = poolFor(slot.stage);
+        const isOptional = OPTIONAL_PIPELINE.some((p) => p.slot === slot.stage);
         return (
           <div key={slot.stage} className={`rounded border px-2.5 py-2 space-y-1.5 ${BUILD_STAGE_COLORS[slot.stage]}`}>
-            <span className="text-xs font-mono font-medium">{BUILD_STAGE_LABELS[slot.stage]}</span>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-mono font-medium">{BUILD_STAGE_LABELS[slot.stage]}</span>
+              {isOptional && (
+                <button type="button" onClick={() => removeOptionalSlot(slot.stage as "kegging" | "canning")}
+                  className="text-[10px] text-zinc-500 hover:text-red-400 transition-colors">✕ Remove</button>
+              )}
+            </div>
+            <div className={`grid gap-2 ${isOptional ? "grid-cols-4" : "grid-cols-3"}`}>
               <div>
                 <label className="block text-[10px] mb-0.5 opacity-70">Tank</label>
                 <select className="inp text-xs w-full" value={slot.equipment_id}
@@ -1414,16 +1919,37 @@ function BuildScheduleSection({
                 <input type="date" className="inp text-xs w-full" value={slot.scheduled_end}
                   onChange={(e) => setSlots((prev) => prev.map((s, i) => i === idx ? { ...s, scheduled_end: e.target.value } : s))} />
               </div>
+              {isOptional && (
+                <div>
+                  <label className="block text-[10px] mb-0.5 opacity-70">Planned BBL</label>
+                  <input type="number" step="0.01" min="0" placeholder="e.g. 3.5"
+                    className="inp text-xs w-full" value={slot.volume_bbl ?? ""}
+                    onChange={(e) => setSlots((prev) => prev.map((s, i) => i === idx ? { ...s, volume_bbl: e.target.value } : s))} />
+                </div>
+              )}
             </div>
           </div>
         );
       })}
+      {/* Optional stage toggle buttons + existing packaging days */}
+      {OPTIONAL_PIPELINE.filter(({ slot, dbStage }) =>
+        !slots.some((s) => s.stage === slot) && !activeEntryByDbStage[dbStage]
+      ).map(({ slot, label }) => (
+        <div key={slot} className="space-y-1">
+          <button type="button" onClick={() => addOptionalSlot(slot as "kegging" | "canning")}
+            className="text-xs text-zinc-500 hover:text-zinc-300 border border-dashed border-zinc-700 hover:border-zinc-500 px-2 py-1 rounded transition-colors w-full text-left">
+            {label}
+          </button>
+          <PackagingDaysSummary stage={slot as "kegging" | "canning"} excludeBatchId={batchId}
+            onPickDate={(date) => addOptionalSlot(slot as "kegging" | "canning", date)} />
+        </div>
+      ))}
       <div className="flex gap-2 pt-1">
         <button type="button" onClick={save} disabled={saving}
           className="px-3 py-1.5 text-xs bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white rounded font-medium">
           {saving ? "Saving…" : "Save schedule"}
         </button>
-        <button type="button" onClick={() => setOpen(false)} className="px-3 py-1.5 text-xs text-zinc-500 hover:text-zinc-300">Cancel</button>
+        <button type="button" onClick={onClose} className="px-3 py-1.5 text-xs text-zinc-500 hover:text-zinc-300">Cancel</button>
       </div>
     </div>
   );
@@ -1503,11 +2029,15 @@ function BatchTable({
           {batches.map((b, i) => {
             const isExpanded    = expandedId === b.id;
             const batchTransfers = transfers.filter((t) => t.batch_id === b.id);
+            const batchSchedule = scheduleEntries.filter((e) => e.batch_id === b.id && !e.cancelled_at);
+            const schedStages = new Set(batchSchedule.map(e => e.stage === "fermenter" ? "fermenting" : e.stage));
+            const isConversion = !!b.converted_from_batch_id;
+            const scheduleMissing = (!isConversion && !schedStages.has("brewhouse")) || !schedStages.has("fermenting") || !schedStages.has("conditioning");
 
             // Delivery: use stored field if set, else calculate from recipe
             const deliveryDate = b.expected_delivery_date
               ?? (b.recipes?.brew_time_weeks
-                  ? new Date(new Date(b.planned_brew_date).getTime() + b.recipes.brew_time_weeks * 7 * 86400000).toISOString().slice(0, 10)
+                  ? calcDelivery(b.planned_brew_date, b.recipes.brew_time_weeks)
                   : null);
 
             return (
@@ -1522,7 +2052,14 @@ function BatchTable({
                       {isExpanded ? "▼" : "▶"}
                     </button>
                   </td>
-                  <td className="px-4 py-2.5 font-mono text-xs text-zinc-400">{b.batch_number ?? "—"}</td>
+                  <td className="px-4 py-2.5 font-mono text-xs text-zinc-400">
+                    <span className="flex items-center gap-1.5">
+                      {b.batch_number ?? "—"}
+                      {scheduleMissing && b.status !== "archived" && (
+                        <span className="text-amber-500/80" title="Schedule incomplete — missing required stages">⚠</span>
+                      )}
+                    </span>
+                  </td>
                   <td className="px-4 py-2.5 text-zinc-100 font-medium">
                     {b.beer_name}
                     {b.recipes?.brewery && (
@@ -1533,6 +2070,7 @@ function BatchTable({
                         converted from {b.converted_from_batch.beer_name}
                       </span>
                     )}
+                    <ShortfallBadge batchId={b.id} status={b.status} />
                   </td>
                   <td className="px-4 py-2.5 text-zinc-400">{fmtDate(b.planned_brew_date)}</td>
                   <td className="px-4 py-2.5 text-zinc-400">
@@ -1542,7 +2080,7 @@ function BatchTable({
                   <td className="px-4 py-2.5 text-right tabular-nums">
                     {(() => {
                       const bd = computeLocationBreakdown(b.id, Number(b.volume_bbl), transfers, tankTypeById, assignedBatchIds.has(b.id));
-                      const avail = Math.max(0, Number(b.volume_bbl) - bd.exported - bd.shrinkage);
+                      const avail = bd.backlog + bd.brewhouse + bd.fermenter + bd.brite + bd.packaging + bd.coldStorage;
                       return <span className={avail > 0 ? "text-green-400" : "text-zinc-700"}>{avail.toFixed(2)} BBL</span>;
                     })()}
                   </td>
@@ -1861,7 +2399,7 @@ function BatchVolumeBreakdown({
   const originalVol = Number(batch.volume_bbl ?? 0);
   const bd = computeLocationBreakdown(batch.id, originalVol, transfers, tankTypeById, isAssigned);
 
-  const available    = Math.max(0, originalVol - bd.exported - bd.shrinkage);
+  const available    = bd.backlog + bd.brewhouse + bd.fermenter + bd.brite + bd.packaging + bd.coldStorage;
   const availablePct = originalVol > 0 ? (available / originalVol) * 100 : 0;
   const exportedPct  = originalVol > 0 ? (bd.exported / originalVol) * 100 : 0;
   const shrinkagePct = originalVol > 0 ? (bd.shrinkage / originalVol) * 100 : 0;
@@ -1869,14 +2407,14 @@ function BatchVolumeBreakdown({
   // Only show location stages with nonzero volume
   const locationCols: { label: string; value: number }[] = [
     { label: "Backlog",      value: bd.backlog },
-    { label: "Brewhouse",    value: bd.brewhouse },
+    { label: "Brewing",      value: bd.brewhouse },
     { label: "Fermenter",    value: bd.fermenter },
     { label: "Brite",        value: bd.brite },
     { label: "Packaging",    value: bd.packaging },
     { label: "Cold Storage", value: bd.coldStorage },
   ].filter((c) => c.value > 0.001);
 
-  const accountedFor = [bd.backlog, bd.brewhouse, bd.fermenter, bd.brite, bd.packaging, bd.coldStorage, bd.exported, bd.shrinkage].reduce((s, v) => s + v, 0);
+  const accountedFor = [bd.backlog, bd.brewhouse, bd.fermenter, bd.brite, bd.packaging, bd.coldStorage, bd.exported, bd.converted, bd.shrinkage].reduce((s, v) => s + v, 0);
   const balanced     = Math.abs(accountedFor - originalVol) < 0.01;
 
   return (
@@ -1890,7 +2428,8 @@ function BatchVolumeBreakdown({
           <span className="text-xs text-zinc-500">
             available of {fmtBbl2(originalVol)} total{!balanced && <span className="text-red-400 ml-1">⚠ unbalanced</span>}
           </span>
-          {bd.exported > 0 && <span className="text-xs text-zinc-500 ml-auto">{fmtBbl2(bd.exported)} exported</span>}
+          {bd.converted > 0 && <span className="text-xs text-violet-400/80 ml-auto">{fmtBbl2(bd.converted)} converted</span>}
+          {bd.exported > 0 && <span className="text-xs text-zinc-500">{fmtBbl2(bd.exported)} exported</span>}
           {bd.shrinkage > 0 && <span className="text-xs text-amber-500/80">{fmtBbl2(bd.shrinkage)} shrinkage</span>}
         </div>
         <div className="h-2 rounded-full bg-zinc-800 overflow-hidden flex">
@@ -1912,6 +2451,20 @@ function BatchVolumeBreakdown({
         </div>
       )}
     </div>
+  );
+}
+
+function ShortfallBadge({ batchId, status }: { batchId: string; status: string }) {
+  const enabled = status === "planning" || status === "backlog";
+  const { data: shortfalls } = useIngredientShortfallsQuery(batchId, enabled);
+  if (!shortfalls?.length) return null;
+  return (
+    <span
+      title={shortfalls.map((s) => `${s.name}: need ${s.this_batch_committed.toFixed(2)} ${s.unit}, short by ${s.shortfall.toFixed(2)}`).join("\n")}
+      className="ml-1.5 px-1.5 py-px rounded border border-red-700/50 bg-red-950/40 text-red-400 text-[10px] font-normal whitespace-nowrap cursor-help"
+    >
+      ⚠ {shortfalls.length} ingredient{shortfalls.length > 1 ? "s" : ""} short
+    </span>
   );
 }
 
@@ -1986,9 +2539,7 @@ function ReassignTankSection({ batchId, equipment }: { batchId: string; equipmen
 }
 
 function TransferLog({ transfers, batchVol }: { transfers: BatchTransfer[]; batchVol: number }) {
-  if (!transfers.length) {
-    return <p className="text-xs text-zinc-600">No transfers recorded yet.</p>;
-  }
+  const [expanded, setExpanded] = useState(false);
 
   const sorted = [...transfers].sort(
     (a, b) => new Date(a.transferred_at).getTime() - new Date(b.transferred_at).getTime()
@@ -1996,55 +2547,70 @@ function TransferLog({ transfers, batchVol }: { transfers: BatchTransfer[]; batc
 
   return (
     <div>
-      <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wide mb-2">Transfer Log</p>
-      <div className="overflow-x-auto rounded border border-zinc-800/60">
-        <table className="w-full text-xs">
-          <thead>
-            <tr className="border-b border-zinc-800 bg-zinc-900/40 text-left">
-              {["Date", "From", "To", "Type", "Draw", "Shrinkage", "Notes"].map((h) => (
-                <th key={h} className="px-3 py-2 font-medium text-zinc-500">{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {sorted.map((t, i) => {
-              const fromEq = t.from_tank ? EQ[t.from_tank.type as keyof typeof EQ] : null;
-              const toEq   = t.to_tank   ? EQ[t.to_tank.type   as keyof typeof EQ] : null;
-              return (
-                <tr key={t.id} className={`border-b border-zinc-800/40 ${i % 2 !== 0 ? "bg-zinc-900/20" : ""}`}>
-                  <td className="px-3 py-2 text-zinc-500 whitespace-nowrap">{fmtDateTime(t.transferred_at)}</td>
-                  <td className="px-3 py-2 text-zinc-300">
-                    {t.from_tank
-                      ? <><span className="text-zinc-100">{t.from_tank.name}</span> <span className={`px-1 py-px rounded border text-zinc-500 ${fromEq?.badge ?? ""}`} style={{ fontSize: 9 }}>{fromEq?.label ?? t.from_tank.type}</span></>
-                      : <span className="text-zinc-600">—</span>}
-                  </td>
-                  <td className="px-3 py-2 text-zinc-300">
-                    {t.transfer_type === "conversion" && t.to_batch
-                      ? <span className="text-amber-300">{t.to_batch.beer_name}{t.to_batch.batch_number ? <span className="text-zinc-500 font-mono ml-1">#{t.to_batch.batch_number}</span> : null}</span>
-                      : t.to_tank
-                        ? <><span className="text-zinc-100">{t.to_tank.name}</span> <span className={`px-1 py-px rounded border text-zinc-500 ${toEq?.badge ?? ""}`} style={{ fontSize: 9 }}>{toEq?.label ?? t.to_tank.type}</span></>
-                        : t.transfer_type === "export"
-                          ? <span className="text-zinc-400">Export Bay</span>
-                          : <span className="text-zinc-600">—</span>}
-                  </td>
-                  <td className="px-3 py-2 text-zinc-400 capitalize">
-                    {t.transfer_type === "conversion"
-                      ? <span className="text-amber-400">Conversion</span>
-                      : t.transfer_type === "export" ? "Export" : t.transfer_type}
-                  </td>
-                  <td className="px-3 py-2 tabular-nums text-zinc-300">
-                    {fmtBbl2(Number(t.volume_bbl))}
-                  </td>
-                  <td className="px-3 py-2 tabular-nums text-zinc-500">
-                    {Number(t.shrinkage_bbl) > 0 ? fmtBbl2(Number(t.shrinkage_bbl)) : "—"}
-                  </td>
-                  <td className="px-3 py-2 text-zinc-500 max-w-[160px] truncate">{t.notes ?? "—"}</td>
+      <button
+        type="button"
+        onClick={() => setExpanded(v => !v)}
+        className="flex items-center gap-2 text-xs font-semibold text-zinc-400 uppercase tracking-wide mb-2 hover:text-zinc-200 transition-colors"
+      >
+        <span>{expanded ? "▾" : "▸"}</span>
+        <span>Transfer Log</span>
+        <span className="text-zinc-600 font-normal normal-case tracking-normal">({transfers.length})</span>
+      </button>
+      {expanded && (
+        transfers.length === 0 ? (
+          <p className="text-xs text-zinc-600">No transfers recorded yet.</p>
+        ) : (
+          <div className="overflow-x-auto rounded border border-zinc-800/60">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-zinc-800 bg-zinc-900/40 text-left">
+                  {["Date", "From", "To", "Type", "Draw", "Shrinkage", "By", "Notes"].map(h => (
+                    <th key={h} className="px-3 py-2 font-medium text-zinc-500">{h}</th>
+                  ))}
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+              </thead>
+              <tbody>
+                {sorted.map((t, i) => {
+                  const fromEq = t.from_tank ? EQ[t.from_tank.type as keyof typeof EQ] : null;
+                  const toEq   = t.to_tank   ? EQ[t.to_tank.type   as keyof typeof EQ] : null;
+                  const byEmail = t.created_by_profile?.email;
+                  const byLabel = byEmail ? byEmail.split("@")[0] : "—";
+                  return (
+                    <tr key={t.id} className={`border-b border-zinc-800/40 ${i % 2 !== 0 ? "bg-zinc-900/20" : ""}`}>
+                      <td className="px-3 py-2 text-zinc-500 whitespace-nowrap">{fmtDateTime(t.transferred_at)}</td>
+                      <td className="px-3 py-2 text-zinc-300">
+                        {t.from_tank
+                          ? <><span className="text-zinc-100">{t.from_tank.name}</span> <span className={`px-1 py-px rounded border text-zinc-500 ${fromEq?.badge ?? ""}`} style={{ fontSize: 9 }}>{fromEq?.label ?? t.from_tank.type}</span></>
+                          : <span className="text-zinc-600">—</span>}
+                      </td>
+                      <td className="px-3 py-2 text-zinc-300">
+                        {t.transfer_type === "conversion" && t.to_batch
+                          ? <span className="text-amber-300">{t.to_batch.beer_name}{t.to_batch.batch_number ? <span className="text-zinc-500 font-mono ml-1">#{t.to_batch.batch_number}</span> : null}</span>
+                          : t.to_tank
+                            ? <><span className="text-zinc-100">{t.to_tank.name}</span> <span className={`px-1 py-px rounded border text-zinc-500 ${toEq?.badge ?? ""}`} style={{ fontSize: 9 }}>{toEq?.label ?? t.to_tank.type}</span></>
+                            : t.transfer_type === "export"
+                              ? <span className="text-zinc-400">Export Bay</span>
+                              : <span className="text-zinc-600">—</span>}
+                      </td>
+                      <td className="px-3 py-2 text-zinc-400 capitalize">
+                        {t.transfer_type === "conversion"
+                          ? <span className="text-amber-400">Conversion</span>
+                          : t.transfer_type === "export" ? "Export" : t.transfer_type}
+                      </td>
+                      <td className="px-3 py-2 tabular-nums text-zinc-300">{fmtBbl2(Number(t.volume_bbl))}</td>
+                      <td className="px-3 py-2 tabular-nums text-zinc-500">
+                        {Number(t.shrinkage_bbl) > 0 ? fmtBbl2(Number(t.shrinkage_bbl)) : "—"}
+                      </td>
+                      <td className="px-3 py-2 text-zinc-500 max-w-[100px] truncate" title={byEmail ?? undefined}>{byLabel}</td>
+                      <td className="px-3 py-2 text-zinc-500 max-w-[160px] truncate">{t.notes ?? "—"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )
+      )}
     </div>
   );
 }

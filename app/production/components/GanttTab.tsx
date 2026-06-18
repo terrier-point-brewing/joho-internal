@@ -12,10 +12,10 @@ import { useBatchScheduleQuery, useEquipmentQuery, useBatchesQuery, useScheduleC
 
 const EQUIPMENT_STAGE_ORDER = ["brewhouse", "fermenter", "brite", "kegging", "canning"];
 const STAGE_LABELS: Record<string, string> = {
-  brewhouse:    "Brewhouse",
-  fermenter:    "Fermenter",
+  brewhouse:    "Brewing",
+  fermenter:    "Fermenting",
   fermenting:   "Fermenting",
-  conditioning: "Brite / Conditioning",
+  conditioning: "Conditioning",
   kegging:      "Kegging",
   canning:      "Canning",
   cold_storage: "Cold Storage",
@@ -70,7 +70,11 @@ export default function GanttTab() {
   const { data: entries = [] } = useBatchScheduleQuery();
   const { data: conflicts = [] } = useScheduleConflictsQuery();
   const [rangeIdx, setRangeIdx] = useState(2);
-  const [viewStart, setViewStart] = useState(() => subDays(startOfToday(), 3));
+  // Noon-anchor viewStart so differenceInDays comparisons against noon bar dates are always integers.
+  const [viewStart, setViewStart] = useState(() => {
+    const d = subDays(startOfToday(), 3);
+    return parseISO(format(d, "yyyy-MM-dd") + "T12:00:00");
+  });
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<ScheduleEntry | null>(null);
   const [form, setForm] = useState(blank());
@@ -226,15 +230,24 @@ export default function GanttTab() {
     const barWidth  = Math.max(differenceInDays(barEnd, barStart), 1);
     if (barOffset > totalDays || barOffset + barWidth < 0) return null;
 
-    const barLeft  = barOffset * dayPx;
-    const barPx    = barWidth * dayPx;
+    const rawLeft  = barOffset * dayPx;
+    const rawRight = rawLeft + barWidth * dayPx;
 
-    // Solid portion width (0 if fully planned, full bar if fully actual and done)
+    // Clip the bar to the visible window [0, totalDays * dayPx]
+    const displayLeft  = Math.max(rawLeft, 0);
+    const displayRight = Math.min(rawRight, totalDays * dayPx);
+    if (displayLeft >= displayRight) return null;
+    const barLeft = displayLeft;
+    const barPx   = Math.max(displayRight - displayLeft, 6);
+
+    // Solid portion: compute in raw space then map to clipped percentage
     const solidDays = splitPoint
       ? Math.min(Math.max(differenceInDays(splitPoint, barStart), 0), barWidth)
       : 0;
-    const solidPct  = barWidth > 0 ? (solidDays / barWidth) * 100 : 0;
-    const hasSolid  = solidDays > 0;
+    const solidRawRight = rawLeft + solidDays * dayPx;
+    const solidClipped  = Math.max(Math.min(solidRawRight, displayRight), displayLeft);
+    const solidPct  = barPx > 0 ? ((solidClipped - displayLeft) / barPx) * 100 : 0;
+    const hasSolid  = solidPct > 0;
 
     const tooltipParts = [label];
     if (aStart && aEnd) tooltipParts.push(`Actual: ${format(aStart, "MMM d")} – ${format(aEnd, "MMM d")}`);
@@ -248,7 +261,15 @@ export default function GanttTab() {
         title={tooltipParts.join("\n")}
         onClick={() => openEdit(entry)}
         className="absolute top-1.5 bottom-1.5 cursor-pointer overflow-hidden select-none flex items-center"
-        style={{ left: Math.max(barLeft, 0), width: Math.max(barPx, 6), borderRadius: 4, border: isConflicted ? `2px solid #ef4444` : `1.5px solid ${color}`, boxShadow: isConflicted ? "0 0 0 2px #ef444460" : undefined }}
+        style={{
+          left: Math.max(barLeft, 0), width: Math.max(barPx, 6), borderRadius: 4,
+          border: isConflicted ? `2px solid #ef4444` : `1.5px solid ${color}`,
+          // Dashed right border = end date is unconfirmed (no downstream chain + not yet ended)
+          borderRight: (!entry.downstream_entry_id && !entry.actual_end && !isConflicted)
+            ? `1.5px dashed ${color}`
+            : undefined,
+          boxShadow: isConflicted ? "0 0 0 2px #ef444460" : undefined,
+        }}
       >
         {/* Solid (actual / elapsed) left portion */}
         {hasSolid && (
@@ -267,7 +288,7 @@ export default function GanttTab() {
           }}
         />
         {/* Label — always visible, sits above both portions */}
-        {barPx > 32 && (
+        {barPx > 28 && (
           <span
             className="relative z-10 px-2 text-xs font-medium text-white truncate w-full"
             style={{ textShadow: "0 1px 2px rgba(0,0,0,0.8)" }}
@@ -335,7 +356,7 @@ export default function GanttTab() {
     if (d % labelEvery === 0) dayLabels.push({ day: d, date: addDays(viewStart, d) });
   }
 
-  const todayOffset = differenceInDays(startOfToday(), viewStart);
+  const todayOffset = differenceInDays(parseISO(format(startOfToday(), "yyyy-MM-dd") + "T12:00:00"), viewStart);
 
   const f = (k: keyof typeof form, v: string) => setForm(prev => ({ ...prev, [k]: v }));
 
@@ -363,7 +384,7 @@ export default function GanttTab() {
         </div>
         <div className="flex gap-1">
           <button onClick={() => setViewStart(d => subDays(d, Math.floor(rangeDays / 3)))} className="px-2 py-1 text-xs bg-zinc-800 rounded text-zinc-400 hover:text-zinc-200">‹</button>
-          <button onClick={() => setViewStart(subDays(startOfToday(), 3))} className="px-3 py-1 text-xs bg-zinc-800 rounded text-zinc-400 hover:text-zinc-200">Today</button>
+          <button onClick={() => { const d = subDays(startOfToday(), 3); setViewStart(parseISO(format(d, "yyyy-MM-dd") + "T12:00:00")); }} className="px-3 py-1 text-xs bg-zinc-800 rounded text-zinc-400 hover:text-zinc-200">Today</button>
           <button onClick={() => setViewStart(d => addDays(d, Math.floor(rangeDays / 3)))} className="px-2 py-1 text-xs bg-zinc-800 rounded text-zinc-400 hover:text-zinc-200">›</button>
         </div>
         <span className="text-xs text-zinc-500">{format(viewStart, "MMM d")} – {format(viewEnd, "MMM d, yyyy")}</span>
@@ -564,6 +585,10 @@ export default function GanttTab() {
         <div className="flex items-center gap-1.5 text-xs text-zinc-500">
           <div className="w-8 h-3 rounded-sm flex-none bg-zinc-400" />
           Actual
+        </div>
+        <div className="flex items-center gap-1.5 text-xs text-zinc-500">
+          <div className="w-8 h-3 rounded-sm flex-none border-t border-b border-l border-zinc-400 border-r-2 border-r-dashed" style={{ borderRightStyle: "dashed" }} />
+          End unconfirmed
         </div>
         {batches.length > 0 && (
           <>

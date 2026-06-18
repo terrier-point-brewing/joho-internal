@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth";
+import { upsertCommitments, releaseCommitments } from "@/lib/production/commitments";
 
 export const dynamic = "force-dynamic";
 
@@ -32,10 +33,10 @@ export async function PATCH(
     return NextResponse.json({ error: "No updatable fields provided" }, { status: 400 });
   }
 
-  // Fetch current status to detect changes
+  // Fetch current row to detect status changes and re-evaluate commitments.
   const { data: current } = await supabase
     .from("brew_batches")
-    .select("status")
+    .select("status, recipe_id, volume_bbl")
     .eq("id", id)
     .single();
 
@@ -58,6 +59,17 @@ export async function PATCH(
     });
   }
 
+  // Re-compute ingredient commitments when recipe or volume changes.
+  const recipeChanged  = "recipe_id"   in updates && updates.recipe_id  !== current?.recipe_id;
+  const volumeChanged  = "volume_bbl"  in updates && updates.volume_bbl !== current?.volume_bbl;
+  if (recipeChanged || volumeChanged) {
+    const effectiveRecipeId  = (updates.recipe_id  as string | undefined) ?? current?.recipe_id;
+    const effectiveVolumeBbl = (updates.volume_bbl as number | undefined) ?? current?.volume_bbl;
+    if (effectiveRecipeId && effectiveVolumeBbl != null) {
+      await upsertCommitments(supabase, id, effectiveRecipeId, Number(effectiveVolumeBbl));
+    }
+  }
+
   // Archive cascade: release operational records but preserve financial ones.
   if (statusChanged && newStatus === "archived") {
     // Release any active tank assignments — tank is no longer occupied.
@@ -74,6 +86,9 @@ export async function PATCH(
       .eq("batch_id", id)
       .is("cancelled_at", null)
       .is("actual_end", null);
+
+    // Release ingredient commitments — batch is cancelled.
+    await releaseCommitments(supabase, id);
 
     // batch_allocations, batch_exports, batch_transfers, batch_status_history,
     // and batch_brew_activity_log are intentionally left untouched — they are

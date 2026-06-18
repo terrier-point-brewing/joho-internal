@@ -99,6 +99,7 @@ export interface BatchTransfer {
   from_tank?: { id: string; name: string; type: EquipmentType } | null;
   to_tank?:   { id: string; name: string; type: EquipmentType } | null;
   to_batch?:  { id: string; beer_name: string; batch_number: string | null } | null;
+  created_by_profile?: { email: string } | null;
 }
 
 export type IngredientCategory = "Malts" | "Hops" | "Yeast" | "Brewing Aids" | "Fruit" | "Abstrax";
