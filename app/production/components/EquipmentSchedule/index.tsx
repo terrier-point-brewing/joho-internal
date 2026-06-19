@@ -68,19 +68,32 @@ export function EquipmentScheduleSection({
   const splitBranches  = [...new Set(activeEntries.filter(e => e.planned_branch).map(e => e.planned_branch!))].sort();
   const branchEntries  = (name: string) => activeEntries.filter(e => e.planned_branch === name);
 
-  // Packaging is "complete" when kegging + canning volumes cover the expected yield
-  // (turns × recipe.expected_yield_bbl). Falls back to batch volume when no yield data.
-  const yieldPerTurn    = Number(batch?.recipes?.expected_yield_bbl ?? 0);
-  const targetPkgBbl    = yieldPerTurn > 0
-    ? yieldPerTurn * Number(batch?.turns ?? 1)
-    : Number(batch?.volume_bbl ?? 0);
-  const allocatedPkgBbl = mainEntries
-    .filter(e => e.stage === "kegging" || e.stage === "canning")
-    .reduce((s, e) => s + Number(e.volume_bbl ?? 0), 0);
-  const packagingComplete = targetPkgBbl > 0
-    ? allocatedPkgBbl >= targetPkgBbl
-    : mainEntries.some(e => e.stage === "kegging" || e.stage === "canning");
-  const isIncomplete = batch?.status !== "archived" && !packagingComplete;
+  // Per-branch packaging mismatch: compare kegging+canning total against conditioning volume.
+  // Only flags when the conditioning entry has a volume_bbl set (i.e. someone has recorded BBL).
+  const allBranches = [null, ...splitBranches] as (string | null)[];
+  const pkgMismatches = batch?.status !== "archived"
+    ? allBranches.flatMap(branch => {
+        const bEntries = activeEntries.filter(e =>
+          branch === null ? !e.planned_branch : e.planned_branch === branch,
+        );
+        const cond = bEntries.find(e => e.stage === "conditioning");
+        if (!cond?.volume_bbl) return [];
+        const condBbl = Number(cond.volume_bbl);
+        const pkgBbl  = bEntries
+          .filter(e => e.stage === "kegging" || e.stage === "canning")
+          .reduce((s, e) => s + Number(e.volume_bbl ?? 0), 0);
+        const noPkg   = !bEntries.some(e => e.stage === "kegging" || e.stage === "canning");
+        const mismatch = !noPkg && Math.abs(pkgBbl - condBbl) > 0.01;
+        if (noPkg || mismatch) {
+          const label  = branch ?? "Main";
+          const detail = noPkg
+            ? `no packaging scheduled`
+            : `${pkgBbl.toFixed(2)} BBL packaged vs ${condBbl.toFixed(2)} BBL in conditioning`;
+          return [{ label, detail }];
+        }
+        return [];
+      })
+    : [];
   const existingSplits = splitBranches.length;
 
   const batchTransfers = allTransfers.filter(t => t.batch_id === batchId);
@@ -331,13 +344,13 @@ export function EquipmentScheduleSection({
         </div>
       </div>
 
-      {/* ── Incompleteness alert ────────────────────────────────────────── */}
-      {isIncomplete && (
-        <div className="mb-3 px-3 py-2 rounded border border-amber-700/50 bg-amber-950/20 text-xs text-amber-400 leading-relaxed">
-          <span className="font-semibold">⚠ Planning incomplete</span> — no packaging stage scheduled.
-          Without a packaging end date, the conditioning tank is assumed held indefinitely, blocking equipment scheduling for future batches.
+      {/* ── Packaging mismatch alerts ────────────────────────────────────── */}
+      {pkgMismatches.map(({ label, detail }) => (
+        <div key={label} className="mb-2 px-3 py-2 rounded border border-amber-700/50 bg-amber-950/20 text-xs text-amber-400 leading-relaxed">
+          <span className="font-semibold">⚠ {label} — packaging mismatch</span>
+          {" "}— {detail}.
         </div>
-      )}
+      ))}
 
       {/* ── Main flow ───────────────────────────────────────────────────── */}
       {nodes.length === 0

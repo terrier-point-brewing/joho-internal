@@ -217,6 +217,13 @@ export async function POST(req: NextRequest) {
     was_deviation?: boolean;
   }[] = [];
 
+  const today = new Date().toISOString().split("T")[0];
+
+  // Tracks the newly created/updated destination entry and its tank type
+  // so the partial-transfer section can annotate it as a split branch.
+  let arrivedEntryId:   string | null = null;
+  let arrivedTankType:  string | null = null;
+
   // 1. Handle arrival (to_tank is fermenter or brite)
   if (to_tank_id) {
     const { data: destTankInfo } = await supabase
@@ -226,8 +233,8 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (destTankInfo && RECONCILE_TYPES.has(destTankInfo.type)) {
+      arrivedTankType = destTankInfo.type;
       const targetStage = EQ_TYPE_TO_STAGE[destTankInfo.type];
-      const today = new Date().toISOString().split("T")[0];
 
       // Look for an existing uncancelled entry for this batch+stage
       const { data: existingEntries } = await supabase
@@ -265,6 +272,7 @@ export async function POST(req: NextRequest) {
             .from("batch_schedule_entries")
             .update(updates)
             .eq("id", existing.id);
+          arrivedEntryId = existing.id;
           scheduleUpdate.push({ action: "actual_start_set", entry_id: existing.id, equipment_name: destTankInfo.name, was_deviation: false });
           // Ensure upstream chain is wired (may have been missing before)
           await wireUpstreamChain(existing.id);
@@ -292,7 +300,7 @@ export async function POST(req: NextRequest) {
             .select("id")
             .single();
 
-          if (newEntry) await wireUpstreamChain(newEntry.id);
+          if (newEntry) { arrivedEntryId = newEntry.id; await wireUpstreamChain(newEntry.id); }
           scheduleUpdate.push({ action: "deviation_rebooked", entry_id: newEntry?.id ?? "", equipment_name: destTankInfo.name, was_deviation: true });
         }
       } else {
@@ -310,7 +318,7 @@ export async function POST(req: NextRequest) {
           })
           .select("id")
           .single();
-        if (newEntry) await wireUpstreamChain(newEntry.id);
+        if (newEntry) { arrivedEntryId = newEntry.id; await wireUpstreamChain(newEntry.id); }
         scheduleUpdate.push({ action: "created", entry_id: newEntry?.id ?? "", equipment_name: destTankInfo.name, was_deviation: false });
       }
     }
@@ -343,7 +351,6 @@ export async function POST(req: NextRequest) {
       if (netInSrc <= 0.001) {
         // Tank is drained — close out the active schedule entry
         const sourceStage = EQ_TYPE_TO_STAGE[srcTankInfo.type];
-        const today = new Date().toISOString().split("T")[0];
 
         const { data: activeEntries } = await supabase
           .from("batch_schedule_entries")
@@ -395,8 +402,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: reassignErr.message }, { status: 500 });
       }
 
-      // Fix 5: keep the source schedule entry's volume_bbl in sync so capacity
-      // planning reflects the actual remaining volume rather than the original.
+      // Keep the source schedule entry's volume_bbl in sync with remaining volume.
       const { data: srcInfo } = await supabase
         .from("equipment")
         .select("type")
@@ -412,6 +418,73 @@ export async function POST(req: NextRequest) {
           .eq("equipment_id", from_tank_id)
           .is("cancelled_at", null)
           .is("actual_end", null);
+      }
+
+      // If the destination was the same stage type as the source, this is a
+      // same-stage split (e.g. brite → brite). Annotate the destination entry
+      // with a planned_branch and create packaging ghosts for the new branch.
+      const isSameStageSplit =
+        arrivedEntryId &&
+        arrivedTankType &&
+        srcInfo?.type === arrivedTankType &&
+        !PACKAGING_STAGES.has(arrivedTankType);
+
+      if (isSameStageSplit) {
+        // Count existing planned_branch names to generate the next branch number
+        const { data: existingBranches } = await supabase
+          .from("batch_schedule_entries")
+          .select("planned_branch")
+          .eq("batch_id", batch_id)
+          .not("planned_branch", "is", null)
+          .is("cancelled_at", null);
+        const branchNums = (existingBranches ?? [])
+          .map(r => { const m = String(r.planned_branch).match(/(\d+)$/); return m ? Number(m[1]) : 0; });
+        const nextNum   = (branchNums.length > 0 ? Math.max(...branchNums) : 0) + 1;
+        const branchName = `Split ${nextNum}`;
+
+        // Mark the arrived destination entry as the new split branch
+        await supabase
+          .from("batch_schedule_entries")
+          .update({ planned_branch: branchName, updated_at: new Date().toISOString() })
+          .eq("id", arrivedEntryId!);
+
+        // Scale source branch (main) downstream packaging proportionally
+        const totalPreSplit = netInTank + Number(volume_bbl ?? 0);
+        const srcRatio = totalPreSplit > 0 ? netInTank / totalPreSplit : 1;
+        const { data: srcPkgEntries } = await supabase
+          .from("batch_schedule_entries")
+          .select("id, volume_bbl")
+          .eq("batch_id", batch_id)
+          .in("stage", ["kegging", "canning"])
+          .is("planned_branch", null)
+          .is("cancelled_at", null);
+        if (srcPkgEntries?.length) {
+          await Promise.all(srcPkgEntries.map(e =>
+            supabase.from("batch_schedule_entries").update({
+              volume_bbl: Math.round(Number(e.volume_bbl) * srcRatio * 100) / 100,
+              updated_at: new Date().toISOString(),
+            }).eq("id", e.id),
+          ));
+        }
+
+        // Create kegging + canning ghost entries for the new branch
+        const splitVol = Number(volume_bbl ?? 0);
+        const kegVol   = Math.round(splitVol * 0.7 * 100) / 100;
+        const canVol   = Math.round((splitVol - kegVol) * 100) / 100;
+        for (const [stage, vol] of [["kegging", kegVol], ["canning", canVol]] as const) {
+          await supabase.from("batch_schedule_entries").insert({
+            batch_id,
+            stage,
+            equipment_id:   null,
+            planned_start:  today,
+            planned_end:    today,
+            volume_bbl:     vol,
+            planned_branch: branchName,
+            notes:          `Auto-created packaging for ${branchName}`,
+          });
+        }
+
+        scheduleUpdate.push({ action: "split_branch_created", entry_id: arrivedEntryId!, equipment_name: branchName });
       }
     }
   }
