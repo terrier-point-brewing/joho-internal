@@ -586,7 +586,7 @@ export default function BrewStatusTab() {
                                   </div>
                                   {!editMode && (
                                     <button
-                                      onClick={() => { setTransferTankId(tank.id); setTransferBatchId(otherBatch.id); setTransferFromVol(volFor(otherBatch)); }}
+                                      onClick={() => { setTransferTankId(tank.id); setTransferBatchId(otherBatch.id); setTransferFromVol(volFor(otherBatch)); setTransferInitialMode(undefined); setTransferInitialDestId(undefined); setTransferInitialConvert(undefined); }}
                                       className="text-xs text-amber-600 hover:text-amber-400 border border-amber-900 hover:border-amber-700 px-3 py-1.5 rounded transition-colors shrink-0"
                                     >
                                       Transfer
@@ -597,7 +597,7 @@ export default function BrewStatusTab() {
                             })}
                             {!editMode && (
                               <button
-                                onClick={() => { setTransferTankId(tank.id); setTransferBatchId(batch.id); setTransferFromVol(volFor(batch)); }}
+                                onClick={() => { setTransferTankId(tank.id); setTransferBatchId(batch.id); setTransferFromVol(volFor(batch)); setTransferInitialMode(undefined); setTransferInitialDestId(undefined); setTransferInitialConvert(undefined); }}
                                 className="text-xs text-amber-600 hover:text-amber-400 border border-amber-900 hover:border-amber-700 px-3 py-1.5 rounded transition-colors"
                               >
                                 Transfer
@@ -1033,7 +1033,7 @@ export default function BrewStatusTab() {
                                       </span>
                                       {!editMode && (
                                         <button
-                                          onClick={() => { setTransferTankId(tank.id); setTransferBatchId(otherBatch.id); setTransferFromVol(otherVol); }}
+                                          onClick={() => { setTransferTankId(tank.id); setTransferBatchId(otherBatch.id); setTransferFromVol(otherVol); setTransferInitialMode(undefined); setTransferInitialDestId(undefined); setTransferInitialConvert(undefined); }}
                                           onMouseDown={(e) => e.stopPropagation()}
                                           className="text-amber-700 hover:text-amber-400 shrink-0"
                                           style={{ fontSize: 8 }}
@@ -1050,7 +1050,7 @@ export default function BrewStatusTab() {
                             {!editMode && (
                               <div className="shrink-0">
                                 <button
-                                  onClick={() => { setTransferTankId(tank.id); setTransferBatchId(batch.id); setTransferFromVol(volFor(batch)); }}
+                                  onClick={() => { setTransferTankId(tank.id); setTransferBatchId(batch.id); setTransferFromVol(volFor(batch)); setTransferInitialMode(undefined); setTransferInitialDestId(undefined); setTransferInitialConvert(undefined); }}
                                   onMouseDown={(e) => e.stopPropagation()}
                                   className="w-full text-amber-700 hover:text-amber-400 border border-amber-900 hover:border-amber-700 px-1.5 rounded transition-colors"
                                   style={{ fontSize: 9 }}
