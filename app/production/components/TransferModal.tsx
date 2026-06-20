@@ -334,8 +334,8 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
           </div>
         )}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* ── Left column: where it's going ── */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+          {/* ── Left column: where it's going (inputs only) ── */}
           <div className="space-y-3">
             {/* Convert mode description */}
             {mode === "convert" && (
@@ -354,7 +354,7 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
               </p>
             )}
 
-            <Field label={mode === "convert" ? "Destination" : "Destination"} required>
+            <Field label="Destination" required>
               {/* Planned booking pill (transfer mode only) */}
               {mode === "transfer" && plannedEntry && plannedEntry.equipment_id && (
                 <div className="flex items-center gap-2 mb-2 px-2 py-1.5 rounded bg-zinc-800/60 border border-zinc-700 text-xs text-zinc-400">
@@ -378,17 +378,6 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
               </select>
               {destTanks.length === 0 && mode === "convert" && (
                 <p className="text-xs text-zinc-500 mt-1">No free tanks available for a conversion from this stage.</p>
-              )}
-              {/* Deviation warning (transfer mode only) */}
-              {mode === "transfer" && plannedEntry && plannedEntry.equipment_id && effectiveDestId && effectiveDestId !== plannedEntry.equipment_id && (
-                <div className="mt-1.5 px-3 py-2 rounded border border-amber-700/60 bg-amber-950/40 text-xs text-amber-300">
-                  ⚠ <span className="font-semibold">Deviation from plan:</span> this batch was scheduled for{" "}
-                  <span className="text-amber-200 font-medium">{plannedEntry.equipment?.name ?? "another tank"}</span>.
-                  Proceeding will cancel that booking and may cause conflicts with downstream schedule entries that will need to be resolved.
-                </div>
-              )}
-              {mode === "transfer" && destIsConstrained && destTank?.capacity_bbl && (
-                <p className="text-xs text-zinc-500 mt-0.5">Capacity: {fmtBbl(destTank.capacity_bbl)} — transfer will be rejected if it exceeds this.</p>
               )}
             </Field>
           </div>
@@ -426,11 +415,6 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
                       value={convertBbl} onChange={(e) => setConvertBbl(e.target.value)} />
                     <span className="text-zinc-500 text-sm">BBL</span>
                   </div>
-                  {drawBbl > 0 && remaining <= 0 && (
-                    <p className="text-amber-400 text-xs mt-1">
-                      Full conversion — the parent batch will be archived after this.
-                    </p>
-                  )}
                 </Field>
               </>
             )}
@@ -470,6 +454,24 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
             )}
           </div>
         </div>
+
+        {/* ── Full-width hints/warnings, kept out of the 2-col grid above so
+             column heights stay in sync regardless of which warnings show ── */}
+        {mode === "transfer" && destIsConstrained && destTank?.capacity_bbl && (
+          <p className="text-xs text-zinc-500">Capacity: {fmtBbl(destTank.capacity_bbl)} — transfer will be rejected if it exceeds this.</p>
+        )}
+        {mode === "transfer" && plannedEntry && plannedEntry.equipment_id && effectiveDestId && effectiveDestId !== plannedEntry.equipment_id && (
+          <div className="px-3 py-2 rounded border border-amber-700/60 bg-amber-950/40 text-xs text-amber-300">
+            ⚠ <span className="font-semibold">Deviation from plan:</span> this batch was scheduled for{" "}
+            <span className="text-amber-200 font-medium">{plannedEntry.equipment?.name ?? "another tank"}</span>.
+            Proceeding will cancel that booking and may cause conflicts with downstream schedule entries that will need to be resolved.
+          </div>
+        )}
+        {mode === "convert" && drawBbl > 0 && remaining <= 0 && (
+          <p className="text-amber-400 text-xs">
+            Full conversion — the parent batch will be archived after this.
+          </p>
+        )}
 
         {/* ── Keg detail ── */}
         {showKegDetail && (
@@ -563,7 +565,7 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
         )}
 
         {/* Volume summary + notes, side by side to save vertical space */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
           <div>
             <div className="rounded border border-zinc-800 bg-zinc-900/40 p-3 text-xs space-y-1">
               <div className="flex justify-between text-zinc-400">
