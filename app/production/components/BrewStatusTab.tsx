@@ -9,6 +9,7 @@ import { EQ, EQ_TYPES } from "../equipmentMeta";
 import { GRID_CELL_PX as CELL, GRID_COLS, GRID_ROWS, GRID_GAP_PX as GAP } from "@/lib/constants/production";
 import { fmtDate } from "@/lib/utils/formatting";
 import TransferModal from "./TransferModal";
+import NextPlannedBox from "./FloorplanTile/NextPlannedBox";
 import { useTankDragDrop } from "../hooks/useTankDragDrop";
 import { useEquipmentCrud } from "../hooks/useEquipmentCrud";
 import { useBatchAssign } from "../hooks/useBatchAssign";
@@ -549,13 +550,13 @@ export default function BrewStatusTab() {
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0">
                                 {nextPlanned && nextPlanned.brew_batches ? (
-                                  <>
-                                    <p className="text-xs text-zinc-500 font-semibold uppercase tracking-wide mb-0.5">Next planned</p>
-                                    <p className="text-sm text-zinc-300 font-medium truncate">
-                                      #{nextPlanned.brew_batches.batch_number} {nextPlanned.brew_batches.beer_name}
-                                    </p>
-                                    <p className="text-xs text-zinc-600">{nextPlanned.planned_start.slice(0, 10)} · {nextPlanned.brew_batches.volume_bbl} BBL</p>
-                                  </>
+                                  <NextPlannedBox
+                                    batchNumber={nextPlanned.brew_batches.batch_number}
+                                    beerName={nextPlanned.brew_batches.beer_name}
+                                    plannedStart={nextPlanned.planned_start}
+                                    volumeBbl={nextPlanned.brew_batches.volume_bbl}
+                                    size="sm"
+                                  />
                                 ) : (
                                   <p className="text-sm text-zinc-600">Empty</p>
                                 )}
@@ -948,12 +949,13 @@ export default function BrewStatusTab() {
                                 keeps fully-loaded, plan-only, and occupied-only tiles aligned. */}
                             <div className="flex-1 min-h-0 overflow-y-auto space-y-0.5">
                                 {nextOccupant && (
-                                  <div className="pt-0.5 border-t border-zinc-800/60 px-1 py-0.5 rounded bg-zinc-800/40 min-w-0">
-                                    <p className="text-zinc-500 font-semibold uppercase tracking-wide" style={{ fontSize: 7 }}>Next planned</p>
-                                    <p className="text-zinc-400 truncate" style={{ fontSize: 8 }} title={`#${nextOccupant.brew_batches!.batch_number} ${nextOccupant.brew_batches!.beer_name}`}>
-                                      #{nextOccupant.brew_batches!.batch_number} {nextOccupant.brew_batches!.beer_name}
-                                      <span className="text-zinc-600"> · {fmtDate(nextOccupant.planned_start)}</span>
-                                    </p>
+                                  <div className="pt-0.5 border-t border-zinc-800/60">
+                                    <NextPlannedBox
+                                      batchNumber={nextOccupant.brew_batches!.batch_number}
+                                      beerName={nextOccupant.brew_batches!.beer_name}
+                                      plannedStart={nextOccupant.planned_start}
+                                      volumeBbl={null}
+                                    />
                                   </div>
                                 )}
                                 {/* Same-recipe batches combined into this tank */}
@@ -1000,29 +1002,33 @@ export default function BrewStatusTab() {
                           </>
                         ) : (
                           <div className="flex-1 min-h-0 flex flex-col gap-0.5">
-                            {/* Top-aligned to land in the same slot the batch-identity row
-                                occupies on an occupied tile, so empty/plan-only/occupied
-                                tiles all read at a consistent height across a row. */}
-                            <div className="shrink-0">
-                              {nextPlanned?.brew_batches ? (
-                                <div className="px-1 py-0.5 rounded bg-zinc-800/60 border border-zinc-700/50 w-full min-w-0">
-                                  <p className="text-zinc-500 font-semibold uppercase tracking-wide" style={{ fontSize: 7 }}>Next planned</p>
-                                  <p className="text-zinc-300 font-medium truncate" style={{ fontSize: 8 }} title={`#${nextPlanned.brew_batches.batch_number} ${nextPlanned.brew_batches.beer_name}`}>
-                                    #{nextPlanned.brew_batches.batch_number} {nextPlanned.brew_batches.beer_name}
-                                  </p>
-                                  <p className="text-zinc-600 truncate" style={{ fontSize: 7 }}>
-                                    {fmtDate(nextPlanned.planned_start)} · {nextPlanned.brew_batches.volume_bbl} BBL
-                                  </p>
-                                </div>
-                              ) : (
-                                <p className="text-zinc-700" style={{ fontSize: 9 }}>Empty</p>
-                              )}
-                            </div>
-                            {/* Spacer — keeps the Assign button (or nothing) bottom-pinned,
-                                same as the Transfer button slot on occupied tiles. */}
+                            {/* Capacity bar reserved for empty tanks too (0% fill), so empty
+                                and occupied tiles read consistently — see capacity row above,
+                                which already always renders the text line; this adds the bar. */}
+                            {!isUnconstrained && tank.capacity_bbl && (
+                              <div className="shrink-0 w-full rounded-full overflow-hidden" style={{ height: 3, background: "rgba(63,63,70,0.6)", marginBottom: 2 }} />
+                            )}
+                            {/* Spacer — pushes Next planned + button slot to the bottom,
+                                same position they occupy on an occupied tile. */}
                             <div className="flex-1 min-h-0" />
-                            {!editMode && tank.type === "brewhouse" && unassignedBatches.length > 0 && (
+                            {nextPlanned?.brew_batches && (
                               <div className="shrink-0">
+                                <NextPlannedBox
+                                  batchNumber={nextPlanned.brew_batches.batch_number}
+                                  beerName={nextPlanned.brew_batches.beer_name}
+                                  plannedStart={nextPlanned.planned_start}
+                                  volumeBbl={nextPlanned.brew_batches.volume_bbl}
+                                />
+                              </div>
+                            )}
+                            {!nextPlanned?.brew_batches && (
+                              <p className="shrink-0 text-zinc-700" style={{ fontSize: 9 }}>Empty</p>
+                            )}
+                            {/* Button slot — always reserved, even when no button renders,
+                                so Next planned sits at the same height as the Transfer slot
+                                on an occupied tile. */}
+                            <div className="shrink-0" style={{ minHeight: !editMode && tank.type === "brewhouse" && unassignedBatches.length > 0 ? undefined : 18 }}>
+                              {!editMode && tank.type === "brewhouse" && unassignedBatches.length > 0 && (
                                 <button
                                   onClick={() => assign.openAssign(tank.id)}
                                   onMouseDown={(e) => e.stopPropagation()}
@@ -1031,8 +1037,8 @@ export default function BrewStatusTab() {
                                 >
                                   Assign
                                 </button>
-                              </div>
-                            )}
+                              )}
+                            </div>
                           </div>
                         )}
                       </div>
