@@ -52,6 +52,12 @@ interface TransferModalProps {
   fromTankVolume?: number;
   /** Next planned schedule entry for the next stage of this batch (from batch_schedule_entries) */
   plannedEntry?: ScheduleEntry | null;
+  /** Pre-select this destination tank on open, overriding the planned-entry auto-select, if it's a valid destination */
+  initialDestId?: string;
+  /** Open directly into Convert mode instead of the default Transfer mode */
+  initialMode?: "transfer" | "convert";
+  /** Pre-fill the Convert-mode fields (used when opened from a planned conversion's "Convert" action) */
+  initialConvert?: { recipeId: string; beerName: string; bbl: string };
   onClose: () => void;
   onDone: (response?: { schedule_update?: { action: string; was_deviation?: boolean; equipment_name?: string }[] }) => Promise<void>;
 }
@@ -61,8 +67,8 @@ function pkgLabel(p: PackagingItem): string {
   return partner ? `${p.name} (${partner})` : p.name;
 }
 
-export default function TransferModal({ batch, fromTank, allTanks, occupiedTankIds, occupiedTankRecipeIds, packaging, recipes, fromTankVolume, plannedEntry, onClose, onDone }: TransferModalProps) {
-  const [mode, setMode] = useState<"transfer" | "convert">("transfer");
+export default function TransferModal({ batch, fromTank, allTanks, occupiedTankIds, occupiedTankRecipeIds, packaging, recipes, fromTankVolume, plannedEntry, initialDestId, initialMode, initialConvert, onClose, onDone }: TransferModalProps) {
+  const [mode, setMode] = useState<"transfer" | "convert">(initialMode ?? "transfer");
 
   // Same-recipe batches may combine in the same tank — only a DIFFERENT
   // recipe already occupying the tank is a real conflict.
@@ -104,10 +110,16 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
   const defaultTray    = packaging.find((p) => p.type === "tray"    && p.is_default);
   const defaultLabel   = packaging.find((p) => p.type === "label"   && p.is_default);
 
-  // Pre-select planned destination if the planned entry points to a valid available tank
+  // Pre-select planned destination if the planned entry points to a valid available tank;
+  // an explicit initialDestId (from the Up Next banner) takes priority over both.
   const plannedDestId = plannedEntry?.equipment_id ?? null;
   const plannedDestValid = plannedDestId ? destTanks.some((t) => t.id === plannedDestId) : false;
-  const [destId,    setDestId]    = useState(plannedDestValid && plannedDestId ? plannedDestId : (destTanks[0]?.id ?? ""));
+  const initialDestValid = initialDestId ? destTanks.some((t) => t.id === initialDestId) : false;
+  const [destId, setDestId] = useState(
+    initialDestValid && initialDestId ? initialDestId
+      : plannedDestValid && plannedDestId ? plannedDestId
+      : (destTanks[0]?.id ?? "")
+  );
   const [volumeMode, setVolumeMode] = useState<"full" | "partial">("full");
   const [partialBbl, setPartialBbl] = useState("");
   const [shrinkage,  setShrinkage]  = useState("0");
@@ -123,9 +135,9 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
   const [looseCans, setLooseCans] = useState("0");
 
   // Conversion-specific state
-  const [convertRecipeId, setConvertRecipeId] = useState("");
-  const [convertBeerName, setConvertBeerName] = useState("");
-  const [convertBbl,      setConvertBbl]      = useState("");
+  const [convertRecipeId, setConvertRecipeId] = useState(initialConvert?.recipeId ?? "");
+  const [convertBeerName, setConvertBeerName] = useState(initialConvert?.beerName ?? "");
+  const [convertBbl,      setConvertBbl]      = useState(initialConvert?.bbl ?? "");
 
   const destTank = allTanks.find((t) => t.id === destId);
 

@@ -110,6 +110,11 @@ export default function BrewStatusTab() {
   const [transferTankId, setTransferTankId] = useState<string | null>(null);
   const [transferBatchId, setTransferBatchId] = useState<string | null>(null);
   const [transferFromVol, setTransferFromVol] = useState<number | undefined>(undefined);
+  // When the Up Next banner opens the Transfer modal directly (rather than
+  // the per-tank Transfer button), it may need to seed Convert-mode fields.
+  const [transferInitialDestId, setTransferInitialDestId] = useState<string | undefined>(undefined);
+  const [transferInitialMode, setTransferInitialMode] = useState<"transfer" | "convert" | undefined>(undefined);
+  const [transferInitialConvert, setTransferInitialConvert] = useState<{ recipeId: string; beerName: string; bbl: string } | undefined>(undefined);
   // Tracks batch IDs currently being sent to cold storage (kegging/canning one-click transfer)
   const [pkgTransferring, setPkgTransferring] = useState<Set<string>>(new Set());
 
@@ -226,6 +231,12 @@ export default function BrewStatusTab() {
   // one active assignment — group them so tiles can show every occupant.
   const assignmentsByTank: Record<string, BatchTankAssignment[]> = {};
   for (const a of assignments) (assignmentsByTank[a.tank_id] ??= []).push(a);
+  // Reverse lookup: which tank (if any) currently holds a given batch — this
+  // is the "current upstream action" an Up Next entry is sourced from.
+  const tankById = Object.fromEntries(tanks.map((t) => [t.id, t])) as Record<string, Equipment | undefined>;
+  const currentTankByBatchId: Record<string, Equipment | undefined> = Object.fromEntries(
+    assignments.map((a) => [a.batch_id, tankById[a.tank_id]])
+  );
   const assignedBatchIds   = new Set(assignments.map((a) => a.batch_id));
   // Packaging-status batches live on their kegging/canning tile — don't show in backlog/unassigned
   const unassignedBatches  = batches.filter((b) => b.status !== "archived" && b.status !== "packaging" && !assignedBatchIds.has(b.id));
@@ -274,9 +285,47 @@ export default function BrewStatusTab() {
   // Flattened, globally-sorted upcoming tasks for the top banner.
   const upcomingTasks = React.useMemo(() => {
     return [...scheduleEntries]
-      .filter(e => e.equipment_id && !e.cancelled_at && !e.actual_start && e.stage !== "planned_conversion")
+      .filter(e => e.equipment_id && !e.cancelled_at && !e.actual_start)
       .sort((a, b) => a.planned_start.localeCompare(b.planned_start));
   }, [scheduleEntries]);
+
+  // Resolve the right click-through action for an Up Next card: prefer a
+  // direct Transfer/Convert action over the tank's current occupant, falling
+  // back to the read-only "Upcoming plans" popup when there's no current
+  // tank to act from (e.g. the batch hasn't been brewed/placed yet).
+  function openUpNextAction(e: ScheduleEntry) {
+    const currentTank = currentTankByBatchId[e.batch_id];
+    if (!currentTank) {
+      if (e.equipment_id) setPlansEquipmentId(e.equipment_id);
+      return;
+    }
+    if (e.stage === "planned_conversion") {
+      let conversionInfo: { beer_name?: string; child_batch_id?: string } = {};
+      try { conversionInfo = JSON.parse(e.notes ?? "{}"); } catch { /* malformed/missing notes — fall back to blanks */ }
+      const childBatch = conversionInfo.child_batch_id ? batchById[conversionInfo.child_batch_id] : undefined;
+      setTransferTankId(currentTank.id);
+      setTransferBatchId(e.batch_id);
+      setTransferFromVol(undefined);
+      setTransferInitialMode("convert");
+      setTransferInitialDestId(undefined);
+      setTransferInitialConvert({
+        recipeId: childBatch?.recipe_id ?? "",
+        beerName: conversionInfo.beer_name ?? "",
+        bbl: e.volume_bbl != null ? String(e.volume_bbl) : "",
+      });
+      return;
+    }
+    // In-place fermenting→conditioning, or any other transfer to a specific
+    // planned tank: open Transfer mode with that tank pre-selected as the
+    // destination (TransferModal falls back to its own first-valid-option
+    // default if this tank isn't actually a legal destination).
+    setTransferTankId(currentTank.id);
+    setTransferBatchId(e.batch_id);
+    setTransferFromVol(undefined);
+    setTransferInitialMode("transfer");
+    setTransferInitialDestId(e.equipment_id ?? undefined);
+    setTransferInitialConvert(undefined);
+  }
 
   const [plansEquipmentId, setPlansEquipmentId] = useState<string | null>(null);
   const plansEquipment = plansEquipmentId ? tanks.find(t => t.id === plansEquipmentId) ?? null : null;
@@ -352,10 +401,18 @@ export default function BrewStatusTab() {
               const b = e.brew_batches ?? (e.batch_id ? batchById[e.batch_id] : null);
               const eqName = e.equipment?.name ?? tanks.find(t => t.id === e.equipment_id)?.name ?? "—";
               const overdue = e.planned_start.slice(0, 10) < new Date().toISOString().slice(0, 10);
+              const currentTank = currentTankByBatchId[e.batch_id];
+              const actionLabel = !currentTank
+                ? null
+                : e.stage === "planned_conversion"
+                ? "Convert"
+                : e.stage === "conditioning" && e.equipment_id === currentTank.id
+                ? "Confirm Conditioning"
+                : "Transfer";
               return (
                 <button
                   key={e.id}
-                  onClick={() => e.equipment_id && setPlansEquipmentId(e.equipment_id)}
+                  onClick={() => openUpNextAction(e)}
                   className={`shrink-0 flex flex-col gap-0.5 text-left px-2.5 py-1.5 rounded border transition-colors min-w-[150px] ${
                     overdue
                       ? "border-red-800/60 bg-red-950/30 hover:bg-red-950/50"
@@ -371,6 +428,9 @@ export default function BrewStatusTab() {
                   <span className="text-[10px] text-zinc-500">
                     {fmtDate(e.planned_start)}{e.volume_bbl != null && ` · ${Number(e.volume_bbl).toFixed(1)} BBL`}
                   </span>
+                  {actionLabel && (
+                    <span className="text-[9px] text-amber-600 font-medium mt-0.5">{actionLabel} →</span>
+                  )}
                 </button>
               );
             })}
@@ -1303,7 +1363,17 @@ export default function BrewStatusTab() {
           recipes={recipes}
           fromTankVolume={transferFromVol}
           plannedEntry={transferPlannedEntry}
-          onClose={() => { setTransferTankId(null); setTransferBatchId(null); setTransferFromVol(undefined); }}
+          initialDestId={transferInitialDestId}
+          initialMode={transferInitialMode}
+          initialConvert={transferInitialConvert}
+          onClose={() => {
+            setTransferTankId(null);
+            setTransferBatchId(null);
+            setTransferFromVol(undefined);
+            setTransferInitialDestId(undefined);
+            setTransferInitialMode(undefined);
+            setTransferInitialConvert(undefined);
+          }}
           onDone={handleTransferDone}
         />
       )}
