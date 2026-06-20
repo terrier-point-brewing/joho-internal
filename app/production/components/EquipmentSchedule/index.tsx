@@ -4,7 +4,7 @@ import React, { useState, useCallback, useMemo } from "react";
 import { addDays, parseISO } from "date-fns";
 import { useQueryClient } from "@tanstack/react-query";
 import {
-  ReactFlow, Background, BackgroundVariant,
+  ReactFlow, Background, BackgroundVariant, Controls,
   type NodeTypes,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
@@ -13,7 +13,10 @@ import {
   type ScheduleEntry,
 } from "../../hooks/queries";
 import type { BrewBatch, Equipment, Recipe } from "../../types";
-import { PLANNING_STAGES, STAGE_LABELS, STAGE_TO_EQ_TYPE } from "./constants";
+import {
+  PLANNING_STAGES, STAGE_LABELS, STAGE_TO_EQ_TYPES, computeBranchPackagingStatus,
+  findEquipmentConflict, conflictBatchLabel, suggestAlternativeEquipment,
+} from "./constants";
 import { buildGraphData } from "./buildGraphData";
 import { EntryNode, GhostNode, ConversionNode } from "./nodes";
 import { GhostFlowChain } from "./GhostFlowChain";
@@ -68,36 +71,28 @@ export function EquipmentScheduleSection({
   const splitBranches  = [...new Set(activeEntries.filter(e => e.planned_branch).map(e => e.planned_branch!))].sort();
   const branchEntries  = (name: string) => activeEntries.filter(e => e.planned_branch === name);
 
-  // Per-branch packaging mismatch: compare kegging+canning total against conditioning volume.
-  // Only flags when the conditioning entry has a volume_bbl set (i.e. someone has recorded BBL).
-  const allBranches = [null, ...splitBranches] as (string | null)[];
-  const pkgMismatches = batch?.status !== "archived"
-    ? allBranches.flatMap(branch => {
-        const bEntries = activeEntries.filter(e =>
-          branch === null ? !e.planned_branch : e.planned_branch === branch,
-        );
-        const cond = bEntries.find(e => e.stage === "conditioning");
-        if (!cond?.volume_bbl) return [];
-        const condBbl = Number(cond.volume_bbl);
-        const pkgBbl  = bEntries
-          .filter(e => e.stage === "kegging" || e.stage === "canning")
-          .reduce((s, e) => s + Number(e.volume_bbl ?? 0), 0);
-        const noPkg   = !bEntries.some(e => e.stage === "kegging" || e.stage === "canning");
-        const mismatch = !noPkg && Math.abs(pkgBbl - condBbl) > 0.01;
-        if (noPkg || mismatch) {
-          const label  = branch ?? "Main";
-          const detail = noPkg
-            ? `no packaging scheduled`
-            : `${pkgBbl.toFixed(2)} BBL packaged vs ${condBbl.toFixed(2)} BBL in conditioning`;
-          return [{ label, detail }];
-        }
-        return [];
-      })
-    : [];
+  // Per-branch planning completeness: required quantity for a branch is the BBL
+  // recorded on that branch's Conditioning entry; flag when kegging+canning
+  // scheduled for that branch don't yet exhaust it (or none is scheduled at all).
+  const pkgStatuses = batch?.status !== "archived" ? computeBranchPackagingStatus(activeEntries) : [];
+  // Both under- and over-allocation are surfaced as "planning incomplete" — in
+  // either direction, the schedule doesn't accurately account for what's
+  // actually been (or needs to be) packaged out of conditioning.
+  const pkgMismatches = pkgStatuses
+    .filter(s => s.status !== "ok")
+    .map(s => ({
+      label: s.label,
+      detail: s.status === "no_packaging"
+        ? "no packaging scheduled"
+        : s.status === "incomplete"
+          ? `${s.pkgBbl.toFixed(2)} BBL packaged vs ${s.condBbl.toFixed(2)} BBL in conditioning`
+          : `${s.pkgBbl.toFixed(2)} BBL packaged exceeds ${s.condBbl.toFixed(2)} BBL in conditioning`,
+    }));
   const existingSplits = splitBranches.length;
 
   const batchTransfers = allTransfers.filter(t => t.batch_id === batchId);
-  const { nodes: rawNodes, edges } = buildGraphData(activeEntries, allBatches, batch, allTransfers);
+  const { nodes: rawNodes, edges } = buildGraphData(activeEntries, allBatches, batch, allTransfers, allScheduleEntries);
+  const conversionCount = allBatches.filter(b => b.converted_from_batch_id === batchId).length;
 
   // ── Auto-suggest ──────────────────────────────────────────────────────────
   async function autoSuggest() {
@@ -208,7 +203,7 @@ export function EquipmentScheduleSection({
   }
 
   // ── Edit entry ────────────────────────────────────────────────────────────
-  function openEdit(entry: ScheduleEntry) {
+  const openEdit = useCallback((entry: ScheduleEntry) => {
     setEditing(entry);
     setPanel({ kind: "none" });
     setEditForm({
@@ -221,24 +216,21 @@ export function EquipmentScheduleSection({
       volume_bbl:    entry.volume_bbl != null ? String(entry.volume_bbl) : "",
       notes:         entry.notes ?? "",
     });
-  }
+  }, []);
   const f = (k: keyof typeof editForm, v: string) => setEditForm(p => ({ ...p, [k]: v }));
 
+  const editConflict = editForm.equipment_id && editForm.planned_start && editForm.planned_end
+    ? findEquipmentConflict(allScheduleEntries, editForm.equipment_id, editForm.planned_start, editForm.planned_end, batchId, editing?.id)
+    : null;
+  const editSuggestion = editConflict
+    ? suggestAlternativeEquipment(
+        equipment.filter(eq => STAGE_TO_EQ_TYPES[editForm.stage]?.includes(eq.type)),
+        allScheduleEntries, editForm.planned_start, editForm.planned_end, batchId, editForm.equipment_id, editing?.id,
+      )
+    : null;
+
   async function saveEdit() {
-    if (editForm.equipment_id && editForm.planned_start && editForm.planned_end) {
-      const conflict = allScheduleEntries.find(e =>
-        e.id !== editing?.id && e.batch_id !== batchId &&
-        e.equipment_id === editForm.equipment_id && !e.cancelled_at &&
-        e.planned_start.slice(0, 10) < editForm.planned_end &&
-        e.planned_end.slice(0, 10) > editForm.planned_start
-      );
-      if (conflict) {
-        const name = conflict.brew_batches
-          ? `#${conflict.brew_batches.batch_number} ${conflict.brew_batches.beer_name}`
-          : "another batch";
-        if (!confirm(`Warning: this equipment is already scheduled for ${name} during these dates. Save anyway?`)) return;
-      }
-    }
+    if (editConflict && !confirm(`Warning: this equipment is already scheduled for ${conflictBatchLabel(editConflict)} during these dates. Save anyway?`)) return;
     setEditSaving(true);
     try {
       const payload: Record<string, unknown> = {
@@ -280,7 +272,7 @@ export function EquipmentScheduleSection({
     }
   }
 
-  async function removeEntry(id: string) {
+  const removeEntry = useCallback(async (id: string) => {
     if (!confirm("Remove this schedule entry?")) return;
     const removed = entries.find(e => e.id === id);
     await fetch(`/api/production/batch-schedule/${id}`, { method: "DELETE" });
@@ -299,7 +291,7 @@ export function EquipmentScheduleSection({
     }
     await reload();
     setEditing(null);
-  }
+  }, [entries, reload]);
 
   const nodeTypes: NodeTypes = useMemo(() => ({
     entryNode:      EntryNode,
@@ -311,7 +303,7 @@ export function EquipmentScheduleSection({
   const onSplit = useCallback((e: ScheduleEntry) => { setEditing(null); setPanel({ kind: "split", entry: e }); }, []);
   const onConvert = useCallback((e: ScheduleEntry) => { setEditing(null); setPanel({ kind: "convert", entry: e }); }, []);
 
-  const nodes = useMemo(() => rawNodes.map(n => ({
+  const nodes = rawNodes.map(n => ({
     ...n,
     data: {
       ...n.data,
@@ -322,7 +314,7 @@ export function EquipmentScheduleSection({
       onRemove:  removeEntry,
       editing,
     },
-  })), [rawNodes, openEdit, onBuild, onSplit, onConvert, removeEntry, editing]);
+  }));
 
   return (
     <div>
@@ -344,10 +336,10 @@ export function EquipmentScheduleSection({
         </div>
       </div>
 
-      {/* ── Packaging mismatch alerts ────────────────────────────────────── */}
+      {/* ── Planning incomplete alerts ───────────────────────────────────── */}
       {pkgMismatches.map(({ label, detail }) => (
         <div key={label} className="mb-2 px-3 py-2 rounded border border-amber-700/50 bg-amber-950/20 text-xs text-amber-400 leading-relaxed">
-          <span className="font-semibold">⚠ {label} — packaging mismatch</span>
+          <span className="font-semibold">⚠ {label} — planning incomplete</span>
           {" "}— {detail}.
         </div>
       ))}
@@ -360,22 +352,24 @@ export function EquipmentScheduleSection({
           </div>
         )
         : (
-          <div style={{ height: `${Math.max(1, 1 + splitBranches.length) * 150 + 80}px` }} className="mb-3 rounded-lg overflow-hidden border border-zinc-800">
+          <div style={{ height: `${Math.max(1, 1 + splitBranches.length + conversionCount) * 150 + 80}px` }} className="mb-3 rounded-lg overflow-hidden border border-zinc-800">
             <ReactFlow
               nodes={nodes}
               edges={edges}
               nodeTypes={nodeTypes}
               fitView
               fitViewOptions={{ padding: 0.2 }}
-              panOnDrag={false}
-              zoomOnScroll={false}
+              panOnDrag
+              zoomOnScroll
+              zoomOnPinch
               nodesDraggable={false}
               nodesConnectable={false}
-              minZoom={0.4}
-              maxZoom={1.2}
+              minZoom={0.2}
+              maxZoom={1.5}
               colorMode="dark"
             >
               <Background color="#3f3f46" gap={20} size={1} variant={BackgroundVariant.Dots} />
+              <Controls showInteractive={false} />
             </ReactFlow>
           </div>
         )
@@ -386,13 +380,14 @@ export function EquipmentScheduleSection({
       {panel.kind === "build" && batch && recipes && (
         <BuildSchedulePanel
           batchId={batchId} batch={batch} recipes={recipes} equipment={equipment}
-          entries={entries} onSaved={reload} onClose={closePanel}
+          entries={entries} allScheduleEntries={allScheduleEntries} onSaved={reload} onClose={closePanel}
         />
       )}
 
       {panel.kind === "add_stage" && (
         <AddStagePanel
           batchId={batchId} equipment={equipment}
+          allScheduleEntries={allScheduleEntries}
           plannedBranch={panel.branch}
           onSaved={reload} onClose={closePanel}
         />
@@ -406,6 +401,7 @@ export function EquipmentScheduleSection({
           existingSplitCount={existingSplits}
           equipment={equipment}
           entries={entries}
+          allScheduleEntries={allScheduleEntries}
           onSaved={reload} onClose={closePanel}
         />
       )}
@@ -416,6 +412,8 @@ export function EquipmentScheduleSection({
           sourceEntry={panel.entry}
           totalBbl={Number(panel.entry.volume_bbl ?? batch?.volume_bbl ?? 0)}
           recipes={recipes}
+          equipment={equipment}
+          allScheduleEntries={allScheduleEntries}
           onSaved={reload} onClose={closePanel}
         />
       )}
@@ -437,7 +435,7 @@ export function EquipmentScheduleSection({
               <select className="inp text-xs" value={editForm.equipment_id}
                 onChange={e => f("equipment_id", e.target.value)}>
                 <option value="">— none —</option>
-                {equipment.filter(eq => eq.type === STAGE_TO_EQ_TYPE[editForm.stage]).map(eq => (
+                {equipment.filter(eq => STAGE_TO_EQ_TYPES[editForm.stage]?.includes(eq.type)).map(eq => (
                   <option key={eq.id} value={eq.id}>{eq.name}</option>
                 ))}
               </select>
@@ -475,6 +473,15 @@ export function EquipmentScheduleSection({
                 onChange={e => f("notes", e.target.value)} placeholder="Optional" />
             </div>
           </div>
+          {editConflict && (
+            <div className="px-3 py-2 rounded border border-red-700/50 bg-red-950/30 text-xs text-red-400 leading-relaxed">
+              <span className="font-semibold">⚠ Equipment conflict</span> — already scheduled for {conflictBatchLabel(editConflict)} during these dates.
+              {editSuggestion && (
+                <> Try <button type="button" onClick={() => f("equipment_id", editSuggestion.id)} className="underline underline-offset-2 hover:text-red-300">{editSuggestion.name}</button> instead.</>
+              )}
+              {!editSuggestion && " No conflict-free equipment of this type is available for these dates."}
+            </div>
+          )}
           <div className="flex gap-2">
             <button type="button" onClick={saveEdit}
               disabled={editSaving || !editForm.planned_start || !editForm.planned_end}

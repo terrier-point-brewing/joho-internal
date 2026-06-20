@@ -41,10 +41,15 @@ export async function POST(req: NextRequest) {
     .single();
   if (recipeErr) return NextResponse.json({ error: recipeErr.message }, { status: 500 });
 
-  // Auto-derive expected_delivery_date from recipe lead time when not explicitly provided.
+  // Auto-derive expected_delivery_date from recipe lead time when not explicitly
+  // provided. A converted batch skips brewhouse/fermenting entirely — only the
+  // remaining (brite/conditioning) lead time applies from its planned_brew_date,
+  // which for a conversion is really the receiving tank's planned start.
   let resolvedDeliveryDate: string | null = expected_delivery_date || null;
   if (!resolvedDeliveryDate && planned_brew_date && recipeData) {
-    const leadDays = (recipeData.days_brewhouse ?? 0) + (recipeData.days_fermenter ?? 0) + (recipeData.days_brite ?? 0);
+    const leadDays = converted_from_batch_id
+      ? (recipeData.days_brite ?? 0)
+      : (recipeData.days_brewhouse ?? 0) + (recipeData.days_fermenter ?? 0) + (recipeData.days_brite ?? 0);
     if (leadDays > 0) {
       const brewDate = new Date(planned_brew_date);
       brewDate.setUTCDate(brewDate.getUTCDate() + leadDays);
@@ -57,12 +62,12 @@ export async function POST(req: NextRequest) {
   const { data: batch, error: batchErr } = await supabase
     .rpc("create_batch_with_consumption", {
       p_beer_name:              beer_name,
-      p_planned_brew_date:      planned_brew_date,
+      p_planned_brew_date:      planned_brew_date ?? null,
       p_expected_delivery_date: resolvedDeliveryDate,
       p_volume_bbl:             volume_bbl,
-      p_turns:                  turns,
+      p_turns:                  turns ?? 1,
       p_status:                 status,
-      p_notes:                  notes,
+      p_notes:                  notes ?? null,
       p_recipe_id:              recipe_id,
     })
     .single<{ id: string }>();
@@ -84,7 +89,9 @@ export async function POST(req: NextRequest) {
 
   // Seed a brewhouse schedule entry so the scheduler sees it as occupied.
   // equipment_id is null at creation time (tank assigned later via tank-assignments).
-  if (planned_brew_date) {
+  // A batch created from a conversion never has an upstream brewhouse stage —
+  // planned_brew_date is only set on it as a NOT NULL placeholder.
+  if (planned_brew_date && !converted_from_batch_id) {
     const brewhouseDays = Math.max(1, recipeData?.days_brewhouse ?? 1);
     const brewEnd = new Date(planned_brew_date);
     brewEnd.setUTCDate(brewEnd.getUTCDate() + brewhouseDays);

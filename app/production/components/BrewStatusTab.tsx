@@ -195,12 +195,19 @@ export default function BrewStatusTab() {
   }
 
   const assignmentByTank   = Object.fromEntries(assignments.map((a) => [a.tank_id, a])) as Record<string, BatchTankAssignment | undefined>;
+  // Same-recipe batches can combine in one tank, so a tank may have more than
+  // one active assignment — group them so tiles can show every occupant.
+  const assignmentsByTank: Record<string, BatchTankAssignment[]> = {};
+  for (const a of assignments) (assignmentsByTank[a.tank_id] ??= []).push(a);
   const assignedBatchIds   = new Set(assignments.map((a) => a.batch_id));
   // Packaging-status batches live on their kegging/canning tile — don't show in backlog/unassigned
   const unassignedBatches  = batches.filter((b) => b.status !== "archived" && b.status !== "packaging" && !assignedBatchIds.has(b.id));
   const planningBatches    = batches.filter((b) => b.status === "planning")
     .sort((a, b) => new Date(b.planned_brew_date).getTime() - new Date(a.planned_brew_date).getTime());
   const batchById          = Object.fromEntries(batches.map((b) => [b.id, b]));
+  const occupiedTankRecipeIds: Record<string, (string | null)[]> = Object.fromEntries(
+    Object.entries(assignmentsByTank).map(([tankId, list]) => [tankId, list.map((a) => batchById[a.batch_id]?.recipe_id ?? null)]),
+  );
 
   // Ledger: current volume per batch per tank, derived from transfer history
   const tankVolumesByBatch: Record<string, Record<string, number>> = {};
@@ -359,13 +366,13 @@ export default function BrewStatusTab() {
               if (!eq) return null;
               const assignment = assignmentByTank[tank.id];
               const batch = assignment?.brew_batches;
+              const combinedAssignments = (assignmentsByTank[tank.id] ?? []).filter((a) => a.id !== assignment?.id);
               const isTank = TANK_TYPES.has(tank.type);
               const isColdStorage = tank.type === "cold_storage";
               const isBacklog = tank.type === "backlog";
               const isUnconstrained = UNCONSTRAINED_EQUIPMENT_TYPES.includes(tank.type);
-              const ledgerVol = batch
-                ? (tankVolumesByBatch[batch.id]?.[tank.id] ?? Number(batch.volume_bbl ?? 0))
-                : 0;
+              const volFor = (b: typeof batch) => b ? (tankVolumesByBatch[b.id]?.[tank.id] ?? Number(b.volume_bbl ?? 0)) : 0;
+              const ledgerVol = volFor(batch) + combinedAssignments.reduce((s, a) => s + volFor(a.brew_batches), 0);
 
               return (
                 <div key={tank.id} className={`rounded-lg border ${eq.border} overflow-hidden`} style={{ background: "rgba(9,9,11,0.95)" }}>
@@ -423,9 +430,29 @@ export default function BrewStatusTab() {
                             {assignment && (
                               <p className="text-xs text-zinc-600 mb-2">since {fmtDate(assignment.assigned_at)}</p>
                             )}
+                            {combinedAssignments.map((a) => {
+                              const otherBatch = a.brew_batches;
+                              if (!otherBatch) return null;
+                              return (
+                                <div key={a.id} className="flex items-center justify-between gap-2 mb-2 pt-2 border-t border-zinc-800">
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    {otherBatch.batch_number && <span className="text-zinc-500 font-mono text-xs shrink-0">#{otherBatch.batch_number}</span>}
+                                    <span className="text-zinc-200 text-sm truncate">{otherBatch.beer_name} <span className="text-zinc-600 text-xs">+combined</span></span>
+                                  </div>
+                                  {!editMode && (
+                                    <button
+                                      onClick={() => { setTransferTankId(tank.id); setTransferBatchId(otherBatch.id); setTransferFromVol(volFor(otherBatch)); }}
+                                      className="text-xs text-amber-600 hover:text-amber-400 border border-amber-900 hover:border-amber-700 px-3 py-1.5 rounded transition-colors shrink-0"
+                                    >
+                                      Transfer
+                                    </button>
+                                  )}
+                                </div>
+                              );
+                            })}
                             {!editMode && (
                               <button
-                                onClick={() => { setTransferTankId(tank.id); setTransferFromVol(ledgerVol); }}
+                                onClick={() => { setTransferTankId(tank.id); setTransferBatchId(batch.id); setTransferFromVol(volFor(batch)); }}
                                 className="text-xs text-amber-600 hover:text-amber-400 border border-amber-900 hover:border-amber-700 px-3 py-1.5 rounded transition-colors"
                               >
                                 Transfer
@@ -638,6 +665,9 @@ export default function BrewStatusTab() {
             if (!eq) return null;
             const assignment  = assignmentByTank[tank.id];
             const batch       = assignment?.brew_batches;
+            // Same-recipe batches can combine in one tank — list any others
+            // sharing this tank alongside the primary occupant.
+            const combinedAssignments = (assignmentsByTank[tank.id] ?? []).filter((a) => a.id !== assignment?.id);
             const isDragging  = dragging?.id === tank.id;
             const isTank      = TANK_TYPES.has(tank.type);
             const isColdStorage = tank.type === "cold_storage";
@@ -758,10 +788,10 @@ export default function BrewStatusTab() {
 
                     {/* === Regular tank (fermenter / brite / brewhouse) === */}
                     {isTank && (() => {
-                      // Ledger volume for this batch in THIS specific tank (may be a partial split)
-                      const ledgerVol = batch
-                        ? (tankVolumesByBatch[batch.id]?.[tank.id] ?? Number(batch.volume_bbl ?? 0))
-                        : 0;
+                      // Ledger volume in THIS specific tank, summed across every
+                      // batch combined into it (may be a partial split per batch).
+                      const volFor = (b: typeof batch) => b ? (tankVolumesByBatch[b.id]?.[tank.id] ?? Number(b.volume_bbl ?? 0)) : 0;
+                      const ledgerVol = volFor(batch) + combinedAssignments.reduce((s, a) => s + volFor(a.brew_batches), 0);
                       return (
                       <>
                         {!isUnconstrained && tank.capacity_bbl && (
@@ -797,10 +827,36 @@ export default function BrewStatusTab() {
                             {assignment && (
                               <p className="text-zinc-600" style={{ fontSize: 8 }}>since {fmtDate(assignment.assigned_at)}</p>
                             )}
+                            {/* Same-recipe batches combined into this tank */}
+                            {combinedAssignments.map((a) => {
+                              const otherBatch = a.brew_batches;
+                              if (!otherBatch) return null;
+                              const otherVol = volFor(otherBatch);
+                              return (
+                                <div key={a.id} className="flex items-baseline gap-1 flex-wrap mt-0.5 pt-0.5 border-t border-zinc-800/60">
+                                  {otherBatch.batch_number && (
+                                    <span className="text-zinc-500 font-mono shrink-0" style={{ fontSize: 9 }}>#{otherBatch.batch_number}</span>
+                                  )}
+                                  <span className="text-zinc-300 leading-tight break-words" style={{ fontSize: 9 }}>
+                                    {otherBatch.beer_name} <span className="text-zinc-600">+combined</span>
+                                  </span>
+                                  {!editMode && (
+                                    <button
+                                      onClick={() => { setTransferTankId(tank.id); setTransferBatchId(otherBatch.id); setTransferFromVol(otherVol); }}
+                                      onMouseDown={(e) => e.stopPropagation()}
+                                      className="text-amber-700 hover:text-amber-400 ml-auto shrink-0"
+                                      style={{ fontSize: 8 }}
+                                    >
+                                      Transfer
+                                    </button>
+                                  )}
+                                </div>
+                              );
+                            })}
                             {!editMode && (
                               <div className="mt-auto pt-1">
                                 <button
-                                  onClick={() => { setTransferTankId(tank.id); setTransferFromVol(ledgerVol); }}
+                                  onClick={() => { setTransferTankId(tank.id); setTransferBatchId(batch.id); setTransferFromVol(volFor(batch)); }}
                                   onMouseDown={(e) => e.stopPropagation()}
                                   className="w-full text-amber-700 hover:text-amber-400 border border-amber-900 hover:border-amber-700 px-1.5 rounded transition-colors"
                                   style={{ fontSize: 9 }}
@@ -1072,6 +1128,7 @@ export default function BrewStatusTab() {
           fromTank={transferTank}
           allTanks={tanks}
           occupiedTankIds={new Set(assignments.map((a) => a.tank_id))}
+          occupiedTankRecipeIds={occupiedTankRecipeIds}
           packaging={packaging}
           recipes={recipes}
           fromTankVolume={transferFromVol}

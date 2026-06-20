@@ -15,7 +15,25 @@ export async function GET(req: NextRequest) {
   if (channel) query = query.eq("channel", channel);
   const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json(data);
+  if (!data || data.length === 0) return NextResponse.json(data);
+
+  // Sum committed BBL (batch volume x allocated %) per commitment across all batches,
+  // so the UI can hide commitments that have already been fully allocated against.
+  const ids = data.map((c) => c.id);
+  const { data: allocs } = await supabase
+    .from("batch_allocations")
+    .select("contract_request_id, percentage, brew_batches(volume_bbl)")
+    .in("contract_request_id", ids);
+
+  const committedById: Record<string, number> = {};
+  for (const a of allocs ?? []) {
+    if (!a.contract_request_id) continue;
+    const vol = Number((a.brew_batches as { volume_bbl?: number } | null)?.volume_bbl ?? 0);
+    committedById[a.contract_request_id] = (committedById[a.contract_request_id] ?? 0) + (Number(a.percentage) / 100) * vol;
+  }
+
+  const enriched = data.map((c) => ({ ...c, committed_allocated_bbl: committedById[c.id] ?? 0 }));
+  return NextResponse.json(enriched);
 }
 
 export async function POST(req: NextRequest) {

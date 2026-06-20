@@ -18,6 +18,17 @@ export const STAGE_TO_EQ_TYPE: Record<string, string> = {
   canning:      "canning",
 };
 
+// Equipment types that may be used for a given stage. Conditioning accepts
+// brite tanks as well as fermenters (a fermenter can double as a brite).
+export const STAGE_TO_EQ_TYPES: Record<string, string[]> = {
+  brewhouse:    ["brewhouse"],
+  fermenter:    ["fermenter"],
+  fermenting:   ["fermenter"],
+  conditioning: ["brite", "fermenter"],
+  kegging:      ["kegging"],
+  canning:      ["canning"],
+};
+
 // Stages available for manual schedule entry (no cold_storage)
 export const PLANNING_STAGES = ["brewhouse", "fermenting", "conditioning", "kegging", "canning"] as const;
 export type PlanningStage = typeof PLANNING_STAGES[number];
@@ -75,14 +86,21 @@ export const PIPELINE: { slot: BuildSlot["stage"]; dbStage: string }[] = [
   { slot: "fermenter", dbStage: "fermenting"   },
   { slot: "brite",     dbStage: "conditioning" },
 ];
+// Canning is listed before Kegging so it's offered/added first when both are missing.
 export const OPTIONAL_PIPELINE: { slot: BuildSlot["stage"]; dbStage: string; label: string }[] = [
-  { slot: "kegging", dbStage: "kegging", label: "+ Add Kegging" },
   { slot: "canning", dbStage: "canning", label: "+ Add Canning" },
+  { slot: "kegging", dbStage: "kegging", label: "+ Add Kegging" },
 ];
 
 export const EQ_TYPE_FOR_SLOT: Record<BuildSlot["stage"], string> = {
   brewhouse: "brewhouse", fermenter: "fermenter", brite: "brite",
   kegging: "kegging", canning: "canning",
+};
+
+// Equipment types accepted per build slot — brite accepts fermenters too.
+export const EQ_TYPES_FOR_SLOT: Record<BuildSlot["stage"], string[]> = {
+  brewhouse: ["brewhouse"], fermenter: ["fermenter"], brite: ["brite", "fermenter"],
+  kegging: ["kegging"], canning: ["canning"],
 };
 
 // Stages after which a split makes sense
@@ -100,6 +118,87 @@ export function stageDuration(entry: ScheduleEntry): number {
 export function fmtShort(iso: string | null | undefined): string {
   if (!iso) return "—";
   return new Date(iso.slice(0, 10) + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+// Per-branch packaging completeness: required quantity for a branch is the
+// BBL recorded on that branch's Conditioning stage entry. "Incomplete" means
+// kegging+canning scheduled for that branch don't yet add up to that volume.
+export type BranchPackagingStatus = {
+  branch: string | null;
+  label: string;
+  condBbl: number;
+  pkgBbl: number;
+  status: "ok" | "incomplete" | "over" | "no_packaging";
+};
+
+export function computeBranchPackagingStatus(entries: ScheduleEntry[]): BranchPackagingStatus[] {
+  const active = entries.filter(e => !e.cancelled_at);
+  const branches = [null, ...new Set(active.filter(e => e.planned_branch).map(e => e.planned_branch!))] as (string | null)[];
+
+  return branches.flatMap(branch => {
+    const bEntries = active.filter(e => branch === null ? !e.planned_branch : e.planned_branch === branch);
+    const cond = bEntries.find(e => e.stage === "conditioning");
+    if (!cond?.volume_bbl) return [];
+    const condBbl = Number(cond.volume_bbl);
+    const pkgBbl = bEntries
+      .filter(e => e.stage === "kegging" || e.stage === "canning")
+      .reduce((s, e) => s + Number(e.volume_bbl ?? 0), 0);
+    const hasPkg = bEntries.some(e => e.stage === "kegging" || e.stage === "canning");
+    const label = branch ?? "Main";
+    let status: BranchPackagingStatus["status"] = "ok";
+    if (!hasPkg) status = "no_packaging";
+    else if (pkgBbl < condBbl - 0.01) status = "incomplete";
+    else if (pkgBbl > condBbl + 0.01) status = "over";
+    return [{ branch, label, condBbl, pkgBbl, status }];
+  });
+}
+
+// ── Live equipment-conflict detection ───────────────────────────────────────
+// Used both at save-time and live (as soon as equipment + dates are chosen) so
+// the user doesn't have to wait for a save attempt to discover a clash.
+export function findEquipmentConflict(
+  allEntries: ScheduleEntry[],
+  equipmentId: string,
+  start: string, // YYYY-MM-DD
+  end: string,   // YYYY-MM-DD
+  batchId: string,
+  excludeEntryId?: string,
+): ScheduleEntry | null {
+  if (!equipmentId || !start || !end) return null;
+  return allEntries.find(e =>
+    e.id !== excludeEntryId &&
+    e.batch_id !== batchId &&
+    e.equipment_id === equipmentId &&
+    !e.cancelled_at &&
+    e.planned_start.slice(0, 10) < end &&
+    e.planned_end.slice(0, 10) > start
+  ) ?? null;
+}
+
+export function conflictBatchLabel(conflict: ScheduleEntry): string {
+  return conflict.brew_batches
+    ? `#${conflict.brew_batches.batch_number} ${conflict.brew_batches.beer_name}`
+    : "another batch";
+}
+
+// First piece of equipment in `pool` (sorted by name) with no conflict for the
+// given date range — used to suggest an alternative when the chosen one clashes.
+export function suggestAlternativeEquipment<T extends { id: string; name: string }>(
+  pool: T[],
+  allEntries: ScheduleEntry[],
+  start: string,
+  end: string,
+  batchId: string,
+  excludeEquipmentId?: string,
+  excludeEntryId?: string,
+): T | null {
+  if (!start || !end) return null;
+  const sorted = [...pool].sort((a, b) => a.name.localeCompare(b.name));
+  for (const eq of sorted) {
+    if (eq.id === excludeEquipmentId) continue;
+    if (!findEquipmentConflict(allEntries, eq.id, start, end, batchId, excludeEntryId)) return eq;
+  }
+  return null;
 }
 
 export function nextRequiredStageAfter(stage: string): { dbStage: string; label: string } | null {

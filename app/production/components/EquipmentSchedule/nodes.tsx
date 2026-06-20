@@ -163,23 +163,34 @@ export function GhostNode({ data }: NodeProps) {
 
 // ── Conversion node ───────────────────────────────────────────────────────
 export type ConversionNodeData = {
-  toBatch:   { beer_name: string; batch_number: string | null };
-  volumeBbl: number;
+  toBatch:                  { beer_name: string; batch_number: string | null };
+  volumeBbl:                number;
+  plannedDate?:              string | null;
+  destinationEquipmentName?: string | null;
+  isExecuted?:               boolean;
 };
 
 export function ConversionNode({ data }: NodeProps) {
-  const { toBatch, volumeBbl } = data as ConversionNodeData;
+  const { toBatch, volumeBbl, plannedDate, destinationEquipmentName, isExecuted } = data as ConversionNodeData;
   return (
     <div className="w-44 rounded-lg border border-dashed border-amber-700/50 bg-amber-950/20 select-none">
       <Handle type="target" position={Position.Left} style={HS} />
       <div className="h-0.5 w-full rounded-t-lg bg-amber-700/40" />
       <div className="p-3 min-h-[96px] flex flex-col justify-center gap-1">
-        <span className="text-[10px] font-bold uppercase tracking-wider text-amber-500">Converted →</span>
-        <p className="text-xs font-semibold text-amber-300 truncate">{(toBatch as ConversionNodeData["toBatch"]).beer_name}</p>
-        {(toBatch as ConversionNodeData["toBatch"]).batch_number && (
-          <p className="text-[10px] font-mono text-amber-600">#{(toBatch as ConversionNodeData["toBatch"]).batch_number}</p>
+        <span className="text-[10px] font-bold uppercase tracking-wider text-amber-500">
+          {isExecuted ? "Converted →" : "Planned conversion →"}
+        </span>
+        <p className="text-xs font-semibold text-amber-300 truncate">{toBatch.beer_name}</p>
+        {toBatch.batch_number && (
+          <p className="text-[10px] font-mono text-amber-600">#{toBatch.batch_number}</p>
         )}
-        <p className="text-[10px] text-amber-700 mt-0.5">{fmtBbl2(volumeBbl as number)}</p>
+        <p className="text-[10px] text-amber-700 mt-0.5">{fmtBbl2(volumeBbl)}</p>
+        {destinationEquipmentName && (
+          <p className="text-[10px] text-amber-700/80 truncate">→ {destinationEquipmentName}</p>
+        )}
+        {plannedDate && (
+          <p className="text-[10px] text-amber-700/80">{fmtShort(plannedDate)}</p>
+        )}
       </div>
     </div>
   );
