@@ -1304,11 +1304,11 @@ export default function BrewStatusTab() {
               </Field>
               <div className="grid grid-cols-2 gap-2">
                 <Field label="Width (cells)">
-                  <input type="number" min="1" max="10" className="inp" value={eqCrud.eqForm.grid_width}
+                  <input type="number" min="1" max="20" className="inp" value={eqCrud.eqForm.grid_width}
                     onChange={(e) => eqCrud.setEqForm((f) => ({ ...f, grid_width: e.target.value }))} />
                 </Field>
                 <Field label="Height (cells)">
-                  <input type="number" min="1" max="10" className="inp" value={eqCrud.eqForm.grid_height}
+                  <input type="number" min="1" max="20" className="inp" value={eqCrud.eqForm.grid_height}
                     onChange={(e) => eqCrud.setEqForm((f) => ({ ...f, grid_height: e.target.value }))} />
                 </Field>
               </div>
