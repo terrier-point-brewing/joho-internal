@@ -1002,12 +1002,6 @@ export default function BrewStatusTab() {
                           </>
                         ) : (
                           <div className="flex-1 min-h-0 flex flex-col gap-0.5">
-                            {/* Capacity bar reserved for empty tanks too (0% fill), so empty
-                                and occupied tiles read consistently — see capacity row above,
-                                which already always renders the text line; this adds the bar. */}
-                            {!isUnconstrained && tank.capacity_bbl && (
-                              <div className="shrink-0 w-full rounded-full overflow-hidden" style={{ height: 3, background: "rgba(63,63,70,0.6)", marginBottom: 2 }} />
-                            )}
                             {/* Spacer — pushes Next planned + button slot to the bottom,
                                 same position they occupy on an occupied tile. */}
                             <div className="flex-1 min-h-0" />
