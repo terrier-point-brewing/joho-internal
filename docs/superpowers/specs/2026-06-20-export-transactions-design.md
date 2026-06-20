@@ -19,6 +19,7 @@ Separately, `brew_batches.status` reaches its terminal state (`archived`) the mo
 - Replace `brew_batches.status`'s `archived` value with `complete`, triggered by `batch_exhaustion.is_exhausted` becoming true after an export, not by arrival in cold storage.
 - Migrate existing `archived` batches by recomputing their actual exhaustion state (data treated as green-field test data per explicit instruction — no real export history to preserve, but the status recompute still needs to run since `brew_batches.status` itself is real, non-test state for batches currently mid-production).
 - Repoint every existing consumer of `batch_exports` (`/api/production/allocations`, `/api/production/exports`, the 3 channel tabs under `ExportTab.tsx`) to `export_transactions`.
+- Replace the hardcoded `FEDERAL_EXCISE_PER_BBL`/`NC_EXCISE_PER_GAL` constants with a user-managed `excise_tax_rates` table — name, unit (BBL or Gallon), rate per unit — so any number of taxes (not just two) can apply, with no code change needed to add/adjust one. Rate *management* (add/edit/deactivate) is deferred to Spec 4's Export Settings UI; for this spec, rates are seeded with today's two known real-world values and manageable via direct SQL until then.
 
 ## Non-Goals
 
@@ -63,8 +64,7 @@ create table public.export_transactions (
   recipient_id            uuid references public.contract_brewing_partners(id) on delete set null,
   recipient_name          text,
   status                  text not null default 'invoice_required',
-  federal_excise_tax_usd  numeric,
-  state_excise_tax_usd    numeric,
+  total_excise_tax_usd    numeric not null default 0,
   source_transfer_id      uuid references public.batch_transfers(id) on delete set null,
   notes                   text,
   created_at              timestamptz not null default now()
@@ -80,6 +80,49 @@ create index export_transactions_status_idx on public.export_transactions(status
 
 `status` check constraint: `status in ('invoice_required', 'unpaid', 'paid')`.
 
+`total_excise_tax_usd` is a denormalized sum of the per-tax breakdown rows below, kept for cheap display without a join — the breakdown table is the source of truth.
+
+### New table: `excise_tax_rates`
+
+```sql
+create table public.excise_tax_rates (
+  id              uuid primary key default gen_random_uuid(),
+  name            text not null,
+  receiving_party text,
+  unit            text not null check (unit in ('bbl', 'gallon')),
+  rate_usd        numeric not null,
+  is_active       boolean not null default true,
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now()
+);
+```
+
+Seeded with the two rates currently hardcoded in `cold-storage-export/route.ts`, so default behavior is unchanged until someone edits/adds rates:
+```sql
+insert into public.excise_tax_rates (name, receiving_party, unit, rate_usd) values
+  ('Federal Excise Tax', 'TTB', 'bbl', 3.50),
+  ('NC Excise Tax', 'NC Department of Revenue', 'gallon', 0.62);
+```
+
+### New table: `export_transaction_taxes`
+
+One row per applicable tax per `export_transactions` row — snapshots the rate at calculation time (rather than only a live FK) so historical exports remain accurate if a rate later changes:
+
+```sql
+create table public.export_transaction_taxes (
+  id                    uuid primary key default gen_random_uuid(),
+  export_transaction_id uuid not null references public.export_transactions(id) on delete cascade,
+  excise_tax_rate_id    uuid references public.excise_tax_rates(id) on delete set null,
+  tax_name              text not null,
+  unit                  text not null,
+  rate_usd              numeric not null,
+  amount_usd            numeric not null,
+  created_at            timestamptz not null default now()
+);
+
+create index export_transaction_taxes_export_idx on public.export_transaction_taxes(export_transaction_id);
+```
+
 ### `batch_exports` table
 
 Dropped. No backfill — confirmed green-field/test-only data.
@@ -90,7 +133,9 @@ Dropped. No backfill — confirmed green-field/test-only data.
 
 Unchanged: FIFO inventory computation, capacity/validation checks, and the `batch_transfers` (`transfer_type = 'export'`) insert.
 
-Changed: generate one `shipment_id` (uuid) per request. Replace the `batch_exports` insert loop with one `export_transactions` insert per consumed line (one per packaging variant drawn from inventory), all sharing that `shipment_id`, `allocation_id = null`, `volume_bbl` computed the same way `cold_storage_inventory` rows compute it, and per-row excise tax computed from that row's own `volume_bbl` using the existing `FEDERAL_EXCISE_PER_BBL`/`NC_EXCISE_PER_GAL` constants (unchanged values, just applied per-row instead of per-batch-aggregate).
+Changed: generate one `shipment_id` (uuid) per request. Replace the `batch_exports` insert loop with one `export_transactions` insert per consumed line (one per packaging variant drawn from inventory), all sharing that `shipment_id`, `allocation_id = null`, and `volume_bbl` computed the same way `cold_storage_inventory` rows compute it. Remove the hardcoded `FEDERAL_EXCISE_PER_BBL`/`NC_EXCISE_PER_GAL` constants entirely.
+
+After each `export_transactions` row is inserted, compute its tax breakdown: fetch all `excise_tax_rates` where `is_active = true`, and for each one insert an `export_transaction_taxes` row with `amount_usd = rate_usd * (unit === 'bbl' ? volume_bbl : volume_bbl * GALLONS_PER_BBL)` (reusing the existing `GALLONS_PER_BBL` constant from `lib/constants/production.ts`), snapshotting `tax_name`/`unit`/`rate_usd` at that moment. Sum these into `export_transactions.total_excise_tax_usd`.
 
 After the writes commit, call a new batch-completion check (see below) once per distinct `batch_id` touched by this request.
 
