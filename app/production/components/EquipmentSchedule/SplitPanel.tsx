@@ -3,7 +3,10 @@
 import React, { useState } from "react";
 import type { ScheduleEntry } from "../../hooks/queries";
 import type { Equipment } from "../../types";
-import { STAGE_LABELS, STAGE_TO_EQ_TYPE, PACKAGING_PIPELINE, REQUIRED_PIPELINE } from "./constants";
+import {
+  STAGE_LABELS, STAGE_TO_EQ_TYPES, PACKAGING_PIPELINE, REQUIRED_PIPELINE,
+  findEquipmentConflict, conflictBatchLabel, suggestAlternativeEquipment,
+} from "./constants";
 
 const FULL_PIPELINE = [...REQUIRED_PIPELINE, ...PACKAGING_PIPELINE].map(s => s.dbStage);
 
@@ -21,6 +24,7 @@ export function SplitPanel({
   existingSplitCount,
   equipment,
   entries,
+  allScheduleEntries,
   onSaved,
   onClose,
 }: {
@@ -30,18 +34,27 @@ export function SplitPanel({
   existingSplitCount: number;
   equipment: Equipment[];
   entries: ScheduleEntry[];
+  allScheduleEntries: ScheduleEntry[];
   onSaved: () => void;
   onClose: () => void;
 }) {
   const branchName  = `Split ${existingSplitCount + 1}`;
   const stageLabel  = STAGE_LABELS[sourceEntry.stage] ?? sourceEntry.stage;
-  const eqType      = STAGE_TO_EQ_TYPE[sourceEntry.stage];
-  const eligibleEq  = equipment.filter(eq => eq.type === eqType);
+  const eligibleEq  = equipment.filter(eq => STAGE_TO_EQ_TYPES[sourceEntry.stage]?.includes(eq.type));
 
   const [mainBbl,      setMainBbl]      = useState((totalBbl * 0.5).toFixed(2));
   const [splitBbl,     setSplitBbl]     = useState((totalBbl * 0.5).toFixed(2));
   const [tankId,       setTankId]       = useState("");
   const [saving,       setSaving]       = useState(false);
+
+  const splitStart = sourceEntry.planned_start?.slice(0, 10) ?? "";
+  const splitEnd   = sourceEntry.planned_end?.slice(0, 10) ?? "";
+  const conflict = tankId
+    ? findEquipmentConflict(allScheduleEntries, tankId, splitStart, splitEnd, batchId)
+    : null;
+  const suggestion = conflict
+    ? suggestAlternativeEquipment(eligibleEq, allScheduleEntries, splitStart, splitEnd, batchId, tankId)
+    : null;
 
   function onMainChange(v: string) {
     setMainBbl(v);
@@ -58,6 +71,7 @@ export function SplitPanel({
     const splitVol = Number(splitBbl);
     if (!splitVol || splitVol <= 0) { alert("Split volume must be greater than 0."); return; }
     if (splitVol >= totalBbl)       { alert("Split volume must be less than the total batch volume."); return; }
+    if (conflict && !confirm(`This equipment is already scheduled for ${conflictBatchLabel(conflict)} during these dates. Save anyway?`)) return;
     setSaving(true);
     try {
       const mainVol = Number(mainBbl);
@@ -171,6 +185,16 @@ export function SplitPanel({
           ))}
         </select>
       </div>
+
+      {conflict && (
+        <div className="px-3 py-2 rounded border border-red-700/50 bg-red-950/30 text-xs text-red-400 leading-relaxed">
+          <span className="font-semibold">⚠ Equipment conflict</span> — already scheduled for {conflictBatchLabel(conflict)} during these dates.
+          {suggestion && (
+            <> Try <button type="button" onClick={() => setTankId(suggestion.id)} className="underline underline-offset-2 hover:text-red-300">{suggestion.name}</button> instead.</>
+          )}
+          {!suggestion && " No conflict-free equipment of this type is available for these dates."}
+        </div>
+      )}
 
       <div className="flex gap-2 pt-1">
         <button type="button" onClick={save} disabled={saving}

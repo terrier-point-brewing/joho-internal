@@ -21,14 +21,16 @@ const STAGE_LABELS: Record<string, string> = {
   cold_storage: "Cold Storage",
 };
 // Map stage key → equipment.type so the dropdown shows only relevant gear
-const STAGE_TO_EQ_TYPE: Record<string, string> = {
-  brewhouse:    "brewhouse",
-  fermenter:    "fermenter",
-  fermenting:   "fermenter",
-  conditioning: "brite",
-  kegging:      "kegging",
-  canning:      "canning",
-  cold_storage: "cold_storage",
+// Equipment types accepted per stage — Conditioning also accepts fermenters
+// (a fermenter can double as a brite tank).
+const STAGE_TO_EQ_TYPES: Record<string, string[]> = {
+  brewhouse:    ["brewhouse"],
+  fermenter:    ["fermenter"],
+  fermenting:   ["fermenter"],
+  conditioning: ["brite", "fermenter"],
+  kegging:      ["kegging"],
+  canning:      ["canning"],
+  cold_storage: ["cold_storage"],
 };
 const STAGE_OPTIONS = ["brewhouse", "fermenting", "conditioning", "kegging", "canning", "cold_storage"] as const;
 
@@ -624,8 +626,8 @@ export default function GanttTab() {
               <Field label="Equipment">
                 <select className="inp" value={form.equipment_id} onChange={e => f("equipment_id", e.target.value)}>
                   <option value="">— none —</option>
-                  {(equipmentByType[STAGE_TO_EQ_TYPE[form.stage] ?? ""] ?? []).map(eq => (
-                    <option key={eq.id} value={eq.id}>{eq.name}</option>
+                  {(STAGE_TO_EQ_TYPES[form.stage] ?? []).flatMap(t => equipmentByType[t] ?? []).map(eq => (
+                    <option key={eq.id} value={eq.id}>{eq.name}{eq.type === "fermenter" ? " (fermenter)" : ""}</option>
                   ))}
                 </select>
               </Field>

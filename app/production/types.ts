@@ -230,6 +230,8 @@ export interface Commitment {
   recipes?: { beer_name: string } | null;
   contract_brewing_partners?: { company_name: string } | null;
   packaging_items?: { id: string; name: string; volume_fl_oz: number | null } | null;
+  /** Sum of (batch volume x allocated %) across all allocations referencing this commitment. */
+  committed_allocated_bbl?: number;
 }
 
 /** @deprecated Use Commitment instead */
@@ -252,7 +254,7 @@ export interface BatchStatusHistory {
 }
 
 
-export type AllocationChannel = "taproom" | "distribution" | "contract_brewing" | "safety_stock";
+export type AllocationChannel = "taproom" | "distribution" | "contract_brewing" | "safety_stock" | "conversion";
 export type AllocationLockReason = "deposit_paid" | "contract_signed";
 
 export interface BatchAllocation {
@@ -268,6 +270,8 @@ export interface BatchAllocation {
   locked_at: string | null;
   notes: string | null;
   created_at: string;
+  /** For channel="conversion": which recipe this slice is earmarked to convert into. */
+  conversion_target_recipe_id: string | null;
   // ── Deposit invoice tracking ─────────────────────────────────────────────
   square_deposit_invoice_id: string | null;
   square_deposit_order_id: string | null;
@@ -278,6 +282,7 @@ export interface BatchAllocation {
   brew_batches?: { id: string; beer_name: string; batch_number: number; volume_bbl: number } | null;
   contract_brewing_partners?: { id: string; company_name: string } | null;
   commitments?: { id: string; beer_style: string; volume_bbl: number; received_on: string | null; created_at: string; desired_delivery_date: string | null } | null;
+  conversion_target_recipe?: { id: string; beer_name: string } | null;
   // Computed fulfillment fields (returned by API)
   produced_bbl: number | null;
   allocated_bbl: number | null;

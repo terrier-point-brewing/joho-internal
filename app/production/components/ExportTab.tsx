@@ -71,6 +71,7 @@ const CHANNEL_LABELS: Record<AllocationChannel, string> = {
   distribution: "Distribution",
   contract_brewing: "Contract Brewing",
   safety_stock: "Safety Stock",
+  conversion: "Conversion",
 };
 
 function fmt(iso: string) {

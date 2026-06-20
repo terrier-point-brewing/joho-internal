@@ -26,10 +26,14 @@ export function computeTankVolumes(
 
   const vols: Record<string, number> = {};
 
-  // Backward-compat seed: the first from_tank held the full original volume before
-  // any ledger transfers existed.
+  // Backward-compat seed: the first from_tank held the full original volume
+  // before any ledger transfers existed. Only seed when nothing in the ledger
+  // already explains how that tank got its volume (e.g. a prior Backlog→tank
+  // transfer) — otherwise, on a fully-tracked batch, this double-counts when
+  // same-day transfers tie-break in an order other than chronological intent.
   const firstFrom = transfers[0].from_tank_id;
-  if (firstFrom) vols[firstFrom] = originalVol;
+  const firstFromHasArrival = transfers.some((t) => t.to_tank_id === firstFrom);
+  if (firstFrom && !firstFromHasArrival) vols[firstFrom] = originalVol;
 
   for (const t of transfers) {
     const vol    = Number(t.volume_bbl    ?? 0);

@@ -29,6 +29,8 @@ interface TransferModalProps {
   allTanks: Equipment[];
   /** IDs of tanks that currently have an active batch assignment */
   occupiedTankIds: Set<string>;
+  /** recipe_id(s) of whichever batch(es) currently occupy each tank, keyed by tank id */
+  occupiedTankRecipeIds?: Record<string, (string | null)[]>;
   packaging: PackagingItem[];
   recipes: Recipe[];
   /** Ledger volume currently in fromTank; falls back to batch.volume_bbl if omitted */
@@ -44,8 +46,16 @@ function pkgLabel(p: PackagingItem): string {
   return partner ? `${p.name} (${partner})` : p.name;
 }
 
-export default function TransferModal({ batch, fromTank, allTanks, occupiedTankIds, packaging, recipes, fromTankVolume, plannedEntry, onClose, onDone }: TransferModalProps) {
+export default function TransferModal({ batch, fromTank, allTanks, occupiedTankIds, occupiedTankRecipeIds, packaging, recipes, fromTankVolume, plannedEntry, onClose, onDone }: TransferModalProps) {
   const [mode, setMode] = useState<"transfer" | "convert">("transfer");
+
+  // Same-recipe batches may combine in the same tank — only a DIFFERENT
+  // recipe already occupying the tank is a real conflict.
+  const hasRecipeConflict = (tankId: string) => {
+    const occupants = occupiedTankRecipeIds?.[tankId];
+    if (!occupants || occupants.length === 0) return occupiedTankIds.has(tankId);
+    return occupants.some(r => r !== batch.recipe_id);
+  };
 
   const allowed = DEST_RULES[fromTank.type] ?? [];
   const destTanks = allTanks.filter((t) => {
@@ -53,8 +63,8 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
     if (!allowed.includes(t.type)) return false;
     // For conversions, destination must be a free fermenter
     if (mode === "convert") return t.type === "fermenter" && !occupiedTankIds.has(t.id);
-    // Single-occupancy: exclude tanks that already hold a batch
-    if (SINGLE_OCCUPANCY_TYPES.has(t.type) && occupiedTankIds.has(t.id)) return false;
+    // Single-occupancy: exclude tanks already holding a different recipe
+    if (SINGLE_OCCUPANCY_TYPES.has(t.type) && hasRecipeConflict(t.id)) return false;
     return true;
   });
 
@@ -155,7 +165,7 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
       if (m === "convert") return t.type === "fermenter" && !occupiedTankIds.has(t.id);
       const a = DEST_RULES[fromTank.type] ?? [];
       if (!a.includes(t.type)) return false;
-      if (SINGLE_OCCUPANCY_TYPES.has(t.type) && occupiedTankIds.has(t.id)) return false;
+      if (SINGLE_OCCUPANCY_TYPES.has(t.type) && hasRecipeConflict(t.id)) return false;
       return true;
     });
     setDestId(newDests[0]?.id ?? "");
@@ -330,6 +340,7 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
               <option key={t.id} value={t.id}>
                 {t.name} ({EQ[t.type]?.label ?? t.type})
                 {t.capacity_bbl ? ` · ${t.capacity_bbl} BBL` : ""}
+                {(occupiedTankRecipeIds?.[t.id]?.length ?? 0) > 0 ? " · combining with existing batch" : ""}
               </option>
             ))}
           </select>

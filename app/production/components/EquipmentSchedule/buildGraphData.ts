@@ -40,6 +40,7 @@ export function buildGraphData(
   allBatches: BrewBatch[],
   batch: BrewBatch | undefined,
   allTransfers: BatchTransfer[],
+  allScheduleEntries: ScheduleEntry[] = entries,
 ): { nodes: Node[]; edges: Edge[] } {
   const active       = entries.filter(e => !e.cancelled_at);
   const mainEntries  = active.filter(e => !e.planned_branch);
@@ -68,6 +69,14 @@ export function buildGraphData(
       data,
     });
   }
+
+  // Terminal node id of each track (main = null key), used to anchor conversion
+  // fork edges when the converting entry itself can't be found.
+  const trackEndNodeId = new Map<string | null, string>();
+
+  // Per-branch: which main-pipeline stage it forked from, which stage it starts
+  // at, and the volume booked there — used to aggregate shrinkage across splits.
+  const branchStartInfo: { originStage: string | null; startStage: string; volume: number }[] = [];
 
   // ── Build a single track ──────────────────────────────────────────────────
   function buildTrack(
@@ -98,8 +107,13 @@ export function buildGraphData(
 
     // ── Non-packaging stages ──────────────────────────────────────────────
     if (branch === null) {
-      // Main track: fill in the full pipeline, adding ghosts for missing stages
-      for (const stage of MAIN_PIPELINE) {
+      // Main track: fill in the full pipeline, adding ghosts for missing stages.
+      // A batch created from a conversion never has upstream (brewhouse/fermenting)
+      // stages — it starts directly at conditioning, in the receiving tank.
+      const pipelineForThisBatch = batch?.converted_from_batch_id
+        ? MAIN_PIPELINE.filter(s => s === "conditioning")
+        : MAIN_PIPELINE;
+      for (const stage of pipelineForThisBatch) {
         const entry = nonPkgMap.get(stage);
         const col   = STAGE_COL[stage];
         if (entry) {
@@ -125,6 +139,11 @@ export function buildGraphData(
         const originId = mainNodeIdByStage.get(originStage);
         if (originId) prevId = originId;
       }
+      branchStartInfo.push({
+        originStage,
+        startStage,
+        volume: Number(nonPkgMap.get(startStage)?.volume_bbl ?? 0),
+      });
 
       // Stages from startStage forward
       const branchPipeline = MAIN_PIPELINE.slice(MAIN_PIPELINE.indexOf(startStage));
@@ -164,27 +183,7 @@ export function buildGraphData(
       connect(id);
     }
 
-    // ── Actual conversions from this track ────────────────────────────────
-    if (batch) {
-      for (const cb of allBatches.filter(b => b.converted_from_batch_id === batch.id)) {
-        const sourceTx = allTransfers
-          .filter(t => t.batch_id === batch.id && t.transfer_type === "conversion" && t.to_batch_id === cb.id)
-          .sort((a, b) => new Date(a.transferred_at).getTime() - new Date(b.transferred_at).getTime())[0];
-        if (sourceTx) {
-          // Find the node whose entry uses this source tank
-          const sourceEntry = trackEntries.find(e => e.equipment_id === sourceTx.from_tank_id);
-          const sourceNodeId = sourceEntry ? sourceEntry.id : prevId;
-          if (sourceNodeId) {
-            const convId = `conv-${cb.id}`;
-            addNode(convId, "conversionNode", (branch ? 4 : 4), row, {
-              toBatch: cb,
-              volumeBbl: Number(sourceTx.volume_bbl),
-            });
-            addEdge(sourceNodeId, convId);
-          }
-        }
-      }
-    }
+    if (prevId) trackEndNodeId.set(branch, prevId);
   }
 
   // Build main track first (populates mainNodeIdByStage)
@@ -197,5 +196,172 @@ export function buildGraphData(
     buildTrack(bEntries, branch, i + 1);
   }
 
-  return { nodes: allNodes, edges: allEdges };
+  // Conversion volume taken directly out of a given piece of equipment (e.g. a
+  // fermenter), keyed by that equipment's id — a converted-away portion is a
+  // legitimate downstream sink, not shrinkage.
+  const conversionVolumeBySourceEquipmentId = new Map<string, number>();
+  if (batch) {
+    const plannedConvEntriesForShrinkage = active.filter(e => e.stage === "planned_conversion");
+    for (const cb of allBatches.filter(b => b.converted_from_batch_id === batch.id)) {
+      const sourceTx = allTransfers
+        .filter(t => t.batch_id === batch.id && t.transfer_type === "conversion" && t.to_batch_id === cb.id)
+        .sort((a, b) => new Date(a.transferred_at).getTime() - new Date(b.transferred_at).getTime())[0];
+      let sourceEquipmentId: string | null = null;
+      let volumeBbl = 0;
+      if (sourceTx) {
+        sourceEquipmentId = sourceTx.from_tank_id;
+        volumeBbl = Number(sourceTx.volume_bbl);
+      } else {
+        const marker = plannedConvEntriesForShrinkage.find(e => {
+          try { return JSON.parse(e.notes ?? "{}").child_batch_id === cb.id; } catch { return false; }
+        });
+        if (!marker) continue;
+        sourceEquipmentId = marker.equipment_id;
+        volumeBbl = Number(marker.volume_bbl ?? cb.volume_bbl ?? 0);
+      }
+      if (!sourceEquipmentId) continue;
+      conversionVolumeBySourceEquipmentId.set(
+        sourceEquipmentId,
+        (conversionVolumeBySourceEquipmentId.get(sourceEquipmentId) ?? 0) + volumeBbl,
+      );
+    }
+  }
+
+  // ── Shrinkage between pipeline stages (prior to packaging) ─────────────
+  // Shrinkage = upstream stage volume minus the sum of everything that came
+  // out of it downstream (main track, any splits that forked there, and any
+  // amount converted away directly from that stage's equipment).
+  // e.g. Brewing 40 bbl → Fermenting 36 bbl = 4 bbl shrinkage. If Fermenting's
+  // 36 bbl is then split into two Conditioning branches of 20 + 14, that's a
+  // further 2 bbl of shrinkage attributed to the Fermenting → Conditioning step.
+  // But if Fermenting's 40 bbl instead splits into a 10 bbl Conditioning branch
+  // and a 30 bbl converted batch, that's 40 bbl fully accounted for — no shrinkage.
+  const shrinkageLabelByUpstreamNodeId = new Map<string, string>();
+  // Same-edge alternative to shrinkage: the upstream tank hasn't fully drained
+  // yet (still mid partial-transfer), so the volume gap is "still arriving",
+  // not unaccounted-for loss. Mutually exclusive with shrinkage per edge.
+  const partialFillLabelByUpstreamNodeId = new Map<string, string>();
+  for (let i = 0; i < MAIN_PIPELINE.length - 1; i++) {
+    const upstreamStage   = MAIN_PIPELINE[i];
+    const downstreamStage = MAIN_PIPELINE[i + 1];
+    const upstreamEntry = mainEntries.find(e => normStage(e.stage) === upstreamStage);
+    if (!upstreamEntry?.volume_bbl) continue;
+
+    // While an upstream tank is open (actual_end null) it may be mid partial-drain,
+    // in which case its volume_bbl has been overwritten to "currently remaining"
+    // (see transfers/route.ts's partial-transfer reassignment block) rather than
+    // the original total that arrived there. Reconstruct the true arrived total
+    // from the ledger in that case so the shrinkage/partial-fill gap below isn't
+    // computed against a moving target.
+    let upstreamVol = Number(upstreamEntry.volume_bbl);
+    if (upstreamEntry.actual_end == null && upstreamEntry.equipment_id && batch) {
+      const departedTotal = allTransfers
+        .filter(t => t.batch_id === batch.id && t.from_tank_id === upstreamEntry.equipment_id)
+        .reduce((sum, t) => sum + Number(t.volume_bbl), 0);
+      if (departedTotal > 0) upstreamVol += departedTotal;
+    }
+
+    const mainDownstreamEntry = mainEntries.find(e => normStage(e.stage) === downstreamStage);
+    let downstreamTotal = mainDownstreamEntry?.volume_bbl != null ? Number(mainDownstreamEntry.volume_bbl) : 0;
+    for (const b of branchStartInfo) {
+      if (b.originStage === upstreamStage && b.startStage === downstreamStage) downstreamTotal += b.volume;
+    }
+    if (upstreamEntry.equipment_id) {
+      downstreamTotal += conversionVolumeBySourceEquipmentId.get(upstreamEntry.equipment_id) ?? 0;
+    }
+
+    const gap = upstreamVol - downstreamTotal;
+    if (gap <= 0.01) continue;
+
+    const upstreamNodeId = mainNodeIdByStage.get(upstreamStage);
+    if (!upstreamNodeId) continue;
+
+    // Upstream tank still open (not fully drained) and downstream has started
+    // receiving but hasn't closed out — this is an in-progress partial transfer.
+    const stillArriving =
+      upstreamEntry.actual_end == null &&
+      mainDownstreamEntry?.actual_start != null &&
+      mainDownstreamEntry?.actual_end == null;
+
+    if (stillArriving) {
+      partialFillLabelByUpstreamNodeId.set(upstreamNodeId, `+${gap.toFixed(2)} BBL more expected`);
+    } else {
+      shrinkageLabelByUpstreamNodeId.set(upstreamNodeId, `−${gap.toFixed(2)} BBL shrinkage`);
+    }
+  }
+
+  // ── Converted batches ───────────────────────────────────────────────────
+  // Treat a conversion like a branch: it gets its own row below all other
+  // tracks rather than sitting in-line with the row it forked from.
+  if (batch) {
+    let nextConvRow = 1 + branchNames.length;
+    const plannedConvEntries = active.filter(e => e.stage === "planned_conversion");
+
+    for (const cb of allBatches.filter(b => b.converted_from_batch_id === batch.id)) {
+      // Prefer an already-executed transfer (the conversion physically happened);
+      // otherwise fall back to the still-pending planned_conversion marker.
+      const sourceTx = allTransfers
+        .filter(t => t.batch_id === batch.id && t.transfer_type === "conversion" && t.to_batch_id === cb.id)
+        .sort((a, b) => new Date(a.transferred_at).getTime() - new Date(b.transferred_at).getTime())[0];
+
+      let sourceEquipmentId: string | null = null;
+      let volumeBbl: number;
+      if (sourceTx) {
+        sourceEquipmentId = sourceTx.from_tank_id;
+        volumeBbl = Number(sourceTx.volume_bbl);
+      } else {
+        const marker = plannedConvEntries.find(e => {
+          try { return JSON.parse(e.notes ?? "{}").child_batch_id === cb.id; } catch { return false; }
+        });
+        if (!marker) continue;
+        sourceEquipmentId = marker.equipment_id;
+        volumeBbl = Number(marker.volume_bbl ?? cb.volume_bbl ?? 0);
+      }
+
+      // Find the node whose entry uses this source tank (any track), else fall
+      // back to that track's terminal node.
+      const sourceEntry = active.find(e => e.equipment_id === sourceEquipmentId && e.stage !== "planned_conversion");
+      const sourceNodeId = sourceEntry
+        ? sourceEntry.id
+        : trackEndNodeId.get(null);
+      if (!sourceNodeId) continue;
+
+      // Read the child batch's own current first schedule entry live, rather
+      // than trusting the source's static planned_conversion marker — the
+      // child's entry is the single source of truth and may have been edited
+      // (date/equipment/volume) independently since the marker was created.
+      const childFirstEntry = allScheduleEntries
+        .filter(e => e.batch_id === cb.id && !e.cancelled_at)
+        .sort((a, b) => (a.planned_start ?? "").localeCompare(b.planned_start ?? ""))[0];
+
+      const convRow = nextConvRow++;
+      const sourceCol = sourceEntry ? (STAGE_COL[normStage(sourceEntry.stage)] ?? 2) : 2;
+      const convId = `conv-${cb.id}`;
+      addNode(convId, "conversionNode", sourceCol + 1, convRow, {
+        toBatch: cb,
+        volumeBbl: childFirstEntry?.volume_bbl != null ? Number(childFirstEntry.volume_bbl) : volumeBbl,
+        plannedDate: childFirstEntry?.planned_start ?? null,
+        destinationEquipmentName: childFirstEntry?.equipment?.name ?? null,
+        isExecuted: !!sourceTx,
+      });
+      addEdge(sourceNodeId, convId);
+    }
+  }
+
+  const edgesWithShrinkage: Edge[] = allEdges.map(edge => {
+    const partialFillLabel = partialFillLabelByUpstreamNodeId.get(edge.source);
+    const shrinkageLabel   = shrinkageLabelByUpstreamNodeId.get(edge.source);
+    const label = partialFillLabel ?? shrinkageLabel;
+    if (!label) return edge;
+    return {
+      ...edge,
+      label,
+      labelStyle: { fill: partialFillLabel ? "#facc15" : "#f87171", fontSize: 10, fontWeight: 600 },
+      labelBgStyle: { fill: "#27272a", fillOpacity: 0.9 },
+      labelBgPadding: [4, 2] as [number, number],
+      labelBgBorderRadius: 4,
+    };
+  });
+
+  return { nodes: allNodes, edges: edgesWithShrinkage };
 }
