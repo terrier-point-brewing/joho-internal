@@ -309,7 +309,7 @@ export default function BrewStatusTab() {
     const obs = new ResizeObserver(([entry]) => {
       const { width } = entry.contentRect;
       const naturalW = gridCols * cell;
-      setGridScale(width / naturalW);
+      setGridScale(Math.min(1, width / naturalW));
     });
     obs.observe(el);
     return () => obs.disconnect();
@@ -377,7 +377,7 @@ export default function BrewStatusTab() {
         </div>
       )}
 
-      {/* Header — edit layout controls (desktop only) + mobile new batch */}
+      {/* Header — mobile new batch, legend, and edit layout controls (desktop) on one row */}
       <div className="flex items-center justify-between gap-2 mb-4">
         {/* Mobile: New Batch shortcut */}
         <button
@@ -386,33 +386,34 @@ export default function BrewStatusTab() {
         >
           + New Batch
         </button>
-        {/* Desktop: Edit layout controls */}
-        {canEditEquipment && (
-          <div className="hidden md:flex gap-2 ml-auto">
-            <button
-              onClick={() => setEditMode((v) => !v)}
-              className={`px-3 py-1.5 text-sm font-medium rounded border transition-colors ${
-                editMode
-                  ? "border-amber-600 bg-amber-900/30 text-amber-300 hover:bg-amber-900/50"
-                  : "border-zinc-700 bg-zinc-800 text-zinc-400 hover:text-zinc-200"
-              }`}
-            >
-              {editMode ? "🔓 Editing Layout" : "🔒 Edit Layout"}
-            </button>
-            {editMode && (
-              <button onClick={eqCrud.openNew} className="btn-amber">+ Add Equipment</button>
-            )}
-          </div>
-        )}
-      </div>
 
-      {/* Legend (desktop only — mobile uses filter buttons below) */}
-      <div className="hidden md:flex flex-wrap gap-2 mb-3">
-        {EQ_TYPES.map(([type, meta]) => (
-          <span key={type} className={`text-xs px-2 py-px rounded border ${meta.badge}`}>
-            {meta.label}
-          </span>
-        ))}
+        {/* Desktop: legend (left) + Edit Layout controls (right), same row */}
+        <div className="hidden md:flex items-center justify-between w-full gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {EQ_TYPES.map(([type, meta]) => (
+              <span key={type} className={`text-xs px-2 py-px rounded border ${meta.badge}`}>
+                {meta.label}
+              </span>
+            ))}
+          </div>
+          {canEditEquipment && (
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={() => setEditMode((v) => !v)}
+                className={`px-3 py-1.5 text-sm font-medium rounded border transition-colors ${
+                  editMode
+                    ? "border-amber-600 bg-amber-900/30 text-amber-300 hover:bg-amber-900/50"
+                    : "border-zinc-700 bg-zinc-800 text-zinc-400 hover:text-zinc-200"
+                }`}
+              >
+                {editMode ? "🔓 Editing Layout" : "🔒 Edit Layout"}
+              </button>
+              {editMode && (
+                <button onClick={eqCrud.openNew} className="btn-amber">+ Add Equipment</button>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* ── Mobile card list (hidden on md+) ── */}
