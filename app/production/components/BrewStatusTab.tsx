@@ -371,7 +371,7 @@ export default function BrewStatusTab() {
   const {
     dragging, dropPreview, gridRef, draggingTank,
     onDragStart, onGridDragOver, onGridDrop, onUnplacedDrop, removeFromGrid, clearDrag,
-  } = useTankDragDrop(tanks, onRefresh, gridScale);
+  } = useTankDragDrop(tanks, onRefresh, gridScale, gridCols, gridRows);
   const eqCrud = useEquipmentCrud(onRefresh);
   const assign = useBatchAssign(unassignedBatches, onRefresh);
 

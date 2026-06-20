@@ -2,10 +2,14 @@
 
 import React, { useState, useRef, useCallback } from "react";
 import { Equipment } from "../types";
-import { GRID_CELL_PX as CELL, GRID_ROWS, GRID_COLS } from "@/lib/constants/production";
+import { GRID_CELL_PX as CELL } from "@/lib/constants/production";
 
-function isInBounds(t: Equipment, row: number, col: number): boolean {
-  return row >= 0 && col >= 0 && row + t.grid_height <= GRID_ROWS && col + t.grid_width <= GRID_COLS;
+// Bounds must be checked against the actual rendered grid size (the
+// admin-configurable gridCols/gridRows, which can differ from the
+// GRID_COLS/GRID_ROWS defaults), not the fixed constants — otherwise a
+// "valid" drop can land outside the visible, overflow-hidden container.
+function isInBounds(t: Equipment, row: number, col: number, gridCols: number, gridRows: number): boolean {
+  return row >= 0 && col >= 0 && row + t.grid_height <= gridRows && col + t.grid_width <= gridCols;
 }
 
 function wouldCollide(tanks: Equipment[], tankId: string, row: number, col: number): boolean {
@@ -19,7 +23,7 @@ function wouldCollide(tanks: Equipment[], tankId: string, row: number, col: numb
     });
 }
 
-export function useTankDragDrop(tanks: Equipment[], onRefresh: () => Promise<void>, gridScale: number) {
+export function useTankDragDrop(tanks: Equipment[], onRefresh: () => Promise<void>, gridScale: number, gridCols: number, gridRows: number) {
   const [dragging, setDragging] = useState<{ id: string; grabRow: number; grabCol: number } | null>(null);
   const [dropPreview, setDropPreview] = useState<{ row: number; col: number; valid: boolean } | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
@@ -51,9 +55,9 @@ export function useTankDragDrop(tanks: Equipment[], onRefresh: () => Promise<voi
     const col = Math.max(0, Math.floor((e.clientX - rect.left + gridRef.current.scrollLeft) / effectiveCell) - dragging.grabCol);
     const row = Math.max(0, Math.floor((e.clientY - rect.top  + gridRef.current.scrollTop)  / effectiveCell) - dragging.grabRow);
     const tank = tanks.find((t) => t.id === dragging.id)!;
-    const valid = isInBounds(tank, row, col) && !wouldCollide(tanks, dragging.id, row, col);
+    const valid = isInBounds(tank, row, col, gridCols, gridRows) && !wouldCollide(tanks, dragging.id, row, col);
     setDropPreview({ row, col, valid });
-  }, [dragging, tanks, effectiveCell]);
+  }, [dragging, tanks, effectiveCell, gridCols, gridRows]);
 
   async function onGridDrop(e: React.DragEvent) {
     e.preventDefault();
@@ -65,7 +69,7 @@ export function useTankDragDrop(tanks: Equipment[], onRefresh: () => Promise<voi
     const col  = Math.max(0, Math.floor((e.clientX - rect.left + gridRef.current.scrollLeft) / effectiveCell) - grabCol);
     const row  = Math.max(0, Math.floor((e.clientY - rect.top  + gridRef.current.scrollTop)  / effectiveCell) - grabRow);
     const tank = tanks.find((t) => t.id === tankId);
-    if (tank && isInBounds(tank, row, col) && !wouldCollide(tanks, tankId, row, col)) {
+    if (tank && isInBounds(tank, row, col, gridCols, gridRows) && !wouldCollide(tanks, tankId, row, col)) {
       await fetch(`/api/production/equipment/${tankId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },

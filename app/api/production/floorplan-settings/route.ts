@@ -13,20 +13,20 @@ export async function GET() {
     .eq("key", "floorplan_grid")
     .single();
 
-  if (error) return NextResponse.json({ cols: 24, rows: 16 });
+  if (error) return NextResponse.json({ cols: 48, rows: 32 });
   const v = data.value as { cols: number; rows: number };
-  return NextResponse.json({ cols: v.cols ?? 24, rows: v.rows ?? 16 });
+  return NextResponse.json({ cols: v.cols ?? 48, rows: v.rows ?? 32 });
 }
 
 export async function PUT(req: NextRequest) {
   try { await requireRole("admin"); } catch (res) { return res as Response; }
 
   const { cols, rows } = await req.json() as { cols: number; rows: number };
-  if (!Number.isInteger(cols) || cols < 8 || cols > 40) {
-    return NextResponse.json({ error: "cols must be 8–40" }, { status: 400 });
+  if (!Number.isInteger(cols) || cols < 16 || cols > 80) {
+    return NextResponse.json({ error: "cols must be 16–80" }, { status: 400 });
   }
-  if (!Number.isInteger(rows) || rows < 4 || rows > 32) {
-    return NextResponse.json({ error: "rows must be 4–32" }, { status: 400 });
+  if (!Number.isInteger(rows) || rows < 8 || rows > 64) {
+    return NextResponse.json({ error: "rows must be 8–64" }, { status: 400 });
   }
 
   // system_settings RLS only allows service_role writes; use admin client after
