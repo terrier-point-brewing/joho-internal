@@ -298,16 +298,6 @@ export default function BrewStatusTab() {
     return scheduleEntries.find(e => e.batch_id === transferBatch.id && e.stage === nextStage) ?? null;
   }, [transferBatch, transferTankId, scheduleEntries, tanks]);
 
-  // Destructure so the ref (gridRef) and state (dragging/dropPreview/…) keep
-  // distinct identities — otherwise the React Compiler taints every access on
-  // the returned object as "accessing refs during render".
-  const {
-    dragging, dropPreview, gridRef, draggingTank,
-    onDragStart, onGridDragOver, onGridDrop, onUnplacedDrop, removeFromGrid, clearDrag,
-  } = useTankDragDrop(tanks, onRefresh);
-  const eqCrud = useEquipmentCrud(onRefresh);
-  const assign = useBatchAssign(unassignedBatches, onRefresh);
-
   const cell = CELL;
 
   // Scale the grid to fit the available container dimensions.
@@ -324,6 +314,16 @@ export default function BrewStatusTab() {
     obs.observe(el);
     return () => obs.disconnect();
   }, [gridCols, gridRows, cell]);
+
+  // Destructure so the ref (gridRef) and state (dragging/dropPreview/…) keep
+  // distinct identities — otherwise the React Compiler taints every access on
+  // the returned object as "accessing refs during render".
+  const {
+    dragging, dropPreview, gridRef, draggingTank,
+    onDragStart, onGridDragOver, onGridDrop, onUnplacedDrop, removeFromGrid, clearDrag,
+  } = useTankDragDrop(tanks, onRefresh, gridScale);
+  const eqCrud = useEquipmentCrud(onRefresh);
+  const assign = useBatchAssign(unassignedBatches, onRefresh);
 
   return (
     <>
