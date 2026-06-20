@@ -9,13 +9,28 @@ import { BBL_TO_FL_OZ } from "@/lib/constants/production";
 import type { ScheduleEntry } from "../hooks/queries";
 import { format, parseISO } from "date-fns";
 
-// Allowed destinations by source equipment type
+// Allowed destinations by source equipment type. Fermenters and brite tanks
+// are interchangeable for the fermenting→conditioning move (many breweries
+// dual-purpose fermenters as brite tanks) — including staying in the SAME
+// tank for an in-place conditioning transition (see `sameTankAllowed` below).
 const DEST_RULES: Partial<Record<string, string[]>> = {
   brewhouse: ["fermenter"],
-  fermenter: ["brite", "kegging", "canning", "fermenter"],
-  brite:     ["fermenter", "kegging", "canning"],
+  fermenter: ["brite", "fermenter", "kegging", "canning"],
+  brite:     ["brite", "fermenter", "kegging", "canning"],
   kegging:   ["cold_storage", "export_bay"],
   canning:   ["cold_storage", "export_bay"],
+};
+
+// Source types where staying in the same tank is a meaningful move (in-place
+// fermenting → conditioning), rather than a no-op.
+const SAME_TANK_ALLOWED_SOURCE_TYPES = new Set(["fermenter", "brite"]);
+
+// Valid conversion-destination tank types by source type — conversion can be
+// drawn off during fermenting OR conditioning, landing in whichever tank type
+// matches that stage.
+const CONVERT_DEST_TYPES: Partial<Record<string, string[]>> = {
+  fermenter: ["fermenter"],
+  brite:     ["brite", "fermenter"],
 };
 
 interface KegLine { packaging_id: string; quantity: string }
@@ -58,11 +73,19 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
   };
 
   const allowed = DEST_RULES[fromTank.type] ?? [];
+  const sameTankOk = SAME_TANK_ALLOWED_SOURCE_TYPES.has(fromTank.type);
   const destTanks = allTanks.filter((t) => {
-    if (t.id === fromTank.id) return false;
+    const sameTank = t.id === fromTank.id;
+    if (sameTank && !sameTankOk) return false;
     if (!allowed.includes(t.type)) return false;
-    // For conversions, destination must be a free fermenter
-    if (mode === "convert") return t.type === "fermenter" && !occupiedTankIds.has(t.id);
+    // For conversions, destination must be a free tank of a valid type for this stage
+    // (same-tank conversion isn't meaningful — the conversion always draws into a NEW batch).
+    if (mode === "convert") {
+      if (sameTank) return false;
+      const convertTypes = CONVERT_DEST_TYPES[fromTank.type] ?? ["fermenter"];
+      return convertTypes.includes(t.type) && !occupiedTankIds.has(t.id);
+    }
+    if (sameTank) return true; // in-place conditioning / dual-use — always allowed
     // Single-occupancy: exclude tanks already holding a different recipe
     if (SINGLE_OCCUPANCY_TYPES.has(t.type) && hasRecipeConflict(t.id)) return false;
     return true;
@@ -154,17 +177,22 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
 
   const destIsConstrained = destTank && !UNCONSTRAINED_EQUIPMENT_TYPES.includes(destTank.type);
 
-  // Conversion is only available from a fermenter
-  const canConvert = fromTank.type === "fermenter";
+  // Conversion can be drawn off mid-fermenting OR mid-conditioning
+  const canConvert = fromTank.type === "fermenter" || fromTank.type === "brite";
 
   function handleModeChange(m: "transfer" | "convert") {
     setMode(m);
     // Reset destination to first valid option for the new mode
     const newDests = allTanks.filter((t) => {
-      if (t.id === fromTank.id) return false;
-      if (m === "convert") return t.type === "fermenter" && !occupiedTankIds.has(t.id);
-      const a = DEST_RULES[fromTank.type] ?? [];
-      if (!a.includes(t.type)) return false;
+      const sameTank = t.id === fromTank.id;
+      if (sameTank && !sameTankOk) return false;
+      if (!allowed.includes(t.type)) return false;
+      if (m === "convert") {
+        if (sameTank) return false;
+        const convertTypes = CONVERT_DEST_TYPES[fromTank.type] ?? ["fermenter"];
+        return convertTypes.includes(t.type) && !occupiedTankIds.has(t.id);
+      }
+      if (sameTank) return true;
       if (SINGLE_OCCUPANCY_TYPES.has(t.type) && hasRecipeConflict(t.id)) return false;
       return true;
     });
@@ -270,10 +298,10 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
   }
 
   return (
-    <Modal title="Transfer Batch" onClose={onClose} wide>
-      <form onSubmit={handleSubmit} className="space-y-4">
+    <Modal title="Transfer Batch" onClose={onClose} extraWide>
+      <form onSubmit={handleSubmit} className="space-y-3">
         {/* Batch summary */}
-        <div className="flex gap-3 p-3 rounded bg-zinc-900/60 border border-zinc-800 text-sm">
+        <div className="flex gap-3 p-2.5 rounded bg-zinc-900/60 border border-zinc-800 text-sm">
           <div>
             <span className="text-zinc-500 text-xs">Batch</span>
             <p className="text-zinc-100 font-medium">{batch.beer_name}</p>
@@ -292,7 +320,7 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
           </div>
         </div>
 
-        {/* Mode toggle — only shown for fermenters */}
+        {/* Mode toggle — shown for fermenters/brite, which can also draw a conversion */}
         {canConvert && (
           <div className="flex gap-2">
             <button type="button" onClick={() => handleModeChange("transfer")}
@@ -306,122 +334,142 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
           </div>
         )}
 
-        {/* Convert mode description */}
-        {mode === "convert" && (
-          <div className="px-3 py-2 rounded border border-amber-700/40 bg-amber-950/30 text-xs text-amber-300">
-            Split a partial volume into a <span className="font-semibold">new batch</span> under a different recipe. The remaining volume stays in {fromTank.name} under the original batch.
-          </div>
-        )}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* ── Left column: where it's going ── */}
+          <div className="space-y-3">
+            {/* Convert mode description */}
+            {mode === "convert" && (
+              <div className="px-3 py-2 rounded border border-amber-700/40 bg-amber-950/30 text-xs text-amber-300">
+                Split a partial volume into a <span className="font-semibold">new batch</span> under a different recipe. The remaining volume stays in {fromTank.name} under the original batch.
+              </div>
+            )}
 
-        {/* Allowed-destinations hint (transfer mode only) */}
-        {mode === "transfer" && (
-          <p className="text-xs text-zinc-500 bg-zinc-800/40 px-3 py-1.5 rounded border border-zinc-700">
-            {fromTank.type === "brewhouse" && "Brewhouse → Fermenter only"}
-            {fromTank.type === "fermenter" && "Fermenter → Brite, Kegging, or Canning"}
-            {fromTank.type === "brite"     && "Brite → Fermenter, Kegging, or Canning"}
-            {(fromTank.type === "kegging" || fromTank.type === "canning") && "Packaging → Cold Storage or Export Bay only"}
-          </p>
-        )}
+            {/* Allowed-destinations hint (transfer mode only) */}
+            {mode === "transfer" && (
+              <p className="text-xs text-zinc-500 bg-zinc-800/40 px-3 py-1.5 rounded border border-zinc-700">
+                {fromTank.type === "brewhouse" && "Brewhouse → Fermenter only"}
+                {fromTank.type === "fermenter" && "Fermenter → Brite/Fermenter (incl. staying put for in-place conditioning), Kegging, or Canning"}
+                {fromTank.type === "brite"     && "Brite → Brite/Fermenter (incl. staying put), Kegging, or Canning"}
+                {(fromTank.type === "kegging" || fromTank.type === "canning") && "Packaging → Cold Storage or Export Bay only"}
+              </p>
+            )}
 
-        <Field label={mode === "convert" ? "Destination Fermenter" : "Destination"} required>
-          {/* Planned booking pill (transfer mode only) */}
-          {mode === "transfer" && plannedEntry && plannedEntry.equipment_id && (
-            <div className="flex items-center gap-2 mb-2 px-2 py-1.5 rounded bg-zinc-800/60 border border-zinc-700 text-xs text-zinc-400">
-              <span>📋 Planned:</span>
-              <span className="text-zinc-200 font-medium">{plannedEntry.equipment?.name ?? "Unknown"}</span>
-              <span className="text-zinc-500">
-                {format(parseISO(plannedEntry.planned_start), "MMM d")}–{format(parseISO(plannedEntry.planned_end), "MMM d")}
-              </span>
-            </div>
-          )}
-          <select className="inp" value={effectiveDestId} required onChange={(e) => setDestId(e.target.value)}>
-            <option value="">— select —</option>
-            {destTanks.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name} ({EQ[t.type]?.label ?? t.type})
-                {t.capacity_bbl ? ` · ${t.capacity_bbl} BBL` : ""}
-                {(occupiedTankRecipeIds?.[t.id]?.length ?? 0) > 0 ? " · combining with existing batch" : ""}
-              </option>
-            ))}
-          </select>
-          {destTanks.length === 0 && mode === "convert" && (
-            <p className="text-xs text-zinc-500 mt-1">No free fermenters available.</p>
-          )}
-          {/* Deviation warning (transfer mode only) */}
-          {mode === "transfer" && plannedEntry && plannedEntry.equipment_id && effectiveDestId && effectiveDestId !== plannedEntry.equipment_id && (
-            <div className="mt-1.5 px-3 py-2 rounded border border-amber-700/60 bg-amber-950/40 text-xs text-amber-300">
-              ⚠ <span className="font-semibold">Deviation from plan:</span> this batch was scheduled for{" "}
-              <span className="text-amber-200 font-medium">{plannedEntry.equipment?.name ?? "another tank"}</span>.
-              Proceeding will cancel that booking and may cause conflicts with downstream schedule entries that will need to be resolved.
-            </div>
-          )}
-          {mode === "transfer" && destIsConstrained && destTank?.capacity_bbl && (
-            <p className="text-xs text-zinc-500 mt-0.5">Capacity: {fmtBbl(destTank.capacity_bbl)} — transfer will be rejected if it exceeds this.</p>
-          )}
-        </Field>
-
-        {/* ── Convert mode fields ── */}
-        {mode === "convert" && (
-          <>
-            <Field label="New Recipe" required>
-              <select className="inp" value={convertRecipeId} required onChange={(e) => {
-                const r = recipes.find((r) => r.id === e.target.value);
-                setConvertRecipeId(e.target.value);
-                if (r && !convertBeerName) setConvertBeerName(r.beer_name);
-              }}>
-                <option value="">— select recipe —</option>
-                {recipes.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.beer_name}{r.brewery ? ` · ${r.brewery}` : ""}
+            <Field label={mode === "convert" ? "Destination" : "Destination"} required>
+              {/* Planned booking pill (transfer mode only) */}
+              {mode === "transfer" && plannedEntry && plannedEntry.equipment_id && (
+                <div className="flex items-center gap-2 mb-2 px-2 py-1.5 rounded bg-zinc-800/60 border border-zinc-700 text-xs text-zinc-400">
+                  <span>📋 Planned:</span>
+                  <span className="text-zinc-200 font-medium">{plannedEntry.equipment?.name ?? "Unknown"}</span>
+                  <span className="text-zinc-500">
+                    {format(parseISO(plannedEntry.planned_start), "MMM d")}–{format(parseISO(plannedEntry.planned_end), "MMM d")}
+                  </span>
+                </div>
+              )}
+              <select className="inp" value={effectiveDestId} required onChange={(e) => setDestId(e.target.value)}>
+                <option value="">— select —</option>
+                {destTanks.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name} ({EQ[t.type]?.label ?? t.type})
+                    {t.id === fromTank.id ? " · stay in place" : ""}
+                    {t.capacity_bbl ? ` · ${t.capacity_bbl} BBL` : ""}
+                    {(occupiedTankRecipeIds?.[t.id]?.length ?? 0) > 0 ? " · combining with existing batch" : ""}
                   </option>
                 ))}
               </select>
-            </Field>
-
-            <Field label="New Batch Name" required>
-              <input className="inp" value={convertBeerName} required
-                placeholder="e.g. Wheat Wit"
-                onChange={(e) => setConvertBeerName(e.target.value)} />
-            </Field>
-
-            <Field label="Volume to Convert (BBL)" required>
-              <div className="flex items-center gap-2">
-                <input type="number" step="0.001" min="0.001" max={batchVol} className="inp w-40"
-                  placeholder="0.000" required
-                  value={convertBbl} onChange={(e) => setConvertBbl(e.target.value)} />
-                <span className="text-zinc-500 text-sm">BBL</span>
-              </div>
-              {drawBbl > 0 && remaining <= 0 && (
-                <p className="text-amber-400 text-xs mt-1">
-                  Full conversion — the parent batch will be archived after this.
-                </p>
+              {destTanks.length === 0 && mode === "convert" && (
+                <p className="text-xs text-zinc-500 mt-1">No free tanks available for a conversion from this stage.</p>
+              )}
+              {/* Deviation warning (transfer mode only) */}
+              {mode === "transfer" && plannedEntry && plannedEntry.equipment_id && effectiveDestId && effectiveDestId !== plannedEntry.equipment_id && (
+                <div className="mt-1.5 px-3 py-2 rounded border border-amber-700/60 bg-amber-950/40 text-xs text-amber-300">
+                  ⚠ <span className="font-semibold">Deviation from plan:</span> this batch was scheduled for{" "}
+                  <span className="text-amber-200 font-medium">{plannedEntry.equipment?.name ?? "another tank"}</span>.
+                  Proceeding will cancel that booking and may cause conflicts with downstream schedule entries that will need to be resolved.
+                </div>
+              )}
+              {mode === "transfer" && destIsConstrained && destTank?.capacity_bbl && (
+                <p className="text-xs text-zinc-500 mt-0.5">Capacity: {fmtBbl(destTank.capacity_bbl)} — transfer will be rejected if it exceeds this.</p>
               )}
             </Field>
-          </>
-        )}
+          </div>
 
-        {/* ── Regular transfer: full / partial ── */}
-        {mode === "transfer" && !isPackagingForm && (
-          <Field label="Volume">
-            <div className="flex gap-2 mb-2">
-              <button type="button" onClick={() => setVolumeMode("full")}
-                className={`px-3 py-1.5 text-sm rounded border transition-colors ${volumeMode === "full" ? "border-amber-600 bg-amber-900/30 text-amber-300" : "border-zinc-700 bg-zinc-800 text-zinc-400 hover:text-zinc-200"}`}>
-                Full transfer
-              </button>
-              <button type="button" onClick={() => setVolumeMode("partial")}
-                className={`px-3 py-1.5 text-sm rounded border transition-colors ${volumeMode === "partial" ? "border-amber-600 bg-amber-900/30 text-amber-300" : "border-zinc-700 bg-zinc-800 text-zinc-400 hover:text-zinc-200"}`}>
-                Partial
-              </button>
-            </div>
-            {volumeMode === "partial" && (
-              <div className="flex items-center gap-2">
-                <input type="number" step="0.001" min="0" max={batchVol} className="inp w-40" placeholder="0.000"
-                  value={partialBbl} onChange={(e) => setPartialBbl(e.target.value)} />
-                <span className="text-zinc-500 text-sm">BBL</span>
-              </div>
+          {/* ── Right column: how much / what's converting ── */}
+          <div className="space-y-3">
+            {/* ── Convert mode fields ── */}
+            {mode === "convert" && (
+              <>
+                <Field label="New Recipe" required>
+                  <select className="inp" value={convertRecipeId} required onChange={(e) => {
+                    const r = recipes.find((r) => r.id === e.target.value);
+                    setConvertRecipeId(e.target.value);
+                    if (r && !convertBeerName) setConvertBeerName(r.beer_name);
+                  }}>
+                    <option value="">— select recipe —</option>
+                    {recipes.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.beer_name}{r.brewery ? ` · ${r.brewery}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+
+                <Field label="New Batch Name" required>
+                  <input className="inp" value={convertBeerName} required
+                    placeholder="e.g. Wheat Wit"
+                    onChange={(e) => setConvertBeerName(e.target.value)} />
+                </Field>
+
+                <Field label="Volume to Convert (BBL)" required>
+                  <div className="flex items-center gap-2">
+                    <input type="number" step="0.001" min="0.001" max={batchVol} className="inp w-40"
+                      placeholder="0.000" required
+                      value={convertBbl} onChange={(e) => setConvertBbl(e.target.value)} />
+                    <span className="text-zinc-500 text-sm">BBL</span>
+                  </div>
+                  {drawBbl > 0 && remaining <= 0 && (
+                    <p className="text-amber-400 text-xs mt-1">
+                      Full conversion — the parent batch will be archived after this.
+                    </p>
+                  )}
+                </Field>
+              </>
             )}
-          </Field>
-        )}
+
+            {/* ── Regular transfer: full / partial ── */}
+            {mode === "transfer" && !isPackagingForm && (
+              <Field label="Volume">
+                <div className="flex gap-2 mb-2">
+                  <button type="button" onClick={() => setVolumeMode("full")}
+                    className={`px-3 py-1.5 text-sm rounded border transition-colors ${volumeMode === "full" ? "border-amber-600 bg-amber-900/30 text-amber-300" : "border-zinc-700 bg-zinc-800 text-zinc-400 hover:text-zinc-200"}`}>
+                    Full transfer
+                  </button>
+                  <button type="button" onClick={() => setVolumeMode("partial")}
+                    className={`px-3 py-1.5 text-sm rounded border transition-colors ${volumeMode === "partial" ? "border-amber-600 bg-amber-900/30 text-amber-300" : "border-zinc-700 bg-zinc-800 text-zinc-400 hover:text-zinc-200"}`}>
+                    Partial
+                  </button>
+                </div>
+                {volumeMode === "partial" && (
+                  <div className="flex items-center gap-2">
+                    <input type="number" step="0.001" min="0" max={batchVol} className="inp w-40" placeholder="0.000"
+                      value={partialBbl} onChange={(e) => setPartialBbl(e.target.value)} />
+                    <span className="text-zinc-500 text-sm">BBL</span>
+                  </div>
+                )}
+              </Field>
+            )}
+
+            {/* Shrinkage — not applicable for packaging out-transfers or conversions */}
+            {mode === "transfer" && !isPackagingForm && (
+              <Field label="Shrinkage (BBL)">
+                <div className="flex items-center gap-2">
+                  <input type="number" step="0.001" min="0" className="inp w-40" placeholder="0.000"
+                    value={shrinkage} onChange={(e) => setShrinkage(e.target.value)} />
+                  <span className="text-zinc-500 text-sm">BBL lost</span>
+                </div>
+              </Field>
+            )}
+          </div>
+        </div>
 
         {/* ── Keg detail ── */}
         {showKegDetail && (
@@ -514,47 +562,39 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
           </div>
         )}
 
-        {/* Shrinkage — not applicable for packaging out-transfers or conversions */}
-        {mode === "transfer" && !isPackagingForm && (
-          <Field label="Shrinkage (BBL)">
-            <div className="flex items-center gap-2">
-              <input type="number" step="0.001" min="0" className="inp w-40" placeholder="0.000"
-                value={shrinkage} onChange={(e) => setShrinkage(e.target.value)} />
-              <span className="text-zinc-500 text-sm">BBL lost</span>
+        {/* Volume summary + notes, side by side to save vertical space */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <div className="rounded border border-zinc-800 bg-zinc-900/40 p-3 text-xs space-y-1">
+              <div className="flex justify-between text-zinc-400">
+                <span>Batch volume</span><span>{fmtBbl(batchVol)}</span>
+              </div>
+              <div className="flex justify-between text-zinc-400">
+                <span>{mode === "convert" ? "Converted volume" : "Transfer draw"}</span>
+                <span>− {fmtBbl(drawBbl)}</span>
+              </div>
+              {mode === "transfer" && shrinkBbl > 0 && (
+                <div className="flex justify-between text-zinc-400">
+                  <span>Shrinkage</span><span>− {fmtBbl(shrinkBbl)}</span>
+                </div>
+              )}
+              <div className={`flex justify-between font-medium border-t border-zinc-800 pt-1 mt-1 ${remaining < 0 ? "text-red-400" : "text-zinc-100"}`}>
+                <span>Remaining</span><span>{fmtBbl(remaining)}</span>
+              </div>
             </div>
+            {remaining < -0.001 && (
+              <p className="text-xs text-red-400 mt-1">Warning: volume exceeds batch volume.</p>
+            )}
+            {mode === "transfer" && destIsConstrained && destTank?.capacity_bbl && drawBbl > destTank.capacity_bbl && (
+              <p className="text-xs text-red-400 mt-1">
+                Transfer ({fmtBbl(drawBbl)}) exceeds {destTank.name} capacity ({fmtBbl(destTank.capacity_bbl)}).
+              </p>
+            )}
+          </div>
+          <Field label="Notes">
+            <input className="inp" value={notes} onChange={(e) => setNotes(e.target.value)} />
           </Field>
-        )}
-
-        {/* Volume summary */}
-        <div className="rounded border border-zinc-800 bg-zinc-900/40 p-3 text-xs space-y-1">
-          <div className="flex justify-between text-zinc-400">
-            <span>Batch volume</span><span>{fmtBbl(batchVol)}</span>
-          </div>
-          <div className="flex justify-between text-zinc-400">
-            <span>{mode === "convert" ? "Converted volume" : "Transfer draw"}</span>
-            <span>− {fmtBbl(drawBbl)}</span>
-          </div>
-          {mode === "transfer" && shrinkBbl > 0 && (
-            <div className="flex justify-between text-zinc-400">
-              <span>Shrinkage</span><span>− {fmtBbl(shrinkBbl)}</span>
-            </div>
-          )}
-          <div className={`flex justify-between font-medium border-t border-zinc-800 pt-1 mt-1 ${remaining < 0 ? "text-red-400" : "text-zinc-100"}`}>
-            <span>Remaining</span><span>{fmtBbl(remaining)}</span>
-          </div>
         </div>
-        {remaining < -0.001 && (
-          <p className="text-xs text-red-400">Warning: volume exceeds batch volume.</p>
-        )}
-        {mode === "transfer" && destIsConstrained && destTank?.capacity_bbl && drawBbl > destTank.capacity_bbl && (
-          <p className="text-xs text-red-400">
-            Transfer ({fmtBbl(drawBbl)}) exceeds {destTank.name} capacity ({fmtBbl(destTank.capacity_bbl)}).
-          </p>
-        )}
-
-        <Field label="Notes">
-          <input className="inp" value={notes} onChange={(e) => setNotes(e.target.value)} />
-        </Field>
 
         <ModalActions submitting={submitting} onCancel={onClose}
           label={mode === "convert" ? "Convert Batch" : "Record Transfer"} />

@@ -1,12 +1,13 @@
 import type { ScheduleEntry } from "../../hooks/queries";
 
 export const STAGE_LABELS: Record<string, string> = {
-  brewhouse:    "Brewing",
-  fermenter:    "Fermenting",
-  fermenting:   "Fermenting",
-  conditioning: "Conditioning",
-  kegging:      "Kegging",
-  canning:      "Canning",
+  brewhouse:         "Brewing",
+  fermenter:         "Fermenting",
+  fermenting:        "Fermenting",
+  conditioning:      "Conditioning",
+  kegging:           "Kegging",
+  canning:           "Canning",
+  planned_conversion: "Conversion",
 };
 
 export const STAGE_TO_EQ_TYPE: Record<string, string> = {

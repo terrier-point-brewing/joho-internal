@@ -1,15 +1,39 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
+
+interface PackagingPrefInput {
+  packaging_item_id: string;
+  qty: number;
+}
+
+function parsePackaging(b: Record<string, unknown>): PackagingPrefInput[] | undefined {
+  if (!Array.isArray(b.packaging)) return undefined;
+  return (b.packaging as Array<{ packaging_item_id?: string; qty?: number | string }>)
+    .filter((p) => p.packaging_item_id && p.qty != null && Number(p.qty) > 0)
+    .map((p) => ({ packaging_item_id: p.packaging_item_id as string, qty: Number(p.qty) }));
+}
+
+async function replacePackagingPreferences(supabase: SupabaseClient, commitmentId: string, prefs: PackagingPrefInput[]) {
+  await supabase.from("commitment_packaging_preferences").delete().eq("commitment_id", commitmentId);
+  if (prefs.length === 0) return;
+  await supabase.from("commitment_packaging_preferences").insert(
+    prefs.map((p) => ({ commitment_id: commitmentId, packaging_item_id: p.packaging_item_id, qty: p.qty }))
+  );
+}
+
+const COMMITMENT_SELECT = `*, recipes(beer_name), contract_brewing_partners(company_name),
+  commitment_packaging_preferences(id, commitment_id, packaging_item_id, qty, created_at, packaging_items(id, name, volume_fl_oz))`;
 
 export async function GET(req: NextRequest) {
   const supabase = await createSupabaseServerClient();
 
   let query = supabase
     .from("commitments")
-    .select("*, recipes(beer_name), contract_brewing_partners(company_name), packaging_items(id, name, volume_fl_oz)")
+    .select(COMMITMENT_SELECT)
     .order("created_at", { ascending: false });
   const channel = req.nextUrl.searchParams.get("channel");
   if (channel) query = query.eq("channel", channel);
@@ -17,28 +41,45 @@ export async function GET(req: NextRequest) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!data || data.length === 0) return NextResponse.json(data);
 
-  // Sum committed BBL (batch volume x allocated %) per commitment across all batches,
-  // so the UI can hide commitments that have already been fully allocated against.
-  const ids = data.map((c) => c.id);
+  // Rename the join to the field name the UI expects.
+  const withPrefs = data.map((c) => {
+    const row = c as typeof c & { commitment_packaging_preferences?: unknown };
+    const { commitment_packaging_preferences, ...rest } = row;
+    return { ...rest, packaging_preferences: commitment_packaging_preferences ?? [] };
+  });
+
+  // Pull linked batch_allocations once: used both to sum committed BBL (across
+  // all channels) and to surface invoicing controls for contract_brewing rows.
+  const ids = withPrefs.map((c) => c.id);
   const { data: allocs } = await supabase
     .from("batch_allocations")
-    .select("contract_request_id, percentage, brew_batches(volume_bbl)")
+    .select(`id, batch_id, contract_request_id, percentage, locked, lock_reason, channel,
+      invoice_generated_at, invoice_sent_at, invoice_paid_at,
+      brew_batches(id, beer_name, batch_number, volume_bbl),
+      contract_brewing_partners(id, company_name)`)
     .in("contract_request_id", ids);
 
   const committedById: Record<string, number> = {};
+  const allocsById: Record<string, typeof allocs> = {};
   for (const a of allocs ?? []) {
     if (!a.contract_request_id) continue;
     const vol = Number((a.brew_batches as { volume_bbl?: number } | null)?.volume_bbl ?? 0);
     committedById[a.contract_request_id] = (committedById[a.contract_request_id] ?? 0) + (Number(a.percentage) / 100) * vol;
+    if (a.channel === "contract_brewing") {
+      (allocsById[a.contract_request_id] ??= []).push(a);
+    }
   }
 
-  const enriched = data.map((c) => ({ ...c, committed_allocated_bbl: committedById[c.id] ?? 0 }));
+  const enriched = withPrefs.map((c) => ({
+    ...c,
+    committed_allocated_bbl: committedById[c.id] ?? 0,
+    batch_allocations: allocsById[c.id] ?? [],
+  }));
   return NextResponse.json(enriched);
 }
 
 export async function POST(req: NextRequest) {
   try { await requireRole("brewer"); } catch (res) { return res as Response; }
-
 
   const supabase = await createSupabaseServerClient();
 
@@ -58,8 +99,6 @@ export async function POST(req: NextRequest) {
       desired_delivery_date: b.desired_delivery_date || null,
       status: b.status || "open",
       notes: b.notes || null,
-      packaging_item_id: b.packaging_item_id || null,
-      packaging_qty: b.packaging_qty || null,
       channel: b.channel || "contract_brewing",
       cadence: b.cadence || "one_time",
       recurrence: b.recurrence || null,
@@ -69,28 +108,44 @@ export async function POST(req: NextRequest) {
       locked_on: b.locked_on || null,
       last_edited_on: new Date().toISOString(),
     })
-    .select()
+    .select(COMMITMENT_SELECT)
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json(data, { status: 201 });
+
+  const prefs = parsePackaging(b);
+  if (prefs && prefs.length > 0) {
+    await replacePackagingPreferences(supabase, data.id, prefs);
+  }
+
+  const { data: full } = await supabase.from("commitments").select(COMMITMENT_SELECT).eq("id", data.id).single();
+  return NextResponse.json(full ?? data, { status: 201 });
 }
 
 export async function PATCH(req: NextRequest) {
   try { await requireRole("brewer"); } catch (res) { return res as Response; }
-
 
   const supabase = await createSupabaseServerClient();
 
   const id = req.nextUrl.searchParams.get("id");
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
   const b = await req.json();
-  const allowed = ["recipe_id", "beer_style", "status", "notes", "volume_bbl", "desired_delivery_date", "partner_id", "packaging_item_id", "packaging_qty", "channel", "cadence", "recurrence", "start_date", "end_date", "received_on", "locked_on"];
+  const allowed = ["recipe_id", "beer_style", "status", "notes", "volume_bbl", "desired_delivery_date", "partner_id", "channel", "cadence", "recurrence", "start_date", "end_date", "received_on", "locked_on"];
   const patch: Record<string, unknown> = {};
   for (const k of allowed) if (k in b) patch[k] = b[k];
-  if (Object.keys(patch).length === 0) return NextResponse.json({ error: "no fields to update" }, { status: 400 });
-  patch.last_edited_on = new Date().toISOString();
-  const { data, error } = await supabase.from("commitments").update(patch).eq("id", id).select().single();
+  const prefs = parsePackaging(b);
+  if (Object.keys(patch).length === 0 && !prefs) return NextResponse.json({ error: "no fields to update" }, { status: 400 });
+
+  if (Object.keys(patch).length > 0) {
+    patch.last_edited_on = new Date().toISOString();
+    const { error } = await supabase.from("commitments").update(patch).eq("id", id);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+  if (prefs) {
+    await replacePackagingPreferences(supabase, id, prefs);
+  }
+
+  const { data, error } = await supabase.from("commitments").select(COMMITMENT_SELECT).eq("id", id).single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data);
 }
