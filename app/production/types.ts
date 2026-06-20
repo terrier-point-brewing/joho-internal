@@ -107,6 +107,18 @@ export interface BatchTransfer {
   created_by_profile?: { email: string } | null;
 }
 
+export interface ColdStorageInventory {
+  id: string;
+  batch_id: string;
+  recipe_id: string | null;
+  packaging_item_id: string;
+  variant_label: string;
+  quantity_on_hand: number;
+  source_transfer_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export type IngredientCategory = "Malts" | "Hops" | "Yeast" | "Brewing Aids" | "Fruit" | "Abstrax";
 
 export const INGREDIENT_CATEGORIES: IngredientCategory[] = [
