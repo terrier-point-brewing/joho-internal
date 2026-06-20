@@ -9,6 +9,7 @@ import { EQ, EQ_TYPES } from "../equipmentMeta";
 import { GRID_CELL_PX as CELL, GRID_COLS, GRID_ROWS, GRID_GAP_PX as GAP } from "@/lib/constants/production";
 import { fmtDate } from "@/lib/utils/formatting";
 import TransferModal from "./TransferModal";
+import NextPlannedBox from "./FloorplanTile/NextPlannedBox";
 import { useTankDragDrop } from "../hooks/useTankDragDrop";
 import { useEquipmentCrud } from "../hooks/useEquipmentCrud";
 import { useBatchAssign } from "../hooks/useBatchAssign";
@@ -109,6 +110,11 @@ export default function BrewStatusTab() {
   const [transferTankId, setTransferTankId] = useState<string | null>(null);
   const [transferBatchId, setTransferBatchId] = useState<string | null>(null);
   const [transferFromVol, setTransferFromVol] = useState<number | undefined>(undefined);
+  // When the Up Next banner opens the Transfer modal directly (rather than
+  // the per-tank Transfer button), it may need to seed Convert-mode fields.
+  const [transferInitialDestId, setTransferInitialDestId] = useState<string | undefined>(undefined);
+  const [transferInitialMode, setTransferInitialMode] = useState<"transfer" | "convert" | undefined>(undefined);
+  const [transferInitialConvert, setTransferInitialConvert] = useState<{ recipeId: string; beerName: string; bbl: string } | undefined>(undefined);
   // Tracks batch IDs currently being sent to cold storage (kegging/canning one-click transfer)
   const [pkgTransferring, setPkgTransferring] = useState<Set<string>>(new Set());
 
@@ -225,6 +231,12 @@ export default function BrewStatusTab() {
   // one active assignment — group them so tiles can show every occupant.
   const assignmentsByTank: Record<string, BatchTankAssignment[]> = {};
   for (const a of assignments) (assignmentsByTank[a.tank_id] ??= []).push(a);
+  // Reverse lookup: which tank (if any) currently holds a given batch — this
+  // is the "current upstream action" an Up Next entry is sourced from.
+  const tankById = Object.fromEntries(tanks.map((t) => [t.id, t])) as Record<string, Equipment | undefined>;
+  const currentTankByBatchId: Record<string, Equipment | undefined> = Object.fromEntries(
+    assignments.map((a) => [a.batch_id, tankById[a.tank_id]])
+  );
   const assignedBatchIds   = new Set(assignments.map((a) => a.batch_id));
   // Packaging-status batches live on their kegging/canning tile — don't show in backlog/unassigned
   const unassignedBatches  = batches.filter((b) => b.status !== "archived" && b.status !== "packaging" && !assignedBatchIds.has(b.id));
@@ -273,9 +285,47 @@ export default function BrewStatusTab() {
   // Flattened, globally-sorted upcoming tasks for the top banner.
   const upcomingTasks = React.useMemo(() => {
     return [...scheduleEntries]
-      .filter(e => e.equipment_id && !e.cancelled_at && !e.actual_start && e.stage !== "planned_conversion")
+      .filter(e => e.equipment_id && !e.cancelled_at && !e.actual_start)
       .sort((a, b) => a.planned_start.localeCompare(b.planned_start));
   }, [scheduleEntries]);
+
+  // Resolve the right click-through action for an Up Next card: prefer a
+  // direct Transfer/Convert action over the tank's current occupant, falling
+  // back to the read-only "Upcoming plans" popup when there's no current
+  // tank to act from (e.g. the batch hasn't been brewed/placed yet).
+  function openUpNextAction(e: ScheduleEntry) {
+    const currentTank = currentTankByBatchId[e.batch_id];
+    if (!currentTank) {
+      if (e.equipment_id) setPlansEquipmentId(e.equipment_id);
+      return;
+    }
+    if (e.stage === "planned_conversion") {
+      let conversionInfo: { beer_name?: string; child_batch_id?: string } = {};
+      try { conversionInfo = JSON.parse(e.notes ?? "{}"); } catch { /* malformed/missing notes — fall back to blanks */ }
+      const childBatch = conversionInfo.child_batch_id ? batchById[conversionInfo.child_batch_id] : undefined;
+      setTransferTankId(currentTank.id);
+      setTransferBatchId(e.batch_id);
+      setTransferFromVol(undefined);
+      setTransferInitialMode("convert");
+      setTransferInitialDestId(undefined);
+      setTransferInitialConvert({
+        recipeId: childBatch?.recipe_id ?? "",
+        beerName: conversionInfo.beer_name ?? "",
+        bbl: e.volume_bbl != null ? String(e.volume_bbl) : "",
+      });
+      return;
+    }
+    // In-place fermenting→conditioning, or any other transfer to a specific
+    // planned tank: open Transfer mode with that tank pre-selected as the
+    // destination (TransferModal falls back to its own first-valid-option
+    // default if this tank isn't actually a legal destination).
+    setTransferTankId(currentTank.id);
+    setTransferBatchId(e.batch_id);
+    setTransferFromVol(undefined);
+    setTransferInitialMode("transfer");
+    setTransferInitialDestId(e.equipment_id ?? undefined);
+    setTransferInitialConvert(undefined);
+  }
 
   const [plansEquipmentId, setPlansEquipmentId] = useState<string | null>(null);
   const plansEquipment = plansEquipmentId ? tanks.find(t => t.id === plansEquipmentId) ?? null : null;
@@ -298,16 +348,6 @@ export default function BrewStatusTab() {
     return scheduleEntries.find(e => e.batch_id === transferBatch.id && e.stage === nextStage) ?? null;
   }, [transferBatch, transferTankId, scheduleEntries, tanks]);
 
-  // Destructure so the ref (gridRef) and state (dragging/dropPreview/…) keep
-  // distinct identities — otherwise the React Compiler taints every access on
-  // the returned object as "accessing refs during render".
-  const {
-    dragging, dropPreview, gridRef, draggingTank,
-    onDragStart, onGridDragOver, onGridDrop, onUnplacedDrop, removeFromGrid, clearDrag,
-  } = useTankDragDrop(tanks, onRefresh);
-  const eqCrud = useEquipmentCrud(onRefresh);
-  const assign = useBatchAssign(unassignedBatches, onRefresh);
-
   const cell = CELL;
 
   // Scale the grid to fit the available container dimensions.
@@ -319,11 +359,21 @@ export default function BrewStatusTab() {
     const obs = new ResizeObserver(([entry]) => {
       const { width } = entry.contentRect;
       const naturalW = gridCols * cell;
-      setGridScale(width / naturalW);
+      setGridScale(Math.min(1, width / naturalW));
     });
     obs.observe(el);
     return () => obs.disconnect();
   }, [gridCols, gridRows, cell]);
+
+  // Destructure so the ref (gridRef) and state (dragging/dropPreview/…) keep
+  // distinct identities — otherwise the React Compiler taints every access on
+  // the returned object as "accessing refs during render".
+  const {
+    dragging, dropPreview, gridRef, draggingTank,
+    onDragStart, onGridDragOver, onGridDrop, onUnplacedDrop, removeFromGrid, clearDrag,
+  } = useTankDragDrop(tanks, onRefresh, gridScale);
+  const eqCrud = useEquipmentCrud(onRefresh);
+  const assign = useBatchAssign(unassignedBatches, onRefresh);
 
   return (
     <>
@@ -351,10 +401,18 @@ export default function BrewStatusTab() {
               const b = e.brew_batches ?? (e.batch_id ? batchById[e.batch_id] : null);
               const eqName = e.equipment?.name ?? tanks.find(t => t.id === e.equipment_id)?.name ?? "—";
               const overdue = e.planned_start.slice(0, 10) < new Date().toISOString().slice(0, 10);
+              const currentTank = currentTankByBatchId[e.batch_id];
+              const actionLabel = !currentTank
+                ? null
+                : e.stage === "planned_conversion"
+                ? "Convert"
+                : e.stage === "conditioning" && e.equipment_id === currentTank.id
+                ? "Confirm Conditioning"
+                : "Transfer";
               return (
                 <button
                   key={e.id}
-                  onClick={() => e.equipment_id && setPlansEquipmentId(e.equipment_id)}
+                  onClick={() => openUpNextAction(e)}
                   className={`shrink-0 flex flex-col gap-0.5 text-left px-2.5 py-1.5 rounded border transition-colors min-w-[150px] ${
                     overdue
                       ? "border-red-800/60 bg-red-950/30 hover:bg-red-950/50"
@@ -370,6 +428,9 @@ export default function BrewStatusTab() {
                   <span className="text-[10px] text-zinc-500">
                     {fmtDate(e.planned_start)}{e.volume_bbl != null && ` · ${Number(e.volume_bbl).toFixed(1)} BBL`}
                   </span>
+                  {actionLabel && (
+                    <span className="text-[9px] text-amber-600 font-medium mt-0.5">{actionLabel} →</span>
+                  )}
                 </button>
               );
             })}
@@ -377,7 +438,7 @@ export default function BrewStatusTab() {
         </div>
       )}
 
-      {/* Header — edit layout controls (desktop only) + mobile new batch */}
+      {/* Header — mobile new batch, legend, and edit layout controls (desktop) on one row */}
       <div className="flex items-center justify-between gap-2 mb-4">
         {/* Mobile: New Batch shortcut */}
         <button
@@ -386,33 +447,34 @@ export default function BrewStatusTab() {
         >
           + New Batch
         </button>
-        {/* Desktop: Edit layout controls */}
-        {canEditEquipment && (
-          <div className="hidden md:flex gap-2 ml-auto">
-            <button
-              onClick={() => setEditMode((v) => !v)}
-              className={`px-3 py-1.5 text-sm font-medium rounded border transition-colors ${
-                editMode
-                  ? "border-amber-600 bg-amber-900/30 text-amber-300 hover:bg-amber-900/50"
-                  : "border-zinc-700 bg-zinc-800 text-zinc-400 hover:text-zinc-200"
-              }`}
-            >
-              {editMode ? "🔓 Editing Layout" : "🔒 Edit Layout"}
-            </button>
-            {editMode && (
-              <button onClick={eqCrud.openNew} className="btn-amber">+ Add Equipment</button>
-            )}
-          </div>
-        )}
-      </div>
 
-      {/* Legend (desktop only — mobile uses filter buttons below) */}
-      <div className="hidden md:flex flex-wrap gap-2 mb-3">
-        {EQ_TYPES.map(([type, meta]) => (
-          <span key={type} className={`text-xs px-2 py-px rounded border ${meta.badge}`}>
-            {meta.label}
-          </span>
-        ))}
+        {/* Desktop: legend (left) + Edit Layout controls (right), same row */}
+        <div className="hidden md:flex items-center justify-between w-full gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {EQ_TYPES.map(([type, meta]) => (
+              <span key={type} className={`text-xs px-2 py-px rounded border ${meta.badge}`}>
+                {meta.label}
+              </span>
+            ))}
+          </div>
+          {canEditEquipment && (
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={() => setEditMode((v) => !v)}
+                className={`px-3 py-1.5 text-sm font-medium rounded border transition-colors ${
+                  editMode
+                    ? "border-amber-600 bg-amber-900/30 text-amber-300 hover:bg-amber-900/50"
+                    : "border-zinc-700 bg-zinc-800 text-zinc-400 hover:text-zinc-200"
+                }`}
+              >
+                {editMode ? "🔓 Editing Layout" : "🔒 Edit Layout"}
+              </button>
+              {editMode && (
+                <button onClick={eqCrud.openNew} className="btn-amber">+ Add Equipment</button>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* ── Mobile card list (hidden on md+) ── */}
@@ -524,7 +586,7 @@ export default function BrewStatusTab() {
                                   </div>
                                   {!editMode && (
                                     <button
-                                      onClick={() => { setTransferTankId(tank.id); setTransferBatchId(otherBatch.id); setTransferFromVol(volFor(otherBatch)); }}
+                                      onClick={() => { setTransferTankId(tank.id); setTransferBatchId(otherBatch.id); setTransferFromVol(volFor(otherBatch)); setTransferInitialMode(undefined); setTransferInitialDestId(undefined); setTransferInitialConvert(undefined); }}
                                       className="text-xs text-amber-600 hover:text-amber-400 border border-amber-900 hover:border-amber-700 px-3 py-1.5 rounded transition-colors shrink-0"
                                     >
                                       Transfer
@@ -535,7 +597,7 @@ export default function BrewStatusTab() {
                             })}
                             {!editMode && (
                               <button
-                                onClick={() => { setTransferTankId(tank.id); setTransferBatchId(batch.id); setTransferFromVol(volFor(batch)); }}
+                                onClick={() => { setTransferTankId(tank.id); setTransferBatchId(batch.id); setTransferFromVol(volFor(batch)); setTransferInitialMode(undefined); setTransferInitialDestId(undefined); setTransferInitialConvert(undefined); }}
                                 className="text-xs text-amber-600 hover:text-amber-400 border border-amber-900 hover:border-amber-700 px-3 py-1.5 rounded transition-colors"
                               >
                                 Transfer
@@ -548,13 +610,13 @@ export default function BrewStatusTab() {
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0">
                                 {nextPlanned && nextPlanned.brew_batches ? (
-                                  <>
-                                    <p className="text-xs text-zinc-500 font-semibold uppercase tracking-wide mb-0.5">Next planned</p>
-                                    <p className="text-sm text-zinc-300 font-medium truncate">
-                                      #{nextPlanned.brew_batches.batch_number} {nextPlanned.brew_batches.beer_name}
-                                    </p>
-                                    <p className="text-xs text-zinc-600">{nextPlanned.planned_start.slice(0, 10)} · {nextPlanned.brew_batches.volume_bbl} BBL</p>
-                                  </>
+                                  <NextPlannedBox
+                                    batchNumber={nextPlanned.brew_batches.batch_number}
+                                    beerName={nextPlanned.brew_batches.beer_name}
+                                    plannedStart={nextPlanned.planned_start}
+                                    volumeBbl={nextPlanned.brew_batches.volume_bbl}
+                                    size="sm"
+                                  />
                                 ) : (
                                   <p className="text-sm text-zinc-600">Empty</p>
                                 )}
@@ -702,9 +764,9 @@ export default function BrewStatusTab() {
           <span className="font-medium text-zinc-400">Grid size:</span>
           <label className="flex items-center gap-1.5">
             Cols
-            <input type="number" min={8} max={40} value={gridCols}
+            <input type="number" min={16} max={80} value={gridCols}
               onChange={(e) => {
-                const v = Math.max(8, Math.min(40, parseInt(e.target.value) || GRID_COLS));
+                const v = Math.max(16, Math.min(80, parseInt(e.target.value) || GRID_COLS));
                 setGridCols(v);
                 saveGridSize(v, gridRows);
               }}
@@ -712,9 +774,9 @@ export default function BrewStatusTab() {
           </label>
           <label className="flex items-center gap-1.5">
             Rows
-            <input type="number" min={4} max={32} value={gridRows}
+            <input type="number" min={8} max={64} value={gridRows}
               onChange={(e) => {
-                const v = Math.max(4, Math.min(32, parseInt(e.target.value) || GRID_ROWS));
+                const v = Math.max(8, Math.min(64, parseInt(e.target.value) || GRID_ROWS));
                 setGridRows(v);
                 saveGridSize(gridCols, v);
               }}
@@ -947,12 +1009,13 @@ export default function BrewStatusTab() {
                                 keeps fully-loaded, plan-only, and occupied-only tiles aligned. */}
                             <div className="flex-1 min-h-0 overflow-y-auto space-y-0.5">
                                 {nextOccupant && (
-                                  <div className="pt-0.5 border-t border-zinc-800/60 px-1 py-0.5 rounded bg-zinc-800/40 min-w-0">
-                                    <p className="text-zinc-500 font-semibold uppercase tracking-wide" style={{ fontSize: 7 }}>Next planned</p>
-                                    <p className="text-zinc-400 truncate" style={{ fontSize: 8 }} title={`#${nextOccupant.brew_batches!.batch_number} ${nextOccupant.brew_batches!.beer_name}`}>
-                                      #{nextOccupant.brew_batches!.batch_number} {nextOccupant.brew_batches!.beer_name}
-                                      <span className="text-zinc-600"> · {fmtDate(nextOccupant.planned_start)}</span>
-                                    </p>
+                                  <div className="pt-0.5 border-t border-zinc-800/60">
+                                    <NextPlannedBox
+                                      batchNumber={nextOccupant.brew_batches!.batch_number}
+                                      beerName={nextOccupant.brew_batches!.beer_name}
+                                      plannedStart={nextOccupant.planned_start}
+                                      volumeBbl={null}
+                                    />
                                   </div>
                                 )}
                                 {/* Same-recipe batches combined into this tank */}
@@ -970,7 +1033,7 @@ export default function BrewStatusTab() {
                                       </span>
                                       {!editMode && (
                                         <button
-                                          onClick={() => { setTransferTankId(tank.id); setTransferBatchId(otherBatch.id); setTransferFromVol(otherVol); }}
+                                          onClick={() => { setTransferTankId(tank.id); setTransferBatchId(otherBatch.id); setTransferFromVol(otherVol); setTransferInitialMode(undefined); setTransferInitialDestId(undefined); setTransferInitialConvert(undefined); }}
                                           onMouseDown={(e) => e.stopPropagation()}
                                           className="text-amber-700 hover:text-amber-400 shrink-0"
                                           style={{ fontSize: 8 }}
@@ -987,7 +1050,7 @@ export default function BrewStatusTab() {
                             {!editMode && (
                               <div className="shrink-0">
                                 <button
-                                  onClick={() => { setTransferTankId(tank.id); setTransferBatchId(batch.id); setTransferFromVol(volFor(batch)); }}
+                                  onClick={() => { setTransferTankId(tank.id); setTransferBatchId(batch.id); setTransferFromVol(volFor(batch)); setTransferInitialMode(undefined); setTransferInitialDestId(undefined); setTransferInitialConvert(undefined); }}
                                   onMouseDown={(e) => e.stopPropagation()}
                                   className="w-full text-amber-700 hover:text-amber-400 border border-amber-900 hover:border-amber-700 px-1.5 rounded transition-colors"
                                   style={{ fontSize: 9 }}
@@ -999,29 +1062,27 @@ export default function BrewStatusTab() {
                           </>
                         ) : (
                           <div className="flex-1 min-h-0 flex flex-col gap-0.5">
-                            {/* Top-aligned to land in the same slot the batch-identity row
-                                occupies on an occupied tile, so empty/plan-only/occupied
-                                tiles all read at a consistent height across a row. */}
-                            <div className="shrink-0">
-                              {nextPlanned?.brew_batches ? (
-                                <div className="px-1 py-0.5 rounded bg-zinc-800/60 border border-zinc-700/50 w-full min-w-0">
-                                  <p className="text-zinc-500 font-semibold uppercase tracking-wide" style={{ fontSize: 7 }}>Next planned</p>
-                                  <p className="text-zinc-300 font-medium truncate" style={{ fontSize: 8 }} title={`#${nextPlanned.brew_batches.batch_number} ${nextPlanned.brew_batches.beer_name}`}>
-                                    #{nextPlanned.brew_batches.batch_number} {nextPlanned.brew_batches.beer_name}
-                                  </p>
-                                  <p className="text-zinc-600 truncate" style={{ fontSize: 7 }}>
-                                    {fmtDate(nextPlanned.planned_start)} · {nextPlanned.brew_batches.volume_bbl} BBL
-                                  </p>
-                                </div>
-                              ) : (
-                                <p className="text-zinc-700" style={{ fontSize: 9 }}>Empty</p>
-                              )}
-                            </div>
-                            {/* Spacer — keeps the Assign button (or nothing) bottom-pinned,
-                                same as the Transfer button slot on occupied tiles. */}
+                            {/* Spacer — pushes Next planned + button slot to the bottom,
+                                same position they occupy on an occupied tile. */}
                             <div className="flex-1 min-h-0" />
-                            {!editMode && tank.type === "brewhouse" && unassignedBatches.length > 0 && (
+                            {nextPlanned?.brew_batches && (
                               <div className="shrink-0">
+                                <NextPlannedBox
+                                  batchNumber={nextPlanned.brew_batches.batch_number}
+                                  beerName={nextPlanned.brew_batches.beer_name}
+                                  plannedStart={nextPlanned.planned_start}
+                                  volumeBbl={nextPlanned.brew_batches.volume_bbl}
+                                />
+                              </div>
+                            )}
+                            {!nextPlanned?.brew_batches && (
+                              <p className="shrink-0 text-zinc-700" style={{ fontSize: 9 }}>Empty</p>
+                            )}
+                            {/* Button slot — always reserved, even when no button renders,
+                                so Next planned sits at the same height as the Transfer slot
+                                on an occupied tile. */}
+                            <div className="shrink-0" style={{ minHeight: !editMode && tank.type === "brewhouse" && unassignedBatches.length > 0 ? undefined : 18 }}>
+                              {!editMode && tank.type === "brewhouse" && unassignedBatches.length > 0 && (
                                 <button
                                   onClick={() => assign.openAssign(tank.id)}
                                   onMouseDown={(e) => e.stopPropagation()}
@@ -1030,8 +1091,8 @@ export default function BrewStatusTab() {
                                 >
                                   Assign
                                 </button>
-                              </div>
-                            )}
+                              )}
+                            </div>
                           </div>
                         )}
                       </div>
@@ -1302,7 +1363,17 @@ export default function BrewStatusTab() {
           recipes={recipes}
           fromTankVolume={transferFromVol}
           plannedEntry={transferPlannedEntry}
-          onClose={() => { setTransferTankId(null); setTransferBatchId(null); setTransferFromVol(undefined); }}
+          initialDestId={transferInitialDestId}
+          initialMode={transferInitialMode}
+          initialConvert={transferInitialConvert}
+          onClose={() => {
+            setTransferTankId(null);
+            setTransferBatchId(null);
+            setTransferFromVol(undefined);
+            setTransferInitialDestId(undefined);
+            setTransferInitialMode(undefined);
+            setTransferInitialConvert(undefined);
+          }}
           onDone={handleTransferDone}
         />
       )}

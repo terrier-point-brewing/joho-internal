@@ -19,15 +19,24 @@ function wouldCollide(tanks: Equipment[], tankId: string, row: number, col: numb
     });
 }
 
-export function useTankDragDrop(tanks: Equipment[], onRefresh: () => Promise<void>) {
+export function useTankDragDrop(tanks: Equipment[], onRefresh: () => Promise<void>, gridScale: number) {
   const [dragging, setDragging] = useState<{ id: string; grabRow: number; grabCol: number } | null>(null);
   const [dropPreview, setDropPreview] = useState<{ row: number; col: number; valid: boolean } | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
 
+  // The grid (and every tile inside it) is rendered through a CSS
+  // `transform: scale(gridScale)` wrapper, so `getBoundingClientRect()`
+  // reflects the scaled on-screen size while CELL is a fixed, unscaled px
+  // value. Every conversion from screen pixels to grid cells must divide by
+  // the *effective* on-screen cell size (`CELL * gridScale`), not raw CELL,
+  // or the computed row/col drifts from the cursor as soon as the grid is
+  // scaled down to fit its container (the common case).
+  const effectiveCell = CELL * (gridScale || 1);
+
   function onDragStart(e: React.DragEvent, t: Equipment) {
     const rect = e.currentTarget.getBoundingClientRect();
-    const grabCol = Math.floor((e.clientX - rect.left) / CELL);
-    const grabRow = Math.floor((e.clientY - rect.top)  / CELL);
+    const grabCol = Math.floor((e.clientX - rect.left) / effectiveCell);
+    const grabRow = Math.floor((e.clientY - rect.top)  / effectiveCell);
     e.dataTransfer.setData("tankId",  t.id);
     e.dataTransfer.setData("grabCol", String(grabCol));
     e.dataTransfer.setData("grabRow", String(grabRow));
@@ -39,12 +48,12 @@ export function useTankDragDrop(tanks: Equipment[], onRefresh: () => Promise<voi
     e.preventDefault();
     if (!dragging || !gridRef.current) return;
     const rect = gridRef.current.getBoundingClientRect();
-    const col = Math.max(0, Math.floor((e.clientX - rect.left + gridRef.current.scrollLeft) / CELL) - dragging.grabCol);
-    const row = Math.max(0, Math.floor((e.clientY - rect.top  + gridRef.current.scrollTop)  / CELL) - dragging.grabRow);
+    const col = Math.max(0, Math.floor((e.clientX - rect.left + gridRef.current.scrollLeft) / effectiveCell) - dragging.grabCol);
+    const row = Math.max(0, Math.floor((e.clientY - rect.top  + gridRef.current.scrollTop)  / effectiveCell) - dragging.grabRow);
     const tank = tanks.find((t) => t.id === dragging.id)!;
     const valid = isInBounds(tank, row, col) && !wouldCollide(tanks, dragging.id, row, col);
     setDropPreview({ row, col, valid });
-  }, [dragging, tanks]);
+  }, [dragging, tanks, effectiveCell]);
 
   async function onGridDrop(e: React.DragEvent) {
     e.preventDefault();
@@ -53,8 +62,8 @@ export function useTankDragDrop(tanks: Equipment[], onRefresh: () => Promise<voi
     const grabCol = parseInt(e.dataTransfer.getData("grabCol") || "0");
     const grabRow = parseInt(e.dataTransfer.getData("grabRow") || "0");
     const rect = gridRef.current.getBoundingClientRect();
-    const col  = Math.max(0, Math.floor((e.clientX - rect.left + gridRef.current.scrollLeft) / CELL) - grabCol);
-    const row  = Math.max(0, Math.floor((e.clientY - rect.top  + gridRef.current.scrollTop)  / CELL) - grabRow);
+    const col  = Math.max(0, Math.floor((e.clientX - rect.left + gridRef.current.scrollLeft) / effectiveCell) - grabCol);
+    const row  = Math.max(0, Math.floor((e.clientY - rect.top  + gridRef.current.scrollTop)  / effectiveCell) - grabRow);
     const tank = tanks.find((t) => t.id === tankId);
     if (tank && isInBounds(tank, row, col) && !wouldCollide(tanks, tankId, row, col)) {
       await fetch(`/api/production/equipment/${tankId}`, {
