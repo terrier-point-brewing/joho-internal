@@ -44,25 +44,15 @@ export default function BrewsSubtab() {
 
     if (tr.transfer_type === "kegging") {
       const kd = tr.kegging_detail;
-      if (kd?.kegs && kd.kegs.length > 0) {
-        const total = kd.kegs.reduce((s, k) => s + k.quantity, 0);
-        for (const k of kd.kegs) {
-          if (k.quantity === 0) continue;
-          const share = total > 0 ? k.quantity / total : 0;
-          const net   = Math.round(k.quantity + adj * share);
-          if (net <= 0) continue;
-          const key = `${beerName}||${k.name}`;
-          tally.set(key, (tally.get(key) ?? 0) + net);
-        }
-      } else {
-        const net = (kd?.total_kegs ?? 0) + adj;
-        if (net > 0) {
-          const key = `${beerName}||Kegs`;
-          tally.set(key, (tally.get(key) ?? 0) + net);
-        }
+      const net = Math.round((kd?.quantity ?? 0) + adj);
+      if (net > 0) {
+        const key = `${beerName}||${kd?.name || "Kegs"}`;
+        tally.set(key, (tally.get(key) ?? 0) + net);
       }
     } else {
-      const net = (tr.canning_detail?.total_cans ?? 0) + adj;
+      const cd = tr.canning_detail;
+      const cansPerUnit = cd ? (cd.format === "case" ? cd.cans_per_case : cd.format === "pack" ? cd.cans_per_pack : 1) : 0;
+      const net = (cd ? cd.quantity * cansPerUnit : 0) + adj;
       if (net > 0) {
         const key = `${beerName}||Cans`;
         tally.set(key, (tally.get(key) ?? 0) + net);

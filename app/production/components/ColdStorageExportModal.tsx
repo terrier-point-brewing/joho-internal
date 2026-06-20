@@ -55,30 +55,34 @@ export default function ColdStorageExportModal({ coldStorageTank, transfers, bat
 
     for (const tr of inbound) {
       const beerName = batchById[tr.batch_id]?.beer_name ?? "Unknown";
-      if (tr.transfer_type === "kegging" && tr.kegging_detail?.kegs) {
-        for (const keg of tr.kegging_detail.kegs as { name: string; quantity: number }[]) {
-          if (keg.quantity > 0) {
-            entries.push({
-              batchTransferId: tr.id,
-              batchId: tr.batch_id,
-              productLabel: keg.name,
-              productType: "keg",
-              totalQty: keg.quantity,
-              exportedQty: 0,
-              beerName,
-            });
-          }
+      if (tr.transfer_type === "kegging" && tr.kegging_detail) {
+        const kd = tr.kegging_detail;
+        if (kd.quantity > 0) {
+          entries.push({
+            batchTransferId: tr.id,
+            batchId: tr.batch_id,
+            productLabel: kd.name,
+            productType: "keg",
+            totalQty: kd.quantity,
+            exportedQty: 0,
+            beerName,
+          });
         }
-      } else if (tr.transfer_type === "canning" && tr.canning_detail?.total_cans != null) {
-        entries.push({
-          batchTransferId: tr.id,
-          batchId: tr.batch_id,
-          productLabel: "can",
-          productType: "can",
-          totalQty: tr.canning_detail.total_cans as number,
-          exportedQty: 0,
-          beerName,
-        });
+      } else if (tr.transfer_type === "canning" && tr.canning_detail) {
+        const cd = tr.canning_detail;
+        const cansPerUnit = cd.format === "case" ? cd.cans_per_case : cd.format === "pack" ? cd.cans_per_pack : 1;
+        const totalCans = cd.quantity * cansPerUnit;
+        if (totalCans > 0) {
+          entries.push({
+            batchTransferId: tr.id,
+            batchId: tr.batch_id,
+            productLabel: "can",
+            productType: "can",
+            totalQty: totalCans,
+            exportedQty: 0,
+            beerName,
+          });
+        }
       }
     }
 

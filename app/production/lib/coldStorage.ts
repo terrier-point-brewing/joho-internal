@@ -3,11 +3,11 @@ import { BatchTransfer, Equipment, BrewBatch } from "../types";
 /** Initial packaged quantity recorded on a kegging/canning transfer. */
 export function transferInitialQty(t: BatchTransfer): { qty: number; unit: "keg" | "can" } {
   if (t.transfer_type === "kegging") {
-    const d = t.kegging_detail as { total_kegs?: number } | null;
-    return { qty: d?.total_kegs ?? 0, unit: "keg" };
+    return { qty: t.kegging_detail?.quantity ?? 0, unit: "keg" };
   }
-  const d = t.canning_detail as { total_cans?: number } | null;
-  return { qty: d?.total_cans ?? 0, unit: "can" };
+  const cd = t.canning_detail;
+  const cansPerUnit = cd ? (cd.format === "case" ? cd.cans_per_case : cd.format === "pack" ? cd.cans_per_pack : 1) : 0;
+  return { qty: cd ? cd.quantity * cansPerUnit : 0, unit: "can" };
 }
 
 export interface ColdStorageLot {
