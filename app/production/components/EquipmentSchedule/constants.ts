@@ -131,7 +131,11 @@ export type BranchPackagingStatus = {
   status: "ok" | "incomplete" | "over" | "no_packaging";
 };
 
-export function computeBranchPackagingStatus(entries: ScheduleEntry[]): BranchPackagingStatus[] {
+export function computeBranchPackagingStatus(
+  entries: ScheduleEntry[],
+  batch?: { id: string },
+  allTransfers: { batch_id: string; from_tank_id: string | null; volume_bbl: number }[] = [],
+): BranchPackagingStatus[] {
   const active = entries.filter(e => !e.cancelled_at);
   const branches = [null, ...new Set(active.filter(e => e.planned_branch).map(e => e.planned_branch!))] as (string | null)[];
 
@@ -139,7 +143,27 @@ export function computeBranchPackagingStatus(entries: ScheduleEntry[]): BranchPa
     const bEntries = active.filter(e => branch === null ? !e.planned_branch : e.planned_branch === branch);
     const cond = bEntries.find(e => e.stage === "conditioning");
     if (!cond?.volume_bbl) return [];
-    const condBbl = Number(cond.volume_bbl);
+    // If conditioning is still receiving (open) and the upstream fermenter
+    // hasn't fully drained yet, the rest of that volume is still expected —
+    // compare packaging against the eventual total, not just what's landed
+    // in conditioning so far.
+    let condBbl = Number(cond.volume_bbl);
+    if (cond.actual_end == null && cond.equipment_id && batch) {
+      const ferment = bEntries.find(e => (e.stage === "fermenting" || e.stage === "fermenter") && e.equipment_id && e.actual_end == null);
+      if (ferment?.equipment_id) {
+        const departedFromFerment = allTransfers
+          .filter(t => t.batch_id === batch.id && t.from_tank_id === ferment.equipment_id)
+          .reduce((s, t) => s + Number(t.volume_bbl), 0);
+        // A planned (not-yet-executed) conversion out of this same tank is a
+        // legitimate sink, not volume still headed to conditioning — net it
+        // out so it isn't double-counted as "still expected".
+        const plannedConversionAway = active
+          .filter(e => e.stage === "planned_conversion" && e.equipment_id === ferment.equipment_id)
+          .reduce((s, e) => s + Number(e.volume_bbl ?? 0), 0);
+        const fermentArrivedTotal = Number(ferment.volume_bbl ?? 0) + departedFromFerment - plannedConversionAway;
+        condBbl = Math.max(condBbl, fermentArrivedTotal);
+      }
+    }
     const pkgBbl = bEntries
       .filter(e => e.stage === "kegging" || e.stage === "canning")
       .reduce((s, e) => s + Number(e.volume_bbl ?? 0), 0);

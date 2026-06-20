@@ -26,10 +26,13 @@ export type EntryNodeCallbacks = {
   editing:   ScheduleEntry | null;
 };
 
-export type EntryNodeData = EntryNodeCallbacks & { entry: ScheduleEntry };
+export type EntryNodeData = EntryNodeCallbacks & {
+  entry: ScheduleEntry;
+  partialDrain?: { arrived: number; departed: number } | null;
+};
 
 export function EntryNode({ data }: NodeProps) {
-  const { entry, onEdit, onSplit, onConvert, onRemove, editing } =
+  const { entry, onEdit, onSplit, onConvert, onRemove, editing, partialDrain } =
     data as EntryNodeData;
 
   const norm      = entry.stage === "fermenter" ? "fermenting" : entry.stage;
@@ -72,7 +75,14 @@ export function EntryNode({ data }: NodeProps) {
             ?? <span className="text-zinc-600 font-normal italic">No tank assigned</span>}
         </p>
         {entry.volume_bbl != null && (
-          <p className="text-[11px] text-zinc-500 mb-1">{fmtBbl2(entry.volume_bbl)}</p>
+          partialDrain ? (
+            <p className="text-[11px] text-zinc-500 mb-1">
+              {Number(entry.volume_bbl).toFixed(2)} / {partialDrain.arrived.toFixed(2)} BBL
+              <span className="text-zinc-600"> remaining</span>
+            </p>
+          ) : (
+            <p className="text-[11px] text-zinc-500 mb-1">{fmtBbl2(entry.volume_bbl)}</p>
+          )
         )}
         <div className="text-[11px] text-zinc-400 space-y-0.5">
           {entry.actual_start ? (

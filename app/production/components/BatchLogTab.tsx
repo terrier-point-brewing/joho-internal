@@ -1147,7 +1147,7 @@ function BatchTable({
             const schedStages = new Set(batchSchedule.map(e => e.stage === "fermenter" ? "fermenting" : e.stage));
             const isConversion = !!b.converted_from_batch_id;
             const allBatchEntries = scheduleEntries.filter((e) => e.batch_id === b.id);
-            const pkgIncomplete = computeBranchPackagingStatus(allBatchEntries).some(s => s.status !== "ok");
+            const pkgIncomplete = computeBranchPackagingStatus(allBatchEntries, b, transfers).some(s => s.status !== "ok");
             const scheduleMissing = (!isConversion && !schedStages.has("brewhouse")) || (!isConversion && !schedStages.has("fermenting")) || !schedStages.has("conditioning") || pkgIncomplete;
 
             // Delivery: use stored field if set, else calculate from recipe
