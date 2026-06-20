@@ -702,9 +702,9 @@ export default function BrewStatusTab() {
           <span className="font-medium text-zinc-400">Grid size:</span>
           <label className="flex items-center gap-1.5">
             Cols
-            <input type="number" min={8} max={40} value={gridCols}
+            <input type="number" min={16} max={80} value={gridCols}
               onChange={(e) => {
-                const v = Math.max(8, Math.min(40, parseInt(e.target.value) || GRID_COLS));
+                const v = Math.max(16, Math.min(80, parseInt(e.target.value) || GRID_COLS));
                 setGridCols(v);
                 saveGridSize(v, gridRows);
               }}
@@ -712,9 +712,9 @@ export default function BrewStatusTab() {
           </label>
           <label className="flex items-center gap-1.5">
             Rows
-            <input type="number" min={4} max={32} value={gridRows}
+            <input type="number" min={8} max={64} value={gridRows}
               onChange={(e) => {
-                const v = Math.max(4, Math.min(32, parseInt(e.target.value) || GRID_ROWS));
+                const v = Math.max(8, Math.min(64, parseInt(e.target.value) || GRID_ROWS));
                 setGridRows(v);
                 saveGridSize(gridCols, v);
               }}
