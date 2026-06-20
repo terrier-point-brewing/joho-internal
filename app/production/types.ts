@@ -207,6 +207,29 @@ export type AllocationStatus = "active" | "paused" | "fulfilled" | "cancelled";
 export type ContractRequestStatus = "open" | "in_progress" | "fulfilled" | "cancelled";
 export type CommitmentChannel = "distribution" | "contract_brewing";
 
+export interface CommitmentPackagingPreference {
+  id: string;
+  commitment_id: string;
+  packaging_item_id: string;
+  qty: number;
+  created_at: string;
+  packaging_items?: { id: string; name: string; volume_fl_oz: number | null } | null;
+}
+
+/** Slice of a batch_allocation surfaced on the Commitments view for invoicing. */
+export interface CommitmentAllocationSummary {
+  id: string;
+  batch_id: string;
+  percentage: number;
+  locked: boolean;
+  lock_reason: AllocationLockReason | null;
+  invoice_generated_at: string | null;
+  invoice_sent_at: string | null;
+  invoice_paid_at: string | null;
+  brew_batches?: { id: string; beer_name: string; batch_number: number; volume_bbl: number } | null;
+  contract_brewing_partners?: { id: string; company_name: string } | null;
+}
+
 export interface Commitment {
   id: string;
   recipe_id: string | null;
@@ -216,8 +239,6 @@ export interface Commitment {
   desired_delivery_date: string | null;
   status: ContractRequestStatus;
   notes: string | null;
-  packaging_item_id: string | null;
-  packaging_qty: number | null;
   channel: CommitmentChannel;
   cadence: "one_time" | "recurring";
   recurrence: "weekly" | "biweekly" | "monthly" | null;
@@ -229,9 +250,11 @@ export interface Commitment {
   created_at: string;
   recipes?: { beer_name: string } | null;
   contract_brewing_partners?: { company_name: string } | null;
-  packaging_items?: { id: string; name: string; volume_fl_oz: number | null } | null;
+  packaging_preferences?: CommitmentPackagingPreference[];
   /** Sum of (batch volume x allocated %) across all allocations referencing this commitment. */
   committed_allocated_bbl?: number;
+  /** Linked batch_allocations (channel=contract_brewing) for inline invoicing controls. */
+  batch_allocations?: CommitmentAllocationSummary[];
 }
 
 /** @deprecated Use Commitment instead */

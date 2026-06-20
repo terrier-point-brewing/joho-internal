@@ -5,11 +5,16 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import {
   Recipe, ContractBrewingPartner, ContractBrewingRequest,
-  ContractRequestStatus, CommitmentChannel,
+  ContractRequestStatus, CommitmentChannel, CommitmentAllocationSummary,
+  AllocationLockReason,
 } from "../../types";
 import { fmtDateLong } from "@/lib/utils/formatting";
+import { BBL_TO_FL_OZ } from "@/lib/constants/production";
 import { Modal, Field, ModalActions } from "../shared";
 import { fetchJson, usePackagingQuery } from "../../hooks/queries";
+import { useSort, SortTh } from "@/app/reports/components/SortControls";
+import { DepositInvoiceModal } from "../DepositInvoiceModal";
+import type { DepositCalculation } from "@/lib/square/deposit-invoices";
 
 const STATUS_META: Record<ContractRequestStatus, { label: string; cls: string }> = {
   open:        { label: "Open",        cls: "bg-amber-900/50 text-amber-400 border-amber-800" },
@@ -23,14 +28,112 @@ const CHANNEL_META: Record<CommitmentChannel, { label: string; cls: string }> = 
   contract_brewing: { label: "Contract Brewing", cls: "bg-purple-900/40 text-purple-300 border-purple-800" },
 };
 
+const LOCK_REASON_OPTIONS: { value: AllocationLockReason; label: string }[] = [
+  { value: "deposit_paid",    label: "Deposit Paid" },
+  { value: "contract_signed", label: "Contract Signed" },
+];
+
 function StatusBadge({ status }: { status: ContractRequestStatus }) {
   const m = STATUS_META[status] ?? STATUS_META.open;
-  return <span className={`text-xs px-1.5 py-0.5 rounded border font-medium ${m.cls}`}>{m.label}</span>;
+  return <span className={`text-xs px-1.5 py-0.5 rounded border font-medium whitespace-nowrap ${m.cls}`}>{m.label}</span>;
 }
 
 function ChannelBadge({ channel }: { channel: CommitmentChannel }) {
   const m = CHANNEL_META[channel] ?? CHANNEL_META.contract_brewing;
-  return <span className={`text-xs px-1.5 py-0.5 rounded border font-medium ${m.cls}`}>{m.label}</span>;
+  return <span className={`text-xs px-1.5 py-0.5 rounded border font-medium whitespace-nowrap inline-block ${m.cls}`}>{m.label}</span>;
+}
+
+function InvoiceStatusBadge({ a }: { a: CommitmentAllocationSummary }) {
+  if (a.invoice_paid_at) {
+    return <span className="inline-flex items-center gap-1 text-[10px] text-green-400 bg-green-900/30 border border-green-800/40 rounded px-1.5 py-0.5">✓ Deposit paid</span>;
+  }
+  if (a.invoice_sent_at) {
+    return <span className="inline-flex items-center gap-1 text-[10px] text-amber-400 bg-amber-900/30 border border-amber-800/40 rounded px-1.5 py-0.5">● Invoice sent</span>;
+  }
+  if (a.invoice_generated_at) {
+    return <span className="inline-flex items-center gap-1 text-[10px] text-zinc-400 bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5">Draft ready</span>;
+  }
+  return <span className="inline-flex items-center gap-1 text-[10px] text-zinc-600 bg-zinc-900 border border-zinc-800 rounded px-1.5 py-0.5">Invoice pending</span>;
+}
+
+// ─── Invoicing controls for a commitment's linked contract_brewing allocation(s) ──
+
+function InvoicingCell({
+  commitment, onPreview, actionLoading, onSend, onSync, onLock, onUnlock,
+}: {
+  commitment: ContractBrewingRequest;
+  onPreview: (a: CommitmentAllocationSummary) => void;
+  actionLoading: string | null;
+  onSend: (id: string) => void;
+  onSync: (id: string) => void;
+  onLock: (id: string, reason: AllocationLockReason) => void;
+  onUnlock: (id: string) => void;
+}) {
+  if (commitment.channel !== "contract_brewing") return <span className="text-zinc-600">—</span>;
+  const allocs = commitment.batch_allocations ?? [];
+  if (allocs.length === 0) return <span className="text-zinc-600 text-xs">No batch yet</span>;
+
+  return (
+    <div className="space-y-1.5">
+      {allocs.map((a) => (
+        <div key={a.id} className="flex items-center gap-1.5 flex-wrap">
+          {a.brew_batches && <span className="text-[10px] text-zinc-500 whitespace-nowrap">#{a.brew_batches.batch_number}</span>}
+          <InvoiceStatusBadge a={a} />
+          {!a.invoice_paid_at && (
+            <>
+              {!a.invoice_generated_at && (
+                <button type="button" onClick={() => onPreview(a)} disabled={actionLoading === a.id}
+                  className="text-[10px] text-amber-500 hover:text-amber-400 border border-amber-800/50 hover:border-amber-600 rounded px-1.5 py-0.5 transition-colors disabled:opacity-40 whitespace-nowrap">
+                  Generate Invoice
+                </button>
+              )}
+              {a.invoice_generated_at && !a.invoice_sent_at && (
+                <>
+                  <button type="button" onClick={() => onPreview(a)}
+                    className="text-[10px] text-zinc-500 hover:text-zinc-300 border border-zinc-700 rounded px-1.5 py-0.5 transition-colors whitespace-nowrap">
+                    Preview
+                  </button>
+                  <button type="button" onClick={() => onSend(a.id)} disabled={actionLoading === a.id}
+                    className="text-[10px] text-amber-500 hover:text-amber-400 border border-amber-800/50 hover:border-amber-600 rounded px-1.5 py-0.5 transition-colors disabled:opacity-40 whitespace-nowrap">
+                    {actionLoading === a.id ? "Sending…" : "Send Invoice"}
+                  </button>
+                </>
+              )}
+              {a.invoice_sent_at && (
+                <button type="button" onClick={() => onSync(a.id)} disabled={actionLoading === a.id}
+                  className="text-[10px] text-zinc-500 hover:text-zinc-300 border border-zinc-700 rounded px-1.5 py-0.5 transition-colors disabled:opacity-40 whitespace-nowrap">
+                  {actionLoading === a.id ? "Syncing…" : "Sync Status"}
+                </button>
+              )}
+            </>
+          )}
+          {!a.locked && !a.invoice_paid_at && (
+            <select className="text-[10px] bg-zinc-800 border border-zinc-700 rounded px-1 py-0.5 text-zinc-500 cursor-pointer hover:border-zinc-500"
+              defaultValue="" onChange={(e) => { if (e.target.value) onLock(a.id, e.target.value as AllocationLockReason); e.target.value = ""; }}>
+              <option value="">Lock…</option>
+              {LOCK_REASON_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          )}
+          {a.locked && !a.invoice_paid_at && (
+            <button type="button" onClick={() => onUnlock(a.id)}
+              className="text-[10px] text-zinc-500 hover:text-zinc-300 border border-zinc-700 rounded px-1.5 py-0.5 transition-colors">
+              Unlock
+            </button>
+          )}
+          {a.locked && a.lock_reason === "contract_signed" && (
+            <span className="inline-flex items-center gap-1 text-[10px] text-blue-400 bg-blue-900/30 border border-blue-800/40 rounded px-1.5 py-0.5">🔒 Contract signed</span>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Form state ──────────────────────────────────────────────────────────────
+
+interface PackagingRow {
+  packaging_item_id: string;
+  qty: string;
 }
 
 interface FormState {
@@ -43,12 +146,17 @@ interface FormState {
   recurrence: "weekly" | "biweekly" | "monthly";
   start_date: string;
   end_date: string;
-  packaging_item_id: string;
-  packaging_qty: string;
+  packaging: PackagingRow[];
   status: ContractRequestStatus;
   notes: string;
   received_on: string;
   locked_on: string;
+}
+
+const EMPTY_PACKAGING_ROW: PackagingRow = { packaging_item_id: "", qty: "" };
+
+function todayIso() {
+  return new Date().toISOString().slice(0, 10);
 }
 
 const FORM_EMPTY: FormState = {
@@ -56,9 +164,9 @@ const FORM_EMPTY: FormState = {
   recipe_id: "", partner_id: "", volume_bbl: "",
   desired_delivery_date: "", cadence: "one_time",
   recurrence: "weekly", start_date: "", end_date: "",
-  packaging_item_id: "", packaging_qty: "",
+  packaging: [{ ...EMPTY_PACKAGING_ROW }],
   status: "open", notes: "",
-  received_on: "", locked_on: "",
+  received_on: todayIso(), locked_on: "",
 };
 
 function CommitmentModal({
@@ -83,8 +191,9 @@ function CommitmentModal({
     recurrence: existing.recurrence ?? "weekly",
     start_date: existing.start_date ?? "",
     end_date: existing.end_date ?? "",
-    packaging_item_id: existing.packaging_item_id ?? "",
-    packaging_qty: existing.packaging_qty != null ? String(existing.packaging_qty) : "",
+    packaging: existing.packaging_preferences && existing.packaging_preferences.length > 0
+      ? existing.packaging_preferences.map((p) => ({ packaging_item_id: p.packaging_item_id, qty: String(p.qty) }))
+      : [{ ...EMPTY_PACKAGING_ROW }],
     status: existing.status,
     notes: existing.notes ?? "",
     received_on: existing.received_on ?? "",
@@ -98,12 +207,33 @@ function CommitmentModal({
   const isDistribution = form.channel === "distribution";
   const isRecurring = isDistribution && form.cadence === "recurring";
 
+  function setPackagingRow(i: number, patch: Partial<PackagingRow>) {
+    setForm((f) => ({ ...f, packaging: f.packaging.map((r, idx) => (idx === i ? { ...r, ...patch } : r)) }));
+  }
+  function addPackagingRow() {
+    setForm((f) => ({ ...f, packaging: [...f.packaging, { ...EMPTY_PACKAGING_ROW }] }));
+  }
+  function removePackagingRow(i: number) {
+    setForm((f) => ({ ...f, packaging: f.packaging.filter((_, idx) => idx !== i) }));
+  }
+
+  function rowBbl(row: PackagingRow): number | null {
+    const item = packaging.find((p) => p.id === row.packaging_item_id);
+    const qty = parseFloat(row.qty);
+    if (!item?.volume_fl_oz || !qty) return null;
+    return (qty * item.volume_fl_oz) / BBL_TO_FL_OZ;
+  }
+  const totalPackagingBbl = form.packaging.reduce((sum, r) => sum + (rowBbl(r) ?? 0), 0);
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!form.recipe_id) { alert("Please select a recipe."); return; }
     setSubmitting(true);
     try {
       const beer_style = recipes.find((r) => r.id === form.recipe_id)?.beer_name ?? "";
+      const packagingPayload = form.packaging
+        .filter((r) => r.packaging_item_id && r.qty)
+        .map((r) => ({ packaging_item_id: r.packaging_item_id, qty: parseFloat(r.qty) }));
       const body = {
         channel: form.channel,
         recipe_id: form.recipe_id,
@@ -115,8 +245,7 @@ function CommitmentModal({
         recurrence: isRecurring ? form.recurrence : null,
         start_date: isRecurring ? (form.start_date || null) : null,
         end_date: isRecurring ? (form.end_date || null) : null,
-        packaging_item_id: form.packaging_item_id || null,
-        packaging_qty: form.packaging_qty ? parseFloat(form.packaging_qty) : null,
+        packaging: packagingPayload,
         status: form.status,
         notes: form.notes || null,
         received_on: form.received_on || null,
@@ -211,30 +340,44 @@ function CommitmentModal({
           </Field>
         )}
 
-        {/* Packaging preference */}
+        {/* Packaging preferences — multiple rows allowed */}
         <div className="rounded border border-zinc-800 px-3 py-3 space-y-3">
-          <p className="text-xs font-medium text-zinc-400">Packaging Preference</p>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Container type">
-              <select className="inp" value={form.packaging_item_id} onChange={(e) => set("packaging_item_id", e.target.value)}>
-                <option value="">— not specified —</option>
-                {kegs.length > 0 && (
-                  <optgroup label="Kegs">
-                    {kegs.map((p) => <option key={p.id} value={p.id}>{p.name}{p.volume_fl_oz ? ` (${p.volume_fl_oz} fl oz)` : ""}</option>)}
-                  </optgroup>
-                )}
-                {cans.length > 0 && (
-                  <optgroup label="Cans">
-                    {cans.map((p) => <option key={p.id} value={p.id}>{p.name}{p.volume_fl_oz ? ` (${p.volume_fl_oz} fl oz)` : ""}</option>)}
-                  </optgroup>
-                )}
-              </select>
-            </Field>
-            <Field label="Quantity">
-              <input type="number" step="1" min="0" className="inp" placeholder="# of containers"
-                value={form.packaging_qty} onChange={(e) => set("packaging_qty", e.target.value)} />
-            </Field>
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-medium text-zinc-400">Packaging Preferences</p>
+            {totalPackagingBbl > 0 && (
+              <p className="text-xs text-zinc-500">Total: <span className="text-zinc-300 tabular-nums">{totalPackagingBbl.toFixed(2)} BBL</span></p>
+            )}
           </div>
+          <div className="space-y-2">
+            {form.packaging.map((row, i) => {
+              const bbl = rowBbl(row);
+              return (
+                <div key={i} className="grid grid-cols-[1fr_120px_80px_24px] gap-2 items-center">
+                  <select className="inp" value={row.packaging_item_id} onChange={(e) => setPackagingRow(i, { packaging_item_id: e.target.value })}>
+                    <option value="">— not specified —</option>
+                    {kegs.length > 0 && (
+                      <optgroup label="Kegs">
+                        {kegs.map((p) => <option key={p.id} value={p.id}>{p.name}{p.volume_fl_oz ? ` (${p.volume_fl_oz} fl oz)` : ""}</option>)}
+                      </optgroup>
+                    )}
+                    {cans.length > 0 && (
+                      <optgroup label="Cans">
+                        {cans.map((p) => <option key={p.id} value={p.id}>{p.name}{p.volume_fl_oz ? ` (${p.volume_fl_oz} fl oz)` : ""}</option>)}
+                      </optgroup>
+                    )}
+                  </select>
+                  <input type="number" step="1" min="0" className="inp" placeholder="# of containers"
+                    value={row.qty} onChange={(e) => setPackagingRow(i, { qty: e.target.value })} />
+                  <span className="text-xs text-zinc-500 tabular-nums text-right">{bbl != null ? `${bbl.toFixed(2)} BBL` : ""}</span>
+                  <button type="button" onClick={() => removePackagingRow(i)} disabled={form.packaging.length === 1}
+                    className="text-zinc-600 hover:text-red-400 disabled:opacity-30 text-sm leading-none">✕</button>
+                </div>
+              );
+            })}
+          </div>
+          <button type="button" onClick={addPackagingRow} className="text-xs text-amber-500 hover:text-amber-400 transition-colors">
+            + Add another preference
+          </button>
         </div>
 
         <div className="grid grid-cols-2 gap-3">
@@ -251,7 +394,7 @@ function CommitmentModal({
         </div>
 
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Received On">
+          <Field label="Received On" hint={!isEdit ? "auto-filled to today" : undefined}>
             <input type="date" className="inp" value={form.received_on}
               onChange={(e) => set("received_on", e.target.value)} />
           </Field>
@@ -267,6 +410,22 @@ function CommitmentModal({
   );
 }
 
+// ─── Sortable row shape ──────────────────────────────────────────────────────
+
+interface SortableRow extends ContractBrewingRequest {
+  partner_name: string;
+  packaging_total_bbl: number;
+  schedule_sort: string;
+}
+
+function packagingTotalBbl(q: ContractBrewingRequest): number {
+  return (q.packaging_preferences ?? []).reduce((sum, p) => {
+    const flOz = p.packaging_items?.volume_fl_oz;
+    if (!flOz) return sum;
+    return sum + (p.qty * flOz) / BBL_TO_FL_OZ;
+  }, 0);
+}
+
 export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[]; partners: ContractBrewingPartner[] }) {
   const qc = useQueryClient();
   const { data: rows = [] } = useQuery({
@@ -278,16 +437,109 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
   const [editing, setEditing] = useState<ContractBrewingRequest | null>(null);
   const [channelFilter, setChannelFilter] = useState<CommitmentChannel | "all">("all");
 
+  // ── Invoicing actions (shared with Batch Log > Allocations) ──────────────
+  const [invoiceModalAlloc, setInvoiceModalAlloc] = useState<CommitmentAllocationSummary | null>(null);
+  const [invoicePreview, setInvoicePreview] = useState<{ calculation: DepositCalculation } | null>(null);
+  const [invoicePreviewLoading, setInvoicePreviewLoading] = useState(false);
+  const [invoiceActionLoading, setInvoiceActionLoading] = useState<string | null>(null);
+
+  async function openInvoicePreview(a: CommitmentAllocationSummary) {
+    setInvoiceModalAlloc(a);
+    setInvoicePreview(null);
+    setInvoicePreviewLoading(true);
+    try {
+      const data = await fetchJson<{ calculation: DepositCalculation }>(`/api/production/allocations/${a.id}/invoice`);
+      setInvoicePreview(data);
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Failed to load invoice preview");
+      setInvoiceModalAlloc(null);
+    } finally {
+      setInvoicePreviewLoading(false);
+    }
+  }
+
+  async function handleGenerateInvoice(allocId: string) {
+    setInvoiceActionLoading(allocId);
+    try {
+      const res = await fetch(`/api/production/allocations/${allocId}/invoice`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "generate" }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? "Error");
+      setInvoiceModalAlloc(null);
+      await load();
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Failed to generate invoice");
+    } finally {
+      setInvoiceActionLoading(null);
+    }
+  }
+
+  async function handleSendInvoice(allocId: string) {
+    if (!confirm("Send this invoice to the partner via email?")) return;
+    setInvoiceActionLoading(allocId);
+    try {
+      const res = await fetch(`/api/production/allocations/${allocId}/invoice`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "send" }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? "Error");
+      await load();
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Failed to send invoice");
+    } finally {
+      setInvoiceActionLoading(null);
+    }
+  }
+
+  async function handleSyncInvoice(allocId: string) {
+    setInvoiceActionLoading(allocId);
+    try {
+      const res = await fetch(`/api/production/allocations/${allocId}/invoice`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "sync" }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? "Error");
+      await load();
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Failed to sync invoice");
+    } finally {
+      setInvoiceActionLoading(null);
+    }
+  }
+
+  async function handleLock(allocId: string, reason: AllocationLockReason) {
+    const res = await fetch(`/api/production/allocations/${allocId}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ locked: true, lock_reason: reason }),
+    });
+    if (!res.ok) alert((await res.json()).error ?? "Error");
+    await load();
+  }
+
+  async function handleUnlock(allocId: string) {
+    if (!confirm("Unlock this allocation?")) return;
+    const res = await fetch(`/api/production/allocations/${allocId}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ locked: false }),
+    });
+    if (!res.ok) alert((await res.json()).error ?? "Error");
+    await load();
+  }
+
   async function handleDelete(id: string) {
     if (!confirm("Delete this commitment?")) return;
     const r = await fetch(`/api/production/contract-requests?id=${id}`, { method: "DELETE" });
     if (r.ok) load();
   }
 
-  function pkgLabel(q: ContractBrewingRequest): string {
-    if (!q.packaging_item_id || !q.packaging_items) return "—";
-    const qty = q.packaging_qty != null ? `${q.packaging_qty} × ` : "";
-    return `${qty}${q.packaging_items.name}`;
+  function pkgLabel(q: ContractBrewingRequest): React.ReactNode {
+    const prefs = q.packaging_preferences ?? [];
+    if (prefs.length === 0) return "—";
+    const total = packagingTotalBbl(q);
+    return (
+      <div className="space-y-0.5">
+        {prefs.map((p) => (
+          <div key={p.id}>{p.qty} × {p.packaging_items?.name ?? "—"}</div>
+        ))}
+        {total > 0 && <div className="text-zinc-600">{total.toFixed(2)} BBL total</div>}
+      </div>
+    );
   }
 
   function scheduleLabel(q: ContractBrewingRequest): string {
@@ -301,6 +553,15 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
   }
 
   const filtered = channelFilter === "all" ? rows : rows.filter((r) => r.channel === channelFilter);
+
+  const sortableRows: SortableRow[] = filtered.map((q) => ({
+    ...q,
+    partner_name: q.contract_brewing_partners?.company_name ?? "",
+    packaging_total_bbl: packagingTotalBbl(q),
+    schedule_sort: q.cadence === "recurring" ? (q.start_date ?? "") : (q.desired_delivery_date ?? ""),
+  }));
+  const { sorted, sortKey, sortDir, handleSort } = useSort(sortableRows);
+  const displayRows = sorted ?? [];
 
   return (
     <div>
@@ -319,22 +580,32 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
         <button onClick={() => setShowModal(true)} className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white text-sm font-medium rounded transition-colors">+ New</button>
       </div>
 
-      {filtered.length === 0 ? (
+      {displayRows.length === 0 ? (
         <p className="text-zinc-600 text-sm py-10 text-center">No commitments recorded yet.</p>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-zinc-800">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-zinc-800 bg-zinc-900/50 text-left">
-                {["Channel", "Style", "Partner", "Volume", "Packaging Pref.", "Desired Delivery On", "Received On", "Last Edited", "Locked On", "Status", "Notes", ""].map((h, i) => (
-                  <th key={i} className="px-4 py-2.5 text-xs font-medium text-zinc-500 whitespace-nowrap">{h}</th>
-                ))}
+                <SortTh label="Channel" col="channel" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-zinc-500 !py-2.5 whitespace-nowrap" />
+                <SortTh label="Style" col="beer_style" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-zinc-500 !py-2.5" />
+                <SortTh label="Partner" col="partner_name" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-zinc-500 !py-2.5" />
+                <SortTh label="Volume" col="volume_bbl" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-zinc-500 !py-2.5" />
+                <SortTh label="Packaging Pref." col="packaging_total_bbl" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-zinc-500 !py-2.5" />
+                <SortTh label="Desired Delivery On" col="schedule_sort" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-zinc-500 !py-2.5 whitespace-nowrap" />
+                <SortTh label="Received On" col="received_on" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-zinc-500 !py-2.5 whitespace-nowrap" />
+                <SortTh label="Last Edited" col="last_edited_on" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-zinc-500 !py-2.5 whitespace-nowrap" />
+                <SortTh label="Locked On" col="locked_on" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-zinc-500 !py-2.5 whitespace-nowrap" />
+                <SortTh label="Status" col="status" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-zinc-500 !py-2.5" />
+                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 whitespace-nowrap">Invoicing</th>
+                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 whitespace-nowrap">Notes</th>
+                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 whitespace-nowrap" />
               </tr>
             </thead>
             <tbody>
-              {filtered.map((q, i) => (
+              {displayRows.map((q, i) => (
                 <tr key={q.id} className={`border-b border-zinc-800/60 ${i % 2 !== 0 ? "bg-zinc-900/30" : ""}`}>
-                  <td className="px-4 py-2.5"><ChannelBadge channel={q.channel} /></td>
+                  <td className="px-4 py-2.5 whitespace-nowrap"><ChannelBadge channel={q.channel} /></td>
                   <td className="px-4 py-2.5 text-zinc-100 font-medium">{q.beer_style}</td>
                   <td className="px-4 py-2.5 text-zinc-400">{q.contract_brewing_partners?.company_name ?? "—"}</td>
                   <td className="px-4 py-2.5 text-zinc-300 tabular-nums">{Number(q.volume_bbl)} BBL</td>
@@ -344,10 +615,23 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
                   <td className="px-4 py-2.5 text-zinc-500 text-xs whitespace-nowrap">{q.last_edited_on ? fmtDateLong(q.last_edited_on.slice(0, 10)) : "—"}</td>
                   <td className="px-4 py-2.5 text-zinc-500 text-xs whitespace-nowrap">{q.locked_on ? fmtDateLong(q.locked_on) : "—"}</td>
                   <td className="px-4 py-2.5"><StatusBadge status={q.status} /></td>
+                  <td className="px-4 py-2.5 min-w-[180px]">
+                    <InvoicingCell
+                      commitment={q}
+                      onPreview={openInvoicePreview}
+                      actionLoading={invoiceActionLoading}
+                      onSend={handleSendInvoice}
+                      onSync={handleSyncInvoice}
+                      onLock={handleLock}
+                      onUnlock={handleUnlock}
+                    />
+                  </td>
                   <td className="px-4 py-2.5 text-zinc-500 text-xs max-w-[160px] truncate">{q.notes ?? "—"}</td>
-                  <td className="px-4 py-2.5 flex items-center gap-3">
-                    <button onClick={() => setEditing(q)} className="text-xs text-zinc-400 hover:text-zinc-200">Edit</button>
-                    <button onClick={() => handleDelete(q.id)} className="text-xs text-red-400/80 hover:text-red-400">Delete</button>
+                  <td className="px-4 py-2.5">
+                    <div className="flex items-center gap-3 whitespace-nowrap">
+                      <button onClick={() => setEditing(q)} className="text-xs text-zinc-400 hover:text-zinc-200">Edit</button>
+                      <button onClick={() => handleDelete(q.id)} className="text-xs text-red-400/80 hover:text-red-400">Delete</button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -358,6 +642,17 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
 
       {showModal && <CommitmentModal recipes={recipes} partners={partners} onClose={() => setShowModal(false)} onDone={load} />}
       {editing && <CommitmentModal recipes={recipes} partners={partners} existing={editing} onClose={() => setEditing(null)} onDone={load} />}
+
+      {invoiceModalAlloc && (
+        <DepositInvoiceModal
+          allocation={invoiceModalAlloc}
+          preview={invoicePreview}
+          loading={invoicePreviewLoading}
+          generating={invoiceActionLoading === invoiceModalAlloc.id}
+          onGenerate={() => handleGenerateInvoice(invoiceModalAlloc.id)}
+          onClose={() => setInvoiceModalAlloc(null)}
+        />
+      )}
     </div>
   );
 }
