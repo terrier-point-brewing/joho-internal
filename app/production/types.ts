@@ -39,6 +39,7 @@ export interface PackagingItem {
   can_count: number | null;
   partner_id: string | null;
   supplier_id: string | null;
+  requires_label: boolean;
   /** Joined from contract_brewing_partners */
   contract_brewing_partners?: { company_name: string } | null;
   /** Joined from suppliers */
