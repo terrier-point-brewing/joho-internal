@@ -95,33 +95,37 @@ export async function POST(req: NextRequest) {
   const inventory: InvEntry[] = [];
 
   for (const tr of inboundRaw) {
-    if (tr.transfer_type === "kegging" && tr.kegging_detail?.kegs) {
-      for (const keg of tr.kegging_detail.kegs as { name: string; quantity: number; volume_fl_oz?: number }[]) {
-        if (keg.quantity > 0) {
-          const flOz = keg.volume_fl_oz ?? (kegNameToBbl(keg.name) != null ? kegNameToBbl(keg.name)! * BBL_FL_OZ : null);
-          inventory.push({
-            batchTransferId: tr.id,
-            batchId: tr.batch_id,
-            productLabel: keg.name,
-            productType: "keg",
-            totalQty: keg.quantity,
-            exportedQty: 0,
-            transferredAt: tr.transferred_at,
-            volumeFlOz: flOz,
-          });
-        }
+    if (tr.transfer_type === "kegging" && tr.kegging_detail) {
+      const kd = tr.kegging_detail;
+      if (kd.quantity > 0) {
+        const flOz = kd.volume_fl_oz ?? (kegNameToBbl(kd.name) != null ? kegNameToBbl(kd.name)! * BBL_FL_OZ : null);
+        inventory.push({
+          batchTransferId: tr.id,
+          batchId: tr.batch_id,
+          productLabel: kd.name,
+          productType: "keg",
+          totalQty: kd.quantity,
+          exportedQty: 0,
+          transferredAt: tr.transferred_at,
+          volumeFlOz: flOz,
+        });
       }
-    } else if (tr.transfer_type === "canning" && tr.canning_detail?.total_cans != null) {
-      inventory.push({
-        batchTransferId: tr.id,
-        batchId: tr.batch_id,
-        productLabel: "can",
-        productType: "can",
-        totalQty: tr.canning_detail.total_cans as number,
-        exportedQty: 0,
-        transferredAt: tr.transferred_at,
-        volumeFlOz: canVolumeFlOz,
-      });
+    } else if (tr.transfer_type === "canning" && tr.canning_detail) {
+      const cd = tr.canning_detail;
+      const cansPerUnit = cd.format === "case" ? cd.cans_per_case : cd.format === "pack" ? cd.cans_per_pack : 1;
+      const totalCans = cd.quantity * cansPerUnit;
+      if (totalCans > 0) {
+        inventory.push({
+          batchTransferId: tr.id,
+          batchId: tr.batch_id,
+          productLabel: "can",
+          productType: "can",
+          totalQty: totalCans,
+          exportedQty: 0,
+          transferredAt: tr.transferred_at,
+          volumeFlOz: canVolumeFlOz,
+        });
+      }
     }
   }
 

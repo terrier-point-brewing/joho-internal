@@ -118,23 +118,30 @@ export default function BrewStatusTab() {
   // Tracks batch IDs currently being sent to cold storage (kegging/canning one-click transfer)
   const [pkgTransferring, setPkgTransferring] = useState<Set<string>>(new Set());
 
-  async function handleSendToColdStorage(batchId: string, fromTankId: string, incoming: typeof transfers[0]) {
+  async function handleSendToColdStorage(batchId: string, fromTankId: string, incoming: typeof transfers[0][]) {
     const coldStorage = tanks.find((t) => t.type === "cold_storage");
     if (!coldStorage) { alert("No cold storage tank found on the floorplan."); return; }
+    if (incoming.length === 0) return;
     setPkgTransferring((s) => new Set(s).add(batchId));
     try {
+      const transfer_type = incoming[0].transfer_type;
+      const kegging_lines = transfer_type === "kegging"
+        ? incoming.filter((tr) => tr.kegging_detail).map((tr) => ({ packaging_id: tr.kegging_detail!.packaging_id, quantity: tr.kegging_detail!.quantity }))
+        : undefined;
+      const canning_lines = transfer_type === "canning"
+        ? incoming.filter((tr) => tr.canning_detail).map((tr) => tr.canning_detail)
+        : undefined;
       const res = await fetch("/api/production/transfers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          batch_id:       batchId,
-          from_tank_id:   fromTankId,
-          to_tank_id:     coldStorage.id,
-          volume_bbl:     incoming.volume_bbl,
-          shrinkage_bbl:  0,
-          transfer_type:  incoming.transfer_type,
-          kegging_detail: incoming.kegging_detail ?? null,
-          canning_detail: incoming.canning_detail ?? null,
+          batch_id:      batchId,
+          from_tank_id:  fromTankId,
+          to_tank_id:    coldStorage.id,
+          shrinkage_bbl: 0,
+          transfer_type,
+          kegging_lines,
+          canning_lines,
         }),
       });
       if (!res.ok) throw new Error((await res.json()).error ?? "Error");
@@ -646,14 +653,15 @@ export default function BrewStatusTab() {
                               {coldXfers.map((tr) => {
                                 const b = batchById[tr.batch_id];
                                 const isKeg = tr.transfer_type === "kegging";
-                                const kd = isKeg ? (tr.kegging_detail as { total_kegs?: number } | null) : null;
-                                const cd = !isKeg ? (tr.canning_detail as { total_cans?: number } | null) : null;
+                                const kd = isKeg ? tr.kegging_detail : null;
+                                const cd = !isKeg ? tr.canning_detail : null;
+                                const cdQty = cd ? cd.quantity * (cd.format === "case" ? cd.cans_per_case : cd.format === "pack" ? cd.cans_per_pack : 1) : null;
                                 return (
                                   <div key={tr.id} className="flex items-baseline justify-between gap-2">
                                     <span className="text-sm text-zinc-300 truncate">{b?.beer_name ?? "—"}</span>
                                     <span className="text-xs text-zinc-500 shrink-0">
-                                      {isKeg && kd?.total_kegs != null ? `${kd.total_kegs} keg${kd.total_kegs !== 1 ? "s" : ""}`
-                                        : cd?.total_cans != null ? `${cd.total_cans.toLocaleString()} cans`
+                                      {isKeg && kd != null ? `${kd.quantity} ${kd.name || "keg"}${kd.quantity !== 1 ? "s" : ""}`
+                                        : cdQty != null ? `${cdQty.toLocaleString()} cans`
                                         : fmtDate(tr.transferred_at)}
                                     </span>
                                   </div>
@@ -690,7 +698,7 @@ export default function BrewStatusTab() {
                                   </div>
                                   {!editMode && incoming && (
                                     <button
-                                      onClick={() => handleSendToColdStorage(b.id, tank.id, incoming)}
+                                      onClick={() => handleSendToColdStorage(b.id, tank.id, [incoming])}
                                       disabled={pkgTransferring.has(b.id)}
                                       className="text-xs text-amber-600 hover:text-amber-400 border border-amber-900 hover:border-amber-700 px-2 py-1 rounded transition-colors disabled:opacity-40 shrink-0"
                                     >
@@ -923,29 +931,20 @@ export default function BrewStatusTab() {
                             {coldTransfers.map((tr) => {
                               const b = batchById[tr.batch_id];
                               const isKeg = tr.transfer_type === "kegging";
-                              const kegDetail  = isKeg ? (tr.kegging_detail as { total_kegs?: number; kegs?: { name: string; quantity: number }[] } | null) : null;
-                              const canDetail  = !isKeg ? (tr.canning_detail as { total_cans?: number } | null) : null;
-                              const kegLines   = kegDetail?.kegs?.filter((k) => k.quantity > 0) ?? [];
+                              const kegDetail = isKeg ? tr.kegging_detail : null;
+                              const canDetail = !isKeg ? tr.canning_detail : null;
+                              const canQty = canDetail ? canDetail.quantity * (canDetail.format === "case" ? canDetail.cans_per_case : canDetail.format === "pack" ? canDetail.cans_per_pack : 1) : null;
                               return (
                                 <div key={tr.id} className="flex flex-col gap-0 leading-tight">
                                   <div className="flex items-center gap-1 min-w-0">
                                     <span className="text-zinc-300 truncate flex-1 min-w-0 font-medium" style={{ fontSize: 9 }} title={b?.beer_name}>{b?.beer_name ?? "—"}</span>
                                     <span className="text-zinc-600 shrink-0" style={{ fontSize: 8 }}>{fmtDate(tr.transferred_at)}</span>
                                   </div>
-                                  {isKeg && kegLines.length > 0 && (
-                                    <div className="pl-1">
-                                      {kegLines.map((k, i) => (
-                                        <span key={i} className="text-zinc-500 block" style={{ fontSize: 8 }}>
-                                          {k.quantity}× {k.name}
-                                        </span>
-                                      ))}
-                                    </div>
+                                  {isKeg && kegDetail != null && (
+                                    <span className="text-zinc-500 pl-1" style={{ fontSize: 8 }}>{kegDetail.quantity}× {kegDetail.name}</span>
                                   )}
-                                  {isKeg && kegLines.length === 0 && kegDetail?.total_kegs != null && (
-                                    <span className="text-zinc-500 pl-1" style={{ fontSize: 8 }}>{kegDetail.total_kegs} keg{kegDetail.total_kegs !== 1 ? "s" : ""}</span>
-                                  )}
-                                  {!isKeg && canDetail?.total_cans != null && (
-                                    <span className="text-zinc-500 pl-1" style={{ fontSize: 8 }}>{canDetail.total_cans} can{canDetail.total_cans !== 1 ? "s" : ""}</span>
+                                  {!isKeg && canQty != null && (
+                                    <span className="text-zinc-500 pl-1" style={{ fontSize: 8 }}>{canQty} {canDetail!.variant_label}</span>
                                   )}
                                 </div>
                               );
@@ -1102,13 +1101,17 @@ export default function BrewStatusTab() {
                     {!isTank && !isColdStorage && !isBacklog && (
                       (() => {
                         // Most-recent incoming pkg transfer per batch → used to show packaging output
-                        const incomingByBatch = new Map<string, typeof transfers[0]>();
+                        const incomingByBatch = new Map<string, typeof transfers[0][]>();
                         for (const tr of transfers) {
                           if (tr.to_tank_id !== tank.id) continue;
                           if (tr.transfer_type !== "kegging" && tr.transfer_type !== "canning") continue;
-                          const existing = incomingByBatch.get(tr.batch_id);
-                          if (!existing || new Date(tr.transferred_at) > new Date(existing.transferred_at)) {
-                            incomingByBatch.set(tr.batch_id, tr);
+                          const existing = incomingByBatch.get(tr.batch_id) ?? [];
+                          if (existing.length === 0) {
+                            incomingByBatch.set(tr.batch_id, [tr]);
+                          } else if (new Date(tr.transferred_at).getTime() === new Date(existing[0].transferred_at).getTime()) {
+                            incomingByBatch.set(tr.batch_id, [...existing, tr]);
+                          } else if (new Date(tr.transferred_at) > new Date(existing[0].transferred_at)) {
+                            incomingByBatch.set(tr.batch_id, [tr]);
                           }
                         }
 
@@ -1153,9 +1156,9 @@ export default function BrewStatusTab() {
                             {pkgBatches.length > 0 ? (
                               <div className="space-y-1.5">
                                 {pkgBatches.map((b) => {
-                                  const incoming = incomingByBatch.get(b.id);
-                                  const kd = incoming?.kegging_detail;
-                                  const cd = incoming?.canning_detail;
+                                  const incoming = incomingByBatch.get(b.id) ?? [];
+                                  const kegLines = incoming.filter((tr) => tr.kegging_detail).map((tr) => tr.kegging_detail!);
+                                  const canLines = incoming.filter((tr) => tr.canning_detail).map((tr) => tr.canning_detail!);
                                   return (
                                     <div key={b.id} className="flex flex-col gap-0.5">
                                       {/* Batch identity */}
@@ -1169,33 +1172,32 @@ export default function BrewStatusTab() {
                                       </div>
 
                                       {/* Packaging output */}
-                                      {kd && (
+                                      {kegLines.length > 0 && (
                                         <div className="space-y-px">
-                                          {kd.kegs && kd.kegs.length > 0
-                                            ? kd.kegs.filter((k) => k.quantity > 0).map((k, i) => (
-                                                <div key={i} className="flex items-center gap-1 min-w-0">
-                                                  <span className="text-amber-400 font-mono font-semibold shrink-0" style={{ fontSize: 9 }}>{k.quantity}×</span>
-                                                  <span className="text-zinc-400 truncate" style={{ fontSize: 9 }} title={k.name}>{k.name}</span>
-                                                </div>
-                                              ))
-                                            : kd.total_kegs != null && (
-                                                <span className="text-amber-400 font-mono" style={{ fontSize: 9 }}>{kd.total_kegs} kegs</span>
-                                              )
-                                          }
+                                          {kegLines.map((k, i) => (
+                                            <div key={i} className="flex items-center gap-1 min-w-0">
+                                              <span className="text-amber-400 font-mono font-semibold shrink-0" style={{ fontSize: 9 }}>{k.quantity}×</span>
+                                              <span className="text-zinc-400 truncate" style={{ fontSize: 9 }} title={k.name}>{k.name}</span>
+                                            </div>
+                                          ))}
                                         </div>
                                       )}
-                                      {cd && cd.total_cans != null && (
-                                        <div className="flex items-center gap-1 min-w-0">
-                                          <span className="text-amber-400 font-mono font-semibold shrink-0" style={{ fontSize: 9 }}>{cd.total_cans.toLocaleString()}</span>
-                                          <span className="text-zinc-400 shrink-0" style={{ fontSize: 9 }}>cans</span>
-                                          {cd.cases != null && cd.cases > 0 && (
-                                            <span className="text-zinc-600 truncate" style={{ fontSize: 8 }}>({cd.cases} cases{cd.loose_cans ? ` + ${cd.loose_cans}` : ""})</span>
-                                          )}
+                                      {canLines.length > 0 && (
+                                        <div className="space-y-px">
+                                          {canLines.map((cd, i) => {
+                                            const qty = cd.quantity * (cd.format === "case" ? cd.cans_per_case : cd.format === "pack" ? cd.cans_per_pack : 1);
+                                            return (
+                                              <div key={i} className="flex items-center gap-1 min-w-0">
+                                                <span className="text-amber-400 font-mono font-semibold shrink-0" style={{ fontSize: 9 }}>{qty.toLocaleString()}</span>
+                                                <span className="text-zinc-400 truncate" style={{ fontSize: 9 }}>{cd.variant_label}</span>
+                                              </div>
+                                            );
+                                          })}
                                         </div>
                                       )}
 
                                       {/* One-click transfer to cold storage */}
-                                      {!editMode && incoming && (
+                                      {!editMode && incoming.length > 0 && (
                                         <div className="pt-0.5">
                                           <button
                                             onClick={() => handleSendToColdStorage(b.id, tank.id, incoming)}
