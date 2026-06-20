@@ -89,8 +89,12 @@ export interface BatchTransfer {
   shrinkage_bbl: number;
   transfer_type: "transfer" | "kegging" | "canning" | "export" | "conversion" | "brewing";
   notes: string | null;
-  kegging_detail: { total_kegs?: number; kegs?: { name: string; quantity: number; volume_fl_oz?: number }[] } | null;
-  canning_detail: { total_cans?: number; cases?: number; loose_cans?: number; cans_per_case?: number } | null;
+  kegging_detail: { packaging_id: string; name: string; volume_fl_oz: number | null; quantity: number; variant_label: string } | null;
+  canning_detail: (
+    | { format: "case"; tray_packaging_id: string; can_packaging_id: string; lid_packaging_id: string | null; paktech_packaging_id: string | null; label_packaging_id: string | null; cans_per_case: number; quantity: number; variant_label: string }
+    | { format: "pack"; paktech_packaging_id: string; can_packaging_id: string; lid_packaging_id: string | null; label_packaging_id: string | null; cans_per_pack: number; quantity: number; variant_label: string }
+    | { format: "loose"; can_packaging_id: string; lid_packaging_id: string | null; label_packaging_id: string | null; quantity: number; variant_label: string }
+  ) | null;
   export_detail: {
     items: { source_transfer_id: string; product_label: string; product_type: "keg" | "can"; quantity: number }[];
   } | null;

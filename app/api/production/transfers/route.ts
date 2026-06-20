@@ -1,85 +1,41 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { SupabaseClient } from "@supabase/supabase-js";
+import { BBL_TO_FL_OZ } from "@/lib/constants/production";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(req: NextRequest) {
-  const supabase = await createSupabaseServerClient();
+type ScheduleUpdateEntry = { action: string; entry_id: string; equipment_name?: string; was_deviation?: boolean };
 
-  const { searchParams } = new URL(req.url);
-  const batch_id = searchParams.get("batch_id");
-
-  let query = supabase
-    .from("batch_transfers")
-    .select("*, from_tank:from_tank_id(id, name, type), to_tank:to_tank_id(id, name, type), to_batch:to_batch_id(id, beer_name, batch_number), created_by")
-    .order("transferred_at", { ascending: false });
-
-  if (batch_id) query = query.eq("batch_id", batch_id);
-
-  const { data, error } = await query;
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-  // Resolve actor emails via profiles (auth.users FK is not in PostgREST schema cache).
-  const actorIds = [...new Set((data ?? []).map((r) => r.created_by).filter(Boolean))];
-  let profileMap: Record<string, string> = {};
-  if (actorIds.length > 0) {
-    const { data: profiles } = await supabase
-      .from("profiles")
-      .select("id, email")
-      .in("id", actorIds);
-    profileMap = Object.fromEntries((profiles ?? []).map((p) => [p.id, p.email]));
-  }
-
-  const enriched = (data ?? []).map((r) => ({
-    ...r,
-    created_by_profile: r.created_by ? { email: profileMap[r.created_by] ?? null } : null,
-  }));
-
-  return NextResponse.json(enriched);
+interface TransferLineInput {
+  batch_id: string;
+  from_tank_id: string | null;
+  to_tank_id: string | null;
+  volume_bbl: number;
+  shrinkage_bbl: number;
+  transfer_type: string;
+  notes: string | null;
+  kegging_detail: { packaging_id: string; name: string; volume_fl_oz: number | null; quantity: number; variant_label: string } | null;
+  canning_detail: Record<string, unknown> | null;
+  created_by: string | null;
+  recipe_id: string | null;
 }
 
-export async function POST(req: NextRequest) {
-  try { await requireRole("brewer"); } catch (res) { return res as Response; }
+/**
+ * Records exactly one batch_transfers row plus its downstream side effects
+ * (packaging deduction, schedule reconciliation, cold-storage inventory).
+ * Called once per packaging variation when transfer_type is kegging/canning,
+ * or once total for plain transfers/conversions. Side effects after the RPC
+ * insert are best-effort (logged, not rolled back) — same convention the
+ * pre-existing packaging-deduction code already used.
+ */
+async function processTransferLine(
+  supabase: SupabaseClient,
+  line: TransferLineInput
+): Promise<{ transfer: Record<string, unknown>; scheduleUpdate: ScheduleUpdateEntry[] }> {
+  const { batch_id, from_tank_id, to_tank_id, volume_bbl, shrinkage_bbl, transfer_type, notes, kegging_detail, canning_detail, created_by, recipe_id } = line;
 
-  const supabase = await createSupabaseServerClient();
-  const { data: { user: currentUser } } = await supabase.auth.getUser();
-
-  const body = await req.json();
-  const {
-    batch_id,
-    from_tank_id,
-    to_tank_id,
-    volume_bbl,
-    shrinkage_bbl,
-    transfer_type,
-    notes,
-    kegging_detail,
-    canning_detail,
-  } = body;
-
-  // Capacity guard: reject before hitting the RPC if destination is a
-  // constrained tank and the transfer volume exceeds its capacity_bbl.
-  if (to_tank_id && volume_bbl != null) {
-    const { data: destTank } = await supabase
-      .from("equipment")
-      .select("capacity_bbl, type")
-      .eq("id", to_tank_id)
-      .single();
-    const UNCONSTRAINED = new Set(["kegging", "canning", "cold_storage", "backlog", "loading_bay", "export_bay"]);
-    if (destTank && !UNCONSTRAINED.has(destTank.type) && destTank.capacity_bbl != null) {
-      if (volume_bbl > destTank.capacity_bbl) {
-        return NextResponse.json(
-          { error: `Transfer volume (${volume_bbl} BBL) exceeds destination capacity (${destTank.capacity_bbl} BBL).` },
-          { status: 422 }
-        );
-      }
-    }
-  }
-
-  // One transaction: insert transfer, release the old assignment, create the
-  // new assignment (constrained destinations only), and roll batch status
-  // forward. See record_batch_transfer() — keeps these writes atomic.
   const { data: transfer, error } = await supabase
     .rpc("record_batch_transfer", {
       p_batch_id:       batch_id,
@@ -91,108 +47,92 @@ export async function POST(req: NextRequest) {
       p_notes:          notes         || null,
       p_kegging_detail: kegging_detail ?? null,
       p_canning_detail: canning_detail ?? null,
-      p_created_by:     currentUser?.id ?? null,
+      p_created_by:     created_by ?? null,
     })
     .single();
 
   if (error) {
-    // "Destination tank is already occupied" is a client conflict, not a 500.
     const status = error.message.includes("already occupied") ? 409 : 500;
-    return NextResponse.json({ error: error.message }, { status });
+    throw Object.assign(new Error(error.message), { status });
   }
 
-  // ── Packaging deduction ───────────────────────────────────────────────────
-  // When kegging or canning product arrives in cold storage, consume the
-  // packaging items used so inventory stays accurate.
-  // Runs after the transfer is committed — failures are logged but don't roll
-  // back the transfer, since the DB record is already the source of truth.
+  const transferRow = transfer as { id: string };
+
+  // ── Packaging deduction + cold storage inventory ─────────────────────────
   try {
-  if (transfer_type === "kegging" && kegging_detail?.kegs?.length) {
-    for (const keg of kegging_detail.kegs as { packaging_id?: string; quantity: number }[]) {
-      if (!keg.packaging_id || !keg.quantity) continue;
-      const { data: pkg } = await supabase
-        .from("packaging_items")
-        .select("stock_quantity")
-        .eq("id", keg.packaging_id)
-        .single();
-      if (pkg) {
-        const newQty = Number(pkg.stock_quantity) - keg.quantity;
-        await supabase.from("packaging_items").update({ stock_quantity: newQty }).eq("id", keg.packaging_id);
-        await supabase.from("packaging_stock_adjustments").insert({
-          packaging_item_id:  keg.packaging_id,
-          quantity:           -keg.quantity,
-          type:               "used",
-          note:               `Kegging — batch ${batch_id}`,
-          batch_transfer_id:  (transfer as { id: string }).id,
-          cost_per_unit:      null,
-          total_value_change: null,
+    if (transfer_type === "kegging" && kegging_detail) {
+      const { packaging_id, quantity, variant_label } = kegging_detail;
+      if (packaging_id && quantity) {
+        const { data: pkg } = await supabase.from("packaging_items").select("stock_quantity").eq("id", packaging_id).single();
+        if (pkg) {
+          const newQty = Number(pkg.stock_quantity) - quantity;
+          await supabase.from("packaging_items").update({ stock_quantity: newQty }).eq("id", packaging_id);
+          await supabase.from("packaging_stock_adjustments").insert({
+            packaging_item_id: packaging_id, quantity: -quantity, type: "used",
+            note: `Kegging — batch ${batch_id}`, batch_transfer_id: transferRow.id,
+            cost_per_unit: null, total_value_change: null,
+          });
+        }
+        await upsertColdStorageInventory(supabase, {
+          batch_id, recipe_id, packaging_item_id: packaging_id, variant_label,
+          quantity_delta: quantity, source_transfer_id: transferRow.id,
         });
       }
     }
-  }
 
-  if (transfer_type === "canning" && canning_detail) {
-    const cd = canning_detail as {
-      can_packaging_id?: string;
-      lid_packaging_id?: string;
-      paktech_packaging_id?: string;
-      tray_packaging_id?: string;
-      label_packaging_id?: string;
-      total_cans?: number;
-      cases?: number;
-      cans_per_case?: number;
-    };
-    const totalCans = cd.total_cans ?? 0;
-    const cases     = cd.cases ?? 0;
+    if (transfer_type === "canning" && canning_detail) {
+      const cd = canning_detail as {
+        format: "case" | "pack" | "loose";
+        can_packaging_id?: string; lid_packaging_id?: string | null;
+        paktech_packaging_id?: string; tray_packaging_id?: string; label_packaging_id?: string | null;
+        cans_per_case?: number; cans_per_pack?: number; quantity: number; variant_label: string;
+      };
+      const cansPerUnit = cd.format === "case" ? (cd.cans_per_case ?? 0) : cd.format === "pack" ? (cd.cans_per_pack ?? 0) : 1;
+      const totalCans = cd.quantity * cansPerUnit;
 
-    const deductions: { id: string | undefined; qty: number; label: string }[] = [
-      { id: cd.can_packaging_id,     qty: totalCans, label: "cans" },
-      { id: cd.lid_packaging_id,     qty: totalCans, label: "lids" },
-      { id: cd.label_packaging_id,   qty: totalCans, label: "labels" },
-      { id: cd.tray_packaging_id,    qty: cases,     label: "trays" },
-    ];
+      const deductions: { id: string | null | undefined; qty: number; label: string }[] = [
+        { id: cd.can_packaging_id,   qty: totalCans, label: "cans" },
+        { id: cd.lid_packaging_id,   qty: totalCans, label: "lids" },
+        { id: cd.label_packaging_id, qty: totalCans, label: "labels" },
+      ];
+      if (cd.format === "case") deductions.push({ id: cd.tray_packaging_id, qty: cd.quantity, label: "trays" });
+      if (cd.format === "pack")  deductions.push({ id: cd.paktech_packaging_id, qty: cd.quantity, label: "paktechs" });
 
-    if (cd.paktech_packaging_id) {
-      const { data: ptItem } = await supabase
-        .from("packaging_items")
-        .select("can_count")
-        .eq("id", cd.paktech_packaging_id)
-        .single();
-      const paktechCount = Math.ceil(totalCans / Math.max(1, ptItem?.can_count ?? 4));
-      deductions.push({ id: cd.paktech_packaging_id, qty: paktechCount, label: "paktechs" });
-    }
+      for (const d of deductions) {
+        if (!d.id || !d.qty) continue;
+        const { data: pkg } = await supabase.from("packaging_items").select("stock_quantity").eq("id", d.id).single();
+        if (pkg) {
+          const newQty = Number(pkg.stock_quantity) - d.qty;
+          await supabase.from("packaging_items").update({ stock_quantity: newQty }).eq("id", d.id);
+          await supabase.from("packaging_stock_adjustments").insert({
+            packaging_item_id: d.id, quantity: -d.qty, type: "used",
+            note: `Canning (${d.label}) — batch ${batch_id}`, batch_transfer_id: transferRow.id,
+            cost_per_unit: null, total_value_change: null,
+          });
+        }
+      }
 
-    for (const d of deductions) {
-      if (!d.id || !d.qty) continue;
-      const { data: pkg } = await supabase
-        .from("packaging_items")
-        .select("stock_quantity")
-        .eq("id", d.id)
-        .single();
-      if (pkg) {
-        const newQty = Number(pkg.stock_quantity) - d.qty;
-        await supabase.from("packaging_items").update({ stock_quantity: newQty }).eq("id", d.id);
-        await supabase.from("packaging_stock_adjustments").insert({
-          packaging_item_id:  d.id,
-          quantity:           -d.qty,
-          type:               "used",
-          note:               `Canning (${d.label}) — batch ${batch_id}`,
-          batch_transfer_id:  (transfer as { id: string }).id,
-          cost_per_unit:      null,
-          total_value_change: null,
+      if (cd.can_packaging_id) {
+        await upsertColdStorageInventory(supabase, {
+          batch_id, recipe_id, packaging_item_id: cd.can_packaging_id, variant_label: cd.variant_label,
+          quantity_delta: cd.quantity, source_transfer_id: transferRow.id,
         });
       }
     }
-  }
-
-  // brew_batches.volume_bbl is the ORIGINAL brew volume and must not be mutated
-  // by transfers — the transfer ledger (batch_transfers) is the source of truth
-  // for current per-tank volumes.
   } catch (deductionErr) {
-    console.error("[transfers] Packaging deduction failed (transfer committed):", deductionErr);
+    console.error("[transfers] Packaging deduction / cold storage update failed (transfer committed):", deductionErr);
   }
 
   // ── Schedule reconciliation ───────────────────────────────────────────────
+  const scheduleUpdate = await reconcileSchedule(supabase, { batch_id, from_tank_id, to_tank_id, volume_bbl });
+
+  return { transfer: transfer as Record<string, unknown>, scheduleUpdate };
+}
+
+async function reconcileSchedule(
+  supabase: SupabaseClient,
+  { batch_id, from_tank_id, to_tank_id, volume_bbl }: { batch_id: string; from_tank_id: string | null; to_tank_id: string | null; volume_bbl: number }
+): Promise<ScheduleUpdateEntry[]> {
   // When beer arrives in a tracked tank type, update or create the matching
   // schedule entry so actuals are recorded.
   // When beer leaves a fermenter or brite and the tank drains, close out the entry.
@@ -509,7 +449,7 @@ export async function POST(req: NextRequest) {
         .insert({ batch_id, tank_id: from_tank_id });
       // 23505 = active assignment already exists (acceptable for in-progress partial transfers).
       if (reassignErr && reassignErr.code !== "23505") {
-        return NextResponse.json({ error: reassignErr.message }, { status: 500 });
+        throw Object.assign(new Error(reassignErr.message), { status: 500 });
       }
 
       // Keep the source schedule entry's volume_bbl in sync with remaining volume.
@@ -612,5 +552,196 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ transfer, schedule_update: scheduleUpdate }, { status: 201 });
+  return scheduleUpdate;
+}
+
+async function upsertColdStorageInventory(
+  supabase: SupabaseClient,
+  args: { batch_id: string; recipe_id: string | null; packaging_item_id: string; variant_label: string; quantity_delta: number; source_transfer_id: string }
+) {
+  const { batch_id, recipe_id, packaging_item_id, variant_label, quantity_delta, source_transfer_id } = args;
+  const { data: existing } = await supabase
+    .from("cold_storage_inventory")
+    .select("id, quantity_on_hand")
+    .eq("batch_id", batch_id)
+    .eq("packaging_item_id", packaging_item_id)
+    .eq("variant_label", variant_label)
+    .maybeSingle();
+
+  if (existing) {
+    await supabase
+      .from("cold_storage_inventory")
+      .update({
+        quantity_on_hand: Number(existing.quantity_on_hand) + quantity_delta,
+        source_transfer_id,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", existing.id);
+  } else {
+    await supabase.from("cold_storage_inventory").insert({
+      batch_id, recipe_id, packaging_item_id, variant_label,
+      quantity_on_hand: quantity_delta, source_transfer_id,
+    });
+  }
+}
+
+export async function GET(req: NextRequest) {
+  const supabase = await createSupabaseServerClient();
+
+  const { searchParams } = new URL(req.url);
+  const batch_id = searchParams.get("batch_id");
+
+  let query = supabase
+    .from("batch_transfers")
+    .select("*, from_tank:from_tank_id(id, name, type), to_tank:to_tank_id(id, name, type), to_batch:to_batch_id(id, beer_name, batch_number), created_by")
+    .order("transferred_at", { ascending: false });
+
+  if (batch_id) query = query.eq("batch_id", batch_id);
+
+  const { data, error } = await query;
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // Resolve actor emails via profiles (auth.users FK is not in PostgREST schema cache).
+  const actorIds = [...new Set((data ?? []).map((r) => r.created_by).filter(Boolean))];
+  let profileMap: Record<string, string> = {};
+  if (actorIds.length > 0) {
+    const { data: profiles } = await supabase
+      .from("profiles")
+      .select("id, email")
+      .in("id", actorIds);
+    profileMap = Object.fromEntries((profiles ?? []).map((p) => [p.id, p.email]));
+  }
+
+  const enriched = (data ?? []).map((r) => ({
+    ...r,
+    created_by_profile: r.created_by ? { email: profileMap[r.created_by] ?? null } : null,
+  }));
+
+  return NextResponse.json(enriched);
+}
+
+export async function POST(req: NextRequest) {
+  try { await requireRole("brewer"); } catch (res) { return res as Response; }
+
+  const supabase = await createSupabaseServerClient();
+  const { data: { user: currentUser } } = await supabase.auth.getUser();
+
+  const body = await req.json();
+  const {
+    batch_id,
+    from_tank_id,
+    to_tank_id,
+    transfer_type,
+    notes,
+    kegging_lines,
+    canning_lines,
+  } = body as {
+    batch_id: string;
+    from_tank_id: string | null;
+    to_tank_id: string | null;
+    transfer_type: "transfer" | "kegging" | "canning" | "conversion";
+    notes: string | null;
+    volume_bbl?: number;
+    shrinkage_bbl?: number;
+    kegging_lines?: { packaging_id: string; quantity: number }[];
+    canning_lines?: Record<string, unknown>[];
+  };
+
+  const { data: batchRow } = await supabase.from("brew_batches").select("recipe_id").eq("id", batch_id).single();
+  const recipe_id: string | null = batchRow?.recipe_id ?? null;
+
+  // ── Build one line per packaging variation (or a single line for plain transfers/conversions) ──
+  type Line = { volume_bbl: number; shrinkage_bbl: number; kegging_detail: TransferLineInput["kegging_detail"]; canning_detail: TransferLineInput["canning_detail"] };
+  const lines: Line[] = [];
+  const totalShrinkage = Number(body.shrinkage_bbl ?? 0);
+
+  if (transfer_type === "kegging" && kegging_lines?.length) {
+    const pkgIds = kegging_lines.map((l) => l.packaging_id);
+    const { data: pkgRows } = await supabase.from("packaging_items").select("id, name, volume_fl_oz").in("id", pkgIds);
+    const pkgMap = new Map((pkgRows ?? []).map((p) => [p.id, p]));
+    const totalVolume = kegging_lines.reduce((sum, l) => {
+      const pkg = pkgMap.get(l.packaging_id);
+      return sum + (pkg?.volume_fl_oz ? (l.quantity * pkg.volume_fl_oz) / BBL_TO_FL_OZ : 0);
+      }, 0);
+    let allocatedShrinkage = 0;
+    kegging_lines.forEach((l, idx) => {
+      const pkg = pkgMap.get(l.packaging_id);
+      const lineVolume = pkg?.volume_fl_oz ? (l.quantity * pkg.volume_fl_oz) / BBL_TO_FL_OZ : 0;
+      const isLast = idx === kegging_lines.length - 1;
+      const shrinkShare = isLast ? totalShrinkage - allocatedShrinkage : Math.round((totalVolume > 0 ? (lineVolume / totalVolume) * totalShrinkage : 0) * 1000) / 1000;
+      allocatedShrinkage += shrinkShare;
+      lines.push({
+        volume_bbl: lineVolume,
+        shrinkage_bbl: shrinkShare,
+        kegging_detail: { packaging_id: l.packaging_id, name: pkg?.name ?? "", volume_fl_oz: pkg?.volume_fl_oz ?? null, quantity: l.quantity, variant_label: pkg?.name ?? "Keg" },
+        canning_detail: null,
+      });
+    });
+  } else if (transfer_type === "canning" && canning_lines?.length) {
+    const totalCanUnits = canning_lines.reduce((sum, l) => sum + Number((l as { quantity: number }).quantity), 0);
+    let allocatedShrinkage = 0;
+    for (let idx = 0; idx < canning_lines.length; idx++) {
+      const raw = canning_lines[idx] as { format: "case" | "pack" | "loose"; quantity: number; can_packaging_id: string; cans_per_case?: number; cans_per_pack?: number };
+      const { data: canPkg } = await supabase.from("packaging_items").select("volume_fl_oz").eq("id", raw.can_packaging_id).single();
+      const cansPerUnit = raw.format === "case" ? (raw.cans_per_case ?? 0) : raw.format === "pack" ? (raw.cans_per_pack ?? 0) : 1;
+      const lineVolume = canPkg?.volume_fl_oz ? (raw.quantity * cansPerUnit * canPkg.volume_fl_oz) / BBL_TO_FL_OZ : 0;
+      const isLast = idx === canning_lines.length - 1;
+      const shrinkShare = isLast ? totalShrinkage - allocatedShrinkage : Math.round((totalCanUnits > 0 ? (raw.quantity / totalCanUnits) * totalShrinkage : 0) * 1000) / 1000;
+      allocatedShrinkage += shrinkShare;
+      const variantLabel = raw.format === "case" ? `Case (${raw.cans_per_case}ct)` : raw.format === "pack" ? `${raw.cans_per_pack}-Pack` : "Loose Can";
+      lines.push({
+        volume_bbl: lineVolume,
+        shrinkage_bbl: shrinkShare,
+        kegging_detail: null,
+        canning_detail: { ...raw, variant_label: variantLabel },
+      });
+    }
+  } else {
+    lines.push({
+      volume_bbl: Number(body.volume_bbl ?? 0),
+      shrinkage_bbl: totalShrinkage,
+      kegging_detail: null,
+      canning_detail: null,
+    });
+  }
+
+  const totalVolumeForCapacityCheck = lines.reduce((s, l) => s + l.volume_bbl, 0);
+
+  // Capacity guard: reject before writing anything if destination is a
+  // constrained tank and the total transfer volume exceeds its capacity_bbl.
+  if (to_tank_id && totalVolumeForCapacityCheck > 0) {
+    const { data: destTank } = await supabase.from("equipment").select("capacity_bbl, type").eq("id", to_tank_id).single();
+    const UNCONSTRAINED = new Set(["kegging", "canning", "cold_storage", "backlog", "loading_bay", "export_bay"]);
+    if (destTank && !UNCONSTRAINED.has(destTank.type) && destTank.capacity_bbl != null && totalVolumeForCapacityCheck > destTank.capacity_bbl) {
+      return NextResponse.json(
+        { error: `Transfer volume (${totalVolumeForCapacityCheck} BBL) exceeds destination capacity (${destTank.capacity_bbl} BBL).` },
+        { status: 422 }
+      );
+    }
+  }
+
+  const transfers: Record<string, unknown>[] = [];
+  const allScheduleUpdates: ScheduleUpdateEntry[] = [];
+
+  for (const line of lines) {
+    try {
+      const { transfer, scheduleUpdate } = await processTransferLine(supabase, {
+        batch_id, from_tank_id, to_tank_id,
+        volume_bbl: line.volume_bbl, shrinkage_bbl: line.shrinkage_bbl,
+        transfer_type: transfer_type ?? "transfer", notes: notes || null,
+        kegging_detail: line.kegging_detail, canning_detail: line.canning_detail,
+        created_by: currentUser?.id ?? null, recipe_id,
+      });
+      transfers.push(transfer);
+      allScheduleUpdates.push(...scheduleUpdate);
+    } catch (e) {
+      const status = (e as { status?: number }).status ?? 500;
+      return NextResponse.json(
+        { error: (e as Error).message, transfers_committed: transfers.length },
+        { status }
+      );
+    }
+  }
+
+  return NextResponse.json({ transfers, schedule_update: allScheduleUpdates }, { status: 201 });
 }
