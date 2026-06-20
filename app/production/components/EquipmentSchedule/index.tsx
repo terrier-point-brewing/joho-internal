@@ -74,7 +74,7 @@ export function EquipmentScheduleSection({
   // Per-branch planning completeness: required quantity for a branch is the BBL
   // recorded on that branch's Conditioning entry; flag when kegging+canning
   // scheduled for that branch don't yet exhaust it (or none is scheduled at all).
-  const pkgStatuses = batch?.status !== "archived" ? computeBranchPackagingStatus(activeEntries) : [];
+  const pkgStatuses = batch?.status !== "archived" ? computeBranchPackagingStatus(activeEntries, batch, allTransfers) : [];
   // Both under- and over-allocation are surfaced as "planning incomplete" — in
   // either direction, the schedule doesn't accurately account for what's
   // actually been (or needs to be) packaged out of conditioning.

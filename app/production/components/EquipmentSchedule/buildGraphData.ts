@@ -28,6 +28,43 @@ function normStage(s: string) {
   return s === "fermenter" ? "fermenting" : s;
 }
 
+// While a tank is open (actual_end null) it may be mid partial-drain, in which
+// case its volume_bbl has been overwritten to "currently remaining" (see
+// transfers/route.ts's partial-transfer reassignment block) rather than the
+// original total that arrived there. Reconstruct the true arrived total from
+// the transfer ledger in that case.
+function arrivedVolume(
+  entry: ScheduleEntry | undefined,
+  batch: BrewBatch | undefined,
+  allTransfers: BatchTransfer[],
+): number {
+  if (!entry?.volume_bbl) return 0;
+  let vol = Number(entry.volume_bbl);
+  if (entry.actual_end == null && entry.equipment_id && batch) {
+    const departedTotal = allTransfers
+      .filter(t => t.batch_id === batch.id && t.from_tank_id === entry.equipment_id)
+      .reduce((sum, t) => sum + Number(t.volume_bbl), 0);
+    if (departedTotal > 0) vol += departedTotal;
+  }
+  return vol;
+}
+
+// Detail for an entry node whose tank is mid partial-drain: the full amount
+// that arrived, vs. how much has already departed onward, so the node can
+// show "11/36 bbl remaining" instead of just the bare 11.
+function partialDrainInfo(
+  entry: ScheduleEntry,
+  batch: BrewBatch | undefined,
+  allTransfers: BatchTransfer[],
+): { arrived: number; departed: number } | null {
+  if (entry.actual_end != null || !entry.equipment_id || !batch) return null;
+  const departed = allTransfers
+    .filter(t => t.batch_id === batch.id && t.from_tank_id === entry.equipment_id)
+    .reduce((sum, t) => sum + Number(t.volume_bbl), 0);
+  if (departed <= 0) return null;
+  return { arrived: Number(entry.volume_bbl) + departed, departed };
+}
+
 // Determine which main-pipeline stage a split branched OFF FROM.
 // e.g. if branch's first entry is "conditioning", the origin is "fermenting".
 function splitOriginStage(firstBranchStage: string): string | null {
@@ -117,7 +154,7 @@ export function buildGraphData(
         const entry = nonPkgMap.get(stage);
         const col   = STAGE_COL[stage];
         if (entry) {
-          addNode(entry.id, "entryNode", col, row, { entry });
+          addNode(entry.id, "entryNode", col, row, { entry, partialDrain: partialDrainInfo(entry, batch, allTransfers) });
           mainNodeIdByStage.set(stage, entry.id);
           connect(entry.id);
         } else {
@@ -151,7 +188,7 @@ export function buildGraphData(
         const entry = nonPkgMap.get(stage);
         const col   = STAGE_COL[stage];
         if (entry) {
-          addNode(entry.id, "entryNode", col, row, { entry });
+          addNode(entry.id, "entryNode", col, row, { entry, partialDrain: partialDrainInfo(entry, batch, allTransfers) });
           connect(entry.id);
         } else {
           const ghostId = `ghost-${stage}-${branch}`;
@@ -247,22 +284,14 @@ export function buildGraphData(
     const upstreamEntry = mainEntries.find(e => normStage(e.stage) === upstreamStage);
     if (!upstreamEntry?.volume_bbl) continue;
 
-    // While an upstream tank is open (actual_end null) it may be mid partial-drain,
-    // in which case its volume_bbl has been overwritten to "currently remaining"
-    // (see transfers/route.ts's partial-transfer reassignment block) rather than
-    // the original total that arrived there. Reconstruct the true arrived total
-    // from the ledger in that case so the shrinkage/partial-fill gap below isn't
-    // computed against a moving target.
-    let upstreamVol = Number(upstreamEntry.volume_bbl);
-    if (upstreamEntry.actual_end == null && upstreamEntry.equipment_id && batch) {
-      const departedTotal = allTransfers
-        .filter(t => t.batch_id === batch.id && t.from_tank_id === upstreamEntry.equipment_id)
-        .reduce((sum, t) => sum + Number(t.volume_bbl), 0);
-      if (departedTotal > 0) upstreamVol += departedTotal;
-    }
+    const upstreamVol = arrivedVolume(upstreamEntry, batch, allTransfers);
 
     const mainDownstreamEntry = mainEntries.find(e => normStage(e.stage) === downstreamStage);
-    let downstreamTotal = mainDownstreamEntry?.volume_bbl != null ? Number(mainDownstreamEntry.volume_bbl) : 0;
+    // Use the downstream tank's reconstructed arrived total too — if it's also
+    // mid partial-drain (e.g. 25/36 bbl already moved onward), its volume_bbl
+    // reflects only what's still sitting there, not everything it received
+    // from upstream.
+    let downstreamTotal = arrivedVolume(mainDownstreamEntry, batch, allTransfers);
     for (const b of branchStartInfo) {
       if (b.originStage === upstreamStage && b.startStage === downstreamStage) downstreamTotal += b.volume;
     }
