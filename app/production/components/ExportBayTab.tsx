@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRecipesQuery, useContractPartnersQuery, fetchJson } from "../hooks/queries";
-import type { AvailableInventoryLine, BatchAllocation } from "../types";
+import type { AvailableInventoryLine, BatchAllocation, ExportChannel } from "../types";
 import { queryKeys } from "@/lib/query-keys";
 
 function fmtDate(iso: string | null) {
@@ -36,6 +36,7 @@ export default function ExportBayTab() {
   const partnerNameById = new Map(partners.map((p) => [p.id, p.company_name]));
 
   const [shipGroup, setShipGroup] = useState<CustomerRecipeGroup | null>(null);
+  const [showAdHoc, setShowAdHoc] = useState(false);
 
   if (inventoryLoading || allocationsLoading) {
     return <p className="text-sm text-zinc-600 py-8 text-center">Loading…</p>;
@@ -81,7 +82,17 @@ export default function ExportBayTab() {
     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
       {/* ── Left column: Available ── */}
       <div>
-        <h3 className="text-sm font-medium text-zinc-300 mb-3">Available</h3>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-medium text-zinc-300">Available</h3>
+          <button
+            onClick={() => setShowAdHoc(true)}
+            disabled={inventory.length === 0}
+            title={inventory.length === 0 ? "No packaged inventory available" : undefined}
+            className="text-xs px-2.5 py-1 border border-amber-700 text-amber-400 hover:bg-amber-900/30 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+          >
+            + Ad-Hoc Export
+          </button>
+        </div>
         {inventory.length === 0 ? (
           <p className="text-sm text-zinc-600">Nothing in cold storage right now.</p>
         ) : (
@@ -168,6 +179,18 @@ export default function ExportBayTab() {
           onDone={afterShip}
         />
       )}
+
+      {showAdHoc && (
+        <AdHocExportModal
+          inventoryByRecipe={inventoryByRecipe}
+          recipeNameById={recipeNameById}
+          onClose={() => setShowAdHoc(false)}
+          onDone={() => {
+            afterShip();
+            setShowAdHoc(false);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -250,6 +273,160 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={onClose} className="text-xs px-3 py-1.5 text-zinc-400 hover:text-zinc-200">Cancel</button>
             <button type="submit" disabled={submitting || inventoryLines.length === 0} className="text-xs px-3 py-1.5 bg-amber-700 hover:bg-amber-600 text-zinc-100 rounded disabled:opacity-50">
+              {submitting ? "Shipping…" : "Ship"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function AdHocExportModal({ inventoryByRecipe, recipeNameById, onClose, onDone }: {
+  inventoryByRecipe: Map<string, AvailableInventoryLine[]>;
+  recipeNameById: Map<string, string>;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const { data: partners = [] } = useContractPartnersQuery();
+
+  const recipeIds = [...inventoryByRecipe.keys()];
+  const [channel, setChannel] = useState<ExportChannel>("taproom");
+  const [partnerId, setPartnerId] = useState("");
+  const [recipientName, setRecipientName] = useState("");
+  const [recipeId, setRecipeId] = useState(recipeIds[0] ?? "");
+  const linesForRecipe = inventoryByRecipe.get(recipeId) ?? [];
+  const [packagingItemId, setPackagingItemId] = useState(linesForRecipe[0]?.packaging_item_id ?? "");
+  const [variantLabel, setVariantLabel] = useState(linesForRecipe[0]?.variant_label ?? "");
+  const [quantity, setQuantity] = useState("");
+  const [notes, setNotes] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function handleSelectRecipe(id: string) {
+    setRecipeId(id);
+    const lines = inventoryByRecipe.get(id) ?? [];
+    setPackagingItemId(lines[0]?.packaging_item_id ?? "");
+    setVariantLabel(lines[0]?.variant_label ?? "");
+  }
+
+  function handleSelectLine(key: string) {
+    const line = linesForRecipe.find((l) => `${l.packaging_item_id}|${l.variant_label}` === key);
+    if (line) {
+      setPackagingItemId(line.packaging_item_id);
+      setVariantLabel(line.variant_label);
+    }
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+
+    if (channel !== "taproom" && partnerId) {
+      try {
+        const check = await fetchJson<{ hasActiveAllocation: boolean }>(
+          `/api/production/export-bay/active-allocation-check?partner_id=${partnerId}&recipe_id=${recipeId}`
+        );
+        if (check.hasActiveAllocation) {
+          const proceed = window.confirm(
+            "This customer already has an active allocation for this recipe — are you sure you want to ship ad-hoc instead of crediting that allocation?"
+          );
+          if (!proceed) return;
+        }
+      } catch {
+        // Advisory check failing should never block the actual shipment.
+      }
+    }
+
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/production/export-bay/ship-adhoc", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          channel,
+          partner_id: channel === "taproom" ? null : partnerId,
+          recipient_name: channel === "taproom" ? (recipientName || null) : null,
+          recipe_id: recipeId,
+          packaging_item_id: packagingItemId,
+          variant_label: variantLabel,
+          quantity: parseFloat(quantity),
+          notes: notes || null,
+        }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? "Error");
+      onDone();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Error");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+      <div className="bg-zinc-900 border border-zinc-700 rounded-lg p-5 w-full max-w-md space-y-4">
+        <h3 className="text-sm font-medium text-zinc-100">Ad-Hoc Export</h3>
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <div>
+            <label className="text-xs text-zinc-400 block mb-1">Channel</label>
+            <select className="inp w-full" value={channel} onChange={(e) => setChannel(e.target.value as ExportChannel)}>
+              <option value="taproom">Taproom</option>
+              <option value="distribution">Distribution</option>
+              <option value="contract_brewing">Contract Brewing</option>
+            </select>
+          </div>
+          {channel !== "taproom" && (
+            <div>
+              <label className="text-xs text-zinc-400 block mb-1">Partner</label>
+              <select className="inp w-full" required value={partnerId} onChange={(e) => setPartnerId(e.target.value)}>
+                <option value="" disabled>Select a partner…</option>
+                {partners.map((p) => (
+                  <option key={p.id} value={p.id}>{p.company_name}</option>
+                ))}
+              </select>
+            </div>
+          )}
+          {channel === "taproom" && (
+            <div>
+              <label className="text-xs text-zinc-400 block mb-1">Recipient name (optional)</label>
+              <input className="inp w-full" value={recipientName} onChange={(e) => setRecipientName(e.target.value)} />
+            </div>
+          )}
+          <div>
+            <label className="text-xs text-zinc-400 block mb-1">Recipe</label>
+            <select className="inp w-full" value={recipeId} onChange={(e) => handleSelectRecipe(e.target.value)}>
+              {recipeIds.map((id) => (
+                <option key={id} value={id}>{recipeNameById.get(id) ?? "Unknown recipe"}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-zinc-400 block mb-1">Packaging</label>
+            <select
+              className="inp w-full"
+              value={`${packagingItemId}|${variantLabel}`}
+              onChange={(e) => handleSelectLine(e.target.value)}
+            >
+              {linesForRecipe.map((l) => (
+                <option key={`${l.packaging_item_id}|${l.variant_label}`} value={`${l.packaging_item_id}|${l.variant_label}`}>
+                  {l.variant_label} ({l.quantity_on_hand} available)
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-zinc-400 block mb-1">Quantity</label>
+            <input type="number" min="0" step="1" className="inp w-full" required value={quantity} onChange={(e) => setQuantity(e.target.value)} />
+          </div>
+          <div>
+            <label className="text-xs text-zinc-400 block mb-1">Notes</label>
+            <input className="inp w-full" value={notes} onChange={(e) => setNotes(e.target.value)} />
+          </div>
+          {error && <p className="text-xs text-red-400">{error}</p>}
+          <div className="flex justify-end gap-2 pt-2">
+            <button type="button" onClick={onClose} className="text-xs px-3 py-1.5 text-zinc-400 hover:text-zinc-200">Cancel</button>
+            <button type="submit" disabled={submitting || linesForRecipe.length === 0} className="text-xs px-3 py-1.5 bg-amber-700 hover:bg-amber-600 text-zinc-100 rounded disabled:opacity-50">
               {submitting ? "Shipping…" : "Ship"}
             </button>
           </div>
