@@ -246,7 +246,7 @@ export default function BrewStatusTab() {
   );
   const assignedBatchIds   = new Set(assignments.map((a) => a.batch_id));
   // Packaging-status batches live on their kegging/canning tile — don't show in backlog/unassigned
-  const unassignedBatches  = batches.filter((b) => b.status !== "archived" && b.status !== "packaging" && !assignedBatchIds.has(b.id));
+  const unassignedBatches  = batches.filter((b) => b.status !== "complete" && b.status !== "packaging" && !assignedBatchIds.has(b.id));
   const planningBatches    = batches.filter((b) => b.status === "planning")
     .sort((a, b) => new Date(b.planned_brew_date).getTime() - new Date(a.planned_brew_date).getTime());
   const batchById          = Object.fromEntries(batches.map((b) => [b.id, b]));

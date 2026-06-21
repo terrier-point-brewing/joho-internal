@@ -72,7 +72,7 @@ export async function PATCH(
   }
 
   // Archive cascade: release operational records but preserve financial ones.
-  if (statusChanged && newStatus === "archived") {
+  if (statusChanged && newStatus === "complete") {
     // Release any active tank assignments — tank is no longer occupied.
     await supabase
       .from("batch_tank_assignments")
@@ -83,7 +83,7 @@ export async function PATCH(
     // Cancel open schedule entries that haven't actually ended yet.
     await supabase
       .from("batch_schedule_entries")
-      .update({ cancelled_at: new Date().toISOString(), cancellation_reason: "batch archived" })
+      .update({ cancelled_at: new Date().toISOString(), cancellation_reason: "batch completed" })
       .eq("batch_id", id)
       .is("cancelled_at", null)
       .is("actual_end", null);
@@ -91,9 +91,9 @@ export async function PATCH(
     // Release ingredient commitments — batch is cancelled.
     await releaseCommitments(supabase, id);
 
-    // batch_allocations, batch_exports, batch_transfers, batch_status_history,
+    // batch_allocations, export_transactions, batch_transfers, batch_status_history,
     // and batch_brew_activity_log are intentionally left untouched — they are
-    // financial or historical records and must not be invalidated on archive.
+    // financial or historical records and must not be invalidated on completion.
   }
 
   const { data, error: fetchErr } = await supabase
