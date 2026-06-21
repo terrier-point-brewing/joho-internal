@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { checkAndCompleteBatch } from "@/lib/production/batchCompletion";
+import { computeExciseTaxBreakdown } from "@/lib/production/exciseTax";
 
 export const dynamic = "force-dynamic";
 
@@ -69,9 +71,6 @@ export async function POST(req: NextRequest) {
     (canItems?.find((c) => c.is_default) ?? canItems?.[0])?.volume_fl_oz ?? null;
 
   const BBL_FL_OZ = 3968; // 1 BBL = 31 gal × 128 fl oz
-  const BBL_TO_GAL = 31;
-  const FEDERAL_EXCISE_PER_BBL = 3.50;   // USD per BBL (craft < 60k BBL/yr)
-  const NC_EXCISE_PER_GAL      = 0.62;   // USD per gallon (NC beer tax)
 
   /** Parse keg name like "1/6 BBL" → volume in BBL, or null if unrecognized. */
   function kegNameToBbl(name: string): number | null {
@@ -90,6 +89,8 @@ export async function POST(req: NextRequest) {
     exportedQty: number;
     transferredAt: string;
     volumeFlOz: number | null; // per unit
+    packagingItemId: string;
+    variantLabel: string;
   };
 
   const inventory: InvEntry[] = [];
@@ -108,6 +109,8 @@ export async function POST(req: NextRequest) {
           exportedQty: 0,
           transferredAt: tr.transferred_at,
           volumeFlOz: flOz,
+          packagingItemId: kd.packaging_id,
+          variantLabel: kd.variant_label,
         });
       }
     } else if (tr.transfer_type === "canning" && tr.canning_detail) {
@@ -124,6 +127,8 @@ export async function POST(req: NextRequest) {
           exportedQty: 0,
           transferredAt: tr.transferred_at,
           volumeFlOz: canVolumeFlOz,
+          packagingItemId: cd.can_packaging_id,
+          variantLabel: cd.variant_label,
         });
       }
     }
@@ -152,6 +157,8 @@ export async function POST(req: NextRequest) {
     productType: "keg" | "can";
     quantity: number;
     volumeFlOz: number | null;
+    packagingItemId: string;
+    variantLabel: string;
   };
 
   const allocations: Allocation[] = [];
@@ -174,6 +181,8 @@ export async function POST(req: NextRequest) {
         productType: inv.productType,
         quantity: take,
         volumeFlOz: inv.volumeFlOz,
+        packagingItemId: inv.packagingItemId,
+        variantLabel: inv.variantLabel,
       });
       inv.exportedQty += take;
       remaining -= take;
@@ -199,6 +208,17 @@ export async function POST(req: NextRequest) {
   const exportBayId = exportBayTank?.id ?? null;
 
   // ── 6. Group allocations by batch_id and create one transfer + one export record each ─
+  const { data: batchRows } = await supabase
+    .from("brew_batches")
+    .select("id, recipe_id")
+    .in("id", [...new Set(allocations.map((a) => a.batchId))]);
+  const recipeIdByBatch = new Map((batchRows ?? []).map((b) => [b.id, b.recipe_id as string | null]));
+
+  // Generate one shipment_id per request, shared across every line this
+  // POST creates (across all batches), so a later UI can select an
+  // entire shipment at once.
+  const shipmentId = crypto.randomUUID();
+
   const byBatch = new Map<string, Allocation[]>();
   for (const a of allocations) {
     if (!byBatch.has(a.batchId)) byBatch.set(a.batchId, []);
@@ -208,7 +228,7 @@ export async function POST(req: NextRequest) {
   const created = [];
   for (const [batchId, allocs] of byBatch) {
     // export_detail stores only the FIFO source ledger — which inbound transfers
-    // contributed to this export. Destination/channel lives in batch_exports.
+    // contributed to this export. Destination/channel lives in export_transactions.
     const exportDetail = {
       items: allocs.map((a) => ({
         source_transfer_id: a.batchTransferId,
@@ -242,37 +262,57 @@ export async function POST(req: NextRequest) {
 
     if (trErr) return NextResponse.json({ error: trErr.message }, { status: 500 });
 
-    // batch_exports — one row per product type per batch so the Export tab shows it
+    const exportTxRows = [];
     for (const alloc of allocs) {
       const volumeBbl = alloc.volumeFlOz != null
         ? Math.round((alloc.quantity * alloc.volumeFlOz / BBL_FL_OZ) * 10000) / 10000
-        : null;
+        : 0;
 
-      const federalExcise = volumeBbl != null
-        ? Math.round(volumeBbl * FEDERAL_EXCISE_PER_BBL * 100) / 100
-        : null;
-      const stateExcise = volumeBbl != null
-        ? Math.round(volumeBbl * BBL_TO_GAL * NC_EXCISE_PER_GAL * 100) / 100
-        : null;
+      const taxBreakdown = await computeExciseTaxBreakdown(supabase, volumeBbl);
+      const totalExciseTaxUsd = Math.round(taxBreakdown.reduce((s, t) => s + t.amountUsd, 0) * 100) / 100;
 
-      const { error: exErr } = await supabase.from("batch_exports").insert({
-        batch_id: batchId,
-        transfer_id: transfer.id,
-        channel,
-        recipient_id: channel === "contract_brewing" ? (partner_id ?? null) : null,
-        recipient_name: channel === "contract_brewing"
-          ? (partner_name ?? null)
-          : (recipient_name ?? null),
-        product_type: alloc.productType,
-        quantity: alloc.quantity,
-        unit: alloc.productLabel,
-        volume_bbl: volumeBbl,
-        federal_excise_tax_usd: federalExcise,
-        state_excise_tax_usd:   stateExcise,
-        notes: notes ?? null,
-      });
-      if (exErr) return NextResponse.json({ error: exErr.message }, { status: 500 });
+      const { data: exportTx, error: exTxErr } = await supabase
+        .from("export_transactions")
+        .insert({
+          shipment_id: shipmentId,
+          batch_id: batchId,
+          recipe_id: recipeIdByBatch.get(batchId) ?? null,
+          allocation_id: null,
+          packaging_item_id: alloc.packagingItemId,
+          variant_label: alloc.variantLabel,
+          quantity: alloc.quantity,
+          volume_bbl: volumeBbl,
+          channel,
+          recipient_id: channel === "contract_brewing" ? (partner_id ?? null) : null,
+          recipient_name: channel === "contract_brewing"
+            ? (partner_name ?? null)
+            : (recipient_name ?? null),
+          total_excise_tax_usd: totalExciseTaxUsd,
+          source_transfer_id: transfer.id,
+          notes: notes ?? null,
+        })
+        .select("id")
+        .single();
+      if (exTxErr) return NextResponse.json({ error: exTxErr.message }, { status: 500 });
+
+      if (taxBreakdown.length > 0) {
+        const { error: taxErr } = await supabase.from("export_transaction_taxes").insert(
+          taxBreakdown.map((t) => ({
+            export_transaction_id: exportTx.id,
+            excise_tax_rate_id: t.rateId,
+            tax_name: t.name,
+            unit: t.unit,
+            rate_usd: t.rateUsd,
+            amount_usd: t.amountUsd,
+          }))
+        );
+        if (taxErr) return NextResponse.json({ error: taxErr.message }, { status: 500 });
+      }
+
+      exportTxRows.push(exportTx);
     }
+
+    await checkAndCompleteBatch(supabase, batchId);
 
     created.push(transfer);
   }
