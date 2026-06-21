@@ -142,6 +142,22 @@ export async function POST(req: NextRequest) {
     qtyAssigned += credits[i].creditedQty;
   }
 
+  // ── 4b. Look up the export_bay equipment row (must happen before any write) ─
+  const { data: exportBayTank, error: exportBayErr } = await supabase
+    .from("equipment")
+    .select("id")
+    .eq("type", "export_bay")
+    .limit(1)
+    .maybeSingle();
+  if (exportBayErr) return NextResponse.json({ error: exportBayErr.message }, { status: 500 });
+  if (!exportBayTank) {
+    return NextResponse.json(
+      { error: "No 'export_bay' equipment configured — add one in Production → Brewing → Floorplan before shipping." },
+      { status: 500 }
+    );
+  }
+  const exportBayId = exportBayTank.id;
+
   // ── 5. Deplete cold_storage_inventory, oldest row first ───────────────────
   let qtyLeft = quantity;
   for (const row of invRows ?? []) {
@@ -156,11 +172,7 @@ export async function POST(req: NextRequest) {
     qtyLeft -= take;
   }
 
-  // ── 6. Look up the export_bay equipment row ───────────────────────────────
-  const { data: exportBayTank } = await supabase.from("equipment").select("id").eq("type", "export_bay").limit(1).single();
-  const exportBayId = exportBayTank?.id ?? null;
-
-  // ── 7. Write batch_transfers (one per batch) + export_transactions (one per credited allocation) ──
+  // ── 6/7. Write batch_transfers (one per batch) + export_transactions (one per credited allocation) ──
   const shipmentId = crypto.randomUUID();
   const byBatch = new Map<string, Credit[]>();
   for (const c of credits) {

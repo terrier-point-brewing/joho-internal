@@ -146,3 +146,36 @@ The flat pass iterates strictly by array index — i=0 (A1), i=1 (B1), i=2 (A2, 
 `npm run lint` — 0 errors, 27 warnings (all pre-existing, unrelated to this file).
 `npm run build` — compiled successfully, all routes including `/api/production/export-bay/ship` built with no errors.
 `npx tsc --noEmit` — no errors in the ship route file.
+
+## Third follow-up fix: silent null `to_tank_id` when export_bay equipment missing (post-third-review)
+
+A whole-branch review found that the `export_bay` equipment lookup (originally at Step 6, right before the `batch_transfers`/`export_transactions` write loop) used `.single()` with `?.id ?? null` fallback, so if no `equipment` row with `type = "export_bay"` exists (confirmed: it currently does not exist in the live database), `exportBayId` silently becomes `null` and gets written into `batch_transfers.to_tank_id`. Because `batch_exhaustion`'s exported-volume calculation filters on `eq_to.type in ('export_bay', 'loading_bay')`, a `to_tank_id: null` row is never counted as exported, so `checkAndCompleteBatch` would under-count exported volume and a fully-shipped batch could fail to ever auto-complete — with no error surfaced to the user at ship time. Worse, the lookup ran after Step 5 had already started mutating `cold_storage_inventory`.
+
+### Fix applied
+
+Moved the equipment lookup from its original position (Step 6, after the inventory-depletion loop) to immediately after Step 3's allocation/remaining-volume validation, before Step 5 (the first database write in the function). Changed `.single()` to `.maybeSingle()` and added explicit error handling:
+
+```ts
+  const { data: exportBayTank, error: exportBayErr } = await supabase
+    .from("equipment")
+    .select("id")
+    .eq("type", "export_bay")
+    .limit(1)
+    .maybeSingle();
+  if (exportBayErr) return NextResponse.json({ error: exportBayErr.message }, { status: 500 });
+  if (!exportBayTank) {
+    return NextResponse.json(
+      { error: "No 'export_bay' equipment configured — add one in Production → Brewing → Floorplan before shipping." },
+      { status: 500 }
+    );
+  }
+  const exportBayId = exportBayTank.id;
+```
+
+This now fails loudly with a clear 500 error before any write (inventory depletion, `batch_transfers` insert, `export_transactions` insert, `export_transaction_taxes` insert, or the `checkAndCompleteBatch`/`checkAndFulfillCommitment` side effects) can occur, instead of silently writing `null` and corrupting the exported-volume accounting.
+
+### Verification
+
+`npm run lint` — 0 errors, 27 warnings (all pre-existing, unrelated to this file).
+`npm run build` — compiled successfully, all routes including `/api/production/export-bay/ship` built with no errors.
+Traced the function top to bottom: Steps 1-4 (volume conversion, availability validation, allocation candidate gathering, sequential crediting) perform only reads. The new export_bay check sits immediately after Step 4's flat-pass quantity computation and before Step 5 (inventory depletion, the first write). No write path exists before this check.
