@@ -4,6 +4,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { checkAndCompleteBatch } from "@/lib/production/batchCompletion";
 import { checkAndFulfillCommitment } from "@/lib/production/commitmentFulfillment";
 import { computeExciseTaxBreakdown } from "@/lib/production/exciseTax";
+import { getExportBayEquipmentId } from "@/lib/production/exportBayEquipment";
 import { BBL_TO_FL_OZ } from "@/lib/constants/production";
 
 export const dynamic = "force-dynamic";
@@ -143,20 +144,19 @@ export async function POST(req: NextRequest) {
   }
 
   // ── 4b. Look up the export_bay equipment row (must happen before any write) ─
-  const { data: exportBayTank, error: exportBayErr } = await supabase
-    .from("equipment")
-    .select("id")
-    .eq("type", "export_bay")
-    .limit(1)
-    .maybeSingle();
-  if (exportBayErr) return NextResponse.json({ error: exportBayErr.message }, { status: 500 });
-  if (!exportBayTank) {
-    return NextResponse.json(
-      { error: "No 'export_bay' equipment configured — add one in Production → Brewing → Floorplan before shipping." },
-      { status: 500 }
-    );
+  let exportBayId: string;
+  try {
+    const id = await getExportBayEquipmentId(supabase);
+    if (!id) {
+      return NextResponse.json(
+        { error: "No 'export_bay' equipment configured — add one in Production → Brewing → Floorplan before shipping." },
+        { status: 500 }
+      );
+    }
+    exportBayId = id;
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : "Unknown error" }, { status: 500 });
   }
-  const exportBayId = exportBayTank.id;
 
   // ── 5. Deplete cold_storage_inventory, oldest row first ───────────────────
   let qtyLeft = quantity;
