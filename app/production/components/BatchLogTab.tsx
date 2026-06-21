@@ -982,7 +982,10 @@ function AllocationManager({ batch, recipes }: { batch: BrewBatch; recipes: impo
           newPercentage={refundAlloc.newPercentage}
           submitting={refundSubmitting}
           onConfirm={handleConfirmRefund}
-          onClose={() => setRefundAlloc(null)}
+          onClose={() => {
+            if (refundAlloc) setEditingPct(p => { const n = { ...p }; delete n[refundAlloc.allocation.id]; return n; });
+            setRefundAlloc(null);
+          }}
         />
       )}
     </div>
