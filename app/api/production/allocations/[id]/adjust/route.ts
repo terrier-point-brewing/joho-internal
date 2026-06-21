@@ -62,6 +62,14 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   // fresh calculateIngredientDeposit() call against current ingredient costs.
   const currentPercentage = Number(allocation.percentage);
   const paidCents = Number(allocation.deposit_amount_paid_cents);
+
+  if (currentPercentage <= 0) {
+    return NextResponse.json(
+      { error: "Allocation has an invalid percentage (<= 0) — cannot compute refund. Contact support." },
+      { status: 500 }
+    );
+  }
+
   const refundAmountCents = Math.round(paidCents * (1 - newPercentage / currentPercentage));
 
   const reason = `Allocation percentage reduced from ${currentPercentage}% to ${newPercentage}%`;
