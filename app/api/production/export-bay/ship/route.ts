@@ -154,6 +154,7 @@ export async function POST(req: NextRequest) {
   }
 
   const created: { batch_id: string; export_transaction_ids: string[] }[] = [];
+  let qtyAssigned = 0;
 
   for (const [batchId, batchCredits] of byBatch) {
     const batchTotalBbl = batchCredits.reduce((s, c) => s + c.creditedBbl, 0);
@@ -175,7 +176,11 @@ export async function POST(req: NextRequest) {
 
     const exportTransactionIds: string[] = [];
     for (const c of batchCredits) {
-      const creditedQty = Math.round((c.creditedBbl / requestedBbl) * quantity * 10000) / 10000;
+      const isLastCreditOverall = credits[credits.length - 1] === c;
+      const creditedQty = isLastCreditOverall
+        ? Math.round((quantity - qtyAssigned) * 10000) / 10000
+        : Math.round((c.creditedBbl / requestedBbl) * quantity * 10000) / 10000;
+      qtyAssigned += creditedQty;
       const taxBreakdown = await computeExciseTaxBreakdown(supabase, c.creditedBbl);
       const totalExciseTaxUsd = Math.round(taxBreakdown.reduce((s, t) => s + t.amountUsd, 0) * 100) / 100;
 
