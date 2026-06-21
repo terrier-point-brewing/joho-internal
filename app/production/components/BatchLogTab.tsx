@@ -191,12 +191,12 @@ export default function BatchLogTab() {
     }
   }
 
-  async function handleArchive(id: string, name: string) {
-    if (!confirm(`Archive batch "${name}"? Equipment will be released and scheduled work cancelled. Financial records will be preserved.`)) return;
+  async function handleComplete(id: string, name: string) {
+    if (!confirm(`Mark batch "${name}" complete? Equipment will be released and scheduled work cancelled. Financial records will be preserved.`)) return;
     await fetch(`/api/production/batches/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: "archived" }),
+      body: JSON.stringify({ status: "complete" }),
     });
     await refresh();
   }
@@ -236,7 +236,7 @@ export default function BatchLogTab() {
           sort={sort}
           onToggle={(id) => setExpandedId(expandedId === id ? null : id)}
           onEdit={openEdit}
-          onArchive={handleArchive}
+          onComplete={handleComplete}
           onDelete={handleDelete}
           isAdmin={isAdmin}
           onSort={toggleSort}
@@ -975,7 +975,7 @@ function BatchTable({
   sort,
   onToggle,
   onEdit,
-  onArchive,
+  onComplete,
   onDelete,
   isAdmin,
   onSort,
@@ -991,7 +991,7 @@ function BatchTable({
   sort: { col: SortCol; dir: "asc" | "desc" };
   onToggle: (id: string) => void;
   onEdit: (b: BrewBatch) => void;
-  onArchive: (id: string, name: string) => void;
+  onComplete: (id: string, name: string) => void;
   onDelete: (id: string, name: string) => void;
   isAdmin: boolean;
   onSort: (col: SortCol) => void;
@@ -1050,7 +1050,7 @@ function BatchTable({
                   <td className="px-4 py-2.5 font-mono text-xs text-zinc-400 whitespace-nowrap min-w-[110px]">
                     <span className="flex items-center gap-1.5">
                       {b.batch_number ?? "—"}
-                      {scheduleMissing && b.status !== "archived" && (
+                      {scheduleMissing && b.status !== "complete" && (
                         <span
                           className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-amber-500 text-zinc-950 text-[10px] font-bold leading-none shrink-0"
                           title="Schedule incomplete — missing required stages"
@@ -1089,8 +1089,8 @@ function BatchTable({
                   <td className="px-4 py-2.5">
                     <div className="flex gap-3 justify-end">
                       <button onClick={() => onEdit(b)} className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors">Edit</button>
-                      {b.status !== "archived" && (
-                        <button onClick={() => onArchive(b.id, b.beer_name)} className="text-xs text-zinc-500 hover:text-amber-400 transition-colors">Archive</button>
+                      {b.status !== "complete" && (
+                        <button onClick={() => onComplete(b.id, b.beer_name)} className="text-xs text-zinc-500 hover:text-amber-400 transition-colors">Complete</button>
                       )}
                       {isAdmin && (
                         <button onClick={() => onDelete(b.id, b.beer_name)} className="text-xs text-zinc-600 hover:text-red-400 transition-colors">Delete</button>

@@ -185,8 +185,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: reassignErr.message }, { status: 500 });
     }
   } else {
-    // Full conversion — archive the parent batch
-    await supabase.from("brew_batches").update({ status: "archived" }).eq("id", batch_id);
+    // Full conversion — mark the parent batch complete
+    await supabase.from("brew_batches").update({ status: "complete" }).eq("id", batch_id);
 
     // Close any open schedule entries on the parent
     await supabase
@@ -198,7 +198,7 @@ export async function POST(req: NextRequest) {
 
     await supabase.from("batch_status_history").insert({
       batch_id,
-      status:     "archived",
+      status:     "complete",
       note:       `Fully converted — all ${volume_bbl} BBL transferred to ${childBatch.batch_number}`,
       changed_by: currentUser?.id ?? null,
     });

@@ -4,7 +4,7 @@ export type BatchStatus =
   | "fermenting"
   | "conditioning"
   | "packaging"
-  | "archived";
+  | "complete";
 
 export type AdjustmentType = "received" | "used" | "waste" | "inventory_count" | "batch_use";
 
@@ -16,14 +16,15 @@ export type EquipmentType =
 // Types that have no capacity constraint and don't hold a single batch
 export const UNCONSTRAINED_EQUIPMENT_TYPES: EquipmentType[] = ["kegging", "canning", "cold_storage", "backlog", "loading_bay", "export_bay"];
 
-// Map equipment type to the batch status it implies
+// Map equipment type to the batch status it implies. cold_storage has no
+// entry — arrival in cold storage no longer changes batch status; only a
+// full export (see lib/production/batchCompletion.ts) transitions to "complete".
 export const EQUIPMENT_TYPE_TO_STATUS: Partial<Record<EquipmentType, BatchStatus>> = {
   brewhouse:    "brewing",
   fermenter:    "fermenting",
   brite:        "conditioning",
   kegging:      "packaging",
   canning:      "packaging",
-  cold_storage: "archived",
 };
 
 export type PackagingItemType = "keg" | "can" | "lid" | "paktech" | "tray" | "label";
@@ -117,6 +118,52 @@ export interface ColdStorageInventory {
   source_transfer_id: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export type ExportChannel = "taproom" | "distribution" | "contract_brewing";
+export type ExportTransactionStatus = "invoice_required" | "unpaid" | "paid";
+
+export interface ExportTransaction {
+  id: string;
+  shipment_id: string;
+  batch_id: string;
+  recipe_id: string | null;
+  allocation_id: string | null;
+  packaging_item_id: string;
+  variant_label: string;
+  quantity: number;
+  volume_bbl: number;
+  channel: ExportChannel;
+  recipient_id: string | null;
+  recipient_name: string | null;
+  status: ExportTransactionStatus;
+  total_excise_tax_usd: number;
+  source_transfer_id: string | null;
+  notes: string | null;
+  created_at: string;
+  brew_batches?: { id: string; beer_name: string; batch_number: string | null } | null;
+}
+
+export interface ExciseTaxRate {
+  id: string;
+  name: string;
+  receiving_party: string | null;
+  unit: "bbl" | "gallon";
+  rate_usd: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ExportTransactionTax {
+  id: string;
+  export_transaction_id: string;
+  excise_tax_rate_id: string | null;
+  tax_name: string;
+  unit: "bbl" | "gallon";
+  rate_usd: number;
+  amount_usd: number;
+  created_at: string;
 }
 
 export type IngredientCategory = "Malts" | "Hops" | "Yeast" | "Brewing Aids" | "Fruit" | "Abstrax";

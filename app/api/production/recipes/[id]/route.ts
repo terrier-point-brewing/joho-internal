@@ -67,12 +67,12 @@ export async function DELETE(
 
   const { id } = await params;
 
-  // Guard: block deletion if any non-archived batch references this recipe
+  // Guard: block deletion if any non-complete batch references this recipe
   const { data: activeBatches, error: batchErr } = await supabase
     .from("brew_batches")
     .select("id, beer_name, status")
     .eq("recipe_id", id)
-    .neq("status", "archived");
+    .neq("status", "complete");
 
   if (batchErr) return NextResponse.json({ error: batchErr.message }, { status: 500 });
 

@@ -10,7 +10,7 @@ export const BATCH_STATUSES: { value: BatchStatus; label: string; color: string 
   { value: "fermenting",      label: "Fermenting",      color: "bg-blue-900/50 text-blue-300 border-blue-700" },
   { value: "conditioning",    label: "Conditioning",    color: "bg-purple-900/50 text-purple-300 border-purple-700" },
   { value: "packaging",       label: "Packaging",       color: "bg-green-900/50 text-green-300 border-green-700" },
-  { value: "archived",        label: "Archived",        color: "bg-zinc-800/50 text-zinc-500 border-zinc-700" },
+  { value: "complete",        label: "Complete",        color: "bg-zinc-800/50 text-zinc-500 border-zinc-700" },
 ];
 
 export const STATUS_MAP = Object.fromEntries(

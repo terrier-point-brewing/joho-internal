@@ -5,7 +5,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 export const dynamic = "force-dynamic";
 
 // GET /api/production/allocations?batch_id=<uuid>
-// Returns allocations enriched with fulfillment data computed from batch_exports and batch_transfers.
+// Returns allocations enriched with fulfillment data computed from export_transactions and batch_transfers.
 export async function GET(req: NextRequest) {
   const supabase = await createSupabaseServerClient();
 
@@ -46,7 +46,7 @@ export async function GET(req: NextRequest) {
 
   // Fetch exports grouped by batch_id + channel + recipient_id for fulfillment
   const { data: exports_ } = await supabase
-    .from("batch_exports")
+    .from("export_transactions")
     .select("batch_id, channel, recipient_id, volume_bbl")
     .in("batch_id", batchIds);
 
