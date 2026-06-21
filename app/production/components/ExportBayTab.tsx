@@ -112,13 +112,17 @@ export default function ExportBayTab() {
           <p className="text-sm text-zinc-600">No active allocations.</p>
         ) : (
           <div className="space-y-4">
-            {[...groups.values()].map((g) => (
+            {[...groups.values()].map((g) => {
+              const hasInventory = (inventoryByRecipe.get(g.recipeId) ?? []).length > 0;
+              return (
               <div key={`${g.partnerId}|${g.recipeId}`} className="rounded-lg border border-zinc-800 overflow-hidden">
                 <div className="flex items-center justify-between px-3 py-2 bg-zinc-900/60 border-b border-zinc-800">
                   <span className="text-sm font-medium text-zinc-100">{g.partnerName} — {g.recipeName}</span>
                   <button
                     onClick={() => setShipGroup(g)}
-                    className="text-xs px-2.5 py-1 border border-amber-700 text-amber-400 hover:bg-amber-900/30 rounded transition-colors"
+                    disabled={!hasInventory}
+                    title={hasInventory ? undefined : "No packaged inventory available for this recipe"}
+                    className="text-xs px-2.5 py-1 border border-amber-700 text-amber-400 hover:bg-amber-900/30 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
                   >
                     Ship
                   </button>
@@ -150,7 +154,8 @@ export default function ExportBayTab() {
                   ))}
                 </div>
               </div>
-            ))}
+            );
+            })}
           </div>
         )}
       </div>
@@ -244,7 +249,7 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
           {error && <p className="text-xs text-red-400">{error}</p>}
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={onClose} className="text-xs px-3 py-1.5 text-zinc-400 hover:text-zinc-200">Cancel</button>
-            <button type="submit" disabled={submitting} className="text-xs px-3 py-1.5 bg-amber-700 hover:bg-amber-600 text-zinc-100 rounded disabled:opacity-50">
+            <button type="submit" disabled={submitting || inventoryLines.length === 0} className="text-xs px-3 py-1.5 bg-amber-700 hover:bg-amber-600 text-zinc-100 rounded disabled:opacity-50">
               {submitting ? "Shipping…" : "Ship"}
             </button>
           </div>
