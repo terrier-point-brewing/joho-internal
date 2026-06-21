@@ -116,15 +116,30 @@ export async function POST(req: NextRequest) {
   }
 
   // ── 4. Credit allocations sequentially, oldest batch first ───────────────
-  type Credit = { allocationId: string; batchId: string; channel: string; creditedBbl: number };
+  type Credit = { allocationId: string; batchId: string; channel: string; creditedBbl: number; creditedQty: number };
   const credits: Credit[] = [];
   let bblLeft = requestedBbl;
   for (let i = 0; i < candidates.length && bblLeft > 0.0001; i++) {
     const c = candidates[i];
     const isLast = i === candidates.length - 1 || bblLeft <= c.remainingBbl;
     const creditedBbl = isLast ? bblLeft : Math.min(c.remainingBbl, bblLeft);
-    credits.push({ allocationId: c.allocationId, batchId: c.batchId, channel: c.channel, creditedBbl });
+    credits.push({ allocationId: c.allocationId, batchId: c.batchId, channel: c.channel, creditedBbl, creditedQty: 0 });
     bblLeft -= creditedBbl;
+  }
+
+  // Compute each credit's unit quantity in one flat pass (NOT during the
+  // later grouped-by-batch traversal, whose Map iteration order doesn't
+  // match this array's order) so the sum always reconciles exactly to the
+  // requested `quantity`, regardless of how many distinct batches are
+  // credited or whether one batch contributes multiple, non-adjacent
+  // entries to this array.
+  let qtyAssigned = 0;
+  for (let i = 0; i < credits.length; i++) {
+    const isLastCredit = i === credits.length - 1;
+    credits[i].creditedQty = isLastCredit
+      ? Math.round((quantity - qtyAssigned) * 10000) / 10000
+      : Math.round((credits[i].creditedBbl / requestedBbl) * quantity * 10000) / 10000;
+    qtyAssigned += credits[i].creditedQty;
   }
 
   // ── 5. Deplete cold_storage_inventory, oldest row first ───────────────────
@@ -154,7 +169,6 @@ export async function POST(req: NextRequest) {
   }
 
   const created: { batch_id: string; export_transaction_ids: string[] }[] = [];
-  let qtyAssigned = 0;
 
   for (const [batchId, batchCredits] of byBatch) {
     const batchTotalBbl = batchCredits.reduce((s, c) => s + c.creditedBbl, 0);
@@ -176,11 +190,6 @@ export async function POST(req: NextRequest) {
 
     const exportTransactionIds: string[] = [];
     for (const c of batchCredits) {
-      const isLastCreditOverall = credits[credits.length - 1] === c;
-      const creditedQty = isLastCreditOverall
-        ? Math.round((quantity - qtyAssigned) * 10000) / 10000
-        : Math.round((c.creditedBbl / requestedBbl) * quantity * 10000) / 10000;
-      qtyAssigned += creditedQty;
       const taxBreakdown = await computeExciseTaxBreakdown(supabase, c.creditedBbl);
       const totalExciseTaxUsd = Math.round(taxBreakdown.reduce((s, t) => s + t.amountUsd, 0) * 100) / 100;
 
@@ -193,7 +202,7 @@ export async function POST(req: NextRequest) {
           allocation_id: c.allocationId,
           packaging_item_id,
           variant_label,
-          quantity: creditedQty,
+          quantity: c.creditedQty,
           volume_bbl: Math.round(c.creditedBbl * 10000) / 10000,
           channel: c.channel,
           recipient_id: partner_id,
