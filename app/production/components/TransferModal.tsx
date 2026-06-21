@@ -481,7 +481,7 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
         )}
         {mode === "convert" && drawBbl > 0 && remaining <= 0 && (
           <p className="text-amber-400 text-xs">
-            Full conversion — the parent batch will be archived after this.
+            Full conversion — the parent batch will be marked complete after this.
           </p>
         )}
 
