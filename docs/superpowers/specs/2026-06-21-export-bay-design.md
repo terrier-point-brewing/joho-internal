@@ -17,6 +17,7 @@ Separately, there's no way today to see, at a glance, "what's available to ship"
 ## Goals
 
 - Build a 2-column Export Bay screen: available cold-storage inventory (by recipe + packaging variant, summed across batches) next to active allocations (grouped by Customer + Recipe, each showing its own `desired_delivery_date` and fulfillment progress).
+- Remove the existing "Allocations" tab (`AllocationsTab` in `ExportTab.tsx`) entirely — Export Bay's right column shows the same per-allocation fulfillment information (and more, with delivery dates and Customer+Recipe grouping), so the old tab becomes redundant rather than a parallel view.
 - Replace the inventory-depletion write path with direct `cold_storage_inventory` consumption, retiring the FIFO-over-jsonb computation in `ColdStorageExportModal`/`cold-storage-export/route.ts` entirely (both get deleted — confirmed unused/unwired, no migration concern).
 - Decouple **inventory depletion** (which physical batch's kegs leave cold storage — FIFO by `cold_storage_inventory.created_at`, invisible to the user) from **allocation crediting** (which customer/batch allocation gets marked closer to fulfilled — FIFO by batch creation order, same direction, but a logically separate decision). A single Ship action can therefore produce multiple `export_transactions` rows (different `batch_id`/`allocation_id`, one shared `shipment_id`) when a customer's need spans more than one of their allocations for that recipe.
 - Automate Commitment fulfillment: once an allocation's batch reaches `complete` (so `allocated_bbl` is no longer a moving target) and `exported_bbl >= allocated_bbl`, set the linked `commitments.status = 'fulfilled'`.
@@ -31,7 +32,7 @@ Separately, there's no way today to see, at a glance, "what's available to ship"
 
 ## Architecture
 
-**New tab**: `ExportTab.tsx` already renders a top-level tab bar (`TOP_TABS`: Allocations, Taproom, Distribution, Contract Brewing) with client-side switching inside one page (`app/production/export/page.tsx`) — no separate route per tab. This spec adds `"export_bay"` to that same `TopTab` union and `TOP_TABS` array, rendering a new `ExportBayTab` component alongside the existing ones, matching the established convention exactly rather than introducing a new route.
+**New tab, replacing the old one**: `ExportTab.tsx` already renders a top-level tab bar (`TOP_TABS`: Allocations, Taproom, Distribution, Contract Brewing) with client-side switching inside one page (`app/production/export/page.tsx`) — no separate route per tab. This spec replaces the `"allocations"` entry in that same `TopTab` union and `TOP_TABS` array with `"export_bay"` (label "Export Bay"), removing `AllocationsTab` entirely and rendering a new `ExportBayTab` component in its place — including making it the new default tab (`useState<TopTab>("export_bay")`, replacing the current `useState<TopTab>("allocations")` default).
 
 **Left column — "Available"**: queries a new endpoint that groups `cold_storage_inventory` by `(recipe_id, packaging_item_id, variant_label)`, summing `quantity_on_hand` across every batch. No batch breakdown is shown — the user only ever sees a single number per recipe+variant.
 
@@ -94,6 +95,7 @@ Logic:
 
 - `app/production/components/ColdStorageExportModal.tsx` — deleted.
 - `app/api/production/cold-storage-export/route.ts` — deleted, replaced by `export-bay/ship`.
+- `AllocationsTab` function and its `"allocations"` `TopTab`/`TOP_TABS` entry in `ExportTab.tsx` — deleted, replaced by `ExportBayTab`/`"export_bay"`.
 
 ## Edge Cases
 
