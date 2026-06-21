@@ -11,26 +11,20 @@ import { queryKeys } from "@/lib/query-keys";
 
 export type ExportChannel = "taproom" | "distribution" | "contract_brewing";
 
-interface BatchExport {
+interface ExportTransactionRow {
   id: string;
   batch_id: string;
   channel: ExportChannel;
   recipient_id: string | null;
   recipient_name: string | null;
-  product_type: "keg" | "can" | "growler" | "other";
+  /** Packaging variant label, e.g. "1/6 Keg" or "Case (24ct)". */
+  variant_label: string;
   quantity: number;
-  /** Packaging format label, e.g. "1/6 BBL" for kegs or "can" for cans. */
-  unit: string;
-  volume_bbl: number | null;
+  volume_bbl: number;
   notes: string | null;
-  /** Federal excise tax (USD) persisted at export time. */
-  federal_excise_tax_usd: number | null;
-  /** State (NC) excise tax (USD) persisted at export time. */
-  state_excise_tax_usd: number | null;
-  // Square API fields — populated when synced (taproom channel only)
-  square_catalog_item_id: string | null;
-  square_location_id: string | null;
-  square_synced_at: string | null;
+  /** Total excise tax (USD) across all applicable rates, persisted at export time. */
+  total_excise_tax_usd: number;
+  status: "invoice_required" | "unpaid" | "paid";
   created_at: string;
   brew_batches: { id: string; beer_name: string; batch_number: number } | null;
 }
@@ -62,8 +56,6 @@ const CHANNEL_TABS: { key: ExportChannel; label: string; description: string }[]
   },
 ];
 
-const FEDERAL_EXCISE_RATE_PER_BBL = 3.50;
-const NC_EXCISE_RATE_PER_GAL = 0.62;
 const BBL_TO_GAL = 31;
 
 const CHANNEL_LABELS: Record<AllocationChannel, string> = {
@@ -209,7 +201,7 @@ function AllocationsTab() {
 
 function ExportsChannelTab({ channel, exports, links, recipes, onLinksChanged }: {
   channel: ExportChannel;
-  exports: BatchExport[];
+  exports: ExportTransactionRow[];
   links: LinkRow[];
   recipes: Recipe[];
   onLinksChanged: () => void;
@@ -221,12 +213,9 @@ function ExportsChannelTab({ channel, exports, links, recipes, onLinksChanged }:
   const channelExports = exports.filter(e => e.channel === channel);
   const channelMeta = CHANNEL_TABS.find(c => c.key === channel)!;
 
-  const totalBbl     = channelExports.reduce((s, e) => s + (e.volume_bbl ?? 0), 0);
-  const totalGal     = totalBbl * BBL_TO_GAL;
-  const totalFederal = channelExports.reduce((s, e) =>
-    s + (e.federal_excise_tax_usd ?? (e.volume_bbl ?? 0) * FEDERAL_EXCISE_RATE_PER_BBL), 0);
-  const totalNC = channelExports.reduce((s, e) =>
-    s + (e.state_excise_tax_usd ?? (e.volume_bbl ?? 0) * BBL_TO_GAL * NC_EXCISE_RATE_PER_GAL), 0);
+  const totalBbl  = channelExports.reduce((s, e) => s + (e.volume_bbl ?? 0), 0);
+  const totalGal  = totalBbl * BBL_TO_GAL;
+  const totalTax  = channelExports.reduce((s, e) => s + (e.total_excise_tax_usd ?? 0), 0);
 
   async function remove(id: string) {
     if (!confirm("Delete this export record?")) return;
@@ -267,10 +256,9 @@ function ExportsChannelTab({ channel, exports, links, recipes, onLinksChanged }:
                 <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 text-right">Qty</th>
                 <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 text-right">Gallons</th>
                 <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 text-right">BBL</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 text-right">Fed. Excise</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 text-right">NC Excise</th>
+                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 text-right">Excise Tax</th>
+                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500">Status</th>
                 {channel !== "taproom" && <th className="px-4 py-2.5 text-xs font-medium text-zinc-500">Recipient</th>}
-                {channel === "taproom" && <th className="px-4 py-2.5 text-xs font-medium text-zinc-500">Square Sync</th>}
                 <th className="px-4 py-2.5 text-xs font-medium text-zinc-500">Notes</th>
                 <th className="px-4 py-2.5" />
               </tr>
@@ -283,7 +271,7 @@ function ExportsChannelTab({ channel, exports, links, recipes, onLinksChanged }:
                     {e.brew_batches ? `#${e.brew_batches.batch_number} ${e.brew_batches.beer_name}` : "—"}
                   </td>
                   <td className="px-4 py-2.5">
-                    <span className="px-1.5 py-0.5 rounded text-xs bg-zinc-800 text-zinc-300">{e.unit}</span>
+                    <span className="px-1.5 py-0.5 rounded text-xs bg-zinc-800 text-zinc-300">{e.variant_label}</span>
                   </td>
                   <td className="px-4 py-2.5 text-right text-zinc-200">{e.quantity}</td>
                   <td className="px-4 py-2.5 text-right text-zinc-400">
@@ -293,23 +281,18 @@ function ExportsChannelTab({ channel, exports, links, recipes, onLinksChanged }:
                     {e.volume_bbl != null ? e.volume_bbl.toFixed(4) : "—"}
                   </td>
                   <td className="px-4 py-2.5 text-right text-zinc-400">
-                    {e.federal_excise_tax_usd != null
-                      ? `$${e.federal_excise_tax_usd.toFixed(2)}`
-                      : e.volume_bbl != null ? `$${(e.volume_bbl * FEDERAL_EXCISE_RATE_PER_BBL).toFixed(2)}` : "—"}
+                    ${e.total_excise_tax_usd.toFixed(2)}
                   </td>
-                  <td className="px-4 py-2.5 text-right text-zinc-400">
-                    {e.state_excise_tax_usd != null
-                      ? `$${e.state_excise_tax_usd.toFixed(2)}`
-                      : e.volume_bbl != null ? `$${(e.volume_bbl * BBL_TO_GAL * NC_EXCISE_RATE_PER_GAL).toFixed(2)}` : "—"}
+                  <td className="px-4 py-2.5">
+                    <span className={`text-xs px-1.5 py-0.5 rounded ${
+                      e.status === "paid" ? "bg-emerald-900/40 text-emerald-400"
+                      : e.status === "unpaid" ? "bg-amber-900/40 text-amber-400"
+                      : "bg-zinc-800 text-zinc-400"
+                    }`}>
+                      {e.status === "invoice_required" ? "Invoice Required" : e.status === "unpaid" ? "Unpaid" : "Paid"}
+                    </span>
                   </td>
                   {channel !== "taproom" && <td className="px-4 py-2.5 text-zinc-400">{e.recipient_name ?? "—"}</td>}
-                  {channel === "taproom" && (
-                    <td className="px-4 py-2.5">
-                      {e.square_synced_at
-                        ? <span className="text-xs text-emerald-400">Synced {fmt(e.square_synced_at)}</span>
-                        : <span className="text-xs text-zinc-600">Not synced</span>}
-                    </td>
-                  )}
                   <td className="px-4 py-2.5 text-zinc-500 text-xs">{e.notes ?? "—"}</td>
                   <td className="px-4 py-2.5">
                     <button onClick={() => remove(e.id)} className="text-xs text-zinc-600 hover:text-red-400">Delete</button>
@@ -327,12 +310,8 @@ function ExportsChannelTab({ channel, exports, links, recipes, onLinksChanged }:
           <span className="text-zinc-300 font-medium tabular-nums">
             {totalGal.toFixed(2)} gal &nbsp;/&nbsp; {totalBbl.toFixed(4)} BBL
           </span>
-          <span className="text-zinc-500">Federal excise ($3.50/BBL)</span>
-          <span className="text-amber-400 font-medium tabular-nums">${totalFederal.toFixed(2)}</span>
-          <span className="text-zinc-500">NC excise ($0.62/gal)</span>
-          <span className="text-amber-400 font-medium tabular-nums">${totalNC.toFixed(2)}</span>
-          <span className="text-zinc-400 font-medium border-t border-zinc-800 pt-1 mt-0.5">Total excise</span>
-          <span className="text-amber-300 font-semibold tabular-nums border-t border-zinc-800 pt-1 mt-0.5">${(totalFederal + totalNC).toFixed(2)}</span>
+          <span className="text-zinc-400 font-medium border-t border-zinc-800 pt-1 mt-0.5">Total excise tax</span>
+          <span className="text-amber-300 font-semibold tabular-nums border-t border-zinc-800 pt-1 mt-0.5">${totalTax.toFixed(2)}</span>
         </div>
       )}
 
@@ -353,7 +332,7 @@ function ExportsChannelTab({ channel, exports, links, recipes, onLinksChanged }:
 export default function ExportTab() {
   const { data: exports = [] } = useQuery({
     queryKey: queryKeys.production.exports(),
-    queryFn: () => fetchJson<BatchExport[]>("/api/production/exports"),
+    queryFn: () => fetchJson<ExportTransactionRow[]>("/api/production/exports"),
   });
   const { data: links = [] } = useQuery({
     queryKey: queryKeys.production.recipeSquareLinks(),
