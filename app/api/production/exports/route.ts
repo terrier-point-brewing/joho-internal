@@ -15,11 +15,12 @@ export async function GET() {
   return NextResponse.json(data);
 }
 
-// All exports must go through /api/production/cold-storage-export to enforce
-// FIFO inventory checks. Direct inserts to export_transactions are blocked here.
+// All exports must go through /api/production/export-bay/ship to enforce
+// inventory depletion + allocation crediting. Direct inserts to
+// export_transactions are blocked here.
 export async function POST() {
   return NextResponse.json(
-    { error: "Use /api/production/cold-storage-export to record exports" },
+    { error: "Use /api/production/export-bay/ship to record exports" },
     { status: 405 }
   );
 }

@@ -108,6 +108,14 @@ export interface BatchTransfer {
   created_by_profile?: { email: string } | null;
 }
 
+/** One row per recipe + packaging variant, summed across every batch — the Export Bay's "Available" column. */
+export interface AvailableInventoryLine {
+  recipe_id: string;
+  packaging_item_id: string;
+  variant_label: string;
+  quantity_on_hand: number;
+}
+
 export interface ColdStorageInventory {
   id: string;
   batch_id: string;
@@ -366,7 +374,7 @@ export interface BatchAllocation {
   invoice_sent_at: string | null;
   invoice_paid_at: string | null;
   // ── Joined fields ────────────────────────────────────────────────────────
-  brew_batches?: { id: string; beer_name: string; batch_number: number; volume_bbl: number } | null;
+  brew_batches?: { id: string; beer_name: string; batch_number: number; volume_bbl: number; recipe_id: string | null } | null;
   contract_brewing_partners?: { id: string; company_name: string } | null;
   commitments?: { id: string; beer_style: string; volume_bbl: number; received_on: string | null; created_at: string; desired_delivery_date: string | null } | null;
   conversion_target_recipe?: { id: string; beer_name: string } | null;

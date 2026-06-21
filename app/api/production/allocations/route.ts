@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
     .from("batch_allocations")
     .select(`
       *,
-      brew_batches(id, beer_name, batch_number, volume_bbl),
+      brew_batches(id, beer_name, batch_number, volume_bbl, recipe_id),
       contract_brewing_partners(id, company_name),
       commitments(id, beer_style, volume_bbl, desired_delivery_date, received_on, created_at, channel),
       conversion_target_recipe:conversion_target_recipe_id(id, beer_name)
