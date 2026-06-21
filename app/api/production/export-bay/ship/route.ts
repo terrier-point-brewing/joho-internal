@@ -3,9 +3,9 @@ import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { checkAndCompleteBatch } from "@/lib/production/batchCompletion";
 import { checkAndFulfillCommitment } from "@/lib/production/commitmentFulfillment";
-import { computeExciseTaxBreakdown } from "@/lib/production/exciseTax";
 import { getExportBayEquipmentId } from "@/lib/production/exportBayEquipment";
 import { getAvailableColdStorageQuantity, depleteColdStorageInventory } from "@/lib/production/coldStorageDepletion";
+import { writeExportTransfer, writeExportTransaction } from "@/lib/production/exportTransactionWriter";
 import { BBL_TO_FL_OZ } from "@/lib/constants/production";
 
 export const dynamic = "force-dynamic";
@@ -184,63 +184,36 @@ export async function POST(req: NextRequest) {
   for (const [batchId, batchCredits] of byBatch) {
     const batchTotalBbl = batchCredits.reduce((s, c) => s + c.creditedBbl, 0);
 
-    const { data: transfer, error: trErr } = await supabase
-      .from("batch_transfers")
-      .insert({
-        batch_id: batchId,
-        from_tank_id: null,
-        to_tank_id: exportBayId,
-        volume_bbl: Math.round(batchTotalBbl * 10000) / 10000,
-        shrinkage_bbl: 0,
-        transfer_type: "export",
-        notes: notes ?? null,
-      })
-      .select("id")
-      .single();
-    if (trErr) return NextResponse.json({ error: trErr.message }, { status: 500 });
+    let transferId: string;
+    try {
+      transferId = await writeExportTransfer(supabase, { batchId, exportBayId, volumeBbl: batchTotalBbl, notes });
+    } catch (e) {
+      return NextResponse.json({ error: e instanceof Error ? e.message : "Unknown error" }, { status: 500 });
+    }
 
     const exportTransactionIds: string[] = [];
     for (const c of batchCredits) {
-      const taxBreakdown = await computeExciseTaxBreakdown(supabase, c.creditedBbl);
-      const totalExciseTaxUsd = Math.round(taxBreakdown.reduce((s, t) => s + t.amountUsd, 0) * 100) / 100;
-
-      const { data: exportTx, error: exTxErr } = await supabase
-        .from("export_transactions")
-        .insert({
-          shipment_id: shipmentId,
-          batch_id: batchId,
-          recipe_id,
-          allocation_id: c.allocationId,
-          packaging_item_id,
-          variant_label,
+      let exportTxId: string;
+      try {
+        exportTxId = await writeExportTransaction(supabase, {
+          shipmentId,
+          batchId,
+          recipeId: recipe_id,
+          packagingItemId: packaging_item_id,
+          variantLabel: variant_label,
           quantity: c.creditedQty,
-          volume_bbl: Math.round(c.creditedBbl * 10000) / 10000,
+          volumeBbl: c.creditedBbl,
           channel: c.channel,
-          recipient_id: partner_id,
-          recipient_name: null,
-          total_excise_tax_usd: totalExciseTaxUsd,
-          source_transfer_id: transfer.id,
-          notes: notes ?? null,
-        })
-        .select("id")
-        .single();
-      if (exTxErr) return NextResponse.json({ error: exTxErr.message }, { status: 500 });
-
-      if (taxBreakdown.length > 0) {
-        const { error: taxErr } = await supabase.from("export_transaction_taxes").insert(
-          taxBreakdown.map((t) => ({
-            export_transaction_id: exportTx.id,
-            excise_tax_rate_id: t.rateId,
-            tax_name: t.name,
-            unit: t.unit,
-            rate_usd: t.rateUsd,
-            amount_usd: t.amountUsd,
-          }))
-        );
-        if (taxErr) return NextResponse.json({ error: taxErr.message }, { status: 500 });
+          recipientId: partner_id,
+          recipientName: null,
+          allocationId: c.allocationId,
+          sourceTransferId: transferId,
+          notes,
+        });
+      } catch (e) {
+        return NextResponse.json({ error: e instanceof Error ? e.message : "Unknown error" }, { status: 500 });
       }
-
-      exportTransactionIds.push(exportTx.id);
+      exportTransactionIds.push(exportTxId);
     }
 
     await checkAndCompleteBatch(supabase, batchId);
