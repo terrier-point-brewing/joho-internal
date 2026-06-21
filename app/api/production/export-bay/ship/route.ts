@@ -3,7 +3,9 @@ import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { checkAndCompleteBatch } from "@/lib/production/batchCompletion";
 import { checkAndFulfillCommitment } from "@/lib/production/commitmentFulfillment";
-import { computeExciseTaxBreakdown } from "@/lib/production/exciseTax";
+import { getExportBayEquipmentId } from "@/lib/production/exportBayEquipment";
+import { getAvailableColdStorageQuantity, depleteColdStorageInventory } from "@/lib/production/coldStorageDepletion";
+import { writeExportTransfer, writeExportTransaction } from "@/lib/production/exportTransactionWriter";
 import { BBL_TO_FL_OZ } from "@/lib/constants/production";
 
 export const dynamic = "force-dynamic";
@@ -42,16 +44,16 @@ export async function POST(req: NextRequest) {
   const requestedBbl = (quantity * volumeFlOz) / BBL_TO_FL_OZ;
 
   // ── 2. Validate availability ──────────────────────────────────────────────
-  const { data: invRows, error: invErr } = await supabase
-    .from("cold_storage_inventory")
-    .select("id, batch_id, quantity_on_hand, created_at")
-    .eq("recipe_id", recipe_id)
-    .eq("packaging_item_id", packaging_item_id)
-    .eq("variant_label", variant_label)
-    .order("created_at", { ascending: true });
-  if (invErr) return NextResponse.json({ error: invErr.message }, { status: 500 });
-
-  const totalAvailable = (invRows ?? []).reduce((s, r) => s + Number(r.quantity_on_hand), 0);
+  let totalAvailable: number;
+  try {
+    totalAvailable = await getAvailableColdStorageQuantity(supabase, {
+      recipeId: recipe_id,
+      packagingItemId: packaging_item_id,
+      variantLabel: variant_label,
+    });
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : "Unknown error" }, { status: 500 });
+  }
   if (quantity > totalAvailable) {
     return NextResponse.json(
       { error: `Insufficient cold storage inventory for "${variant_label}" — requested ${quantity}, available ${totalAvailable}` },
@@ -143,33 +145,30 @@ export async function POST(req: NextRequest) {
   }
 
   // ── 4b. Look up the export_bay equipment row (must happen before any write) ─
-  const { data: exportBayTank, error: exportBayErr } = await supabase
-    .from("equipment")
-    .select("id")
-    .eq("type", "export_bay")
-    .limit(1)
-    .maybeSingle();
-  if (exportBayErr) return NextResponse.json({ error: exportBayErr.message }, { status: 500 });
-  if (!exportBayTank) {
-    return NextResponse.json(
-      { error: "No 'export_bay' equipment configured — add one in Production → Brewing → Floorplan before shipping." },
-      { status: 500 }
-    );
+  let exportBayId: string;
+  try {
+    const id = await getExportBayEquipmentId(supabase);
+    if (!id) {
+      return NextResponse.json(
+        { error: "No 'export_bay' equipment configured — add one in Production → Brewing → Floorplan before shipping." },
+        { status: 500 }
+      );
+    }
+    exportBayId = id;
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : "Unknown error" }, { status: 500 });
   }
-  const exportBayId = exportBayTank.id;
 
   // ── 5. Deplete cold_storage_inventory, oldest row first ───────────────────
-  let qtyLeft = quantity;
-  for (const row of invRows ?? []) {
-    if (qtyLeft <= 0) break;
-    const take = Math.min(Number(row.quantity_on_hand), qtyLeft);
-    const newQty = Number(row.quantity_on_hand) - take;
-    if (newQty <= 0.0001) {
-      await supabase.from("cold_storage_inventory").delete().eq("id", row.id);
-    } else {
-      await supabase.from("cold_storage_inventory").update({ quantity_on_hand: newQty, updated_at: new Date().toISOString() }).eq("id", row.id);
-    }
-    qtyLeft -= take;
+  try {
+    await depleteColdStorageInventory(supabase, {
+      recipeId: recipe_id,
+      packagingItemId: packaging_item_id,
+      variantLabel: variant_label,
+      quantity,
+    });
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : "Unknown error" }, { status: 500 });
   }
 
   // ── 6/7. Write batch_transfers (one per batch) + export_transactions (one per credited allocation) ──
@@ -185,63 +184,36 @@ export async function POST(req: NextRequest) {
   for (const [batchId, batchCredits] of byBatch) {
     const batchTotalBbl = batchCredits.reduce((s, c) => s + c.creditedBbl, 0);
 
-    const { data: transfer, error: trErr } = await supabase
-      .from("batch_transfers")
-      .insert({
-        batch_id: batchId,
-        from_tank_id: null,
-        to_tank_id: exportBayId,
-        volume_bbl: Math.round(batchTotalBbl * 10000) / 10000,
-        shrinkage_bbl: 0,
-        transfer_type: "export",
-        notes: notes ?? null,
-      })
-      .select("id")
-      .single();
-    if (trErr) return NextResponse.json({ error: trErr.message }, { status: 500 });
+    let transferId: string;
+    try {
+      transferId = await writeExportTransfer(supabase, { batchId, exportBayId, volumeBbl: batchTotalBbl, notes });
+    } catch (e) {
+      return NextResponse.json({ error: e instanceof Error ? e.message : "Unknown error" }, { status: 500 });
+    }
 
     const exportTransactionIds: string[] = [];
     for (const c of batchCredits) {
-      const taxBreakdown = await computeExciseTaxBreakdown(supabase, c.creditedBbl);
-      const totalExciseTaxUsd = Math.round(taxBreakdown.reduce((s, t) => s + t.amountUsd, 0) * 100) / 100;
-
-      const { data: exportTx, error: exTxErr } = await supabase
-        .from("export_transactions")
-        .insert({
-          shipment_id: shipmentId,
-          batch_id: batchId,
-          recipe_id,
-          allocation_id: c.allocationId,
-          packaging_item_id,
-          variant_label,
+      let exportTxId: string;
+      try {
+        exportTxId = await writeExportTransaction(supabase, {
+          shipmentId,
+          batchId,
+          recipeId: recipe_id,
+          packagingItemId: packaging_item_id,
+          variantLabel: variant_label,
           quantity: c.creditedQty,
-          volume_bbl: Math.round(c.creditedBbl * 10000) / 10000,
+          volumeBbl: c.creditedBbl,
           channel: c.channel,
-          recipient_id: partner_id,
-          recipient_name: null,
-          total_excise_tax_usd: totalExciseTaxUsd,
-          source_transfer_id: transfer.id,
-          notes: notes ?? null,
-        })
-        .select("id")
-        .single();
-      if (exTxErr) return NextResponse.json({ error: exTxErr.message }, { status: 500 });
-
-      if (taxBreakdown.length > 0) {
-        const { error: taxErr } = await supabase.from("export_transaction_taxes").insert(
-          taxBreakdown.map((t) => ({
-            export_transaction_id: exportTx.id,
-            excise_tax_rate_id: t.rateId,
-            tax_name: t.name,
-            unit: t.unit,
-            rate_usd: t.rateUsd,
-            amount_usd: t.amountUsd,
-          }))
-        );
-        if (taxErr) return NextResponse.json({ error: taxErr.message }, { status: 500 });
+          recipientId: partner_id,
+          recipientName: null,
+          allocationId: c.allocationId,
+          sourceTransferId: transferId,
+          notes,
+        });
+      } catch (e) {
+        return NextResponse.json({ error: e instanceof Error ? e.message : "Unknown error" }, { status: 500 });
       }
-
-      exportTransactionIds.push(exportTx.id);
+      exportTransactionIds.push(exportTxId);
     }
 
     await checkAndCompleteBatch(supabase, batchId);
