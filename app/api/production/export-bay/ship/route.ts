@@ -5,6 +5,7 @@ import { checkAndCompleteBatch } from "@/lib/production/batchCompletion";
 import { checkAndFulfillCommitment } from "@/lib/production/commitmentFulfillment";
 import { computeExciseTaxBreakdown } from "@/lib/production/exciseTax";
 import { getExportBayEquipmentId } from "@/lib/production/exportBayEquipment";
+import { getAvailableColdStorageQuantity, depleteColdStorageInventory } from "@/lib/production/coldStorageDepletion";
 import { BBL_TO_FL_OZ } from "@/lib/constants/production";
 
 export const dynamic = "force-dynamic";
@@ -43,16 +44,16 @@ export async function POST(req: NextRequest) {
   const requestedBbl = (quantity * volumeFlOz) / BBL_TO_FL_OZ;
 
   // ── 2. Validate availability ──────────────────────────────────────────────
-  const { data: invRows, error: invErr } = await supabase
-    .from("cold_storage_inventory")
-    .select("id, batch_id, quantity_on_hand, created_at")
-    .eq("recipe_id", recipe_id)
-    .eq("packaging_item_id", packaging_item_id)
-    .eq("variant_label", variant_label)
-    .order("created_at", { ascending: true });
-  if (invErr) return NextResponse.json({ error: invErr.message }, { status: 500 });
-
-  const totalAvailable = (invRows ?? []).reduce((s, r) => s + Number(r.quantity_on_hand), 0);
+  let totalAvailable: number;
+  try {
+    totalAvailable = await getAvailableColdStorageQuantity(supabase, {
+      recipeId: recipe_id,
+      packagingItemId: packaging_item_id,
+      variantLabel: variant_label,
+    });
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : "Unknown error" }, { status: 500 });
+  }
   if (quantity > totalAvailable) {
     return NextResponse.json(
       { error: `Insufficient cold storage inventory for "${variant_label}" — requested ${quantity}, available ${totalAvailable}` },
@@ -159,17 +160,15 @@ export async function POST(req: NextRequest) {
   }
 
   // ── 5. Deplete cold_storage_inventory, oldest row first ───────────────────
-  let qtyLeft = quantity;
-  for (const row of invRows ?? []) {
-    if (qtyLeft <= 0) break;
-    const take = Math.min(Number(row.quantity_on_hand), qtyLeft);
-    const newQty = Number(row.quantity_on_hand) - take;
-    if (newQty <= 0.0001) {
-      await supabase.from("cold_storage_inventory").delete().eq("id", row.id);
-    } else {
-      await supabase.from("cold_storage_inventory").update({ quantity_on_hand: newQty, updated_at: new Date().toISOString() }).eq("id", row.id);
-    }
-    qtyLeft -= take;
+  try {
+    await depleteColdStorageInventory(supabase, {
+      recipeId: recipe_id,
+      packagingItemId: packaging_item_id,
+      variantLabel: variant_label,
+      quantity,
+    });
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : "Unknown error" }, { status: 500 });
   }
 
   // ── 6/7. Write batch_transfers (one per batch) + export_transactions (one per credited allocation) ──
