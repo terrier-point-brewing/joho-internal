@@ -236,6 +236,11 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       // makes it available; if missed here, refunds can't be issued later.
       if (allocation.square_deposit_order_id) {
         const { paymentId, amountPaidCents } = await getOrderPayment(allocation.square_deposit_order_id);
+        if (!paymentId) {
+          console.error(
+            `[invoice sync] Allocation ${id}: invoice marked PAID but no Square payment_id was found on order ${allocation.square_deposit_order_id} — refunds will be unavailable for this allocation until manually resolved via the Square Dashboard.`
+          );
+        }
         allocationUpdate.square_payment_id = paymentId;
         allocationUpdate.deposit_amount_paid_cents = amountPaidCents;
       }
