@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 
 // GET — all variations with their item context and CoA mappings (default + source overrides)
 export async function GET() {
-  try { await requireRole("viewer"); } catch (res) { return res as Response; }
+  try { await requireRole(["viewer"]); } catch (res) { return res as Response; }
 
   const supabase = createSupabaseAdminClient();
   const { data, error } = await supabase

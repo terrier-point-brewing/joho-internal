@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 // Reads catalog items from the master DB table (populated via POST /api/finance/sync-catalog).
 // Returns items grouped by category for the Account Mapping UI.
 export async function GET() {
-  try { await requireRole("viewer"); } catch (res) { return res as Response; }
+  try { await requireRole(["viewer"]); } catch (res) { return res as Response; }
 
   const supabase = createSupabaseAdminClient();
   const { data, error } = await supabase
