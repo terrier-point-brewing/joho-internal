@@ -22,12 +22,21 @@ export async function POST(req: NextRequest) {
   const supabase = await createSupabaseServerClient();
 
   const body = await req.json();
-  const { company_name, first_name, last_name, phone, address, email, notes } = body;
+  const { company_name, first_name, last_name, phone, address, email, notes, export_net_terms_days } = body;
   if (!company_name) return NextResponse.json({ error: "company_name is required" }, { status: 400 });
 
   const { data, error } = await supabase
     .from("contract_brewing_partners")
-    .insert({ company_name, first_name: first_name || null, last_name: last_name || null, phone: phone || null, address: address || null, email: email || null, notes: notes || null })
+    .insert({
+      company_name,
+      first_name: first_name || null,
+      last_name: last_name || null,
+      phone: phone || null,
+      address: address || null,
+      email: email || null,
+      notes: notes || null,
+      export_net_terms_days: export_net_terms_days != null ? Number(export_net_terms_days) : null,
+    })
     .select()
     .single();
 

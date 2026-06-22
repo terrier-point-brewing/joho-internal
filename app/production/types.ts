@@ -438,6 +438,7 @@ export interface ContractBrewingPartner {
   email: string | null;
   notes: string | null;
   square_customer_id: string | null;
+  export_net_terms_days: number | null;
   created_at: string;
 }
 

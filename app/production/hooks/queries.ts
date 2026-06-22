@@ -183,6 +183,25 @@ export function useExportSquareCatalogQuery() {
   });
 }
 
+export function useExportInvoiceDueDaysQuery() {
+  return useQuery({
+    queryKey: queryKeys.production.exportInvoiceDueDays(),
+    queryFn: () => fetchJson<{ days: number }>("/api/production/export-settings/invoice-due-days"),
+  });
+}
+
+export function useInvoicePreview(transactionIds: string[]) {
+  return useQuery({
+    queryKey: ["production", "invoice-preview", transactionIds] as const,
+    queryFn: () => fetchJson<{
+      customerId: string; customerName: string; squareCustomerId: string | null;
+      lineItems: { id: string; description: string; quantity: number; unitPriceCents: number; squareCatalogVariationId: string | null; discountCatalogId?: string | null }[];
+      dueDays: number;
+    }>(`/api/production/export/invoice-preview?ids=${transactionIds.join(",")}`),
+    enabled: transactionIds.length > 0,
+  });
+}
+
 export interface IngredientShortfall {
   ingredient_id: string;
   name: string;
