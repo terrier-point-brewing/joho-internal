@@ -9,6 +9,7 @@ import {
   useContractPartnersQuery,
   usePackagingQuery,
   useExportServiceMappingsQuery,
+  useExportInvoiceDueDaysQuery,
 } from "../hooks/queries";
 import type { ExciseTaxRate, ExportServiceMapping } from "../types";
 import { SquareCatalogSelect, SquareDiscountSelect } from "@/app/components/SquareCatalogSelect";
@@ -351,6 +352,53 @@ function BulkDiscountSection() {
   );
 }
 
+function InvoiceTermsSection() {
+  const { data } = useExportInvoiceDueDaysQuery();
+  const qc = useQueryClient();
+  const [draft, setDraft] = useState<string>("");
+  const [saving, setSaving] = useState(false);
+
+  const days = data?.days ?? 30;
+
+  async function save() {
+    const value = Number(draft || days);
+    if (!Number.isInteger(value) || value < 1 || value > 365) return;
+    setSaving(true);
+    await fetch("/api/production/export-settings/invoice-due-days", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ days: value }),
+    });
+    setDraft("");
+    setSaving(false);
+    await qc.invalidateQueries({ queryKey: queryKeys.production.exportInvoiceDueDays() });
+  }
+
+  return (
+    <section>
+      <h3 className="text-sm font-medium text-zinc-200 mb-2">Default Invoice Net Terms</h3>
+      <p className="text-xs text-zinc-600 mb-2">
+        Days until payment is due on a generated export invoice, used when a partner has no override set.
+      </p>
+      <div className="flex items-center gap-2">
+        <input
+          type="number"
+          min={1}
+          max={365}
+          value={draft !== "" ? draft : days}
+          onChange={(e) => setDraft(e.target.value)}
+          className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 w-20"
+        />
+        <span className="text-xs text-zinc-500">days</span>
+        <button onClick={save} disabled={saving}
+          className="text-xs px-2.5 py-1 bg-zinc-700 hover:bg-zinc-600 text-zinc-200 rounded transition-colors">
+          {saving ? "Saving…" : "Save"}
+        </button>
+      </div>
+    </section>
+  );
+}
+
 export default function ExportSettingsPanel({ scope }: { scope: "full" | "excise-only" }) {
   return (
     <div className="flex flex-col gap-8">
@@ -366,6 +414,7 @@ export default function ExportSettingsPanel({ scope }: { scope: "full" | "excise
             </div>
           </section>
           <BulkDiscountSection />
+          <InvoiceTermsSection />
         </>
       )}
     </div>

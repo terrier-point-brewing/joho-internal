@@ -47,6 +47,7 @@ export const queryKeys = {
     exciseTaxRates:        () => ["production", "excise-tax-rates"] as const,
     exportServiceMappings: () => ["production", "export-service-mappings"] as const,
     exportSquareCatalog:   () => ["production", "export-square-catalog"] as const,
+    exportInvoiceDueDays:  () => ["production", "export-invoice-due-days"] as const,
   },
 
   // ─── Partners ─────────────────────────────────────────────────────────────

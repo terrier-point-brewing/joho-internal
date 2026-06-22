@@ -183,6 +183,13 @@ export function useExportSquareCatalogQuery() {
   });
 }
 
+export function useExportInvoiceDueDaysQuery() {
+  return useQuery({
+    queryKey: queryKeys.production.exportInvoiceDueDays(),
+    queryFn: () => fetchJson<{ days: number }>("/api/production/export-settings/invoice-due-days"),
+  });
+}
+
 export interface IngredientShortfall {
   ingredient_id: string;
   name: string;
