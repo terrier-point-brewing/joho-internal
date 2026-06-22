@@ -44,6 +44,9 @@ export const queryKeys = {
     brewStepTemplates:    () => ["production", "brew-step-templates"] as const,
     taproomRecipeSettings: () => ["production", "taproom-recipe-settings"] as const,
     ingredientShortfalls:  (batchId: string) => ["production", "ingredient-shortfalls", batchId] as const,
+    exciseTaxRates:        () => ["production", "excise-tax-rates"] as const,
+    exportServiceMappings: () => ["production", "export-service-mappings"] as const,
+    exportSquareCatalog:   () => ["production", "export-square-catalog"] as const,
   },
 
   // ─── Partners ─────────────────────────────────────────────────────────────

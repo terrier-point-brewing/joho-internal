@@ -7,6 +7,7 @@ import { SquareLinkManager, LinkRow } from "./SquareLinkManager";
 import type { Recipe } from "../types";
 import { queryKeys } from "@/lib/query-keys";
 import ExportBayTab from "./ExportBayTab";
+import ExportSettingsPanel from "./ExportSettingsPanel";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -30,13 +31,14 @@ interface ExportTransactionRow {
   brew_batches: { id: string; beer_name: string; batch_number: number } | null;
 }
 
-type TopTab = "export_bay" | ExportChannel;
+type TopTab = "export_bay" | ExportChannel | "settings";
 
 const TOP_TABS: { key: TopTab; label: string }[] = [
   { key: "export_bay", label: "Export Bay" },
   { key: "taproom", label: "Taproom" },
   { key: "distribution", label: "Distribution" },
   { key: "contract_brewing", label: "Contract Brewing" },
+  { key: "settings", label: "Settings" },
 ];
 
 const CHANNEL_TABS: { key: ExportChannel; label: string; description: string }[] = [
@@ -229,7 +231,7 @@ export default function ExportTab() {
             }`}
           >
             {label}
-            {key !== "export_bay" && (
+            {key !== "export_bay" && key !== "settings" && (
               <span className="ml-1.5 text-xs text-zinc-600">
                 ({exports.filter(e => e.channel === key).length})
               </span>
@@ -239,6 +241,7 @@ export default function ExportTab() {
       </div>
 
       {tab === "export_bay" && <ExportBayTab />}
+      {tab === "settings" && <ExportSettingsPanel scope="full" />}
       {(tab === "taproom" || tab === "distribution" || tab === "contract_brewing") && (
         <ExportsChannelTab
           key={tab}

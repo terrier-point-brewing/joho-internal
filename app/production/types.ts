@@ -152,17 +152,6 @@ export interface ExportTransaction {
   brew_batches?: { id: string; beer_name: string; batch_number: string | null } | null;
 }
 
-export interface ExciseTaxRate {
-  id: string;
-  name: string;
-  receiving_party: string | null;
-  unit: "bbl" | "gallon";
-  rate_usd: number;
-  is_active: boolean;
-  created_at: string;
-  updated_at: string;
-}
-
 export interface ExportTransactionTax {
   id: string;
   export_transaction_id: string;
@@ -504,4 +493,37 @@ export interface BatchTankAssignment {
   released_at: string | null;
   notes: string | null;
   brew_batches?: Pick<BrewBatch, "id" | "beer_name" | "batch_number" | "status" | "volume_bbl">;
+}
+
+export type ServiceType = "packaging_fee" | "keg_cleaning" | "forklift" | "bulk_discount";
+
+export interface ExciseTaxRate {
+  id: string;
+  name: string;
+  receiving_party: string | null;
+  unit: "bbl" | "gallon";
+  rate_usd: number;
+  is_active: boolean;
+  square_catalog_item_id: string | null;
+  square_catalog_variation_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ExportServiceMapping {
+  id: string;
+  service_type: ServiceType;
+  partner_id: string | null;
+  packaging_item_id: string | null;
+  square_catalog_item_id: string | null;
+  square_catalog_variation_id: string | null;
+  square_catalog_discount_id: string | null;
+  display_name: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SquareCatalogOptions {
+  items: { itemId: string; itemName: string; variations: { variationId: string; variationName: string }[] }[];
+  discounts: { id: string; name: string }[];
 }
