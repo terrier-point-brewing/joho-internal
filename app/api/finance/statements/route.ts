@@ -85,7 +85,7 @@ function resolveCoaId(row: InvRow, paidDeliveryIds: Set<string>): string | null 
 }
 
 export async function GET(req: NextRequest) {
-  try { await requireRole("viewer"); } catch (res) { return res as Response; }
+  try { await requireRole(["viewer"]); } catch (res) { return res as Response; }
 
   const year  = Number(req.nextUrl.searchParams.get("year") ?? new Date().getFullYear());
   const view  = req.nextUrl.searchParams.get("view");

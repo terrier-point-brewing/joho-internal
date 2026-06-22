@@ -6,7 +6,7 @@ import { fetchCatalogItems, fetchCatalogCategories, fetchCatalogTaxes } from "@/
 export const dynamic = "force-dynamic";
 
 export async function POST() {
-  try { await requireRole("manager"); } catch (res) { return res as Response; }
+  try { await requireRole([]); } catch (res) { return res as Response; }
 
   const [items, categories, taxes] = await Promise.all([
     fetchCatalogItems(),

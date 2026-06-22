@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 // — this only answers "does any allocation exist at all," not "how much
 // remains." The ad-hoc endpoint itself never calls or enforces this.
 export async function GET(req: NextRequest) {
-  try { await requireRole("brewer"); } catch (res) { return res as Response; }
+  try { await requireRole(["brewer"]); } catch (res) { return res as Response; }
 
   const partnerId = req.nextUrl.searchParams.get("partner_id");
   const recipeId = req.nextUrl.searchParams.get("recipe_id");

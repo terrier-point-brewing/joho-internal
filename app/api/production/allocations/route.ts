@@ -71,7 +71,7 @@ export async function GET(req: NextRequest) {
 
 // POST /api/production/allocations
 export async function POST(req: NextRequest) {
-  try { await requireRole("brewer"); } catch (res) { return res as Response; }
+  try { await requireRole(["brewer"]); } catch (res) { return res as Response; }
 
 
   const supabase = await createSupabaseServerClient();

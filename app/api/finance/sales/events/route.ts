@@ -11,7 +11,7 @@ const FL_OZ_PER_POUR = 16;
 const FL_OZ_PER_BBL  = 3968;
 
 export async function GET(req: NextRequest) {
-  try { await requireRole("admin"); } catch (res) { return res as Response; }
+  try { await requireRole([]); } catch (res) { return res as Response; }
 
   const year = parseInt(req.nextUrl.searchParams.get("year") ?? String(new Date().getFullYear()));
   const now  = new Date();

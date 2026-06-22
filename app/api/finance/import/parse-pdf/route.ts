@@ -14,7 +14,7 @@ import { parseQBInvoicePDF } from "@/lib/finance/qb-pdf";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
-  try { await requireRole("admin"); } catch (res) { return res as Response; }
+  try { await requireRole([]); } catch (res) { return res as Response; }
 
   let formData: FormData;
   try {

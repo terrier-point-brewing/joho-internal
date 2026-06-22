@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
 
 export async function GET() {
   try {
-    await requireRole("admin");
+    await requireRole([]);
   } catch (res) {
     return res as Response;
   }
@@ -57,7 +57,7 @@ export async function GET() {
 
 export async function PATCH(req: NextRequest) {
   try {
-    await requireRole("admin");
+    await requireRole([]);
   } catch (res) {
     return res as Response;
   }

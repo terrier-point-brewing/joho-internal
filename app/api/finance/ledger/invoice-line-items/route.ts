@@ -20,7 +20,7 @@ type Body = {
 };
 
 export async function PATCH(req: NextRequest) {
-  try { await requireRole("admin"); } catch (res) { return res as Response; }
+  try { await requireRole([]); } catch (res) { return res as Response; }
 
   const body = await req.json() as Body;
   if (!body.id) return NextResponse.json({ error: "id required" }, { status: 400 });

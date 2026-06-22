@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 // overwrite=false: only fills unmapped variations
 // overwrite=true:  replaces all existing mappings
 export async function POST(req: NextRequest) {
-  try { await requireRole("manager"); } catch (res) { return res as Response; }
+  try { await requireRole([]); } catch (res) { return res as Response; }
 
   const body = await req.json() as {
     chart_of_accounts_id?: string | null;

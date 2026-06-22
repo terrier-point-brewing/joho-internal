@@ -48,7 +48,7 @@ function isBET(name: string) {
 // ---------------------------------------------------------------------------
 
 export async function GET(req: NextRequest) {
-  try { await requireRole("admin"); } catch (res) { return res as Response; }
+  try { await requireRole([]); } catch (res) { return res as Response; }
 
   try {
   const year = parseInt(req.nextUrl.searchParams.get("year") ?? String(new Date().getFullYear()));

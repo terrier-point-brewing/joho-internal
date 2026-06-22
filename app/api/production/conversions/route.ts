@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
  *   4. Re-inserts the parent's tank assignment if volume remains
  */
 export async function POST(req: NextRequest) {
-  try { await requireRole("brewer"); } catch (res) { return res as Response; }
+  try { await requireRole(["brewer"]); } catch (res) { return res as Response; }
 
   const supabase = await createSupabaseServerClient();
   const { data: { user: currentUser } } = await supabase.auth.getUser();

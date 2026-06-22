@@ -9,7 +9,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    await requireRole("admin");
+    await requireRole([]);
   } catch (res) {
     return res as Response;
   }
@@ -43,7 +43,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    await requireRole("admin");
+    await requireRole([]);
   } catch (res) {
     return res as Response;
   }

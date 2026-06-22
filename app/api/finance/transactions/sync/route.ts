@@ -18,7 +18,7 @@ export const dynamic = "force-dynamic";
 const BATCH_SIZE = 100;
 
 export async function POST(req: NextRequest) {
-  try { await requireRole("admin"); } catch (res) { return res as Response; }
+  try { await requireRole([]); } catch (res) { return res as Response; }
 
   const year       = parseInt(req.nextUrl.searchParams.get("year") ?? String(new Date().getFullYear()));
   const monthParam = req.nextUrl.searchParams.get("month");

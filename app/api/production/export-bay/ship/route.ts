@@ -20,7 +20,7 @@ interface ShipRequest {
 }
 
 export async function POST(req: NextRequest) {
-  try { await requireRole("brewer"); } catch (res) { return res as Response; }
+  try { await requireRole(["brewer"]); } catch (res) { return res as Response; }
 
   const supabase = await createSupabaseServerClient();
   const body: ShipRequest = await req.json();

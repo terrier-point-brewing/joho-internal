@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 
 // GET /api/finance/chart-of-accounts — list all accounts
 export async function GET() {
-  try { await requireRole("viewer"); } catch (res) { return res as Response; }
+  try { await requireRole(["viewer"]); } catch (res) { return res as Response; }
 
   const supabase = createSupabaseAdminClient();
   const { data, error } = await supabase
@@ -35,7 +35,7 @@ export interface CoARow {
 // The "manual add" path sends a single-element array and sets keepExtras=true
 // so manually added accounts are never auto-deleted by a bulk upload.
 export async function POST(req: NextRequest) {
-  try { await requireRole("manager"); } catch (res) { return res as Response; }
+  try { await requireRole([]); } catch (res) { return res as Response; }
 
   const session = await getSessionUser();
   const body = await req.json() as { accounts: CoARow[]; keepExtras?: boolean };
@@ -81,7 +81,7 @@ export async function POST(req: NextRequest) {
 
 // PATCH /api/finance/chart-of-accounts — update individual account fields
 export async function PATCH(req: NextRequest) {
-  try { await requireRole("manager"); } catch (res) { return res as Response; }
+  try { await requireRole([]); } catch (res) { return res as Response; }
 
   const body = await req.json() as {
     id: string;

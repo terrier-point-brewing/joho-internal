@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
 // Returns month-over-month taproom sales for a given year.
 // Each month is fetched in parallel from Square.
 export async function GET(req: NextRequest) {
-  try { await requireRole("admin"); } catch (res) { return res as Response; }
+  try { await requireRole([]); } catch (res) { return res as Response; }
 
   const year = parseInt(req.nextUrl.searchParams.get("year") ?? String(new Date().getFullYear()));
 
