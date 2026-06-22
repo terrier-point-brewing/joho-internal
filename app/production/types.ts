@@ -152,17 +152,6 @@ export interface ExportTransaction {
   brew_batches?: { id: string; beer_name: string; batch_number: string | null } | null;
 }
 
-export interface ExciseTaxRate {
-  id: string;
-  name: string;
-  receiving_party: string | null;
-  unit: "bbl" | "gallon";
-  rate_usd: number;
-  is_active: boolean;
-  created_at: string;
-  updated_at: string;
-}
-
 export interface ExportTransactionTax {
   id: string;
   export_transaction_id: string;
