@@ -1,7 +1,7 @@
 import { unstable_cache } from "next/cache";
 import { squareGetAll } from "./client";
 import { memoizeByRef } from "@/lib/utils/memo";
-import type { CatalogObject, CatalogItem, CatalogCategory, CatalogTax } from "@/types/square";
+import type { CatalogObject, CatalogItem, CatalogCategory, CatalogTax, CatalogDiscount } from "@/types/square";
 
 // Returns every ITEM object from the catalog (single paginated call).
 async function fetchCatalogItemsUncached(): Promise<CatalogItem[]> {
@@ -37,6 +37,17 @@ async function fetchCatalogTaxesUncached(): Promise<CatalogTax[]> {
 export const fetchCatalogTaxes = unstable_cache(
   fetchCatalogTaxesUncached,
   ["square-catalog-taxes"],
+  { revalidate: 300, tags: ["square-catalog"] },
+);
+
+async function fetchCatalogDiscountsUncached(): Promise<CatalogDiscount[]> {
+  const objects = await squareGetAll<CatalogObject>("/catalog/list", "objects", { types: "DISCOUNT" });
+  return objects.filter((o): o is CatalogDiscount => o.type === "DISCOUNT");
+}
+
+export const fetchCatalogDiscounts = unstable_cache(
+  fetchCatalogDiscountsUncached,
+  ["square-catalog-discounts"],
   { revalidate: 300, tags: ["square-catalog"] },
 );
 

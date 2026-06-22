@@ -66,6 +66,17 @@ export interface CatalogTax {
   };
 }
 
+export interface CatalogDiscount {
+  type: "DISCOUNT";
+  id: string;
+  discount_data: {
+    name: string;
+    discount_type?: string;      // FIXED_PERCENTAGE | FIXED_AMOUNT | VARIABLE_PERCENTAGE | VARIABLE_AMOUNT
+    percentage?: string;
+    amount_money?: Money;
+  };
+}
+
 export interface ComboSlot {
   uid: string;
   name: string;
@@ -104,7 +115,7 @@ export interface CatalogCategory {
   };
 }
 
-export type CatalogObject = CatalogItem | CatalogItemVariation | CatalogCategory | CatalogTax | { type: string; id: string };
+export type CatalogObject = CatalogItem | CatalogItemVariation | CatalogCategory | CatalogTax | CatalogDiscount | { type: string; id: string };
 
 export interface AppliedDiscount {
   uid: string;
