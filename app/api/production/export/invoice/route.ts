@@ -15,7 +15,12 @@ interface CreateInvoiceBody {
 export async function POST(req: NextRequest) {
   try { await requireRole(["brewer"]); } catch (res) { return res as Response; }
 
-  const body = await req.json() as CreateInvoiceBody;
+  let body: CreateInvoiceBody;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
   const { transactionIds, lineItems } = body;
 
   if (!transactionIds?.length) {
@@ -23,6 +28,9 @@ export async function POST(req: NextRequest) {
   }
   if (!lineItems?.length) {
     return NextResponse.json({ error: "At least one line item is required" }, { status: 400 });
+  }
+  if (lineItems.some((li) => li.quantity <= 0 || li.unitPriceCents < 0)) {
+    return NextResponse.json({ error: "Line item quantity must be positive and price cannot be negative" }, { status: 400 });
   }
 
   const supabase = createSupabaseAdminClient();
@@ -50,18 +58,20 @@ export async function POST(req: NextRequest) {
     .select("company_name, square_customer_id, export_net_terms_days")
     .eq("id", customerId)
     .single();
-  if (partnerErr || !partner) return NextResponse.json({ error: "Customer not found" }, { status: 400 });
+  if (partnerErr) return NextResponse.json({ error: partnerErr.message }, { status: 500 });
+  if (!partner) return NextResponse.json({ error: "Customer not found" }, { status: 400 });
   if (!partner.square_customer_id) {
     return NextResponse.json({ error: "This partner has no linked Square customer — add one in Contract Brewing Partners before invoicing" }, { status: 400 });
   }
 
   let dueDays = partner.export_net_terms_days as number | null;
   if (dueDays == null) {
-    const { data: setting } = await supabase
+    const { data: setting, error: settingErr } = await supabase
       .from("system_settings")
       .select("value")
       .eq("key", "export_invoice_due_days")
       .single();
+    if (settingErr) console.error("[export-invoice] failed to fetch export_invoice_due_days setting:", settingErr);
     dueDays = (setting?.value as number) ?? 30;
   }
 
