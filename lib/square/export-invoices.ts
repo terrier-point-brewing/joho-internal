@@ -121,7 +121,7 @@ export async function createExportInvoice(
   // flow's two-step create-then-publish, collapsed into one call here since
   // there's no separate "review before sending" step in this feature.
   const { invoice: created } = await squareGet<SquareInvoiceGetResponse>(`/invoices/${invoiceResp.invoice.id}`);
-  await squarePost(`/invoices/${invoiceResp.invoice.id}/publish`, {
+  const { invoice: published } = await squarePost<SquareInvoiceResponse>(`/invoices/${invoiceResp.invoice.id}/publish`, {
     idempotency_key: crypto.randomUUID(),
     version: created.version,
   });
@@ -129,7 +129,7 @@ export async function createExportInvoice(
   return {
     orderId,
     invoiceId: invoiceResp.invoice.id,
-    invoiceUrl: invoiceResp.invoice.public_url ?? null,
+    invoiceUrl: published.public_url ?? null,
     squareStatus: "UNPAID",
   };
 }

@@ -24,6 +24,34 @@ function fmt(iso: string) {
   return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
+function ViewInvoiceLink({ invoiceId }: { invoiceId: string }) {
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleClick() {
+    setError(null);
+    try {
+      const res = await fetch(`/api/production/export/invoice-status?invoiceId=${invoiceId}`);
+      const data = await res.json();
+      if (!res.ok || !data.publicUrl) {
+        setError("Invoice link unavailable");
+        return;
+      }
+      window.open(data.publicUrl, "_blank");
+    } catch {
+      setError("Failed to fetch invoice");
+    }
+  }
+
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <button onClick={handleClick} className="text-xs text-amber-400 hover:text-amber-300 underline">
+        View Invoice →
+      </button>
+      {error && <span className="text-xs text-red-400">{error}</span>}
+    </span>
+  );
+}
+
 export default function ExportTransactionsTab() {
   const { data: exports = [] } = useQuery({
     queryKey: queryKeys.production.exports(),
@@ -107,6 +135,8 @@ export default function ExportTransactionsTab() {
                     <td className="px-4 py-2">
                       {tx.status === "invoice_required" ? (
                         <input type="checkbox" checked={selectedHere.has(tx.id)} onChange={() => toggle(customerId, tx.id)} />
+                      ) : tx.square_invoice_id ? (
+                        <ViewInvoiceLink invoiceId={tx.square_invoice_id} />
                       ) : null}
                     </td>
                     <td className="px-4 py-2 text-zinc-400 whitespace-nowrap">{fmt(tx.created_at)}</td>

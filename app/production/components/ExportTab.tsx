@@ -116,7 +116,6 @@ function ExportsChannelTab({ channel, exports, links, recipes, onLinksChanged }:
                 <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 text-right">BBL</th>
                 <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 text-right">Excise Tax</th>
                 <th className="px-4 py-2.5 text-xs font-medium text-zinc-500">Status</th>
-                {channel !== "taproom" && <th className="px-4 py-2.5 text-xs font-medium text-zinc-500">Recipient</th>}
                 <th className="px-4 py-2.5 text-xs font-medium text-zinc-500">Notes</th>
                 <th className="px-4 py-2.5" />
               </tr>
@@ -150,7 +149,6 @@ function ExportsChannelTab({ channel, exports, links, recipes, onLinksChanged }:
                       {e.status === "invoice_required" ? "Invoice Required" : e.status === "unpaid" ? "Unpaid" : "Paid"}
                     </span>
                   </td>
-                  {channel !== "taproom" && <td className="px-4 py-2.5 text-zinc-400">{e.recipient_name ?? "—"}</td>}
                   <td className="px-4 py-2.5 text-zinc-500 text-xs">{e.notes ?? "—"}</td>
                   <td className="px-4 py-2.5">
                     <button onClick={() => remove(e.id)} className="text-xs text-zinc-600 hover:text-red-400">Delete</button>
