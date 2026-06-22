@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   Ingredient, StockAdjustment, Recipe, BrewBatch,
   Equipment, BatchTankAssignment, PackagingItem, BatchTransfer,
-  ContractBrewingPartner, Supplier,
+  ContractBrewingPartner, Supplier, ExciseTaxRate, ExportServiceMapping, SquareCatalogOptions,
 } from "../types";
 import { queryKeys } from "@/lib/query-keys";
 
@@ -159,6 +159,27 @@ export function useSuppliersQuery() {
   return useQuery({
     queryKey: productionKeys.suppliers,
     queryFn: () => fetchJson<Supplier[]>("/api/partners/suppliers"),
+  });
+}
+
+export function useExciseTaxRatesQuery() {
+  return useQuery({
+    queryKey: queryKeys.production.exciseTaxRates(),
+    queryFn: () => fetchJson<ExciseTaxRate[]>("/api/production/export-settings/excise-tax-rates"),
+  });
+}
+
+export function useExportServiceMappingsQuery() {
+  return useQuery({
+    queryKey: queryKeys.production.exportServiceMappings(),
+    queryFn: () => fetchJson<ExportServiceMapping[]>("/api/production/export-settings/service-mappings"),
+  });
+}
+
+export function useExportSquareCatalogQuery() {
+  return useQuery({
+    queryKey: queryKeys.production.exportSquareCatalog(),
+    queryFn: () => fetchJson<SquareCatalogOptions>("/api/production/export-settings/square-catalog"),
   });
 }
 
