@@ -5,7 +5,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  try { await requireRole(["viewer"]); } catch (res) { return res as Response; }
+  try { await requireRole(["viewer", "brewer", "manager"]); } catch (res) { return res as Response; }
 
   const supabase = createSupabaseAdminClient();
   const { data, error } = await supabase

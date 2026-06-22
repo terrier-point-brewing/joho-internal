@@ -5,7 +5,7 @@ import { fetchCatalogItems, fetchCatalogDiscounts } from "@/lib/square/catalog";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  try { await requireRole(["viewer"]); } catch (res) { return res as Response; }
+  try { await requireRole(["viewer", "brewer", "manager"]); } catch (res) { return res as Response; }
 
   const [items, discounts] = await Promise.all([fetchCatalogItems(), fetchCatalogDiscounts()]);
 

@@ -19,7 +19,7 @@ create table public.export_service_mappings (
   display_name                  text not null,
   created_at                    timestamptz not null default now(),
   updated_at                    timestamptz not null default now(),
-  unique (service_type, partner_id, packaging_item_id),
+  unique nulls not distinct (service_type, partner_id, packaging_item_id),
   check (
     (service_type = 'packaging_fee' and packaging_item_id is not null
        and square_catalog_item_id is not null and square_catalog_variation_id is not null

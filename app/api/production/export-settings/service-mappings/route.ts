@@ -8,7 +8,7 @@ const SERVICE_TYPES = ["packaging_fee", "keg_cleaning", "forklift", "bulk_discou
 type ServiceType = typeof SERVICE_TYPES[number];
 
 export async function GET(req: NextRequest) {
-  try { await requireRole(["viewer"]); } catch (res) { return res as Response; }
+  try { await requireRole(["viewer", "brewer", "manager"]); } catch (res) { return res as Response; }
 
   const { searchParams } = new URL(req.url);
   const serviceType = searchParams.get("service_type");
