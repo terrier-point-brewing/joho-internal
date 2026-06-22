@@ -8,6 +8,7 @@ import type { Recipe } from "../types";
 import { queryKeys } from "@/lib/query-keys";
 import ExportBayTab from "./ExportBayTab";
 import ExportSettingsPanel from "./ExportSettingsPanel";
+import ExportTransactionsTab from "./ExportTransactionsTab";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -31,13 +32,12 @@ interface ExportTransactionRow {
   brew_batches: { id: string; beer_name: string; batch_number: number } | null;
 }
 
-type TopTab = "export_bay" | ExportChannel | "settings";
+type TopTab = "export_bay" | "taproom" | "export_transactions" | "settings";
 
 const TOP_TABS: { key: TopTab; label: string }[] = [
   { key: "export_bay", label: "Export Bay" },
   { key: "taproom", label: "Taproom" },
-  { key: "distribution", label: "Distribution" },
-  { key: "contract_brewing", label: "Contract Brewing" },
+  { key: "export_transactions", label: "Export Transactions" },
   { key: "settings", label: "Settings" },
 ];
 
@@ -46,16 +46,6 @@ const CHANNEL_TABS: { key: ExportChannel; label: string; description: string }[]
     key: "taproom",
     label: "Taproom",
     description: "Product pushed to taproom inventory. Will sync with Square API to update item stock at the taproom location.",
-  },
-  {
-    key: "distribution",
-    label: "Distribution",
-    description: "Product shipped to distribution partners for retail/wholesale.",
-  },
-  {
-    key: "contract_brewing",
-    label: "Contract Brewing",
-    description: "Product delivered to contract brewing clients.",
   },
 ];
 
@@ -231,7 +221,7 @@ export default function ExportTab() {
             }`}
           >
             {label}
-            {key !== "export_bay" && key !== "settings" && (
+            {key === "taproom" && (
               <span className="ml-1.5 text-xs text-zinc-600">
                 ({exports.filter(e => e.channel === key).length})
               </span>
@@ -242,10 +232,11 @@ export default function ExportTab() {
 
       {tab === "export_bay" && <ExportBayTab />}
       {tab === "settings" && <ExportSettingsPanel scope="full" />}
-      {(tab === "taproom" || tab === "distribution" || tab === "contract_brewing") && (
+      {tab === "export_transactions" && <ExportTransactionsTab />}
+      {tab === "taproom" && (
         <ExportsChannelTab
           key={tab}
-          channel={tab}
+          channel="taproom"
           exports={exports}
           links={links}
           recipes={recipes}

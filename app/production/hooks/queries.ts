@@ -190,6 +190,18 @@ export function useExportInvoiceDueDaysQuery() {
   });
 }
 
+export function useInvoicePreview(transactionIds: string[]) {
+  return useQuery({
+    queryKey: ["production", "invoice-preview", transactionIds] as const,
+    queryFn: () => fetchJson<{
+      customerId: string; customerName: string; squareCustomerId: string | null;
+      lineItems: { id: string; description: string; quantity: number; unitPriceCents: number; squareCatalogVariationId: string | null; discountCatalogId?: string | null }[];
+      dueDays: number;
+    }>(`/api/production/export/invoice-preview?ids=${transactionIds.join(",")}`),
+    enabled: transactionIds.length > 0,
+  });
+}
+
 export interface IngredientShortfall {
   ingredient_id: string;
   name: string;
