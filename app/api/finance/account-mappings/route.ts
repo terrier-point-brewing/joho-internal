@@ -76,7 +76,7 @@ export async function GET() {
 
 // PATCH — set CoA on one variation (default and/or source-specific overrides)
 export async function PATCH(req: NextRequest) {
-  try { await requireRole("manager"); } catch (res) { return res as Response; }
+  try { await requireRole([]); } catch (res) { return res as Response; }
 
   const body = await req.json() as {
     square_variation_id: string;

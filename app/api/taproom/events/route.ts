@@ -16,7 +16,7 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  try { await requireRole("manager"); } catch (res) { return res as Response; }
+  try { await requireRole(["manager"]); } catch (res) { return res as Response; }
 
   const supabase = await createSupabaseServerClient();
   const { event_name, event_start, event_end, event_host, notes } = await req.json();

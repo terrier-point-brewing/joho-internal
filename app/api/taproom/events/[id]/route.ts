@@ -5,7 +5,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 export const dynamic = "force-dynamic";
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  try { await requireRole("manager"); } catch (res) { return res as Response; }
+  try { await requireRole(["manager"]); } catch (res) { return res as Response; }
 
   const { id } = await params;
   const supabase = await createSupabaseServerClient();
@@ -23,7 +23,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  try { await requireRole("manager"); } catch (res) { return res as Response; }
+  try { await requireRole(["manager"]); } catch (res) { return res as Response; }
 
   const { id } = await params;
   const supabase = await createSupabaseServerClient();
