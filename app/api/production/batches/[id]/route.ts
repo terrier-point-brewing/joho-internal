@@ -111,7 +111,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   // Hard delete is admin-only. All child records cascade via FK constraints.
-  try { await requireRole("admin"); } catch (res) { return res as Response; }
+  try { await requireRole([]); } catch (res) { return res as Response; }
 
   const supabase = await createSupabaseServerClient();
   const { id } = await params;

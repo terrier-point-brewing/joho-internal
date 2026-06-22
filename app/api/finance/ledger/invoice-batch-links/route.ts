@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 // ── POST /api/finance/ledger/invoice-batch-links ───────────────────────────────
 // Body: { invoice_id, batch_id, note? }
 export async function POST(req: NextRequest) {
-  try { await requireRole("admin"); } catch (res) { return res as Response; }
+  try { await requireRole([]); } catch (res) { return res as Response; }
 
   const supabase  = createSupabaseAdminClient();
   const user      = await getSessionUser();
@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
 // ── GET /api/finance/ledger/invoice-batch-links ────────────────────────────────
 // Optional: ?batch_id=<uuid> or ?invoice_id=<uuid>
 export async function GET(req: NextRequest) {
-  try { await requireRole("admin"); } catch (res) { return res as Response; }
+  try { await requireRole([]); } catch (res) { return res as Response; }
 
   const supabase = createSupabaseAdminClient();
   const params   = req.nextUrl.searchParams;

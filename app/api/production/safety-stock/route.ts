@@ -17,7 +17,7 @@ export async function GET() {
 
 // Upsert a floor for a (recipe_id, packaging) pair.
 export async function POST(req: NextRequest) {
-  try { await requireRole("admin"); } catch (res) { return res as Response; }
+  try { await requireRole([]); } catch (res) { return res as Response; }
 
 
   const supabase = await createSupabaseServerClient();
@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  try { await requireRole("admin"); } catch (res) { return res as Response; }
+  try { await requireRole([]); } catch (res) { return res as Response; }
 
 
   const supabase = await createSupabaseServerClient();

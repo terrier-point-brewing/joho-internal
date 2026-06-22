@@ -213,7 +213,7 @@ export async function POST(req: NextRequest) {
  * Body: { batch_id, correct_tank_id, reason? }
  */
 export async function PATCH(req: NextRequest) {
-  try { await requireRole("admin"); } catch (res) { return res as Response; }
+  try { await requireRole([]); } catch (res) { return res as Response; }
 
   const supabase = await createSupabaseServerClient();
   const { data: { user: adminUser } } = await supabase.auth.getUser();

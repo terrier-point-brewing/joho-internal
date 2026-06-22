@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 // Returns all invoices with line-item counts and batch-link counts.
 // Optional query params: ?source=quickbooks&year=2024&partner_id=<uuid>
 export async function GET(req: NextRequest) {
-  try { await requireRole("admin"); } catch (res) { return res as Response; }
+  try { await requireRole([]); } catch (res) { return res as Response; }
 
   const supabase = createSupabaseAdminClient();
   const params   = req.nextUrl.searchParams;
@@ -42,7 +42,7 @@ export async function GET(req: NextRequest) {
 // Body: { invoices: InvoiceImportPayload[] }
 // Uses upsert on (source, external_id) to make re-imports idempotent.
 export async function POST(req: NextRequest) {
-  try { await requireRole("admin"); } catch (res) { return res as Response; }
+  try { await requireRole([]); } catch (res) { return res as Response; }
 
   const supabase = createSupabaseAdminClient();
   const body: { invoices: InvoiceImportPayload[] } = await req.json();

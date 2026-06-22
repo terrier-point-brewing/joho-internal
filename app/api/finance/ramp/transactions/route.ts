@@ -6,7 +6,7 @@ import { apiError } from "@/lib/utils/api";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
-  try { await requireRole("admin"); } catch (res) { return res as Response; }
+  try { await requireRole([]); } catch (res) { return res as Response; }
 
   const { searchParams } = req.nextUrl;
   const from = searchParams.get("from") ?? undefined;

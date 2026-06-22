@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
  * In both cases the partner's fields are synced from Square.
  */
 export async function POST(req: NextRequest) {
-  try { await requireRole("admin"); } catch (res) { return res as Response; }
+  try { await requireRole([]); } catch (res) { return res as Response; }
 
 
   const supabase = await createSupabaseServerClient();

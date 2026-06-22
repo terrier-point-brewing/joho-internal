@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
 const EXCLUDED_CATEGORY_IDS = new Set(["CO2", "OTHER"]);
 
 export async function GET(req: NextRequest) {
-  try { await requireRole("admin"); } catch (res) { return res as Response; }
+  try { await requireRole([]); } catch (res) { return res as Response; }
 
   const { searchParams } = req.nextUrl;
   const from = searchParams.get("from");

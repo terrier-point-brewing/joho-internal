@@ -49,7 +49,7 @@ function recipientName(inv: SquareInvoice): string {
 // ── Route ─────────────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
-  try { await requireRole("admin"); } catch (res) { return res as Response; }
+  try { await requireRole([]); } catch (res) { return res as Response; }
 
   const year    = parseInt(req.nextUrl.searchParams.get("year") ?? String(new Date().getFullYear()));
   const supabase = createSupabaseAdminClient();

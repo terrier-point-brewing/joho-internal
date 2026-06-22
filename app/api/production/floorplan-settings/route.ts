@@ -19,7 +19,7 @@ export async function GET() {
 }
 
 export async function PUT(req: NextRequest) {
-  try { await requireRole("admin"); } catch (res) { return res as Response; }
+  try { await requireRole([]); } catch (res) { return res as Response; }
 
   const { cols, rows } = await req.json() as { cols: number; rows: number };
   if (!Number.isInteger(cols) || cols < 16 || cols > 80) {
