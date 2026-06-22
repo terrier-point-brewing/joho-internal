@@ -8,6 +8,7 @@ import {
   publishDepositInvoice,
   reviseDepositInvoice,
   getDepositInvoiceStatus,
+  getOrderPayment,
 } from "@/lib/square/deposit-invoices";
 
 export const dynamic = "force-dynamic";
@@ -230,6 +231,19 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       allocationUpdate.locked = true;
       allocationUpdate.lock_reason = "deposit_paid";
       allocationUpdate.locked_at = new Date().toISOString();
+
+      // Capture the payment reference now — this is the only point Square
+      // makes it available; if missed here, refunds can't be issued later.
+      if (allocation.square_deposit_order_id) {
+        const { paymentId, amountPaidCents } = await getOrderPayment(allocation.square_deposit_order_id);
+        if (!paymentId) {
+          console.error(
+            `[invoice sync] Allocation ${id}: invoice marked PAID but no Square payment_id was found on order ${allocation.square_deposit_order_id} — refunds will be unavailable for this allocation until manually resolved via the Square Dashboard.`
+          );
+        }
+        allocationUpdate.square_payment_id = paymentId;
+        allocationUpdate.deposit_amount_paid_cents = amountPaidCents;
+      }
     }
 
     if (squareStatus.status === "CANCELED" || squareStatus.status === "FAILED") {

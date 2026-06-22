@@ -21,6 +21,7 @@ import {
 import { EquipmentScheduleSection } from "./EquipmentSchedule";
 import { computeBranchPackagingStatus } from "./EquipmentSchedule/constants";
 import { DepositInvoiceModal } from "./DepositInvoiceModal";
+import { RefundAdjustmentModal } from "./RefundAdjustmentModal";
 
 const fmtDate = fmtDateLong;
 
@@ -450,6 +451,8 @@ function AllocationManager({ batch, recipes }: { batch: BrewBatch; recipes: impo
   const [invoicePreview, setInvoicePreview] = useState<{ calculation: DepositCalculation } | null>(null);
   const [invoicePreviewLoading, setInvoicePreviewLoading] = useState(false);
   const [invoiceActionLoading, setInvoiceActionLoading] = useState<string | null>(null); // alloc ID
+  const [refundAlloc, setRefundAlloc] = useState<{ allocation: BatchAllocation; newPercentage: number } | null>(null);
+  const [refundSubmitting, setRefundSubmitting] = useState(false);
 
   async function openInvoiceModal(a: BatchAllocation) {
     setInvoiceModalAlloc(a);
@@ -534,6 +537,14 @@ function AllocationManager({ batch, recipes }: { batch: BrewBatch; recipes: impo
       setEditingPct(p => { const n = { ...p }; delete n[a.id]; return n; });
       return;
     }
+
+    // A locked+paid allocation being reduced goes through the refund flow
+    // instead of the plain PATCH — that endpoint rejects this case outright.
+    if (a.locked && a.lock_reason === "deposit_paid" && a.invoice_paid_at && pct < Number(a.percentage)) {
+      setRefundAlloc({ allocation: a, newPercentage: pct });
+      return; // editingPct stays set until the modal resolves, so the field still shows the typed value
+    }
+
     const res = await fetch(`/api/production/allocations/${a.id}`, {
       method: "PATCH", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ percentage: pct }),
@@ -541,6 +552,26 @@ function AllocationManager({ batch, recipes }: { batch: BrewBatch; recipes: impo
     if (!res.ok) { alert((await res.json()).error ?? "Error"); return; }
     setEditingPct(p => { const n = { ...p }; delete n[a.id]; return n; });
     await refresh();
+  }
+
+  async function handleConfirmRefund() {
+    if (!refundAlloc) return;
+    setRefundSubmitting(true);
+    try {
+      const res = await fetch(`/api/production/allocations/${refundAlloc.allocation.id}/adjust`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ new_percentage: refundAlloc.newPercentage }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? "Error");
+      setEditingPct(p => { const n = { ...p }; delete n[refundAlloc.allocation.id]; return n; });
+      setRefundAlloc(null);
+      await refresh();
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Failed to issue refund");
+    } finally {
+      setRefundSubmitting(false);
+    }
   }
 
   async function handleDelete(id: string, locked: boolean) {
@@ -745,7 +776,7 @@ function AllocationManager({ batch, recipes }: { batch: BrewBatch; recipes: impo
                         type="number" step="0.1" min="0" max="100"
                         className="w-16 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-right tabular-nums text-zinc-200 focus:outline-none focus:border-amber-600 disabled:opacity-40"
                         value={pctVal}
-                        disabled={a.locked || !!a.invoice_paid_at}
+                        disabled={a.locked && a.lock_reason !== "deposit_paid"}
                         onChange={e => setEditingPct(p => ({ ...p, [a.id]: e.target.value }))}
                         onBlur={() => savePct(a)}
                         onKeyDown={e => { if (e.key === "Enter") savePct(a); }}
@@ -942,6 +973,19 @@ function AllocationManager({ batch, recipes }: { batch: BrewBatch; recipes: impo
           generating={invoiceActionLoading === invoiceModalAlloc.id}
           onGenerate={() => handleGenerateInvoice(invoiceModalAlloc.id)}
           onClose={() => setInvoiceModalAlloc(null)}
+        />
+      )}
+
+      {refundAlloc && (
+        <RefundAdjustmentModal
+          allocation={refundAlloc.allocation}
+          newPercentage={refundAlloc.newPercentage}
+          submitting={refundSubmitting}
+          onConfirm={handleConfirmRefund}
+          onClose={() => {
+            if (refundAlloc) setEditingPct(p => { const n = { ...p }; delete n[refundAlloc.allocation.id]; return n; });
+            setRefundAlloc(null);
+          }}
         />
       )}
     </div>

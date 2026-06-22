@@ -60,6 +60,14 @@ export interface DepositInvoiceResult {
 interface SquareOrderResponse   { order: { id: string } }
 interface SquareInvoiceResponse { invoice: { id: string; status: string; public_url?: string; version?: number } }
 interface SquareInvoiceGetResponse { invoice: { id: string; status: string; public_url?: string; version: number; updated_at?: string } }
+interface SquareOrderTender {
+  id: string;
+  payment_id?: string;
+  amount_money?: { amount: number; currency: string };
+}
+interface SquareOrderGetResponse {
+  order: { id: string; tenders?: SquareOrderTender[] };
+}
 
 // ── Deposit calculation ───────────────────────────────────────────────────────
 
@@ -276,5 +284,24 @@ export async function getDepositInvoiceStatus(
     paidAt: isPaid ? (invoice.updated_at ?? new Date().toISOString()) : null,
     version: invoice.version,
     publicUrl: invoice.public_url ?? null,
+  };
+}
+
+/**
+ * Fetches the Square Order's payment reference. Square only attaches a
+ * `payment_id` to an order's tenders once the order has been paid — this is
+ * the only point in the whole flow where Square hands us a payment_id; if
+ * it isn't captured here (see the invoice sync route), it isn't recoverable
+ * later without a separate Square lookup, which is out of scope for
+ * already-paid allocations.
+ */
+export async function getOrderPayment(
+  orderId: string
+): Promise<{ paymentId: string | null; amountPaidCents: number | null }> {
+  const { order } = await squareGet<SquareOrderGetResponse>(`/orders/${orderId}`);
+  const tender = order.tenders?.[0];
+  return {
+    paymentId: tender?.payment_id ?? null,
+    amountPaidCents: tender?.amount_money?.amount ?? null,
   };
 }

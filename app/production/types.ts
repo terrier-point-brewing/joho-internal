@@ -373,6 +373,12 @@ export interface BatchAllocation {
   invoice_generated_at: string | null;
   invoice_sent_at: string | null;
   invoice_paid_at: string | null;
+  // ── Refund tracking ──────────────────────────────────────────────────────
+  square_payment_id: string | null;
+  deposit_amount_paid_cents: number | null;
+  square_refund_id: string | null;
+  refund_amount_cents: number | null;
+  refunded_at: string | null;
   // ── Joined fields ────────────────────────────────────────────────────────
   brew_batches?: { id: string; beer_name: string; batch_number: number; volume_bbl: number; recipe_id: string | null } | null;
   contract_brewing_partners?: { id: string; company_name: string } | null;
