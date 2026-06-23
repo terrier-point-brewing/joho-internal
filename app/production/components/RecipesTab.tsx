@@ -3,10 +3,10 @@
 import { useState, Fragment } from "react";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
-import { Recipe, RecipeBrewActivityTemplate, INGREDIENT_CATEGORIES, IngredientCategory, leadTimeDays } from "../types";
+import { Recipe, RecipeBrewActivityTemplate, INGREDIENT_CATEGORIES, IngredientCategory, leadTimeDays, RecipePackagingVariation } from "../types";
 import { Modal, Field, ModalActions } from "./shared";
 import { EQ } from "../equipmentMeta";
-import { useRecipesQuery, useIngredientsQuery, useContractPartnersQuery, productionKeys, fetchJson } from "../hooks/queries";
+import { useRecipesQuery, useIngredientsQuery, useContractPartnersQuery, productionKeys, fetchJson, usePackagingVariationsQuery, useRecipePackagingVariationsQuery } from "../hooks/queries";
 
 interface BrewStepTemplateData {
   id: string;
@@ -62,6 +62,27 @@ export default function RecipesTab() {
   const { data: recipes = [] } = useRecipesQuery();
   const { data: ingredients = [] } = useIngredientsQuery();
   const { data: partners = [] } = useContractPartnersQuery();
+  const { data: variations = [] } = usePackagingVariationsQuery();
+  const { data: recipeLinks = [] } = useRecipePackagingVariationsQuery();
+  const [linkingFor, setLinkingFor] = useState<string | null>(null);
+
+  function variationsFor(recipeId: string): RecipePackagingVariation[] {
+    return recipeLinks.filter((l) => l.recipe_id === recipeId);
+  }
+
+  async function linkVariation(recipeId: string, variationId: string) {
+    if (!variationId) return;
+    await fetch("/api/production/recipe-packaging-variations", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ recipe_id: recipeId, variation_id: variationId }),
+    });
+    await qc.invalidateQueries({ queryKey: productionKeys.recipePackagingVariations });
+  }
+
+  async function unlinkVariation(linkId: string) {
+    await fetch(`/api/production/recipe-packaging-variations?id=${linkId}`, { method: "DELETE" });
+    await qc.invalidateQueries({ queryKey: productionKeys.recipePackagingVariations });
+  }
   const { data: stepTemplates = [] } = useQuery({
     queryKey: queryKeys.production.brewStepTemplates(),
     queryFn: () => fetchJson<BrewStepTemplateData[]>("/api/production/brew-step-templates"),
@@ -438,6 +459,41 @@ export default function RecipesTab() {
                         </div>
                       </div>
                     )}
+
+                    {/* Packaging Variations */}
+                    <div className="px-4 py-3 border-t border-zinc-800">
+                      <p className="text-xs font-medium text-zinc-500 mb-2">Packaging Variations</p>
+                      {variationsFor(r.id).length > 0 ? (
+                        <div className="flex flex-wrap gap-2 mb-2">
+                          {variationsFor(r.id).map((link) => (
+                            <span key={link.id} className="inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded border border-zinc-700 text-zinc-300">
+                              {link.packaging_variations?.name ?? "—"}
+                              <button onClick={() => unlinkVariation(link.id)} className="text-zinc-600 hover:text-red-400 leading-none">×</button>
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-zinc-600 mb-2">No packaging variations linked yet.</p>
+                      )}
+                      {linkingFor === r.id ? (
+                        <select
+                          className="inp text-xs"
+                          autoFocus
+                          defaultValue=""
+                          onChange={(e) => { linkVariation(r.id, e.target.value); setLinkingFor(null); }}
+                          onBlur={() => setLinkingFor(null)}
+                        >
+                          <option value="">Select a variation…</option>
+                          {variations
+                            .filter((v) => !variationsFor(r.id).some((l) => l.variation_id === v.id))
+                            .map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+                        </select>
+                      ) : (
+                        <button onClick={() => setLinkingFor(r.id)} className="text-xs text-amber-400 hover:text-amber-300">
+                          + Link variation
+                        </button>
+                      )}
+                    </div>
 
                     {/* Notes */}
                     {r.notes && (
