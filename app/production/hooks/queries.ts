@@ -5,6 +5,7 @@ import {
   Ingredient, StockAdjustment, Recipe, BrewBatch,
   Equipment, BatchTankAssignment, PackagingItem, BatchTransfer,
   ContractBrewingPartner, Supplier, ExciseTaxRate, ExportServiceMapping, SquareCatalogOptions,
+  PackagingVariation, RecipePackagingVariation,
 } from "../types";
 import { queryKeys } from "@/lib/query-keys";
 
@@ -70,6 +71,8 @@ export const productionKeys = {
   equipment:         queryKeys.production.equipment(),
   assignments:       queryKeys.production.tankAssignments(),
   packaging:         queryKeys.production.packaging(),
+  packagingVariations:       queryKeys.production.packagingVariations(),
+  recipePackagingVariations: queryKeys.production.recipePackagingVariations(),
   transfers:         queryKeys.production.transfers(),
   batchSchedule:     queryKeys.production.batchSchedule(),
   scheduleConflicts: queryKeys.production.scheduleConflicts(),
@@ -123,6 +126,20 @@ export function usePackagingQuery() {
   return useQuery({
     queryKey: productionKeys.packaging,
     queryFn: () => fetchJson<PackagingItem[]>("/api/production/packaging"),
+  });
+}
+
+export function usePackagingVariationsQuery() {
+  return useQuery({
+    queryKey: productionKeys.packagingVariations,
+    queryFn: () => fetchJson<PackagingVariation[]>("/api/production/packaging-variations"),
+  });
+}
+
+export function useRecipePackagingVariationsQuery() {
+  return useQuery({
+    queryKey: productionKeys.recipePackagingVariations,
+    queryFn: () => fetchJson<RecipePackagingVariation[]>("/api/production/recipe-packaging-variations"),
   });
 }
 
