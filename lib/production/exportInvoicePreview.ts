@@ -78,7 +78,7 @@ export async function buildInvoicePreview(
     dueDays = (setting?.value as number) ?? DEFAULT_DUE_DAYS;
   }
 
-  // ── 3. Load packaging items (for type='keg' detection) ────────────────────
+  // ── 3. Load packaging items (for type='keg' detection + error messages) ───
   const packagingItemIds = [...new Set(rows.map((r) => r.packaging_item_id))];
   const { data: pkgItems } = await supabase
     .from("packaging_items")
