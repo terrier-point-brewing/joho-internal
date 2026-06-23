@@ -82,9 +82,10 @@ export async function buildInvoicePreview(
   const packagingItemIds = [...new Set(rows.map((r) => r.packaging_item_id))];
   const { data: pkgItems } = await supabase
     .from("packaging_items")
-    .select("id, type")
+    .select("id, type, name")
     .in("id", packagingItemIds);
   const pkgTypeById = new Map((pkgItems ?? []).map((p) => [p.id, p.type as string]));
+  const pkgNameById = new Map((pkgItems ?? []).map((p) => [p.id, p.name as string]));
 
   // ── 4. Load service mappings for this partner (with default fallback) ────
   const { data: mappings } = await supabase
@@ -113,7 +114,12 @@ export async function buildInvoicePreview(
   const kegFeeTransactionIds = new Set<string>();
   for (const tx of rows) {
     const mapping = findMapping("packaging_fee", tx.packaging_item_id);
-    if (!mapping?.square_catalog_variation_id) continue;
+    if (!mapping?.square_catalog_variation_id) {
+      const containerName = pkgNameById.get(tx.packaging_item_id) ?? "unknown container";
+      throw new Error(
+        `Packaging Fee is not configured for "${containerName}" — set it in Export Settings before generating this invoice.`
+      );
+    }
     const unitPriceCents = priceByVariationId.get(mapping.square_catalog_variation_id) ?? 0;
     const isKeg = pkgTypeById.get(tx.packaging_item_id) === "keg";
     if (isKeg) kegFeeTransactionIds.add(tx.id);
