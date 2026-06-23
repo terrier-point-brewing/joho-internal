@@ -15,7 +15,7 @@ alter table public.packaging_items
   add constraint packaging_items_type_check
   check (type in ('keg', 'can', 'lid', 'paktech', 'tray', 'label'));
 
-create table public.packaging_variations (
+create table if not exists public.packaging_variations (
   id            uuid        primary key default gen_random_uuid(),
   container_id  uuid        not null references public.packaging_items(id) on delete restrict,
   format        text        not null check (format in ('loose', '4-pack', '6-pack', 'case')),
@@ -29,10 +29,10 @@ create table public.packaging_variations (
   created_at    timestamptz not null default now()
 );
 
-create index packaging_variations_container_idx on public.packaging_variations(container_id);
-create index packaging_variations_partner_idx on public.packaging_variations(partner_id);
+create index if not exists packaging_variations_container_idx on public.packaging_variations(container_id);
+create index if not exists packaging_variations_partner_idx on public.packaging_variations(partner_id);
 
-create table public.recipe_packaging_variations (
+create table if not exists public.recipe_packaging_variations (
   id            uuid        primary key default gen_random_uuid(),
   recipe_id     uuid        not null references public.recipes(id) on delete cascade,
   variation_id  uuid        not null references public.packaging_variations(id) on delete cascade,
@@ -40,7 +40,7 @@ create table public.recipe_packaging_variations (
   unique (recipe_id, variation_id)
 );
 
-create index recipe_packaging_variations_recipe_idx on public.recipe_packaging_variations(recipe_id);
+create index if not exists recipe_packaging_variations_recipe_idx on public.recipe_packaging_variations(recipe_id);
 
 -- Seed the 11 generic (partner_id null) variations named during brainstorming.
 -- container_id values are looked up by name since this repo has no seeded
@@ -50,18 +50,34 @@ create index recipe_packaging_variations_recipe_idx on public.recipe_packaging_v
 -- this seed since assigning a specific live component to each pack/case
 -- format is a real product decision, not something to default silently —
 -- the user fills those in via the new UI once it exists.
+-- Guarded per-row on the natural key (container_id, format) so a re-run
+-- (e.g. an accidental re-paste) never double-inserts — there's no unique
+-- constraint on packaging_variations.name to use as an on-conflict target,
+-- and (container_id, format) is the actual identity of a generic variation.
 insert into public.packaging_variations (container_id, format, name)
-select id, 'loose', name
-from public.packaging_items
-where type = 'keg' and name in ('1/2 Keg', '1/4 Keg', '1/6 Keg');
+select pi.id, 'loose', pi.name
+from public.packaging_items pi
+where pi.type = 'keg' and pi.name in ('1/2 Keg', '1/4 Keg', '1/6 Keg')
+  and not exists (
+    select 1 from public.packaging_variations pv
+    where pv.container_id = pi.id and pv.format = 'loose'
+  );
 
 insert into public.packaging_variations (container_id, format, name)
-select id, 'loose', name
-from public.packaging_items
-where type = 'can' and name in ('12oz Blank', '16oz Blank');
+select pi.id, 'loose', pi.name
+from public.packaging_items pi
+where pi.type = 'can' and pi.name in ('12oz Blank', '16oz Blank')
+  and not exists (
+    select 1 from public.packaging_variations pv
+    where pv.container_id = pi.id and pv.format = 'loose'
+  );
 
 insert into public.packaging_variations (container_id, format, name)
-select id, v.format, concat(p.name, ' ', v.label)
-from public.packaging_items p
+select pi.id, v.format, concat(pi.name, ' ', v.label)
+from public.packaging_items pi
 cross join (values ('4-pack', '4-Pack'), ('6-pack', '6-Pack'), ('case', 'Case')) as v(format, label)
-where p.type = 'can' and p.name in ('12oz Blank', '16oz Blank');
+where pi.type = 'can' and pi.name in ('12oz Blank', '16oz Blank')
+  and not exists (
+    select 1 from public.packaging_variations pv
+    where pv.container_id = pi.id and pv.format = v.format
+  );

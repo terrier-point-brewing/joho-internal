@@ -115,7 +115,7 @@ export default function PackagingVariationsPanel() {
     <>
       <div className="flex items-center justify-between gap-2 mb-4">
         <p className="text-xs text-zinc-500">
-          Strictly-defined packaging combinations — container + format + specific components. Used by Recipes to declare which variations they're packaged as.
+          Strictly-defined packaging combinations — container + format + specific components. Used by Recipes to declare which variations they&apos;re packaged as.
         </p>
         <button onClick={openNew} className="btn-amber shrink-0">+ Add Variation</button>
       </div>
