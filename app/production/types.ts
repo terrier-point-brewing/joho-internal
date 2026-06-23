@@ -48,6 +48,38 @@ export interface PackagingItem {
   created_at: string;
 }
 
+export type PackagingVariationFormat = "loose" | "4-pack" | "6-pack" | "case";
+
+export interface PackagingVariation {
+  id: string;
+  container_id: string;
+  format: PackagingVariationFormat;
+  lid_id: string | null;
+  paktech_id: string | null;
+  tray_id: string | null;
+  label_id: string | null;
+  partner_id: string | null;
+  name: string;
+  is_active: boolean;
+  created_at: string;
+  /** Joined */
+  container?: { id: string; name: string; type: PackagingItemType; volume_fl_oz: number | null } | null;
+  lid?: { id: string; name: string } | null;
+  paktech?: { id: string; name: string } | null;
+  tray?: { id: string; name: string } | null;
+  label?: { id: string; name: string } | null;
+  contract_brewing_partners?: { company_name: string } | null;
+}
+
+export interface RecipePackagingVariation {
+  id: string;
+  recipe_id: string;
+  variation_id: string;
+  created_at: string;
+  /** Joined */
+  packaging_variations?: PackagingVariation | null;
+}
+
 export type PackagingAdjustmentType = "received" | "used" | "waste" | "inventory_count";
 
 export interface PackagingStockAdjustment {
