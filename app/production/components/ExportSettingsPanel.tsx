@@ -211,6 +211,10 @@ function PackagingFeeSection() {
   const qc = useQueryClient();
   const items = catalog?.items ?? [];
 
+  // Packaging Fee is charged per shippable container, not per assembly
+  // component (lid/paktech/tray/label) — see Spec 11 design doc.
+  const containerItems = packagingItems.filter((p) => p.type === "keg" || p.type === "can");
+
   const feeRows = mappings.filter((m) => m.service_type === "packaging_fee");
 
   async function upsert(existing: ExportServiceMapping | null, patch: Partial<ExportServiceMapping> & { packaging_item_id: string; partner_id: string | null }) {
@@ -245,7 +249,7 @@ function PackagingFeeSection() {
             </tr>
           </thead>
           <tbody>
-            {packagingItems.map((pkg) => {
+            {containerItems.map((pkg) => {
               const defaultRow = feeRows.find((m) => m.packaging_item_id === pkg.id && m.partner_id === null);
               return (
                 <tr key={pkg.id} className="border-b border-zinc-800 last:border-0">
