@@ -16,8 +16,8 @@ interface TransferLineInput {
   shrinkage_bbl: number;
   transfer_type: string;
   notes: string | null;
-  kegging_detail: { packaging_id: string; name: string; volume_fl_oz: number | null; quantity: number; variant_label: string } | null;
-  canning_detail: Record<string, unknown> | null;
+  variation_id: string | null;
+  quantity: number | null;
   created_by: string | null;
   recipe_id: string | null;
 }
@@ -34,20 +34,20 @@ async function processTransferLine(
   supabase: SupabaseClient,
   line: TransferLineInput
 ): Promise<{ transfer: Record<string, unknown>; scheduleUpdate: ScheduleUpdateEntry[] }> {
-  const { batch_id, from_tank_id, to_tank_id, volume_bbl, shrinkage_bbl, transfer_type, notes, kegging_detail, canning_detail, created_by, recipe_id } = line;
+  const { batch_id, from_tank_id, to_tank_id, volume_bbl, shrinkage_bbl, transfer_type, notes, variation_id, quantity, created_by, recipe_id } = line;
 
   const { data: transfer, error } = await supabase
     .rpc("record_batch_transfer", {
-      p_batch_id:       batch_id,
-      p_from_tank_id:   from_tank_id  || null,
-      p_to_tank_id:     to_tank_id    || null,
-      p_volume_bbl:     volume_bbl,
-      p_shrinkage_bbl:  shrinkage_bbl ?? 0,
-      p_transfer_type:  transfer_type ?? "transfer",
-      p_notes:          notes         || null,
-      p_kegging_detail: kegging_detail ?? null,
-      p_canning_detail: canning_detail ?? null,
-      p_created_by:     created_by ?? null,
+      p_batch_id:      batch_id,
+      p_from_tank_id:  from_tank_id || null,
+      p_to_tank_id:    to_tank_id   || null,
+      p_volume_bbl:    volume_bbl,
+      p_shrinkage_bbl: shrinkage_bbl ?? 0,
+      p_transfer_type: transfer_type ?? "transfer",
+      p_notes:         notes || null,
+      p_variation_id:  variation_id ?? null,
+      p_quantity:       quantity ?? null,
+      p_created_by:    created_by ?? null,
     })
     .single();
 
@@ -59,68 +59,48 @@ async function processTransferLine(
   const transferRow = transfer as { id: string };
 
   // ── Packaging deduction + cold storage inventory ─────────────────────────
-  try {
-    if (transfer_type === "kegging" && kegging_detail) {
-      const { packaging_id, quantity, variant_label } = kegging_detail;
-      if (packaging_id && quantity) {
-        const { data: pkg } = await supabase.from("packaging_items").select("stock_quantity").eq("id", packaging_id).single();
-        if (pkg) {
-          const newQty = Number(pkg.stock_quantity) - quantity;
-          await supabase.from("packaging_items").update({ stock_quantity: newQty }).eq("id", packaging_id);
-          await supabase.from("packaging_stock_adjustments").insert({
-            packaging_item_id: packaging_id, quantity: -quantity, type: "used",
-            note: `Kegging — batch ${batch_id}`, batch_transfer_id: transferRow.id,
-            cost_per_unit: null, total_value_change: null,
-          });
+  if (variation_id && quantity) {
+    try {
+      const { data: variation } = await supabase
+        .from("packaging_variations")
+        .select("id, container_id, lid_id, paktech_id, tray_id, label_id, total_volume_fl_oz, container:packaging_items!packaging_variations_container_id_fkey(volume_fl_oz)")
+        .eq("id", variation_id)
+        .single();
+
+      if (variation) {
+        const containerVolume = (variation.container as unknown as { volume_fl_oz: number | null })?.volume_fl_oz ?? 0;
+        const unitsPerPackage = containerVolume > 0 ? variation.total_volume_fl_oz / containerVolume : 1;
+        const totalUnits = quantity * unitsPerPackage;
+
+        const deductions: { id: string | null; qty: number; label: string }[] = [
+          { id: variation.container_id, qty: totalUnits, label: "container" },
+          { id: variation.lid_id,       qty: totalUnits, label: "lids" },
+          { id: variation.label_id,     qty: totalUnits, label: "labels" },
+          { id: variation.tray_id,      qty: quantity,    label: "trays" },
+          { id: variation.paktech_id,   qty: quantity,    label: "paktechs" },
+        ];
+
+        for (const d of deductions) {
+          if (!d.id || !d.qty) continue;
+          const { data: pkg } = await supabase.from("packaging_items").select("stock_quantity").eq("id", d.id).single();
+          if (pkg) {
+            const newQty = Number(pkg.stock_quantity) - d.qty;
+            await supabase.from("packaging_items").update({ stock_quantity: newQty }).eq("id", d.id);
+            await supabase.from("packaging_stock_adjustments").insert({
+              packaging_item_id: d.id, quantity: -d.qty, type: "used",
+              note: `${transfer_type === "kegging" ? "Kegging" : "Canning"} (${d.label}) — batch ${batch_id}`,
+              batch_transfer_id: transferRow.id, cost_per_unit: null, total_value_change: null,
+            });
+          }
         }
+
         await upsertColdStorageInventory(supabase, {
-          batch_id, recipe_id, packaging_item_id: packaging_id, variant_label,
-          quantity_delta: quantity, source_transfer_id: transferRow.id,
+          batch_id, recipe_id, variation_id, quantity_delta: quantity, source_transfer_id: transferRow.id,
         });
       }
+    } catch (deductionErr) {
+      console.error("[transfers] Packaging deduction / cold storage update failed (transfer committed):", deductionErr);
     }
-
-    if (transfer_type === "canning" && canning_detail) {
-      const cd = canning_detail as {
-        format: "case" | "pack" | "loose";
-        can_packaging_id?: string; lid_packaging_id?: string | null;
-        paktech_packaging_id?: string; tray_packaging_id?: string; label_packaging_id?: string | null;
-        cans_per_case?: number; cans_per_pack?: number; quantity: number; variant_label: string;
-      };
-      const cansPerUnit = cd.format === "case" ? (cd.cans_per_case ?? 0) : cd.format === "pack" ? (cd.cans_per_pack ?? 0) : 1;
-      const totalCans = cd.quantity * cansPerUnit;
-
-      const deductions: { id: string | null | undefined; qty: number; label: string }[] = [
-        { id: cd.can_packaging_id,   qty: totalCans, label: "cans" },
-        { id: cd.lid_packaging_id,   qty: totalCans, label: "lids" },
-        { id: cd.label_packaging_id, qty: totalCans, label: "labels" },
-      ];
-      if (cd.format === "case") deductions.push({ id: cd.tray_packaging_id, qty: cd.quantity, label: "trays" });
-      if (cd.format === "pack")  deductions.push({ id: cd.paktech_packaging_id, qty: cd.quantity, label: "paktechs" });
-
-      for (const d of deductions) {
-        if (!d.id || !d.qty) continue;
-        const { data: pkg } = await supabase.from("packaging_items").select("stock_quantity").eq("id", d.id).single();
-        if (pkg) {
-          const newQty = Number(pkg.stock_quantity) - d.qty;
-          await supabase.from("packaging_items").update({ stock_quantity: newQty }).eq("id", d.id);
-          await supabase.from("packaging_stock_adjustments").insert({
-            packaging_item_id: d.id, quantity: -d.qty, type: "used",
-            note: `Canning (${d.label}) — batch ${batch_id}`, batch_transfer_id: transferRow.id,
-            cost_per_unit: null, total_value_change: null,
-          });
-        }
-      }
-
-      if (cd.can_packaging_id) {
-        await upsertColdStorageInventory(supabase, {
-          batch_id, recipe_id, packaging_item_id: cd.can_packaging_id, variant_label: cd.variant_label,
-          quantity_delta: cd.quantity, source_transfer_id: transferRow.id,
-        });
-      }
-    }
-  } catch (deductionErr) {
-    console.error("[transfers] Packaging deduction / cold storage update failed (transfer committed):", deductionErr);
   }
 
   // ── Schedule reconciliation ───────────────────────────────────────────────
@@ -557,15 +537,14 @@ async function reconcileSchedule(
 
 async function upsertColdStorageInventory(
   supabase: SupabaseClient,
-  args: { batch_id: string; recipe_id: string | null; packaging_item_id: string; variant_label: string; quantity_delta: number; source_transfer_id: string }
+  args: { batch_id: string; recipe_id: string | null; variation_id: string; quantity_delta: number; source_transfer_id: string }
 ) {
-  const { batch_id, recipe_id, packaging_item_id, variant_label, quantity_delta, source_transfer_id } = args;
+  const { batch_id, recipe_id, variation_id, quantity_delta, source_transfer_id } = args;
   const { data: existing } = await supabase
     .from("cold_storage_inventory")
     .select("id, quantity_on_hand")
     .eq("batch_id", batch_id)
-    .eq("packaging_item_id", packaging_item_id)
-    .eq("variant_label", variant_label)
+    .eq("variation_id", variation_id)
     .maybeSingle();
 
   if (existing) {
@@ -579,7 +558,7 @@ async function upsertColdStorageInventory(
       .eq("id", existing.id);
   } else {
     await supabase.from("cold_storage_inventory").insert({
-      batch_id, recipe_id, packaging_item_id, variant_label,
+      batch_id, recipe_id, variation_id,
       quantity_on_hand: quantity_delta, source_transfer_id,
     });
   }
@@ -593,7 +572,7 @@ export async function GET(req: NextRequest) {
 
   let query = supabase
     .from("batch_transfers")
-    .select("*, from_tank:from_tank_id(id, name, type), to_tank:to_tank_id(id, name, type), to_batch:to_batch_id(id, beer_name, batch_number), created_by")
+    .select("*, from_tank:from_tank_id(id, name, type), to_tank:to_tank_id(id, name, type), to_batch:to_batch_id(id, beer_name, batch_number), packaging_variations(id, name), created_by")
     .order("transferred_at", { ascending: false });
 
   if (batch_id) query = query.eq("batch_id", batch_id);
@@ -633,8 +612,7 @@ export async function POST(req: NextRequest) {
     to_tank_id,
     transfer_type,
     notes,
-    kegging_lines,
-    canning_lines,
+    packaging_lines,
   } = body as {
     batch_id: string;
     from_tank_id: string | null;
@@ -643,66 +621,66 @@ export async function POST(req: NextRequest) {
     notes: string | null;
     volume_bbl?: number;
     shrinkage_bbl?: number;
-    kegging_lines?: { packaging_id: string; quantity: number }[];
-    canning_lines?: Record<string, unknown>[];
+    packaging_lines?: { variation_id: string; quantity: number }[];
   };
 
   const { data: batchRow } = await supabase.from("brew_batches").select("recipe_id").eq("id", batch_id).single();
   const recipe_id: string | null = batchRow?.recipe_id ?? null;
 
   // ── Build one line per packaging variation (or a single line for plain transfers/conversions) ──
-  type Line = { volume_bbl: number; shrinkage_bbl: number; kegging_detail: TransferLineInput["kegging_detail"]; canning_detail: TransferLineInput["canning_detail"] };
+  type Line = { volume_bbl: number; shrinkage_bbl: number; variation_id: string | null; quantity: number | null };
   const lines: Line[] = [];
   const totalShrinkage = Number(body.shrinkage_bbl ?? 0);
 
-  if (transfer_type === "kegging" && kegging_lines?.length) {
-    const pkgIds = kegging_lines.map((l) => l.packaging_id);
-    const { data: pkgRows } = await supabase.from("packaging_items").select("id, name, volume_fl_oz").in("id", pkgIds);
-    const pkgMap = new Map((pkgRows ?? []).map((p) => [p.id, p]));
-    const totalVolume = kegging_lines.reduce((sum, l) => {
-      const pkg = pkgMap.get(l.packaging_id);
-      return sum + (pkg?.volume_fl_oz ? (l.quantity * pkg.volume_fl_oz) / BBL_TO_FL_OZ : 0);
-      }, 0);
-    let allocatedShrinkage = 0;
-    kegging_lines.forEach((l, idx) => {
-      const pkg = pkgMap.get(l.packaging_id);
-      const lineVolume = pkg?.volume_fl_oz ? (l.quantity * pkg.volume_fl_oz) / BBL_TO_FL_OZ : 0;
-      const isLast = idx === kegging_lines.length - 1;
-      const shrinkShare = isLast ? totalShrinkage - allocatedShrinkage : Math.round((totalVolume > 0 ? (lineVolume / totalVolume) * totalShrinkage : 0) * 1000) / 1000;
-      allocatedShrinkage += shrinkShare;
-      lines.push({
-        volume_bbl: lineVolume,
-        shrinkage_bbl: shrinkShare,
-        kegging_detail: { packaging_id: l.packaging_id, name: pkg?.name ?? "", volume_fl_oz: pkg?.volume_fl_oz ?? null, quantity: l.quantity, variant_label: pkg?.name ?? "Keg" },
-        canning_detail: null,
-      });
-    });
-  } else if (transfer_type === "canning" && canning_lines?.length) {
-    const totalCanUnits = canning_lines.reduce((sum, l) => sum + Number((l as { quantity: number }).quantity), 0);
-    let allocatedShrinkage = 0;
-    for (let idx = 0; idx < canning_lines.length; idx++) {
-      const raw = canning_lines[idx] as { format: "case" | "pack" | "loose"; quantity: number; can_packaging_id: string; cans_per_case?: number; cans_per_pack?: number };
-      const { data: canPkg } = await supabase.from("packaging_items").select("volume_fl_oz").eq("id", raw.can_packaging_id).single();
-      const cansPerUnit = raw.format === "case" ? (raw.cans_per_case ?? 0) : raw.format === "pack" ? (raw.cans_per_pack ?? 0) : 1;
-      const lineVolume = canPkg?.volume_fl_oz ? (raw.quantity * cansPerUnit * canPkg.volume_fl_oz) / BBL_TO_FL_OZ : 0;
-      const isLast = idx === canning_lines.length - 1;
-      const shrinkShare = isLast ? totalShrinkage - allocatedShrinkage : Math.round((totalCanUnits > 0 ? (raw.quantity / totalCanUnits) * totalShrinkage : 0) * 1000) / 1000;
-      allocatedShrinkage += shrinkShare;
-      const variantLabel = raw.format === "case" ? `Case (${raw.cans_per_case}ct)` : raw.format === "pack" ? `${raw.cans_per_pack}-Pack` : "Loose Can";
-      lines.push({
-        volume_bbl: lineVolume,
-        shrinkage_bbl: shrinkShare,
-        kegging_detail: null,
-        canning_detail: { ...raw, variant_label: variantLabel },
-      });
+  if ((transfer_type === "kegging" || transfer_type === "canning") && packaging_lines?.length) {
+    // ── Strict-consumption gate: every submitted variation must be declared for this recipe ──
+    if (!recipe_id) {
+      return NextResponse.json({ error: "Batch has no recipe — packaging variations cannot be resolved." }, { status: 422 });
     }
-  } else {
-    lines.push({
-      volume_bbl: Number(body.volume_bbl ?? 0),
-      shrinkage_bbl: totalShrinkage,
-      kegging_detail: null,
-      canning_detail: null,
+    const { data: declaredRows } = await supabase
+      .from("recipe_packaging_variations")
+      .select("variation_id")
+      .eq("recipe_id", recipe_id);
+    const declaredIds = new Set((declaredRows ?? []).map((r) => r.variation_id));
+    if (declaredIds.size === 0) {
+      return NextResponse.json(
+        { error: "This recipe has no packaging variations declared — add one in Recipes → Packaging Variations before kegging/canning." },
+        { status: 422 }
+      );
+    }
+    const variationIds = packaging_lines.map((l) => l.variation_id);
+    const undeclared = variationIds.filter((id) => !declaredIds.has(id));
+    if (undeclared.length > 0) {
+      return NextResponse.json(
+        { error: `Variation ${undeclared[0]} is not declared for this recipe.` },
+        { status: 422 }
+      );
+    }
+
+    const { data: variationRows } = await supabase
+      .from("packaging_variations")
+      .select("id, total_volume_fl_oz")
+      .in("id", variationIds);
+    const volumeById = new Map((variationRows ?? []).map((v) => [v.id, v.total_volume_fl_oz as number]));
+
+    const totalVolume = packaging_lines.reduce((sum, l) => {
+      const totalFlOz = volumeById.get(l.variation_id) ?? 0;
+      return sum + (l.quantity * totalFlOz) / BBL_TO_FL_OZ;
+    }, 0);
+
+    let allocatedShrinkage = 0;
+    packaging_lines.forEach((l, idx) => {
+      const totalFlOz = volumeById.get(l.variation_id) ?? 0;
+      const lineVolume = (l.quantity * totalFlOz) / BBL_TO_FL_OZ;
+      const isLast = idx === packaging_lines.length - 1;
+      const shrinkShare = isLast
+        ? totalShrinkage - allocatedShrinkage
+        : Math.round((totalVolume > 0 ? (lineVolume / totalVolume) * totalShrinkage : 0) * 1000) / 1000;
+      allocatedShrinkage += shrinkShare;
+      lines.push({ volume_bbl: lineVolume, shrinkage_bbl: shrinkShare, variation_id: l.variation_id, quantity: l.quantity });
     });
+  } else {
+    lines.push({ volume_bbl: Number(body.volume_bbl ?? 0), shrinkage_bbl: totalShrinkage, variation_id: null, quantity: null });
   }
 
   const totalVolumeForCapacityCheck = lines.reduce((s, l) => s + l.volume_bbl, 0);
@@ -729,7 +707,7 @@ export async function POST(req: NextRequest) {
         batch_id, from_tank_id, to_tank_id,
         volume_bbl: line.volume_bbl, shrinkage_bbl: line.shrinkage_bbl,
         transfer_type: transfer_type ?? "transfer", notes: notes || null,
-        kegging_detail: line.kegging_detail, canning_detail: line.canning_detail,
+        variation_id: line.variation_id, quantity: line.quantity,
         created_by: currentUser?.id ?? null, recipe_id,
       });
       transfers.push(transfer);
