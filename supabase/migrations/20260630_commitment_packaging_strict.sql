@@ -7,8 +7,8 @@
 -- Spec 10 set).
 
 alter table public.commitment_packaging_preferences
-  drop column packaging_item_id,
-  add column variation_id uuid references public.packaging_variations(id) on delete restrict;
+  drop column if exists packaging_item_id,
+  add column if not exists variation_id uuid references public.packaging_variations(id) on delete restrict;
 
 alter table public.commitment_packaging_preferences
   alter column variation_id set not null;
