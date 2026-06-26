@@ -13,8 +13,7 @@ export const dynamic = "force-dynamic";
 interface ShipRequest {
   partner_id: string;
   recipe_id: string;
-  packaging_item_id: string;
-  variant_label: string;
+  variation_id: string;
   quantity: number;
   notes?: string | null;
 }
@@ -24,39 +23,35 @@ export async function POST(req: NextRequest) {
 
   const supabase = await createSupabaseServerClient();
   const body: ShipRequest = await req.json();
-  const { partner_id, recipe_id, packaging_item_id, variant_label, quantity, notes } = body;
+  const { partner_id, recipe_id, variation_id, quantity, notes } = body;
 
-  if (!partner_id || !recipe_id || !packaging_item_id || !variant_label || !quantity || quantity <= 0) {
-    return NextResponse.json({ error: "partner_id, recipe_id, packaging_item_id, variant_label, and a positive quantity are required" }, { status: 400 });
+  if (!partner_id || !recipe_id || !variation_id || !quantity || quantity <= 0) {
+    return NextResponse.json({ error: "partner_id, recipe_id, variation_id, and a positive quantity are required" }, { status: 400 });
   }
 
-  // ── 1. Volume conversion ──────────────────────────────────────────────────
-  const { data: pkgItem, error: pkgErr } = await supabase
-    .from("packaging_items")
-    .select("volume_fl_oz")
-    .eq("id", packaging_item_id)
+  // ── 1. Resolve variation → volume + display name + container item id ─────
+  const { data: variation, error: varErr } = await supabase
+    .from("packaging_variations")
+    .select("total_volume_fl_oz, container_id, name")
+    .eq("id", variation_id)
     .single();
-  if (pkgErr) return NextResponse.json({ error: pkgErr.message }, { status: 500 });
-  const volumeFlOz = pkgItem?.volume_fl_oz ?? null;
-  if (volumeFlOz == null) {
-    return NextResponse.json({ error: "Selected packaging item has no volume configured — cannot compute BBL." }, { status: 422 });
-  }
-  const requestedBbl = (quantity * volumeFlOz) / BBL_TO_FL_OZ;
+  if (varErr) return NextResponse.json({ error: varErr.message }, { status: 500 });
+  if (!variation) return NextResponse.json({ error: "Variation not found." }, { status: 404 });
+  const requestedBbl = (quantity * variation.total_volume_fl_oz) / BBL_TO_FL_OZ;
 
   // ── 2. Validate availability ──────────────────────────────────────────────
   let totalAvailable: number;
   try {
     totalAvailable = await getAvailableColdStorageQuantity(supabase, {
       recipeId: recipe_id,
-      packagingItemId: packaging_item_id,
-      variantLabel: variant_label,
+      variationId: variation_id,
     });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Unknown error" }, { status: 500 });
   }
   if (quantity > totalAvailable) {
     return NextResponse.json(
-      { error: `Insufficient cold storage inventory for "${variant_label}" — requested ${quantity}, available ${totalAvailable}` },
+      { error: `Insufficient cold storage inventory for "${variation.name}" — requested ${quantity}, available ${totalAvailable}` },
       { status: 422 }
     );
   }
@@ -163,8 +158,7 @@ export async function POST(req: NextRequest) {
   try {
     await depleteColdStorageInventory(supabase, {
       recipeId: recipe_id,
-      packagingItemId: packaging_item_id,
-      variantLabel: variant_label,
+      variationId: variation_id,
       quantity,
     });
   } catch (e) {
@@ -199,8 +193,8 @@ export async function POST(req: NextRequest) {
           shipmentId,
           batchId,
           recipeId: recipe_id,
-          packagingItemId: packaging_item_id,
-          variantLabel: variant_label,
+          packagingItemId: variation.container_id,
+          variantLabel: variation.name,
           quantity: c.creditedQty,
           volumeBbl: c.creditedBbl,
           channel: c.channel,

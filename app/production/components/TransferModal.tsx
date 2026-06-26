@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { Equipment, BrewBatch, PackagingItem, Recipe, UNCONSTRAINED_EQUIPMENT_TYPES } from "../types";
+import { Equipment, BrewBatch, PackagingVariation, Recipe, RecipePackagingVariation, UNCONSTRAINED_EQUIPMENT_TYPES } from "../types";
 import { Modal, Field, ModalActions } from "./shared";
 import { EQ } from "../equipmentMeta";
 import { fmtBbl2 as fmtBbl } from "@/lib/utils/formatting";
@@ -33,8 +33,6 @@ const CONVERT_DEST_TYPES: Partial<Record<string, string[]>> = {
   brite:     ["brite", "fermenter"],
 };
 
-interface KegLine { packaging_id: string; quantity: string }
-
 // Tank types where only one batch is allowed at a time
 const SINGLE_OCCUPANCY_TYPES = new Set(["brewhouse", "fermenter", "brite"]);
 
@@ -46,7 +44,7 @@ interface TransferModalProps {
   occupiedTankIds: Set<string>;
   /** recipe_id(s) of whichever batch(es) currently occupy each tank, keyed by tank id */
   occupiedTankRecipeIds?: Record<string, (string | null)[]>;
-  packaging: PackagingItem[];
+  recipePackagingVariations: RecipePackagingVariation[];
   recipes: Recipe[];
   /** Ledger volume currently in fromTank; falls back to batch.volume_bbl if omitted */
   fromTankVolume?: number;
@@ -62,12 +60,7 @@ interface TransferModalProps {
   onDone: (response?: { schedule_update?: { action: string; was_deviation?: boolean; equipment_name?: string }[] }) => Promise<void>;
 }
 
-function pkgLabel(p: PackagingItem): string {
-  const partner = p.contract_brewing_partners?.company_name ?? null;
-  return partner ? `${p.name} (${partner})` : p.name;
-}
-
-export default function TransferModal({ batch, fromTank, allTanks, occupiedTankIds, occupiedTankRecipeIds, packaging, recipes, fromTankVolume, plannedEntry, initialDestId, initialMode, initialConvert, onClose, onDone }: TransferModalProps) {
+export default function TransferModal({ batch, fromTank, allTanks, occupiedTankIds, occupiedTankRecipeIds, recipePackagingVariations, recipes, fromTankVolume, plannedEntry, initialDestId, initialMode, initialConvert, onClose, onDone }: TransferModalProps) {
   const [mode, setMode] = useState<"transfer" | "convert">(initialMode ?? "transfer");
 
   // Same-recipe batches may combine in the same tank — only a DIFFERENT
@@ -97,18 +90,17 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
     return true;
   });
 
-  const defaultKegIds = packaging.filter((p) => p.type === "keg" && p.is_default).map((p) => p.id);
-  const [kegLines, setKegLines] = useState<KegLine[]>(
-    defaultKegIds.length > 0
-      ? defaultKegIds.map((id) => ({ packaging_id: id, quantity: "" }))
-      : [{ packaging_id: "", quantity: "" }]
-  );
+  interface PackagingLine { variation_id: string; quantity: string }
 
-  const defaultCan     = packaging.find((p) => p.type === "can"     && p.is_default);
-  const defaultLid     = packaging.find((p) => p.type === "lid"     && p.is_default);
-  const defaultPaktech = packaging.find((p) => p.type === "paktech" && p.is_default);
-  const defaultTray    = packaging.find((p) => p.type === "tray"    && p.is_default);
-  const defaultLabel   = packaging.find((p) => p.type === "label"   && p.is_default);
+  const recipeVariations = recipePackagingVariations
+    .filter((rv) => rv.recipe_id === batch.recipe_id)
+    .map((rv) => rv.packaging_variations)
+    .filter((v): v is PackagingVariation => v != null && v.is_active);
+
+  const kegVariations = recipeVariations.filter((v) => v.container?.type === "keg");
+  const canVariations = recipeVariations.filter((v) => v.container?.type === "can");
+
+  const [packagingLines, setPackagingLines] = useState<PackagingLine[]>([{ variation_id: "", quantity: "" }]);
 
   // Pre-select planned destination if the planned entry points to a valid available tank;
   // an explicit initialDestId (from the Up Next banner) takes priority over both.
@@ -126,15 +118,6 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
   const [notes,      setNotes]      = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  const [canId,     setCanId]     = useState(defaultCan?.id     ?? "");
-  const [lidId,     setLidId]     = useState(defaultLid?.id     ?? "");
-  const [paktechId, setPaktechId] = useState(defaultPaktech?.id ?? "");
-  const [trayId,    setTrayId]    = useState(defaultTray?.id    ?? "");
-  const [labelId,   setLabelId]   = useState(defaultLabel?.id   ?? "");
-  const [cases,     setCases]     = useState("");
-  const [packs,     setPacks]     = useState("");
-  const [looseCans, setLooseCans] = useState("0");
-
   // Conversion-specific state
   const [convertRecipeId, setConvertRecipeId] = useState(initialConvert?.recipeId ?? "");
   const [convertBeerName, setConvertBeerName] = useState(initialConvert?.beerName ?? "");
@@ -151,37 +134,19 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
   const showCanDetail = mode === "transfer" && (fromTank.type === "canning" || destTank?.type === "canning");
   const isPackagingForm = showKegDetail || showCanDetail;
 
-  const kegs     = packaging.filter((p) => p.type === "keg");
-  const cans     = packaging.filter((p) => p.type === "can");
-  const lids     = packaging.filter((p) => p.type === "lid");
-  const paktechs = packaging.filter((p) => p.type === "paktech");
-  const trays    = packaging.filter((p) => p.type === "tray");
-  const labels   = packaging.filter((p) => p.type === "label");
-
-  const selectedTray    = packaging.find((p) => p.id === trayId);
-  const cansPerCase     = selectedTray?.can_count ?? 0;
-  const selectedPaktech = packaging.find((p) => p.id === paktechId);
-  const cansPerPack     = selectedPaktech?.can_count ?? 0;
-  const selectedCan     = packaging.find((p) => p.id === canId);
-  const canRequiresLabel = selectedCan?.requires_label ?? false;
-
   const batchVol  = fromTankVolume ?? Number(batch.volume_bbl);
   const shrinkBbl = parseFloat(shrinkage) || 0;
 
   let drawBbl = 0;
   if (mode === "convert") {
     drawBbl = parseFloat(convertBbl) || 0;
-  } else if (showKegDetail) {
-    drawBbl = kegLines.reduce((sum, l) => {
-      const pkg = packaging.find((p) => p.id === l.packaging_id);
+  } else if (isPackagingForm) {
+    drawBbl = packagingLines.reduce((sum, l) => {
+      const variation = recipeVariations.find((v) => v.id === l.variation_id);
       const qty = parseInt(l.quantity) || 0;
-      if (!pkg?.volume_fl_oz) return sum;
-      return sum + (qty * pkg.volume_fl_oz) / BBL_TO_FL_OZ;
+      if (!variation) return sum;
+      return sum + (qty * variation.total_volume_fl_oz) / BBL_TO_FL_OZ;
     }, 0);
-  } else if (showCanDetail) {
-    const totalCans = (parseInt(cases) || 0) * cansPerCase + (parseInt(packs) || 0) * cansPerPack + (parseInt(looseCans) || 0);
-    const canVol    = selectedCan?.volume_fl_oz ?? 0;
-    drawBbl = (totalCans * canVol) / BBL_TO_FL_OZ;
   } else if (volumeMode === "full") {
     drawBbl = Math.max(0, batchVol - shrinkBbl);
   } else {
@@ -253,34 +218,24 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
         }
       }
 
-      if (showCanDetail && canRequiresLabel && !labelId) {
-        alert("This can requires a label — please select one before recording the transfer.");
+      if (isPackagingForm && !(packagingLines.some((l) => l.variation_id && (parseInt(l.quantity) || 0) > 0))) {
+        alert("Select at least one packaging variation and quantity.");
         return;
       }
 
-      let kegging_lines: { packaging_id: string; quantity: number }[] | undefined;
-      let canning_lines: Record<string, unknown>[] | undefined;
+      let packaging_lines: { variation_id: string; quantity: number }[] | undefined;
       let transfer_type: "transfer" | "kegging" | "canning" = "transfer";
 
       if (showKegDetail) {
         transfer_type = "kegging";
-        kegging_lines = kegLines
-          .filter((l) => l.packaging_id && (parseInt(l.quantity) || 0) > 0)
-          .map((l) => ({ packaging_id: l.packaging_id, quantity: parseInt(l.quantity) || 0 }));
+        packaging_lines = packagingLines
+          .filter((l) => l.variation_id && (parseInt(l.quantity) || 0) > 0)
+          .map((l) => ({ variation_id: l.variation_id, quantity: parseInt(l.quantity) || 0 }));
       } else if (showCanDetail) {
         transfer_type = "canning";
-        canning_lines = [];
-        const casesQty = parseInt(cases) || 0;
-        const packsQty = parseInt(packs) || 0;
-        const looseQty = parseInt(looseCans) || 0;
-        const shared = {
-          can_packaging_id: canId,
-          lid_packaging_id: lidId || null,
-          label_packaging_id: labelId || null,
-        };
-        if (casesQty > 0) canning_lines.push({ ...shared, format: "case", tray_packaging_id: trayId, paktech_packaging_id: paktechId || null, cans_per_case: cansPerCase, quantity: casesQty });
-        if (packsQty > 0) canning_lines.push({ ...shared, format: "pack", paktech_packaging_id: paktechId, cans_per_pack: cansPerPack, quantity: packsQty });
-        if (looseQty > 0) canning_lines.push({ ...shared, format: "loose", quantity: looseQty });
+        packaging_lines = packagingLines
+          .filter((l) => l.variation_id && (parseInt(l.quantity) || 0) > 0)
+          .map((l) => ({ variation_id: l.variation_id, quantity: parseInt(l.quantity) || 0 }));
       }
 
       const res = await fetch("/api/production/transfers", {
@@ -290,12 +245,11 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
           batch_id:      batch.id,
           from_tank_id:  fromTank.id,
           to_tank_id:    effectiveDestId,
-          ...(kegging_lines || canning_lines ? {} : { volume_bbl: drawBbl }),
+          ...(packaging_lines ? {} : { volume_bbl: drawBbl }),
           shrinkage_bbl: shrinkBbl,
           transfer_type,
           notes:         notes || null,
-          kegging_lines,
-          canning_lines,
+          packaging_lines,
         }),
       });
       if (!res.ok) throw new Error((await res.json()).error ?? "Error");
@@ -485,96 +439,41 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
           </p>
         )}
 
-        {/* ── Keg detail ── */}
-        {showKegDetail && (
+        {/* ── Packaging detail (kegging or canning) ── */}
+        {isPackagingForm && (
           <div>
             <div className="flex items-center justify-between mb-2">
-              <label className="text-xs text-zinc-400">Kegs</label>
-              <button type="button" onClick={() => setKegLines((l) => [...l, { packaging_id: "", quantity: "" }])}
-                className="text-xs text-amber-500 hover:text-amber-400">+ Add keg type</button>
+              <label className="text-xs text-zinc-400">{showKegDetail ? "Kegs" : "Cans"}</label>
+              <button type="button" onClick={() => setPackagingLines((l) => [...l, { variation_id: "", quantity: "" }])}
+                className="text-xs text-amber-500 hover:text-amber-400">+ Add line</button>
             </div>
-            {kegs.length === 0 && (
-              <p className="text-xs text-zinc-600">No kegs in Packaging. Add them in Inventory first.</p>
+            {(showKegDetail ? kegVariations : canVariations).length === 0 && (
+              <p className="text-xs text-zinc-600">
+                No packaging variations declared for this recipe — add one in Recipes → Packaging Variations.
+              </p>
             )}
             <div className="space-y-2">
-              {kegLines.map((line, i) => (
+              {packagingLines.map((line, i) => (
                 <div key={i} className="grid items-center gap-2" style={{ gridTemplateColumns: "1fr 64px auto" }}>
-                  <select className="inp" value={line.packaging_id}
-                    onChange={(e) => setKegLines((ls) => ls.map((l, idx) => idx === i ? { ...l, packaging_id: e.target.value } : l))}>
-                    <option value="">— select keg —</option>
-                    {kegs.map((k) => (
-                      <option key={k.id} value={k.id}>
-                        {pkgLabel(k)}{k.volume_fl_oz ? ` · ${k.volume_fl_oz} fl oz` : ""}
-                        {k.is_default ? " ★" : ""}
-                      </option>
+                  <select className="inp" value={line.variation_id}
+                    onChange={(e) => setPackagingLines((ls) => ls.map((l, idx) => idx === i ? { ...l, variation_id: e.target.value } : l))}>
+                    <option value="">— select variation —</option>
+                    {(showKegDetail ? kegVariations : canVariations).map((v) => (
+                      <option key={v.id} value={v.id}>{v.name}</option>
                     ))}
                   </select>
                   <input type="number" min="0" className="inp" placeholder="qty"
                     value={line.quantity}
-                    onChange={(e) => setKegLines((ls) => ls.map((l, idx) => idx === i ? { ...l, quantity: e.target.value } : l))} />
-                  {kegLines.length > 1
-                    ? <button type="button" onClick={() => setKegLines((ls) => ls.filter((_, idx) => idx !== i))}
+                    onChange={(e) => setPackagingLines((ls) => ls.map((l, idx) => idx === i ? { ...l, quantity: e.target.value } : l))} />
+                  {packagingLines.length > 1
+                    ? <button type="button" onClick={() => setPackagingLines((ls) => ls.filter((_, idx) => idx !== i))}
                         className="text-zinc-600 hover:text-red-400 text-lg leading-none">×</button>
                     : <span />}
                 </div>
               ))}
             </div>
             <p className="text-xs text-zinc-500 mt-2">
-              Total kegs: {kegLines.reduce((s, l) => s + (parseInt(l.quantity) || 0), 0)} · Draw: {fmtBbl(drawBbl)}
-            </p>
-          </div>
-        )}
-
-        {/* ── Can detail ── */}
-        {showCanDetail && (
-          <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Can" required>
-                <select className="inp" value={canId} required onChange={(e) => setCanId(e.target.value)}>
-                  <option value="">— select —</option>
-                  {cans.map((c) => <option key={c.id} value={c.id}>{pkgLabel(c)}{c.volume_fl_oz ? ` · ${c.volume_fl_oz} fl oz` : ""}{c.is_default ? " ★" : ""}</option>)}
-                </select>
-              </Field>
-              <Field label="Lid" required>
-                <select className="inp" value={lidId} required onChange={(e) => setLidId(e.target.value)}>
-                  <option value="">— select —</option>
-                  {lids.map((c) => <option key={c.id} value={c.id}>{pkgLabel(c)}{c.is_default ? " ★" : ""}</option>)}
-                </select>
-              </Field>
-              <Field label="PakTech" required>
-                <select className="inp" value={paktechId} required onChange={(e) => setPaktechId(e.target.value)}>
-                  <option value="">— select —</option>
-                  {paktechs.map((c) => <option key={c.id} value={c.id}>{pkgLabel(c)}{c.can_count ? ` · ${c.can_count}-pk` : ""}{c.is_default ? " ★" : ""}</option>)}
-                </select>
-              </Field>
-              <Field label="Tray / Case Format" required>
-                <select className="inp" value={trayId} required onChange={(e) => setTrayId(e.target.value)}>
-                  <option value="">— select —</option>
-                  {trays.map((c) => <option key={c.id} value={c.id}>{pkgLabel(c)}{c.can_count ? ` · ${c.can_count} cans/case` : ""}{c.is_default ? " ★" : ""}</option>)}
-                </select>
-              </Field>
-              <Field label={canRequiresLabel ? "Label (required — blank can selected)" : "Label"} required={canRequiresLabel}>
-                <select className="inp" value={labelId} required={canRequiresLabel} onChange={(e) => setLabelId(e.target.value)}>
-                  <option value="">— select —</option>
-                  {labels.map((c) => <option key={c.id} value={c.id}>{pkgLabel(c)}{c.is_default ? " ★" : ""}</option>)}
-                </select>
-              </Field>
-            </div>
-            {(cansPerCase > 0 || cansPerPack > 0) && (
-              <div className="grid grid-cols-3 gap-3">
-                <Field label={`Cases (${cansPerCase} cans each)`}>
-                  <input type="number" min="0" className="inp" placeholder="0" value={cases} onChange={(e) => setCases(e.target.value)} />
-                </Field>
-                <Field label={`Packs (${cansPerPack} cans each)`}>
-                  <input type="number" min="0" className="inp" placeholder="0" value={packs} onChange={(e) => setPacks(e.target.value)} />
-                </Field>
-                <Field label="Loose cans">
-                  <input type="number" min="0" className="inp" placeholder="0" value={looseCans} onChange={(e) => setLooseCans(e.target.value)} />
-                </Field>
-              </div>
-            )}
-            <p className="text-xs text-zinc-500">
-              Total cans: {(parseInt(cases) || 0) * cansPerCase + (parseInt(packs) || 0) * cansPerPack + (parseInt(looseCans) || 0)} · Draw: {fmtBbl(drawBbl)}
+              Total: {packagingLines.reduce((s, l) => s + (parseInt(l.quantity) || 0), 0)} · Draw: {fmtBbl(drawBbl)}
             </p>
           </div>
         )}

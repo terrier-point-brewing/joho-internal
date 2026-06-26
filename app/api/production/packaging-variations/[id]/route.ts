@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { PACKAGING_VARIATION_SELECT, validateFormat } from "@/lib/production/packagingVariations";
+import { PACKAGING_VARIATION_SELECT, validateFormat, computeTotalVolumeFlOz } from "@/lib/production/packagingVariations";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +29,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ error: "container_id must reference a packaging_items row of type keg or can" }, { status: 400 });
   }
 
+  const total_volume_fl_oz = await computeTotalVolumeFlOz(supabase, {
+    container_id, format, tray_id: tray_id || null, paktech_id: paktech_id || null,
+  });
+
   const { data, error } = await supabase
     .from("packaging_variations")
     .update({
@@ -41,6 +45,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       partner_id: partner_id || null,
       name,
       is_active: is_active ?? true,
+      total_volume_fl_oz,
     })
     .eq("id", id)
     .select(PACKAGING_VARIATION_SELECT)

@@ -70,17 +70,22 @@ export async function GET() {
       adjByTransfer.set(id, (adjByTransfer.get(id) ?? 0) + Number(a.quantity));
     }
 
-    // Build a map from transfer_id → packaging_item based on kegging_detail/canning_detail.
-    // We don't store the packaging_item_id on batch_transfers, so we use the lot's packaging type
-    // and the default packaging item for that type as a proxy.
-    // A proper schema would FK batch_transfers.packaging_item_id but that's a future enhancement.
+    // Resolve each lot's real packaging item via the variation actually
+    // recorded on its transfer — no more guessing a "default" item per type.
+    const variationIds = [...new Set(typedTransfers.map((t) => t.variation_id).filter((id): id is string => !!id))];
+    const { data: variationRows } = await supabase
+      .from("packaging_variations")
+      .select("id, container_id, container:packaging_items!packaging_variations_container_id_fkey(*)")
+      .in("id", variationIds.length > 0 ? variationIds : ["00000000-0000-0000-0000-000000000000"]);
+    const containerByVariationId = new Map(
+      (variationRows ?? []).map((v) => [v.id, v.container as unknown as PackagingItem])
+    );
+
     const packagingByBatchTransfer = new Map<string, PackagingItem>();
     const lots = coldStorageLots(typedTransfers, typedTanks, typedBatches);
     for (const lot of lots) {
-      // Use the first matching default packaging item for this type as a proxy.
-      const defaultItem = typedPkg.find((p) => p.type === lot.packaging && p.is_default)
-        ?? typedPkg.find((p) => p.type === lot.packaging);
-      if (defaultItem) packagingByBatchTransfer.set(lot.transfer.id, defaultItem);
+      const container = lot.transfer.variation_id ? containerByVariationId.get(lot.transfer.variation_id) : undefined;
+      if (container) packagingByBatchTransfer.set(lot.transfer.id, container);
     }
 
     // Taproom demand: Square order sales (excl. invoices) → BBL/day per recipe.

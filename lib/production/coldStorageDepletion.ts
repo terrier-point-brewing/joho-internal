@@ -2,38 +2,35 @@ import { SupabaseClient } from "@supabase/supabase-js";
 
 interface ColdStorageKey {
   recipeId: string;
-  packagingItemId: string;
-  variantLabel: string;
+  variationId: string;
 }
 
 /**
  * Sums quantity_on_hand across every cold_storage_inventory row matching
- * the given recipe/packaging/variant — the Export Bay's "how much can I
- * ship" check. Callers reject the request themselves (this returns the
- * raw number, not a NextResponse) so both the regular Ship route and the
- * ad-hoc route can phrase their own "requested X, available Y" message.
+ * the given recipe/variation — the Export Bay's "how much can I ship" check.
+ * Callers reject the request themselves (this returns the raw number, not
+ * a NextResponse) so both the regular Ship route and the ad-hoc route can
+ * phrase their own "requested X, available Y" message.
  */
 export async function getAvailableColdStorageQuantity(
   supabase: SupabaseClient,
-  { recipeId, packagingItemId, variantLabel }: ColdStorageKey
+  { recipeId, variationId }: ColdStorageKey
 ): Promise<number> {
   const { data, error } = await supabase
     .from("cold_storage_inventory")
     .select("quantity_on_hand")
     .eq("recipe_id", recipeId)
-    .eq("packaging_item_id", packagingItemId)
-    .eq("variant_label", variantLabel);
+    .eq("variation_id", variationId);
   if (error) throw new Error(error.message);
   return (data ?? []).reduce((s, r) => s + Number(r.quantity_on_hand), 0);
 }
 
 /**
  * Depletes cold_storage_inventory oldest-row-first for the given
- * recipe/packaging/variant, up to `quantity` units total. Deletes a row
- * once it hits ~0, otherwise decrements it. Returns one entry per row
- * touched — since (batch_id, packaging_item_id, variant_label) is unique,
- * each entry already belongs to exactly one batch and needs no further
- * aggregation by the caller.
+ * recipe/variation, up to `quantity` units total. Deletes a row once it
+ * hits ~0, otherwise decrements it. Returns one entry per row touched —
+ * since (batch_id, variation_id) is unique, each entry already belongs to
+ * exactly one batch and needs no further aggregation by the caller.
  *
  * Caller must have already verified `quantity` does not exceed the total
  * available (via getAvailableColdStorageQuantity) — this function does not
@@ -41,14 +38,13 @@ export async function getAvailableColdStorageQuantity(
  */
 export async function depleteColdStorageInventory(
   supabase: SupabaseClient,
-  { recipeId, packagingItemId, variantLabel, quantity }: ColdStorageKey & { quantity: number }
+  { recipeId, variationId, quantity }: ColdStorageKey & { quantity: number }
 ): Promise<{ batchId: string; depletedQty: number }[]> {
   const { data: rows, error } = await supabase
     .from("cold_storage_inventory")
     .select("id, batch_id, quantity_on_hand, created_at")
     .eq("recipe_id", recipeId)
-    .eq("packaging_item_id", packagingItemId)
-    .eq("variant_label", variantLabel)
+    .eq("variation_id", variationId)
     .order("created_at", { ascending: true });
   if (error) throw new Error(error.message);
 

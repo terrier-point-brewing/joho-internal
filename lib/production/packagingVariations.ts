@@ -1,3 +1,5 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
+
 export const PACKAGING_VARIATION_SELECT = `
   *,
   container:packaging_items!packaging_variations_container_id_fkey(id, name, type, volume_fl_oz),
@@ -21,4 +23,21 @@ export function validateFormat(format: string, paktech_id: string | null, tray_i
     return `format "loose" must not have paktech_id or tray_id`;
   }
   return null;
+}
+
+export async function computeTotalVolumeFlOz(
+  supabase: SupabaseClient,
+  { container_id, format, tray_id, paktech_id }: { container_id: string; format: string; tray_id: string | null; paktech_id: string | null }
+): Promise<number> {
+  const { data: container } = await supabase.from("packaging_items").select("volume_fl_oz").eq("id", container_id).single();
+  const containerVolume = container?.volume_fl_oz ?? 0;
+  let unitsPerPackage = 1;
+  if (format === "case" && tray_id) {
+    const { data: tray } = await supabase.from("packaging_items").select("can_count").eq("id", tray_id).single();
+    unitsPerPackage = tray?.can_count ?? 1;
+  } else if ((format === "4-pack" || format === "6-pack") && paktech_id) {
+    const { data: paktech } = await supabase.from("packaging_items").select("can_count").eq("id", paktech_id).single();
+    unitsPerPackage = paktech?.can_count ?? 1;
+  }
+  return containerVolume * unitsPerPackage;
 }
