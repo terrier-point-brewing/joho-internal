@@ -124,12 +124,9 @@ export interface BatchTransfer {
   shrinkage_bbl: number;
   transfer_type: "transfer" | "kegging" | "canning" | "export" | "conversion" | "brewing";
   notes: string | null;
-  kegging_detail: { packaging_id: string; name: string; volume_fl_oz: number | null; quantity: number; variant_label: string } | null;
-  canning_detail: (
-    | { format: "case"; tray_packaging_id: string; can_packaging_id: string; lid_packaging_id: string | null; paktech_packaging_id: string | null; label_packaging_id: string | null; cans_per_case: number; quantity: number; variant_label: string }
-    | { format: "pack"; paktech_packaging_id: string; can_packaging_id: string; lid_packaging_id: string | null; label_packaging_id: string | null; cans_per_pack: number; quantity: number; variant_label: string }
-    | { format: "loose"; can_packaging_id: string; lid_packaging_id: string | null; label_packaging_id: string | null; quantity: number; variant_label: string }
-  ) | null;
+  variation_id: string | null;
+  quantity: number | null;
+  packaging_variations?: { id: string; name: string } | null;
   export_detail: {
     items: { source_transfer_id: string; product_label: string; product_type: "keg" | "can"; quantity: number }[];
   } | null;
@@ -144,8 +141,8 @@ export interface BatchTransfer {
 /** One row per recipe + packaging variant, summed across every batch — the Export Bay's "Available" column. */
 export interface AvailableInventoryLine {
   recipe_id: string;
-  packaging_item_id: string;
-  variant_label: string;
+  variation_id: string;
+  variation_name: string;
   quantity_on_hand: number;
 }
 
@@ -153,8 +150,7 @@ export interface ColdStorageInventory {
   id: string;
   batch_id: string;
   recipe_id: string | null;
-  packaging_item_id: string;
-  variant_label: string;
+  variation_id: string;
   quantity_on_hand: number;
   source_transfer_id: string | null;
   created_at: string;
