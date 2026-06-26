@@ -6,6 +6,8 @@
 -- no cost-calc consumer today and live data is low-stakes (same precedent
 -- Spec 10 set).
 
+truncate table public.commitment_packaging_preferences;
+
 alter table public.commitment_packaging_preferences
   drop column if exists packaging_item_id,
   add column if not exists variation_id uuid references public.packaging_variations(id) on delete restrict;
