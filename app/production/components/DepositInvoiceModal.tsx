@@ -1,7 +1,7 @@
 "use client";
 
 import { Modal } from "./shared";
-import type { DepositCalculation } from "@/lib/square/deposit-invoices";
+import type { DepositCalculation } from "@/lib/square/square-invoices";
 
 /** Minimal shape needed to render the deposit invoice modal — satisfied by
  *  both BatchAllocation (Batch Log) and CommitmentAllocationSummary (Commitments). */

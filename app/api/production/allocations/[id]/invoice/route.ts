@@ -5,11 +5,11 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import {
   calculateIngredientDeposit,
   createDepositInvoice,
-  publishDepositInvoice,
+  publishInvoice,
   reviseDepositInvoice,
-  getDepositInvoiceStatus,
+  getInvoiceStatus,
   getOrderPayment,
-} from "@/lib/square/deposit-invoices";
+} from "@/lib/square/square-invoices";
 
 export const dynamic = "force-dynamic";
 
@@ -186,12 +186,12 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     // Check Square status first — if the invoice is already UNPAID/PAID (e.g. a
     // prior send succeeded but our DB update failed), skip the publish call to
     // avoid a Square error and just record the sent timestamp below.
-    const currentSquareStatus = await getDepositInvoiceStatus(allocation.square_deposit_invoice_id);
+    const currentSquareStatus = await getInvoiceStatus(allocation.square_deposit_invoice_id);
     if (currentSquareStatus.status === "PAID") {
       return NextResponse.json({ error: "Invoice is already paid in Square — use sync to update status" }, { status: 422 });
     }
     if (currentSquareStatus.status === "DRAFT") {
-      await publishDepositInvoice(allocation.square_deposit_invoice_id);
+      await publishInvoice(allocation.square_deposit_invoice_id);
     }
     // If UNPAID/SCHEDULED: already published, just record the timestamp below.
 
@@ -221,7 +221,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: "No invoice to sync" }, { status: 400 });
     }
 
-    const squareStatus = await getDepositInvoiceStatus(allocation.square_deposit_invoice_id);
+    const squareStatus = await getInvoiceStatus(allocation.square_deposit_invoice_id);
 
     const allocationUpdate: Record<string, unknown> = {};
     const invoiceUpdate: Record<string, unknown> = { status: mapSquareStatus(squareStatus.status) };

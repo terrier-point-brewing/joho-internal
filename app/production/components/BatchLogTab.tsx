@@ -11,7 +11,7 @@ import { fmtDateLong, fmtBbl2 } from "@/lib/utils/formatting";
 import { EQ } from "../equipmentMeta";
 import { computeLocationBreakdown } from "../lib/volumeLedger";
 import { fetchJson } from "../hooks/queries";
-import type { DepositCalculation } from "@/lib/square/deposit-invoices";
+import type { DepositCalculation } from "@/lib/square/square-invoices";
 import {
   useBatchesQuery, useRecipesQuery, useTransfersQuery, useContractPartnersQuery,
   useAssignmentsQuery, useEquipmentQuery, useBatchScheduleQuery, productionKeys,

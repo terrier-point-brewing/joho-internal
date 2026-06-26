@@ -34,13 +34,13 @@ export interface PackagingItem {
   type: PackagingItemType;
   name: string;
   is_default: boolean;
+  requires_label: boolean;
   stock_quantity: number;
   unit_cost: number | null;
   volume_fl_oz: number | null;
   can_count: number | null;
   partner_id: string | null;
   supplier_id: string | null;
-  requires_label: boolean;
   /** Joined from contract_brewing_partners */
   contract_brewing_partners?: { company_name: string } | null;
   /** Joined from suppliers */

@@ -14,7 +14,7 @@ import { Modal, Field, ModalActions } from "../shared";
 import { fetchJson, usePackagingQuery } from "../../hooks/queries";
 import { useSort, SortTh } from "@/app/reports/components/SortControls";
 import { DepositInvoiceModal } from "../DepositInvoiceModal";
-import type { DepositCalculation } from "@/lib/square/deposit-invoices";
+import type { DepositCalculation } from "@/lib/square/square-invoices";
 
 const STATUS_META: Record<ContractRequestStatus, { label: string; cls: string }> = {
   open:        { label: "Open",        cls: "bg-amber-900/50 text-amber-400 border-amber-800" },

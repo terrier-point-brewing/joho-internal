@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { createExportInvoice } from "@/lib/square/export-invoices";
+import { createExportInvoice } from "@/lib/square/square-invoices";
 import { syncSquareInvoicesForYear } from "@/lib/finance/syncSquareInvoices";
 import type { InvoiceLineItemDraft } from "@/lib/production/exportInvoicePreview";
 
