@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { Equipment, BrewBatch, PackagingItem, PackagingVariation, Recipe, RecipePackagingVariation, UNCONSTRAINED_EQUIPMENT_TYPES } from "../types";
+import { Equipment, BrewBatch, PackagingVariation, Recipe, RecipePackagingVariation, UNCONSTRAINED_EQUIPMENT_TYPES } from "../types";
 import { Modal, Field, ModalActions } from "./shared";
 import { EQ } from "../equipmentMeta";
 import { fmtBbl2 as fmtBbl } from "@/lib/utils/formatting";
@@ -44,7 +44,6 @@ interface TransferModalProps {
   occupiedTankIds: Set<string>;
   /** recipe_id(s) of whichever batch(es) currently occupy each tank, keyed by tank id */
   occupiedTankRecipeIds?: Record<string, (string | null)[]>;
-  packaging: PackagingItem[];
   recipePackagingVariations: RecipePackagingVariation[];
   recipes: Recipe[];
   /** Ledger volume currently in fromTank; falls back to batch.volume_bbl if omitted */
@@ -61,7 +60,7 @@ interface TransferModalProps {
   onDone: (response?: { schedule_update?: { action: string; was_deviation?: boolean; equipment_name?: string }[] }) => Promise<void>;
 }
 
-export default function TransferModal({ batch, fromTank, allTanks, occupiedTankIds, occupiedTankRecipeIds, packaging: _packaging, recipePackagingVariations, recipes, fromTankVolume, plannedEntry, initialDestId, initialMode, initialConvert, onClose, onDone }: TransferModalProps) {
+export default function TransferModal({ batch, fromTank, allTanks, occupiedTankIds, occupiedTankRecipeIds, recipePackagingVariations, recipes, fromTankVolume, plannedEntry, initialDestId, initialMode, initialConvert, onClose, onDone }: TransferModalProps) {
   const [mode, setMode] = useState<"transfer" | "convert">(initialMode ?? "transfer");
 
   // Same-recipe batches may combine in the same tank — only a DIFFERENT
