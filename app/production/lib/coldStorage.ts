@@ -1,4 +1,4 @@
-import { BatchTransfer, Equipment, BrewBatch, PackagingVariation } from "../types";
+import { BatchTransfer, Equipment, BrewBatch } from "../types";
 
 /** Initial packaged quantity recorded on a kegging/canning transfer. */
 export function transferInitialQty(t: BatchTransfer): { qty: number; unit: "keg" | "can" } {
