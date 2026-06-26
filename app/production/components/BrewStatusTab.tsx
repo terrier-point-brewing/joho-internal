@@ -14,7 +14,7 @@ import { useTankDragDrop } from "../hooks/useTankDragDrop";
 import { useEquipmentCrud } from "../hooks/useEquipmentCrud";
 import { useBatchAssign } from "../hooks/useBatchAssign";
 import {
-  usePackagingQuery, useEquipmentQuery, useAssignmentsQuery, useBatchesQuery,
+  usePackagingQuery, useRecipePackagingVariationsQuery, useEquipmentQuery, useAssignmentsQuery, useBatchesQuery,
   useTransfersQuery, useRecipesQuery, useBatchScheduleQuery, productionKeys,
   type ScheduleEntry,
 } from "../hooks/queries";
@@ -125,12 +125,9 @@ export default function BrewStatusTab() {
     setPkgTransferring((s) => new Set(s).add(batchId));
     try {
       const transfer_type = incoming[0].transfer_type;
-      const kegging_lines = transfer_type === "kegging"
-        ? incoming.filter((tr) => tr.kegging_detail).map((tr) => ({ packaging_id: tr.kegging_detail!.packaging_id, quantity: tr.kegging_detail!.quantity }))
-        : undefined;
-      const canning_lines = transfer_type === "canning"
-        ? incoming.filter((tr) => tr.canning_detail).map((tr) => tr.canning_detail)
-        : undefined;
+      const packaging_lines = incoming
+        .filter((tr) => tr.variation_id && tr.quantity)
+        .map((tr) => ({ variation_id: tr.variation_id!, quantity: tr.quantity! }));
       const res = await fetch("/api/production/transfers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -140,8 +137,7 @@ export default function BrewStatusTab() {
           to_tank_id:    coldStorage.id,
           shrinkage_bbl: 0,
           transfer_type,
-          kegging_lines,
-          canning_lines,
+          packaging_lines,
         }),
       });
       if (!res.ok) throw new Error((await res.json()).error ?? "Error");
@@ -154,6 +150,7 @@ export default function BrewStatusTab() {
   }
   // Shared with the Inventory tab via the query cache (de-duped, no local fetch).
   const { data: packaging = [] } = usePackagingQuery();
+  const { data: recipePackagingVariations = [] } = useRecipePackagingVariationsQuery();
   // Grid size — initialized to defaults to avoid SSR/client hydration mismatch;
   // actual server value is fetched once after mount.
   const [gridCols, setGridCols] = useState(GRID_COLS);
@@ -652,16 +649,12 @@ export default function BrewStatusTab() {
                             <div className="space-y-1.5">
                               {coldXfers.map((tr) => {
                                 const b = batchById[tr.batch_id];
-                                const isKeg = tr.transfer_type === "kegging";
-                                const kd = isKeg ? tr.kegging_detail : null;
-                                const cd = !isKeg ? tr.canning_detail : null;
-                                const cdQty = cd ? cd.quantity * (cd.format === "case" ? cd.cans_per_case : cd.format === "pack" ? cd.cans_per_pack : 1) : null;
                                 return (
                                   <div key={tr.id} className="flex items-baseline justify-between gap-2">
                                     <span className="text-sm text-zinc-300 truncate">{b?.beer_name ?? "—"}</span>
                                     <span className="text-xs text-zinc-500 shrink-0">
-                                      {isKeg && kd != null ? `${kd.quantity} ${kd.name || "keg"}${kd.quantity !== 1 ? "s" : ""}`
-                                        : cdQty != null ? `${cdQty.toLocaleString()} cans`
+                                      {tr.quantity != null && tr.packaging_variations
+                                        ? `${tr.quantity}× ${tr.packaging_variations.name}`
                                         : fmtDate(tr.transferred_at)}
                                     </span>
                                   </div>
@@ -930,21 +923,14 @@ export default function BrewStatusTab() {
                           <div className="space-y-1">
                             {coldTransfers.map((tr) => {
                               const b = batchById[tr.batch_id];
-                              const isKeg = tr.transfer_type === "kegging";
-                              const kegDetail = isKeg ? tr.kegging_detail : null;
-                              const canDetail = !isKeg ? tr.canning_detail : null;
-                              const canQty = canDetail ? canDetail.quantity * (canDetail.format === "case" ? canDetail.cans_per_case : canDetail.format === "pack" ? canDetail.cans_per_pack : 1) : null;
                               return (
                                 <div key={tr.id} className="flex flex-col gap-0 leading-tight">
                                   <div className="flex items-center gap-1 min-w-0">
                                     <span className="text-zinc-300 truncate flex-1 min-w-0 font-medium" style={{ fontSize: 9 }} title={b?.beer_name}>{b?.beer_name ?? "—"}</span>
                                     <span className="text-zinc-600 shrink-0" style={{ fontSize: 8 }}>{fmtDate(tr.transferred_at)}</span>
                                   </div>
-                                  {isKeg && kegDetail != null && (
-                                    <span className="text-zinc-500 pl-1" style={{ fontSize: 8 }}>{kegDetail.quantity}× {kegDetail.name}</span>
-                                  )}
-                                  {!isKeg && canQty != null && (
-                                    <span className="text-zinc-500 pl-1" style={{ fontSize: 8 }}>{canQty} {canDetail!.variant_label}</span>
+                                  {tr.quantity != null && tr.packaging_variations && (
+                                    <span className="text-zinc-500 pl-1" style={{ fontSize: 8 }}>{tr.quantity}× {tr.packaging_variations.name}</span>
                                   )}
                                 </div>
                               );
@@ -1157,8 +1143,6 @@ export default function BrewStatusTab() {
                               <div className="space-y-1.5">
                                 {pkgBatches.map((b) => {
                                   const incoming = incomingByBatch.get(b.id) ?? [];
-                                  const kegLines = incoming.filter((tr) => tr.kegging_detail).map((tr) => tr.kegging_detail!);
-                                  const canLines = incoming.filter((tr) => tr.canning_detail).map((tr) => tr.canning_detail!);
                                   return (
                                     <div key={b.id} className="flex flex-col gap-0.5">
                                       {/* Batch identity */}
@@ -1172,27 +1156,14 @@ export default function BrewStatusTab() {
                                       </div>
 
                                       {/* Packaging output */}
-                                      {kegLines.length > 0 && (
+                                      {incoming.filter((tr) => tr.variation_id && tr.packaging_variations).length > 0 && (
                                         <div className="space-y-px">
-                                          {kegLines.map((k, i) => (
-                                            <div key={i} className="flex items-center gap-1 min-w-0">
-                                              <span className="text-amber-400 font-mono font-semibold shrink-0" style={{ fontSize: 9 }}>{k.quantity}×</span>
-                                              <span className="text-zinc-400 truncate" style={{ fontSize: 9 }} title={k.name}>{k.name}</span>
+                                          {incoming.filter((tr) => tr.variation_id && tr.packaging_variations).map((tr) => (
+                                            <div key={tr.id} className="flex items-center gap-1 min-w-0">
+                                              <span className="text-amber-400 font-mono font-semibold shrink-0" style={{ fontSize: 9 }}>{tr.quantity}×</span>
+                                              <span className="text-zinc-400 truncate" style={{ fontSize: 9 }} title={tr.packaging_variations!.name}>{tr.packaging_variations!.name}</span>
                                             </div>
                                           ))}
-                                        </div>
-                                      )}
-                                      {canLines.length > 0 && (
-                                        <div className="space-y-px">
-                                          {canLines.map((cd, i) => {
-                                            const qty = cd.quantity * (cd.format === "case" ? cd.cans_per_case : cd.format === "pack" ? cd.cans_per_pack : 1);
-                                            return (
-                                              <div key={i} className="flex items-center gap-1 min-w-0">
-                                                <span className="text-amber-400 font-mono font-semibold shrink-0" style={{ fontSize: 9 }}>{qty.toLocaleString()}</span>
-                                                <span className="text-zinc-400 truncate" style={{ fontSize: 9 }}>{cd.variant_label}</span>
-                                              </div>
-                                            );
-                                          })}
                                         </div>
                                       )}
 
@@ -1362,6 +1333,7 @@ export default function BrewStatusTab() {
           occupiedTankIds={new Set(assignments.map((a) => a.tank_id))}
           occupiedTankRecipeIds={occupiedTankRecipeIds}
           packaging={packaging}
+          recipePackagingVariations={recipePackagingVariations}
           recipes={recipes}
           fromTankVolume={transferFromVol}
           plannedEntry={transferPlannedEntry}

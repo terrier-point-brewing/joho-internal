@@ -41,22 +41,11 @@ export default function BrewsSubtab() {
 
     const beerName = batchById[tr.batch_id]?.beer_name ?? "Unknown";
     const adj      = adjByTransfer[tr.id] ?? 0;
-
-    if (tr.transfer_type === "kegging") {
-      const kd = tr.kegging_detail;
-      const net = Math.round((kd?.quantity ?? 0) + adj);
-      if (net > 0) {
-        const key = `${beerName}||${kd?.name || "Kegs"}`;
-        tally.set(key, (tally.get(key) ?? 0) + net);
-      }
-    } else {
-      const cd = tr.canning_detail;
-      const cansPerUnit = cd ? (cd.format === "case" ? cd.cans_per_case : cd.format === "pack" ? cd.cans_per_pack : 1) : 0;
-      const net = (cd ? cd.quantity * cansPerUnit : 0) + adj;
-      if (net > 0) {
-        const key = `${beerName}||Cans`;
-        tally.set(key, (tally.get(key) ?? 0) + net);
-      }
+    const net = Math.round((tr.quantity ?? 0) + adj);
+    if (net > 0) {
+      const packagingName = tr.packaging_variations?.name ?? (tr.transfer_type === "kegging" ? "Kegs" : "Cans");
+      const key = `${beerName}||${packagingName}`;
+      tally.set(key, (tally.get(key) ?? 0) + net);
     }
   }
 
