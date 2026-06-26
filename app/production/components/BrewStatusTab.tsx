@@ -14,7 +14,7 @@ import { useTankDragDrop } from "../hooks/useTankDragDrop";
 import { useEquipmentCrud } from "../hooks/useEquipmentCrud";
 import { useBatchAssign } from "../hooks/useBatchAssign";
 import {
-  usePackagingQuery, useRecipePackagingVariationsQuery, useEquipmentQuery, useAssignmentsQuery, useBatchesQuery,
+  useRecipePackagingVariationsQuery, useEquipmentQuery, useAssignmentsQuery, useBatchesQuery,
   useTransfersQuery, useRecipesQuery, useBatchScheduleQuery, productionKeys,
   type ScheduleEntry,
 } from "../hooks/queries";
@@ -149,7 +149,6 @@ export default function BrewStatusTab() {
     }
   }
   // Shared with the Inventory tab via the query cache (de-duped, no local fetch).
-  const { data: packaging = [] } = usePackagingQuery();
   const { data: recipePackagingVariations = [] } = useRecipePackagingVariationsQuery();
   // Grid size — initialized to defaults to avoid SSR/client hydration mismatch;
   // actual server value is fetched once after mount.
