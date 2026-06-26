@@ -104,8 +104,8 @@ export default function ExportBayTab() {
                 </div>
                 <div className="divide-y divide-zinc-800">
                   {lines.map((l) => (
-                    <div key={`${l.packaging_item_id}|${l.variant_label}`} className="flex items-center justify-between px-3 py-2 text-sm">
-                      <span className="text-zinc-300">{l.variant_label}</span>
+                    <div key={l.variation_id} className="flex items-center justify-between px-3 py-2 text-sm">
+                      <span className="text-zinc-300">{l.variation_name}</span>
                       <span className="text-zinc-400 tabular-nums">{l.quantity_on_hand}</span>
                     </div>
                   ))}
@@ -201,20 +201,11 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
   onClose: () => void;
   onDone: () => void;
 }) {
-  const [packagingItemId, setPackagingItemId] = useState(inventoryLines[0]?.packaging_item_id ?? "");
-  const [variantLabel, setVariantLabel] = useState(inventoryLines[0]?.variant_label ?? "");
+  const [variationId, setVariationId] = useState(inventoryLines[0]?.variation_id ?? "");
   const [quantity, setQuantity] = useState("");
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  function handleSelectLine(key: string) {
-    const line = inventoryLines.find((l) => `${l.packaging_item_id}|${l.variant_label}` === key);
-    if (line) {
-      setPackagingItemId(line.packaging_item_id);
-      setVariantLabel(line.variant_label);
-    }
-  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -227,8 +218,7 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
         body: JSON.stringify({
           partner_id: group.partnerId,
           recipe_id: group.recipeId,
-          packaging_item_id: packagingItemId,
-          variant_label: variantLabel,
+          variation_id: variationId,
           quantity: parseFloat(quantity),
           notes: notes || null,
         }),
@@ -249,14 +239,10 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
         <form onSubmit={handleSubmit} className="space-y-3">
           <div>
             <label className="text-xs text-zinc-400 block mb-1">Packaging</label>
-            <select
-              className="inp w-full"
-              value={`${packagingItemId}|${variantLabel}`}
-              onChange={(e) => handleSelectLine(e.target.value)}
-            >
+            <select className="inp w-full" value={variationId} onChange={(e) => setVariationId(e.target.value)}>
               {inventoryLines.map((l) => (
-                <option key={`${l.packaging_item_id}|${l.variant_label}`} value={`${l.packaging_item_id}|${l.variant_label}`}>
-                  {l.variant_label} ({l.quantity_on_hand} available)
+                <option key={l.variation_id} value={l.variation_id}>
+                  {l.variation_name} ({l.quantity_on_hand} available)
                 </option>
               ))}
             </select>
@@ -296,8 +282,7 @@ function AdHocExportModal({ inventoryByRecipe, recipeNameById, onClose, onDone }
   const [recipientName, setRecipientName] = useState("");
   const [recipeId, setRecipeId] = useState(recipeIds[0] ?? "");
   const linesForRecipe = inventoryByRecipe.get(recipeId) ?? [];
-  const [packagingItemId, setPackagingItemId] = useState(linesForRecipe[0]?.packaging_item_id ?? "");
-  const [variantLabel, setVariantLabel] = useState(linesForRecipe[0]?.variant_label ?? "");
+  const [variationId, setVariationId] = useState(linesForRecipe[0]?.variation_id ?? "");
   const [quantity, setQuantity] = useState("");
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -306,16 +291,7 @@ function AdHocExportModal({ inventoryByRecipe, recipeNameById, onClose, onDone }
   function handleSelectRecipe(id: string) {
     setRecipeId(id);
     const lines = inventoryByRecipe.get(id) ?? [];
-    setPackagingItemId(lines[0]?.packaging_item_id ?? "");
-    setVariantLabel(lines[0]?.variant_label ?? "");
-  }
-
-  function handleSelectLine(key: string) {
-    const line = linesForRecipe.find((l) => `${l.packaging_item_id}|${l.variant_label}` === key);
-    if (line) {
-      setPackagingItemId(line.packaging_item_id);
-      setVariantLabel(line.variant_label);
-    }
+    setVariationId(lines[0]?.variation_id ?? "");
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -348,8 +324,7 @@ function AdHocExportModal({ inventoryByRecipe, recipeNameById, onClose, onDone }
           partner_id: channel === "taproom" ? null : partnerId,
           recipient_name: channel === "taproom" ? (recipientName || null) : null,
           recipe_id: recipeId,
-          packaging_item_id: packagingItemId,
-          variant_label: variantLabel,
+          variation_id: variationId,
           quantity: parseFloat(quantity),
           notes: notes || null,
         }),
@@ -403,14 +378,10 @@ function AdHocExportModal({ inventoryByRecipe, recipeNameById, onClose, onDone }
           </div>
           <div>
             <label className="text-xs text-zinc-400 block mb-1">Packaging</label>
-            <select
-              className="inp w-full"
-              value={`${packagingItemId}|${variantLabel}`}
-              onChange={(e) => handleSelectLine(e.target.value)}
-            >
+            <select className="inp w-full" value={variationId} onChange={(e) => setVariationId(e.target.value)}>
               {linesForRecipe.map((l) => (
-                <option key={`${l.packaging_item_id}|${l.variant_label}`} value={`${l.packaging_item_id}|${l.variant_label}`}>
-                  {l.variant_label} ({l.quantity_on_hand} available)
+                <option key={l.variation_id} value={l.variation_id}>
+                  {l.variation_name} ({l.quantity_on_hand} available)
                 </option>
               ))}
             </select>
