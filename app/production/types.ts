@@ -60,6 +60,7 @@ export interface PackagingVariation {
   label_id: string | null;
   partner_id: string | null;
   name: string;
+  total_volume_fl_oz: number;
   is_active: boolean;
   created_at: string;
   /** Joined */
