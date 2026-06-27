@@ -116,6 +116,9 @@ export async function POST(req: NextRequest) {
     if (!invoiceId) {
       return NextResponse.json({ error: "No invoice has been generated yet — run generate first" }, { status: 400 });
     }
+    if (txs.some((t) => t.square_invoice_id !== invoiceId)) {
+      return NextResponse.json({ error: "Selected transactions belong to different invoices" }, { status: 400 });
+    }
     if (txs.some((t) => t.status !== "invoice_required")) {
       return NextResponse.json({ error: "These transactions have already been sent or paid" }, { status: 400 });
     }
@@ -148,6 +151,9 @@ export async function POST(req: NextRequest) {
     const invoiceId = txs[0].square_invoice_id;
     if (!invoiceId) {
       return NextResponse.json({ error: "No invoice to sync" }, { status: 400 });
+    }
+    if (txs.some((t) => t.square_invoice_id !== invoiceId)) {
+      return NextResponse.json({ error: "Selected transactions belong to different invoices" }, { status: 400 });
     }
 
     const squareStatus = await getInvoiceStatus(invoiceId);
