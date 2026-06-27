@@ -3,7 +3,6 @@ export type BatchStatus =
   | "brewing"
   | "fermenting"
   | "conditioning"
-  | "packaging"
   | "complete";
 
 export type AdjustmentType = "received" | "used" | "waste" | "inventory_count" | "batch_use";
@@ -16,15 +15,13 @@ export type EquipmentType =
 // Types that have no capacity constraint and don't hold a single batch
 export const UNCONSTRAINED_EQUIPMENT_TYPES: EquipmentType[] = ["kegging", "canning", "cold_storage", "backlog", "loading_bay", "export_bay"];
 
-// Map equipment type to the batch status it implies. cold_storage has no
-// entry — arrival in cold storage no longer changes batch status; only a
-// full export (see lib/production/batchCompletion.ts) transitions to "complete".
+// Map equipment type to the batch status it implies. Kegging/canning and
+// cold_storage have no entry — arriving there no longer changes batch status;
+// only a full export (see lib/production/batchCompletion.ts) transitions to "complete".
 export const EQUIPMENT_TYPE_TO_STATUS: Partial<Record<EquipmentType, BatchStatus>> = {
   brewhouse:    "brewing",
   fermenter:    "fermenting",
   brite:        "conditioning",
-  kegging:      "packaging",
-  canning:      "packaging",
 };
 
 export type PackagingItemType = "keg" | "can" | "lid" | "paktech" | "tray" | "label";
@@ -157,7 +154,7 @@ export interface ColdStorageInventory {
   updated_at: string;
 }
 
-export type ExportChannel = "taproom" | "distribution" | "contract_brewing";
+export type ExportChannel = "taproom" | "distribution" | "contract_brewing" | "wholesale";
 export type ExportTransactionStatus = "invoice_required" | "unpaid" | "paid";
 
 export interface ExportTransaction {
@@ -284,6 +281,8 @@ export interface RecipeSquareLink {
   id: string;
   recipe_id: string;
   packaging: Packaging;
+  packaging_item_id: string | null;
+  packaging_format: string | null;
   square_variation_id: string;
   square_item_id: string | null;
   created_at: string;
@@ -295,7 +294,7 @@ export type AllocationRecurrence = "weekly" | "biweekly" | "monthly";
 export type AllocationStatus = "active" | "paused" | "fulfilled" | "cancelled";
 
 export type ContractRequestStatus = "open" | "in_progress" | "fulfilled" | "cancelled";
-export type CommitmentChannel = "distribution" | "contract_brewing";
+export type CommitmentChannel = "distribution" | "contract_brewing" | "wholesale";
 
 export interface CommitmentPackagingPreference {
   id: string;
@@ -311,13 +310,16 @@ export interface CommitmentAllocationSummary {
   id: string;
   batch_id: string;
   percentage: number;
-  locked: boolean;
-  lock_reason: AllocationLockReason | null;
+  square_deposit_invoice_id?: string | null;
   invoice_generated_at: string | null;
   invoice_sent_at: string | null;
   invoice_paid_at: string | null;
+  /** Human-readable invoice number (e.g. "000003") from the linked invoices row; null if not yet synced. */
+  deposit_invoice_number: string | null;
   brew_batches?: { id: string; beer_name: string; batch_number: number; volume_bbl: number } | null;
   contract_brewing_partners?: { id: string; company_name: string } | null;
+  /** Requested barrelage from the linked commitment — used to explain how % was derived. */
+  commitments?: { volume_bbl: number } | null;
 }
 
 export interface Commitment {
@@ -367,8 +369,22 @@ export interface BatchStatusHistory {
 }
 
 
-export type AllocationChannel = "taproom" | "distribution" | "contract_brewing" | "safety_stock" | "conversion";
-export type AllocationLockReason = "deposit_paid" | "contract_signed";
+export type AllocationChannel = "taproom" | "distribution" | "contract_brewing" | "wholesale" | "safety_stock";
+
+export interface BatchConversion {
+  id:                  string;
+  source_batch_id:     string;
+  target_batch_id:     string;
+  source_equipment_id: string | null;
+  volume_bbl:          number;
+  planned_date:        string | null;
+  converted_at:        string | null;
+  notes:               string | null;
+  created_at:          string;
+  // joined
+  target_batch?:  { id: string; beer_name: string; batch_number: string | null };
+  source_batch?:  { id: string; beer_name: string; batch_number: string | null };
+}
 
 export interface BatchAllocation {
   id: string;
@@ -378,19 +394,16 @@ export interface BatchAllocation {
   partner_id: string | null;
   label: string | null;
   percentage: number;
-  locked: boolean;
-  lock_reason: AllocationLockReason | null;
-  locked_at: string | null;
   notes: string | null;
   created_at: string;
-  /** For channel="conversion": which recipe this slice is earmarked to convert into. */
-  conversion_target_recipe_id: string | null;
   // ── Deposit invoice tracking ─────────────────────────────────────────────
   square_deposit_invoice_id: string | null;
   square_deposit_order_id: string | null;
   invoice_generated_at: string | null;
   invoice_sent_at: string | null;
   invoice_paid_at: string | null;
+  /** Human-readable invoice number (e.g. "000019") from the linked invoices row; null if not yet synced. */
+  deposit_invoice_number: string | null;
   // ── Refund tracking ──────────────────────────────────────────────────────
   square_payment_id: string | null;
   deposit_amount_paid_cents: number | null;
@@ -401,7 +414,6 @@ export interface BatchAllocation {
   brew_batches?: { id: string; beer_name: string; batch_number: number; volume_bbl: number; recipe_id: string | null } | null;
   contract_brewing_partners?: { id: string; company_name: string } | null;
   commitments?: { id: string; beer_style: string; volume_bbl: number; received_on: string | null; created_at: string; desired_delivery_date: string | null } | null;
-  conversion_target_recipe?: { id: string; beer_name: string } | null;
   // Computed fulfillment fields (returned by API)
   produced_bbl: number | null;
   allocated_bbl: number | null;
@@ -526,7 +538,7 @@ export interface BatchTankAssignment {
   brew_batches?: Pick<BrewBatch, "id" | "beer_name" | "batch_number" | "status" | "volume_bbl">;
 }
 
-export type ServiceType = "packaging_fee" | "keg_cleaning" | "forklift" | "bulk_discount" | "ingredient_deposit";
+export type ServiceType = "packaging_fee" | "keg_cleaning" | "forklift" | "bulk_discount" | "ingredient_deposit" | "distribution_discount" | "wholesale_discount";
 
 export interface ExciseTaxRate {
   id: string;
@@ -546,6 +558,7 @@ export interface ExportServiceMapping {
   service_type: ServiceType;
   partner_id: string | null;
   packaging_item_id: string | null;
+  packaging_format: "case" | "loose" | null;
   square_catalog_item_id: string | null;
   square_catalog_variation_id: string | null;
   square_catalog_discount_id: string | null;
