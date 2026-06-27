@@ -50,6 +50,7 @@ export const queryKeys = {
     exportServiceMappings: () => ["production", "export-service-mappings"] as const,
     exportSquareCatalog:   () => ["production", "export-square-catalog"] as const,
     exportInvoiceDueDays:  () => ["production", "export-invoice-due-days"] as const,
+    depositInvoiceDueDays: () => ["production", "deposit-invoice-due-days"] as const,
   },
 
   // ─── Partners ─────────────────────────────────────────────────────────────

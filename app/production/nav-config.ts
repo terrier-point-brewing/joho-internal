@@ -7,6 +7,7 @@ export const PRODUCTION_NAV: NavEntry[] = [
   { href: "/production/recipes",   label: "Recipes"   },
   { href: "/production/inventory", label: "Inventory" },
   { href: "/production/partners",  label: "Partners"  },
+  { href: "/production/settings",  label: "Settings"  },
 ];
 
 export const BREWING_NAV: NavEntry[] = [
@@ -20,4 +21,9 @@ export const BREWING_NAV: NavEntry[] = [
 export const RECIPES_NAV: NavEntry[] = [
   { href: "/production/recipes",                     label: "Recipes"             },
   { href: "/production/recipes/brew-step-templates", label: "Brew Step Templates" },
+];
+
+export const SETTINGS_NAV: NavEntry[] = [
+  { href: "/production/settings/deposits", label: "Deposit Settings" },
+  { href: "/production/settings/export",   label: "Export Settings" },
 ];
