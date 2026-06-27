@@ -65,35 +65,6 @@ export const buildStandalonePriceMap = memoizeByRef((items: CatalogItem[]): Map<
   return map;
 });
 
-// In-process cache for the Ingredient Deposit catalog variation ID.
-// Avoids a catalog fetch on every invoice generation while still recovering
-// automatically if the cache is cold (new process / cold start).
-let _depositVariationId: string | null | undefined = undefined;
-
-/**
- * Returns the Square catalog variation ID for the "Ingredient Deposit" item.
- * Checks SQUARE_INGREDIENT_DEPOSIT_VARIATION_ID env var first; falls back to
- * a case-insensitive catalog name search and caches the result in-process.
- */
-export async function findIngredientDepositVariationId(): Promise<string | null> {
-  const envId = process.env.SQUARE_INGREDIENT_DEPOSIT_VARIATION_ID;
-  if (envId) return envId;
-
-  if (_depositVariationId !== undefined) return _depositVariationId;
-
-  const items = await fetchCatalogItems();
-  const match = items.find((item) =>
-    item.item_data.name.toLowerCase().includes("ingredient deposit")
-  );
-
-  _depositVariationId =
-    match && match.item_data.variations.length > 0
-      ? match.item_data.variations[0].id
-      : null;
-
-  return _depositVariationId;
-}
-
 // Variation name lookup: variation_id → { itemName, variationName, itemId }
 export const buildVariationNameMap = memoizeByRef(
   (items: CatalogItem[]): Map<string, { itemName: string; variationName: string; itemId: string }> => {
