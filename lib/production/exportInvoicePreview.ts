@@ -36,10 +36,53 @@ interface ExportTxRow {
 
 const DEFAULT_DUE_DAYS = 30;
 
+async function buildExciseTaxLines(
+  supabase: SupabaseClient,
+  transactionIds: string[],
+  rows: ExportTxRow[]
+): Promise<InvoiceLineItemDraft[]> {
+  const { data: taxRows } = await supabase
+    .from("export_transaction_taxes")
+    .select("export_transaction_id, amount_usd, excise_tax_rate_id")
+    .in("export_transaction_id", transactionIds);
+
+  if (!taxRows || taxRows.length === 0) return [];
+
+  const rateIds = [...new Set(taxRows.map((t) => t.excise_tax_rate_id).filter((id): id is string => !!id))];
+  const { data: rates } = await supabase
+    .from("excise_tax_rates")
+    .select("id, receiving_party, unit, square_catalog_variation_id")
+    .in("id", rateIds);
+  const rateById = new Map((rates ?? []).map((r) => [r.id, r]));
+  const volumeByTx = new Map(rows.map((r) => [r.id, r.volume_bbl]));
+
+  const byParty = new Map<string, { amountCents: number; units: number; unit: "bbl" | "gallon"; variationId: string | null }>();
+  for (const t of taxRows) {
+    const rate = t.excise_tax_rate_id ? rateById.get(t.excise_tax_rate_id) : undefined;
+    const party = rate?.receiving_party ?? "Unknown";
+    const volumeBbl = volumeByTx.get(t.export_transaction_id) ?? 0;
+    const unit = (rate?.unit ?? "bbl") as "bbl" | "gallon";
+    const units = unit === "bbl" ? volumeBbl : volumeBbl * GALLONS_PER_BBL;
+    const entry = byParty.get(party) ?? { amountCents: 0, units: 0, unit, variationId: rate?.square_catalog_variation_id ?? null };
+    entry.amountCents += Math.round(t.amount_usd * 100);
+    entry.units += units;
+    byParty.set(party, entry);
+  }
+
+  return [...byParty.entries()].map(([party, entry]) => ({
+    id: crypto.randomUUID(),
+    description: `Excise Tax — ${party} (${entry.units.toFixed(2)} ${entry.unit}${entry.units !== 1 ? "s" : ""})`,
+    quantity: 1,
+    unitPriceCents: entry.amountCents,
+    squareCatalogVariationId: entry.variationId,
+  }));
+}
+
 async function buildProductLines(
   supabase: SupabaseClient,
   rows: ExportTxRow[],
-  priceByVariationId: Map<string, number>
+  priceByVariationId: Map<string, number>,
+  pkgNameById: Map<string, string>
 ): Promise<InvoiceLineItemDraft[]> {
   const recipeIds = [...new Set(rows.map((r) => r.recipe_id).filter((id): id is string => !!id))];
   const packagingItemIds = [...new Set(rows.map((r) => r.packaging_item_id))];
@@ -68,8 +111,7 @@ async function buildProductLines(
     const key = `${tx.recipe_id}|${tx.packaging_item_id}|${fmt}`;
     const link = linkMap.get(key);
     if (!link?.square_variation_id) {
-      // Attempt to get a human-readable packaging name from whatever partial link data we have
-      const pkgName = (link as { packaging_item_id?: string } | undefined)?.packaging_item_id ?? tx.packaging_item_id;
+      const pkgName = pkgNameById.get(tx.packaging_item_id) ?? tx.packaging_item_id;
       throw new Error(
         `No Square product link found for recipe + "${pkgName}" (format: ${fmt || "none"}) — ` +
         `go to Production → Link Styles to Square and add this mapping before generating a Distribution or Wholesale invoice.`
@@ -250,43 +292,7 @@ export async function buildInvoicePreview(
     }
 
     // ── 5b. Excise Tax — one line per receiving_party, rolled up ─────────────
-    const { data: taxRows } = await supabase
-      .from("export_transaction_taxes")
-      .select("export_transaction_id, amount_usd, excise_tax_rate_id")
-      .in("export_transaction_id", transactionIds);
-
-    if (taxRows && taxRows.length > 0) {
-      const rateIds = [...new Set(taxRows.map((t) => t.excise_tax_rate_id).filter((id): id is string => !!id))];
-      const { data: rates } = await supabase
-        .from("excise_tax_rates")
-        .select("id, receiving_party, unit, square_catalog_variation_id")
-        .in("id", rateIds);
-      const rateById = new Map((rates ?? []).map((r) => [r.id, r]));
-      const volumeByTx = new Map(rows.map((r) => [r.id, r.volume_bbl]));
-
-      const byParty = new Map<string, { amountCents: number; units: number; unit: "bbl" | "gallon"; variationId: string | null }>();
-      for (const t of taxRows) {
-        const rate = t.excise_tax_rate_id ? rateById.get(t.excise_tax_rate_id) : undefined;
-        const party = rate?.receiving_party ?? "Unknown";
-        const volumeBbl = volumeByTx.get(t.export_transaction_id) ?? 0;
-        const unit = (rate?.unit ?? "bbl") as "bbl" | "gallon";
-        const units = unit === "bbl" ? volumeBbl : volumeBbl * GALLONS_PER_BBL;
-        const entry = byParty.get(party) ?? { amountCents: 0, units: 0, unit, variationId: rate?.square_catalog_variation_id ?? null };
-        entry.amountCents += Math.round(t.amount_usd * 100);
-        entry.units += units;
-        byParty.set(party, entry);
-      }
-
-      for (const [party, entry] of byParty) {
-        lineItems.push({
-          id: crypto.randomUUID(),
-          description: `Excise Tax — ${party} (${entry.units.toFixed(2)} ${entry.unit}${entry.units !== 1 ? "s" : ""})`,
-          quantity: 1,
-          unitPriceCents: entry.amountCents,
-          squareCatalogVariationId: entry.variationId,
-        });
-      }
-    }
+    lineItems.push(...await buildExciseTaxLines(supabase, transactionIds, rows));
 
     // ── 5c. Keg Cleaning — one line, qty = count of keg-type fee transactions ─
     if (kegFeeTransactionIds.size > 0) {
@@ -318,7 +324,7 @@ export async function buildInvoicePreview(
 
   } else if (channel === "distribution" || channel === "wholesale") {
     // ── Product lines (from recipe_square_links) ──────────────────────────────
-    const productLines = await buildProductLines(supabase, rows, priceByVariationId);
+    const productLines = await buildProductLines(supabase, rows, priceByVariationId, pkgNameById);
 
     // Apply channel-appropriate discount to all product lines (optional — no error if missing)
     const discountServiceType = channel === "distribution" ? "distribution_discount" : "wholesale_discount";
@@ -331,44 +337,7 @@ export async function buildInvoicePreview(
 
     // ── Excise Tax (distribution only, no excise for wholesale) ──────────────
     if (channel === "distribution") {
-      const { data: taxRows } = await supabase
-        .from("export_transaction_taxes")
-        .select("export_transaction_id, amount_usd, excise_tax_rate_id")
-        .in("export_transaction_id", transactionIds);
-
-      if (taxRows && taxRows.length > 0) {
-        const rateIds = [...new Set(taxRows.map((t) => t.excise_tax_rate_id).filter((id): id is string => !!id))];
-        const { data: rates } = await supabase
-          .from("excise_tax_rates")
-          .select("id, receiving_party, unit, square_catalog_variation_id")
-          .in("id", rateIds);
-        const rateById = new Map((rates ?? []).map((r) => [r.id, r]));
-        const volumeByTx = new Map(rows.map((r) => [r.id, r.volume_bbl]));
-
-        const byParty = new Map<string, { amountCents: number; units: number; unit: "bbl" | "gallon"; variationId: string | null }>();
-        for (const t of taxRows) {
-          const rate = t.excise_tax_rate_id ? rateById.get(t.excise_tax_rate_id) : undefined;
-          const party = rate?.receiving_party ?? "Unknown";
-          const volumeBbl = volumeByTx.get(t.export_transaction_id) ?? 0;
-          const unit = (rate?.unit ?? "bbl") as "bbl" | "gallon";
-          const units = unit === "bbl" ? volumeBbl : volumeBbl * GALLONS_PER_BBL;
-          const entry = byParty.get(party) ?? { amountCents: 0, units: 0, unit, variationId: rate?.square_catalog_variation_id ?? null };
-          entry.amountCents += Math.round(t.amount_usd * 100);
-          entry.units += units;
-          byParty.set(party, entry);
-        }
-
-        for (const [party, entry] of byParty) {
-          lineItems.push({
-            id: crypto.randomUUID(),
-            description: `Excise Tax — ${party} (${entry.units.toFixed(2)} ${entry.unit}${entry.units !== 1 ? "s" : ""})`,
-            quantity: 1,
-            unitPriceCents: entry.amountCents,
-            squareCatalogVariationId: entry.variationId,
-            // No discount on excise tax lines
-          });
-        }
-      }
+      lineItems.push(...await buildExciseTaxLines(supabase, transactionIds, rows));
     }
 
   } else {
