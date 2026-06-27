@@ -300,10 +300,10 @@ export type CommitmentChannel = "distribution" | "contract_brewing";
 export interface CommitmentPackagingPreference {
   id: string;
   commitment_id: string;
-  packaging_item_id: string;
+  variation_id: string;
   qty: number;
   created_at: string;
-  packaging_items?: { id: string; name: string; volume_fl_oz: number | null } | null;
+  packaging_variations?: PackagingVariation | null;
 }
 
 /** Slice of a batch_allocation surfaced on the Commitments view for invoicing. */

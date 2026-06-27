@@ -1,17 +1,17 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import {
   Recipe, ContractBrewingPartner, ContractBrewingRequest,
   ContractRequestStatus, CommitmentChannel, CommitmentAllocationSummary,
-  AllocationLockReason,
+  AllocationLockReason, PackagingVariation,
 } from "../../types";
 import { fmtDateLong } from "@/lib/utils/formatting";
 import { BBL_TO_FL_OZ } from "@/lib/constants/production";
 import { Modal, Field, ModalActions } from "../shared";
-import { fetchJson, usePackagingQuery } from "../../hooks/queries";
+import { fetchJson, useRecipePackagingVariationsQuery } from "../../hooks/queries";
 import { useSort, SortTh } from "@/app/reports/components/SortControls";
 import { DepositInvoiceModal } from "../DepositInvoiceModal";
 import type { DepositCalculation } from "@/lib/square/square-invoices";
@@ -132,7 +132,7 @@ function InvoicingCell({
 // ─── Form state ──────────────────────────────────────────────────────────────
 
 interface PackagingRow {
-  packaging_item_id: string;
+  variation_id: string;
   qty: string;
 }
 
@@ -153,7 +153,7 @@ interface FormState {
   locked_on: string;
 }
 
-const EMPTY_PACKAGING_ROW: PackagingRow = { packaging_item_id: "", qty: "" };
+const EMPTY_PACKAGING_ROW: PackagingRow = { variation_id: "", qty: "" };
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
@@ -179,7 +179,7 @@ function CommitmentModal({
   onDone: () => void;
 }) {
   const isEdit = !!existing;
-  const { data: packaging = [] } = usePackagingQuery();
+  const { data: recipePackagingVariations = [] } = useRecipePackagingVariationsQuery();
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState<FormState>(existing ? {
     channel: existing.channel,
@@ -192,7 +192,7 @@ function CommitmentModal({
     start_date: existing.start_date ?? "",
     end_date: existing.end_date ?? "",
     packaging: existing.packaging_preferences && existing.packaging_preferences.length > 0
-      ? existing.packaging_preferences.map((p) => ({ packaging_item_id: p.packaging_item_id, qty: String(p.qty) }))
+      ? existing.packaging_preferences.map((p) => ({ variation_id: p.variation_id, qty: String(p.qty) }))
       : [{ ...EMPTY_PACKAGING_ROW }],
     status: existing.status,
     notes: existing.notes ?? "",
@@ -201,8 +201,25 @@ function CommitmentModal({
   } : FORM_EMPTY);
   const set = (k: keyof FormState, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
-  const kegs = packaging.filter((p) => p.type === "keg");
-  const cans = packaging.filter((p) => p.type === "can");
+  const recipeVariations = recipePackagingVariations
+    .filter((rv) => rv.recipe_id === form.recipe_id)
+    .map((rv) => rv.packaging_variations)
+    .filter((v): v is PackagingVariation => v != null && v.is_active);
+  const kegs = recipeVariations.filter((v) => v.container?.type === "keg");
+  const cans = recipeVariations.filter((v) => v.container?.type === "can");
+
+  useEffect(() => {
+    const validIds = new Set(recipeVariations.map((v) => v.id));
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- clears stale variation picks when the recipe (and its declared-variation set) changes.
+    setForm((f) => {
+      const next = f.packaging.map((row) =>
+        row.variation_id && !validIds.has(row.variation_id) ? { ...row, variation_id: "" } : row
+      );
+      return next.some((row, i) => row.variation_id !== f.packaging[i].variation_id) ? { ...f, packaging: next } : f;
+    });
+    // Only re-run when the recipe (and therefore the declared-variation set) changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.recipe_id]);
 
   const isDistribution = form.channel === "distribution";
   const isRecurring = isDistribution && form.cadence === "recurring";
@@ -218,10 +235,10 @@ function CommitmentModal({
   }
 
   function rowBbl(row: PackagingRow): number | null {
-    const item = packaging.find((p) => p.id === row.packaging_item_id);
+    const variation = recipeVariations.find((v) => v.id === row.variation_id);
     const qty = parseFloat(row.qty);
-    if (!item?.volume_fl_oz || !qty) return null;
-    return (qty * item.volume_fl_oz) / BBL_TO_FL_OZ;
+    if (!variation?.total_volume_fl_oz || !qty) return null;
+    return (qty * variation.total_volume_fl_oz) / BBL_TO_FL_OZ;
   }
   const totalPackagingBbl = form.packaging.reduce((sum, r) => sum + (rowBbl(r) ?? 0), 0);
 
@@ -232,8 +249,8 @@ function CommitmentModal({
     try {
       const beer_style = recipes.find((r) => r.id === form.recipe_id)?.beer_name ?? "";
       const packagingPayload = form.packaging
-        .filter((r) => r.packaging_item_id && r.qty)
-        .map((r) => ({ packaging_item_id: r.packaging_item_id, qty: parseFloat(r.qty) }));
+        .filter((r) => r.variation_id && r.qty)
+        .map((r) => ({ variation_id: r.variation_id, qty: parseFloat(r.qty) }));
       const body = {
         channel: form.channel,
         recipe_id: form.recipe_id,
@@ -353,16 +370,16 @@ function CommitmentModal({
               const bbl = rowBbl(row);
               return (
                 <div key={i} className="grid grid-cols-[1fr_120px_80px_24px] gap-2 items-center">
-                  <select className="inp" value={row.packaging_item_id} onChange={(e) => setPackagingRow(i, { packaging_item_id: e.target.value })}>
+                  <select className="inp" value={row.variation_id} onChange={(e) => setPackagingRow(i, { variation_id: e.target.value })}>
                     <option value="">— not specified —</option>
                     {kegs.length > 0 && (
                       <optgroup label="Kegs">
-                        {kegs.map((p) => <option key={p.id} value={p.id}>{p.name}{p.volume_fl_oz ? ` (${p.volume_fl_oz} fl oz)` : ""}</option>)}
+                        {kegs.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
                       </optgroup>
                     )}
                     {cans.length > 0 && (
                       <optgroup label="Cans">
-                        {cans.map((p) => <option key={p.id} value={p.id}>{p.name}{p.volume_fl_oz ? ` (${p.volume_fl_oz} fl oz)` : ""}</option>)}
+                        {cans.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
                       </optgroup>
                     )}
                   </select>
@@ -420,7 +437,7 @@ interface SortableRow extends ContractBrewingRequest {
 
 function packagingTotalBbl(q: ContractBrewingRequest): number {
   return (q.packaging_preferences ?? []).reduce((sum, p) => {
-    const flOz = p.packaging_items?.volume_fl_oz;
+    const flOz = p.packaging_variations?.total_volume_fl_oz;
     if (!flOz) return sum;
     return sum + (p.qty * flOz) / BBL_TO_FL_OZ;
   }, 0);
@@ -535,7 +552,7 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
     return (
       <div className="space-y-0.5">
         {prefs.map((p) => (
-          <div key={p.id}>{p.qty} × {p.packaging_items?.name ?? "—"}</div>
+          <div key={p.id}>{p.qty} × {p.packaging_variations?.name ?? "—"}</div>
         ))}
         {total > 0 && <div className="text-zinc-600">{total.toFixed(2)} BBL total</div>}
       </div>
