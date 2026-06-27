@@ -19,6 +19,12 @@ interface CustomerRecipeGroup {
   allocations: BatchAllocation[];
 }
 
+interface RecipeAllocationGroup {
+  recipeId: string;
+  recipeName: string;
+  partnerGroups: CustomerRecipeGroup[];
+}
+
 export default function ExportBayTab() {
   const qc = useQueryClient();
   const { data: inventory = [], isLoading: inventoryLoading } = useQuery({
@@ -64,6 +70,18 @@ export default function ExportBayTab() {
     }
   }
 
+  // Nest the partner groups underneath their recipe, so every allocation for
+  // a given recipe (across all partners) shows together in one card.
+  const recipeGroups = new Map<string, RecipeAllocationGroup>();
+  for (const g of groups.values()) {
+    const existing = recipeGroups.get(g.recipeId);
+    if (existing) {
+      existing.partnerGroups.push(g);
+    } else {
+      recipeGroups.set(g.recipeId, { recipeId: g.recipeId, recipeName: g.recipeName, partnerGroups: [g] });
+    }
+  }
+
   // Group inventory by recipe.
   const inventoryByRecipe = new Map<string, AvailableInventoryLine[]>();
   for (const line of inventory) {
@@ -72,17 +90,51 @@ export default function ExportBayTab() {
     inventoryByRecipe.set(line.recipe_id, list);
   }
 
+  // Unified, sorted recipe list — union of inventory and allocation recipe IDs.
+  // Sort by urgency: earliest unfulfilled due date first; no-due-date after; inventory-only last.
+  function earliestDueDate(recipeId: string): string | null {
+    const rg = recipeGroups.get(recipeId);
+    if (!rg) return null;
+    let earliest: string | null = null;
+    for (const pg of rg.partnerGroups) {
+      for (const a of pg.allocations) {
+        if (a.fulfilled) continue;
+        const d = a.commitments?.desired_delivery_date ?? null;
+        if (d && (!earliest || d < earliest)) earliest = d;
+      }
+    }
+    return earliest;
+  }
+
+  const allRecipeIds = Array.from(
+    new Set([...inventoryByRecipe.keys(), ...recipeGroups.keys()])
+  ).sort((a, b) => {
+    const hasAllocA = recipeGroups.has(a);
+    const hasAllocB = recipeGroups.has(b);
+    // Inventory-only recipes go last
+    if (!hasAllocA && hasAllocB) return 1;
+    if (hasAllocA && !hasAllocB) return -1;
+    const dA = earliestDueDate(a);
+    const dB = earliestDueDate(b);
+    if (dA && dB) return dA < dB ? -1 : dA > dB ? 1 : 0;
+    if (dA) return -1;
+    if (dB) return 1;
+    return 0;
+  });
+
   function afterShip() {
     qc.invalidateQueries({ queryKey: queryKeys.production.exportBayInventory() });
     qc.invalidateQueries({ queryKey: queryKeys.production.allocations() });
     setShipGroup(null);
   }
 
+  const anyData = inventory.length > 0 || recipeGroups.size > 0;
+
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-      {/* ── Left column: Available ── */}
-      <div>
-        <div className="flex items-center justify-between mb-3">
+    <div className="space-y-6">
+      {/* ── Column headers ── */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="flex items-center justify-between">
           <h3 className="text-sm font-medium text-zinc-300">Available</h3>
           <button
             onClick={() => setShowAdHoc(true)}
@@ -93,84 +145,96 @@ export default function ExportBayTab() {
             + Ad-Hoc Export
           </button>
         </div>
-        {inventory.length === 0 ? (
-          <p className="text-sm text-zinc-600">Nothing in cold storage right now.</p>
-        ) : (
-          <div className="space-y-4">
-            {[...inventoryByRecipe.entries()].map(([recipeId, lines]) => (
-              <div key={recipeId} className="rounded-lg border border-zinc-800 overflow-hidden">
-                <div className="px-3 py-2 bg-zinc-900/60 border-b border-zinc-800 text-sm font-medium text-zinc-100">
-                  {recipeNameById.get(recipeId) ?? "Unknown recipe"}
-                </div>
-                <div className="divide-y divide-zinc-800">
-                  {lines.map((l) => (
-                    <div key={l.variation_id} className="flex items-center justify-between px-3 py-2 text-sm">
-                      <span className="text-zinc-300">{l.variation_name}</span>
-                      <span className="text-zinc-400 tabular-nums">{l.quantity_on_hand}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+        <h3 className="text-sm font-medium text-zinc-300">Allocations</h3>
       </div>
 
-      {/* ── Right column: Allocations ── */}
-      <div>
-        <h3 className="text-sm font-medium text-zinc-300 mb-3">Allocations</h3>
-        {groups.size === 0 ? (
-          <p className="text-sm text-zinc-600">No active allocations.</p>
-        ) : (
-          <div className="space-y-4">
-            {[...groups.values()].map((g) => {
-              const hasInventory = (inventoryByRecipe.get(g.recipeId) ?? []).length > 0;
-              return (
-              <div key={`${g.partnerId}|${g.recipeId}`} className="rounded-lg border border-zinc-800 overflow-hidden">
-                <div className="flex items-center justify-between px-3 py-2 bg-zinc-900/60 border-b border-zinc-800">
-                  <span className="text-sm font-medium text-zinc-100">{g.partnerName} — {g.recipeName}</span>
-                  <button
-                    onClick={() => setShipGroup(g)}
-                    disabled={!hasInventory}
-                    title={hasInventory ? undefined : "No packaged inventory available for this recipe"}
-                    className="text-xs px-2.5 py-1 border border-amber-700 text-amber-400 hover:bg-amber-900/30 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
-                  >
-                    Ship
-                  </button>
-                </div>
-                <div className="divide-y divide-zinc-800">
-                  {g.allocations.map((a) => (
-                    <div key={a.id} className="flex items-center justify-between px-3 py-2 text-sm">
-                      <div className="flex items-center gap-2">
-                        <span className="text-zinc-400 font-mono text-xs">
-                          {a.brew_batches ? `#${a.brew_batches.batch_number}` : "—"}
-                        </span>
-                        <span className="text-zinc-500 text-xs">Due {fmtDate(a.commitments?.desired_delivery_date ?? null)}</span>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <span className="text-zinc-400 tabular-nums text-xs">
-                          {a.exported_bbl.toFixed(2)} / {a.allocated_bbl != null ? a.allocated_bbl.toFixed(2) : "—"} BBL
-                        </span>
-                        {a.allocated_bbl == null ? (
-                          <span className="text-xs text-zinc-600">Pending production</span>
-                        ) : a.fulfilled ? (
-                          <span className="text-xs text-emerald-400">Fulfilled</span>
-                        ) : (
-                          <span className="text-xs text-amber-400">
-                            {a.allocated_bbl > 0 ? `${((a.exported_bbl / a.allocated_bbl) * 100).toFixed(0)}%` : "Unfulfilled"}
-                          </span>
-                        )}
-                      </div>
+      {!anyData ? (
+        <p className="text-sm text-zinc-600">Nothing to show yet.</p>
+      ) : (
+        <div className="space-y-4">
+          {allRecipeIds.map((recipeId) => {
+            const lines = inventoryByRecipe.get(recipeId) ?? [];
+            const rg = recipeGroups.get(recipeId);
+            const hasInventory = lines.length > 0;
+            const recipeName = recipeNameById.get(recipeId) ?? "Unknown recipe";
+            return (
+              <div key={recipeId} className="grid grid-cols-1 md:grid-cols-2 gap-6 items-stretch">
+                {/* Left: inventory */}
+                <div className="rounded-lg border border-zinc-800 overflow-hidden flex flex-col">
+                  <div className="px-3 py-2 bg-zinc-900/60 border-b border-zinc-800 text-sm font-medium text-zinc-100">
+                    {recipeName}
+                  </div>
+                  {lines.length === 0 ? (
+                    <div className="px-3 py-2 text-xs text-zinc-600 italic flex-1">No inventory available</div>
+                  ) : (
+                    <div className="divide-y divide-zinc-800 flex-1">
+                      {lines.map((l) => (
+                        <div key={l.variation_id} className="flex items-center justify-between px-3 py-2 text-sm">
+                          <span className="text-zinc-300">{l.variation_name}</span>
+                          <span className="text-zinc-400 tabular-nums">{l.quantity_on_hand}</span>
+                        </div>
+                      ))}
                     </div>
-                  ))}
+                  )}
+                </div>
+                {/* Right: allocations */}
+                <div className="rounded-lg border border-zinc-800 overflow-hidden flex flex-col">
+                  <div className="px-3 py-2 bg-zinc-900/60 border-b border-zinc-800 text-sm font-medium text-zinc-100">
+                    {recipeName}
+                  </div>
+                  {!rg ? (
+                    <div className="px-3 py-2 text-xs text-zinc-600 italic flex-1">No active allocations</div>
+                  ) : (
+                    <div className="divide-y divide-zinc-800/60 flex-1">
+                      {rg.partnerGroups.map((g) => (
+                        <div key={g.partnerId}>
+                          <div className="flex items-center justify-between px-3 py-1.5 bg-zinc-900/30">
+                            <span className="text-xs font-medium text-zinc-400">{g.partnerName}</span>
+                            <button
+                              onClick={() => setShipGroup(g)}
+                              disabled={!hasInventory}
+                              title={hasInventory ? undefined : "No packaged inventory available for this recipe"}
+                              className="text-xs px-2.5 py-1 border border-amber-700 text-amber-400 hover:bg-amber-900/30 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                            >
+                              Ship
+                            </button>
+                          </div>
+                          <div className="divide-y divide-zinc-800">
+                            {g.allocations.map((a) => (
+                              <div key={a.id} className="flex items-center justify-between px-3 py-2 text-sm">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-zinc-400 font-mono text-xs">
+                                    {a.brew_batches ? `#${a.brew_batches.batch_number}` : "—"}
+                                  </span>
+                                  <span className="text-zinc-500 text-xs">Due {fmtDate(a.commitments?.desired_delivery_date ?? null)}</span>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                  <span className="text-zinc-400 tabular-nums text-xs">
+                                    {a.exported_bbl.toFixed(2)} / {a.allocated_bbl != null ? a.allocated_bbl.toFixed(2) : "—"} BBL
+                                  </span>
+                                  {a.allocated_bbl == null ? (
+                                    <span className="text-xs text-zinc-600">Pending production</span>
+                                  ) : a.fulfilled ? (
+                                    <span className="text-xs text-emerald-400">Fulfilled</span>
+                                  ) : (
+                                    <span className="text-xs text-amber-400">
+                                      {a.allocated_bbl > 0 ? `${((a.exported_bbl / a.allocated_bbl) * 100).toFixed(0)}%` : "Unfulfilled"}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             );
-            })}
-          </div>
-        )}
-      </div>
-
+          })}
+        </div>
+      )}
       {shipGroup && (
         <ShipModal
           group={shipGroup}
@@ -349,6 +413,7 @@ function AdHocExportModal({ inventoryByRecipe, recipeNameById, onClose, onDone }
               <option value="taproom">Taproom</option>
               <option value="distribution">Distribution</option>
               <option value="contract_brewing">Contract Brewing</option>
+              <option value="wholesale">Wholesale</option>
             </select>
           </div>
           {channel !== "taproom" && (

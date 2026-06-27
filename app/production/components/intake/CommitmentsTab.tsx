@@ -68,7 +68,7 @@ function InvoicingCell({
   onSync: (id: string) => void;
   onDelete: (id: string, sent: boolean) => void;
 }) {
-  if (commitment.channel !== "contract_brewing") return <span className="text-zinc-600">—</span>;
+  if (commitment.channel !== "contract_brewing") return <span className="text-zinc-600 text-xs">— (Deposit invoices are only used for Contract Brewing)</span>;
   const allocs = commitment.batch_allocations ?? [];
   if (allocs.length === 0) return <span className="text-zinc-600 text-xs">No batch yet</span>;
 
@@ -282,8 +282,8 @@ function CommitmentModal({
       <form onSubmit={handleSubmit} className="space-y-4">
         {/* Channel selector */}
         <Field label="Channel" required>
-          <div className="grid grid-cols-2 gap-2">
-            {(["contract_brewing", "distribution"] as CommitmentChannel[]).map((c) => (
+          <div className="grid grid-cols-3 gap-2">
+            {(["contract_brewing", "distribution", "wholesale"] as CommitmentChannel[]).map((c) => (
               <button key={c} type="button" onClick={() => set("channel", c)}
                 className={`px-3 py-2 rounded border text-sm transition-colors ${form.channel === c ? "border-amber-600 bg-amber-900/30 text-amber-300" : "border-zinc-700 bg-zinc-800/50 text-zinc-400 hover:border-zinc-500"}`}>
                 {CHANNEL_META[c].label}
@@ -620,7 +620,7 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
         <div className="flex items-center gap-3">
           <p className="text-sm text-zinc-500">Distribution allocations and contract brewing requests. All are outflows from cold storage.</p>
           <div className="flex gap-1">
-            {(["all", "distribution", "contract_brewing"] as const).map((f) => (
+            {(["all", "distribution", "contract_brewing", "wholesale"] as const).map((f) => (
               <button key={f} onClick={() => setChannelFilter(f)}
                 className={`px-2.5 py-1 rounded text-xs font-medium transition-colors border ${channelFilter === f ? "border-amber-600 bg-amber-900/30 text-amber-300" : "border-zinc-700 text-zinc-500 hover:text-zinc-300"}`}>
                 {f === "all" ? "All" : CHANNEL_META[f].label}
