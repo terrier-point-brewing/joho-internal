@@ -181,7 +181,7 @@ export function SquareLinkManager({
     return sqVariations.filter((v) => {
       if (v.category_name !== cat) return false;
       if (packaging === "draft") return !/- \d+oz$/i.test(v.variation_name);  // keep plain "Draft"
-      if (packaging === "can")   return !/pack|case/i.test(v.variation_name); // keep plain "Regular"
+      // cans: no variation-name filter — format is tracked as packaging_format
       return true; // keg: keep all (1/2, 1/4, 1/6)
     });
   }
@@ -213,10 +213,14 @@ export function SquareLinkManager({
         uid: uidSeed++, recipe_id: expandRecipeId,
         packaging: "keg" as PackagingType, packaging_item_id: item.id, packaging_format: "", variation_id: "",
       })),
-      ...canItems.map((item) => ({
+      // Default can formats: 4-pack and case
+      ...canItems.flatMap((item) => (
+        ["4-pack", "case"] as const
+      ).map((fmt) => ({
         uid: uidSeed++, recipe_id: expandRecipeId,
-        packaging: "can" as PackagingType, packaging_item_id: item.id, packaging_format: "", variation_id: "",
-      })),
+        packaging: "can" as PackagingType, packaging_item_id: item.id,
+        packaging_format: fmt, variation_id: "",
+      }))),
       { uid: uidSeed++, recipe_id: expandRecipeId, packaging: "draft" as PackagingType, packaging_item_id: "", packaging_format: "", variation_id: "" },
     ];
     setRows((rs) => {
@@ -445,6 +449,25 @@ export function SquareLinkManager({
                         </p>
                       </div>
                     )}
+
+                    {/* Format — cans only */}
+                    {row.packaging === "can" && (
+                      <div>
+                        <label className="block text-[10px] text-zinc-600 mb-1">Format</label>
+                        <select
+                          className="inp text-sm w-full"
+                          value={row.packaging_format}
+                          onChange={(e) => updateRow(row.uid, { packaging_format: e.target.value })}
+                          disabled={!row.packaging_item_id}
+                        >
+                          <option value="">— select format —</option>
+                          <option value="loose">Loose (single)</option>
+                          <option value="4-pack">4-Pack</option>
+                          <option value="6-pack">6-Pack</option>
+                          <option value="case">Case</option>
+                        </select>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -533,6 +556,9 @@ export function SquareLinkManager({
                           {l.packaging_items.name}
                           {l.packaging_items.volume_fl_oz && (
                             <span className="text-zinc-600 font-normal"> ({l.packaging_items.volume_fl_oz} fl oz)</span>
+                          )}
+                          {l.packaging_format && (
+                            <span className="text-zinc-500 font-normal"> · {l.packaging_format}</span>
                           )}
                         </span>
                       )}
