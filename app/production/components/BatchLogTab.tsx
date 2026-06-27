@@ -715,7 +715,7 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
 
   const allocatedCommitmentIds = new Set(allocations.map(a => a.contract_request_id).filter(Boolean));
   const newChannelCommitments = recipeCommitments.filter(c =>
-    c.channel === (newChannel === "distribution" ? "distribution" : "contract_brewing") &&
+    c.channel === newChannel &&
     !allocatedCommitmentIds.has(c.id)
   );
   const selectedNewCommitment = recipeCommitments.find(c => c.id === newCommitmentId) ?? null;
