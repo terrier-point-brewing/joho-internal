@@ -17,8 +17,7 @@ export async function GET(req: NextRequest) {
       *,
       brew_batches(id, beer_name, batch_number, volume_bbl, recipe_id),
       contract_brewing_partners(id, company_name),
-      commitments(id, beer_style, volume_bbl, desired_delivery_date, received_on, created_at, channel),
-      conversion_target_recipe:conversion_target_recipe_id(id, beer_name)
+      commitments(id, beer_style, volume_bbl, desired_delivery_date, received_on, created_at, channel)
     `)
     .order("created_at");
 
@@ -37,10 +36,12 @@ export async function GET(req: NextRequest) {
     .in("batch_id", batchIds)
     .in("transfer_type", ["kegging", "canning"]);
 
-  // produced_bbl per batch = sum of (volume_bbl - shrinkage_bbl) for final packaging transfers
+  // produced_bbl per batch = sum of volume_bbl for final packaging transfers.
+  // volume_bbl on kegging/canning rows is already the net packaged volume (units × fill),
+  // so shrinkage_bbl must NOT be subtracted here — it is accounted for separately.
   const producedByBatch: Record<string, number> = {};
   for (const t of transfers ?? []) {
-    const net = (t.volume_bbl ?? 0) - (t.shrinkage_bbl ?? 0);
+    const net = Number(t.volume_bbl ?? 0);
     producedByBatch[t.batch_id] = (producedByBatch[t.batch_id] ?? 0) + net;
   }
 
@@ -66,7 +67,33 @@ export async function GET(req: NextRequest) {
     return { ...a, allocated_bbl, exported_bbl, fulfilled, produced_bbl: produced > 0 ? produced : null };
   });
 
-  return NextResponse.json(enriched);
+  // Fetch invoice numbers for any deposit invoices linked via square_deposit_invoice_id
+  const squareDepositIds = enriched
+    .map((a) => a.square_deposit_invoice_id)
+    .filter((id): id is string => !!id);
+
+  const invoiceNumberBySquareId = new Map<string, string | null>();
+  if (squareDepositIds.length > 0) {
+    const { data: depositInvoices } = await supabase
+      .from("invoices")
+      .select("square_invoice_id, invoice_number")
+      .in("square_invoice_id", squareDepositIds)
+      .neq("status", "voided");
+    for (const inv of depositInvoices ?? []) {
+      if (inv.square_invoice_id) {
+        invoiceNumberBySquareId.set(inv.square_invoice_id, inv.invoice_number ?? null);
+      }
+    }
+  }
+
+  const withInvoiceNumbers = enriched.map((a) => ({
+    ...a,
+    deposit_invoice_number: a.square_deposit_invoice_id
+      ? (invoiceNumberBySquareId.get(a.square_deposit_invoice_id) ?? null)
+      : null,
+  }));
+
+  return NextResponse.json(withInvoiceNumbers);
 }
 
 // POST /api/production/allocations
@@ -77,10 +104,18 @@ export async function POST(req: NextRequest) {
   const supabase = await createSupabaseServerClient();
 
   const body = await req.json();
-  const { batch_id, channel, label, percentage, partner_id, contract_request_id, notes, conversion_target_recipe_id } = body;
+  const { batch_id, channel, label, percentage, partner_id, contract_request_id, notes } = body;
 
   if (!batch_id || !channel || percentage == null) {
     return NextResponse.json({ error: "batch_id, channel, and percentage are required" }, { status: 400 });
+  }
+
+  const VALID_CHANNELS = ["taproom", "distribution", "contract_brewing", "wholesale", "safety_stock"];
+  if (!VALID_CHANNELS.includes(channel)) {
+    return NextResponse.json(
+      { error: `Invalid channel "${channel}". Must be one of: ${VALID_CHANNELS.join(", ")}` },
+      { status: 400 }
+    );
   }
 
   const pct = Number(percentage);
@@ -113,7 +148,6 @@ export async function POST(req: NextRequest) {
       partner_id: partner_id || null,
       contract_request_id: contract_request_id || null,
       notes: notes || null,
-      conversion_target_recipe_id: conversion_target_recipe_id || null,
     })
     .select(`
       *,
