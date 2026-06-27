@@ -51,7 +51,7 @@ export default function InvoicePreviewModal({
       const res = await fetch("/api/production/export/invoice", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ transactionIds, lineItems: effectiveLineItems }),
+        body: JSON.stringify({ action: "generate", transactionIds, lineItems: effectiveLineItems }),
       });
       if (!res.ok) {
         const body = await res.json();
@@ -129,7 +129,7 @@ export default function InvoicePreviewModal({
             <button onClick={onClose} className="text-sm text-zinc-400 hover:text-zinc-200" disabled={creating}>Cancel</button>
             <button onClick={handleCreate} disabled={creating || effectiveLineItems.length === 0}
               className="text-sm px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded transition-colors disabled:opacity-40">
-              {creating ? "Creating…" : "Create & Send Invoice"}
+              {creating ? "Generating…" : "Generate Invoice"}
             </button>
           </div>
         </div>
