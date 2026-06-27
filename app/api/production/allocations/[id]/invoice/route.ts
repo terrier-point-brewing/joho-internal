@@ -105,7 +105,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       .from("invoice_item_mappings")
       .select("partner_id, square_catalog_item_id, square_catalog_variation_id")
       .eq("service_type", "ingredient_deposit")
-      .in("partner_id", [partner.id, null]);
+      .or(`partner_id.eq.${partner.id},partner_id.is.null`);
     if (mappingErr) return NextResponse.json({ error: mappingErr.message }, { status: 500 });
     const mapping = (mappingRows ?? []).find((m) => m.partner_id === partner.id) ?? (mappingRows ?? []).find((m) => m.partner_id === null);
     if (!mapping?.square_catalog_variation_id) {
