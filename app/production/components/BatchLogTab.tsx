@@ -5,7 +5,7 @@ import { addDays, parseISO } from "date-fns";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import { useUserRole } from "@/lib/hooks/useUserRole";
-import { BrewBatch, BatchTransfer, BrewActivityEntry, BatchAllocation, AllocationChannel, AllocationLockReason, ContractBrewingRequest } from "../types";
+import { BrewBatch, BatchTransfer, BrewActivityEntry, BatchAllocation, AllocationChannel, ContractBrewingRequest } from "../types";
 import { BREWHOUSE_BBL, StatusBadge, Modal, Field, ModalActions } from "./shared";
 import { fmtDateLong, fmtBbl2 } from "@/lib/utils/formatting";
 import { EQ } from "../equipmentMeta";
@@ -14,8 +14,8 @@ import { fetchJson } from "../hooks/queries";
 import type { DepositCalculation } from "@/lib/square/square-invoices";
 import {
   useBatchesQuery, useRecipesQuery, useTransfersQuery, useContractPartnersQuery,
-  useAssignmentsQuery, useEquipmentQuery, useBatchScheduleQuery, productionKeys,
-  useIngredientShortfallsQuery,
+  useAssignmentsQuery, useEquipmentQuery, useBatchScheduleQuery, useBatchConversionsQuery,
+  productionKeys, useIngredientShortfallsQuery,
   type ScheduleEntry,
 } from "../hooks/queries";
 import { EquipmentScheduleSection } from "./EquipmentSchedule";
@@ -25,9 +25,6 @@ import { RefundAdjustmentModal } from "./RefundAdjustmentModal";
 
 const fmtDate = fmtDateLong;
 
-function fmtDateTime(iso: string) {
-  return new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
-}
 
 /** Compute expected delivery ISO date string from brew date + weeks.
  *  Anchors to T12:00:00 to avoid UTC-midnight off-by-one in UTC-behind timezones. */
@@ -73,8 +70,9 @@ export default function BatchLogTab() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingBatch, setEditingBatch] = useState<BrewBatch | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [isConversionBatch, setIsConversionBatch] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [sort, setSort] = useState<{ col: SortCol; dir: "asc" | "desc" }>({ col: "planned_brew_date", dir: "desc" });
+  const [sort, setSort] = useState<{ col: SortCol; dir: "asc" | "desc" }>({ col: "status", dir: "asc" });
 
   // Derive computed volume from form state
   const selectedRecipe = recipes.find((r) => r.id === form.recipe_id);
@@ -109,7 +107,7 @@ export default function BatchLogTab() {
     }));
   }
 
-  function openNew() { setForm(BATCH_EMPTY); setEditingId(null); setShowModal(true); }
+  function openNew() { setForm(BATCH_EMPTY); setEditingId(null); setIsConversionBatch(false); setShowModal(true); }
 
   function openEdit(b: BrewBatch) {
     setForm({
@@ -135,8 +133,18 @@ export default function BatchLogTab() {
     setSort((s) => s.col === col ? { col, dir: s.dir === "asc" ? "desc" : "asc" } : { col, dir: "asc" });
   }
 
+  const STATUS_ORDER: Record<string, number> = { planning: 0, fermenting: 1, conditioning: 2, complete: 3 };
+
   function sortBatches(list: BrewBatch[]): BrewBatch[] {
     return [...list].sort((a, b) => {
+      if (sort.col === "status") {
+        const ao = STATUS_ORDER[a.status] ?? 99;
+        const bo = STATUS_ORDER[b.status] ?? 99;
+        const statusDiff = sort.dir === "asc" ? ao - bo : bo - ao;
+        if (statusDiff !== 0) return statusDiff;
+        // Tiebreak: newest planned_brew_date first
+        return a.planned_brew_date < b.planned_brew_date ? 1 : a.planned_brew_date > b.planned_brew_date ? -1 : 0;
+      }
       let av: string | number = "", bv: string | number = "";
       if (sort.col === "batch_number")          { av = a.batch_number ?? ""; bv = b.batch_number ?? ""; }
       else if (sort.col === "beer_name")        { av = a.beer_name; bv = b.beer_name; }
@@ -145,7 +153,6 @@ export default function BatchLogTab() {
         av = a.expected_delivery_date ?? ""; bv = b.expected_delivery_date ?? "";
       }
       else if (sort.col === "volume_bbl")       { av = Number(a.volume_bbl); bv = Number(b.volume_bbl); }
-      else if (sort.col === "status")           { av = a.status; bv = b.status; }
       if (av < bv) return sort.dir === "asc" ? -1 : 1;
       if (av > bv) return sort.dir === "asc" ? 1 : -1;
       return 0;
@@ -157,7 +164,7 @@ export default function BatchLogTab() {
     if (!form.recipe_id) { alert("Please select a recipe."); return; }
     if (!editingId && !form.expected_delivery_date) { alert("Expected delivery date is required."); return; }
     const turns = parseInt(form.turns) || 1;
-    const isConversion = !!editingBatch?.converted_from_batch_id;
+    const isConversion = !!editingBatch?.converted_from_batch_id || isConversionBatch;
     const volume_bbl = isConversion && form.volume_override !== ""
       ? Number(form.volume_override)
       : BREWHOUSE_BBL * turns;
@@ -194,11 +201,16 @@ export default function BatchLogTab() {
 
   async function handleComplete(id: string, name: string) {
     if (!confirm(`Mark batch "${name}" complete? Equipment will be released and scheduled work cancelled. Financial records will be preserved.`)) return;
-    await fetch(`/api/production/batches/${id}`, {
+    const res = await fetch(`/api/production/batches/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status: "complete" }),
     });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      alert(`Failed to complete batch: ${(body as { error?: string }).error ?? res.statusText}`);
+      return;
+    }
     await refresh();
   }
 
@@ -287,7 +299,7 @@ export default function BatchLogTab() {
                   This batch was created from a conversion, so its volume is set directly rather than from brewhouse turns.
                 </p>
               </Field>
-            ) : (
+            ) : editingId ? (
               <Field label={`Turns (${BREWHOUSE_BBL} BBL brewhouse)`} required>
                 <input type="number" min="1" step="1" className="inp" value={form.turns} required
                   onChange={(e) => setForm((f) => ({ ...f, turns: e.target.value }))} />
@@ -298,6 +310,32 @@ export default function BatchLogTab() {
                   )}
                 </p>
               </Field>
+            ) : (
+              <>
+                <label className="flex items-center gap-2 text-sm text-zinc-400 cursor-pointer select-none">
+                  <input type="checkbox" className="accent-amber-500" checked={isConversionBatch}
+                    onChange={(e) => { setIsConversionBatch(e.target.checked); setForm((f) => ({ ...f, volume_override: "" })); }} />
+                  Conversion batch (set volume directly)
+                </label>
+                {isConversionBatch ? (
+                  <Field label="Volume (BBL)" required>
+                    <input type="number" min="0" step="0.01" className="inp" value={form.volume_override} required
+                      onChange={(e) => setForm((f) => ({ ...f, volume_override: e.target.value }))} />
+                    <p className="text-xs text-zinc-500 mt-1">Enter the exact volume received from the source batch.</p>
+                  </Field>
+                ) : (
+                  <Field label={`Turns (${BREWHOUSE_BBL} BBL brewhouse)`} required>
+                    <input type="number" min="1" step="1" className="inp" value={form.turns} required
+                      onChange={(e) => setForm((f) => ({ ...f, turns: e.target.value }))} />
+                    <p className="text-xs text-zinc-500 mt-1">
+                      Brew volume: <span className="text-zinc-300 font-medium">{computedVolume} BBL</span>
+                      {selectedRecipe?.expected_yield_bbl && (
+                        <span className="text-zinc-600 ml-1">· expected yield {(selectedRecipe.expected_yield_bbl * (parseInt(form.turns) || 1)).toFixed(2)} BBL after shrinkage</span>
+                      )}
+                    </p>
+                  </Field>
+                )}
+              </>
             )}
             <Field label="Notes">
               <textarea className="inp resize-none" rows={2} value={form.notes}
@@ -359,13 +397,8 @@ const CHANNEL_OPTIONS: { value: AllocationChannel; label: string }[] = [
   { value: "taproom",          label: "Taproom" },
   { value: "distribution",     label: "Distribution" },
   { value: "contract_brewing", label: "Contract Brewing" },
+  { value: "wholesale",        label: "Wholesale" },
   { value: "safety_stock",     label: "Safety Stock" },
-  { value: "conversion",       label: "Conversion" },
-];
-
-const LOCK_REASON_OPTIONS: { value: AllocationLockReason; label: string }[] = [
-  { value: "deposit_paid",    label: "Deposit Paid" },
-  { value: "contract_signed", label: "Contract Signed" },
 ];
 
 // Color per channel for badges + stacked bar
@@ -373,8 +406,8 @@ const CHANNEL_COLOR: Record<AllocationChannel, { bg: string; text: string; bar: 
   taproom:          { bg: "bg-blue-900/50",    text: "text-blue-300",   bar: "#3b82f6" },
   distribution:     { bg: "bg-emerald-900/50", text: "text-emerald-300",bar: "#10b981" },
   contract_brewing: { bg: "bg-purple-900/50",  text: "text-purple-300", bar: "#8b5cf6" },
+  wholesale:        { bg: "bg-amber-900/50",   text: "text-amber-300",  bar: "#f59e0b" },
   safety_stock:     { bg: "bg-zinc-800",        text: "text-zinc-400",  bar: "#52525b" },
-  conversion:       { bg: "bg-amber-900/50",   text: "text-amber-300",  bar: "#f59e0b" },
 };
 
 function ChannelBadge({ channel }: { channel: AllocationChannel }) {
@@ -387,27 +420,53 @@ function ChannelBadge({ channel }: { channel: AllocationChannel }) {
   );
 }
 
+function AllocationStatusBadge({ allocation }: { allocation: BatchAllocation }) {
+  if (allocation.fulfilled) {
+    return (
+      <span className="inline-flex items-center text-[10px] font-medium text-emerald-400 bg-emerald-900/30 border border-emerald-800/40 rounded px-1.5 py-0.5 whitespace-nowrap w-full justify-center">
+        Fulfilled
+      </span>
+    );
+  }
+  if (allocation.invoice_paid_at) {
+    return (
+      <span className="inline-flex items-center text-[10px] font-medium text-blue-400 bg-blue-900/30 border border-blue-800/40 rounded px-1.5 py-0.5 whitespace-nowrap w-full justify-center">
+        Deposit Paid
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center text-[10px] font-medium text-zinc-500 bg-zinc-800/60 border border-zinc-700/50 rounded px-1.5 py-0.5 whitespace-nowrap w-full justify-center">
+      Open
+    </span>
+  );
+}
+
 function InvoiceStatusBadge({ allocation }: { allocation: BatchAllocation }) {
   if (allocation.channel !== "contract_brewing") return null;
+
+  const numSuffix = allocation.deposit_invoice_number
+    ? <span className="ml-1 font-mono opacity-70">#{allocation.deposit_invoice_number}</span>
+    : null;
 
   if (allocation.invoice_paid_at) {
     return (
       <span className="inline-flex items-center gap-1 text-[10px] text-green-400 bg-green-900/30 border border-green-800/40 rounded px-1.5 py-0.5">
-        ✓ Deposit paid
+        ✓ Deposit paid{numSuffix}
       </span>
     );
   }
   if (allocation.invoice_sent_at) {
     return (
       <span className="inline-flex items-center gap-1 text-[10px] text-amber-400 bg-amber-900/30 border border-amber-800/40 rounded px-1.5 py-0.5">
-        ● Invoice sent
+        ● Invoice sent{numSuffix}
       </span>
     );
   }
   if (allocation.invoice_generated_at) {
     return (
       <span className="inline-flex items-center gap-1 text-[10px] text-zinc-400 bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5">
-        Draft invoice ready
+        Draft ready{numSuffix}
       </span>
     );
   }
@@ -418,7 +477,7 @@ function InvoiceStatusBadge({ allocation }: { allocation: BatchAllocation }) {
   );
 }
 
-function AllocationManager({ batch, recipes }: { batch: BrewBatch; recipes: import("../types").Recipe[] }) {
+function AllocationManager({ batch }: { batch: BrewBatch }) {
   const qc = useQueryClient();
 
   const allocKey = queryKeys.production.allocationsByBatch(batch.id);
@@ -438,16 +497,23 @@ function AllocationManager({ batch, recipes }: { batch: BrewBatch; recipes: impo
       (c.committed_allocated_bbl ?? 0) < Number(c.volume_bbl) - 0.05
   );
 
+  const { data: allBatchConversions = [] } = useBatchConversionsQuery();
+  const batchConversions = allBatchConversions.filter(c => c.source_batch_id === batch.id);
+
   const refresh = () => qc.invalidateQueries({ queryKey: allocKey });
   const batchVol = Number(batch.volume_bbl);
   // Always display allocations sorted by allocation % descending.
   const sortedAllocations = [...allocations].sort((a, b) => Number(b.percentage) - Number(a.percentage));
-  const totalPct = allocations.reduce((s, a) => s + Number(a.percentage), 0);
+  const conversionPct = batchVol > 0
+    ? batchConversions.filter(c => !c.converted_at).reduce((s, c) => s + (Number(c.volume_bbl) / batchVol) * 100, 0)
+    : 0;
+  const totalPct = allocations.reduce((s, a) => s + Number(a.percentage), 0) + conversionPct;
   const remaining = 100 - totalPct;
   const overAllocated = totalPct > 100;
 
   // ── Deposit invoice state ──────────────────────────────────────────────────
   const [invoiceModalAlloc, setInvoiceModalAlloc] = useState<BatchAllocation | null>(null);
+  const [invoiceModalMode, setInvoiceModalMode] = useState<"generate" | "mark_paid">("generate");
   const [invoicePreview, setInvoicePreview] = useState<{ calculation: DepositCalculation } | null>(null);
   const [invoicePreviewLoading, setInvoicePreviewLoading] = useState(false);
   const [invoiceActionLoading, setInvoiceActionLoading] = useState<string | null>(null); // alloc ID
@@ -455,6 +521,7 @@ function AllocationManager({ batch, recipes }: { batch: BrewBatch; recipes: impo
   const [refundSubmitting, setRefundSubmitting] = useState(false);
 
   async function openInvoiceModal(a: BatchAllocation) {
+    setInvoiceModalMode("generate");
     setInvoiceModalAlloc(a);
     setInvoicePreview(null);
     setInvoicePreviewLoading(true);
@@ -466,6 +533,22 @@ function AllocationManager({ batch, recipes }: { batch: BrewBatch; recipes: impo
       setInvoiceModalAlloc(null);
     } finally {
       setInvoicePreviewLoading(false);
+    }
+  }
+
+  async function viewInvoiceInSquare(a: BatchAllocation) {
+    setInvoiceActionLoading(a.id);
+    try {
+      const data = await fetchJson<{ invoiceUrl: string | null }>(`/api/production/allocations/${a.id}/invoice`);
+      if (data.invoiceUrl) {
+        window.open(data.invoiceUrl, "_blank", "noopener,noreferrer");
+      } else {
+        alert("No public URL available for this invoice yet. It may still be processing.");
+      }
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Failed to fetch invoice URL");
+    } finally {
+      setInvoiceActionLoading(null);
     }
   }
 
@@ -487,6 +570,24 @@ function AllocationManager({ batch, recipes }: { batch: BrewBatch; recipes: impo
     }
   }
 
+  async function handleMarkPaid(allocId: string, data: import("./DepositInvoiceModal").MarkPaidData) {
+    setInvoiceActionLoading(allocId);
+    try {
+      const res = await fetch(`/api/production/allocations/${allocId}/invoice`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "mark_paid", ...data }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? "Error");
+      setInvoiceModalAlloc(null);
+      await refresh();
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Failed to mark as paid");
+    } finally {
+      setInvoiceActionLoading(null);
+    }
+  }
+
   async function handleSendInvoice(allocId: string) {
     if (!confirm("Send this invoice to the partner via email?")) return;
     setInvoiceActionLoading(allocId);
@@ -500,6 +601,27 @@ function AllocationManager({ batch, recipes }: { batch: BrewBatch; recipes: impo
       await refresh();
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : "Failed to send invoice");
+    } finally {
+      setInvoiceActionLoading(null);
+    }
+  }
+
+  async function handleDeleteInvoice(allocId: string, sent: boolean) {
+    const msg = sent
+      ? "Cancel and delete this sent invoice? The partner may receive a cancellation notice. A new invoice can then be generated."
+      : "Delete this draft invoice? A new one can be generated.";
+    if (!confirm(msg)) return;
+    setInvoiceActionLoading(allocId);
+    try {
+      const res = await fetch(`/api/production/allocations/${allocId}/invoice`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete" }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? "Error");
+      await refresh();
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Failed to delete invoice");
     } finally {
       setInvoiceActionLoading(null);
     }
@@ -538,9 +660,9 @@ function AllocationManager({ batch, recipes }: { batch: BrewBatch; recipes: impo
       return;
     }
 
-    // A locked+paid allocation being reduced goes through the refund flow
+    // A paid allocation being reduced goes through the refund flow
     // instead of the plain PATCH — that endpoint rejects this case outright.
-    if (a.locked && a.lock_reason === "deposit_paid" && a.invoice_paid_at && pct < Number(a.percentage)) {
+    if (a.invoice_paid_at && pct < Number(a.percentage)) {
       setRefundAlloc({ allocation: a, newPercentage: pct });
       return; // editingPct stays set until the modal resolves, so the field still shows the typed value
     }
@@ -574,29 +696,10 @@ function AllocationManager({ batch, recipes }: { batch: BrewBatch; recipes: impo
     }
   }
 
-  async function handleDelete(id: string, locked: boolean) {
-    if (locked) { alert("Cannot delete a locked allocation."); return; }
+  async function handleDelete(id: string, isPaid: boolean) {
+    if (isPaid) { alert("Cannot delete an allocation with a paid invoice."); return; }
     if (!confirm("Remove this allocation?")) return;
     const res = await fetch(`/api/production/allocations/${id}`, { method: "DELETE" });
-    if (!res.ok) alert((await res.json()).error ?? "Error");
-    await refresh();
-  }
-
-  async function handleLock(id: string, reason: AllocationLockReason) {
-    const res = await fetch(`/api/production/allocations/${id}`, {
-      method: "PATCH", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ locked: true, lock_reason: reason }),
-    });
-    if (!res.ok) alert((await res.json()).error ?? "Error");
-    await refresh();
-  }
-
-  async function handleUnlock(id: string) {
-    if (!confirm("Unlock this allocation?")) return;
-    const res = await fetch(`/api/production/allocations/${id}`, {
-      method: "PATCH", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ locked: false }),
-    });
     if (!res.ok) alert((await res.json()).error ?? "Error");
     await refresh();
   }
@@ -606,43 +709,25 @@ function AllocationManager({ batch, recipes }: { batch: BrewBatch; recipes: impo
   const [newChannel, setNewChannel] = useState<AllocationChannel>("taproom");
   const [newCommitmentId, setNewCommitmentId] = useState("");
   const [newPct, setNewPct] = useState("");
-  const [newConversionRecipeId, setNewConversionRecipeId] = useState("");
   const [saving, setSaving] = useState(false);
 
   const isTaproomChannel = (ch: AllocationChannel) => ch === "taproom" || ch === "safety_stock";
-  const isConversionChannel = (ch: AllocationChannel) => ch === "conversion";
 
-  // For a conversion allocation, the commitment pool is scoped to the target
-  // recipe being converted into, not this batch's own recipe.
-  const conversionRecipeCommitments = allCommitments.filter(
-    (c) =>
-      c.recipe_id === newConversionRecipeId &&
-      (c.status === "open" || c.status === "in_progress") &&
-      (c.committed_allocated_bbl ?? 0) < Number(c.volume_bbl) - 0.05
+  const allocatedCommitmentIds = new Set(allocations.map(a => a.contract_request_id).filter(Boolean));
+  const newChannelCommitments = recipeCommitments.filter(c =>
+    c.channel === (newChannel === "distribution" ? "distribution" : "contract_brewing") &&
+    !allocatedCommitmentIds.has(c.id)
   );
-
-  const newChannelCommitments = newChannel === "conversion"
-    ? conversionRecipeCommitments
-    : recipeCommitments.filter(c =>
-        c.channel === (newChannel === "distribution" ? "distribution" : "contract_brewing")
-      );
-  const newCommitmentPool = newChannel === "conversion" ? conversionRecipeCommitments : recipeCommitments;
-  const selectedNewCommitment = newCommitmentPool.find(c => c.id === newCommitmentId) ?? null;
+  const selectedNewCommitment = recipeCommitments.find(c => c.id === newCommitmentId) ?? null;
 
   function handleNewChannelChange(ch: AllocationChannel) {
     setNewChannel(ch);
     setNewCommitmentId("");
     setNewPct("");
-    setNewConversionRecipeId("");
-  }
-  function handleNewConversionRecipeChange(recipeId: string) {
-    setNewConversionRecipeId(recipeId);
-    setNewCommitmentId("");
-    setNewPct("");
   }
   function handleNewCommitmentChange(cid: string) {
     setNewCommitmentId(cid);
-    const c = newCommitmentPool.find(x => x.id === cid);
+    const c = recipeCommitments.find(x => x.id === cid);
     if (c && batchVol > 0) {
       const pct = Math.round((Number(c.volume_bbl) / batchVol) * 1000) / 10;
       setNewPct(String(pct));
@@ -662,11 +747,10 @@ function AllocationManager({ batch, recipes }: { batch: BrewBatch; recipes: impo
           percentage: parseFloat(newPct),
           partner_id: selectedNewCommitment?.partner_id ?? null,
           contract_request_id: newCommitmentId || null,
-          conversion_target_recipe_id: newChannel === "conversion" ? (newConversionRecipeId || null) : null,
         }),
       });
       if (!res.ok) throw new Error((await res.json()).error ?? "Error");
-      setNewPct(""); setNewCommitmentId(""); setNewChannel("taproom"); setNewConversionRecipeId(""); setShowAddForm(false);
+      setNewPct(""); setNewCommitmentId(""); setNewChannel("taproom"); setShowAddForm(false);
       await refresh();
     } catch (err: unknown) {
       alert(err instanceof Error ? err.message : "Error");
@@ -704,11 +788,16 @@ function AllocationManager({ batch, recipes }: { batch: BrewBatch; recipes: impo
           </div>
           <div className="flex items-center justify-between">
             <div className="flex flex-wrap gap-2">
-              {sortedAllocations.map(a => (
-                <span key={a.id} className="text-[10px] text-zinc-500 flex items-center gap-1">
-                  <span className="inline-block w-2 h-2 rounded-sm flex-none" style={{ background: (CHANNEL_COLOR[a.channel as AllocationChannel] ?? CHANNEL_COLOR.safety_stock).bar }} />
-                  {CHANNEL_OPTIONS.find(o => o.value === a.channel)?.label ?? a.channel}
-                  {" "}<span className="tabular-nums text-zinc-400">{Number(a.percentage).toFixed(1)}%</span>
+              {Object.entries(
+                sortedAllocations.reduce<Record<string, number>>((acc, a) => {
+                  acc[a.channel] = (acc[a.channel] ?? 0) + Number(a.percentage);
+                  return acc;
+                }, {})
+              ).map(([channel, pct]) => (
+                <span key={channel} className="text-[10px] text-zinc-500 flex items-center gap-1">
+                  <span className="inline-block w-2 h-2 rounded-sm flex-none" style={{ background: (CHANNEL_COLOR[channel as AllocationChannel] ?? CHANNEL_COLOR.safety_stock).bar }} />
+                  {CHANNEL_OPTIONS.find(o => o.value === channel)?.label ?? channel}
+                  {" "}<span className="tabular-nums text-zinc-400">{pct.toFixed(1)}%</span>
                 </span>
               ))}
             </div>
@@ -742,11 +831,6 @@ function AllocationManager({ batch, recipes }: { batch: BrewBatch; recipes: impo
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-center gap-2 flex-wrap min-w-0">
                     <ChannelBadge channel={a.channel as AllocationChannel} />
-                    {a.channel === "conversion" && a.conversion_target_recipe && (
-                      <span className="text-xs text-amber-400">
-                        → converting to <span className="font-medium text-amber-300">{a.conversion_target_recipe.beer_name}</span>
-                      </span>
-                    )}
                     {partner && (
                       <span className="text-xs text-zinc-300 font-medium">{partner.company_name}</span>
                     )}
@@ -756,27 +840,17 @@ function AllocationManager({ batch, recipes }: { batch: BrewBatch; recipes: impo
                         {req.desired_delivery_date && <span className="ml-1">· due {fmtDateLong(req.desired_delivery_date)}</span>}
                       </span>
                     )}
-                    {a.locked && (
-                      <span className="inline-flex items-center gap-1 text-[10px] text-blue-400 bg-blue-900/30 border border-blue-800/40 rounded px-1.5 py-0.5">
-                        🔒 {a.lock_reason === "deposit_paid" ? "Deposit paid" : "Contract signed"}
-                      </span>
-                    )}
-                    {a.fulfilled && (
-                      <span className="text-[10px] text-emerald-400">✓ Fulfilled</span>
-                    )}
                     <InvoiceStatusBadge allocation={a} />
                   </div>
 
-                  {/* Controls: % input + BBL + invoice + lock + delete — fixed-width columns so
-                      rows stay aligned whether or not the invoice column has content. */}
-                  <div className="grid grid-cols-[88px_64px_160px_90px_20px] items-center gap-2 flex-none">
+                  {/* Controls: % input + BBL + invoice + status + delete */}
+                  <div className="grid grid-cols-[88px_64px_200px_90px_20px] items-center gap-2 flex-none">
                     {/* Inline % */}
                     <div className="flex items-center gap-1">
                       <input
                         type="number" step="0.1" min="0" max="100"
                         className="w-16 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-right tabular-nums text-zinc-200 focus:outline-none focus:border-amber-600 disabled:opacity-40"
                         value={pctVal}
-                        disabled={a.locked && a.lock_reason !== "deposit_paid"}
                         onChange={e => setEditingPct(p => ({ ...p, [a.id]: e.target.value }))}
                         onBlur={() => savePct(a)}
                         onKeyDown={e => { if (e.key === "Enter") savePct(a); }}
@@ -787,62 +861,74 @@ function AllocationManager({ batch, recipes }: { batch: BrewBatch; recipes: impo
                       {allocBbl != null ? `${allocBbl.toFixed(1)} BBL` : ""}
                     </span>
                     {/* Invoice controls for contract_brewing allocations */}
-                    <div className="flex items-center gap-1">
-                      {a.channel === "contract_brewing" && !a.invoice_paid_at && (
+                    <div className="flex flex-wrap items-center gap-1">
+                      {a.channel === "contract_brewing" && (
                         <>
-                          {!a.invoice_generated_at && (
+                          {/* View in Square — available whenever an invoice exists, paid or not */}
+                          {a.square_deposit_invoice_id && (
                             <button type="button"
-                              onClick={() => openInvoiceModal(a)}
-                              disabled={invoiceActionLoading === a.id}
-                              className="text-[10px] text-amber-500 hover:text-amber-400 border border-amber-800/50 hover:border-amber-600 rounded px-1.5 py-1 transition-colors disabled:opacity-40 whitespace-nowrap">
-                              Generate Invoice
-                            </button>
-                          )}
-                          {a.invoice_generated_at && !a.invoice_sent_at && (
-                            <>
-                              <button type="button"
-                                onClick={() => openInvoiceModal(a)}
-                                className="text-[10px] text-zinc-500 hover:text-zinc-300 border border-zinc-700 rounded px-1.5 py-1 transition-colors whitespace-nowrap">
-                                Preview
-                              </button>
-                              <button type="button"
-                                onClick={() => handleSendInvoice(a.id)}
-                                disabled={invoiceActionLoading === a.id}
-                                className="text-[10px] text-amber-500 hover:text-amber-400 border border-amber-800/50 hover:border-amber-600 rounded px-1.5 py-1 transition-colors disabled:opacity-40 whitespace-nowrap">
-                                {invoiceActionLoading === a.id ? "Sending…" : "Send Invoice"}
-                              </button>
-                            </>
-                          )}
-                          {a.invoice_sent_at && (
-                            <button type="button"
-                              onClick={() => handleSyncInvoice(a.id)}
+                              onClick={() => viewInvoiceInSquare(a)}
                               disabled={invoiceActionLoading === a.id}
                               className="text-[10px] text-zinc-500 hover:text-zinc-300 border border-zinc-700 rounded px-1.5 py-1 transition-colors disabled:opacity-40 whitespace-nowrap">
-                              {invoiceActionLoading === a.id ? "Syncing…" : "Sync Status"}
+                              View in Square ↗
                             </button>
+                          )}
+                          {/* Action buttons only for unpaid allocations */}
+                          {!a.invoice_paid_at && (
+                            <>
+                              {!a.invoice_generated_at && (
+                                <button type="button"
+                                  onClick={() => openInvoiceModal(a)}
+                                  disabled={invoiceActionLoading === a.id}
+                                  className="text-[10px] text-amber-500 hover:text-amber-400 border border-amber-800/50 hover:border-amber-600 rounded px-1.5 py-1 transition-colors disabled:opacity-40 whitespace-nowrap">
+                                  Generate Invoice
+                                </button>
+                              )}
+                              {a.invoice_generated_at && !a.invoice_sent_at && (
+                                <>
+                                  <button type="button"
+                                    onClick={() => handleSendInvoice(a.id)}
+                                    disabled={invoiceActionLoading === a.id}
+                                    className="text-[10px] text-amber-500 hover:text-amber-400 border border-amber-800/50 hover:border-amber-600 rounded px-1.5 py-1 transition-colors disabled:opacity-40 whitespace-nowrap">
+                                    {invoiceActionLoading === a.id ? "Sending…" : "Send Invoice"}
+                                  </button>
+                                  <button type="button"
+                                    onClick={() => handleDeleteInvoice(a.id, false)}
+                                    disabled={invoiceActionLoading === a.id}
+                                    className="text-[10px] text-red-700 hover:text-red-500 border border-red-900/50 hover:border-red-700 rounded px-1.5 py-1 transition-colors disabled:opacity-40 whitespace-nowrap">
+                                    Delete
+                                  </button>
+                                </>
+                              )}
+                              {a.invoice_sent_at && (
+                                <>
+                                  <button type="button"
+                                    onClick={() => handleSyncInvoice(a.id)}
+                                    disabled={invoiceActionLoading === a.id}
+                                    className="text-[10px] text-zinc-500 hover:text-zinc-300 border border-zinc-700 rounded px-1.5 py-1 transition-colors disabled:opacity-40 whitespace-nowrap">
+                                    {invoiceActionLoading === a.id ? "Syncing…" : "Sync Status"}
+                                  </button>
+                                  <button type="button"
+                                    onClick={() => handleDeleteInvoice(a.id, true)}
+                                    disabled={invoiceActionLoading === a.id}
+                                    className="text-[10px] text-red-700 hover:text-red-500 border border-red-900/50 hover:border-red-700 rounded px-1.5 py-1 transition-colors disabled:opacity-40 whitespace-nowrap">
+                                    Delete
+                                  </button>
+                                </>
+                              )}
+                              <button type="button"
+                                onClick={() => { setInvoiceModalMode("mark_paid"); setInvoiceModalAlloc(a); setInvoicePreview(null); }}
+                                disabled={invoiceActionLoading === a.id}
+                                className="text-[10px] text-emerald-600 hover:text-emerald-400 border border-emerald-900/50 hover:border-emerald-700 rounded px-1.5 py-1 transition-colors disabled:opacity-40 whitespace-nowrap">
+                                Mark Paid (Ext.)
+                              </button>
+                            </>
                           )}
                         </>
                       )}
                     </div>
-                    {/* Lock / unlock — only show manual lock for non-CB or unpaid allocations */}
-                    <div>
-                      {!a.locked && !a.invoice_paid_at && (
-                        <select
-                          className="text-[10px] bg-zinc-800 border border-zinc-700 rounded px-1.5 py-1 text-zinc-500 cursor-pointer hover:border-zinc-500 w-full"
-                          defaultValue=""
-                          onChange={e => { if (e.target.value) handleLock(a.id, e.target.value as AllocationLockReason); e.target.value = ""; }}>
-                          <option value="">Lock…</option>
-                          {LOCK_REASON_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                        </select>
-                      )}
-                      {a.locked && !a.invoice_paid_at && (
-                        <button type="button" onClick={() => handleUnlock(a.id)}
-                          className="text-[10px] text-zinc-500 hover:text-zinc-300 border border-zinc-700 rounded px-1.5 py-1 transition-colors w-full">
-                          Unlock
-                        </button>
-                      )}
-                    </div>
-                    <button type="button" onClick={() => handleDelete(a.id, a.locked)}
+                    <AllocationStatusBadge allocation={a} />
+                    <button type="button" onClick={() => handleDelete(a.id, !!a.invoice_paid_at)}
                       className="text-zinc-600 hover:text-red-400 text-sm leading-none transition-colors px-1 justify-self-end">✕</button>
                   </div>
                 </div>
@@ -850,6 +936,44 @@ function AllocationManager({ batch, recipes }: { batch: BrewBatch; recipes: impo
                 {/* Mini allocation bar for this row */}
                 <div className="mt-2 h-1 rounded-full bg-zinc-800 overflow-hidden">
                   <div style={{ width: `${Math.min(pctNum, 100)}%`, background: barColor }} className="h-full rounded-full transition-all" />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Read-only pending conversion rows */}
+      {batchConversions.filter(c => !c.converted_at).length > 0 && (
+        <div className="rounded-lg border border-amber-900/40 divide-y divide-zinc-800/60 overflow-hidden">
+          {batchConversions.filter(c => !c.converted_at).map(c => {
+            const pct = batchVol > 0 ? (Number(c.volume_bbl) / batchVol) * 100 : 0;
+            return (
+              <div key={c.id} className="px-3 py-2.5 bg-amber-950/10">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-center gap-2 flex-wrap min-w-0">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium border border-white/5 bg-amber-900/50 text-amber-300">
+                      Conversion
+                    </span>
+                    {c.target_batch && (
+                      <span className="text-xs text-zinc-300 font-medium">
+                        → {c.target_batch.batch_number ? `#${c.target_batch.batch_number} ` : ""}{c.target_batch.beer_name}
+                      </span>
+                    )}
+                    {c.planned_date && (
+                      <span className="text-xs text-zinc-500">planned {fmtDateLong(c.planned_date)}</span>
+                    )}
+                    <span className="inline-flex items-center text-[10px] font-medium text-zinc-500 bg-zinc-800/60 border border-zinc-700/50 rounded px-1.5 py-0.5">
+                      Pending
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3 flex-none text-xs tabular-nums text-zinc-400">
+                    <span>{pct.toFixed(1)}%</span>
+                    <span>{Number(c.volume_bbl).toFixed(1)} BBL</span>
+                  </div>
+                </div>
+                <div className="mt-2 h-1 rounded-full bg-zinc-800 overflow-hidden">
+                  <div style={{ width: `${Math.min(pct, 100)}%`, background: "#f59e0b" }} className="h-full rounded-full" />
                 </div>
               </div>
             );
@@ -883,23 +1007,8 @@ function AllocationManager({ batch, recipes }: { batch: BrewBatch; recipes: impo
             </div>
           </div>
 
-          {/* Conversion target recipe — conversion allocations earmark volume for a
-              different recipe's commitments, so the commitment pool below is scoped
-              to whichever recipe is selected here rather than this batch's own recipe. */}
-          {isConversionChannel(newChannel) && (
-            <div>
-              <label className="block text-xs text-zinc-500 mb-1">Converting to recipe</label>
-              <select className="inp text-xs w-full" value={newConversionRecipeId} onChange={e => handleNewConversionRecipeChange(e.target.value)}>
-                <option value="">— select recipe —</option>
-                {recipes.map(r => (
-                  <option key={r.id} value={r.id}>{r.beer_name}</option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          {/* Commitment (for dist/contract/conversion channels) */}
-          {!isTaproomChannel(newChannel) && (!isConversionChannel(newChannel) || newConversionRecipeId) && (
+          {/* Commitment (for dist/contract channels) */}
+          {!isTaproomChannel(newChannel) && (
             <div>
               <label className="block text-xs text-zinc-500 mb-1">Commitment</label>
               {newChannelCommitments.length === 0 ? (
@@ -971,7 +1080,10 @@ function AllocationManager({ batch, recipes }: { batch: BrewBatch; recipes: impo
           preview={invoicePreview}
           loading={invoicePreviewLoading}
           generating={invoiceActionLoading === invoiceModalAlloc.id}
+          defaultMode={invoiceModalMode}
           onGenerate={() => handleGenerateInvoice(invoiceModalAlloc.id)}
+          onMarkPaid={(data) => handleMarkPaid(invoiceModalAlloc.id, data)}
+          markingPaid={invoiceActionLoading === invoiceModalAlloc.id}
           onClose={() => setInvoiceModalAlloc(null)}
         />
       )}
@@ -1070,7 +1182,7 @@ function BatchTable({
             const schedStages = new Set(batchSchedule.map(e => e.stage === "fermenter" ? "fermenting" : e.stage));
             const isConversion = !!b.converted_from_batch_id;
             const allBatchEntries = scheduleEntries.filter((e) => e.batch_id === b.id);
-            const pkgIncomplete = computeBranchPackagingStatus(allBatchEntries, b, transfers).some(s => s.status !== "ok");
+            const pkgIncomplete = computeBranchPackagingStatus(allBatchEntries, b, transfers, []).some(s => s.status !== "ok");
             const scheduleMissing = (!isConversion && !schedStages.has("brewhouse")) || (!isConversion && !schedStages.has("fermenting")) || !schedStages.has("conditioning") || pkgIncomplete;
 
             // Delivery: use stored field if set, else calculate from recipe
@@ -1159,7 +1271,7 @@ function BatchTable({
 
                       {/* 1 — Allocations */}
                       <div className="mb-5">
-                        <AllocationManager batch={b} recipes={recipes} />
+                        <AllocationManager batch={b} />
                       </div>
 
                       {/* 2 — Equipment Schedule */}
@@ -1582,12 +1694,21 @@ function ReassignTankSection({ batchId, equipment }: { batchId: string; equipmen
   );
 }
 
+// Stable secondary sort for same-date transfers: brewing (backlog→brewhouse)
+// always before fermenter/conditioning transfers on the same day.
+const TRANSFER_TYPE_ORDER: Record<string, number> = {
+  brewing: 0, transfer: 1, kegging: 2, canning: 3, export: 4, conversion: 5,
+};
+
 function TransferLog({ transfers, batchVol }: { transfers: BatchTransfer[]; batchVol: number }) {
   const [expanded, setExpanded] = useState(false);
 
-  const sorted = [...transfers].sort(
-    (a, b) => new Date(a.transferred_at).getTime() - new Date(b.transferred_at).getTime()
-  );
+  const sorted = [...transfers].sort((a, b) => {
+    const dateA = a.transferred_at.slice(0, 10);
+    const dateB = b.transferred_at.slice(0, 10);
+    if (dateA !== dateB) return dateA < dateB ? -1 : 1;
+    return (TRANSFER_TYPE_ORDER[a.transfer_type] ?? 9) - (TRANSFER_TYPE_ORDER[b.transfer_type] ?? 9);
+  });
 
   return (
     <div>
@@ -1608,7 +1729,7 @@ function TransferLog({ transfers, batchVol }: { transfers: BatchTransfer[]; batc
             <table className="w-full text-xs">
               <thead>
                 <tr className="border-b border-zinc-800 bg-zinc-900/40 text-left">
-                  {["Date", "From", "To", "Type", "Draw", "Shrinkage", "By", "Notes"].map(h => (
+                  {["Date", "From", "To", "Type", "Draw", "Shrinkage", "Output", "By", "Notes"].map(h => (
                     <th key={h} className="px-3 py-2 font-medium text-zinc-500">{h}</th>
                   ))}
                 </tr>
@@ -1619,9 +1740,12 @@ function TransferLog({ transfers, batchVol }: { transfers: BatchTransfer[]; batc
                   const toEq   = t.to_tank   ? EQ[t.to_tank.type   as keyof typeof EQ] : null;
                   const byEmail = t.created_by_profile?.email;
                   const byLabel = byEmail ? byEmail.split("@")[0] : "—";
+                  const outputLabel = t.quantity && t.packaging_variations?.name
+                    ? `${t.quantity}× ${t.packaging_variations.name}`
+                    : null;
                   return (
                     <tr key={t.id} className={`border-b border-zinc-800/40 ${i % 2 !== 0 ? "bg-zinc-900/20" : ""}`}>
-                      <td className="px-3 py-2 text-zinc-500 whitespace-nowrap">{fmtDateTime(t.transferred_at)}</td>
+                      <td className="px-3 py-2 text-zinc-500 whitespace-nowrap">{fmtDate(t.transferred_at.slice(0, 10))}</td>
                       <td className="px-3 py-2 text-zinc-300">
                         {t.transfer_type === "brewing"
                           ? <span className="text-zinc-500">Backlog</span>
@@ -1638,16 +1762,24 @@ function TransferLog({ transfers, batchVol }: { transfers: BatchTransfer[]; batc
                               ? <span className="text-zinc-400">Export Bay</span>
                               : <span className="text-zinc-600">—</span>}
                       </td>
-                      <td className="px-3 py-2 text-zinc-400 capitalize">
-                        {t.transfer_type === "conversion"
-                          ? <span className="text-amber-400">Conversion</span>
-                          : t.transfer_type === "export" ? "Export"
-                          : t.transfer_type === "brewing" ? <span className="text-emerald-500">Brewing</span>
-                          : t.transfer_type}
+                      <td className="px-3 py-2 capitalize">
+                        <span className={{
+                          brewing:    "text-emerald-500",
+                          transfer:   "text-blue-400",
+                          kegging:    "text-orange-400",
+                          canning:    "text-cyan-400",
+                          export:     "text-purple-400",
+                          conversion: "text-amber-400",
+                        }[t.transfer_type] ?? "text-zinc-400"}>
+                          {t.transfer_type}
+                        </span>
                       </td>
                       <td className="px-3 py-2 tabular-nums text-zinc-300">{fmtBbl2(Number(t.volume_bbl))}</td>
                       <td className="px-3 py-2 tabular-nums text-zinc-500">
                         {Number(t.shrinkage_bbl) > 0 ? fmtBbl2(Number(t.shrinkage_bbl)) : "—"}
+                      </td>
+                      <td className="px-3 py-2 text-zinc-400 whitespace-nowrap">
+                        {outputLabel ?? <span className="text-zinc-700">—</span>}
                       </td>
                       <td className="px-3 py-2 text-zinc-500 max-w-[100px] truncate" title={byEmail ?? undefined}>{byLabel}</td>
                       <td className="px-3 py-2 text-zinc-500 max-w-[160px] truncate">{t.notes ?? "—"}</td>

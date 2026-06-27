@@ -6,7 +6,7 @@ import { queryKeys } from "@/lib/query-keys";
 import {
   Recipe, ContractBrewingPartner, ContractBrewingRequest,
   ContractRequestStatus, CommitmentChannel, CommitmentAllocationSummary,
-  AllocationLockReason, PackagingVariation,
+  PackagingVariation,
 } from "../../types";
 import { fmtDateLong } from "@/lib/utils/formatting";
 import { BBL_TO_FL_OZ } from "@/lib/constants/production";
@@ -26,12 +26,8 @@ const STATUS_META: Record<ContractRequestStatus, { label: string; cls: string }>
 const CHANNEL_META: Record<CommitmentChannel, { label: string; cls: string }> = {
   distribution:     { label: "Distribution",     cls: "bg-blue-900/40 text-blue-300 border-blue-800" },
   contract_brewing: { label: "Contract Brewing", cls: "bg-purple-900/40 text-purple-300 border-purple-800" },
+  wholesale:        { label: "Wholesale",        cls: "bg-amber-900/40 text-amber-300 border-amber-800" },
 };
-
-const LOCK_REASON_OPTIONS: { value: AllocationLockReason; label: string }[] = [
-  { value: "deposit_paid",    label: "Deposit Paid" },
-  { value: "contract_signed", label: "Contract Signed" },
-];
 
 function StatusBadge({ status }: { status: ContractRequestStatus }) {
   const m = STATUS_META[status] ?? STATUS_META.open;
@@ -44,14 +40,17 @@ function ChannelBadge({ channel }: { channel: CommitmentChannel }) {
 }
 
 function InvoiceStatusBadge({ a }: { a: CommitmentAllocationSummary }) {
+  const numSuffix = a.deposit_invoice_number
+    ? <span className="ml-1 font-mono opacity-70">#{a.deposit_invoice_number}</span>
+    : null;
   if (a.invoice_paid_at) {
-    return <span className="inline-flex items-center gap-1 text-[10px] text-green-400 bg-green-900/30 border border-green-800/40 rounded px-1.5 py-0.5">✓ Deposit paid</span>;
+    return <span className="inline-flex items-center gap-1 text-[10px] text-green-400 bg-green-900/30 border border-green-800/40 rounded px-1.5 py-0.5">✓ Deposit paid{numSuffix}</span>;
   }
   if (a.invoice_sent_at) {
-    return <span className="inline-flex items-center gap-1 text-[10px] text-amber-400 bg-amber-900/30 border border-amber-800/40 rounded px-1.5 py-0.5">● Invoice sent</span>;
+    return <span className="inline-flex items-center gap-1 text-[10px] text-amber-400 bg-amber-900/30 border border-amber-800/40 rounded px-1.5 py-0.5">● Invoice sent{numSuffix}</span>;
   }
   if (a.invoice_generated_at) {
-    return <span className="inline-flex items-center gap-1 text-[10px] text-zinc-400 bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5">Draft ready</span>;
+    return <span className="inline-flex items-center gap-1 text-[10px] text-zinc-400 bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5">Draft ready{numSuffix}</span>;
   }
   return <span className="inline-flex items-center gap-1 text-[10px] text-zinc-600 bg-zinc-900 border border-zinc-800 rounded px-1.5 py-0.5">Invoice pending</span>;
 }
@@ -59,15 +58,15 @@ function InvoiceStatusBadge({ a }: { a: CommitmentAllocationSummary }) {
 // ─── Invoicing controls for a commitment's linked contract_brewing allocation(s) ──
 
 function InvoicingCell({
-  commitment, onPreview, actionLoading, onSend, onSync, onLock, onUnlock,
+  commitment, onPreview, onViewInSquare, actionLoading, onSend, onSync, onDelete,
 }: {
   commitment: ContractBrewingRequest;
   onPreview: (a: CommitmentAllocationSummary) => void;
+  onViewInSquare: (id: string) => void;
   actionLoading: string | null;
   onSend: (id: string) => void;
   onSync: (id: string) => void;
-  onLock: (id: string, reason: AllocationLockReason) => void;
-  onUnlock: (id: string) => void;
+  onDelete: (id: string, sent: boolean) => void;
 }) {
   if (commitment.channel !== "contract_brewing") return <span className="text-zinc-600">—</span>;
   const allocs = commitment.batch_allocations ?? [];
@@ -79,49 +78,50 @@ function InvoicingCell({
         <div key={a.id} className="flex items-center gap-1.5 flex-wrap">
           {a.brew_batches && <span className="text-[10px] text-zinc-500 whitespace-nowrap">#{a.brew_batches.batch_number}</span>}
           <InvoiceStatusBadge a={a} />
+          {/* View in Square — available whenever an invoice exists, paid or not */}
+          {a.square_deposit_invoice_id && (
+            <button type="button" onClick={() => onViewInSquare(a.id)}
+              disabled={actionLoading === a.id}
+              className="text-[10px] text-zinc-500 hover:text-zinc-300 border border-zinc-700 rounded px-1.5 py-0.5 transition-colors disabled:opacity-40 whitespace-nowrap">
+              View in Square ↗
+            </button>
+          )}
+          {/* Action buttons only for unpaid allocations */}
           {!a.invoice_paid_at && (
             <>
               {!a.invoice_generated_at && (
-                <button type="button" onClick={() => onPreview(a)} disabled={actionLoading === a.id}
+                <button type="button"
+                  onClick={() => onPreview({ ...a, commitments: { volume_bbl: commitment.volume_bbl } })}
+                  disabled={actionLoading === a.id}
                   className="text-[10px] text-amber-500 hover:text-amber-400 border border-amber-800/50 hover:border-amber-600 rounded px-1.5 py-0.5 transition-colors disabled:opacity-40 whitespace-nowrap">
                   Generate Invoice
                 </button>
               )}
               {a.invoice_generated_at && !a.invoice_sent_at && (
                 <>
-                  <button type="button" onClick={() => onPreview(a)}
-                    className="text-[10px] text-zinc-500 hover:text-zinc-300 border border-zinc-700 rounded px-1.5 py-0.5 transition-colors whitespace-nowrap">
-                    Preview
-                  </button>
                   <button type="button" onClick={() => onSend(a.id)} disabled={actionLoading === a.id}
                     className="text-[10px] text-amber-500 hover:text-amber-400 border border-amber-800/50 hover:border-amber-600 rounded px-1.5 py-0.5 transition-colors disabled:opacity-40 whitespace-nowrap">
                     {actionLoading === a.id ? "Sending…" : "Send Invoice"}
                   </button>
+                  <button type="button" onClick={() => onDelete(a.id, false)} disabled={actionLoading === a.id}
+                    className="text-[10px] text-red-700 hover:text-red-500 border border-red-900/50 hover:border-red-700 rounded px-1.5 py-0.5 transition-colors disabled:opacity-40 whitespace-nowrap">
+                    Delete
+                  </button>
                 </>
               )}
               {a.invoice_sent_at && (
-                <button type="button" onClick={() => onSync(a.id)} disabled={actionLoading === a.id}
-                  className="text-[10px] text-zinc-500 hover:text-zinc-300 border border-zinc-700 rounded px-1.5 py-0.5 transition-colors disabled:opacity-40 whitespace-nowrap">
-                  {actionLoading === a.id ? "Syncing…" : "Sync Status"}
-                </button>
+                <>
+                  <button type="button" onClick={() => onSync(a.id)} disabled={actionLoading === a.id}
+                    className="text-[10px] text-zinc-500 hover:text-zinc-300 border border-zinc-700 rounded px-1.5 py-0.5 transition-colors disabled:opacity-40 whitespace-nowrap">
+                    {actionLoading === a.id ? "Syncing…" : "Sync Status"}
+                  </button>
+                  <button type="button" onClick={() => onDelete(a.id, true)} disabled={actionLoading === a.id}
+                    className="text-[10px] text-red-700 hover:text-red-500 border border-red-900/50 hover:border-red-700 rounded px-1.5 py-0.5 transition-colors disabled:opacity-40 whitespace-nowrap">
+                    Delete
+                  </button>
+                </>
               )}
             </>
-          )}
-          {!a.locked && !a.invoice_paid_at && (
-            <select className="text-[10px] bg-zinc-800 border border-zinc-700 rounded px-1 py-0.5 text-zinc-500 cursor-pointer hover:border-zinc-500"
-              defaultValue="" onChange={(e) => { if (e.target.value) onLock(a.id, e.target.value as AllocationLockReason); e.target.value = ""; }}>
-              <option value="">Lock…</option>
-              {LOCK_REASON_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
-          )}
-          {a.locked && !a.invoice_paid_at && (
-            <button type="button" onClick={() => onUnlock(a.id)}
-              className="text-[10px] text-zinc-500 hover:text-zinc-300 border border-zinc-700 rounded px-1.5 py-0.5 transition-colors">
-              Unlock
-            </button>
-          )}
-          {a.locked && a.lock_reason === "contract_signed" && (
-            <span className="inline-flex items-center gap-1 text-[10px] text-blue-400 bg-blue-900/30 border border-blue-800/40 rounded px-1.5 py-0.5">🔒 Contract signed</span>
           )}
         </div>
       ))}
@@ -491,6 +491,22 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
     }
   }
 
+  async function handleMarkPaid(allocId: string, data: import("../DepositInvoiceModal").MarkPaidData) {
+    setInvoiceActionLoading(allocId);
+    try {
+      const res = await fetch(`/api/production/allocations/${allocId}/invoice`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "mark_paid", ...data }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? "Error");
+      setInvoiceModalAlloc(null);
+      await load();
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Failed to mark as paid");
+    } finally {
+      setInvoiceActionLoading(null);
+    }
+  }
+
   async function handleSendInvoice(allocId: string) {
     if (!confirm("Send this invoice to the partner via email?")) return;
     setInvoiceActionLoading(allocId);
@@ -502,6 +518,22 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
       await load();
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : "Failed to send invoice");
+    } finally {
+      setInvoiceActionLoading(null);
+    }
+  }
+
+  async function handleViewInSquare(allocId: string) {
+    setInvoiceActionLoading(allocId);
+    try {
+      const data = await fetchJson<{ invoiceUrl: string | null }>(`/api/production/allocations/${allocId}/invoice`);
+      if (data.invoiceUrl) {
+        window.open(data.invoiceUrl, "_blank", "noopener,noreferrer");
+      } else {
+        alert("No public URL available for this invoice yet.");
+      }
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Failed to fetch invoice URL");
     } finally {
       setInvoiceActionLoading(null);
     }
@@ -522,21 +554,23 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
     }
   }
 
-  async function handleLock(allocId: string, reason: AllocationLockReason) {
-    const res = await fetch(`/api/production/allocations/${allocId}`, {
-      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ locked: true, lock_reason: reason }),
-    });
-    if (!res.ok) alert((await res.json()).error ?? "Error");
-    await load();
-  }
-
-  async function handleUnlock(allocId: string) {
-    if (!confirm("Unlock this allocation?")) return;
-    const res = await fetch(`/api/production/allocations/${allocId}`, {
-      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ locked: false }),
-    });
-    if (!res.ok) alert((await res.json()).error ?? "Error");
-    await load();
+  async function handleDeleteInvoice(allocId: string, sent: boolean) {
+    const msg = sent
+      ? "Cancel and delete this sent invoice? The partner may receive a cancellation notice. A new invoice can then be generated."
+      : "Delete this draft invoice? A new one can be generated.";
+    if (!confirm(msg)) return;
+    setInvoiceActionLoading(allocId);
+    try {
+      const res = await fetch(`/api/production/allocations/${allocId}/invoice`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "delete" }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? "Error");
+      await load();
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Failed to delete invoice");
+    } finally {
+      setInvoiceActionLoading(null);
+    }
   }
 
   async function handleDelete(id: string) {
@@ -636,11 +670,11 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
                     <InvoicingCell
                       commitment={q}
                       onPreview={openInvoicePreview}
+                      onViewInSquare={handleViewInSquare}
                       actionLoading={invoiceActionLoading}
                       onSend={handleSendInvoice}
                       onSync={handleSyncInvoice}
-                      onLock={handleLock}
-                      onUnlock={handleUnlock}
+                      onDelete={handleDeleteInvoice}
                     />
                   </td>
                   <td className="px-4 py-2.5 text-zinc-500 text-xs max-w-[160px] truncate">{q.notes ?? "—"}</td>
@@ -667,6 +701,8 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
           loading={invoicePreviewLoading}
           generating={invoiceActionLoading === invoiceModalAlloc.id}
           onGenerate={() => handleGenerateInvoice(invoiceModalAlloc.id)}
+          onMarkPaid={(data) => handleMarkPaid(invoiceModalAlloc.id, data)}
+          markingPaid={invoiceActionLoading === invoiceModalAlloc.id}
           onClose={() => setInvoiceModalAlloc(null)}
         />
       )}
