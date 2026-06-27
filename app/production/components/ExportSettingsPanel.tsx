@@ -24,6 +24,10 @@ function ExciseTaxRateRow({
   onSave: (id: string, patch: Partial<ExciseTaxRate>) => Promise<void>;
 }) {
   const [saving, setSaving] = useState(false);
+  const [name, setName] = useState(rate.name);
+  const [party, setParty] = useState(rate.receiving_party ?? "");
+  const [unit, setUnit] = useState<"bbl" | "gallon">(rate.unit);
+  const [rateUsd, setRateUsd] = useState(String(rate.rate_usd));
 
   async function update(patch: Partial<ExciseTaxRate>) {
     setSaving(true);
@@ -31,12 +35,34 @@ function ExciseTaxRateRow({
     setSaving(false);
   }
 
+  function commitName() { if (name !== rate.name) update({ name }); }
+  function commitParty() { if ((party || null) !== rate.receiving_party) update({ receiving_party: party || null }); }
+  function commitRate() {
+    const n = Number(rateUsd);
+    if (!isNaN(n) && n !== rate.rate_usd) update({ rate_usd: n });
+  }
+
   return (
     <tr className="border-b border-zinc-800 last:border-0">
-      <td className="px-4 py-2.5 text-zinc-200">{rate.name}</td>
-      <td className="px-4 py-2.5 text-zinc-400">{rate.receiving_party ?? "—"}</td>
-      <td className="px-4 py-2.5 text-zinc-400">{rate.unit}</td>
-      <td className="px-4 py-2.5 text-right text-zinc-200">${rate.rate_usd.toFixed(2)}</td>
+      <td className="px-4 py-2.5">
+        <input value={name} onChange={(e) => setName(e.target.value)} onBlur={commitName}
+          className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 w-32" />
+      </td>
+      <td className="px-4 py-2.5">
+        <input value={party} onChange={(e) => setParty(e.target.value)} onBlur={commitParty} placeholder="—"
+          className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 w-32" />
+      </td>
+      <td className="px-4 py-2.5">
+        <select value={unit} onChange={(e) => { const v = e.target.value as "bbl" | "gallon"; setUnit(v); update({ unit: v }); }}
+          className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200">
+          <option value="bbl">bbl</option>
+          <option value="gallon">gallon</option>
+        </select>
+      </td>
+      <td className="px-4 py-2.5 text-right">
+        <input type="number" step="0.01" value={rateUsd} onChange={(e) => setRateUsd(e.target.value)} onBlur={commitRate}
+          className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 w-24 text-right" />
+      </td>
       <td className="px-4 py-2.5">
         <SquareCatalogSelect
           items={items}
@@ -288,22 +314,63 @@ function PackagingFeeSection() {
   );
 }
 
+export function PartnerOverridePicker({ partners, excludeIds, onAdd }: {
+  partners: { id: string; company_name: string }[];
+  excludeIds: Set<string>;
+  onAdd: (partnerId: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [partnerId, setPartnerId] = useState("");
+  const available = partners.filter((p) => !excludeIds.has(p.id));
+
+  if (!open) {
+    return (
+      <button onClick={() => setOpen(true)} className="text-xs text-amber-500 hover:text-amber-400 transition-colors">
+        + Add partner override
+      </button>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <select value={partnerId} onChange={(e) => setPartnerId(e.target.value)}
+        className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200">
+        <option value="">— select partner —</option>
+        {available.map((p) => <option key={p.id} value={p.id}>{p.company_name}</option>)}
+      </select>
+      <button
+        onClick={() => { if (partnerId) { onAdd(partnerId); setOpen(false); setPartnerId(""); } }}
+        disabled={!partnerId}
+        className="text-xs px-2 py-1 bg-zinc-700 hover:bg-zinc-600 text-zinc-200 rounded transition-colors disabled:opacity-40"
+      >
+        Add
+      </button>
+      <button onClick={() => { setOpen(false); setPartnerId(""); }} className="text-xs text-zinc-500 hover:text-zinc-300">
+        Cancel
+      </button>
+    </div>
+  );
+}
+
 function SimpleServiceSection({ serviceType }: { serviceType: "keg_cleaning" | "forklift" }) {
   const { data: mappings = [] } = useExportServiceMappingsQuery();
+  const { data: partners = [] } = useContractPartnersQuery();
   const { data: catalog } = useExportSquareCatalogQuery();
   const qc = useQueryClient();
   const items = catalog?.items ?? [];
 
-  const row = mappings.find((m) => m.service_type === serviceType && m.partner_id === null) ?? null;
+  const rows = mappings.filter((m) => m.service_type === serviceType);
+  const defaultRow = rows.find((m) => m.partner_id === null) ?? null;
+  const overrideRows = rows.filter((m) => m.partner_id !== null);
 
-  async function upsert(itemId: string | null, variationId: string | null) {
+  async function upsert(existing: ExportServiceMapping | null, partnerId: string | null, itemId: string | null, variationId: string | null) {
     await fetch("/api/production/export-settings/service-mappings", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        id: row?.id,
+        id: existing?.id,
         service_type: serviceType,
-        partner_id: null,
+        partner_id: partnerId,
         display_name: PACKAGING_SERVICE_LABELS[serviceType],
         square_catalog_item_id: itemId,
         square_catalog_variation_id: variationId,
@@ -315,32 +382,59 @@ function SimpleServiceSection({ serviceType }: { serviceType: "keg_cleaning" | "
   return (
     <section>
       <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wide mb-2">{PACKAGING_SERVICE_LABELS[serviceType]}</h4>
-      <SquareCatalogSelect
-        items={items}
-        itemId={row?.square_catalog_item_id ?? null}
-        variationId={row?.square_catalog_variation_id ?? null}
-        onChange={upsert}
-      />
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-zinc-500 italic w-28">Default</span>
+          <SquareCatalogSelect
+            items={items}
+            itemId={defaultRow?.square_catalog_item_id ?? null}
+            variationId={defaultRow?.square_catalog_variation_id ?? null}
+            onChange={(itemId, variationId) => upsert(defaultRow, null, itemId, variationId)}
+          />
+        </div>
+        {overrideRows.map((m) => {
+          const partner = partners.find((p) => p.id === m.partner_id);
+          return (
+            <div key={m.id} className="flex items-center gap-2">
+              <span className="text-xs text-zinc-300 w-28 truncate">{partner?.company_name ?? "Unknown partner"}</span>
+              <SquareCatalogSelect
+                items={items}
+                itemId={m.square_catalog_item_id}
+                variationId={m.square_catalog_variation_id}
+                onChange={(itemId, variationId) => upsert(m, m.partner_id, itemId, variationId)}
+              />
+            </div>
+          );
+        })}
+        <PartnerOverridePicker
+          partners={partners}
+          excludeIds={new Set(overrideRows.map((m) => m.partner_id!))}
+          onAdd={(partnerId) => upsert(null, partnerId, null, null)}
+        />
+      </div>
     </section>
   );
 }
 
 function BulkDiscountSection() {
   const { data: mappings = [] } = useExportServiceMappingsQuery();
+  const { data: partners = [] } = useContractPartnersQuery();
   const { data: catalog } = useExportSquareCatalogQuery();
   const qc = useQueryClient();
   const discounts = catalog?.discounts ?? [];
 
-  const row = mappings.find((m) => m.service_type === "bulk_discount" && m.partner_id === null) ?? null;
+  const rows = mappings.filter((m) => m.service_type === "bulk_discount");
+  const defaultRow = rows.find((m) => m.partner_id === null) ?? null;
+  const overrideRows = rows.filter((m) => m.partner_id !== null);
 
-  async function upsert(discountId: string | null) {
+  async function upsert(existing: ExportServiceMapping | null, partnerId: string | null, discountId: string | null) {
     await fetch("/api/production/export-settings/service-mappings", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        id: row?.id,
+        id: existing?.id,
         service_type: "bulk_discount",
-        partner_id: null,
+        partner_id: partnerId,
         display_name: "Bulk Discount",
         square_catalog_discount_id: discountId,
       }),
@@ -351,7 +445,26 @@ function BulkDiscountSection() {
   return (
     <section>
       <h3 className="text-sm font-medium text-zinc-200 mb-2">Bulk Discount</h3>
-      <SquareDiscountSelect discounts={discounts} value={row?.square_catalog_discount_id ?? null} onChange={upsert} />
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-zinc-500 italic w-28">Default</span>
+          <SquareDiscountSelect discounts={discounts} value={defaultRow?.square_catalog_discount_id ?? null} onChange={(id) => upsert(defaultRow, null, id)} />
+        </div>
+        {overrideRows.map((m) => {
+          const partner = partners.find((p) => p.id === m.partner_id);
+          return (
+            <div key={m.id} className="flex items-center gap-2">
+              <span className="text-xs text-zinc-300 w-28 truncate">{partner?.company_name ?? "Unknown partner"}</span>
+              <SquareDiscountSelect discounts={discounts} value={m.square_catalog_discount_id} onChange={(id) => upsert(m, m.partner_id, id)} />
+            </div>
+          );
+        })}
+        <PartnerOverridePicker
+          partners={partners}
+          excludeIds={new Set(overrideRows.map((m) => m.partner_id!))}
+          onAdd={(partnerId) => upsert(null, partnerId, null)}
+        />
+      </div>
     </section>
   );
 }

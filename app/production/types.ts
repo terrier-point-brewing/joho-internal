@@ -526,7 +526,7 @@ export interface BatchTankAssignment {
   brew_batches?: Pick<BrewBatch, "id" | "beer_name" | "batch_number" | "status" | "volume_bbl">;
 }
 
-export type ServiceType = "packaging_fee" | "keg_cleaning" | "forklift" | "bulk_discount";
+export type ServiceType = "packaging_fee" | "keg_cleaning" | "forklift" | "bulk_discount" | "ingredient_deposit";
 
 export interface ExciseTaxRate {
   id: string;
