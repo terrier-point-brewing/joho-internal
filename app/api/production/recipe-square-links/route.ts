@@ -18,17 +18,49 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try { await requireRole([]); } catch (res) { return res as Response; }
 
-
   const supabase = await createSupabaseServerClient();
 
-  const { recipe_id, packaging, packaging_item_id, square_variation_id, square_item_id, variation_name, item_name } = await req.json();
+  const {
+    recipe_id, packaging, packaging_item_id,
+    packaging_format,
+    square_variation_id, square_item_id, variation_name, item_name,
+  } = await req.json();
+
   if (!recipe_id || !packaging || !square_variation_id) {
-    return NextResponse.json({ error: "recipe_id, packaging, and square_variation_id are required" }, { status: 400 });
+    return NextResponse.json(
+      { error: "recipe_id, packaging, and square_variation_id are required" },
+      { status: 400 }
+    );
   }
 
-  // For keg/can packaging_item_id is required; draft is fine without it.
+  // keg/can require a packaging_item_id
   if ((packaging === "keg" || packaging === "can") && !packaging_item_id) {
-    return NextResponse.json({ error: "packaging_item_id is required for keg and can links" }, { status: 400 });
+    return NextResponse.json(
+      { error: "packaging_item_id is required for keg and can links" },
+      { status: 400 }
+    );
+  }
+
+  // can links require a packaging_format; keg/draft links must not have one
+  if (packaging === "can" && !packaging_format) {
+    return NextResponse.json(
+      { error: "packaging_format is required for can links ('loose', '4-pack', '6-pack', or 'case')" },
+      { status: 400 }
+    );
+  }
+  if (packaging !== "can" && packaging_format) {
+    return NextResponse.json(
+      { error: "packaging_format is only valid for can links" },
+      { status: 400 }
+    );
+  }
+
+  const VALID_FORMATS = ["loose", "4-pack", "6-pack", "case"];
+  if (packaging_format && !VALID_FORMATS.includes(packaging_format)) {
+    return NextResponse.json(
+      { error: `packaging_format must be one of: ${VALID_FORMATS.join(", ")}` },
+      { status: 400 }
+    );
   }
 
   // Resolve catalog FKs from the master tables
@@ -59,6 +91,7 @@ export async function POST(req: NextRequest) {
       recipe_id,
       packaging,
       packaging_item_id: packaging_item_id || null,
+      packaging_format: packaging_format || null,
       square_variation_id,
       square_item_id: square_item_id || null,
       variation_name: variation_name || null,

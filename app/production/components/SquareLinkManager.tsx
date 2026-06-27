@@ -12,6 +12,7 @@ export interface LinkRow {
   recipe_id: string;
   packaging: "draft" | "keg" | "can";
   packaging_item_id: string | null;
+  packaging_format: string | null;
   square_variation_id: string;
   variation_name: string | null;
   item_name: string | null;
@@ -34,12 +35,13 @@ interface PendingRow {
   recipe_id: string;
   packaging: PackagingType;
   packaging_item_id: string;
+  packaging_format: string;  // "" means not selected
   variation_id: string;
 }
 
 let uidSeed = 0;
 function newRow(): PendingRow {
-  return { uid: uidSeed++, recipe_id: "", packaging: "keg", packaging_item_id: "", variation_id: "" };
+  return { uid: uidSeed++, recipe_id: "", packaging: "keg", packaging_item_id: "", packaging_format: "", variation_id: "" };
 }
 
 const TYPE_LABELS: Record<PackagingType, string> = { keg: "Keg", can: "Can", draft: "Draft" };
@@ -184,14 +186,15 @@ export function SquareLinkManager({
     });
   }
 
-  // Already-linked combos: recipe_id|packaging|packaging_item_id
+  // Already-linked combos: recipe_id|packaging|packaging_item_id|packaging_format
   const linkedCombos = new Set(
-    links.map((l) => `${l.recipe_id}|${l.packaging}|${l.packaging_item_id ?? ""}`)
+    links.map((l) => `${l.recipe_id}|${l.packaging}|${l.packaging_item_id ?? ""}|${l.packaging_format ?? ""}`)
   );
   function availableRecipes(row: PendingRow): Recipe[] {
     const needsItem = row.packaging === "keg" || row.packaging === "can";
     if (needsItem && !row.packaging_item_id) return recipes; // item not chosen yet, show all
-    return recipes.filter((r) => !linkedCombos.has(`${r.id}|${row.packaging}|${row.packaging_item_id}`));
+    const fmt = row.packaging_format ?? "";
+    return recipes.filter((r) => !linkedCombos.has(`${r.id}|${row.packaging}|${row.packaging_item_id}|${fmt}`));
   }
 
   const [rows, setRows]             = useState<PendingRow[]>([newRow()]);
@@ -208,13 +211,13 @@ export function SquareLinkManager({
     const newRows: PendingRow[] = [
       ...kegItems.map((item) => ({
         uid: uidSeed++, recipe_id: expandRecipeId,
-        packaging: "keg" as PackagingType, packaging_item_id: item.id, variation_id: "",
+        packaging: "keg" as PackagingType, packaging_item_id: item.id, packaging_format: "", variation_id: "",
       })),
       ...canItems.map((item) => ({
         uid: uidSeed++, recipe_id: expandRecipeId,
-        packaging: "can" as PackagingType, packaging_item_id: item.id, variation_id: "",
+        packaging: "can" as PackagingType, packaging_item_id: item.id, packaging_format: "", variation_id: "",
       })),
-      { uid: uidSeed++, recipe_id: expandRecipeId, packaging: "draft" as PackagingType, packaging_item_id: "", variation_id: "" },
+      { uid: uidSeed++, recipe_id: expandRecipeId, packaging: "draft" as PackagingType, packaging_item_id: "", packaging_format: "", variation_id: "" },
     ];
     setRows((rs) => {
       const isDefaultBlank = rs.length === 1 && !rs[0].recipe_id && !rs[0].variation_id;
@@ -228,7 +231,9 @@ export function SquareLinkManager({
       if (r.uid !== uid) return r;
       const next = { ...r, ...patch };
       if (patch.packaging && patch.packaging !== r.packaging) {
-        next.packaging_item_id = ""; next.variation_id = "";
+        next.packaging_item_id = "";
+        next.variation_id = "";
+        next.packaging_format = "";
       }
       if (patch.packaging_item_id && patch.packaging_item_id !== r.packaging_item_id) {
         next.variation_id = "";
@@ -243,7 +248,10 @@ export function SquareLinkManager({
 
   const validRows = rows.filter((r) => {
     if (!r.recipe_id || !r.variation_id) return false;
-    return r.packaging === "draft" ? true : !!r.packaging_item_id;
+    if (r.packaging === "draft") return true;
+    if (!r.packaging_item_id) return false;
+    if (r.packaging === "can" && !r.packaging_format) return false;
+    return true;
   });
 
   async function saveAll() {
@@ -259,6 +267,7 @@ export function SquareLinkManager({
             recipe_id: r.recipe_id,
             packaging: r.packaging,
             packaging_item_id: r.packaging_item_id || null,
+            packaging_format: r.packaging_format || null,
             square_variation_id: r.variation_id,
             square_item_id: sv?.item_id ?? null,
             variation_name: sv?.variation_name ?? null,
