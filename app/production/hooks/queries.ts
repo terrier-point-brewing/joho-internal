@@ -207,6 +207,13 @@ export function useExportInvoiceDueDaysQuery() {
   });
 }
 
+export function useDepositInvoiceDueDaysQuery() {
+  return useQuery({
+    queryKey: queryKeys.production.depositInvoiceDueDays(),
+    queryFn: () => fetchJson<{ days: number }>("/api/production/deposit-settings/invoice-due-days"),
+  });
+}
+
 export function useInvoicePreview(transactionIds: string[]) {
   return useQuery({
     queryKey: ["production", "invoice-preview", transactionIds] as const,
