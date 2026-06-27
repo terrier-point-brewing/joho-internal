@@ -191,41 +191,94 @@ const PACKAGING_SERVICE_LABELS: Record<"keg_cleaning" | "forklift", string> = {
   forklift: "Forklift",
 };
 
-function ServiceMappingRow({
-  mapping,
-  items,
-  partnerLabel,
-  onSave,
-}: {
-  mapping: ExportServiceMapping;
-  items: { itemId: string; itemName: string; variations: { variationId: string; variationName: string }[] }[];
-  partnerLabel: string;
-  onSave: (mapping: ExportServiceMapping, patch: Partial<ExportServiceMapping>) => Promise<void>;
-}) {
-  const [saving, setSaving] = useState(false);
+const PACKAGING_FORMAT_LABELS: Record<"case" | "loose", string> = {
+  case: "Case",
+  loose: "Loose Can",
+};
 
-  async function update(patch: Partial<ExportServiceMapping>) {
-    setSaving(true);
-    await onSave(mapping, patch);
-    setSaving(false);
-  }
+function PackagingFeeContainerSection({
+  pkg,
+  formats,
+  feeRows,
+  partners,
+  items,
+  upsert,
+}: {
+  pkg: { id: string; name: string };
+  formats: ("case" | "loose" | null)[];
+  feeRows: ExportServiceMapping[];
+  partners: { id: string; company_name: string }[];
+  items: { itemId: string; itemName: string; variations: { variationId: string; variationName: string }[] }[];
+  upsert: (
+    existing: ExportServiceMapping | null,
+    patch: { partner_id: string | null; packaging_item_id: string; packaging_format: "case" | "loose" | null; square_catalog_item_id: string | null; square_catalog_variation_id: string | null }
+  ) => Promise<void>;
+}) {
+  const containerRows = feeRows.filter((m) => m.packaging_item_id === pkg.id);
+  const overridePartnerIds = new Set(containerRows.filter((m) => m.partner_id !== null).map((m) => m.partner_id!));
 
   return (
-    <tr className="border-b border-zinc-800 last:border-0">
-      <td className="px-4 py-2.5 text-zinc-300">{partnerLabel}</td>
-      <td className="px-4 py-2.5 text-zinc-400">{mapping.display_name}</td>
-      <td className="px-4 py-2.5">
-        <SquareCatalogSelect
-          items={items}
-          itemId={mapping.square_catalog_item_id}
-          variationId={mapping.square_catalog_variation_id}
-          onChange={(itemId, variationId) =>
-            update({ square_catalog_item_id: itemId, square_catalog_variation_id: variationId })
-          }
+    <div className="flex flex-col gap-2">
+      <span className="text-xs font-medium text-zinc-300">{pkg.name}</span>
+      <div className="flex items-center gap-2 pl-3">
+        <span className="text-xs text-zinc-500 italic w-28">Default</span>
+        <div className="flex flex-col gap-1.5">
+          {formats.map((format) => {
+            const row = containerRows.find((m) => m.partner_id === null && m.packaging_format === format) ?? null;
+            return (
+              <div key={format ?? "default"} className="flex items-center gap-2">
+                {format && <span className="text-[11px] text-zinc-500 w-16">{PACKAGING_FORMAT_LABELS[format]}</span>}
+                <SquareCatalogSelect
+                  items={items}
+                  itemId={row?.square_catalog_item_id ?? null}
+                  variationId={row?.square_catalog_variation_id ?? null}
+                  onChange={(itemId, variationId) =>
+                    upsert(row, { partner_id: null, packaging_item_id: pkg.id, packaging_format: format, square_catalog_item_id: itemId, square_catalog_variation_id: variationId })
+                  }
+                />
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      {[...overridePartnerIds].map((partnerId) => {
+        const partner = partners.find((p) => p.id === partnerId);
+        return (
+          <div key={partnerId} className="flex items-center gap-2 pl-3">
+            <span className="text-xs text-zinc-300 w-28 truncate">{partner?.company_name ?? "Unknown partner"}</span>
+            <div className="flex flex-col gap-1.5">
+              {formats.map((format) => {
+                const row = containerRows.find((m) => m.partner_id === partnerId && m.packaging_format === format) ?? null;
+                return (
+                  <div key={format ?? "override"} className="flex items-center gap-2">
+                    {format && <span className="text-[11px] text-zinc-500 w-16">{PACKAGING_FORMAT_LABELS[format]}</span>}
+                    <SquareCatalogSelect
+                      items={items}
+                      itemId={row?.square_catalog_item_id ?? null}
+                      variationId={row?.square_catalog_variation_id ?? null}
+                      onChange={(itemId, variationId) =>
+                        upsert(row, { partner_id: partnerId, packaging_item_id: pkg.id, packaging_format: format, square_catalog_item_id: itemId, square_catalog_variation_id: variationId })
+                      }
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+      <div className="pl-3">
+        <PartnerOverridePicker
+          partners={partners}
+          excludeIds={overridePartnerIds}
+          onAdd={(partnerId) => {
+            for (const format of formats) {
+              upsert(null, { partner_id: partnerId, packaging_item_id: pkg.id, packaging_format: format, square_catalog_item_id: null, square_catalog_variation_id: null });
+            }
+          }}
         />
-      </td>
-      <td className="px-4 py-2.5 text-zinc-600">{saving ? "Saving…" : ""}</td>
-    </tr>
+      </div>
+    </div>
   );
 }
 
@@ -238,12 +291,18 @@ function PackagingFeeSection() {
   const items = catalog?.items ?? [];
 
   // Packaging Fee is charged per shippable container, not per assembly
-  // component (lid/paktech/tray/label) — see Spec 11 design doc.
+  // component (lid/paktech/tray/label) — see Spec 11 design doc. Cans need
+  // separate "case" vs "loose can" mappings, since Square invoicing rejects
+  // decimal quantities and a partial case is billed as whole cases + loose
+  // cans (two different Square items, two different line items).
   const containerItems = packagingItems.filter((p) => p.type === "keg" || p.type === "can");
 
   const feeRows = mappings.filter((m) => m.service_type === "packaging_fee");
 
-  async function upsert(existing: ExportServiceMapping | null, patch: Partial<ExportServiceMapping> & { packaging_item_id: string; partner_id: string | null }) {
+  async function upsert(
+    existing: ExportServiceMapping | null,
+    patch: { partner_id: string | null; packaging_item_id: string; packaging_format: "case" | "loose" | null; square_catalog_item_id: string | null; square_catalog_variation_id: string | null }
+  ) {
     await fetch("/api/production/export-settings/service-mappings", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -252,6 +311,7 @@ function PackagingFeeSection() {
         service_type: "packaging_fee",
         partner_id: patch.partner_id,
         packaging_item_id: patch.packaging_item_id,
+        packaging_format: patch.packaging_format,
         display_name: existing?.display_name ?? "Packaging Fee",
         square_catalog_item_id: patch.square_catalog_item_id ?? existing?.square_catalog_item_id ?? null,
         square_catalog_variation_id: patch.square_catalog_variation_id ?? existing?.square_catalog_variation_id ?? null,
@@ -263,52 +323,22 @@ function PackagingFeeSection() {
   return (
     <section>
       <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wide mb-2">Packaging Fee</h4>
-      <p className="text-xs text-zinc-600 mb-2">Default mapping per packaging item, with optional per-partner overrides.</p>
-      <div className="overflow-x-auto rounded-lg border border-zinc-800">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-zinc-800 bg-zinc-900/50 text-left">
-              <th className="px-4 py-2.5 text-xs font-medium text-zinc-500">Partner</th>
-              <th className="px-4 py-2.5 text-xs font-medium text-zinc-500">Packaging</th>
-              <th className="px-4 py-2.5 text-xs font-medium text-zinc-500">Square Mapping</th>
-              <th className="px-4 py-2.5 text-xs font-medium text-zinc-500" />
-            </tr>
-          </thead>
-          <tbody>
-            {containerItems.map((pkg) => {
-              const defaultRow = feeRows.find((m) => m.packaging_item_id === pkg.id && m.partner_id === null);
-              return (
-                <tr key={pkg.id} className="border-b border-zinc-800 last:border-0">
-                  <td className="px-4 py-2.5 text-zinc-500 italic">Default</td>
-                  <td className="px-4 py-2.5 text-zinc-300">{pkg.name}</td>
-                  <td className="px-4 py-2.5">
-                    <SquareCatalogSelect
-                      items={items}
-                      itemId={defaultRow?.square_catalog_item_id ?? null}
-                      variationId={defaultRow?.square_catalog_variation_id ?? null}
-                      onChange={(itemId, variationId) =>
-                        upsert(defaultRow ?? null, { partner_id: null, packaging_item_id: pkg.id, square_catalog_item_id: itemId, square_catalog_variation_id: variationId })
-                      }
-                    />
-                  </td>
-                  <td />
-                </tr>
-              );
-            })}
-            {feeRows.filter((m) => m.partner_id !== null).map((m) => {
-              const partner = partners.find((p) => p.id === m.partner_id);
-              return (
-                <ServiceMappingRow
-                  key={m.id}
-                  mapping={m}
-                  items={items}
-                  partnerLabel={partner?.company_name ?? "Unknown partner"}
-                  onSave={(existing, patch) => upsert(existing, { ...patch, partner_id: existing.partner_id, packaging_item_id: existing.packaging_item_id! })}
-                />
-              );
-            })}
-          </tbody>
-        </table>
+      <p className="text-xs text-zinc-600 mb-2">
+        Default mapping per packaging item, with optional per-partner overrides. Cans have separate Case and Loose Can mappings since partial-case
+        remainders are invoiced as loose cans.
+      </p>
+      <div className="flex flex-col gap-5">
+        {containerItems.map((pkg) => (
+          <PackagingFeeContainerSection
+            key={pkg.id}
+            pkg={pkg}
+            formats={pkg.type === "can" ? ["case", "loose"] : [null]}
+            feeRows={feeRows}
+            partners={partners}
+            items={items}
+            upsert={upsert}
+          />
+        ))}
       </div>
     </section>
   );
@@ -469,6 +499,134 @@ function BulkDiscountSection() {
   );
 }
 
+function DistributionDiscountSection() {
+  const { data: mappings = [] } = useExportServiceMappingsQuery();
+  const { data: partners = [] } = useContractPartnersQuery();
+  const { data: catalog } = useExportSquareCatalogQuery();
+  const qc = useQueryClient();
+  const discounts = catalog?.discounts ?? [];
+
+  const rows = mappings.filter((m) => m.service_type === "distribution_discount");
+  const defaultRow = rows.find((m) => m.partner_id === null) ?? null;
+  const overrideRows = rows.filter((m) => m.partner_id !== null);
+
+  async function upsert(existing: ExportServiceMapping | null, partnerId: string | null, discountId: string | null) {
+    await fetch("/api/production/export-settings/service-mappings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: existing?.id,
+        service_type: "distribution_discount",
+        partner_id: partnerId,
+        display_name: "Distribution Discount",
+        square_catalog_discount_id: discountId,
+      }),
+    });
+    await qc.invalidateQueries({ queryKey: queryKeys.production.exportServiceMappings() });
+  }
+
+  return (
+    <section>
+      <h3 className="text-sm font-medium text-zinc-200 mb-2">Distribution Discount</h3>
+      <p className="text-xs text-zinc-600 mb-2">
+        Applied to product line items on Distribution invoices. Optional — omit to generate without a discount.
+      </p>
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-zinc-500 italic w-28">Default</span>
+          <SquareDiscountSelect
+            discounts={discounts}
+            value={defaultRow?.square_catalog_discount_id ?? null}
+            onChange={(id) => upsert(defaultRow, null, id)}
+          />
+        </div>
+        {overrideRows.map((m) => {
+          const partner = partners.find((p) => p.id === m.partner_id);
+          return (
+            <div key={m.id} className="flex items-center gap-2">
+              <span className="text-xs text-zinc-300 w-28 truncate">{partner?.company_name ?? "Unknown partner"}</span>
+              <SquareDiscountSelect
+                discounts={discounts}
+                value={m.square_catalog_discount_id}
+                onChange={(id) => upsert(m, m.partner_id, id)}
+              />
+            </div>
+          );
+        })}
+        <PartnerOverridePicker
+          partners={partners}
+          excludeIds={new Set(overrideRows.map((m) => m.partner_id!))}
+          onAdd={(partnerId) => upsert(null, partnerId, null)}
+        />
+      </div>
+    </section>
+  );
+}
+
+function WholesaleDiscountSection() {
+  const { data: mappings = [] } = useExportServiceMappingsQuery();
+  const { data: partners = [] } = useContractPartnersQuery();
+  const { data: catalog } = useExportSquareCatalogQuery();
+  const qc = useQueryClient();
+  const discounts = catalog?.discounts ?? [];
+
+  const rows = mappings.filter((m) => m.service_type === "wholesale_discount");
+  const defaultRow = rows.find((m) => m.partner_id === null) ?? null;
+  const overrideRows = rows.filter((m) => m.partner_id !== null);
+
+  async function upsert(existing: ExportServiceMapping | null, partnerId: string | null, discountId: string | null) {
+    await fetch("/api/production/export-settings/service-mappings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: existing?.id,
+        service_type: "wholesale_discount",
+        partner_id: partnerId,
+        display_name: "Wholesale Discount",
+        square_catalog_discount_id: discountId,
+      }),
+    });
+    await qc.invalidateQueries({ queryKey: queryKeys.production.exportServiceMappings() });
+  }
+
+  return (
+    <section>
+      <h3 className="text-sm font-medium text-zinc-200 mb-2">Wholesale Discount</h3>
+      <p className="text-xs text-zinc-600 mb-2">
+        Applied to product line items on Wholesale invoices. Optional — omit to generate without a discount.
+      </p>
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-zinc-500 italic w-28">Default</span>
+          <SquareDiscountSelect
+            discounts={discounts}
+            value={defaultRow?.square_catalog_discount_id ?? null}
+            onChange={(id) => upsert(defaultRow, null, id)}
+          />
+        </div>
+        {overrideRows.map((m) => {
+          const partner = partners.find((p) => p.id === m.partner_id);
+          return (
+            <div key={m.id} className="flex items-center gap-2">
+              <span className="text-xs text-zinc-300 w-28 truncate">{partner?.company_name ?? "Unknown partner"}</span>
+              <SquareDiscountSelect
+                discounts={discounts}
+                value={m.square_catalog_discount_id}
+                onChange={(id) => upsert(m, m.partner_id, id)}
+              />
+            </div>
+          );
+        })}
+        <PartnerOverridePicker
+          partners={partners}
+          excludeIds={new Set(overrideRows.map((m) => m.partner_id!))}
+          onAdd={(partnerId) => upsert(null, partnerId, null)}
+        />
+      </div>
+    </section>
+  );
+}
+
 function InvoiceTermsSection() {
   const { data } = useExportInvoiceDueDaysQuery();
   const qc = useQueryClient();
@@ -531,6 +689,8 @@ export default function ExportSettingsPanel({ scope }: { scope: "full" | "excise
             </div>
           </section>
           <BulkDiscountSection />
+          <DistributionDiscountSection />
+          <WholesaleDiscountSection />
           <InvoiceTermsSection />
         </>
       )}
