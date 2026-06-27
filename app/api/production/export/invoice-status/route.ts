@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth";
-import { getExportInvoiceStatus } from "@/lib/square/export-invoices";
+import { getInvoiceStatus } from "@/lib/square/square-invoices";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +13,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const status = await getExportInvoiceStatus(invoiceId);
+    const status = await getInvoiceStatus(invoiceId);
     return NextResponse.json(status);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to fetch invoice status";

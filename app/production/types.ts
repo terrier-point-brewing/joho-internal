@@ -34,13 +34,13 @@ export interface PackagingItem {
   type: PackagingItemType;
   name: string;
   is_default: boolean;
+  requires_label: boolean;
   stock_quantity: number;
   unit_cost: number | null;
   volume_fl_oz: number | null;
   can_count: number | null;
   partner_id: string | null;
   supplier_id: string | null;
-  requires_label: boolean;
   /** Joined from contract_brewing_partners */
   contract_brewing_partners?: { company_name: string } | null;
   /** Joined from suppliers */
@@ -300,10 +300,10 @@ export type CommitmentChannel = "distribution" | "contract_brewing";
 export interface CommitmentPackagingPreference {
   id: string;
   commitment_id: string;
-  packaging_item_id: string;
+  variation_id: string;
   qty: number;
   created_at: string;
-  packaging_items?: { id: string; name: string; volume_fl_oz: number | null } | null;
+  packaging_variations?: PackagingVariation | null;
 }
 
 /** Slice of a batch_allocation surfaced on the Commitments view for invoicing. */
@@ -468,6 +468,7 @@ export interface ContractBrewingPartner {
   notes: string | null;
   square_customer_id: string | null;
   export_net_terms_days: number | null;
+  deposit_net_terms_days: number | null;
   created_at: string;
 }
 
@@ -525,7 +526,7 @@ export interface BatchTankAssignment {
   brew_batches?: Pick<BrewBatch, "id" | "beer_name" | "batch_number" | "status" | "volume_bbl">;
 }
 
-export type ServiceType = "packaging_fee" | "keg_cleaning" | "forklift" | "bulk_discount";
+export type ServiceType = "packaging_fee" | "keg_cleaning" | "forklift" | "bulk_discount" | "ingredient_deposit";
 
 export interface ExciseTaxRate {
   id: string;

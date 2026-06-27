@@ -76,6 +76,63 @@ export default function ExportTransactionsTab() {
     byCustomer.set(tx.recipient_id, list);
   }
 
+  // Group by square_invoice_id for the Send/Sync action bar — multiple
+  // transactions can share one invoice (Spec 6's combined-invoice model).
+  interface InvoiceGroup { invoiceId: string; txIds: string[]; status: ExportTransactionRow["status"] }
+  function invoiceGroupsFor(txs: ExportTransactionRow[]): InvoiceGroup[] {
+    const byInvoice = new Map<string, ExportTransactionRow[]>();
+    for (const tx of txs) {
+      if (!tx.square_invoice_id) continue;
+      const list = byInvoice.get(tx.square_invoice_id) ?? [];
+      list.push(tx);
+      byInvoice.set(tx.square_invoice_id, list);
+    }
+    return [...byInvoice.entries()]
+      .filter(([, group]) => group.some((t) => t.status !== "paid"))
+      .map(([invoiceId, group]) => ({
+        invoiceId,
+        txIds: group.map((t) => t.id),
+        status: group[0].status,
+      }));
+  }
+
+  const [invoiceActionLoading, setInvoiceActionLoading] = useState<string | null>(null); // invoiceId
+
+  async function handleSendInvoice(group: InvoiceGroup) {
+    if (!confirm("Send this invoice to the customer via email?")) return;
+    setInvoiceActionLoading(group.invoiceId);
+    try {
+      const res = await fetch("/api/production/export/invoice", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "send", transactionIds: group.txIds }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? "Error");
+      qc.invalidateQueries({ queryKey: queryKeys.production.exports() });
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Failed to send invoice");
+    } finally {
+      setInvoiceActionLoading(null);
+    }
+  }
+
+  async function handleSyncInvoice(group: InvoiceGroup) {
+    setInvoiceActionLoading(group.invoiceId);
+    try {
+      const res = await fetch("/api/production/export/invoice", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "sync", transactionIds: group.txIds }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? "Error");
+      qc.invalidateQueries({ queryKey: queryKeys.production.exports() });
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Failed to sync invoice");
+    } finally {
+      setInvoiceActionLoading(null);
+    }
+  }
+
   function toggle(customerId: string, txId: string) {
     if (!selected || selected.customerId !== customerId) {
       setSelected({ customerId, ids: new Set([txId]) });
@@ -118,6 +175,20 @@ export default function ExportTransactionsTab() {
                 )
               )}
             </div>
+            {invoiceGroupsFor(txs).map((group) => (
+              <div key={group.invoiceId} className="flex items-center justify-between px-4 py-1.5 bg-zinc-900/40 border-b border-zinc-800/60 text-xs">
+                <span className="text-zinc-500">
+                  Invoice {group.invoiceId.slice(0, 8)}… — {group.status === "invoice_required" ? "Draft, not yet sent" : "Sent, awaiting payment"}
+                </span>
+                <button
+                  onClick={() => group.status === "invoice_required" ? handleSendInvoice(group) : handleSyncInvoice(group)}
+                  disabled={invoiceActionLoading === group.invoiceId}
+                  className="text-xs px-2 py-1 bg-zinc-700 hover:bg-zinc-600 text-zinc-200 rounded transition-colors disabled:opacity-40"
+                >
+                  {invoiceActionLoading === group.invoiceId ? "Working…" : group.status === "invoice_required" ? "Send" : "Sync"}
+                </button>
+              </div>
+            ))}
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-zinc-800 text-left">

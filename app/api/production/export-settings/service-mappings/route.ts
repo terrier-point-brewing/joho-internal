@@ -4,7 +4,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
-const SERVICE_TYPES = ["packaging_fee", "keg_cleaning", "forklift", "bulk_discount"] as const;
+const SERVICE_TYPES = ["packaging_fee", "keg_cleaning", "forklift", "bulk_discount", "ingredient_deposit"] as const;
 type ServiceType = typeof SERVICE_TYPES[number];
 
 export async function GET(req: NextRequest) {
@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
 
   const supabase = createSupabaseAdminClient();
   let query = supabase
-    .from("export_service_mappings")
+    .from("invoice_item_mappings")
     .select("id, service_type, partner_id, packaging_item_id, square_catalog_item_id, square_catalog_variation_id, square_catalog_discount_id, display_name, created_at, updated_at")
     .order("service_type")
     .order("display_name");
@@ -64,13 +64,13 @@ export async function PUT(req: NextRequest) {
   const supabase = createSupabaseAdminClient();
   const { data, error } = body.id
     ? await supabase
-        .from("export_service_mappings")
+        .from("invoice_item_mappings")
         .update(row)
         .eq("id", body.id)
         .select("id, service_type, partner_id, packaging_item_id, square_catalog_item_id, square_catalog_variation_id, square_catalog_discount_id, display_name, created_at, updated_at")
         .single()
     : await supabase
-        .from("export_service_mappings")
+        .from("invoice_item_mappings")
         .upsert(row, { onConflict: "service_type,partner_id,packaging_item_id" })
         .select("id, service_type, partner_id, packaging_item_id, square_catalog_item_id, square_catalog_variation_id, square_catalog_discount_id, display_name, created_at, updated_at")
         .single();

@@ -17,6 +17,7 @@ const PARTNER_EMPTY = {
   email: "",
   notes: "",
   export_net_terms_days: "",
+  deposit_net_terms_days: "",
 };
 
 function partnerApiBase(kind: PartnerKind) {
@@ -245,6 +246,7 @@ export default function PartnersTab() {
       email:        p.email       ?? "",
       notes:        p.notes       ?? "",
       export_net_terms_days: "export_net_terms_days" in p && p.export_net_terms_days != null ? String(p.export_net_terms_days) : "",
+      deposit_net_terms_days: "deposit_net_terms_days" in p && p.deposit_net_terms_days != null ? String(p.deposit_net_terms_days) : "",
     });
     setEditingId(p.id);
     setShowModal(true);
@@ -264,6 +266,7 @@ export default function PartnersTab() {
         email:        form.email       || null,
         notes:        form.notes       || null,
         ...(kind === "contract" ? { export_net_terms_days: form.export_net_terms_days ? Number(form.export_net_terms_days) : null } : {}),
+        ...(kind === "contract" ? { deposit_net_terms_days: form.deposit_net_terms_days ? Number(form.deposit_net_terms_days) : null } : {}),
       };
       const res = editingId
         ? await fetch(`${base}/${editingId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })
@@ -473,6 +476,12 @@ export default function PartnersTab() {
               <Field label="Export Net Terms (days)" hint="Leave blank to use the global default">
                 <input type="number" min={1} max={365} className="inp" value={form.export_net_terms_days}
                   onChange={(e) => setForm((f) => ({ ...f, export_net_terms_days: e.target.value }))} />
+              </Field>
+            )}
+            {kind === "contract" && (
+              <Field label="Deposit Net Terms (days)" hint="Leave blank to use the global default">
+                <input type="number" min={1} max={365} className="inp" value={form.deposit_net_terms_days}
+                  onChange={(e) => setForm((f) => ({ ...f, deposit_net_terms_days: e.target.value }))} />
               </Field>
             )}
             <ModalActions submitting={submitting} onCancel={() => setShowModal(false)}

@@ -89,7 +89,7 @@ export async function buildInvoicePreview(
 
   // ── 4. Load service mappings for this partner (with default fallback) ────
   const { data: mappings } = await supabase
-    .from("export_service_mappings")
+    .from("invoice_item_mappings")
     .select("service_type, partner_id, packaging_item_id, square_catalog_item_id, square_catalog_variation_id, square_catalog_discount_id, display_name")
     .or(`partner_id.eq.${customerId},partner_id.is.null`);
 

@@ -6,27 +6,27 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 export const dynamic = "force-dynamic";
 
 interface PackagingPrefInput {
-  packaging_item_id: string;
+  variation_id: string;
   qty: number;
 }
 
 function parsePackaging(b: Record<string, unknown>): PackagingPrefInput[] | undefined {
   if (!Array.isArray(b.packaging)) return undefined;
-  return (b.packaging as Array<{ packaging_item_id?: string; qty?: number | string }>)
-    .filter((p) => p.packaging_item_id && p.qty != null && Number(p.qty) > 0)
-    .map((p) => ({ packaging_item_id: p.packaging_item_id as string, qty: Number(p.qty) }));
+  return (b.packaging as Array<{ variation_id?: string; qty?: number | string }>)
+    .filter((p) => p.variation_id && p.qty != null && Number(p.qty) > 0)
+    .map((p) => ({ variation_id: p.variation_id as string, qty: Number(p.qty) }));
 }
 
 async function replacePackagingPreferences(supabase: SupabaseClient, commitmentId: string, prefs: PackagingPrefInput[]) {
   await supabase.from("commitment_packaging_preferences").delete().eq("commitment_id", commitmentId);
   if (prefs.length === 0) return;
   await supabase.from("commitment_packaging_preferences").insert(
-    prefs.map((p) => ({ commitment_id: commitmentId, packaging_item_id: p.packaging_item_id, qty: p.qty }))
+    prefs.map((p) => ({ commitment_id: commitmentId, variation_id: p.variation_id, qty: p.qty }))
   );
 }
 
 const COMMITMENT_SELECT = `*, recipes(beer_name), contract_brewing_partners(company_name),
-  commitment_packaging_preferences(id, commitment_id, packaging_item_id, qty, created_at, packaging_items(id, name, volume_fl_oz))`;
+  commitment_packaging_preferences(id, commitment_id, variation_id, qty, created_at, packaging_variations(id, name, total_volume_fl_oz, container_id, format))`;
 
 export async function GET(req: NextRequest) {
   const supabase = await createSupabaseServerClient();
