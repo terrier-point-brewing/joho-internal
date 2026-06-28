@@ -94,6 +94,7 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
   function toggle(row: ShipmentRow) {
     if (row.channel === "taproom") return;
     if (row.status !== "invoice_required") return;
+    if (!row.recipient_id) return;
     const cid = row.recipient_id!;
     if (!selected || selected.customerId !== cid) {
       setSelected({ customerId: cid, ids: new Set([row.id]) });
@@ -146,7 +147,7 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
   }
 
   const mpAmountCents = Math.round(parseFloat(mpAmount) * 100);
-  const mpValid = !!mpPaidAt && !isNaN(mpAmountCents) && mpAmountCents >= 0 &&
+  const mpValid = !!mpPaidAt && !isNaN(mpAmountCents) && mpAmountCents > 0 &&
     (mpSource === "other" || mpRef.trim().length > 0);
 
   const selectedCustomerName = selected ? (partnerNameById.get(selected.customerId) ?? "Unknown") : "";
