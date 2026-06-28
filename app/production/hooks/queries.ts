@@ -5,7 +5,8 @@ import {
   Ingredient, StockAdjustment, Recipe, BrewBatch,
   Equipment, BatchTankAssignment, PackagingItem, BatchTransfer,
   ContractBrewingPartner, Supplier, ExciseTaxRate, ExportServiceMapping, SquareCatalogOptions,
-  PackagingVariation, RecipePackagingVariation, BatchConversion,
+  PackagingVariation, RecipePackagingVariation, RecipePackagingVariationExpanded,
+  RecipeSquareLinkRow, BatchConversion,
 } from "../types";
 import { queryKeys } from "@/lib/query-keys";
 
@@ -141,6 +142,22 @@ export function useRecipePackagingVariationsQuery() {
   return useQuery({
     queryKey: productionKeys.recipePackagingVariations,
     queryFn: () => fetchJson<RecipePackagingVariation[]>("/api/production/recipe-packaging-variations"),
+  });
+}
+
+/** Same endpoint as useRecipePackagingVariationsQuery, typed for the RecipeLinkMatrix's
+ *  expanded join (packaging_items + contract_brewing_partners). Shares the cache key. */
+export function useRecipePackagingVariationsExpandedQuery() {
+  return useQuery({
+    queryKey: productionKeys.recipePackagingVariations,
+    queryFn: () => fetchJson<RecipePackagingVariationExpanded[]>("/api/production/recipe-packaging-variations"),
+  });
+}
+
+export function useRecipeSquareLinksQuery() {
+  return useQuery({
+    queryKey: queryKeys.production.recipeSquareLinks(),
+    queryFn: () => fetchJson<RecipeSquareLinkRow[]>("/api/production/recipe-square-links"),
   });
 }
 

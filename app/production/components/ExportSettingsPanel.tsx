@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import {
   useExciseTaxRatesQuery,
@@ -10,12 +10,10 @@ import {
   usePackagingQuery,
   useExportServiceMappingsQuery,
   useExportInvoiceDueDaysQuery,
-  useRecipesQuery,
-  fetchJson,
 } from "../hooks/queries";
 import type { ExciseTaxRate, ExportServiceMapping } from "../types";
 import { SquareCatalogSelect, SquareDiscountSelect } from "@/app/components/SquareCatalogSelect";
-import { SquareLinkManager, LinkRow } from "./SquareLinkManager";
+import RecipeLinkMatrix from "./RecipeLinkMatrix";
 
 function ExciseTaxRateRow({
   rate,
@@ -359,7 +357,7 @@ function PackagingFeeSection() {
     <section>
       <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wide mb-2">Packaging Fee</h4>
       <p className="text-xs text-zinc-600 mb-3">
-        One mapping per container volume class. Saving a class updates all matching packaging items (e.g. saving "1/6 BBL Keg" updates both generic and partner-specific 1/6 keg items). Cans require separate Case and Loose mappings.
+        One mapping per container volume class. Saving a class updates all matching packaging items (e.g. saving &ldquo;1/6 BBL Keg&rdquo; updates both generic and partner-specific 1/6 keg items). Cans require separate Case and Loose mappings.
       </p>
       <div className="flex flex-col gap-5">
         {volumeClasses.map((vc) => (
@@ -709,45 +707,13 @@ function InvoiceTermsSection() {
 }
 
 function SquareCatalogMappingsSection() {
-  const qc = useQueryClient();
-  const { data: links = [] } = useQuery({
-    queryKey: queryKeys.production.recipeSquareLinks(),
-    queryFn: () => fetchJson<LinkRow[]>("/api/production/recipe-square-links"),
-  });
-  const { data: recipes = [] } = useRecipesQuery();
-  const [showLinks, setShowLinks] = useState(false);
-
-  function refreshLinks() {
-    qc.invalidateQueries({ queryKey: queryKeys.production.recipeSquareLinks() });
-  }
-
   return (
     <section>
       <h3 className="text-sm font-medium text-zinc-200 mb-2">Square Catalog Mappings</h3>
       <p className="text-xs text-zinc-600 mb-3">
         Links recipes to Square catalog items for inventory sync on taproom exports.
       </p>
-      <div className="flex items-center justify-between px-3 py-2 bg-zinc-800/60 border border-zinc-700 rounded text-xs text-zinc-500">
-        <span>
-          {links.length > 0
-            ? `${links.length} Square mapping${links.length !== 1 ? "s" : ""} configured`
-            : "No Square mappings yet"}
-        </span>
-        <button
-          onClick={() => setShowLinks(true)}
-          className="ml-4 shrink-0 px-2.5 py-1 border border-zinc-600 hover:border-zinc-400 text-zinc-300 rounded transition-colors"
-        >
-          Manage Links
-        </button>
-      </div>
-      {showLinks && (
-        <SquareLinkManager
-          recipes={recipes}
-          links={links}
-          onClose={() => setShowLinks(false)}
-          onChanged={refreshLinks}
-        />
-      )}
+      <RecipeLinkMatrix />
     </section>
   );
 }

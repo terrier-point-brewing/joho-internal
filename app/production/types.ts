@@ -78,6 +78,34 @@ export interface RecipePackagingVariation {
   packaging_variations?: PackagingVariation | null;
 }
 
+/** Expanded join used by the RecipeLinkMatrix — includes packaging_items and partner info. */
+export interface PackagingVariationExpanded {
+  id: string;
+  container_id: string;
+  format: PackagingVariationFormat;
+  partner_id: string | null;
+  total_volume_fl_oz: number;
+  is_active: boolean;
+  packaging_items: {
+    id: string;
+    name: string;
+    type: PackagingItemType;
+    volume_fl_oz: number | null;
+  } | null;
+  contract_brewing_partners: {
+    id: string;
+    company_name: string;
+  } | null;
+}
+
+export interface RecipePackagingVariationExpanded {
+  id: string;
+  recipe_id: string;
+  variation_id: string;
+  created_at: string;
+  packaging_variations: PackagingVariationExpanded | null;
+}
+
 export type PackagingAdjustmentType = "received" | "used" | "waste" | "inventory_count";
 
 export interface PackagingStockAdjustment {
@@ -284,6 +312,22 @@ export interface RecipeSquareLink {
   square_variation_id: string;
   square_item_id: string | null;
   created_at: string;
+}
+
+/** Shape returned by GET /api/production/recipe-square-links (includes joined recipe + packaging_items). */
+export interface RecipeSquareLinkRow {
+  id: string;
+  recipe_id: string;
+  packaging: "draft" | "keg" | "can";
+  packaging_item_id: string | null;
+  packaging_format: string | null;
+  square_variation_id: string;
+  square_item_id: string | null;
+  variation_name: string | null;
+  item_name: string | null;
+  created_at: string;
+  recipes?: { beer_name: string } | null;
+  packaging_items?: { id: string; name: string; type: string; volume_fl_oz: number | null } | null;
 }
 
 export type AllocationCadence = "one_time" | "recurring";
