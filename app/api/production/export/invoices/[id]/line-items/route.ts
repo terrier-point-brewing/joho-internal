@@ -44,7 +44,7 @@ export async function PATCH(
   // Load invoice — must be draft and have a Square ID.
   const { data: inv, error: invErr } = await supabase
     .from("invoices")
-    .select("id, status, square_invoice_id, partner_id, customer_name, invoice_date, total_cents")
+    .select("id, status, square_invoice_id, partner_id, total_cents")
     .eq("id", invoiceId)
     .single();
   if (invErr || !inv) {
@@ -95,6 +95,9 @@ export async function PATCH(
   let updatedItems: StoredItem[] = currentItems ?? [];
 
   if (body.action === "add") {
+    if (body.quantity <= 0 || body.unit_price_cents < 0) {
+      return NextResponse.json({ error: "quantity must be positive and unit_price_cents must be non-negative" }, { status: 400 });
+    }
     const newItem: StoredItem = {
       id: crypto.randomUUID(),
       sort_order: updatedItems.length,
@@ -141,8 +144,17 @@ export async function PATCH(
       dueDays,
     });
   } catch (err) {
+    // The old Square draft was already cancelled. Clear square_invoice_id so the UI
+    // shows this as a broken draft that needs to be regenerated.
+    await supabase
+      .from("invoices")
+      .update({ square_invoice_id: null, external_id: null })
+      .eq("id", invoiceId);
     const message = err instanceof Error ? err.message : "Square invoice recreation failed";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json(
+      { error: `Square draft was cancelled but recreation failed — re-generate the invoice. Details: ${message}` },
+      { status: 500 }
+    );
   }
 
   // Update local invoice: new Square ID + new total.
@@ -159,7 +171,8 @@ export async function PATCH(
   if (invUpdateErr) return NextResponse.json({ error: invUpdateErr.message }, { status: 500 });
 
   // Replace all line items in DB.
-  await supabase.from("invoice_line_items").delete().eq("invoice_id", invoiceId);
+  const { error: deleteErr } = await supabase.from("invoice_line_items").delete().eq("invoice_id", invoiceId);
+  if (deleteErr) return NextResponse.json({ error: deleteErr.message }, { status: 500 });
   if (updatedItems.length > 0) {
     await supabase.from("invoice_line_items").insert(
       updatedItems.map((item, i) => ({
