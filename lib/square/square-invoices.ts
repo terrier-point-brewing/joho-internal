@@ -55,11 +55,12 @@ export interface ExportInvoiceResult {
   orderId: string;
   invoiceId: string;
   invoiceUrl: string | null;
+  invoiceNumber: string | null;
   squareStatus: string;
 }
 
 interface SquareOrderResponse   { order: { id: string } }
-interface SquareInvoiceResponse { invoice: { id: string; status: string; public_url?: string; version?: number } }
+interface SquareInvoiceResponse { invoice: { id: string; status: string; public_url?: string; version?: number; invoice_number?: string } }
 interface SquareInvoiceGetResponse { invoice: { id: string; status: string; public_url?: string; version: number; updated_at?: string } }
 interface SquareOrderTender {
   id: string;
@@ -159,7 +160,7 @@ interface CreateInvoiceCoreParams {
  * Creates a draft Square Order + Invoice (DRAFT status, never published —
  * publishing is always a separate, explicit `send` action in both flows).
  */
-async function createInvoice(params: CreateInvoiceCoreParams): Promise<{ orderId: string; invoiceId: string; invoiceUrl: string | null; squareStatus: string }> {
+async function createInvoice(params: CreateInvoiceCoreParams): Promise<{ orderId: string; invoiceId: string; invoiceUrl: string | null; invoiceNumber: string | null; squareStatus: string }> {
   const { squareCustomerId, title, description, lineItems, dueDays, dueDate, serviceDate, acceptedPaymentMethods, metadataType } = params;
   const loc = squareLocationId();
 
@@ -240,6 +241,7 @@ async function createInvoice(params: CreateInvoiceCoreParams): Promise<{ orderId
     orderId,
     invoiceId: invoiceResp.invoice.id,
     invoiceUrl: invoiceResp.invoice.public_url ?? null,
+    invoiceNumber: invoiceResp.invoice.invoice_number ?? null,
     squareStatus: invoiceResp.invoice.status,
   };
 }

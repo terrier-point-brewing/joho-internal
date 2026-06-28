@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server";
+import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
+  try { await requireRole(["viewer"]); } catch (res) { return res as Response; }
+
   const supabase = await createSupabaseServerClient();
 
   const { data: txs, error } = await supabase

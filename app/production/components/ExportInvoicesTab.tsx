@@ -19,6 +19,7 @@ interface InvoiceLineItem {
 
 interface InvoiceShipment {
   id: string;
+  status: string;
   channel: string;
   variant_label: string;
   quantity: number;
@@ -174,6 +175,10 @@ function InvoiceExpandedPanel({
 
   async function handleSend() {
     if (!confirm("Send this invoice to the customer via email?")) return;
+    if (invoice.shipments.some(s => s.status !== "invoice_required")) {
+      alert("Cannot send — some shipments are already in progress.");
+      return;
+    }
     setActionLoading(true); setActionError(null);
     try {
       const txIds = invoice.shipments.map((s) => s.id);

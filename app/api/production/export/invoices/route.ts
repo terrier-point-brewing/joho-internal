@@ -20,7 +20,7 @@ export async function GET() {
         square_catalog_variation_id
       ),
       export_transactions!invoice_id(
-        id, channel, variant_label, quantity, volume_bbl, created_at,
+        id, status, channel, variant_label, quantity, volume_bbl, created_at,
         brew_batches(id, beer_name, batch_number)
       ),
       contract_brewing_partners!partner_id(company_name)

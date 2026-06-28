@@ -112,7 +112,7 @@ export async function POST(req: NextRequest) {
           source: "square",
           external_id: result.invoiceId,
           square_invoice_id: result.invoiceId,
-          invoice_number: null,
+          invoice_number: result.invoiceNumber ?? null,
           invoice_type: "standard",
           partner_id: customerId,
           customer_name: partner.company_name,

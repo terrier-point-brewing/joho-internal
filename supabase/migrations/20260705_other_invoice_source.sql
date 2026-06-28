@@ -1,7 +1,7 @@
 -- Add 'other' to invoices.source so non-Square, non-QB ledger entries can be stored.
 -- 'quickbooks' was already valid; 'square' stays. 'other' is for catch-all manual records.
--- mark_paid backfill routes enforce source = 'quickbooks' — 'other' is available in the
--- enum but intentionally not accepted by any action that mutates allocation/export state.
+-- Both 'record' and 'mark_paid' actions accept source = 'other' for non-QB external records.
+-- 'other' is intentional for catch-all manual records not linked to Square or QuickBooks.
 
 alter table public.invoices
   drop constraint invoices_source_check,

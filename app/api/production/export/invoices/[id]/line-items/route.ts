@@ -95,8 +95,8 @@ export async function PATCH(
   let updatedItems: StoredItem[] = currentItems ?? [];
 
   if (body.action === "add") {
-    if (body.quantity <= 0 || body.unit_price_cents < 0) {
-      return NextResponse.json({ error: "quantity must be positive and unit_price_cents must be non-negative" }, { status: 400 });
+    if (body.quantity <= 0 || body.unit_price_cents < 0 || isNaN(body.quantity) || isNaN(body.unit_price_cents)) {
+      return NextResponse.json({ error: "quantity must be a positive number and unit_price_cents must be non-negative" }, { status: 400 });
     }
     const newItem: StoredItem = {
       id: crypto.randomUUID(),
