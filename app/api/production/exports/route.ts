@@ -6,13 +6,29 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const supabase = await createSupabaseServerClient();
 
-  const { data, error } = await supabase
+  const { data: txs, error } = await supabase
     .from("export_transactions")
-    .select("*, brew_batches(id, beer_name, batch_number)")
+    .select(`
+      id, channel, recipient_id, recipient_name, variant_label,
+      quantity, volume_bbl, total_excise_tax_usd, status, invoice_id,
+      created_at,
+      brew_batches(id, beer_name, batch_number),
+      invoices!invoice_id(invoice_number)
+    `)
     .order("created_at", { ascending: false });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json(data);
+
+  const enriched = (txs ?? []).map((tx) => {
+    const inv = Array.isArray(tx.invoices) ? tx.invoices[0] : tx.invoices;
+    return {
+      ...tx,
+      invoice_number: (inv as any)?.invoice_number ?? null,
+      invoices: undefined,
+    };
+  });
+
+  return NextResponse.json(enriched);
 }
 
 // All exports must go through /api/production/export-bay/ship to enforce
