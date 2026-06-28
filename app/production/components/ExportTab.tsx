@@ -1,170 +1,41 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchJson } from "../hooks/queries";
-import { fmtUsd } from "@/lib/utils/formatting";
-import { queryKeys } from "@/lib/query-keys";
 import ExportBayTab from "./ExportBayTab";
-import ExportTransactionsTab from "./ExportTransactionsTab";
+import ShipmentsTab from "./ShipmentsTab";
+import ExportInvoicesTab from "./ExportInvoicesTab";
 
-// ─── Types ───────────────────────────────────────────────────────────────────
-
-export type ExportChannel = "taproom" | "distribution" | "contract_brewing";
-
-interface ExportTransactionRow {
-  id: string;
-  batch_id: string;
-  channel: ExportChannel;
-  recipient_id: string | null;
-  recipient_name: string | null;
-  /** Packaging variant label, e.g. "1/6 Keg" or "Case (24ct)". */
-  variant_label: string;
-  quantity: number;
-  volume_bbl: number;
-  notes: string | null;
-  /** Total excise tax (USD) across all applicable rates, persisted at export time. */
-  total_excise_tax_usd: number;
-  status: "invoice_required" | "unpaid" | "paid";
-  created_at: string;
-  brew_batches: { id: string; beer_name: string; batch_number: number } | null;
-}
-
-type TopTab = "export_bay" | "taproom" | "export_transactions";
+type TopTab = "export_bay" | "shipments" | "export_invoices";
 
 const TOP_TABS: { key: TopTab; label: string }[] = [
   { key: "export_bay", label: "Export Bay" },
-  { key: "taproom", label: "Taproom" },
-  { key: "export_transactions", label: "Export Transactions" },
+  { key: "shipments", label: "Shipments" },
+  { key: "export_invoices", label: "Export Invoices" },
 ];
 
-const CHANNEL_TABS: { key: ExportChannel; label: string; description: string }[] = [
-  {
-    key: "taproom",
-    label: "Taproom",
-    description: "Product pushed to taproom inventory. Will sync with Square API to update item stock at the taproom location.",
-  },
-];
+export default function ExportTab() {
+  const [tab, setTab] = useState<TopTab>("export_bay");
+  const [highlightInvoiceId, setHighlightInvoiceId] = useState<string | undefined>();
 
-const BBL_TO_GAL = 31;
-
-function fmt(iso: string) {
-  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-}
-
-// ─── Exports Tab ─────────────────────────────────────────────────────────────
-
-function ExportsChannelTab({ channel, exports }: {
-  channel: ExportChannel;
-  exports: ExportTransactionRow[];
-}) {
-  const qc = useQueryClient();
-  const channelExports = exports.filter(e => e.channel === channel);
-  const channelMeta = CHANNEL_TABS.find(c => c.key === channel)!;
-
-  const totalBbl  = channelExports.reduce((s, e) => s + (e.volume_bbl ?? 0), 0);
-  const totalGal  = totalBbl * BBL_TO_GAL;
-  const totalTax  = channelExports.reduce((s, e) => s + (e.total_excise_tax_usd ?? 0), 0);
-
-  async function remove(id: string) {
-    if (!confirm("Delete this export record?")) return;
-    await fetch(`/api/production/exports/${id}`, { method: "DELETE" });
-    qc.invalidateQueries({ queryKey: queryKeys.production.exports() });
+  function navigateToInvoice(invoiceId: string) {
+    setHighlightInvoiceId(invoiceId);
+    setTab("export_invoices");
   }
 
   return (
     <>
-      <p className="text-xs text-zinc-600 mb-4">{channelMeta.description}</p>
-      {channelExports.length === 0 ? (
-        <p className="text-sm text-zinc-600">No {channelMeta.label.toLowerCase()} exports recorded yet.</p>
-      ) : (
-        <div className="overflow-x-auto rounded-lg border border-zinc-800">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-zinc-800 bg-zinc-900/50 text-left">
-                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500">Date</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500">Batch</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500">Packaging</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 text-right">Qty</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 text-right">Gallons</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 text-right">BBL</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 text-right">Excise Tax</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500">Status</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500">Notes</th>
-                <th className="px-4 py-2.5" />
-              </tr>
-            </thead>
-            <tbody>
-              {channelExports.map(e => (
-                <tr key={e.id} className="border-b border-zinc-800 last:border-0 hover:bg-zinc-900/30">
-                  <td className="px-4 py-2.5 text-zinc-400 whitespace-nowrap">{fmt(e.created_at)}</td>
-                  <td className="px-4 py-2.5 text-zinc-200">
-                    {e.brew_batches ? `#${e.brew_batches.batch_number} ${e.brew_batches.beer_name}` : "—"}
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <span className="px-1.5 py-0.5 rounded text-xs bg-zinc-800 text-zinc-300">{e.variant_label}</span>
-                  </td>
-                  <td className="px-4 py-2.5 text-right text-zinc-200">{e.quantity}</td>
-                  <td className="px-4 py-2.5 text-right text-zinc-400">
-                    {e.volume_bbl != null ? (e.volume_bbl * BBL_TO_GAL).toFixed(2) : "—"}
-                  </td>
-                  <td className="px-4 py-2.5 text-right text-zinc-400">
-                    {e.volume_bbl != null ? e.volume_bbl.toFixed(4) : "—"}
-                  </td>
-                  <td className="px-4 py-2.5 text-right text-zinc-400">{fmtUsd(e.total_excise_tax_usd)}</td>
-                  <td className="px-4 py-2.5">
-                    <span className={`text-xs px-1.5 py-0.5 rounded ${
-                      e.status === "paid" ? "bg-emerald-900/40 text-emerald-400"
-                      : e.status === "unpaid" ? "bg-amber-900/40 text-amber-400"
-                      : "bg-zinc-800 text-zinc-400"
-                    }`}>
-                      {e.status === "invoice_required" ? "Invoice Required" : e.status === "unpaid" ? "Unpaid" : "Paid"}
-                    </span>
-                  </td>
-                  <td className="px-4 py-2.5 text-zinc-500 text-xs">{e.notes ?? "—"}</td>
-                  <td className="px-4 py-2.5">
-                    <button onClick={() => remove(e.id)} className="text-xs text-zinc-600 hover:text-red-400">Delete</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-      {channelExports.length > 0 && totalBbl > 0 && (
-        <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-1 px-3 py-2.5 bg-zinc-900/60 border border-zinc-800 rounded text-xs">
-          <span className="text-zinc-500">Total volume</span>
-          <span className="text-zinc-300 font-medium tabular-nums">
-            {totalGal.toFixed(2)} gal &nbsp;/&nbsp; {totalBbl.toFixed(4)} BBL
-          </span>
-          <span className="text-zinc-400 font-medium border-t border-zinc-800 pt-1 mt-0.5">Total excise tax</span>
-          <span className="text-amber-300 font-semibold tabular-nums border-t border-zinc-800 pt-1 mt-0.5">{fmtUsd(totalTax)}</span>
-        </div>
-      )}
-    </>
-  );
-}
-
-// ─── Root Component ───────────────────────────────────────────────────────────
-
-export default function ExportTab() {
-  const { data: exports = [] } = useQuery({
-    queryKey: queryKeys.production.exports(),
-    queryFn: () => fetchJson<ExportTransactionRow[]>("/api/production/exports"),
-  });
-  const [tab, setTab] = useState<TopTab>("export_bay");
-
-  return (
-    <>
+      {/* Header */}
       <div className="mt-4 mb-4">
         <h2 className="text-base font-medium text-zinc-100">Export</h2>
         <p className="text-sm text-zinc-500 mt-0.5">Commitments and fulfillment — track what has been allocated and what has shipped.</p>
       </div>
+
+      {/* Top tab bar */}
       <div className="flex gap-1 mb-6 border-b border-zinc-800 overflow-x-auto overflow-y-hidden scrollbar-none">
         {TOP_TABS.map(({ key, label }) => (
           <button
             key={key}
-            onClick={() => setTab(key)}
+            onClick={() => { setTab(key); if (key !== "export_invoices") setHighlightInvoiceId(undefined); }}
             className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
               tab === key
                 ? "border-amber-500 text-zinc-100"
@@ -172,19 +43,13 @@ export default function ExportTab() {
             }`}
           >
             {label}
-            {key === "taproom" && (
-              <span className="ml-1.5 text-xs text-zinc-600">
-                ({exports.filter(e => e.channel === key).length})
-              </span>
-            )}
           </button>
         ))}
       </div>
+
       {tab === "export_bay" && <ExportBayTab />}
-      {tab === "export_transactions" && <ExportTransactionsTab />}
-      {tab === "taproom" && (
-        <ExportsChannelTab key={tab} channel="taproom" exports={exports} />
-      )}
+      {tab === "shipments" && <ShipmentsTab onNavigateToInvoice={navigateToInvoice} />}
+      {tab === "export_invoices" && <ExportInvoicesTab highlightInvoiceId={highlightInvoiceId} />}
     </>
   );
 }
