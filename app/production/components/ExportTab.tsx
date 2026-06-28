@@ -9,6 +9,7 @@ import type { Recipe } from "../types";
 import { queryKeys } from "@/lib/query-keys";
 import ExportBayTab from "./ExportBayTab";
 import ExportTransactionsTab from "./ExportTransactionsTab";
+import TabBar, { type TabDef } from "@/app/components/TabBar";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -33,12 +34,6 @@ interface ExportTransactionRow {
 }
 
 type TopTab = "export_bay" | "taproom" | "export_transactions";
-
-const TOP_TABS: { key: TopTab; label: string }[] = [
-  { key: "export_bay", label: "Export Bay" },
-  { key: "taproom", label: "Taproom" },
-  { key: "export_transactions", label: "Export Transactions" },
-];
 
 const CHANNEL_TABS: { key: ExportChannel; label: string; description: string }[] = [
   {
@@ -197,35 +192,25 @@ export default function ExportTab() {
 
   const [tab, setTab] = useState<TopTab>("export_bay");
 
+  const topTabs: TabDef<TopTab>[] = [
+    { key: "export_bay",          label: "Export Bay" },
+    {
+      key: "taproom",
+      label: (
+        <>
+          Taproom{" "}
+          <span className="ml-1.5 text-xs text-zinc-600">
+            ({exports.filter((e) => e.channel === "taproom").length})
+          </span>
+        </>
+      ),
+    },
+    { key: "export_transactions", label: "Export Transactions" },
+  ];
+
   return (
     <>
-      {/* Header */}
-      <div className="mt-4 mb-4">
-        <h2 className="text-base font-medium text-zinc-100">Export</h2>
-        <p className="text-sm text-zinc-500 mt-0.5">Commitments and fulfillment — track what has been allocated and what has shipped.</p>
-      </div>
-
-      {/* Top tab bar */}
-      <div className="flex gap-1 mb-6 border-b border-zinc-800 overflow-x-auto overflow-y-hidden scrollbar-none">
-        {TOP_TABS.map(({ key, label }) => (
-          <button
-            key={key}
-            onClick={() => setTab(key)}
-            className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
-              tab === key
-                ? "border-amber-500 text-zinc-100"
-                : "border-transparent text-zinc-500 hover:text-zinc-300"
-            }`}
-          >
-            {label}
-            {key === "taproom" && (
-              <span className="ml-1.5 text-xs text-zinc-600">
-                ({exports.filter(e => e.channel === key).length})
-              </span>
-            )}
-          </button>
-        ))}
-      </div>
+      <TabBar tabs={topTabs} activeKey={tab} onSelect={setTab} />
 
       {tab === "export_bay" && <ExportBayTab />}
       {tab === "export_transactions" && <ExportTransactionsTab />}
