@@ -1,0 +1,28 @@
+-- Drop batch_allocations.label — free-text annotation column that has never
+-- been read back by any query or displayed in any UI component.
+--
+-- The column exists in the schema and can be written via PATCH
+-- /api/production/allocations/[id] (line ~61: `if (body.label != null)
+-- update.label = body.label`), but no route or component ever selects it
+-- explicitly or renders it.  It is silently fetched via select("*") in
+-- batch-scheduler and demand-calendar routes then discarded.
+--
+-- Confirmed safe:
+--   1. Zero read references in app/ or lib/.  Only reference is the write-path
+--      in app/api/production/allocations/[id]/route.ts which assigns it to the
+--      PATCH payload — that line must be removed before this migration runs
+--      (see below).
+--   2. No migration after 20260609_baseline.sql references this column.
+--   3. No semantic replacement — the concept it represented (a human note on
+--      an allocation) is fully covered by the existing batch_allocations.notes
+--      column, which is both writable and displayed in the UI.
+--
+-- ⚠️  REQUIRED CODE CLEANUP BEFORE RUNNING THIS MIGRATION:
+--   Remove the following line from app/api/production/allocations/[id]/route.ts
+--   (line ~61):
+--       if (body.label != null) update.label = body.label;
+--   Also remove "label" from the BatchAllocation interface in
+--   app/production/types.ts (line ~396) — no runtime impact but keeps
+--   TypeScript accurate.
+
+alter table public.batch_allocations drop column if exists label;

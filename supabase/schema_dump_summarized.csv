@@ -1,0 +1,460 @@
+category,item_name,details
+TABLE,account_requests,"id uuid NOT NULL, name text NOT NULL, email text NOT NULL, reason text , status text NOT NULL, created_at timestamp with time zone NOT NULL"
+TABLE,audit_log,"id bigint NOT NULL, table_name text NOT NULL, record_id text , operation text NOT NULL, user_id uuid , changed_at timestamp with time zone NOT NULL, old_data jsonb , new_data jsonb "
+TABLE,batch_allocations,"id uuid NOT NULL, batch_id uuid NOT NULL, channel text NOT NULL, contract_request_id uuid , partner_id uuid , label text , percentage numeric NOT NULL, locked boolean NOT NULL, lock_reason text , locked_at timestamp with time zone , notes text , created_at timestamp with time zone NOT NULL, square_deposit_invoice_id text , square_deposit_order_id text , invoice_generated_at timestamp with time zone , invoice_sent_at timestamp with time zone , invoice_paid_at timestamp with time zone , conversion_target_recipe_id uuid "
+TABLE,batch_brew_activity_log,"id uuid NOT NULL, batch_id uuid NOT NULL, sort_order integer NOT NULL, activity text NOT NULL, time_label text , temp numeric , amount numeric , created_at timestamp with time zone NOT NULL, vsp numeric , temp_unit text NOT NULL, amount_unit text , template_id uuid "
+TABLE,batch_ingredient_commitments,"id uuid NOT NULL, batch_id uuid NOT NULL, ingredient_id uuid NOT NULL, committed_qty numeric NOT NULL, committed_at timestamp with time zone NOT NULL, released_at timestamp with time zone "
+TABLE,batch_schedule_entries,"id uuid NOT NULL, batch_id uuid NOT NULL, equipment_id uuid , stage text NOT NULL, planned_start timestamp with time zone NOT NULL, planned_end timestamp with time zone NOT NULL, actual_start timestamp with time zone , actual_end timestamp with time zone , notes text , created_at timestamp with time zone , updated_at timestamp with time zone , cancelled_at timestamp with time zone , cancellation_reason text , step_order integer , completed_at timestamp with time zone , downstream_entry_id uuid , volume_bbl numeric , planned_branch text "
+TABLE,batch_status_history,"id uuid NOT NULL, batch_id uuid NOT NULL, status text NOT NULL, note text , changed_at timestamp with time zone NOT NULL, changed_by uuid "
+TABLE,batch_tank_assignments,"id uuid NOT NULL, batch_id uuid NOT NULL, tank_id uuid NOT NULL, assigned_at timestamp with time zone NOT NULL, released_at timestamp with time zone , notes text "
+TABLE,batch_transfers,"id uuid NOT NULL, batch_id uuid NOT NULL, from_tank_id uuid , to_tank_id uuid , volume_bbl numeric NOT NULL, shrinkage_bbl numeric NOT NULL, transfer_type text NOT NULL, notes text , kegging_detail jsonb , canning_detail jsonb , transferred_at timestamp with time zone NOT NULL, export_detail jsonb , to_batch_id uuid , created_by uuid "
+TABLE,brew_batches,"id uuid NOT NULL, beer_name text NOT NULL, batch_number text , planned_brew_date date NOT NULL, volume_bbl numeric NOT NULL, status text NOT NULL, notes text , created_at timestamp with time zone NOT NULL, turns integer NOT NULL, recipe_id uuid , expected_delivery_date date , ibu numeric , color_srm numeric , original_gravity numeric , final_gravity numeric , dissolved_oxygen_ppb numeric , turns_completed integer NOT NULL, square_invoice_id text , converted_from_batch_id uuid , converted_volume_bbl numeric "
+TABLE,brew_inventory_adjustments,"id uuid NOT NULL, batch_transfer_id uuid NOT NULL, quantity numeric NOT NULL, type text NOT NULL, note text , created_at timestamp with time zone NOT NULL, product_label text , product_type text , unit text "
+TABLE,brew_step_template_steps,"id uuid NOT NULL, template_id uuid NOT NULL, sort_order integer NOT NULL, activity text NOT NULL, time_label text , temp numeric , temp_unit text NOT NULL, amount numeric , amount_unit text , vsp numeric , created_at timestamp with time zone NOT NULL"
+TABLE,brew_step_templates,"id uuid NOT NULL, name text NOT NULL, description text , created_at timestamp with time zone NOT NULL"
+TABLE,chart_of_accounts,"id uuid NOT NULL, account_name text NOT NULL, account_number text , account_type text NOT NULL, detail_type text , description text , is_active boolean NOT NULL, uploaded_at timestamp with time zone NOT NULL, uploaded_by uuid , parent_id uuid , statement_section text "
+TABLE,cold_storage_inventory,"id uuid NOT NULL, batch_id uuid NOT NULL, recipe_id uuid , packaging_item_id uuid NOT NULL, variant_label text NOT NULL, quantity_on_hand numeric NOT NULL, source_transfer_id uuid , created_at timestamp with time zone NOT NULL, updated_at timestamp with time zone NOT NULL"
+TABLE,commitment_packaging_preferences,"id uuid NOT NULL, commitment_id uuid NOT NULL, packaging_item_id uuid NOT NULL, qty numeric NOT NULL, created_at timestamp with time zone NOT NULL"
+TABLE,commitments,"id uuid NOT NULL, recipe_id uuid , beer_style text NOT NULL, partner_id uuid , volume_bbl numeric NOT NULL, desired_delivery_date date , status text NOT NULL, notes text , created_at timestamp with time zone NOT NULL, channel text NOT NULL, cadence text NOT NULL, recurrence text , start_date date , end_date date , received_on date , last_edited_on timestamp with time zone , locked_on date "
+TABLE,contract_brewing_partners,"id uuid NOT NULL, company_name text NOT NULL, first_name text , last_name text , phone text , address text , email text , notes text , created_at timestamp with time zone NOT NULL, square_customer_id text "
+TABLE,equipment,"id uuid NOT NULL, name text NOT NULL, type text NOT NULL, capacity_bbl numeric , notes text , created_at timestamp with time zone NOT NULL, grid_row integer , grid_col integer , grid_width integer NOT NULL, grid_height integer NOT NULL"
+TABLE,events,"id uuid NOT NULL, event_name text NOT NULL, event_start timestamp with time zone NOT NULL, event_end timestamp with time zone NOT NULL, event_host text NOT NULL, notes text , created_at timestamp with time zone NOT NULL, created_by uuid "
+TABLE,excise_tax_rates,"id uuid NOT NULL, name text NOT NULL, receiving_party text , unit text NOT NULL, rate_usd numeric NOT NULL, is_active boolean NOT NULL, created_at timestamp with time zone NOT NULL, updated_at timestamp with time zone NOT NULL"
+TABLE,export_transaction_taxes,"id uuid NOT NULL, export_transaction_id uuid NOT NULL, excise_tax_rate_id uuid , tax_name text NOT NULL, unit text NOT NULL, rate_usd numeric NOT NULL, amount_usd numeric NOT NULL, created_at timestamp with time zone NOT NULL"
+TABLE,export_transactions,"id uuid NOT NULL, shipment_id uuid NOT NULL, batch_id uuid NOT NULL, recipe_id uuid , allocation_id uuid , packaging_item_id uuid NOT NULL, variant_label text NOT NULL, quantity numeric NOT NULL, volume_bbl numeric NOT NULL, channel text NOT NULL, recipient_id uuid , recipient_name text , status text NOT NULL, total_excise_tax_usd numeric NOT NULL, source_transfer_id uuid , notes text , created_at timestamp with time zone NOT NULL"
+TABLE,ingredients,"id uuid NOT NULL, name text NOT NULL, unit text NOT NULL, cost_per_unit numeric , stock_quantity numeric NOT NULL, created_at timestamp with time zone NOT NULL, supplier_id uuid , partner_id uuid , category text , alpha_acid numeric , color_lovibond numeric "
+TABLE,invoice_batch_links,"id uuid NOT NULL, invoice_id uuid NOT NULL, batch_id uuid NOT NULL, note text , created_by uuid , created_at timestamp with time zone NOT NULL"
+TABLE,invoice_line_items,"id uuid NOT NULL, invoice_id uuid NOT NULL, sort_order integer NOT NULL, description text , category text , quantity numeric NOT NULL, unit_price_cents bigint NOT NULL, total_cents bigint NOT NULL, variation_name text , raw_data jsonb , created_at timestamp with time zone NOT NULL, chart_of_accounts_id uuid , square_catalog_object_id text , square_variation_id text , gross_sales_cents bigint , discount_cents bigint , net_sales_cents bigint , square_line_item_uid text , tax_cents bigint NOT NULL, updated_at timestamp with time zone , notes text , bs_chart_of_accounts_id uuid , pl_chart_of_accounts_id uuid , delivery_invoice_id uuid , account_mode text "
+TABLE,invoices,"id uuid NOT NULL, source text NOT NULL, external_id text NOT NULL, invoice_number text , invoice_date date , due_date date , customer_name text , partner_id uuid , status text NOT NULL, subtotal_cents bigint NOT NULL, tax_cents bigint NOT NULL, total_cents bigint NOT NULL, notes text , raw_data jsonb , created_at timestamp with time zone NOT NULL, updated_at timestamp with time zone NOT NULL, invoice_type text NOT NULL, allocation_id uuid "
+TABLE,manual_net_sales_entries,"id uuid NOT NULL, amount_cents bigint NOT NULL, label text , created_at timestamp with time zone NOT NULL, updated_at timestamp with time zone NOT NULL, start_date date NOT NULL, end_date date NOT NULL"
+TABLE,packaging_items,"id uuid NOT NULL, type text NOT NULL, name text NOT NULL, unit_cost numeric , volume_fl_oz numeric , can_count integer , created_at timestamp with time zone NOT NULL, is_default boolean NOT NULL, partner_id uuid , supplier_id uuid , stock_quantity numeric NOT NULL, requires_label boolean NOT NULL"
+TABLE,packaging_stock_adjustments,"id uuid NOT NULL, packaging_item_id uuid NOT NULL, quantity numeric NOT NULL, type text NOT NULL, note text , cost_per_unit numeric , total_value_change numeric , created_at timestamp with time zone NOT NULL, batch_transfer_id uuid , shipping_cost numeric "
+TABLE,pos_line_items,"id uuid NOT NULL, order_id uuid NOT NULL, square_line_item_uid text , square_catalog_object_id text , square_variation_id text , name text NOT NULL, quantity numeric NOT NULL, base_price_cents bigint NOT NULL, gross_sales_cents bigint NOT NULL, discount_cents bigint NOT NULL, net_sales_cents bigint NOT NULL, tax_cents bigint NOT NULL, chart_of_accounts_id uuid , notes text , created_at timestamp with time zone NOT NULL, updated_at timestamp with time zone NOT NULL, variation_name text , category text , raw_data jsonb "
+TABLE,profiles,"id uuid NOT NULL, email text NOT NULL, role USER-DEFINED NOT NULL, created_at timestamp with time zone NOT NULL"
+TABLE,quarterly_targets,"id uuid NOT NULL, year integer NOT NULL, quarter integer NOT NULL, target_cents bigint NOT NULL, created_at timestamp with time zone NOT NULL, updated_at timestamp with time zone NOT NULL, tier text NOT NULL"
+TABLE,recipe_brew_activity_templates,"id uuid NOT NULL, recipe_id uuid NOT NULL, sort_order integer NOT NULL, activity text NOT NULL, time_label text , temp numeric , amount numeric , created_at timestamp with time zone NOT NULL, vsp numeric , temp_unit text NOT NULL, amount_unit text "
+TABLE,recipe_ingredients,"id uuid NOT NULL, recipe_id uuid NOT NULL, ingredient_id uuid NOT NULL, quantity_per_bbl numeric NOT NULL, created_at timestamp with time zone NOT NULL"
+TABLE,recipe_square_links,"id uuid NOT NULL, recipe_id uuid NOT NULL, packaging text NOT NULL, square_variation_id text NOT NULL, square_item_id text , created_at timestamp with time zone NOT NULL, variation_name text , item_name text , packaging_item_id uuid , catalog_item_id uuid , catalog_variation_id uuid "
+TABLE,recipes,"id uuid NOT NULL, beer_name text NOT NULL, expected_yield_bbl numeric , notes text , created_at timestamp with time zone NOT NULL, brewery text , steps text , brew_time_weeks integer , days_brewhouse integer , days_fermenter integer , days_brite integer "
+TABLE,safety_stock_floors,"id uuid NOT NULL, recipe_id uuid NOT NULL, packaging text NOT NULL, floor_quantity numeric NOT NULL, created_at timestamp with time zone NOT NULL"
+TABLE,square_catalog_items,"id uuid NOT NULL, square_item_id text NOT NULL, item_name text NOT NULL, category_id text , category_name text , synced_at timestamp with time zone NOT NULL, description text , product_type text , tax_ids ARRAY , applicable_taxes jsonb , is_archived boolean NOT NULL, parent_category_id text , is_top_level_category boolean , parent_category_name text "
+TABLE,square_catalog_variations,"id uuid NOT NULL, square_variation_id text NOT NULL, catalog_item_id uuid NOT NULL, square_item_id text NOT NULL, variation_name text NOT NULL, sku text , upc text , price_amount bigint , price_currency text , pricing_type text , track_inventory boolean , sellable boolean , stockable boolean , service_duration_ms bigint , synced_at timestamp with time zone NOT NULL, chart_of_accounts_id uuid , chart_of_accounts_id_pos uuid , chart_of_accounts_id_invoice uuid , bs_chart_of_accounts_id uuid , pl_chart_of_accounts_id uuid "
+TABLE,square_orders,"id uuid NOT NULL, square_order_id text NOT NULL, location_id text , transaction_date timestamp with time zone NOT NULL, customer_name text , customer_id text , total_cents bigint NOT NULL, tax_cents bigint NOT NULL, tip_cents bigint NOT NULL, discount_cents bigint NOT NULL, status text NOT NULL, raw_data jsonb , notes text , created_at timestamp with time zone NOT NULL, updated_at timestamp with time zone NOT NULL, invoice_id uuid "
+TABLE,stock_adjustments,"id uuid NOT NULL, ingredient_id uuid NOT NULL, quantity numeric NOT NULL, type text NOT NULL, note text , batch_id uuid , created_at timestamp with time zone NOT NULL, cost_per_unit numeric , total_value_change numeric , shipping_cost numeric , unit text "
+TABLE,suppliers,"id uuid NOT NULL, company_name text NOT NULL, first_name text , last_name text , phone text , address text , email text , notes text , created_at timestamp with time zone NOT NULL"
+TABLE,system_settings,"key text NOT NULL, value jsonb NOT NULL, updated_at timestamp with time zone NOT NULL, updated_by uuid "
+TABLE,tap_assignments,"tap_number integer NOT NULL, recipe_id uuid , label text , updated_at timestamp with time zone NOT NULL"
+TABLE,taproom_recipe_settings,"recipe_id uuid NOT NULL, is_retired boolean NOT NULL, retired_at timestamp with time zone , retired_notes text , updated_at timestamp with time zone NOT NULL"
+TABLE,workflow_template_steps,"id uuid NOT NULL, template_id uuid NOT NULL, step_order integer NOT NULL, equipment_id uuid NOT NULL, duration_days integer , notes text , created_at timestamp with time zone NOT NULL"
+TABLE,workflow_templates,"id uuid NOT NULL, name text NOT NULL, description text , created_at timestamp with time zone NOT NULL"
+RLS,account_requests,"POLICY ""Admins can manage requests"" ON account_requests FOR ALL TO {public} USING ((EXISTS ( SELECT 1
+   FROM profiles p
+  WHERE ((p.id = auth.uid()) AND (p.role = 'admin'::user_role)))))
+POLICY ""Anyone can submit a request"" ON account_requests FOR INSERT TO {public} USING ()"
+RLS,audit_log,"POLICY ""Admins can read audit log"" ON audit_log FOR SELECT TO {public} USING ((get_my_role() = 'admin'::user_role))"
+RLS,brew_step_template_steps,"POLICY ""authenticated read brew_step_template_steps"" ON brew_step_template_steps FOR SELECT TO {public} USING ((auth.role() = 'authenticated'::text))
+POLICY ""authenticated write brew_step_template_steps"" ON brew_step_template_steps FOR ALL TO {public} USING ((auth.role() = 'authenticated'::text))"
+RLS,brew_step_templates,"POLICY ""authenticated read brew_step_templates"" ON brew_step_templates FOR SELECT TO {public} USING ((auth.role() = 'authenticated'::text))
+POLICY ""authenticated write brew_step_templates"" ON brew_step_templates FOR ALL TO {public} USING ((auth.role() = 'authenticated'::text))"
+RLS,chart_of_accounts,"POLICY ""Admins can manage chart of accounts"" ON chart_of_accounts FOR ALL TO {public} USING ((EXISTS ( SELECT 1
+   FROM profiles p
+  WHERE ((p.id = auth.uid()) AND (p.role = ANY (ARRAY['admin'::user_role, 'manager'::user_role]))))))
+POLICY ""Authenticated users can read chart of accounts"" ON chart_of_accounts FOR SELECT TO {public} USING ((auth.role() = 'authenticated'::text))"
+RLS,events,"POLICY ""manager write events"" ON events FOR INSERT TO {public} USING ()
+POLICY ""authenticated read events"" ON events FOR SELECT TO {public} USING ((auth.role() = 'authenticated'::text))
+POLICY ""manager delete events"" ON events FOR DELETE TO {public} USING ((EXISTS ( SELECT 1
+   FROM profiles p
+  WHERE ((p.id = auth.uid()) AND (p.role = ANY (ARRAY['manager'::user_role, 'admin'::user_role]))))))
+POLICY ""manager update events"" ON events FOR UPDATE TO {public} USING ((EXISTS ( SELECT 1
+   FROM profiles p
+  WHERE ((p.id = auth.uid()) AND (p.role = ANY (ARRAY['manager'::user_role, 'admin'::user_role]))))))"
+RLS,invoice_batch_links,"POLICY ""Admins only — invoice_batch_links"" ON invoice_batch_links FOR ALL TO {public} USING ((EXISTS ( SELECT 1
+   FROM profiles p
+  WHERE ((p.id = auth.uid()) AND (p.role = 'admin'::user_role)))))"
+RLS,invoice_line_items,"POLICY ""Admins only — invoice_line_items"" ON invoice_line_items FOR ALL TO {public} USING ((EXISTS ( SELECT 1
+   FROM profiles p
+  WHERE ((p.id = auth.uid()) AND (p.role = 'admin'::user_role)))))"
+RLS,invoices,"POLICY ""Admins only — invoices"" ON invoices FOR ALL TO {public} USING ((EXISTS ( SELECT 1
+   FROM profiles p
+  WHERE ((p.id = auth.uid()) AND (p.role = 'admin'::user_role)))))"
+RLS,pos_line_items,"POLICY ""viewer_read_square_transaction_line_items"" ON pos_line_items FOR SELECT TO {public} USING ((EXISTS ( SELECT 1
+   FROM profiles
+  WHERE ((profiles.id = auth.uid()) AND (profiles.role = ANY (ARRAY['admin'::user_role, 'viewer'::user_role]))))))
+POLICY ""admin_all_square_transaction_line_items"" ON pos_line_items FOR ALL TO {public} USING ((EXISTS ( SELECT 1
+   FROM profiles
+  WHERE ((profiles.id = auth.uid()) AND (profiles.role = 'admin'::user_role)))))"
+RLS,profiles,"POLICY ""Admins can read all profiles"" ON profiles FOR SELECT TO {public} USING ((get_my_role() = 'admin'::user_role))
+POLICY ""Admins can update roles"" ON profiles FOR UPDATE TO {public} USING ((get_my_role() = 'admin'::user_role))
+POLICY ""Users can read own profile"" ON profiles FOR SELECT TO {public} USING ((auth.uid() = id))"
+RLS,square_catalog_items,"POLICY ""Admins can manage catalog items"" ON square_catalog_items FOR ALL TO {public} USING ((EXISTS ( SELECT 1
+   FROM profiles p
+  WHERE ((p.id = auth.uid()) AND (p.role = ANY (ARRAY['admin'::user_role, 'manager'::user_role]))))))
+POLICY ""Authenticated users can read catalog items"" ON square_catalog_items FOR SELECT TO {public} USING ((auth.role() = 'authenticated'::text))"
+RLS,square_catalog_variations,"POLICY ""Authenticated users can read catalog variations"" ON square_catalog_variations FOR SELECT TO {public} USING ((auth.role() = 'authenticated'::text))
+POLICY ""Admins can manage catalog variations"" ON square_catalog_variations FOR ALL TO {public} USING ((EXISTS ( SELECT 1
+   FROM profiles p
+  WHERE ((p.id = auth.uid()) AND (p.role = ANY (ARRAY['admin'::user_role, 'manager'::user_role]))))))"
+RLS,square_orders,"POLICY ""admin_all_square_transactions"" ON square_orders FOR ALL TO {public} USING ((EXISTS ( SELECT 1
+   FROM profiles
+  WHERE ((profiles.id = auth.uid()) AND (profiles.role = 'admin'::user_role)))))
+POLICY ""viewer_read_square_transactions"" ON square_orders FOR SELECT TO {public} USING ((EXISTS ( SELECT 1
+   FROM profiles
+  WHERE ((profiles.id = auth.uid()) AND (profiles.role = ANY (ARRAY['admin'::user_role, 'viewer'::user_role]))))))"
+RLS,system_settings,"POLICY ""service role can write system_settings"" ON system_settings FOR ALL TO {service_role} USING (true)
+POLICY ""authenticated users can read system_settings"" ON system_settings FOR SELECT TO {authenticated} USING (true)"
+RLS,tap_assignments,"POLICY ""authenticated rw tap_assignments"" ON tap_assignments FOR ALL TO {public} USING ((auth.role() = 'authenticated'::text))"
+RLS,taproom_recipe_settings,"POLICY ""authenticated rw taproom_recipe_settings"" ON taproom_recipe_settings FOR ALL TO {public} USING ((auth.role() = 'authenticated'::text))"
+FUNCTION,adjust_ingredient_stock,"CREATE OR REPLACE FUNCTION public.adjust_ingredient_stock(p_id uuid, p_delta numeric)
+ RETURNS void
+ LANGUAGE sql
+ SET search_path TO 'public'
+AS $function$
+  update ingredients set stock_quantity = stock_quantity + p_delta where id = p_id;
+$function$
+"
+FUNCTION,backfill_recipe_link_variation_ids,"CREATE OR REPLACE FUNCTION public.backfill_recipe_link_variation_ids()
+ RETURNS void
+ LANGUAGE sql
+ SECURITY DEFINER
+AS $function$
+  update public.recipe_square_links rsl
+  set catalog_variation_id = scv.id
+  from public.square_catalog_variations scv
+  where rsl.square_variation_id = scv.square_variation_id
+    and rsl.catalog_variation_id is null;
+$function$
+"
+FUNCTION,update_updated_at,"CREATE OR REPLACE FUNCTION public.update_updated_at()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SET search_path TO 'public'
+AS $function$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$function$
+"
+FUNCTION,create_batch_with_consumption,"CREATE OR REPLACE FUNCTION public.create_batch_with_consumption(p_beer_name text, p_planned_brew_date date, p_expected_delivery_date date, p_volume_bbl numeric, p_turns integer, p_status text, p_notes text, p_recipe_id uuid)
+ RETURNS brew_batches
+ LANGUAGE plpgsql
+AS $function$
+DECLARE
+  v_batch public.brew_batches;
+BEGIN
+  INSERT INTO public.brew_batches(
+    beer_name, planned_brew_date, expected_delivery_date,
+    volume_bbl, turns, status, notes, recipe_id
+  ) VALUES (
+    p_beer_name, p_planned_brew_date, p_expected_delivery_date,
+    p_volume_bbl, COALESCE(p_turns, 1), COALESCE(p_status, 'planning'), p_notes, p_recipe_id
+  ) RETURNING * INTO v_batch;
+
+  INSERT INTO public.batch_status_history(batch_id, status, note)
+    VALUES (v_batch.id, v_batch.status, 'Batch created');
+
+  -- Ingredient deduction happens at turn start (brewhouse assignment), not here.
+
+  RETURN v_batch;
+END;
+$function$
+"
+FUNCTION,set_batch_number,"CREATE OR REPLACE FUNCTION public.set_batch_number()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SET search_path TO 'public'
+AS $function$
+begin
+  if new.batch_number is null or new.batch_number = '' then
+    new.batch_number := 'B-' || lpad(nextval('brew_batch_number_seq')::text, 3, '0');
+  end if;
+  return new;
+end;
+$function$
+"
+FUNCTION,handle_new_user,"CREATE OR REPLACE FUNCTION public.handle_new_user()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+begin
+  insert into profiles (id, email)
+  values (new.id, new.email);
+  return new;
+end;
+$function$
+"
+FUNCTION,get_my_role,"CREATE OR REPLACE FUNCTION public.get_my_role()
+ RETURNS user_role
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  SELECT role FROM profiles WHERE id = auth.uid();
+$function$
+"
+FUNCTION,audit_trigger_fn,"CREATE OR REPLACE FUNCTION public.audit_trigger_fn()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_user_id uuid;
+  v_record_id text;
+BEGIN
+  -- Prefer the JWT user (normal authenticated API calls).
+  -- Fall back to the app-level context set by service-role admin calls.
+  v_user_id := COALESCE(
+    auth.uid(),
+    NULLIF(current_setting('app.audit_user_id', true), '')::uuid
+  );
+
+  v_record_id := CASE
+    WHEN TG_OP = 'DELETE' THEN (OLD.id)::text
+    ELSE (NEW.id)::text
+  END;
+
+  INSERT INTO audit_log (table_name, record_id, operation, user_id, old_data, new_data)
+  VALUES (
+    TG_TABLE_NAME,
+    v_record_id,
+    TG_OP,
+    v_user_id,
+    CASE WHEN TG_OP IN ('UPDATE','DELETE') THEN to_jsonb(OLD) ELSE NULL END,
+    CASE WHEN TG_OP IN ('INSERT','UPDATE') THEN to_jsonb(NEW) ELSE NULL END
+  );
+
+  RETURN COALESCE(NEW, OLD);
+END;
+$function$
+"
+FUNCTION,set_updated_at,"CREATE OR REPLACE FUNCTION public.set_updated_at()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+BEGIN NEW.updated_at = now(); RETURN NEW; END;
+$function$
+"
+FUNCTION,record_batch_transfer,"CREATE OR REPLACE FUNCTION public.record_batch_transfer(p_batch_id uuid, p_from_tank_id uuid, p_to_tank_id uuid, p_volume_bbl numeric, p_shrinkage_bbl numeric DEFAULT 0, p_transfer_type text DEFAULT 'transfer'::text, p_notes text DEFAULT NULL::text, p_kegging_detail jsonb DEFAULT NULL::jsonb, p_canning_detail jsonb DEFAULT NULL::jsonb)
+ RETURNS batch_transfers
+ LANGUAGE plpgsql
+AS $function$
+DECLARE
+  v_transfer      public.batch_transfers;
+  v_dest_type     text;
+  v_new_status    text;
+  v_cur_status    text;
+  v_unconstrained text[] := ARRAY['kegging','canning','cold_storage','backlog','loading_bay','export_bay'];
+  v_incoming_recipe_id uuid;
+  v_conflicting_recipe boolean;
+BEGIN
+  INSERT INTO public.batch_transfers(
+    batch_id, from_tank_id, to_tank_id, volume_bbl, shrinkage_bbl,
+    transfer_type, notes, kegging_detail, canning_detail
+  ) VALUES (
+    p_batch_id, p_from_tank_id, p_to_tank_id, p_volume_bbl, COALESCE(p_shrinkage_bbl, 0),
+    COALESCE(p_transfer_type, 'transfer'), p_notes, p_kegging_detail, p_canning_detail
+  ) RETURNING * INTO v_transfer;
+
+  -- Release the batch's currently-active assignment, if any.
+  UPDATE public.batch_tank_assignments
+     SET released_at = now()
+   WHERE batch_id = p_batch_id AND released_at IS NULL;
+
+  IF p_to_tank_id IS NOT NULL THEN
+    SELECT type INTO v_dest_type FROM public.equipment WHERE id = p_to_tank_id;
+
+    IF v_dest_type IS NOT NULL THEN
+      v_new_status := CASE v_dest_type
+        WHEN 'brewhouse'    THEN 'brewing'
+        WHEN 'fermenter'    THEN 'fermenting'
+        WHEN 'brite'        THEN 'conditioning'
+        WHEN 'kegging'      THEN 'packaging'
+        WHEN 'canning'      THEN 'packaging'
+        WHEN 'cold_storage' THEN 'archived'
+        ELSE NULL
+      END;
+
+      -- Only capacity-constrained destinations hold an assignment.
+      IF NOT (v_dest_type = ANY(v_unconstrained)) THEN
+        -- Same-recipe batches may combine in the same tank. Any existing
+        -- occupant with a DIFFERENT recipe still blocks the transfer.
+        SELECT recipe_id INTO v_incoming_recipe_id FROM public.brew_batches WHERE id = p_batch_id;
+
+        SELECT EXISTS (
+          SELECT 1
+          FROM public.batch_tank_assignments a
+          JOIN public.brew_batches b ON b.id = a.batch_id
+          WHERE a.tank_id = p_to_tank_id
+            AND a.released_at IS NULL
+            AND a.batch_id <> p_batch_id
+            AND (v_incoming_recipe_id IS NULL OR b.recipe_id IS DISTINCT FROM v_incoming_recipe_id)
+        ) INTO v_conflicting_recipe;
+
+        IF v_conflicting_recipe THEN
+          RAISE EXCEPTION 'Destination tank is already occupied';
+        END IF;
+
+        IF NOT EXISTS (
+          SELECT 1 FROM public.batch_tank_assignments
+           WHERE tank_id = p_to_tank_id AND batch_id = p_batch_id AND released_at IS NULL
+        ) THEN
+          INSERT INTO public.batch_tank_assignments(batch_id, tank_id, notes)
+            VALUES (p_batch_id, p_to_tank_id, NULL);
+        END IF;
+      END IF;
+
+      IF v_new_status IS NOT NULL THEN
+        SELECT status INTO v_cur_status FROM public.brew_batches WHERE id = p_batch_id;
+        IF v_cur_status IS DISTINCT FROM v_new_status THEN
+          UPDATE public.brew_batches SET status = v_new_status WHERE id = p_batch_id;
+          INSERT INTO public.batch_status_history(batch_id, status, note)
+            VALUES (p_batch_id, v_new_status, 'Auto: transferred to ' || COALESCE(p_transfer_type, 'transfer'));
+        END IF;
+      END IF;
+    END IF;
+  END IF;
+
+  RETURN v_transfer;
+END;
+$function$
+"
+FUNCTION,record_batch_transfer,"CREATE OR REPLACE FUNCTION public.record_batch_transfer(p_batch_id uuid, p_from_tank_id uuid, p_to_tank_id uuid, p_volume_bbl numeric, p_shrinkage_bbl numeric DEFAULT 0, p_transfer_type text DEFAULT 'transfer'::text, p_notes text DEFAULT NULL::text, p_kegging_detail jsonb DEFAULT NULL::jsonb, p_canning_detail jsonb DEFAULT NULL::jsonb, p_created_by uuid DEFAULT NULL::uuid)
+ RETURNS batch_transfers
+ LANGUAGE plpgsql
+AS $function$
+declare
+  v_transfer      public.batch_transfers;
+  v_dest_type     text;
+  v_new_status    text;
+  v_cur_status    text;
+  v_unconstrained text[] := array['kegging','canning','cold_storage','backlog','loading_bay','export_bay'];
+begin
+  insert into public.batch_transfers(
+    batch_id, from_tank_id, to_tank_id, volume_bbl, shrinkage_bbl,
+    transfer_type, notes, kegging_detail, canning_detail, created_by
+  ) values (
+    p_batch_id, p_from_tank_id, p_to_tank_id, p_volume_bbl, coalesce(p_shrinkage_bbl, 0),
+    coalesce(p_transfer_type, 'transfer'), p_notes, p_kegging_detail, p_canning_detail,
+    p_created_by
+  ) returning * into v_transfer;
+
+  update public.batch_tank_assignments
+     set released_at = now()
+   where batch_id = p_batch_id and released_at is null;
+
+  if p_to_tank_id is not null then
+    select type into v_dest_type from public.equipment where id = p_to_tank_id;
+    if v_dest_type is not null then
+      v_new_status := case v_dest_type
+        when 'brewhouse'    then 'brewing'
+        when 'fermenter'    then 'fermenting'
+        when 'brite'        then 'conditioning'
+        when 'kegging'      then 'packaging'
+        when 'canning'      then 'packaging'
+        else null
+      end;
+      if not (v_dest_type = any(v_unconstrained)) then
+        if exists (select 1 from public.batch_tank_assignments where tank_id = p_to_tank_id and released_at is null) then
+          raise exception 'Destination tank is already occupied';
+        end if;
+        insert into public.batch_tank_assignments(batch_id, tank_id, notes)
+          values (p_batch_id, p_to_tank_id, null);
+      end if;
+      if v_new_status is not null then
+        select status into v_cur_status from public.brew_batches where id = p_batch_id;
+        if v_cur_status is distinct from v_new_status then
+          update public.brew_batches set status = v_new_status where id = p_batch_id;
+          insert into public.batch_status_history(batch_id, status, note)
+            values (p_batch_id, v_new_status, 'Auto: transferred to ' || coalesce(p_transfer_type, 'transfer'));
+        end if;
+      end if;
+    end if;
+  end if;
+
+  return v_transfer;
+end;
+$function$
+"
+TRIGGER,audit_batch_transfers,ON batch_transfers EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_batch_transfers,ON batch_transfers EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_batch_transfers,ON batch_transfers EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_recipe_ingredients,ON recipe_ingredients EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_recipe_ingredients,ON recipe_ingredients EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_recipe_ingredients,ON recipe_ingredients EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_ingredients,ON ingredients EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_ingredients,ON ingredients EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_ingredients,ON ingredients EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_batch_schedule_entries,ON batch_schedule_entries EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_batch_schedule_entries,ON batch_schedule_entries EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_batch_schedule_entries,ON batch_schedule_entries EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_contract_brewing_partners,ON contract_brewing_partners EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_contract_brewing_partners,ON contract_brewing_partners EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_contract_brewing_partners,ON contract_brewing_partners EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_suppliers,ON suppliers EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_suppliers,ON suppliers EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_suppliers,ON suppliers EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_packaging_items,ON packaging_items EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_packaging_items,ON packaging_items EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_packaging_items,ON packaging_items EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_recipes,ON recipes EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_recipes,ON recipes EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_recipes,ON recipes EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_batch_status_history,ON batch_status_history EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_batch_status_history,ON batch_status_history EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_batch_status_history,ON batch_status_history EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_equipment,ON equipment EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_equipment,ON equipment EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_equipment,ON equipment EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_batch_tank_assignments,ON batch_tank_assignments EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_batch_tank_assignments,ON batch_tank_assignments EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_batch_tank_assignments,ON batch_tank_assignments EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_workflow_templates,ON workflow_templates EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_workflow_templates,ON workflow_templates EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_workflow_templates,ON workflow_templates EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_workflow_template_steps,ON workflow_template_steps EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_workflow_template_steps,ON workflow_template_steps EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_workflow_template_steps,ON workflow_template_steps EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_packaging_stock_adjustments,ON packaging_stock_adjustments EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_packaging_stock_adjustments,ON packaging_stock_adjustments EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_packaging_stock_adjustments,ON packaging_stock_adjustments EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_brew_inventory_adjustments,ON brew_inventory_adjustments EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_brew_inventory_adjustments,ON brew_inventory_adjustments EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_brew_inventory_adjustments,ON brew_inventory_adjustments EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_recipe_square_links,ON recipe_square_links EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_recipe_square_links,ON recipe_square_links EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_recipe_square_links,ON recipe_square_links EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_safety_stock_floors,ON safety_stock_floors EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_safety_stock_floors,ON safety_stock_floors EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_safety_stock_floors,ON safety_stock_floors EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_quarterly_targets,ON quarterly_targets EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_quarterly_targets,ON quarterly_targets EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_quarterly_targets,ON quarterly_targets EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,quarterly_targets_updated_at,ON quarterly_targets EXECUTE EXECUTE FUNCTION update_updated_at()
+TRIGGER,audit_batch_brew_activity_log,ON batch_brew_activity_log EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_batch_brew_activity_log,ON batch_brew_activity_log EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_batch_brew_activity_log,ON batch_brew_activity_log EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_manual_net_sales_entries,ON manual_net_sales_entries EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_manual_net_sales_entries,ON manual_net_sales_entries EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_manual_net_sales_entries,ON manual_net_sales_entries EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,manual_net_sales_entries_updated_at,ON manual_net_sales_entries EXECUTE EXECUTE FUNCTION update_updated_at()
+TRIGGER,audit_brew_batches,ON brew_batches EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_brew_batches,ON brew_batches EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_brew_batches,ON brew_batches EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,trg_set_batch_number,ON brew_batches EXECUTE EXECUTE FUNCTION set_batch_number()
+TRIGGER,audit_recipe_brew_activity_templates,ON recipe_brew_activity_templates EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_recipe_brew_activity_templates,ON recipe_brew_activity_templates EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_recipe_brew_activity_templates,ON recipe_brew_activity_templates EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_stock_adjustments,ON stock_adjustments EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_stock_adjustments,ON stock_adjustments EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_stock_adjustments,ON stock_adjustments EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_commitments,ON commitments EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_commitments,ON commitments EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_commitments,ON commitments EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,invoices_updated_at,ON invoices EXECUTE EXECUTE FUNCTION set_updated_at()
+TRIGGER,audit_batch_allocations,ON batch_allocations EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_batch_allocations,ON batch_allocations EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,audit_batch_allocations,ON batch_allocations EXECUTE EXECUTE FUNCTION audit_trigger_fn()
+TRIGGER,invoice_line_items_updated_at,ON invoice_line_items EXECUTE EXECUTE FUNCTION set_updated_at()

@@ -20,6 +20,7 @@ export const BREWING_NAV: NavEntry[] = [
 
 export const RECIPES_NAV: NavEntry[] = [
   { href: "/production/recipes",                     label: "Recipes"             },
+  { href: "/production/recipes/variations",          label: "Variations"          },
   { href: "/production/recipes/brew-step-templates", label: "Brew Step Templates" },
 ];
 

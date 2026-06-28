@@ -1,0 +1,23 @@
+-- Drop recipes.steps — free-text column that was never wired to any UI or
+-- consumer.  Added in the 20260609 baseline as a scratchpad for step notes;
+-- structured step data was subsequently captured in
+-- recipe_brew_activity_templates (selected and displayed everywhere).
+--
+-- Confirmed safe:
+--   1. Zero display/read references in app/ or lib/.  No .select() call names
+--      "steps" on the recipes table; the GET at /api/production/recipes uses
+--      "*, recipe_brew_activity_templates(*)" which fetches the column but no
+--      client code reads the value.
+--   2. No migration after 20260609_baseline.sql references this column.
+--   3. Semantic replacement: recipe_brew_activity_templates (explicit sort-ordered
+--      rows, templated onto batches as batch_brew_activity_log).
+--
+-- ⚠️  REQUIRED CODE CLEANUP BEFORE RUNNING THIS MIGRATION:
+--   Remove "steps: steps || null" from the insert/update payloads in:
+--     • app/api/production/recipes/route.ts (line ~38)
+--     • app/api/production/recipes/[id]/route.ts (line ~29)
+--   Postgres will reject the insert/update with "column steps does not exist"
+--   if those lines remain.  The body destructuring `const { ..., steps, ... }`
+--   can stay or be removed — it simply needs to not be forwarded to the DB.
+
+alter table public.recipes drop column if exists steps;

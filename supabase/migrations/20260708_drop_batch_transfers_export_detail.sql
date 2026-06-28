@@ -1,0 +1,22 @@
+-- Drop batch_transfers.export_detail — jsonb column that was never populated
+-- by any code path.  Added in the 20260609 baseline alongside kegging_detail
+-- and canning_detail as a sibling field for export annotations; kegging_detail
+-- and canning_detail were explicitly dropped in 20260628_strict_packaging_rekey
+-- once the variation_id/quantity model replaced the jsonb blobs, but
+-- export_detail was never wired up and was silently left behind.
+--
+-- Export tracking is handled by the export_transactions table
+-- (created in 20260622_export_transactions.sql, which also dropped batch_exports).
+--
+-- Confirmed safe:
+--   1. Only reference in app/ is a stale TypeScript type declaration in
+--      app/production/types.ts (BatchTransfer.export_detail).  No .select()
+--      call names "export_detail" explicitly; no insert or update path writes
+--      to it.  It is only ever loaded implicitly via select("*") and discarded.
+--   2. No migration after 20260609_baseline.sql references this column.
+--   3. Semantic replacement: export_transactions table + export_transaction_taxes.
+--
+-- OPTIONAL CODE CLEANUP: remove the export_detail field from the BatchTransfer
+-- interface in app/production/types.ts (line ~127). No runtime impact either way.
+
+alter table public.batch_transfers drop column if exists export_detail;
