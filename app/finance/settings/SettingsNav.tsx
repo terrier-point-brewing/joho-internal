@@ -5,8 +5,9 @@ import { usePathname } from "next/navigation";
 const SUBTABS = [
   { href: "/finance/settings/chart-of-accounts", label: "Chart of Accounts" },
   { href: "/finance/settings/account-mapping",   label: "Account Mapping"   },
-  { href: "/finance/settings/excise-tax",        label: "Excise Tax"       },
+  { href: "/finance/settings/excise-tax",        label: "Excise Tax"        },
   { href: "/finance/settings/import",            label: "Import"            },
+  { href: "/finance/settings/payroll",           label: "Payroll"           },
 ];
 
 export default function SettingsNav() {

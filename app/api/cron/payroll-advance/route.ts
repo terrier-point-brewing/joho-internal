@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { apiError } from "@/lib/utils/api";
 import { computeNextPeriodDates } from "@/lib/payroll/periodUtils";
@@ -7,21 +6,11 @@ import type { PayPeriodFrequency } from "@/lib/payroll/periodUtils";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
-  try { await requireRole(["manager"]); } catch (res) { return res as Response; }
-
-  const supabase = await createSupabaseServerClient();
-  const { data, error } = await supabase
-    .from("pay_periods")
-    .select("*")
-    .order("start_date", { ascending: false });
-
-  if (error) return apiError(error.message);
-  return NextResponse.json(data);
-}
-
-export async function POST(_req: NextRequest) {
-  try { await requireRole([]); } catch (res) { return res as Response; }
+export async function GET(req: NextRequest) {
+  const auth = req.headers.get("authorization");
+  if (auth !== `Bearer ${process.env.CRON_SECRET}`) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
   const supabase = await createSupabaseServerClient();
 
@@ -32,7 +21,7 @@ export async function POST(_req: NextRequest) {
     .limit(1)
     .single();
 
-  if (configErr) return apiError("No payroll config found — seed one first", 422);
+  if (configErr) return apiError("No payroll config", 422);
 
   const { data: lastPeriod } = await supabase
     .from("pay_periods")
@@ -40,6 +29,13 @@ export async function POST(_req: NextRequest) {
     .order("end_date", { ascending: false })
     .limit(1)
     .single();
+
+  const today = new Date().toISOString().slice(0, 10);
+
+  // Only create a new period if today has reached or passed the last period's end date.
+  if (lastPeriod && lastPeriod.end_date > today) {
+    return NextResponse.json({ created: false });
+  }
 
   const dates = computeNextPeriodDates(
     config.first_pay_period_start_date,
@@ -49,10 +45,12 @@ export async function POST(_req: NextRequest) {
 
   const { data, error } = await supabase
     .from("pay_periods")
-    .insert({ ...dates, status: "open" })
+    .upsert({ ...dates, status: "open" }, { onConflict: "start_date", ignoreDuplicates: true })
     .select()
     .single();
 
   if (error) return apiError(error.message);
-  return NextResponse.json(data, { status: 201 });
+  // Period already existed (duplicate cron fire) — not an error
+  if (!data) return NextResponse.json({ created: false });
+  return NextResponse.json({ created: true, period: data });
 }

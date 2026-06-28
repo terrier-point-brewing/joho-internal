@@ -14,6 +14,7 @@ export interface PayrollConfig {
   cash_tips_rate: number;
   tip_distribution_model: TipDistributionModel;
   first_pay_period_start_date: string;
+  pay_period_frequency: 'weekly' | 'biweekly';
   created_at: string;
 }
 
