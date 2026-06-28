@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import {
   useExciseTaxRatesQuery,
@@ -10,12 +10,10 @@ import {
   usePackagingQuery,
   useExportServiceMappingsQuery,
   useExportInvoiceDueDaysQuery,
-  useRecipesQuery,
-  fetchJson,
 } from "../hooks/queries";
 import type { ExciseTaxRate, ExportServiceMapping } from "../types";
 import { SquareCatalogSelect, SquareDiscountSelect } from "@/app/components/SquareCatalogSelect";
-import { SquareLinkManager, LinkRow } from "./SquareLinkManager";
+import RecipeLinkMatrix from "./RecipeLinkMatrix";
 
 function ExciseTaxRateRow({
   rate,
@@ -194,79 +192,122 @@ const PACKAGING_SERVICE_LABELS: Record<"keg_cleaning" | "forklift", string> = {
   forklift: "Forklift",
 };
 
-const PACKAGING_FORMAT_LABELS: Record<"case" | "loose", string> = {
-  case: "Case",
-  loose: "Loose Can",
-};
+const KEG_VOL_LABELS: Record<number, string> = { 1984: "1/2 BBL", 992: "1/4 BBL", 661: "1/6 BBL" };
+const CAN_FORMAT_LABELS: Record<"loose" | "case", string> = { loose: "Loose Can", case: "Case" };
 
-function PackagingFeeContainerSection({
-  pkg,
-  formats,
+interface VolumeClass {
+  piType: "keg" | "can";
+  volumeFlOz: number;
+  format: "loose" | "case" | null;
+  label: string;
+}
+
+function deriveVolumeClasses(packagingItems: { id: string; type: string; volume_fl_oz: number | null }[]): VolumeClass[] {
+  const seen = new Map<string, VolumeClass>();
+  for (const pi of packagingItems) {
+    if ((pi.type !== "keg" && pi.type !== "can") || pi.volume_fl_oz == null) continue;
+    const piType = pi.type as "keg" | "can";
+    const vol = pi.volume_fl_oz;
+    if (piType === "keg") {
+      const k = `keg|${vol}|null`;
+      if (!seen.has(k)) {
+        const size = KEG_VOL_LABELS[vol] ?? `${vol} fl oz`;
+        seen.set(k, { piType, volumeFlOz: vol, format: null, label: `${size} Keg` });
+      }
+    } else {
+      for (const fmt of ["loose", "case"] as const) {
+        const k = `can|${vol}|${fmt}`;
+        if (!seen.has(k)) {
+          seen.set(k, { piType, volumeFlOz: vol, format: fmt, label: `${vol}oz Can · ${CAN_FORMAT_LABELS[fmt]}` });
+        }
+      }
+    }
+  }
+  return [...seen.values()].sort((a, b) => {
+    if (a.piType !== b.piType) return a.piType === "keg" ? -1 : 1;
+    if (a.piType === "keg") return b.volumeFlOz - a.volumeFlOz;
+    if (a.volumeFlOz !== b.volumeFlOz) return a.volumeFlOz - b.volumeFlOz;
+    return (a.format === "loose" ? 0 : 1) - (b.format === "loose" ? 0 : 1);
+  });
+}
+
+function VolumeClassRow({
+  vc,
+  packagingItems,
   feeRows,
   partners,
   items,
-  upsert,
+  onSave,
 }: {
-  pkg: { id: string; name: string };
-  formats: ("case" | "loose" | null)[];
+  vc: VolumeClass;
+  packagingItems: { id: string; type: string; volume_fl_oz: number | null }[];
   feeRows: ExportServiceMapping[];
   partners: { id: string; company_name: string }[];
   items: { itemId: string; itemName: string; variations: { variationId: string; variationName: string }[] }[];
-  upsert: (
-    existing: ExportServiceMapping | null,
-    patch: { partner_id: string | null; packaging_item_id: string; packaging_format: "case" | "loose" | null; square_catalog_item_id: string | null; square_catalog_variation_id: string | null }
-  ) => Promise<void>;
+  onSave: (payload: {
+    type: "keg" | "can"; volume_fl_oz: number; format: "case" | "loose" | null;
+    partner_id: string | null; square_catalog_item_id: string | null; square_catalog_variation_id: string | null;
+    display_name: string;
+  }) => Promise<void>;
 }) {
-  const containerRows = feeRows.filter((m) => m.packaging_item_id === pkg.id);
-  const overridePartnerIds = new Set(containerRows.filter((m) => m.partner_id !== null).map((m) => m.partner_id!));
+  const classItemIds = new Set(
+    packagingItems
+      .filter((pi) => pi.type === vc.piType && pi.volume_fl_oz === vc.volumeFlOz)
+      .map((pi) => pi.id)
+  );
+
+  function getMapping(partnerId: string | null): ExportServiceMapping | null {
+    return (
+      feeRows.find(
+        (m) => m.packaging_item_id !== null && classItemIds.has(m.packaging_item_id) &&
+          m.packaging_format === vc.format && m.partner_id === partnerId
+      ) ?? null
+    );
+  }
+
+  const defaultRow = getMapping(null);
+  const overridePartnerIds = new Set(
+    feeRows
+      .filter((m) => m.packaging_item_id !== null && classItemIds.has(m.packaging_item_id) && m.packaging_format === vc.format && m.partner_id !== null)
+      .map((m) => m.partner_id!)
+  );
 
   return (
     <div className="flex flex-col gap-2">
-      <span className="text-xs font-medium text-zinc-300">{pkg.name}</span>
+      <span className="text-xs font-medium text-zinc-300">{vc.label}</span>
       <div className="flex items-center gap-2 pl-3">
         <span className="text-xs text-zinc-500 italic w-28">Default</span>
-        <div className="flex flex-col gap-1.5">
-          {formats.map((format) => {
-            const row = containerRows.find((m) => m.partner_id === null && m.packaging_format === format) ?? null;
-            return (
-              <div key={format ?? "default"} className="flex items-center gap-2">
-                {format && <span className="text-[11px] text-zinc-500 w-16">{PACKAGING_FORMAT_LABELS[format]}</span>}
-                <SquareCatalogSelect
-                  items={items}
-                  itemId={row?.square_catalog_item_id ?? null}
-                  variationId={row?.square_catalog_variation_id ?? null}
-                  onChange={(itemId, variationId) =>
-                    upsert(row, { partner_id: null, packaging_item_id: pkg.id, packaging_format: format, square_catalog_item_id: itemId, square_catalog_variation_id: variationId })
-                  }
-                />
-              </div>
-            );
-          })}
-        </div>
+        <SquareCatalogSelect
+          items={items}
+          itemId={defaultRow?.square_catalog_item_id ?? null}
+          variationId={defaultRow?.square_catalog_variation_id ?? null}
+          onChange={(itemId, variationId) =>
+            onSave({
+              type: vc.piType, volume_fl_oz: vc.volumeFlOz, format: vc.format,
+              partner_id: null, square_catalog_item_id: itemId, square_catalog_variation_id: variationId,
+              display_name: "Packaging Fee",
+            })
+          }
+        />
       </div>
       {[...overridePartnerIds].map((partnerId) => {
         const partner = partners.find((p) => p.id === partnerId);
+        const overrideRow = getMapping(partnerId);
         return (
           <div key={partnerId} className="flex items-center gap-2 pl-3">
-            <span className="text-xs text-zinc-300 w-28 truncate">{partner?.company_name ?? "Unknown partner"}</span>
-            <div className="flex flex-col gap-1.5">
-              {formats.map((format) => {
-                const row = containerRows.find((m) => m.partner_id === partnerId && m.packaging_format === format) ?? null;
-                return (
-                  <div key={format ?? "override"} className="flex items-center gap-2">
-                    {format && <span className="text-[11px] text-zinc-500 w-16">{PACKAGING_FORMAT_LABELS[format]}</span>}
-                    <SquareCatalogSelect
-                      items={items}
-                      itemId={row?.square_catalog_item_id ?? null}
-                      variationId={row?.square_catalog_variation_id ?? null}
-                      onChange={(itemId, variationId) =>
-                        upsert(row, { partner_id: partnerId, packaging_item_id: pkg.id, packaging_format: format, square_catalog_item_id: itemId, square_catalog_variation_id: variationId })
-                      }
-                    />
-                  </div>
-                );
-              })}
-            </div>
+            <span className="text-xs text-zinc-300 w-28 truncate">{partner?.company_name ?? "Unknown"}</span>
+            <SquareCatalogSelect
+              items={items}
+              itemId={overrideRow?.square_catalog_item_id ?? null}
+              variationId={overrideRow?.square_catalog_variation_id ?? null}
+              onChange={(itemId, variationId) =>
+                onSave({
+                  type: vc.piType, volume_fl_oz: vc.volumeFlOz, format: vc.format,
+                  partner_id: partnerId, square_catalog_item_id: itemId, square_catalog_variation_id: variationId,
+                  display_name: "Packaging Fee",
+                })
+              }
+            />
           </div>
         );
       })}
@@ -274,11 +315,13 @@ function PackagingFeeContainerSection({
         <PartnerOverridePicker
           partners={partners}
           excludeIds={overridePartnerIds}
-          onAdd={(partnerId) => {
-            for (const format of formats) {
-              upsert(null, { partner_id: partnerId, packaging_item_id: pkg.id, packaging_format: format, square_catalog_item_id: null, square_catalog_variation_id: null });
-            }
-          }}
+          onAdd={(partnerId) =>
+            onSave({
+              type: vc.piType, volume_fl_oz: vc.volumeFlOz, format: vc.format,
+              partner_id: partnerId, square_catalog_item_id: null, square_catalog_variation_id: null,
+              display_name: "Packaging Fee",
+            })
+          }
         />
       </div>
     </div>
@@ -293,32 +336,19 @@ function PackagingFeeSection() {
   const qc = useQueryClient();
   const items = catalog?.items ?? [];
 
-  // Packaging Fee is charged per shippable container, not per assembly
-  // component (lid/paktech/tray/label) — see Spec 11 design doc. Cans need
-  // separate "case" vs "loose can" mappings, since Square invoicing rejects
-  // decimal quantities and a partial case is billed as whole cases + loose
-  // cans (two different Square items, two different line items).
-  const containerItems = packagingItems.filter((p) => p.type === "keg" || p.type === "can");
-
   const feeRows = mappings.filter((m) => m.service_type === "packaging_fee");
+  const volumeClasses = deriveVolumeClasses(packagingItems);
 
-  async function upsert(
-    existing: ExportServiceMapping | null,
-    patch: { partner_id: string | null; packaging_item_id: string; packaging_format: "case" | "loose" | null; square_catalog_item_id: string | null; square_catalog_variation_id: string | null }
-  ) {
-    await fetch("/api/production/export-settings/service-mappings", {
-      method: "PUT",
+  async function save(payload: {
+    type: "keg" | "can"; volume_fl_oz: number; format: "case" | "loose" | null;
+    partner_id: string | null; square_catalog_item_id: string | null; square_catalog_variation_id: string | null;
+    display_name: string;
+  }) {
+    if (!payload.square_catalog_item_id || !payload.square_catalog_variation_id) return;
+    await fetch("/api/production/export-settings/packaging-fee-class", {
+      method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        id: existing?.id,
-        service_type: "packaging_fee",
-        partner_id: patch.partner_id,
-        packaging_item_id: patch.packaging_item_id,
-        packaging_format: patch.packaging_format,
-        display_name: existing?.display_name ?? "Packaging Fee",
-        square_catalog_item_id: patch.square_catalog_item_id ?? existing?.square_catalog_item_id ?? null,
-        square_catalog_variation_id: patch.square_catalog_variation_id ?? existing?.square_catalog_variation_id ?? null,
-      }),
+      body: JSON.stringify(payload),
     });
     await qc.invalidateQueries({ queryKey: queryKeys.production.exportServiceMappings() });
   }
@@ -326,20 +356,19 @@ function PackagingFeeSection() {
   return (
     <section>
       <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wide mb-2">Packaging Fee</h4>
-      <p className="text-xs text-zinc-600 mb-2">
-        Default mapping per packaging item, with optional per-partner overrides. Cans have separate Case and Loose Can mappings since partial-case
-        remainders are invoiced as loose cans.
+      <p className="text-xs text-zinc-600 mb-3">
+        One mapping per container volume class. Saving a class updates all matching packaging items (e.g. saving "1/6 BBL Keg" updates both generic and partner-specific 1/6 keg items). Cans require separate Case and Loose mappings.
       </p>
       <div className="flex flex-col gap-5">
-        {containerItems.map((pkg) => (
-          <PackagingFeeContainerSection
-            key={pkg.id}
-            pkg={pkg}
-            formats={pkg.type === "can" ? ["case", "loose"] : [null]}
+        {volumeClasses.map((vc) => (
+          <VolumeClassRow
+            key={`${vc.piType}|${vc.volumeFlOz}|${vc.format}`}
+            vc={vc}
+            packagingItems={packagingItems}
             feeRows={feeRows}
             partners={partners}
             items={items}
-            upsert={upsert}
+            onSave={save}
           />
         ))}
       </div>
@@ -677,50 +706,6 @@ function InvoiceTermsSection() {
   );
 }
 
-function SquareCatalogMappingsSection() {
-  const qc = useQueryClient();
-  const { data: links = [] } = useQuery({
-    queryKey: queryKeys.production.recipeSquareLinks(),
-    queryFn: () => fetchJson<LinkRow[]>("/api/production/recipe-square-links"),
-  });
-  const { data: recipes = [] } = useRecipesQuery();
-  const [showLinks, setShowLinks] = useState(false);
-
-  function refreshLinks() {
-    qc.invalidateQueries({ queryKey: queryKeys.production.recipeSquareLinks() });
-  }
-
-  return (
-    <section>
-      <h3 className="text-sm font-medium text-zinc-200 mb-2">Square Catalog Mappings</h3>
-      <p className="text-xs text-zinc-600 mb-3">
-        Links recipes to Square catalog items for inventory sync on taproom exports.
-      </p>
-      <div className="flex items-center justify-between px-3 py-2 bg-zinc-800/60 border border-zinc-700 rounded text-xs text-zinc-500">
-        <span>
-          {links.length > 0
-            ? `${links.length} Square mapping${links.length !== 1 ? "s" : ""} configured`
-            : "No Square mappings yet"}
-        </span>
-        <button
-          onClick={() => setShowLinks(true)}
-          className="ml-4 shrink-0 px-2.5 py-1 border border-zinc-600 hover:border-zinc-400 text-zinc-300 rounded transition-colors"
-        >
-          Manage Links
-        </button>
-      </div>
-      {showLinks && (
-        <SquareLinkManager
-          recipes={recipes}
-          links={links}
-          onClose={() => setShowLinks(false)}
-          onChanged={refreshLinks}
-        />
-      )}
-    </section>
-  );
-}
-
 export default function ExportSettingsPanel({ scope }: { scope: "full" | "excise-only" }) {
   return (
     <div className="flex flex-col gap-8">
@@ -739,7 +724,13 @@ export default function ExportSettingsPanel({ scope }: { scope: "full" | "excise
           <DistributionDiscountSection />
           <WholesaleDiscountSection />
           <InvoiceTermsSection />
-          <SquareCatalogMappingsSection />
+          <section>
+            <h3 className="text-sm font-medium text-zinc-200 mb-2">Product Square Links</h3>
+            <p className="text-xs text-zinc-600 mb-3">
+              Map each recipe + container format to a Square catalog variation for invoice line items.
+            </p>
+            <RecipeLinkMatrix />
+          </section>
         </>
       )}
     </div>
