@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import {
@@ -11,7 +11,7 @@ import {
   useExportServiceMappingsQuery,
   useExportInvoiceDueDaysQuery,
 } from "../hooks/queries";
-import type { ExciseTaxRate, ExportServiceMapping } from "../types";
+import type { ExciseTaxRate, ExportServiceMapping, ServiceType } from "../types";
 import { SquareCatalogSelect, SquareDiscountSelect } from "@/app/components/SquareCatalogSelect";
 import RecipeLinkMatrix from "./RecipeLinkMatrix";
 
@@ -187,10 +187,6 @@ function ExciseTaxRatesSection() {
   );
 }
 
-const PACKAGING_SERVICE_LABELS: Record<"keg_cleaning" | "forklift", string> = {
-  keg_cleaning: "Keg Cleaning",
-  forklift: "Forklift",
-};
 
 const KEG_VOL_LABELS: Record<number, string> = { 1984: "1/2 BBL", 992: "1/4 BBL", 661: "1/6 BBL" };
 const CAN_FORMAT_LABELS: Record<"loose" | "case", string> = { loose: "Loose Can", case: "Case" };
@@ -334,6 +330,7 @@ function PackagingFeeSection() {
   const { data: packagingItems = [] } = usePackagingQuery();
   const { data: catalog } = useExportSquareCatalogQuery();
   const qc = useQueryClient();
+  const { status, run } = useSaveStatus();
   const items = catalog?.items ?? [];
 
   const feeRows = mappings.filter((m) => m.service_type === "packaging_fee");
@@ -345,17 +342,22 @@ function PackagingFeeSection() {
     display_name: string;
   }) {
     if (!payload.square_catalog_item_id || !payload.square_catalog_variation_id) return;
-    await fetch("/api/production/export-settings/packaging-fee-class", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    await qc.invalidateQueries({ queryKey: queryKeys.production.exportServiceMappings() });
+    const ok = await run(() =>
+      fetch("/api/production/export-settings/packaging-fee-class", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+    );
+    if (ok) await qc.invalidateQueries({ queryKey: queryKeys.production.exportServiceMappings() });
   }
 
   return (
     <section>
-      <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wide mb-2">Packaging Fee</h4>
+      <div className="flex items-center justify-between gap-3 mb-2">
+        <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wide">Packaging Fee</h4>
+        <SaveIndicator status={status} />
+      </div>
       <p className="text-xs text-zinc-600 mb-3">
         One mapping per container volume class. Saving a class updates all matching packaging items (e.g. saving &ldquo;1/6 BBL Keg&rdquo; updates both generic and partner-specific 1/6 keg items). Cans require separate Case and Loose mappings.
       </p>
@@ -414,245 +416,133 @@ export function PartnerOverridePicker({ partners, excludeIds, onAdd }: {
   );
 }
 
-function SimpleServiceSection({ serviceType }: { serviceType: "keg_cleaning" | "forklift" }) {
+type SaveStatus = { state: "idle" | "saving" | "saved" | "error"; message?: string };
+
+function SaveIndicator({ status }: { status: SaveStatus }) {
+  if (status.state === "idle") return null;
+  const text =
+    status.state === "saving" ? "Saving…"
+    : status.state === "saved" ? "Saved"
+    : `⚠ ${status.message ?? "Save failed"}`;
+  const color =
+    status.state === "error" ? "text-red-400"
+    : status.state === "saved" ? "text-emerald-400"
+    : "text-zinc-500";
+  return <span aria-live="polite" className={`text-xs shrink-0 ${color}`}>{text}</span>;
+}
+
+/** Wraps a save fetch with saving/saved/error status. Surfaces failures (the old
+ *  auto-save selects swallowed them) and auto-clears the "saved" state. */
+function useSaveStatus() {
+  const [status, setStatus] = useState<SaveStatus>({ state: "idle" });
+  useEffect(() => {
+    if (status.state !== "saved") return;
+    const t = setTimeout(() => setStatus({ state: "idle" }), 2000);
+    return () => clearTimeout(t);
+  }, [status]);
+  async function run(request: () => Promise<Response>): Promise<boolean> {
+    setStatus({ state: "saving" });
+    try {
+      const res = await request();
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setStatus({ state: "error", message: (body as { error?: string }).error ?? `Save failed (${res.status})` });
+        return false;
+      }
+      setStatus({ state: "saved" });
+      return true;
+    } catch (err) {
+      setStatus({ state: "error", message: err instanceof Error ? err.message : "Save failed" });
+      return false;
+    }
+  }
+  return { status, run };
+}
+
+/** One "Default + per-partner override" mapping block — shared by every service and
+ *  discount mapping. `kind` switches between a Square catalog item picker and a
+ *  discount picker; all writes surface save status via SaveIndicator. */
+function ServiceMappingSection({
+  serviceType, title, displayName, description, kind, heading = "h3",
+}: {
+  serviceType: ServiceType;
+  title: string;
+  displayName: string;
+  description?: string;
+  kind: "catalog" | "discount";
+  heading?: "h3" | "h4";
+}) {
   const { data: mappings = [] } = useExportServiceMappingsQuery();
   const { data: partners = [] } = useContractPartnersQuery();
   const { data: catalog } = useExportSquareCatalogQuery();
   const qc = useQueryClient();
+  const { status, run } = useSaveStatus();
   const items = catalog?.items ?? [];
+  const discounts = catalog?.discounts ?? [];
 
   const rows = mappings.filter((m) => m.service_type === serviceType);
   const defaultRow = rows.find((m) => m.partner_id === null) ?? null;
   const overrideRows = rows.filter((m) => m.partner_id !== null);
 
-  async function upsert(existing: ExportServiceMapping | null, partnerId: string | null, itemId: string | null, variationId: string | null) {
-    await fetch("/api/production/export-settings/service-mappings", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        id: existing?.id,
-        service_type: serviceType,
-        partner_id: partnerId,
-        display_name: PACKAGING_SERVICE_LABELS[serviceType],
-        square_catalog_item_id: itemId,
-        square_catalog_variation_id: variationId,
-      }),
-    });
-    await qc.invalidateQueries({ queryKey: queryKeys.production.exportServiceMappings() });
+  async function save(existing: ExportServiceMapping | null, partnerId: string | null, patch: Record<string, unknown>) {
+    const ok = await run(() =>
+      fetch("/api/production/export-settings/service-mappings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: existing?.id, service_type: serviceType, partner_id: partnerId, display_name: displayName, ...patch }),
+      })
+    );
+    if (ok) await qc.invalidateQueries({ queryKey: queryKeys.production.exportServiceMappings() });
   }
+
+  function control(row: ExportServiceMapping | null, partnerId: string | null) {
+    return kind === "catalog" ? (
+      <SquareCatalogSelect
+        items={items}
+        itemId={row?.square_catalog_item_id ?? null}
+        variationId={row?.square_catalog_variation_id ?? null}
+        onChange={(itemId, variationId) => save(row, partnerId, { square_catalog_item_id: itemId, square_catalog_variation_id: variationId })}
+      />
+    ) : (
+      <SquareDiscountSelect
+        discounts={discounts}
+        value={row?.square_catalog_discount_id ?? null}
+        onChange={(id) => save(row, partnerId, { square_catalog_discount_id: id })}
+      />
+    );
+  }
+
+  const emptyPatch = kind === "catalog"
+    ? { square_catalog_item_id: null, square_catalog_variation_id: null }
+    : { square_catalog_discount_id: null };
 
   return (
     <section>
-      <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wide mb-2">{PACKAGING_SERVICE_LABELS[serviceType]}</h4>
-      <div className="flex flex-col gap-2">
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-zinc-500 italic w-28">Default</span>
-          <SquareCatalogSelect
-            items={items}
-            itemId={defaultRow?.square_catalog_item_id ?? null}
-            variationId={defaultRow?.square_catalog_variation_id ?? null}
-            onChange={(itemId, variationId) => upsert(defaultRow, null, itemId, variationId)}
-          />
-        </div>
-        {overrideRows.map((m) => {
-          const partner = partners.find((p) => p.id === m.partner_id);
-          return (
-            <div key={m.id} className="flex items-center gap-2">
-              <span className="text-xs text-zinc-300 w-28 truncate">{partner?.company_name ?? "Unknown partner"}</span>
-              <SquareCatalogSelect
-                items={items}
-                itemId={m.square_catalog_item_id}
-                variationId={m.square_catalog_variation_id}
-                onChange={(itemId, variationId) => upsert(m, m.partner_id, itemId, variationId)}
-              />
-            </div>
-          );
-        })}
-        <PartnerOverridePicker
-          partners={partners}
-          excludeIds={new Set(overrideRows.map((m) => m.partner_id!))}
-          onAdd={(partnerId) => upsert(null, partnerId, null, null)}
-        />
+      <div className="flex items-center justify-between gap-3 mb-2">
+        {heading === "h4"
+          ? <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wide">{title}</h4>
+          : <h3 className="text-sm font-medium text-zinc-200">{title}</h3>}
+        <SaveIndicator status={status} />
       </div>
-    </section>
-  );
-}
-
-function BulkDiscountSection() {
-  const { data: mappings = [] } = useExportServiceMappingsQuery();
-  const { data: partners = [] } = useContractPartnersQuery();
-  const { data: catalog } = useExportSquareCatalogQuery();
-  const qc = useQueryClient();
-  const discounts = catalog?.discounts ?? [];
-
-  const rows = mappings.filter((m) => m.service_type === "bulk_discount");
-  const defaultRow = rows.find((m) => m.partner_id === null) ?? null;
-  const overrideRows = rows.filter((m) => m.partner_id !== null);
-
-  async function upsert(existing: ExportServiceMapping | null, partnerId: string | null, discountId: string | null) {
-    await fetch("/api/production/export-settings/service-mappings", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        id: existing?.id,
-        service_type: "bulk_discount",
-        partner_id: partnerId,
-        display_name: "Bulk Discount",
-        square_catalog_discount_id: discountId,
-      }),
-    });
-    await qc.invalidateQueries({ queryKey: queryKeys.production.exportServiceMappings() });
-  }
-
-  return (
-    <section>
-      <h3 className="text-sm font-medium text-zinc-200 mb-2">Bulk Discount</h3>
+      {description && <p className="text-xs text-zinc-600 mb-2">{description}</p>}
       <div className="flex flex-col gap-2">
         <div className="flex items-center gap-2">
           <span className="text-xs text-zinc-500 italic w-28">Default</span>
-          <SquareDiscountSelect discounts={discounts} value={defaultRow?.square_catalog_discount_id ?? null} onChange={(id) => upsert(defaultRow, null, id)} />
+          {control(defaultRow, null)}
         </div>
         {overrideRows.map((m) => {
           const partner = partners.find((p) => p.id === m.partner_id);
           return (
             <div key={m.id} className="flex items-center gap-2">
               <span className="text-xs text-zinc-300 w-28 truncate">{partner?.company_name ?? "Unknown partner"}</span>
-              <SquareDiscountSelect discounts={discounts} value={m.square_catalog_discount_id} onChange={(id) => upsert(m, m.partner_id, id)} />
+              {control(m, m.partner_id)}
             </div>
           );
         })}
         <PartnerOverridePicker
           partners={partners}
           excludeIds={new Set(overrideRows.map((m) => m.partner_id!))}
-          onAdd={(partnerId) => upsert(null, partnerId, null)}
-        />
-      </div>
-    </section>
-  );
-}
-
-function DistributionDiscountSection() {
-  const { data: mappings = [] } = useExportServiceMappingsQuery();
-  const { data: partners = [] } = useContractPartnersQuery();
-  const { data: catalog } = useExportSquareCatalogQuery();
-  const qc = useQueryClient();
-  const discounts = catalog?.discounts ?? [];
-
-  const rows = mappings.filter((m) => m.service_type === "distribution_discount");
-  const defaultRow = rows.find((m) => m.partner_id === null) ?? null;
-  const overrideRows = rows.filter((m) => m.partner_id !== null);
-
-  async function upsert(existing: ExportServiceMapping | null, partnerId: string | null, discountId: string | null) {
-    await fetch("/api/production/export-settings/service-mappings", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        id: existing?.id,
-        service_type: "distribution_discount",
-        partner_id: partnerId,
-        display_name: "Distribution Discount",
-        square_catalog_discount_id: discountId,
-      }),
-    });
-    await qc.invalidateQueries({ queryKey: queryKeys.production.exportServiceMappings() });
-  }
-
-  return (
-    <section>
-      <h3 className="text-sm font-medium text-zinc-200 mb-2">Distribution Discount</h3>
-      <p className="text-xs text-zinc-600 mb-2">
-        Applied to product line items on Distribution invoices. Optional — omit to generate without a discount.
-      </p>
-      <div className="flex flex-col gap-2">
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-zinc-500 italic w-28">Default</span>
-          <SquareDiscountSelect
-            discounts={discounts}
-            value={defaultRow?.square_catalog_discount_id ?? null}
-            onChange={(id) => upsert(defaultRow, null, id)}
-          />
-        </div>
-        {overrideRows.map((m) => {
-          const partner = partners.find((p) => p.id === m.partner_id);
-          return (
-            <div key={m.id} className="flex items-center gap-2">
-              <span className="text-xs text-zinc-300 w-28 truncate">{partner?.company_name ?? "Unknown partner"}</span>
-              <SquareDiscountSelect
-                discounts={discounts}
-                value={m.square_catalog_discount_id}
-                onChange={(id) => upsert(m, m.partner_id, id)}
-              />
-            </div>
-          );
-        })}
-        <PartnerOverridePicker
-          partners={partners}
-          excludeIds={new Set(overrideRows.map((m) => m.partner_id!))}
-          onAdd={(partnerId) => upsert(null, partnerId, null)}
-        />
-      </div>
-    </section>
-  );
-}
-
-function WholesaleDiscountSection() {
-  const { data: mappings = [] } = useExportServiceMappingsQuery();
-  const { data: partners = [] } = useContractPartnersQuery();
-  const { data: catalog } = useExportSquareCatalogQuery();
-  const qc = useQueryClient();
-  const discounts = catalog?.discounts ?? [];
-
-  const rows = mappings.filter((m) => m.service_type === "wholesale_discount");
-  const defaultRow = rows.find((m) => m.partner_id === null) ?? null;
-  const overrideRows = rows.filter((m) => m.partner_id !== null);
-
-  async function upsert(existing: ExportServiceMapping | null, partnerId: string | null, discountId: string | null) {
-    await fetch("/api/production/export-settings/service-mappings", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        id: existing?.id,
-        service_type: "wholesale_discount",
-        partner_id: partnerId,
-        display_name: "Wholesale Discount",
-        square_catalog_discount_id: discountId,
-      }),
-    });
-    await qc.invalidateQueries({ queryKey: queryKeys.production.exportServiceMappings() });
-  }
-
-  return (
-    <section>
-      <h3 className="text-sm font-medium text-zinc-200 mb-2">Wholesale Discount</h3>
-      <p className="text-xs text-zinc-600 mb-2">
-        Applied to product line items on Wholesale invoices. Optional — omit to generate without a discount.
-      </p>
-      <div className="flex flex-col gap-2">
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-zinc-500 italic w-28">Default</span>
-          <SquareDiscountSelect
-            discounts={discounts}
-            value={defaultRow?.square_catalog_discount_id ?? null}
-            onChange={(id) => upsert(defaultRow, null, id)}
-          />
-        </div>
-        {overrideRows.map((m) => {
-          const partner = partners.find((p) => p.id === m.partner_id);
-          return (
-            <div key={m.id} className="flex items-center gap-2">
-              <span className="text-xs text-zinc-300 w-28 truncate">{partner?.company_name ?? "Unknown partner"}</span>
-              <SquareDiscountSelect
-                discounts={discounts}
-                value={m.square_catalog_discount_id}
-                onChange={(id) => upsert(m, m.partner_id, id)}
-              />
-            </div>
-          );
-        })}
-        <PartnerOverridePicker
-          partners={partners}
-          excludeIds={new Set(overrideRows.map((m) => m.partner_id!))}
-          onAdd={(partnerId) => upsert(null, partnerId, null)}
+          onAdd={(partnerId) => save(null, partnerId, emptyPatch)}
         />
       </div>
     </section>
@@ -728,13 +618,27 @@ export default function ExportSettingsPanel({ scope }: { scope: "full" | "excise
             <h3 className="text-sm font-medium text-zinc-200 mb-3">Service Mappings</h3>
             <div className="flex flex-col gap-6">
               <PackagingFeeSection />
-              <SimpleServiceSection serviceType="keg_cleaning" />
-              <SimpleServiceSection serviceType="forklift" />
+              <ServiceMappingSection serviceType="keg_cleaning" title="Keg Cleaning" displayName="Keg Cleaning" kind="catalog" heading="h4" />
+              <ServiceMappingSection serviceType="forklift" title="Forklift" displayName="Forklift" kind="catalog" heading="h4" />
             </div>
           </section>
-          <BulkDiscountSection />
-          <DistributionDiscountSection />
-          <WholesaleDiscountSection />
+          <section>
+            <h3 className="text-sm font-medium text-zinc-200 mb-3">Discounts</h3>
+            <div className="flex flex-col gap-6">
+              <ServiceMappingSection
+                serviceType="bulk_discount" title="Bulk Discount" displayName="Bulk Discount" kind="discount" heading="h4"
+                description="Applied to keg lines on export invoices."
+              />
+              <ServiceMappingSection
+                serviceType="distribution_discount" title="Distribution Discount" displayName="Distribution Discount" kind="discount" heading="h4"
+                description="Applied to product line items on Distribution invoices. Optional — omit to generate without a discount."
+              />
+              <ServiceMappingSection
+                serviceType="wholesale_discount" title="Wholesale Discount" displayName="Wholesale Discount" kind="discount" heading="h4"
+                description="Applied to product line items on Wholesale invoices. Optional — omit to generate without a discount."
+              />
+            </div>
+          </section>
           <InvoiceTermsSection />
           <SquareCatalogMappingsSection />
         </>
