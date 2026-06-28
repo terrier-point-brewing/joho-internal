@@ -237,7 +237,10 @@ export async function buildInvoicePreview(
 
       // Cans carry a case/loose format dimension on the mapping; kegs don't.
       const mapFormat = isKeg ? null : tx.packaging_format ?? "loose";
-      const discountCatalogId = isKeg ? findMapping("bulk_discount", null)?.square_catalog_discount_id ?? null : null;
+      // Use findMapping which checks partner override first, then falls back to default.
+      // Previously this passed null as packagingItemId which only matched the default row
+      // and silently ignored partner-specific bulk_discount overrides. Fixed here.
+      const discountCatalogId = isKeg ? findMapping("bulk_discount", tx.packaging_item_id)?.square_catalog_discount_id ?? null : null;
 
       if (mapFormat === "case") {
         const wholeCases = Math.floor(tx.quantity + 1e-9);
