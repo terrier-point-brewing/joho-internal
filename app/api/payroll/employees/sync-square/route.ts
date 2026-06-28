@@ -22,69 +22,54 @@ export async function POST() {
 
   const supabase = await createSupabaseServerClient();
 
-  // Fetch existing employees by square_team_member_id to determine create vs update counts.
+  // Fetch existing employees by square_team_member_id to determine create vs update paths.
   const ids = members.map(m => m.id);
-  const { data: existing } = await supabase
+  const { data: existing, error: existingErr } = await supabase
     .from("employees")
     .select("square_team_member_id")
     .in("square_team_member_id", ids);
 
+  if (existingErr) return apiError(existingErr.message);
+
   const existingIds = new Set((existing ?? []).map((e: { square_team_member_id: string }) => e.square_team_member_id));
 
-  const rows = members.map(m => ({
-    first_name:            m.given_name,
-    last_name:             m.family_name,
-    email:                 m.email_address ?? "",
-    square_team_member_id: m.id,
-    // Defaults — admin can edit after sync; these are only written on INSERT.
-    job_title:        "Bartender",
-    employment_type:  "hourly",
-    receives_tips:    true,
-    active:           true,
-  }));
+  const newMembers = members.filter(m => !existingIds.has(m.id));
+  const existingMembers = members.filter(m => existingIds.has(m.id));
 
-  // Upsert: on conflict (square_team_member_id) update only name + email;
-  // all other fields (job_title, employment_type, etc.) survive re-sync.
-  const { error } = await supabase
-    .from("employees")
-    .upsert(rows, {
-      onConflict: "square_team_member_id",
-      // Supabase JS upsert updates all provided columns on conflict.
-      // To preserve admin edits to job_title/employment_type we only send
-      // fields that should be overwritten: first_name, last_name, email are
-      // in `rows`; the rest are only relevant on INSERT (Supabase upsert
-      // always writes all columns, so we strip the INSERT-only defaults from
-      // the update path by using ignoreDuplicates for those columns via a
-      // follow-up targeted update).
-      ignoreDuplicates: false,
-    });
+  // INSERT new employees with full defaults — admin can edit these fields after sync.
+  if (newMembers.length > 0) {
+    const newRows = newMembers.map(m => ({
+      first_name:            m.given_name,
+      last_name:             m.family_name,
+      email:                 m.email_address ?? "",
+      square_team_member_id: m.id,
+      job_title:             "Bartender" as const,
+      employment_type:       "hourly" as const,
+      receives_tips:         true,
+      active:                true,
+    }));
 
-  if (error) return apiError(error.message);
-
-  // Patch: re-apply admin-preserve fields for existing records by reverting
-  // job_title/employment_type/receives_tips to their stored values.
-  // The upsert above may have clobbered them — fix with a targeted update
-  // that only touches name + email for existing employees.
-  if (existingIds.size > 0) {
-    const existingRows = members
-      .filter(m => existingIds.has(m.id))
-      .map(m => ({
-        square_team_member_id: m.id,
-        first_name: m.given_name,
-        last_name:  m.family_name,
-        email:      m.email_address ?? "",
-      }));
-
-    for (const row of existingRows) {
-      await supabase
-        .from("employees")
-        .update({ first_name: row.first_name, last_name: row.last_name, email: row.email })
-        .eq("square_team_member_id", row.square_team_member_id);
-    }
+    const { error: insertErr } = await supabase.from("employees").insert(newRows);
+    if (insertErr) return apiError(insertErr.message);
   }
 
-  const created = members.filter(m => !existingIds.has(m.id)).length;
-  const updated = existingIds.size;
+  // UPDATE existing employees: only overwrite name + email; preserve all admin-edited fields
+  // (job_title, employment_type, receives_tips, active, etc.).
+  // Single upsert — no N+1 loop.
+  if (existingMembers.length > 0) {
+    const existingRows = existingMembers.map(m => ({
+      square_team_member_id: m.id,
+      first_name:            m.given_name,
+      last_name:             m.family_name,
+      email:                 m.email_address ?? "",
+    }));
 
-  return NextResponse.json({ created, updated });
+    const { error: updateErr } = await supabase
+      .from("employees")
+      .upsert(existingRows, { onConflict: "square_team_member_id" });
+
+    if (updateErr) return apiError(updateErr.message);
+  }
+
+  return NextResponse.json({ created: newMembers.length, updated: existingMembers.length });
 }
