@@ -109,16 +109,15 @@ export async function POST(req: NextRequest) {
   const supabase = await createSupabaseServerClient();
 
   const b = await req.json();
-  const { beer_style, partner_id, volume_bbl } = b;
-  if (!beer_style || volume_bbl == null) {
-    return NextResponse.json({ error: "beer_style and volume_bbl are required" }, { status: 400 });
+  const { recipe_id, partner_id, volume_bbl } = b;
+  if (!recipe_id || volume_bbl == null) {
+    return NextResponse.json({ error: "recipe_id and volume_bbl are required" }, { status: 400 });
   }
 
   const { data, error } = await supabase
     .from("commitments")
     .insert({
-      recipe_id: b.recipe_id || null,
-      beer_style,
+      recipe_id,
       partner_id: partner_id || null,
       volume_bbl,
       desired_delivery_date: b.desired_delivery_date || null,
@@ -155,7 +154,7 @@ export async function PATCH(req: NextRequest) {
   const id = req.nextUrl.searchParams.get("id");
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
   const b = await req.json();
-  const allowed = ["recipe_id", "beer_style", "status", "notes", "volume_bbl", "desired_delivery_date", "partner_id", "channel", "cadence", "recurrence", "start_date", "end_date", "received_on", "locked_on"];
+  const allowed = ["recipe_id", "status", "notes", "volume_bbl", "desired_delivery_date", "partner_id", "channel", "cadence", "recurrence", "start_date", "end_date", "received_on", "locked_on"];
   const patch: Record<string, unknown> = {};
   for (const k of allowed) if (k in b) patch[k] = b[k];
   const prefs = parsePackaging(b);

@@ -1327,7 +1327,7 @@ export default function BrewStatusTab() {
               <select className="inp" value={batchForm.recipe_id} onChange={(e) => handleRecipeChange(e.target.value)} required>
                 <option value="">— select a recipe —</option>
                 {recipes.map((r) => (
-                  <option key={r.id} value={r.id}>{r.beer_name}{r.brewery ? ` · ${r.brewery}` : ""}</option>
+                  <option key={r.id} value={r.id}>{r.beer_name}{r.partner?.company_name ? ` · ${r.partner.company_name}` : ""}</option>
                 ))}
               </select>
             </Field>

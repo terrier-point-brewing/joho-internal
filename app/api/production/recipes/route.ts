@@ -9,7 +9,7 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from("recipes")
-    .select("*, recipe_ingredients(*, ingredients(*)), recipe_brew_activity_templates(*)")
+    .select("*, partner:contract_brewing_partners(company_name), recipe_ingredients(*, ingredients(*)), recipe_brew_activity_templates(*)")
     .order("beer_name");
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -23,15 +23,14 @@ export async function POST(req: NextRequest) {
   const supabase = await createSupabaseServerClient();
 
   const body = await req.json();
-  const { beer_name, brewery, expected_yield_bbl, brew_time_weeks, days_brewhouse, days_fermenter, days_brite, notes, ingredients: lines } = body;
+  const { beer_name, partner_id, expected_yield_bbl, days_brewhouse, days_fermenter, days_brite, notes, ingredients: lines } = body;
 
   const { data: recipe, error: recipeErr } = await supabase
     .from("recipes")
     .insert({
       beer_name,
-      brewery: brewery || null,
+      partner_id: partner_id || null,
       expected_yield_bbl: expected_yield_bbl || null,
-      brew_time_weeks: brew_time_weeks || null,
       days_brewhouse: days_brewhouse || null,
       days_fermenter: days_fermenter || null,
       days_brite: days_brite || null,
@@ -54,7 +53,7 @@ export async function POST(req: NextRequest) {
 
   const { data, error } = await supabase
     .from("recipes")
-    .select("*, recipe_ingredients(*, ingredients(*)), recipe_brew_activity_templates(*)")
+    .select("*, partner:contract_brewing_partners(company_name), recipe_ingredients(*, ingredients(*)), recipe_brew_activity_templates(*)")
     .eq("id", recipe.id)
     .single();
 

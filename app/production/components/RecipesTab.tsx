@@ -112,7 +112,7 @@ export default function RecipesTab() {
     const yld = r.expected_yield_bbl ?? 1;
     setForm({
       beer_name: r.beer_name,
-      partner_id: r.brewery ?? "",
+      partner_id: r.partner_id ?? "",
       expected_yield_bbl: r.expected_yield_bbl != null ? String(r.expected_yield_bbl) : "",
       days_brewhouse: r.days_brewhouse != null ? String(r.days_brewhouse) : "",
       days_fermenter: r.days_fermenter != null ? String(r.days_fermenter) : "",
@@ -167,10 +167,9 @@ export default function RecipesTab() {
     e.preventDefault();
     setSubmitting(true);
     try {
-      const partnerObj = partners.find((p) => p.id === form.partner_id);
       const payload = {
         beer_name: form.beer_name,
-        brewery: partnerObj?.company_name ?? form.partner_id ?? null,
+        partner_id: form.partner_id || null,
         expected_yield_bbl: form.expected_yield_bbl ? parseFloat(form.expected_yield_bbl) : null,
         days_brewhouse: form.days_brewhouse ? parseInt(form.days_brewhouse) : null,
         days_fermenter: form.days_fermenter ? parseInt(form.days_fermenter) : null,
@@ -279,9 +278,9 @@ export default function RecipesTab() {
                   </div>
                   {/* Metadata row — wraps freely on mobile */}
                   <div className="flex items-center gap-x-3 gap-y-1 flex-wrap">
-                    {r.brewery && (
+                    {r.partner?.company_name && (
                       <span className="text-xs text-zinc-500 bg-zinc-800 px-2 py-0.5 rounded">
-                        {r.brewery}
+                        {r.partner.company_name}
                       </span>
                     )}
                     {r.expected_yield_bbl && (

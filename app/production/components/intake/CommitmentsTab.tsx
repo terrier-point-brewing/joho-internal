@@ -247,14 +247,12 @@ function CommitmentModal({
     if (!form.recipe_id) { alert("Please select a recipe."); return; }
     setSubmitting(true);
     try {
-      const beer_style = recipes.find((r) => r.id === form.recipe_id)?.beer_name ?? "";
       const packagingPayload = form.packaging
         .filter((r) => r.variation_id && r.qty)
         .map((r) => ({ variation_id: r.variation_id, qty: parseFloat(r.qty) }));
       const body = {
         channel: form.channel,
         recipe_id: form.recipe_id,
-        beer_style,
         partner_id: form.partner_id || null,
         volume_bbl: parseFloat(form.volume_bbl),
         desired_delivery_date: !isRecurring ? (form.desired_delivery_date || null) : null,
@@ -433,6 +431,8 @@ interface SortableRow extends ContractBrewingRequest {
   partner_name: string;
   packaging_total_bbl: number;
   schedule_sort: string;
+  /** Derived from the joined recipe (commitments.beer_style was dropped). */
+  beer_style: string;
 }
 
 function packagingTotalBbl(q: ContractBrewingRequest): number {
@@ -605,7 +605,7 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
     return q.desired_delivery_date ? fmtDateLong(q.desired_delivery_date) : "—";
   }
 
-  const uniqueStyles = Array.from(new Set(rows.map((r) => r.beer_style).filter(Boolean))).sort() as string[];
+  const uniqueStyles = Array.from(new Set(rows.map((r) => r.recipes?.beer_name).filter(Boolean))).sort() as string[];
   const uniquePartners = Array.from(
     new Map(
       rows
@@ -616,7 +616,7 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
 
   const filtered = rows.filter((r) => {
     if (channelFilter !== "all" && r.channel !== channelFilter) return false;
-    if (filterStyle && r.beer_style !== filterStyle) return false;
+    if (filterStyle && r.recipes?.beer_name !== filterStyle) return false;
     if (filterPartner && r.partner_id !== filterPartner) return false;
     return true;
   });
@@ -626,6 +626,7 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
     partner_name: q.contract_brewing_partners?.company_name ?? "",
     packaging_total_bbl: packagingTotalBbl(q),
     schedule_sort: q.cadence === "recurring" ? (q.start_date ?? "") : (q.desired_delivery_date ?? ""),
+    beer_style: q.recipes?.beer_name ?? "",
   }));
   const { sorted, sortKey, sortDir, handleSort } = useSort(sortableRows);
   const displayRows = sorted ?? [];

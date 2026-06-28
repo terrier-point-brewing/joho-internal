@@ -283,14 +283,14 @@ export interface RecipeBrewActivityTemplate {
 export interface Recipe {
   id: string;
   beer_name: string;
-  brewery: string | null;
+  partner_id: string | null;
   expected_yield_bbl: number | null;
-  brew_time_weeks: number | null;
   days_brewhouse: number | null;
   days_fermenter: number | null;
   days_brite: number | null;
-  steps: string | null;
   notes: string | null;
+  /** Joined from contract_brewing_partners via partner_id */
+  partner?: { company_name: string } | null;
   recipe_ingredients: RecipeIngredientRow[];
   recipe_brew_activity_templates: RecipeBrewActivityTemplate[];
   created_at: string;
@@ -367,7 +367,6 @@ export interface CommitmentAllocationSummary {
 export interface Commitment {
   id: string;
   recipe_id: string | null;
-  beer_style: string;
   partner_id: string | null;
   volume_bbl: number;
   desired_delivery_date: string | null;
@@ -454,7 +453,7 @@ export interface BatchAllocation {
   // ── Joined fields ────────────────────────────────────────────────────────
   brew_batches?: { id: string; beer_name: string; batch_number: number; volume_bbl: number; recipe_id: string | null } | null;
   contract_brewing_partners?: { id: string; company_name: string } | null;
-  commitments?: { id: string; beer_style: string; volume_bbl: number; received_on: string | null; created_at: string; desired_delivery_date: string | null } | null;
+  commitments?: { id: string; volume_bbl: number; received_on: string | null; created_at: string; desired_delivery_date: string | null } | null;
   // Computed fulfillment fields (returned by API)
   produced_bbl: number | null;
   allocated_bbl: number | null;
