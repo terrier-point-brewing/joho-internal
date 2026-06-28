@@ -35,7 +35,7 @@ interface ExportInvoiceListItem {
   partner_id: string | null;
   partner_name: string | null;
   status: "draft" | "open" | "paid" | "voided" | "partial" | "unknown";
-  source: "square" | "quickbooks";
+  source: "square" | "quickbooks" | "other";
   square_invoice_id: string | null;
   subtotal_cents: number;
   total_cents: number;

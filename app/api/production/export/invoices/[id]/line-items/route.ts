@@ -174,7 +174,7 @@ export async function PATCH(
   const { error: deleteErr } = await supabase.from("invoice_line_items").delete().eq("invoice_id", invoiceId);
   if (deleteErr) return NextResponse.json({ error: deleteErr.message }, { status: 500 });
   if (updatedItems.length > 0) {
-    await supabase.from("invoice_line_items").insert(
+    const { error: insertErr } = await supabase.from("invoice_line_items").insert(
       updatedItems.map((item, i) => ({
         invoice_id: invoiceId,
         sort_order: i,
@@ -186,6 +186,7 @@ export async function PATCH(
         square_catalog_variation_id: item.square_catalog_variation_id,
       }))
     );
+    if (insertErr) return NextResponse.json({ error: insertErr.message }, { status: 500 });
   }
 
   return NextResponse.json({ ok: true });

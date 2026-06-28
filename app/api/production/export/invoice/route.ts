@@ -317,7 +317,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Failed to create invoice record" }, { status: 500 });
     }
     if (lineItems?.length) {
-      await supabase.from("invoice_line_items").insert(
+      const { error: liErr } = await supabase.from("invoice_line_items").insert(
         lineItems.map((li, i) => ({
           invoice_id:       inv.id,
           sort_order:       i,
@@ -328,11 +328,13 @@ export async function POST(req: NextRequest) {
           total_cents:      li.quantity * li.unitPriceCents,
         }))
       );
+      if (liErr) return NextResponse.json({ error: liErr.message }, { status: 500 });
     }
-    await supabase
+    const { error: linkErr } = await supabase
       .from("export_transactions")
       .update({ invoice_id: inv.id })
       .in("id", transactionIds);
+    if (linkErr) return NextResponse.json({ error: linkErr.message }, { status: 500 });
 
     return NextResponse.json({ ok: true });
   }
