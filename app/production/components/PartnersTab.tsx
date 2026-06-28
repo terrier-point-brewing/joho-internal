@@ -5,6 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { ContractBrewingPartner, Supplier } from "../types";
 import { Modal, Field, ModalActions } from "./shared";
 import { useContractPartnersQuery, useSuppliersQuery, productionKeys } from "../hooks/queries";
+import TabBar, { type TabDef } from "@/app/components/TabBar";
 
 type PartnerKind = "contract" | "supplier";
 
@@ -314,43 +315,40 @@ export default function PartnersTab() {
 
   const kindLabel = kind === "contract" ? "Contract Brewing Partner" : "Supplier";
 
+  const kindTabs: TabDef<PartnerKind>[] = [
+    {
+      key: "contract",
+      label: (
+        <>
+          Contract Brewing{" "}
+          <span className="ml-1.5 text-xs text-zinc-600">({contractPartners.length})</span>
+        </>
+      ),
+    },
+    {
+      key: "supplier",
+      label: (
+        <>
+          Suppliers{" "}
+          <span className="ml-1.5 text-xs text-zinc-600">({suppliers.length})</span>
+        </>
+      ),
+    },
+  ];
+
   return (
     <>
-      {/* Header + kind switcher */}
-      <div className="flex items-center justify-between mt-4 mb-4">
-        <div>
-          <h2 className="text-base font-medium text-zinc-100">Partners</h2>
-          <p className="text-sm text-zinc-500 mt-0.5">Contract brewing partners and ingredient/packaging suppliers</p>
-        </div>
-        <div className="flex gap-2">
-          {kind === "contract" && (
-            <button onClick={openSquareImport} className="btn-amber">
-              ↓ Import from Square
-            </button>
-          )}
-          <button onClick={openNew} className="btn-amber">+ New {kindLabel}</button>
-        </div>
+      {/* Action buttons */}
+      <div className="flex justify-end gap-2 mb-4">
+        {kind === "contract" && (
+          <button onClick={openSquareImport} className="btn-amber">
+            ↓ Import from Square
+          </button>
+        )}
+        <button onClick={openNew} className="btn-amber">+ New {kindLabel}</button>
       </div>
 
-      {/* Tab switcher */}
-      <div className="flex gap-1 mb-5 border-b border-zinc-800">
-        {(["contract", "supplier"] as PartnerKind[]).map((k) => (
-          <button
-            key={k}
-            onClick={() => setKind(k)}
-            className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
-              kind === k
-                ? "border-amber-500 text-zinc-100"
-                : "border-transparent text-zinc-500 hover:text-zinc-300"
-            }`}
-          >
-            {k === "contract" ? "Contract Brewing" : "Suppliers"}
-            <span className="ml-1.5 text-xs text-zinc-600">
-              ({k === "contract" ? contractPartners.length : suppliers.length})
-            </span>
-          </button>
-        ))}
-      </div>
+      <TabBar tabs={kindTabs} activeKey={kind} onSelect={setKind} />
 
       {/* Records table */}
       {records.length === 0 ? (

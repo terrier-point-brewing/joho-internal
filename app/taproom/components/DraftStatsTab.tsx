@@ -324,12 +324,12 @@ export default function DraftStatsTab() {
                   </span>
                   <div className="flex items-center gap-1.5">
                     {isRetired && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded border border-zinc-700 text-zinc-500 uppercase tracking-wide">
+                      <span className="text-xs px-1.5 py-0.5 rounded border border-zinc-700 text-zinc-500 uppercase tracking-wide">
                         Retired
                       </span>
                     )}
                     {badgeLabel[urgency] && (
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded border font-medium ${badgeCls[urgency]!.wrap} ${badgeCls[urgency]!.text}`}>
+                      <span className={`text-xs px-1.5 py-0.5 rounded border font-medium ${badgeCls[urgency]!.wrap} ${badgeCls[urgency]!.text}`}>
                         {badgeLabel[urgency]}
                       </span>
                     )}
@@ -400,7 +400,7 @@ export default function DraftStatsTab() {
                       <button
                         onClick={() => toggleRetire(tap.recipe_id!, isRetired)}
                         disabled={retiringSaving === tap.recipe_id}
-                        className={`text-[10px] self-start px-2 py-0.5 rounded border transition-colors ${
+                        className={`text-xs self-start px-2 py-0.5 rounded border transition-colors ${
                           isRetired
                             ? "border-zinc-700 text-zinc-500 hover:text-zinc-300 hover:border-zinc-500"
                             : "border-zinc-700 text-zinc-600 hover:text-amber-400 hover:border-amber-700"

@@ -48,7 +48,7 @@ function Chips<T extends string>({
           key={o.value}
           type="button"
           onClick={() => onChange(o.value)}
-          className={`text-[11px] px-2 py-0.5 rounded border transition-colors ${
+          className={`text-xs px-2 py-0.5 rounded border transition-colors ${
             value === o.value
               ? "border-amber-600 bg-amber-900/40 text-amber-300"
               : "border-zinc-700 text-zinc-400 hover:border-zinc-500 hover:text-zinc-300"
@@ -70,7 +70,7 @@ const COMPONENT_COLORS = {
 
 function ComponentPill({ name, type }: { name: string; type: keyof typeof COMPONENT_COLORS }) {
   return (
-    <span className={`text-[10px] px-1.5 py-0.5 rounded border whitespace-nowrap ${COMPONENT_COLORS[type]}`}>
+    <span className={`text-xs px-1.5 py-0.5 rounded border whitespace-nowrap ${COMPONENT_COLORS[type]}`}>
       {name}
     </span>
   );
@@ -339,9 +339,9 @@ export default function PackagingVariationsPanel() {
                     <td className="px-3 py-2.5">
                       <div className="flex items-center gap-1.5">
                         {vIsKeg ? (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded border border-orange-700 bg-orange-900/30 text-orange-300 font-medium uppercase shrink-0">Keg</span>
+                          <span className="text-xs px-1.5 py-0.5 rounded border border-orange-700 bg-orange-900/30 text-orange-300 font-medium uppercase shrink-0">Keg</span>
                         ) : (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded border border-blue-700 bg-blue-900/30 text-blue-300 font-medium uppercase shrink-0">Can</span>
+                          <span className="text-xs px-1.5 py-0.5 rounded border border-blue-700 bg-blue-900/30 text-blue-300 font-medium uppercase shrink-0">Can</span>
                         )}
                         <span className="text-zinc-400 text-xs">{v.container?.name ?? "—"}</span>
                       </div>
@@ -363,7 +363,7 @@ export default function PackagingVariationsPanel() {
                     <td className="px-3 py-2.5 text-zinc-400 text-xs">{v.contract_brewing_partners?.company_name ?? "Generic"}</td>
                     <td className="px-3 py-2.5 text-right whitespace-nowrap">
                       <button onClick={() => openEdit(v)} className="text-xs text-zinc-400 hover:text-zinc-200 mr-3">Edit</button>
-                      <button onClick={() => handleDelete(v)} className="text-xs text-zinc-600 hover:text-red-400">Delete</button>
+                      <button onClick={() => handleDelete(v)} aria-label="Delete variation" className="text-xs text-zinc-600 hover:text-red-400">Delete</button>
                     </td>
                   </tr>
                 );

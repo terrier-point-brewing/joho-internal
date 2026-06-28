@@ -89,24 +89,24 @@ function EventForm({
     <div className="space-y-3">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
-          <label className="block text-[10px] text-zinc-500 uppercase tracking-wide mb-1">Event Name *</label>
+          <label className="block text-xs text-zinc-500 uppercase tracking-wide mb-1">Event Name *</label>
           <input className="inp w-full text-sm" value={form.event_name} onChange={set("event_name")} placeholder="e.g. Trivia Night" />
         </div>
         <div>
-          <label className="block text-[10px] text-zinc-500 uppercase tracking-wide mb-1">Event Host *</label>
+          <label className="block text-xs text-zinc-500 uppercase tracking-wide mb-1">Event Host *</label>
           <input className="inp w-full text-sm" value={form.event_host} onChange={set("event_host")} placeholder="e.g. Jane Smith" />
         </div>
         <div>
-          <label className="block text-[10px] text-zinc-500 uppercase tracking-wide mb-1">Start *</label>
+          <label className="block text-xs text-zinc-500 uppercase tracking-wide mb-1">Start *</label>
           <input type="datetime-local" className="inp w-full text-sm" value={form.event_start} onChange={set("event_start")} />
         </div>
         <div>
-          <label className="block text-[10px] text-zinc-500 uppercase tracking-wide mb-1">End *</label>
+          <label className="block text-xs text-zinc-500 uppercase tracking-wide mb-1">End *</label>
           <input type="datetime-local" className="inp w-full text-sm" value={form.event_end} onChange={set("event_end")} />
         </div>
       </div>
       <div>
-        <label className="block text-[10px] text-zinc-500 uppercase tracking-wide mb-1">Notes</label>
+        <label className="block text-xs text-zinc-500 uppercase tracking-wide mb-1">Notes</label>
         <textarea className="inp w-full text-sm resize-none" rows={2} value={form.notes} onChange={set("notes")} placeholder="Optional notes…" />
       </div>
       <div className="flex gap-2 justify-end pt-1">
@@ -146,19 +146,19 @@ function PourTable({ eventId }: { eventId: string }) {
       {/* Summary stat strip */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         <div className="rounded-md bg-zinc-900 border border-zinc-800 px-3 py-2.5">
-          <p className="text-[10px] text-zinc-500 uppercase tracking-wide mb-0.5">Net Sales</p>
+          <p className="text-xs text-zinc-500 uppercase tracking-wide mb-0.5">Net Sales</p>
           <p className="text-sm font-semibold text-amber-400">{fmtUsd(netSales)}</p>
         </div>
         <div className="rounded-md bg-zinc-900 border border-zinc-800 px-3 py-2.5">
-          <p className="text-[10px] text-zinc-500 uppercase tracking-wide mb-0.5">Sales Tax</p>
+          <p className="text-xs text-zinc-500 uppercase tracking-wide mb-0.5">Sales Tax</p>
           <p className="text-sm font-semibold text-zinc-200">{fmtUsd(totals.tax_cents)}</p>
         </div>
         <div className="rounded-md bg-zinc-900 border border-zinc-800 px-3 py-2.5">
-          <p className="text-[10px] text-zinc-500 uppercase tracking-wide mb-0.5">Tips</p>
+          <p className="text-xs text-zinc-500 uppercase tracking-wide mb-0.5">Tips</p>
           <p className="text-sm font-semibold text-zinc-200">{fmtUsd(totals.tip_cents)}</p>
         </div>
         <div className="rounded-md bg-zinc-900 border border-zinc-800 px-3 py-2.5">
-          <p className="text-[10px] text-zinc-500 uppercase tracking-wide mb-0.5">Total Collected</p>
+          <p className="text-xs text-zinc-500 uppercase tracking-wide mb-0.5">Total Collected</p>
           <p className="text-sm font-semibold text-zinc-100">{fmtUsd(netSales + totals.tax_cents + totals.tip_cents)}</p>
         </div>
       </div>
@@ -323,14 +323,14 @@ export default function EventsTab() {
                   >
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-sm font-medium text-zinc-100">{ev.event_name}</span>
-                      <span className="text-[10px] text-zinc-500 border border-zinc-700 rounded px-1.5 py-0.5">
+                      <span className="text-xs text-zinc-500 border border-zinc-700 rounded px-1.5 py-0.5">
                         {ev.event_host}
                       </span>
                     </div>
-                    <p className="text-[11px] text-zinc-500 mt-0.5">
+                    <p className="text-xs text-zinc-500 mt-0.5">
                       {fmtDisplay(ev.event_start)} – {fmtDisplay(ev.event_end)}
                     </p>
-                    {ev.notes && <p className="text-[11px] text-zinc-600 mt-0.5 truncate">{ev.notes}</p>}
+                    {ev.notes && <p className="text-xs text-zinc-600 mt-0.5 truncate">{ev.notes}</p>}
                   </button>
 
                   <div className="flex items-center gap-1 shrink-0">
@@ -389,7 +389,7 @@ export default function EventsTab() {
                 {/* Pours detail */}
                 {isExpanded && !isEditing && (
                   <div className="border-t border-zinc-800 px-4 py-3">
-                    <p className="text-[10px] text-zinc-500 uppercase tracking-wide font-medium mb-3">Pour Sales by Variation</p>
+                    <p className="text-xs text-zinc-500 uppercase tracking-wide font-medium mb-3">Pour Sales by Variation</p>
                     <PourTable eventId={ev.id} />
                   </div>
                 )}

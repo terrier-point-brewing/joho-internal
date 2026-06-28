@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import SubNav from "@/app/components/SubNav";
+import PageHeader from "@/app/components/PageHeader";
 import { TAPROOM_NAV } from "@/app/taproom/nav-config";
 import { useUserRole } from "@/lib/hooks/useUserRole";
 import CocktailSalesReport   from "@/app/reports/components/CocktailSalesReport";
@@ -91,14 +92,7 @@ export default function ReportsPage() {
     <main className="px-4 sm:px-6 py-4 sm:py-8">
       <SubNav entries={TAPROOM_NAV} mobile />
 
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h2 className="text-base font-medium text-zinc-100">Reports</h2>
-          <p className="text-sm text-zinc-500 mt-0.5">
-            Net sales, cocktail, keg, gift card, production, and inventory reports
-          </p>
-        </div>
-      </div>
+      <PageHeader title="Reports" description="Net sales, cocktail, keg, gift card, production, and inventory reports" />
 
       <div className="flex flex-col sm:flex-row flex-wrap gap-2 sm:gap-3 sm:items-center mb-6">
         <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
