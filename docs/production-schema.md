@@ -77,6 +77,24 @@ packaging_items
   type: keg | can | lid | paktech | tray
 ```
 
+### Square SKU mapping (variation grain)
+
+- `recipe_square_links` is the product→Square mapping. As of migration
+  `20260710_recipe_square_links_variation_grain.sql` it is **variation-grain for
+  keg/can** (`variation_id` → `packaging_variations.id`, unique where not null)
+  and **recipe-grain for draft** (`variation_id` NULL, keyed by `recipe_id`
+  where `packaging='draft'`). The denormalized `packaging_item_id` (container) is
+  still populated, derived from the variation, for legacy readers. This table has
+  **no `packaging_format` column** in the live DB (the unapplied
+  `20260627_three_channel_invoicing.sql` would have added it).
+- `square_catalog_variations` (the catalog mirror) carries inventory-unit
+  semantics: `inventory_unit` (`'fl_oz' | 'each'`) and `volume_fl_oz_per_unit`
+  (total fl oz one sold unit represents), populated by the catalog sync route via
+  `lib/square/catalogUnits.ts` (migration `20260709_catalog_variation_units.sql`).
+- All features should resolve Square SKUs through the unified resolver
+  `lib/square/skuMappings.ts` (product / service-fee / catalog-meta lookups)
+  rather than querying these tables directly.
+
 DB helpers:
 - `adjust_ingredient_stock(p_id uuid, p_delta numeric)` — RPC for atomic stock updates
 - `set_batch_number()` — trigger that auto-assigns `B-001`, `B-002`, …
