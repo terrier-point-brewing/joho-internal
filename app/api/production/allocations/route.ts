@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
       *,
       brew_batches(id, beer_name, batch_number, volume_bbl, recipe_id),
       contract_brewing_partners(id, company_name),
-      commitments(id, beer_style, volume_bbl, desired_delivery_date, received_on, created_at, channel)
+      commitments(id, volume_bbl, desired_delivery_date, received_on, created_at, channel)
     `)
     .order("created_at");
 
@@ -104,7 +104,7 @@ export async function POST(req: NextRequest) {
   const supabase = await createSupabaseServerClient();
 
   const body = await req.json();
-  const { batch_id, channel, label, percentage, partner_id, contract_request_id, notes } = body;
+  const { batch_id, channel, percentage, partner_id, contract_request_id, notes } = body;
 
   if (!batch_id || !channel || percentage == null) {
     return NextResponse.json({ error: "batch_id, channel, and percentage are required" }, { status: 400 });
@@ -143,7 +143,6 @@ export async function POST(req: NextRequest) {
     .insert({
       batch_id,
       channel,
-      label,
       percentage: pct,
       partner_id: partner_id || null,
       contract_request_id: contract_request_id || null,
