@@ -11,7 +11,7 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from("brew_batches")
-    .select("*, recipes(beer_name, brewery, brew_time_weeks, expected_yield_bbl), batch_status_history(*), batch_brew_activity_log(*), converted_from_batch:converted_from_batch_id(id, beer_name, batch_number)")
+    .select("*, recipes(beer_name, expected_yield_bbl, partner:contract_brewing_partners(company_name)), batch_status_history(*), batch_brew_activity_log(*), converted_from_batch:converted_from_batch_id(id, beer_name, batch_number)")
     .order("planned_brew_date", { ascending: false });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -142,16 +142,16 @@ export async function POST(req: NextRequest) {
     try {
       const { data: recipeRow } = await supabase
         .from("recipes")
-        .select("brewery")
+        .select("partner_id")
         .eq("id", recipe_id)
         .single();
 
       let squareCustomerId: string | null = null;
-      if (recipeRow?.brewery) {
+      if (recipeRow?.partner_id) {
         const { data: partner } = await supabase
           .from("contract_brewing_partners")
           .select("square_customer_id")
-          .eq("company_name", recipeRow.brewery)
+          .eq("id", recipeRow.partner_id)
           .single();
         squareCustomerId = partner?.square_customer_id ?? null;
       }
@@ -179,7 +179,7 @@ export async function POST(req: NextRequest) {
 
   const { data, error } = await supabase
     .from("brew_batches")
-    .select("*, recipes(beer_name, brewery, brew_time_weeks, expected_yield_bbl), batch_status_history(*), batch_brew_activity_log(*), converted_from_batch:converted_from_batch_id(id, beer_name, batch_number)")
+    .select("*, recipes(beer_name, expected_yield_bbl, partner:contract_brewing_partners(company_name)), batch_status_history(*), batch_brew_activity_log(*), converted_from_batch:converted_from_batch_id(id, beer_name, batch_number)")
     .eq("id", batch.id)
     .single();
 

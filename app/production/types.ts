@@ -460,7 +460,7 @@ export interface BrewBatch {
   dissolved_oxygen_ppb: number | null;
   square_invoice_id: string | null;
   recipe_id: string | null;
-  recipes: { beer_name: string; brewery: string | null; brew_time_weeks: number | null; expected_yield_bbl: number | null } | null;
+  recipes: { beer_name: string; expected_yield_bbl: number | null; partner: { company_name: string } | null } | null;
   batch_status_history: BatchStatusHistory[];
   batch_brew_activity_log?: BrewActivityEntry[];
   created_at: string;
