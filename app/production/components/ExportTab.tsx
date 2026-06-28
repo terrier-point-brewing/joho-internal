@@ -2,9 +2,8 @@
 
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useRecipesQuery, fetchJson } from "../hooks/queries";
-import { SquareLinkManager, LinkRow } from "./SquareLinkManager";
-import type { Recipe } from "../types";
+import { fetchJson } from "../hooks/queries";
+import { fmtUsd } from "@/lib/utils/formatting";
 import { queryKeys } from "@/lib/query-keys";
 import ExportBayTab from "./ExportBayTab";
 import ExportTransactionsTab from "./ExportTransactionsTab";
@@ -55,17 +54,11 @@ function fmt(iso: string) {
 
 // ─── Exports Tab ─────────────────────────────────────────────────────────────
 
-function ExportsChannelTab({ channel, exports, links, recipes, onLinksChanged }: {
+function ExportsChannelTab({ channel, exports }: {
   channel: ExportChannel;
   exports: ExportTransactionRow[];
-  links: LinkRow[];
-  recipes: Recipe[];
-  onLinksChanged: () => void;
 }) {
-  const [showLinks, setShowLinks] = useState(false);
   const qc = useQueryClient();
-  const refreshLinks = () => { qc.invalidateQueries({ queryKey: queryKeys.production.recipeSquareLinks() }); onLinksChanged(); };
-
   const channelExports = exports.filter(e => e.channel === channel);
   const channelMeta = CHANNEL_TABS.find(c => c.key === channel)!;
 
@@ -82,23 +75,6 @@ function ExportsChannelTab({ channel, exports, links, recipes, onLinksChanged }:
   return (
     <>
       <p className="text-xs text-zinc-600 mb-4">{channelMeta.description}</p>
-
-      {channel === "taproom" && (
-        <div className="mb-4 flex items-center justify-between px-3 py-2 bg-zinc-800/60 border border-zinc-700 rounded text-xs text-zinc-500">
-          <span>
-            {links.length > 0
-              ? `${links.length} Square mapping${links.length !== 1 ? "s" : ""} configured`
-              : "No Square mappings yet — link recipes to Square catalog items for inventory sync"}
-          </span>
-          <button
-            onClick={() => setShowLinks(true)}
-            className="ml-4 shrink-0 px-2.5 py-1 border border-zinc-600 hover:border-zinc-400 text-zinc-300 rounded transition-colors"
-          >
-            Link to Square
-          </button>
-        </div>
-      )}
-
       {channelExports.length === 0 ? (
         <p className="text-sm text-zinc-600">No {channelMeta.label.toLowerCase()} exports recorded yet.</p>
       ) : (
@@ -135,9 +111,7 @@ function ExportsChannelTab({ channel, exports, links, recipes, onLinksChanged }:
                   <td className="px-4 py-2.5 text-right text-zinc-400">
                     {e.volume_bbl != null ? e.volume_bbl.toFixed(4) : "—"}
                   </td>
-                  <td className="px-4 py-2.5 text-right text-zinc-400">
-                    ${e.total_excise_tax_usd.toFixed(2)}
-                  </td>
+                  <td className="px-4 py-2.5 text-right text-zinc-400">{fmtUsd(e.total_excise_tax_usd)}</td>
                   <td className="px-4 py-2.5">
                     <span className={`text-xs px-1.5 py-0.5 rounded ${
                       e.status === "paid" ? "bg-emerald-900/40 text-emerald-400"
@@ -157,7 +131,6 @@ function ExportsChannelTab({ channel, exports, links, recipes, onLinksChanged }:
           </table>
         </div>
       )}
-
       {channelExports.length > 0 && totalBbl > 0 && (
         <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-1 px-3 py-2.5 bg-zinc-900/60 border border-zinc-800 rounded text-xs">
           <span className="text-zinc-500">Total volume</span>
@@ -165,17 +138,8 @@ function ExportsChannelTab({ channel, exports, links, recipes, onLinksChanged }:
             {totalGal.toFixed(2)} gal &nbsp;/&nbsp; {totalBbl.toFixed(4)} BBL
           </span>
           <span className="text-zinc-400 font-medium border-t border-zinc-800 pt-1 mt-0.5">Total excise tax</span>
-          <span className="text-amber-300 font-semibold tabular-nums border-t border-zinc-800 pt-1 mt-0.5">${totalTax.toFixed(2)}</span>
+          <span className="text-amber-300 font-semibold tabular-nums border-t border-zinc-800 pt-1 mt-0.5">{fmtUsd(totalTax)}</span>
         </div>
-      )}
-
-      {showLinks && (
-        <SquareLinkManager
-          recipes={recipes}
-          links={links}
-          onClose={() => setShowLinks(false)}
-          onChanged={refreshLinks}
-        />
       )}
     </>
   );
@@ -188,24 +152,15 @@ export default function ExportTab() {
     queryKey: queryKeys.production.exports(),
     queryFn: () => fetchJson<ExportTransactionRow[]>("/api/production/exports"),
   });
-  const { data: links = [] } = useQuery({
-    queryKey: queryKeys.production.recipeSquareLinks(),
-    queryFn: () => fetchJson<LinkRow[]>("/api/production/recipe-square-links"),
-  });
-  const { data: recipes = [] } = useRecipesQuery();
-
   const [tab, setTab] = useState<TopTab>("export_bay");
 
   return (
     <>
-      {/* Header */}
-      <div className="mb-4">
+      <div className="mt-4 mb-4">
         <h2 className="text-base font-medium text-zinc-100">Export</h2>
         <p className="text-sm text-zinc-500 mt-0.5">Commitments and fulfillment — track what has been allocated and what has shipped.</p>
       </div>
-
-      {/* Top tab bar */}
-      <div className="flex gap-1 mb-6 border-b border-zinc-800">
+      <div className="flex gap-1 mb-6 border-b border-zinc-800 overflow-x-auto overflow-y-hidden scrollbar-none">
         {TOP_TABS.map(({ key, label }) => (
           <button
             key={key}
@@ -225,18 +180,10 @@ export default function ExportTab() {
           </button>
         ))}
       </div>
-
       {tab === "export_bay" && <ExportBayTab />}
       {tab === "export_transactions" && <ExportTransactionsTab />}
       {tab === "taproom" && (
-        <ExportsChannelTab
-          key={tab}
-          channel="taproom"
-          exports={exports}
-          links={links}
-          recipes={recipes}
-          onLinksChanged={() => {}}
-        />
+        <ExportsChannelTab key={tab} channel="taproom" exports={exports} />
       )}
     </>
   );
