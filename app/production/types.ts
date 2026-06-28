@@ -605,6 +605,7 @@ export interface MappingCellVariation {
   suggestion: {
     squareCatalogVariationId: string | null;
     squareVariationId: string;
+    squareItemId: string | null;
     squareName: string;
     confidence: "high" | "medium";
   } | null;

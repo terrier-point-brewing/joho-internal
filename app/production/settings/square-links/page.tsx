@@ -21,18 +21,11 @@ export default function SquareMappingsPage() {
       />
 
       {drawer && (
-        <>
-          {/* Backdrop */}
-          <div
-            className="fixed inset-0 z-30 bg-black/40"
-            onClick={() => setDrawer(null)}
-          />
-          <MappingDrawer
-            recipeId={drawer.recipeId}
-            colKey={drawer.colKey}
-            onClose={() => setDrawer(null)}
-          />
-        </>
+        <MappingDrawer
+          recipeId={drawer.recipeId}
+          colKey={drawer.colKey}
+          onClose={() => setDrawer(null)}
+        />
       )}
     </div>
   );

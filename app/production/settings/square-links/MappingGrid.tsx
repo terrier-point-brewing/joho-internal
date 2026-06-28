@@ -14,6 +14,7 @@ async function acceptSuggestion(
     recipe_id: recipeId,
     packaging,
     square_variation_id: suggestion.squareVariationId,
+    square_item_id: suggestion.squareItemId ?? null,
     variation_name: suggestion.squareName.split(" · ")[1] ?? null,
     item_name: suggestion.squareName.split(" · ")[0] ?? null,
   };

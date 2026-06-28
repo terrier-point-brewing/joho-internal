@@ -62,6 +62,7 @@ export interface ColumnDef {
 export interface Suggestion {
   squareCatalogVariationId: string | null;
   squareVariationId: string;
+  squareItemId: string | null;
   squareName: string;
   confidence: "high" | "medium";
 }
@@ -137,6 +138,7 @@ export function autoSuggest(
   return {
     squareCatalogVariationId: null, // caller fills in from DB lookup if needed
     squareVariationId: best.squareVariationId,
+    squareItemId: best.squareItemId,
     squareName: `${best.itemName}${best.variationName ? ` · ${best.variationName}` : ""}`,
     confidence: bestScore >= 6 ? "high" : "medium",
   };
