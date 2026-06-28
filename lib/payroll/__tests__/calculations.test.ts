@@ -9,6 +9,7 @@ const config: PayrollConfig = {
   guaranteed_rate_cents: 1500, // $15/hr guaranteed
   cash_tips_rate: 0.01,
   tip_distribution_model: "proportional_hours",
+  pay_period_frequency: "biweekly",
   first_pay_period_start_date: "2026-01-05",
   created_at: "2026-01-01T00:00:00Z",
 };
