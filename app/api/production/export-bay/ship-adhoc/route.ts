@@ -3,9 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { checkAndCompleteBatch } from "@/lib/production/batchCompletion";
-import { getExportBayEquipmentId } from "@/lib/production/exportBayEquipment";
 import { getAvailableColdStorageQuantity, depleteColdStorageInventory } from "@/lib/production/coldStorageDepletion";
-import { writeExportTransfer, writeExportTransaction } from "@/lib/production/exportTransactionWriter";
+import { writeExportTransaction } from "@/lib/production/exportTransactionWriter";
 import { getUnitsPerPackage } from "@/lib/production/packagingVariations";
 import { BBL_TO_FL_OZ } from "@/lib/constants/production";
 
@@ -69,22 +68,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // ── 3. Look up the export_bay equipment row (must happen before any write) ─
-  let exportBayId: string;
-  try {
-    const id = await getExportBayEquipmentId(supabase);
-    if (!id) {
-      return NextResponse.json(
-        { error: "No 'export_bay' equipment configured — add one in Production → Brewing → Floorplan before shipping." },
-        { status: 500 }
-      );
-    }
-    exportBayId = id;
-  } catch (e) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : "Unknown error" }, { status: 500 });
-  }
-
-  // ── 4. Deplete cold_storage_inventory, oldest row first ───────────────────
+  // ── 3. Deplete cold_storage_inventory, oldest row first ───────────────────
   let depleted: { batchId: string; depletedQty: number }[];
   try {
     depleted = await depleteColdStorageInventory(supabase, {
@@ -96,19 +80,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Unknown error" }, { status: 500 });
   }
 
-  // ── 5. Write one transfer + export transaction per depleted batch row ─────
+  // ── 4. Write one export_transaction per depleted batch row ────────────────
   const shipmentId = crypto.randomUUID();
   const created: { batch_id: string; export_transaction_id: string }[] = [];
 
   for (const { batchId, depletedQty } of depleted) {
     const volumeBbl = (depletedQty * variation.total_volume_fl_oz) / BBL_TO_FL_OZ;
-
-    let transferId: string;
-    try {
-      transferId = await writeExportTransfer(supabase, { batchId, exportBayId, volumeBbl, notes });
-    } catch (e) {
-      return NextResponse.json({ error: e instanceof Error ? e.message : "Unknown error" }, { status: 500 });
-    }
 
     let exportTxId: string;
     try {
@@ -124,7 +101,6 @@ export async function POST(req: NextRequest) {
         recipientId: partner_id ?? null,
         recipientName: recipient_name ?? null,
         allocationId: null,
-        sourceTransferId: transferId,
         notes,
         packagingFormat: variation.format,
         unitsPerPackage,

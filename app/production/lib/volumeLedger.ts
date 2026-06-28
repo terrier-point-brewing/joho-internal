@@ -124,15 +124,6 @@ export function computeLocationBreakdown(
     }
   }
 
-  // Export transfers written with from_tank_id=null (the norm, since
-  // cold_storage_inventory is the authority for qty) never debit the
-  // cold_storage tank in computeTankVolumes. Back-debit here so the
-  // ledger stays balanced and available zeroes out after a full export.
-  const nullSourceExportBbl = batchTransfers
-    .filter((t) => t.transfer_type === "export" && !t.from_tank_id)
-    .reduce((s, t) => s + Number(t.volume_bbl ?? 0), 0);
-  result.coldStorage = Math.max(0, result.coldStorage - nullSourceExportBbl);
-
   return result;
 }
 

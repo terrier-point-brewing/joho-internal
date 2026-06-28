@@ -2,35 +2,14 @@ import { SupabaseClient } from "@supabase/supabase-js";
 import { computeExciseTaxBreakdown } from "@/lib/production/exciseTax";
 
 /**
- * Inserts the batch_transfers row representing one batch's contribution to
- * a shipment (from null — leaving the source tank, since cold storage
- * inventory isn't tank-tracked — to the export_bay equipment row).
- */
-export async function writeExportTransfer(
-  supabase: SupabaseClient,
-  { batchId, exportBayId, volumeBbl, notes }: { batchId: string; exportBayId: string; volumeBbl: number; notes?: string | null }
-): Promise<string> {
-  const { data, error } = await supabase
-    .from("batch_transfers")
-    .insert({
-      batch_id: batchId,
-      from_tank_id: null,
-      to_tank_id: exportBayId,
-      volume_bbl: Math.round(volumeBbl * 10000) / 10000,
-      shrinkage_bbl: 0,
-      transfer_type: "export",
-      notes: notes ?? null,
-    })
-    .select("id")
-    .single();
-  if (error) throw new Error(error.message);
-  return data.id;
-}
-
-/**
- * Computes the excise tax breakdown for one credited slice and inserts the
- * export_transactions row plus its export_transaction_taxes children.
- * allocationId is an explicit parameter (not inferred) because the regular
+ * Inserts an export_transactions row plus its export_transaction_taxes children.
+ *
+ * batchId identifies which batch allocation is being fulfilled — it is NOT a
+ * cold-storage depletion pointer. Cold storage is depleted separately via
+ * depleteColdStorageInventory (by recipe + variation, oldest-first) and the
+ * two operations are intentionally independent.
+ *
+ * allocationId is explicit (not inferred from batchId) because the regular
  * Ship flow passes the credited allocation's id while ad-hoc exports pass
  * null — there is no allocation to credit.
  */
@@ -48,7 +27,6 @@ export async function writeExportTransaction(
     recipientId: string | null;
     recipientName: string | null;
     allocationId: string | null;
-    sourceTransferId: string;
     notes?: string | null;
     packagingFormat: string;
     unitsPerPackage: number;
@@ -74,7 +52,7 @@ export async function writeExportTransaction(
       recipient_id: params.recipientId,
       recipient_name: params.recipientName,
       total_excise_tax_usd: totalExciseTaxUsd,
-      source_transfer_id: params.sourceTransferId,
+      source_transfer_id: null,
       notes: params.notes ?? null,
     })
     .select("id")

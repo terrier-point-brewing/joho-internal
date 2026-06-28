@@ -3,9 +3,8 @@ import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { checkAndCompleteBatch } from "@/lib/production/batchCompletion";
 import { checkAndFulfillCommitment } from "@/lib/production/commitmentFulfillment";
-import { getExportBayEquipmentId } from "@/lib/production/exportBayEquipment";
 import { getAvailableColdStorageQuantity, depleteColdStorageInventory } from "@/lib/production/coldStorageDepletion";
-import { writeExportTransfer, writeExportTransaction } from "@/lib/production/exportTransactionWriter";
+import { writeExportTransaction } from "@/lib/production/exportTransactionWriter";
 import { getUnitsPerPackage } from "@/lib/production/packagingVariations";
 import { BBL_TO_FL_OZ } from "@/lib/constants/production";
 
@@ -99,7 +98,7 @@ export async function POST(req: NextRequest) {
   const candidates: Candidate[] = [];
   for (const a of allocRows ?? []) {
     const produced = producedByBatch[a.batch_id] ?? 0;
-    if (produced <= 0) continue; // pending production — not a crediting candidate
+    if (produced <= 0) continue;
     const allocatedBbl = (Number(a.percentage) / 100) * produced;
     const key = `${a.batch_id}:${a.channel}:${a.partner_id ?? ""}`;
     const exportedBbl = exportedByKey[key] ?? 0;
@@ -130,12 +129,6 @@ export async function POST(req: NextRequest) {
     bblLeft -= creditedBbl;
   }
 
-  // Compute each credit's unit quantity in one flat pass (NOT during the
-  // later grouped-by-batch traversal, whose Map iteration order doesn't
-  // match this array's order) so the sum always reconciles exactly to the
-  // requested `quantity`, regardless of how many distinct batches are
-  // credited or whether one batch contributes multiple, non-adjacent
-  // entries to this array.
   let qtyAssigned = 0;
   for (let i = 0; i < credits.length; i++) {
     const isLastCredit = i === credits.length - 1;
@@ -143,21 +136,6 @@ export async function POST(req: NextRequest) {
       ? Math.round((quantity - qtyAssigned) * 10000) / 10000
       : Math.round((credits[i].creditedBbl / requestedBbl) * quantity * 10000) / 10000;
     qtyAssigned += credits[i].creditedQty;
-  }
-
-  // ── 4b. Look up the export_bay equipment row (must happen before any write) ─
-  let exportBayId: string;
-  try {
-    const id = await getExportBayEquipmentId(supabase);
-    if (!id) {
-      return NextResponse.json(
-        { error: "No 'export_bay' equipment configured — add one in Production → Brewing → Floorplan before shipping." },
-        { status: 500 }
-      );
-    }
-    exportBayId = id;
-  } catch (e) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : "Unknown error" }, { status: 500 });
   }
 
   // ── 5. Deplete cold_storage_inventory, oldest row first ───────────────────
@@ -171,59 +149,41 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Unknown error" }, { status: 500 });
   }
 
-  // ── 6/7. Write batch_transfers (one per batch) + export_transactions (one per credited allocation) ──
+  // ── 6. Write one export_transaction per credited allocation ───────────────
   const shipmentId = crypto.randomUUID();
-  const byBatch = new Map<string, Credit[]>();
+  const created: { batch_id: string; export_transaction_id: string }[] = [];
+  const completedBatches = new Set<string>();
+
   for (const c of credits) {
-    if (!byBatch.has(c.batchId)) byBatch.set(c.batchId, []);
-    byBatch.get(c.batchId)!.push(c);
-  }
-
-  const created: { batch_id: string; export_transaction_ids: string[] }[] = [];
-
-  for (const [batchId, batchCredits] of byBatch) {
-    const batchTotalBbl = batchCredits.reduce((s, c) => s + c.creditedBbl, 0);
-
-    let transferId: string;
+    let exportTxId: string;
     try {
-      transferId = await writeExportTransfer(supabase, { batchId, exportBayId, volumeBbl: batchTotalBbl, notes });
+      exportTxId = await writeExportTransaction(supabase, {
+        shipmentId,
+        batchId: c.batchId,
+        recipeId: recipe_id,
+        packagingItemId: variation.container_id,
+        variantLabel: variation.name,
+        quantity: c.creditedQty,
+        volumeBbl: c.creditedBbl,
+        channel: c.channel,
+        recipientId: partner_id,
+        recipientName: null,
+        allocationId: c.allocationId,
+        notes,
+        packagingFormat: variation.format,
+        unitsPerPackage,
+      });
     } catch (e) {
       return NextResponse.json({ error: e instanceof Error ? e.message : "Unknown error" }, { status: 500 });
     }
 
-    const exportTransactionIds: string[] = [];
-    for (const c of batchCredits) {
-      let exportTxId: string;
-      try {
-        exportTxId = await writeExportTransaction(supabase, {
-          shipmentId,
-          batchId,
-          recipeId: recipe_id,
-          packagingItemId: variation.container_id,
-          variantLabel: variation.name,
-          quantity: c.creditedQty,
-          volumeBbl: c.creditedBbl,
-          channel: c.channel,
-          recipientId: partner_id,
-          recipientName: null,
-          allocationId: c.allocationId,
-          sourceTransferId: transferId,
-          notes,
-          packagingFormat: variation.format,
-          unitsPerPackage,
-        });
-      } catch (e) {
-        return NextResponse.json({ error: e instanceof Error ? e.message : "Unknown error" }, { status: 500 });
-      }
-      exportTransactionIds.push(exportTxId);
+    if (!completedBatches.has(c.batchId)) {
+      await checkAndCompleteBatch(supabase, c.batchId);
+      completedBatches.add(c.batchId);
     }
+    await checkAndFulfillCommitment(supabase, c.allocationId);
 
-    await checkAndCompleteBatch(supabase, batchId);
-    for (const c of batchCredits) {
-      await checkAndFulfillCommitment(supabase, c.allocationId);
-    }
-
-    created.push({ batch_id: batchId, export_transaction_ids: exportTransactionIds });
+    created.push({ batch_id: c.batchId, export_transaction_id: exportTxId });
   }
 
   return NextResponse.json({ created }, { status: 201 });
