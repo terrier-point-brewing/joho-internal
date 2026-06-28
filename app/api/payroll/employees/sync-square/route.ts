@@ -56,6 +56,10 @@ export async function POST() {
   // UPDATE existing employees: only overwrite name + email; preserve all admin-edited fields
   // (job_title, employment_type, receives_tips, active, etc.).
   // Single upsert — no N+1 loop.
+  // existingMembers are guaranteed to exist in DB (filtered from existingIds above).
+  // The upsert's INSERT path cannot fire on a conflict match; only the UPDATE SET fires.
+  // In the unlikely race where a member was deleted between our select and here,
+  // the INSERT would fail on NOT NULL columns — acceptable rare-case error.
   if (existingMembers.length > 0) {
     const existingRows = existingMembers.map(m => ({
       square_team_member_id: m.id,

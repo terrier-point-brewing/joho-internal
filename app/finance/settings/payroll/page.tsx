@@ -94,7 +94,7 @@ export default function PayrollSettingsPage() {
       fetch("/api/payroll/config", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(buildConfigBody()),
+        body: JSON.stringify({ ...buildConfigBody(), seed_periods: false }),
       }).then(r => r.json()),
     onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.payroll.config() }),
   });

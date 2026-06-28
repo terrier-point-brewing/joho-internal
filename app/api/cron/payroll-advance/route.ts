@@ -45,10 +45,12 @@ export async function GET(req: NextRequest) {
 
   const { data, error } = await supabase
     .from("pay_periods")
-    .insert({ ...dates, status: "open" })
+    .upsert({ ...dates, status: "open" }, { onConflict: "start_date", ignoreDuplicates: true })
     .select()
     .single();
 
   if (error) return apiError(error.message);
+  // Period already existed (duplicate cron fire) — not an error
+  if (!data) return NextResponse.json({ created: false });
   return NextResponse.json({ created: true, period: data });
 }

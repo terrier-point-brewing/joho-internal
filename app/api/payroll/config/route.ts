@@ -41,6 +41,12 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
   }
 
+  if (pay_period_frequency && !["weekly", "biweekly"].includes(pay_period_frequency)) {
+    return NextResponse.json({ error: "Invalid pay_period_frequency" }, { status: 400 });
+  }
+
+  const seed_periods = body.seed_periods !== false; // default true
+
   const frequency: PayPeriodFrequency = pay_period_frequency ?? "biweekly";
 
   // Upsert on effective_from so multiple saves on the same day don't conflict.
@@ -63,23 +69,26 @@ export async function PATCH(req: NextRequest) {
 
   if (configErr) return apiError(configErr.message);
 
-  // Seed all missing periods from first_pay_period_start_date through today.
-  const today = new Date().toISOString().slice(0, 10);
-  const expected = seedPeriodDates(first_pay_period_start_date, frequency, today);
+  if (seed_periods) {
+    // Seed all missing periods from first_pay_period_start_date through today.
+    const today = new Date().toISOString().slice(0, 10);
+    const expected = seedPeriodDates(first_pay_period_start_date, frequency, today);
 
-  const { data: existing } = await supabase
-    .from("pay_periods")
-    .select("start_date");
+    const { data: existing } = await supabase
+      .from("pay_periods")
+      .select("start_date");
 
-  const existingStarts = new Set((existing ?? []).map((p: { start_date: string }) => p.start_date));
-  const toInsert = expected
-    .filter(p => !existingStarts.has(p.start_date))
-    .map(p => ({ ...p, status: "open" as const }));
+    const existingStarts = new Set((existing ?? []).map((p: { start_date: string }) => p.start_date));
+    const toInsert = expected
+      .filter(p => !existingStarts.has(p.start_date))
+      .map(p => ({ ...p, status: "open" as const }));
 
-  if (toInsert.length > 0) {
-    const { error: insertErr } = await supabase.from("pay_periods").insert(toInsert);
-    if (insertErr) return apiError(insertErr.message);
+    if (toInsert.length > 0) {
+      const { error: insertErr } = await supabase.from("pay_periods").insert(toInsert);
+      if (insertErr) return apiError(insertErr.message);
+    }
+
+    return NextResponse.json({ config, periodsCreated: toInsert.length });
   }
-
-  return NextResponse.json({ config, periodsCreated: toInsert.length });
+  return NextResponse.json({ config, periodsCreated: 0 });
 }
