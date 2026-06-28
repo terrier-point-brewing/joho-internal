@@ -53,7 +53,8 @@ export async function GET(req: NextRequest) {
   const ids = withPrefs.map((c) => c.id);
   const { data: allocs } = await supabase
     .from("batch_allocations")
-    .select(`id, batch_id, contract_request_id, percentage, locked, lock_reason, channel,
+    .select(`id, batch_id, contract_request_id, percentage, channel,
+      square_deposit_invoice_id,
       invoice_generated_at, invoice_sent_at, invoice_paid_at,
       brew_batches(id, beer_name, batch_number, volume_bbl),
       contract_brewing_partners(id, company_name)`)
@@ -70,10 +71,34 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // Fetch invoice numbers for deposit invoices
+  const squareDepositIds = (allocs ?? [])
+    .map((a) => a.square_deposit_invoice_id)
+    .filter((id): id is string => !!id);
+
+  const invoiceNumberBySquareId = new Map<string, string | null>();
+  if (squareDepositIds.length > 0) {
+    const { data: depositInvoices } = await supabase
+      .from("invoices")
+      .select("square_invoice_id, invoice_number")
+      .in("square_invoice_id", squareDepositIds)
+      .neq("status", "voided");
+    for (const inv of depositInvoices ?? []) {
+      if (inv.square_invoice_id) {
+        invoiceNumberBySquareId.set(inv.square_invoice_id, inv.invoice_number ?? null);
+      }
+    }
+  }
+
   const enriched = withPrefs.map((c) => ({
     ...c,
     committed_allocated_bbl: committedById[c.id] ?? 0,
-    batch_allocations: allocsById[c.id] ?? [],
+    batch_allocations: (allocsById[c.id] ?? []).map((a) => ({
+      ...a,
+      deposit_invoice_number: a.square_deposit_invoice_id
+        ? (invoiceNumberBySquareId.get(a.square_deposit_invoice_id) ?? null)
+        : null,
+    })),
   }));
   return NextResponse.json(enriched);
 }
@@ -143,6 +168,55 @@ export async function PATCH(req: NextRequest) {
   }
   if (prefs) {
     await replacePackagingPreferences(supabase, id, prefs);
+  }
+
+  // Propagate commitment changes to linked unlocked allocations.
+  // "Unlocked" = invoice_paid_at IS NULL. Paid allocations are frozen.
+  const syncableFields = ["channel", "partner_id", "volume_bbl"] as const;
+  const hasSyncableChange = syncableFields.some(f => f in patch);
+  if (hasSyncableChange) {
+    // Fetch linked allocations with their batch volumes for percentage recalculation.
+    type LinkedAlloc = {
+      id: string;
+      channel: string;
+      invoice_generated_at: string | null;
+      invoice_sent_at: string | null;
+      brew_batches: { volume_bbl: string } | null;
+    };
+    const { data: linked } = await supabase
+      .from("batch_allocations")
+      .select("id, channel, invoice_generated_at, invoice_sent_at, brew_batches(volume_bbl)")
+      .eq("contract_request_id", id)
+      .is("invoice_paid_at", null) as { data: LinkedAlloc[] | null };
+
+    for (const alloc of linked ?? []) {
+      const allocUpdate: Record<string, unknown> = {};
+
+      if ("channel" in patch) allocUpdate.channel = patch.channel;
+      if ("partner_id" in patch) allocUpdate.partner_id = patch.partner_id ?? null;
+      if ("volume_bbl" in patch) {
+        const batchVol = Number(alloc.brew_batches?.volume_bbl ?? 0);
+        if (batchVol > 0) {
+          const newPct = Math.round((Number(patch.volume_bbl) / batchVol) * 1000) / 10;
+          // Guard: only apply if the recalculated value is a valid percentage.
+          if (newPct > 0 && newPct <= 100) allocUpdate.percentage = newPct;
+        }
+      }
+
+      // If channel is changing to/from contract_brewing, or percentage is recalculating,
+      // clear stale draft invoice timestamps so the user must regenerate.
+      const oldChannel = alloc.channel;
+      const newChannel = ("channel" in patch ? String(patch.channel) : oldChannel);
+      const isContractBrewingRelated = oldChannel === "contract_brewing" || newChannel === "contract_brewing";
+      if (isContractBrewingRelated && ("channel" in allocUpdate || "percentage" in allocUpdate)) {
+        allocUpdate.invoice_generated_at = null;
+        allocUpdate.invoice_sent_at = null;
+      }
+
+      if (Object.keys(allocUpdate).length > 0) {
+        await supabase.from("batch_allocations").update(allocUpdate).eq("id", alloc.id);
+      }
+    }
   }
 
   const { data, error } = await supabase.from("commitments").select(COMMITMENT_SELECT).eq("id", id).single();

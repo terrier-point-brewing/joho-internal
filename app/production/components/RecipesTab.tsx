@@ -3,7 +3,7 @@
 import { useState, Fragment } from "react";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
-import { Recipe, RecipeBrewActivityTemplate, INGREDIENT_CATEGORIES, IngredientCategory, leadTimeDays, RecipePackagingVariation, RecipePackagingVariationExpanded } from "../types";
+import { Recipe, RecipeBrewActivityTemplate, INGREDIENT_CATEGORIES, IngredientCategory, leadTimeDays, RecipePackagingVariation } from "../types";
 import { Modal, Field, ModalActions } from "./shared";
 import { EQ } from "../equipmentMeta";
 import { useRecipesQuery, useIngredientsQuery, useContractPartnersQuery, productionKeys, fetchJson, usePackagingVariationsQuery, useRecipePackagingVariationsQuery } from "../hooks/queries";
@@ -66,7 +66,7 @@ export default function RecipesTab() {
   const { data: recipeLinks = [] } = useRecipePackagingVariationsQuery();
   const [linkingFor, setLinkingFor] = useState<string | null>(null);
 
-  function variationsFor(recipeId: string): RecipePackagingVariationExpanded[] {
+  function variationsFor(recipeId: string): RecipePackagingVariation[] {
     return recipeLinks.filter((l) => l.recipe_id === recipeId);
   }
 
@@ -112,7 +112,7 @@ export default function RecipesTab() {
     const yld = r.expected_yield_bbl ?? 1;
     setForm({
       beer_name: r.beer_name,
-      partner_id: r.partner_id ?? "",
+      partner_id: r.brewery ?? "",
       expected_yield_bbl: r.expected_yield_bbl != null ? String(r.expected_yield_bbl) : "",
       days_brewhouse: r.days_brewhouse != null ? String(r.days_brewhouse) : "",
       days_fermenter: r.days_fermenter != null ? String(r.days_fermenter) : "",
@@ -167,9 +167,10 @@ export default function RecipesTab() {
     e.preventDefault();
     setSubmitting(true);
     try {
+      const partnerObj = partners.find((p) => p.id === form.partner_id);
       const payload = {
         beer_name: form.beer_name,
-        partner_id: form.partner_id || null,
+        brewery: partnerObj?.company_name ?? form.partner_id ?? null,
         expected_yield_bbl: form.expected_yield_bbl ? parseFloat(form.expected_yield_bbl) : null,
         days_brewhouse: form.days_brewhouse ? parseInt(form.days_brewhouse) : null,
         days_fermenter: form.days_fermenter ? parseInt(form.days_fermenter) : null,
@@ -278,9 +279,9 @@ export default function RecipesTab() {
                   </div>
                   {/* Metadata row — wraps freely on mobile */}
                   <div className="flex items-center gap-x-3 gap-y-1 flex-wrap">
-                    {r.contract_brewing_partners?.company_name && (
+                    {r.brewery && (
                       <span className="text-xs text-zinc-500 bg-zinc-800 px-2 py-0.5 rounded">
-                        {r.contract_brewing_partners.company_name}
+                        {r.brewery}
                       </span>
                     )}
                     {r.expected_yield_bbl && (
@@ -463,7 +464,7 @@ export default function RecipesTab() {
                         <div className="flex flex-wrap gap-2 mb-2">
                           {variationsFor(r.id).map((link) => (
                             <span key={link.id} className="inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded border border-zinc-700 text-zinc-300">
-                              {link.packaging_variations ? [link.packaging_variations.format, link.packaging_variations.packaging_items?.name].filter(Boolean).join(" ") : "—"}
+                              {link.packaging_variations?.name ?? "—"}
                               <button onClick={() => unlinkVariation(link.id)} className="text-zinc-600 hover:text-red-400 leading-none">×</button>
                             </span>
                           ))}

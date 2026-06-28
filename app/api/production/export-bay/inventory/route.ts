@@ -13,15 +13,18 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from("cold_storage_inventory")
-    .select("recipe_id, variation_id, quantity_on_hand, packaging_variations(name)")
+    .select("recipe_id, variation_id, quantity_on_hand, packaging_variations(name, container:packaging_items!packaging_variations_container_id_fkey(type))")
     .not("recipe_id", "is", null);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  const grouped = new Map<string, { recipe_id: string; variation_id: string; variation_name: string; quantity_on_hand: number }>();
+  type PVRow = { name: string; container?: { type: string } | null } | null;
+  const grouped = new Map<string, { recipe_id: string; variation_id: string; variation_name: string; container_type: string | null; quantity_on_hand: number }>();
   for (const row of data ?? []) {
     const key = `${row.recipe_id}|${row.variation_id}`;
-    const variationName = (row.packaging_variations as unknown as { name: string } | null)?.name ?? "Unknown variation";
+    const pv = row.packaging_variations as unknown as PVRow;
+    const variationName = pv?.name ?? "Unknown variation";
+    const containerType = pv?.container?.type ?? null;
     const existing = grouped.get(key);
     if (existing) {
       existing.quantity_on_hand += Number(row.quantity_on_hand);
@@ -30,6 +33,7 @@ export async function GET() {
         recipe_id: row.recipe_id as string,
         variation_id: row.variation_id,
         variation_name: variationName,
+        container_type: containerType,
         quantity_on_hand: Number(row.quantity_on_hand),
       });
     }

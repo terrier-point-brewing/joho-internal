@@ -29,10 +29,19 @@ export type EntryNodeCallbacks = {
 export type EntryNodeData = EntryNodeCallbacks & {
   entry: ScheduleEntry;
   partialDrain?: { arrived: number; departed: number } | null;
+  /** Shrinkage lost during packaging (kegging/canning) — shown in red */
+  packagingShrinkageBbl?: number;
+  /** Shrinkage lost on the outbound transfer to the next pipeline stage — shown in red */
+  stageShrinkageBbl?: number;
+  /** Volume intentionally converted to another batch (transfer executed) — shown in amber */
+  conversionBbl?: number;
+  /** Volume planned for conversion but not yet executed — shown in amber */
+  pendingConversionBbl?: number;
 };
 
 export function EntryNode({ data }: NodeProps) {
-  const { entry, onEdit, onSplit, onConvert, onRemove, editing, partialDrain } =
+  const { entry, onEdit, onSplit, onConvert, onRemove, editing, partialDrain,
+          packagingShrinkageBbl, stageShrinkageBbl, conversionBbl, pendingConversionBbl } =
     data as EntryNodeData;
 
   const norm      = entry.stage === "fermenter" ? "fermenting" : entry.stage;
@@ -83,6 +92,18 @@ export function EntryNode({ data }: NodeProps) {
           ) : (
             <p className="text-[11px] text-zinc-500 mb-1">{fmtBbl2(entry.volume_bbl)}</p>
           )
+        )}
+        {packagingShrinkageBbl != null && (
+          <p className="text-[11px] text-red-400 mb-1">−{packagingShrinkageBbl.toFixed(2)} BBL loss</p>
+        )}
+        {stageShrinkageBbl != null && (
+          <p className="text-[11px] text-red-400 mb-1">−{stageShrinkageBbl.toFixed(2)} BBL lost</p>
+        )}
+        {conversionBbl != null && (
+          <p className="text-[11px] text-amber-400 mb-1">→ {conversionBbl.toFixed(2)} BBL converted</p>
+        )}
+        {pendingConversionBbl != null && (
+          <p className="text-[11px] text-amber-400 mb-1">→ {pendingConversionBbl.toFixed(2)} BBL converting</p>
         )}
         <div className="text-[11px] text-zinc-400 space-y-0.5">
           {entry.actual_start ? (

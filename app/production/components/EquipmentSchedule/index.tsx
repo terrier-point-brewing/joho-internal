@@ -9,8 +9,8 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import {
-  useBatchScheduleQuery, useTransfersQuery, useBatchesQuery, productionKeys,
-  type ScheduleEntry,
+  useBatchScheduleQuery, useTransfersQuery, useBatchesQuery, useBatchConversionsQuery,
+  productionKeys, type ScheduleEntry,
 } from "../../hooks/queries";
 import type { BrewBatch, Equipment, Recipe } from "../../types";
 import {
@@ -48,9 +48,10 @@ export function EquipmentScheduleSection({
   const qc     = useQueryClient();
   const reload = () => qc.invalidateQueries({ queryKey: productionKeys.batchSchedule });
 
-  const { data: allScheduleEntries = [] } = useBatchScheduleQuery();
-  const { data: allTransfers = [] }        = useTransfersQuery();
-  const { data: allBatches  = [] }         = useBatchesQuery();
+  const { data: allScheduleEntries  = [] } = useBatchScheduleQuery();
+  const { data: allTransfers        = [] } = useTransfersQuery();
+  const { data: allBatches          = [] } = useBatchesQuery();
+  const { data: allBatchConversions = [] } = useBatchConversionsQuery();
 
   const [panel,    setPanel]    = useState<ActivePanel>({ kind: "none" });
   const [editing,  setEditing]  = useState<ScheduleEntry | null>(null);
@@ -74,7 +75,7 @@ export function EquipmentScheduleSection({
   // Per-branch planning completeness: required quantity for a branch is the BBL
   // recorded on that branch's Conditioning entry; flag when kegging+canning
   // scheduled for that branch don't yet exhaust it (or none is scheduled at all).
-  const pkgStatuses = batch?.status !== "complete" ? computeBranchPackagingStatus(activeEntries, batch, allTransfers) : [];
+  const pkgStatuses = batch?.status !== "complete" ? computeBranchPackagingStatus(activeEntries, batch, allTransfers, allBatchConversions) : [];
   // Both under- and over-allocation are surfaced as "planning incomplete" — in
   // either direction, the schedule doesn't accurately account for what's
   // actually been (or needs to be) packaged out of conditioning.
@@ -84,14 +85,18 @@ export function EquipmentScheduleSection({
       label: s.label,
       detail: s.status === "no_packaging"
         ? "no packaging scheduled"
-        : s.status === "incomplete"
-          ? `${s.pkgBbl.toFixed(2)} BBL packaged vs ${s.condBbl.toFixed(2)} BBL in conditioning`
-          : `${s.pkgBbl.toFixed(2)} BBL packaged exceeds ${s.condBbl.toFixed(2)} BBL in conditioning`,
+        : s.status === "no_planned_for_remaining"
+          ? `no planned packaging for remaining ${s.remainingCondBbl.toFixed(2)} BBL`
+          : s.status === "incomplete" && s.condBbl <= 0
+            ? "no volume set on conditioning stage"
+            : s.status === "incomplete"
+              ? `${s.pendingPkgBbl.toFixed(2)} BBL planned vs ${s.remainingCondBbl.toFixed(2)} BBL remaining`
+              : `${s.pkgBbl.toFixed(2)} BBL packaged exceeds ${s.condBbl.toFixed(2)} BBL in conditioning`,
     }));
   const existingSplits = splitBranches.length;
 
   const batchTransfers = allTransfers.filter(t => t.batch_id === batchId);
-  const { nodes: rawNodes, edges } = buildGraphData(activeEntries, allBatches, batch, allTransfers, allScheduleEntries);
+  const { nodes: rawNodes, edges } = buildGraphData(activeEntries, allBatches, batch, allTransfers, allScheduleEntries, allBatchConversions);
   const conversionCount = allBatches.filter(b => b.converted_from_batch_id === batchId).length;
 
   // ── Auto-suggest ──────────────────────────────────────────────────────────
@@ -113,7 +118,7 @@ export function EquipmentScheduleSection({
 
       const result = await res.json() as {
         feasible: boolean;
-        equipment_sequence: { stage: string; equipment_id: string; scheduled_start: string; scheduled_end: string }[];
+        equipment_sequence: { stage: string; equipment_id: string; scheduled_start: string; scheduled_end: string; volume_bbl?: number }[];
       };
       if (!result.feasible) { alert("No available equipment found for this recipe and volume."); return; }
 
@@ -147,6 +152,7 @@ export function EquipmentScheduleSection({
             stage:         dbStage,
             planned_start: s.scheduled_start,
             planned_end:   s.scheduled_end,
+            volume_bbl:    s.volume_bbl ?? null,
           }),
         });
       }
@@ -406,15 +412,14 @@ export function EquipmentScheduleSection({
         />
       )}
 
-      {panel.kind === "convert" && recipes && (
+      {panel.kind === "convert" && (
         <ConvertPanel
           batchId={batchId}
           sourceEntry={panel.entry}
           totalBbl={Number(panel.entry.volume_bbl ?? batch?.volume_bbl ?? 0)}
-          recipes={recipes}
-          equipment={equipment}
-          allScheduleEntries={allScheduleEntries}
-          onSaved={reload} onClose={closePanel}
+          allBatches={allBatches}
+          onSaved={() => { reload(); qc.invalidateQueries({ queryKey: productionKeys.batchConversions }); }}
+          onClose={closePanel}
         />
       )}
 

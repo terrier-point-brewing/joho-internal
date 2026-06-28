@@ -2,6 +2,7 @@
 
 import { Modal } from "./shared";
 import type { BatchAllocation } from "../types";
+import { fmtUsd } from "@/lib/utils/formatting";
 
 /**
  * Shown when a brewer reduces the percentage on a locked, paid allocation.
@@ -27,7 +28,7 @@ export function RefundAdjustmentModal({
   const newDepositCents = Math.round(paidCents * (newPercentage / currentPercentage));
   const refundCents = paidCents - newDepositCents;
 
-  const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
+  const fmt = (cents: number) => fmtUsd(cents / 100);
 
   return (
     <Modal title="Reduce Allocation & Refund" onClose={onClose}>

@@ -28,12 +28,12 @@ export default function IntakeTab() {
 
   return (
     <>
-      <div className="mb-4">
+      <div className="mt-4 mb-4">
         <h2 className="text-base font-medium text-zinc-100">Intake</h2>
         <p className="text-sm text-zinc-500 mt-0.5">Demand planning across taproom, distribution, and contract brewing</p>
       </div>
 
-      <div className="flex gap-1 mb-6 border-b border-zinc-800 sticky top-[5.25rem] md:static z-30 bg-zinc-950/95 -mx-4 sm:mx-0 px-4 sm:px-0 overflow-x-auto scrollbar-none">
+      <div className="flex gap-1 mb-6 border-b border-zinc-800 sticky top-[5.25rem] md:static z-30 bg-zinc-950/95 -mx-4 sm:mx-0 px-4 sm:px-0 overflow-x-auto overflow-y-hidden scrollbar-none">
         {SUBTABS.map(({ key, label }) => (
           <button
             key={key}

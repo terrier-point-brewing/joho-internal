@@ -131,9 +131,10 @@ export async function syncSquareInvoicesForYear(
       .from("invoices")
       .upsert(
         {
-          source:         "square",
-          external_id:    inv.id,
-          invoice_number: inv.invoice_number ?? inv.id,
+          source:            "square",
+          external_id:       inv.id,
+          square_invoice_id: inv.id,
+          invoice_number:    inv.invoice_number ?? null,
           invoice_date:   inv.created_at.slice(0, 10),
           due_date:       dueDate,
           customer_name:  recipientName(inv),

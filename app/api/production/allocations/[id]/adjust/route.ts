@@ -34,10 +34,10 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     return NextResponse.json({ error: "Allocation not found" }, { status: 404 });
   }
 
-  // 1. Must be in the refund-eligible state.
-  if (!allocation.locked || allocation.lock_reason !== "deposit_paid" || !allocation.invoice_paid_at) {
+  // 1. Must have a paid invoice — that's the only state this endpoint handles.
+  if (!allocation.invoice_paid_at) {
     return NextResponse.json(
-      { error: "This allocation is not a paid, locked deposit — use the regular PATCH route to edit it instead." },
+      { error: "This allocation does not have a paid invoice — use the regular PATCH route to edit it instead." },
       { status: 400 }
     );
   }

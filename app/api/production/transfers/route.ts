@@ -3,6 +3,7 @@ import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { BBL_TO_FL_OZ } from "@/lib/constants/production";
+import { checkAndCompleteBatch } from "@/lib/production/batchCompletion";
 
 export const dynamic = "force-dynamic";
 
@@ -169,7 +170,21 @@ async function reconcileSchedule(
           .not("actual_start", "is", null)
           .is("cancelled_at", null)
           .limit(1);
-        if (priorFerment && priorFerment.length > 0) targetStage = "conditioning";
+        if (priorFerment && priorFerment.length > 0) {
+          targetStage = "conditioning";
+          // Same-tank ferment → condition: close the open fermenting entry here
+          // because the departure block won't fire (tank never fully drains).
+          if (from_tank_id === to_tank_id) {
+            await supabase
+              .from("batch_schedule_entries")
+              .update({ actual_end: today, updated_at: new Date().toISOString() })
+              .eq("batch_id", batch_id)
+              .eq("stage", "fermenting")
+              .eq("equipment_id", to_tank_id)
+              .is("cancelled_at", null)
+              .is("actual_end", null);
+          }
+        }
       }
       arrivedStageResolved = targetStage;
       const isPackagingStageEarly = PACKAGING_STAGES.has(destTankInfo.type);
@@ -356,9 +371,9 @@ async function reconcileSchedule(
         .or(`from_tank_id.eq.${from_tank_id},to_tank_id.eq.${from_tank_id}`);
 
       const netInSrc = (allLedger ?? []).reduce((sum, row) => {
-        if (row.to_tank_id === from_tank_id) return sum + Number(row.volume_bbl);
-        if (row.from_tank_id === from_tank_id) return sum - Number(row.volume_bbl) - Number(row.shrinkage_bbl ?? 0);
-        return sum;
+        if (row.to_tank_id === from_tank_id && row.from_tank_id !== from_tank_id) return sum + Number(row.volume_bbl);
+        if (row.from_tank_id === from_tank_id && row.to_tank_id !== from_tank_id) return sum - Number(row.volume_bbl) - Number(row.shrinkage_bbl ?? 0);
+        return sum; // self-transfers net to zero
       }, 0);
 
       if (netInSrc <= 0.001) {
@@ -369,7 +384,15 @@ async function reconcileSchedule(
           ? ["fermenting", "conditioning"]
           : [EQ_TYPE_TO_STAGE[srcTankInfo.type]];
 
-        const { data: activeEntries } = await supabase
+        // Same-tank stage changes (e.g. fermenting -> conditioning while staying
+        // in the same fermenter) create/update a destination entry on this exact
+        // equipment_id in the arrival block above (arrivedEntryId), which would
+        // also match this stage+equipment filter since it's already open with
+        // actual_end null. Excluding it ensures we close the OLD (source) entry
+        // rather than racing and closing the brand-new one — which previously
+        // left the original entry stuck open forever, doubling its reconstructed
+        // "departed" volume in the equipment schedule graph.
+        let activeEntryQuery = supabase
           .from("batch_schedule_entries")
           .select("id, downstream_entry_id")
           .eq("batch_id", batch_id)
@@ -377,7 +400,10 @@ async function reconcileSchedule(
           .eq("equipment_id", from_tank_id)
           .is("cancelled_at", null)
           .is("actual_end", null)
+          .order("actual_start", { ascending: true })
           .limit(1);
+        if (arrivedEntryId) activeEntryQuery = activeEntryQuery.neq("id", arrivedEntryId);
+        const { data: activeEntries } = await activeEntryQuery;
 
         const activeEntry = activeEntries?.[0];
         if (activeEntry) {
@@ -418,9 +444,9 @@ async function reconcileSchedule(
       .or(`from_tank_id.eq.${from_tank_id},to_tank_id.eq.${from_tank_id}`);
 
     const netInTank = (ledgerRows ?? []).reduce((sum, row) => {
-      if (row.to_tank_id   === from_tank_id) return sum + Number(row.volume_bbl);
-      if (row.from_tank_id === from_tank_id) return sum - Number(row.volume_bbl) - Number(row.shrinkage_bbl ?? 0);
-      return sum;
+      if (row.to_tank_id   === from_tank_id && row.from_tank_id !== from_tank_id) return sum + Number(row.volume_bbl);
+      if (row.from_tank_id === from_tank_id && row.to_tank_id   !== from_tank_id) return sum - Number(row.volume_bbl) - Number(row.shrinkage_bbl ?? 0);
+      return sum; // self-transfers net to zero
     }, 0);
 
     if (netInTank > 0.001) {
@@ -610,6 +636,7 @@ export async function POST(req: NextRequest) {
     batch_id,
     from_tank_id,
     to_tank_id,
+    to_batch_id,
     transfer_type,
     notes,
     packaging_lines,
@@ -617,7 +644,8 @@ export async function POST(req: NextRequest) {
     batch_id: string;
     from_tank_id: string | null;
     to_tank_id: string | null;
-    transfer_type: "transfer" | "kegging" | "canning" | "conversion";
+    to_batch_id?: string | null;
+    transfer_type: "transfer" | "kegging" | "canning" | "conversion" | "brewing";
     notes: string | null;
     volume_bbl?: number;
     shrinkage_bbl?: number;
@@ -642,17 +670,28 @@ export async function POST(req: NextRequest) {
       .select("variation_id")
       .eq("recipe_id", recipe_id);
     const declaredIds = new Set((declaredRows ?? []).map((r) => r.variation_id));
-    if (declaredIds.size === 0) {
+
+    // Generic variations (no partner_id) are auto-available to every recipe
+    // without an explicit recipe_packaging_variations link.
+    const { data: genericRows } = await supabase
+      .from("packaging_variations")
+      .select("id")
+      .is("partner_id", null)
+      .eq("is_active", true);
+    const genericIds = new Set((genericRows ?? []).map((r) => r.id));
+
+    const acceptedIds = new Set([...declaredIds, ...genericIds]);
+    if (acceptedIds.size === 0) {
       return NextResponse.json(
         { error: "This recipe has no packaging variations declared — add one in Recipes → Packaging Variations before kegging/canning." },
         { status: 422 }
       );
     }
     const variationIds = packaging_lines.map((l) => l.variation_id);
-    const undeclared = variationIds.filter((id) => !declaredIds.has(id));
+    const undeclared = variationIds.filter((id) => !acceptedIds.has(id));
     if (undeclared.length > 0) {
       return NextResponse.json(
-        { error: `Variation ${undeclared[0]} is not declared for this recipe.` },
+        { error: `Variation ${undeclared[0]} is not declared for this recipe and is not a generic variation.` },
         { status: 422 }
       );
     }
@@ -719,6 +758,34 @@ export async function POST(req: NextRequest) {
         { status }
       );
     }
+  }
+
+  // ── Auto-complete: batch is done when all volume is kegged/canned/shrinkage ─
+  if (transfer_type === "kegging" || transfer_type === "canning") {
+    try {
+      await checkAndCompleteBatch(supabase, batch_id);
+    } catch (completionErr) {
+      console.error("[transfers] Batch completion check failed:", completionErr);
+    }
+  }
+
+  // ── Conversion side effects ────────────────────────────────────────────────
+  if (transfer_type === "conversion" && to_batch_id && transfers.length > 0) {
+    const transferId = (transfers[0] as { id?: string }).id;
+    if (transferId) {
+      // Stamp to_batch_id on the source transfer row
+      await supabase
+        .from("batch_transfers")
+        .update({ to_batch_id })
+        .eq("id", transferId);
+    }
+    // Mark the batch_conversions planning record as executed
+    await supabase
+      .from("batch_conversions")
+      .update({ converted_at: new Date().toISOString() })
+      .eq("source_batch_id", batch_id)
+      .eq("target_batch_id", to_batch_id)
+      .is("converted_at", null);
   }
 
   return NextResponse.json({ transfers, schedule_update: allScheduleUpdates }, { status: 201 });

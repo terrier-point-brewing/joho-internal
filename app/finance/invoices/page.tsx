@@ -144,7 +144,7 @@ function CoASelect({
 
 // ── Expandable invoice row ────────────────────────────────────────────────────
 
-interface InvoiceSummary { id: string; invoice_number: string | null; external_id: string | null; invoice_date: string | null; customer_name: string | null; status: string }
+interface InvoiceSummary { id: string; invoice_number: string | null; square_invoice_id: string | null; invoice_date: string | null; customer_name: string | null; status: string }
 
 function InvoiceExpandableRow({
   inv,
@@ -177,7 +177,7 @@ function InvoiceExpandableRow({
           <span className="text-zinc-600 text-[10px]">{expanded ? "▾" : "▸"}</span>
         </td>
         <td className="px-4 py-2 font-mono text-amber-400">
-          {inv.invoice_number ?? inv.external_id}
+          {inv.invoice_number ?? inv.square_invoice_id}
         </td>
         <td className="px-4 py-2 text-zinc-400">{fmtDate(inv.invoice_date)}</td>
         <td className="px-4 py-2 text-zinc-300">
@@ -339,7 +339,7 @@ function InvoiceLineItemRow({
                   <option value="">— no delivery invoice —</option>
                   {allInvoices.map((inv) => (
                     <option key={inv.id} value={inv.id}>
-                      {inv.invoice_number ?? inv.external_id ?? inv.id.slice(0, 8)}
+                      {inv.invoice_number ?? inv.square_invoice_id ?? inv.id.slice(0, 8)}
                       {inv.invoice_date ? ` · ${inv.invoice_date.slice(0, 7)}` : ""}
                       {inv.customer_name ? ` · ${inv.customer_name}` : ""}
                       {inv.status === "paid" ? " ✓" : ""}
@@ -617,7 +617,7 @@ export default function InvoicesPage() {
     })
     .sort((a, b) => {
       let diff = 0;
-      if (sortKey === "invoice_number") diff = (a.invoice_number ?? a.external_id ?? "").localeCompare(b.invoice_number ?? b.external_id ?? "");
+      if (sortKey === "invoice_number") diff = (a.invoice_number ?? a.square_invoice_id ?? "").localeCompare(b.invoice_number ?? b.square_invoice_id ?? "");
       else if (sortKey === "invoice_date") diff = (a.invoice_date ?? "").localeCompare(b.invoice_date ?? "");
       else if (sortKey === "customer_name") diff = (a.customer_name ?? "").localeCompare(b.customer_name ?? "");
       else if (sortKey === "source") diff = a.source.localeCompare(b.source);
@@ -779,7 +779,7 @@ export default function InvoicesPage() {
                     inv={inv}
                     accounts={accounts}
                     batches={batches}
-                    allInvoices={(raw ?? []).map((i) => ({ id: i.id, invoice_number: i.invoice_number ?? null, external_id: i.external_id ?? null, invoice_date: i.invoice_date ?? null, customer_name: i.customer_name ?? null, status: i.status }))}
+                    allInvoices={(raw ?? []).map((i) => ({ id: i.id, invoice_number: i.invoice_number ?? null, square_invoice_id: i.square_invoice_id ?? null, invoice_date: i.invoice_date ?? null, customer_name: i.customer_name ?? null, status: i.status }))}
                     onSaveLineItem={handleSaveLineItem}
                     onBatchChanged={() => refetch()}
                   />

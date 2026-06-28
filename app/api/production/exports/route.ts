@@ -1,36 +1,42 @@
 import { NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  try { await requireRole(["viewer"]); } catch (res) { return res as Response; }
-
   const supabase = await createSupabaseServerClient();
 
   const { data: txs, error } = await supabase
     .from("export_transactions")
-    .select(`
-      id, channel, recipient_id, recipient_name, variant_label,
-      quantity, volume_bbl, total_excise_tax_usd, status, invoice_id,
-      created_at,
-      brew_batches(id, beer_name, batch_number),
-      invoices!invoice_id(invoice_number)
-    `)
+    .select("*, brew_batches(id, beer_name, batch_number)")
     .order("created_at", { ascending: false });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  const enriched = (txs ?? []).map((tx) => {
-    const rawInv = Array.isArray(tx.invoices) ? tx.invoices[0] : tx.invoices;
-    const inv = rawInv as { invoice_number: string | null } | null | undefined;
-    return {
-      ...tx,
-      invoice_number: inv?.invoice_number ?? null,
-      invoices: undefined,
-    };
-  });
+  // Enrich with invoice_number from the invoices table, keyed on square_invoice_id.
+  const squareIds = [
+    ...new Set(
+      (txs ?? []).flatMap((t) => (t.square_invoice_id ? [t.square_invoice_id as string] : []))
+    ),
+  ];
+
+  let invNumBySquareId: Record<string, string | null> = {};
+  if (squareIds.length > 0) {
+    const { data: invoiceRows } = await supabase
+      .from("invoices")
+      .select("square_invoice_id, invoice_number")
+      .in("square_invoice_id", squareIds);
+    invNumBySquareId = Object.fromEntries(
+      (invoiceRows ?? []).map((i) => [i.square_invoice_id as string, i.invoice_number as string | null])
+    );
+  }
+
+  const enriched = (txs ?? []).map((tx) => ({
+    ...tx,
+    invoice_number: tx.square_invoice_id
+      ? (invNumBySquareId[tx.square_invoice_id] ?? null)
+      : null,
+  }));
 
   return NextResponse.json(enriched);
 }

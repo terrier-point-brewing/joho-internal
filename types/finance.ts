@@ -1,7 +1,7 @@
 // Finance ledger types — stored invoices (QB import + future Square sync)
 // Separate from the live Square API response types used in /api/finance/sales/*
 
-export type InvoiceSource = "quickbooks" | "square";
+export type InvoiceSource = "quickbooks" | "square" | "other";
 export type InvoiceStatus = "open" | "paid" | "voided" | "partial" | "unknown" | "draft";
 export type InvoiceType = "standard" | "allocation_deposit";
 
@@ -32,6 +32,7 @@ export interface Invoice {
   id: string;
   source: InvoiceSource;
   external_id: string;
+  square_invoice_id: string | null;
   invoice_number: string | null;
   invoice_date: string | null;        // ISO date string YYYY-MM-DD
   due_date: string | null;

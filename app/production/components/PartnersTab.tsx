@@ -317,7 +317,7 @@ export default function PartnersTab() {
   return (
     <>
       {/* Header + kind switcher */}
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mt-4 mb-4">
         <div>
           <h2 className="text-base font-medium text-zinc-100">Partners</h2>
           <p className="text-sm text-zinc-500 mt-0.5">Contract brewing partners and ingredient/packaging suppliers</p>

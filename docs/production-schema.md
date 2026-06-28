@@ -14,8 +14,10 @@ equipment                        ← formerly "tanks"
 brew_batches
   id, beer_name, batch_number (auto B-001…), planned_brew_date,
   volume_bbl, turns, status, notes, recipe_id, created_at
-  status: planning | brewing | fermenting | conditioning | ready_to_package | archived
+  status: planning | brewing | fermenting | conditioning | packaging | complete
   status is AUTO-SET by server side when transfers/assignments happen — do not edit directly
+  'complete' is set automatically by checkAndCompleteBatch() when batch_exhaustion.is_exhausted = true,
+  or manually via the Complete button in the batch log
 
 batch_status_history
   id, batch_id, status, note, changed_at
@@ -27,10 +29,23 @@ batch_tank_assignments           ← column names kept as tank_id (backward comp
 
 batch_transfers
   id, batch_id, from_tank_id, to_tank_id (→ equipment.id),
+  to_batch_id (→ brew_batches.id, null unless transfer_type='conversion'),
   volume_bbl, shrinkage_bbl, transfer_type, notes,
   kegging_detail (jsonb), canning_detail (jsonb), transferred_at
-  transfer_type: transfer | kegging | canning
+  transfer_type: transfer | kegging | canning | conversion
   Cold storage only reachable as destination from kegging or canning.
+  Conversion transfers draw volume from the source batch into the target batch's
+  receiving tank; to_batch_id is stamped after the RPC by the transfers route.
+
+batch_conversions                ← replaced channel='conversion' allocations + planned_conversion schedule entries
+  id, source_batch_id (→ brew_batches.id), target_batch_id (→ brew_batches.id),
+  source_equipment_id (→ equipment.id, nullable), volume_bbl, planned_date,
+  converted_at (null = pending, timestamptz = executed), notes, created_at
+  UNIQUE(source_batch_id, target_batch_id)
+  GET /api/production/batch-conversions — optional ?source_batch_id=, ?target_batch_id=, ?converted_at=null
+  POST /api/production/batch-conversions — inserts row; patches target batch converted_from_batch_id
+  Executing a conversion: POST /api/production/transfers with transfer_type='conversion'
+    and to_batch_id — sets converted_at on the batch_conversions row.
 
 ingredients
   id, name, supplier, unit, cost_per_unit, stock_quantity, created_at
@@ -75,9 +90,9 @@ DB helpers:
 | fermenter | Yes | Yes | fermenting |
 | brite | Yes | Yes | conditioning |
 | brewhouse | Yes | Yes | brewing |
-| cold_storage | No | No | archived |
-| kegging | No | No | ready_to_package |
-| canning | No | No | ready_to_package |
+| cold_storage | No | No | — (no auto-status) |
+| kegging | No | No | packaging |
+| canning | No | No | packaging |
 
 **Auto-status rule**: when a transfer is saved or a batch is assigned, the server looks up the destination equipment type and calls `PATCH /api/production/batches/:id` with the implied status — no manual status editing in the UI.
 
@@ -91,4 +106,4 @@ DB helpers:
 2. **Combo detection** (`lib/reports`) — misses combos where component price equals standalone price.
 3. **Brewery field on recipes** — free text; intended to become dropdown for known contract partners.
 4. **`/api/combo-sales`** — legacy route, not wired to any UI report.
-5. **Transfer to cold storage** marks batch "archived" — verify this matches the intended workflow for cold-stored packaged product.
+5. **Transfer to cold storage** no longer auto-transitions batch status (removed in 20260704 migration). Completion is handled by `checkAndCompleteBatch()` on full export, or manual Complete button.

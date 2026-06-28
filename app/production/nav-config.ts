@@ -1,4 +1,4 @@
-export type NavEntry = { href: string; match?: string; label: string; adminOnly?: boolean };
+export type NavEntry = { href: string; match?: string; label: string; adminOnly?: boolean; exact?: boolean };
 
 export const PRODUCTION_NAV: NavEntry[] = [
   { href: "/production/intake",    label: "Intake"    },
@@ -19,8 +19,8 @@ export const BREWING_NAV: NavEntry[] = [
 ];
 
 export const RECIPES_NAV: NavEntry[] = [
-  { href: "/production/recipes",                     label: "Recipes"             },
-  { href: "/production/recipes/variations",          label: "Variations"          },
+  { href: "/production/recipes",                     label: "Brewing Recipes",    exact: true },
+  { href: "/production/recipes/variations",          label: "Packaging Variations" },
   { href: "/production/recipes/brew-step-templates", label: "Brew Step Templates" },
 ];
 

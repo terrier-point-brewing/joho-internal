@@ -29,14 +29,18 @@ export function fmtDateTime(iso: string): string {
   );
 }
 
-export function fmtUsd(n: number): string {
-  return "$" + n.toFixed(2);
-}
-
 export function fmtBbl(v: number): string {
   return v.toFixed(3) + " BBL";
 }
 
 export function fmtBbl2(v: number): string {
   return v.toFixed(2) + " BBL";
+}
+
+export function fmtUsd(n: number): string {
+  return `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+export function fmtUsd0(n: number): string {
+  return `$${Math.round(n).toLocaleString("en-US")}`;
 }

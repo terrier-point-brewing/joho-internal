@@ -39,6 +39,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "container_id must reference a packaging_items row of type keg or can" }, { status: 400 });
   }
 
+  if (container.type === "can" && !lid_id) {
+    return NextResponse.json({ error: "lid_id is required for can packaging variations" }, { status: 400 });
+  }
+
   const total_volume_fl_oz = await computeTotalVolumeFlOz(supabase, {
     container_id, format, tray_id: tray_id || null, paktech_id: paktech_id || null,
   });

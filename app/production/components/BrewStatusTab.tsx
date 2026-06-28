@@ -15,8 +15,8 @@ import { useEquipmentCrud } from "../hooks/useEquipmentCrud";
 import { useBatchAssign } from "../hooks/useBatchAssign";
 import {
   useRecipePackagingVariationsQuery, usePackagingVariationsQuery, useEquipmentQuery, useAssignmentsQuery, useBatchesQuery,
-  useTransfersQuery, useRecipesQuery, useBatchScheduleQuery, productionKeys,
-  type ScheduleEntry,
+  useTransfersQuery, useRecipesQuery, useBatchScheduleQuery, useBatchConversionsQuery,
+  productionKeys, type ScheduleEntry,
 } from "../hooks/queries";
 import { useUserRole } from "@/lib/hooks/useUserRole";
 import { STAGE_LABELS } from "./EquipmentSchedule/constants";
@@ -79,6 +79,8 @@ export default function BrewStatusTab() {
   const { data: transfers = [] } = useTransfersQuery();
   const { data: recipes = [] } = useRecipesQuery();
   const { data: scheduleEntries = [] } = useBatchScheduleQuery();
+  const { data: allBatchConversions = [] } = useBatchConversionsQuery();
+  const pendingConversions = allBatchConversions.filter(c => !c.converted_at);
 
   // Deviation toast state
   const [deviationToast, setDeviationToast] = useState<{ message: string; equipment_name?: string } | null>(null);
@@ -115,42 +117,9 @@ export default function BrewStatusTab() {
   const [transferInitialDestId, setTransferInitialDestId] = useState<string | undefined>(undefined);
   const [transferInitialMode, setTransferInitialMode] = useState<"transfer" | "convert" | undefined>(undefined);
   const [transferInitialConvert, setTransferInitialConvert] = useState<{ toBatchId: string; beerName: string; bbl: string } | undefined>(undefined);
-  // Tracks batch IDs currently being sent to cold storage (kegging/canning one-click transfer)
-  const [pkgTransferring, setPkgTransferring] = useState<Set<string>>(new Set());
-
-  async function handleSendToColdStorage(batchId: string, fromTankId: string, incoming: typeof transfers[0][]) {
-    const coldStorage = tanks.find((t) => t.type === "cold_storage");
-    if (!coldStorage) { alert("No cold storage tank found on the floorplan."); return; }
-    if (incoming.length === 0) return;
-    setPkgTransferring((s) => new Set(s).add(batchId));
-    try {
-      const transfer_type = incoming[0].transfer_type;
-      const packaging_lines = incoming
-        .filter((tr) => tr.variation_id && tr.quantity)
-        .map((tr) => ({ variation_id: tr.variation_id!, quantity: tr.quantity! }));
-      const res = await fetch("/api/production/transfers", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          batch_id:      batchId,
-          from_tank_id:  fromTankId,
-          to_tank_id:    coldStorage.id,
-          shrinkage_bbl: 0,
-          transfer_type,
-          packaging_lines,
-        }),
-      });
-      if (!res.ok) throw new Error((await res.json()).error ?? "Error");
-      await onRefresh();
-    } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : "Transfer failed");
-    } finally {
-      setPkgTransferring((s) => { const n = new Set(s); n.delete(batchId); return n; });
-    }
-  }
   // Shared with the Inventory tab via the query cache (de-duped, no local fetch).
-  const { data: allPackagingVariations = [] } = usePackagingVariationsQuery();
   const { data: recipePackagingVariations = [] } = useRecipePackagingVariationsQuery();
+  const { data: allPackagingVariations = [] } = usePackagingVariationsQuery();
   // Grid size — initialized to defaults to avoid SSR/client hydration mismatch;
   // actual server value is fetched once after mount.
   const [gridCols, setGridCols] = useState(GRID_COLS);
@@ -242,8 +211,7 @@ export default function BrewStatusTab() {
     assignments.map((a) => [a.batch_id, tankById[a.tank_id]])
   );
   const assignedBatchIds   = new Set(assignments.map((a) => a.batch_id));
-  // Packaging-status batches live on their kegging/canning tile — don't show in backlog/unassigned
-  const unassignedBatches  = batches.filter((b) => b.status !== "complete" && b.status !== "packaging" && !assignedBatchIds.has(b.id));
+  const unassignedBatches  = batches.filter((b) => b.status !== "complete" && !assignedBatchIds.has(b.id));
   const planningBatches    = batches.filter((b) => b.status === "planning")
     .sort((a, b) => new Date(b.planned_brew_date).getTime() - new Date(a.planned_brew_date).getTime());
   const batchById          = Object.fromEntries(batches.map((b) => [b.id, b]));
@@ -303,22 +271,6 @@ export default function BrewStatusTab() {
       if (e.equipment_id) setPlansEquipmentId(e.equipment_id);
       return;
     }
-    if (e.stage === "planned_conversion") {
-      let conversionInfo: { beer_name?: string; child_batch_id?: string } = {};
-      try { conversionInfo = JSON.parse(e.notes ?? "{}"); } catch { /* malformed/missing notes — fall back to blanks */ }
-      const childBatch = conversionInfo.child_batch_id ? batchById[conversionInfo.child_batch_id] : undefined;
-      setTransferTankId(currentTank.id);
-      setTransferBatchId(e.batch_id);
-      setTransferFromVol(undefined);
-      setTransferInitialMode("convert");
-      setTransferInitialDestId(undefined);
-      setTransferInitialConvert({
-        toBatchId: childBatch?.id ?? "",
-        beerName: conversionInfo.beer_name ?? "",
-        bbl: e.volume_bbl != null ? String(e.volume_bbl) : "",
-      });
-      return;
-    }
     // In-place fermenting→conditioning, or any other transfer to a specific
     // planned tank: open Transfer mode with that tank pre-selected as the
     // destination (TransferModal falls back to its own first-valid-option
@@ -329,6 +281,23 @@ export default function BrewStatusTab() {
     setTransferInitialMode("transfer");
     setTransferInitialDestId(e.equipment_id ?? undefined);
     setTransferInitialConvert(undefined);
+  }
+
+  function openPendingConversionAction(conversionId: string) {
+    const conv = pendingConversions.find(c => c.id === conversionId);
+    if (!conv) return;
+    const sourceTank = conv.source_equipment_id ? tanks.find(t => t.id === conv.source_equipment_id) : null;
+    if (!sourceTank) return;
+    setTransferTankId(sourceTank.id);
+    setTransferBatchId(conv.source_batch_id);
+    setTransferFromVol(undefined);
+    setTransferInitialMode("convert");
+    setTransferInitialDestId(undefined);
+    setTransferInitialConvert({
+      toBatchId: conv.target_batch_id,
+      beerName:  conv.target_batch?.beer_name ?? "",
+      bbl:       String(conv.volume_bbl),
+    });
   }
 
   const [plansEquipmentId, setPlansEquipmentId] = useState<string | null>(null);
@@ -396,8 +365,8 @@ export default function BrewStatusTab() {
         </div>
       )}
 
-      {/* What's next — upcoming equipment-schedule tasks, soonest first */}
-      {upcomingTasks.length > 0 && (
+      {/* What's next — upcoming equipment-schedule tasks + pending conversions, soonest first */}
+      {(upcomingTasks.length > 0 || pendingConversions.length > 0) && (
         <div className="mb-4 rounded-lg border border-zinc-800 bg-zinc-900/50 px-3 py-2.5">
           <p className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500 mb-1.5">Up next</p>
           <div className="flex gap-2 overflow-x-auto pb-1">
@@ -408,8 +377,6 @@ export default function BrewStatusTab() {
               const currentTank = currentTankByBatchId[e.batch_id];
               const actionLabel = !currentTank
                 ? null
-                : e.stage === "planned_conversion"
-                ? "Convert"
                 : e.stage === "conditioning" && e.equipment_id === currentTank.id
                 ? "Confirm Conditioning"
                 : "Transfer";
@@ -435,6 +402,35 @@ export default function BrewStatusTab() {
                   {actionLabel && (
                     <span className="text-[9px] text-amber-600 font-medium mt-0.5">{actionLabel} →</span>
                   )}
+                </button>
+              );
+            })}
+            {/* Pending conversion cards — shown after schedule tasks */}
+            {pendingConversions.map(conv => {
+              const sourceBatch = batchById[conv.source_batch_id];
+              const sourceTank = conv.source_equipment_id ? tanks.find(t => t.id === conv.source_equipment_id) : null;
+              const overdue = conv.planned_date ? conv.planned_date < new Date().toISOString().slice(0, 10) : false;
+              return (
+                <button key={conv.id} onClick={() => openPendingConversionAction(conv.id)}
+                  className={`shrink-0 flex flex-col gap-0.5 text-left px-2.5 py-1.5 rounded border transition-colors min-w-[150px] ${
+                    overdue
+                      ? "border-red-800/60 bg-red-950/30 hover:bg-red-950/50"
+                      : "border-amber-900/50 bg-amber-950/20 hover:bg-amber-950/40"
+                  }`}
+                >
+                  <span className={`text-[9px] font-semibold uppercase tracking-wide ${overdue ? "text-red-400" : "text-amber-400"}`}>
+                    Conversion{sourceTank ? ` · ${sourceTank.name}` : ""}
+                  </span>
+                  <span className="text-xs text-zinc-200 truncate">
+                    {sourceBatch ? `#${sourceBatch.batch_number} ${sourceBatch.beer_name}` : "—"}
+                  </span>
+                  {conv.target_batch && (
+                    <span className="text-[10px] text-zinc-400">→ {conv.target_batch.beer_name}</span>
+                  )}
+                  <span className="text-[10px] text-zinc-500">
+                    {conv.planned_date ? fmtDate(conv.planned_date) : "—"}{` · ${Number(conv.volume_bbl).toFixed(1)} BBL`}
+                  </span>
+                  {sourceTank && <span className="text-[9px] text-amber-600 font-medium mt-0.5">Convert →</span>}
                 </button>
               );
             })}
@@ -672,35 +668,19 @@ export default function BrewStatusTab() {
                             .filter((tr) => tr.to_tank_id === tank.id)
                             .sort((a, b) => new Date(b.transferred_at).getTime() - new Date(a.transferred_at).getTime())
                             .map((tr) => batchById[tr.batch_id])
-                            .filter((b): b is BrewBatch => b?.status === "packaging")
+                            .filter((b): b is BrewBatch => !!b && b.status !== "complete")
                             .map((b) => [b.id, b] as [string, BrewBatch])
                         ).values()];
                         return pkgBatches.length === 0 ? (
                           <p className="text-sm text-zinc-600">Empty</p>
                         ) : (
                           <div className="space-y-2">
-                            {pkgBatches.map((b) => {
-                              const incoming = transfers
-                                .filter((tr) => tr.to_tank_id === tank.id && tr.batch_id === b.id)
-                                .sort((a, bb) => new Date(bb.transferred_at).getTime() - new Date(a.transferred_at).getTime())[0];
-                              return (
-                                <div key={b.id} className="flex items-center justify-between gap-2">
-                                  <div className="min-w-0">
-                                    {b.batch_number && <span className="text-xs text-zinc-500 font-mono mr-1">#{b.batch_number}</span>}
-                                    <span className="text-sm text-zinc-200 font-medium">{b.beer_name}</span>
-                                  </div>
-                                  {!editMode && incoming && (
-                                    <button
-                                      onClick={() => handleSendToColdStorage(b.id, tank.id, [incoming])}
-                                      disabled={pkgTransferring.has(b.id)}
-                                      className="text-xs text-amber-600 hover:text-amber-400 border border-amber-900 hover:border-amber-700 px-2 py-1 rounded transition-colors disabled:opacity-40 shrink-0"
-                                    >
-                                      {pkgTransferring.has(b.id) ? "…" : "→ Cold"}
-                                    </button>
-                                  )}
-                                </div>
-                              );
-                            })}
+                            {pkgBatches.map((b) => (
+                              <div key={b.id}>
+                                {b.batch_number && <span className="text-xs text-zinc-500 font-mono mr-1">#{b.batch_number}</span>}
+                                <span className="text-sm text-zinc-200 font-medium">{b.beer_name}</span>
+                              </div>
+                            ))}
                           </div>
                         );
                       })()
@@ -1106,7 +1086,7 @@ export default function BrewStatusTab() {
                             .filter((tr) => tr.to_tank_id === tank.id)
                             .sort((a, b) => new Date(b.transferred_at).getTime() - new Date(a.transferred_at).getTime())
                             .map((tr) => batchById[tr.batch_id])
-                            .filter((b): b is BrewBatch => b?.status === "packaging")
+                            .filter((b): b is BrewBatch => !!b && b.status !== "complete")
                             .map((b) => [b.id, b] as [string, BrewBatch])
                         ).values()];
 
@@ -1167,20 +1147,6 @@ export default function BrewStatusTab() {
                                         </div>
                                       )}
 
-                                      {/* One-click transfer to cold storage */}
-                                      {!editMode && incoming.length > 0 && (
-                                        <div className="pt-0.5">
-                                          <button
-                                            onClick={() => handleSendToColdStorage(b.id, tank.id, incoming)}
-                                            onMouseDown={(e) => e.stopPropagation()}
-                                            disabled={pkgTransferring.has(b.id)}
-                                            className="w-full text-amber-700 hover:text-amber-400 border border-amber-900 hover:border-amber-700 px-1.5 rounded transition-colors disabled:opacity-40"
-                                            style={{ fontSize: 9 }}
-                                          >
-                                            {pkgTransferring.has(b.id) ? "…" : "Transfer"}
-                                          </button>
-                                        </div>
-                                      )}
                                     </div>
                                   );
                                 })}
@@ -1335,6 +1301,7 @@ export default function BrewStatusTab() {
           recipePackagingVariations={recipePackagingVariations}
           allPackagingVariations={allPackagingVariations}
           recipes={recipes}
+          batches={batches}
           fromTankVolume={transferFromVol}
           plannedEntry={transferPlannedEntry}
           initialDestId={transferInitialDestId}
@@ -1360,7 +1327,7 @@ export default function BrewStatusTab() {
               <select className="inp" value={batchForm.recipe_id} onChange={(e) => handleRecipeChange(e.target.value)} required>
                 <option value="">— select a recipe —</option>
                 {recipes.map((r) => (
-                  <option key={r.id} value={r.id}>{r.beer_name}{r.contract_brewing_partners ? ` · ${r.contract_brewing_partners.company_name}` : ""}</option>
+                  <option key={r.id} value={r.id}>{r.beer_name}{r.brewery ? ` · ${r.brewery}` : ""}</option>
                 ))}
               </select>
             </Field>
@@ -1425,10 +1392,6 @@ export default function BrewStatusTab() {
             <div className="space-y-2 max-h-[60vh] overflow-y-auto">
               {(upcomingByEquipment.get(plansEquipment.id) ?? []).map((e) => {
                 const overdue = e.planned_start.slice(0, 10) < new Date().toISOString().slice(0, 10);
-                const isConversion = e.stage === "planned_conversion";
-                const conversionInfo = isConversion
-                  ? (() => { try { return JSON.parse(e.notes ?? "{}") as { beer_name?: string }; } catch { return null; } })()
-                  : null;
                 return (
                   <div key={e.id} className={`rounded border px-3 py-2 ${overdue ? "border-red-800/60 bg-red-950/20" : "border-zinc-700 bg-zinc-800/40"}`}>
                     <div className="flex items-center justify-between gap-2">
@@ -1439,12 +1402,11 @@ export default function BrewStatusTab() {
                     </div>
                     <p className="text-sm text-zinc-200 mt-0.5">
                       {e.brew_batches ? `#${e.brew_batches.batch_number} ${e.brew_batches.beer_name}` : "—"}
-                      {conversionInfo?.beer_name && <span className="text-zinc-500"> → {conversionInfo.beer_name}</span>}
                     </p>
                     {e.volume_bbl != null && (
                       <p className="text-xs text-zinc-500 mt-0.5">{Number(e.volume_bbl).toFixed(2)} BBL</p>
                     )}
-                    {e.notes && !isConversion && (
+                    {e.notes && (
                       <p className="text-xs text-zinc-600 mt-0.5 italic">{e.notes}</p>
                     )}
                   </div>

@@ -5,8 +5,7 @@ import {
   Ingredient, StockAdjustment, Recipe, BrewBatch,
   Equipment, BatchTankAssignment, PackagingItem, BatchTransfer,
   ContractBrewingPartner, Supplier, ExciseTaxRate, ExportServiceMapping, SquareCatalogOptions,
-  PackagingVariation, RecipePackagingVariation, RecipePackagingVariationExpanded,
-  RecipeSquareLinkRow, BatchConversion,
+  PackagingVariation, RecipePackagingVariation, BatchConversion,
 } from "../types";
 import { queryKeys } from "@/lib/query-keys";
 
@@ -141,7 +140,7 @@ export function usePackagingVariationsQuery() {
 export function useRecipePackagingVariationsQuery() {
   return useQuery({
     queryKey: productionKeys.recipePackagingVariations,
-    queryFn: () => fetchJson<RecipePackagingVariationExpanded[]>("/api/production/recipe-packaging-variations"),
+    queryFn: () => fetchJson<RecipePackagingVariation[]>("/api/production/recipe-packaging-variations"),
   });
 }
 
@@ -251,12 +250,5 @@ export function useIngredientShortfallsQuery(batchId: string, enabled = true) {
     queryFn: () => fetchJson<IngredientShortfall[]>(`/api/production/ingredient-shortfalls?batch_id=${batchId}`),
     enabled,
     staleTime: 60_000,
-  });
-}
-
-export function useRecipeSquareLinksQuery() {
-  return useQuery({
-    queryKey: queryKeys.production.recipeSquareLinks(),
-    queryFn: () => fetchJson<RecipeSquareLinkRow[]>("/api/production/recipe-square-links"),
   });
 }

@@ -50,6 +50,8 @@ export async function writeExportTransaction(
     allocationId: string | null;
     sourceTransferId: string;
     notes?: string | null;
+    packagingFormat: string;
+    unitsPerPackage: number;
   }
 ): Promise<string> {
   const taxBreakdown = await computeExciseTaxBreakdown(supabase, params.volumeBbl);
@@ -65,6 +67,8 @@ export async function writeExportTransaction(
       packaging_item_id: params.packagingItemId,
       variant_label: params.variantLabel,
       quantity: params.quantity,
+      packaging_format: params.packagingFormat,
+      units_per_package: params.unitsPerPackage,
       volume_bbl: Math.round(params.volumeBbl * 10000) / 10000,
       channel: params.channel,
       recipient_id: params.recipientId,

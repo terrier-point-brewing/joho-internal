@@ -19,15 +19,15 @@ export default function SubNav({
   const visible = entries.filter((e) => !e.adminOnly || isAdmin);
 
   const cls = mobile
-    ? "md:hidden flex border-b border-zinc-800 overflow-x-auto scrollbar-none"
+    ? "md:hidden flex border-b border-zinc-800 overflow-x-auto overflow-y-hidden scrollbar-none"
     : sticky
-    ? "flex gap-1 border-b border-zinc-800 overflow-x-auto scrollbar-none sticky top-11 md:static z-40 bg-zinc-950/95"
-    : "flex gap-1 border-b border-zinc-800 overflow-x-auto scrollbar-none";
+    ? "flex gap-1 border-b border-zinc-800 overflow-x-auto overflow-y-hidden scrollbar-none sticky top-11 md:static z-40 bg-zinc-950/95"
+    : "flex gap-1 border-b border-zinc-800 overflow-x-auto overflow-y-hidden scrollbar-none";
 
   return (
     <div className={cls}>
-      {visible.map(({ href, match, label }) => {
-        const active = pathname === href || pathname.startsWith(match ?? href + "/");
+      {visible.map(({ href, match, label, exact }) => {
+        const active = pathname === href || (!exact && pathname.startsWith(match ?? href + "/"));
         return (
           <Link
             key={href}

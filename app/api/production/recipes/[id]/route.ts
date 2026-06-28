@@ -14,7 +14,7 @@ export async function PATCH(
   const supabase = await createSupabaseServerClient();
 
   const { id } = await params;
-  const { beer_name, brewery, expected_yield_bbl, brew_time_weeks, days_brewhouse, days_fermenter, days_brite, steps, notes, ingredients: lines } = await req.json();
+  const { beer_name, brewery, expected_yield_bbl, brew_time_weeks, days_brewhouse, days_fermenter, days_brite, notes, ingredients: lines } = await req.json();
 
   const { error: recipeErr } = await supabase
     .from("recipes")
@@ -26,7 +26,6 @@ export async function PATCH(
       days_brewhouse: days_brewhouse || null,
       days_fermenter: days_fermenter || null,
       days_brite: days_brite || null,
-      steps: steps || null,
       notes: notes || null,
     })
     .eq("id", id);

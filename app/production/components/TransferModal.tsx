@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { Equipment, BrewBatch, PackagingVariation, PackagingVariationExpanded, Recipe, RecipePackagingVariation, RecipePackagingVariationExpanded, UNCONSTRAINED_EQUIPMENT_TYPES } from "../types";
+import { Equipment, BrewBatch, PackagingVariation, Recipe, RecipePackagingVariation, UNCONSTRAINED_EQUIPMENT_TYPES } from "../types";
 import { Modal, Field, ModalActions } from "./shared";
 import { EQ } from "../equipmentMeta";
 import { fmtBbl2 as fmtBbl } from "@/lib/utils/formatting";
@@ -44,7 +44,7 @@ interface TransferModalProps {
   occupiedTankIds: Set<string>;
   /** recipe_id(s) of whichever batch(es) currently occupy each tank, keyed by tank id */
   occupiedTankRecipeIds?: Record<string, (string | null)[]>;
-  recipePackagingVariations: RecipePackagingVariation[] | RecipePackagingVariationExpanded[];
+  recipePackagingVariations: RecipePackagingVariation[];
   allPackagingVariations: PackagingVariation[];
   recipes: Recipe[];
   /** Ledger volume currently in fromTank; falls back to batch.volume_bbl if omitted */
@@ -101,15 +101,15 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
   const linkedVariations = recipePackagingVariations
     .filter((rv) => rv.recipe_id === batch.recipe_id)
     .map((rv) => rv.packaging_variations)
-    .filter((v): v is PackagingVariationExpanded => v != null && v.is_active);
+    .filter((v): v is PackagingVariation => v != null && v.is_active);
   const genericVariations = allPackagingVariations.filter((v) => v.partner_id == null && v.is_active);
   const recipeVariations = [
     ...linkedVariations,
     ...genericVariations.filter((v) => !linkedVariations.some((lv) => lv.id === v.id)),
   ];
 
-  const kegVariations = recipeVariations.filter((v) => ("container" in v ? v.container?.type : (v as PackagingVariationExpanded).packaging_items?.type) === "keg");
-  const canVariations = recipeVariations.filter((v) => ("container" in v ? v.container?.type : (v as PackagingVariationExpanded).packaging_items?.type) === "can");
+  const kegVariations = recipeVariations.filter((v) => v.container?.type === "keg");
+  const canVariations = recipeVariations.filter((v) => v.container?.type === "can");
 
   const [packagingLines, setPackagingLines] = useState<PackagingLine[]>([{ variation_id: "", quantity: "" }]);
 
@@ -463,7 +463,7 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
                     onChange={(e) => setPackagingLines((ls) => ls.map((l, idx) => idx === i ? { ...l, variation_id: e.target.value } : l))}>
                     <option value="">— select variation —</option>
                     {(showKegDetail ? kegVariations : canVariations).map((v) => (
-                      <option key={v.id} value={v.id}>{"name" in v ? v.name : [v.format, v.packaging_items?.name].filter(Boolean).join(" ")}</option>
+                      <option key={v.id} value={v.id}>{v.name}</option>
                     ))}
                   </select>
                   <input type="number" min="0" className="inp" placeholder="qty"

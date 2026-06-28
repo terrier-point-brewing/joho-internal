@@ -36,6 +36,16 @@ export async function squarePost<T>(path: string, body: unknown): Promise<T> {
   return data as T;
 }
 
+export async function squareDelete(path: string, params?: Record<string, string>): Promise<void> {
+  const url = new URL(`${BASE}${path}`);
+  if (params) Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
+  const res = await fetch(url.toString(), { method: "DELETE", headers: makeHeaders() });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error((data as { errors?: { detail?: string }[] }).errors?.[0]?.detail ?? `Square DELETE ${path} failed`);
+  }
+}
+
 export async function squarePut<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method: "PUT",

@@ -3,15 +3,13 @@
 import { useState } from "react";
 import IngredientsTab      from "./IngredientsTab";
 import PackagingTab        from "./PackagingTab";
-import BrewsSubtab         from "./BrewsSubtab";
 import StockAdjustmentsTab from "./StockAdjustmentsTab";
 
-type SubTab = "ingredients" | "packaging" | "brews" | "adjustments";
+type SubTab = "ingredients" | "packaging" | "adjustments";
 
 const SUBTAB_LABELS: Record<SubTab, string> = {
   ingredients: "Ingredients",
   packaging:   "Packaging",
-  brews:       "Brews",
   adjustments: "Stock Adjustments",
 };
 
@@ -21,14 +19,14 @@ export default function InventoryTab() {
   return (
     <>
       {/* Header */}
-      <div className="mb-4">
+      <div className="mt-4 mb-4">
         <h2 className="text-base font-medium text-zinc-100">Inventory</h2>
-        <p className="text-sm text-zinc-500 mt-0.5">Ingredients, packaging materials, and brew inventory</p>
+        <p className="text-sm text-zinc-500 mt-0.5">Ingredients, packaging materials, and stock adjustments</p>
       </div>
 
       {/* Sub-tab bar */}
-      <div className="flex gap-1 mb-6 border-b border-zinc-800 sticky top-[5.25rem] md:static z-30 bg-zinc-950/95 -mx-4 sm:mx-0 px-4 sm:px-0 overflow-x-auto scrollbar-none">
-        {(["ingredients", "packaging", "brews", "adjustments"] as SubTab[]).map((t) => (
+      <div className="flex gap-1 mb-6 border-b border-zinc-800 sticky top-[5.25rem] md:static z-30 bg-zinc-950/95 -mx-4 sm:mx-0 px-4 sm:px-0 overflow-x-auto overflow-y-hidden scrollbar-none">
+        {(["ingredients", "packaging", "adjustments"] as SubTab[]).map((t) => (
           <button
             key={t}
             onClick={() => setSub(t)}
@@ -45,7 +43,6 @@ export default function InventoryTab() {
 
       {sub === "ingredients"  && <IngredientsTab />}
       {sub === "packaging"    && <PackagingTab />}
-      {sub === "brews"        && <BrewsSubtab />}
       {sub === "adjustments"  && <StockAdjustmentsTab />}
     </>
   );

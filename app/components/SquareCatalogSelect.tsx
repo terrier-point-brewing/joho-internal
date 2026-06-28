@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import type { SquareCatalogOptions } from "@/app/production/types";
 
 export function SquareCatalogSelect({
@@ -13,15 +14,31 @@ export function SquareCatalogSelect({
   variationId: string | null;
   onChange: (itemId: string | null, variationId: string | null) => void;
 }) {
-  const selectedItem = items.find((i) => i.itemId === itemId) ?? null;
+  // The backend requires item + variation together, so a freshly picked item
+  // with no variation yet can't be persisted — track it locally until a
+  // variation is chosen (or auto-resolve it when there's only one).
+  const [pendingItemId, setPendingItemId] = useState<string | null>(null);
+  const effectiveItemId = pendingItemId ?? itemId;
+  const selectedItem = items.find((i) => i.itemId === effectiveItemId) ?? null;
 
   return (
     <div className="flex items-center gap-1.5">
       <select
-        value={itemId ?? ""}
+        value={effectiveItemId ?? ""}
         onChange={(e) => {
           const newItemId = e.target.value || null;
-          onChange(newItemId, null);
+          if (!newItemId) {
+            setPendingItemId(null);
+            onChange(null, null);
+            return;
+          }
+          const item = items.find((i) => i.itemId === newItemId) ?? null;
+          if (item && item.variations.length === 1) {
+            setPendingItemId(null);
+            onChange(newItemId, item.variations[0].variationId);
+          } else {
+            setPendingItemId(newItemId);
+          }
         }}
         className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 focus:outline-none focus:border-amber-600"
       >
@@ -31,9 +48,13 @@ export function SquareCatalogSelect({
         ))}
       </select>
       <select
-        value={variationId ?? ""}
+        value={pendingItemId ? "" : (variationId ?? "")}
         disabled={!selectedItem}
-        onChange={(e) => onChange(itemId, e.target.value || null)}
+        onChange={(e) => {
+          const newVariationId = e.target.value || null;
+          setPendingItemId(null);
+          onChange(effectiveItemId, newVariationId);
+        }}
         className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 disabled:opacity-40 focus:outline-none focus:border-amber-600"
       >
         <option value="">— select variation —</option>

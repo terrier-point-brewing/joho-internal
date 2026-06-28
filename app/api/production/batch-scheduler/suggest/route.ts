@@ -105,12 +105,17 @@ export async function POST(req: NextRequest) {
       }
 
       if (bestEq && bestStart) {
+        // Brewing is a single-day event; end = start. Fermenting/conditioning span multiple days.
+        const schedEnd = stage.type === "brewhouse"
+          ? bestStart.toISOString().slice(0, 10)
+          : addDays(bestStart, stage.days).toISOString().slice(0, 10);
         eqSeq.push({
           stage: stage.type,
           equipment_id: bestEq.id,
           equipment_name: bestEq.name,
           scheduled_start: bestStart.toISOString().slice(0, 10),
-          scheduled_end: addDays(bestStart, stage.days).toISOString().slice(0, 10),
+          scheduled_end: schedEnd,
+          volume_bbl: volumeBbl,
         });
         stageStart = addDays(bestStart, stage.days);
       } else if (stage.type !== "brewhouse" && maxSingleCap > 0 && volumeBbl <= maxSingleCap * 2) {
@@ -125,8 +130,8 @@ export async function POST(req: NextRequest) {
           // Both must start on the same date — use the later of the two earliest starts
           const sharedStart = candidates[1].start;
           eqSeq.push(
-            { stage: stage.type, equipment_id: candidates[0].eq.id, equipment_name: candidates[0].eq.name, scheduled_start: sharedStart.toISOString().slice(0, 10), scheduled_end: addDays(sharedStart, stage.days).toISOString().slice(0, 10) },
-            { stage: stage.type, equipment_id: candidates[1].eq.id, equipment_name: candidates[1].eq.name, scheduled_start: sharedStart.toISOString().slice(0, 10), scheduled_end: addDays(sharedStart, stage.days).toISOString().slice(0, 10) },
+            { stage: stage.type, equipment_id: candidates[0].eq.id, equipment_name: candidates[0].eq.name, scheduled_start: sharedStart.toISOString().slice(0, 10), scheduled_end: addDays(sharedStart, stage.days).toISOString().slice(0, 10), volume_bbl: halfVol },
+            { stage: stage.type, equipment_id: candidates[1].eq.id, equipment_name: candidates[1].eq.name, scheduled_start: sharedStart.toISOString().slice(0, 10), scheduled_end: addDays(sharedStart, stage.days).toISOString().slice(0, 10), volume_bbl: halfVol },
           );
           stageStart = addDays(sharedStart, stage.days);
         } else {

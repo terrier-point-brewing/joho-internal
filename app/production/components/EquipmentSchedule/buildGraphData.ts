@@ -1,6 +1,6 @@
 import { type Node, type Edge, MarkerType, Position } from "@xyflow/react";
 import type { ScheduleEntry } from "../../hooks/queries";
-import type { BrewBatch, BatchTransfer } from "../../types";
+import type { BrewBatch, BatchTransfer, BatchConversion } from "../../types";
 import { STAGE_LABELS } from "./constants";
 
 const COL_STEP = 240;  // px between stage columns
@@ -41,9 +41,13 @@ function arrivedVolume(
   if (!entry?.volume_bbl) return 0;
   let vol = Number(entry.volume_bbl);
   if (entry.actual_end == null && entry.equipment_id && batch) {
+    // Same-tank transfers (from_tank_id === to_tank_id) are stage changes in
+    // place, e.g. fermenting -> conditioning without moving vessels. No volume
+    // actually left the tank, so they must not count as a "departure" here —
+    // otherwise the still-present volume gets added back on top of itself.
     const departedTotal = allTransfers
-      .filter(t => t.batch_id === batch.id && t.from_tank_id === entry.equipment_id)
-      .reduce((sum, t) => sum + Number(t.volume_bbl), 0);
+      .filter(t => t.batch_id === batch.id && t.from_tank_id === entry.equipment_id && t.to_tank_id !== entry.equipment_id)
+      .reduce((sum, t) => sum + Number(t.volume_bbl) + Number(t.shrinkage_bbl ?? 0), 0);
     if (departedTotal > 0) vol += departedTotal;
   }
   return vol;
@@ -59,8 +63,8 @@ function partialDrainInfo(
 ): { arrived: number; departed: number } | null {
   if (entry.actual_end != null || !entry.equipment_id || !batch) return null;
   const departed = allTransfers
-    .filter(t => t.batch_id === batch.id && t.from_tank_id === entry.equipment_id)
-    .reduce((sum, t) => sum + Number(t.volume_bbl), 0);
+    .filter(t => t.batch_id === batch.id && t.from_tank_id === entry.equipment_id && t.to_tank_id !== entry.equipment_id)
+    .reduce((sum, t) => sum + Number(t.volume_bbl) + Number(t.shrinkage_bbl ?? 0), 0);
   if (departed <= 0) return null;
   return { arrived: Number(entry.volume_bbl) + departed, departed };
 }
@@ -78,6 +82,7 @@ export function buildGraphData(
   batch: BrewBatch | undefined,
   allTransfers: BatchTransfer[],
   allScheduleEntries: ScheduleEntry[] = entries,
+  allBatchConversions: BatchConversion[] = [],
 ): { nodes: Node[]; edges: Edge[] } {
   const active       = entries.filter(e => !e.cancelled_at);
   const mainEntries  = active.filter(e => !e.planned_branch);
@@ -115,6 +120,12 @@ export function buildGraphData(
   // at, and the volume booked there — used to aggregate shrinkage across splits.
   const branchStartInfo: { originStage: string | null; startStage: string; volume: number }[] = [];
 
+  // Edge ID → split volume (BBL): fork edges get an indigo volume label.
+  const splitForkEdges = new Map<string, number>();
+  // Node ID → BBL converted out of that node's tank, split by completion state.
+  const completedConvBblByNodeId = new Map<string, number>();
+  const pendingConvBblByNodeId   = new Map<string, number>();
+
   // ── Build a single track ──────────────────────────────────────────────────
   function buildTrack(
     trackEntries: ScheduleEntry[],
@@ -136,9 +147,19 @@ export function buildGraphData(
     );
 
     let prevId: string | null = null;
+    // Non-null only before the first connect() call in a split branch — captured
+    // onto the fork edge so it gets an indigo volume label, then reset to null.
+    let pendingForkVol: number | null = null;
 
     const connect = (targetId: string) => {
-      if (prevId) addEdge(prevId, targetId);
+      if (prevId) {
+        const edgeId = `${prevId}->${targetId}`;
+        allEdges.push({ id: edgeId, source: prevId, target: targetId, ...EDGE_DEFAULTS });
+        if (pendingForkVol !== null && pendingForkVol > 0.001) {
+          splitForkEdges.set(edgeId, pendingForkVol);
+          pendingForkVol = null;
+        }
+      }
       prevId = targetId;
     };
 
@@ -170,7 +191,9 @@ export function buildGraphData(
         .find(s => nonPkgMap.has(s) || (pkgEntries.length > 0 && s === "conditioning"));
       const startStage = firstExistingStage ?? "conditioning";
 
-      // Fork edge: from the main track node at the stage BEFORE startStage
+      // Fork edge: from the main track node at the stage BEFORE startStage.
+      // Set pendingForkVol first so connect() stamps it onto the fork edge.
+      pendingForkVol = Number(nonPkgMap.get(startStage)?.volume_bbl ?? 0);
       const originStage = splitOriginStage(startStage);
       if (originStage) {
         const originId = mainNodeIdByStage.get(originStage);
@@ -204,7 +227,23 @@ export function buildGraphData(
 
     for (let i = 0; i < pkgEntries.length; i++) {
       const e = pkgEntries[i];
-      addNode(e.id, "entryNode", 3 + i, row, { entry: e });
+      const pkgShrinkage = batch
+        ? allTransfers
+            .filter(t => {
+              if (t.batch_id !== batch.id || t.to_tank_id !== e.equipment_id || t.transfer_type !== e.stage) return false;
+              // When multiple sessions go to the same equipment (e.g. two kegging runs),
+              // scope each entry to its own date so shrinkage isn't double-counted.
+              const entryStart = (e.actual_start ?? e.planned_start ?? "").slice(0, 10);
+              const entryEnd   = (e.actual_end   ?? e.planned_end   ?? "").slice(0, 10);
+              const txDate     = (t.transferred_at ?? "").slice(0, 10);
+              return !entryStart || (txDate >= entryStart && txDate <= entryEnd);
+            })
+            .reduce((sum, t) => sum + Number(t.shrinkage_bbl ?? 0), 0)
+        : 0;
+      addNode(e.id, "entryNode", 3 + i, row, {
+        entry: e,
+        packagingShrinkageBbl: pkgShrinkage > 0.001 ? pkgShrinkage : undefined,
+      });
       connect(e.id);
     }
 
@@ -238,7 +277,9 @@ export function buildGraphData(
   // legitimate downstream sink, not shrinkage.
   const conversionVolumeBySourceEquipmentId = new Map<string, number>();
   if (batch) {
-    const plannedConvEntriesForShrinkage = active.filter(e => e.stage === "planned_conversion");
+    const pendingConversions = allBatchConversions.filter(
+      c => c.source_batch_id === batch.id && !c.converted_at
+    );
     for (const cb of allBatches.filter(b => b.converted_from_batch_id === batch.id)) {
       const sourceTx = allTransfers
         .filter(t => t.batch_id === batch.id && t.transfer_type === "conversion" && t.to_batch_id === cb.id)
@@ -249,12 +290,10 @@ export function buildGraphData(
         sourceEquipmentId = sourceTx.from_tank_id;
         volumeBbl = Number(sourceTx.volume_bbl);
       } else {
-        const marker = plannedConvEntriesForShrinkage.find(e => {
-          try { return JSON.parse(e.notes ?? "{}").child_batch_id === cb.id; } catch { return false; }
-        });
-        if (!marker) continue;
-        sourceEquipmentId = marker.equipment_id;
-        volumeBbl = Number(marker.volume_bbl ?? cb.volume_bbl ?? 0);
+        const conv = pendingConversions.find(c => c.target_batch_id === cb.id);
+        if (!conv?.source_equipment_id) continue;
+        sourceEquipmentId = conv.source_equipment_id;
+        volumeBbl = Number(conv.volume_bbl);
       }
       if (!sourceEquipmentId) continue;
       conversionVolumeBySourceEquipmentId.set(
@@ -268,15 +307,10 @@ export function buildGraphData(
   // Shrinkage = upstream stage volume minus the sum of everything that came
   // out of it downstream (main track, any splits that forked there, and any
   // amount converted away directly from that stage's equipment).
-  // e.g. Brewing 40 bbl → Fermenting 36 bbl = 4 bbl shrinkage. If Fermenting's
-  // 36 bbl is then split into two Conditioning branches of 20 + 14, that's a
-  // further 2 bbl of shrinkage attributed to the Fermenting → Conditioning step.
-  // But if Fermenting's 40 bbl instead splits into a 10 bbl Conditioning branch
-  // and a 30 bbl converted batch, that's 40 bbl fully accounted for — no shrinkage.
-  const shrinkageLabelByUpstreamNodeId = new Map<string, string>();
-  // Same-edge alternative to shrinkage: the upstream tank hasn't fully drained
-  // yet (still mid partial-transfer), so the volume gap is "still arriving",
-  // not unaccounted-for loss. Mutually exclusive with shrinkage per edge.
+  // Displayed inside the upstream node body (same pattern as packaging nodes).
+  const shrinkageBblByNodeId = new Map<string, number>();
+  // Still-arriving alternative: upstream tank mid partial-drain while downstream
+  // is already filling — the gap is "en route", not lost. Shown on the edge.
   const partialFillLabelByUpstreamNodeId = new Map<string, string>();
   for (let i = 0; i < MAIN_PIPELINE.length - 1; i++) {
     const upstreamStage   = MAIN_PIPELINE[i];
@@ -315,7 +349,7 @@ export function buildGraphData(
     if (stillArriving) {
       partialFillLabelByUpstreamNodeId.set(upstreamNodeId, `+${gap.toFixed(2)} BBL more expected`);
     } else {
-      shrinkageLabelByUpstreamNodeId.set(upstreamNodeId, `−${gap.toFixed(2)} BBL shrinkage`);
+      shrinkageBblByNodeId.set(upstreamNodeId, gap);
     }
   }
 
@@ -324,11 +358,10 @@ export function buildGraphData(
   // tracks rather than sitting in-line with the row it forked from.
   if (batch) {
     let nextConvRow = 1 + branchNames.length;
-    const plannedConvEntries = active.filter(e => e.stage === "planned_conversion");
 
     for (const cb of allBatches.filter(b => b.converted_from_batch_id === batch.id)) {
       // Prefer an already-executed transfer (the conversion physically happened);
-      // otherwise fall back to the still-pending planned_conversion marker.
+      // otherwise fall back to the pending batch_conversions record.
       const sourceTx = allTransfers
         .filter(t => t.batch_id === batch.id && t.transfer_type === "conversion" && t.to_batch_id === cb.id)
         .sort((a, b) => new Date(a.transferred_at).getTime() - new Date(b.transferred_at).getTime())[0];
@@ -339,21 +372,26 @@ export function buildGraphData(
         sourceEquipmentId = sourceTx.from_tank_id;
         volumeBbl = Number(sourceTx.volume_bbl);
       } else {
-        const marker = plannedConvEntries.find(e => {
-          try { return JSON.parse(e.notes ?? "{}").child_batch_id === cb.id; } catch { return false; }
-        });
-        if (!marker) continue;
-        sourceEquipmentId = marker.equipment_id;
-        volumeBbl = Number(marker.volume_bbl ?? cb.volume_bbl ?? 0);
+        const conv = allBatchConversions.find(c => c.source_batch_id === batch.id && c.target_batch_id === cb.id);
+        if (!conv?.source_equipment_id) continue;
+        sourceEquipmentId = conv.source_equipment_id;
+        volumeBbl = Number(conv.volume_bbl);
       }
 
       // Find the node whose entry uses this source tank (any track), else fall
-      // back to that track's terminal node.
-      const sourceEntry = active.find(e => e.equipment_id === sourceEquipmentId && e.stage !== "planned_conversion");
+      // back to that track's terminal node. Prefer the most downstream stage
+      // (conditioning > fermenting) when the same tank hosts multiple stages.
+      const CONVERSION_STAGE_RANK: Record<string, number> = { brewhouse: 0, fermenting: 1, fermenter: 1, conditioning: 2 };
+      const sourceEntry = [...active]
+        .filter(e => e.equipment_id === sourceEquipmentId && e.stage !== "planned_conversion")
+        .sort((a, b) => (CONVERSION_STAGE_RANK[b.stage] ?? 0) - (CONVERSION_STAGE_RANK[a.stage] ?? 0))[0];
       const sourceNodeId = sourceEntry
         ? sourceEntry.id
         : trackEndNodeId.get(null);
       if (!sourceNodeId) continue;
+
+      const convMap = sourceTx ? completedConvBblByNodeId : pendingConvBblByNodeId;
+      convMap.set(sourceNodeId, (convMap.get(sourceNodeId) ?? 0) + volumeBbl);
 
       // Read the child batch's own current first schedule entry live, rather
       // than trusting the source's static planned_conversion marker — the
@@ -377,20 +415,49 @@ export function buildGraphData(
     }
   }
 
-  const edgesWithShrinkage: Edge[] = allEdges.map(edge => {
-    const partialFillLabel = partialFillLabelByUpstreamNodeId.get(edge.source);
-    const shrinkageLabel   = shrinkageLabelByUpstreamNodeId.get(edge.source);
-    const label = partialFillLabel ?? shrinkageLabel;
-    if (!label) return edge;
+  // ── Post-process nodes: inject stage shrinkage + conversion BBL ──────────
+  const finalNodes = allNodes.map(n => {
+    const shrinkageBbl     = shrinkageBblByNodeId.get(n.id);
+    const completedConvBbl = completedConvBblByNodeId.get(n.id);
+    const pendingConvBbl   = pendingConvBblByNodeId.get(n.id);
+    if (shrinkageBbl == null && completedConvBbl == null && pendingConvBbl == null) return n;
     return {
-      ...edge,
-      label,
-      labelStyle: { fill: partialFillLabel ? "#facc15" : "#f87171", fontSize: 10, fontWeight: 600 },
-      labelBgStyle: { fill: "#27272a", fillOpacity: 0.9 },
-      labelBgPadding: [4, 2] as [number, number],
-      labelBgBorderRadius: 4,
+      ...n,
+      data: {
+        ...n.data,
+        ...(shrinkageBbl     != null ? { stageShrinkageBbl: shrinkageBbl }     : {}),
+        ...(completedConvBbl != null ? { conversionBbl: completedConvBbl }      : {}),
+        ...(pendingConvBbl   != null ? { pendingConversionBbl: pendingConvBbl } : {}),
+      },
     };
   });
 
-  return { nodes: allNodes, edges: edgesWithShrinkage };
+  // ── Edge labels: partialFill (yellow, on edge) + split fork vol (indigo) ─
+  const finalEdges: Edge[] = allEdges.map(edge => {
+    const partialFillLabel = partialFillLabelByUpstreamNodeId.get(edge.source);
+    const splitVol         = splitForkEdges.get(edge.id);
+    if (partialFillLabel) {
+      return {
+        ...edge,
+        label: partialFillLabel,
+        labelStyle: { fill: "#facc15", fontSize: 10, fontWeight: 600 },
+        labelBgStyle: { fill: "#27272a", fillOpacity: 0.9 },
+        labelBgPadding: [4, 2] as [number, number],
+        labelBgBorderRadius: 4,
+      };
+    }
+    if (splitVol != null && splitVol > 0.001) {
+      return {
+        ...edge,
+        label: `${splitVol.toFixed(2)} BBL`,
+        labelStyle: { fill: "#818cf8", fontSize: 10, fontWeight: 600 },
+        labelBgStyle: { fill: "#27272a", fillOpacity: 0.9 },
+        labelBgPadding: [4, 2] as [number, number],
+        labelBgBorderRadius: 4,
+      };
+    }
+    return edge;
+  });
+
+  return { nodes: finalNodes, edges: finalEdges };
 }

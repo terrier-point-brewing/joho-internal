@@ -5,6 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Ingredient, AdjustmentType, IngredientCategory, INGREDIENT_CATEGORIES } from "../types";
 import { Modal, Field, ModalActions } from "./shared";
 import { useContractPartnersQuery, useSuppliersQuery, useIngredientsQuery, productionKeys } from "../hooks/queries";
+import { fmtUsd } from "@/lib/utils/formatting";
 
 const INGREDIENT_CATEGORY_META: Record<IngredientCategory, { color: string }> = {
   "Malts":        { color: "border-amber-700 bg-amber-900/30 text-amber-300" },
@@ -671,7 +672,7 @@ export default function IngredientsTab() {
                             </td>
                             <td className="px-3 py-2.5 text-zinc-400 whitespace-nowrap">{ing.unit}</td>
                             <td className="px-3 py-2.5 text-zinc-300 text-right tabular-nums whitespace-nowrap">
-                              {ing.cost_per_unit != null ? `$${Number(ing.cost_per_unit).toFixed(2)}` : "—"}
+                              {ing.cost_per_unit != null ? fmtUsd(Number(ing.cost_per_unit)) : "—"}
                             </td>
                             <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap">
                               <span className={Number(ing.stock_quantity) < 0 ? "text-red-400" : "text-zinc-300"}>
@@ -792,7 +793,7 @@ export default function IngredientsTab() {
               <div>
                 <p className="text-xs text-zinc-500 mb-0.5">Unit cost</p>
                 <p className="text-zinc-100 font-medium">
-                  {adjIngredient.cost_per_unit != null ? `$${Number(adjIngredient.cost_per_unit).toFixed(2)}` : "—"}
+                  {adjIngredient.cost_per_unit != null ? fmtUsd(Number(adjIngredient.cost_per_unit)) : "—"}
                 </p>
               </div>
               <div>
@@ -858,9 +859,9 @@ export default function IngredientsTab() {
                     <div className="flex justify-between">
                       <span className="text-zinc-500">Unit cost</span>
                       <span className="text-zinc-200">
-                        {currentCost != null ? `$${Number(currentCost).toFixed(2)}` : "—"}
+                        {currentCost != null ? fmtUsd(Number(currentCost)) : "—"}
                         {" → "}
-                        <span className="text-green-300">${Number(newCostPerUnit).toFixed(2)}</span>
+                        <span className="text-green-300">{fmtUsd(Number(newCostPerUnit))}</span>
                         {" (weighted avg)"}
                       </span>
                     </div>

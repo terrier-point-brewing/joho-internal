@@ -1,13 +1,13 @@
 import type { ScheduleEntry } from "../../hooks/queries";
+import type { BatchConversion } from "../../types";
 
 export const STAGE_LABELS: Record<string, string> = {
-  brewhouse:         "Brewing",
-  fermenter:         "Fermenting",
-  fermenting:        "Fermenting",
-  conditioning:      "Conditioning",
-  kegging:           "Kegging",
-  canning:           "Canning",
-  planned_conversion: "Conversion",
+  brewhouse:    "Brewing",
+  fermenter:    "Fermenting",
+  fermenting:   "Fermenting",
+  conditioning: "Conditioning",
+  kegging:      "Kegging",
+  canning:      "Canning",
 };
 
 export const STAGE_TO_EQ_TYPE: Record<string, string> = {
@@ -129,13 +129,22 @@ export type BranchPackagingStatus = {
   label: string;
   condBbl: number;
   pkgBbl: number;
-  status: "ok" | "incomplete" | "over" | "no_packaging";
+  pendingPkgBbl: number;    // packaging entries not yet completed (actual_end == null)
+  remainingCondBbl: number; // conditioning volume not yet covered by completed packaging
+  status: "ok" | "incomplete" | "over" | "no_packaging" | "no_planned_for_remaining";
 };
 
 export function computeBranchPackagingStatus(
   entries: ScheduleEntry[],
   batch?: { id: string },
-  allTransfers: { batch_id: string; from_tank_id: string | null; volume_bbl: number }[] = [],
+  allTransfers: {
+    batch_id: string;
+    from_tank_id: string | null;
+    volume_bbl: number;
+    shrinkage_bbl?: number;
+    transfer_type?: string;
+  }[] = [],
+  batchConversions: BatchConversion[] = [],
 ): BranchPackagingStatus[] {
   const active = entries.filter(e => !e.cancelled_at);
   const branches = [null, ...new Set(active.filter(e => e.planned_branch).map(e => e.planned_branch!))] as (string | null)[];
@@ -143,38 +152,81 @@ export function computeBranchPackagingStatus(
   return branches.flatMap(branch => {
     const bEntries = active.filter(e => branch === null ? !e.planned_branch : e.planned_branch === branch);
     const cond = bEntries.find(e => e.stage === "conditioning");
-    if (!cond?.volume_bbl) return [];
+    // No conditioning entry at all — the outer scheduleMissing check handles this case.
+    if (!cond) return [];
     // If conditioning is still receiving (open) and the upstream fermenter
     // hasn't fully drained yet, the rest of that volume is still expected —
     // compare packaging against the eventual total, not just what's landed
     // in conditioning so far.
-    let condBbl = Number(cond.volume_bbl);
+    let condBbl = Number(cond.volume_bbl ?? 0);
     if (cond.actual_end == null && cond.equipment_id && batch) {
       const ferment = bEntries.find(e => (e.stage === "fermenting" || e.stage === "fermenter") && e.equipment_id && e.actual_end == null);
       if (ferment?.equipment_id) {
         const departedFromFerment = allTransfers
           .filter(t => t.batch_id === batch.id && t.from_tank_id === ferment.equipment_id)
           .reduce((s, t) => s + Number(t.volume_bbl), 0);
-        // A planned (not-yet-executed) conversion out of this same tank is a
-        // legitimate sink, not volume still headed to conditioning — net it
-        // out so it isn't double-counted as "still expected".
-        const plannedConversionAway = active
-          .filter(e => e.stage === "planned_conversion" && e.equipment_id === ferment.equipment_id)
-          .reduce((s, e) => s + Number(e.volume_bbl ?? 0), 0);
+        // A pending conversion out of this same tank is a legitimate sink,
+        // not volume still headed to conditioning — net it out so it isn't
+        // double-counted as "still expected".
+        const plannedConversionAway = batchConversions
+          .filter(c => c.source_batch_id === batch?.id && c.source_equipment_id === ferment.equipment_id && !c.converted_at)
+          .reduce((s, c) => s + Number(c.volume_bbl), 0);
         const fermentArrivedTotal = Number(ferment.volume_bbl ?? 0) + departedFromFerment - plannedConversionAway;
         condBbl = Math.max(condBbl, fermentArrivedTotal);
       }
     }
-    const pkgBbl = bEntries
-      .filter(e => e.stage === "kegging" || e.stage === "canning")
+    // Net out any pending batch_conversions that pull volume directly from this
+    // conditioning tank. Those BBL are a legitimate downstream sink — they aren't
+    // expected to be packaged, so they should not inflate the required packaging
+    // target. Applies when fermenting is already closed and condBbl therefore
+    // reflects "currently remaining in tank" rather than the original arrived total.
+    const pendingConversionFromCond =
+      cond.equipment_id && batch
+        ? batchConversions
+            .filter(c => c.source_batch_id === batch.id && c.source_equipment_id === cond.equipment_id && !c.converted_at)
+            .reduce((s, c) => s + Number(c.volume_bbl), 0)
+        : 0;
+    const effectiveCondBbl = Math.max(0, condBbl - pendingConversionFromCond);
+
+    const pkgEntries = bEntries.filter(e => e.stage === "kegging" || e.stage === "canning");
+    const completedPkgBbl = pkgEntries
+      .filter(e => e.actual_end != null)
       .reduce((s, e) => s + Number(e.volume_bbl ?? 0), 0);
-    const hasPkg = bEntries.some(e => e.stage === "kegging" || e.stage === "canning");
+    const pendingPkgBbl = pkgEntries
+      .filter(e => e.actual_end == null)
+      .reduce((s, e) => s + Number(e.volume_bbl ?? 0), 0);
+    const pkgBbl = completedPkgBbl + pendingPkgBbl;
+    const pkgShrinkage = batch
+      ? allTransfers
+          .filter(t =>
+            t.batch_id === batch.id &&
+            (t.transfer_type === "kegging" || t.transfer_type === "canning"),
+          )
+          .reduce((s, t) => s + Number(t.shrinkage_bbl ?? 0), 0)
+      : 0;
+    const effectivePkgBbl = pkgBbl + pkgShrinkage;
+    // When conditioning is open and volume_bbl was NOT inflated by a still-draining
+    // fermenter, it represents the current remaining balance — completed packaging has
+    // already departed, so only subtract pending (future) runs to find what's unplanned.
+    // Otherwise (closed conditioning or ferment-inflated condBbl = full expected total),
+    // subtract all completed packaging and shrinkage.
+    const fermentInflated = condBbl > Number(cond.volume_bbl ?? 0);
+    const remainingCondBbl = (cond.actual_end == null && !fermentInflated)
+      ? Math.max(0, effectiveCondBbl - pendingPkgBbl)
+      : Math.max(0, effectiveCondBbl - completedPkgBbl - pkgShrinkage);
+    const hasPkg = pkgEntries.length > 0;
     const label = branch ?? "Main";
     let status: BranchPackagingStatus["status"] = "ok";
-    if (!hasPkg) status = "no_packaging";
-    else if (pkgBbl < condBbl - 0.01) status = "incomplete";
-    else if (pkgBbl > condBbl + 0.01) status = "over";
-    return [{ branch, label, condBbl, pkgBbl, status }];
+    // All remaining conditioning volume is committed to a pending conversion —
+    // no packaging required; whatever was already packaged is fine.
+    if (effectiveCondBbl <= 0 && pendingConversionFromCond > 0.001) status = "ok";
+    else if (!hasPkg) status = "no_packaging";
+    else if (condBbl <= 0) status = "incomplete";  // conditioning has no volume — can't verify
+    // Completed packaging runs left remaining volume with no planned runs to cover it.
+    else if (remainingCondBbl > 0.01 && pendingPkgBbl < 0.01) status = "no_planned_for_remaining";
+    else if (effectivePkgBbl < effectiveCondBbl - 0.01) status = "incomplete";
+    else if (effectivePkgBbl > effectiveCondBbl + 0.01) status = "over";
+    return [{ branch, label, condBbl, pkgBbl, pendingPkgBbl, remainingCondBbl, status }];
   });
 }
 

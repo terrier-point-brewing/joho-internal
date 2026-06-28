@@ -1,10 +1,10 @@
 import { SupabaseClient } from "@supabase/supabase-js";
+import { releaseCommitments } from "./commitments";
 
 /**
- * Checks batch_exhaustion for the given batch and, if fully exhausted,
- * transitions it to "complete" (idempotent — no-op if already complete).
- * Replaces the old cold-storage-arrival trigger, which fired before any
- * export had actually happened.
+ * Checks batch_exhaustion for the given batch and, if fully exhausted (all
+ * original volume accounted for via kegging, canning, conversion, or shrinkage),
+ * transitions it to "complete". Idempotent — no-op if already complete.
  */
 export async function checkAndCompleteBatch(supabase: SupabaseClient, batchId: string): Promise<void> {
   const { data: exhaustion } = await supabase
@@ -21,6 +21,7 @@ export async function checkAndCompleteBatch(supabase: SupabaseClient, batchId: s
   await supabase.from("batch_status_history").insert({
     batch_id: batchId,
     status: "complete",
-    note: "Auto: fully exported",
+    note: "Auto: fully packaged",
   });
+  await releaseCommitments(supabase, batchId);
 }

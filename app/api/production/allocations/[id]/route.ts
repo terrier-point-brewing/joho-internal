@@ -23,10 +23,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   if (fetchErr || !current) return NextResponse.json({ error: "Allocation not found" }, { status: 404 });
 
-  // A locked allocation cannot have its percentage reduced
-  if (current.locked && body.percentage != null && Number(body.percentage) < Number(current.percentage)) {
+  // A paid allocation cannot have its percentage reduced (use the adjust endpoint for refunds)
+  if (current.invoice_paid_at && body.percentage != null && Number(body.percentage) < Number(current.percentage)) {
     return NextResponse.json(
-      { error: "This allocation is locked and its percentage cannot be reduced." },
+      { error: "This allocation has a paid invoice and its percentage cannot be reduced directly. Use the refund adjustment flow instead." },
       { status: 422 }
     );
   }
@@ -58,7 +58,6 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   // Build update payload — only allow safe fields to be updated
   const update: Record<string, unknown> = {};
-  if (body.label != null) update.label = body.label;
   if (body.percentage != null) update.percentage = Number(body.percentage);
   if (body.notes !== undefined) update.notes = body.notes || null;
   if (body.partner_id !== undefined) update.partner_id = body.partner_id || null;
@@ -78,22 +77,6 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   ) {
     update.invoice_generated_at = null;
     update.invoice_sent_at = null;
-  }
-
-  // Lock / unlock logic
-  if (body.locked === true && !current.locked) {
-    if (!body.lock_reason || !["deposit_paid", "contract_signed"].includes(body.lock_reason)) {
-      return NextResponse.json({ error: "lock_reason must be 'deposit_paid' or 'contract_signed'" }, { status: 400 });
-    }
-    update.locked = true;
-    update.lock_reason = body.lock_reason;
-    update.locked_at = new Date().toISOString();
-  }
-  // Unlocking is only allowed if the caller explicitly passes locked: false and lock_reason is null
-  if (body.locked === false) {
-    update.locked = false;
-    update.lock_reason = null;
-    update.locked_at = null;
   }
 
   const { data, error } = await supabase
@@ -122,14 +105,14 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
 
   const { data: current, error: fetchErr } = await supabase
     .from("batch_allocations")
-    .select("locked")
+    .select("invoice_paid_at")
     .eq("id", id)
     .single();
 
   if (fetchErr || !current) return NextResponse.json({ error: "Allocation not found" }, { status: 404 });
 
-  if (current.locked) {
-    return NextResponse.json({ error: "Cannot delete a locked allocation." }, { status: 422 });
+  if (current.invoice_paid_at) {
+    return NextResponse.json({ error: "Cannot delete an allocation with a paid invoice." }, { status: 422 });
   }
 
   const { error } = await supabase.from("batch_allocations").delete().eq("id", id);

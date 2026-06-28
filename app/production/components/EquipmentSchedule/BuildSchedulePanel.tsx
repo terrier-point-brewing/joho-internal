@@ -204,13 +204,13 @@ export function BuildSchedulePanel({
       });
       if (!res.ok) throw new Error((await res.json()).error ?? "Suggestion failed");
       const result = await res.json() as {
-        equipment_sequence: { stage: BuildSlot["stage"]; equipment_id: string; scheduled_start: string; scheduled_end: string }[];
+        equipment_sequence: { stage: BuildSlot["stage"]; equipment_id: string; scheduled_start: string; scheduled_end: string; volume_bbl?: number }[];
       };
       const missingSlugs = new Set(missingPipeline.map(p => p.slot));
       setSlots(
         result.equipment_sequence
           .filter(s => missingSlugs.has(s.stage))
-          .map(s => ({ stage: s.stage, equipment_id: s.equipment_id, scheduled_start: s.scheduled_start, scheduled_end: s.scheduled_end }))
+          .map(s => ({ stage: s.stage, equipment_id: s.equipment_id, scheduled_start: s.scheduled_start, scheduled_end: s.scheduled_end, volume_bbl: s.volume_bbl != null ? String(s.volume_bbl) : undefined }))
       );
     } catch (e) {
       alert(e instanceof Error ? e.message : "Suggestion failed");

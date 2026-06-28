@@ -286,7 +286,7 @@ export default function AchievementTab() {
 
   const yMax   = chartView === "per-period" ? maxPerPeriod : maxCumulative;
   const yDomain: [number, number] = [0, yMax > 0 ? Math.ceil(yMax * 1.12) : 1000];
-  const yAxisFmt = (v: number) => v >= 1000 ? `$${(v / 1000).toFixed(0)}k` : `$${v}`;
+  const yAxisFmt = (v: number) => v >= 1000 ? `$${(v / 1000).toFixed(0)}k` : `$${v.toFixed(0)}`;
 
   // ---------------------------------------------------------------------------
   // Table: expected pace per period

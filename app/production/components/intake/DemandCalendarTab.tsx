@@ -101,9 +101,9 @@ export default function DemandCalendarTab() {
           <thead>
             <tr className="border-b border-zinc-800 bg-zinc-900/40 text-left">
               <th className="sticky left-0 z-10 bg-zinc-900/95 px-4 py-3 text-left font-medium text-zinc-500 whitespace-nowrap min-w-[200px]">Recipe</th>
-              <th className="px-3 py-3 text-right font-medium text-zinc-500 whitespace-nowrap">Now</th>
-              <th className="px-3 py-3 text-right font-medium text-zinc-500 whitespace-nowrap">Floor</th>
-              <th className="px-3 py-3 text-right font-medium text-zinc-500 whitespace-nowrap">Tap/wk</th>
+              <th className="px-3 py-3 text-right font-medium text-zinc-500 whitespace-nowrap">Now (bbl)</th>
+              <th className="px-3 py-3 text-right font-medium text-zinc-500 whitespace-nowrap">Floor (bbl)</th>
+              <th className="px-3 py-3 text-right font-medium text-zinc-500 whitespace-nowrap">Tap/wk (bbl)</th>
               <th className="px-3 py-3 text-center font-medium text-zinc-500 whitespace-nowrap">Lead</th>
               <th className="px-3 py-3 font-medium text-zinc-500 whitespace-nowrap">Status</th>
               {weekHeaders.map((h, i) => (

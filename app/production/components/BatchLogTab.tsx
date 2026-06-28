@@ -73,6 +73,8 @@ export default function BatchLogTab() {
   const [isConversionBatch, setIsConversionBatch] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [sort, setSort] = useState<{ col: SortCol; dir: "asc" | "desc" }>({ col: "status", dir: "asc" });
+  const [filterBeer, setFilterBeer] = useState("");
+  const [filterStatus, setFilterStatus] = useState("");
 
   // Derive computed volume from form state
   const selectedRecipe = recipes.find((r) => r.id === form.recipe_id);
@@ -221,14 +223,49 @@ export default function BatchLogTab() {
     await refresh();
   }
 
-  const allBatches = sortBatches(batches);
+  const uniqueBeerNames = Array.from(new Set(batches.map((b) => b.beer_name))).sort();
+  const filteredBatches = batches.filter((b) => {
+    if (filterBeer && b.beer_name !== filterBeer) return false;
+    if (filterStatus && b.status !== filterStatus) return false;
+    return true;
+  });
+  const allBatches = sortBatches(filteredBatches);
   const tankTypeById = Object.fromEntries(tanks.map((t) => [t.id, t.type]));
   const assignedBatchIds = new Set(assignments.map((a) => a.batch_id));
 
   return (
     <>
-      <div className="flex justify-end mb-4">
-        <button onClick={openNew} className="btn-amber">+ New Batch</button>
+      <div className="flex items-center gap-2 mb-4">
+        <select
+          className="inp text-sm py-1.5 px-2"
+          value={filterBeer}
+          onChange={(e) => setFilterBeer(e.target.value)}
+        >
+          <option value="">All beers</option>
+          {uniqueBeerNames.map((name) => (
+            <option key={name} value={name}>{name}</option>
+          ))}
+        </select>
+        <select
+          className="inp text-sm py-1.5 px-2"
+          value={filterStatus}
+          onChange={(e) => setFilterStatus(e.target.value)}
+        >
+          <option value="">All statuses</option>
+          <option value="planning">Planning</option>
+          <option value="fermenting">Fermenting</option>
+          <option value="conditioning">Conditioning</option>
+          <option value="complete">Complete</option>
+        </select>
+        {(filterBeer || filterStatus) && (
+          <button
+            onClick={() => { setFilterBeer(""); setFilterStatus(""); }}
+            className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+          >
+            Clear
+          </button>
+        )}
+        <button onClick={openNew} className="btn-amber ml-auto shrink-0">+ New Batch</button>
       </div>
 
       {recipes.length === 0 && (
@@ -266,7 +303,7 @@ export default function BatchLogTab() {
               <select className="inp" value={form.recipe_id} onChange={(e) => handleRecipeChange(e.target.value)} required>
                 <option value="">— select a recipe —</option>
                 {recipes.map((r) => (
-                  <option key={r.id} value={r.id}>{r.beer_name}{r.contract_brewing_partners ? ` · ${r.contract_brewing_partners.company_name}` : ""}</option>
+                  <option key={r.id} value={r.id}>{r.beer_name}{r.brewery ? ` · ${r.brewery}` : ""}</option>
                 ))}
               </select>
             </Field>
@@ -500,16 +537,19 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
   const { data: allBatchConversions = [] } = useBatchConversionsQuery();
   const batchConversions = allBatchConversions.filter(c => c.source_batch_id === batch.id);
 
-  const refresh = () => qc.invalidateQueries({ queryKey: allocKey });
+  const refresh = () => Promise.all([
+    qc.invalidateQueries({ queryKey: allocKey }),
+    qc.invalidateQueries({ queryKey: queryKeys.production.commitments() }),
+  ]);
   const batchVol = Number(batch.volume_bbl);
   // Always display allocations sorted by allocation % descending.
   const sortedAllocations = [...allocations].sort((a, b) => Number(b.percentage) - Number(a.percentage));
   const conversionPct = batchVol > 0
-    ? batchConversions.filter(c => !c.converted_at).reduce((s, c) => s + (Number(c.volume_bbl) / batchVol) * 100, 0)
+    ? batchConversions.reduce((s, c) => s + (Number(c.volume_bbl) / batchVol) * 100, 0)
     : 0;
   const totalPct = allocations.reduce((s, a) => s + Number(a.percentage), 0) + conversionPct;
   const remaining = 100 - totalPct;
-  const overAllocated = totalPct > 100;
+  const overAllocated = totalPct > 100.1;
 
   // ── Deposit invoice state ──────────────────────────────────────────────────
   const [invoiceModalAlloc, setInvoiceModalAlloc] = useState<BatchAllocation | null>(null);
@@ -771,7 +811,7 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
       </div>
 
       {/* Stacked allocation bar */}
-      {allocations.length > 0 && (
+      {(allocations.length > 0 || batchConversions.length > 0) && (
         <div className="space-y-1.5">
           <div className="w-full h-3 rounded-full bg-zinc-800 overflow-hidden flex">
             {sortedAllocations.map(a => {
@@ -779,6 +819,12 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
               const color = (CHANNEL_COLOR[a.channel as AllocationChannel] ?? CHANNEL_COLOR.safety_stock).bar;
               return (
                 <div key={a.id} style={{ width: `${pct}%`, background: color }} title={`${CHANNEL_OPTIONS.find(o => o.value === a.channel)?.label ?? a.channel}: ${pct}%`} />
+              );
+            })}
+            {batchConversions.map(c => {
+              const pct = Math.min(batchVol > 0 ? (Number(c.volume_bbl) / batchVol) * 100 : 0, 100);
+              return (
+                <div key={c.id} style={{ width: `${pct}%`, background: "#f59e0b" }} title={`Conversion → ${c.target_batch?.beer_name ?? "?"}: ${pct.toFixed(1)}%`} />
               );
             })}
             {/* Unallocated remainder */}
@@ -800,6 +846,13 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
                   {" "}<span className="tabular-nums text-zinc-400">{pct.toFixed(1)}%</span>
                 </span>
               ))}
+              {batchConversions.length > 0 && (
+                <span className="text-[10px] text-zinc-500 flex items-center gap-1">
+                  <span className="inline-block w-2 h-2 rounded-sm flex-none" style={{ background: "#f59e0b" }} />
+                  Conversion
+                  {" "}<span className="tabular-nums text-zinc-400">{conversionPct.toFixed(1)}%</span>
+                </span>
+              )}
             </div>
             <span className={`text-xs tabular-nums whitespace-nowrap ${overAllocated ? "text-red-400" : "text-zinc-500"}`}>
               {totalPct.toFixed(1)}% · {((totalPct / 100) * batchVol).toFixed(1)} BBL
@@ -809,6 +862,28 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
           </div>
         </div>
       )}
+
+      {/* Allocation incomplete banner */}
+      {remaining > 0.1 && (
+        <div className="px-3 py-2 rounded border border-blue-700/50 bg-blue-950/20 text-xs text-blue-400 leading-relaxed">
+          <span className="font-semibold">⚠ Allocation plan incomplete</span>
+          {" "}— {remaining.toFixed(1)}% ({((remaining / 100) * batchVol).toFixed(2)} BBL) unallocated.
+        </div>
+      )}
+
+      {/* Unpaid deposit invoices banner */}
+      {(() => {
+        const unpaid = allocations.filter(a => a.channel === "contract_brewing" && a.invoice_generated_at && !a.invoice_paid_at);
+        if (!unpaid.length) return null;
+        const sentCount = unpaid.filter(a => a.invoice_sent_at).length;
+        const label = unpaid.length === 1 ? "invoice" : "invoices";
+        return (
+          <div className="px-3 py-2 rounded border border-orange-700/50 bg-orange-950/20 text-xs text-orange-400 leading-relaxed">
+            <span className="font-semibold">⚠ Unpaid deposit {label}</span>
+            {" "}— {unpaid.length} contract brewing allocation{unpaid.length > 1 ? "s" : ""} {sentCount > 0 ? `(${sentCount} sent)` : ""} awaiting payment.
+          </div>
+        );
+      })()}
 
       {/* Allocation rows */}
       {allocations.length === 0 && !showAddForm && (
@@ -943,13 +1018,14 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
         </div>
       )}
 
-      {/* Read-only pending conversion rows */}
-      {batchConversions.filter(c => !c.converted_at).length > 0 && (
+      {/* Read-only conversion rows (pending and completed) */}
+      {batchConversions.length > 0 && (
         <div className="rounded-lg border border-amber-900/40 divide-y divide-zinc-800/60 overflow-hidden">
-          {batchConversions.filter(c => !c.converted_at).map(c => {
+          {batchConversions.map(c => {
             const pct = batchVol > 0 ? (Number(c.volume_bbl) / batchVol) * 100 : 0;
+            const isConverted = !!c.converted_at;
             return (
-              <div key={c.id} className="px-3 py-2.5 bg-amber-950/10">
+              <div key={c.id} className={`px-3 py-2.5 ${isConverted ? "bg-zinc-900/30" : "bg-amber-950/10"}`}>
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-center gap-2 flex-wrap min-w-0">
                     <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium border border-white/5 bg-amber-900/50 text-amber-300">
@@ -960,12 +1036,20 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
                         → {c.target_batch.batch_number ? `#${c.target_batch.batch_number} ` : ""}{c.target_batch.beer_name}
                       </span>
                     )}
-                    {c.planned_date && (
-                      <span className="text-xs text-zinc-500">planned {fmtDateLong(c.planned_date)}</span>
+                    {isConverted ? (
+                      <span className="inline-flex items-center text-[10px] font-medium text-emerald-400 bg-emerald-900/30 border border-emerald-800/40 rounded px-1.5 py-0.5">
+                        Converted
+                      </span>
+                    ) : (
+                      <>
+                        {c.planned_date && (
+                          <span className="text-xs text-zinc-500">planned {fmtDateLong(c.planned_date)}</span>
+                        )}
+                        <span className="inline-flex items-center text-[10px] font-medium text-zinc-500 bg-zinc-800/60 border border-zinc-700/50 rounded px-1.5 py-0.5">
+                          Pending
+                        </span>
+                      </>
                     )}
-                    <span className="inline-flex items-center text-[10px] font-medium text-zinc-500 bg-zinc-800/60 border border-zinc-700/50 rounded px-1.5 py-0.5">
-                      Pending
-                    </span>
                   </div>
                   <div className="flex items-center gap-3 flex-none text-xs tabular-nums text-zinc-400">
                     <span>{pct.toFixed(1)}%</span>
@@ -1182,7 +1266,7 @@ function BatchTable({
             const schedStages = new Set(batchSchedule.map(e => e.stage === "fermenter" ? "fermenting" : e.stage));
             const isConversion = !!b.converted_from_batch_id;
             const allBatchEntries = scheduleEntries.filter((e) => e.batch_id === b.id);
-            const pkgIncomplete = computeBranchPackagingStatus(allBatchEntries, b, transfers).some(s => s.status !== "ok");
+            const pkgIncomplete = computeBranchPackagingStatus(allBatchEntries, b, transfers, []).some(s => s.status !== "ok");
             const scheduleMissing = (!isConversion && !schedStages.has("brewhouse")) || (!isConversion && !schedStages.has("fermenting")) || !schedStages.has("conditioning") || pkgIncomplete;
 
             // Delivery: use stored field if set, else calculate from recipe
@@ -1214,12 +1298,14 @@ function BatchTable({
                           !
                         </span>
                       )}
+                      <AllocationBadge batchId={b.id} batchVol={Number(b.volume_bbl)} status={b.status} />
+                      <DepositInvoiceBadge batchId={b.id} status={b.status} />
                     </span>
                   </td>
                   <td className="px-4 py-2.5 text-zinc-100 font-medium">
                     {b.beer_name}
-                    {b.recipes?.contract_brewing_partners?.company_name && (
-                      <span className="ml-1.5 text-xs text-zinc-500">{b.recipes.contract_brewing_partners.company_name}</span>
+                    {b.recipes?.brewery && (
+                      <span className="ml-1.5 text-xs text-zinc-500">{b.recipes.brewery}</span>
                     )}
                     {b.converted_from_batch && (
                       <span className="ml-1.5 px-1.5 py-px rounded border border-amber-700/50 bg-amber-950/40 text-amber-400 text-[10px] font-normal whitespace-nowrap">
@@ -1234,9 +1320,9 @@ function BatchTable({
                   </td>
                   <td className="px-4 py-2.5 text-zinc-300 text-right tabular-nums">{Number(b.volume_bbl).toFixed(2)} BBL</td>
                   <td className="px-4 py-2.5 text-right tabular-nums">
-                    {(() => {
+                    {b.status === "planning" ? <span className="text-zinc-700">—</span> : (() => {
                       const bd = computeLocationBreakdown(b.id, Number(b.volume_bbl), transfers, tankTypeById, assignedBatchIds.has(b.id));
-                      const avail = bd.backlog + bd.brewhouse + bd.fermenter + bd.brite + bd.packaging + bd.coldStorage;
+                      const avail = bd.backlog + bd.brewhouse + bd.fermenter + bd.brite + bd.coldStorage;
                       return <span className={avail > 0 ? "text-green-400" : "text-zinc-700"}>{avail.toFixed(2)} BBL</span>;
                     })()}
                   </td>
@@ -1555,7 +1641,7 @@ function BatchVolumeBreakdown({
   const originalVol = Number(batch.volume_bbl ?? 0);
   const bd = computeLocationBreakdown(batch.id, originalVol, transfers, tankTypeById, isAssigned);
 
-  const available    = bd.backlog + bd.brewhouse + bd.fermenter + bd.brite + bd.packaging + bd.coldStorage;
+  const available    = bd.backlog + bd.brewhouse + bd.fermenter + bd.brite + bd.coldStorage;
   const availablePct = originalVol > 0 ? (available / originalVol) * 100 : 0;
   const exportedPct  = originalVol > 0 ? (bd.exported / originalVol) * 100 : 0;
   const shrinkagePct = originalVol > 0 ? (bd.shrinkage / originalVol) * 100 : 0;
@@ -1580,9 +1666,11 @@ function BatchVolumeBreakdown({
       {/* Bar + headline */}
       <div className="mb-3">
         <div className="flex items-baseline gap-2 mb-1.5">
-          <span className="text-sm font-semibold text-green-400 tabular-nums">{fmtBbl2(available)}</span>
+          {batch.status !== "planning" && (
+            <span className="text-sm font-semibold text-green-400 tabular-nums">{fmtBbl2(available)}</span>
+          )}
           <span className="text-xs text-zinc-500">
-            available of {fmtBbl2(originalVol)} total{!balanced && <span className="text-red-400 ml-1">⚠ unbalanced</span>}
+            {batch.status !== "planning" ? "available of " : ""}{fmtBbl2(originalVol)} total{!balanced && <span className="text-red-400 ml-1">⚠ unbalanced</span>}
           </span>
           {bd.converted > 0 && <span className="text-xs text-violet-400/80 ml-auto">{fmtBbl2(bd.converted)} converted</span>}
           {bd.exported > 0 && <span className="text-xs text-zinc-500">{fmtBbl2(bd.exported)} exported</span>}
@@ -1607,6 +1695,47 @@ function BatchVolumeBreakdown({
         </div>
       )}
     </div>
+  );
+}
+
+function AllocationBadge({ batchId, batchVol, status }: { batchId: string; batchVol: number; status: string }) {
+  const { data: allocations = [] } = useQuery({
+    queryKey: queryKeys.production.allocationsByBatch(batchId),
+    queryFn: () => fetchJson<BatchAllocation[]>(`/api/production/allocations?batch_id=${batchId}`),
+  });
+  const { data: allConversions = [] } = useBatchConversionsQuery();
+  const conversionPct = batchVol > 0
+    ? allConversions.filter(c => c.source_batch_id === batchId)
+        .reduce((s, c) => s + (Number(c.volume_bbl) / batchVol) * 100, 0)
+    : 0;
+  const totalPct = allocations.reduce((s, a) => s + Number(a.percentage), 0) + conversionPct;
+  if (totalPct >= 99.9) return null;
+  return (
+    <span
+      className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-blue-500 text-zinc-950 text-[10px] font-bold leading-none shrink-0"
+      title={`Allocation plan incomplete — ${totalPct.toFixed(1)}% allocated`}
+    >
+      !
+    </span>
+  );
+}
+
+function DepositInvoiceBadge({ batchId, status }: { batchId: string; status: string }) {
+  const { data: allocations = [] } = useQuery({
+    queryKey: queryKeys.production.allocationsByBatch(batchId),
+    queryFn: () => fetchJson<BatchAllocation[]>(`/api/production/allocations?batch_id=${batchId}`),
+  });
+  if (status === "complete") return null;
+  const unpaid = allocations.filter(a => a.channel === "contract_brewing" && a.invoice_generated_at && !a.invoice_paid_at);
+  if (!unpaid.length) return null;
+  const title = `${unpaid.length} unpaid deposit invoice${unpaid.length > 1 ? "s" : ""}`;
+  return (
+    <span
+      className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-orange-500 text-zinc-950 text-[10px] font-bold leading-none shrink-0"
+      title={title}
+    >
+      $
+    </span>
   );
 }
 

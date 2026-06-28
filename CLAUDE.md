@@ -29,6 +29,12 @@ Next.js 16 (App Router, TS, Tailwind v4) for Terrier Point Brewing. Square API (
 - New API routes: parse query params with `requireDateRange()`, wrap errors with `apiError()`
 - This Next.js version has breaking API/convention changes vs. training data — see `AGENTS.md`
 
+## Agent/Subagent Usage
+- Do NOT spawn subagents (Agent tool / Explore) for simple, single-file fixes or small well-scoped edits — read the file and make the change directly.
+- Reserve subagents for genuinely broad, multi-step, or open-ended tasks (cross-codebase exploration, multi-file refactors spanning unclear scope, parallelizable independent work).
+- When in doubt about scope, default to handling it directly first; only escalate to a subagent if direct exploration reveals the task is larger than expected.
+- **Full spec builds require an implementation plan + subagents.** When given a spec or multi-file feature to build, always write a plan first (superpowers:writing-plans), then execute it with parallel subagents (superpowers:subagent-driven-development). Do not attempt full spec builds as a single inline session.
+
 ## Architecture Priorities (strict)
 - **Modularity over inline logic, always.** No business logic in `app/api/**` or page components — extract to `lib/`. One responsibility per file/hook/module. If a file is doing two unrelated things, split it.
 - **Build for extension, not just the current ask.** This codebase grows by layering new features on existing tables/routes/hooks. Before writing new logic, check whether an existing `lib/` module, hook, or API route already owns that concern — extend it instead of duplicating.

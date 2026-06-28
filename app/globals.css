@@ -12,14 +12,17 @@ body {
 
 .btn-amber {
   padding: 0.375rem 0.75rem;
-  background: rgb(217 119 6);
-  color: white;
+  background: rgb(120 53 15 / 0.3);
+  color: rgb(252 211 77);
   font-size: 0.875rem;
   font-weight: 500;
   border-radius: 0.375rem;
+  border: 1px solid rgb(217 119 6);
   transition: background 0.15s;
+  cursor: pointer;
 }
-.btn-amber:hover { background: rgb(245 158 11); }
+.btn-amber:hover:not(:disabled) { background: rgb(120 53 15 / 0.5); }
+.btn-amber:disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* Markdown brew steps rendering */
 .prose-steps h1, .prose-steps h2, .prose-steps h3 {
@@ -38,16 +41,31 @@ body {
 
 .btn-ghost {
   padding: 0.375rem 0.75rem;
-  background: transparent;
+  background: rgb(39 39 42);
   color: #a1a1aa;
   font-size: 0.875rem;
   font-weight: 500;
   border-radius: 0.375rem;
   border: 1px solid #3f3f46;
   transition: color 0.15s, border-color 0.15s;
+  cursor: pointer;
 }
 .btn-ghost:hover:not(:disabled) { color: #e4e4e7; border-color: #71717a; }
 .btn-ghost:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.btn-danger {
+  padding: 0.375rem 0.75rem;
+  background: rgb(69 10 10 / 0.3);
+  color: rgb(252 165 165);
+  font-size: 0.875rem;
+  font-weight: 500;
+  border-radius: 0.375rem;
+  border: 1px solid rgb(185 28 28);
+  transition: background 0.15s;
+  cursor: pointer;
+}
+.btn-danger:hover:not(:disabled) { background: rgb(69 10 10 / 0.5); }
+.btn-danger:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .inp {
   width: 100%;

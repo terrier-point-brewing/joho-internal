@@ -7,7 +7,7 @@
  */
 
 import crypto from "crypto";
-import { squarePost, squareGet, squareLocationId } from "./client";
+import { squarePost, squareGet, squareDelete, squareLocationId } from "./client";
 import type { InvoiceLineItemDraft } from "@/lib/production/exportInvoicePreview";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -42,6 +42,7 @@ export interface DepositInvoiceResult {
   invoiceId: string;
   invoiceUrl: string | null;
   squareStatus: string;
+  invoiceNumber: string | null;
 }
 
 export interface CreateExportInvoiceParams {
@@ -55,13 +56,13 @@ export interface ExportInvoiceResult {
   orderId: string;
   invoiceId: string;
   invoiceUrl: string | null;
-  invoiceNumber: string | null;
   squareStatus: string;
+  invoiceNumber: string | null;
 }
 
 interface SquareOrderResponse   { order: { id: string } }
 interface SquareInvoiceResponse { invoice: { id: string; status: string; public_url?: string; version?: number; invoice_number?: string } }
-interface SquareInvoiceGetResponse { invoice: { id: string; status: string; public_url?: string; version: number; updated_at?: string } }
+interface SquareInvoiceGetResponse { invoice: { id: string; status: string; public_url?: string; version: number; updated_at?: string; invoice_number?: string } }
 interface SquareOrderTender {
   id: string;
   payment_id?: string;
@@ -160,7 +161,7 @@ interface CreateInvoiceCoreParams {
  * Creates a draft Square Order + Invoice (DRAFT status, never published —
  * publishing is always a separate, explicit `send` action in both flows).
  */
-async function createInvoice(params: CreateInvoiceCoreParams): Promise<{ orderId: string; invoiceId: string; invoiceUrl: string | null; invoiceNumber: string | null; squareStatus: string }> {
+async function createInvoice(params: CreateInvoiceCoreParams): Promise<{ orderId: string; invoiceId: string; invoiceUrl: string | null; squareStatus: string; invoiceNumber: string | null }> {
   const { squareCustomerId, title, description, lineItems, dueDays, dueDate, serviceDate, acceptedPaymentMethods, metadataType } = params;
   const loc = squareLocationId();
 
@@ -207,7 +208,7 @@ async function createInvoice(params: CreateInvoiceCoreParams): Promise<{ orderId
       customer_id: squareCustomerId,
       line_items: orderLineItems,
       ...(orderDiscounts.length > 0 ? { discounts: orderDiscounts } : {}),
-      state: "DRAFT",
+      state: "OPEN",
       metadata: { source: "tpb-brewing", type: metadataType },
     },
   });
@@ -241,8 +242,8 @@ async function createInvoice(params: CreateInvoiceCoreParams): Promise<{ orderId
     orderId,
     invoiceId: invoiceResp.invoice.id,
     invoiceUrl: invoiceResp.invoice.public_url ?? null,
-    invoiceNumber: invoiceResp.invoice.invoice_number ?? null,
     squareStatus: invoiceResp.invoice.status,
+    invoiceNumber: invoiceResp.invoice.invoice_number ?? null,
   };
 }
 
@@ -313,16 +314,21 @@ export async function publishInvoice(invoiceId: string): Promise<void> {
   });
 }
 
-/** Cancels a Square invoice (must be in DRAFT or UNPAID status). */
+/** Cancels or deletes a Square invoice depending on its current status.
+ *  Square requires DELETE for DRAFT invoices and POST /cancel for published ones. */
 export async function cancelInvoice(invoiceId: string): Promise<void> {
   const { invoice } = await squareGet<SquareInvoiceGetResponse>(`/invoices/${invoiceId}`);
-  await squarePost(`/invoices/${invoiceId}/cancel`, { version: invoice.version });
+  if (invoice.status === "DRAFT") {
+    await squareDelete(`/invoices/${invoiceId}`, { version: String(invoice.version) });
+  } else {
+    await squarePost(`/invoices/${invoiceId}/cancel`, { version: invoice.version });
+  }
 }
 
 /** Fetches the current status of an invoice from Square. */
 export async function getInvoiceStatus(
   invoiceId: string
-): Promise<{ status: string; paidAt: string | null; version: number; publicUrl: string | null }> {
+): Promise<{ status: string; paidAt: string | null; version: number; publicUrl: string | null; invoiceNumber: string | null }> {
   const { invoice } = await squareGet<SquareInvoiceGetResponse>(`/invoices/${invoiceId}`);
   const isPaid = invoice.status === "PAID";
   return {
@@ -330,6 +336,7 @@ export async function getInvoiceStatus(
     paidAt: isPaid ? (invoice.updated_at ?? new Date().toISOString()) : null,
     version: invoice.version,
     publicUrl: invoice.public_url ?? null,
+    invoiceNumber: invoice.invoice_number ?? null,
   };
 }
 

@@ -6,7 +6,7 @@ import { queryKeys } from "@/lib/query-keys";
 import {
   Recipe, ContractBrewingPartner, ContractBrewingRequest,
   ContractRequestStatus, CommitmentChannel, CommitmentAllocationSummary,
-  PackagingVariation, PackagingVariationExpanded,
+  PackagingVariation,
 } from "../../types";
 import { fmtDateLong } from "@/lib/utils/formatting";
 import { BBL_TO_FL_OZ } from "@/lib/constants/production";
@@ -204,9 +204,9 @@ function CommitmentModal({
   const recipeVariations = recipePackagingVariations
     .filter((rv) => rv.recipe_id === form.recipe_id)
     .map((rv) => rv.packaging_variations)
-    .filter((v): v is PackagingVariationExpanded => v != null && v.is_active);
-  const kegs = recipeVariations.filter((v) => v.packaging_items?.type === "keg");
-  const cans = recipeVariations.filter((v) => v.packaging_items?.type === "can");
+    .filter((v): v is PackagingVariation => v != null && v.is_active);
+  const kegs = recipeVariations.filter((v) => v.container?.type === "keg");
+  const cans = recipeVariations.filter((v) => v.container?.type === "can");
 
   useEffect(() => {
     const validIds = new Set(recipeVariations.map((v) => v.id));
@@ -374,12 +374,12 @@ function CommitmentModal({
                     <option value="">— not specified —</option>
                     {kegs.length > 0 && (
                       <optgroup label="Kegs">
-                        {kegs.map((v) => <option key={v.id} value={v.id}>{v.packaging_items?.name ?? v.id}</option>)}
+                        {kegs.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
                       </optgroup>
                     )}
                     {cans.length > 0 && (
                       <optgroup label="Cans">
-                        {cans.map((v) => <option key={v.id} value={v.id}>{v.packaging_items?.name ?? v.id}</option>)}
+                        {cans.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
                       </optgroup>
                     )}
                   </select>
@@ -430,7 +430,6 @@ function CommitmentModal({
 // ─── Sortable row shape ──────────────────────────────────────────────────────
 
 interface SortableRow extends ContractBrewingRequest {
-  beer_name: string;
   partner_name: string;
   packaging_total_bbl: number;
   schedule_sort: string;
@@ -606,7 +605,7 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
     return q.desired_delivery_date ? fmtDateLong(q.desired_delivery_date) : "—";
   }
 
-  const uniqueStyles = Array.from(new Set(rows.map((r) => r.recipes?.beer_name).filter(Boolean))).sort() as string[];
+  const uniqueStyles = Array.from(new Set(rows.map((r) => r.beer_style).filter(Boolean))).sort() as string[];
   const uniquePartners = Array.from(
     new Map(
       rows
@@ -617,14 +616,13 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
 
   const filtered = rows.filter((r) => {
     if (channelFilter !== "all" && r.channel !== channelFilter) return false;
-    if (filterStyle && (r.recipes?.beer_name ?? "") !== filterStyle) return false;
+    if (filterStyle && r.beer_style !== filterStyle) return false;
     if (filterPartner && r.partner_id !== filterPartner) return false;
     return true;
   });
 
   const sortableRows: SortableRow[] = filtered.map((q) => ({
     ...q,
-    beer_name: q.recipes?.beer_name ?? "",
     partner_name: q.contract_brewing_partners?.company_name ?? "",
     packaging_total_bbl: packagingTotalBbl(q),
     schedule_sort: q.cadence === "recurring" ? (q.start_date ?? "") : (q.desired_delivery_date ?? ""),
@@ -679,7 +677,7 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
               <tr className="border-b border-zinc-800 bg-zinc-900/50 text-left">
                 <SortTh label="Channel" col="channel" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-zinc-500 !py-2.5 whitespace-nowrap" />
                 <SortTh label="Status" col="status" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-zinc-500 !py-2.5" />
-                <SortTh label="Style" col="beer_name" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-zinc-500 !py-2.5" />
+                <SortTh label="Style" col="beer_style" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-zinc-500 !py-2.5" />
                 <SortTh label="Partner" col="partner_name" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-zinc-500 !py-2.5" />
                 <SortTh label="Volume (BBL)" col="volume_bbl" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-zinc-500 !py-2.5 whitespace-nowrap" />
                 <SortTh label="Packaging" col="packaging_total_bbl" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-zinc-500 !py-2.5" />
@@ -697,7 +695,7 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
                 <tr key={q.id} className={`border-b border-zinc-800/60 ${i % 2 !== 0 ? "bg-zinc-900/30" : ""}`}>
                   <td className="px-4 py-2.5 whitespace-nowrap"><ChannelBadge channel={q.channel} /></td>
                   <td className="px-4 py-2.5"><StatusBadge status={q.status} /></td>
-                  <td className="px-4 py-2.5 text-zinc-100 font-medium">{q.recipes?.beer_name ?? "—"}</td>
+                  <td className="px-4 py-2.5 text-zinc-100 font-medium">{q.beer_style}</td>
                   <td className="px-4 py-2.5 text-zinc-300">{q.contract_brewing_partners?.company_name ?? "—"}</td>
                   <td className="px-4 py-2.5 text-zinc-300 tabular-nums">{Number(q.volume_bbl)}</td>
                   <td className="px-4 py-2.5 text-zinc-400 text-xs">{pkgLabel(q)}</td>

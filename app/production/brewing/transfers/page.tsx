@@ -82,6 +82,10 @@ export default function TransferLogPage() {
   return (
     <main className="px-4 sm:px-6 py-4 sm:py-8">
       <SubNav entries={PRODUCTION_NAV} mobile sticky />
+      <div className="mt-4 mb-2">
+        <h2 className="text-base font-medium text-zinc-100">Brewing</h2>
+        <p className="text-sm text-zinc-500 mt-0.5">Batch tracking, fermentation monitoring, and equipment scheduling</p>
+      </div>
       <SubNav entries={BREWING_NAV} sticky />
 
       <div className="mt-4 space-y-4">
@@ -106,15 +110,9 @@ export default function TransferLogPage() {
               ))}
             </select>
           </div>
-          <button onClick={apply}
-            className="px-3 py-1.5 text-sm rounded border border-amber-600 bg-amber-900/30 text-amber-300 hover:bg-amber-900/50 transition-colors">
-            Apply
-          </button>
+          <button onClick={apply} className="btn-amber">Apply</button>
           {(applied.from || applied.to || applied.type || applied.batch_id) && (
-            <button onClick={clear}
-              className="px-3 py-1.5 text-sm rounded border border-zinc-700 bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition-colors">
-              Clear
-            </button>
+            <button onClick={clear} className="btn-ghost">Clear</button>
           )}
           <span className="ml-auto text-xs text-zinc-500 self-end">
             {isLoading ? "Loading…" : `${rows.length} record${rows.length !== 1 ? "s" : ""}`}

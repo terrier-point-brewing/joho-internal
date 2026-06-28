@@ -25,19 +25,27 @@ export function validateFormat(format: string, paktech_id: string | null, tray_i
   return null;
 }
 
+export async function getUnitsPerPackage(
+  supabase: SupabaseClient,
+  { format, tray_id, paktech_id }: { format: string; tray_id: string | null; paktech_id: string | null }
+): Promise<number> {
+  if (format === "case" && tray_id) {
+    const { data: tray } = await supabase.from("packaging_items").select("can_count").eq("id", tray_id).single();
+    return tray?.can_count ?? 1;
+  }
+  if ((format === "4-pack" || format === "6-pack") && paktech_id) {
+    const { data: paktech } = await supabase.from("packaging_items").select("can_count").eq("id", paktech_id).single();
+    return paktech?.can_count ?? 1;
+  }
+  return 1;
+}
+
 export async function computeTotalVolumeFlOz(
   supabase: SupabaseClient,
   { container_id, format, tray_id, paktech_id }: { container_id: string; format: string; tray_id: string | null; paktech_id: string | null }
 ): Promise<number> {
   const { data: container } = await supabase.from("packaging_items").select("volume_fl_oz").eq("id", container_id).single();
   const containerVolume = container?.volume_fl_oz ?? 0;
-  let unitsPerPackage = 1;
-  if (format === "case" && tray_id) {
-    const { data: tray } = await supabase.from("packaging_items").select("can_count").eq("id", tray_id).single();
-    unitsPerPackage = tray?.can_count ?? 1;
-  } else if ((format === "4-pack" || format === "6-pack") && paktech_id) {
-    const { data: paktech } = await supabase.from("packaging_items").select("can_count").eq("id", paktech_id).single();
-    unitsPerPackage = paktech?.can_count ?? 1;
-  }
+  const unitsPerPackage = await getUnitsPerPackage(supabase, { format, tray_id, paktech_id });
   return containerVolume * unitsPerPackage;
 }

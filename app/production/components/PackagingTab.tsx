@@ -5,7 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { PackagingItem, PackagingItemType, PackagingAdjustmentType } from "../types";
 import { Modal, Field, ModalActions } from "./shared";
 import { usePackagingQuery, useContractPartnersQuery, useSuppliersQuery, productionKeys } from "../hooks/queries";
-import PackagingVariationsPanel from "./PackagingVariationsPanel";
+import { fmtUsd } from "@/lib/utils/formatting";
 
 const PKG_ADJ_TYPES: { value: PackagingAdjustmentType; label: string; hint: string; sign: "positive" | "negative" | "count" }[] = [
   { value: "received",        label: "Received",        hint: "Stock received from supplier", sign: "positive" },
@@ -60,7 +60,6 @@ export default function PackagingTab() {
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
   const [filterType, setFilterType] = useState<PackagingItemType | "all">("all");
-  const [view, setView] = useState<"items" | "variations">("items");
 
   // Adjustment state
   const [adjItem, setAdjItem] = useState<PackagingItem | null>(null);
@@ -179,25 +178,6 @@ export default function PackagingTab() {
 
   return (
     <>
-      <div className="flex gap-2 mb-4">
-        <button
-          onClick={() => setView("items")}
-          className={`text-xs px-2.5 py-1 rounded border transition-colors ${view === "items" ? "border-zinc-500 text-zinc-200 bg-zinc-800" : "border-zinc-700 text-zinc-500 hover:text-zinc-300"}`}
-        >
-          Items
-        </button>
-        <button
-          onClick={() => setView("variations")}
-          className={`text-xs px-2.5 py-1 rounded border transition-colors ${view === "variations" ? "border-zinc-500 text-zinc-200 bg-zinc-800" : "border-zinc-700 text-zinc-500 hover:text-zinc-300"}`}
-        >
-          Variations
-        </button>
-      </div>
-
-      {view === "variations" ? (
-        <PackagingVariationsPanel />
-      ) : (
-        <>
       {/* Filter pills + Add Item inline */}
       <div className="flex items-center justify-between gap-2 mb-4 flex-wrap">
         <div className="flex gap-2 flex-wrap">
@@ -424,7 +404,7 @@ export default function PackagingTab() {
               </div>
               <div>
                 <p className="text-xs text-zinc-500 mb-0.5">Unit cost</p>
-                <p className="text-zinc-100 font-medium">{adjItem.unit_cost != null ? `$${Number(adjItem.unit_cost).toFixed(2)}` : "—"}</p>
+                <p className="text-zinc-100 font-medium">{adjItem.unit_cost != null ? fmtUsd(Number(adjItem.unit_cost)) : "—"}</p>
               </div>
             </div>
 
@@ -459,8 +439,6 @@ export default function PackagingTab() {
             <ModalActions submitting={adjSubmitting} onCancel={() => setAdjItem(null)} label="Record Adjustment" />
           </form>
         </Modal>
-      )}
-        </>
       )}
     </>
   );

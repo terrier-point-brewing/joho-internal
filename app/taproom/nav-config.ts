@@ -1,4 +1,4 @@
-export type NavEntry = { href: string; match?: string; label: string; adminOnly?: boolean };
+export type NavEntry = { href: string; match?: string; label: string; adminOnly?: boolean; exact?: boolean };
 
 export const TAPROOM_NAV: NavEntry[] = [
   { href: "/taproom/performance", label: "Performance" },
