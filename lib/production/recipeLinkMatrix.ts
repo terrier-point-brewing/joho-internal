@@ -159,11 +159,14 @@ export function buildMatrix(
   catalog: SquareCatalogOptions,
   columns: MatrixColumn[]
 ): MatrixGroup[] {
-  // Build a lookup: `${recipe_id}|${packaging_item_id}|${packaging_format ?? ""}` → link row
+  // Build a lookup: `${recipe_id}|${packaging_item_id}` → link row.
+  // NOTE: this legacy grid builder is superseded by buildVariationLinkMatrix
+  // (variation grain) and the RecipeLinkMatrix UI rework; recipe_square_links
+  // no longer carries packaging_format in the live schema.
   const linkMap = new Map<string, RecipeSquareLinkRow>();
   for (const l of links) {
     if (!l.packaging_item_id) continue;
-    const key = `${l.recipe_id}|${l.packaging_item_id}|${l.packaging_format ?? ""}`;
+    const key = `${l.recipe_id}|${l.packaging_item_id}`;
     linkMap.set(key, l);
   }
 
@@ -221,7 +224,7 @@ export function buildMatrix(
       }
 
       const pfmt = col.piType === "can" ? col.pvFormat : null;
-      const linkKey = `${recipe.id}|${piId}|${pfmt ?? ""}`;
+      const linkKey = `${recipe.id}|${piId}`;
       const link = linkMap.get(linkKey);
 
       if (link) {

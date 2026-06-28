@@ -319,8 +319,8 @@ export interface RecipeSquareLinkRow {
   id: string;
   recipe_id: string;
   packaging: "draft" | "keg" | "can";
+  variation_id: string | null;
   packaging_item_id: string | null;
-  packaging_format: string | null;
   square_variation_id: string;
   square_item_id: string | null;
   variation_name: string | null;
@@ -328,6 +328,7 @@ export interface RecipeSquareLinkRow {
   created_at: string;
   recipes?: { beer_name: string } | null;
   packaging_items?: { id: string; name: string; type: string; volume_fl_oz: number | null } | null;
+  packaging_variations?: { id: string; name: string } | null;
 }
 
 export type AllocationCadence = "one_time" | "recurring";
