@@ -78,6 +78,34 @@ export interface RecipePackagingVariation {
   packaging_variations?: PackagingVariation | null;
 }
 
+/** Expanded join used by the RecipeLinkMatrix — includes packaging_items and partner info. */
+export interface PackagingVariationExpanded {
+  id: string;
+  container_id: string;
+  format: PackagingVariationFormat;
+  partner_id: string | null;
+  total_volume_fl_oz: number;
+  is_active: boolean;
+  packaging_items: {
+    id: string;
+    name: string;
+    type: PackagingItemType;
+    volume_fl_oz: number | null;
+  } | null;
+  contract_brewing_partners: {
+    id: string;
+    company_name: string;
+  } | null;
+}
+
+export interface RecipePackagingVariationExpanded {
+  id: string;
+  recipe_id: string;
+  variation_id: string;
+  created_at: string;
+  packaging_variations: PackagingVariationExpanded | null;
+}
+
 export type PackagingAdjustmentType = "received" | "used" | "waste" | "inventory_count";
 
 export interface PackagingStockAdjustment {
@@ -124,9 +152,6 @@ export interface BatchTransfer {
   variation_id: string | null;
   quantity: number | null;
   packaging_variations?: { id: string; name: string } | null;
-  export_detail: {
-    items: { source_transfer_id: string; product_label: string; product_type: "keg" | "can"; quantity: number }[];
-  } | null;
   transferred_at: string;
   to_batch_id: string | null;
   from_tank?: { id: string; name: string; type: EquipmentType } | null;
@@ -140,6 +165,7 @@ export interface AvailableInventoryLine {
   recipe_id: string;
   variation_id: string;
   variation_name: string;
+  container_type: string | null;
   quantity_on_hand: number;
 }
 
@@ -325,7 +351,6 @@ export interface CommitmentAllocationSummary {
 export interface Commitment {
   id: string;
   recipe_id: string | null;
-  beer_style: string;
   partner_id: string | null;
   volume_bbl: number;
   desired_delivery_date: string | null;
@@ -392,7 +417,6 @@ export interface BatchAllocation {
   channel: AllocationChannel;
   contract_request_id: string | null;
   partner_id: string | null;
-  label: string | null;
   percentage: number;
   notes: string | null;
   created_at: string;
@@ -413,7 +437,7 @@ export interface BatchAllocation {
   // ── Joined fields ────────────────────────────────────────────────────────
   brew_batches?: { id: string; beer_name: string; batch_number: number; volume_bbl: number; recipe_id: string | null } | null;
   contract_brewing_partners?: { id: string; company_name: string } | null;
-  commitments?: { id: string; beer_style: string; volume_bbl: number; received_on: string | null; created_at: string; desired_delivery_date: string | null } | null;
+  commitments?: { id: string; volume_bbl: number; received_on: string | null; created_at: string; desired_delivery_date: string | null } | null;
   // Computed fulfillment fields (returned by API)
   produced_bbl: number | null;
   allocated_bbl: number | null;

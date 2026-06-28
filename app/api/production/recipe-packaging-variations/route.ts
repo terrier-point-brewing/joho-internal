@@ -9,7 +9,14 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from("recipe_packaging_variations")
-    .select("*, packaging_variations(*)")
+    .select(`
+      id, recipe_id, variation_id, created_at,
+      packaging_variations(
+        id, container_id, format, partner_id, total_volume_fl_oz, is_active,
+        packaging_items:container_id(id, name, type, volume_fl_oz),
+        contract_brewing_partners(id, company_name)
+      )
+    `)
     .order("created_at");
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data);
