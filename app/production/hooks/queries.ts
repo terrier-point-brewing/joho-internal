@@ -6,7 +6,7 @@ import {
   Equipment, BatchTankAssignment, PackagingItem, BatchTransfer,
   ContractBrewingPartner, Supplier, ExciseTaxRate, ExportServiceMapping, SquareCatalogOptions,
   PackagingVariation, RecipePackagingVariation, RecipePackagingVariationExpanded,
-  RecipeSquareLinkRow, BatchConversion,
+  RecipeSquareLinkRow, BatchConversion, MappingGridResponse,
 } from "../types";
 import { queryKeys } from "@/lib/query-keys";
 
@@ -158,6 +158,13 @@ export function useRecipeSquareLinksQuery() {
   return useQuery({
     queryKey: queryKeys.production.recipeSquareLinks(),
     queryFn: () => fetchJson<RecipeSquareLinkRow[]>("/api/production/recipe-square-links"),
+  });
+}
+
+export function useSquareMappingGridQuery() {
+  return useQuery({
+    queryKey: ["production", "square-mapping-grid"] as const,
+    queryFn: () => fetchJson<MappingGridResponse>("/api/production/recipe-square-links?grid=1"),
   });
 }
 

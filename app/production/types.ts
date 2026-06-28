@@ -613,3 +613,42 @@ export interface SquareCatalogOptions {
   items: { itemId: string; itemName: string; variations: { variationId: string; variationName: string }[] }[];
   discounts: { id: string; name: string }[];
 }
+
+// ── Square Mappings Grid ──────────────────────────────────────────────────────
+
+export interface MappingColumn {
+  key: string;
+  label: string;
+  type: "draft" | "keg" | "can";
+  volumeFlOz: number | null;
+  format: string | null;
+}
+
+export interface MappingCellVariation {
+  variationId: string;
+  variationName: string;
+  linkId: string | null;
+  linkedSquareCatalogVariationId: string | null;
+  linkedSquareName: string | null;
+  suggestion: {
+    squareCatalogVariationId: string | null;
+    squareVariationId: string;
+    squareName: string;
+    confidence: "high" | "medium";
+  } | null;
+}
+
+export interface MappingCell {
+  variations: MappingCellVariation[];
+}
+
+export interface MappingGridRow {
+  recipeId: string;
+  recipeName: string;
+  cells: Record<string, MappingCell | null>;
+}
+
+export interface MappingGridResponse {
+  columns: MappingColumn[];
+  rows: MappingGridRow[];
+}
