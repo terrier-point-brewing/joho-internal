@@ -266,7 +266,7 @@ export default function BatchLogTab() {
               <select className="inp" value={form.recipe_id} onChange={(e) => handleRecipeChange(e.target.value)} required>
                 <option value="">— select a recipe —</option>
                 {recipes.map((r) => (
-                  <option key={r.id} value={r.id}>{r.beer_name}{r.brewery ? ` · ${r.brewery}` : ""}</option>
+                  <option key={r.id} value={r.id}>{r.beer_name}{r.contract_brewing_partners ? ` · ${r.contract_brewing_partners.company_name}` : ""}</option>
                 ))}
               </select>
             </Field>
@@ -1182,7 +1182,7 @@ function BatchTable({
             const schedStages = new Set(batchSchedule.map(e => e.stage === "fermenter" ? "fermenting" : e.stage));
             const isConversion = !!b.converted_from_batch_id;
             const allBatchEntries = scheduleEntries.filter((e) => e.batch_id === b.id);
-            const pkgIncomplete = computeBranchPackagingStatus(allBatchEntries, b, transfers, []).some(s => s.status !== "ok");
+            const pkgIncomplete = computeBranchPackagingStatus(allBatchEntries, b, transfers).some(s => s.status !== "ok");
             const scheduleMissing = (!isConversion && !schedStages.has("brewhouse")) || (!isConversion && !schedStages.has("fermenting")) || !schedStages.has("conditioning") || pkgIncomplete;
 
             // Delivery: use stored field if set, else calculate from recipe
@@ -1218,8 +1218,8 @@ function BatchTable({
                   </td>
                   <td className="px-4 py-2.5 text-zinc-100 font-medium">
                     {b.beer_name}
-                    {b.recipes?.brewery && (
-                      <span className="ml-1.5 text-xs text-zinc-500">{b.recipes.brewery}</span>
+                    {b.recipes?.contract_brewing_partners?.company_name && (
+                      <span className="ml-1.5 text-xs text-zinc-500">{b.recipes.contract_brewing_partners.company_name}</span>
                     )}
                     {b.converted_from_batch && (
                       <span className="ml-1.5 px-1.5 py-px rounded border border-amber-700/50 bg-amber-950/40 text-amber-400 text-[10px] font-normal whitespace-nowrap">

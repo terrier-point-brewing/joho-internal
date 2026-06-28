@@ -3,6 +3,11 @@
 import { Modal } from "./shared";
 import type { DepositCalculation } from "@/lib/square/square-invoices";
 
+export interface MarkPaidData {
+  payment_date?: string;
+  notes?: string;
+}
+
 /** Minimal shape needed to render the deposit invoice modal — satisfied by
  *  both BatchAllocation (Batch Log) and CommitmentAllocationSummary (Commitments). */
 export interface DepositInvoiceAllocationLike {
@@ -24,7 +29,10 @@ export function DepositInvoiceModal({
   preview: { calculation: DepositCalculation } | null;
   loading: boolean;
   generating: boolean;
+  defaultMode?: "generate" | "mark_paid";
   onGenerate: () => void;
+  onMarkPaid?: (data: MarkPaidData) => void;
+  markingPaid?: boolean;
   onClose: () => void;
 }) {
   const partner = allocation.contract_brewing_partners;

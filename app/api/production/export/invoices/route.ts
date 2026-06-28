@@ -32,7 +32,7 @@ export async function GET() {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   const enriched = (data ?? []).map((inv) => {
-    const partner = inv.contract_brewing_partners as { company_name: string } | null;
+    const partner = inv.contract_brewing_partners as unknown as { company_name: string } | null;
     return {
       id: inv.id,
       invoice_number: inv.invoice_number,

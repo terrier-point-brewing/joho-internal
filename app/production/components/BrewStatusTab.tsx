@@ -14,7 +14,7 @@ import { useTankDragDrop } from "../hooks/useTankDragDrop";
 import { useEquipmentCrud } from "../hooks/useEquipmentCrud";
 import { useBatchAssign } from "../hooks/useBatchAssign";
 import {
-  useRecipePackagingVariationsQuery, useEquipmentQuery, useAssignmentsQuery, useBatchesQuery,
+  useRecipePackagingVariationsQuery, usePackagingVariationsQuery, useEquipmentQuery, useAssignmentsQuery, useBatchesQuery,
   useTransfersQuery, useRecipesQuery, useBatchScheduleQuery, productionKeys,
   type ScheduleEntry,
 } from "../hooks/queries";
@@ -114,7 +114,7 @@ export default function BrewStatusTab() {
   // the per-tank Transfer button), it may need to seed Convert-mode fields.
   const [transferInitialDestId, setTransferInitialDestId] = useState<string | undefined>(undefined);
   const [transferInitialMode, setTransferInitialMode] = useState<"transfer" | "convert" | undefined>(undefined);
-  const [transferInitialConvert, setTransferInitialConvert] = useState<{ recipeId: string; beerName: string; bbl: string } | undefined>(undefined);
+  const [transferInitialConvert, setTransferInitialConvert] = useState<{ toBatchId: string; beerName: string; bbl: string } | undefined>(undefined);
   // Tracks batch IDs currently being sent to cold storage (kegging/canning one-click transfer)
   const [pkgTransferring, setPkgTransferring] = useState<Set<string>>(new Set());
 
@@ -149,6 +149,7 @@ export default function BrewStatusTab() {
     }
   }
   // Shared with the Inventory tab via the query cache (de-duped, no local fetch).
+  const { data: allPackagingVariations = [] } = usePackagingVariationsQuery();
   const { data: recipePackagingVariations = [] } = useRecipePackagingVariationsQuery();
   // Grid size — initialized to defaults to avoid SSR/client hydration mismatch;
   // actual server value is fetched once after mount.
@@ -312,7 +313,7 @@ export default function BrewStatusTab() {
       setTransferInitialMode("convert");
       setTransferInitialDestId(undefined);
       setTransferInitialConvert({
-        recipeId: childBatch?.recipe_id ?? "",
+        toBatchId: childBatch?.id ?? "",
         beerName: conversionInfo.beer_name ?? "",
         bbl: e.volume_bbl != null ? String(e.volume_bbl) : "",
       });
@@ -1332,6 +1333,7 @@ export default function BrewStatusTab() {
           occupiedTankIds={new Set(assignments.map((a) => a.tank_id))}
           occupiedTankRecipeIds={occupiedTankRecipeIds}
           recipePackagingVariations={recipePackagingVariations}
+          allPackagingVariations={allPackagingVariations}
           recipes={recipes}
           fromTankVolume={transferFromVol}
           plannedEntry={transferPlannedEntry}
@@ -1358,7 +1360,7 @@ export default function BrewStatusTab() {
               <select className="inp" value={batchForm.recipe_id} onChange={(e) => handleRecipeChange(e.target.value)} required>
                 <option value="">— select a recipe —</option>
                 {recipes.map((r) => (
-                  <option key={r.id} value={r.id}>{r.beer_name}{r.brewery ? ` · ${r.brewery}` : ""}</option>
+                  <option key={r.id} value={r.id}>{r.beer_name}{r.contract_brewing_partners ? ` · ${r.contract_brewing_partners.company_name}` : ""}</option>
                 ))}
               </select>
             </Field>

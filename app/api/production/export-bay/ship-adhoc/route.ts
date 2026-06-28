@@ -6,7 +6,6 @@ import { checkAndCompleteBatch } from "@/lib/production/batchCompletion";
 import { getExportBayEquipmentId } from "@/lib/production/exportBayEquipment";
 import { getAvailableColdStorageQuantity, depleteColdStorageInventory } from "@/lib/production/coldStorageDepletion";
 import { writeExportTransfer, writeExportTransaction } from "@/lib/production/exportTransactionWriter";
-import { getUnitsPerPackage } from "@/lib/production/packagingVariations";
 import { BBL_TO_FL_OZ } from "@/lib/constants/production";
 
 export const dynamic = "force-dynamic";
@@ -41,16 +40,11 @@ export async function POST(req: NextRequest) {
   // ── 1. Resolve variation → volume + display name + container item id ─────
   const { data: variation, error: varErr } = await supabase
     .from("packaging_variations")
-    .select("total_volume_fl_oz, container_id, name, format, tray_id, paktech_id")
+    .select("total_volume_fl_oz, container_id, name")
     .eq("id", variation_id)
     .single();
   if (varErr) return NextResponse.json({ error: varErr.message }, { status: 500 });
   if (!variation) return NextResponse.json({ error: "Variation not found." }, { status: 404 });
-  const unitsPerPackage = await getUnitsPerPackage(supabase, {
-    format: variation.format,
-    tray_id: variation.tray_id,
-    paktech_id: variation.paktech_id,
-  });
 
   // ── 2. Validate availability ──────────────────────────────────────────────
   let totalAvailable: number;
@@ -126,8 +120,6 @@ export async function POST(req: NextRequest) {
         allocationId: null,
         sourceTransferId: transferId,
         notes,
-        packagingFormat: variation.format,
-        unitsPerPackage,
       });
     } catch (e) {
       return NextResponse.json({ error: e instanceof Error ? e.message : "Unknown error" }, { status: 500 });

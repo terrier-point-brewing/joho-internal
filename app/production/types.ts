@@ -3,6 +3,7 @@ export type BatchStatus =
   | "brewing"
   | "fermenting"
   | "conditioning"
+  | "packaging"
   | "complete";
 
 export type AdjustmentType = "received" | "used" | "waste" | "inventory_count" | "batch_use";
