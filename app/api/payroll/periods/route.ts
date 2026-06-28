@@ -3,6 +3,7 @@ import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { apiError } from "@/lib/utils/api";
 import { computeNextPeriodDates } from "@/lib/payroll/periodUtils";
+import type { PayPeriodFrequency } from "@/lib/payroll/periodUtils";
 
 export const dynamic = "force-dynamic";
 
@@ -24,17 +25,15 @@ export async function POST(_req: NextRequest) {
 
   const supabase = await createSupabaseServerClient();
 
-  // Get the active config for first_pay_period_start_date
   const { data: config, error: configErr } = await supabase
     .from("payroll_config")
-    .select("first_pay_period_start_date")
+    .select("first_pay_period_start_date, pay_period_frequency")
     .order("effective_from", { ascending: false })
     .limit(1)
     .single();
 
   if (configErr) return apiError("No payroll config found — seed one first", 422);
 
-  // Get the most recent period end date
   const { data: lastPeriod } = await supabase
     .from("pay_periods")
     .select("end_date")
@@ -44,7 +43,8 @@ export async function POST(_req: NextRequest) {
 
   const dates = computeNextPeriodDates(
     config.first_pay_period_start_date,
-    lastPeriod?.end_date ?? null
+    lastPeriod?.end_date ?? null,
+    (config.pay_period_frequency ?? "biweekly") as PayPeriodFrequency
   );
 
   const { data, error } = await supabase
