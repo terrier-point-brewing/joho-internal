@@ -3,13 +3,13 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
-import type { Recipe } from "../../production/types";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   Legend, ResponsiveContainer, Cell,
 } from "recharts";
-import { SquareLinkManager, LinkRow } from "../../production/components/SquareLinkManager";
+import Link from "next/link";
 import { fetchJson } from "../../production/hooks/queries";
+import type { RecipeSquareLinkRow } from "../../production/types";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -92,14 +92,13 @@ export default function DraftStatsTab() {
   // Draft-only Square links (for recipe selector filter)
   const { data: links = [] } = useQuery({
     queryKey: queryKeys.production.recipeSquareLinks(),
-    queryFn:  () => fetchJson<LinkRow[]>("/api/production/recipe-square-links"),
+    queryFn:  () => fetchJson<RecipeSquareLinkRow[]>("/api/production/recipe-square-links"),
     staleTime: 5 * 60_000,
   });
 
   // Recipes with at least one draft link
   const draftRecipeIds = new Set(links.filter((l) => l.packaging === "draft").map((l) => l.recipe_id));
 
-  const [showLinks, setShowLinks] = useState(false);
   const [editingTaps, setEditingTaps] = useState(false);
   const [tapCountInput, setTapCountInput] = useState("");
   const [tapEdits, setTapEdits] = useState<Record<number, { recipe_id: string; label: string }>>({});
@@ -218,10 +217,9 @@ export default function DraftStatsTab() {
             className="px-3 py-1.5 border border-zinc-700 hover:border-zinc-500 text-zinc-300 text-sm font-medium rounded transition-colors">
             Refresh
           </button>
-          <button onClick={() => setShowLinks(true)}
-            className="px-3 py-1.5 border border-zinc-700 hover:border-zinc-500 text-zinc-300 text-sm font-medium rounded transition-colors">
-            Link to Square
-          </button>
+          <Link href="/production/settings/square-links" className="text-xs text-amber-400 hover:text-amber-300 transition-colors">
+            Manage Square mappings →
+          </Link>
           <button onClick={editingTaps ? saveTaps : startEditTaps} disabled={saving}
             className={`px-3 py-1.5 text-sm font-medium rounded transition-colors ${
               editingTaps
@@ -509,35 +507,12 @@ export default function DraftStatsTab() {
         <div className="py-8 text-center">
           <p className="text-zinc-600 text-sm">
             {draftRecipeIds.size === 0
-              ? "No draft items linked to Square yet. Use \"Link to Square\" to map recipes."
+              ? "No draft items linked to Square yet. Visit Square Mappings in Settings to link recipes."
               : "No shrinkage data found for the selected period."}
           </p>
         </div>
       )}
 
-      {/* ── Link to Square modal ── */}
-      {showLinks && (
-        <SquareLinkManager
-          recipes={
-            // Pass all recipes that have any link so the manager shows them.
-            // The full recipes list isn't available here; use what we have from links.
-            links
-              .filter((l) => l.recipes?.beer_name)
-              .reduce<Recipe[]>((acc, l) => {
-                if (!acc.find((r) => r.id === l.recipe_id)) {
-                  acc.push({ id: l.recipe_id, beer_name: l.recipes!.beer_name! } as Recipe);
-                }
-                return acc;
-              }, [])
-          }
-          links={links}
-          onClose={() => setShowLinks(false)}
-          onChanged={() => {
-            qc.invalidateQueries({ queryKey: queryKeys.production.recipeSquareLinks() });
-            qc.invalidateQueries({ queryKey: queryKeys.taproom.draftStats() });
-          }}
-        />
-      )}
     </div>
   );
 }

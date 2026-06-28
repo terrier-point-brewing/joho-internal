@@ -6,7 +6,7 @@ import { queryKeys } from "@/lib/query-keys";
 import { Recipe } from "../../types";
 import { fmtDateLong } from "@/lib/utils/formatting";
 import { fetchJson } from "../../hooks/queries";
-import { SquareLinkManager, LinkRow } from "../SquareLinkManager";
+import Link from "next/link";
 
 interface TaproomRow {
   recipe_id: string;
@@ -61,20 +61,13 @@ function urgencyColor(row: TaproomRow): "red" | "amber" | "green" | "none" {
 
 export default function TaproomTab({ recipes }: { recipes: Recipe[] }) {
   const qc = useQueryClient();
-  const { data: links = [] } = useQuery({
-    queryKey: queryKeys.production.recipeSquareLinks(),
-    queryFn: () => fetchJson<LinkRow[]>("/api/production/recipe-square-links"),
-    staleTime: 5 * 60 * 1000,
-  });
   const { data: rows = [], isLoading: loading, error } = useQuery({
     queryKey: queryKeys.production.taproomInventory(),
     queryFn: () => fetchJson<TaproomRow[]>("/api/production/taproom-inventory"),
     staleTime: 5 * 60 * 1000, // Square data: treat as fresh for 5 min, avoids re-fetch on tab switch
   });
-  const loadLinks = () => qc.invalidateQueries({ queryKey: queryKeys.production.recipeSquareLinks() });
   const loadInventory = () => qc.invalidateQueries({ queryKey: queryKeys.production.taproomInventory() });
   const err = error instanceof Error ? error.message : null;
-  const [showLinks, setShowLinks] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [retiring, setRetiring] = useState<string | null>(null);
 
@@ -107,10 +100,9 @@ export default function TaproomTab({ recipes }: { recipes: Recipe[] }) {
             className="px-3 py-1.5 border border-zinc-700 hover:border-zinc-500 text-zinc-300 text-sm font-medium rounded transition-colors">
             Refresh
           </button>
-          <button onClick={() => setShowLinks(true)}
-            className="px-3 py-1.5 border border-zinc-700 hover:border-zinc-500 text-zinc-300 text-sm font-medium rounded transition-colors">
-            Link to Square
-          </button>
+          <Link href="/production/settings/square-links" className="text-xs text-amber-400 hover:text-amber-300 transition-colors">
+            Manage Square mappings →
+          </Link>
         </div>
       </div>
 
@@ -118,7 +110,7 @@ export default function TaproomTab({ recipes }: { recipes: Recipe[] }) {
       {loading ? (
         <p className="text-zinc-600 text-sm py-10 text-center">Loading inventory from Square…</p>
       ) : rows.length === 0 ? (
-        <p className="text-zinc-600 text-sm py-10 text-center">No styles linked to Square yet. Use &quot;Link to Square&quot; to map a recipe.</p>
+        <p className="text-zinc-600 text-sm py-10 text-center">No styles linked to Square yet. Visit Square Mappings in Settings to link recipes.</p>
       ) : (
         <div className="rounded-lg border border-zinc-800 overflow-hidden">
           <div className="overflow-x-auto">
@@ -255,14 +247,6 @@ export default function TaproomTab({ recipes }: { recipes: Recipe[] }) {
         </div>
       )}
 
-      {showLinks && (
-        <SquareLinkManager
-          recipes={recipes}
-          links={links}
-          onClose={() => setShowLinks(false)}
-          onChanged={() => { loadLinks(); loadInventory(); }}
-        />
-      )}
     </div>
   );
 }
