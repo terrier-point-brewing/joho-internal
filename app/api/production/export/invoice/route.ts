@@ -4,13 +4,19 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createExportInvoice, publishInvoice, getInvoiceStatus } from "@/lib/square/square-invoices";
 import { syncSquareInvoicesForYear } from "@/lib/finance/syncSquareInvoices";
 import type { InvoiceLineItemDraft } from "@/lib/production/exportInvoicePreview";
+import crypto from "crypto";
 
 export const dynamic = "force-dynamic";
 
 interface PostBody {
-  action: "generate" | "send" | "sync";
+  action: "generate" | "send" | "sync" | "mark_paid" | "record";
   transactionIds: string[];
   lineItems?: InvoiceLineItemDraft[];
+  source?: string;
+  external_ref?: string;
+  paid_at?: string;
+  total_cents?: number;
+  invoice_date?: string;
 }
 
 export async function POST(req: NextRequest) {
@@ -24,8 +30,8 @@ export async function POST(req: NextRequest) {
   }
   const { action, transactionIds } = body;
 
-  if (!["generate", "send", "sync"].includes(action)) {
-    return NextResponse.json({ error: "action must be generate | send | sync" }, { status: 400 });
+  if (!["generate", "send", "sync", "mark_paid", "record"].includes(action)) {
+    return NextResponse.json({ error: "action must be generate | send | sync | mark_paid | record" }, { status: 400 });
   }
   if (!transactionIds?.length) {
     return NextResponse.json({ error: "transactionIds is required" }, { status: 400 });
@@ -35,7 +41,7 @@ export async function POST(req: NextRequest) {
 
   const { data: txs, error: txErr } = await supabase
     .from("export_transactions")
-    .select("id, recipient_id, status, square_invoice_id")
+    .select("id, recipient_id, recipient_name, status, invoice_id")
     .in("id", transactionIds);
   if (txErr) return NextResponse.json({ error: txErr.message }, { status: 500 });
   if (!txs || txs.length !== transactionIds.length) {
@@ -95,14 +101,61 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: message }, { status: 500 });
     }
 
-    // generate only creates the DRAFT — status stays invoice_required until send.
+    const today = new Date().toISOString().slice(0, 10);
+    const totalCents = lineItems.reduce((s, li) => s + li.quantity * li.unitPriceCents, 0);
+
+    // Upsert a Draft invoices row immediately so invoice_id can be set on txns.
+    const { data: inv, error: invErr } = await supabase
+      .from("invoices")
+      .upsert(
+        {
+          source: "square",
+          external_id: result.invoiceId,
+          square_invoice_id: result.invoiceId,
+          invoice_number: null,
+          invoice_type: "standard",
+          partner_id: customerId,
+          customer_name: partner.company_name,
+          invoice_date: today,
+          status: "draft",
+          subtotal_cents: totalCents,
+          tax_cents: 0,
+          total_cents: totalCents,
+        },
+        { onConflict: "source,external_id", ignoreDuplicates: false }
+      )
+      .select("id")
+      .single();
+    if (invErr || !inv) {
+      return NextResponse.json(
+        { error: `Square invoice ${result.invoiceId} created but local invoices row failed: ${invErr?.message}` },
+        { status: 500 }
+      );
+    }
+
+    // Insert line items into invoice_line_items (with Square variation ID for future draft editing).
+    if (lineItems.length > 0) {
+      await supabase.from("invoice_line_items").insert(
+        lineItems.map((li, i) => ({
+          invoice_id: inv.id,
+          sort_order: i,
+          description: li.description,
+          category: "other_services",
+          quantity: li.quantity,
+          unit_price_cents: li.unitPriceCents,
+          total_cents: li.quantity * li.unitPriceCents,
+          square_catalog_variation_id: li.squareCatalogVariationId ?? null,
+        }))
+      );
+    }
+
     const { error: updateErr } = await supabase
       .from("export_transactions")
-      .update({ square_invoice_id: result.invoiceId })
+      .update({ invoice_id: inv.id })
       .in("id", transactionIds);
     if (updateErr) {
       return NextResponse.json(
-        { error: `Invoice ${result.invoiceId} was created in Square but updating local records failed: ${updateErr.message}` },
+        { error: `Invoice created but updating transaction records failed: ${updateErr.message}` },
         { status: 500 }
       );
     }
@@ -112,30 +165,47 @@ export async function POST(req: NextRequest) {
 
   // ── send ──────────────────────────────────────────────────────────────────
   if (action === "send") {
-    const invoiceId = txs[0].square_invoice_id;
-    if (!invoiceId) {
-      return NextResponse.json({ error: "No invoice has been generated yet — run generate first" }, { status: 400 });
-    }
-    if (txs.some((t) => t.square_invoice_id !== invoiceId)) {
-      return NextResponse.json({ error: "Selected transactions belong to different invoices" }, { status: 400 });
-    }
     if (txs.some((t) => t.status !== "invoice_required")) {
       return NextResponse.json({ error: "These transactions have already been sent or paid" }, { status: 400 });
     }
 
-    const currentStatus = await getInvoiceStatus(invoiceId);
+    const invoiceId = txs[0].invoice_id;
+    if (!invoiceId) {
+      return NextResponse.json({ error: "No invoice has been generated yet — run generate first" }, { status: 400 });
+    }
+    if (txs.some((t) => t.invoice_id !== invoiceId)) {
+      return NextResponse.json({ error: "Selected transactions belong to different invoices" }, { status: 400 });
+    }
+
+    // Look up the Square invoice ID via the invoices table.
+    const { data: inv, error: invLookupErr } = await supabase
+      .from("invoices")
+      .select("square_invoice_id")
+      .eq("id", invoiceId)
+      .single();
+    if (invLookupErr || !inv?.square_invoice_id) {
+      return NextResponse.json({ error: "Invoice record not found or missing Square ID" }, { status: 400 });
+    }
+    const squareInvoiceId = inv.square_invoice_id as string;
+
+    const currentStatus = await getInvoiceStatus(squareInvoiceId);
     if (currentStatus.status === "PAID") {
       return NextResponse.json({ error: "Invoice is already paid in Square — use sync to update status" }, { status: 422 });
     }
     if (currentStatus.status === "DRAFT") {
-      await publishInvoice(invoiceId);
+      await publishInvoice(squareInvoiceId);
     }
 
-    const { error: updateErr } = await supabase
+    const { error: txUpdateErr } = await supabase
       .from("export_transactions")
       .update({ status: "unpaid" })
       .in("id", transactionIds);
-    if (updateErr) return NextResponse.json({ error: updateErr.message }, { status: 500 });
+    if (txUpdateErr) return NextResponse.json({ error: txUpdateErr.message }, { status: 500 });
+
+    await supabase
+      .from("invoices")
+      .update({ status: "open" })
+      .eq("id", invoiceId);
 
     try {
       await syncSquareInvoicesForYear(supabase, new Date().getFullYear());
@@ -148,23 +218,37 @@ export async function POST(req: NextRequest) {
 
   // ── sync ──────────────────────────────────────────────────────────────────
   if (action === "sync") {
-    const invoiceId = txs[0].square_invoice_id;
+    const invoiceId = txs[0].invoice_id;
     if (!invoiceId) {
       return NextResponse.json({ error: "No invoice to sync" }, { status: 400 });
     }
-    if (txs.some((t) => t.square_invoice_id !== invoiceId)) {
+    if (txs.some((t) => t.invoice_id !== invoiceId)) {
       return NextResponse.json({ error: "Selected transactions belong to different invoices" }, { status: 400 });
     }
 
-    const squareStatus = await getInvoiceStatus(invoiceId);
+    const { data: inv, error: invLookupErr } = await supabase
+      .from("invoices")
+      .select("square_invoice_id")
+      .eq("id", invoiceId)
+      .single();
+    if (invLookupErr || !inv?.square_invoice_id) {
+      return NextResponse.json({ error: "Invoice record not found or missing Square ID" }, { status: 400 });
+    }
+
+    const squareStatus = await getInvoiceStatus(inv.square_invoice_id as string);
 
     if (squareStatus.status === "PAID") {
-      const { error: updateErr } = await supabase
+      const { error: txUpdateErr } = await supabase
         .from("export_transactions")
         .update({ status: "paid" })
         .in("id", transactionIds)
         .eq("status", "unpaid");
-      if (updateErr) return NextResponse.json({ error: updateErr.message }, { status: 500 });
+      if (txUpdateErr) return NextResponse.json({ error: txUpdateErr.message }, { status: 500 });
+
+      await supabase
+        .from("invoices")
+        .update({ status: "paid" })
+        .eq("id", invoiceId);
     }
 
     try {
@@ -174,6 +258,134 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ squareStatus: squareStatus.status });
+  }
+
+  // ── record ────────────────────────────────────────────────────────────────
+  if (action === "record") {
+    const source = body.source as string;
+    if (!["quickbooks", "other"].includes(source)) {
+      return NextResponse.json({ error: "source must be quickbooks or other" }, { status: 422 });
+    }
+
+    const totalCents  = body.total_cents   as number | undefined;
+    const externalRef = body.external_ref  as string | undefined;
+    const invoiceDate = body.invoice_date  as string | undefined;
+    const lineItems   = body.lineItems     as Array<{ description: string; quantity: number; unitPriceCents: number }> | undefined;
+
+    if (!totalCents || totalCents <= 0) return NextResponse.json({ error: "total_cents must be positive" }, { status: 400 });
+    if (source === "quickbooks" && !externalRef) return NextResponse.json({ error: "external_ref (QB invoice number) is required for quickbooks source" }, { status: 400 });
+    if (txs.some((t) => t.status !== "invoice_required")) {
+      return NextResponse.json({ error: "All selected transactions must be in Invoice Required status" }, { status: 400 });
+    }
+
+    const { error: updateErr } = await supabase
+      .from("export_transactions")
+      .update({ status: "unpaid" })
+      .in("id", transactionIds);
+    if (updateErr) return NextResponse.json({ error: updateErr.message }, { status: 500 });
+
+    const externalId = externalRef ?? `other:${crypto.randomUUID()}`;
+    const { data: inv } = await supabase
+      .from("invoices")
+      .upsert(
+        {
+          source,
+          external_id:    externalId,
+          invoice_number: externalRef ?? null,
+          invoice_type:   "standard",
+          partner_id:     customerId,
+          customer_name:  txs[0].recipient_name ?? null,
+          invoice_date:   (invoiceDate ?? new Date().toISOString()).slice(0, 10),
+          status:         "open",
+          subtotal_cents: totalCents,
+          tax_cents:      0,
+          total_cents:    totalCents,
+          notes:          "Manually created export invoice",
+        },
+        { onConflict: "source,external_id", ignoreDuplicates: false }
+      )
+      .select("id")
+      .single();
+
+    if (inv?.id) {
+      if (lineItems?.length) {
+        await supabase.from("invoice_line_items").insert(
+          lineItems.map((li, i) => ({
+            invoice_id:       inv.id,
+            sort_order:       i,
+            description:      li.description,
+            category:         "other_services",
+            quantity:         li.quantity,
+            unit_price_cents: li.unitPriceCents,
+            total_cents:      li.quantity * li.unitPriceCents,
+          }))
+        );
+      }
+      await supabase
+        .from("export_transactions")
+        .update({ invoice_id: inv.id })
+        .in("id", transactionIds);
+    }
+
+    return NextResponse.json({ ok: true });
+  }
+
+  // ── mark_paid ─────────────────────────────────────────────────────────────
+  if (action === "mark_paid") {
+    const source = body.source as string;
+    if (!["quickbooks", "other"].includes(source)) {
+      return NextResponse.json({ error: "source must be quickbooks or other" }, { status: 422 });
+    }
+
+    const paidAt      = body.paid_at     as string | undefined;
+    const totalCents  = body.total_cents as number | undefined;
+    const externalRef = body.external_ref as string | undefined;
+
+    if (!paidAt)                                    return NextResponse.json({ error: "paid_at is required" }, { status: 400 });
+    if (totalCents === undefined || totalCents < 0) return NextResponse.json({ error: "total_cents must be non-negative" }, { status: 400 });
+    if (source === "quickbooks" && !externalRef)    return NextResponse.json({ error: "external_ref (QB invoice number) is required" }, { status: 400 });
+
+    if (txs.some((t) => t.status !== "invoice_required")) {
+      return NextResponse.json({ error: "All selected transactions must be in Invoice Required status" }, { status: 400 });
+    }
+
+    const { error: updateErr } = await supabase
+      .from("export_transactions")
+      .update({ status: "paid" })
+      .in("id", transactionIds);
+    if (updateErr) return NextResponse.json({ error: updateErr.message }, { status: 500 });
+
+    const externalId = externalRef ?? `other:${crypto.randomUUID()}`;
+    const { data: inv } = await supabase
+      .from("invoices")
+      .upsert(
+        {
+          source:         source === "quickbooks" ? "quickbooks" : "other",
+          external_id:    externalId,
+          invoice_number: externalRef ?? null,
+          invoice_type:   "standard",
+          partner_id:     customerId,
+          customer_name:  txs[0].recipient_name ?? null,
+          invoice_date:   paidAt.slice(0, 10),
+          status:         "paid",
+          subtotal_cents: totalCents,
+          tax_cents:      0,
+          total_cents:    totalCents,
+          notes:          "QB backfill — export invoice",
+        },
+        { onConflict: "source,external_id", ignoreDuplicates: false }
+      )
+      .select("id")
+      .single();
+
+    if (inv?.id) {
+      await supabase
+        .from("export_transactions")
+        .update({ invoice_id: inv.id })
+        .in("id", transactionIds);
+    }
+
+    return NextResponse.json({ ok: true });
   }
 
   return NextResponse.json({ error: "Unknown action" }, { status: 400 });
