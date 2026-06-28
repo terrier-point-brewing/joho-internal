@@ -29,6 +29,10 @@ export function fmtDateTime(iso: string): string {
   );
 }
 
+export function fmtUsd(n: number): string {
+  return "$" + n.toFixed(2);
+}
+
 export function fmtBbl(v: number): string {
   return v.toFixed(3) + " BBL";
 }
