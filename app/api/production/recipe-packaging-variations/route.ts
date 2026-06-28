@@ -12,7 +12,7 @@ export async function GET() {
     .select(`
       id, recipe_id, variation_id, created_at,
       packaging_variations(
-        id, container_id, format, partner_id, total_volume_fl_oz, is_active,
+        id, name, container_id, format, partner_id, total_volume_fl_oz, is_active,
         packaging_items:container_id(id, name, type, volume_fl_oz),
         contract_brewing_partners(id, company_name)
       )

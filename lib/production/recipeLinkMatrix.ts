@@ -267,3 +267,95 @@ export function buildMatrix(
     return a.partnerName.localeCompare(b.partnerName);
   });
 }
+
+// ─── Variation-grain model (replaces the column/cell grid) ────────────────────
+
+export interface VariationLinkRow {
+  recipePackagingVariationId: string;
+  recipeId: string;
+  beerName: string;
+  variationId: string;
+  variationLabel: string;
+  format: PackagingVariationFormat;
+  containerType: "keg" | "can";
+  state: "linked" | "suggested" | "empty";
+  linkId: string | null;
+  linkedItemName: string | null;
+  linkedVariationName: string | null;
+  suggestion: CellSuggestion | null;
+}
+
+export interface VariationLinkGroup {
+  partnerId: string | null;
+  partnerName: string;
+  rows: VariationLinkRow[];
+}
+
+/**
+ * One row per recipe_packaging_variation — the production-native grain. Unlike
+ * the old grid (keyed by recipe+container+format, which collapsed two
+ * beer-specific variations that share a container+format into one cell), this
+ * distinguishes every variation, so the Be Like Mike / Printed Can collision
+ * is representable.
+ */
+export function buildVariationLinkMatrix(
+  rpvs: RecipePackagingVariationExpanded[],
+  recipes: Recipe[],
+  links: RecipeSquareLinkRow[],
+  catalog: SquareCatalogOptions
+): VariationLinkGroup[] {
+  const beerNameByRecipe = new Map(recipes.map((r) => [r.id, r.beer_name]));
+  const linkByVariation = new Map<string, RecipeSquareLinkRow>();
+  for (const l of links) {
+    if (l.variation_id) linkByVariation.set(l.variation_id, l);
+  }
+
+  const groups = new Map<string | null, VariationLinkGroup>();
+
+  for (const rpv of rpvs) {
+    const pv = rpv.packaging_variations;
+    if (!pv || !pv.is_active) continue;
+    if (pv.packaging_items?.type !== "keg" && pv.packaging_items?.type !== "can") continue;
+
+    const partnerId = pv.partner_id;
+    const partnerName = pv.contract_brewing_partners?.company_name ?? "House Beers";
+    if (!groups.has(partnerId)) groups.set(partnerId, { partnerId, partnerName, rows: [] });
+
+    const beerName = beerNameByRecipe.get(rpv.recipe_id) ?? "—";
+    const link = linkByVariation.get(rpv.variation_id);
+
+    let state: VariationLinkRow["state"];
+    let suggestion: CellSuggestion | null = null;
+    if (link) {
+      state = "linked";
+    } else {
+      suggestion = autoSuggest(beerName, catalog);
+      state = suggestion ? "suggested" : "empty";
+    }
+
+    groups.get(partnerId)!.rows.push({
+      recipePackagingVariationId: rpv.id,
+      recipeId: rpv.recipe_id,
+      beerName,
+      variationId: rpv.variation_id,
+      variationLabel: pv.name ?? beerName,
+      format: pv.format,
+      containerType: pv.packaging_items.type === "keg" ? "keg" : "can",
+      state,
+      linkId: link?.id ?? null,
+      linkedItemName: link?.item_name ?? null,
+      linkedVariationName: link?.variation_name ?? null,
+      suggestion,
+    });
+  }
+
+  for (const g of groups.values()) {
+    g.rows.sort((a, b) => a.beerName.localeCompare(b.beerName) || a.variationLabel.localeCompare(b.variationLabel));
+  }
+
+  return [...groups.values()].sort((a, b) => {
+    if (a.partnerId === null) return -1;
+    if (b.partnerId === null) return 1;
+    return a.partnerName.localeCompare(b.partnerName);
+  });
+}

@@ -86,6 +86,7 @@ export interface PackagingVariationExpanded {
   partner_id: string | null;
   total_volume_fl_oz: number;
   is_active: boolean;
+  name?: string | null;
   packaging_items: {
     id: string;
     name: string;
