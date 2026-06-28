@@ -20,10 +20,11 @@ export async function GET() {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   const enriched = (txs ?? []).map((tx) => {
-    const inv = Array.isArray(tx.invoices) ? tx.invoices[0] : tx.invoices;
+    const rawInv = Array.isArray(tx.invoices) ? tx.invoices[0] : tx.invoices;
+    const inv = rawInv as { invoice_number: string | null } | null | undefined;
     return {
       ...tx,
-      invoice_number: (inv as any)?.invoice_number ?? null,
+      invoice_number: inv?.invoice_number ?? null,
       invoices: undefined,
     };
   });
