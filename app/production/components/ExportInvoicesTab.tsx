@@ -435,8 +435,6 @@ export default function ExportInvoicesTab({ highlightInvoiceId }: ExportInvoices
     if (highlightInvoiceId) setExpandedId(highlightInvoiceId);
   }, [highlightInvoiceId]);
 
-  const partnerNames = useMemo(() => new Map(partners.map((p) => [p.id, p.company_name])), [partners]);
-
   const years = useMemo(() => {
     const ys = new Set(invoices.map((inv) => inv.invoice_date?.slice(0, 4)).filter(Boolean) as string[]);
     return [...ys].sort().reverse();
@@ -460,9 +458,6 @@ export default function ExportInvoicesTab({ highlightInvoiceId }: ExportInvoices
     qc.invalidateQueries({ queryKey: queryKeys.production.exportInvoices() });
     qc.invalidateQueries({ queryKey: queryKeys.production.exports() });
   }
-
-  // suppress unused warning — partnerNames is available for future use
-  void partnerNames;
 
   return (
     <div className="space-y-4">
@@ -489,6 +484,7 @@ export default function ExportInvoicesTab({ highlightInvoiceId }: ExportInvoices
           <option value="open">Sent / Open</option>
           <option value="paid">Paid</option>
           <option value="voided">Voided</option>
+          <option value="partial">Partial</option>
         </select>
 
         <select
