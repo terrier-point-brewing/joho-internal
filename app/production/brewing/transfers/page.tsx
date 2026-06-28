@@ -7,7 +7,7 @@ import { PRODUCTION_NAV, BREWING_NAV } from "@/app/production/nav-config";
 import { fmtBbl2 } from "@/lib/utils/formatting";
 import { fetchJson } from "@/app/production/hooks/queries";
 
-type TransferType = "transfer" | "kegging" | "canning" | "conversion" | "export";
+type TransferType = "transfer" | "kegging" | "canning" | "conversion" | "export" | "brewing";
 
 interface TransferLogRow {
   id: string;
@@ -33,6 +33,7 @@ const TYPE_LABELS: Record<TransferType, string> = {
   canning:    "Canning",
   conversion: "Conversion",
   export:     "Export",
+  brewing:    "Brewing",
 };
 
 const TYPE_COLOR: Record<TransferType, string> = {
@@ -41,6 +42,7 @@ const TYPE_COLOR: Record<TransferType, string> = {
   canning:    "bg-cyan-900/50 text-cyan-300 border-cyan-700",
   conversion: "bg-amber-900/50 text-amber-300 border-amber-700",
   export:     "bg-purple-900/50 text-purple-300 border-purple-700",
+  brewing:    "bg-blue-900/50 text-blue-300 border-blue-700",
 };
 
 function TypeBadge({ type }: { type: TransferType }) {
