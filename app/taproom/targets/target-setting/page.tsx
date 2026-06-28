@@ -10,7 +10,7 @@ export default function TargetSettingPage() {
       <SubNav entries={TAPROOM_NAV} mobile />
       <PageHeader title="Targets" description="Sales goals, achievement tracking, and manual entries" />
       <SubNav entries={TARGETS_NAV} sticky />
-      <TargetSettingTab />
+      <div className="mt-4"><TargetSettingTab /></div>
     </main>
   );
 }

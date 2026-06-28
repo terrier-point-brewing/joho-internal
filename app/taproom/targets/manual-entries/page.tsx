@@ -10,7 +10,7 @@ export default function ManualEntriesPage() {
       <SubNav entries={TAPROOM_NAV} mobile />
       <PageHeader title="Targets" description="Sales goals, achievement tracking, and manual entries" />
       <SubNav entries={TARGETS_NAV} sticky />
-      <ManualEntriesTab />
+      <div className="mt-4"><ManualEntriesTab /></div>
     </main>
   );
 }

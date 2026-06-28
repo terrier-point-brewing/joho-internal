@@ -10,6 +10,8 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
+@layer components {
+
 .btn-amber {
   padding: 0.375rem 0.75rem;
   background: rgb(120 53 15 / 0.3);
@@ -23,21 +25,6 @@ body {
 }
 .btn-amber:hover:not(:disabled) { background: rgb(120 53 15 / 0.5); }
 .btn-amber:disabled { opacity: 0.4; cursor: not-allowed; }
-
-/* Markdown brew steps rendering */
-.prose-steps h1, .prose-steps h2, .prose-steps h3 {
-  color: #d4d4d8; font-weight: 600; margin: 0.25rem 0 0.1rem;
-}
-.prose-steps h1 { font-size: 0.85rem; }
-.prose-steps h2 { font-size: 0.8rem; }
-.prose-steps h3 { font-size: 0.75rem; }
-.prose-steps p  { margin: 0.15rem 0; }
-.prose-steps ul { list-style: none; padding: 0; margin: 0.1rem 0; }
-.prose-steps li { padding-left: 1rem; position: relative; margin: 0.1rem 0; }
-.prose-steps li::before { content: "·"; position: absolute; left: 0.25rem; color: #52525b; }
-.prose-steps strong { color: #e4e4e7; font-weight: 600; }
-.prose-steps em { color: #a1a1aa; font-style: italic; }
-.prose-steps code { font-family: monospace; background: #27272a; color: #d4d4d8; padding: 0.1rem 0.25rem; border-radius: 0.2rem; font-size: 0.7rem; }
 
 .btn-ghost {
   padding: 0.375rem 0.75rem;
@@ -79,3 +66,20 @@ body {
 }
 .inp:focus { border-color: rgb(161 161 170); }
 .inp option { background: rgb(39 39 42); }
+
+} /* end @layer components */
+
+/* Markdown brew steps rendering */
+.prose-steps h1, .prose-steps h2, .prose-steps h3 {
+  color: #d4d4d8; font-weight: 600; margin: 0.25rem 0 0.1rem;
+}
+.prose-steps h1 { font-size: 0.85rem; }
+.prose-steps h2 { font-size: 0.8rem; }
+.prose-steps h3 { font-size: 0.75rem; }
+.prose-steps p  { margin: 0.15rem 0; }
+.prose-steps ul { list-style: none; padding: 0; margin: 0.1rem 0; }
+.prose-steps li { padding-left: 1rem; position: relative; margin: 0.1rem 0; }
+.prose-steps li::before { content: "·"; position: absolute; left: 0.25rem; color: #52525b; }
+.prose-steps strong { color: #e4e4e7; font-weight: 600; }
+.prose-steps em { color: #a1a1aa; font-style: italic; }
+.prose-steps code { font-family: monospace; background: #27272a; color: #d4d4d8; padding: 0.1rem 0.25rem; border-radius: 0.2rem; font-size: 0.7rem; }

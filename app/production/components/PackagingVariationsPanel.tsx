@@ -241,7 +241,7 @@ export default function PackagingVariationsPanel() {
         <p className="text-xs text-zinc-500">
           Strictly-defined packaging combinations — container + format + specific components. Used by Recipes to declare which variations they&apos;re packaged as.
         </p>
-        <button onClick={openNew} className="btn-amber shrink-0">+ Add Variation</button>
+        <button onClick={openNew} className="btn-amber text-xs py-1 px-2.5 shrink-0">+ Add Variation</button>
       </div>
 
       {/* Search + filters */}
@@ -252,7 +252,7 @@ export default function PackagingVariationsPanel() {
             placeholder="Search by name…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="inp flex-1 max-w-xs text-sm"
+            className="inp flex-1 max-w-xs text-xs py-1"
           />
           <label className="flex items-center gap-1.5 text-xs text-zinc-500 cursor-pointer select-none">
             <input
@@ -346,7 +346,7 @@ export default function PackagingVariationsPanel() {
                         <span className="text-zinc-400 text-xs">{v.container?.name ?? "—"}</span>
                       </div>
                     </td>
-                    <td className="px-3 py-2.5 text-zinc-200 font-medium">{v.name}</td>
+                    <td className="px-3 py-2.5 text-zinc-200 font-medium text-xs">{v.name}</td>
                     <td className="px-3 py-2.5 text-zinc-400 text-xs">{formatLabel}</td>
                     <td className="px-3 py-2.5">
                       {hasComponents ? (

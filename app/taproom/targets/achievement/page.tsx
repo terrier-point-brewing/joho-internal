@@ -10,7 +10,7 @@ export default function AchievementPage() {
       <SubNav entries={TAPROOM_NAV} mobile />
       <PageHeader title="Targets" description="Sales goals, achievement tracking, and manual entries" />
       <SubNav entries={TARGETS_NAV} sticky />
-      <AchievementTab />
+      <div className="mt-4"><AchievementTab /></div>
     </main>
   );
 }

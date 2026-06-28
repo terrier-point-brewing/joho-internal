@@ -338,6 +338,8 @@ export default function PartnersTab() {
 
   return (
     <>
+      <TabBar tabs={kindTabs} activeKey={kind} onSelect={setKind} />
+
       {/* Action buttons */}
       <div className="flex justify-end gap-2 mb-4">
         {kind === "contract" && (
@@ -347,8 +349,6 @@ export default function PartnersTab() {
         )}
         <button onClick={openNew} className="btn-amber">+ New {kindLabel}</button>
       </div>
-
-      <TabBar tabs={kindTabs} activeKey={kind} onSelect={setKind} />
 
       {/* Records table */}
       {records.length === 0 ? (

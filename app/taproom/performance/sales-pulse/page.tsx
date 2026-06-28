@@ -10,7 +10,7 @@ export default function SalesPulsePage() {
       <SubNav entries={TAPROOM_NAV} mobile />
       <PageHeader title="Performance" description="Sales trends, draft throughput, and event summaries" />
       <SubNav entries={PERFORMANCE_NAV} sticky />
-      <SalesPulseTab />
+      <div className="mt-4"><SalesPulseTab /></div>
     </main>
   );
 }
