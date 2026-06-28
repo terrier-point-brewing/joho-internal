@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchCatalogItems } from "@/lib/square/catalog";
 import { buildStandalonePriceMap } from "@/lib/square/catalog";
 import { GALLONS_PER_BBL } from "@/lib/constants/production";
+import { resolveProductSku } from "@/lib/square/skuMappings";
 
 export interface InvoiceLineItemDraft {
   id: string;
@@ -84,22 +85,10 @@ async function buildProductLines(
   priceByVariationId: Map<string, number>,
   pkgNameById: Map<string, string>
 ): Promise<InvoiceLineItemDraft[]> {
-  const recipeIds = [...new Set(rows.map((r) => r.recipe_id).filter((id): id is string => !!id))];
-  const packagingItemIds = [...new Set(rows.map((r) => r.packaging_item_id))];
-
-  const { data: links } = await supabase
-    .from("recipe_square_links")
-    .select("recipe_id, packaging_item_id, packaging_format, square_variation_id, item_name, variation_name")
-    .in("recipe_id", recipeIds)
-    .in("packaging_item_id", packagingItemIds);
-
-  const linkMap = new Map(
-    (links ?? []).map((l) => [
-      `${l.recipe_id}|${l.packaging_item_id}|${l.packaging_format ?? ""}`,
-      l,
-    ])
-  );
-
+  // export_transactions does NOT store variation_id (confirmed against the live
+  // schema), so resolve the packaging_variation each transaction shipped
+  // (recipe ∩ container ∩ format) first, then the product SKU at variation
+  // grain via the unified resolver.
   const lineItems: InvoiceLineItemDraft[] = [];
   for (const tx of rows) {
     if (!tx.recipe_id) {
@@ -107,24 +96,39 @@ async function buildProductLines(
         `Transaction ${tx.id} has no recipe — cannot build product line items for this channel`
       );
     }
-    const fmt = tx.packaging_format ?? "";
-    const key = `${tx.recipe_id}|${tx.packaging_item_id}|${fmt}`;
-    const link = linkMap.get(key);
-    if (!link?.square_variation_id) {
-      const pkgName = pkgNameById.get(tx.packaging_item_id) ?? tx.packaging_item_id;
+    const pkgName = pkgNameById.get(tx.packaging_item_id) ?? tx.packaging_item_id;
+
+    const { data: pvRows, error: pvErr } = await supabase
+      .from("recipe_packaging_variations")
+      .select("variation_id, packaging_variations!inner(id, container_id, format)")
+      .eq("recipe_id", tx.recipe_id)
+      .eq("packaging_variations.container_id", tx.packaging_item_id)
+      .eq("packaging_variations.format", tx.packaging_format ?? "loose");
+    if (pvErr) throw new Error(pvErr.message);
+    if (!pvRows || pvRows.length !== 1) {
       throw new Error(
-        `No Square product link found for recipe + "${pkgName}" (format: ${fmt || "none"}) — ` +
+        `Cannot uniquely resolve the packaging variation for recipe + "${pkgName}" ` +
+        `(format: ${tx.packaging_format || "none"}) — ${pvRows?.length ?? 0} candidates. ` +
+        `Resolve the mapping in Production → Link Styles to Square.`
+      );
+    }
+    const variationId = pvRows[0].variation_id as string;
+
+    const sku = await resolveProductSku(supabase, { kind: "packaged", variationId });
+    if (!sku) {
+      throw new Error(
+        `No Square product link found for recipe + "${pkgName}" (format: ${tx.packaging_format || "none"}) — ` +
         `go to Production → Link Styles to Square and add this mapping before generating a Distribution or Wholesale invoice.`
       );
     }
     lineItems.push({
       id: crypto.randomUUID(),
-      description: link.item_name
-        ? `${link.item_name}${link.variation_name ? ` · ${link.variation_name}` : ""}${fmt ? ` (${fmt})` : ""}`
-        : link.square_variation_id,
+      description: sku.itemName
+        ? `${sku.itemName}${sku.variationName ? ` · ${sku.variationName}` : ""}${tx.packaging_format ? ` (${tx.packaging_format})` : ""}`
+        : sku.squareVariationId,
       quantity: tx.quantity,
-      unitPriceCents: priceByVariationId.get(link.square_variation_id) ?? 0,
-      squareCatalogVariationId: link.square_variation_id,
+      unitPriceCents: priceByVariationId.get(sku.squareVariationId) ?? 0,
+      squareCatalogVariationId: sku.squareVariationId,
     });
   }
   return lineItems;
