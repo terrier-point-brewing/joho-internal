@@ -87,4 +87,14 @@ export const queryKeys = {
     events:        () => ["taproom", "events"] as const,
     eventPours:    (id: string) => ["taproom", "event-pours", id] as const,
   },
+
+  // ─── Payroll ──────────────────────────────────────────────────────────────
+  payroll: {
+    all:       () => ["payroll"] as const,
+    config:    () => ["payroll", "config"] as const,
+    employees: () => ["payroll", "employees"] as const,
+    periods:   () => ["payroll", "periods"] as const,
+    period:    (id: string) => ["payroll", "periods", id] as const,
+    preview:   (id: string) => ["payroll", "preview", id] as const,
+  },
 } as const;
