@@ -283,13 +283,13 @@ export interface RecipeBrewActivityTemplate {
 export interface Recipe {
   id: string;
   beer_name: string;
-  brewery: string | null;
+  partner_id: string | null;
+  contract_brewing_partners?: { id: string; company_name: string } | null;
   expected_yield_bbl: number | null;
   brew_time_weeks: number | null;
   days_brewhouse: number | null;
   days_fermenter: number | null;
   days_brite: number | null;
-  steps: string | null;
   notes: string | null;
   recipe_ingredients: RecipeIngredientRow[];
   recipe_brew_activity_templates: RecipeBrewActivityTemplate[];
@@ -312,6 +312,22 @@ export interface RecipeSquareLink {
   square_variation_id: string;
   square_item_id: string | null;
   created_at: string;
+}
+
+/** Shape returned by GET /api/production/recipe-square-links (includes joined recipe + packaging_items). */
+export interface RecipeSquareLinkRow {
+  id: string;
+  recipe_id: string;
+  packaging: "draft" | "keg" | "can";
+  packaging_item_id: string | null;
+  packaging_format: string | null;
+  square_variation_id: string;
+  square_item_id: string | null;
+  variation_name: string | null;
+  item_name: string | null;
+  created_at: string;
+  recipes?: { beer_name: string } | null;
+  packaging_items?: { id: string; name: string; type: string; volume_fl_oz: number | null } | null;
 }
 
 export type AllocationCadence = "one_time" | "recurring";
@@ -487,7 +503,7 @@ export interface BrewBatch {
   dissolved_oxygen_ppb: number | null;
   square_invoice_id: string | null;
   recipe_id: string | null;
-  recipes: { beer_name: string; brewery: string | null; brew_time_weeks: number | null; expected_yield_bbl: number | null } | null;
+  recipes: { beer_name: string; partner_id: string | null; contract_brewing_partners?: { id: string; company_name: string } | null; brew_time_weeks: number | null; expected_yield_bbl: number | null } | null;
   batch_status_history: BatchStatusHistory[];
   batch_brew_activity_log?: BrewActivityEntry[];
   created_at: string;

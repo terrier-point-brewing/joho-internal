@@ -5,7 +5,8 @@ import {
   Ingredient, StockAdjustment, Recipe, BrewBatch,
   Equipment, BatchTankAssignment, PackagingItem, BatchTransfer,
   ContractBrewingPartner, Supplier, ExciseTaxRate, ExportServiceMapping, SquareCatalogOptions,
-  PackagingVariation, RecipePackagingVariation,
+  PackagingVariation, RecipePackagingVariation, RecipePackagingVariationExpanded,
+  RecipeSquareLinkRow, BatchConversion,
 } from "../types";
 import { queryKeys } from "@/lib/query-keys";
 
@@ -76,6 +77,7 @@ export const productionKeys = {
   transfers:         queryKeys.production.transfers(),
   batchSchedule:     queryKeys.production.batchSchedule(),
   scheduleConflicts: queryKeys.production.scheduleConflicts(),
+  batchConversions:  queryKeys.production.batchConversions(),
   contractPartners:  queryKeys.partners.contractBrewing(),
   suppliers:         queryKeys.partners.suppliers(),
 };
@@ -139,7 +141,7 @@ export function usePackagingVariationsQuery() {
 export function useRecipePackagingVariationsQuery() {
   return useQuery({
     queryKey: productionKeys.recipePackagingVariations,
-    queryFn: () => fetchJson<RecipePackagingVariation[]>("/api/production/recipe-packaging-variations"),
+    queryFn: () => fetchJson<RecipePackagingVariationExpanded[]>("/api/production/recipe-packaging-variations"),
   });
 }
 
@@ -154,6 +156,13 @@ export function useBatchScheduleQuery() {
   return useQuery({
     queryKey: productionKeys.batchSchedule,
     queryFn: () => fetchJson<ScheduleEntry[]>("/api/production/batch-schedule"),
+  });
+}
+
+export function useBatchConversionsQuery() {
+  return useQuery({
+    queryKey: productionKeys.batchConversions,
+    queryFn: () => fetchJson<BatchConversion[]>("/api/production/batch-conversions"),
   });
 }
 
@@ -242,5 +251,12 @@ export function useIngredientShortfallsQuery(batchId: string, enabled = true) {
     queryFn: () => fetchJson<IngredientShortfall[]>(`/api/production/ingredient-shortfalls?batch_id=${batchId}`),
     enabled,
     staleTime: 60_000,
+  });
+}
+
+export function useRecipeSquareLinksQuery() {
+  return useQuery({
+    queryKey: queryKeys.production.recipeSquareLinks(),
+    queryFn: () => fetchJson<RecipeSquareLinkRow[]>("/api/production/recipe-square-links"),
   });
 }

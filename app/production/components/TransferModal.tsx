@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { Equipment, BrewBatch, PackagingVariation, Recipe, RecipePackagingVariation, UNCONSTRAINED_EQUIPMENT_TYPES } from "../types";
+import { Equipment, BrewBatch, PackagingVariation, PackagingVariationExpanded, Recipe, RecipePackagingVariation, RecipePackagingVariationExpanded, UNCONSTRAINED_EQUIPMENT_TYPES } from "../types";
 import { Modal, Field, ModalActions } from "./shared";
 import { EQ } from "../equipmentMeta";
 import { fmtBbl2 as fmtBbl } from "@/lib/utils/formatting";
@@ -44,7 +44,8 @@ interface TransferModalProps {
   occupiedTankIds: Set<string>;
   /** recipe_id(s) of whichever batch(es) currently occupy each tank, keyed by tank id */
   occupiedTankRecipeIds?: Record<string, (string | null)[]>;
-  recipePackagingVariations: RecipePackagingVariation[];
+  recipePackagingVariations: RecipePackagingVariation[] | RecipePackagingVariationExpanded[];
+  allPackagingVariations: PackagingVariation[];
   recipes: Recipe[];
   /** Ledger volume currently in fromTank; falls back to batch.volume_bbl if omitted */
   fromTankVolume?: number;
@@ -54,13 +55,15 @@ interface TransferModalProps {
   initialDestId?: string;
   /** Open directly into Convert mode instead of the default Transfer mode */
   initialMode?: "transfer" | "convert";
-  /** Pre-fill the Convert-mode fields (used when opened from a planned conversion's "Convert" action) */
-  initialConvert?: { recipeId: string; beerName: string; bbl: string };
+  /** Pre-fill the Convert-mode fields (used when opened from a pending batch_conversion's "Convert" action) */
+  initialConvert?: { toBatchId: string; beerName: string; bbl: string };
+  /** Existing batches available as conversion targets */
+  batches?: BrewBatch[];
   onClose: () => void;
   onDone: (response?: { schedule_update?: { action: string; was_deviation?: boolean; equipment_name?: string }[] }) => Promise<void>;
 }
 
-export default function TransferModal({ batch, fromTank, allTanks, occupiedTankIds, occupiedTankRecipeIds, recipePackagingVariations, recipes, fromTankVolume, plannedEntry, initialDestId, initialMode, initialConvert, onClose, onDone }: TransferModalProps) {
+export default function TransferModal({ batch, fromTank, allTanks, occupiedTankIds, occupiedTankRecipeIds, recipePackagingVariations, allPackagingVariations, recipes, batches = [], fromTankVolume, plannedEntry, initialDestId, initialMode, initialConvert, onClose, onDone }: TransferModalProps) {
   const [mode, setMode] = useState<"transfer" | "convert">(initialMode ?? "transfer");
 
   // Same-recipe batches may combine in the same tank — only a DIFFERENT
@@ -92,13 +95,21 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
 
   interface PackagingLine { variation_id: string; quantity: string }
 
-  const recipeVariations = recipePackagingVariations
+  // Generic variations (no partner_id) are available to every recipe without
+  // an explicit recipe_packaging_variations link; partner-scoped variations
+  // still require one.
+  const linkedVariations = recipePackagingVariations
     .filter((rv) => rv.recipe_id === batch.recipe_id)
     .map((rv) => rv.packaging_variations)
-    .filter((v): v is PackagingVariation => v != null && v.is_active);
+    .filter((v): v is PackagingVariationExpanded => v != null && v.is_active);
+  const genericVariations = allPackagingVariations.filter((v) => v.partner_id == null && v.is_active);
+  const recipeVariations = [
+    ...linkedVariations,
+    ...genericVariations.filter((v) => !linkedVariations.some((lv) => lv.id === v.id)),
+  ];
 
-  const kegVariations = recipeVariations.filter((v) => v.container?.type === "keg");
-  const canVariations = recipeVariations.filter((v) => v.container?.type === "can");
+  const kegVariations = recipeVariations.filter((v) => ("container" in v ? v.container?.type : (v as PackagingVariationExpanded).packaging_items?.type) === "keg");
+  const canVariations = recipeVariations.filter((v) => ("container" in v ? v.container?.type : (v as PackagingVariationExpanded).packaging_items?.type) === "can");
 
   const [packagingLines, setPackagingLines] = useState<PackagingLine[]>([{ variation_id: "", quantity: "" }]);
 
@@ -119,9 +130,8 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
   const [submitting, setSubmitting] = useState(false);
 
   // Conversion-specific state
-  const [convertRecipeId, setConvertRecipeId] = useState(initialConvert?.recipeId ?? "");
-  const [convertBeerName, setConvertBeerName] = useState(initialConvert?.beerName ?? "");
-  const [convertBbl,      setConvertBbl]      = useState(initialConvert?.bbl ?? "");
+  const [convertToBatchId, setConvertToBatchId] = useState(initialConvert?.toBatchId ?? "");
+  const [convertBbl,       setConvertBbl]        = useState(initialConvert?.bbl ?? "");
 
   const destTank = allTanks.find((t) => t.id === destId);
 
@@ -187,21 +197,22 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
     setSubmitting(true);
     try {
       if (mode === "convert") {
-        if (!convertRecipeId || !convertBeerName || !convertBbl) {
-          alert("Please fill in all conversion fields.");
+        if (!convertToBatchId || !convertBbl) {
+          alert("Please select a target batch and enter the volume to convert.");
           return;
         }
-        const res = await fetch("/api/production/conversions", {
+        const res = await fetch("/api/production/transfers", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            batch_id:    batch.id,
-            from_tank_id: fromTank.id,
-            to_tank_id:  effectiveDestId,
-            volume_bbl:  parseFloat(convertBbl),
-            recipe_id:   convertRecipeId,
-            beer_name:   convertBeerName,
-            notes:       notes || null,
+            batch_id:      batch.id,
+            from_tank_id:  fromTank.id,
+            to_tank_id:    effectiveDestId || null,
+            to_batch_id:   convertToBatchId,
+            volume_bbl:    parseFloat(convertBbl),
+            shrinkage_bbl: 0,
+            transfer_type: "conversion",
+            notes:         notes || null,
           }),
         });
         if (!res.ok) throw new Error((await res.json()).error ?? "Error");
@@ -353,25 +364,18 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
             {/* ── Convert mode fields ── */}
             {mode === "convert" && (
               <>
-                <Field label="New Recipe" required>
-                  <select className="inp" value={convertRecipeId} required onChange={(e) => {
-                    const r = recipes.find((r) => r.id === e.target.value);
-                    setConvertRecipeId(e.target.value);
-                    if (r && !convertBeerName) setConvertBeerName(r.beer_name);
-                  }}>
-                    <option value="">— select recipe —</option>
-                    {recipes.map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.beer_name}{r.brewery ? ` · ${r.brewery}` : ""}
-                      </option>
-                    ))}
+                <Field label="Target Batch" required>
+                  <select className="inp" value={convertToBatchId} required onChange={e => setConvertToBatchId(e.target.value)}>
+                    <option value="">— select batch —</option>
+                    {batches
+                      .filter(b => b.id !== batch.id && b.status !== "complete")
+                      .map(b => (
+                        <option key={b.id} value={b.id}>
+                          {b.batch_number ? `#${b.batch_number} ` : ""}{b.beer_name}
+                        </option>
+                      ))
+                    }
                   </select>
-                </Field>
-
-                <Field label="New Batch Name" required>
-                  <input className="inp" value={convertBeerName} required
-                    placeholder="e.g. Wheat Wit"
-                    onChange={(e) => setConvertBeerName(e.target.value)} />
                 </Field>
 
                 <Field label="Volume to Convert (BBL)" required>
@@ -459,7 +463,7 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
                     onChange={(e) => setPackagingLines((ls) => ls.map((l, idx) => idx === i ? { ...l, variation_id: e.target.value } : l))}>
                     <option value="">— select variation —</option>
                     {(showKegDetail ? kegVariations : canVariations).map((v) => (
-                      <option key={v.id} value={v.id}>{v.name}</option>
+                      <option key={v.id} value={v.id}>{"name" in v ? v.name : [v.format, v.packaging_items?.name].filter(Boolean).join(" ")}</option>
                     ))}
                   </select>
                   <input type="number" min="0" className="inp" placeholder="qty"
@@ -475,6 +479,22 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
             <p className="text-xs text-zinc-500 mt-2">
               Total: {packagingLines.reduce((s, l) => s + (parseInt(l.quantity) || 0), 0)} · Draw: {fmtBbl(drawBbl)}
             </p>
+            <div className="mt-3 pt-3 border-t border-zinc-800">
+              <Field label="Packaging loss / heel (BBL)">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <input type="number" step="0.001" min="0" className="inp w-40" placeholder="0.000"
+                    value={shrinkage} onChange={(e) => setShrinkage(e.target.value)} />
+                  <span className="text-zinc-500 text-sm">BBL lost</span>
+                  <button
+                    type="button"
+                    onClick={() => setShrinkage(Math.max(0, batchVol - drawBbl).toFixed(3))}
+                    className="text-xs text-amber-500 hover:text-amber-400 border border-amber-800 hover:border-amber-600 px-2 py-1 rounded transition-colors"
+                  >
+                    Auto-fill remaining
+                  </button>
+                </div>
+              </Field>
+            </div>
           </div>
         )}
 

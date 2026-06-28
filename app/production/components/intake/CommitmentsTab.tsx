@@ -6,7 +6,7 @@ import { queryKeys } from "@/lib/query-keys";
 import {
   Recipe, ContractBrewingPartner, ContractBrewingRequest,
   ContractRequestStatus, CommitmentChannel, CommitmentAllocationSummary,
-  PackagingVariation,
+  PackagingVariation, PackagingVariationExpanded,
 } from "../../types";
 import { fmtDateLong } from "@/lib/utils/formatting";
 import { BBL_TO_FL_OZ } from "@/lib/constants/production";
@@ -204,9 +204,9 @@ function CommitmentModal({
   const recipeVariations = recipePackagingVariations
     .filter((rv) => rv.recipe_id === form.recipe_id)
     .map((rv) => rv.packaging_variations)
-    .filter((v): v is PackagingVariation => v != null && v.is_active);
-  const kegs = recipeVariations.filter((v) => v.container?.type === "keg");
-  const cans = recipeVariations.filter((v) => v.container?.type === "can");
+    .filter((v): v is PackagingVariationExpanded => v != null && v.is_active);
+  const kegs = recipeVariations.filter((v) => v.packaging_items?.type === "keg");
+  const cans = recipeVariations.filter((v) => v.packaging_items?.type === "can");
 
   useEffect(() => {
     const validIds = new Set(recipeVariations.map((v) => v.id));
@@ -374,12 +374,12 @@ function CommitmentModal({
                     <option value="">— not specified —</option>
                     {kegs.length > 0 && (
                       <optgroup label="Kegs">
-                        {kegs.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+                        {kegs.map((v) => <option key={v.id} value={v.id}>{v.packaging_items?.name ?? v.id}</option>)}
                       </optgroup>
                     )}
                     {cans.length > 0 && (
                       <optgroup label="Cans">
-                        {cans.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+                        {cans.map((v) => <option key={v.id} value={v.id}>{v.packaging_items?.name ?? v.id}</option>)}
                       </optgroup>
                     )}
                   </select>
@@ -430,6 +430,7 @@ function CommitmentModal({
 // ─── Sortable row shape ──────────────────────────────────────────────────────
 
 interface SortableRow extends ContractBrewingRequest {
+  beer_name: string;
   partner_name: string;
   packaging_total_bbl: number;
   schedule_sort: string;
@@ -453,6 +454,8 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<ContractBrewingRequest | null>(null);
   const [channelFilter, setChannelFilter] = useState<CommitmentChannel | "all">("all");
+  const [filterStyle, setFilterStyle] = useState("");
+  const [filterPartner, setFilterPartner] = useState("");
 
   // ── Invoicing actions (shared with Batch Log > Allocations) ──────────────
   const [invoiceModalAlloc, setInvoiceModalAlloc] = useState<CommitmentAllocationSummary | null>(null);
@@ -603,10 +606,25 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
     return q.desired_delivery_date ? fmtDateLong(q.desired_delivery_date) : "—";
   }
 
-  const filtered = channelFilter === "all" ? rows : rows.filter((r) => r.channel === channelFilter);
+  const uniqueStyles = Array.from(new Set(rows.map((r) => r.recipes?.beer_name).filter(Boolean))).sort() as string[];
+  const uniquePartners = Array.from(
+    new Map(
+      rows
+        .filter((r) => r.partner_id && r.contract_brewing_partners)
+        .map((r) => [r.partner_id!, r.contract_brewing_partners!.company_name])
+    ).entries()
+  ).sort((a, b) => a[1].localeCompare(b[1]));
+
+  const filtered = rows.filter((r) => {
+    if (channelFilter !== "all" && r.channel !== channelFilter) return false;
+    if (filterStyle && (r.recipes?.beer_name ?? "") !== filterStyle) return false;
+    if (filterPartner && r.partner_id !== filterPartner) return false;
+    return true;
+  });
 
   const sortableRows: SortableRow[] = filtered.map((q) => ({
     ...q,
+    beer_name: q.recipes?.beer_name ?? "",
     partner_name: q.contract_brewing_partners?.company_name ?? "",
     packaging_total_bbl: packagingTotalBbl(q),
     schedule_sort: q.cadence === "recurring" ? (q.start_date ?? "") : (q.desired_delivery_date ?? ""),
@@ -616,19 +634,40 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-4">
-        <div className="flex items-center gap-3">
-          <p className="text-sm text-zinc-500">Distribution allocations and contract brewing requests. All are outflows from cold storage.</p>
-          <div className="flex gap-1">
-            {(["all", "distribution", "contract_brewing", "wholesale"] as const).map((f) => (
-              <button key={f} onClick={() => setChannelFilter(f)}
-                className={`px-2.5 py-1 rounded text-xs font-medium transition-colors border ${channelFilter === f ? "border-amber-600 bg-amber-900/30 text-amber-300" : "border-zinc-700 text-zinc-500 hover:text-zinc-300"}`}>
-                {f === "all" ? "All" : CHANNEL_META[f].label}
-              </button>
-            ))}
-          </div>
-        </div>
-        <button onClick={() => setShowModal(true)} className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white text-sm font-medium rounded transition-colors">+ New</button>
+      <p className="text-sm text-zinc-500 mb-3">Distribution allocations and contract brewing requests. All are outflows from cold storage.</p>
+      <div className="flex items-center gap-2 mb-4">
+        {(["all", "distribution", "contract_brewing", "wholesale"] as const).map((f) => (
+          <button key={f} onClick={() => setChannelFilter(f)}
+            className={`px-2.5 py-1 rounded text-xs font-medium transition-colors border shrink-0 ${channelFilter === f ? "border-amber-600 bg-amber-900/30 text-amber-300" : "border-zinc-700 text-zinc-500 hover:text-zinc-300"}`}>
+            {f === "all" ? "All" : CHANNEL_META[f].label}
+          </button>
+        ))}
+        <div className="w-px h-4 bg-zinc-700 shrink-0" />
+        <select
+          className="inp text-sm py-1.5 px-2"
+          value={filterStyle}
+          onChange={(e) => setFilterStyle(e.target.value)}
+        >
+          <option value="">All styles</option>
+          {uniqueStyles.map((s) => <option key={s} value={s}>{s}</option>)}
+        </select>
+        <select
+          className="inp text-sm py-1.5 px-2"
+          value={filterPartner}
+          onChange={(e) => setFilterPartner(e.target.value)}
+        >
+          <option value="">All partners</option>
+          {uniquePartners.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+        </select>
+        {(filterStyle || filterPartner) && (
+          <button
+            onClick={() => { setFilterStyle(""); setFilterPartner(""); }}
+            className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors shrink-0"
+          >
+            Clear
+          </button>
+        )}
+        <button onClick={() => setShowModal(true)} className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white text-sm font-medium rounded transition-colors ml-auto shrink-0">+ New</button>
       </div>
 
       {displayRows.length === 0 ? (
@@ -639,33 +678,33 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
             <thead>
               <tr className="border-b border-zinc-800 bg-zinc-900/50 text-left">
                 <SortTh label="Channel" col="channel" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-zinc-500 !py-2.5 whitespace-nowrap" />
-                <SortTh label="Style" col="beer_style" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-zinc-500 !py-2.5" />
-                <SortTh label="Partner" col="partner_name" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-zinc-500 !py-2.5" />
-                <SortTh label="Volume" col="volume_bbl" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-zinc-500 !py-2.5" />
-                <SortTh label="Packaging Pref." col="packaging_total_bbl" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-zinc-500 !py-2.5" />
-                <SortTh label="Desired Delivery On" col="schedule_sort" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-zinc-500 !py-2.5 whitespace-nowrap" />
-                <SortTh label="Received On" col="received_on" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-zinc-500 !py-2.5 whitespace-nowrap" />
-                <SortTh label="Last Edited" col="last_edited_on" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-zinc-500 !py-2.5 whitespace-nowrap" />
-                <SortTh label="Locked On" col="locked_on" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-zinc-500 !py-2.5 whitespace-nowrap" />
                 <SortTh label="Status" col="status" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-zinc-500 !py-2.5" />
+                <SortTh label="Style" col="beer_name" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-zinc-500 !py-2.5" />
+                <SortTh label="Partner" col="partner_name" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-zinc-500 !py-2.5" />
+                <SortTh label="Volume (BBL)" col="volume_bbl" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-zinc-500 !py-2.5 whitespace-nowrap" />
+                <SortTh label="Packaging" col="packaging_total_bbl" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-zinc-500 !py-2.5" />
+                <SortTh label="Delivery" col="schedule_sort" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-zinc-500 !py-2.5" />
+                <SortTh label="Received" col="received_on" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-zinc-500 !py-2.5" />
+                <SortTh label="Locked" col="locked_on" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-zinc-500 !py-2.5" />
+                <SortTh label="Edited" col="last_edited_on" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-zinc-500 !py-2.5" />
                 <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 whitespace-nowrap">Invoicing</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 whitespace-nowrap">Notes</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 whitespace-nowrap" />
+                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500">Notes</th>
+                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500" />
               </tr>
             </thead>
             <tbody>
               {displayRows.map((q, i) => (
                 <tr key={q.id} className={`border-b border-zinc-800/60 ${i % 2 !== 0 ? "bg-zinc-900/30" : ""}`}>
                   <td className="px-4 py-2.5 whitespace-nowrap"><ChannelBadge channel={q.channel} /></td>
-                  <td className="px-4 py-2.5 text-zinc-100 font-medium">{q.beer_style}</td>
-                  <td className="px-4 py-2.5 text-zinc-400">{q.contract_brewing_partners?.company_name ?? "—"}</td>
-                  <td className="px-4 py-2.5 text-zinc-300 tabular-nums">{Number(q.volume_bbl)} BBL</td>
+                  <td className="px-4 py-2.5"><StatusBadge status={q.status} /></td>
+                  <td className="px-4 py-2.5 text-zinc-100 font-medium">{q.recipes?.beer_name ?? "—"}</td>
+                  <td className="px-4 py-2.5 text-zinc-300">{q.contract_brewing_partners?.company_name ?? "—"}</td>
+                  <td className="px-4 py-2.5 text-zinc-300 tabular-nums">{Number(q.volume_bbl)}</td>
                   <td className="px-4 py-2.5 text-zinc-400 text-xs">{pkgLabel(q)}</td>
                   <td className="px-4 py-2.5 text-zinc-400 text-xs whitespace-nowrap">{scheduleLabel(q)}</td>
                   <td className="px-4 py-2.5 text-zinc-500 text-xs whitespace-nowrap">{q.received_on ? fmtDateLong(q.received_on) : "—"}</td>
-                  <td className="px-4 py-2.5 text-zinc-500 text-xs whitespace-nowrap">{q.last_edited_on ? fmtDateLong(q.last_edited_on.slice(0, 10)) : "—"}</td>
                   <td className="px-4 py-2.5 text-zinc-500 text-xs whitespace-nowrap">{q.locked_on ? fmtDateLong(q.locked_on) : "—"}</td>
-                  <td className="px-4 py-2.5"><StatusBadge status={q.status} /></td>
+                  <td className="px-4 py-2.5 text-zinc-500 text-xs whitespace-nowrap">{q.last_edited_on ? fmtDateLong(q.last_edited_on.slice(0, 10)) : "—"}</td>
                   <td className="px-4 py-2.5 min-w-[180px]">
                     <InvoicingCell
                       commitment={q}
@@ -677,7 +716,9 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
                       onDelete={handleDeleteInvoice}
                     />
                   </td>
-                  <td className="px-4 py-2.5 text-zinc-500 text-xs max-w-[160px] truncate">{q.notes ?? "—"}</td>
+                  <td className="px-4 py-2.5 text-zinc-500 text-xs">
+                    <div className="max-w-[160px] truncate" title={q.notes ?? undefined}>{q.notes ?? "—"}</div>
+                  </td>
                   <td className="px-4 py-2.5">
                     <div className="flex items-center gap-3 whitespace-nowrap">
                       <button onClick={() => setEditing(q)} className="text-xs text-zinc-400 hover:text-zinc-200">Edit</button>
