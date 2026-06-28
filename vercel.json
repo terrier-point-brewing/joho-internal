@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/payroll-advance",
+      "schedule": "0 5 * * *"
+    }
+  ]
+}
