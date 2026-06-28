@@ -17,10 +17,10 @@ export default function SalesNav() {
         const active = pathname === href;
         return (
           <Link key={href} href={href}
-            className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${
+            className={`px-3 py-1.5 text-xs font-medium border-b-2 -mb-px transition-colors ${
               active
-                ? "bg-zinc-800 text-zinc-100"
-                : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50"
+                ? "text-amber-400 border-amber-500"
+                : "text-zinc-500 border-transparent hover:text-zinc-300"
             }`}>
             {label}
           </Link>

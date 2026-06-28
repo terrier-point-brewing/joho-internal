@@ -19,7 +19,7 @@ export default function SettingsNav() {
           <Link key={href} href={href}
             className={`px-3 py-2 text-xs font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${
               active
-                ? "text-zinc-100 border-amber-500"
+                ? "text-amber-400 border-amber-500"
                 : "text-zinc-500 border-transparent hover:text-zinc-300"
             }`}>
             {label}

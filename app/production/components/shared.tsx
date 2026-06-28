@@ -47,7 +47,7 @@ export function Modal({
       >
         <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800 shrink-0">
           <h3 className="text-sm font-medium text-zinc-100">{title}</h3>
-          <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300 text-lg leading-none">
+          <button onClick={onClose} aria-label="Close" className="text-zinc-500 hover:text-zinc-300 text-lg leading-none">
             ×
           </button>
         </div>

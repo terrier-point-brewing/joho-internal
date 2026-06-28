@@ -267,8 +267,9 @@ export default function RecipesTab() {
             return (
               <div key={r.id} className="rounded-lg border border-zinc-800 overflow-hidden">
                 {/* Header row */}
-                <div
-                  className="px-4 py-3 cursor-pointer hover:bg-zinc-900/40 transition-colors"
+                <button
+                  type="button"
+                  className="px-4 py-3 w-full text-left cursor-pointer hover:bg-zinc-900/40 transition-colors"
                   onClick={() => setExpanded(isOpen ? null : r.id)}
                 >
                   {/* Name + chevron row */}
@@ -320,7 +321,7 @@ export default function RecipesTab() {
                       {r.recipe_ingredients.length} ingredient{r.recipe_ingredients.length !== 1 ? "s" : ""}
                     </span>
                   </div>
-                </div>
+                </button>
 
                 {/* Expanded detail */}
                 {isOpen && (
