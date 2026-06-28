@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchJson, useContractPartnersQuery, useExportServiceMappingsQuery } from "../hooks/queries";
 import { queryKeys } from "@/lib/query-keys";
@@ -446,10 +446,14 @@ export default function ExportInvoicesTab({ highlightInvoiceId }: ExportInvoices
   const [statusFilter, setStatusFilter] = useState("all");
   const [yearFilter, setYearFilter] = useState<number | "all">("all");
 
-  // Auto-expand highlighted invoice when it changes
-  useEffect(() => {
+  // Sync expanded state when highlightInvoiceId changes from parent.
+  // React-recommended pattern: track previous prop in state and call setState
+  // during render (React retries immediately, no extra browser paint).
+  const [prevHighlight, setPrevHighlight] = useState(highlightInvoiceId);
+  if (prevHighlight !== highlightInvoiceId) {
+    setPrevHighlight(highlightInvoiceId);
     if (highlightInvoiceId) setExpandedId(highlightInvoiceId);
-  }, [highlightInvoiceId]);
+  }
 
   const partnerNames = useMemo(() => new Map(partners.map((p) => [p.id, p.company_name])), [partners]);
 
