@@ -78,7 +78,7 @@ export interface RecipePackagingVariation {
   packaging_variations?: PackagingVariation | null;
 }
 
-/** Expanded join used by the RecipeLinkMatrix — includes packaging_items and partner info. */
+/** Expanded join for recipe_packaging_variations — includes packaging_items and partner info. */
 export interface PackagingVariationExpanded {
   id: string;
   container_id: string;

@@ -13,7 +13,6 @@ import {
 } from "../hooks/queries";
 import type { ExciseTaxRate, ExportServiceMapping, ServiceType } from "../types";
 import { SquareCatalogSelect, SquareDiscountSelect } from "@/app/components/SquareCatalogSelect";
-import RecipeLinkMatrix from "./RecipeLinkMatrix";
 
 function ExciseTaxRateRow({
   rate,
@@ -600,10 +599,12 @@ function SquareCatalogMappingsSection() {
   return (
     <section>
       <h3 className="text-sm font-medium text-zinc-200 mb-2">Square Catalog Mappings</h3>
-      <p className="text-xs text-zinc-600 mb-3">
-        Links recipes to Square catalog items for inventory sync on taproom exports.
-      </p>
-      <RecipeLinkMatrix />
+      <div className="mt-4 p-4 bg-zinc-900/40 rounded-lg border border-zinc-800">
+        <p className="text-xs text-zinc-400 mb-2">Square catalog mappings have moved to a dedicated page.</p>
+        <a href="/production/settings/square-links" className="text-xs text-amber-400 hover:text-amber-300 transition-colors">
+          Manage Square mappings →
+        </a>
+      </div>
     </section>
   );
 }
