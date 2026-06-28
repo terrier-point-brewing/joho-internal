@@ -8,35 +8,30 @@ export async function GET() {
 
   const { data: txs, error } = await supabase
     .from("export_transactions")
-    .select("*, brew_batches(id, beer_name, batch_number)")
+    .select(`
+      id, channel, recipient_id, recipient_name, variant_label,
+      quantity, volume_bbl, total_excise_tax_usd, status, invoice_id,
+      created_at,
+      brew_batches(id, beer_name, batch_number),
+      invoices!invoice_id(invoice_number)
+    `)
     .order("created_at", { ascending: false });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // Enrich with invoice_number from the invoices table, keyed on square_invoice_id.
-  const squareIds = [
-    ...new Set(
-      (txs ?? []).flatMap((t) => (t.square_invoice_id ? [t.square_invoice_id as string] : []))
-    ),
-  ];
-
-  let invNumBySquareId: Record<string, string | null> = {};
-  if (squareIds.length > 0) {
-    const { data: invoiceRows } = await supabase
-      .from("invoices")
-      .select("square_invoice_id, invoice_number")
-      .in("square_invoice_id", squareIds);
-    invNumBySquareId = Object.fromEntries(
-      (invoiceRows ?? []).map((i) => [i.square_invoice_id as string, i.invoice_number as string | null])
-    );
-  }
-
-  const enriched = (txs ?? []).map((tx) => ({
-    ...tx,
-    invoice_number: tx.square_invoice_id
-      ? (invNumBySquareId[tx.square_invoice_id] ?? null)
-      : null,
-  }));
+  const enriched = (txs ?? []).map((tx) => {
+    // Supabase may return the FK-joined row as an array or object depending on
+    // the relationship direction. Normalize to the object shape we need.
+    const invRaw = tx.invoices as unknown;
+    const inv = Array.isArray(invRaw)
+      ? (invRaw[0] as { invoice_number: string | null } | undefined)
+      : (invRaw as { invoice_number: string | null } | null);
+    return {
+      ...tx,
+      invoice_number: inv?.invoice_number ?? null,
+      invoices: undefined,
+    };
+  });
 
   return NextResponse.json(enriched);
 }

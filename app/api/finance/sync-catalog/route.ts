@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { fetchCatalogItems, fetchCatalogCategories, fetchCatalogTaxes } from "@/lib/square/catalog";
+import { volumeFlOzPerUnit, inferInventoryUnit } from "@/lib/square/catalogUnits";
 
 export const dynamic = "force-dynamic";
 
@@ -65,22 +66,27 @@ export async function POST() {
     const catalogItemId = itemIdMap.get(item.id);
     if (!catalogItemId) return [];
 
-    return (item.item_data.variations ?? []).map((v) => ({
-      square_variation_id: v.id,
-      catalog_item_id:     catalogItemId,
-      square_item_id:      item.id,
-      variation_name:      v.item_variation_data.name,
-      sku:                 v.item_variation_data.sku ?? null,
-      upc:                 v.item_variation_data.upc ?? null,
-      price_amount:        v.item_variation_data.price_money?.amount ?? null,
-      price_currency:      v.item_variation_data.price_money?.currency ?? null,
-      pricing_type:        v.item_variation_data.pricing_type ?? null,
-      track_inventory:     v.item_variation_data.track_inventory ?? null,
-      sellable:            v.item_variation_data.sellable ?? null,
-      stockable:           v.item_variation_data.stockable ?? null,
-      service_duration_ms: v.item_variation_data.service_duration ?? null,
-      synced_at:           now,
-    }));
+    return (item.item_data.variations ?? []).map((v) => {
+      const variationName = v.item_variation_data.name;
+      return {
+        square_variation_id:   v.id,
+        catalog_item_id:       catalogItemId,
+        square_item_id:        item.id,
+        variation_name:        variationName,
+        sku:                   v.item_variation_data.sku ?? null,
+        upc:                   v.item_variation_data.upc ?? null,
+        price_amount:          v.item_variation_data.price_money?.amount ?? null,
+        price_currency:        v.item_variation_data.price_money?.currency ?? null,
+        pricing_type:          v.item_variation_data.pricing_type ?? null,
+        track_inventory:       v.item_variation_data.track_inventory ?? null,
+        sellable:              v.item_variation_data.sellable ?? null,
+        stockable:             v.item_variation_data.stockable ?? null,
+        service_duration_ms:   v.item_variation_data.service_duration ?? null,
+        inventory_unit:        inferInventoryUnit(variationName),
+        volume_fl_oz_per_unit: volumeFlOzPerUnit(variationName),
+        synced_at:             now,
+      };
+    });
   });
 
   const { data: upsertedVariations, error: varError } = await supabase

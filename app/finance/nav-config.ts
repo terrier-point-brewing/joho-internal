@@ -5,5 +5,6 @@ export const FINANCE_NAV: NavEntry[] = [
   { href: "/finance/sales/taproom",        match: "/finance/sales",                label: "Sales"        },
   { href: "/finance/statements/pl",        match: "/finance/statements",           label: "Statements"   },
   { href: "/finance/transactions/square-transactions", match: "/finance/transactions", label: "Transactions", also: "/finance/invoices" },
+  { href: "/finance/payroll",              match: "/finance/payroll",              label: "Payroll"      },
   { href: "/finance/settings",             match: "/finance/settings",             label: "Settings"     },
 ];

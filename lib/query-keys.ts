@@ -52,6 +52,7 @@ export const queryKeys = {
     exportSquareCatalog:   () => ["production", "export-square-catalog"] as const,
     exportInvoiceDueDays:  () => ["production", "export-invoice-due-days"] as const,
     depositInvoiceDueDays: () => ["production", "deposit-invoice-due-days"] as const,
+    exportInvoices:        () => ["production", "export-invoices"] as const,
   },
 
   // ─── Partners ─────────────────────────────────────────────────────────────
@@ -86,5 +87,15 @@ export const queryKeys = {
     draftStats:    () => ["taproom", "draft-stats"] as const,
     events:        () => ["taproom", "events"] as const,
     eventPours:    (id: string) => ["taproom", "event-pours", id] as const,
+  },
+
+  // ─── Payroll ──────────────────────────────────────────────────────────────
+  payroll: {
+    all:       () => ["payroll"] as const,
+    config:    () => ["payroll", "config"] as const,
+    employees: () => ["payroll", "employees"] as const,
+    periods:   () => ["payroll", "periods"] as const,
+    period:    (id: string) => ["payroll", "periods", id] as const,
+    preview:   (id: string) => ["payroll", "preview", id] as const,
   },
 } as const;

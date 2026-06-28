@@ -9,7 +9,7 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from("recipe_square_links")
-    .select("*, recipes(beer_name), packaging_items(id, name, type, volume_fl_oz)")
+    .select("*, recipes(beer_name), packaging_items(id, name, type, volume_fl_oz), packaging_variations(id, name)")
     .order("created_at");
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data);
@@ -21,8 +21,8 @@ export async function POST(req: NextRequest) {
   const supabase = await createSupabaseServerClient();
 
   const {
-    recipe_id, packaging, packaging_item_id,
-    packaging_format,
+    recipe_id, packaging, variation_id,
+    packaging_item_id: clientPackagingItemId,
     square_variation_id, square_item_id, variation_name, item_name,
   } = await req.json();
 
@@ -33,34 +33,42 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // keg/can require a packaging_item_id
-  if ((packaging === "keg" || packaging === "can") && !packaging_item_id) {
+  if (packaging !== "draft" && packaging !== "keg" && packaging !== "can") {
+    return NextResponse.json({ error: "packaging must be 'draft', 'keg', or 'can'" }, { status: 400 });
+  }
+
+  // Variation-grain is the source of truth for keg/can. A keg/can POST must
+  // carry EITHER a variation_id (new RecipeLinkMatrix flow) OR a
+  // packaging_item_id (legacy SquareLinkManager flow, kept for backward
+  // compatibility). draft is recipe-grain and must NOT carry a variation_id.
+  if (packaging === "draft" && variation_id) {
     return NextResponse.json(
-      { error: "packaging_item_id is required for keg and can links" },
+      { error: "draft links must not carry a variation_id" },
+      { status: 400 }
+    );
+  }
+  if ((packaging === "keg" || packaging === "can") && !variation_id && !clientPackagingItemId) {
+    return NextResponse.json(
+      { error: "variation_id (or packaging_item_id) is required for keg and can links" },
       { status: 400 }
     );
   }
 
-  // can links require a packaging_format; keg/draft links must not have one
-  if (packaging === "can" && !packaging_format) {
-    return NextResponse.json(
-      { error: "packaging_format is required for can links ('loose', '4-pack', '6-pack', or 'case')" },
-      { status: 400 }
-    );
-  }
-  if (packaging !== "can" && packaging_format) {
-    return NextResponse.json(
-      { error: "packaging_format is only valid for can links" },
-      { status: 400 }
-    );
-  }
-
-  const VALID_FORMATS = ["loose", "4-pack", "6-pack", "case"];
-  if (packaging_format && !VALID_FORMATS.includes(packaging_format)) {
-    return NextResponse.json(
-      { error: `packaging_format must be one of: ${VALID_FORMATS.join(", ")}` },
-      { status: 400 }
-    );
+  // When a variation_id is supplied, derive the container from it so the
+  // denormalized packaging_item_id column stays populated for legacy readers.
+  // Source of truth is variation_id. (recipe_square_links has no
+  // packaging_format column in the live schema, so format is not stored here.)
+  let packaging_item_id: string | null = clientPackagingItemId ?? null;
+  if (variation_id) {
+    const { data: pv, error: pvErr } = await supabase
+      .from("packaging_variations")
+      .select("container_id")
+      .eq("id", variation_id)
+      .single();
+    if (pvErr || !pv) {
+      return NextResponse.json({ error: "variation_id not found" }, { status: 400 });
+    }
+    packaging_item_id = pv.container_id;
   }
 
   // Resolve catalog FKs from the master tables
@@ -90,8 +98,8 @@ export async function POST(req: NextRequest) {
     .insert({
       recipe_id,
       packaging,
+      variation_id: variation_id || null,
       packaging_item_id: packaging_item_id || null,
-      packaging_format: packaging_format || null,
       square_variation_id,
       square_item_id: square_item_id || null,
       variation_name: variation_name || null,

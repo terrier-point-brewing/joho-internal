@@ -16,7 +16,11 @@ export default function SubNav({
   const pathname = usePathname();
   const { role } = useUserRole();
   const isAdmin = role === "admin";
-  const visible = entries.filter((e) => !e.adminOnly || isAdmin);
+  const visible = entries.filter((e) => {
+    if (e.adminOnly && !isAdmin) return false;
+    if (e.managerOnly && role !== "manager" && !isAdmin) return false;
+    return true;
+  });
 
   const cls = mobile
     ? "md:hidden flex border-b border-zinc-800 overflow-x-auto overflow-y-hidden scrollbar-none"

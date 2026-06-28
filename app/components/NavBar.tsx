@@ -136,7 +136,11 @@ export default function NavBar() {
             </Link>
             {isTaproom && (
               <div className="mt-1 ml-2 flex flex-col gap-0.5 border-l border-zinc-800 pl-2">
-                {TAPROOM_NAV.filter((e) => !e.adminOnly || isAdmin).map(({ href, label }) => (
+                {TAPROOM_NAV.filter((e) => {
+                  if (e.adminOnly && !isAdmin) return false;
+                  if (e.managerOnly && role !== "manager" && !isAdmin) return false;
+                  return true;
+                }).map(({ href, label }) => (
                   <Link key={href} href={href} className={subtabCls(pathname.startsWith(href))}>
                     {label}
                   </Link>
