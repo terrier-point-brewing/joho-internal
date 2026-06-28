@@ -110,7 +110,7 @@ export default function TaproomTab({ recipes }: { recipes: Recipe[] }) {
       {loading ? (
         <p className="text-zinc-600 text-sm py-10 text-center">Loading inventory from Square…</p>
       ) : rows.length === 0 ? (
-        <p className="text-zinc-600 text-sm py-10 text-center">No styles linked to Square yet. Use &quot;Link to Square&quot; to map a recipe.</p>
+        <p className="text-zinc-600 text-sm py-10 text-center">No styles linked to Square yet. Visit Square Mappings in Settings to link recipes.</p>
       ) : (
         <div className="rounded-lg border border-zinc-800 overflow-hidden">
           <div className="overflow-x-auto">

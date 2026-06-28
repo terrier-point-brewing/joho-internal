@@ -507,7 +507,7 @@ export default function DraftStatsTab() {
         <div className="py-8 text-center">
           <p className="text-zinc-600 text-sm">
             {draftRecipeIds.size === 0
-              ? "No draft items linked to Square yet. Use \"Link to Square\" to map recipes."
+              ? "No draft items linked to Square yet. Visit Square Mappings in Settings to link recipes."
               : "No shrinkage data found for the selected period."}
           </p>
         </div>

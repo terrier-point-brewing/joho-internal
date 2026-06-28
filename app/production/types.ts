@@ -78,34 +78,6 @@ export interface RecipePackagingVariation {
   packaging_variations?: PackagingVariation | null;
 }
 
-/** Expanded join for recipe_packaging_variations — includes packaging_items and partner info. */
-export interface PackagingVariationExpanded {
-  id: string;
-  container_id: string;
-  format: PackagingVariationFormat;
-  partner_id: string | null;
-  total_volume_fl_oz: number;
-  is_active: boolean;
-  name?: string | null;
-  packaging_items: {
-    id: string;
-    name: string;
-    type: PackagingItemType;
-    volume_fl_oz: number | null;
-  } | null;
-  contract_brewing_partners: {
-    id: string;
-    company_name: string;
-  } | null;
-}
-
-export interface RecipePackagingVariationExpanded {
-  id: string;
-  recipe_id: string;
-  variation_id: string;
-  created_at: string;
-  packaging_variations: PackagingVariationExpanded | null;
-}
 
 export type PackagingAdjustmentType = "received" | "used" | "waste" | "inventory_count";
 
