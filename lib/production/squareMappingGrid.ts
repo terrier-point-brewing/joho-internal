@@ -69,6 +69,7 @@ export interface Suggestion {
 export interface CellVariation {
   variationId: string;          // packaging_variation UUID (null string sentinel for draft)
   variationName: string;
+  linkId: string | null;
   linkedSquareCatalogVariationId: string | null;
   linkedSquareName: string | null;
   suggestion: Suggestion | null;
@@ -235,6 +236,7 @@ export function buildGrid(
             {
               variationId: "draft",
               variationName: "Draft",
+              linkId: link?.id ?? null,
               linkedSquareCatalogVariationId: link?.squareCatalogVariationId ?? null,
               linkedSquareName: link
                 ? `${link.itemName ?? ""}${link.variationName ? ` · ${link.variationName}` : ""}`.trim()
@@ -260,6 +262,7 @@ export function buildGrid(
         return {
           variationId: rpv.variationId,
           variationName: rpv.variationName,
+          linkId: link?.id ?? null,
           linkedSquareCatalogVariationId: link?.squareCatalogVariationId ?? null,
           linkedSquareName: link
             ? `${link.itemName ?? ""}${link.variationName ? ` · ${link.variationName}` : ""}`.trim()
