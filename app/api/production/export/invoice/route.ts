@@ -388,10 +388,11 @@ export async function POST(req: NextRequest) {
     if (!inv?.id) {
       return NextResponse.json({ error: "Failed to create invoice record" }, { status: 500 });
     }
-    await supabase
+    const { error: linkErr } = await supabase
       .from("export_transactions")
       .update({ invoice_id: inv.id })
       .in("id", transactionIds);
+    if (linkErr) return NextResponse.json({ error: linkErr.message }, { status: 500 });
 
     return NextResponse.json({ ok: true });
   }
