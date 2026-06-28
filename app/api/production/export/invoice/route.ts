@@ -135,7 +135,7 @@ export async function POST(req: NextRequest) {
 
     // Insert line items into invoice_line_items (with Square variation ID for future draft editing).
     if (lineItems.length > 0) {
-      await supabase.from("invoice_line_items").insert(
+      const { error: liErr } = await supabase.from("invoice_line_items").insert(
         lineItems.map((li, i) => ({
           invoice_id: inv.id,
           sort_order: i,
@@ -147,6 +147,12 @@ export async function POST(req: NextRequest) {
           square_catalog_variation_id: li.squareCatalogVariationId ?? null,
         }))
       );
+      if (liErr) {
+        return NextResponse.json(
+          { error: `Invoice ${inv.id} created but inserting line items failed: ${liErr.message}` },
+          { status: 500 }
+        );
+      }
     }
 
     const { error: updateErr } = await supabase
@@ -307,25 +313,26 @@ export async function POST(req: NextRequest) {
       .select("id")
       .single();
 
-    if (inv?.id) {
-      if (lineItems?.length) {
-        await supabase.from("invoice_line_items").insert(
-          lineItems.map((li, i) => ({
-            invoice_id:       inv.id,
-            sort_order:       i,
-            description:      li.description,
-            category:         "other_services",
-            quantity:         li.quantity,
-            unit_price_cents: li.unitPriceCents,
-            total_cents:      li.quantity * li.unitPriceCents,
-          }))
-        );
-      }
-      await supabase
-        .from("export_transactions")
-        .update({ invoice_id: inv.id })
-        .in("id", transactionIds);
+    if (!inv?.id) {
+      return NextResponse.json({ error: "Failed to create invoice record" }, { status: 500 });
     }
+    if (lineItems?.length) {
+      await supabase.from("invoice_line_items").insert(
+        lineItems.map((li, i) => ({
+          invoice_id:       inv.id,
+          sort_order:       i,
+          description:      li.description,
+          category:         "other_services",
+          quantity:         li.quantity,
+          unit_price_cents: li.unitPriceCents,
+          total_cents:      li.quantity * li.unitPriceCents,
+        }))
+      );
+    }
+    await supabase
+      .from("export_transactions")
+      .update({ invoice_id: inv.id })
+      .in("id", transactionIds);
 
     return NextResponse.json({ ok: true });
   }
@@ -371,19 +378,20 @@ export async function POST(req: NextRequest) {
           subtotal_cents: totalCents,
           tax_cents:      0,
           total_cents:    totalCents,
-          notes:          "QB backfill — export invoice",
+          notes:          source === "quickbooks" ? "QB backfill — export invoice" : "Manual export invoice",
         },
         { onConflict: "source,external_id", ignoreDuplicates: false }
       )
       .select("id")
       .single();
 
-    if (inv?.id) {
-      await supabase
-        .from("export_transactions")
-        .update({ invoice_id: inv.id })
-        .in("id", transactionIds);
+    if (!inv?.id) {
+      return NextResponse.json({ error: "Failed to create invoice record" }, { status: 500 });
     }
+    await supabase
+      .from("export_transactions")
+      .update({ invoice_id: inv.id })
+      .in("id", transactionIds);
 
     return NextResponse.json({ ok: true });
   }
