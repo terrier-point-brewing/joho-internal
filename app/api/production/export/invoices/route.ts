@@ -14,7 +14,7 @@ export async function GET() {
     .select(`
       id, invoice_number, invoice_date, customer_name, partner_id,
       status, source, square_invoice_id, subtotal_cents, total_cents,
-      invoice_line_items(
+      invoice_line_items!invoice_line_items_invoice_id_fkey(
         id, sort_order, description, category,
         quantity, unit_price_cents, total_cents,
         square_catalog_variation_id
