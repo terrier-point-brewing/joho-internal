@@ -1,6 +1,5 @@
 import { fetchCurrentCounts, fetchOrderSales } from "@/lib/square/inventory";
 import { BBL_TO_FL_OZ } from "@/lib/constants/production";
-import { canOzPerUnit } from "@/lib/reports/bbl-tracker";
 
 export const SELL_THROUGH_WINDOW_DAYS = 30;
 
@@ -27,21 +26,6 @@ export interface LinkSellThrough {
     days_fermenter: number | null;
     days_brite: number | null;
   } | null;
-}
-
-// Parse total fl oz represented by one unit sold of a variation.
-// For draft pours the oz is in the name ("Draft - 16oz" → 16).
-// For can multi-packs the oz and qty are both in the name ("12oz 4-Pack" → 48).
-// Returns null when the serving size is unknown (base "Draft"/"Regular" variation).
-function ozPerSale(name: string | null): number | null {
-  if (!name) return null;
-  const ozMatch = name.match(/(\d+(?:\.\d+)?)oz/i);
-  if (!ozMatch) return null;
-  const oz = parseFloat(ozMatch[1]);
-  if (/\bcase\b/i.test(name)) return 24 * oz;
-  const packMatch = name.match(/(\d+)[\s-]?(?:pack|pk)\b/i);
-  if (packMatch) return parseInt(packMatch[1]) * oz;
-  return oz;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -80,6 +64,17 @@ export async function fetchSellThrough(
 
   const baseVarIds: string[] = [...new Set(links.map((l) => l.square_variation_id as string))];
 
+  // Per-sold-unit volume comes from the catalog mirror (populated by the sync
+  // route via lib/square/catalogUnits.ts) instead of re-parsing variation names.
+  const { data: unitRows } = await supabase
+    .from("square_catalog_variations")
+    .select("square_variation_id, volume_fl_oz_per_unit")
+    .in("square_variation_id", baseVarIds);
+  const volPerUnitByVarId = new Map<string, number | null>();
+  for (const r of unitRows ?? []) {
+    volPerUnitByVarId.set(r.square_variation_id as string, (r.volume_fl_oz_per_unit as number | null) ?? null);
+  }
+
   // For draft items, also load all pour-size sibling variations so we can
   // aggregate sales across every serving size (5oz, 10oz, 16oz, …).
   const draftItemIds: string[] = [
@@ -94,12 +89,12 @@ export async function fetchSellThrough(
   if (draftItemIds.length > 0) {
     const { data: siblings } = await supabase
       .from("square_catalog_variations")
-      .select("square_variation_id, square_item_id, variation_name")
+      .select("square_variation_id, square_item_id, volume_fl_oz_per_unit")
       .in("square_item_id", draftItemIds);
     for (const v of siblings ?? []) {
       const itemId = v.square_item_id as string;
       const list = draftVarsByItem.get(itemId) ?? [];
-      list.push({ id: v.square_variation_id as string, oz: ozPerSale(v.variation_name as string | null) });
+      list.push({ id: v.square_variation_id as string, oz: (v.volume_fl_oz_per_unit as number | null) ?? null });
       draftVarsByItem.set(itemId, list);
     }
   }
@@ -166,8 +161,9 @@ export async function fetchSellThrough(
     if (l.packaging === "keg") {
       volFlOz = l.packaging_items?.volume_fl_oz ?? null;
     } else {
-      // can: oz is in the variation name ("Regular - 12oz 4-Pack" → 48)
-      volFlOz = l.variation_name ? canOzPerUnit(l.variation_name as string) : (l.packaging_items?.volume_fl_oz ?? null);
+      // can: total oz per sold unit comes from the mirror, falling back to the
+      // packaging_items container volume if the mirror has no parsed value.
+      volFlOz = volPerUnitByVarId.get(l.square_variation_id as string) ?? l.packaging_items?.volume_fl_oz ?? null;
     }
 
     const unitsToBbl = (units: number) => volFlOz ? (units * volFlOz) / BBL_TO_FL_OZ : 0;
