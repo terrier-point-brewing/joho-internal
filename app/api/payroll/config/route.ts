@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { apiError } from "@/lib/utils/api";
-import { seedPeriodDates } from "@/lib/payroll/periodUtils";
+import { computeNextPeriodDates, addDays } from "@/lib/payroll/periodUtils";
 import type { PayPeriodFrequency } from "@/lib/payroll/periodUtils";
 
 export const dynamic = "force-dynamic";
@@ -33,11 +33,13 @@ export async function PATCH(req: NextRequest) {
     guaranteed_rate_cents,
     cash_tips_rate,
     tip_distribution_model,
-    first_pay_period_start_date,
     pay_period_frequency,
+    tip_pool_frequency,
+    guaranteed_min_frequency,
+    due_date_days_after_end,
   } = body;
 
-  if (!effective_from || !base_rate_cents || !guaranteed_rate_cents || !first_pay_period_start_date) {
+  if (!effective_from || !base_rate_cents || !guaranteed_rate_cents) {
     return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
   }
 
@@ -45,11 +47,17 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "Invalid pay_period_frequency" }, { status: 400 });
   }
 
-  const seed_periods = body.seed_periods !== false; // default true
+  const validFreqs = ["daily", "weekly", "biweekly"];
+  if (tip_pool_frequency && !validFreqs.includes(tip_pool_frequency)) {
+    return NextResponse.json({ error: "Invalid tip_pool_frequency" }, { status: 400 });
+  }
+  if (guaranteed_min_frequency && !validFreqs.includes(guaranteed_min_frequency)) {
+    return NextResponse.json({ error: "Invalid guaranteed_min_frequency" }, { status: 400 });
+  }
 
   const frequency: PayPeriodFrequency = pay_period_frequency ?? "biweekly";
+  const dueDays: number = due_date_days_after_end ?? 3;
 
-  // Upsert on effective_from so multiple saves on the same day don't conflict.
   const { data: config, error: configErr } = await supabase
     .from("payroll_config")
     .upsert(
@@ -59,8 +67,10 @@ export async function PATCH(req: NextRequest) {
         guaranteed_rate_cents,
         cash_tips_rate: cash_tips_rate ?? 0.01,
         tip_distribution_model: tip_distribution_model ?? "proportional_hours",
-        first_pay_period_start_date,
         pay_period_frequency: frequency,
+        tip_pool_frequency: tip_pool_frequency ?? "biweekly",
+        guaranteed_min_frequency: guaranteed_min_frequency ?? "biweekly",
+        due_date_days_after_end: dueDays,
       },
       { onConflict: "effective_from" }
     )
@@ -69,26 +79,25 @@ export async function PATCH(req: NextRequest) {
 
   if (configErr) return apiError(configErr.message);
 
-  if (seed_periods) {
-    // Seed all missing periods from first_pay_period_start_date through today.
+  // Only auto-create a period on first-time setup (no periods exist yet).
+  // Mid-cycle config updates must not generate new periods — use + New Period or the cron.
+  const { count } = await supabase
+    .from("pay_periods")
+    .select("id", { count: "exact", head: true });
+
+  let periodCreated = false;
+  if ((count ?? 0) === 0) {
     const today = new Date().toISOString().slice(0, 10);
-    const expected = seedPeriodDates(first_pay_period_start_date, frequency, today);
+    const dates = computeNextPeriodDates(null, frequency, today);
+    const due_date = addDays(dates.end_date, dueDays);
 
-    const { data: existing } = await supabase
+    const { error: insertErr } = await supabase
       .from("pay_periods")
-      .select("start_date");
+      .insert({ ...dates, due_date, status: "open" });
 
-    const existingStarts = new Set((existing ?? []).map((p: { start_date: string }) => p.start_date));
-    const toInsert = expected
-      .filter(p => !existingStarts.has(p.start_date))
-      .map(p => ({ ...p, status: "open" as const }));
-
-    if (toInsert.length > 0) {
-      const { error: insertErr } = await supabase.from("pay_periods").insert(toInsert);
-      if (insertErr) return apiError(insertErr.message);
-    }
-
-    return NextResponse.json({ config, periodsCreated: toInsert.length });
+    if (insertErr) return apiError(insertErr.message);
+    periodCreated = true;
   }
-  return NextResponse.json({ config, periodsCreated: 0 });
+
+  return NextResponse.json({ config, periodCreated });
 }

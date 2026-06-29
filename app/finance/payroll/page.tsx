@@ -1,42 +1,85 @@
 "use client";
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import Link from "next/link";
 import { PayrollNav } from "./PayrollNav";
 import { queryKeys } from "@/lib/query-keys";
 import type { PayPeriod } from "@/lib/payroll/types";
 
+const inputCls = "bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-zinc-200 text-sm";
+
 export default function FinancePayrollPage() {
   const qc = useQueryClient();
+  const [showForm, setShowForm] = useState(false);
+  const [newStart, setNewStart] = useState("");
+  const [newEnd, setNewEnd] = useState("");
+
   const { data: periods, isLoading } = useQuery<PayPeriod[]>({
     queryKey: queryKeys.payroll.periods(),
     queryFn: () => fetch("/api/payroll/periods").then((r) => r.json()),
   });
 
   const createPeriod = useMutation({
-    mutationFn: () =>
-      fetch("/api/payroll/periods", { method: "POST" }).then((r) => {
-        if (!r.ok) return r.json().then((d) => Promise.reject(d.error));
+    mutationFn: (body: { start_date?: string; end_date?: string }) =>
+      fetch("/api/payroll/periods", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }).then((r) => {
+        if (!r.ok) return r.json().then((d) => Promise.reject(new Error(d.error)));
         return r.json();
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.payroll.periods() }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.payroll.periods() });
+      setShowForm(false);
+      setNewStart("");
+      setNewEnd("");
+    },
   });
 
   return (
     <main className="px-4 sm:px-6 py-8">
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-zinc-100 font-semibold text-lg">Payroll</h1>
-        <button
-          onClick={() => createPeriod.mutate()}
-          disabled={createPeriod.isPending}
-          className="text-sm px-3 py-1.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-200 rounded transition-colors disabled:opacity-40"
-        >
-          {createPeriod.isPending ? "Creating…" : "+ New Period"}
-        </button>
+        {!showForm && (
+          <button
+            onClick={() => setShowForm(true)}
+            className="text-sm px-3 py-1.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-200 rounded transition-colors"
+          >
+            + New Period
+          </button>
+        )}
       </div>
       <PayrollNav />
-      {createPeriod.isError && (
-        <p className="text-red-400 text-sm mb-4">{String(createPeriod.error)}</p>
+
+      {showForm && (
+        <div className="mb-6 p-4 bg-zinc-900 border border-zinc-700 rounded-lg flex flex-wrap items-end gap-3">
+          <label className="block">
+            <span className="block text-zinc-500 text-xs mb-1">Start date</span>
+            <input type="date" value={newStart} onChange={e => setNewStart(e.target.value)} className={inputCls} />
+          </label>
+          <label className="block">
+            <span className="block text-zinc-500 text-xs mb-1">End date</span>
+            <input type="date" value={newEnd} onChange={e => setNewEnd(e.target.value)} className={inputCls} />
+          </label>
+          <button
+            onClick={() => createPeriod.mutate({ start_date: newStart, end_date: newEnd })}
+            disabled={createPeriod.isPending || !newStart || !newEnd}
+            className="text-sm px-4 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded disabled:opacity-40"
+          >
+            {createPeriod.isPending ? "Creating…" : "Create"}
+          </button>
+          <button
+            onClick={() => { setShowForm(false); setNewStart(""); setNewEnd(""); }}
+            className="text-sm px-3 py-1.5 text-zinc-500 hover:text-zinc-300"
+          >
+            Cancel
+          </button>
+          {createPeriod.isError && (
+            <p className="w-full text-red-400 text-xs">{(createPeriod.error as Error).message}</p>
+          )}
+        </div>
       )}
       {isLoading ? (
         <p className="text-zinc-500 text-sm">Loading…</p>

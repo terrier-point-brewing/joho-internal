@@ -1,40 +1,60 @@
 import type { Employee, PayrollConfig, PayrollEntryComputed, PayrollEntryMerged } from "./types";
 
+/**
+ * One guarantee-period bucket.
+ * Tips are pre-attributed per employee (done in previewService) so this
+ * function only needs to check whether base pay + tips meets the guarantee.
+ */
+export interface GuaranteeBucket {
+  shifts: Map<string, number>;            // teamMemberId → hours in this period
+  paycheckTipsCents: Map<string, number>; // teamMemberId → attributed paycheck tips
+  cashTipsCents: Map<string, number>;     // teamMemberId → attributed cash tips
+}
+
 export function computePayrollEntries(
   employees: Employee[],
-  shifts: Map<string, number>,
-  totalPooledTipsCents: number,
-  totalCashTakeCents: number,
+  buckets: GuaranteeBucket[],
   config: PayrollConfig
 ): PayrollEntryComputed[] {
   const tippedEmployees = employees.filter(
     (e) => e.employment_type === "hourly" && e.receives_tips && e.square_team_member_id
   );
 
-  const totalHours = tippedEmployees.reduce(
-    (sum, e) => sum + (shifts.get(e.square_team_member_id!) ?? 0),
-    0
-  );
+  type Acc = { hours: number; paycheckTips: number; cashTips: number; basePay: number; bonus: number };
+  const accum = new Map<string, Acc>();
+  for (const emp of tippedEmployees) {
+    accum.set(emp.id, { hours: 0, paycheckTips: 0, cashTips: 0, basePay: 0, bonus: 0 });
+  }
 
-  return tippedEmployees.map((employee) => {
-    const hours = shifts.get(employee.square_team_member_id!) ?? 0;
-    const hourShare = totalHours > 0 ? hours / totalHours : 0;
+  for (const bucket of buckets) {
+    for (const emp of tippedEmployees) {
+      const sqId = emp.square_team_member_id!;
+      const hours = bucket.shifts.get(sqId) ?? 0;
+      const paycheckTips = bucket.paycheckTipsCents.get(sqId) ?? 0;
+      const cashTips = bucket.cashTipsCents.get(sqId) ?? 0;
+      const basePay = Math.round(hours * config.base_rate_cents);
+      const guaranteedMin = Math.round(hours * config.guaranteed_rate_cents);
+      const bonus = Math.max(0, guaranteedMin - basePay - paycheckTips - cashTips);
 
-    const paycheckTipsCents = Math.round(hourShare * totalPooledTipsCents);
-    const cashTipsCents = Math.round(hourShare * config.cash_tips_rate * totalCashTakeCents);
-    const basePayCents = Math.round(hours * config.base_rate_cents);
-    const guaranteedMinCents = Math.round(hours * config.guaranteed_rate_cents);
-    const bonusCents = Math.max(0, guaranteedMinCents - basePayCents - paycheckTipsCents - cashTipsCents);
-    const totalCompensationCents = basePayCents + paycheckTipsCents + cashTipsCents + bonusCents;
+      const a = accum.get(emp.id)!;
+      a.hours += hours;
+      a.paycheckTips += paycheckTips;
+      a.cashTips += cashTips;
+      a.basePay += basePay;
+      a.bonus += bonus;
+    }
+  }
 
+  return tippedEmployees.map((emp) => {
+    const a = accum.get(emp.id)!;
     return {
-      employee_id: employee.id,
-      hours_worked: hours,
-      paycheck_tips_cents: paycheckTipsCents,
-      cash_tips_cents: cashTipsCents,
-      bonus_cents: bonusCents,
-      base_pay_cents: basePayCents,
-      total_compensation_cents: totalCompensationCents,
+      employee_id: emp.id,
+      hours_worked: a.hours,
+      paycheck_tips_cents: a.paycheckTips,
+      cash_tips_cents: a.cashTips,
+      bonus_cents: a.bonus,
+      base_pay_cents: a.basePay,
+      total_compensation_cents: a.basePay + a.paycheckTips + a.cashTips + a.bonus,
     };
   });
 }

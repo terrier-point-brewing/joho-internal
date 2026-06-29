@@ -4,6 +4,7 @@ export type EmploymentType =
   | "salary_overtime_eligible"
   | "hourly";
 export type TipDistributionModel = "proportional_hours";
+export type TipPoolFrequency = "daily" | "weekly" | "biweekly";
 export type PayPeriodStatus = "open" | "locked";
 
 export interface PayrollConfig {
@@ -13,8 +14,10 @@ export interface PayrollConfig {
   guaranteed_rate_cents: number;
   cash_tips_rate: number;
   tip_distribution_model: TipDistributionModel;
-  first_pay_period_start_date: string;
+  tip_pool_frequency: TipPoolFrequency;
+  guaranteed_min_frequency: TipPoolFrequency;
   pay_period_frequency: 'weekly' | 'biweekly';
+  due_date_days_after_end: number;
   created_at: string;
 }
 
@@ -37,6 +40,7 @@ export interface PayPeriod {
   id: string;
   start_date: string;
   end_date: string;
+  due_date: string | null;
   status: PayPeriodStatus;
   locked_at: string | null;
   locked_by: string | null;
@@ -85,6 +89,12 @@ export interface PayrollEntryMerged extends PayrollEntryComputed {
   effective_total_compensation_cents: number;
 }
 
+export interface TipBucketSummary {
+  label: string;
+  tipsPooledCents: number;
+  cashTakeCents: number;
+}
+
 /** Full preview response from /api/payroll/periods/[id]/preview */
 export interface PayrollPreview {
   period: PayPeriod;
@@ -95,4 +105,6 @@ export interface PayrollPreview {
   salaried_employees: Employee[];
   total_pooled_tips_cents: number;
   total_cash_take_cents: number;
+  /** Per-bucket tip totals (1 for biweekly, 2 for weekly, N for daily). */
+  tip_buckets: TipBucketSummary[];
 }

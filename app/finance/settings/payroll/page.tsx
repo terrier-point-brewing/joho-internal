@@ -6,6 +6,7 @@ import { queryKeys } from "@/lib/query-keys";
 import type { Employee, PayrollConfig } from "@/lib/payroll/types";
 
 type PayPeriodFrequency = "weekly" | "biweekly";
+type TipPoolFrequency = "daily" | "weekly" | "biweekly";
 type JobTitle = "Bartender" | "Brewer" | "Taproom Manager";
 type EmploymentType = "hourly" | "salary_no_overtime" | "salary_overtime_eligible";
 
@@ -13,12 +14,18 @@ function toDollars(cents: number) {
   return (cents / 100).toFixed(2);
 }
 
+const EMP_TYPE_LABELS: Record<string, string> = {
+  hourly: "Hourly",
+  salary_no_overtime: "Salary (no OT)",
+  salary_overtime_eligible: "Salary (OT eligible)",
+};
+
 export default function PayrollSettingsPage() {
   const qc = useQueryClient();
 
-  const { data: config } = useQuery<PayrollConfig>({
+  const { data: config } = useQuery<PayrollConfig | null>({
     queryKey: queryKeys.payroll.config(),
-    queryFn: () => fetch("/api/payroll/config").then(r => r.json()),
+    queryFn: () => fetch("/api/payroll/config").then(r => r.ok ? r.json() : null),
   });
 
   const { data: employees } = useQuery<Employee[]>({
@@ -28,12 +35,14 @@ export default function PayrollSettingsPage() {
 
   // ── Pay Schedule state ────────────────────────────────────────────────────
   const [frequency, setFrequency] = useState<PayPeriodFrequency>("biweekly");
-  const [firstStart, setFirstStart] = useState("");
+  const [dueDays, setDueDays] = useState("3");
 
   // ── Rate Configuration state ──────────────────────────────────────────────
   const [baseRate, setBaseRate] = useState("");
   const [guaranteedRate, setGuaranteedRate] = useState("");
   const [cashTipsRate, setCashTipsRate] = useState("");
+  const [tipPoolFrequency, setTipPoolFrequency] = useState<TipPoolFrequency>("biweekly");
+  const [guaranteedMinFrequency, setGuaranteedMinFrequency] = useState<TipPoolFrequency>("biweekly");
 
   // ── Add-employee form state ───────────────────────────────────────────────
   const [showAddForm, setShowAddForm] = useState(false);
@@ -50,28 +59,53 @@ export default function PayrollSettingsPage() {
   const [scheduleMsg, setScheduleMsg] = useState<string | null>(null);
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
 
+  // ── Employee edit state ───────────────────────────────────────────────────
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState<Partial<Employee>>({});
+
+  function startEdit(emp: Employee) {
+    setEditingId(emp.id);
+    setEditDraft({
+      first_name: emp.first_name,
+      last_name: emp.last_name,
+      email: emp.email,
+      phone_number: emp.phone_number ?? "",
+      job_title: emp.job_title,
+      employment_type: emp.employment_type,
+      receives_tips: emp.receives_tips,
+      square_team_member_id: emp.square_team_member_id ?? "",
+      gusto_employee_id: emp.gusto_employee_id ?? "",
+    });
+  }
+
   useEffect(() => {
-    if (!config) return;
+    if (!config?.id) return;
     setFrequency((config.pay_period_frequency ?? "biweekly") as PayPeriodFrequency);
-    setFirstStart(config.first_pay_period_start_date ?? "");
+    setDueDays(String(config.due_date_days_after_end ?? 3));
     setBaseRate(toDollars(config.base_rate_cents));
     setGuaranteedRate(toDollars(config.guaranteed_rate_cents));
     setCashTipsRate(String(config.cash_tips_rate));
+    setTipPoolFrequency((config.tip_pool_frequency ?? "biweekly") as TipPoolFrequency);
+    setGuaranteedMinFrequency((config.guaranteed_min_frequency ?? "biweekly") as TipPoolFrequency);
   }, [config]);
 
   const buildConfigBody = (overrides?: Partial<{
     pay_period_frequency: PayPeriodFrequency;
-    first_pay_period_start_date: string;
+    due_date_days_after_end: number;
     base_rate_cents: number;
     guaranteed_rate_cents: number;
     cash_tips_rate: number;
+    tip_pool_frequency: TipPoolFrequency;
+    guaranteed_min_frequency: TipPoolFrequency;
   }>) => ({
     effective_from: new Date().toISOString().slice(0, 10),
     pay_period_frequency: overrides?.pay_period_frequency ?? frequency,
-    first_pay_period_start_date: overrides?.first_pay_period_start_date ?? firstStart,
+    due_date_days_after_end: overrides?.due_date_days_after_end ?? parseInt(dueDays, 10),
     base_rate_cents: overrides?.base_rate_cents ?? Math.round(parseFloat(baseRate) * 100),
     guaranteed_rate_cents: overrides?.guaranteed_rate_cents ?? Math.round(parseFloat(guaranteedRate) * 100),
     cash_tips_rate: overrides?.cash_tips_rate ?? parseFloat(cashTipsRate),
+    tip_pool_frequency: overrides?.tip_pool_frequency ?? tipPoolFrequency,
+    guaranteed_min_frequency: overrides?.guaranteed_min_frequency ?? guaranteedMinFrequency,
   });
 
   const saveSchedule = useMutation({
@@ -79,12 +113,16 @@ export default function PayrollSettingsPage() {
       fetch("/api/payroll/config", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(buildConfigBody({ pay_period_frequency: frequency, first_pay_period_start_date: firstStart })),
+        body: JSON.stringify(buildConfigBody({
+          pay_period_frequency: frequency,
+          due_date_days_after_end: parseInt(dueDays, 10),
+        })),
       }).then(r => r.json()),
-    onSuccess: (data: { periodsCreated?: number }) => {
+    onSuccess: (data: { periodCreated?: boolean }) => {
       qc.invalidateQueries({ queryKey: queryKeys.payroll.config() });
       qc.invalidateQueries({ queryKey: queryKeys.payroll.periods() });
-      setScheduleMsg(`Saved. ${data.periodsCreated ?? 0} period(s) created.`);
+      const note = data.periodCreated ? " Current period created." : "";
+      setScheduleMsg(`Saved.${note}`);
       setTimeout(() => setScheduleMsg(null), 4000);
     },
   });
@@ -94,7 +132,7 @@ export default function PayrollSettingsPage() {
       fetch("/api/payroll/config", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...buildConfigBody(), seed_periods: false }),
+        body: JSON.stringify(buildConfigBody()),
       }).then(r => r.json()),
     onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.payroll.config() }),
   });
@@ -135,6 +173,24 @@ export default function PayrollSettingsPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.payroll.employees() }),
   });
 
+  const updateEmployee = useMutation({
+    mutationFn: ({ id, patch }: { id: string; patch: Partial<Employee> }) =>
+      fetch(`/api/payroll/employees/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...patch,
+          phone_number: patch.phone_number || null,
+          square_team_member_id: patch.square_team_member_id || null,
+          gusto_employee_id: patch.gusto_employee_id || null,
+        }),
+      }).then(r => r.json()),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.payroll.employees() });
+      setEditingId(null);
+    },
+  });
+
   const syncSquare = useMutation({
     mutationFn: () =>
       fetch("/api/payroll/employees/sync-square", { method: "POST" }).then(r => r.json()),
@@ -154,7 +210,18 @@ export default function PayrollSettingsPage() {
 
       {/* ── Pay Schedule ─────────────────────────────────────────────────── */}
       <section className="mb-10">
-        <h3 className="text-zinc-300 font-medium text-sm mb-4">Pay Schedule</h3>
+        <div className="flex items-center gap-3 mb-4">
+          <h3 className="text-zinc-300 font-medium text-sm">Pay Schedule</h3>
+          {config?.id ? (
+            <span className="text-xs px-2 py-0.5 rounded-full bg-green-900/30 text-green-400">
+              Active — {config.pay_period_frequency}, due {config.due_date_days_after_end}d after period end
+            </span>
+          ) : (
+            <span className="text-xs px-2 py-0.5 rounded-full bg-amber-900/30 text-amber-400">
+              Not configured — save settings below to activate
+            </span>
+          )}
+        </div>
         <div className="grid grid-cols-2 gap-4 mb-4">
           <label className="block">
             <span className={labelCls}>Pay Frequency</span>
@@ -168,22 +235,28 @@ export default function PayrollSettingsPage() {
             </select>
           </label>
           <label className="block">
-            <span className={labelCls}>First Pay Period Start Date</span>
+            <span className={labelCls}>Payroll Due (days after period end)</span>
             <input
-              type="date"
-              value={firstStart}
-              onChange={e => setFirstStart(e.target.value)}
+              type="number"
+              min="0"
+              max="30"
+              step="1"
+              value={dueDays}
+              onChange={e => setDueDays(e.target.value)}
               className={inputCls}
             />
           </label>
         </div>
+        <p className="text-xs text-zinc-600 mb-4">
+          Saving creates the current period if it does not exist yet. The daily cron creates the next period as soon as the current one starts.
+        </p>
         <div className="flex items-center gap-3">
           <button
             onClick={() => saveSchedule.mutate()}
             disabled={saveSchedule.isPending}
             className="text-sm px-4 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded disabled:opacity-40"
           >
-            {saveSchedule.isPending ? "Saving…" : "Save & Generate Periods"}
+            {saveSchedule.isPending ? "Saving…" : "Save Pay Schedule"}
           </button>
           {scheduleMsg && <span className="text-xs text-green-400">{scheduleMsg}</span>}
         </div>
@@ -192,7 +265,7 @@ export default function PayrollSettingsPage() {
       {/* ── Rate Configuration ────────────────────────────────────────────── */}
       <section className="mb-10">
         <h3 className="text-zinc-300 font-medium text-sm mb-4">Rate Configuration</h3>
-        <div className="grid grid-cols-3 gap-4 mb-4">
+        <div className="grid grid-cols-2 gap-4 mb-4">
           <label className="block">
             <span className={labelCls}>Base Rate ($/hr)</span>
             <input
@@ -220,7 +293,34 @@ export default function PayrollSettingsPage() {
               className={inputCls}
             />
           </label>
+          <label className="block">
+            <span className={labelCls}>Tip Pool Frequency</span>
+            <select
+              value={tipPoolFrequency}
+              onChange={e => setTipPoolFrequency(e.target.value as TipPoolFrequency)}
+              className={inputCls}
+            >
+              <option value="biweekly">Biweekly (whole period)</option>
+              <option value="weekly">Weekly (per 7-day week)</option>
+              <option value="daily">Daily (per calendar day)</option>
+            </select>
+          </label>
+          <label className="block">
+            <span className={labelCls}>Guaranteed Min Frequency</span>
+            <select
+              value={guaranteedMinFrequency}
+              onChange={e => setGuaranteedMinFrequency(e.target.value as TipPoolFrequency)}
+              className={inputCls}
+            >
+              <option value="biweekly">Biweekly (whole period)</option>
+              <option value="weekly">Weekly (per 7-day week)</option>
+              <option value="daily">Daily (per calendar day)</option>
+            </select>
+          </label>
         </div>
+        <p className="text-xs text-zinc-600 mb-3">
+          Controls at what granularity tips and guaranteed-rate bonuses are calculated. Daily and weekly ensure the minimum guarantee applies within each sub-period.
+        </p>
         <button
           onClick={() => saveRates.mutate()}
           disabled={saveRates.isPending}
@@ -348,35 +448,127 @@ export default function PayrollSettingsPage() {
               <th className="text-left py-2 px-3 text-zinc-500">Tips</th>
               <th className="text-left py-2 px-3 text-zinc-500">Square ID</th>
               <th className="py-2 px-3 text-zinc-500">Active</th>
+              <th className="py-2 px-3 text-zinc-500"></th>
             </tr>
           </thead>
           <tbody>
             {(employees ?? []).map(emp => (
-              <tr key={emp.id} className="border-b border-zinc-800">
-                <td className="py-2 px-3 text-zinc-200">{emp.first_name} {emp.last_name}</td>
-                <td className="py-2 px-3 text-zinc-400 text-xs">{emp.job_title}</td>
-                <td className="py-2 px-3 text-zinc-400 text-xs">{emp.employment_type.replace(/_/g, " ")}</td>
-                <td className="py-2 px-3 text-zinc-400 text-xs">{emp.receives_tips ? "Yes" : "No"}</td>
-                <td className="py-2 px-3 text-zinc-600 text-xs font-mono">
-                  {emp.square_team_member_id?.slice(0, 12) ?? "—"}
-                </td>
-                <td className="py-2 px-3 text-center">
-                  <button
-                    onClick={() => toggleEmployee.mutate({ id: emp.id, active: !emp.active })}
-                    className={`text-xs px-2 py-0.5 rounded ${
-                      emp.active
-                        ? "bg-green-900/30 text-green-400 hover:bg-red-900/30 hover:text-red-400"
-                        : "bg-zinc-800 text-zinc-500 hover:bg-green-900/30 hover:text-green-400"
-                    }`}
-                  >
-                    {emp.active ? "Active" : "Inactive"}
-                  </button>
-                </td>
-              </tr>
+              <>
+                <tr key={emp.id} className="border-b border-zinc-800">
+                  <td className="py-2 px-3 text-zinc-200">{emp.first_name} {emp.last_name}</td>
+                  <td className="py-2 px-3 text-zinc-400 text-xs">{emp.job_title}</td>
+                  <td className="py-2 px-3 text-zinc-400 text-xs">{EMP_TYPE_LABELS[emp.employment_type] ?? emp.employment_type}</td>
+                  <td className="py-2 px-3 text-zinc-400 text-xs">
+                    {emp.receives_tips ? "Yes" : (
+                      <>
+                        No
+                        {emp.square_team_member_id && (
+                          <span className="ml-1 text-amber-600" title="Square tips excluded from pool">⚠</span>
+                        )}
+                      </>
+                    )}
+                  </td>
+                  <td className="py-2 px-3 text-zinc-600 text-xs font-mono">
+                    {emp.square_team_member_id?.slice(0, 12) ?? "—"}
+                  </td>
+                  <td className="py-2 px-3 text-center">
+                    <button
+                      onClick={() => toggleEmployee.mutate({ id: emp.id, active: !emp.active })}
+                      className={`text-xs px-2 py-0.5 rounded ${
+                        emp.active
+                          ? "bg-green-900/30 text-green-400 hover:bg-red-900/30 hover:text-red-400"
+                          : "bg-zinc-800 text-zinc-500 hover:bg-green-900/30 hover:text-green-400"
+                      }`}
+                    >
+                      {emp.active ? "Active" : "Inactive"}
+                    </button>
+                  </td>
+                  <td className="py-2 px-3 text-center">
+                    <button
+                      onClick={() => editingId === emp.id ? setEditingId(null) : startEdit(emp)}
+                      className="text-xs text-zinc-500 hover:text-zinc-300"
+                    >
+                      {editingId === emp.id ? "Cancel" : "Edit"}
+                    </button>
+                  </td>
+                </tr>
+                {editingId === emp.id && (
+                  <tr key={`${emp.id}-edit`} className="border-b border-zinc-700 bg-zinc-900/50">
+                    <td colSpan={7} className="px-3 py-4">
+                      <div className="grid grid-cols-2 gap-3 mb-3">
+                        <label className="block">
+                          <span className={labelCls}>First Name</span>
+                          <input value={editDraft.first_name ?? ""} onChange={e => setEditDraft(d => ({ ...d, first_name: e.target.value }))} className={inputCls} />
+                        </label>
+                        <label className="block">
+                          <span className={labelCls}>Last Name</span>
+                          <input value={editDraft.last_name ?? ""} onChange={e => setEditDraft(d => ({ ...d, last_name: e.target.value }))} className={inputCls} />
+                        </label>
+                        <label className="block">
+                          <span className={labelCls}>Email</span>
+                          <input type="email" value={editDraft.email ?? ""} onChange={e => setEditDraft(d => ({ ...d, email: e.target.value }))} className={inputCls} />
+                        </label>
+                        <label className="block">
+                          <span className={labelCls}>Phone</span>
+                          <input type="tel" value={editDraft.phone_number ?? ""} onChange={e => setEditDraft(d => ({ ...d, phone_number: e.target.value }))} className={inputCls} />
+                        </label>
+                        <label className="block">
+                          <span className={labelCls}>Job Title</span>
+                          <select value={editDraft.job_title ?? "Bartender"} onChange={e => setEditDraft(d => ({ ...d, job_title: e.target.value as JobTitle }))} className={inputCls}>
+                            <option>Bartender</option>
+                            <option>Brewer</option>
+                            <option>Taproom Manager</option>
+                          </select>
+                        </label>
+                        <label className="block">
+                          <span className={labelCls}>Employment Type</span>
+                          <select value={editDraft.employment_type ?? "hourly"} onChange={e => setEditDraft(d => ({ ...d, employment_type: e.target.value as EmploymentType }))} className={inputCls}>
+                            <option value="hourly">Hourly</option>
+                            <option value="salary_no_overtime">Salary (no OT)</option>
+                            <option value="salary_overtime_eligible">Salary (OT eligible)</option>
+                          </select>
+                        </label>
+                        <label className="block">
+                          <span className={labelCls}>Square Team Member ID</span>
+                          <input value={editDraft.square_team_member_id ?? ""} onChange={e => setEditDraft(d => ({ ...d, square_team_member_id: e.target.value }))} className={inputCls} placeholder="optional" />
+                        </label>
+                        <label className="block">
+                          <span className={labelCls}>Gusto Employee ID</span>
+                          <input value={editDraft.gusto_employee_id ?? ""} onChange={e => setEditDraft(d => ({ ...d, gusto_employee_id: e.target.value }))} className={inputCls} placeholder="optional" />
+                        </label>
+                      </div>
+                      <div className="mb-3">
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input type="checkbox" checked={editDraft.receives_tips ?? false} onChange={e => setEditDraft(d => ({ ...d, receives_tips: e.target.checked }))} className="accent-amber-500" />
+                          <span className="text-zinc-400 text-sm">Receives tips</span>
+                        </label>
+                        {editDraft.square_team_member_id && !editDraft.receives_tips && (
+                          <div className="mt-2 flex items-start gap-2 bg-amber-950/30 border border-amber-800/50 rounded px-3 py-2 text-xs text-amber-400">
+                            <span className="mt-0.5 shrink-0">⚠</span>
+                            <span>This employee has a Square Team Member ID. Any tips credited to their shifts in Square will be <strong>excluded</strong> from the shared tip pool — they won&apos;t flow into other employees&apos; calculations.</span>
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => updateEmployee.mutate({ id: emp.id, patch: editDraft })}
+                          disabled={updateEmployee.isPending}
+                          className="text-sm px-4 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded disabled:opacity-40"
+                        >
+                          {updateEmployee.isPending ? "Saving…" : "Save"}
+                        </button>
+                        <button onClick={() => setEditingId(null)} className="text-sm px-3 py-1.5 text-zinc-500 hover:text-zinc-300">
+                          Cancel
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </>
             ))}
             {(employees ?? []).length === 0 && (
               <tr>
-                <td colSpan={6} className="py-6 text-center text-zinc-600">
+                <td colSpan={7} className="py-6 text-center text-zinc-600">
                   No employees yet.
                 </td>
               </tr>

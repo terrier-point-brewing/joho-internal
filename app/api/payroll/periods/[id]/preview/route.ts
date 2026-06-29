@@ -27,28 +27,36 @@ export async function GET(
   if (eErr) return apiError(eErr.message);
   if (cErr) return apiError("No payroll config found", 422);
 
-  // Fetch the config version active at the period start date
-  const { data: periodConfig } = await supabase
-    .from("payroll_config")
-    .select("*")
-    .lte("effective_from", (period as PayPeriod).start_date)
-    .order("effective_from", { ascending: false })
-    .limit(1)
-    .single();
-
-  const activeConfig = (periodConfig ?? config) as PayrollConfig;
+  // Locked periods use the config that was active at their start date (historical accuracy).
+  // Open periods always use the latest config so in-flight setting changes take effect immediately.
+  let activeConfig = config as PayrollConfig;
+  if ((period as PayPeriod).status === "locked") {
+    const { data: periodConfig } = await supabase
+      .from("payroll_config")
+      .select("*")
+      .lte("effective_from", (period as PayPeriod).start_date)
+      .order("effective_from", { ascending: false })
+      .limit(1)
+      .single();
+    if (periodConfig) activeConfig = periodConfig as PayrollConfig;
+  }
 
   const { data: storedEntries } = await supabase
     .from("payroll_entries")
     .select("*")
     .eq("pay_period_id", id);
 
-  const preview = await buildPayrollPreview(
-    period as PayPeriod,
-    employees as Employee[],
-    activeConfig,
-    (storedEntries ?? []) as PayrollEntry[]
-  );
+  let preview;
+  try {
+    preview = await buildPayrollPreview(
+      period as PayPeriod,
+      employees as Employee[],
+      activeConfig,
+      (storedEntries ?? []) as PayrollEntry[]
+    );
+  } catch (err) {
+    return apiError(err instanceof Error ? err.message : String(err));
+  }
 
   return NextResponse.json(preview);
 }

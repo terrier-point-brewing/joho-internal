@@ -97,5 +97,6 @@ export const queryKeys = {
     periods:   () => ["payroll", "periods"] as const,
     period:    (id: string) => ["payroll", "periods", id] as const,
     preview:   (id: string) => ["payroll", "preview", id] as const,
+    shifts:    (id: string) => ["payroll", "shifts", id] as const,
   },
 } as const;
