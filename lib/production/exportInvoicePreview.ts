@@ -237,10 +237,6 @@ export async function buildInvoicePreview(
 
       // Cans carry a case/loose format dimension on the mapping; kegs don't.
       const mapFormat = isKeg ? null : tx.packaging_format ?? "loose";
-      // Use findMapping which checks partner override first, then falls back to default.
-      // Previously this passed null as packagingItemId which only matched the default row
-      // and silently ignored partner-specific bulk_discount overrides. Fixed here.
-      const discountCatalogId = isKeg ? findMapping("bulk_discount", tx.packaging_item_id)?.square_catalog_discount_id ?? null : null;
 
       if (mapFormat === "case") {
         const wholeCases = Math.floor(tx.quantity + 1e-9);
@@ -260,7 +256,6 @@ export async function buildInvoicePreview(
             quantity: wholeCases,
             unitPriceCents: priceByVariationId.get(caseMapping.square_catalog_variation_id) ?? 0,
             squareCatalogVariationId: caseMapping.square_catalog_variation_id,
-            discountCatalogId,
           });
         }
         if (looseUnits > 0) {
@@ -276,7 +271,6 @@ export async function buildInvoicePreview(
             quantity: looseUnits,
             unitPriceCents: priceByVariationId.get(looseMapping.square_catalog_variation_id) ?? 0,
             squareCatalogVariationId: looseMapping.square_catalog_variation_id,
-            discountCatalogId,
           });
         }
         continue;
@@ -294,7 +288,6 @@ export async function buildInvoicePreview(
         quantity: tx.quantity,
         unitPriceCents: priceByVariationId.get(mapping.square_catalog_variation_id) ?? 0,
         squareCatalogVariationId: mapping.square_catalog_variation_id,
-        discountCatalogId,
       });
     }
 

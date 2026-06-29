@@ -4,8 +4,8 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
-const SERVICE_TYPES = ["packaging_fee", "keg_cleaning", "forklift", "bulk_discount", "ingredient_deposit", "distribution_discount", "wholesale_discount"] as const;
-const DISCOUNT_TYPES = ["bulk_discount", "distribution_discount", "wholesale_discount"] as const;
+const SERVICE_TYPES = ["packaging_fee", "keg_cleaning", "forklift", "ingredient_deposit", "distribution_discount", "wholesale_discount", "packaging_material"] as const;
+const DISCOUNT_TYPES = ["distribution_discount", "wholesale_discount"] as const;
 type ServiceType = typeof SERVICE_TYPES[number];
 
 export async function GET(req: NextRequest) {
