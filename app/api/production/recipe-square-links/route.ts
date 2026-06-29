@@ -25,6 +25,7 @@ export async function GET(req: NextRequest) {
     { data: linksData, error: linksErr },
     { data: sqVarData, error: sqVarErr },
     { data: recipesData, error: recipesErr },
+    { data: genericKegData, error: genericKegErr },
   ] = await Promise.all([
     supabase
       .from("recipe_packaging_variations")
@@ -32,7 +33,7 @@ export async function GET(req: NextRequest) {
         recipe_id, variation_id,
         packaging_variations (
           id, name, format, is_active, partner_id,
-          packaging_items ( id, name, type, volume_fl_oz ),
+          packaging_items:container_id ( id, name, type, volume_fl_oz ),
           contract_brewing_partners ( company_name )
         )
       `),
@@ -42,17 +43,25 @@ export async function GET(req: NextRequest) {
       .order("created_at"),
     supabase
       .from("square_catalog_variations")
-      .select("id, square_variation_id, volume_fl_oz_per_unit, square_catalog_items ( square_item_id, item_name, category_name )"),
+      .select("id, square_variation_id, variation_name, volume_fl_oz_per_unit, square_catalog_items ( square_item_id, item_name, category_name )"),
     supabase
       .from("recipes")
-      .select("id, beer_name")
+      .select("id, beer_name, contract_brewing_partners(company_name)")
       .order("beer_name"),
+    // Generic keg variations (no partner) are not recipe-scoped — fetch them directly
+    // so they can be offered as linkable slots for every recipe in the grid.
+    supabase
+      .from("packaging_variations")
+      .select("id, name, format, is_active, packaging_items:container_id ( id, name, type, volume_fl_oz )")
+      .is("partner_id", null)
+      .eq("is_active", true),
   ]);
 
   if (rpvErr) return NextResponse.json({ error: rpvErr.message }, { status: 500 });
   if (linksErr) return NextResponse.json({ error: linksErr.message }, { status: 500 });
   if (sqVarErr) return NextResponse.json({ error: sqVarErr.message }, { status: 500 });
   if (recipesErr) return NextResponse.json({ error: recipesErr.message }, { status: 500 });
+  if (genericKegErr) return NextResponse.json({ error: genericKegErr.message }, { status: 500 });
 
   // Shape the raw data into the types expected by squareMappingGrid functions
   const rpvRows: RpvRow[] = (rpvData ?? []).flatMap((rpv) => {
@@ -78,6 +87,26 @@ export async function GET(req: NextRequest) {
     }];
   });
 
+  // Append generic keg variations with a sentinel recipeId so deriveColumns can
+  // set the correct label ("1/2 Keg") and buildGrid can inject them into every recipe.
+  const genericKegRows: RpvRow[] = (genericKegData ?? []).flatMap((pv) => {
+    const pi = pv.packaging_items as unknown as { id: string; name: string; type: string; volume_fl_oz: number | null } | null;
+    if (!pi || pi.type !== "keg" || pi.volume_fl_oz == null) return [];
+    return [{
+      recipeId: "",
+      variationId: pv.id,
+      containerType: "keg" as const,
+      volumeFlOz: pi.volume_fl_oz,
+      format: pv.format,
+      containerName: pi.name,
+      isActive: pv.is_active,
+      partnerId: null,
+      partnerName: null,
+      variationName: pv.name,
+    }];
+  });
+  const allRpvRows = [...rpvRows, ...genericKegRows];
+
   const sqVarRows: SquareCatalogVariationFlat[] = (sqVarData ?? []).flatMap((sv) => {
     const item = sv.square_catalog_items as unknown as { square_item_id: string; item_name: string; category_name: string | null } | null;
     if (!item) return [];
@@ -85,7 +114,7 @@ export async function GET(req: NextRequest) {
       squareVariationId: sv.square_variation_id,
       squareItemId: item.square_item_id,
       itemName: item.item_name,
-      variationName: sv.square_variation_id, // placeholder — variation name not in this table
+      variationName: (sv as unknown as { variation_name: string }).variation_name ?? "",
       categoryName: item.category_name,
       volumeFlOzPerUnit: sv.volume_fl_oz_per_unit ?? null,
     }];
@@ -102,10 +131,23 @@ export async function GET(req: NextRequest) {
     itemName: l.item_name ?? null,
   }));
 
-  const recipesList = (recipesData ?? []).map((r) => ({ id: r.id, beerName: r.beer_name }));
+  const recipesList = (recipesData ?? [])
+    .map((r) => ({
+      id: r.id,
+      beerName: r.beer_name,
+      partnerName: (r.contract_brewing_partners as unknown as { company_name: string } | null)?.company_name ?? null,
+    }))
+    .sort((a, b) => {
+      if (a.partnerName !== b.partnerName) {
+        if (a.partnerName === null) return -1;
+        if (b.partnerName === null) return 1;
+        return a.partnerName.localeCompare(b.partnerName);
+      }
+      return a.beerName.localeCompare(b.beerName);
+    });
 
-  const columns = deriveColumns(rpvRows);
-  const rows = buildGrid(recipesList, columns, rpvRows, linkRows, sqVarRows);
+  const columns = deriveColumns(allRpvRows);
+  const rows = buildGrid(recipesList, columns, allRpvRows, linkRows, sqVarRows);
 
   return NextResponse.json({ columns, rows });
 }
@@ -147,6 +189,23 @@ export async function POST(req: NextRequest) {
       { error: "variation_id (or packaging_item_id) is required for keg and can links" },
       { status: 400 }
     );
+  }
+
+  // Draft is recipe-grain (one slot): replace any existing draft link.
+  // Keg/can with variation_id: replace any existing link for this recipe+variation
+  // so the caller can re-link without having to remove first.
+  if (packaging === "draft") {
+    await supabase
+      .from("recipe_square_links")
+      .delete()
+      .eq("recipe_id", recipe_id)
+      .eq("packaging", "draft");
+  } else if (variation_id) {
+    await supabase
+      .from("recipe_square_links")
+      .delete()
+      .eq("recipe_id", recipe_id)
+      .eq("variation_id", variation_id);
   }
 
   // When a variation_id is supplied, derive the container from it so the

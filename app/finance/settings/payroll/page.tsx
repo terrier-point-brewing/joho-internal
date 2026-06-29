@@ -78,8 +78,9 @@ export default function PayrollSettingsPage() {
     });
   }
 
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
-    if (!config?.id) return;
+    if (!config) return;
     setFrequency((config.pay_period_frequency ?? "biweekly") as PayPeriodFrequency);
     setDueDays(String(config.due_date_days_after_end ?? 3));
     setBaseRate(toDollars(config.base_rate_cents));
@@ -88,6 +89,7 @@ export default function PayrollSettingsPage() {
     setTipPoolFrequency((config.tip_pool_frequency ?? "biweekly") as TipPoolFrequency);
     setGuaranteedMinFrequency((config.guaranteed_min_frequency ?? "biweekly") as TipPoolFrequency);
   }, [config]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const buildConfigBody = (overrides?: Partial<{
     pay_period_frequency: PayPeriodFrequency;

@@ -1,8 +1,17 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { NavEntry } from "@/app/taproom/nav-config";
 import { useUserRole } from "@/lib/hooks/useUserRole";
+
+export interface NavEntry {
+  href: string;
+  match?: string;
+  also?: string;
+  label: React.ReactNode;
+  adminOnly?: boolean;
+  managerOnly?: boolean;
+  exact?: boolean;
+}
 
 export default function SubNav({
   entries,
@@ -30,8 +39,11 @@ export default function SubNav({
 
   return (
     <div className={cls}>
-      {visible.map(({ href, match, label, exact }) => {
-        const active = pathname === href || (!exact && pathname.startsWith(match ?? href + "/"));
+      {visible.map(({ href, match, also, label, exact }) => {
+        const active =
+          pathname === href ||
+          (!exact && pathname.startsWith(match ?? href + "/")) ||
+          (also != null && pathname.startsWith(also));
         return (
           <Link
             key={href}

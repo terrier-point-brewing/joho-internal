@@ -809,9 +809,8 @@ export default function AccountMappingPage() {
   return (
     <div className="flex flex-col h-full bg-zinc-950 text-zinc-100">
       <FinanceNav mobile />
-      <SettingsNav />
 
-      <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-5 pb-3 border-b border-zinc-800 flex items-start justify-between gap-4">
+      <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-5 pb-3 flex items-start justify-between gap-4">
         <div>
           <h1 className="text-base font-semibold text-zinc-100">Account Mapping</h1>
           <p className="text-xs text-zinc-500 mt-0.5">
@@ -830,6 +829,7 @@ export default function AccountMappingPage() {
           </button>
         </div>
       </div>
+      <SettingsNav />
 
       {error && <p className="text-xs text-red-400 px-4 sm:px-6 py-2">{error}</p>}
 

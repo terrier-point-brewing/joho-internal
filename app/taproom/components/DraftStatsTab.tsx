@@ -7,7 +7,6 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   Legend, ResponsiveContainer, Cell,
 } from "recharts";
-import Link from "next/link";
 import { fetchJson } from "../../production/hooks/queries";
 import type { RecipeSquareLinkRow } from "../../production/types";
 
@@ -217,9 +216,6 @@ export default function DraftStatsTab() {
             className="px-3 py-1.5 border border-zinc-700 hover:border-zinc-500 text-zinc-300 text-sm font-medium rounded transition-colors">
             Refresh
           </button>
-          <Link href="/production/settings/square-links" className="text-xs text-amber-400 hover:text-amber-300 transition-colors">
-            Manage Square mappings →
-          </Link>
           <button onClick={editingTaps ? saveTaps : startEditTaps} disabled={saving}
             className={`px-3 py-1.5 text-sm font-medium rounded transition-colors ${
               editingTaps

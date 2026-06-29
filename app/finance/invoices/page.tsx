@@ -7,6 +7,7 @@ import { fetchJson } from "@/app/production/hooks/queries";
 import type { Invoice, InvoiceType } from "@/types/finance";
 import FinanceNav from "../FinanceNav";
 import TransactionsNav from "../transactions/TransactionsNav";
+import PageHeader from "@/app/components/PageHeader";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -298,7 +299,7 @@ function InvoiceLineItemRow({
           <span className="text-zinc-400 truncate block">{item.description}</span>
           {item.variation_name && <span className="text-[10px] text-zinc-600">{item.variation_name}</span>}
           {isDeposit && (
-            <span className="inline-block mt-0.5 ml-1 px-1 py-0.5 rounded text-[9px] font-medium bg-violet-900/40 text-violet-400">
+            <span className="inline-block mt-0.5 ml-1 px-1 py-0.5 rounded text-[10px] font-medium bg-violet-900/40 text-violet-400">
               deposit
             </span>
           )}
@@ -321,21 +322,21 @@ function InvoiceLineItemRow({
             <div className="flex flex-col gap-1.5">
               {/* BS account */}
               <div className="flex items-center gap-1.5">
-                <span className={`text-[9px] font-medium px-1 py-0.5 rounded shrink-0 ${!deliveryPaid ? "bg-violet-900/60 text-violet-300" : "bg-zinc-800 text-zinc-500"}`}>BS</span>
+                <span className={`text-[10px] font-medium px-1 py-0.5 rounded shrink-0 ${!deliveryPaid ? "bg-violet-900/60 text-violet-300" : "bg-zinc-800 text-zinc-500"}`}>BS</span>
                 <CoASelect value={bsId} accounts={accounts} onChange={handleBsChange} />
               </div>
               {/* PL account */}
               <div className="flex items-center gap-1.5">
-                <span className={`text-[9px] font-medium px-1 py-0.5 rounded shrink-0 ${deliveryPaid ? "bg-green-900/60 text-green-300" : "bg-zinc-800 text-zinc-500"}`}>P&L</span>
+                <span className={`text-[10px] font-medium px-1 py-0.5 rounded shrink-0 ${deliveryPaid ? "bg-green-900/60 text-green-300" : "bg-zinc-800 text-zinc-500"}`}>P&L</span>
                 <CoASelect value={plId} accounts={accounts} onChange={handlePlChange} />
               </div>
               {/* Delivery invoice */}
               <div className="flex items-center gap-1.5">
-                <span className="text-[9px] text-zinc-600 shrink-0">delivery</span>
+                <span className="text-[10px] text-zinc-600 shrink-0">delivery</span>
                 <select
                   value={delivId ?? ""}
                   onChange={(e) => handleDelivChange(e.target.value || null)}
-                  className="flex-1 bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5 text-[10px] text-zinc-300 focus:outline-none">
+                  className="inp text-[10px] py-0.5 px-1.5 flex-1">
                   <option value="">— no delivery invoice —</option>
                   {allInvoices.map((inv) => (
                     <option key={inv.id} value={inv.id}>
@@ -349,7 +350,7 @@ function InvoiceLineItemRow({
               </div>
               {/* Warning */}
               {!delivId && (
-                <p className="text-[9px] text-amber-500/80">No delivery invoice linked — showing as Balance Sheet</p>
+                <p className="text-[10px] text-amber-500/80">No delivery invoice linked — showing as Balance Sheet</p>
               )}
               {saving && <span className="text-[10px] text-zinc-600 animate-pulse">…</span>}
             </div>
@@ -454,7 +455,7 @@ function BatchLinkEditor({
           )}
           <div className="flex items-center gap-2 flex-wrap">
             <select value={selectedBatch} onChange={(e) => setSelectedBatch(e.target.value)}
-              className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 min-w-[200px]">
+              className="inp min-w-[200px] w-auto">
               <option value="">Select a batch…</option>
               {availableBatches.map((b) => (
                 <option key={b.id} value={b.id}>
@@ -464,7 +465,7 @@ function BatchLinkEditor({
               ))}
             </select>
             <button onClick={handleAdd} disabled={!selectedBatch || adding}
-              className="px-2.5 py-1 bg-zinc-700 hover:bg-zinc-600 disabled:opacity-40 text-zinc-200 text-xs rounded transition-colors">
+              className="btn-sm">
               {adding ? "Linking…" : "Link"}
             </button>
             {addError && <span className="text-xs text-red-400">{addError}</span>}
@@ -521,7 +522,7 @@ function InvoiceSyncPanel({ year, onSynced }: { year: number; onSynced: () => vo
         </span>
       )}
       <button onClick={handleSync} disabled={syncing}
-        className="px-3 py-1 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 text-zinc-200 text-xs rounded border border-zinc-700 transition-colors whitespace-nowrap">
+        className="btn-sm whitespace-nowrap">
         {syncing ? "Syncing invoices…" : "Sync from Square"}
       </button>
       {syncError && <span className="text-xs text-red-400">{syncError}</span>}
@@ -639,60 +640,60 @@ export default function InvoicesPage() {
   return (
     <div className="flex flex-col h-full bg-zinc-950 text-zinc-100">
       <FinanceNav mobile />
-      <TransactionsNav />
       {/* Header */}
-      <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-5 pb-4 border-b border-zinc-800">
-        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-          <div>
-            <h1 className="text-base font-semibold text-zinc-100">Invoices</h1>
-            <p className="text-xs text-zinc-500 mt-0.5">Square and QuickBooks invoices · map line items to GL accounts</p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <select value={year} onChange={(e) => setYear(Number(e.target.value))}
-              className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200">
-              {years.map((y) => <option key={y} value={y}>{y}</option>)}
-            </select>
-            <select value={source} onChange={(e) => setSource(e.target.value as typeof source)}
-              className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200">
-              <option value="all">All sources</option>
-              <option value="square">Square</option>
-              <option value="quickbooks">QuickBooks</option>
-            </select>
-            <select value={status} onChange={(e) => setStatus(e.target.value as typeof status)}
-              className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200">
-              <option value="all">All statuses</option>
-              <option value="open">Open</option>
-              <option value="paid">Paid</option>
-              <option value="partial">Partial</option>
-              <option value="voided">Voided</option>
-            </select>
-            <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value as typeof typeFilter)}
-              className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200">
-              <option value="all">All types</option>
-              <option value="standard">Standard</option>
-              <option value="allocation_deposit">Deposit invoices</option>
-            </select>
-            <select value={mappingFilter} onChange={(e) => setMappingFilter(e.target.value as typeof mappingFilter)}
-              className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200">
-              <option value="all">All GL mappings</option>
-              <option value="mapped">Fully mapped</option>
-              <option value="partial">Partially mapped</option>
-              <option value="unmapped">Unmapped</option>
-            </select>
-            <InvoiceSyncPanel year={year} onSynced={() => refetch()} />
-            <div className="flex items-center gap-2">
-              <button onClick={handleAutoMap} disabled={autoMapping}
-                className="px-3 py-1 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 text-zinc-200 text-xs rounded border border-zinc-700 transition-colors whitespace-nowrap">
-                {autoMapping ? "Mapping…" : "Auto-map all"}
-              </button>
-              {autoMapResult && (
-                <span className="text-xs">
-                  {autoMapResult.mapped > 0
-                    ? <span className="text-green-400">{autoMapResult.mapped} mapped</span>
-                    : <span className="text-zinc-600">Nothing to map</span>}
-                </span>
-              )}
-            </div>
+      <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-6">
+        <PageHeader
+          title="Invoices"
+          description="Square and QuickBooks invoices · map line items to GL accounts"
+        />
+      </div>
+      <TransactionsNav />
+      <div className="shrink-0 px-4 sm:px-6 pb-4 border-b border-zinc-800">
+        <div className="flex flex-wrap items-center gap-2">
+          <select value={year} onChange={(e) => setYear(Number(e.target.value))}
+            className="inp w-auto">
+            {years.map((y) => <option key={y} value={y}>{y}</option>)}
+          </select>
+          <select value={source} onChange={(e) => setSource(e.target.value as typeof source)}
+            className="inp w-auto">
+            <option value="all">All sources</option>
+            <option value="square">Square</option>
+            <option value="quickbooks">QuickBooks</option>
+          </select>
+          <select value={status} onChange={(e) => setStatus(e.target.value as typeof status)}
+            className="inp w-auto">
+            <option value="all">All statuses</option>
+            <option value="open">Open</option>
+            <option value="paid">Paid</option>
+            <option value="partial">Partial</option>
+            <option value="voided">Voided</option>
+          </select>
+          <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value as typeof typeFilter)}
+            className="inp w-auto">
+            <option value="all">All types</option>
+            <option value="standard">Standard</option>
+            <option value="allocation_deposit">Deposit invoices</option>
+          </select>
+          <select value={mappingFilter} onChange={(e) => setMappingFilter(e.target.value as typeof mappingFilter)}
+            className="inp w-auto">
+            <option value="all">All GL mappings</option>
+            <option value="mapped">Fully mapped</option>
+            <option value="partial">Partially mapped</option>
+            <option value="unmapped">Unmapped</option>
+          </select>
+          <InvoiceSyncPanel year={year} onSynced={() => refetch()} />
+          <div className="flex items-center gap-2">
+            <button onClick={handleAutoMap} disabled={autoMapping}
+              className="btn-sm whitespace-nowrap">
+              {autoMapping ? "Mapping…" : "Auto-map all"}
+            </button>
+            {autoMapResult && (
+              <span className="text-xs">
+                {autoMapResult.mapped > 0
+                  ? <span className="text-green-400">{autoMapResult.mapped} mapped</span>
+                  : <span className="text-zinc-600">Nothing to map</span>}
+              </span>
+            )}
           </div>
         </div>
       </div>
