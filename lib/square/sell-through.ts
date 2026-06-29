@@ -1,5 +1,18 @@
 import { fetchCurrentCounts, fetchOrderSales } from "@/lib/square/inventory";
+import { squareGet } from "@/lib/square/client";
 import { BBL_TO_FL_OZ } from "@/lib/constants/production";
+import { volumeFlOzPerUnit } from "@/lib/square/catalogUnits";
+
+type SquareCatalogObjectResp = {
+  object?: {
+    item_data?: {
+      variations?: Array<{
+        id: string;
+        item_variation_data?: { name?: string };
+      }>;
+    };
+  };
+};
 
 export const SELL_THROUGH_WINDOW_DAYS = 30;
 
@@ -89,14 +102,40 @@ export async function fetchSellThrough(
   if (draftItemIds.length > 0) {
     const { data: siblings } = await supabase
       .from("square_catalog_variations")
-      .select("square_variation_id, square_item_id, volume_fl_oz_per_unit")
+      .select("square_variation_id, square_item_id, variation_name, volume_fl_oz_per_unit")
       .in("square_item_id", draftItemIds);
     for (const v of siblings ?? []) {
       const itemId = v.square_item_id as string;
       const list = draftVarsByItem.get(itemId) ?? [];
-      list.push({ id: v.square_variation_id as string, oz: (v.volume_fl_oz_per_unit as number | null) ?? null });
+      // Prefer the DB-stored value; fall back to parsing oz from the variation name
+      // (e.g. "Draft - 5oz" → 5) for catalogs where the sync hasn't run yet.
+      const oz = (v.volume_fl_oz_per_unit as number | null) ?? volumeFlOzPerUnit(v.variation_name as string | null);
+      list.push({ id: v.square_variation_id as string, oz });
       draftVarsByItem.set(itemId, list);
     }
+  }
+
+  // For draft items not in the catalog mirror, fetch variation IDs directly from
+  // Square so explicit recipe_square_links mappings work without a catalog sync.
+  const missingFromMirror = draftItemIds.filter((id) => !draftVarsByItem.has(id));
+  if (missingFromMirror.length > 0) {
+    await Promise.all(
+      missingFromMirror.map(async (itemId) => {
+        try {
+          const data = await squareGet<SquareCatalogObjectResp>(`/catalog/object/${itemId}`);
+          const variations = data.object?.item_data?.variations ?? [];
+          draftVarsByItem.set(
+            itemId,
+            variations.map((v) => ({
+              id: v.id,
+              oz: volumeFlOzPerUnit(v.item_variation_data?.name ?? null),
+            }))
+          );
+        } catch {
+          // Square unavailable or item deleted — daily fl oz stays 0 for this beer
+        }
+      })
+    );
   }
 
   const allDraftSiblingIds = [...draftVarsByItem.values()].flatMap((vs) => vs.map((v) => v.id));

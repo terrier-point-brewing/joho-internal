@@ -618,6 +618,7 @@ export interface MappingCell {
 export interface MappingGridRow {
   recipeId: string;
   recipeName: string;
+  recipePartnerName: string | null;
   cells: Record<string, MappingCell | null>;
 }
 
