@@ -15,7 +15,6 @@ export const BREWING_NAV: NavEntry[] = [
   { href: "/production/brewing/batch-log", label: "Batch Log" },
   { href: "/production/brewing/timeline",  label: "Timeline"  },
   { href: "/production/brewing/transfers", label: "Transfers" },
-  { href: "/production/brewing/calendar",  label: "Calendar",  adminOnly: true },
 ];
 
 export const RECIPES_NAV: NavEntry[] = [

@@ -227,14 +227,15 @@ export function buildGraphData(
 
     for (let i = 0; i < pkgEntries.length; i++) {
       const e = pkgEntries[i];
-      const pkgShrinkage = batch
+      // Only attribute shrinkage to a completed run (actual_end set). Without this
+      // guard, two runs sharing the same tank can both match the same transfer when
+      // one entry's planned date range overlaps the other's actual transfer date.
+      const pkgShrinkage = (batch && e.actual_end)
         ? allTransfers
             .filter(t => {
               if (t.batch_id !== batch.id || t.to_tank_id !== e.equipment_id || t.transfer_type !== e.stage) return false;
-              // When multiple sessions go to the same equipment (e.g. two kegging runs),
-              // scope each entry to its own date so shrinkage isn't double-counted.
-              const entryStart = (e.actual_start ?? e.planned_start ?? "").slice(0, 10);
-              const entryEnd   = (e.actual_end   ?? e.planned_end   ?? "").slice(0, 10);
+              const entryStart = (e.actual_start ?? "").slice(0, 10);
+              const entryEnd   = e.actual_end!.slice(0, 10);
               const txDate     = (t.transferred_at ?? "").slice(0, 10);
               return !entryStart || (txDate >= entryStart && txDate <= entryEnd);
             })

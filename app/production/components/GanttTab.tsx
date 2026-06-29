@@ -7,10 +7,9 @@ import {
   startOfToday, subDays,
 } from "date-fns";
 import { Equipment } from "../types";
-import { Modal, Field } from "./shared";
 import { useBatchScheduleQuery, useEquipmentQuery, useBatchesQuery, useScheduleConflictsQuery, productionKeys, type ScheduleEntry, type ScheduleConflict } from "../hooks/queries";
 
-const EQUIPMENT_STAGE_ORDER = ["brewhouse", "fermenter", "brite", "kegging", "canning"];
+const EQUIPMENT_STAGE_ORDER = ["brewhouse", "fermenter", "brite", "canning", "kegging"];
 const STAGE_LABELS: Record<string, string> = {
   brewhouse:    "Brewing",
   fermenter:    "Fermenting",
@@ -20,19 +19,6 @@ const STAGE_LABELS: Record<string, string> = {
   canning:      "Canning",
   cold_storage: "Cold Storage",
 };
-// Map stage key → equipment.type so the dropdown shows only relevant gear
-// Equipment types accepted per stage — Conditioning also accepts fermenters
-// (a fermenter can double as a brite tank).
-const STAGE_TO_EQ_TYPES: Record<string, string[]> = {
-  brewhouse:    ["brewhouse"],
-  fermenter:    ["fermenter"],
-  fermenting:   ["fermenter"],
-  conditioning: ["brite", "fermenter"],
-  kegging:      ["kegging"],
-  canning:      ["canning"],
-  cold_storage: ["cold_storage"],
-};
-const STAGE_OPTIONS = ["brewhouse", "fermenting", "conditioning", "kegging", "canning", "cold_storage"] as const;
 
 // Left-border accent color per equipment type for the group header rows
 const TYPE_ACCENT: Record<string, string> = {
@@ -61,10 +47,6 @@ const ROW_H = 44;
 const LABEL_W = 180;
 const DAY_PX_BASE: Record<number, number> = { 14: 48, 30: 28, 90: 12, 180: 7 };
 
-function blank() {
-  return { batch_id: "", equipment_id: "", stage: "fermenting", planned_start: "", planned_end: "", notes: "" };
-}
-
 export default function GanttTab() {
   const qc = useQueryClient();
   const { data: equipment = [] } = useEquipmentQuery();
@@ -77,12 +59,6 @@ export default function GanttTab() {
     const d = subDays(startOfToday(), 3);
     return parseISO(format(d, "yyyy-MM-dd") + "T12:00:00");
   });
-  const [showModal, setShowModal] = useState(false);
-  const [editing, setEditing] = useState<ScheduleEntry | null>(null);
-  const [form, setForm] = useState(blank());
-  const [formActualStart, setFormActualStart] = useState("");
-  const [formActualEnd, setFormActualEnd] = useState("");
-  const [saving, setSaving] = useState(false);
   const [dismissedConflicts, setDismissedConflicts] = useState<Set<string>>(new Set());
   const [resolvingConflict, setResolvingConflict] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -213,7 +189,9 @@ export default function GanttTab() {
     const label = entry.brew_batches
       ? `#${entry.brew_batches.batch_number} · ${entry.brew_batches.beer_name}`
       : "?";
-    const today = startOfToday();
+    // Noon-anchor today so differenceInDays is always an integer relative to other
+    // noon-anchored dates, keeping the solid fill aligned to the today marker.
+    const today = parseISO(format(startOfToday(), "yyyy-MM-dd") + "T12:00:00");
 
     // Append T12:00:00 so local-time format() always resolves to the correct
     // calendar date regardless of the user's UTC offset.
@@ -261,8 +239,7 @@ export default function GanttTab() {
       <div
         key={entry.id}
         title={tooltipParts.join("\n")}
-        onClick={() => openEdit(entry)}
-        className="absolute top-1.5 bottom-1.5 cursor-pointer overflow-hidden select-none flex items-center"
+        className="absolute top-1.5 bottom-1.5 overflow-hidden select-none flex items-center"
         style={{
           left: Math.max(barLeft, 0), width: Math.max(barPx, 6), borderRadius: 4,
           border: isConflicted ? `2px solid #ef4444` : `1.5px solid ${color}`,
@@ -302,55 +279,6 @@ export default function GanttTab() {
     );
   }
 
-  function openAdd() {
-    setEditing(null);
-    setForm(blank());
-    setFormActualStart("");
-    setFormActualEnd("");
-    setShowModal(true);
-  }
-
-  function openEdit(entry: ScheduleEntry) {
-    setEditing(entry);
-    setForm({
-      batch_id: entry.batch_id,
-      equipment_id: entry.equipment_id ?? "",
-      stage: entry.stage,
-      planned_start: entry.planned_start.slice(0, 10),
-      planned_end: entry.planned_end.slice(0, 10),
-      notes: entry.notes ?? "",
-    });
-    setFormActualStart(entry.actual_start?.slice(0, 10) ?? "");
-    setFormActualEnd(entry.actual_end?.slice(0, 10) ?? "");
-    setShowModal(true);
-  }
-
-  async function save() {
-    setSaving(true);
-    const payload = {
-      batch_id: form.batch_id,
-      equipment_id: form.equipment_id || null,
-      stage: form.stage,
-      planned_start: form.planned_start ? form.planned_start + "T12:00:00" : null,
-      planned_end: form.planned_end ? form.planned_end + "T12:00:00" : null,
-      actual_start: formActualStart ? formActualStart + "T12:00:00" : null,
-      actual_end: formActualEnd ? formActualEnd + "T12:00:00" : null,
-      notes: form.notes || null,
-    };
-    const url = editing ? `/api/production/batch-schedule/${editing.id}` : "/api/production/batch-schedule";
-    const method = editing ? "PATCH" : "POST";
-    const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-    if (res.ok) { await reloadSchedule(); setShowModal(false); }
-    setSaving(false);
-  }
-
-  async function remove() {
-    if (!editing) return;
-    await fetch(`/api/production/batch-schedule/${editing.id}`, { method: "DELETE" });
-    await reloadSchedule();
-    setShowModal(false);
-  }
-
   // Build header day labels (only show every N days depending on range)
   const labelEvery = rangeDays <= 14 ? 1 : rangeDays <= 30 ? 3 : rangeDays <= 90 ? 7 : 14;
   const dayLabels: { day: number; date: Date }[] = [];
@@ -359,8 +287,6 @@ export default function GanttTab() {
   }
 
   const todayOffset = differenceInDays(parseISO(format(startOfToday(), "yyyy-MM-dd") + "T12:00:00"), viewStart);
-
-  const f = (k: keyof typeof form, v: string) => setForm(prev => ({ ...prev, [k]: v }));
 
   return (
     <div>
@@ -372,7 +298,7 @@ export default function GanttTab() {
 
       <div className="hidden md:block">
       {/* Toolbar */}
-      <div className="flex items-center gap-3 mb-4 flex-wrap">
+      <div className="flex items-center gap-3 mb-2 flex-wrap">
         <div className="flex gap-1">
           {RANGE_OPTIONS.map((o, i) => (
             <button
@@ -440,8 +366,37 @@ export default function GanttTab() {
           )}
         </div>
 
-        <button onClick={openAdd} className="ml-auto px-3 py-1 text-xs bg-amber-600 hover:bg-amber-500 text-white rounded font-medium">+ Schedule Entry</button>
+        {/* Bar legend */}
+        <div className="ml-auto flex items-center gap-4">
+          <div className="flex items-center gap-1.5 text-xs text-zinc-500">
+            <div className="w-8 h-3 rounded-sm flex-none border border-dashed border-zinc-400 bg-zinc-700/30" />
+            Planned
+          </div>
+          <div className="flex items-center gap-1.5 text-xs text-zinc-500">
+            <div className="w-8 h-3 rounded-sm flex-none bg-zinc-400" />
+            Actual
+          </div>
+          <div className="flex items-center gap-1.5 text-xs text-zinc-500">
+            <div className="w-8 h-3 rounded-sm flex-none" style={{
+              border: "1.5px solid #a1a1aa",
+              borderRight: "1.5px dashed #a1a1aa",
+            }} />
+            End unconfirmed
+          </div>
+        </div>
       </div>
+
+      {/* Batch color legend */}
+      {batches.length > 0 && (
+        <div className="flex flex-wrap gap-x-4 gap-y-1 mb-3 px-0.5">
+          {batches.slice(0, 12).map((b, i) => (
+            <div key={b.id} className="flex items-center gap-1.5 text-xs text-zinc-400">
+              <div className="w-3 h-3 rounded-sm flex-none" style={{ background: BATCH_PALETTE[i % BATCH_PALETTE.length] }} />
+              #{b.batch_number} {b.beer_name}
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Conflict Banner */}
       {conflicts.filter(c => !dismissedConflicts.has(c.id)).length > 0 && (
@@ -577,91 +532,6 @@ export default function GanttTab() {
           );
         })()}
       </div>
-
-      {/* Legend */}
-      <div className="mt-3 flex flex-wrap gap-4 items-center">
-        <div className="flex items-center gap-1.5 text-xs text-zinc-500">
-          <div className="w-8 h-3 rounded-sm flex-none border border-dashed border-zinc-400 bg-zinc-700/30" />
-          Planned
-        </div>
-        <div className="flex items-center gap-1.5 text-xs text-zinc-500">
-          <div className="w-8 h-3 rounded-sm flex-none bg-zinc-400" />
-          Actual
-        </div>
-        <div className="flex items-center gap-1.5 text-xs text-zinc-500">
-          <div className="w-8 h-3 rounded-sm flex-none border-t border-b border-l border-zinc-400 border-r-2 border-r-dashed" style={{ borderRightStyle: "dashed" }} />
-          End unconfirmed
-        </div>
-        {batches.length > 0 && (
-          <>
-            <div className="w-px h-4 bg-zinc-700" />
-            {batches.slice(0, 12).map((b, i) => (
-              <div key={b.id} className="flex items-center gap-1.5 text-xs text-zinc-400">
-                <div className="w-3 h-3 rounded-sm flex-none" style={{ background: BATCH_PALETTE[i % BATCH_PALETTE.length] }} />
-                #{b.batch_number} {b.beer_name}
-              </div>
-            ))}
-          </>
-        )}
-      </div>
-
-      {/* Modal */}
-      {showModal && (
-        <Modal title={editing ? "Edit Schedule Entry" : "Add Schedule Entry"} onClose={() => setShowModal(false)}>
-          <div className="space-y-4">
-            <Field label="Batch">
-              <select className="inp" value={form.batch_id} onChange={e => f("batch_id", e.target.value)}>
-                <option value="">-- Select batch --</option>
-                {batches.map(b => (
-                  <option key={b.id} value={b.id}>#{b.batch_number} {b.beer_name}</option>
-                ))}
-              </select>
-            </Field>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Stage">
-                <select className="inp" value={form.stage} onChange={e => { f("stage", e.target.value); f("equipment_id", ""); }}>
-                  {STAGE_OPTIONS.map(s => <option key={s} value={s}>{STAGE_LABELS[s] ?? s}</option>)}
-                </select>
-              </Field>
-              <Field label="Equipment">
-                <select className="inp" value={form.equipment_id} onChange={e => f("equipment_id", e.target.value)}>
-                  <option value="">— none —</option>
-                  {(STAGE_TO_EQ_TYPES[form.stage] ?? []).flatMap(t => equipmentByType[t] ?? []).map(eq => (
-                    <option key={eq.id} value={eq.id}>{eq.name}{eq.type === "fermenter" ? " (fermenter)" : ""}</option>
-                  ))}
-                </select>
-              </Field>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Planned Start">
-                <input type="date" className="inp" value={form.planned_start} onChange={e => f("planned_start", e.target.value)} />
-              </Field>
-              <Field label="Planned End">
-                <input type="date" className="inp" value={form.planned_end} onChange={e => f("planned_end", e.target.value)} />
-              </Field>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Actual Start">
-                <input type="date" className="inp" value={formActualStart} onChange={e => setFormActualStart(e.target.value)} />
-              </Field>
-              <Field label="Actual End">
-                <input type="date" className="inp" value={formActualEnd} onChange={e => setFormActualEnd(e.target.value)} />
-              </Field>
-            </div>
-            <Field label="Notes">
-              <input type="text" className="inp" value={form.notes} onChange={e => f("notes", e.target.value)} placeholder="Optional" />
-            </Field>
-            <div className="flex gap-2">
-              <button onClick={save} disabled={saving || !form.batch_id || !form.planned_start || !form.planned_end} className="flex-1 py-2 bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white text-sm font-medium rounded">
-                {saving ? "Saving…" : editing ? "Save Changes" : "Add Entry"}
-              </button>
-              {editing && (
-                <button onClick={remove} className="px-4 py-2 bg-zinc-700 hover:bg-red-800 text-zinc-300 text-sm rounded">Delete</button>
-              )}
-            </div>
-          </div>
-        </Modal>
-      )}
       </div>
     </div>
   );
