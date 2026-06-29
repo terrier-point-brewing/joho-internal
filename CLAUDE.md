@@ -3,6 +3,13 @@
 # TPB Square Reports
 Next.js 16 (App Router, TS, Tailwind v4) for Terrier Point Brewing. Square API (raw `fetch`, no SDK) + Supabase Postgres. Single location: Holly Springs Taproom (`LZ8TH4A632YW0`). Live: https://tpb-square-reports.vercel.app
 
+## Worktree Setup
+When starting a session inside a git worktree, check whether `.env.local` exists in the worktree root. If it does not, create a symlink pointing to the main worktree's `.env.local`:
+```
+ln -sf $(git worktree list --porcelain | awk '/^worktree/{print $2; exit}')/.env.local .env.local
+```
+Do this before running any dev commands.
+
 ## Commands
 `npm run dev` · `npm run build` · `npm run lint` · deploy: `vercel deploy --prod` from repo root
 
@@ -28,6 +35,10 @@ Next.js 16 (App Router, TS, Tailwind v4) for Terrier Point Brewing. Square API (
 - Use the Supabase client matching the execution context (server/browser/admin) — never the browser client in a route handler
 - New API routes: parse query params with `requireDateRange()`, wrap errors with `apiError()`
 - This Next.js version has breaking API/convention changes vs. training data — see `AGENTS.md`
+
+## Model Selection
+- Default to **Sonnet** for all tasks.
+- Use **Opus** only when absolutely necessary: prod DB migrations, irreversible data ops, multi-file orchestration with high blast radius, or any decision that cannot be recovered if wrong.
 
 ## Agent/Subagent Usage
 - Do NOT spawn subagents (Agent tool / Explore) for simple, single-file fixes or small well-scoped edits — read the file and make the change directly.
