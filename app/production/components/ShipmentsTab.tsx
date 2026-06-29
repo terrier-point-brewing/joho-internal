@@ -8,6 +8,8 @@ import InvoicePreviewModal from "./InvoicePreviewModal";
 
 interface ShipmentRow {
   id: string;
+  shipment_id: string;
+  recipe_id: string | null;
   channel: "taproom" | "distribution" | "contract_brewing" | "wholesale";
   recipient_id: string | null;
   recipient_name: string | null;
@@ -20,6 +22,36 @@ interface ShipmentRow {
   invoice_number: string | null;
   created_at: string;
   brew_batches: { id: string; beer_name: string; batch_number: number } | null;
+}
+
+interface AllocationCredit {
+  id: string;
+  batch_number: number;
+  quantity: number;
+  volume_bbl: number;
+  status: "invoice_required" | "unpaid" | "paid";
+}
+
+interface GroupProductRow {
+  recipe_id: string | null;
+  beer_name: string;
+  variant_label: string;
+  channel: "taproom" | "distribution" | "contract_brewing" | "wholesale";
+  created_at: string;
+  total_quantity: number;
+  total_volume_bbl: number;
+  allocations: AllocationCredit[];
+}
+
+// Groups by invoice_id when one exists, otherwise by shipment_id (pre-invoice shipments)
+interface InvoiceGroup {
+  key: string;
+  invoice_id: string | null;
+  invoice_number: string | null;
+  recipient_id: string | null;
+  recipient_name: string | null;
+  status: "invoice_required" | "unpaid" | "paid";
+  products: GroupProductRow[];
 }
 
 interface ShipmentsTabProps {
@@ -43,30 +75,109 @@ const CHANNEL_BADGE: Record<string, string> = {
   wholesale: "bg-teal-900/40 text-teal-300",
 };
 
+const STATUS_BADGE: Record<string, string> = {
+  paid: "bg-emerald-900/40 text-emerald-400",
+  unpaid: "bg-amber-900/40 text-amber-400",
+  invoice_required: "bg-zinc-800 text-zinc-400",
+};
+
+const STATUS_LABELS: Record<string, string> = {
+  paid: "Paid",
+  unpaid: "Unpaid",
+  invoice_required: "Invoice Required",
+};
+
+const STATUS_RANK: Record<string, number> = { invoice_required: 2, unpaid: 1, paid: 0 };
+
 function fmt(iso: string) {
   return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
+function fmtQty(n: number): string {
+  return Math.abs(n - Math.round(n)) < 0.0001 ? String(Math.round(n)) : n.toFixed(4);
+}
+
+function groupByInvoice(rows: ShipmentRow[]): InvoiceGroup[] {
+  const map = new Map<string, InvoiceGroup>();
+
+  for (const row of rows) {
+    // Invoiced rows share a card; un-invoiced rows group by shipment_id
+    const key = row.invoice_id ?? row.shipment_id;
+
+    if (!map.has(key)) {
+      map.set(key, {
+        key,
+        invoice_id: row.invoice_id,
+        invoice_number: row.invoice_number,
+        recipient_id: row.recipient_id,
+        recipient_name: row.recipient_name,
+        status: row.status,
+        products: [],
+      });
+    }
+
+    const group = map.get(key)!;
+
+    if (STATUS_RANK[row.status] > STATUS_RANK[group.status]) {
+      group.status = row.status;
+    }
+
+    let product = group.products.find(
+      (p) => p.recipe_id === row.recipe_id && p.variant_label === row.variant_label
+    );
+    if (!product) {
+      product = {
+        recipe_id: row.recipe_id,
+        beer_name: row.brew_batches?.beer_name ?? "Unknown",
+        variant_label: row.variant_label,
+        channel: row.channel,
+        created_at: row.created_at,
+        total_quantity: 0,
+        total_volume_bbl: 0,
+        allocations: [],
+      };
+      group.products.push(product);
+    }
+
+    product.total_quantity = Math.round((product.total_quantity + Number(row.quantity)) * 10000) / 10000;
+    product.total_volume_bbl = Math.round((product.total_volume_bbl + Number(row.volume_bbl)) * 10000) / 10000;
+    product.allocations.push({
+      id: row.id,
+      batch_number: row.brew_batches?.batch_number ?? 0,
+      quantity: Number(row.quantity),
+      volume_bbl: Number(row.volume_bbl),
+      status: row.status,
+    });
+  }
+
+  return Array.from(map.values());
+}
+
 export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps) {
-  const { data: shipments = [] } = useQuery({
+  const { data: allRows = [] } = useQuery({
     queryKey: queryKeys.production.exports(),
     queryFn: () => fetchJson<ShipmentRow[]>("/api/production/exports"),
   });
   const { data: partners = [] } = useContractPartnersQuery();
   const qc = useQueryClient();
+  const [expandedProducts, setExpandedProducts] = useState<Set<string>>(new Set());
 
-  // ── Filters ────────────────────────────────────────────────────────────────
+  function toggleExpand(key: string) {
+    setExpandedProducts((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }
+
   const [channelFilter, setChannelFilter] = useState<ChannelFilter>("all");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [customerFilter, setCustomerFilter] = useState<string>("all");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
 
-  // ── Selection ──────────────────────────────────────────────────────────────
   const [selected, setSelected] = useState<{ customerId: string; ids: Set<string> } | null>(null);
   const [showModal, setShowModal] = useState(false);
-
-  // ── Mark Paid ──────────────────────────────────────────────────────────────
   const [showMarkPaid, setShowMarkPaid] = useState(false);
   const [mpSource, setMpSource] = useState<"quickbooks" | "other">("quickbooks");
   const [mpRef, setMpRef] = useState("");
@@ -78,30 +189,57 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
   const partnerById = useMemo(() => new Map(partners.map((p) => [p.id, p])), [partners]);
   const partnerNameById = useMemo(() => new Map(partners.map((p) => [p.id, p.company_name])), [partners]);
 
+  const invoiceGroups = useMemo(() => groupByInvoice(allRows), [allRows]);
+
   const filtered = useMemo(() => {
-    return shipments.filter((row) => {
-      if (channelFilter !== "all" && row.channel !== channelFilter) return false;
-      if (statusFilter !== "all" && row.status !== statusFilter) return false;
-      if (customerFilter !== "all" && row.recipient_id !== customerFilter) return false;
-      if (dateFrom && row.created_at < dateFrom) return false;
-      if (dateTo && row.created_at.slice(0, 10) > dateTo) return false;
+    return invoiceGroups.filter((g) => {
+      if (channelFilter !== "all" && !g.products.some((p) => p.channel === channelFilter)) return false;
+      if (statusFilter !== "all" && g.status !== statusFilter) return false;
+      if (customerFilter !== "all" && g.recipient_id !== customerFilter) return false;
+      if (dateFrom && !g.products.some((p) => p.created_at.slice(0, 10) >= dateFrom)) return false;
+      if (dateTo && !g.products.some((p) => p.created_at.slice(0, 10) <= dateTo)) return false;
       return true;
     });
-  }, [shipments, channelFilter, statusFilter, customerFilter, dateFrom, dateTo]);
+  }, [invoiceGroups, channelFilter, statusFilter, customerFilter, dateFrom, dateTo]);
 
   const lockedCustomerId = selected?.customerId ?? null;
 
-  function toggle(row: ShipmentRow) {
-    if (row.channel === "taproom") return;
-    if (row.status !== "invoice_required") return;
-    const cid = row.recipient_id!;
+  const invoiceablePartners = useMemo(() => {
+    const seen = new Set<string>();
+    return allRows
+      .filter((r) => r.recipient_id && !seen.has(r.recipient_id) && seen.add(r.recipient_id))
+      .map((r) => ({
+        id: r.recipient_id!,
+        name: partnerNameById.get(r.recipient_id!) ?? r.recipient_name ?? "Unknown",
+      }));
+  }, [allRows, partnerNameById]);
+
+  function toggleProduct(product: GroupProductRow, recipientId: string | null) {
+    const ids = product.allocations.map((a) => a.id);
+    const cid = recipientId ?? "";
     if (!selected || selected.customerId !== cid) {
-      setSelected({ customerId: cid, ids: new Set([row.id]) });
+      setSelected({ customerId: cid, ids: new Set(ids) });
       return;
     }
     const next = new Set(selected.ids);
-    if (next.has(row.id)) next.delete(row.id); else next.add(row.id);
+    const allChecked = ids.every((id) => next.has(id));
+    if (allChecked) {
+      ids.forEach((id) => next.delete(id));
+    } else {
+      ids.forEach((id) => next.add(id));
+    }
     setSelected(next.size > 0 ? { customerId: cid, ids: next } : null);
+  }
+
+  function isProductChecked(product: GroupProductRow): boolean {
+    return !!selected && product.allocations.every((a) => selected.ids.has(a.id));
+  }
+
+  function canProductCheck(product: GroupProductRow, group: InvoiceGroup): boolean {
+    if (product.channel === "taproom") return false;
+    if (product.allocations.some((a) => a.status !== "invoice_required")) return false;
+    if (lockedCustomerId && group.recipient_id !== lockedCustomerId) return false;
+    return true;
   }
 
   function clearSelection() { setSelected(null); }
@@ -152,19 +290,10 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
   const selectedCustomerName = selected ? (partnerNameById.get(selected.customerId) ?? "Unknown") : "";
   const hasSquareCustomer = selected ? !!partnerById.get(selected.customerId)?.square_customer_id : false;
 
-  // Unique invoiceable customers for the customer filter dropdown
-  const invoiceablePartners = useMemo(() => {
-    const seen = new Set<string>();
-    return shipments
-      .filter((r) => r.recipient_id && !seen.has(r.recipient_id) && seen.add(r.recipient_id))
-      .map((r) => ({ id: r.recipient_id!, name: partnerNameById.get(r.recipient_id!) ?? r.recipient_name ?? "Unknown" }));
-  }, [shipments, partnerNameById]);
-
   return (
     <div className="space-y-4">
       {/* Filter bar */}
       <div className="flex flex-wrap items-center gap-2">
-        {/* Channel pills */}
         <div className="flex gap-1">
           {(["all", "taproom", "distribution", "contract_brewing", "wholesale"] as ChannelFilter[]).map((ch) => (
             <button
@@ -181,7 +310,6 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
           ))}
         </div>
 
-        {/* Status */}
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
@@ -193,7 +321,6 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
           <option value="paid">Paid</option>
         </select>
 
-        {/* Customer */}
         <select
           value={customerFilter}
           onChange={(e) => setCustomerFilter(e.target.value)}
@@ -205,7 +332,6 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
           ))}
         </select>
 
-        {/* Date range */}
         <label htmlFor="shipments-date-from" className="sr-only">From date</label>
         <input
           id="shipments-date-from"
@@ -225,103 +351,129 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
         />
       </div>
 
-      {/* Table */}
+      {/* Invoice group list */}
       {filtered.length === 0 ? (
         <p className="text-sm text-zinc-600">No shipments match the current filters.</p>
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-zinc-800">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-zinc-800 bg-zinc-900/50 text-left">
-                <th className="px-4 py-2.5 w-6" aria-label="Select" />
-                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500">Date</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500">Channel</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500">Customer</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500">Batch</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500">Packaging</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 text-right">Qty</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500">Status</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500">Invoice #</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((row) => {
-                const isTaproom = row.channel === "taproom";
-                const isInvoiceable = !isTaproom && row.status === "invoice_required";
-                const isLocked = !!lockedCustomerId && row.recipient_id !== lockedCustomerId;
-                const isChecked = !!selected?.ids.has(row.id);
-                const canCheck = isInvoiceable && !isLocked;
+        <div className="space-y-3">
+          {filtered.map((group) => {
+            const isLocked = !!lockedCustomerId && group.recipient_id !== lockedCustomerId;
+            const partnerName = group.recipient_id
+              ? (partnerNameById.get(group.recipient_id) ?? group.recipient_name ?? "Unknown")
+              : "—";
 
-                return (
-                  <tr
-                    key={row.id}
-                    className={`border-b border-zinc-800 last:border-0 transition-colors ${
-                      isLocked ? "opacity-40" : "hover:bg-zinc-900/30"
-                    }`}
-                  >
-                    <td className="px-4 py-2.5">
-                      {canCheck && (
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={() => toggle(row)}
-                          className="accent-amber-500"
-                          aria-label={`Select shipment ${row.id}`}
-                        />
-                      )}
-                      {isInvoiceable && isLocked && (
-                        <input
-                          type="checkbox"
-                          disabled
-                          className="opacity-30"
-                          aria-label="Selection locked to another customer"
-                        />
-                      )}
-                    </td>
-                    <td className="px-4 py-2.5 text-zinc-400 whitespace-nowrap">{fmt(row.created_at)}</td>
-                    <td className="px-4 py-2.5">
-                      <span className={`text-xs px-1.5 py-0.5 rounded ${CHANNEL_BADGE[row.channel] ?? "bg-zinc-800 text-zinc-400"}`}>
-                        {CHANNEL_LABELS[row.channel] ?? row.channel}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2.5 text-zinc-300">
-                      {isTaproom ? <span className="text-zinc-600">—</span>
-                        : (partnerNameById.get(row.recipient_id!) ?? row.recipient_name ?? "Unknown")}
-                    </td>
-                    <td className="px-4 py-2.5 text-zinc-200">
-                      {row.brew_batches ? `#${row.brew_batches.batch_number} ${row.brew_batches.beer_name}` : "—"}
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <span className="px-1.5 py-0.5 rounded text-xs bg-zinc-800 text-zinc-300">{row.variant_label}</span>
-                    </td>
-                    <td className="px-4 py-2.5 text-right text-zinc-200">{row.quantity}</td>
-                    <td className="px-4 py-2.5">
-                      <span className={`text-xs px-1.5 py-0.5 rounded ${
-                        row.status === "paid" ? "bg-emerald-900/40 text-emerald-400"
-                        : row.status === "unpaid" ? "bg-amber-900/40 text-amber-400"
-                        : "bg-zinc-800 text-zinc-400"
-                      }`}>
-                        {row.status === "invoice_required" ? "Invoice Required"
-                          : row.status === "unpaid" ? "Unpaid" : "Paid"}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2.5">
-                      {row.invoice_id && row.invoice_number ? (
+            return (
+              <div
+                key={group.key}
+                className={`border border-zinc-800 rounded-lg overflow-hidden transition-opacity ${isLocked ? "opacity-40" : ""}`}
+              >
+                {/* Group header: invoice# + customer + status */}
+                <div className="flex items-center gap-3 px-4 py-2.5 bg-zinc-900/50 border-b border-zinc-800 text-xs">
+                  {group.invoice_number ? (
+                    <button
+                      onClick={() => onNavigateToInvoice?.(group.invoice_id!)}
+                      className="font-mono font-medium text-amber-400 hover:text-amber-300 underline"
+                    >
+                      #{group.invoice_number}
+                    </button>
+                  ) : (
+                    <span className="text-zinc-600 italic">No invoice</span>
+                  )}
+                  <span className="text-zinc-200 font-medium">{partnerName}</span>
+                  <div className="ml-auto">
+                    <span className={`px-1.5 py-0.5 rounded ${STATUS_BADGE[group.status] ?? "bg-zinc-800 text-zinc-400"}`}>
+                      {STATUS_LABELS[group.status] ?? group.status}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Product rows — each shows date, channel, beer, packaging, qty */}
+                {group.products.map((product, pi) => {
+                  const isLastProduct = pi === group.products.length - 1;
+                  const checked = isProductChecked(product);
+                  const canCheck = canProductCheck(product, group);
+                  const productKey = `${group.key}:${product.recipe_id ?? ""}:${product.variant_label}`;
+                  const isExpanded = expandedProducts.has(productKey);
+
+                  return (
+                    <div
+                      key={`${product.recipe_id ?? ""}:${product.variant_label}`}
+                      className={!isLastProduct ? "border-b border-zinc-800" : undefined}
+                    >
+                      <div className="flex items-center gap-3 px-4 py-2.5">
+                        <div className="w-5 flex-shrink-0">
+                          {canCheck ? (
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => toggleProduct(product, group.recipient_id)}
+                              className="accent-amber-500"
+                              aria-label={`Select ${product.beer_name}`}
+                            />
+                          ) : (
+                            <span className="w-5 block" />
+                          )}
+                        </div>
+
+                        {/* Date */}
+                        <span className="text-xs text-zinc-500 whitespace-nowrap w-24 flex-shrink-0">
+                          {fmt(product.created_at)}
+                        </span>
+
+                        {/* Channel badge */}
+                        <span className={`text-xs px-1.5 py-0.5 rounded whitespace-nowrap flex-shrink-0 ${CHANNEL_BADGE[product.channel] ?? "bg-zinc-800 text-zinc-400"}`}>
+                          {CHANNEL_LABELS[product.channel] ?? product.channel}
+                        </span>
+
+                        {/* Beer name */}
+                        <span className="text-sm text-zinc-200 flex-1 min-w-0 truncate">{product.beer_name}</span>
+
+                        {/* Packaging */}
+                        <span className="text-xs px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300 whitespace-nowrap flex-shrink-0">
+                          {product.variant_label}
+                        </span>
+
+                        {/* Qty */}
+                        <span className="text-sm text-zinc-200 tabular-nums whitespace-nowrap w-12 text-right flex-shrink-0">
+                          {fmtQty(product.total_quantity)}
+                        </span>
+
+                        {/* Expand chevron */}
                         <button
-                          onClick={() => onNavigateToInvoice?.(row.invoice_id!)}
-                          className="text-xs text-amber-400 hover:text-amber-300 underline"
+                          onClick={() => toggleExpand(productKey)}
+                          className="text-zinc-600 hover:text-zinc-400 transition-colors flex-shrink-0"
+                          aria-label={isExpanded ? "Collapse allocation detail" : "Expand allocation detail"}
                         >
-                          #{row.invoice_number}
+                          <svg
+                            className={`w-3.5 h-3.5 transition-transform ${isExpanded ? "rotate-180" : ""}`}
+                            fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                          </svg>
                         </button>
-                      ) : isTaproom ? (
-                        <span className="text-zinc-600">—</span>
-                      ) : null}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                      </div>
+
+                      {/* Allocation sub-rows */}
+                      {isExpanded && (
+                        <div className="pl-[4.5rem] pr-4 pb-2.5 space-y-1">
+                          {product.allocations.map((alloc) => (
+                            <div key={alloc.id} className="flex items-center gap-2 text-xs text-zinc-500">
+                              <span className="text-zinc-700">└</span>
+                              <span className="font-mono text-zinc-400">#{alloc.batch_number}</span>
+                              <span className="text-zinc-700">·</span>
+                              <span className="tabular-nums">{fmtQty(alloc.quantity)} kegs</span>
+                              <span className="text-zinc-700">·</span>
+                              <span className="tabular-nums">{alloc.volume_bbl.toFixed(4)} bbl</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -329,7 +481,7 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
       {selected && selected.ids.size > 0 && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 px-4 py-2.5 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl text-sm">
           <span className="text-zinc-400">
-            {selected.ids.size} row{selected.ids.size !== 1 ? "s" : ""} selected
+            {selected.ids.size} line{selected.ids.size !== 1 ? "s" : ""} selected
             {selectedCustomerName && <> — <span className="text-zinc-200">{selectedCustomerName}</span></>}
           </span>
           {!hasSquareCustomer && (
@@ -353,7 +505,6 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
         </div>
       )}
 
-      {/* Invoice Preview Modal */}
       {showModal && selected && (
         <InvoicePreviewModal
           transactionIds={[...selected.ids]}
@@ -362,7 +513,6 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
         />
       )}
 
-      {/* Mark Paid Modal */}
       {showMarkPaid && selected && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
@@ -434,10 +584,7 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
             </div>
             {mpError && <p className="text-xs text-red-400">{mpError}</p>}
             <div className="flex justify-end gap-2 pt-1">
-              <button
-                onClick={() => setShowMarkPaid(false)}
-                className="text-sm text-zinc-400 hover:text-zinc-200"
-              >
+              <button onClick={() => setShowMarkPaid(false)} className="text-sm text-zinc-400 hover:text-zinc-200">
                 Cancel
               </button>
               <button

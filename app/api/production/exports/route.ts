@@ -9,7 +9,7 @@ export async function GET() {
   const { data: txs, error } = await supabase
     .from("export_transactions")
     .select(`
-      id, channel, recipient_id, recipient_name, variant_label,
+      id, shipment_id, recipe_id, channel, recipient_id, recipient_name, variant_label,
       quantity, volume_bbl, total_excise_tax_usd, status, invoice_id,
       created_at,
       brew_batches(id, beer_name, batch_number),
