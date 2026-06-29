@@ -52,6 +52,7 @@ export default function PayrollSettingsPage() {
 
   useEffect(() => {
     if (!config) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setFrequency((config.pay_period_frequency ?? "biweekly") as PayPeriodFrequency);
     setFirstStart(config.first_pay_period_start_date ?? "");
     setBaseRate(toDollars(config.base_rate_cents));
