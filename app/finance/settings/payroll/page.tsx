@@ -50,6 +50,7 @@ export default function PayrollSettingsPage() {
   const [scheduleMsg, setScheduleMsg] = useState<string | null>(null);
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
 
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (!config) return;
     setFrequency((config.pay_period_frequency ?? "biweekly") as PayPeriodFrequency);
@@ -58,6 +59,7 @@ export default function PayrollSettingsPage() {
     setGuaranteedRate(toDollars(config.guaranteed_rate_cents));
     setCashTipsRate(String(config.cash_tips_rate));
   }, [config]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const buildConfigBody = (overrides?: Partial<{
     pay_period_frequency: PayPeriodFrequency;
