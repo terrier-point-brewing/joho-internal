@@ -24,12 +24,13 @@ export async function GET(
   ] = await Promise.all([
     supabase.from("pay_periods").select("start_date, end_date").eq("id", id).single(),
     supabase.from("employees").select("id, first_name, last_name, square_team_member_id, receives_tips").not("square_team_member_id", "is", null),
-    supabase.from("payroll_config").select("tip_pool_frequency").order("effective_from", { ascending: false }).limit(1).single(),
+    supabase.from("payroll_config").select("tip_pool_frequency, cash_tips_rate").order("effective_from", { ascending: false }).limit(1).single(),
   ]);
 
   if (pErr || !period) return apiError("Period not found", 404);
 
-  const frequency = ((config as { tip_pool_frequency?: string } | null)?.tip_pool_frequency ?? "biweekly") as TipPoolFrequency;
+  const frequency = ((config as { tip_pool_frequency?: string; cash_tips_rate?: number } | null)?.tip_pool_frequency ?? "biweekly") as TipPoolFrequency;
+  const cashTipsRate: number = (config as { tip_pool_frequency?: string; cash_tips_rate?: number } | null)?.cash_tips_rate ?? 0.01;
 
   const empByTeamId = new Map(
     (employees ?? []).map(e => [e.square_team_member_id as string, e])
@@ -68,23 +69,26 @@ export async function GET(
     m.set(shift.team_member_id, (m.get(shift.team_member_id) ?? 0) + shift.hours);
   }
 
-  // Index pooled tips by date
+  // Index pooled tips and cash take by date
   const tipsMap = new Map(dailyTips.map(t => [t.date, t.tipsPooledCents]));
+  const cashTakeMap = new Map(dailyTips.map(t => [t.date, t.cashTakeCents]));
 
   // Build pool buckets with day membership — mirrors previewService.buildBuckets
-  type BucketWithDays = { days: string[]; shifts: Map<string, number>; tipsPooledCents: number };
+  type BucketWithDays = { days: string[]; shifts: Map<string, number>; tipsPooledCents: number; cashTakeCents: number };
 
   function buildBucketsWithDays(): BucketWithDays[] {
     const makeBucket = (bDays: string[]): BucketWithDays => {
       const shifts = new Map<string, number>();
       let tips = 0;
+      let cash = 0;
       for (const day of bDays) {
         for (const [id, h] of shiftsByDate.get(day) ?? []) {
           shifts.set(id, (shifts.get(id) ?? 0) + h);
         }
         tips += tipsMap.get(day) ?? 0;
+        cash += cashTakeMap.get(day) ?? 0;
       }
-      return { days: bDays, shifts, tipsPooledCents: tips };
+      return { days: bDays, shifts, tipsPooledCents: tips, cashTakeCents: cash };
     };
 
     if (frequency === "daily") return days.map(d => makeBucket([d]));
@@ -100,6 +104,7 @@ export async function GET(
   // For each bucket, compute each tipped employee's tip share,
   // then attribute it back to individual days proportional to daily hours within the bucket.
   const dailyTipsCents = new Map<string, Map<string, number>>();
+  const dailyCashTipsCents = new Map<string, Map<string, number>>();
 
   for (const bucket of buckets) {
     const totalBucketHours = [...bucket.shifts.entries()]
@@ -110,15 +115,20 @@ export async function GET(
       if (!tippedTeamIds.has(teamMemberId)) continue;
       const hourShare = totalBucketHours > 0 ? bucketHrs / totalBucketHours : 0;
       const empBucketTips = Math.round(hourShare * bucket.tipsPooledCents);
+      const empBucketCashTips = Math.round(hourShare * cashTipsRate * bucket.cashTakeCents);
 
       for (const day of bucket.days) {
         const dayHrs = shiftsByDate.get(day)?.get(teamMemberId) ?? 0;
         if (dayHrs <= 0) continue;
         const dayFraction = bucketHrs > 0 ? dayHrs / bucketHrs : 0;
+
         const dayTips = Math.round(dayFraction * empBucketTips);
         if (!dailyTipsCents.has(teamMemberId)) dailyTipsCents.set(teamMemberId, new Map());
-        const m = dailyTipsCents.get(teamMemberId)!;
-        m.set(day, (m.get(day) ?? 0) + dayTips);
+        dailyTipsCents.get(teamMemberId)!.set(day, (dailyTipsCents.get(teamMemberId)!.get(day) ?? 0) + dayTips);
+
+        const dayCashTips = Math.round(dayFraction * empBucketCashTips);
+        if (!dailyCashTipsCents.has(teamMemberId)) dailyCashTipsCents.set(teamMemberId, new Map());
+        dailyCashTipsCents.get(teamMemberId)!.set(day, (dailyCashTipsCents.get(teamMemberId)!.get(day) ?? 0) + dayCashTips);
       }
     }
   }
@@ -131,18 +141,23 @@ export async function GET(
     total_hours: number;
     daily_tips_cents: Record<string, number> | null;
     total_tips_cents: number | null;
+    daily_cash_tips_cents: Record<string, number> | null;
+    total_cash_tips_cents: number | null;
   }>();
 
   for (const shift of rawShifts) {
     const emp = empByTeamId.get(shift.team_member_id);
     if (!rowMap.has(shift.team_member_id)) {
+      const isTipped = tippedTeamIds.has(shift.team_member_id);
       rowMap.set(shift.team_member_id, {
         employee_id: emp?.id ?? shift.team_member_id,
         name: emp ? `${emp.first_name} ${emp.last_name}` : shift.team_member_id,
         daily_hours: {},
         total_hours: 0,
-        daily_tips_cents: tippedTeamIds.has(shift.team_member_id) ? {} : null,
-        total_tips_cents: tippedTeamIds.has(shift.team_member_id) ? 0 : null,
+        daily_tips_cents: isTipped ? {} : null,
+        total_tips_cents: isTipped ? 0 : null,
+        daily_cash_tips_cents: isTipped ? {} : null,
+        total_cash_tips_cents: isTipped ? 0 : null,
       });
     }
     const row = rowMap.get(shift.team_member_id)!;
@@ -160,6 +175,18 @@ export async function GET(
       total += cents;
     }
     row.total_tips_cents = total;
+  }
+
+  // Populate cash tip totals from pre-computed dailyCashTipsCents
+  for (const [teamMemberId, dayMap] of dailyCashTipsCents) {
+    const row = rowMap.get(teamMemberId);
+    if (!row || row.daily_cash_tips_cents === null) continue;
+    let total = 0;
+    for (const [day, cents] of dayMap) {
+      row.daily_cash_tips_cents[day] = cents;
+      total += cents;
+    }
+    row.total_cash_tips_cents = total;
   }
 
   return NextResponse.json({

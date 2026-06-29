@@ -43,8 +43,13 @@ export function PayrollPeriodView({ periodId, editable, showSalaried, showGustoS
   if (error) return <p className="text-red-400 text-sm p-6">{(error as Error).message}</p>;
   if (!preview) return null;
 
-  const { period, config, entries, employees, salaried_employees, tip_buckets, total_pooled_tips_cents } = preview;
+  const { period, config, entries: rawEntries, employees, salaried_employees, tip_buckets, total_pooled_tips_cents } = preview;
   const empById = new Map(employees.map((e) => [e.id, e]));
+  const entries = [...rawEntries].sort((a, b) => {
+    const aName = empById.get(a.employee_id)?.first_name ?? "";
+    const bName = empById.get(b.employee_id)?.first_name ?? "";
+    return aName.localeCompare(bName);
+  });
 
   // Summary totals (use effective_* so overrides are reflected)
   const totHours    = entries.reduce((s, e) => s + e.effective_hours, 0);
