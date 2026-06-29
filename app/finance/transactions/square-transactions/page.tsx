@@ -475,46 +475,44 @@ export default function SquareTransactionsPage() {
   return (
     <div className="flex flex-col h-full bg-zinc-950 text-zinc-100">
       <FinanceNav mobile />
-      <TransactionsNav />
 
       {/* Header */}
-      <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-5 pb-3 border-b border-zinc-800">
-        <div className="flex items-start justify-between gap-4 flex-wrap">
-          <div>
-            <h1 className="text-base font-semibold text-zinc-100">Square Transactions</h1>
-            <p className="text-xs text-zinc-500 mt-0.5">
-              {total > 0
-                ? `${total} transactions · ${unmappedTotal > 0 ? `${unmappedTotal} line items unmapped` : "all line items mapped"}`
-                : "No transactions synced yet"}
-            </p>
+      <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-5 pb-3">
+        <h1 className="text-base font-semibold text-zinc-100 mb-0.5">Transactions</h1>
+      </div>
+      <TransactionsNav />
+      <div className="shrink-0 px-4 sm:px-6 py-3 border-b border-zinc-800 flex items-center justify-between gap-4 flex-wrap">
+        <p className="text-xs text-zinc-500">
+          {total > 0
+            ? `${total} transactions · ${unmappedTotal > 0 ? `${unmappedTotal} line items unmapped` : "all line items mapped"}`
+            : "No transactions synced yet"}
+        </p>
+        <div className="flex items-center gap-3 flex-wrap">
+          <select value={year} onChange={(e) => handleYearChange(Number(e.target.value))}
+            className="inp w-auto">
+            {years.map((y) => <option key={y} value={y}>{y}</option>)}
+          </select>
+          <select value={mappingFilter} onChange={(e) => setMappingFilter(e.target.value as MappingFilter)}
+            className="inp w-auto">
+            <option value="all">All mappings</option>
+            <option value="mapped">Fully mapped</option>
+            <option value="partial">Partially mapped</option>
+            <option value="unmapped">Unmapped</option>
+          </select>
+          <div className="flex items-center gap-2">
+            <button onClick={handleAutoMap} disabled={autoMapping}
+              className="btn-sm whitespace-nowrap">
+              {autoMapping ? "Mapping…" : "Auto-map all"}
+            </button>
+            {autoMapResult && (
+              <span className="text-xs text-zinc-400">
+                {autoMapResult.mapped > 0
+                  ? <span className="text-green-400">{autoMapResult.mapped} items mapped</span>
+                  : <span className="text-zinc-600">Nothing to map</span>}
+              </span>
+            )}
           </div>
-          <div className="flex items-center gap-3 flex-wrap">
-            <select value={year} onChange={(e) => handleYearChange(Number(e.target.value))}
-              className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-xs text-zinc-200">
-              {years.map((y) => <option key={y} value={y}>{y}</option>)}
-            </select>
-            <select value={mappingFilter} onChange={(e) => setMappingFilter(e.target.value as MappingFilter)}
-              className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-xs text-zinc-200">
-              <option value="all">All mappings</option>
-              <option value="mapped">Fully mapped</option>
-              <option value="partial">Partially mapped</option>
-              <option value="unmapped">Unmapped</option>
-            </select>
-            <div className="flex items-center gap-2">
-              <button onClick={handleAutoMap} disabled={autoMapping}
-                className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 text-zinc-200 text-xs rounded border border-zinc-700 transition-colors whitespace-nowrap">
-                {autoMapping ? "Mapping…" : "Auto-map all"}
-              </button>
-              {autoMapResult && (
-                <span className="text-xs text-zinc-400">
-                  {autoMapResult.mapped > 0
-                    ? <span className="text-green-400">{autoMapResult.mapped} items mapped</span>
-                    : <span className="text-zinc-600">Nothing to map</span>}
-                </span>
-              )}
-            </div>
-            <SyncPanel year={year} onSynced={() => loadTransactions(year, 1)} />
-          </div>
+          <SyncPanel year={year} onSynced={() => loadTransactions(year, 1)} />
         </div>
       </div>
 

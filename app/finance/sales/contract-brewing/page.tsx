@@ -66,8 +66,8 @@ export default function ContractBrewingSalesPage() {
   return (
     <div className="flex flex-col h-full bg-zinc-950 text-zinc-100">
       <FinanceNav mobile />
-      <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-5 pb-4">
-        <div className="flex items-center justify-between mb-4">
+      <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-5 pb-3">
+        <div className="flex items-center justify-between">
           <div>
             <h1 className="text-base font-semibold text-zinc-100">Finance</h1>
             <p className="text-xs text-zinc-500 mt-0.5">Admin only</p>
@@ -83,8 +83,8 @@ export default function ContractBrewingSalesPage() {
             </button>
           </div>
         </div>
-        <SalesNav />
       </div>
+      <SalesNav />
 
       {error && (
         <div className="mx-4 sm:mx-6 mb-4 bg-red-900/30 border border-red-700 rounded p-3 text-sm text-red-300">

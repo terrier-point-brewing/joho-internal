@@ -27,27 +27,35 @@ export default function SettingsTabs({ isAdmin }: { isAdmin: boolean }) {
   ];
 
   return (
-    <div className="border-b border-zinc-800 px-4 sm:px-6 pt-4 sm:pt-6">
-      <h1 className="text-lg font-semibold text-zinc-100 mb-4">Settings</h1>
-      <div className="flex flex-wrap gap-1">
-        {tabs.map(({ label, href, badge }) => (
-          <Link
-            key={href}
-            href={href}
-            className={`px-4 py-2 text-sm font-medium rounded-t transition-colors flex items-center gap-1.5 ${
-              pathname === href || pathname.startsWith(href + "/")
-                ? "text-zinc-100 bg-zinc-800"
-                : "text-zinc-500 hover:text-zinc-300"
-            }`}
-          >
-            {label}
-            {badge > 0 && (
-              <span className="text-xs bg-amber-500 text-zinc-950 font-bold rounded-full px-1.5 py-0.5 leading-none">
-                {badge}
-              </span>
-            )}
-          </Link>
-        ))}
+    <div className="px-4 sm:px-6 pt-4 sm:pt-6">
+      <h1 className="text-base font-semibold text-zinc-100 mb-4">Settings</h1>
+      <div
+        className="flex gap-1 border-b border-zinc-800 overflow-x-auto overflow-y-hidden scrollbar-none"
+        role="tablist"
+      >
+        {tabs.map(({ label, href, badge }) => {
+          const active = pathname === href || pathname.startsWith(href + "/");
+          return (
+            <Link
+              key={href}
+              href={href}
+              role="tab"
+              aria-selected={active}
+              className={`px-4 py-2.5 text-sm font-medium whitespace-nowrap transition-colors border-b-2 -mb-px flex items-center gap-1.5 ${
+                active
+                  ? "text-amber-400 border-amber-500"
+                  : "text-zinc-500 border-transparent hover:text-zinc-300"
+              }`}
+            >
+              {label}
+              {badge > 0 && (
+                <span className="text-xs bg-amber-500 text-zinc-950 font-bold rounded-full px-1.5 py-0.5 leading-none">
+                  {badge}
+                </span>
+              )}
+            </Link>
+          );
+        })}
       </div>
     </div>
   );

@@ -649,8 +649,7 @@ export default function ChartOfAccountsPage() {
   return (
     <div className="flex flex-col h-full bg-zinc-950 text-zinc-100">
       <FinanceNav mobile />
-      <SettingsNav />
-      <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-5 pb-4 border-b border-zinc-800 flex items-start justify-between gap-4">
+      <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-5 pb-4 flex items-start justify-between gap-4">
         <div>
           <h1 className="text-base font-semibold text-zinc-100">Chart of Accounts</h1>
           {uploadedAt && !loading && (
@@ -673,6 +672,7 @@ export default function ChartOfAccountsPage() {
           </div>
         )}
       </div>
+      <SettingsNav />
 
       <div className="flex-1 overflow-auto px-4 sm:px-6 py-4 sm:py-6 max-w-4xl space-y-6">
 

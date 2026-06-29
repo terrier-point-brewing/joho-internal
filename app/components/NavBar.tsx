@@ -107,6 +107,7 @@ export default function NavBar() {
           )}
           <button
             onClick={() => setCollapsed((c) => !c)}
+            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
             className="text-zinc-500 hover:text-zinc-200 transition-colors p-1 rounded hover:bg-zinc-800/60"
             title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           >

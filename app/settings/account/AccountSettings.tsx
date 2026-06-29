@@ -66,7 +66,7 @@ export default function AccountSettings() {
             minLength={8}
             value={newPassword}
             onChange={(e) => setNewPassword(e.target.value)}
-            className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-amber-500 transition-colors"
+            className="inp"
           />
         </div>
         <div className="flex flex-col gap-1">
@@ -77,7 +77,7 @@ export default function AccountSettings() {
             minLength={8}
             value={confirm}
             onChange={(e) => setConfirm(e.target.value)}
-            className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-amber-500 transition-colors"
+            className="inp"
           />
         </div>
         <div>

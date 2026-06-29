@@ -252,9 +252,8 @@ export default function CashFlowPage() {
   return (
     <div className="flex flex-col h-full bg-zinc-950 text-zinc-100">
       <FinanceNav mobile />
-      <StatementsNav />
 
-      <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-5 pb-3 border-b border-zinc-800 flex items-center justify-between gap-4">
+      <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-5 pb-3 flex items-center justify-between gap-4">
         <div>
           <h1 className="text-base font-semibold text-zinc-100">Cash Flow — Operating</h1>
           <p className="text-xs text-zinc-500 mt-0.5">
@@ -276,6 +275,7 @@ export default function CashFlowPage() {
           </select>
         </div>
       </div>
+      <StatementsNav />
 
       <div className="flex-1 overflow-auto">
         {loading && <div className="flex items-center justify-center h-32"><p className="text-xs text-zinc-600">Loading…</p></div>}
