@@ -9,6 +9,6 @@ export function requireDateRange(req: NextRequest): { start: string; end: string
 }
 
 export function apiError(err: unknown, status = 500): NextResponse {
-  const msg = err instanceof Error ? err.message : "Unknown error";
+  const msg = typeof err === "string" ? err : err instanceof Error ? err.message : String(err);
   return NextResponse.json({ error: msg }, { status });
 }

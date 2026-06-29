@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { apiError } from "@/lib/utils/api";
-import { computeNextPeriodDates } from "@/lib/payroll/periodUtils";
+import { computeNextPeriodDates, addDays } from "@/lib/payroll/periodUtils";
 import type { PayPeriodFrequency } from "@/lib/payroll/periodUtils";
 
 export const dynamic = "force-dynamic";
@@ -20,36 +20,44 @@ export async function GET() {
   return NextResponse.json(data);
 }
 
-export async function POST(_req: NextRequest) {
+export async function POST(req: NextRequest) {
   try { await requireRole([]); } catch (res) { return res as Response; }
 
   const supabase = await createSupabaseServerClient();
+  const body = await req.json().catch(() => ({}));
+  const { start_date: bodyStart, end_date: bodyEnd } = body;
 
   const { data: config, error: configErr } = await supabase
     .from("payroll_config")
-    .select("first_pay_period_start_date, pay_period_frequency")
+    .select("pay_period_frequency, due_date_days_after_end")
     .order("effective_from", { ascending: false })
     .limit(1)
     .single();
 
-  if (configErr) return apiError("No payroll config found — seed one first", 422);
+  if (configErr) return apiError("No payroll config found — save settings first", 422);
 
-  const { data: lastPeriod } = await supabase
-    .from("pay_periods")
-    .select("end_date")
-    .order("end_date", { ascending: false })
-    .limit(1)
-    .single();
+  const dueDays: number = config.due_date_days_after_end ?? 3;
 
-  const dates = computeNextPeriodDates(
-    config.first_pay_period_start_date,
-    lastPeriod?.end_date ?? null,
-    (config.pay_period_frequency ?? "biweekly") as PayPeriodFrequency
-  );
+  let dates: { start_date: string; end_date: string };
+  if (bodyStart && bodyEnd) {
+    dates = { start_date: bodyStart, end_date: bodyEnd };
+  } else {
+    const { data: lastPeriod } = await supabase
+      .from("pay_periods")
+      .select("end_date")
+      .order("end_date", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const frequency = (config.pay_period_frequency ?? "biweekly") as PayPeriodFrequency;
+    dates = computeNextPeriodDates(lastPeriod?.end_date ?? null, frequency);
+  }
+
+  const due_date = addDays(dates.end_date, dueDays);
 
   const { data, error } = await supabase
     .from("pay_periods")
-    .insert({ ...dates, status: "open" })
+    .insert({ ...dates, due_date, status: "open" })
     .select()
     .single();
 

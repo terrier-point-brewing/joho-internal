@@ -1,13 +1,10 @@
 import type { PayrollEntryMerged, Employee } from "@/lib/payroll/types";
+import { fmtCents } from "@/lib/utils/formatting";
 
 interface Props {
   entries: PayrollEntryMerged[];
   employees: Employee[];
   salariedEmployees: Employee[];
-}
-
-function formatMoney(cents: number) {
-  return `$${(cents / 100).toFixed(2)}`;
 }
 
 export function GustoSummaryPanel({ entries, employees, salariedEmployees }: Props) {
@@ -42,13 +39,13 @@ export function GustoSummaryPanel({ entries, employees, salariedEmployees }: Pro
                   {entry.effective_hours.toFixed(2)}
                 </td>
                 <td className="py-2 px-3 text-right text-zinc-300">
-                  {formatMoney(entry.effective_paycheck_tips_cents)}
+                  {fmtCents(entry.effective_paycheck_tips_cents)}
                 </td>
                 <td className="py-2 px-3 text-right text-zinc-300">
-                  {formatMoney(entry.effective_cash_tips_cents)}
+                  {fmtCents(entry.effective_cash_tips_cents)}
                 </td>
                 <td className="py-2 px-3 text-right text-zinc-300">
-                  {formatMoney(entry.effective_bonus_cents)}
+                  {fmtCents(entry.effective_bonus_cents)}
                 </td>
                 <td className="py-2 px-3 text-right text-zinc-400">$0.00</td>
               </tr>

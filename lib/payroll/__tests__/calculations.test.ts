@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computePayrollEntries, mergeAdjustments } from "../calculations";
+import { computePayrollEntries, mergeAdjustments, GuaranteeBucket } from "../calculations";
 import type { Employee, PayrollConfig } from "../types";
 
 const config: PayrollConfig = {
@@ -9,8 +9,10 @@ const config: PayrollConfig = {
   guaranteed_rate_cents: 1500, // $15/hr guaranteed
   cash_tips_rate: 0.01,
   tip_distribution_model: "proportional_hours",
+  tip_pool_frequency: "biweekly",
+  guaranteed_min_frequency: "biweekly",
   pay_period_frequency: "biweekly",
-  first_pay_period_start_date: "2026-01-05",
+  due_date_days_after_end: 3,
   created_at: "2026-01-01T00:00:00Z",
 };
 
@@ -29,11 +31,32 @@ const mkEmployee = (id: string, sqId: string): Employee => ({
   created_at: "2026-01-01T00:00:00Z",
 });
 
+/**
+ * Helper that mirrors previewService's attribution logic for a single bucket:
+ * distributes pooledTips and cashTipsTotal proportionally by hour share.
+ * cashTipsTotal is the already-rate-applied amount (cash_tips_rate × cash_take).
+ */
+function oneGuaranteeBucket(
+  shifts: Map<string, number>,
+  pooledTips: number,
+  cashTipsTotal: number,
+): GuaranteeBucket[] {
+  const totalHours = [...shifts.values()].reduce((s, h) => s + h, 0);
+  const paycheckTipsCents = new Map<string, number>();
+  const cashTipsCents = new Map<string, number>();
+  for (const [id, h] of shifts) {
+    const share = totalHours > 0 ? h / totalHours : 0;
+    paycheckTipsCents.set(id, Math.round(share * pooledTips));
+    cashTipsCents.set(id, Math.round(share * cashTipsTotal));
+  }
+  return [{ shifts, paycheckTipsCents, cashTipsCents }];
+}
+
 describe("computePayrollEntries", () => {
   it("distributes tips proportionally by hours", () => {
     const employees = [mkEmployee("e1", "sq1"), mkEmployee("e2", "sq2")];
     const shifts = new Map([["sq1", 30], ["sq2", 10]]); // 75% / 25%
-    const results = computePayrollEntries(employees, shifts, 10000, 50000, config);
+    const results = computePayrollEntries(employees, oneGuaranteeBucket(shifts, 10000, 0), config);
     const e1 = results.find((r) => r.employee_id === "e1")!;
     const e2 = results.find((r) => r.employee_id === "e2")!;
     expect(e1.paycheck_tips_cents).toBe(7500);
@@ -43,8 +66,8 @@ describe("computePayrollEntries", () => {
   it("computes cash tips as rate × cash_take × hour_share", () => {
     const employees = [mkEmployee("e1", "sq1")];
     const shifts = new Map([["sq1", 10]]);
-    const results = computePayrollEntries(employees, shifts, 0, 100000, config);
-    // 1% of 100000 = 1000, all to e1
+    // cash_tips_rate (0.01) × cash_take (100000) = 1000, all to e1
+    const results = computePayrollEntries(employees, oneGuaranteeBucket(shifts, 0, 1000), config);
     expect(results[0].cash_tips_cents).toBe(1000);
   });
 
@@ -55,7 +78,7 @@ describe("computePayrollEntries", () => {
     // guaranteed = 10 * 1500 = 15000
     // paycheck_tips = 0, cash_tips = 0
     // bonus = 15000 - 10000 - 0 - 0 = 5000
-    const results = computePayrollEntries(employees, shifts, 0, 0, config);
+    const results = computePayrollEntries(employees, oneGuaranteeBucket(shifts, 0, 0), config);
     expect(results[0].bonus_cents).toBe(5000);
   });
 
@@ -64,20 +87,51 @@ describe("computePayrollEntries", () => {
     const shifts = new Map([["sq1", 10]]);
     // paycheck_tips = 10000, base_pay = 10000, guaranteed = 15000
     // 10000 + 10000 = 20000 > 15000, so bonus = 0
-    const results = computePayrollEntries(employees, shifts, 10000, 0, config);
+    const results = computePayrollEntries(employees, oneGuaranteeBucket(shifts, 10000, 0), config);
     expect(results[0].bonus_cents).toBe(0);
   });
 
   it("excludes employees without square_team_member_id", () => {
     const emp: Employee = { ...mkEmployee("e1", ""), square_team_member_id: null };
-    const results = computePayrollEntries([emp], new Map(), 0, 0, config);
+    const results = computePayrollEntries([emp], oneGuaranteeBucket(new Map(), 0, 0), config);
     expect(results).toHaveLength(0);
   });
 
   it("returns zero hours for employees not in shifts map", () => {
     const employees = [mkEmployee("e1", "sq1")];
-    const results = computePayrollEntries(employees, new Map(), 0, 0, config);
+    const results = computePayrollEntries(employees, oneGuaranteeBucket(new Map(), 0, 0), config);
     expect(results[0].hours_worked).toBe(0);
+  });
+
+  it("sums bonus across multiple guarantee buckets", () => {
+    const employees = [mkEmployee("e1", "sq1")];
+    // Two weekly buckets: 5h each, no tips — each week falls short of guarantee
+    // Per bucket: guaranteed = 5*1500=7500, base_pay = 5*1000=5000, bonus = 2500
+    // Total bonus = 5000
+    const buckets: GuaranteeBucket[] = [
+      { shifts: new Map([["sq1", 5]]), paycheckTipsCents: new Map(), cashTipsCents: new Map() },
+      { shifts: new Map([["sq1", 5]]), paycheckTipsCents: new Map(), cashTipsCents: new Map() },
+    ];
+    const results = computePayrollEntries(employees, buckets, config);
+    expect(results[0].bonus_cents).toBe(5000);
+  });
+
+  it("bonus respects guarantee granularity (weekly tips / daily guarantee)", () => {
+    // Week pool: $100 total, emp works 5h Mon + 5h Tue = 10h (only employee)
+    // Daily tip attribution: Mon = $50, Tue = $50
+    // Daily guarantee = 5h * $15 = $75
+    // Daily base pay = 5h * $10 = $50
+    // Mon: $75 - $50 - $50 = -$25 → bonus = $0 (tips cover it)
+    // Tue: same → bonus = $0
+    // Total bonus = $0
+    const employees = [mkEmployee("e1", "sq1")];
+    const buckets: GuaranteeBucket[] = [
+      { shifts: new Map([["sq1", 5]]), paycheckTipsCents: new Map([["sq1", 5000]]), cashTipsCents: new Map() },
+      { shifts: new Map([["sq1", 5]]), paycheckTipsCents: new Map([["sq1", 5000]]), cashTipsCents: new Map() },
+    ];
+    const results = computePayrollEntries(employees, buckets, config);
+    expect(results[0].bonus_cents).toBe(0);
+    expect(results[0].paycheck_tips_cents).toBe(10000);
   });
 });
 
@@ -108,7 +162,6 @@ describe("mergeAdjustments", () => {
   it("recomputes total with effective values", () => {
     const entry = { adj_hours_worked: null, adj_paycheck_tips_cents: 1000, adj_cash_tips_cents: null, adj_bonus_cents: null, admin_notes: null };
     const merged = mergeAdjustments(computed, entry);
-    // base_pay + effective_paycheck + effective_cash + effective_bonus
     expect(merged.effective_total_compensation_cents).toBe(1000 + 1000 + 100 + 200);
   });
 });

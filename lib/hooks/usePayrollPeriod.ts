@@ -7,8 +7,17 @@ import type { PayrollPreview } from "@/lib/payroll/types";
 async function fetchPreview(periodId: string): Promise<PayrollPreview> {
   const res = await fetch(`/api/payroll/periods/${periodId}/preview`);
   if (!res.ok) {
-    const { error } = await res.json().catch(() => ({ error: "Unknown error" }));
-    throw new Error(error ?? "Failed to load payroll preview");
+    const text = await res.text().catch(() => "");
+    let message = "Failed to load payroll preview";
+    try {
+      const json = JSON.parse(text) as { error?: string };
+      message = json.error ?? message;
+    } catch {
+      if (res.status === 401) message = "Session expired — please reload the page";
+      else if (res.status === 403) message = "Insufficient permissions to view payroll";
+      else if (text) message = text;
+    }
+    throw new Error(message);
   }
   return res.json();
 }
