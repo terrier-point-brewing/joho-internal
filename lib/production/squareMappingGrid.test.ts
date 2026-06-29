@@ -14,29 +14,30 @@ const sqVars: SquareCatalogVariationFlat[] = [
 
 describe("autoSuggest", () => {
   it("returns high-confidence when volume matches and name tokens overlap", () => {
-    // +4 volume + +3 name + +1 format = 8 → high
-    const result = autoSuggest("Epic Hazy IPA", 16, "can", sqVars);
-    // sv1 scores: +4 (vol 16==16) +3 (epic hazy overlap) +1 (4-pack) = 8
-    // sv2 scores: +4 +3 +1 (loose) = 8 — tie; we just check high confidence
+    // +5 volume + +6 name (2 tokens) = 11 → high
+    const result = autoSuggest("Epic Hazy IPA", 16, "can", null, sqVars);
     expect(result).not.toBeNull();
     expect(result!.confidence).toBe("high");
   });
 
   it("returns null when volume doesn't match and name tokens don't overlap", () => {
-    const result = autoSuggest("Totally Unrelated", 355, "can", sqVars);
+    const result = autoSuggest("Totally Unrelated", 355, "can", null, sqVars);
     expect(result).toBeNull();
   });
 
   it("only considers items in the correct category", () => {
-    const result = autoSuggest("Epic Hazy IPA", 16, "keg", sqVars);
+    const result = autoSuggest("Epic Hazy IPA", 16, "keg", null, sqVars);
     // Only keg category: sv3 (Some Other Beer, 1984 fl oz) — name no overlap, volume no match → score 0 → null
     expect(result).toBeNull();
   });
 
   it("returns medium confidence when score 3–5", () => {
-    // Name matches but volume doesn't
-    const result = autoSuggest("Epic Hazy IPA", 999, "can", sqVars);
-    // sv1: +0 vol + +3 name + +1 = 4 → medium
+    // Item with null volumeFlOzPerUnit (not filtered by volume) + 1 token overlap → score 3 → medium
+    const partialMatchVars: SquareCatalogVariationFlat[] = [
+      { squareVariationId: "sv6", squareItemId: "si6", itemName: "Epic Something", variationName: "Loose", categoryName: "Cans", volumeFlOzPerUnit: null },
+    ];
+    const result = autoSuggest("Epic Hazy IPA", 999, "can", null, partialMatchVars);
+    // "epic" overlap (1 token) × 3 = 3 → medium
     expect(result).not.toBeNull();
     expect(result!.confidence).toBe("medium");
   });
@@ -46,7 +47,7 @@ describe("autoSuggest", () => {
     const vars: SquareCatalogVariationFlat[] = [
       { squareVariationId: "sv5", squareItemId: "si5", itemName: "Epic Hazy", variationName: "Loose", categoryName: "Cans", volumeFlOzPerUnit: 16 },
     ];
-    const result = autoSuggest("Epic Hazy IPA", 16, "can", vars);
+    const result = autoSuggest("Epic Hazy IPA", 16, "can", null, vars);
     expect(result).not.toBeNull(); // should still find overlap on "epic" + "hazy"
   });
 });
@@ -91,8 +92,8 @@ describe("deriveColumns", () => {
     const cols = deriveColumns(rpvs);
     const keys = cols.map((c) => c.key);
     expect(keys[0]).toBe("draft");
-    expect(keys[1]).toBe("keg|1984|loose"); // bigger keg first
-    expect(keys[2]).toBe("keg|992|loose");
+    expect(keys[1]).toBe("keg|1984"); // bigger keg first
+    expect(keys[2]).toBe("keg|992");
     expect(keys[3]).toBe("can|12|loose");
     expect(keys[4]).toBe("can|16|4-pack");
   });

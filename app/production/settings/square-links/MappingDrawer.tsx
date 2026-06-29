@@ -97,10 +97,17 @@ function VariationCombobox({
                   setQuery("");
                 }}
               >
-                <span className="font-medium">{v.item_name}</span>
-                {v.variation_name && (
-                  <span className="text-zinc-500 ml-1.5">· {v.variation_name}</span>
-                )}
+                <div className="flex items-baseline justify-between gap-2">
+                  <span>
+                    <span className="font-medium">{v.item_name}</span>
+                    {v.variation_name && (
+                      <span className="text-zinc-500 ml-1.5">· {v.variation_name}</span>
+                    )}
+                  </span>
+                  {v.category_name && (
+                    <span className="text-[10px] text-zinc-600 shrink-0">{v.category_name}</span>
+                  )}
+                </div>
               </button>
             ))
           )}
@@ -137,9 +144,11 @@ export default function MappingDrawer({ recipeId, colKey, onClose }: Props) {
   const cell = row.cells[colKey];
   if (!cell) return null;
 
-  const filteredVars = sqVars.filter(
-    (v) => v.category_name === CATEGORY_FOR[col.type] || !v.category_name
-  );
+  // No category pre-filter — searching only within the column's category was hiding items
+  // (e.g. a suggestion derived from square_catalog_variations might have no matching entry
+  // in square_catalog_items, giving it category_name=null and excluding it from typed searches).
+  // Category is shown as a label in each dropdown option so users can still identify type.
+  const filteredVars = sqVars;
 
   async function handleAccept(v: MappingCellVariation, squareVariationId: string) {
     setSaving((s) => ({ ...s, [v.variationId]: true }));
@@ -224,7 +233,7 @@ export default function MappingDrawer({ recipeId, colKey, onClose }: Props) {
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
           {cell.variations.map((v) => {
-            const isLinked = !!v.linkedSquareCatalogVariationId;
+            const isLinked = !!v.linkId;
             const pendingId = pendingSelections[v.variationId] ?? "";
             const isBusy = saving[v.variationId];
             const err = errors[v.variationId];

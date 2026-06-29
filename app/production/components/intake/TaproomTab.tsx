@@ -6,8 +6,6 @@ import { queryKeys } from "@/lib/query-keys";
 import { Recipe } from "../../types";
 import { fmtDateLong } from "@/lib/utils/formatting";
 import { fetchJson } from "../../hooks/queries";
-import Link from "next/link";
-
 interface TaproomRow {
   recipe_id: string;
   style: string;
@@ -68,12 +66,7 @@ export default function TaproomTab({ recipes }: { recipes: Recipe[] }) {
   });
   const loadInventory = () => qc.invalidateQueries({ queryKey: queryKeys.production.taproomInventory() });
   const err = error instanceof Error ? error.message : null;
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [retiring, setRetiring] = useState<string | null>(null);
-
-  function toggleExpand(id: string) {
-    setExpanded((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
-  }
 
   async function toggleRetire(recipeId: string, currentlyRetired: boolean) {
     setRetiring(recipeId);
@@ -95,15 +88,10 @@ export default function TaproomTab({ recipes }: { recipes: Recipe[] }) {
         <p className="text-sm text-zinc-500">
           Taproom sell-through by recipe — BBL on hand, daily rate, and brew-by date to avoid stockout.
         </p>
-        <div className="flex gap-2">
-          <button onClick={() => loadInventory()}
-            className="px-3 py-1.5 border border-zinc-700 hover:border-zinc-500 text-zinc-300 text-sm font-medium rounded transition-colors">
-            Refresh
-          </button>
-          <Link href="/production/settings/square-links" className="text-xs text-amber-400 hover:text-amber-300 transition-colors">
-            Manage Square mappings →
-          </Link>
-        </div>
+        <button onClick={() => loadInventory()}
+          className="px-3 py-1.5 border border-zinc-700 hover:border-zinc-500 text-zinc-300 text-sm font-medium rounded transition-colors">
+          Refresh
+        </button>
       </div>
 
       {err && <p className="text-sm text-red-400 mb-3">{err}</p>}
@@ -116,22 +104,11 @@ export default function TaproomTab({ recipes }: { recipes: Recipe[] }) {
           <div className="overflow-x-auto">
           {rows.map((row, i) => {
             const color = urgencyColor(row);
-            const isExpanded = expanded.has(row.recipe_id);
-            const hasPkgBreakdown = row.packaging_breakdown.length > 0;
             const belowThreshold = !row.is_retired && row.min_threshold_bbl > 0 && row.current_bbl <= row.min_threshold_bbl;
 
             return (
               <div key={row.recipe_id} className={`min-w-[700px] ${i > 0 ? "border-t border-zinc-800" : ""}`}>
-                {/* Main recipe row */}
                 <div className={`flex items-center gap-4 px-4 py-3 ${i % 2 !== 0 ? "bg-zinc-900/30" : ""}`}>
-                  {/* Expand toggle */}
-                  <button
-                    onClick={() => toggleExpand(row.recipe_id)}
-                    className="text-zinc-600 hover:text-zinc-400 text-xs shrink-0 w-4"
-                  >
-                    {isExpanded ? "▼" : "▶"}
-                  </button>
-
                   {/* Urgency dot */}
                   <div className={`w-2 h-2 rounded-full shrink-0 ${
                     color === "red" ? "bg-red-500" :
@@ -215,31 +192,6 @@ export default function TaproomTab({ recipes }: { recipes: Recipe[] }) {
                   </div>
                 </div>
 
-                {/* Packaging breakdown */}
-                {isExpanded && hasPkgBreakdown && (
-                  <div className={`border-t border-zinc-800/60 divide-y divide-zinc-800/40 ${i % 2 !== 0 ? "bg-zinc-900/20" : "bg-zinc-950/40"}`}>
-                    <div className="grid grid-cols-5 gap-4 px-10 py-1.5 text-xs text-zinc-600 font-medium">
-                      <span>Variation</span>
-                      <span className="text-right">Qty</span>
-                      <span className="text-right">BBL</span>
-                      <span className="text-right">Units/day</span>
-                      <span className="text-right">BBL/day</span>
-                    </div>
-                    {row.packaging_breakdown.map((p) => (
-                      <div key={p.link_id} className="grid grid-cols-5 gap-4 px-10 py-2 text-xs text-zinc-500">
-                        <span className="text-zinc-300">
-                          {p.item_name ?? "—"}
-                          {p.variation_name && <span className="text-zinc-600"> | {p.variation_name}</span>}
-                          {p.packaging_item_name && <span className="text-zinc-600"> · {p.packaging_item_name}</span>}
-                        </span>
-                        <span className="text-right tabular-nums text-zinc-400">{p.current_qty}</span>
-                        <span className="text-right tabular-nums text-zinc-400">{p.current_bbl.toFixed(2)}</span>
-                        <span className="text-right tabular-nums">{p.daily_sell_through_units > 0 ? p.daily_sell_through_units.toFixed(2) : "—"}</span>
-                        <span className="text-right tabular-nums">{p.daily_sell_through_bbl > 0 ? p.daily_sell_through_bbl.toFixed(2) : "—"}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
               </div>
             );
           })}
