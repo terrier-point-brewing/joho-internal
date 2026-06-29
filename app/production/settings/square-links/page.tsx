@@ -1,6 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import SubNav from "@/app/components/SubNav";
+import { PRODUCTION_NAV, SETTINGS_NAV } from "@/app/production/nav-config";
+import PageHeader from "@/app/components/PageHeader";
 import MappingGrid from "./MappingGrid";
 import MappingDrawer from "./MappingDrawer";
 
@@ -8,25 +11,23 @@ export default function SquareMappingsPage() {
   const [drawer, setDrawer] = useState<{ recipeId: string; colKey: string } | null>(null);
 
   return (
-    <div className="p-6">
-      <div className="mb-5">
-        <h1 className="text-lg font-semibold text-zinc-100">Square Mappings</h1>
-        <p className="text-xs text-zinc-500 mt-1">
-          Map each recipe + packaging variation to a Square catalog variation. Links apply to both Taproom intake and Export invoicing.
-        </p>
-      </div>
-
-      <MappingGrid
-        onCellClick={(recipeId, colKey) => setDrawer({ recipeId, colKey })}
-      />
-
-      {drawer && (
-        <MappingDrawer
-          recipeId={drawer.recipeId}
-          colKey={drawer.colKey}
-          onClose={() => setDrawer(null)}
+    <main className="px-4 sm:px-6 py-4 sm:py-8">
+      <SubNav entries={PRODUCTION_NAV} mobile sticky />
+      <PageHeader title="Settings" description="Deposits, export configuration, and Square integrations" />
+      <SubNav entries={SETTINGS_NAV} sticky />
+      <div className="mt-4">
+        <MappingGrid
+          onCellClick={(recipeId, colKey) => setDrawer({ recipeId, colKey })}
         />
-      )}
-    </div>
+
+        {drawer && (
+          <MappingDrawer
+            recipeId={drawer.recipeId}
+            colKey={drawer.colKey}
+            onClose={() => setDrawer(null)}
+          />
+        )}
+      </div>
+    </main>
   );
 }

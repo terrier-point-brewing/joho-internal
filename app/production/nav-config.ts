@@ -26,5 +26,5 @@ export const RECIPES_NAV: NavEntry[] = [
 export const SETTINGS_NAV: NavEntry[] = [
   { href: "/production/settings/deposits",     label: "Deposit Settings" },
   { href: "/production/settings/export",       label: "Export Settings"  },
-  { href: "/production/settings/square-links", label: "Square Mappings"  },
+  { href: "/production/settings/square-links", label: "Square Item Mappings"  },
 ];

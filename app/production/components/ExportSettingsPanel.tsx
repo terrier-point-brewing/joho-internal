@@ -11,7 +11,7 @@ import {
   useExportServiceMappingsQuery,
   useExportInvoiceDueDaysQuery,
 } from "../hooks/queries";
-import type { ExciseTaxRate, ExportServiceMapping, ServiceType } from "../types";
+import type { ExciseTaxRate, ExportServiceMapping, ServiceType, SquareCatalogOptions } from "../types";
 import { SquareCatalogSelect, SquareDiscountSelect } from "@/app/components/SquareCatalogSelect";
 
 function ExciseTaxRateRow({
@@ -226,156 +226,6 @@ function deriveVolumeClasses(packagingItems: { id: string; type: string; volume_
   });
 }
 
-function VolumeClassRow({
-  vc,
-  packagingItems,
-  feeRows,
-  partners,
-  items,
-  onSave,
-}: {
-  vc: VolumeClass;
-  packagingItems: { id: string; type: string; volume_fl_oz: number | null }[];
-  feeRows: ExportServiceMapping[];
-  partners: { id: string; company_name: string }[];
-  items: { itemId: string; itemName: string; variations: { variationId: string; variationName: string }[] }[];
-  onSave: (payload: {
-    type: "keg" | "can"; volume_fl_oz: number; format: "case" | "loose" | null;
-    partner_id: string | null; square_catalog_item_id: string | null; square_catalog_variation_id: string | null;
-    display_name: string;
-  }) => Promise<void>;
-}) {
-  const classItemIds = new Set(
-    packagingItems
-      .filter((pi) => pi.type === vc.piType && pi.volume_fl_oz === vc.volumeFlOz)
-      .map((pi) => pi.id)
-  );
-
-  function getMapping(partnerId: string | null): ExportServiceMapping | null {
-    return (
-      feeRows.find(
-        (m) => m.packaging_item_id !== null && classItemIds.has(m.packaging_item_id) &&
-          m.packaging_format === vc.format && m.partner_id === partnerId
-      ) ?? null
-    );
-  }
-
-  const defaultRow = getMapping(null);
-  const overridePartnerIds = new Set(
-    feeRows
-      .filter((m) => m.packaging_item_id !== null && classItemIds.has(m.packaging_item_id) && m.packaging_format === vc.format && m.partner_id !== null)
-      .map((m) => m.partner_id!)
-  );
-
-  return (
-    <div className="flex flex-col gap-2">
-      <span className="text-xs font-medium text-zinc-300">{vc.label}</span>
-      <div className="flex items-center gap-2 pl-3">
-        <span className="text-xs text-zinc-500 italic w-28">Default</span>
-        <SquareCatalogSelect
-          items={items}
-          itemId={defaultRow?.square_catalog_item_id ?? null}
-          variationId={defaultRow?.square_catalog_variation_id ?? null}
-          onChange={(itemId, variationId) =>
-            onSave({
-              type: vc.piType, volume_fl_oz: vc.volumeFlOz, format: vc.format,
-              partner_id: null, square_catalog_item_id: itemId, square_catalog_variation_id: variationId,
-              display_name: "Packaging Fee",
-            })
-          }
-        />
-      </div>
-      {[...overridePartnerIds].map((partnerId) => {
-        const partner = partners.find((p) => p.id === partnerId);
-        const overrideRow = getMapping(partnerId);
-        return (
-          <div key={partnerId} className="flex items-center gap-2 pl-3">
-            <span className="text-xs text-zinc-300 w-28 truncate">{partner?.company_name ?? "Unknown"}</span>
-            <SquareCatalogSelect
-              items={items}
-              itemId={overrideRow?.square_catalog_item_id ?? null}
-              variationId={overrideRow?.square_catalog_variation_id ?? null}
-              onChange={(itemId, variationId) =>
-                onSave({
-                  type: vc.piType, volume_fl_oz: vc.volumeFlOz, format: vc.format,
-                  partner_id: partnerId, square_catalog_item_id: itemId, square_catalog_variation_id: variationId,
-                  display_name: "Packaging Fee",
-                })
-              }
-            />
-          </div>
-        );
-      })}
-      <div className="pl-3">
-        <PartnerOverridePicker
-          partners={partners}
-          excludeIds={overridePartnerIds}
-          onAdd={(partnerId) =>
-            onSave({
-              type: vc.piType, volume_fl_oz: vc.volumeFlOz, format: vc.format,
-              partner_id: partnerId, square_catalog_item_id: null, square_catalog_variation_id: null,
-              display_name: "Packaging Fee",
-            })
-          }
-        />
-      </div>
-    </div>
-  );
-}
-
-function PackagingFeeSection() {
-  const { data: mappings = [] } = useExportServiceMappingsQuery();
-  const { data: partners = [] } = useContractPartnersQuery();
-  const { data: packagingItems = [] } = usePackagingQuery();
-  const { data: catalog } = useExportSquareCatalogQuery();
-  const qc = useQueryClient();
-  const { status, run } = useSaveStatus();
-  const items = catalog?.items ?? [];
-
-  const feeRows = mappings.filter((m) => m.service_type === "packaging_fee");
-  const volumeClasses = deriveVolumeClasses(packagingItems);
-
-  async function save(payload: {
-    type: "keg" | "can"; volume_fl_oz: number; format: "case" | "loose" | null;
-    partner_id: string | null; square_catalog_item_id: string | null; square_catalog_variation_id: string | null;
-    display_name: string;
-  }) {
-    if (!payload.square_catalog_item_id || !payload.square_catalog_variation_id) return;
-    const ok = await run(() =>
-      fetch("/api/production/export-settings/packaging-fee-class", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      })
-    );
-    if (ok) await qc.invalidateQueries({ queryKey: queryKeys.production.exportServiceMappings() });
-  }
-
-  return (
-    <section>
-      <div className="flex items-center justify-between gap-3 mb-2">
-        <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wide">Packaging Fee</h4>
-        <SaveIndicator status={status} />
-      </div>
-      <p className="text-xs text-zinc-600 mb-3">
-        One mapping per container volume class. Saving a class updates all matching packaging items (e.g. saving &ldquo;1/6 BBL Keg&rdquo; updates both generic and partner-specific 1/6 keg items). Cans require separate Case and Loose mappings.
-      </p>
-      <div className="flex flex-col gap-5">
-        {volumeClasses.map((vc) => (
-          <VolumeClassRow
-            key={`${vc.piType}|${vc.volumeFlOz}|${vc.format}`}
-            vc={vc}
-            packagingItems={packagingItems}
-            feeRows={feeRows}
-            partners={partners}
-            items={items}
-            onSave={save}
-          />
-        ))}
-      </div>
-    </section>
-  );
-}
 
 export function PartnerOverridePicker({ partners, excludeIds, onAdd }: {
   partners: { id: string; company_name: string }[];
@@ -458,92 +308,374 @@ function useSaveStatus() {
   return { status, run };
 }
 
-/** One "Default + per-partner override" mapping block — shared by every service and
- *  discount mapping. `kind` switches between a Square catalog item picker and a
- *  discount picker; all writes surface save status via SaveIndicator. */
-function ServiceMappingSection({
-  serviceType, title, displayName, description, kind, heading = "h3",
-}: {
+interface ServiceRow {
   serviceType: ServiceType;
-  title: string;
-  displayName: string;
-  description?: string;
+  label: string;
   kind: "catalog" | "discount";
-  heading?: "h3" | "h4";
+}
+
+const SERVICE_ROWS: ServiceRow[] = [
+  { serviceType: "packaging_material", label: "Packaging Materials", kind: "catalog" },
+  { serviceType: "keg_cleaning",       label: "Keg Cleaning",        kind: "catalog" },
+  { serviceType: "forklift",           label: "Forklift",            kind: "catalog" },
+  { serviceType: "distribution_discount",  label: "Distribution Discount",  kind: "discount" },
+  { serviceType: "wholesale_discount",     label: "Wholesale Discount",     kind: "discount" },
+];
+
+function getMappingLabel(
+  row: ServiceRow,
+  mapping: ExportServiceMapping | null,
+  items: SquareCatalogOptions["items"],
+  discounts: SquareCatalogOptions["discounts"]
+): string | null {
+  if (!mapping) return null;
+  if (row.kind === "catalog" && mapping.square_catalog_item_id) {
+    const item = items.find((i) => i.itemId === mapping.square_catalog_item_id);
+    const variation = item?.variations.find((v) => v.variationId === mapping.square_catalog_variation_id);
+    if (item && variation) return `${item.itemName} · ${variation.variationName}`;
+    return mapping.display_name || null;
+  }
+  if (row.kind === "discount" && mapping.square_catalog_discount_id) {
+    return discounts.find((d) => d.id === mapping.square_catalog_discount_id)?.name ?? null;
+  }
+  return null;
+}
+
+function ServiceMappingDrawer({
+  rowLabel, drawerKind, partnerName, mapping, items, discounts, onClose, onSave,
+}: {
+  rowLabel: string;
+  drawerKind: "catalog" | "discount";
+  partnerName: string;
+  mapping: ExportServiceMapping | null;
+  items: SquareCatalogOptions["items"];
+  discounts: SquareCatalogOptions["discounts"];
+  onClose: () => void;
+  onSave: (patch: Record<string, unknown>) => Promise<void>;
 }) {
+  const [pendingItemId, setPendingItemId] = useState<string | null>(null);
+  const [pendingVariationId, setPendingVariationId] = useState<string | null>(null);
+  const [pendingDiscountId, setPendingDiscountId] = useState<string | null>(null);
+  const [pickerKey, setPickerKey] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const hasPending = drawerKind === "catalog"
+    ? (pendingItemId !== null && pendingVariationId !== null)
+    : pendingDiscountId !== null;
+
+  async function handleSave() {
+    setSaving(true);
+    setError(null);
+    try {
+      const patch = drawerKind === "catalog"
+        ? { square_catalog_item_id: pendingItemId, square_catalog_variation_id: pendingVariationId }
+        : { square_catalog_discount_id: pendingDiscountId };
+      await onSave(patch);
+      setPendingItemId(null);
+      setPendingVariationId(null);
+      setPendingDiscountId(null);
+      setPickerKey((k) => k + 1);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  let currentLabel: string | null = null;
+  if (drawerKind === "catalog" && mapping?.square_catalog_item_id) {
+    const item = items.find((i) => i.itemId === mapping.square_catalog_item_id);
+    const variation = item?.variations.find((v) => v.variationId === mapping.square_catalog_variation_id);
+    currentLabel = item && variation ? `${item.itemName} · ${variation.variationName}` : mapping.display_name || null;
+  } else if (drawerKind === "discount" && mapping?.square_catalog_discount_id) {
+    currentLabel = discounts.find((d) => d.id === mapping.square_catalog_discount_id)?.name ?? null;
+  }
+
+  return (
+    <>
+      <div className="fixed inset-0 z-30 bg-black/40" onClick={onClose} aria-hidden="true" />
+      <div className="fixed inset-y-0 right-0 z-40 w-[400px] bg-zinc-950 border-l border-zinc-800 shadow-2xl flex flex-col">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800">
+          <div>
+            <p className="text-xs text-zinc-500 uppercase tracking-wide">Export Settings</p>
+            <p className="text-sm font-semibold text-zinc-100 mt-0.5">
+              {rowLabel} · {partnerName}
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-zinc-500 hover:text-zinc-200 transition-colors text-lg leading-none"
+            aria-label="Close drawer"
+          >
+            ×
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+          {currentLabel && (
+            <div className="rounded-lg border border-emerald-800/40 bg-emerald-950/20 px-3 py-2">
+              <span className="text-xs text-emerald-300">✓ {currentLabel}</span>
+            </div>
+          )}
+          <div className="space-y-2">
+            {drawerKind === "catalog" ? (
+              <SquareCatalogSelect
+                key={pickerKey}
+                items={items}
+                itemId={pendingItemId}
+                variationId={pendingVariationId}
+                onChange={(itemId, variationId) => {
+                  setPendingItemId(itemId);
+                  setPendingVariationId(variationId);
+                }}
+              />
+            ) : (
+              <SquareDiscountSelect
+                key={pickerKey}
+                discounts={discounts}
+                value={pendingDiscountId}
+                onChange={(id) => setPendingDiscountId(id)}
+              />
+            )}
+            {hasPending && (
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className="btn-amber text-xs w-full disabled:opacity-30"
+              >
+                {saving ? "Saving…" : "Save"}
+              </button>
+            )}
+          </div>
+          {error && <p className="text-xs text-red-400">{error}</p>}
+        </div>
+      </div>
+    </>
+  );
+}
+
+type SelectedCell =
+  | { kind: "packaging_fee"; vc: VolumeClass; partnerId: string | null }
+  | { kind: "service"; serviceType: ServiceType; mappingKind: "catalog" | "discount"; rowLabel: string; partnerId: string | null };
+
+function ServiceMappingGrid() {
   const { data: mappings = [] } = useExportServiceMappingsQuery();
   const { data: partners = [] } = useContractPartnersQuery();
   const { data: catalog } = useExportSquareCatalogQuery();
+  const { data: packagingItems = [] } = usePackagingQuery();
   const qc = useQueryClient();
-  const { status, run } = useSaveStatus();
+
+  const [selected, setSelected] = useState<SelectedCell | null>(null);
+
   const items = catalog?.items ?? [];
   const discounts = catalog?.discounts ?? [];
+  const feeRows = mappings.filter((m) => m.service_type === "packaging_fee");
+  const volumeClasses = deriveVolumeClasses(packagingItems);
 
-  const rows = mappings.filter((m) => m.service_type === serviceType);
-  const defaultRow = rows.find((m) => m.partner_id === null) ?? null;
-  const overrideRows = rows.filter((m) => m.partner_id !== null);
-
-  async function save(existing: ExportServiceMapping | null, partnerId: string | null, patch: Record<string, unknown>) {
-    const ok = await run(() =>
-      fetch("/api/production/export-settings/service-mappings", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: existing?.id, service_type: serviceType, partner_id: partnerId, display_name: displayName, ...patch }),
-      })
+  function getPackagingFeeMapping(vc: VolumeClass, partnerId: string | null): ExportServiceMapping | null {
+    const classItemIds = new Set(
+      packagingItems
+        .filter((pi) => pi.type === vc.piType && pi.volume_fl_oz === vc.volumeFlOz)
+        .map((pi) => pi.id)
     );
-    if (ok) await qc.invalidateQueries({ queryKey: queryKeys.production.exportServiceMappings() });
-  }
-
-  function control(row: ExportServiceMapping | null, partnerId: string | null) {
-    return kind === "catalog" ? (
-      <SquareCatalogSelect
-        items={items}
-        itemId={row?.square_catalog_item_id ?? null}
-        variationId={row?.square_catalog_variation_id ?? null}
-        onChange={(itemId, variationId) => save(row, partnerId, { square_catalog_item_id: itemId, square_catalog_variation_id: variationId })}
-      />
-    ) : (
-      <SquareDiscountSelect
-        discounts={discounts}
-        value={row?.square_catalog_discount_id ?? null}
-        onChange={(id) => save(row, partnerId, { square_catalog_discount_id: id })}
-      />
+    return (
+      feeRows.find(
+        (m) =>
+          m.packaging_item_id !== null &&
+          classItemIds.has(m.packaging_item_id) &&
+          m.packaging_format === vc.format &&
+          m.partner_id === partnerId
+      ) ?? null
     );
   }
 
-  const emptyPatch = kind === "catalog"
-    ? { square_catalog_item_id: null, square_catalog_variation_id: null }
-    : { square_catalog_discount_id: null };
+  function getServiceMapping(serviceType: ServiceType, partnerId: string | null): ExportServiceMapping | null {
+    return mappings.find((m) => m.service_type === serviceType && m.partner_id === partnerId) ?? null;
+  }
+
+  function catalogLabel(mapping: ExportServiceMapping | null): string | null {
+    if (!mapping?.square_catalog_item_id) return null;
+    const item = items.find((i) => i.itemId === mapping.square_catalog_item_id);
+    const variation = item?.variations.find((v) => v.variationId === mapping.square_catalog_variation_id);
+    if (item && variation) return `${item.itemName} · ${variation.variationName}`;
+    return mapping.display_name || null;
+  }
+
+  async function savePackagingFee(vc: VolumeClass, partnerId: string | null, patch: Record<string, unknown>) {
+    const res = await fetch("/api/production/export-settings/packaging-fee-class", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type: vc.piType, volume_fl_oz: vc.volumeFlOz, format: vc.format, partner_id: partnerId, display_name: "Packaging Fee", ...patch }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error((body as { error?: string }).error ?? `Save failed (${res.status})`);
+    }
+    await qc.invalidateQueries({ queryKey: queryKeys.production.exportServiceMappings() });
+  }
+
+  async function saveService(serviceType: ServiceType, partnerId: string | null, existing: ExportServiceMapping | null, displayName: string, patch: Record<string, unknown>) {
+    const res = await fetch("/api/production/export-settings/service-mappings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: existing?.id, service_type: serviceType, partner_id: partnerId, display_name: displayName, ...patch }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error((body as { error?: string }).error ?? `Save failed (${res.status})`);
+    }
+    await qc.invalidateQueries({ queryKey: queryKeys.production.exportServiceMappings() });
+  }
+
+  const columns: { partnerId: string | null; label: string }[] = [
+    { partnerId: null, label: "Default" },
+    ...partners.map((p) => ({ partnerId: p.id, label: p.company_name })),
+  ];
+
+  // Group header rows + data rows as a flat array for tbody
+  type TbodyEntry =
+    | { type: "header"; key: string; label: string }
+    | { type: "row"; key: string; rowLabel: string; getCell: (partnerId: string | null) => { label: string | null; onClick: () => void } };
+
+  const entries: TbodyEntry[] = [
+    { type: "header", key: "h-pf", label: "Packaging Fees" },
+    ...volumeClasses.map((vc): TbodyEntry => ({
+      type: "row",
+      key: `pf|${vc.piType}|${vc.volumeFlOz}|${vc.format ?? ""}`,
+      rowLabel: vc.label,
+      getCell: (partnerId) => ({
+        label: catalogLabel(getPackagingFeeMapping(vc, partnerId)),
+        onClick: () => setSelected({ kind: "packaging_fee", vc, partnerId }),
+      }),
+    })),
+    { type: "header", key: "h-svc", label: "Services" },
+    ...SERVICE_ROWS.filter((r) => r.kind === "catalog").map((r): TbodyEntry => ({
+      type: "row",
+      key: r.serviceType,
+      rowLabel: r.label,
+      getCell: (partnerId) => ({
+        label: getMappingLabel(r, getServiceMapping(r.serviceType, partnerId), items, discounts),
+        onClick: () => setSelected({ kind: "service", serviceType: r.serviceType, mappingKind: "catalog", rowLabel: r.label, partnerId }),
+      }),
+    })),
+    { type: "header", key: "h-disc", label: "Discounts" },
+    ...SERVICE_ROWS.filter((r) => r.kind === "discount").map((r): TbodyEntry => ({
+      type: "row",
+      key: r.serviceType,
+      rowLabel: r.label,
+      getCell: (partnerId) => ({
+        label: getMappingLabel(r, getServiceMapping(r.serviceType, partnerId), items, discounts),
+        onClick: () => setSelected({ kind: "service", serviceType: r.serviceType, mappingKind: "discount", rowLabel: r.label, partnerId }),
+      }),
+    })),
+  ];
+
+  // Derive drawer props from selected
+  const selectedPartnerName = selected?.partnerId
+    ? (partners.find((p) => p.id === selected.partnerId)?.company_name ?? "Unknown")
+    : "Default";
+
+  let drawerLabel = "";
+  let drawerKind: "catalog" | "discount" = "catalog";
+  let drawerMapping: ExportServiceMapping | null = null;
+  let drawerOnSave: ((patch: Record<string, unknown>) => Promise<void>) | null = null;
+
+  if (selected?.kind === "packaging_fee") {
+    drawerLabel = selected.vc.label;
+    drawerMapping = getPackagingFeeMapping(selected.vc, selected.partnerId);
+    drawerOnSave = (patch) => savePackagingFee(selected.vc, selected.partnerId, patch);
+  } else if (selected?.kind === "service") {
+    drawerLabel = selected.rowLabel;
+    drawerKind = selected.mappingKind;
+    drawerMapping = getServiceMapping(selected.serviceType, selected.partnerId);
+    drawerOnSave = (patch) => saveService(selected.serviceType, selected.partnerId, drawerMapping, selected.rowLabel, patch);
+  }
 
   return (
     <section>
-      <div className="flex items-center justify-between gap-3 mb-2">
-        {heading === "h4"
-          ? <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wide">{title}</h4>
-          : <h3 className="text-sm font-medium text-zinc-200">{title}</h3>}
-        <SaveIndicator status={status} />
+      <h3 className="text-sm font-medium text-zinc-200 mb-3">Service Mappings &amp; Discounts</h3>
+      <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-300px)] rounded-lg border border-zinc-800">
+        <table
+          className="text-xs border-collapse"
+          style={{ tableLayout: "fixed", width: "max-content", minWidth: "100%" }}
+        >
+          <colgroup>
+            <col style={{ width: 180 }} />
+            {columns.map((_, i) => <col key={i} style={{ width: 200 }} />)}
+          </colgroup>
+          <thead>
+            <tr className="border-b border-zinc-800">
+              <th className="sticky left-0 top-0 z-30 bg-zinc-900 px-4 py-2.5 text-left font-semibold text-zinc-400 whitespace-nowrap">
+                Service
+              </th>
+              {columns.map((col) => (
+                <th
+                  key={col.partnerId ?? "default"}
+                  className="sticky top-0 z-20 bg-zinc-900 px-3 py-2.5 text-left font-medium text-zinc-400 whitespace-nowrap"
+                >
+                  {col.label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {entries.map((entry) =>
+              entry.type === "header" ? (
+                <tr key={entry.key}>
+                  <td
+                    colSpan={columns.length + 1}
+                    className="px-4 py-1 text-[10px] font-semibold uppercase tracking-widest text-zinc-600 bg-zinc-900/40 border-b border-zinc-800/40"
+                  >
+                    {entry.label}
+                  </td>
+                </tr>
+              ) : (
+                <tr key={entry.key} className="border-b border-zinc-800/40 hover:bg-zinc-900/20 transition-colors">
+                  <td className="sticky left-0 z-10 bg-zinc-950 px-4 py-2.5 font-medium text-zinc-200 whitespace-nowrap border-r border-zinc-800/40">
+                    {entry.rowLabel}
+                  </td>
+                  {columns.map((col) => {
+                    const cell = entry.getCell(col.partnerId);
+                    return (
+                      <td
+                        key={col.partnerId ?? "default"}
+                        className="px-3 py-2.5 cursor-pointer align-middle"
+                        onClick={cell.onClick}
+                      >
+                        {cell.label ? (
+                          <span
+                            className="inline-block px-1.5 py-0.5 rounded text-[10px] bg-emerald-900/30 border border-emerald-700/50 text-emerald-300 break-words leading-4 max-w-[170px] truncate"
+                            title={cell.label}
+                          >
+                            ✓ {cell.label}
+                          </span>
+                        ) : (
+                          <span className="inline-block px-1.5 py-0.5 rounded text-[10px] border border-red-900/40 text-red-700 bg-red-950/10 leading-4">
+                            —
+                          </span>
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              )
+            )}
+          </tbody>
+        </table>
       </div>
-      {description && <p className="text-xs text-zinc-600 mb-2">{description}</p>}
-      <div className="flex flex-col gap-2">
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-zinc-500 italic w-28">Default</span>
-          {control(defaultRow, null)}
-        </div>
-        {overrideRows.map((m) => {
-          const partner = partners.find((p) => p.id === m.partner_id);
-          return (
-            <div key={m.id} className="flex items-center gap-2">
-              <span className="text-xs text-zinc-300 w-28 truncate">{partner?.company_name ?? "Unknown partner"}</span>
-              {control(m, m.partner_id)}
-            </div>
-          );
-        })}
-        <PartnerOverridePicker
-          partners={partners}
-          excludeIds={new Set(overrideRows.map((m) => m.partner_id!))}
-          onAdd={(partnerId) => save(null, partnerId, emptyPatch)}
+
+      {selected && drawerOnSave && (
+        <ServiceMappingDrawer
+          rowLabel={drawerLabel}
+          drawerKind={drawerKind}
+          partnerName={selectedPartnerName}
+          mapping={drawerMapping}
+          items={items}
+          discounts={discounts}
+          onClose={() => setSelected(null)}
+          onSave={drawerOnSave}
         />
-      </div>
+      )}
     </section>
   );
 }
@@ -595,55 +727,12 @@ function InvoiceTermsSection() {
   );
 }
 
-function SquareCatalogMappingsSection() {
-  return (
-    <section>
-      <h3 className="text-sm font-medium text-zinc-200 mb-2">Square Catalog Mappings</h3>
-      <div className="mt-4 p-4 bg-zinc-900/40 rounded-lg border border-zinc-800">
-        <p className="text-xs text-zinc-400 mb-2">Square catalog mappings have moved to a dedicated page.</p>
-        <a href="/production/settings/square-links" className="text-xs text-amber-400 hover:text-amber-300 transition-colors">
-          Manage Square mappings →
-        </a>
-      </div>
-    </section>
-  );
-}
-
 export default function ExportSettingsPanel({ scope }: { scope: "full" | "excise-only" }) {
   return (
     <div className="flex flex-col gap-8">
+      {scope === "full" && <InvoiceTermsSection />}
       <ExciseTaxRatesSection />
-      {scope === "full" && (
-        <>
-          <section>
-            <h3 className="text-sm font-medium text-zinc-200 mb-3">Service Mappings</h3>
-            <div className="flex flex-col gap-6">
-              <PackagingFeeSection />
-              <ServiceMappingSection serviceType="keg_cleaning" title="Keg Cleaning" displayName="Keg Cleaning" kind="catalog" heading="h4" />
-              <ServiceMappingSection serviceType="forklift" title="Forklift" displayName="Forklift" kind="catalog" heading="h4" />
-            </div>
-          </section>
-          <section>
-            <h3 className="text-sm font-medium text-zinc-200 mb-3">Discounts</h3>
-            <div className="flex flex-col gap-6">
-              <ServiceMappingSection
-                serviceType="bulk_discount" title="Bulk Discount" displayName="Bulk Discount" kind="discount" heading="h4"
-                description="Applied to keg lines on export invoices."
-              />
-              <ServiceMappingSection
-                serviceType="distribution_discount" title="Distribution Discount" displayName="Distribution Discount" kind="discount" heading="h4"
-                description="Applied to product line items on Distribution invoices. Optional — omit to generate without a discount."
-              />
-              <ServiceMappingSection
-                serviceType="wholesale_discount" title="Wholesale Discount" displayName="Wholesale Discount" kind="discount" heading="h4"
-                description="Applied to product line items on Wholesale invoices. Optional — omit to generate without a discount."
-              />
-            </div>
-          </section>
-          <InvoiceTermsSection />
-          <SquareCatalogMappingsSection />
-        </>
-      )}
+      {scope === "full" && <ServiceMappingGrid />}
     </div>
   );
 }

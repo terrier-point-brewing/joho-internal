@@ -127,7 +127,7 @@ function InvoiceExpandedPanel({
 
   // Service mappings with a Square variation (usable as line items)
   const selectableMappings = mappings.filter(
-    (m) => m.square_catalog_variation_id && m.service_type !== "bulk_discount" &&
+    (m) => m.square_catalog_variation_id &&
       m.service_type !== "distribution_discount" && m.service_type !== "wholesale_discount"
   );
 
