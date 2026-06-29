@@ -32,20 +32,26 @@ export async function POST(
     supabase.from("payroll_entries").select("*").eq("pay_period_id", id),
   ]);
 
-  const { data: configRow } = await supabase
+  const { data: configRow, error: cErr } = await supabase
     .from("payroll_config")
     .select("*")
-    .lte("effective_from", (period as PayPeriod).start_date)
     .order("effective_from", { ascending: false })
     .limit(1)
     .single();
 
-  const preview = await buildPayrollPreview(
-    period as PayPeriod,
-    (employees ?? []) as Employee[],
-    configRow as PayrollConfig,
-    (storedEntries ?? []) as PayrollEntry[]
-  );
+  if (cErr || !configRow) return apiError("No payroll config found", 422);
+
+  let preview;
+  try {
+    preview = await buildPayrollPreview(
+      period as PayPeriod,
+      (employees ?? []) as Employee[],
+      configRow as PayrollConfig,
+      (storedEntries ?? []) as PayrollEntry[]
+    );
+  } catch (err) {
+    return apiError(err instanceof Error ? err.message : String(err));
+  }
 
   // Upsert final snapshotted values for all hourly tipped employees
   const upserts = preview.entries.map((entry) => ({
