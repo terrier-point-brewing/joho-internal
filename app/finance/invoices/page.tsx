@@ -640,7 +640,6 @@ export default function InvoicesPage() {
   return (
     <div className="flex flex-col h-full bg-zinc-950 text-zinc-100">
       <FinanceNav mobile />
-      <TransactionsNav />
       {/* Header */}
       <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-6">
         <PageHeader
@@ -648,6 +647,7 @@ export default function InvoicesPage() {
           description="Square and QuickBooks invoices · map line items to GL accounts"
         />
       </div>
+      <TransactionsNav />
       <div className="shrink-0 px-4 sm:px-6 pb-4 border-b border-zinc-800">
         <div className="flex flex-wrap items-center gap-2">
           <select value={year} onChange={(e) => setYear(Number(e.target.value))}
