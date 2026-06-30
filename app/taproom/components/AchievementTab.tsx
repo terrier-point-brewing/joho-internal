@@ -1,14 +1,17 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { formatCurrency, formatCurrencyCents, formatPercent } from "@/lib/format";
+import { formatCurrencyCents, formatPercent } from "@/lib/format";
 import { useQuery } from "@tanstack/react-query";
 import { fetchJson } from "@/app/production/hooks/queries";
 import { queryKeys } from "@/lib/query-keys";
-import {
-  ResponsiveContainer, LineChart, Line,
-  XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine,
-} from "recharts";
+import dynamic from "next/dynamic";
+import ChartSkeleton from "@/app/components/ChartSkeleton";
+
+const AchievementChart = dynamic(() => import("./AchievementChart"), {
+  ssr: false,
+  loading: () => <ChartSkeleton height={300} />,
+});
 
 // ---------------------------------------------------------------------------
 // Types
@@ -40,9 +43,6 @@ const TIERS: { value: Tier; label: string; color: string }[] = [
 
 function currency(cents: number) {
   return formatCurrencyCents(cents, 0);
-}
-function fmtDollars(d: number) {
-  return formatCurrency(d, 0);
 }
 function pct(n: number, decimals = 1) { return formatPercent(n / 100, decimals); }
 
@@ -103,29 +103,6 @@ function buildWeekRange(start: Date, end: Date): Omit<Period,"net_sales_cents"|"
     cur = addDays(ae, 1);
   }
   return out;
-}
-
-// ---------------------------------------------------------------------------
-// Custom tooltip
-// ---------------------------------------------------------------------------
-
-function ChartTooltip({ active, payload, label }: {
-  active?: boolean;
-  payload?: { name: string; value: number; color: string }[];
-  label?: string;
-}) {
-  if (!active || !payload?.length) return null;
-  return (
-    <div className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-xs shadow-lg">
-      <div className="text-zinc-300 font-medium mb-1">{label}</div>
-      {payload.map((p) => (
-        <div key={p.name} style={{ color: p.color }} className="flex justify-between gap-4">
-          <span>{p.name}</span>
-          <span className="font-mono">{p.value != null ? fmtDollars(p.value) : "—"}</span>
-        </div>
-      ))}
-    </div>
-  );
 }
 
 const selectCls = "bg-zinc-800 border border-zinc-600 rounded px-1.5 py-1 sm:px-3 sm:py-2 text-xs sm:text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-amber-500";
@@ -281,7 +258,6 @@ export default function AchievementTab() {
 
   const yMax   = chartView === "per-period" ? maxPerPeriod : maxCumulative;
   const yDomain: [number, number] = [0, yMax > 0 ? Math.ceil(yMax * 1.12) : 1000];
-  const yAxisFmt = (v: number) => v >= 1000 ? `$${(v / 1000).toFixed(0)}k` : `$${v.toFixed(0)}`;
 
   // ---------------------------------------------------------------------------
   // Table: expected pace per period
@@ -465,50 +441,16 @@ export default function AchievementTab() {
             </div>
           </div>
 
-          <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={chartData}
-              margin={{ top: 8, right: 16, bottom: grain === "weekly" ? 30 : 4, left: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#3f3f46" vertical={false} />
-              <XAxis dataKey="name" interval={0}
-                tick={grain === "weekly" ? { fill:"#a1a1aa", fontSize:10, dy:4 } : { fill:"#a1a1aa", fontSize:11 }}
-                angle={grain === "weekly" ? -45 : 0}
-                textAnchor={grain === "weekly" ? "end" : "middle"}
-                axisLine={false} tickLine={false}
-                height={grain === "weekly" ? 52 : 24} />
-              <YAxis tickFormatter={yAxisFmt} domain={yDomain}
-                tick={{ fill:"#a1a1aa", fontSize:11 }} axisLine={false} tickLine={false} width={44} />
-              <Tooltip content={<ChartTooltip />} />
-
-              {chartView === "per-period" && (
-                <>
-                  {perPeriodTargetDollars !== null && (
-                    <ReferenceLine y={perPeriodTargetDollars} stroke={activeTierColor}
-                      strokeDasharray="5 4" strokeWidth={1.5}
-                      label={{ value:`Avg ${tierLabel}`, position:"insideTopRight", fill:activeTierColor, fontSize:10 }} />
-                  )}
-                  <Line type="monotone" dataKey="Net Sales" stroke="#60a5fa" strokeWidth={2}
-                    dot={{ r:4, fill:"#60a5fa", strokeWidth:0 }} activeDot={{ r:5 }} connectNulls={false} />
-                  <Line type="monotone" dataKey="Forecast" stroke="#60a5fa" strokeWidth={2}
-                    strokeDasharray="5 4" dot={{ r:4, fill:"#60a5fa", strokeWidth:0, opacity:0.5 }}
-                    activeDot={{ r:5 }} connectNulls={false} />
-                </>
-              )}
-              {chartView === "cumulative" && (
-                <>
-                  {cumulativeTargetDollars !== null && (
-                    <ReferenceLine y={cumulativeTargetDollars} stroke={activeTierColor}
-                      strokeDasharray="5 4" strokeWidth={1.5}
-                      label={{ value:tierLabel, position:"insideTopRight", fill:activeTierColor, fontSize:10 }} />
-                  )}
-                  <Line type="monotone" dataKey="Cumulative" stroke="#34d399" strokeWidth={2}
-                    dot={{ r:4, fill:"#34d399", strokeWidth:0 }} activeDot={{ r:5 }} connectNulls={false} />
-                  <Line type="monotone" dataKey="Forecast Total" stroke="#34d399" strokeWidth={2}
-                    strokeDasharray="5 4" dot={{ r:4, fill:"#34d399", strokeWidth:0, opacity:0.5 }}
-                    activeDot={{ r:5 }} connectNulls={false} />
-                </>
-              )}
-            </LineChart>
-          </ResponsiveContainer>
+          <AchievementChart
+            chartData={chartData}
+            chartView={chartView}
+            grain={grain}
+            yDomain={yDomain}
+            perPeriodTargetDollars={perPeriodTargetDollars}
+            cumulativeTargetDollars={cumulativeTargetDollars}
+            activeTierColor={activeTierColor}
+            tierLabel={tierLabel}
+          />
         </div>
       )}
 
