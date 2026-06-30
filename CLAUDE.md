@@ -34,6 +34,7 @@ Do this before running any dev commands.
 - Auth/role checks via `lib/auth.ts` (`getSessionUser`, `UserRole`: viewer < brewer < manager < admin) — never roll your own role logic
 - Use the Supabase client matching the execution context (server/browser/admin) — never the browser client in a route handler
 - New API routes: parse query params with `requireDateRange()`, wrap errors with `apiError()`
+- New or modified `lib/` business-logic modules ship with co-located `*.test.ts` covering the pure logic paths; CI runs `npm run test` on every PR. Don't drop `lib/` coverage below the `vitest.config.ts` threshold floor.
 - This Next.js version has breaking API/convention changes vs. training data — see `AGENTS.md`
 
 ## Model Selection
