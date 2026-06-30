@@ -5,6 +5,7 @@ import { queryKeys } from "@/lib/query-keys";
 import SalesNav from "../SalesNav";
 import FinanceNav from "../../FinanceNav";
 import SalesTable, { type SalesRow } from "../SalesTable";
+import UnrecognizedBanner, { type UnrecognizedSummary, type ExciseCoverage } from "../UnrecognizedBanner";
 import { fetchJson } from "@/app/production/hooks/queries";
 
 const ROWS: SalesRow[] = [
@@ -47,6 +48,9 @@ interface InvoiceSalesData {
   months: string[];
   contractBrewing: Record<string, Record<string, number>>;
   distribution:    Record<string, Record<string, number>>;
+  wholesale:       Record<string, Record<string, number>>;
+  unrecognized:    UnrecognizedSummary;
+  exciseCoverage:  ExciseCoverage;
 }
 
 export default function DistributionSalesPage() {
@@ -90,6 +94,8 @@ export default function DistributionSalesPage() {
           {error instanceof Error ? error.message : "Failed to load"}
         </div>
       )}
+
+      <UnrecognizedBanner data={data?.unrecognized} excise={data?.exciseCoverage} />
 
       <div className="flex-1 overflow-auto px-4 sm:px-6 pb-6">
         <div className="bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden">

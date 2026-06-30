@@ -20,19 +20,18 @@ const ROWS: SalesRow[] = [
 
   // ── Gross Revenue ─────────────────────────────────────────────────────────
   { type: "section", label: "Gross Revenue" },
-  { type: "data",     key: "materials_packaging", label: "Materials & Packaging", indent: true },
-  { type: "data",     key: "packaging_fees",      label: "Packaging Fees",        indent: true },
-  { type: "data",     key: "other_services",      label: "Other Services",         indent: true },
-  { type: "data",     key: "pass_through_taxes",  label: "Pass-Through Taxes",    indent: true },
-  { type: "subtotal", key: "gross_revenue",       label: "Gross Revenue" },
+  { type: "data",     key: "rev_half_keg",    label: "1/2 Kegs", indent: true },
+  { type: "data",     key: "rev_quarter_keg", label: "1/4 Kegs", indent: true },
+  { type: "data",     key: "rev_sixth_keg",   label: "1/6 Kegs", indent: true },
+  { type: "data",     key: "rev_cans",        label: "Cans",      indent: true },
+  { type: "subtotal", key: "gross_revenue",   label: "Gross Revenue" },
   { type: "spacer" },
 
   // ── Deductions ────────────────────────────────────────────────────────────
   { type: "section", label: "Deductions" },
-  { type: "data",     key: "discounts",           label: "Discounts",          indent: true },
-  { type: "data",     key: "remits",              label: "Remits",             indent: true },
-  { type: "data",     key: "deduct_pass_through", label: "Pass-Through Taxes", indent: true },
-  { type: "subtotal", key: "total_deductions",    label: "Deductions" },
+  { type: "data",     key: "discounts",        label: "Discounts", indent: true },
+  { type: "data",     key: "remits",           label: "Remits",    indent: true },
+  { type: "subtotal", key: "total_deductions", label: "Deductions" },
   { type: "spacer" },
 
   // ── Net Sales ─────────────────────────────────────────────────────────────
@@ -47,14 +46,14 @@ const ROWS: SalesRow[] = [
 
 interface InvoiceSalesData {
   months: string[];
-  contractBrewing: Record<string, Record<string, number>>;
   distribution:    Record<string, Record<string, number>>;
+  contractBrewing: Record<string, Record<string, number>>;
   wholesale:       Record<string, Record<string, number>>;
   unrecognized:    UnrecognizedSummary;
   exciseCoverage:  ExciseCoverage;
 }
 
-export default function ContractBrewingSalesPage() {
+export default function WholesaleSalesPage() {
   const currentYear = new Date().getFullYear();
   const [year, setYear] = useState(currentYear);
 
@@ -63,8 +62,8 @@ export default function ContractBrewingSalesPage() {
     queryFn:  () => fetchJson<InvoiceSalesData>(`/api/finance/sales/invoices?year=${year}`),
   });
 
-  const months  = data?.months          ?? [];
-  const monthly = data?.contractBrewing ?? {};
+  const months  = data?.months    ?? [];
+  const monthly = data?.wholesale ?? {};
   const years   = Array.from({ length: 3 }, (_, i) => currentYear - i);
 
   return (
@@ -96,7 +95,7 @@ export default function ContractBrewingSalesPage() {
         </div>
       )}
 
-      <UnrecognizedBanner data={data?.unrecognized} excise={data?.exciseCoverage} />
+      <UnrecognizedBanner data={data?.unrecognized} />
 
       <div className="flex-1 overflow-auto px-4 sm:px-6 pb-6">
         <div className="bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden">
