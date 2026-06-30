@@ -144,6 +144,16 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
   const showCanDetail = mode === "transfer" && (fromTank.type === "canning" || destTank?.type === "canning");
   const isPackagingForm = showKegDetail || showCanDetail;
 
+  // The planned entry (and its deviation warning) describes the batch's next
+  // STAGE move — e.g. a fermenter's upcoming conditioning slot. A kegging/canning
+  // out-transfer is a packaging event landing at a packaging station, not that
+  // stage move, so it never "deviates" from the planned stage tank: the backend
+  // reconciles packaging against the kegging/canning entries and leaves the
+  // conditioning/fermenting booking intact (a partial run keeps the source tank
+  // occupied entirely). Suppress the planned pill + deviation warning here so a
+  // partial keg doesn't falsely claim it will cancel the stage booking.
+  const showPlannedEntry = mode === "transfer" && !isPackagingForm && !!plannedEntry?.equipment_id;
+
   const batchVol  = fromTankVolume ?? Number(batch.volume_bbl);
   const shrinkBbl = parseFloat(shrinkage) || 0;
 
@@ -332,8 +342,8 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
             )}
 
             <Field label="Destination" required>
-              {/* Planned booking pill (transfer mode only) */}
-              {mode === "transfer" && plannedEntry && plannedEntry.equipment_id && (
+              {/* Planned booking pill (stage-move transfers only — not packaging) */}
+              {showPlannedEntry && (
                 <div className="flex items-center gap-2 mb-2 px-2 py-1.5 rounded bg-surface-mid/60 border border-line-strong text-xs text-secondary">
                   <span>📋 Planned:</span>
                   <span className="text-strong font-medium">{plannedEntry.equipment?.name ?? "Unknown"}</span>
@@ -430,7 +440,7 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
         {mode === "transfer" && destIsConstrained && destTank?.capacity_bbl && (
           <p className="text-xs text-muted">Capacity: {fmtBbl(destTank.capacity_bbl)} — transfer will be rejected if it exceeds this.</p>
         )}
-        {mode === "transfer" && plannedEntry && plannedEntry.equipment_id && effectiveDestId && effectiveDestId !== plannedEntry.equipment_id && (
+        {showPlannedEntry && effectiveDestId && effectiveDestId !== plannedEntry.equipment_id && (
           <div className="px-3 py-2 rounded border border-accent-border/60 bg-accent-muted/40 text-xs text-accent-soft">
             ⚠ <span className="font-semibold">Deviation from plan:</span> this batch was scheduled for{" "}
             <span className="text-accent-soft font-medium">{plannedEntry.equipment?.name ?? "another tank"}</span>.
