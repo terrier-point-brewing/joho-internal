@@ -1,4 +1,4 @@
 import { redirect } from "next/navigation";
 export default function OldImportPage() {
-  redirect("/finance/settings/import");
+  redirect("/finance/settings/chart-of-accounts");
 }
