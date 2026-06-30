@@ -125,7 +125,7 @@ function SquareImportModal({ linkingPartner, onClose, onDone }: SquareImportModa
     <Modal title={title} onClose={onClose}>
       <div className="space-y-4">
         {linkingPartner && (
-          <p className="text-xs text-zinc-500">
+          <p className="text-xs text-muted">
             Select a Square contact to link. The partner&apos;s contact fields will be synced
             from Square. You can edit them manually afterwards.
           </p>
@@ -141,13 +141,13 @@ function SquareImportModal({ linkingPartner, onClose, onDone }: SquareImportModa
           />
         </Field>
 
-        {error && <p className="text-xs text-red-400">{error}</p>}
+        {error && <p className="text-xs text-danger">{error}</p>}
 
-        <div className="border border-zinc-800 rounded-lg overflow-hidden max-h-72 overflow-y-auto">
+        <div className="border border-line rounded-lg overflow-hidden max-h-72 overflow-y-auto">
           {loading ? (
-            <p className="px-4 py-6 text-sm text-zinc-500 text-center">Searching…</p>
+            <p className="px-4 py-6 text-sm text-muted text-center">Searching…</p>
           ) : contacts.length === 0 ? (
-            <p className="px-4 py-6 text-sm text-zinc-600 text-center">No contacts found</p>
+            <p className="px-4 py-6 text-sm text-faint text-center">No contacts found</p>
           ) : (
             <ul>
               {contacts.map((c) => (
@@ -155,25 +155,25 @@ function SquareImportModal({ linkingPartner, onClose, onDone }: SquareImportModa
                   <button
                     type="button"
                     onClick={() => setSelected(c)}
-                    className={`w-full text-left px-4 py-2.5 text-sm transition-colors border-b border-zinc-800/60 last:border-0 ${
+                    className={`w-full text-left px-4 py-2.5 text-sm transition-colors border-b border-line/60 last:border-0 ${
                       selected?.id === c.id
-                        ? "bg-amber-500/10 text-amber-300"
-                        : "text-zinc-300 hover:bg-zinc-800/60"
+                        ? "bg-accent-emphasis/10 text-accent-soft"
+                        : "text-body hover:bg-surface-mid/60"
                     }`}
                   >
                     {c.company_name && (
                       <div className="font-medium leading-snug">{c.company_name}</div>
                     )}
                     {(c.given_name || c.family_name) && (
-                      <div className={`leading-snug ${c.company_name ? "text-xs text-zinc-400" : "font-medium"}`}>
+                      <div className={`leading-snug ${c.company_name ? "text-xs text-secondary" : "font-medium"}`}>
                         {[c.given_name, c.family_name].filter(Boolean).join(" ")}
                       </div>
                     )}
                     {!c.company_name && !c.given_name && !c.family_name && (
-                      <div className="font-medium leading-snug text-zinc-500">—</div>
+                      <div className="font-medium leading-snug text-muted">—</div>
                     )}
                     {c.email_address && (
-                      <div className="text-xs text-zinc-500 leading-snug mt-0.5">{c.email_address}</div>
+                      <div className="text-xs text-muted leading-snug mt-0.5">{c.email_address}</div>
                     )}
                   </button>
                 </li>
@@ -183,8 +183,8 @@ function SquareImportModal({ linkingPartner, onClose, onDone }: SquareImportModa
         </div>
 
         {selected && (
-          <p className="text-xs text-zinc-500">
-            Selected: <span className="text-zinc-300">{squareContactLabel(selected)}</span>
+          <p className="text-xs text-muted">
+            Selected: <span className="text-body">{squareContactLabel(selected)}</span>
           </p>
         )}
 
@@ -321,7 +321,7 @@ export default function PartnersTab() {
       label: (
         <>
           Contract Brewing{" "}
-          <span className="ml-1.5 text-xs text-zinc-600">({contractPartners.length})</span>
+          <span className="ml-1.5 text-xs text-faint">({contractPartners.length})</span>
         </>
       ),
     },
@@ -330,7 +330,7 @@ export default function PartnersTab() {
       label: (
         <>
           Suppliers{" "}
-          <span className="ml-1.5 text-xs text-zinc-600">({suppliers.length})</span>
+          <span className="ml-1.5 text-xs text-faint">({suppliers.length})</span>
         </>
       ),
     },
@@ -352,21 +352,21 @@ export default function PartnersTab() {
 
       {/* Records table */}
       {records.length === 0 ? (
-        <p className="text-zinc-600 text-sm">No {kindLabel.toLowerCase()}s yet.</p>
+        <p className="text-faint text-sm">No {kindLabel.toLowerCase()}s yet.</p>
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-zinc-800">
+        <div className="overflow-x-auto rounded-lg border border-line">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-zinc-800 bg-zinc-900/50 text-left">
-                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500">Company</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500">Contact</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500">Email</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500">Phone</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500">Address</th>
+              <tr className="border-b border-line bg-surface/50 text-left">
+                <th className="px-4 py-2.5 text-xs font-medium text-muted">Company</th>
+                <th className="px-4 py-2.5 text-xs font-medium text-muted">Contact</th>
+                <th className="px-4 py-2.5 text-xs font-medium text-muted">Email</th>
+                <th className="px-4 py-2.5 text-xs font-medium text-muted">Phone</th>
+                <th className="px-4 py-2.5 text-xs font-medium text-muted">Address</th>
                 {kind === "contract" && (
-                  <th className="px-4 py-2.5 text-xs font-medium text-zinc-500">Square</th>
+                  <th className="px-4 py-2.5 text-xs font-medium text-muted">Square</th>
                 )}
-                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500"></th>
+                <th className="px-4 py-2.5 text-xs font-medium text-muted"></th>
               </tr>
             </thead>
             <tbody>
@@ -374,28 +374,28 @@ export default function PartnersTab() {
                 const isContract = kind === "contract";
                 const cp = p as ContractBrewingPartner;
                 return (
-                  <tr key={p.id} className={`border-b border-zinc-800/60 ${i % 2 !== 0 ? "bg-zinc-900/30" : ""}`}>
-                    <td className="px-4 py-2.5 text-zinc-100 font-medium">{p.company_name}</td>
-                    <td className="px-4 py-2.5 text-zinc-400">
-                      {[p.first_name, p.last_name].filter(Boolean).join(" ") || <span className="text-zinc-700">—</span>}
+                  <tr key={p.id} className={`border-b border-line/60 ${i % 2 !== 0 ? "bg-surface/30" : ""}`}>
+                    <td className="px-4 py-2.5 text-primary font-medium">{p.company_name}</td>
+                    <td className="px-4 py-2.5 text-secondary">
+                      {[p.first_name, p.last_name].filter(Boolean).join(" ") || <span className="text-disabled">—</span>}
                     </td>
-                    <td className="px-4 py-2.5 text-zinc-400">
-                      {p.email ? <a href={`mailto:${p.email}`} className="hover:text-zinc-200 transition-colors">{p.email}</a> : <span className="text-zinc-700">—</span>}
+                    <td className="px-4 py-2.5 text-secondary">
+                      {p.email ? <a href={`mailto:${p.email}`} className="hover:text-strong transition-colors">{p.email}</a> : <span className="text-disabled">—</span>}
                     </td>
-                    <td className="px-4 py-2.5 text-zinc-400">{p.phone ?? <span className="text-zinc-700">—</span>}</td>
-                    <td className="px-4 py-2.5 text-zinc-400 max-w-[200px] truncate">{p.address ?? <span className="text-zinc-700">—</span>}</td>
+                    <td className="px-4 py-2.5 text-secondary">{p.phone ?? <span className="text-disabled">—</span>}</td>
+                    <td className="px-4 py-2.5 text-secondary max-w-[200px] truncate">{p.address ?? <span className="text-disabled">—</span>}</td>
                     {isContract && (
                       <td className="px-4 py-2.5">
                         {cp.square_customer_id ? (
                           <span
                             title={`Square ID: ${cp.square_customer_id}`}
-                            className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded bg-emerald-900/40 text-emerald-400 border border-emerald-800/50"
+                            className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded bg-success-surface/40 text-success border border-success-border/50"
                           >
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
+                            <span className="w-1.5 h-1.5 rounded-full bg-success-emphasis inline-block" />
                             Linked
                           </span>
                         ) : (
-                          <span className="text-zinc-700 text-xs">—</span>
+                          <span className="text-disabled text-xs">—</span>
                         )}
                       </td>
                     )}
@@ -405,7 +405,7 @@ export default function PartnersTab() {
                           cp.square_customer_id ? (
                             <button
                               onClick={() => handleUnlinkSquare(cp)}
-                              className="text-xs text-zinc-600 hover:text-amber-400 transition-colors"
+                              className="text-xs text-faint hover:text-accent transition-colors"
                               title="Unlink Square contact"
                             >
                               Unlink
@@ -413,7 +413,7 @@ export default function PartnersTab() {
                           ) : (
                             <button
                               onClick={() => openSquareLink(cp)}
-                              className="text-xs text-zinc-500 hover:text-amber-400 transition-colors"
+                              className="text-xs text-muted hover:text-accent transition-colors"
                               title="Link a Square contact"
                             >
                               Link Square
@@ -421,11 +421,11 @@ export default function PartnersTab() {
                           )
                         )}
                         {isContract && cp.square_customer_id ? (
-                          <span className="text-xs text-zinc-700 cursor-default" title="Unlink from Square to edit manually">Edit</span>
+                          <span className="text-xs text-disabled cursor-default" title="Unlink from Square to edit manually">Edit</span>
                         ) : (
-                          <button onClick={() => openEdit(p)} className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors">Edit</button>
+                          <button onClick={() => openEdit(p)} className="text-xs text-muted hover:text-body transition-colors">Edit</button>
                         )}
-                        <button onClick={() => handleDelete(p.id, p.company_name)} className="text-xs text-zinc-600 hover:text-red-400 transition-colors">Delete</button>
+                        <button onClick={() => handleDelete(p.id, p.company_name)} className="text-xs text-faint hover:text-danger transition-colors">Delete</button>
                       </div>
                     </td>
                   </tr>

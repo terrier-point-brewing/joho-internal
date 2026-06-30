@@ -63,17 +63,17 @@ function fmtValue(v: number | null | undefined) {
 }
 
 function qtyColor(qty: number) {
-  return qty >= 0 ? "text-green-400" : "text-red-400";
+  return qty >= 0 ? "text-success" : "text-danger";
 }
 function valColor(v: number | null) {
-  if (v == null) return "text-zinc-600";
-  return v >= 0 ? "text-green-400" : "text-red-400";
+  if (v == null) return "text-faint";
+  return v >= 0 ? "text-success" : "text-danger";
 }
 
 const SOURCE_COLORS: Record<Row["source"], string> = {
-  ingredients: "bg-amber-900/40 text-amber-300 border-amber-700",
-  packaging:   "bg-blue-900/40 text-blue-300 border-blue-700",
-  brew:        "bg-emerald-900/40 text-emerald-300 border-emerald-700",
+  ingredients: "bg-accent-muted/40 text-accent-soft border-accent-border",
+  packaging:   "bg-info-surface/40 text-info border-info-border",
+  brew:        "bg-success-surface/40 text-success border-success-border",
 };
 
 function buildRows(
@@ -204,16 +204,16 @@ export default function StockAdjustmentsTab() {
 
   const thead = (
     <thead>
-      <tr className="border-b border-zinc-800 bg-zinc-900/50 text-left">
-        <th className="px-3 py-2.5 text-xs font-medium text-zinc-500 whitespace-nowrap">Date</th>
-        <th className="px-3 py-2.5 text-xs font-medium text-zinc-500 whitespace-nowrap">Source</th>
-        <th className="px-3 py-2.5 text-xs font-medium text-zinc-500">Item</th>
-        <th className="px-3 py-2.5 text-xs font-medium text-zinc-500">Type</th>
-        <th className="px-3 py-2.5 text-xs font-medium text-zinc-500 text-right whitespace-nowrap">Change</th>
-        <th className="px-3 py-2.5 text-xs font-medium text-zinc-500 text-right whitespace-nowrap">Unit Cost</th>
-        <th className="px-3 py-2.5 text-xs font-medium text-zinc-500 text-right whitespace-nowrap">Value Δ</th>
-        <th className="px-3 py-2.5 text-xs font-medium text-zinc-500 whitespace-nowrap">Note</th>
-        <th className="px-3 py-2.5 text-xs font-medium text-zinc-500 whitespace-nowrap">Batch</th>
+      <tr className="border-b border-line bg-surface/50 text-left">
+        <th className="px-3 py-2.5 text-xs font-medium text-muted whitespace-nowrap">Date</th>
+        <th className="px-3 py-2.5 text-xs font-medium text-muted whitespace-nowrap">Source</th>
+        <th className="px-3 py-2.5 text-xs font-medium text-muted">Item</th>
+        <th className="px-3 py-2.5 text-xs font-medium text-muted">Type</th>
+        <th className="px-3 py-2.5 text-xs font-medium text-muted text-right whitespace-nowrap">Change</th>
+        <th className="px-3 py-2.5 text-xs font-medium text-muted text-right whitespace-nowrap">Unit Cost</th>
+        <th className="px-3 py-2.5 text-xs font-medium text-muted text-right whitespace-nowrap">Value Δ</th>
+        <th className="px-3 py-2.5 text-xs font-medium text-muted whitespace-nowrap">Note</th>
+        <th className="px-3 py-2.5 text-xs font-medium text-muted whitespace-nowrap">Batch</th>
       </tr>
     </thead>
   );
@@ -230,8 +230,8 @@ export default function StockAdjustmentsTab() {
               onClick={() => setSource(s)}
               className={`text-xs px-2.5 py-1 rounded border transition-colors capitalize ${
                 source === s
-                  ? "border-zinc-500 text-zinc-200 bg-zinc-800"
-                  : "border-zinc-700 text-zinc-500 hover:text-zinc-300"
+                  ? "border-line-subtle text-strong bg-surface-mid"
+                  : "border-line-strong text-muted hover:text-body"
               }`}
             >
               {s === "all" ? "All" : s === "ingredients" ? "Ingredients" : s === "packaging" ? "Packaging" : "Brew (Kegs/Cans)"}
@@ -250,7 +250,7 @@ export default function StockAdjustmentsTab() {
         {/* Sort */}
         <button
           onClick={() => setSortDir((d) => (d === "desc" ? "asc" : "desc"))}
-          className="text-xs px-2.5 py-1 rounded border border-zinc-700 text-zinc-500 hover:text-zinc-300 transition-colors"
+          className="text-xs px-2.5 py-1 rounded border border-line-strong text-muted hover:text-body transition-colors"
         >
           Date {sortDir === "desc" ? "↓ Newest" : "↑ Oldest"}
         </button>
@@ -259,49 +259,49 @@ export default function StockAdjustmentsTab() {
         <button
           onClick={() => setGroupByDate((v) => !v)}
           className={`text-xs px-2.5 py-1 rounded border transition-colors ${
-            groupByDate ? "border-amber-600 bg-amber-900/30 text-amber-300" : "border-zinc-700 text-zinc-500 hover:text-zinc-300"
+            groupByDate ? "border-accent-border bg-accent-muted/30 text-accent-soft" : "border-line-strong text-muted hover:text-body"
           }`}
         >
           Group by Day
         </button>
 
-        <span className="ml-auto text-xs text-zinc-600">{filtered.length} records</span>
+        <span className="ml-auto text-xs text-faint">{filtered.length} records</span>
       </div>
 
       {loading ? (
-        <p className="text-zinc-600 text-sm">Loading…</p>
+        <p className="text-faint text-sm">Loading…</p>
       ) : filtered.length === 0 ? (
-        <p className="text-zinc-600 text-sm">No adjustments found.</p>
+        <p className="text-faint text-sm">No adjustments found.</p>
       ) : (
         <div className="space-y-6">
           {groups.map((group, gi) => (
             <div key={gi}>
               {groupByDate && (
-                <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2 px-1">{group.label}</h3>
+                <h3 className="text-xs font-semibold text-muted uppercase tracking-wider mb-2 px-1">{group.label}</h3>
               )}
-              <div className="overflow-x-auto rounded-lg border border-zinc-800">
+              <div className="overflow-x-auto rounded-lg border border-line">
                 <table className="w-full text-sm">
                   {thead}
                   <tbody>
                     {group.rows.map((r, i) => (
-                      <tr key={r.id} className={`border-b border-zinc-800/60 last:border-0 ${i % 2 !== 0 ? "bg-zinc-900/30" : ""}`}>
-                        <td className="px-3 py-2 text-zinc-500 text-xs whitespace-nowrap">{fmtDate(r.createdAt)}</td>
+                      <tr key={r.id} className={`border-b border-line/60 last:border-0 ${i % 2 !== 0 ? "bg-surface/30" : ""}`}>
+                        <td className="px-3 py-2 text-muted text-xs whitespace-nowrap">{fmtDate(r.createdAt)}</td>
                         <td className="px-3 py-2">
                           <span className={`text-xs px-1.5 py-px rounded border ${SOURCE_COLORS[r.source]}`}>{r.sourceLabel}</span>
                         </td>
-                        <td className="px-3 py-2 text-zinc-300 font-medium max-w-[180px] truncate">{r.itemName}</td>
-                        <td className="px-3 py-2 text-zinc-400 text-xs whitespace-nowrap">{r.typeLabel}</td>
+                        <td className="px-3 py-2 text-body font-medium max-w-[180px] truncate">{r.itemName}</td>
+                        <td className="px-3 py-2 text-secondary text-xs whitespace-nowrap">{r.typeLabel}</td>
                         <td className={`px-3 py-2 text-right tabular-nums text-xs font-mono whitespace-nowrap ${qtyColor(r.quantity)}`}>
                           {fmtQty(r.quantity)} {r.unitLabel}
                         </td>
-                        <td className="px-3 py-2 text-right tabular-nums text-xs text-zinc-400 whitespace-nowrap">
+                        <td className="px-3 py-2 text-right tabular-nums text-xs text-secondary whitespace-nowrap">
                           {r.costPerUnit != null ? `$${Number(r.costPerUnit).toFixed(4)}` : "—"}
                         </td>
                         <td className={`px-3 py-2 text-right tabular-nums text-xs font-mono whitespace-nowrap ${valColor(r.valueChange)}`}>
                           {r.valueChange != null ? fmtValue(r.valueChange) : "—"}
                         </td>
-                        <td className="px-3 py-2 text-zinc-500 text-xs max-w-[140px] truncate">{r.note ?? "—"}</td>
-                        <td className="px-3 py-2 text-zinc-600 text-xs font-mono whitespace-nowrap">{r.batch ?? "—"}</td>
+                        <td className="px-3 py-2 text-muted text-xs max-w-[140px] truncate">{r.note ?? "—"}</td>
+                        <td className="px-3 py-2 text-faint text-xs font-mono whitespace-nowrap">{r.batch ?? "—"}</td>
                       </tr>
                     ))}
                   </tbody>

@@ -8,6 +8,7 @@ import {
 } from "date-fns";
 import { Equipment } from "../types";
 import { useBatchScheduleQuery, useEquipmentQuery, useBatchesQuery, useScheduleConflictsQuery, productionKeys, type ScheduleEntry, type ScheduleConflict } from "../hooks/queries";
+import { BATCH_PALETTE, EQUIPMENT_TYPE_ACCENT_HEX as TYPE_ACCENT } from "../lib/categoryColors";
 
 const EQUIPMENT_STAGE_ORDER = ["brewhouse", "fermenter", "brite", "canning", "kegging"];
 const STAGE_LABELS: Record<string, string> = {
@@ -19,22 +20,6 @@ const STAGE_LABELS: Record<string, string> = {
   canning:      "Canning",
   cold_storage: "Cold Storage",
 };
-
-// Left-border accent color per equipment type for the group header rows
-const TYPE_ACCENT: Record<string, string> = {
-  brewhouse:    "#f59e0b", // amber
-  fermenter:    "#3b82f6", // blue
-  brite:        "#8b5cf6", // purple
-  kegging:      "#10b981", // emerald
-  canning:      "#06b6d4", // cyan
-  cold_storage: "#6b7280", // gray
-};
-
-const BATCH_PALETTE = [
-  "#f59e0b", "#3b82f6", "#10b981", "#8b5cf6",
-  "#f43f5e", "#06b6d4", "#f97316", "#14b8a6",
-  "#a855f7", "#84cc16", "#ec4899", "#6366f1",
-];
 
 const RANGE_OPTIONS = [
   { label: "2W", days: 14 },

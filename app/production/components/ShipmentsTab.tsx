@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchJson, useContractPartnersQuery } from "../hooks/queries";
 import { queryKeys } from "@/lib/query-keys";
 import InvoicePreviewModal from "./InvoicePreviewModal";
+import { CHANNEL_COLOR } from "../lib/categoryColors";
 
 interface ShipmentRow {
   id: string;
@@ -75,17 +76,15 @@ const CHANNEL_LABELS: Record<string, string> = {
   wholesale: "Wholesale",
 };
 
-const CHANNEL_BADGE: Record<string, string> = {
-  taproom: "bg-blue-900/40 text-blue-300",
-  distribution: "bg-purple-900/40 text-purple-300",
-  contract_brewing: "bg-orange-900/40 text-orange-300",
-  wholesale: "bg-teal-900/40 text-teal-300",
-};
+// Channel badge classes from the shared category palette (bg + text).
+const CHANNEL_BADGE: Record<string, string> = Object.fromEntries(
+  Object.entries(CHANNEL_COLOR).map(([k, v]) => [k, `${v.bg} ${v.text}`])
+);
 
 const STATUS_BADGE: Record<string, string> = {
-  paid: "bg-emerald-900/40 text-emerald-400",
-  unpaid: "bg-amber-900/40 text-amber-400",
-  invoice_required: "bg-zinc-800 text-zinc-400",
+  paid: "bg-success-surface/40 text-success",
+  unpaid: "bg-accent-muted/40 text-accent",
+  invoice_required: "bg-surface-mid text-secondary",
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -376,8 +375,8 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
               onClick={() => setChannelFilter(ch)}
               className={`px-2.5 py-1 text-xs rounded border transition-colors ${
                 channelFilter === ch
-                  ? "border-amber-500 bg-amber-900/30 text-amber-300"
-                  : "border-zinc-700 text-zinc-500 hover:text-zinc-300"
+                  ? "border-accent-emphasis bg-accent-muted/30 text-accent-soft"
+                  : "border-line-strong text-muted hover:text-body"
               }`}
             >
               {ch === "all" ? "All" : CHANNEL_LABELS[ch]}
@@ -388,7 +387,7 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
-          className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200"
+          className="bg-surface-mid border border-line-strong rounded px-2 py-1 text-xs text-strong"
         >
           <option value="all">All Statuses</option>
           <option value="invoice_required">Invoice Required</option>
@@ -399,7 +398,7 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
         <select
           value={customerFilter}
           onChange={(e) => setCustomerFilter(e.target.value)}
-          className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200"
+          className="bg-surface-mid border border-line-strong rounded px-2 py-1 text-xs text-strong"
         >
           <option value="all">All Customers</option>
           {invoiceablePartners.map((p) => (
@@ -413,44 +412,44 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
           type="date"
           value={dateFrom}
           onChange={(e) => setDateFrom(e.target.value)}
-          className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200"
+          className="bg-surface-mid border border-line-strong rounded px-2 py-1 text-xs text-strong"
         />
-        <span className="text-xs text-zinc-600">–</span>
+        <span className="text-xs text-faint">–</span>
         <label htmlFor="shipments-date-to" className="sr-only">To date</label>
         <input
           id="shipments-date-to"
           type="date"
           value={dateTo}
           onChange={(e) => setDateTo(e.target.value)}
-          className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200"
+          className="bg-surface-mid border border-line-strong rounded px-2 py-1 text-xs text-strong"
         />
       </div>
 
       {/* Summary stats */}
       {filtered.length > 0 && (
-        <div className="flex items-center gap-4 px-4 py-2 bg-zinc-900/30 border border-zinc-800 rounded-lg text-xs">
-          <span className="text-zinc-500">Showing {filtered.length} shipment{filtered.length !== 1 ? "s" : ""}</span>
-          <span className="text-zinc-700">·</span>
-          <span className="text-zinc-300">
+        <div className="flex items-center gap-4 px-4 py-2 bg-surface/30 border border-line rounded-lg text-xs">
+          <span className="text-muted">Showing {filtered.length} shipment{filtered.length !== 1 ? "s" : ""}</span>
+          <span className="text-disabled">·</span>
+          <span className="text-body">
             <span className="tabular-nums font-medium">{summaryStats.totalBbl.toFixed(2)}</span>
-            <span className="text-zinc-500 ml-1">bbl</span>
+            <span className="text-muted ml-1">bbl</span>
           </span>
-          <span className="text-zinc-700">·</span>
-          <span className="text-zinc-300">
+          <span className="text-disabled">·</span>
+          <span className="text-body">
             <span className="tabular-nums font-medium">${summaryStats.totalExciseTax.toFixed(2)}</span>
-            <span className="text-zinc-500 ml-1">excise tax</span>
+            <span className="text-muted ml-1">excise tax</span>
           </span>
         </div>
       )}
 
       {/* Invoice group list */}
       {filtered.length === 0 ? (
-        <p className="text-sm text-zinc-600">No shipments match the current filters.</p>
+        <p className="text-sm text-faint">No shipments match the current filters.</p>
       ) : (
         <div className="space-y-3">
           {/* Column header — aligned to the product-row grid */}
           <div
-            className="grid items-center gap-3 px-4 text-[10px] font-medium uppercase tracking-wide text-zinc-600"
+            className="grid items-center gap-3 px-4 text-[10px] font-medium uppercase tracking-wide text-faint"
             style={{ gridTemplateColumns: ROW_GRID_COLS }}
           >
             <span />
@@ -474,23 +473,23 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
             return (
               <div
                 key={group.key}
-                className={`border border-zinc-800 rounded-lg overflow-hidden transition-opacity ${isLocked ? "opacity-40" : ""}`}
+                className={`border border-line rounded-lg overflow-hidden transition-opacity ${isLocked ? "opacity-40" : ""}`}
               >
                 {/* Group header: invoice# + customer + status */}
-                <div className="flex items-center gap-3 px-4 py-2.5 bg-zinc-900/50 border-b border-zinc-800 text-xs">
+                <div className="flex items-center gap-3 px-4 py-2.5 bg-surface/50 border-b border-line text-xs">
                   {group.invoice_number ? (
                     <button
                       onClick={() => onNavigateToInvoice?.(group.invoice_id!)}
-                      className="font-mono font-medium text-amber-400 hover:text-amber-300 underline"
+                      className="font-mono font-medium text-accent hover:text-accent-soft underline"
                     >
                       #{group.invoice_number}
                     </button>
                   ) : (
-                    <span className="text-zinc-600 italic">No invoice</span>
+                    <span className="text-faint italic">No invoice</span>
                   )}
-                  <span className="text-zinc-200 font-medium">{partnerName}</span>
+                  <span className="text-strong font-medium">{partnerName}</span>
                   <div className="ml-auto">
-                    <span className={`px-1.5 py-0.5 rounded ${STATUS_BADGE[group.status] ?? "bg-zinc-800 text-zinc-400"}`}>
+                    <span className={`px-1.5 py-0.5 rounded ${STATUS_BADGE[group.status] ?? "bg-surface-mid text-secondary"}`}>
                       {STATUS_LABELS[group.status] ?? group.status}
                     </span>
                   </div>
@@ -507,7 +506,7 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
                   return (
                     <div
                       key={`${product.recipe_id ?? ""}:${product.variant_label}`}
-                      className={!isLastProduct ? "border-b border-zinc-800" : undefined}
+                      className={!isLastProduct ? "border-b border-line" : undefined}
                     >
                       {/* Grid columns: checkbox | date | channel | category | recipe | variation | qty | bbl | tax | chevron */}
                       <div
@@ -527,52 +526,52 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
                         </div>
 
                         {/* Date */}
-                        <span className="text-xs text-zinc-500 whitespace-nowrap">
+                        <span className="text-xs text-muted whitespace-nowrap">
                           {fmt(product.created_at)}
                         </span>
 
                         {/* Channel badge */}
-                        <span className={`text-xs px-1.5 py-0.5 rounded whitespace-nowrap ${CHANNEL_BADGE[product.channel] ?? "bg-zinc-800 text-zinc-400"}`}>
+                        <span className={`text-xs px-1.5 py-0.5 rounded whitespace-nowrap ${CHANNEL_BADGE[product.channel] ?? "bg-surface-mid text-secondary"}`}>
                           {CHANNEL_LABELS[product.channel] ?? product.channel}
                         </span>
 
                         {/* Packaging category */}
                         <span
-                          className="text-xs px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300 whitespace-nowrap overflow-hidden text-ellipsis"
+                          className="text-xs px-1.5 py-0.5 rounded bg-surface-mid text-body whitespace-nowrap overflow-hidden text-ellipsis"
                           title={product.packaging_category}
                         >
                           {product.packaging_category}
                         </span>
 
                         {/* Recipe */}
-                        <span className="text-sm text-zinc-200 truncate" title={product.beer_name}>
+                        <span className="text-sm text-strong truncate" title={product.beer_name}>
                           {product.beer_name}
                         </span>
 
                         {/* Packaging variation (actual variation shipped) */}
-                        <span className="text-xs text-zinc-400 truncate" title={product.variant_label}>
+                        <span className="text-xs text-secondary truncate" title={product.variant_label}>
                           {product.variant_label}
                         </span>
 
                         {/* Qty */}
-                        <span className="text-sm text-zinc-200 tabular-nums text-right">
+                        <span className="text-sm text-strong tabular-nums text-right">
                           {fmtQty(product.total_quantity)}
                         </span>
 
                         {/* BBL */}
-                        <span className="text-xs text-zinc-500 tabular-nums text-right">
-                          {product.total_volume_bbl.toFixed(2)}<span className="text-zinc-700 ml-0.5">bbl</span>
+                        <span className="text-xs text-muted tabular-nums text-right">
+                          {product.total_volume_bbl.toFixed(2)}<span className="text-disabled ml-0.5">bbl</span>
                         </span>
 
                         {/* Excise tax */}
-                        <span className="text-xs text-zinc-500 tabular-nums text-right">
+                        <span className="text-xs text-muted tabular-nums text-right">
                           ${product.total_excise_tax_usd.toFixed(2)}
                         </span>
 
                         {/* Expand chevron */}
                         <button
                           onClick={() => toggleExpand(productKey)}
-                          className="text-zinc-600 hover:text-zinc-400 transition-colors flex justify-center"
+                          className="text-faint hover:text-secondary transition-colors flex justify-center"
                           aria-label={isExpanded ? "Collapse allocation detail" : "Expand allocation detail"}
                         >
                           <svg
@@ -588,12 +587,12 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
                       {isExpanded && (
                         <div className="pl-[4.5rem] pr-4 pb-2.5 space-y-1">
                           {product.allocations.map((alloc) => (
-                            <div key={alloc.id} className="flex items-center gap-2 text-xs text-zinc-500">
-                              <span className="text-zinc-700">└</span>
-                              <span className="font-mono text-zinc-400">#{alloc.batch_number}</span>
-                              <span className="text-zinc-700">·</span>
+                            <div key={alloc.id} className="flex items-center gap-2 text-xs text-muted">
+                              <span className="text-disabled">└</span>
+                              <span className="font-mono text-secondary">#{alloc.batch_number}</span>
+                              <span className="text-disabled">·</span>
                               <span className="tabular-nums">{fmtQty(alloc.quantity)} kegs</span>
-                              <span className="text-zinc-700">·</span>
+                              <span className="text-disabled">·</span>
                               <span className="tabular-nums">{alloc.volume_bbl.toFixed(4)} bbl</span>
                             </div>
                           ))}
@@ -610,27 +609,27 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
 
       {/* Sticky action bar */}
       {selected && selected.ids.size > 0 && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 px-4 py-2.5 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl text-sm">
-          <span className="text-zinc-400">
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 px-4 py-2.5 bg-surface border border-line-strong rounded-xl shadow-2xl text-sm">
+          <span className="text-secondary">
             {selected.ids.size} line{selected.ids.size !== 1 ? "s" : ""} selected
-            {selectedCustomerName && <> — <span className="text-zinc-200">{selectedCustomerName}</span></>}
+            {selectedCustomerName && <> — <span className="text-strong">{selectedCustomerName}</span></>}
           </span>
           {!hasSquareCustomer && (
-            <span className="text-xs text-zinc-500">No Square customer linked</span>
+            <span className="text-xs text-muted">No Square customer linked</span>
           )}
           <button
             onClick={() => setShowModal(true)}
-            className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded transition-colors"
+            className="px-3 py-1.5 bg-accent-emphasis hover:bg-accent-emphasis text-primary rounded transition-colors"
           >
             Generate Invoice
           </button>
           <button
             onClick={openMarkPaid}
-            className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded transition-colors"
+            className="px-3 py-1.5 bg-success-emphasis hover:bg-success-emphasis text-primary rounded transition-colors"
           >
             Mark Paid
           </button>
-          <button onClick={clearSelection} className="px-3 py-1.5 text-zinc-400 hover:text-zinc-200 transition-colors">
+          <button onClick={clearSelection} className="px-3 py-1.5 text-secondary hover:text-strong transition-colors">
             Clear
           </button>
         </div>
@@ -650,29 +649,29 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
           onClick={() => setShowMarkPaid(false)}
         >
           <div
-            className="bg-zinc-900 border border-zinc-700 rounded-xl shadow-xl w-full max-w-sm p-5 space-y-4"
+            className="bg-surface border border-line-strong rounded-xl shadow-xl w-full max-w-sm p-5 space-y-4"
             onClick={(e) => e.stopPropagation()}
           >
-            <h2 className="text-sm font-semibold text-zinc-100">Mark as Paid (External)</h2>
-            <p className="text-xs text-zinc-500">
+            <h2 className="text-sm font-semibold text-primary">Mark as Paid (External)</h2>
+            <p className="text-xs text-muted">
               Record payment for {selected.ids.size} transaction{selected.ids.size !== 1 ? "s" : ""} collected outside of Square.
             </p>
             <div className="space-y-3">
               <div className="space-y-1">
-                <label htmlFor="mp-source" className="text-xs text-zinc-400">Source</label>
+                <label htmlFor="mp-source" className="text-xs text-secondary">Source</label>
                 <select
                   id="mp-source"
                   value={mpSource}
                   onChange={(e) => setMpSource(e.target.value as "quickbooks" | "other")}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-sm text-zinc-200"
+                  className="w-full bg-surface-mid border border-line-strong rounded px-2 py-1.5 text-sm text-strong"
                 >
                   <option value="quickbooks">QuickBooks</option>
                   <option value="other">Other</option>
                 </select>
               </div>
               <div className="space-y-1">
-                <label htmlFor="mp-ref" className="text-xs text-zinc-400">
-                  {mpSource === "quickbooks" ? <>QB Invoice # <span className="text-red-400">*</span></> : "Reference # (optional)"}
+                <label htmlFor="mp-ref" className="text-xs text-secondary">
+                  {mpSource === "quickbooks" ? <>QB Invoice # <span className="text-danger">*</span></> : "Reference # (optional)"}
                 </label>
                 <input
                   id="mp-ref"
@@ -680,25 +679,25 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
                   value={mpRef}
                   onChange={(e) => setMpRef(e.target.value)}
                   placeholder={mpSource === "quickbooks" ? "e.g. INV-1042" : "e.g. check #1234"}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-sm text-zinc-200 placeholder:text-zinc-600"
+                  className="w-full bg-surface-mid border border-line-strong rounded px-2 py-1.5 text-sm text-strong placeholder:text-faint"
                 />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <label htmlFor="mp-paid-at" className="text-xs text-zinc-400">
-                    Date paid <span className="text-red-400">*</span>
+                  <label htmlFor="mp-paid-at" className="text-xs text-secondary">
+                    Date paid <span className="text-danger">*</span>
                   </label>
                   <input
                     id="mp-paid-at"
                     type="date"
                     value={mpPaidAt}
                     onChange={(e) => setMpPaidAt(e.target.value)}
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-sm text-zinc-200"
+                    className="w-full bg-surface-mid border border-line-strong rounded px-2 py-1.5 text-sm text-strong"
                   />
                 </div>
                 <div className="space-y-1">
-                  <label htmlFor="mp-amount" className="text-xs text-zinc-400">
-                    Total ($) <span className="text-red-400">*</span>
+                  <label htmlFor="mp-amount" className="text-xs text-secondary">
+                    Total ($) <span className="text-danger">*</span>
                   </label>
                   <input
                     id="mp-amount"
@@ -708,20 +707,20 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
                     value={mpAmount}
                     onChange={(e) => setMpAmount(e.target.value)}
                     placeholder="0.00"
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-sm text-zinc-200 placeholder:text-zinc-600"
+                    className="w-full bg-surface-mid border border-line-strong rounded px-2 py-1.5 text-sm text-strong placeholder:text-faint"
                   />
                 </div>
               </div>
             </div>
-            {mpError && <p className="text-xs text-red-400">{mpError}</p>}
+            {mpError && <p className="text-xs text-danger">{mpError}</p>}
             <div className="flex justify-end gap-2 pt-1">
-              <button onClick={() => setShowMarkPaid(false)} className="text-sm text-zinc-400 hover:text-zinc-200">
+              <button onClick={() => setShowMarkPaid(false)} className="text-sm text-secondary hover:text-strong">
                 Cancel
               </button>
               <button
                 onClick={submitMarkPaid}
                 disabled={mpLoading || !mpValid}
-                className="text-sm px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded transition-colors disabled:opacity-40"
+                className="text-sm px-3 py-1.5 bg-success-emphasis hover:bg-success-emphasis text-primary rounded transition-colors disabled:opacity-40"
               >
                 {mpLoading ? "Saving…" : "Mark Paid"}
               </button>

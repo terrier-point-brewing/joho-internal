@@ -48,12 +48,12 @@ interface ExportInvoicesTabProps {
 }
 
 const STATUS_BADGE: Record<string, string> = {
-  draft: "bg-zinc-800 text-zinc-400",
-  open: "bg-amber-900/40 text-amber-400",
-  paid: "bg-emerald-900/40 text-emerald-400",
-  voided: "bg-red-900/40 text-red-400",
-  partial: "bg-blue-900/40 text-blue-300",
-  unknown: "bg-zinc-800 text-zinc-500",
+  draft: "bg-surface-mid text-secondary",
+  open: "bg-accent-muted/40 text-accent",
+  paid: "bg-success-surface/40 text-success",
+  voided: "bg-danger-surface/40 text-danger",
+  partial: "bg-info-surface/40 text-info",
+  unknown: "bg-surface-mid text-muted",
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -96,11 +96,11 @@ function ViewInSquareButton({ squareInvoiceId }: { squareInvoiceId: string }) {
       <button
         onClick={open}
         disabled={loading}
-        className="text-xs text-amber-400 hover:text-amber-300 underline disabled:opacity-50"
+        className="text-xs text-accent hover:text-accent-soft underline disabled:opacity-50"
       >
         {loading ? "Loading…" : "View in Square →"}
       </button>
-      {error && <span className="text-xs text-red-400">{error}</span>}
+      {error && <span className="text-xs text-danger">{error}</span>}
     </span>
   );
 }
@@ -208,36 +208,36 @@ function InvoiceExpandedPanel({
     } finally { setActionLoading(false); }
   }
 
-  const panelClass = "rounded border border-zinc-800 bg-zinc-900/40 p-3 space-y-2";
+  const panelClass = "rounded border border-line bg-surface/40 p-3 space-y-2";
 
   return (
     <div className="px-4 pb-4 space-y-3">
       {/* Metadata */}
       <div className={panelClass}>
-        <p className="text-xs font-medium text-zinc-400 uppercase tracking-wide mb-1">Invoice Details</p>
+        <p className="text-xs font-medium text-secondary uppercase tracking-wide mb-1">Invoice Details</p>
         <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs">
-          <span className="text-zinc-500">Customer</span>
-          <span className="text-zinc-200">{invoice.partner_name ?? invoice.customer_name ?? "—"}</span>
-          <span className="text-zinc-500">Issued</span>
-          <span className="text-zinc-300">{invoice.invoice_date ? fmt(invoice.invoice_date) : "—"}</span>
-          <span className="text-zinc-500">Status</span>
+          <span className="text-muted">Customer</span>
+          <span className="text-strong">{invoice.partner_name ?? invoice.customer_name ?? "—"}</span>
+          <span className="text-muted">Issued</span>
+          <span className="text-body">{invoice.invoice_date ? fmt(invoice.invoice_date) : "—"}</span>
+          <span className="text-muted">Status</span>
           <span>
             <span className={`px-1.5 py-0.5 rounded text-xs ${STATUS_BADGE[invoice.status]}`}>
               {STATUS_LABEL[invoice.status] ?? invoice.status}
             </span>
           </span>
-          <span className="text-zinc-500">Source</span>
-          <span className="text-zinc-300 capitalize">{invoice.source}</span>
+          <span className="text-muted">Source</span>
+          <span className="text-body capitalize">{invoice.source}</span>
           {isSquare && invoice.square_invoice_id && (
             <React.Fragment>
-              <span className="text-zinc-500">Square ID</span>
+              <span className="text-muted">Square ID</span>
               <ViewInSquareButton squareInvoiceId={invoice.square_invoice_id} />
             </React.Fragment>
           )}
         </div>
         <a
           href="/finance/invoices"
-          className="text-xs text-amber-400 hover:text-amber-300 underline mt-1 inline-block"
+          className="text-xs text-accent hover:text-accent-soft underline mt-1 inline-block"
         >
           View in Finance →
         </a>
@@ -246,10 +246,10 @@ function InvoiceExpandedPanel({
       {/* Included Shipments */}
       {invoice.shipments.length > 0 && (
         <div className={panelClass}>
-          <p className="text-xs font-medium text-zinc-400 uppercase tracking-wide mb-1">Included Shipments</p>
+          <p className="text-xs font-medium text-secondary uppercase tracking-wide mb-1">Included Shipments</p>
           <table className="w-full text-xs">
             <thead>
-              <tr className="text-left text-zinc-500 border-b border-zinc-800">
+              <tr className="text-left text-muted border-b border-line">
                 <th className="pb-1">Date</th>
                 <th className="pb-1">Batch</th>
                 <th className="pb-1">Channel</th>
@@ -260,17 +260,17 @@ function InvoiceExpandedPanel({
             </thead>
             <tbody>
               {invoice.shipments.map((s) => (
-                <tr key={s.id} className="border-b border-zinc-800/50 last:border-0">
-                  <td className="py-1 text-zinc-400">{fmt(s.created_at)}</td>
-                  <td className="py-1 text-zinc-200">
+                <tr key={s.id} className="border-b border-line/50 last:border-0">
+                  <td className="py-1 text-secondary">{fmt(s.created_at)}</td>
+                  <td className="py-1 text-strong">
                     {s.brew_batches ? `#${s.brew_batches.batch_number} ${s.brew_batches.beer_name}` : "—"}
                   </td>
-                  <td className="py-1 text-zinc-400">{CHANNEL_LABELS[s.channel] ?? s.channel}</td>
+                  <td className="py-1 text-secondary">{CHANNEL_LABELS[s.channel] ?? s.channel}</td>
                   <td className="py-1">
-                    <span className="px-1 py-0.5 rounded bg-zinc-800 text-zinc-300">{s.variant_label}</span>
+                    <span className="px-1 py-0.5 rounded bg-surface-mid text-body">{s.variant_label}</span>
                   </td>
-                  <td className="py-1 text-right text-zinc-200">{s.quantity}</td>
-                  <td className="py-1 text-right text-zinc-400">{s.volume_bbl.toFixed(3)} bbl</td>
+                  <td className="py-1 text-right text-strong">{s.quantity}</td>
+                  <td className="py-1 text-right text-secondary">{s.volume_bbl.toFixed(3)} bbl</td>
                 </tr>
               ))}
             </tbody>
@@ -280,10 +280,10 @@ function InvoiceExpandedPanel({
 
       {/* Line Items */}
       <div className={panelClass}>
-        <p className="text-xs font-medium text-zinc-400 uppercase tracking-wide mb-1">Line Items</p>
+        <p className="text-xs font-medium text-secondary uppercase tracking-wide mb-1">Line Items</p>
         <table className="w-full text-xs">
           <thead>
-            <tr className="text-left text-zinc-500 border-b border-zinc-800">
+            <tr className="text-left text-muted border-b border-line">
               <th className="pb-1">Description</th>
               <th className="pb-1 text-right">Qty</th>
               <th className="pb-1 text-right">Unit Price</th>
@@ -293,17 +293,17 @@ function InvoiceExpandedPanel({
           </thead>
           <tbody>
             {invoice.line_items.map((li) => (
-              <tr key={li.id} className="border-b border-zinc-800/50 last:border-0">
-                <td className="py-1 text-zinc-200">{li.description ?? "—"}</td>
-                <td className="py-1 text-right text-zinc-400">{li.quantity}</td>
-                <td className="py-1 text-right text-zinc-400">{fmtUsd(li.unit_price_cents / 100)}</td>
-                <td className="py-1 text-right text-zinc-300">{fmtUsd(li.total_cents / 100)}</td>
+              <tr key={li.id} className="border-b border-line/50 last:border-0">
+                <td className="py-1 text-strong">{li.description ?? "—"}</td>
+                <td className="py-1 text-right text-secondary">{li.quantity}</td>
+                <td className="py-1 text-right text-secondary">{fmtUsd(li.unit_price_cents / 100)}</td>
+                <td className="py-1 text-right text-body">{fmtUsd(li.total_cents / 100)}</td>
                 {isDraft && (
                   <td className="py-1 text-right">
                     <button
                       onClick={() => removeLineItem(li.id)}
                       disabled={actionLoading}
-                      className="text-zinc-600 hover:text-red-400 disabled:opacity-30"
+                      className="text-faint hover:text-danger disabled:opacity-30"
                       aria-label="Remove line item"
                     >
                       ×
@@ -314,19 +314,19 @@ function InvoiceExpandedPanel({
             ))}
           </tbody>
         </table>
-        <div className="flex justify-end pt-1 border-t border-zinc-800 mt-1">
-          <span className="text-xs text-zinc-400">
-            Total: <span className="text-zinc-100 font-medium">{fmtUsd(invoice.total_cents / 100)}</span>
+        <div className="flex justify-end pt-1 border-t border-line mt-1">
+          <span className="text-xs text-secondary">
+            Total: <span className="text-primary font-medium">{fmtUsd(invoice.total_cents / 100)}</span>
           </span>
         </div>
 
         {/* Add line item (Draft only) */}
         {isDraft && (
-          <div className="mt-2 pt-2 border-t border-zinc-800">
+          <div className="mt-2 pt-2 border-t border-line">
             {!addOpen ? (
               <button
                 onClick={() => setAddOpen(true)}
-                className="text-xs text-amber-500 hover:text-amber-400 transition-colors"
+                className="text-xs text-accent-emphasis hover:text-accent transition-colors"
               >
                 + Add line item
               </button>
@@ -341,7 +341,7 @@ function InvoiceExpandedPanel({
                       setAddMappingId(e.target.value);
                       if (e.target.value) setAddDesc("");
                     }}
-                    className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 flex-1"
+                    className="bg-surface-mid border border-line-strong rounded px-2 py-1 text-xs text-strong flex-1"
                   >
                     <option value="">Custom line item</option>
                     {selectableMappings.map((m) => (
@@ -357,7 +357,7 @@ function InvoiceExpandedPanel({
                     placeholder="Description"
                     value={addDesc}
                     onChange={(e) => setAddDesc(e.target.value)}
-                    className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 flex-1"
+                    className="bg-surface-mid border border-line-strong rounded px-2 py-1 text-xs text-strong flex-1"
                   />
                   <label htmlFor="add-qty" className="sr-only">Quantity</label>
                   <input
@@ -367,7 +367,7 @@ function InvoiceExpandedPanel({
                     value={addQty}
                     min="1"
                     onChange={(e) => setAddQty(e.target.value)}
-                    className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 w-16"
+                    className="bg-surface-mid border border-line-strong rounded px-2 py-1 text-xs text-strong w-16"
                   />
                   <label htmlFor="add-price" className="sr-only">Unit price</label>
                   <input
@@ -378,14 +378,14 @@ function InvoiceExpandedPanel({
                     min="0"
                     step="0.01"
                     onChange={(e) => setAddPrice(e.target.value)}
-                    className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 w-28"
+                    className="bg-surface-mid border border-line-strong rounded px-2 py-1 text-xs text-strong w-28"
                   />
                 </div>
                 <div className="flex gap-2">
                   <button
                     onClick={addLineItem}
                     disabled={actionLoading || (!addDesc && !addMappingId) || !addPrice}
-                    className="text-xs px-2.5 py-1 bg-zinc-700 hover:bg-zinc-600 text-zinc-200 rounded transition-colors disabled:opacity-40"
+                    className="text-xs px-2.5 py-1 bg-surface-high hover:bg-surface-high text-strong rounded transition-colors disabled:opacity-40"
                   >
                     {actionLoading ? "Adding…" : "Add"}
                   </button>
@@ -394,7 +394,7 @@ function InvoiceExpandedPanel({
                       setAddOpen(false); setAddDesc(""); setAddQty("1");
                       setAddPrice(""); setAddMappingId("");
                     }}
-                    className="text-xs text-zinc-500 hover:text-zinc-300"
+                    className="text-xs text-muted hover:text-body"
                   >
                     Cancel
                   </button>
@@ -412,7 +412,7 @@ function InvoiceExpandedPanel({
             <button
               onClick={handleSend}
               disabled={actionLoading}
-              className="text-xs px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded transition-colors disabled:opacity-40"
+              className="text-xs px-3 py-1.5 bg-accent-emphasis hover:bg-accent-emphasis text-primary rounded transition-colors disabled:opacity-40"
             >
               {actionLoading ? "Sending…" : "Send Invoice"}
             </button>
@@ -421,12 +421,12 @@ function InvoiceExpandedPanel({
             <button
               onClick={handleSync}
               disabled={actionLoading}
-              className="text-xs px-3 py-1.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-200 rounded transition-colors disabled:opacity-40"
+              className="text-xs px-3 py-1.5 bg-surface-high hover:bg-surface-high text-strong rounded transition-colors disabled:opacity-40"
             >
               {actionLoading ? "Syncing…" : "Sync from Square"}
             </button>
           )}
-          {actionError && <span className="text-xs text-red-400">{actionError}</span>}
+          {actionError && <span className="text-xs text-danger">{actionError}</span>}
         </div>
       )}
     </div>
@@ -495,7 +495,7 @@ export default function ExportInvoicesTab({ highlightInvoiceId }: ExportInvoices
           id="inv-customer-filter"
           value={customerFilter}
           onChange={(e) => setCustomerFilter(e.target.value)}
-          className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200"
+          className="bg-surface-mid border border-line-strong rounded px-2 py-1 text-xs text-strong"
         >
           <option value="all">All Customers</option>
           {partners.map((p) => (
@@ -508,7 +508,7 @@ export default function ExportInvoicesTab({ highlightInvoiceId }: ExportInvoices
           id="inv-status-filter"
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
-          className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200"
+          className="bg-surface-mid border border-line-strong rounded px-2 py-1 text-xs text-strong"
         >
           <option value="all">All Statuses</option>
           <option value="draft">Draft</option>
@@ -522,7 +522,7 @@ export default function ExportInvoicesTab({ highlightInvoiceId }: ExportInvoices
           id="inv-year-filter"
           value={yearFilter === "all" ? "all" : String(yearFilter)}
           onChange={(e) => setYearFilter(e.target.value === "all" ? "all" : Number(e.target.value))}
-          className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200"
+          className="bg-surface-mid border border-line-strong rounded px-2 py-1 text-xs text-strong"
         >
           <option value="all">All Years</option>
           {years.map((y) => <option key={y} value={y}>{y}</option>)}
@@ -530,32 +530,32 @@ export default function ExportInvoicesTab({ highlightInvoiceId }: ExportInvoices
       </div>
 
       {/* Summary strip */}
-      <div className="flex items-center gap-6 px-4 py-2 bg-zinc-900/60 border border-zinc-800 rounded text-xs">
-        <span className="text-zinc-400">{filtered.length} invoice{filtered.length !== 1 ? "s" : ""}</span>
-        <span className="text-zinc-500">|</span>
-        <span className="text-zinc-400">
-          <span className="text-amber-300 font-medium">{fmtUsd(openTotal / 100)}</span> open
+      <div className="flex items-center gap-6 px-4 py-2 bg-surface/60 border border-line rounded text-xs">
+        <span className="text-secondary">{filtered.length} invoice{filtered.length !== 1 ? "s" : ""}</span>
+        <span className="text-muted">|</span>
+        <span className="text-secondary">
+          <span className="text-accent-soft font-medium">{fmtUsd(openTotal / 100)}</span> open
         </span>
-        <span className="text-zinc-500">|</span>
-        <span className="text-zinc-400">
-          <span className="text-zinc-200 font-medium">{fmtUsd(grandTotal / 100)}</span> total
+        <span className="text-muted">|</span>
+        <span className="text-secondary">
+          <span className="text-strong font-medium">{fmtUsd(grandTotal / 100)}</span> total
         </span>
       </div>
 
       {/* Expandable table */}
       {filtered.length === 0 ? (
-        <p className="text-sm text-zinc-600">No invoices match the current filters.</p>
+        <p className="text-sm text-faint">No invoices match the current filters.</p>
       ) : (
-        <div className="rounded-lg border border-zinc-800 overflow-hidden">
+        <div className="rounded-lg border border-line overflow-hidden">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-zinc-800 bg-zinc-900/50 text-left">
+              <tr className="border-b border-line bg-surface/50 text-left">
                 <th className="px-4 py-2.5 w-6" aria-label="Expand" />
-                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500">Invoice #</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500">Date</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500">Customer</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500">Status</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 text-right">Total</th>
+                <th className="px-4 py-2.5 text-xs font-medium text-muted">Invoice #</th>
+                <th className="px-4 py-2.5 text-xs font-medium text-muted">Date</th>
+                <th className="px-4 py-2.5 text-xs font-medium text-muted">Customer</th>
+                <th className="px-4 py-2.5 text-xs font-medium text-muted">Status</th>
+                <th className="px-4 py-2.5 text-xs font-medium text-muted text-right">Total</th>
               </tr>
             </thead>
             <tbody>
@@ -564,17 +564,17 @@ export default function ExportInvoicesTab({ highlightInvoiceId }: ExportInvoices
                 return (
                   <React.Fragment key={inv.id}>
                     <tr
-                      className="border-b border-zinc-800 hover:bg-zinc-900/30 cursor-pointer transition-colors"
+                      className="border-b border-line hover:bg-surface/30 cursor-pointer transition-colors"
                       onClick={() => setExpandedId(isExpanded ? null : inv.id)}
                     >
-                      <td className="px-4 py-2.5 text-zinc-500 text-xs">{isExpanded ? "▾" : "▸"}</td>
-                      <td className="px-4 py-2.5 text-zinc-200 font-mono">
-                        {inv.invoice_number ? `#${inv.invoice_number}` : <span className="text-zinc-600">—</span>}
+                      <td className="px-4 py-2.5 text-muted text-xs">{isExpanded ? "▾" : "▸"}</td>
+                      <td className="px-4 py-2.5 text-strong font-mono">
+                        {inv.invoice_number ? `#${inv.invoice_number}` : <span className="text-faint">—</span>}
                       </td>
-                      <td className="px-4 py-2.5 text-zinc-400 whitespace-nowrap">
+                      <td className="px-4 py-2.5 text-secondary whitespace-nowrap">
                         {inv.invoice_date ? fmt(inv.invoice_date) : "—"}
                       </td>
-                      <td className="px-4 py-2.5 text-zinc-300">
+                      <td className="px-4 py-2.5 text-body">
                         {inv.partner_name ?? inv.customer_name ?? "—"}
                       </td>
                       <td className="px-4 py-2.5">
@@ -582,12 +582,12 @@ export default function ExportInvoicesTab({ highlightInvoiceId }: ExportInvoices
                           {STATUS_LABEL[inv.status] ?? inv.status}
                         </span>
                       </td>
-                      <td className="px-4 py-2.5 text-right text-zinc-200 font-medium tabular-nums">
+                      <td className="px-4 py-2.5 text-right text-strong font-medium tabular-nums">
                         {fmtUsd(inv.total_cents / 100)}
                       </td>
                     </tr>
                     {isExpanded && (
-                      <tr className="border-b border-zinc-800 bg-zinc-900/20">
+                      <tr className="border-b border-line bg-surface/20">
                         <td colSpan={6} className="p-0">
                           <InvoiceExpandedPanel invoice={inv} onRefresh={refresh} />
                         </td>

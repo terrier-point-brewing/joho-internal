@@ -352,23 +352,23 @@ export default function BrewStatusTab() {
     <>
       {/* Deviation toast */}
       {deviationToast && (
-        <div className="fixed bottom-6 right-6 z-50 flex items-start gap-3 px-4 py-3 rounded-lg border border-amber-700/60 bg-amber-950 shadow-xl text-sm text-amber-200 max-w-sm">
+        <div className="fixed bottom-6 right-6 z-50 flex items-start gap-3 px-4 py-3 rounded-lg border border-accent-border/60 bg-accent-muted shadow-xl text-sm text-accent-soft max-w-sm">
           <span className="text-lg leading-none">📋</span>
           <div className="flex-1">
-            <p className="font-semibold text-amber-300">Schedule updated</p>
-            <p className="text-xs text-amber-400 mt-0.5">
-              Batch rebooked to <span className="font-medium text-amber-200">{deviationToast.equipment_name}</span>.
+            <p className="font-semibold text-accent-soft">Schedule updated</p>
+            <p className="text-xs text-accent mt-0.5">
+              Batch rebooked to <span className="font-medium text-accent-soft">{deviationToast.equipment_name}</span>.
               Check the Timeline tab for any cascading conflicts.
             </p>
           </div>
-          <button onClick={() => setDeviationToast(null)} className="text-amber-600 hover:text-amber-400 text-lg leading-none ml-1">×</button>
+          <button onClick={() => setDeviationToast(null)} className="text-accent-emphasis hover:text-accent text-lg leading-none ml-1">×</button>
         </div>
       )}
 
       {/* What's next — upcoming equipment-schedule tasks + pending conversions, soonest first */}
       {(upcomingTasks.length > 0 || pendingConversions.length > 0) && (
-        <div className="mb-4 rounded-lg border border-zinc-800 bg-zinc-900/50 px-3 py-2.5">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500 mb-1.5">Up next</p>
+        <div className="mb-4 rounded-lg border border-line bg-surface/50 px-3 py-2.5">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted mb-1.5">Up next</p>
           <div className="flex gap-2 overflow-x-auto pb-1">
             {upcomingTasks.slice(0, 10).map((e) => {
               const b = e.brew_batches ?? (e.batch_id ? batchById[e.batch_id] : null);
@@ -386,21 +386,21 @@ export default function BrewStatusTab() {
                   onClick={() => openUpNextAction(e)}
                   className={`shrink-0 flex flex-col gap-0.5 text-left px-2.5 py-1.5 rounded border transition-colors min-w-[150px] ${
                     overdue
-                      ? "border-red-800/60 bg-red-950/30 hover:bg-red-950/50"
-                      : "border-zinc-700/60 bg-zinc-800/40 hover:bg-zinc-800/70"
+                      ? "border-danger-border/60 bg-danger-surface/30 hover:bg-danger-surface/50"
+                      : "border-line-strong/60 bg-surface-mid/40 hover:bg-surface-mid/70"
                   }`}
                 >
-                  <span className={`text-[9px] font-semibold uppercase tracking-wide ${overdue ? "text-red-400" : "text-amber-500"}`}>
+                  <span className={`text-[9px] font-semibold uppercase tracking-wide ${overdue ? "text-danger" : "text-accent-emphasis"}`}>
                     {STAGE_LABELS[e.stage] ?? e.stage} · {eqName}
                   </span>
-                  <span className="text-xs text-zinc-200 truncate">
+                  <span className="text-xs text-strong truncate">
                     {b ? `#${b.batch_number} ${b.beer_name}` : "—"}
                   </span>
-                  <span className="text-[10px] text-zinc-500">
+                  <span className="text-[10px] text-muted">
                     {fmtDate(e.planned_start)}{e.volume_bbl != null && ` · ${Number(e.volume_bbl).toFixed(1)} BBL`}
                   </span>
                   {actionLabel && (
-                    <span className="text-[9px] text-amber-600 font-medium mt-0.5">{actionLabel} →</span>
+                    <span className="text-[9px] text-accent-emphasis font-medium mt-0.5">{actionLabel} →</span>
                   )}
                 </button>
               );
@@ -414,23 +414,23 @@ export default function BrewStatusTab() {
                 <button key={conv.id} onClick={() => openPendingConversionAction(conv.id)}
                   className={`shrink-0 flex flex-col gap-0.5 text-left px-2.5 py-1.5 rounded border transition-colors min-w-[150px] ${
                     overdue
-                      ? "border-red-800/60 bg-red-950/30 hover:bg-red-950/50"
-                      : "border-amber-900/50 bg-amber-950/20 hover:bg-amber-950/40"
+                      ? "border-danger-border/60 bg-danger-surface/30 hover:bg-danger-surface/50"
+                      : "border-accent-border/50 bg-accent-muted/20 hover:bg-accent-muted/40"
                   }`}
                 >
-                  <span className={`text-[9px] font-semibold uppercase tracking-wide ${overdue ? "text-red-400" : "text-amber-400"}`}>
+                  <span className={`text-[9px] font-semibold uppercase tracking-wide ${overdue ? "text-danger" : "text-accent"}`}>
                     Conversion{sourceTank ? ` · ${sourceTank.name}` : ""}
                   </span>
-                  <span className="text-xs text-zinc-200 truncate">
+                  <span className="text-xs text-strong truncate">
                     {sourceBatch ? `#${sourceBatch.batch_number} ${sourceBatch.beer_name}` : "—"}
                   </span>
                   {conv.target_batch && (
-                    <span className="text-[10px] text-zinc-400">→ {conv.target_batch.beer_name}</span>
+                    <span className="text-[10px] text-secondary">→ {conv.target_batch.beer_name}</span>
                   )}
-                  <span className="text-[10px] text-zinc-500">
+                  <span className="text-[10px] text-muted">
                     {conv.planned_date ? fmtDate(conv.planned_date) : "—"}{` · ${Number(conv.volume_bbl).toFixed(1)} BBL`}
                   </span>
-                  {sourceTank && <span className="text-[9px] text-amber-600 font-medium mt-0.5">Convert →</span>}
+                  {sourceTank && <span className="text-[9px] text-accent-emphasis font-medium mt-0.5">Convert →</span>}
                 </button>
               );
             })}
@@ -463,8 +463,8 @@ export default function BrewStatusTab() {
                 onClick={() => setEditMode((v) => !v)}
                 className={`px-3 py-1.5 text-sm font-medium rounded border transition-colors ${
                   editMode
-                    ? "border-amber-600 bg-amber-900/30 text-amber-300 hover:bg-amber-900/50"
-                    : "border-zinc-700 bg-zinc-800 text-zinc-400 hover:text-zinc-200"
+                    ? "border-accent-border bg-accent-muted/30 text-accent-soft hover:bg-accent-muted/50"
+                    : "border-line-strong bg-surface-mid text-secondary hover:text-strong"
                 }`}
               >
                 {editMode ? "🔓 Editing Layout" : "🔒 Edit Layout"}
@@ -484,7 +484,7 @@ export default function BrewStatusTab() {
           <button
             onClick={() => setMobileFilter("all")}
             className={`text-xs px-3 py-1 rounded border whitespace-nowrap transition-colors ${
-              mobileFilter === "all" ? "border-zinc-500 text-zinc-100 bg-zinc-800" : "border-zinc-700 text-zinc-500"
+              mobileFilter === "all" ? "border-line-subtle text-primary bg-surface-mid" : "border-line-strong text-muted"
             }`}
           >
             All
@@ -494,7 +494,7 @@ export default function BrewStatusTab() {
               key={type}
               onClick={() => setMobileFilter(type)}
               className={`text-xs px-3 py-1 rounded border whitespace-nowrap transition-colors ${
-                mobileFilter === type ? meta.badge : "border-zinc-700 text-zinc-500"
+                mobileFilter === type ? meta.badge : "border-line-strong text-muted"
               }`}
             >
               {meta.label}
@@ -524,11 +524,11 @@ export default function BrewStatusTab() {
                   {/* Card header */}
                   <div className={`flex items-center justify-between px-3 py-2 ${eq.headerBg}`}>
                     <div className="flex items-center gap-2 min-w-0">
-                      <span className="text-sm font-semibold text-zinc-100 truncate">{tank.name}</span>
+                      <span className="text-sm font-semibold text-primary truncate">{tank.name}</span>
                       <span className={`text-xs px-1.5 py-px rounded border shrink-0 ${eq.badge}`}>{eq.label}</span>
                     </div>
                     {tank.capacity_bbl && !isUnconstrained && (
-                      <span className="text-xs text-zinc-400 shrink-0 ml-2">{tank.capacity_bbl} BBL</span>
+                      <span className="text-xs text-secondary shrink-0 ml-2">{tank.capacity_bbl} BBL</span>
                     )}
                   </div>
 
@@ -537,18 +537,18 @@ export default function BrewStatusTab() {
                     {isBacklog ? (
                       <>
                         {planningBatches.length === 0 ? (
-                          <p className="text-sm text-zinc-600">No planned batches</p>
+                          <p className="text-sm text-faint">No planned batches</p>
                         ) : (
                           <div className="space-y-1.5">
                             {planningBatches.slice(0, 6).map((b) => (
                               <div key={b.id} className="flex items-baseline gap-2">
-                                {b.batch_number && <span className="text-zinc-600 font-mono text-xs shrink-0">#{b.batch_number}</span>}
-                                <span className="text-zinc-200 text-sm truncate">{b.beer_name}</span>
-                                <span className="text-zinc-600 text-xs shrink-0 ml-auto">{fmtDate(b.planned_brew_date)}</span>
+                                {b.batch_number && <span className="text-faint font-mono text-xs shrink-0">#{b.batch_number}</span>}
+                                <span className="text-strong text-sm truncate">{b.beer_name}</span>
+                                <span className="text-faint text-xs shrink-0 ml-auto">{fmtDate(b.planned_brew_date)}</span>
                               </div>
                             ))}
                             {planningBatches.length > 6 && (
-                              <p className="text-xs text-zinc-600">+{planningBatches.length - 6} more</p>
+                              <p className="text-xs text-faint">+{planningBatches.length - 6} more</p>
                             )}
                           </div>
                         )}
@@ -558,14 +558,14 @@ export default function BrewStatusTab() {
                         {batch ? (
                           <>
                             <div className="flex items-center gap-2 mb-2">
-                              {batch.batch_number && <span className="text-zinc-500 font-mono text-xs">#{batch.batch_number}</span>}
-                              <span className="text-zinc-100 font-medium text-sm">{batch.beer_name}</span>
+                              {batch.batch_number && <span className="text-muted font-mono text-xs">#{batch.batch_number}</span>}
+                              <span className="text-primary font-medium text-sm">{batch.beer_name}</span>
                             </div>
                             {!isUnconstrained && tank.capacity_bbl && (
                               <>
                                 <div className="flex items-center justify-between text-xs mb-1">
-                                  <span className="text-zinc-500">{ledgerVol.toFixed(1)} / {tank.capacity_bbl} BBL</span>
-                                  <span className="text-zinc-600">{Math.round((ledgerVol / tank.capacity_bbl) * 100)}%</span>
+                                  <span className="text-muted">{ledgerVol.toFixed(1)} / {tank.capacity_bbl} BBL</span>
+                                  <span className="text-faint">{Math.round((ledgerVol / tank.capacity_bbl) * 100)}%</span>
                                 </div>
                                 <div className="w-full rounded-full overflow-hidden mb-2.5" style={{ height: 4, background: "rgba(63,63,70,0.6)" }}>
                                   <div style={{ height: "100%", width: `${Math.min(100, (ledgerVol / tank.capacity_bbl) * 100).toFixed(1)}%`, background: "rgba(245,158,11,0.7)", borderRadius: "9999px" }} />
@@ -573,21 +573,21 @@ export default function BrewStatusTab() {
                               </>
                             )}
                             {assignment && (
-                              <p className="text-xs text-zinc-600 mb-2">since {fmtDate(assignment.assigned_at)}</p>
+                              <p className="text-xs text-faint mb-2">since {fmtDate(assignment.assigned_at)}</p>
                             )}
                             {combinedAssignments.map((a) => {
                               const otherBatch = a.brew_batches;
                               if (!otherBatch) return null;
                               return (
-                                <div key={a.id} className="flex items-center justify-between gap-2 mb-2 pt-2 border-t border-zinc-800">
+                                <div key={a.id} className="flex items-center justify-between gap-2 mb-2 pt-2 border-t border-line">
                                   <div className="flex items-center gap-2 min-w-0">
-                                    {otherBatch.batch_number && <span className="text-zinc-500 font-mono text-xs shrink-0">#{otherBatch.batch_number}</span>}
-                                    <span className="text-zinc-200 text-sm truncate">{otherBatch.beer_name} <span className="text-zinc-600 text-xs">+combined</span></span>
+                                    {otherBatch.batch_number && <span className="text-muted font-mono text-xs shrink-0">#{otherBatch.batch_number}</span>}
+                                    <span className="text-strong text-sm truncate">{otherBatch.beer_name} <span className="text-faint text-xs">+combined</span></span>
                                   </div>
                                   {!editMode && (
                                     <button
                                       onClick={() => { setTransferTankId(tank.id); setTransferBatchId(otherBatch.id); setTransferFromVol(volFor(otherBatch)); setTransferInitialMode(undefined); setTransferInitialDestId(undefined); setTransferInitialConvert(undefined); }}
-                                      className="text-xs text-amber-600 hover:text-amber-400 border border-amber-900 hover:border-amber-700 px-3 py-1.5 rounded transition-colors shrink-0"
+                                      className="text-xs text-accent-emphasis hover:text-accent border border-accent-border hover:border-accent-border px-3 py-1.5 rounded transition-colors shrink-0"
                                     >
                                       Transfer
                                     </button>
@@ -598,7 +598,7 @@ export default function BrewStatusTab() {
                             {!editMode && (
                               <button
                                 onClick={() => { setTransferTankId(tank.id); setTransferBatchId(batch.id); setTransferFromVol(volFor(batch)); setTransferInitialMode(undefined); setTransferInitialDestId(undefined); setTransferInitialConvert(undefined); }}
-                                className="text-xs text-amber-600 hover:text-amber-400 border border-amber-900 hover:border-amber-700 px-3 py-1.5 rounded transition-colors"
+                                className="text-xs text-accent-emphasis hover:text-accent border border-accent-border hover:border-accent-border px-3 py-1.5 rounded transition-colors"
                               >
                                 Transfer
                               </button>
@@ -618,13 +618,13 @@ export default function BrewStatusTab() {
                                     size="sm"
                                   />
                                 ) : (
-                                  <p className="text-sm text-zinc-600">Empty</p>
+                                  <p className="text-sm text-faint">Empty</p>
                                 )}
                               </div>
                               {!editMode && tank.type === "brewhouse" && unassignedBatches.length > 0 && (
                                 <button
                                   onClick={() => assign.openAssign(tank.id)}
-                                  className="text-xs text-amber-600 hover:text-amber-400 border border-amber-900 hover:border-amber-700 px-3 py-1.5 rounded transition-colors shrink-0"
+                                  className="text-xs text-accent-emphasis hover:text-accent border border-accent-border hover:border-accent-border px-3 py-1.5 rounded transition-colors shrink-0"
                                 >
                                   Assign
                                 </button>
@@ -640,15 +640,15 @@ export default function BrewStatusTab() {
                             (tr) => tr.to_tank_id === tank.id && (tr.transfer_type === "kegging" || tr.transfer_type === "canning")
                           );
                           return coldXfers.length === 0 ? (
-                            <p className="text-sm text-zinc-600">Empty</p>
+                            <p className="text-sm text-faint">Empty</p>
                           ) : (
                             <div className="space-y-1.5">
                               {coldXfers.map((tr) => {
                                 const b = batchById[tr.batch_id];
                                 return (
                                   <div key={tr.id} className="flex items-baseline justify-between gap-2">
-                                    <span className="text-sm text-zinc-300 truncate">{b?.beer_name ?? "—"}</span>
-                                    <span className="text-xs text-zinc-500 shrink-0">
+                                    <span className="text-sm text-body truncate">{b?.beer_name ?? "—"}</span>
+                                    <span className="text-xs text-muted shrink-0">
                                       {tr.quantity != null && tr.packaging_variations
                                         ? `${tr.quantity}× ${tr.packaging_variations.name}`
                                         : fmtDate(tr.transferred_at)}
@@ -672,13 +672,13 @@ export default function BrewStatusTab() {
                             .map((b) => [b.id, b] as [string, BrewBatch])
                         ).values()];
                         return pkgBatches.length === 0 ? (
-                          <p className="text-sm text-zinc-600">Empty</p>
+                          <p className="text-sm text-faint">Empty</p>
                         ) : (
                           <div className="space-y-2">
                             {pkgBatches.map((b) => (
                               <div key={b.id}>
-                                {b.batch_number && <span className="text-xs text-zinc-500 font-mono mr-1">#{b.batch_number}</span>}
-                                <span className="text-sm text-zinc-200 font-medium">{b.beer_name}</span>
+                                {b.batch_number && <span className="text-xs text-muted font-mono mr-1">#{b.batch_number}</span>}
+                                <span className="text-sm text-strong font-medium">{b.beer_name}</span>
                               </div>
                             ))}
                           </div>
@@ -690,7 +690,7 @@ export default function BrewStatusTab() {
               );
             })}
           {placed.filter((t) => mobileFilter === "all" || t.type === mobileFilter).length === 0 && (
-            <p className="text-sm text-zinc-600 text-center py-8">No equipment of this type on the floorplan.</p>
+            <p className="text-sm text-faint text-center py-8">No equipment of this type on the floorplan.</p>
           )}
         </div>
       </div>
@@ -700,12 +700,12 @@ export default function BrewStatusTab() {
       {editMode && canEditEquipment && unplaced.length > 0 && (
         <div
           className={`mb-4 p-3 rounded-lg border border-dashed transition-colors ${
-            dragging ? "border-zinc-500 bg-zinc-900/40" : "border-zinc-700"
+            dragging ? "border-line-subtle bg-surface/40" : "border-line-strong"
           }`}
           onDragOver={(e) => e.preventDefault()}
           onDrop={onUnplacedDrop}
         >
-          <p className="text-xs text-zinc-500 font-medium uppercase tracking-wide mb-2">
+          <p className="text-xs text-muted font-medium uppercase tracking-wide mb-2">
             Unplaced Equipment — drag onto the grid to position
           </p>
           <div className="flex flex-wrap gap-2">
@@ -718,19 +718,19 @@ export default function BrewStatusTab() {
                   draggable
                   onDragStart={(e) => onDragStart(e, tank)}
                   onDragEnd={clearDrag}
-                  className={`rounded border px-3 py-2 bg-zinc-900 ${eq.border} cursor-grab active:cursor-grabbing ${
+                  className={`rounded border px-3 py-2 bg-surface ${eq.border} cursor-grab active:cursor-grabbing ${
                     dragging?.id === tank.id ? "opacity-40" : ""
                   }`}
                 >
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-zinc-200">{tank.name}</span>
+                    <span className="text-sm font-medium text-strong">{tank.name}</span>
                     <span className={`text-xs px-1.5 py-px rounded border ${eq.badge}`}>{eq.label}</span>
-                    {tank.capacity_bbl && <span className="text-xs text-zinc-600">{tank.capacity_bbl} BBL</span>}
-                    <span className="text-xs text-zinc-700">{tank.grid_width}×{tank.grid_height}</span>
+                    {tank.capacity_bbl && <span className="text-xs text-faint">{tank.capacity_bbl} BBL</span>}
+                    <span className="text-xs text-disabled">{tank.grid_width}×{tank.grid_height}</span>
                   </div>
                   <div className="flex gap-3 mt-1">
-                    <button onClick={() => eqCrud.openEdit(tank)} onMouseDown={(e) => e.stopPropagation()} className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors">Edit</button>
-                    <button onClick={() => eqCrud.handleDeleteEq(tank.id, tank.name)} onMouseDown={(e) => e.stopPropagation()} className="text-xs text-zinc-600 hover:text-red-400 transition-colors">Delete</button>
+                    <button onClick={() => eqCrud.openEdit(tank)} onMouseDown={(e) => e.stopPropagation()} className="text-xs text-faint hover:text-secondary transition-colors">Edit</button>
+                    <button onClick={() => eqCrud.handleDeleteEq(tank.id, tank.name)} onMouseDown={(e) => e.stopPropagation()} className="text-xs text-faint hover:text-danger transition-colors">Delete</button>
                   </div>
                 </div>
               );
@@ -741,8 +741,8 @@ export default function BrewStatusTab() {
 
       {/* Grid size controls — edit mode, admin only */}
       {editMode && isAdmin && (
-        <div className="flex items-center gap-4 mb-3 text-xs text-zinc-500">
-          <span className="font-medium text-zinc-400">Grid size:</span>
+        <div className="flex items-center gap-4 mb-3 text-xs text-muted">
+          <span className="font-medium text-secondary">Grid size:</span>
           <label className="flex items-center gap-1.5">
             Cols
             <input type="number" min={16} max={80} value={gridCols}
@@ -751,7 +751,7 @@ export default function BrewStatusTab() {
                 setGridCols(v);
                 saveGridSize(v, gridRows);
               }}
-              className="w-16 bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5 text-zinc-200 text-xs" />
+              className="w-16 bg-surface-mid border border-line-strong rounded px-1.5 py-0.5 text-strong text-xs" />
           </label>
           <label className="flex items-center gap-1.5">
             Rows
@@ -761,15 +761,15 @@ export default function BrewStatusTab() {
                 setGridRows(v);
                 saveGridSize(gridCols, v);
               }}
-              className="w-16 bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5 text-zinc-200 text-xs" />
+              className="w-16 bg-surface-mid border border-line-strong rounded px-1.5 py-0.5 text-strong text-xs" />
           </label>
-          <span className="text-zinc-700">{gridCols * cell}×{gridRows * cell}px</span>
+          <span className="text-disabled">{gridCols * cell}×{gridRows * cell}px</span>
         </div>
       )}
 
       {/* Grid — scales to fit available width/height (desktop only) */}
       <div ref={scaleContainerRef} className="hidden md:block w-full mb-6" style={{ height: gridRows * cell * gridScale }}>
-        <div className="rounded-lg border border-zinc-800 overflow-hidden origin-top-left" style={{ width: gridCols * cell, height: gridRows * cell, transform: `scale(${gridScale})`, transformOrigin: "top left" }}>
+        <div className="rounded-lg border border-line overflow-hidden origin-top-left" style={{ width: gridCols * cell, height: gridRows * cell, transform: `scale(${gridScale})`, transformOrigin: "top left" }}>
           <div
             ref={gridRef}
             className="relative"
@@ -823,7 +823,7 @@ export default function BrewStatusTab() {
               >
                 {/* Header: name + type badge + upcoming-plans button on one line */}
                 <div className={`shrink-0 px-1.5 py-1 flex items-center justify-between gap-1 min-w-0 ${eq.headerBg}`}>
-                  <span className="font-semibold text-zinc-100 truncate leading-tight" style={{ fontSize: tiny ? 8 : 10 }}>
+                  <span className="font-semibold text-primary truncate leading-tight" style={{ fontSize: tiny ? 8 : 10 }}>
                     {tank.name}
                   </span>
                   <div className="flex items-center gap-1 shrink-0">
@@ -837,7 +837,7 @@ export default function BrewStatusTab() {
                         onClick={() => setPlansEquipmentId(tank.id)}
                         onMouseDown={(e) => e.stopPropagation()}
                         title="Upcoming plans for this equipment"
-                        className="flex items-center leading-none text-zinc-500 hover:text-amber-400 transition-colors"
+                        className="flex items-center leading-none text-muted hover:text-accent transition-colors"
                       >
                         <CalendarIcon />
                       </button>
@@ -855,22 +855,22 @@ export default function BrewStatusTab() {
                       <div className="flex-1 min-h-0 flex flex-col gap-0.5">
                         <div className="flex-1 min-h-0 overflow-y-auto">
                           {planningBatches.length === 0 ? (
-                            <p className="text-zinc-700 text-center mt-1" style={{ fontSize: 9 }}>No planned batches</p>
+                            <p className="text-disabled text-center mt-1" style={{ fontSize: 9 }}>No planned batches</p>
                           ) : (
                             <div className="space-y-1.5">
                               {groupByDate(planningBatches, (b) => b.planned_brew_date).map((group) => (
                                 <div key={group.date}>
-                                  <p className="text-zinc-500 font-semibold uppercase tracking-wide" style={{ fontSize: 7 }}>{fmtDate(group.date)}</p>
+                                  <p className="text-muted font-semibold uppercase tracking-wide" style={{ fontSize: 7 }}>{fmtDate(group.date)}</p>
                                   <div className="space-y-0.5 mt-0.5">
                                     {group.items.map((b) => (
                                       <div key={b.id} className="leading-tight">
                                         <div className="flex items-center justify-between gap-1 min-w-0">
-                                          <span className="text-zinc-600 font-mono shrink-0" style={{ fontSize: 8 }}>{b.batch_number ? `#${b.batch_number}` : "—"}</span>
+                                          <span className="text-faint font-mono shrink-0" style={{ fontSize: 8 }}>{b.batch_number ? `#${b.batch_number}` : "—"}</span>
                                           {b.volume_bbl != null && (
-                                            <span className="text-amber-500/80 font-mono shrink-0" style={{ fontSize: 8 }}>{Number(b.volume_bbl).toFixed(1)} BBL</span>
+                                            <span className="text-accent-emphasis/80 font-mono shrink-0" style={{ fontSize: 8 }}>{Number(b.volume_bbl).toFixed(1)} BBL</span>
                                           )}
                                         </div>
-                                        <p className="text-zinc-300 truncate" style={{ fontSize: 9 }} title={b.beer_name}>{b.beer_name}</p>
+                                        <p className="text-body truncate" style={{ fontSize: 9 }} title={b.beer_name}>{b.beer_name}</p>
                                       </div>
                                     ))}
                                   </div>
@@ -884,7 +884,7 @@ export default function BrewStatusTab() {
                             <button
                               onClick={() => { setBatchForm(BATCH_EMPTY); setShowNewBatch(true); }}
                               onMouseDown={(e) => e.stopPropagation()}
-                              className="w-full text-amber-600 hover:text-amber-400 border border-amber-900 hover:border-amber-700 px-1.5 rounded transition-colors"
+                              className="w-full text-accent-emphasis hover:text-accent border border-accent-border hover:border-accent-border px-1.5 rounded transition-colors"
                               style={{ fontSize: 9 }}
                             >
                               + New Batch
@@ -898,7 +898,7 @@ export default function BrewStatusTab() {
                     {isColdStorage && (
                       <div className="flex-1 min-h-0 overflow-y-auto">
                         {coldTransfers.length === 0 ? (
-                          <p className="text-zinc-700 text-center mt-1" style={{ fontSize: 9 }}>Empty</p>
+                          <p className="text-disabled text-center mt-1" style={{ fontSize: 9 }}>Empty</p>
                         ) : (
                           <div className="space-y-1">
                             {coldTransfers.map((tr) => {
@@ -906,11 +906,11 @@ export default function BrewStatusTab() {
                               return (
                                 <div key={tr.id} className="flex flex-col gap-0 leading-tight">
                                   <div className="flex items-center gap-1 min-w-0">
-                                    <span className="text-zinc-300 truncate flex-1 min-w-0 font-medium" style={{ fontSize: 9 }} title={b?.beer_name}>{b?.beer_name ?? "—"}</span>
-                                    <span className="text-zinc-600 shrink-0" style={{ fontSize: 8 }}>{fmtDate(tr.transferred_at)}</span>
+                                    <span className="text-body truncate flex-1 min-w-0 font-medium" style={{ fontSize: 9 }} title={b?.beer_name}>{b?.beer_name ?? "—"}</span>
+                                    <span className="text-faint shrink-0" style={{ fontSize: 8 }}>{fmtDate(tr.transferred_at)}</span>
                                   </div>
                                   {tr.quantity != null && tr.packaging_variations && (
-                                    <span className="text-zinc-500 pl-1" style={{ fontSize: 8 }}>{tr.quantity}× {tr.packaging_variations.name}</span>
+                                    <span className="text-muted pl-1" style={{ fontSize: 8 }}>{tr.quantity}× {tr.packaging_variations.name}</span>
                                   )}
                                 </div>
                               );
@@ -937,7 +937,7 @@ export default function BrewStatusTab() {
                         {/* Capacity + fill bar — fixed, always visible */}
                         {!isUnconstrained && tank.capacity_bbl && (
                           <div className="shrink-0">
-                            <p className="text-zinc-600" style={{ fontSize: 9 }}>
+                            <p className="text-faint" style={{ fontSize: 9 }}>
                               {batch ? `${ledgerVol.toFixed(1)} / ${tank.capacity_bbl} BBL` : `${tank.capacity_bbl} BBL`}
                             </p>
                             {batch && (
@@ -959,14 +959,14 @@ export default function BrewStatusTab() {
                             {/* Batch identity — fixed, single line, ellipsized rather than wrapped */}
                             <div className="shrink-0 flex items-center gap-1 min-w-0">
                               {batch.batch_number && (
-                                <span className="text-zinc-500 font-mono shrink-0" style={{ fontSize: 9 }}>#{batch.batch_number}</span>
+                                <span className="text-muted font-mono shrink-0" style={{ fontSize: 9 }}>#{batch.batch_number}</span>
                               )}
-                              <span className="text-zinc-200 font-medium truncate flex-1 min-w-0" style={{ fontSize: 10 }} title={batch.beer_name}>
+                              <span className="text-strong font-medium truncate flex-1 min-w-0" style={{ fontSize: 10 }} title={batch.beer_name}>
                                 {batch.beer_name}
                               </span>
                             </div>
                             {assignment && (
-                              <p className="shrink-0 text-zinc-600 truncate" style={{ fontSize: 8 }}>since {fmtDate(assignment.assigned_at)}</p>
+                              <p className="shrink-0 text-faint truncate" style={{ fontSize: 8 }}>since {fmtDate(assignment.assigned_at)}</p>
                             )}
 
                             {/* Always rendered (even empty) so the Transfer button below stays
@@ -974,7 +974,7 @@ export default function BrewStatusTab() {
                                 keeps fully-loaded, plan-only, and occupied-only tiles aligned. */}
                             <div className="flex-1 min-h-0 overflow-y-auto space-y-0.5">
                                 {nextOccupant && (
-                                  <div className="pt-0.5 border-t border-zinc-800/60">
+                                  <div className="pt-0.5 border-t border-line/60">
                                     <NextPlannedBox
                                       batchNumber={nextOccupant.brew_batches!.batch_number}
                                       beerName={nextOccupant.brew_batches!.beer_name}
@@ -989,18 +989,18 @@ export default function BrewStatusTab() {
                                   if (!otherBatch) return null;
                                   const otherVol = volFor(otherBatch);
                                   return (
-                                    <div key={a.id} className="flex items-center gap-1 min-w-0 pt-0.5 border-t border-zinc-800/60">
+                                    <div key={a.id} className="flex items-center gap-1 min-w-0 pt-0.5 border-t border-line/60">
                                       {otherBatch.batch_number && (
-                                        <span className="text-zinc-500 font-mono shrink-0" style={{ fontSize: 9 }}>#{otherBatch.batch_number}</span>
+                                        <span className="text-muted font-mono shrink-0" style={{ fontSize: 9 }}>#{otherBatch.batch_number}</span>
                                       )}
-                                      <span className="text-zinc-300 truncate flex-1 min-w-0" style={{ fontSize: 9 }} title={otherBatch.beer_name}>
-                                        {otherBatch.beer_name} <span className="text-zinc-600">+combined</span>
+                                      <span className="text-body truncate flex-1 min-w-0" style={{ fontSize: 9 }} title={otherBatch.beer_name}>
+                                        {otherBatch.beer_name} <span className="text-faint">+combined</span>
                                       </span>
                                       {!editMode && (
                                         <button
                                           onClick={() => { setTransferTankId(tank.id); setTransferBatchId(otherBatch.id); setTransferFromVol(otherVol); setTransferInitialMode(undefined); setTransferInitialDestId(undefined); setTransferInitialConvert(undefined); }}
                                           onMouseDown={(e) => e.stopPropagation()}
-                                          className="text-amber-700 hover:text-amber-400 shrink-0"
+                                          className="text-accent-emphasis hover:text-accent shrink-0"
                                           style={{ fontSize: 8 }}
                                         >
                                           Transfer
@@ -1017,7 +1017,7 @@ export default function BrewStatusTab() {
                                 <button
                                   onClick={() => { setTransferTankId(tank.id); setTransferBatchId(batch.id); setTransferFromVol(volFor(batch)); setTransferInitialMode(undefined); setTransferInitialDestId(undefined); setTransferInitialConvert(undefined); }}
                                   onMouseDown={(e) => e.stopPropagation()}
-                                  className="w-full text-amber-700 hover:text-amber-400 border border-amber-900 hover:border-amber-700 px-1.5 rounded transition-colors"
+                                  className="w-full text-accent-emphasis hover:text-accent border border-accent-border hover:border-accent-border px-1.5 rounded transition-colors"
                                   style={{ fontSize: 9 }}
                                 >
                                   Transfer
@@ -1041,7 +1041,7 @@ export default function BrewStatusTab() {
                               </div>
                             )}
                             {!nextPlanned?.brew_batches && (
-                              <p className="shrink-0 text-zinc-700" style={{ fontSize: 9 }}>Empty</p>
+                              <p className="shrink-0 text-disabled" style={{ fontSize: 9 }}>Empty</p>
                             )}
                             {/* Button slot — always reserved, even when no button renders,
                                 so Next planned sits at the same height as the Transfer slot
@@ -1051,7 +1051,7 @@ export default function BrewStatusTab() {
                                 <button
                                   onClick={() => assign.openAssign(tank.id)}
                                   onMouseDown={(e) => e.stopPropagation()}
-                                  className="w-full text-amber-600 hover:text-amber-400 border border-amber-900 hover:border-amber-700 px-1.5 rounded transition-colors"
+                                  className="w-full text-accent-emphasis hover:text-accent border border-accent-border hover:border-accent-border px-1.5 rounded transition-colors"
                                   style={{ fontSize: 9 }}
                                 >
                                   Assign
@@ -1094,21 +1094,21 @@ export default function BrewStatusTab() {
                         const upcomingPkg = upcomingByEquipment.get(tank.id) ?? [];
 
                         const upcomingSection = upcomingPkg.length > 0 && (
-                          <div className={pkgBatches.length > 0 ? "mt-1.5 pt-1.5 border-t border-zinc-800/60 space-y-1.5" : "space-y-1.5"}>
-                            <p className="text-zinc-500 font-semibold uppercase tracking-wide" style={{ fontSize: 7 }}>Upcoming</p>
+                          <div className={pkgBatches.length > 0 ? "mt-1.5 pt-1.5 border-t border-line/60 space-y-1.5" : "space-y-1.5"}>
+                            <p className="text-muted font-semibold uppercase tracking-wide" style={{ fontSize: 7 }}>Upcoming</p>
                             {groupByDate(upcomingPkg, (e) => e.planned_start).map((group) => (
                               <div key={group.date}>
-                                <p className="text-zinc-500" style={{ fontSize: 8 }}>{fmtDate(group.date)}</p>
+                                <p className="text-muted" style={{ fontSize: 8 }}>{fmtDate(group.date)}</p>
                                 <div className="space-y-0.5 mt-0.5">
                                   {group.items.map((e) => (
                                     <div key={e.id} className="leading-tight">
                                       <div className="flex items-center justify-between gap-1 min-w-0">
-                                        <span className="text-zinc-600 font-mono shrink-0" style={{ fontSize: 8 }}>{e.brew_batches?.batch_number ? `#${e.brew_batches.batch_number}` : "—"}</span>
+                                        <span className="text-faint font-mono shrink-0" style={{ fontSize: 8 }}>{e.brew_batches?.batch_number ? `#${e.brew_batches.batch_number}` : "—"}</span>
                                         {e.volume_bbl != null && (
-                                          <span className="text-amber-500/80 font-mono shrink-0" style={{ fontSize: 8 }}>{Number(e.volume_bbl).toFixed(1)} BBL</span>
+                                          <span className="text-accent-emphasis/80 font-mono shrink-0" style={{ fontSize: 8 }}>{Number(e.volume_bbl).toFixed(1)} BBL</span>
                                         )}
                                       </div>
-                                      <p className="text-zinc-300 truncate" style={{ fontSize: 9 }} title={e.brew_batches?.beer_name}>{e.brew_batches?.beer_name ?? "—"}</p>
+                                      <p className="text-body truncate" style={{ fontSize: 9 }} title={e.brew_batches?.beer_name}>{e.brew_batches?.beer_name ?? "—"}</p>
                                     </div>
                                   ))}
                                 </div>
@@ -1128,9 +1128,9 @@ export default function BrewStatusTab() {
                                       {/* Batch identity */}
                                       <div className="flex items-center gap-1 min-w-0">
                                         {b.batch_number && (
-                                          <span className="text-zinc-500 font-mono shrink-0" style={{ fontSize: 9 }}>#{b.batch_number}</span>
+                                          <span className="text-muted font-mono shrink-0" style={{ fontSize: 9 }}>#{b.batch_number}</span>
                                         )}
-                                        <span className="text-zinc-200 font-medium truncate flex-1 min-w-0" style={{ fontSize: 10 }} title={b.beer_name}>
+                                        <span className="text-strong font-medium truncate flex-1 min-w-0" style={{ fontSize: 10 }} title={b.beer_name}>
                                           {b.beer_name}
                                         </span>
                                       </div>
@@ -1140,8 +1140,8 @@ export default function BrewStatusTab() {
                                         <div className="space-y-px">
                                           {incoming.filter((tr) => tr.variation_id && tr.packaging_variations).map((tr) => (
                                             <div key={tr.id} className="flex items-center gap-1 min-w-0">
-                                              <span className="text-amber-400 font-mono font-semibold shrink-0" style={{ fontSize: 9 }}>{tr.quantity}×</span>
-                                              <span className="text-zinc-400 truncate" style={{ fontSize: 9 }} title={tr.packaging_variations!.name}>{tr.packaging_variations!.name}</span>
+                                              <span className="text-accent font-mono font-semibold shrink-0" style={{ fontSize: 9 }}>{tr.quantity}×</span>
+                                              <span className="text-secondary truncate" style={{ fontSize: 9 }} title={tr.packaging_variations!.name}>{tr.packaging_variations!.name}</span>
                                             </div>
                                           ))}
                                         </div>
@@ -1155,7 +1155,7 @@ export default function BrewStatusTab() {
                             ) : (
                               <div className="flex flex-col gap-1">
                                 {upcomingPkg.length === 0 && (
-                                  <p className="text-zinc-700 text-center" style={{ fontSize: 9 }}>Empty</p>
+                                  <p className="text-disabled text-center" style={{ fontSize: 9 }}>Empty</p>
                                 )}
                                 {upcomingSection}
                               </div>
@@ -1168,9 +1168,9 @@ export default function BrewStatusTab() {
                     {/* Edit mode controls — brewer/admin only */}
                     {editMode && canEditEquipment && (
                       <div className="mt-auto pt-1 flex gap-1.5">
-                        <button onClick={() => eqCrud.openEdit(tank)} onMouseDown={(e) => e.stopPropagation()} className="text-zinc-600 hover:text-zinc-300 transition-colors" style={{ fontSize: 9 }}>Edit</button>
-                        <button onClick={() => removeFromGrid(tank.id)} onMouseDown={(e) => e.stopPropagation()} className="text-zinc-600 hover:text-amber-400 transition-colors" style={{ fontSize: 9 }}>Unplace</button>
-                        {!assignment && <button onClick={() => eqCrud.handleDeleteEq(tank.id, tank.name)} onMouseDown={(e) => e.stopPropagation()} className="text-zinc-600 hover:text-red-400 transition-colors" style={{ fontSize: 9 }}>Del</button>}
+                        <button onClick={() => eqCrud.openEdit(tank)} onMouseDown={(e) => e.stopPropagation()} className="text-faint hover:text-body transition-colors" style={{ fontSize: 9 }}>Edit</button>
+                        <button onClick={() => removeFromGrid(tank.id)} onMouseDown={(e) => e.stopPropagation()} className="text-faint hover:text-accent transition-colors" style={{ fontSize: 9 }}>Unplace</button>
+                        {!assignment && <button onClick={() => eqCrud.handleDeleteEq(tank.id, tank.name)} onMouseDown={(e) => e.stopPropagation()} className="text-faint hover:text-danger transition-colors" style={{ fontSize: 9 }}>Del</button>}
                       </div>
                     )}
                   </div>
@@ -1183,7 +1183,7 @@ export default function BrewStatusTab() {
           {dropPreview && draggingTank && (
             <div
               className={`absolute pointer-events-none z-20 rounded border-2 border-dashed ${
-                dropPreview.valid ? "border-amber-400 bg-amber-900/15" : "border-red-500 bg-red-900/15"
+                dropPreview.valid ? "border-accent bg-accent-muted/15" : "border-danger-border bg-danger-surface/15"
               }`}
               style={{
                 left:   dropPreview.col * cell + GAP,
@@ -1218,8 +1218,8 @@ export default function BrewStatusTab() {
                     }))}
                     className={`px-2 py-2 rounded border text-xs font-medium transition-colors ${
                       eqCrud.eqForm.type === type
-                        ? "border-amber-600 bg-amber-900/30 text-amber-300"
-                        : "border-zinc-700 bg-zinc-800/50 text-zinc-400 hover:border-zinc-500"
+                        ? "border-accent-border bg-accent-muted/30 text-accent-soft"
+                        : "border-line-strong bg-surface-mid/50 text-secondary hover:border-line-subtle"
                     }`}
                   >
                     {meta.label}
@@ -1238,7 +1238,7 @@ export default function BrewStatusTab() {
                   style={UNCONSTRAINED_EQUIPMENT_TYPES.includes(eqCrud.eqForm.type) ? { opacity: 0.35, cursor: "not-allowed" } : {}}
                 />
                 {UNCONSTRAINED_EQUIPMENT_TYPES.includes(eqCrud.eqForm.type) && (
-                  <p className="text-xs text-zinc-600 mt-0.5">No capacity constraint for this type</p>
+                  <p className="text-xs text-faint mt-0.5">No capacity constraint for this type</p>
                 )}
               </Field>
               <div className="grid grid-cols-2 gap-2">
@@ -1256,7 +1256,7 @@ export default function BrewStatusTab() {
               <input className="inp" value={eqCrud.eqForm.notes}
                 onChange={(e) => eqCrud.setEqForm((f) => ({ ...f, notes: e.target.value }))} />
             </Field>
-            <p className="text-xs text-zinc-600">
+            <p className="text-xs text-faint">
               Grid preview: {parseInt(eqCrud.eqForm.grid_width) || 2}×{parseInt(eqCrud.eqForm.grid_height) || 3} cells
               = {(parseInt(eqCrud.eqForm.grid_width) || 2) * CELL}×{(parseInt(eqCrud.eqForm.grid_height) || 3) * CELL}px
             </p>
@@ -1356,7 +1356,7 @@ export default function BrewStatusTab() {
                 const recipe = recipes.find((r) => r.id === batchForm.recipe_id);
                 const leadDays = recipe ? ((recipe.days_brewhouse ?? 0) + (recipe.days_fermenter ?? 0) + (recipe.days_brite ?? 0)) : 0;
                 return leadDays > 0 ? (
-                  <p className="text-xs text-zinc-600 mt-1">Auto-set from recipe lead time: {leadDays} days</p>
+                  <p className="text-xs text-faint mt-1">Auto-set from recipe lead time: {leadDays} days</p>
                 ) : null;
               })()}
             </Field>
@@ -1368,9 +1368,9 @@ export default function BrewStatusTab() {
                 const brewVol = (BREWHOUSE_BBL * (parseInt(batchForm.turns) || 1)).toFixed(2);
                 const expectedYield = r?.expected_yield_bbl != null ? (r.expected_yield_bbl * (parseInt(batchForm.turns) || 1)).toFixed(2) : null;
                 return (
-                  <p className="text-xs text-zinc-500 mt-1">
-                    Brew volume: <span className="text-zinc-300 font-medium">{brewVol} BBL</span>
-                    {expectedYield && <span className="text-zinc-600 ml-1">· expected yield {expectedYield} BBL after shrinkage</span>}
+                  <p className="text-xs text-muted mt-1">
+                    Brew volume: <span className="text-body font-medium">{brewVol} BBL</span>
+                    {expectedYield && <span className="text-faint ml-1">· expected yield {expectedYield} BBL after shrinkage</span>}
                   </p>
                 );
               })()}</Field>
@@ -1387,27 +1387,27 @@ export default function BrewStatusTab() {
       {plansEquipment && (
         <Modal title={`Upcoming plans — ${plansEquipment.name}`} onClose={() => setPlansEquipmentId(null)}>
           {(upcomingByEquipment.get(plansEquipment.id) ?? []).length === 0 ? (
-            <p className="text-sm text-zinc-500">Nothing scheduled for this equipment.</p>
+            <p className="text-sm text-muted">Nothing scheduled for this equipment.</p>
           ) : (
             <div className="space-y-2 max-h-[60vh] overflow-y-auto">
               {(upcomingByEquipment.get(plansEquipment.id) ?? []).map((e) => {
                 const overdue = e.planned_start.slice(0, 10) < new Date().toISOString().slice(0, 10);
                 return (
-                  <div key={e.id} className={`rounded border px-3 py-2 ${overdue ? "border-red-800/60 bg-red-950/20" : "border-zinc-700 bg-zinc-800/40"}`}>
+                  <div key={e.id} className={`rounded border px-3 py-2 ${overdue ? "border-danger-border/60 bg-danger-surface/20" : "border-line-strong bg-surface-mid/40"}`}>
                     <div className="flex items-center justify-between gap-2">
-                      <span className={`text-xs font-semibold uppercase tracking-wide ${overdue ? "text-red-400" : "text-amber-500"}`}>
+                      <span className={`text-xs font-semibold uppercase tracking-wide ${overdue ? "text-danger" : "text-accent-emphasis"}`}>
                         {STAGE_LABELS[e.stage] ?? e.stage}
                       </span>
-                      <span className="text-xs text-zinc-500">{fmtDate(e.planned_start)} → {fmtDate(e.planned_end)}</span>
+                      <span className="text-xs text-muted">{fmtDate(e.planned_start)} → {fmtDate(e.planned_end)}</span>
                     </div>
-                    <p className="text-sm text-zinc-200 mt-0.5">
+                    <p className="text-sm text-strong mt-0.5">
                       {e.brew_batches ? `#${e.brew_batches.batch_number} ${e.brew_batches.beer_name}` : "—"}
                     </p>
                     {e.volume_bbl != null && (
-                      <p className="text-xs text-zinc-500 mt-0.5">{Number(e.volume_bbl).toFixed(2)} BBL</p>
+                      <p className="text-xs text-muted mt-0.5">{Number(e.volume_bbl).toFixed(2)} BBL</p>
                     )}
                     {e.notes && (
-                      <p className="text-xs text-zinc-600 mt-0.5 italic">{e.notes}</p>
+                      <p className="text-xs text-faint mt-0.5 italic">{e.notes}</p>
                     )}
                   </div>
                 );

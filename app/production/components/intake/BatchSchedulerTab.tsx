@@ -9,6 +9,7 @@ import { fmtDateLong } from "@/lib/utils/formatting";
 import { Field } from "../shared";
 import { fetchJson, useBatchScheduleQuery, type ScheduleEntry } from "../../hooks/queries";
 import type { SchedulerRecommendation } from "@/app/api/production/batch-scheduler/route";
+import { CATEGORY_BADGE_CLASS as CC } from "../../lib/categoryColors";
 
 interface PendingAllocation {
   id: string; // local key only
@@ -65,17 +66,17 @@ function calcDeliveryDate(brewDate: string, recipe: Recipe | undefined): string 
   return addDays(parseISO(brewDate), lead).toISOString().slice(0, 10);
 }
 const STAGE_COLORS: Record<string, string> = {
-  brewhouse: "bg-amber-900/50 text-amber-300 border-amber-700",
-  fermenter: "bg-blue-900/50 text-blue-300 border-blue-700",
-  brite: "bg-purple-900/50 text-purple-300 border-purple-700",
+  brewhouse: "bg-accent-muted/50 text-accent-soft border-accent-border",
+  fermenter: "bg-info-surface/50 text-info border-info-border",
+  brite: CC.purple,
 };
 
 function urgencyBadge(row: SchedulerRow) {
-  if (row.isManual) return <span className="text-xs px-2 py-0.5 rounded border border-zinc-700 text-zinc-500">Manual</span>;
+  if (row.isManual) return <span className="text-xs px-2 py-0.5 rounded border border-line-strong text-muted">Manual</span>;
   if (!row.stockout_date) return null;
   const days = differenceInDays(parseISO(row.stockout_date), new Date());
-  if (days <= 14) return <span className="text-xs px-2 py-0.5 rounded border border-red-700 bg-red-900/40 text-red-300">Stockout {fmtDateLong(row.stockout_date)}</span>;
-  return <span className="text-xs px-2 py-0.5 rounded border border-amber-700 bg-amber-900/40 text-amber-300">Stockout {fmtDateLong(row.stockout_date)}</span>;
+  if (days <= 14) return <span className="text-xs px-2 py-0.5 rounded border border-danger-border bg-danger-surface/40 text-danger">Stockout {fmtDateLong(row.stockout_date)}</span>;
+  return <span className="text-xs px-2 py-0.5 rounded border border-accent-border bg-accent-muted/40 text-accent-soft">Stockout {fmtDateLong(row.stockout_date)}</span>;
 }
 
 function overlaps(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date): boolean {
@@ -224,11 +225,11 @@ function EquipmentSection({
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <span className="text-xs font-medium text-zinc-500">Equipment Schedule</span>
+        <span className="text-xs font-medium text-muted">Equipment Schedule</span>
         <div className="flex items-center gap-3">
-          {hasConflict && <span className="text-xs text-red-400">⚠ Schedule conflicts detected</span>}
+          {hasConflict && <span className="text-xs text-danger">⚠ Schedule conflicts detected</span>}
           <button type="button" onClick={autoFillDates} disabled={!row.brew_date}
-            className="text-xs text-amber-500 hover:text-amber-400 disabled:opacity-30">
+            className="text-xs text-accent-emphasis hover:text-accent disabled:opacity-30">
             Auto-fill dates from brew date
           </button>
         </div>
@@ -245,18 +246,18 @@ function EquipmentSection({
         const needsExtraTank = stage !== "brewhouse" && maxCapacity > 0 && effectiveVolume > maxCapacity * stageSlots.length;
 
         return (
-          <div key={stage} className="rounded border border-zinc-800 px-3 py-2.5 space-y-2">
+          <div key={stage} className="rounded border border-line px-3 py-2.5 space-y-2">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className={`text-xs px-2 py-0.5 rounded border font-mono ${STAGE_COLORS[stage]}`}>
                   {STAGE_LABELS[stage]}
                 </span>
                 {needsExtraTank && (
-                  <span className="text-xs text-amber-400">⚠ Volume exceeds single tank — add a second tank below</span>
+                  <span className="text-xs text-accent">⚠ Volume exceeds single tank — add a second tank below</span>
                 )}
               </div>
               <button type="button" onClick={() => addTankForStage(stage)}
-                className="text-xs text-zinc-500 hover:text-zinc-300 border border-zinc-700 hover:border-zinc-500 px-2 py-0.5 rounded transition-colors">
+                className="text-xs text-muted hover:text-body border border-line-strong hover:border-line-subtle px-2 py-0.5 rounded transition-colors">
                 + Add tank
               </button>
             </div>
@@ -268,16 +269,16 @@ function EquipmentSection({
                 : row.volume_bbl / stageSlots.length;
               const capacityOk = !selectedEq?.capacity_bbl || slotVolume <= selectedEq.capacity_bbl;
               return (
-                <div key={slotIdx} className={`rounded border px-2.5 py-2 space-y-1.5 ${conflicted ? "border-red-700/60 bg-red-950/20" : "border-zinc-800/60"}`}>
+                <div key={slotIdx} className={`rounded border px-2.5 py-2 space-y-1.5 ${conflicted ? "border-danger-border/60 bg-danger-surface/20" : "border-line/60"}`}>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 text-xs">
-                      {stageSlots.length > 1 && <span className="text-zinc-600">Tank {slotIdx + 1}</span>}
-                      {conflicted && <span className="text-red-400">⚠ Conflict</span>}
-                      {!capacityOk && <span className="text-amber-400">⚠ Exceeds capacity</span>}
+                      {stageSlots.length > 1 && <span className="text-faint">Tank {slotIdx + 1}</span>}
+                      {conflicted && <span className="text-danger">⚠ Conflict</span>}
+                      {!capacityOk && <span className="text-accent">⚠ Exceeds capacity</span>}
                     </div>
                     {stageSlots.length > 1 && (
                       <button type="button" onClick={() => removeSlotAt(stage, slotIdx)}
-                        className="text-xs text-red-400/60 hover:text-red-400">Remove</button>
+                        className="text-xs text-danger/60 hover:text-danger">Remove</button>
                     )}
                   </div>
                   <div className="grid grid-cols-3 gap-2">
@@ -380,28 +381,28 @@ function AllocationPlanSection({
     <div className="space-y-3">
       <div className="flex items-start justify-between">
         <div>
-          <span className="text-xs font-medium text-zinc-400">Allocation Plan</span>
-          <p className="text-[11px] text-zinc-600 mt-0.5">
+          <span className="text-xs font-medium text-secondary">Allocation Plan</span>
+          <p className="text-[11px] text-faint mt-0.5">
             Pre-filled from open commitments. Adjust percentages before committing.
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {recipeCommitments.length > 0 && (
             <button type="button" onClick={autoFill}
-              className="text-xs text-amber-500 hover:text-amber-400">
+              className="text-xs text-accent-emphasis hover:text-accent">
               ↻ Reset from commitments
             </button>
           )}
           <button type="button" onClick={addAlloc}
-            className="text-xs text-zinc-500 hover:text-zinc-300 border border-zinc-700 hover:border-zinc-500 px-2 py-0.5 rounded transition-colors">
+            className="text-xs text-muted hover:text-body border border-line-strong hover:border-line-subtle px-2 py-0.5 rounded transition-colors">
             + Add row
           </button>
         </div>
       </div>
 
-      <div className="rounded border border-zinc-800 overflow-x-auto">
+      <div className="rounded border border-line overflow-x-auto">
         {/* Column headers */}
-        <div className="grid gap-2 px-3 py-1.5 bg-zinc-900/60 border-b border-zinc-800 text-[10px] font-medium text-zinc-600 uppercase tracking-wide"
+        <div className="grid gap-2 px-3 py-1.5 bg-surface/60 border-b border-line text-[10px] font-medium text-faint uppercase tracking-wide"
           style={{ gridTemplateColumns: ALLOC_COLS }}>
           <span>Channel</span>
           <span>Commitment</span>
@@ -414,7 +415,7 @@ function AllocationPlanSection({
         </div>
 
         {allocs.length === 0 ? (
-          <p className="text-xs text-zinc-700 px-3 py-3">No allocations yet.</p>
+          <p className="text-xs text-disabled px-3 py-3">No allocations yet.</p>
         ) : allocs.map((a, idx) => {
           const isTaproom = a.channel === "taproom" || a.channel === "safety_stock";
           const channelKey = a.channel === "distribution" ? "distribution" : "contract_brewing";
@@ -422,10 +423,10 @@ function AllocationPlanSection({
           const sel = isTaproom ? null : commitments.find((c) => c.id === a.contract_request_id);
           const pct = parseFloat(a.percentage) || 0;
           const allocBbl = row.volume_bbl > 0 ? (pct / 100) * row.volume_bbl : 0;
-          const rowBg = idx % 2 !== 0 ? "bg-zinc-900/25" : "";
+          const rowBg = idx % 2 !== 0 ? "bg-surface/25" : "";
 
           return (
-            <div key={a.id} className={`grid gap-2 items-center px-3 py-2 border-b border-zinc-800/40 last:border-b-0 ${rowBg}`}
+            <div key={a.id} className={`grid gap-2 items-center px-3 py-2 border-b border-line/40 last:border-b-0 ${rowBg}`}
               style={{ gridTemplateColumns: ALLOC_COLS }}>
               {/* Channel */}
               <select className="inp text-xs py-1" value={a.channel}
@@ -435,7 +436,7 @@ function AllocationPlanSection({
 
               {/* Commitment selector */}
               {isTaproom ? (
-                <span className="text-xs text-zinc-600 italic px-1 truncate">— taproom stock —</span>
+                <span className="text-xs text-faint italic px-1 truncate">— taproom stock —</span>
               ) : (
                 <select className="inp text-xs py-1 min-w-0" value={a.contract_request_id}
                   onChange={(e) => handleCommitmentChange(a.id, e.target.value)}>
@@ -449,24 +450,24 @@ function AllocationPlanSection({
               )}
 
               {/* Partner — read-only from selected commitment */}
-              <span className={`text-xs truncate ${sel?.contract_brewing_partners ? "text-zinc-300" : "text-zinc-700"}`}>
+              <span className={`text-xs truncate ${sel?.contract_brewing_partners ? "text-body" : "text-disabled"}`}>
                 {sel?.contract_brewing_partners?.company_name ?? (isTaproom ? "" : "—")}
                 {a.channel === "contract_brewing" && sel?.contract_brewing_partners && (
-                  <span className="ml-1 text-[10px] text-amber-600" title="A deposit invoice will need to be generated for this allocation after the batch is committed.">
+                  <span className="ml-1 text-[10px] text-accent-emphasis" title="A deposit invoice will need to be generated for this allocation after the batch is committed.">
                     · deposit req&apos;d
                   </span>
                 )}
               </span>
 
               {/* Submitted On — read-only from selected commitment */}
-              <span className={`text-xs truncate tabular-nums ${sel ? "text-zinc-400" : "text-zinc-700"}`}>
+              <span className={`text-xs truncate tabular-nums ${sel ? "text-secondary" : "text-disabled"}`}>
                 {sel
                   ? fmtDateLong((sel.received_on ?? sel.created_at).slice(0, 10))
                   : (isTaproom ? "" : "—")}
               </span>
 
               {/* Due date — read-only from selected commitment */}
-              <span className={`text-xs truncate ${sel?.desired_delivery_date ? "text-zinc-400" : "text-zinc-700"}`}>
+              <span className={`text-xs truncate ${sel?.desired_delivery_date ? "text-secondary" : "text-disabled"}`}>
                 {sel?.desired_delivery_date ? fmtDateLong(sel.desired_delivery_date) : (isTaproom ? "" : "—")}
               </span>
 
@@ -476,17 +477,17 @@ function AllocationPlanSection({
                   className="inp w-full text-xs text-right py-1"
                   placeholder="0" value={a.percentage}
                   onChange={(e) => setAlloc(a.id, { percentage: e.target.value })} />
-                <span className="text-[10px] text-zinc-600 shrink-0">%</span>
+                <span className="text-[10px] text-faint shrink-0">%</span>
               </div>
 
               {/* BBLs — computed from % × batch volume */}
-              <span className={`text-xs text-right tabular-nums pr-1 ${pct > 0 ? "text-zinc-300" : "text-zinc-700"}`}>
+              <span className={`text-xs text-right tabular-nums pr-1 ${pct > 0 ? "text-body" : "text-disabled"}`}>
                 {pct > 0 && row.volume_bbl > 0 ? `${allocBbl.toFixed(1)}` : "—"}
               </span>
 
               {/* Remove */}
               <button onClick={() => removeAlloc(a.id)}
-                className="text-zinc-700 hover:text-red-400 text-xs leading-none justify-self-center">✕</button>
+                className="text-disabled hover:text-danger text-xs leading-none justify-self-center">✕</button>
             </div>
           );
         })}
@@ -495,16 +496,16 @@ function AllocationPlanSection({
       {/* Totals bar */}
       {allocs.length > 0 && (
         <div className="flex items-center gap-3">
-          <div className="flex-1 h-1.5 rounded-full bg-zinc-800 overflow-hidden">
+          <div className="flex-1 h-1.5 rounded-full bg-surface-mid overflow-hidden">
             <div
-              className={`h-full rounded-full transition-all ${overAllocated ? "bg-red-500" : totalPct >= 99 ? "bg-green-500" : "bg-amber-500"}`}
+              className={`h-full rounded-full transition-all ${overAllocated ? "bg-danger-emphasis" : totalPct >= 99 ? "bg-success-emphasis" : "bg-accent-emphasis"}`}
               style={{ width: `${Math.min(totalPct, 100)}%` }}
             />
           </div>
-          <span className={`text-xs whitespace-nowrap tabular-nums ${overAllocated ? "text-red-400" : "text-zinc-500"}`}>
+          <span className={`text-xs whitespace-nowrap tabular-nums ${overAllocated ? "text-danger" : "text-muted"}`}>
             {totalPct.toFixed(1)}% · {((totalPct / 100) * row.volume_bbl).toFixed(1)} BBL allocated
-            {overAllocated && <span className="ml-1 text-red-400">⚠ exceeds 100%</span>}
-            {!overAllocated && remaining > 0.1 && <span className="ml-1 text-zinc-600">({remaining.toFixed(1)}% → taproom)</span>}
+            {overAllocated && <span className="ml-1 text-danger">⚠ exceeds 100%</span>}
+            {!overAllocated && remaining > 0.1 && <span className="ml-1 text-faint">({remaining.toFixed(1)}% → taproom)</span>}
           </span>
         </div>
       )}
@@ -778,21 +779,21 @@ export default function BatchSchedulerTab({
   }
 
 
-  if (loading) return <p className="text-zinc-600 text-sm py-10 text-center">Loading recommendations…</p>;
-  if (error) return <p className="text-sm text-red-400 py-6">{error instanceof Error ? error.message : "Error"}</p>;
+  if (loading) return <p className="text-faint text-sm py-10 text-center">Loading recommendations…</p>;
+  if (error) return <p className="text-sm text-danger py-6">{error instanceof Error ? error.message : "Error"}</p>;
 
   return (
     <div className="space-y-4">
       {/* Header */}
       <div className="flex justify-between items-center">
-        <p className="text-sm text-zinc-500">
+        <p className="text-sm text-muted">
           Batches sorted by urgency. Review demand and equipment for each, then commit one at a time.
         </p>
         <div className="flex gap-2">
-          <button onClick={() => refetch()} className="px-3 py-1.5 border border-zinc-700 hover:border-zinc-500 text-zinc-300 text-sm rounded">
+          <button onClick={() => refetch()} className="px-3 py-1.5 border border-line-strong hover:border-line-subtle text-body text-sm rounded">
             Refresh
           </button>
-          <button onClick={addManualRow} className="px-3 py-1.5 border border-zinc-700 hover:border-zinc-500 text-zinc-300 text-sm rounded">
+          <button onClick={addManualRow} className="px-3 py-1.5 border border-line-strong hover:border-line-subtle text-body text-sm rounded">
             + Add Batch
           </button>
         </div>
@@ -800,26 +801,26 @@ export default function BatchSchedulerTab({
 
       {/* Success banner */}
       {commitSuccess && (
-        <div className="flex items-start gap-3 rounded-lg border border-green-700/50 bg-green-900/20 px-4 py-3">
-          <span className="text-green-400 text-base leading-none mt-0.5">✓</span>
+        <div className="flex items-start gap-3 rounded-lg border border-success-border/50 bg-success-surface/20 px-4 py-3">
+          <span className="text-success text-base leading-none mt-0.5">✓</span>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-green-300">
+            <p className="text-sm font-medium text-success">
               Batch committed —{" "}
               {commitSuccess.batch_number && (
-                <span className="font-mono text-green-400 mr-1">#{commitSuccess.batch_number}</span>
+                <span className="font-mono text-success mr-1">#{commitSuccess.batch_number}</span>
               )}
               <span className="font-semibold">{commitSuccess.style}</span>
               {" "}brewing {fmtDateLong(commitSuccess.brew_date)}
             </p>
             {commitSuccess.resolvedUrgency && commitSuccess.stockout_date && (
-              <p className="text-xs text-green-500/80 mt-0.5">
+              <p className="text-xs text-success/80 mt-0.5">
                 Addresses projected stockout on {fmtDateLong(commitSuccess.stockout_date)}. Demand calendar will update shortly.
               </p>
             )}
           </div>
           <button
             onClick={() => setCommitSuccess(null)}
-            className="text-green-600 hover:text-green-400 text-xs leading-none shrink-0"
+            className="text-success hover:text-success text-xs leading-none shrink-0"
           >✕</button>
         </div>
       )}
@@ -833,13 +834,13 @@ export default function BatchSchedulerTab({
               onClick={() => setActiveId(row.id)}
               className={`shrink-0 flex items-center gap-2 px-3 py-2 rounded-lg border text-xs text-left transition-colors ${
                 row.id === (activeRow?.id)
-                  ? "border-amber-600 bg-amber-900/20 text-zinc-200"
-                  : "border-zinc-800 hover:border-zinc-600 text-zinc-500"
+                  ? "border-accent-border bg-accent-muted/20 text-strong"
+                  : "border-line hover:border-line-subtle text-muted"
               }`}
             >
-              <span className="text-zinc-600 font-mono">#{i + 1}</span>
+              <span className="text-faint font-mono">#{i + 1}</span>
               {urgencyBadge(row)}
-              <span className="font-medium text-zinc-300 max-w-[120px] truncate">{row.style}</span>
+              <span className="font-medium text-body max-w-[120px] truncate">{row.style}</span>
             </button>
           ))}
         </div>
@@ -848,23 +849,23 @@ export default function BatchSchedulerTab({
       {/* Empty state */}
       {queue.length === 0 && (
         <div className="py-16 text-center space-y-2">
-          <p className="text-zinc-600 text-sm">No batches need scheduling right now.</p>
-          <p className="text-xs text-zinc-700">All styles are within safe stock levels, or no demand data exists. Use &quot;+ Add Batch&quot; to schedule manually.</p>
+          <p className="text-faint text-sm">No batches need scheduling right now.</p>
+          <p className="text-xs text-disabled">All styles are within safe stock levels, or no demand data exists. Use &quot;+ Add Batch&quot; to schedule manually.</p>
         </div>
       )}
 
       {/* Active batch panel */}
       {activeRow && (
-        <div className="rounded-lg border border-zinc-800 overflow-hidden">
+        <div className="rounded-lg border border-line overflow-hidden">
           {/* Title bar */}
-          <div className="flex items-center gap-3 px-4 py-3 bg-zinc-900/60 border-b border-zinc-800">
+          <div className="flex items-center gap-3 px-4 py-3 bg-surface/60 border-b border-line">
             {urgencyBadge(activeRow)}
-            <span className="font-semibold text-zinc-100">{activeRow.style}</span>
+            <span className="font-semibold text-primary">{activeRow.style}</span>
             {activeRow.demand_bbl > 0 && (
-              <span className="text-xs text-zinc-500">{activeRow.demand_bbl.toFixed(1)} BBL demand</span>
+              <span className="text-xs text-muted">{activeRow.demand_bbl.toFixed(1)} BBL demand</span>
             )}
             {!activeRow.isManual && activeRow.stockout_date && (
-              <span className="ml-auto text-xs text-emerald-500/80 flex items-center gap-1">
+              <span className="ml-auto text-xs text-success/80 flex items-center gap-1">
                 <span>↳ committing will address this stockout</span>
               </span>
             )}
@@ -873,7 +874,7 @@ export default function BatchSchedulerTab({
           <div className="p-4 space-y-6">
             {/* Configuration */}
             <div>
-              <p className="text-xs font-medium text-zinc-500 mb-3">Batch Configuration</p>
+              <p className="text-xs font-medium text-muted mb-3">Batch Configuration</p>
               <div className="grid grid-cols-4 gap-3">
                 {activeRow.isManual && (
                   <Field label="Recipe" required>
@@ -916,7 +917,7 @@ export default function BatchSchedulerTab({
                   />
                 </Field>
                 <Field label="Volume (BBL)">
-                  <div className="inp text-zinc-400">{activeRow.volume_bbl.toFixed(2)}</div>
+                  <div className="inp text-secondary">{activeRow.volume_bbl.toFixed(2)}</div>
                 </Field>
                 <Field label="Brew Date" required>
                   <input
@@ -935,7 +936,7 @@ export default function BatchSchedulerTab({
                   {(() => {
                     const recipe = recipes.find((r) => r.id === activeRow.recipe_id);
                     const lead = recipe ? leadTimeDays(recipe) : 0;
-                    return lead > 0 ? <p className="text-xs text-zinc-600 mt-1">Auto from recipe: {lead}d lead</p> : null;
+                    return lead > 0 ? <p className="text-xs text-faint mt-1">Auto from recipe: {lead}d lead</p> : null;
                   })()}
                 </Field>
                 <Field label="Notes">
@@ -947,7 +948,7 @@ export default function BatchSchedulerTab({
                 <button
                   onClick={() => suggestEquipment(activeRow)}
                   disabled={suggesting}
-                  className="mt-2 text-xs text-amber-500 hover:text-amber-400 disabled:opacity-50"
+                  className="mt-2 text-xs text-accent-emphasis hover:text-accent disabled:opacity-50"
                 >
                   {suggesting ? "Getting suggestions…" : "↻ Re-suggest equipment"}
                 </button>
@@ -972,10 +973,10 @@ export default function BatchSchedulerTab({
             />
 
             {/* Footer */}
-            <div className="flex items-center justify-between pt-2 border-t border-zinc-800">
+            <div className="flex items-center justify-between pt-2 border-t border-line">
               <button
                 onClick={() => removeRow(activeRow.id)}
-                className="text-xs text-zinc-600 hover:text-red-400 transition-colors"
+                className="text-xs text-faint hover:text-danger transition-colors"
               >
                 Remove from queue
               </button>
@@ -987,20 +988,20 @@ export default function BatchSchedulerTab({
                 return (
                   <div className="flex flex-col items-end gap-1">
                     {hasConflict && (
-                      <span className="text-xs text-red-400">Resolve equipment conflicts before committing</span>
+                      <span className="text-xs text-danger">Resolve equipment conflicts before committing</span>
                     )}
                     {overAllocated && (
-                      <span className="text-xs text-red-400">Allocations exceed 100% — reduce before committing</span>
+                      <span className="text-xs text-danger">Allocations exceed 100% — reduce before committing</span>
                     )}
                     {!hasConflict && !overAllocated && !activeRow.isManual && activeRow.stockout_date && (
-                      <span className="text-xs text-emerald-500/70">
+                      <span className="text-xs text-success/70">
                         Will resolve {fmtDateLong(activeRow.stockout_date)} stockout
                       </span>
                     )}
                     <button
                       onClick={() => commitBatch(activeRow)}
                       disabled={blocked}
-                      className="px-5 py-2 bg-amber-600 hover:bg-amber-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium rounded transition-colors"
+                      className="px-5 py-2 bg-accent-emphasis hover:bg-accent-emphasis disabled:opacity-50 disabled:cursor-not-allowed text-primary text-sm font-medium rounded transition-colors"
                     >
                       {committing ? "Committing…" : "Commit Batch →"}
                     </button>
@@ -1014,7 +1015,7 @@ export default function BatchSchedulerTab({
 
       {/* Remaining count */}
       {queue.length > 1 && (
-        <p className="text-xs text-zinc-600 text-right">
+        <p className="text-xs text-faint text-right">
           {queue.length - 1} more batch{queue.length > 2 ? "es" : ""} in queue
         </p>
       )}

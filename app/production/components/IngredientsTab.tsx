@@ -8,14 +8,15 @@ import { Modal, Field, ModalActions } from "./shared";
 import { useContractPartnersQuery, useSuppliersQuery, useIngredientsQuery, productionKeys } from "../hooks/queries";
 import { useUserRole } from "@/lib/hooks/useUserRole";
 import { fmtUsd } from "@/lib/utils/formatting";
+import { CATEGORY_BADGE_CLASS as CC } from "../lib/categoryColors";
 
 const INGREDIENT_CATEGORY_META: Record<IngredientCategory, { color: string }> = {
-  "Malts":        { color: "border-amber-700 bg-amber-900/30 text-amber-300" },
-  "Hops":         { color: "border-green-700 bg-green-900/30 text-green-300" },
-  "Yeast":        { color: "border-yellow-700 bg-yellow-900/30 text-yellow-300" },
-  "Brewing Aids": { color: "border-blue-700 bg-blue-900/30 text-blue-300" },
-  "Fruit":        { color: "border-rose-700 bg-rose-900/30 text-rose-300" },
-  "Abstrax":      { color: "border-purple-700 bg-purple-900/30 text-purple-300" },
+  "Malts":        { color: "border-accent-border bg-accent-muted/30 text-accent-soft" },
+  "Hops":         { color: "border-success-border bg-success-surface/30 text-success" },
+  "Yeast":        { color: CC.yellow },
+  "Brewing Aids": { color: "border-info-border bg-info-surface/30 text-info" },
+  "Fruit":        { color: CC.rose },
+  "Abstrax":      { color: CC.purple },
 };
 
 // ─── CSV bulk upload ──────────────────────────────────────────────────────────
@@ -174,9 +175,9 @@ function BulkUploadModal({ onClose, onDone }: { onClose: () => void; onDone: () 
       <Modal title="Bulk Upload Complete" onClose={onDone}>
         <div className="space-y-4 text-center py-4">
           <p className="text-4xl">✓</p>
-          <p className="text-zinc-100 font-medium">{result.inserted} ingredient{result.inserted !== 1 ? "s" : ""} imported</p>
+          <p className="text-primary font-medium">{result.inserted} ingredient{result.inserted !== 1 ? "s" : ""} imported</p>
           {invalidCount > 0 && (
-            <p className="text-xs text-zinc-500">{invalidCount} row{invalidCount !== 1 ? "s" : ""} with errors were skipped.</p>
+            <p className="text-xs text-muted">{invalidCount} row{invalidCount !== 1 ? "s" : ""} with errors were skipped.</p>
           )}
           <button onClick={onDone} className="btn-amber mx-auto block">Done</button>
         </div>
@@ -187,13 +188,13 @@ function BulkUploadModal({ onClose, onDone }: { onClose: () => void; onDone: () 
   return (
     <Modal title="Bulk Upload Ingredients" onClose={onClose}>
       <div className="space-y-4">
-        <p className="text-xs text-zinc-500">
+        <p className="text-xs text-muted">
           Upload a CSV file or paste CSV text. Columns:{" "}
-          <span className="font-mono text-zinc-400">name</span>,{" "}
-          <span className="font-mono text-zinc-400">category</span>,{" "}
-          <span className="font-mono text-zinc-400">unit</span>,{" "}
-          <span className="font-mono text-zinc-400">cost_per_unit</span>,{" "}
-          <span className="font-mono text-zinc-400">stock_quantity</span>.
+          <span className="font-mono text-secondary">name</span>,{" "}
+          <span className="font-mono text-secondary">category</span>,{" "}
+          <span className="font-mono text-secondary">unit</span>,{" "}
+          <span className="font-mono text-secondary">cost_per_unit</span>,{" "}
+          <span className="font-mono text-secondary">stock_quantity</span>.
           A header row is optional.
         </p>
 
@@ -202,14 +203,14 @@ function BulkUploadModal({ onClose, onDone }: { onClose: () => void; onDone: () 
           <button
             type="button"
             onClick={() => fileRef.current?.click()}
-            className="px-3 py-1.5 text-xs rounded border border-zinc-700 bg-zinc-800 text-zinc-300 hover:text-zinc-100 transition-colors"
+            className="px-3 py-1.5 text-xs rounded border border-line-strong bg-surface-mid text-body hover:text-primary transition-colors"
           >
             Choose CSV file…
           </button>
           <button
             type="button"
             onClick={() => { setCsvText(TEMPLATE_CSV); setParsed(false); setRows([]); }}
-            className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
+            className="text-xs text-faint hover:text-secondary transition-colors"
           >
             Load example
           </button>
@@ -232,61 +233,61 @@ function BulkUploadModal({ onClose, onDone }: { onClose: () => void; onDone: () 
             type="button"
             onClick={handleParse}
             disabled={!csvText.trim()}
-            className="px-3 py-1.5 text-sm rounded border border-zinc-700 bg-zinc-800 text-zinc-300 hover:text-zinc-100 disabled:opacity-40 transition-colors"
+            className="px-3 py-1.5 text-sm rounded border border-line-strong bg-surface-mid text-body hover:text-primary disabled:opacity-40 transition-colors"
           >
             Preview
           </button>
           {parsed && rows.length > 0 && (
-            <span className="text-xs text-zinc-500">
+            <span className="text-xs text-muted">
               {validCount} valid
-              {invalidCount > 0 && <span className="text-red-400 ml-1">· {invalidCount} with errors</span>}
+              {invalidCount > 0 && <span className="text-danger ml-1">· {invalidCount} with errors</span>}
             </span>
           )}
         </div>
 
-        {error && <p className="text-xs text-red-400">{error}</p>}
+        {error && <p className="text-xs text-danger">{error}</p>}
 
         {/* Preview table */}
         {parsed && rows.length > 0 && (
-          <div className="border border-zinc-800 rounded-lg overflow-hidden max-h-64 overflow-y-auto">
+          <div className="border border-line rounded-lg overflow-hidden max-h-64 overflow-y-auto">
             <table className="w-full text-xs">
               <thead>
-                <tr className="border-b border-zinc-800 bg-zinc-900/70 text-left">
-                  <th className="px-3 py-2 text-zinc-500 font-medium w-5"></th>
-                  <th className="px-3 py-2 text-zinc-500 font-medium">Name</th>
-                  <th className="px-3 py-2 text-zinc-500 font-medium">Category</th>
-                  <th className="px-3 py-2 text-zinc-500 font-medium">Unit</th>
-                  <th className="px-3 py-2 text-zinc-500 font-medium text-right">Cost/Unit</th>
-                  <th className="px-3 py-2 text-zinc-500 font-medium text-right">Stock</th>
+                <tr className="border-b border-line bg-surface/70 text-left">
+                  <th className="px-3 py-2 text-muted font-medium w-5"></th>
+                  <th className="px-3 py-2 text-muted font-medium">Name</th>
+                  <th className="px-3 py-2 text-muted font-medium">Category</th>
+                  <th className="px-3 py-2 text-muted font-medium">Unit</th>
+                  <th className="px-3 py-2 text-muted font-medium text-right">Cost/Unit</th>
+                  <th className="px-3 py-2 text-muted font-medium text-right">Stock</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((r, i) => (
                   <tr
                     key={i}
-                    className={`border-b border-zinc-800/60 last:border-0 ${
-                      r._errors.length > 0 ? "bg-red-950/30" : i % 2 !== 0 ? "bg-zinc-900/30" : ""
+                    className={`border-b border-line/60 last:border-0 ${
+                      r._errors.length > 0 ? "bg-danger-surface/30" : i % 2 !== 0 ? "bg-surface/30" : ""
                     }`}
                     title={r._errors.length > 0 ? r._errors.join("; ") : undefined}
                   >
                     <td className="px-3 py-1.5 text-center">
                       {r._errors.length > 0 ? (
-                        <span className="text-red-400" title={r._errors.join("; ")}>✕</span>
+                        <span className="text-danger" title={r._errors.join("; ")}>✕</span>
                       ) : (
-                        <span className="text-green-500">✓</span>
+                        <span className="text-success">✓</span>
                       )}
                     </td>
-                    <td className={`px-3 py-1.5 font-medium ${r._errors.length > 0 ? "text-red-300" : "text-zinc-200"}`}>{r.name || <span className="text-zinc-700">—</span>}</td>
-                    <td className="px-3 py-1.5 text-zinc-400">{r.category || <span className="text-zinc-700">—</span>}</td>
-                    <td className="px-3 py-1.5 text-zinc-400">{r.unit || <span className="text-zinc-700">—</span>}</td>
-                    <td className="px-3 py-1.5 text-right text-zinc-400 tabular-nums">{r.cost_per_unit || <span className="text-zinc-700">—</span>}</td>
-                    <td className="px-3 py-1.5 text-right text-zinc-400 tabular-nums">{r.stock_quantity || "0"}</td>
+                    <td className={`px-3 py-1.5 font-medium ${r._errors.length > 0 ? "text-danger" : "text-strong"}`}>{r.name || <span className="text-disabled">—</span>}</td>
+                    <td className="px-3 py-1.5 text-secondary">{r.category || <span className="text-disabled">—</span>}</td>
+                    <td className="px-3 py-1.5 text-secondary">{r.unit || <span className="text-disabled">—</span>}</td>
+                    <td className="px-3 py-1.5 text-right text-secondary tabular-nums">{r.cost_per_unit || <span className="text-disabled">—</span>}</td>
+                    <td className="px-3 py-1.5 text-right text-secondary tabular-nums">{r.stock_quantity || "0"}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
             {invalidCount > 0 && (
-              <p className="px-3 py-2 text-xs text-red-400 border-t border-zinc-800">
+              <p className="px-3 py-2 text-xs text-danger border-t border-line">
                 Rows with errors (shown in red) will be skipped. Hover a row to see the error.
               </p>
             )}
@@ -294,7 +295,7 @@ function BulkUploadModal({ onClose, onDone }: { onClose: () => void; onDone: () 
         )}
 
         {parsed && rows.length === 0 && (
-          <p className="text-xs text-zinc-600">No rows found — check your CSV format.</p>
+          <p className="text-xs text-faint">No rows found — check your CSV format.</p>
         )}
 
         <div className="flex justify-end gap-2 pt-1">
@@ -541,7 +542,7 @@ export default function IngredientsTab() {
         <div className="flex gap-2 flex-wrap">
           <button
             onClick={() => setFilterCat("all")}
-            className={`text-xs px-2.5 py-1 rounded border transition-colors ${filterCat === "all" ? "border-zinc-500 text-zinc-200 bg-zinc-800" : "border-zinc-700 text-zinc-500 hover:text-zinc-300"}`}
+            className={`text-xs px-2.5 py-1 rounded border transition-colors ${filterCat === "all" ? "border-line-subtle text-strong bg-surface-mid" : "border-line-strong text-muted hover:text-body"}`}
           >
             All
           </button>
@@ -549,7 +550,7 @@ export default function IngredientsTab() {
             const meta = INGREDIENT_CATEGORY_META[cat];
             return (
               <button key={cat} onClick={() => setFilterCat(cat)}
-                className={`text-xs px-2.5 py-1 rounded border transition-colors ${filterCat === cat ? meta.color : "border-zinc-700 text-zinc-500 hover:text-zinc-300"}`}
+                className={`text-xs px-2.5 py-1 rounded border transition-colors ${filterCat === cat ? meta.color : "border-line-strong text-muted hover:text-body"}`}
               >
                 {cat}
               </button>
@@ -575,7 +576,7 @@ export default function IngredientsTab() {
       </div>
 
       {ingredients.length === 0 ? (
-        <p className="text-zinc-600 text-sm">No ingredients yet.</p>
+        <p className="text-faint text-sm">No ingredients yet.</p>
       ) : (
         <div className="space-y-6">
           {(() => {
@@ -595,12 +596,12 @@ export default function IngredientsTab() {
               <div key={cat}>
                 {/* Group header — same pill style as PackagingTab */}
                 <div className="flex items-center gap-2 mb-2">
-                  <span className={`text-xs px-2 py-px rounded border ${catMeta?.color ?? "border-zinc-700 bg-zinc-800/40 text-zinc-400"}`}>
+                  <span className={`text-xs px-2 py-px rounded border ${catMeta?.color ?? "border-line-strong bg-surface-mid/40 text-secondary"}`}>
                     {cat}
                   </span>
-                  <span className="text-xs text-zinc-600">{items.length} item{items.length !== 1 ? "s" : ""}</span>
+                  <span className="text-xs text-faint">{items.length} item{items.length !== 1 ? "s" : ""}</span>
                 </div>
-                <div className="overflow-x-auto rounded-lg border border-zinc-800">
+                <div className="overflow-x-auto rounded-lg border border-line">
                   {/* Shared fixed column widths — identical across all category tables so
                       columns align vertically when tables are stacked. Specialty columns
                       (AA%, °L) are appended after Total Value only for relevant categories. */}
@@ -617,18 +618,18 @@ export default function IngredientsTab() {
                       <col style={{ width: "18%" }} />{/* Actions */}
                     </colgroup>
                     <thead>
-                      <tr className="border-b border-zinc-800 bg-zinc-900/50 text-left">
-                        <th className="px-3 py-2.5 text-xs font-medium text-zinc-500">Name</th>
-                        <th className="px-3 py-2.5 text-xs font-medium text-zinc-500">Supplier</th>
-                        <th className="px-3 py-2.5 text-xs font-medium text-zinc-500">Partner</th>
-                        <th className="px-3 py-2.5 text-xs font-medium text-zinc-500 text-right whitespace-nowrap">
+                      <tr className="border-b border-line bg-surface/50 text-left">
+                        <th className="px-3 py-2.5 text-xs font-medium text-muted">Name</th>
+                        <th className="px-3 py-2.5 text-xs font-medium text-muted">Supplier</th>
+                        <th className="px-3 py-2.5 text-xs font-medium text-muted">Partner</th>
+                        <th className="px-3 py-2.5 text-xs font-medium text-muted text-right whitespace-nowrap">
                           {showAlphaAcid ? "AA%" : showColorLovibond ? "°L" : ""}
                         </th>
-                        <th className="px-3 py-2.5 text-xs font-medium text-zinc-500">Unit</th>
-                        <th className="px-3 py-2.5 text-xs font-medium text-zinc-500 text-right whitespace-nowrap">Cost / Unit</th>
-                        <th className="px-3 py-2.5 text-xs font-medium text-zinc-500 text-right">Stock</th>
-                        <th className="px-3 py-2.5 text-xs font-medium text-zinc-500 text-right whitespace-nowrap">Total Value</th>
-                        <th className="px-3 py-2.5 text-xs font-medium text-zinc-500"></th>
+                        <th className="px-3 py-2.5 text-xs font-medium text-muted">Unit</th>
+                        <th className="px-3 py-2.5 text-xs font-medium text-muted text-right whitespace-nowrap">Cost / Unit</th>
+                        <th className="px-3 py-2.5 text-xs font-medium text-muted text-right">Stock</th>
+                        <th className="px-3 py-2.5 text-xs font-medium text-muted text-right whitespace-nowrap">Total Value</th>
+                        <th className="px-3 py-2.5 text-xs font-medium text-muted"></th>
                       </tr>
                     </thead>
                     <tbody>
@@ -637,14 +638,14 @@ export default function IngredientsTab() {
                         const bulkRow = bulkRows.find((r) => r.id === ing.id);
                         if (bulkEditMode && bulkRow) {
                           return (
-                            <tr key={ing.id} className={`border-b border-zinc-800/60 ${i % 2 !== 0 ? "bg-zinc-900/30" : ""}`}>
+                            <tr key={ing.id} className={`border-b border-line/60 ${i % 2 !== 0 ? "bg-surface/30" : ""}`}>
                               <td className="px-2 py-1.5">
                                 <input className="inp text-sm w-full" value={bulkRow.name}
                                   onChange={(e) => setBulkRows((rs) => rs.map((r) => r.id === ing.id ? { ...r, name: e.target.value } : r))} />
                               </td>
-                              <td className="px-2 py-1.5 text-zinc-400 truncate">{ing.suppliers?.company_name ?? "—"}</td>
-                              <td className="px-2 py-1.5 text-zinc-400 truncate">{ing.contract_brewing_partners?.company_name ?? "—"}</td>
-                              <td className="px-3 py-2.5 text-zinc-600 text-xs text-right">—</td>
+                              <td className="px-2 py-1.5 text-secondary truncate">{ing.suppliers?.company_name ?? "—"}</td>
+                              <td className="px-2 py-1.5 text-secondary truncate">{ing.contract_brewing_partners?.company_name ?? "—"}</td>
+                              <td className="px-3 py-2.5 text-faint text-xs text-right">—</td>
                               <td className="px-2 py-1.5">
                                 <input className="inp text-sm w-full" value={bulkRow.unit}
                                   onChange={(e) => setBulkRows((rs) => rs.map((r) => r.id === ing.id ? { ...r, unit: e.target.value } : r))} />
@@ -654,44 +655,44 @@ export default function IngredientsTab() {
                                   onChange={(e) => setBulkRows((rs) => rs.map((r) => r.id === ing.id ? { ...r, cost_per_unit: e.target.value } : r))} />
                               </td>
                               <td className="px-4 py-2.5 text-right tabular-nums">
-                                <span className={Number(ing.stock_quantity) < 0 ? "text-red-400" : "text-zinc-300"}>
+                                <span className={Number(ing.stock_quantity) < 0 ? "text-danger" : "text-body"}>
                                   {Number(ing.stock_quantity).toLocaleString(undefined, { maximumFractionDigits: 3 })} {ing.unit}
                                 </span>
                               </td>
-                              <td className="px-4 py-2.5 text-right tabular-nums text-zinc-300">{fmtValue(totalValue)}</td>
-                              <td className="px-4 py-2.5 text-xs text-zinc-600 text-right">editing</td>
+                              <td className="px-4 py-2.5 text-right tabular-nums text-body">{fmtValue(totalValue)}</td>
+                              <td className="px-4 py-2.5 text-xs text-faint text-right">editing</td>
                             </tr>
                           );
                         }
                         return (
-                          <tr key={ing.id} className={`border-b border-zinc-800/60 ${i % 2 !== 0 ? "bg-zinc-900/30" : ""}`}>
-                            <td className="px-3 py-2.5 text-zinc-100 font-medium truncate">{ing.name}</td>
-                            <td className="px-3 py-2.5 text-zinc-400 truncate">{ing.suppliers?.company_name ?? "—"}</td>
-                            <td className="px-3 py-2.5 text-zinc-400 truncate">{ing.contract_brewing_partners?.company_name ?? "—"}</td>
-                            <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap text-zinc-400">
+                          <tr key={ing.id} className={`border-b border-line/60 ${i % 2 !== 0 ? "bg-surface/30" : ""}`}>
+                            <td className="px-3 py-2.5 text-primary font-medium truncate">{ing.name}</td>
+                            <td className="px-3 py-2.5 text-secondary truncate">{ing.suppliers?.company_name ?? "—"}</td>
+                            <td className="px-3 py-2.5 text-secondary truncate">{ing.contract_brewing_partners?.company_name ?? "—"}</td>
+                            <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap text-secondary">
                               {showAlphaAcid
                                 ? (ing.alpha_acid != null ? `${ing.alpha_acid}%` : "—")
                                 : showColorLovibond
                                   ? (ing.color_lovibond != null ? `${ing.color_lovibond}°L` : "—")
                                   : ""}
                             </td>
-                            <td className="px-3 py-2.5 text-zinc-400 whitespace-nowrap">{ing.unit}</td>
-                            <td className="px-3 py-2.5 text-zinc-300 text-right tabular-nums whitespace-nowrap">
+                            <td className="px-3 py-2.5 text-secondary whitespace-nowrap">{ing.unit}</td>
+                            <td className="px-3 py-2.5 text-body text-right tabular-nums whitespace-nowrap">
                               {ing.cost_per_unit != null ? fmtUsd(Number(ing.cost_per_unit)) : "—"}
                             </td>
                             <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap">
-                              <span className={Number(ing.stock_quantity) < 0 ? "text-red-400" : "text-zinc-300"}>
+                              <span className={Number(ing.stock_quantity) < 0 ? "text-danger" : "text-body"}>
                                 {Number(ing.stock_quantity).toLocaleString(undefined, { maximumFractionDigits: 3 })} {ing.unit}
                               </span>
                             </td>
-                            <td className="px-3 py-2.5 text-right tabular-nums text-zinc-300 whitespace-nowrap">{fmtValue(totalValue)}</td>
+                            <td className="px-3 py-2.5 text-right tabular-nums text-body whitespace-nowrap">{fmtValue(totalValue)}</td>
                             <td className="px-3 py-2.5">
                               <div className="flex gap-2 justify-end w-full">
-                                <button onClick={() => openAdj(ing)} className="text-xs text-amber-500 hover:text-amber-400 transition-colors font-medium whitespace-nowrap">Adjust</button>
-                                {isAdmin && (<><span className="text-zinc-700">·</span>
-                                <button onClick={() => openEdit(ing)} className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors whitespace-nowrap">Edit</button></>)}
-                                <span className="text-zinc-700">·</span>
-                                <button onClick={() => handleDelete(ing.id, ing.name)} className="text-xs text-zinc-600 hover:text-red-400 transition-colors whitespace-nowrap">Del</button>
+                                <button onClick={() => openAdj(ing)} className="text-xs text-accent-emphasis hover:text-accent transition-colors font-medium whitespace-nowrap">Adjust</button>
+                                {isAdmin && (<><span className="text-disabled">·</span>
+                                <button onClick={() => openEdit(ing)} className="text-xs text-muted hover:text-body transition-colors whitespace-nowrap">Edit</button></>)}
+                                <span className="text-disabled">·</span>
+                                <button onClick={() => handleDelete(ing.id, ing.name)} className="text-xs text-faint hover:text-danger transition-colors whitespace-nowrap">Del</button>
                               </div>
                             </td>
                           </tr>
@@ -759,7 +760,7 @@ export default function IngredientsTab() {
                   onChange={(e) => setIngForm((f) => ({ ...f, cost_per_unit: e.target.value }))} />
               </Field>
             </div>
-            <div className="rounded bg-amber-900/20 border border-amber-800/40 px-3 py-2 text-xs text-amber-300">
+            <div className="rounded bg-accent-muted/20 border border-accent-border/40 px-3 py-2 text-xs text-accent-soft">
               Cost per unit must be the <strong>landed cost</strong> — include freight and shipping. Use stock adjustments (Received) to recalculate this automatically when new inventory arrives.
             </div>
             <Field label="Starting Stock">
@@ -791,22 +792,22 @@ export default function IngredientsTab() {
         <Modal title={`Adjust Stock — ${adjIngredient.name}`} onClose={() => setShowAdjModal(false)}>
           <form onSubmit={handleAdjSubmit} className="space-y-4">
             {/* Current state summary */}
-            <div className="p-3 bg-zinc-800/50 rounded text-sm grid grid-cols-3 gap-4">
+            <div className="p-3 bg-surface-mid/50 rounded text-sm grid grid-cols-3 gap-4">
               <div>
-                <p className="text-xs text-zinc-500 mb-0.5">Current stock</p>
-                <p className="text-zinc-100 font-medium">
+                <p className="text-xs text-muted mb-0.5">Current stock</p>
+                <p className="text-primary font-medium">
                   {Number(adjIngredient.stock_quantity).toLocaleString(undefined, { maximumFractionDigits: 3 })} {adjIngredient.unit}
                 </p>
               </div>
               <div>
-                <p className="text-xs text-zinc-500 mb-0.5">Unit cost</p>
-                <p className="text-zinc-100 font-medium">
+                <p className="text-xs text-muted mb-0.5">Unit cost</p>
+                <p className="text-primary font-medium">
                   {adjIngredient.cost_per_unit != null ? fmtUsd(Number(adjIngredient.cost_per_unit)) : "—"}
                 </p>
               </div>
               <div>
-                <p className="text-xs text-zinc-500 mb-0.5">Total value</p>
-                <p className="text-zinc-100 font-medium">{fmtValue(currentValue)}</p>
+                <p className="text-xs text-muted mb-0.5">Total value</p>
+                <p className="text-primary font-medium">{fmtValue(currentValue)}</p>
               </div>
             </div>
 
@@ -816,8 +817,8 @@ export default function IngredientsTab() {
                   <button key={t.value} type="button" onClick={() => setAdjType(t.value)}
                     className={`px-3 py-2 rounded border text-sm text-left transition-colors ${
                       adjType === t.value
-                        ? "border-amber-600 bg-amber-900/30 text-amber-300"
-                        : "border-zinc-700 bg-zinc-800/50 text-zinc-400 hover:border-zinc-500"
+                        ? "border-accent-border bg-accent-muted/30 text-accent-soft"
+                        : "border-line-strong bg-surface-mid/50 text-secondary hover:border-line-subtle"
                     }`}
                   >
                     <div className="font-medium">{t.label}</div>
@@ -835,13 +836,13 @@ export default function IngredientsTab() {
                 placeholder={adjType === "inventory_count" ? "Enter new total" : "Enter quantity"}
                 value={adjQty} required onChange={(e) => setAdjQty(e.target.value)} />
               {adjQty && adjType !== "inventory_count" && (
-                <p className="text-xs mt-1 text-zinc-500">
+                <p className="text-xs mt-1 text-muted">
                   {adjTypeMeta?.sign === "positive" ? "Adds" : "Removes"}{" "}
-                  <span className={adjTypeMeta?.sign === "positive" ? "text-green-400" : "text-red-400"}>
+                  <span className={adjTypeMeta?.sign === "positive" ? "text-success" : "text-danger"}>
                     {adjQty} {adjIngredient.unit}
                   </span>{" "}
                   → new total:{" "}
-                  <span className="text-zinc-300">
+                  <span className="text-body">
                     {(adjIngredient.stock_quantity + (adjTypeMeta?.sign === "positive" ? 1 : -1) * parseFloat(adjQty || "0"))
                       .toLocaleString(undefined, { maximumFractionDigits: 3 })}{" "}
                     {adjIngredient.unit}
@@ -860,36 +861,36 @@ export default function IngredientsTab() {
                 <Field label="Shipping Cost ($ total)" required>
                   <input type="number" step="0.01" min="0" className="inp" placeholder="0.00"
                     required value={adjShippingCost} onChange={(e) => setAdjShippingCost(e.target.value)} />
-                  <p className="text-xs mt-1 text-zinc-500">Enter 0 if no freight charge on this order.</p>
+                  <p className="text-xs mt-1 text-muted">Enter 0 if no freight charge on this order.</p>
                 </Field>
                 {previewQty > 0 && previewCost > 0 && (
-                  <div className="p-2.5 rounded bg-zinc-800/60 border border-zinc-700 text-xs space-y-1">
-                    <p className="text-zinc-400 font-medium mb-1">After this receipt:</p>
+                  <div className="p-2.5 rounded bg-surface-mid/60 border border-line-strong text-xs space-y-1">
+                    <p className="text-secondary font-medium mb-1">After this receipt:</p>
                     <div className="flex justify-between">
-                      <span className="text-zinc-500">Unit cost</span>
-                      <span className="text-zinc-200">
+                      <span className="text-muted">Unit cost</span>
+                      <span className="text-strong">
                         {currentCost != null ? fmtUsd(Number(currentCost)) : "—"}
                         {" → "}
-                        <span className="text-green-300">{fmtUsd(Number(newCostPerUnit))}</span>
+                        <span className="text-success">{fmtUsd(Number(newCostPerUnit))}</span>
                         {" (weighted avg)"}
                       </span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-zinc-500">Total value</span>
-                      <span className="text-zinc-200">
+                      <span className="text-muted">Total value</span>
+                      <span className="text-strong">
                         {fmtValue(currentValue)}
                         {" → "}
-                        <span className="text-green-300">{fmtValue(newValue)}</span>
+                        <span className="text-success">{fmtValue(newValue)}</span>
                       </span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-zinc-500">Landed value</span>
-                      <span className="text-green-400">+{fmtValue(previewQty * landedPerUnit)}</span>
+                      <span className="text-muted">Landed value</span>
+                      <span className="text-success">+{fmtValue(previewQty * landedPerUnit)}</span>
                     </div>
                     {previewShipping > 0 && (
                       <div className="flex justify-between">
-                        <span className="text-zinc-500 pl-3">incl. shipping</span>
-                        <span className="text-zinc-400">+{fmtValue(previewShipping)}</span>
+                        <span className="text-muted pl-3">incl. shipping</span>
+                        <span className="text-secondary">+{fmtValue(previewShipping)}</span>
                       </div>
                     )}
                   </div>

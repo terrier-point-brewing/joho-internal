@@ -278,22 +278,22 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
     <Modal title="Transfer Batch" onClose={onClose} extraWide>
       <form onSubmit={handleSubmit} className="space-y-3">
         {/* Batch summary */}
-        <div className="flex gap-3 p-2.5 rounded bg-zinc-900/60 border border-zinc-800 text-sm">
+        <div className="flex gap-3 p-2.5 rounded bg-surface/60 border border-line text-sm">
           <div>
-            <span className="text-zinc-500 text-xs">Batch</span>
-            <p className="text-zinc-100 font-medium">{batch.beer_name}</p>
-            <p className="text-zinc-500 font-mono text-xs">{batch.batch_number ?? "—"}</p>
+            <span className="text-muted text-xs">Batch</span>
+            <p className="text-primary font-medium">{batch.beer_name}</p>
+            <p className="text-muted font-mono text-xs">{batch.batch_number ?? "—"}</p>
           </div>
-          <div className="mx-2 w-px bg-zinc-800" />
+          <div className="mx-2 w-px bg-surface-mid" />
           <div>
-            <span className="text-zinc-500 text-xs">From</span>
-            <p className="text-zinc-100">{fromTank.name}</p>
-            <p className="text-zinc-500 text-xs">{EQ[fromTank.type]?.label ?? fromTank.type}</p>
+            <span className="text-muted text-xs">From</span>
+            <p className="text-primary">{fromTank.name}</p>
+            <p className="text-muted text-xs">{EQ[fromTank.type]?.label ?? fromTank.type}</p>
           </div>
-          <div className="mx-2 w-px bg-zinc-800" />
+          <div className="mx-2 w-px bg-surface-mid" />
           <div>
-            <span className="text-zinc-500 text-xs">Batch Volume</span>
-            <p className="text-zinc-100">{fmtBbl(batchVol)}</p>
+            <span className="text-muted text-xs">Batch Volume</span>
+            <p className="text-primary">{fmtBbl(batchVol)}</p>
           </div>
         </div>
 
@@ -301,11 +301,11 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
         {canConvert && (
           <div className="flex gap-2">
             <button type="button" onClick={() => handleModeChange("transfer")}
-              className={`px-3 py-1.5 text-sm rounded border transition-colors ${mode === "transfer" ? "border-amber-600 bg-amber-900/30 text-amber-300" : "border-zinc-700 bg-zinc-800 text-zinc-400 hover:text-zinc-200"}`}>
+              className={`px-3 py-1.5 text-sm rounded border transition-colors ${mode === "transfer" ? "border-accent-border bg-accent-muted/30 text-accent-soft" : "border-line-strong bg-surface-mid text-secondary hover:text-strong"}`}>
               Transfer
             </button>
             <button type="button" onClick={() => handleModeChange("convert")}
-              className={`px-3 py-1.5 text-sm rounded border transition-colors ${mode === "convert" ? "border-amber-600 bg-amber-900/30 text-amber-300" : "border-zinc-700 bg-zinc-800 text-zinc-400 hover:text-zinc-200"}`}>
+              className={`px-3 py-1.5 text-sm rounded border transition-colors ${mode === "convert" ? "border-accent-border bg-accent-muted/30 text-accent-soft" : "border-line-strong bg-surface-mid text-secondary hover:text-strong"}`}>
               Convert
             </button>
           </div>
@@ -316,14 +316,14 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
           <div className="space-y-3">
             {/* Convert mode description */}
             {mode === "convert" && (
-              <div className="px-3 py-2 rounded border border-amber-700/40 bg-amber-950/30 text-xs text-amber-300">
+              <div className="px-3 py-2 rounded border border-accent-border/40 bg-accent-muted/30 text-xs text-accent-soft">
                 Split a partial volume into a <span className="font-semibold">new batch</span> under a different recipe. The remaining volume stays in {fromTank.name} under the original batch.
               </div>
             )}
 
             {/* Allowed-destinations hint (transfer mode only) */}
             {mode === "transfer" && (
-              <p className="text-xs text-zinc-500 bg-zinc-800/40 px-3 py-1.5 rounded border border-zinc-700">
+              <p className="text-xs text-muted bg-surface-mid/40 px-3 py-1.5 rounded border border-line-strong">
                 {fromTank.type === "brewhouse" && "Brewhouse → Fermenter only"}
                 {fromTank.type === "fermenter" && "Fermenter → Brite/Fermenter (incl. staying put for in-place conditioning), Kegging, or Canning"}
                 {fromTank.type === "brite"     && "Brite → Brite/Fermenter (incl. staying put), Kegging, or Canning"}
@@ -334,10 +334,10 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
             <Field label="Destination" required>
               {/* Planned booking pill (transfer mode only) */}
               {mode === "transfer" && plannedEntry && plannedEntry.equipment_id && (
-                <div className="flex items-center gap-2 mb-2 px-2 py-1.5 rounded bg-zinc-800/60 border border-zinc-700 text-xs text-zinc-400">
+                <div className="flex items-center gap-2 mb-2 px-2 py-1.5 rounded bg-surface-mid/60 border border-line-strong text-xs text-secondary">
                   <span>📋 Planned:</span>
-                  <span className="text-zinc-200 font-medium">{plannedEntry.equipment?.name ?? "Unknown"}</span>
-                  <span className="text-zinc-500">
+                  <span className="text-strong font-medium">{plannedEntry.equipment?.name ?? "Unknown"}</span>
+                  <span className="text-muted">
                     {format(parseISO(plannedEntry.planned_start), "MMM d")}–{format(parseISO(plannedEntry.planned_end), "MMM d")}
                   </span>
                 </div>
@@ -354,7 +354,7 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
                 ))}
               </select>
               {destTanks.length === 0 && mode === "convert" && (
-                <p className="text-xs text-zinc-500 mt-1">No free tanks available for a conversion from this stage.</p>
+                <p className="text-xs text-muted mt-1">No free tanks available for a conversion from this stage.</p>
               )}
             </Field>
           </div>
@@ -383,7 +383,7 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
                     <input type="number" step="0.001" min="0.001" max={batchVol} className="inp w-40"
                       placeholder="0.000" required
                       value={convertBbl} onChange={(e) => setConvertBbl(e.target.value)} />
-                    <span className="text-zinc-500 text-sm">BBL</span>
+                    <span className="text-muted text-sm">BBL</span>
                   </div>
                 </Field>
               </>
@@ -394,11 +394,11 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
               <Field label="Volume">
                 <div className="flex gap-2 mb-2">
                   <button type="button" onClick={() => setVolumeMode("full")}
-                    className={`px-3 py-1.5 text-sm rounded border transition-colors ${volumeMode === "full" ? "border-amber-600 bg-amber-900/30 text-amber-300" : "border-zinc-700 bg-zinc-800 text-zinc-400 hover:text-zinc-200"}`}>
+                    className={`px-3 py-1.5 text-sm rounded border transition-colors ${volumeMode === "full" ? "border-accent-border bg-accent-muted/30 text-accent-soft" : "border-line-strong bg-surface-mid text-secondary hover:text-strong"}`}>
                     Full transfer
                   </button>
                   <button type="button" onClick={() => setVolumeMode("partial")}
-                    className={`px-3 py-1.5 text-sm rounded border transition-colors ${volumeMode === "partial" ? "border-amber-600 bg-amber-900/30 text-amber-300" : "border-zinc-700 bg-zinc-800 text-zinc-400 hover:text-zinc-200"}`}>
+                    className={`px-3 py-1.5 text-sm rounded border transition-colors ${volumeMode === "partial" ? "border-accent-border bg-accent-muted/30 text-accent-soft" : "border-line-strong bg-surface-mid text-secondary hover:text-strong"}`}>
                     Partial
                   </button>
                 </div>
@@ -406,7 +406,7 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
                   <div className="flex items-center gap-2">
                     <input type="number" step="0.001" min="0" max={batchVol} className="inp w-40" placeholder="0.000"
                       value={partialBbl} onChange={(e) => setPartialBbl(e.target.value)} />
-                    <span className="text-zinc-500 text-sm">BBL</span>
+                    <span className="text-muted text-sm">BBL</span>
                   </div>
                 )}
               </Field>
@@ -418,7 +418,7 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
                 <div className="flex items-center gap-2">
                   <input type="number" step="0.001" min="0" className="inp w-40" placeholder="0.000"
                     value={shrinkage} onChange={(e) => setShrinkage(e.target.value)} />
-                  <span className="text-zinc-500 text-sm">BBL lost</span>
+                  <span className="text-muted text-sm">BBL lost</span>
                 </div>
               </Field>
             )}
@@ -428,17 +428,17 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
         {/* ── Full-width hints/warnings, kept out of the 2-col grid above so
              column heights stay in sync regardless of which warnings show ── */}
         {mode === "transfer" && destIsConstrained && destTank?.capacity_bbl && (
-          <p className="text-xs text-zinc-500">Capacity: {fmtBbl(destTank.capacity_bbl)} — transfer will be rejected if it exceeds this.</p>
+          <p className="text-xs text-muted">Capacity: {fmtBbl(destTank.capacity_bbl)} — transfer will be rejected if it exceeds this.</p>
         )}
         {mode === "transfer" && plannedEntry && plannedEntry.equipment_id && effectiveDestId && effectiveDestId !== plannedEntry.equipment_id && (
-          <div className="px-3 py-2 rounded border border-amber-700/60 bg-amber-950/40 text-xs text-amber-300">
+          <div className="px-3 py-2 rounded border border-accent-border/60 bg-accent-muted/40 text-xs text-accent-soft">
             ⚠ <span className="font-semibold">Deviation from plan:</span> this batch was scheduled for{" "}
-            <span className="text-amber-200 font-medium">{plannedEntry.equipment?.name ?? "another tank"}</span>.
+            <span className="text-accent-soft font-medium">{plannedEntry.equipment?.name ?? "another tank"}</span>.
             Proceeding will cancel that booking and may cause conflicts with downstream schedule entries that will need to be resolved.
           </div>
         )}
         {mode === "convert" && drawBbl > 0 && remaining <= 0 && (
-          <p className="text-amber-400 text-xs">
+          <p className="text-accent text-xs">
             Full conversion — the parent batch will be marked complete after this.
           </p>
         )}
@@ -447,12 +447,12 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
         {isPackagingForm && (
           <div>
             <div className="flex items-center justify-between mb-2">
-              <label className="text-xs text-zinc-400">{showKegDetail ? "Kegs" : "Cans"}</label>
+              <label className="text-xs text-secondary">{showKegDetail ? "Kegs" : "Cans"}</label>
               <button type="button" onClick={() => setPackagingLines((l) => [...l, { variation_id: "", quantity: "" }])}
-                className="text-xs text-amber-500 hover:text-amber-400">+ Add line</button>
+                className="text-xs text-accent-emphasis hover:text-accent">+ Add line</button>
             </div>
             {(showKegDetail ? kegVariations : canVariations).length === 0 && (
-              <p className="text-xs text-zinc-600">
+              <p className="text-xs text-faint">
                 No packaging variations declared for this recipe — add one in Recipes → Packaging Variations.
               </p>
             )}
@@ -471,24 +471,24 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
                     onChange={(e) => setPackagingLines((ls) => ls.map((l, idx) => idx === i ? { ...l, quantity: e.target.value } : l))} />
                   {packagingLines.length > 1
                     ? <button type="button" onClick={() => setPackagingLines((ls) => ls.filter((_, idx) => idx !== i))}
-                        className="text-zinc-600 hover:text-red-400 text-lg leading-none">×</button>
+                        className="text-faint hover:text-danger text-lg leading-none">×</button>
                     : <span />}
                 </div>
               ))}
             </div>
-            <p className="text-xs text-zinc-500 mt-2">
+            <p className="text-xs text-muted mt-2">
               Total: {packagingLines.reduce((s, l) => s + (parseInt(l.quantity) || 0), 0)} · Draw: {fmtBbl(drawBbl)}
             </p>
-            <div className="mt-3 pt-3 border-t border-zinc-800">
+            <div className="mt-3 pt-3 border-t border-line">
               <Field label="Packaging loss / heel (BBL)">
                 <div className="flex items-center gap-2 flex-wrap">
                   <input type="number" step="0.001" min="0" className="inp w-40" placeholder="0.000"
                     value={shrinkage} onChange={(e) => setShrinkage(e.target.value)} />
-                  <span className="text-zinc-500 text-sm">BBL lost</span>
+                  <span className="text-muted text-sm">BBL lost</span>
                   <button
                     type="button"
                     onClick={() => setShrinkage(Math.max(0, batchVol - drawBbl).toFixed(3))}
-                    className="text-xs text-amber-500 hover:text-amber-400 border border-amber-800 hover:border-amber-600 px-2 py-1 rounded transition-colors"
+                    className="text-xs text-accent-emphasis hover:text-accent border border-accent-border hover:border-accent-border px-2 py-1 rounded transition-colors"
                   >
                     Auto-fill remaining
                   </button>
@@ -501,28 +501,28 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
         {/* Volume summary + notes, side by side to save vertical space */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
           <div>
-            <div className="rounded border border-zinc-800 bg-zinc-900/40 p-3 text-xs space-y-1">
-              <div className="flex justify-between text-zinc-400">
+            <div className="rounded border border-line bg-surface/40 p-3 text-xs space-y-1">
+              <div className="flex justify-between text-secondary">
                 <span>Batch volume</span><span>{fmtBbl(batchVol)}</span>
               </div>
-              <div className="flex justify-between text-zinc-400">
+              <div className="flex justify-between text-secondary">
                 <span>{mode === "convert" ? "Converted volume" : "Transfer draw"}</span>
                 <span>− {fmtBbl(drawBbl)}</span>
               </div>
               {mode === "transfer" && shrinkBbl > 0 && (
-                <div className="flex justify-between text-zinc-400">
+                <div className="flex justify-between text-secondary">
                   <span>Shrinkage</span><span>− {fmtBbl(shrinkBbl)}</span>
                 </div>
               )}
-              <div className={`flex justify-between font-medium border-t border-zinc-800 pt-1 mt-1 ${remaining < 0 ? "text-red-400" : "text-zinc-100"}`}>
+              <div className={`flex justify-between font-medium border-t border-line pt-1 mt-1 ${remaining < 0 ? "text-danger" : "text-primary"}`}>
                 <span>Remaining</span><span>{fmtBbl(remaining)}</span>
               </div>
             </div>
             {remaining < -0.001 && (
-              <p className="text-xs text-red-400 mt-1">Warning: volume exceeds batch volume.</p>
+              <p className="text-xs text-danger mt-1">Warning: volume exceeds batch volume.</p>
             )}
             {mode === "transfer" && destIsConstrained && destTank?.capacity_bbl && drawBbl > destTank.capacity_bbl && (
-              <p className="text-xs text-red-400 mt-1">
+              <p className="text-xs text-danger mt-1">
                 Transfer ({fmtBbl(drawBbl)}) exceeds {destTank.name} capacity ({fmtBbl(destTank.capacity_bbl)}).
               </p>
             )}
