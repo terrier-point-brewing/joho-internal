@@ -55,7 +55,7 @@ function VariationCombobox({
   return (
     <div ref={wrapRef} className="relative">
       <div className="relative">
-        <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500 pointer-events-none text-xs">⌕</span>
+        <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted pointer-events-none text-xs">⌕</span>
         <input
           className="inp text-sm w-full pl-6"
           value={open ? query : displayName}
@@ -67,7 +67,7 @@ function VariationCombobox({
         {value && (
           <button
             type="button"
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-600 hover:text-zinc-400 text-xs"
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-faint hover:text-secondary text-xs"
             onMouseDown={(e) => { e.preventDefault(); onChange(""); }}
           >
             ×
@@ -75,9 +75,9 @@ function VariationCombobox({
         )}
       </div>
       {open && (
-        <div className="absolute z-50 left-0 right-0 mt-1 max-h-56 overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-900 shadow-xl">
+        <div className="absolute z-50 left-0 right-0 mt-1 max-h-56 overflow-y-auto rounded-lg border border-line-strong bg-surface shadow-xl">
           {filtered.length === 0 ? (
-            <div className="px-3 py-3 text-xs text-zinc-600 italic text-center">
+            <div className="px-3 py-3 text-xs text-faint italic text-center">
               No matches{query ? ` for "${query}"` : ""}
             </div>
           ) : (
@@ -85,10 +85,10 @@ function VariationCombobox({
               <button
                 key={v.variation_id}
                 type="button"
-                className={`w-full text-left px-3 py-2.5 text-xs border-b border-zinc-800/40 last:border-0 transition-colors ${
+                className={`w-full text-left px-3 py-2.5 text-xs border-b border-line/40 last:border-0 transition-colors ${
                   v.variation_id === value
-                    ? "bg-amber-900/30 text-amber-300"
-                    : "text-zinc-300 hover:bg-zinc-800"
+                    ? "bg-accent-muted/30 text-accent-soft"
+                    : "text-body hover:bg-surface-mid"
                 }`}
                 onMouseDown={(e) => {
                   e.preventDefault();
@@ -101,11 +101,11 @@ function VariationCombobox({
                   <span>
                     <span className="font-medium">{v.item_name}</span>
                     {v.variation_name && (
-                      <span className="text-zinc-500 ml-1.5">· {v.variation_name}</span>
+                      <span className="text-muted ml-1.5">· {v.variation_name}</span>
                     )}
                   </span>
                   {v.category_name && (
-                    <span className="text-[10px] text-zinc-600 shrink-0">{v.category_name}</span>
+                    <span className="text-[10px] text-faint shrink-0">{v.category_name}</span>
                   )}
                 </div>
               </button>
@@ -212,18 +212,18 @@ export default function MappingDrawer({ recipeId, colKey, onClose }: Props) {
       />
 
       {/* Drawer panel */}
-      <div className="fixed inset-y-0 right-0 z-40 w-[400px] bg-zinc-950 border-l border-zinc-800 shadow-2xl flex flex-col">
+      <div className="fixed inset-y-0 right-0 z-40 w-[400px] bg-canvas border-l border-line shadow-2xl flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-line">
           <div>
-            <p className="text-xs text-zinc-500 uppercase tracking-wide">Square Mapping</p>
-            <p className="text-sm font-semibold text-zinc-100 mt-0.5">
+            <p className="text-xs text-muted uppercase tracking-wide">Square Mapping</p>
+            <p className="text-sm font-semibold text-primary mt-0.5">
               {row.recipeName} · {col.label}
             </p>
           </div>
           <button
             onClick={onClose}
-            className="text-zinc-500 hover:text-zinc-200 transition-colors text-lg leading-none"
+            className="text-muted hover:text-strong transition-colors text-lg leading-none"
             aria-label="Close drawer"
           >
             ×
@@ -240,15 +240,15 @@ export default function MappingDrawer({ recipeId, colKey, onClose }: Props) {
 
             return (
               <div key={v.variationId} className="space-y-2">
-                <p className="text-xs font-semibold text-zinc-300">{v.variationName}</p>
+                <p className="text-xs font-semibold text-body">{v.variationName}</p>
 
                 {isLinked ? (
-                  <div className="flex items-center justify-between rounded-lg border border-emerald-800/40 bg-emerald-950/20 px-3 py-2">
-                    <span className="text-xs text-emerald-300">✓ {v.linkedSquareName}</span>
+                  <div className="flex items-center justify-between rounded-lg border border-success-border/40 bg-success-surface/20 px-3 py-2">
+                    <span className="text-xs text-success">✓ {v.linkedSquareName}</span>
                     <button
                       onClick={() => handleRemove(v)}
                       disabled={isBusy}
-                      className="text-xs text-zinc-600 hover:text-red-400 transition-colors disabled:opacity-30 ml-3 shrink-0"
+                      className="text-xs text-faint hover:text-danger transition-colors disabled:opacity-30 ml-3 shrink-0"
                     >
                       Remove
                     </button>
@@ -257,14 +257,14 @@ export default function MappingDrawer({ recipeId, colKey, onClose }: Props) {
                   <div className="space-y-2">
                     {v.suggestion &&
                       (v.suggestion.confidence === "high" || v.suggestion.confidence === "medium") && (
-                        <div className="flex items-center justify-between rounded-lg border border-blue-800/40 bg-blue-950/20 px-3 py-2">
-                          <span className="text-xs text-blue-300 truncate mr-2">
+                        <div className="flex items-center justify-between rounded-lg border border-info-border/40 bg-info-surface/20 px-3 py-2">
+                          <span className="text-xs text-info truncate mr-2">
                             Suggested: {v.suggestion.squareName}
                           </span>
                           <button
                             onClick={() => handleAccept(v, v.suggestion!.squareVariationId)}
                             disabled={isBusy}
-                            className="text-xs px-2 py-1 rounded bg-blue-700 hover:bg-blue-600 text-white disabled:opacity-30 shrink-0 transition-colors"
+                            className="text-xs px-2 py-1 rounded bg-info-emphasis hover:bg-info-emphasis text-primary disabled:opacity-30 shrink-0 transition-colors"
                           >
                             Accept
                           </button>
@@ -286,7 +286,7 @@ export default function MappingDrawer({ recipeId, colKey, onClose }: Props) {
                         {isBusy ? "Saving…" : "Link"}
                       </button>
                     )}
-                    {err && <p className="text-xs text-red-400">{err}</p>}
+                    {err && <p className="text-xs text-danger">{err}</p>}
                   </div>
                 )}
               </div>

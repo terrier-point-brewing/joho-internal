@@ -42,11 +42,11 @@ function IngredientDepositMappingSection() {
 
   return (
     <section>
-      <h3 className="text-sm font-medium text-zinc-200 mb-2">Ingredient Deposit — Square Item</h3>
-      <p className="text-xs text-zinc-600 mb-2">Default Square catalog item for deposit invoices, with optional per-partner overrides.</p>
+      <h3 className="text-sm font-medium text-strong mb-2">Ingredient Deposit — Square Item</h3>
+      <p className="text-xs text-faint mb-2">Default Square catalog item for deposit invoices, with optional per-partner overrides.</p>
       <div className="flex flex-col gap-2">
         <div className="flex items-center gap-2">
-          <span className="text-xs text-zinc-500 italic w-28">Default</span>
+          <span className="text-xs text-muted italic w-28">Default</span>
           <SquareCatalogSelect
             items={items}
             itemId={defaultRow?.square_catalog_item_id ?? null}
@@ -58,7 +58,7 @@ function IngredientDepositMappingSection() {
           const partner = partners.find((p) => p.id === m.partner_id);
           return (
             <div key={m.id} className="flex items-center gap-2">
-              <span className="text-xs text-zinc-300 w-28 truncate">{partner?.company_name ?? "Unknown partner"}</span>
+              <span className="text-xs text-body w-28 truncate">{partner?.company_name ?? "Unknown partner"}</span>
               <SquareCatalogSelect
                 items={items}
                 itemId={m.square_catalog_item_id}
@@ -102,8 +102,8 @@ function DepositInvoiceTermsSection() {
 
   return (
     <section>
-      <h3 className="text-sm font-medium text-zinc-200 mb-2">Default Deposit Net Terms</h3>
-      <p className="text-xs text-zinc-600 mb-2">
+      <h3 className="text-sm font-medium text-strong mb-2">Default Deposit Net Terms</h3>
+      <p className="text-xs text-faint mb-2">
         Days until payment is due on a generated deposit invoice, used when a partner has no override set (set per-partner in the Partners tab).
       </p>
       <div className="flex items-center gap-2">
@@ -113,11 +113,11 @@ function DepositInvoiceTermsSection() {
           max={365}
           value={draft !== "" ? draft : days}
           onChange={(e) => setDraft(e.target.value)}
-          className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 w-20"
+          className="bg-surface-mid border border-line-strong rounded px-2 py-1 text-xs text-strong w-20"
         />
-        <span className="text-xs text-zinc-500">days</span>
+        <span className="text-xs text-muted">days</span>
         <button onClick={save} disabled={saving}
-          className="text-xs px-2.5 py-1 bg-zinc-700 hover:bg-zinc-600 text-zinc-200 rounded transition-colors">
+          className="text-xs px-2.5 py-1 bg-surface-high hover:bg-surface-high text-strong rounded transition-colors">
           {saving ? "Saving…" : "Save"}
         </button>
       </div>

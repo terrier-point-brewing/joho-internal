@@ -22,6 +22,7 @@ import { EquipmentScheduleSection } from "./EquipmentSchedule";
 import { computeBranchPackagingStatus } from "./EquipmentSchedule/constants";
 import { DepositInvoiceModal } from "./DepositInvoiceModal";
 import { RefundAdjustmentModal } from "./RefundAdjustmentModal";
+import { CHANNEL_COLOR, TRANSFER_TYPE_TEXT } from "../lib/categoryColors";
 
 const fmtDate = fmtDateLong;
 
@@ -251,7 +252,7 @@ export default function BatchLogTab() {
         {(filterBeer || filterStatus) && (
           <button
             onClick={() => { setFilterBeer(""); setFilterStatus(""); }}
-            className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+            className="text-xs text-muted hover:text-body transition-colors"
           >
             Clear
           </button>
@@ -260,13 +261,13 @@ export default function BatchLogTab() {
       </div>
 
       {recipes.length === 0 && (
-        <div className="mb-4 p-3 bg-amber-900/20 border border-amber-800 rounded text-amber-300 text-sm">
+        <div className="mb-4 p-3 bg-accent-muted/20 border border-accent-border rounded text-accent-soft text-sm">
           Create at least one recipe in the Recipes tab before logging a batch.
         </div>
       )}
 
       {allBatches.length === 0 ? (
-        <p className="text-zinc-600 text-sm">No batches yet.</p>
+        <p className="text-faint text-sm">No batches yet.</p>
       ) : (
         <BatchTable
           batches={allBatches}
@@ -314,7 +315,7 @@ export default function BatchLogTab() {
                 {!editingId && selectedRecipe && (() => {
                   const leadDays = (selectedRecipe.days_brewhouse ?? 0) + (selectedRecipe.days_fermenter ?? 0) + (selectedRecipe.days_brite ?? 0);
                   return leadDays > 0
-                    ? <p className="text-xs text-zinc-600 mt-1">Auto-set from recipe lead time: {leadDays} days</p>
+                    ? <p className="text-xs text-faint mt-1">Auto-set from recipe lead time: {leadDays} days</p>
                     : null;
                 })()}
               </Field>
@@ -323,7 +324,7 @@ export default function BatchLogTab() {
               <Field label="Volume (BBL)" required>
                 <input type="number" min="0" step="0.01" className="inp" value={form.volume_override} required
                   onChange={(e) => setForm((f) => ({ ...f, volume_override: e.target.value }))} />
-                <p className="text-xs text-zinc-500 mt-1">
+                <p className="text-xs text-muted mt-1">
                   This batch was created from a conversion, so its volume is set directly rather than from brewhouse turns.
                 </p>
               </Field>
@@ -331,16 +332,16 @@ export default function BatchLogTab() {
               <Field label={`Turns (${BREWHOUSE_BBL} BBL brewhouse)`} required>
                 <input type="number" min="1" step="1" className="inp" value={form.turns} required
                   onChange={(e) => setForm((f) => ({ ...f, turns: e.target.value }))} />
-                <p className="text-xs text-zinc-500 mt-1">
-                  Brew volume: <span className="text-zinc-300 font-medium">{computedVolume} BBL</span>
+                <p className="text-xs text-muted mt-1">
+                  Brew volume: <span className="text-body font-medium">{computedVolume} BBL</span>
                   {selectedRecipe?.expected_yield_bbl && (
-                    <span className="text-zinc-600 ml-1">· expected yield {(selectedRecipe.expected_yield_bbl * (parseInt(form.turns) || 1)).toFixed(2)} BBL after shrinkage</span>
+                    <span className="text-faint ml-1">· expected yield {(selectedRecipe.expected_yield_bbl * (parseInt(form.turns) || 1)).toFixed(2)} BBL after shrinkage</span>
                   )}
                 </p>
               </Field>
             ) : (
               <>
-                <label className="flex items-center gap-2 text-sm text-zinc-400 cursor-pointer select-none">
+                <label className="flex items-center gap-2 text-sm text-secondary cursor-pointer select-none">
                   <input type="checkbox" className="accent-amber-500" checked={isConversionBatch}
                     onChange={(e) => { setIsConversionBatch(e.target.checked); setForm((f) => ({ ...f, volume_override: "" })); }} />
                   Conversion batch (set volume directly)
@@ -349,16 +350,16 @@ export default function BatchLogTab() {
                   <Field label="Volume (BBL)" required>
                     <input type="number" min="0" step="0.01" className="inp" value={form.volume_override} required
                       onChange={(e) => setForm((f) => ({ ...f, volume_override: e.target.value }))} />
-                    <p className="text-xs text-zinc-500 mt-1">Enter the exact volume received from the source batch.</p>
+                    <p className="text-xs text-muted mt-1">Enter the exact volume received from the source batch.</p>
                   </Field>
                 ) : (
                   <Field label={`Turns (${BREWHOUSE_BBL} BBL brewhouse)`} required>
                     <input type="number" min="1" step="1" className="inp" value={form.turns} required
                       onChange={(e) => setForm((f) => ({ ...f, turns: e.target.value }))} />
-                    <p className="text-xs text-zinc-500 mt-1">
-                      Brew volume: <span className="text-zinc-300 font-medium">{computedVolume} BBL</span>
+                    <p className="text-xs text-muted mt-1">
+                      Brew volume: <span className="text-body font-medium">{computedVolume} BBL</span>
                       {selectedRecipe?.expected_yield_bbl && (
-                        <span className="text-zinc-600 ml-1">· expected yield {(selectedRecipe.expected_yield_bbl * (parseInt(form.turns) || 1)).toFixed(2)} BBL after shrinkage</span>
+                        <span className="text-faint ml-1">· expected yield {(selectedRecipe.expected_yield_bbl * (parseInt(form.turns) || 1)).toFixed(2)} BBL after shrinkage</span>
                       )}
                     </p>
                   </Field>
@@ -373,7 +374,7 @@ export default function BatchLogTab() {
             {/* Brew Stats — edit only */}
             {editingBatch && (
               <div>
-                <p className="text-xs text-zinc-400 mb-2">Brew Stats</p>
+                <p className="text-xs text-secondary mb-2">Brew Stats</p>
                 <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                   <Field label="IBU">
                     <input type="number" step="0.1" min="0" className="inp" placeholder="e.g. 45"
@@ -400,12 +401,12 @@ export default function BatchLogTab() {
             )}
 
             {editingBatch && (
-              <div className="pt-4 border-t border-zinc-800">
+              <div className="pt-4 border-t border-line">
                 <BrewActivityLogManager batch={editingBatch} />
               </div>
             )}
             {editingBatch && (
-              <p className="text-xs text-zinc-500">
+              <p className="text-xs text-muted">
                 Allocation plan and equipment schedule are managed from the batch row — expand it with ▶ on the Batch Log table.
               </p>
             )}
@@ -429,17 +430,10 @@ const CHANNEL_OPTIONS: { value: AllocationChannel; label: string }[] = [
   { value: "safety_stock",     label: "Safety Stock" },
 ];
 
-// Color per channel for badges + stacked bar
-const CHANNEL_COLOR: Record<AllocationChannel, { bg: string; text: string; bar: string }> = {
-  taproom:          { bg: "bg-blue-900/50",    text: "text-blue-300",   bar: "#3b82f6" },
-  distribution:     { bg: "bg-emerald-900/50", text: "text-emerald-300",bar: "#10b981" },
-  contract_brewing: { bg: "bg-purple-900/50",  text: "text-purple-300", bar: "#8b5cf6" },
-  wholesale:        { bg: "bg-amber-900/50",   text: "text-amber-300",  bar: "#f59e0b" },
-  safety_stock:     { bg: "bg-zinc-800",        text: "text-zinc-400",  bar: "#52525b" },
-};
+// Channel badge + stacked-bar colors come from the shared category palette.
 
 function ChannelBadge({ channel }: { channel: AllocationChannel }) {
-  const c = CHANNEL_COLOR[channel] ?? { bg: "bg-zinc-800", text: "text-zinc-400" };
+  const c = CHANNEL_COLOR[channel] ?? { bg: "bg-surface-mid", text: "text-secondary" };
   const label = CHANNEL_OPTIONS.find(o => o.value === channel)?.label ?? channel;
   return (
     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium border border-white/5 ${c.bg} ${c.text}`}>
@@ -451,20 +445,20 @@ function ChannelBadge({ channel }: { channel: AllocationChannel }) {
 function AllocationStatusBadge({ allocation }: { allocation: BatchAllocation }) {
   if (allocation.fulfilled) {
     return (
-      <span className="inline-flex items-center text-[10px] font-medium text-emerald-400 bg-emerald-900/30 border border-emerald-800/40 rounded px-1.5 py-0.5 whitespace-nowrap w-full justify-center">
+      <span className="inline-flex items-center text-[10px] font-medium text-success bg-success-surface/30 border border-success-border/40 rounded px-1.5 py-0.5 whitespace-nowrap w-full justify-center">
         Fulfilled
       </span>
     );
   }
   if (allocation.invoice_paid_at) {
     return (
-      <span className="inline-flex items-center text-[10px] font-medium text-blue-400 bg-blue-900/30 border border-blue-800/40 rounded px-1.5 py-0.5 whitespace-nowrap w-full justify-center">
+      <span className="inline-flex items-center text-[10px] font-medium text-info bg-info-surface/30 border border-info-border/40 rounded px-1.5 py-0.5 whitespace-nowrap w-full justify-center">
         Deposit Paid
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center text-[10px] font-medium text-zinc-500 bg-zinc-800/60 border border-zinc-700/50 rounded px-1.5 py-0.5 whitespace-nowrap w-full justify-center">
+    <span className="inline-flex items-center text-[10px] font-medium text-muted bg-surface-mid/60 border border-line-strong/50 rounded px-1.5 py-0.5 whitespace-nowrap w-full justify-center">
       Open
     </span>
   );
@@ -479,27 +473,27 @@ function InvoiceStatusBadge({ allocation }: { allocation: BatchAllocation }) {
 
   if (allocation.invoice_paid_at) {
     return (
-      <span className="inline-flex items-center gap-1 text-[10px] text-green-400 bg-green-900/30 border border-green-800/40 rounded px-1.5 py-0.5">
+      <span className="inline-flex items-center gap-1 text-[10px] text-success bg-success-surface/30 border border-success-border/40 rounded px-1.5 py-0.5">
         ✓ Deposit paid{numSuffix}
       </span>
     );
   }
   if (allocation.invoice_sent_at) {
     return (
-      <span className="inline-flex items-center gap-1 text-[10px] text-amber-400 bg-amber-900/30 border border-amber-800/40 rounded px-1.5 py-0.5">
+      <span className="inline-flex items-center gap-1 text-[10px] text-accent bg-accent-muted/30 border border-accent-border/40 rounded px-1.5 py-0.5">
         ● Invoice sent{numSuffix}
       </span>
     );
   }
   if (allocation.invoice_generated_at) {
     return (
-      <span className="inline-flex items-center gap-1 text-[10px] text-zinc-400 bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5">
+      <span className="inline-flex items-center gap-1 text-[10px] text-secondary bg-surface-mid border border-line-strong rounded px-1.5 py-0.5">
         Draft ready{numSuffix}
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 text-[10px] text-zinc-600 bg-zinc-900 border border-zinc-800 rounded px-1.5 py-0.5">
+    <span className="inline-flex items-center gap-1 text-[10px] text-faint bg-surface border border-line rounded px-1.5 py-0.5">
       Invoice pending
     </span>
   );
@@ -794,9 +788,9 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
     <div className="space-y-3">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wide">Allocation Plan</p>
+        <p className="text-xs font-semibold text-secondary uppercase tracking-wide">Allocation Plan</p>
         <button type="button" onClick={() => setShowAddForm(v => !v)}
-          className="text-xs text-amber-500 hover:text-amber-400 transition-colors">
+          className="text-xs text-accent-emphasis hover:text-accent transition-colors">
           {showAddForm ? "Cancel" : "+ Add allocation"}
         </button>
       </div>
@@ -804,7 +798,7 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
       {/* Stacked allocation bar */}
       {(allocations.length > 0 || batchConversions.length > 0) && (
         <div className="space-y-1.5">
-          <div className="w-full h-3 rounded-full bg-zinc-800 overflow-hidden flex">
+          <div className="w-full h-3 rounded-full bg-surface-mid overflow-hidden flex">
             {sortedAllocations.map(a => {
               const pct = Math.min(Number(a.percentage), 100);
               const color = (CHANNEL_COLOR[a.channel as AllocationChannel] ?? CHANNEL_COLOR.safety_stock).bar;
@@ -820,7 +814,7 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
             })}
             {/* Unallocated remainder */}
             {remaining > 0.1 && (
-              <div style={{ width: `${Math.min(remaining, 100)}%` }} className="bg-zinc-700/40" />
+              <div style={{ width: `${Math.min(remaining, 100)}%` }} className="bg-surface-high/40" />
             )}
           </div>
           <div className="flex items-center justify-between">
@@ -831,24 +825,24 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
                   return acc;
                 }, {})
               ).map(([channel, pct]) => (
-                <span key={channel} className="text-[10px] text-zinc-500 flex items-center gap-1">
+                <span key={channel} className="text-[10px] text-muted flex items-center gap-1">
                   <span className="inline-block w-2 h-2 rounded-sm flex-none" style={{ background: (CHANNEL_COLOR[channel as AllocationChannel] ?? CHANNEL_COLOR.safety_stock).bar }} />
                   {CHANNEL_OPTIONS.find(o => o.value === channel)?.label ?? channel}
-                  {" "}<span className="tabular-nums text-zinc-400">{pct.toFixed(1)}%</span>
+                  {" "}<span className="tabular-nums text-secondary">{pct.toFixed(1)}%</span>
                 </span>
               ))}
               {batchConversions.length > 0 && (
-                <span className="text-[10px] text-zinc-500 flex items-center gap-1">
+                <span className="text-[10px] text-muted flex items-center gap-1">
                   <span className="inline-block w-2 h-2 rounded-sm flex-none" style={{ background: "#f59e0b" }} />
                   Conversion
-                  {" "}<span className="tabular-nums text-zinc-400">{conversionPct.toFixed(1)}%</span>
+                  {" "}<span className="tabular-nums text-secondary">{conversionPct.toFixed(1)}%</span>
                 </span>
               )}
             </div>
-            <span className={`text-xs tabular-nums whitespace-nowrap ${overAllocated ? "text-red-400" : "text-zinc-500"}`}>
+            <span className={`text-xs tabular-nums whitespace-nowrap ${overAllocated ? "text-danger" : "text-muted"}`}>
               {totalPct.toFixed(1)}% · {((totalPct / 100) * batchVol).toFixed(1)} BBL
               {overAllocated && <span className="ml-1">⚠ over 100%</span>}
-              {!overAllocated && remaining > 0.1 && <span className="ml-1 text-zinc-600">({remaining.toFixed(1)}% open)</span>}
+              {!overAllocated && remaining > 0.1 && <span className="ml-1 text-faint">({remaining.toFixed(1)}% open)</span>}
             </span>
           </div>
         </div>
@@ -856,7 +850,7 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
 
       {/* Allocation incomplete banner */}
       {remaining > 0.1 && (
-        <div className="px-3 py-2 rounded border border-blue-700/50 bg-blue-950/20 text-xs text-blue-400 leading-relaxed">
+        <div className="px-3 py-2 rounded border border-info-border/50 bg-info-surface/20 text-xs text-info leading-relaxed">
           <span className="font-semibold">⚠ Allocation plan incomplete</span>
           {" "}— {remaining.toFixed(1)}% ({((remaining / 100) * batchVol).toFixed(2)} BBL) unallocated.
         </div>
@@ -878,11 +872,11 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
 
       {/* Allocation rows */}
       {allocations.length === 0 && !showAddForm && (
-        <p className="text-xs text-zinc-600 py-1">No allocations yet. Click &quot;+ Add allocation&quot; to start.</p>
+        <p className="text-xs text-faint py-1">No allocations yet. Click &quot;+ Add allocation&quot; to start.</p>
       )}
 
       {allocations.length > 0 && (
-        <div className="rounded-lg border border-zinc-800 divide-y divide-zinc-800/60 overflow-hidden">
+        <div className="rounded-lg border border-line divide-y divide-line/60 overflow-hidden">
           {sortedAllocations.map(a => {
             const req = a.commitments;
             const partner = a.contract_brewing_partners;
@@ -892,16 +886,16 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
             const barColor = (CHANNEL_COLOR[a.channel as AllocationChannel] ?? CHANNEL_COLOR.safety_stock).bar;
 
             return (
-              <div key={a.id} className="px-3 py-2.5 hover:bg-zinc-900/40 transition-colors">
+              <div key={a.id} className="px-3 py-2.5 hover:bg-surface/40 transition-colors">
                 {/* Top line: channel badge + partner/commitment + right-side controls */}
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-center gap-2 flex-wrap min-w-0">
                     <ChannelBadge channel={a.channel as AllocationChannel} />
                     {partner && (
-                      <span className="text-xs text-zinc-300 font-medium">{partner.company_name}</span>
+                      <span className="text-xs text-body font-medium">{partner.company_name}</span>
                     )}
                     {req && (
-                      <span className="text-xs text-zinc-500">
+                      <span className="text-xs text-muted">
                         {Number(req.volume_bbl)} BBL
                         {req.desired_delivery_date && <span className="ml-1">· due {fmtDateLong(req.desired_delivery_date)}</span>}
                       </span>
@@ -915,15 +909,15 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
                     <div className="flex items-center gap-1">
                       <input
                         type="number" step="0.1" min="0" max="100"
-                        className="w-16 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-right tabular-nums text-zinc-200 focus:outline-none focus:border-amber-600 disabled:opacity-40"
+                        className="w-16 bg-surface-mid border border-line-strong rounded px-2 py-1 text-xs text-right tabular-nums text-strong focus:outline-none focus:border-accent-border disabled:opacity-40"
                         value={pctVal}
                         onChange={e => setEditingPct(p => ({ ...p, [a.id]: e.target.value }))}
                         onBlur={() => savePct(a)}
                         onKeyDown={e => { if (e.key === "Enter") savePct(a); }}
                       />
-                      <span className="text-xs text-zinc-500">%</span>
+                      <span className="text-xs text-muted">%</span>
                     </div>
-                    <span className="text-xs tabular-nums text-zinc-400 text-right">
+                    <span className="text-xs tabular-nums text-secondary text-right">
                       {allocBbl != null ? `${allocBbl.toFixed(1)} BBL` : ""}
                     </span>
                     {/* Invoice controls for contract_brewing allocations */}
@@ -935,7 +929,7 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
                             <button type="button"
                               onClick={() => viewInvoiceInSquare(a)}
                               disabled={invoiceActionLoading === a.id}
-                              className="text-[10px] text-zinc-500 hover:text-zinc-300 border border-zinc-700 rounded px-1.5 py-1 transition-colors disabled:opacity-40 whitespace-nowrap">
+                              className="text-[10px] text-muted hover:text-body border border-line-strong rounded px-1.5 py-1 transition-colors disabled:opacity-40 whitespace-nowrap">
                               View in Square ↗
                             </button>
                           )}
@@ -946,7 +940,7 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
                                 <button type="button"
                                   onClick={() => openInvoiceModal(a)}
                                   disabled={invoiceActionLoading === a.id}
-                                  className="text-[10px] text-amber-500 hover:text-amber-400 border border-amber-800/50 hover:border-amber-600 rounded px-1.5 py-1 transition-colors disabled:opacity-40 whitespace-nowrap">
+                                  className="text-[10px] text-accent-emphasis hover:text-accent border border-accent-border/50 hover:border-accent-border rounded px-1.5 py-1 transition-colors disabled:opacity-40 whitespace-nowrap">
                                   Generate Invoice
                                 </button>
                               )}
@@ -955,13 +949,13 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
                                   <button type="button"
                                     onClick={() => handleSendInvoice(a.id)}
                                     disabled={invoiceActionLoading === a.id}
-                                    className="text-[10px] text-amber-500 hover:text-amber-400 border border-amber-800/50 hover:border-amber-600 rounded px-1.5 py-1 transition-colors disabled:opacity-40 whitespace-nowrap">
+                                    className="text-[10px] text-accent-emphasis hover:text-accent border border-accent-border/50 hover:border-accent-border rounded px-1.5 py-1 transition-colors disabled:opacity-40 whitespace-nowrap">
                                     {invoiceActionLoading === a.id ? "Sending…" : "Send Invoice"}
                                   </button>
                                   <button type="button"
                                     onClick={() => handleDeleteInvoice(a.id, false)}
                                     disabled={invoiceActionLoading === a.id}
-                                    className="text-[10px] text-red-700 hover:text-red-500 border border-red-900/50 hover:border-red-700 rounded px-1.5 py-1 transition-colors disabled:opacity-40 whitespace-nowrap">
+                                    className="text-[10px] text-danger hover:text-danger border border-danger-border/50 hover:border-danger-border rounded px-1.5 py-1 transition-colors disabled:opacity-40 whitespace-nowrap">
                                     Delete
                                   </button>
                                 </>
@@ -971,13 +965,13 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
                                   <button type="button"
                                     onClick={() => handleSyncInvoice(a.id)}
                                     disabled={invoiceActionLoading === a.id}
-                                    className="text-[10px] text-zinc-500 hover:text-zinc-300 border border-zinc-700 rounded px-1.5 py-1 transition-colors disabled:opacity-40 whitespace-nowrap">
+                                    className="text-[10px] text-muted hover:text-body border border-line-strong rounded px-1.5 py-1 transition-colors disabled:opacity-40 whitespace-nowrap">
                                     {invoiceActionLoading === a.id ? "Syncing…" : "Sync Status"}
                                   </button>
                                   <button type="button"
                                     onClick={() => handleDeleteInvoice(a.id, true)}
                                     disabled={invoiceActionLoading === a.id}
-                                    className="text-[10px] text-red-700 hover:text-red-500 border border-red-900/50 hover:border-red-700 rounded px-1.5 py-1 transition-colors disabled:opacity-40 whitespace-nowrap">
+                                    className="text-[10px] text-danger hover:text-danger border border-danger-border/50 hover:border-danger-border rounded px-1.5 py-1 transition-colors disabled:opacity-40 whitespace-nowrap">
                                     Delete
                                   </button>
                                 </>
@@ -985,7 +979,7 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
                               <button type="button"
                                 onClick={() => { setInvoiceModalMode("mark_paid"); setInvoiceModalAlloc(a); setInvoicePreview(null); }}
                                 disabled={invoiceActionLoading === a.id}
-                                className="text-[10px] text-emerald-600 hover:text-emerald-400 border border-emerald-900/50 hover:border-emerald-700 rounded px-1.5 py-1 transition-colors disabled:opacity-40 whitespace-nowrap">
+                                className="text-[10px] text-success hover:text-success border border-success-border/50 hover:border-success-border rounded px-1.5 py-1 transition-colors disabled:opacity-40 whitespace-nowrap">
                                 Mark Paid (Ext.)
                               </button>
                             </>
@@ -995,12 +989,12 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
                     </div>
                     <AllocationStatusBadge allocation={a} />
                     <button type="button" onClick={() => handleDelete(a.id, !!a.invoice_paid_at)}
-                      className="text-zinc-600 hover:text-red-400 text-sm leading-none transition-colors px-1 justify-self-end">✕</button>
+                      className="text-faint hover:text-danger text-sm leading-none transition-colors px-1 justify-self-end">✕</button>
                   </div>
                 </div>
 
                 {/* Mini allocation bar for this row */}
-                <div className="mt-2 h-1 rounded-full bg-zinc-800 overflow-hidden">
+                <div className="mt-2 h-1 rounded-full bg-surface-mid overflow-hidden">
                   <div style={{ width: `${Math.min(pctNum, 100)}%`, background: barColor }} className="h-full rounded-full transition-all" />
                 </div>
               </div>
@@ -1011,43 +1005,43 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
 
       {/* Read-only conversion rows (pending and completed) */}
       {batchConversions.length > 0 && (
-        <div className="rounded-lg border border-amber-900/40 divide-y divide-zinc-800/60 overflow-hidden">
+        <div className="rounded-lg border border-accent-border/40 divide-y divide-line/60 overflow-hidden">
           {batchConversions.map(c => {
             const pct = batchVol > 0 ? (Number(c.volume_bbl) / batchVol) * 100 : 0;
             const isConverted = !!c.converted_at;
             return (
-              <div key={c.id} className={`px-3 py-2.5 ${isConverted ? "bg-zinc-900/30" : "bg-amber-950/10"}`}>
+              <div key={c.id} className={`px-3 py-2.5 ${isConverted ? "bg-surface/30" : "bg-accent-muted/10"}`}>
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-center gap-2 flex-wrap min-w-0">
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium border border-white/5 bg-amber-900/50 text-amber-300">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium border border-white/5 bg-accent-muted/50 text-accent-soft">
                       Conversion
                     </span>
                     {c.target_batch && (
-                      <span className="text-xs text-zinc-300 font-medium">
+                      <span className="text-xs text-body font-medium">
                         → {c.target_batch.batch_number ? `#${c.target_batch.batch_number} ` : ""}{c.target_batch.beer_name}
                       </span>
                     )}
                     {isConverted ? (
-                      <span className="inline-flex items-center text-[10px] font-medium text-emerald-400 bg-emerald-900/30 border border-emerald-800/40 rounded px-1.5 py-0.5">
+                      <span className="inline-flex items-center text-[10px] font-medium text-success bg-success-surface/30 border border-success-border/40 rounded px-1.5 py-0.5">
                         Converted
                       </span>
                     ) : (
                       <>
                         {c.planned_date && (
-                          <span className="text-xs text-zinc-500">planned {fmtDateLong(c.planned_date)}</span>
+                          <span className="text-xs text-muted">planned {fmtDateLong(c.planned_date)}</span>
                         )}
-                        <span className="inline-flex items-center text-[10px] font-medium text-zinc-500 bg-zinc-800/60 border border-zinc-700/50 rounded px-1.5 py-0.5">
+                        <span className="inline-flex items-center text-[10px] font-medium text-muted bg-surface-mid/60 border border-line-strong/50 rounded px-1.5 py-0.5">
                           Pending
                         </span>
                       </>
                     )}
                   </div>
-                  <div className="flex items-center gap-3 flex-none text-xs tabular-nums text-zinc-400">
+                  <div className="flex items-center gap-3 flex-none text-xs tabular-nums text-secondary">
                     <span>{pct.toFixed(1)}%</span>
                     <span>{Number(c.volume_bbl).toFixed(1)} BBL</span>
                   </div>
                 </div>
-                <div className="mt-2 h-1 rounded-full bg-zinc-800 overflow-hidden">
+                <div className="mt-2 h-1 rounded-full bg-surface-mid overflow-hidden">
                   <div style={{ width: `${Math.min(pct, 100)}%`, background: "#f59e0b" }} className="h-full rounded-full" />
                 </div>
               </div>
@@ -1058,12 +1052,12 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
 
       {/* Add allocation form */}
       {showAddForm && (
-        <div className="rounded-lg border border-zinc-700 bg-zinc-900/60 p-3 space-y-3">
-          <p className="text-xs font-medium text-zinc-400">New Allocation</p>
+        <div className="rounded-lg border border-line-strong bg-surface/60 p-3 space-y-3">
+          <p className="text-xs font-medium text-secondary">New Allocation</p>
 
           {/* Channel selector — horizontal chips */}
           <div>
-            <label className="block text-xs text-zinc-500 mb-1.5">Channel</label>
+            <label className="block text-xs text-muted mb-1.5">Channel</label>
             <div className="flex flex-wrap gap-1.5">
               {CHANNEL_OPTIONS.map(o => {
                 const active = newChannel === o.value;
@@ -1073,7 +1067,7 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
                     className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
                       active
                         ? `${c.bg} ${c.text} border-white/10`
-                        : "bg-zinc-800 text-zinc-500 border-zinc-700 hover:border-zinc-500 hover:text-zinc-300"
+                        : "bg-surface-mid text-muted border-line-strong hover:border-line-subtle hover:text-body"
                     }`}>
                     {o.label}
                   </button>
@@ -1085,9 +1079,9 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
           {/* Commitment (for dist/contract channels) */}
           {!isTaproomChannel(newChannel) && (
             <div>
-              <label className="block text-xs text-zinc-500 mb-1">Commitment</label>
+              <label className="block text-xs text-muted mb-1">Commitment</label>
               {newChannelCommitments.length === 0 ? (
-                <p className="text-xs text-zinc-600 italic">No open commitments for this recipe &amp; channel.</p>
+                <p className="text-xs text-faint italic">No open commitments for this recipe &amp; channel.</p>
               ) : (
                 <select className="inp text-xs w-full" value={newCommitmentId} onChange={e => handleNewCommitmentChange(e.target.value)}>
                   <option value="">— select commitment —</option>
@@ -1102,10 +1096,10 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
                 </select>
               )}
               {selectedNewCommitment?.contract_brewing_partners && (
-                <p className="text-xs text-zinc-500 mt-1">
-                  Partner: <span className="text-zinc-300">{selectedNewCommitment.contract_brewing_partners.company_name}</span>
+                <p className="text-xs text-muted mt-1">
+                  Partner: <span className="text-body">{selectedNewCommitment.contract_brewing_partners.company_name}</span>
                   {selectedNewCommitment.received_on && (
-                    <span className="ml-2 text-zinc-600">· received {fmtDateLong(selectedNewCommitment.received_on)}</span>
+                    <span className="ml-2 text-faint">· received {fmtDateLong(selectedNewCommitment.received_on)}</span>
                   )}
                 </p>
               )}
@@ -1115,21 +1109,21 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
           {/* % and BBL */}
           <div className="flex items-end gap-3">
             <div className="flex-none">
-              <label className="block text-xs text-zinc-500 mb-1">Allocation %</label>
+              <label className="block text-xs text-muted mb-1">Allocation %</label>
               <div className="flex items-center gap-1">
                 <input type="number" step="0.1" min="0.1" max="100" className="inp w-24 text-xs text-right"
                   placeholder="0.0" value={newPct} onChange={e => setNewPct(e.target.value)} />
-                <span className="text-xs text-zinc-500">%</span>
+                <span className="text-xs text-muted">%</span>
               </div>
             </div>
             {newPct && batchVol > 0 && (
-              <div className="pb-1 text-xs text-zinc-400 tabular-nums">
-                = <span className="text-zinc-200 font-medium">{((parseFloat(newPct) / 100) * batchVol).toFixed(2)} BBL</span>
+              <div className="pb-1 text-xs text-secondary tabular-nums">
+                = <span className="text-strong font-medium">{((parseFloat(newPct) / 100) * batchVol).toFixed(2)} BBL</span>
               </div>
             )}
             {remaining > 0.1 && !newPct && (
               <button type="button" onClick={() => setNewPct(remaining.toFixed(1))}
-                className="pb-1 text-xs text-zinc-600 hover:text-zinc-400 underline underline-offset-2 transition-colors">
+                className="pb-1 text-xs text-faint hover:text-secondary underline underline-offset-2 transition-colors">
                 Fill remaining ({remaining.toFixed(1)}%)
               </button>
             )}
@@ -1137,11 +1131,11 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
 
           <div className="flex gap-2 pt-1">
             <button type="button" onClick={handleAdd} disabled={saving || !newPct}
-              className="px-4 py-1.5 text-xs bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white rounded font-medium transition-colors">
+              className="px-4 py-1.5 text-xs bg-accent-emphasis hover:bg-accent-emphasis disabled:opacity-50 text-primary rounded font-medium transition-colors">
               {saving ? "Adding…" : "Add"}
             </button>
             <button type="button" onClick={() => { setShowAddForm(false); setNewPct(""); setNewCommitmentId(""); setNewChannel("taproom"); }}
-              className="px-3 py-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors">
+              className="px-3 py-1.5 text-xs text-muted hover:text-body transition-colors">
               Cancel
             </button>
           </div>
@@ -1189,7 +1183,7 @@ function SortTh({
   const active = sort.col === col;
   return (
     <th
-      className={`px-4 py-2.5 text-xs font-medium text-zinc-500 cursor-pointer select-none hover:text-zinc-300 transition-colors ${className}`}
+      className={`px-4 py-2.5 text-xs font-medium text-muted cursor-pointer select-none hover:text-body transition-colors ${className}`}
       onClick={() => onSort(col)}
     >
       {label}{active ? (sort.dir === "asc" ? " ↑" : " ↓") : ""}
@@ -1233,20 +1227,20 @@ function BatchTable({
   if (!batches.length) return null;
 
   return (
-    <div className="overflow-x-auto rounded-lg border border-zinc-800">
+    <div className="overflow-x-auto rounded-lg border border-line">
       <table className="w-full text-sm min-w-[700px]">
         <thead>
-          <tr className="border-b border-zinc-800 text-left bg-zinc-900/50">
-            <th className="px-3 py-2.5 text-xs font-medium text-zinc-500 w-6"></th>
+          <tr className="border-b border-line text-left bg-surface/50">
+            <th className="px-3 py-2.5 text-xs font-medium text-muted w-6"></th>
             <SortTh col="batch_number"          label="Batch #"           sort={sort} onSort={onSort} className="whitespace-nowrap min-w-[110px]" />
             <SortTh col="beer_name"             label="Beer"              sort={sort} onSort={onSort} />
             <SortTh col="planned_brew_date"     label="Planned Brew Date" sort={sort} onSort={onSort} />
             <SortTh col="expected_delivery_date" label="Expected Delivery" sort={sort} onSort={onSort} />
             <SortTh col="volume_bbl"            label="Volume"            sort={sort} onSort={onSort} className="text-right" />
-            <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 text-right">Available</th>
-            <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 text-right">Turns</th>
+            <th className="px-4 py-2.5 text-xs font-medium text-muted text-right">Available</th>
+            <th className="px-4 py-2.5 text-xs font-medium text-muted text-right">Turns</th>
             <SortTh col="status"                label="Status"            sort={sort} onSort={onSort} />
-            <th className="px-4 py-2.5 text-xs font-medium text-zinc-500"></th>
+            <th className="px-4 py-2.5 text-xs font-medium text-muted"></th>
           </tr>
         </thead>
         <tbody>
@@ -1265,22 +1259,22 @@ function BatchTable({
 
             return (
               <React.Fragment key={b.id}>
-                <tr className={`border-b border-zinc-800/60 ${i % 2 !== 0 ? "bg-zinc-900/30" : ""} ${isExpanded ? "border-b-0" : ""}`}>
+                <tr className={`border-b border-line/60 ${i % 2 !== 0 ? "bg-surface/30" : ""} ${isExpanded ? "border-b-0" : ""}`}>
                   <td className="px-3 py-2.5">
                     <button
                       onClick={() => onToggle(b.id)}
-                      className="text-zinc-600 hover:text-zinc-400 transition-colors text-xs"
+                      className="text-faint hover:text-secondary transition-colors text-xs"
                       title="Show details"
                     >
                       {isExpanded ? "▼" : "▶"}
                     </button>
                   </td>
-                  <td className="px-4 py-2.5 font-mono text-xs text-zinc-400 whitespace-nowrap min-w-[110px]">
+                  <td className="px-4 py-2.5 font-mono text-xs text-secondary whitespace-nowrap min-w-[110px]">
                     <span className="flex items-center gap-1.5">
                       {b.batch_number ?? "—"}
                       {scheduleMissing && b.status !== "complete" && (
                         <span
-                          className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-amber-500 text-zinc-950 text-[10px] font-bold leading-none shrink-0"
+                          className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-accent-emphasis text-canvas text-[10px] font-bold leading-none shrink-0"
                           title="Schedule incomplete — missing required stages"
                         >
                           !
@@ -1290,25 +1284,25 @@ function BatchTable({
                       <DepositInvoiceBadge batchId={b.id} status={b.status} />
                     </span>
                   </td>
-                  <td className="px-4 py-2.5 text-zinc-100 font-medium">
+                  <td className="px-4 py-2.5 text-primary font-medium">
                     {b.beer_name}
                     {b.recipes?.partner?.company_name && (
-                      <span className="ml-1.5 text-xs text-zinc-500">{b.recipes.partner.company_name}</span>
+                      <span className="ml-1.5 text-xs text-muted">{b.recipes.partner.company_name}</span>
                     )}
                     {b.converted_from_batch && (
-                      <span className="ml-1.5 px-1.5 py-px rounded border border-amber-700/50 bg-amber-950/40 text-amber-400 text-[10px] font-normal whitespace-nowrap">
+                      <span className="ml-1.5 px-1.5 py-px rounded border border-accent-border/50 bg-accent-muted/40 text-accent text-[10px] font-normal whitespace-nowrap">
                         converted from {b.converted_from_batch.beer_name}
                       </span>
                     )}
                     <ShortfallBadge batchId={b.id} status={b.status} />
                   </td>
-                  <td className="px-4 py-2.5 text-zinc-400">{fmtDate(b.planned_brew_date)}</td>
-                  <td className="px-4 py-2.5 text-zinc-400">
-                    {deliveryDate ? fmtDate(deliveryDate) : <span className="text-zinc-700">—</span>}
+                  <td className="px-4 py-2.5 text-secondary">{fmtDate(b.planned_brew_date)}</td>
+                  <td className="px-4 py-2.5 text-secondary">
+                    {deliveryDate ? fmtDate(deliveryDate) : <span className="text-disabled">—</span>}
                   </td>
-                  <td className="px-4 py-2.5 text-zinc-300 text-right tabular-nums">{Number(b.volume_bbl).toFixed(2)} BBL</td>
+                  <td className="px-4 py-2.5 text-body text-right tabular-nums">{Number(b.volume_bbl).toFixed(2)} BBL</td>
                   <td className="px-4 py-2.5 text-right tabular-nums">
-                    {b.status === "planning" ? <span className="text-zinc-700">—</span> : (() => {
+                    {b.status === "planning" ? <span className="text-disabled">—</span> : (() => {
                       const bd = computeLocationBreakdown(b.id, Number(b.volume_bbl), transfers, tankTypeById, assignedBatchIds.has(b.id));
                       const hasTransfers = transfers.some((t) => t.batch_id === b.id);
                       // Cold storage = packaged, not liquid-in-process — exclude.
@@ -1317,35 +1311,35 @@ function BatchTable({
                       const avail = (!hasTransfers && b.status === "complete")
                         ? 0
                         : bd.backlog + bd.brewhouse + bd.fermenter + bd.brite;
-                      return <span className={avail > 0 ? "text-green-400" : "text-zinc-700"}>{avail.toFixed(2)} BBL</span>;
+                      return <span className={avail > 0 ? "text-success" : "text-disabled"}>{avail.toFixed(2)} BBL</span>;
                     })()}
                   </td>
-                  <td className="px-4 py-2.5 text-zinc-400 text-right">{b.turns}</td>
+                  <td className="px-4 py-2.5 text-secondary text-right">{b.turns}</td>
                   <td className="px-4 py-2.5"><StatusBadge status={b.status} /></td>
                   <td className="px-4 py-2.5">
                     <div className="flex gap-3 justify-end">
-                      <button onClick={() => onEdit(b)} className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors">Edit</button>
+                      <button onClick={() => onEdit(b)} className="text-xs text-muted hover:text-body transition-colors">Edit</button>
                       {b.status !== "complete" && (
-                        <button onClick={() => onComplete(b.id, b.beer_name)} className="text-xs text-zinc-500 hover:text-amber-400 transition-colors">Complete</button>
+                        <button onClick={() => onComplete(b.id, b.beer_name)} className="text-xs text-muted hover:text-accent transition-colors">Complete</button>
                       )}
                       {isAdmin && (
-                        <button onClick={() => onDelete(b.id, b.beer_name)} className="text-xs text-zinc-600 hover:text-red-400 transition-colors">Delete</button>
+                        <button onClick={() => onDelete(b.id, b.beer_name)} className="text-xs text-faint hover:text-danger transition-colors">Delete</button>
                       )}
                     </div>
                   </td>
                 </tr>
 
                 {isExpanded && (
-                  <tr className={`border-b border-zinc-800/60 ${i % 2 !== 0 ? "bg-zinc-900/30" : ""}`}>
+                  <tr className={`border-b border-line/60 ${i % 2 !== 0 ? "bg-surface/30" : ""}`}>
                     <td colSpan={10} className="px-6 pb-6 pt-3">
                       {/* Brew stats row */}
                       {(b.ibu != null || b.color_srm != null || b.original_gravity != null || b.final_gravity != null || b.dissolved_oxygen_ppb != null) && (
-                        <div className="flex gap-6 pb-4 mb-4 border-b border-zinc-800/60">
-                          {b.ibu != null && <div><p className="text-xs text-zinc-600 mb-0.5">IBU</p><p className="text-sm text-zinc-300 tabular-nums">{b.ibu}</p></div>}
-                          {b.color_srm != null && <div><p className="text-xs text-zinc-600 mb-0.5">Color (SRM)</p><p className="text-sm text-zinc-300 tabular-nums">{b.color_srm}</p></div>}
-                          {b.original_gravity != null && <div><p className="text-xs text-zinc-600 mb-0.5">OG</p><p className="text-sm text-zinc-300 tabular-nums">{b.original_gravity}</p></div>}
-                          {b.final_gravity != null && <div><p className="text-xs text-zinc-600 mb-0.5">FG</p><p className="text-sm text-zinc-300 tabular-nums">{b.final_gravity}</p></div>}
-                          {b.dissolved_oxygen_ppb != null && <div><p className="text-xs text-zinc-600 mb-0.5">DO (ppb)</p><p className="text-sm text-zinc-300 tabular-nums">{b.dissolved_oxygen_ppb}</p></div>}
+                        <div className="flex gap-6 pb-4 mb-4 border-b border-line/60">
+                          {b.ibu != null && <div><p className="text-xs text-faint mb-0.5">IBU</p><p className="text-sm text-body tabular-nums">{b.ibu}</p></div>}
+                          {b.color_srm != null && <div><p className="text-xs text-faint mb-0.5">Color (SRM)</p><p className="text-sm text-body tabular-nums">{b.color_srm}</p></div>}
+                          {b.original_gravity != null && <div><p className="text-xs text-faint mb-0.5">OG</p><p className="text-sm text-body tabular-nums">{b.original_gravity}</p></div>}
+                          {b.final_gravity != null && <div><p className="text-xs text-faint mb-0.5">FG</p><p className="text-sm text-body tabular-nums">{b.final_gravity}</p></div>}
+                          {b.dissolved_oxygen_ppb != null && <div><p className="text-xs text-faint mb-0.5">DO (ppb)</p><p className="text-sm text-body tabular-nums">{b.dissolved_oxygen_ppb}</p></div>}
                         </div>
                       )}
 
@@ -1355,7 +1349,7 @@ function BatchTable({
                       </div>
 
                       {/* 2 — Equipment Schedule */}
-                      <div className="mb-5 pt-4 border-t border-zinc-800/60">
+                      <div className="mb-5 pt-4 border-t border-line/60">
                         <EquipmentScheduleSection
                           batchId={b.id}
                           entries={scheduleEntries.filter((e) => e.batch_id === b.id)}
@@ -1366,7 +1360,7 @@ function BatchTable({
                       </div>
 
                       {/* 3 — Volume Breakdown */}
-                      <div className="mb-5 pt-4 border-t border-zinc-800/60">
+                      <div className="mb-5 pt-4 border-t border-line/60">
                         <BatchVolumeBreakdown
                           batch={b}
                           transfers={batchTransfers}
@@ -1376,13 +1370,13 @@ function BatchTable({
                       </div>
 
                       {/* 4 — Transfer Log */}
-                      <div className="pt-4 border-t border-zinc-800/60">
+                      <div className="pt-4 border-t border-line/60">
                         <TransferLog transfers={batchTransfers} batchVol={Number(b.volume_bbl)} />
                       </div>
 
                       {/* 5 — Admin: Reassign Tank */}
                       {isAdmin && (
-                        <div className="pt-4 border-t border-zinc-800/60">
+                        <div className="pt-4 border-t border-line/60">
                           <ReassignTankSection batchId={b.id} equipment={equipment} />
                         </div>
                       )}
@@ -1405,26 +1399,26 @@ function BrewActivityLogDisplay({ entries }: { entries: BrewActivityEntry[] }) {
   const sorted = [...entries].sort((a, b) => a.sort_order - b.sort_order);
   return (
     <div>
-      <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wide mb-2">Brew Activity Log</p>
-      <div className="overflow-x-auto rounded border border-zinc-800/60">
+      <p className="text-xs font-semibold text-secondary uppercase tracking-wide mb-2">Brew Activity Log</p>
+      <div className="overflow-x-auto rounded border border-line/60">
         <table className="w-full text-xs">
           <thead>
-            <tr className="border-b border-zinc-800 bg-zinc-900/40 text-left">
-              <th className="px-3 py-2 font-medium text-zinc-500 w-8">#</th>
-              <th className="px-3 py-2 font-medium text-zinc-500">Activity</th>
-              <th className="px-3 py-2 font-medium text-zinc-500">Time</th>
-              <th className="px-3 py-2 font-medium text-zinc-500 text-right">Temp (°F)</th>
-              <th className="px-3 py-2 font-medium text-zinc-500 text-right">Amount</th>
+            <tr className="border-b border-line bg-surface/40 text-left">
+              <th className="px-3 py-2 font-medium text-muted w-8">#</th>
+              <th className="px-3 py-2 font-medium text-muted">Activity</th>
+              <th className="px-3 py-2 font-medium text-muted">Time</th>
+              <th className="px-3 py-2 font-medium text-muted text-right">Temp (°F)</th>
+              <th className="px-3 py-2 font-medium text-muted text-right">Amount</th>
             </tr>
           </thead>
           <tbody>
             {sorted.map((e, i) => (
-              <tr key={e.id} className={`border-b border-zinc-800/40 ${i % 2 !== 0 ? "bg-zinc-900/20" : ""}`}>
-                <td className="px-3 py-2 text-zinc-600 tabular-nums">{i + 1}</td>
-                <td className="px-3 py-2 text-zinc-300">{e.activity}</td>
-                <td className="px-3 py-2 text-zinc-500">{e.time_label ?? "—"}</td>
-                <td className="px-3 py-2 text-zinc-500 text-right tabular-nums">{e.temp != null ? `${e.temp}` : "—"}</td>
-                <td className="px-3 py-2 text-zinc-500 text-right tabular-nums">{e.amount != null ? Number(e.amount).toLocaleString() : "—"}</td>
+              <tr key={e.id} className={`border-b border-line/40 ${i % 2 !== 0 ? "bg-surface/20" : ""}`}>
+                <td className="px-3 py-2 text-faint tabular-nums">{i + 1}</td>
+                <td className="px-3 py-2 text-body">{e.activity}</td>
+                <td className="px-3 py-2 text-muted">{e.time_label ?? "—"}</td>
+                <td className="px-3 py-2 text-muted text-right tabular-nums">{e.temp != null ? `${e.temp}` : "—"}</td>
+                <td className="px-3 py-2 text-muted text-right tabular-nums">{e.amount != null ? Number(e.amount).toLocaleString() : "—"}</td>
               </tr>
             ))}
           </tbody>
@@ -1536,32 +1530,32 @@ function BrewActivityLogManager({ batch }: { batch: BrewBatch }) {
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
-        <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wide">Brew Activity Log</p>
+        <p className="text-xs font-semibold text-secondary uppercase tracking-wide">Brew Activity Log</p>
         {hasDirty && (
           <button type="button" onClick={saveAll} disabled={saving}
-            className="text-xs text-amber-500 hover:text-amber-400 disabled:opacity-50 transition-colors">
+            className="text-xs text-accent-emphasis hover:text-accent disabled:opacity-50 transition-colors">
             {saving ? "Saving…" : "Save changes"}
           </button>
         )}
       </div>
 
       {rows.length > 0 && (
-        <div className="overflow-x-auto rounded border border-zinc-800/60 mb-3">
+        <div className="overflow-x-auto rounded border border-line/60 mb-3">
           <table className="w-full text-xs">
             <thead>
-              <tr className="border-b border-zinc-800 bg-zinc-900/40 text-left">
-                <th className="px-3 py-2 font-medium text-zinc-500">#</th>
-                <th className="px-3 py-2 font-medium text-zinc-500">Activity</th>
-                <th className="px-3 py-2 font-medium text-zinc-500">Time</th>
-                <th className="px-3 py-2 font-medium text-zinc-500 text-right">Temp (°F)</th>
-                <th className="px-3 py-2 font-medium text-zinc-500 text-right">Amount</th>
+              <tr className="border-b border-line bg-surface/40 text-left">
+                <th className="px-3 py-2 font-medium text-muted">#</th>
+                <th className="px-3 py-2 font-medium text-muted">Activity</th>
+                <th className="px-3 py-2 font-medium text-muted">Time</th>
+                <th className="px-3 py-2 font-medium text-muted text-right">Temp (°F)</th>
+                <th className="px-3 py-2 font-medium text-muted text-right">Amount</th>
                 <th className="px-3 py-2 w-6"></th>
               </tr>
             </thead>
             <tbody>
               {rows.map((r, i) => (
-                <tr key={r.id} className={`border-b border-zinc-800/40 ${i % 2 !== 0 ? "bg-zinc-900/20" : ""} ${r.dirty ? "bg-amber-950/10" : ""}`}>
-                  <td className="px-3 py-1.5 text-zinc-600 tabular-nums">{i + 1}</td>
+                <tr key={r.id} className={`border-b border-line/40 ${i % 2 !== 0 ? "bg-surface/20" : ""} ${r.dirty ? "bg-accent-muted/10" : ""}`}>
+                  <td className="px-3 py-1.5 text-faint tabular-nums">{i + 1}</td>
                   <td className="px-3 py-1.5">
                     <input className="inp text-xs" value={r.activity}
                       onChange={(e) => markDirty(i, "activity", e.target.value)} />
@@ -1580,7 +1574,7 @@ function BrewActivityLogManager({ batch }: { batch: BrewBatch }) {
                   </td>
                   <td className="px-3 py-1.5 text-center">
                     <button type="button" onClick={() => deleteRow(r.id)}
-                      className="text-zinc-600 hover:text-red-400 transition-colors">×</button>
+                      className="text-faint hover:text-danger transition-colors">×</button>
                   </td>
                 </tr>
               ))}
@@ -1592,27 +1586,27 @@ function BrewActivityLogManager({ batch }: { batch: BrewBatch }) {
       {/* Add new row */}
       <div className="flex gap-2 items-end flex-wrap">
         <div className="flex-1 min-w-[140px]">
-          <label className="block text-xs text-zinc-500 mb-1">Activity</label>
+          <label className="block text-xs text-muted mb-1">Activity</label>
           <input className="inp text-xs" placeholder="e.g. Mash in" value={newRow.activity}
             onChange={(e) => setNewRow((r) => ({ ...r, activity: e.target.value }))} />
         </div>
         <div className="w-24">
-          <label className="block text-xs text-zinc-500 mb-1">Time</label>
+          <label className="block text-xs text-muted mb-1">Time</label>
           <input className="inp text-xs" placeholder="e.g. 0:00" value={newRow.time_label}
             onChange={(e) => setNewRow((r) => ({ ...r, time_label: e.target.value }))} />
         </div>
         <div className="w-24">
-          <label className="block text-xs text-zinc-500 mb-1">Temp (°F)</label>
+          <label className="block text-xs text-muted mb-1">Temp (°F)</label>
           <input type="number" step="0.1" className="inp text-xs text-right" placeholder="152" value={newRow.temp}
             onChange={(e) => setNewRow((r) => ({ ...r, temp: e.target.value }))} />
         </div>
         <div className="w-24">
-          <label className="block text-xs text-zinc-500 mb-1">Amount</label>
+          <label className="block text-xs text-muted mb-1">Amount</label>
           <input type="number" step="0.01" className="inp text-xs text-right" placeholder="0" value={newRow.amount}
             onChange={(e) => setNewRow((r) => ({ ...r, amount: e.target.value }))} />
         </div>
         <button type="button" onClick={addRow} disabled={saving || !newRow.activity.trim()}
-          className="px-3 py-1.5 text-xs bg-zinc-800 border border-zinc-700 hover:border-zinc-500 text-zinc-300 rounded transition-colors disabled:opacity-50 shrink-0">
+          className="px-3 py-1.5 text-xs bg-surface-mid border border-line-strong hover:border-line-subtle text-body rounded transition-colors disabled:opacity-50 shrink-0">
           {saving ? "…" : "+ Add"}
         </button>
       </div>
@@ -1655,25 +1649,25 @@ function BatchVolumeBreakdown({
 
   return (
     <div className="mt-3">
-      <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wide mb-2">Volume Breakdown</p>
+      <p className="text-xs font-semibold text-secondary uppercase tracking-wide mb-2">Volume Breakdown</p>
 
       {/* Bar + headline */}
       <div className="mb-3">
         <div className="flex items-baseline gap-2 mb-1.5">
           {batch.status !== "planning" && (
-            <span className="text-sm font-semibold text-green-400 tabular-nums">{fmtBbl2(available)}</span>
+            <span className="text-sm font-semibold text-success tabular-nums">{fmtBbl2(available)}</span>
           )}
-          <span className="text-xs text-zinc-500">
-            {batch.status !== "planning" ? "available of " : ""}{fmtBbl2(originalVol)} total{!balanced && <span className="text-red-400 ml-1">⚠ unbalanced</span>}
+          <span className="text-xs text-muted">
+            {batch.status !== "planning" ? "available of " : ""}{fmtBbl2(originalVol)} total{!balanced && <span className="text-danger ml-1">⚠ unbalanced</span>}
           </span>
           {bd.converted > 0 && <span className="text-xs text-violet-400/80 ml-auto">{fmtBbl2(bd.converted)} converted</span>}
-          {bd.exported > 0 && <span className="text-xs text-zinc-500">{fmtBbl2(bd.exported)} exported</span>}
-          {bd.shrinkage > 0 && <span className="text-xs text-amber-500/80">{fmtBbl2(bd.shrinkage)} shrinkage</span>}
+          {bd.exported > 0 && <span className="text-xs text-muted">{fmtBbl2(bd.exported)} exported</span>}
+          {bd.shrinkage > 0 && <span className="text-xs text-accent-emphasis/80">{fmtBbl2(bd.shrinkage)} shrinkage</span>}
         </div>
-        <div className="h-2 rounded-full bg-zinc-800 overflow-hidden flex">
-          <div className="h-full bg-green-600/70" style={{ width: `${availablePct}%` }} />
-          <div className="h-full bg-blue-600/50" style={{ width: `${exportedPct}%` }} />
-          <div className="h-full bg-amber-600/50" style={{ width: `${shrinkagePct}%` }} />
+        <div className="h-2 rounded-full bg-surface-mid overflow-hidden flex">
+          <div className="h-full bg-success-emphasis/70" style={{ width: `${availablePct}%` }} />
+          <div className="h-full bg-info-emphasis/50" style={{ width: `${exportedPct}%` }} />
+          <div className="h-full bg-accent-emphasis/50" style={{ width: `${shrinkagePct}%` }} />
         </div>
       </div>
 
@@ -1682,8 +1676,8 @@ function BatchVolumeBreakdown({
         <div className="flex flex-wrap gap-x-4 gap-y-1">
           {locationCols.map(({ label, value }) => (
             <div key={label} className="flex items-center gap-1.5 text-xs">
-              <span className="text-zinc-600">{label}</span>
-              <span className="text-zinc-300 tabular-nums font-medium">{fmtBbl2(value)}</span>
+              <span className="text-faint">{label}</span>
+              <span className="text-body tabular-nums font-medium">{fmtBbl2(value)}</span>
             </div>
           ))}
         </div>
@@ -1706,7 +1700,7 @@ function AllocationBadge({ batchId, batchVol, status }: { batchId: string; batch
   if (totalPct >= 99.9) return null;
   return (
     <span
-      className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-blue-500 text-zinc-950 text-[10px] font-bold leading-none shrink-0"
+      className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-info-emphasis text-canvas text-[10px] font-bold leading-none shrink-0"
       title={`Allocation plan incomplete — ${totalPct.toFixed(1)}% allocated`}
     >
       !
@@ -1725,7 +1719,7 @@ function DepositInvoiceBadge({ batchId, status }: { batchId: string; status: str
   const title = `${unpaid.length} unpaid deposit invoice${unpaid.length > 1 ? "s" : ""}`;
   return (
     <span
-      className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-orange-500 text-zinc-950 text-[10px] font-bold leading-none shrink-0"
+      className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-orange-500 text-canvas text-[10px] font-bold leading-none shrink-0"
       title={title}
     >
       $
@@ -1740,7 +1734,7 @@ function ShortfallBadge({ batchId, status }: { batchId: string; status: string }
   return (
     <span
       title={shortfalls.map((s) => `${s.name}: need ${s.this_batch_committed.toFixed(2)} ${s.unit}, short by ${s.shortfall.toFixed(2)}`).join("\n")}
-      className="ml-1.5 px-1.5 py-px rounded border border-red-700/50 bg-red-950/40 text-red-400 text-[10px] font-normal whitespace-nowrap cursor-help"
+      className="ml-1.5 px-1.5 py-px rounded border border-danger-border/50 bg-danger-surface/40 text-danger text-[10px] font-normal whitespace-nowrap cursor-help"
     >
       ⚠ {shortfalls.length} ingredient{shortfalls.length > 1 ? "s" : ""} short
     </span>
@@ -1783,15 +1777,15 @@ function ReassignTankSection({ batchId, equipment }: { batchId: string; equipmen
 
   return (
     <div>
-      <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wide mb-2">
+      <p className="text-xs font-semibold text-secondary uppercase tracking-wide mb-2">
         Admin — Reassign Tank
       </p>
       {done && (
-        <p className="text-xs text-green-400 mb-2">Tank reassigned successfully.</p>
+        <p className="text-xs text-success mb-2">Tank reassigned successfully.</p>
       )}
       <form onSubmit={handleReassign} className="flex flex-wrap items-end gap-3">
         <div className="flex flex-col gap-1">
-          <label className="text-xs text-zinc-500">Correct Tank</label>
+          <label className="text-xs text-muted">Correct Tank</label>
           <select className="inp text-sm" value={tankId} required onChange={(e) => { setTankId(e.target.value); setDone(false); }}>
             <option value="">— select tank —</option>
             {tanks.map((t) => (
@@ -1802,15 +1796,15 @@ function ReassignTankSection({ batchId, equipment }: { batchId: string; equipmen
           </select>
         </div>
         <div className="flex flex-col gap-1 flex-1 min-w-[160px]">
-          <label className="text-xs text-zinc-500">Reason (optional)</label>
+          <label className="text-xs text-muted">Reason (optional)</label>
           <input className="inp text-sm" placeholder="e.g. entered wrong tank" value={reason} onChange={(e) => { setReason(e.target.value); setDone(false); }} />
         </div>
         <button type="submit" disabled={saving || !tankId}
-          className="px-3 py-1.5 text-sm rounded border border-red-800 bg-red-950/40 text-red-300 hover:bg-red-900/40 disabled:opacity-40 transition-colors">
+          className="px-3 py-1.5 text-sm rounded border border-danger-border bg-danger-surface/40 text-danger hover:bg-danger-surface/40 disabled:opacity-40 transition-colors">
           {saving ? "Saving…" : "Reassign"}
         </button>
       </form>
-      <p className="text-xs text-zinc-600 mt-1.5">
+      <p className="text-xs text-faint mt-1.5">
         Closes the current tank assignment and opens a new one. No transfer record is created.
       </p>
     </div>
@@ -1838,22 +1832,22 @@ function TransferLog({ transfers, batchVol }: { transfers: BatchTransfer[]; batc
       <button
         type="button"
         onClick={() => setExpanded(v => !v)}
-        className="flex items-center gap-2 text-xs font-semibold text-zinc-400 uppercase tracking-wide mb-2 hover:text-zinc-200 transition-colors"
+        className="flex items-center gap-2 text-xs font-semibold text-secondary uppercase tracking-wide mb-2 hover:text-strong transition-colors"
       >
         <span>{expanded ? "▾" : "▸"}</span>
         <span>Transfer Log</span>
-        <span className="text-zinc-600 font-normal normal-case tracking-normal">({transfers.length})</span>
+        <span className="text-faint font-normal normal-case tracking-normal">({transfers.length})</span>
       </button>
       {expanded && (
         transfers.length === 0 ? (
-          <p className="text-xs text-zinc-600">No transfers recorded yet.</p>
+          <p className="text-xs text-faint">No transfers recorded yet.</p>
         ) : (
-          <div className="overflow-x-auto rounded border border-zinc-800/60">
+          <div className="overflow-x-auto rounded border border-line/60">
             <table className="w-full text-xs">
               <thead>
-                <tr className="border-b border-zinc-800 bg-zinc-900/40 text-left">
+                <tr className="border-b border-line bg-surface/40 text-left">
                   {["Date", "From", "To", "Type", "Draw", "Shrinkage", "Output", "By", "Notes"].map(h => (
-                    <th key={h} className="px-3 py-2 font-medium text-zinc-500">{h}</th>
+                    <th key={h} className="px-3 py-2 font-medium text-muted">{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -1867,45 +1861,38 @@ function TransferLog({ transfers, batchVol }: { transfers: BatchTransfer[]; batc
                     ? `${t.quantity}× ${t.packaging_variations.name}`
                     : null;
                   return (
-                    <tr key={t.id} className={`border-b border-zinc-800/40 ${i % 2 !== 0 ? "bg-zinc-900/20" : ""}`}>
-                      <td className="px-3 py-2 text-zinc-500 whitespace-nowrap">{fmtDate(t.transferred_at.slice(0, 10))}</td>
-                      <td className="px-3 py-2 text-zinc-300">
+                    <tr key={t.id} className={`border-b border-line/40 ${i % 2 !== 0 ? "bg-surface/20" : ""}`}>
+                      <td className="px-3 py-2 text-muted whitespace-nowrap">{fmtDate(t.transferred_at.slice(0, 10))}</td>
+                      <td className="px-3 py-2 text-body">
                         {t.transfer_type === "brewing"
-                          ? <span className="text-zinc-500">Backlog</span>
+                          ? <span className="text-muted">Backlog</span>
                           : t.from_tank
-                            ? <><span className="text-zinc-100">{t.from_tank.name}</span> <span className={`px-1 py-px rounded border text-zinc-500 ${fromEq?.badge ?? ""}`} style={{ fontSize: 9 }}>{fromEq?.label ?? t.from_tank.type}</span></>
-                            : <span className="text-zinc-600">—</span>}
+                            ? <><span className="text-primary">{t.from_tank.name}</span> <span className={`px-1 py-px rounded border text-muted ${fromEq?.badge ?? ""}`} style={{ fontSize: 9 }}>{fromEq?.label ?? t.from_tank.type}</span></>
+                            : <span className="text-faint">—</span>}
                       </td>
-                      <td className="px-3 py-2 text-zinc-300">
+                      <td className="px-3 py-2 text-body">
                         {t.transfer_type === "conversion" && t.to_batch
-                          ? <span className="text-amber-300">{t.to_batch.beer_name}{t.to_batch.batch_number ? <span className="text-zinc-500 font-mono ml-1">#{t.to_batch.batch_number}</span> : null}</span>
+                          ? <span className="text-accent-soft">{t.to_batch.beer_name}{t.to_batch.batch_number ? <span className="text-muted font-mono ml-1">#{t.to_batch.batch_number}</span> : null}</span>
                           : t.to_tank
-                            ? <><span className="text-zinc-100">{t.to_tank.name}</span> <span className={`px-1 py-px rounded border text-zinc-500 ${toEq?.badge ?? ""}`} style={{ fontSize: 9 }}>{toEq?.label ?? t.to_tank.type}</span></>
+                            ? <><span className="text-primary">{t.to_tank.name}</span> <span className={`px-1 py-px rounded border text-muted ${toEq?.badge ?? ""}`} style={{ fontSize: 9 }}>{toEq?.label ?? t.to_tank.type}</span></>
                             : t.transfer_type === "export"
-                              ? <span className="text-zinc-400">Export Bay</span>
-                              : <span className="text-zinc-600">—</span>}
+                              ? <span className="text-secondary">Export Bay</span>
+                              : <span className="text-faint">—</span>}
                       </td>
                       <td className="px-3 py-2 capitalize">
-                        <span className={{
-                          brewing:    "text-emerald-500",
-                          transfer:   "text-blue-400",
-                          kegging:    "text-orange-400",
-                          canning:    "text-cyan-400",
-                          export:     "text-purple-400",
-                          conversion: "text-amber-400",
-                        }[t.transfer_type] ?? "text-zinc-400"}>
+                        <span className={TRANSFER_TYPE_TEXT[t.transfer_type] ?? "text-secondary"}>
                           {t.transfer_type}
                         </span>
                       </td>
-                      <td className="px-3 py-2 tabular-nums text-zinc-300">{fmtBbl2(Number(t.volume_bbl))}</td>
-                      <td className="px-3 py-2 tabular-nums text-zinc-500">
+                      <td className="px-3 py-2 tabular-nums text-body">{fmtBbl2(Number(t.volume_bbl))}</td>
+                      <td className="px-3 py-2 tabular-nums text-muted">
                         {Number(t.shrinkage_bbl) > 0 ? fmtBbl2(Number(t.shrinkage_bbl)) : "—"}
                       </td>
-                      <td className="px-3 py-2 text-zinc-400 whitespace-nowrap">
-                        {outputLabel ?? <span className="text-zinc-700">—</span>}
+                      <td className="px-3 py-2 text-secondary whitespace-nowrap">
+                        {outputLabel ?? <span className="text-disabled">—</span>}
                       </td>
-                      <td className="px-3 py-2 text-zinc-500 max-w-[100px] truncate" title={byEmail ?? undefined}>{byLabel}</td>
-                      <td className="px-3 py-2 text-zinc-500 max-w-[160px] truncate">{t.notes ?? "—"}</td>
+                      <td className="px-3 py-2 text-muted max-w-[100px] truncate" title={byEmail ?? undefined}>{byLabel}</td>
+                      <td className="px-3 py-2 text-muted max-w-[160px] truncate">{t.notes ?? "—"}</td>
                     </tr>
                   );
                 })}

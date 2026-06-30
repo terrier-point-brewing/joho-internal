@@ -5,6 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { PackagingVariation, PackagingVariationFormat } from "../types";
 import { Modal, Field, ModalActions } from "./shared";
 import { usePackagingQuery, usePackagingVariationsQuery, useContractPartnersQuery, productionKeys } from "../hooks/queries";
+import { CATEGORY_BADGE_CLASS as CC, KEG_TAG_BADGE } from "../lib/categoryColors";
 
 const FORMATS: { value: PackagingVariationFormat; label: string }[] = [
   { value: "loose",   label: "Loose" },
@@ -42,7 +43,7 @@ function Chips<T extends string>({
 }) {
   return (
     <div className="flex items-center gap-1.5 flex-wrap">
-      <span className="text-xs text-zinc-500 mr-0.5">{label}:</span>
+      <span className="text-xs text-muted mr-0.5">{label}:</span>
       {options.map((o) => (
         <button
           key={o.value}
@@ -50,8 +51,8 @@ function Chips<T extends string>({
           onClick={() => onChange(o.value)}
           className={`text-xs px-2 py-0.5 rounded border transition-colors ${
             value === o.value
-              ? "border-amber-600 bg-amber-900/40 text-amber-300"
-              : "border-zinc-700 text-zinc-400 hover:border-zinc-500 hover:text-zinc-300"
+              ? "border-accent-border bg-accent-muted/40 text-accent-soft"
+              : "border-line-strong text-secondary hover:border-line-subtle hover:text-body"
           }`}
         >
           {o.label}
@@ -62,10 +63,10 @@ function Chips<T extends string>({
 }
 
 const COMPONENT_COLORS = {
-  lid:     "border-zinc-600 bg-zinc-800/60 text-zinc-300",
-  paktech: "border-purple-700 bg-purple-900/30 text-purple-300",
-  tray:    "border-amber-700 bg-amber-900/30 text-amber-300",
-  label:   "border-blue-700 bg-blue-900/30 text-blue-300",
+  lid:     "border-line-subtle bg-surface-mid/60 text-body",
+  paktech: CC.purple,
+  tray:    "border-accent-border bg-accent-muted/30 text-accent-soft",
+  label:   "border-info-border bg-info-surface/30 text-info",
 } as const;
 
 function ComponentPill({ name, type }: { name: string; type: keyof typeof COMPONENT_COLORS }) {
@@ -238,7 +239,7 @@ export default function PackagingVariationsPanel() {
     <>
       {/* Header */}
       <div className="flex items-center justify-between gap-2 mb-4">
-        <p className="text-xs text-zinc-500">
+        <p className="text-xs text-muted">
           Strictly-defined packaging combinations — container + format + specific components. Used by Recipes to declare which variations they&apos;re packaged as.
         </p>
         <button onClick={openNew} className="btn-amber text-xs py-1 px-2.5 shrink-0">+ Add Variation</button>
@@ -254,7 +255,7 @@ export default function PackagingVariationsPanel() {
             onChange={(e) => setSearch(e.target.value)}
             className="inp flex-1 max-w-xs text-xs py-1"
           />
-          <label className="flex items-center gap-1.5 text-xs text-zinc-500 cursor-pointer select-none">
+          <label className="flex items-center gap-1.5 text-xs text-muted cursor-pointer select-none">
             <input
               type="checkbox"
               checked={showInactive}
@@ -295,11 +296,11 @@ export default function PackagingVariationsPanel() {
       {/* Result count + clear */}
       {(hasActiveFilters || showInactive) && (
         <div className="flex items-center gap-2 mb-2">
-          <span className="text-xs text-zinc-500">
+          <span className="text-xs text-muted">
             {displayed.length} of {variations.length} variation{variations.length !== 1 ? "s" : ""}
           </span>
           {hasActiveFilters && (
-            <button onClick={clearFilters} className="text-xs text-zinc-600 hover:text-zinc-400">
+            <button onClick={clearFilters} className="text-xs text-faint hover:text-secondary">
               Clear filters
             </button>
           )}
@@ -308,20 +309,20 @@ export default function PackagingVariationsPanel() {
 
       {/* Table */}
       {variations.length === 0 ? (
-        <p className="text-zinc-600 text-sm">No packaging variations yet.</p>
+        <p className="text-faint text-sm">No packaging variations yet.</p>
       ) : displayed.length === 0 ? (
-        <p className="text-zinc-600 text-sm">No variations match the current filters.</p>
+        <p className="text-faint text-sm">No variations match the current filters.</p>
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-zinc-800">
+        <div className="overflow-x-auto rounded-lg border border-line">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-zinc-800 bg-zinc-900/50 text-left">
-                <th className="px-3 py-2.5 text-xs font-medium text-zinc-500">Container</th>
-                <th className="px-3 py-2.5 text-xs font-medium text-zinc-500">Name</th>
-                <th className="px-3 py-2.5 text-xs font-medium text-zinc-500">Format</th>
-                <th className="px-3 py-2.5 text-xs font-medium text-zinc-500">Components</th>
-                <th className="px-3 py-2.5 text-xs font-medium text-zinc-500">Partner</th>
-                <th className="px-3 py-2.5 text-xs font-medium text-zinc-500"></th>
+              <tr className="border-b border-line bg-surface/50 text-left">
+                <th className="px-3 py-2.5 text-xs font-medium text-muted">Container</th>
+                <th className="px-3 py-2.5 text-xs font-medium text-muted">Name</th>
+                <th className="px-3 py-2.5 text-xs font-medium text-muted">Format</th>
+                <th className="px-3 py-2.5 text-xs font-medium text-muted">Components</th>
+                <th className="px-3 py-2.5 text-xs font-medium text-muted">Partner</th>
+                <th className="px-3 py-2.5 text-xs font-medium text-muted"></th>
               </tr>
             </thead>
             <tbody>
@@ -332,22 +333,22 @@ export default function PackagingVariationsPanel() {
                 return (
                   <tr
                     key={v.id}
-                    className={`border-b border-zinc-800/60 ${
-                      !v.is_active ? "opacity-50" : i % 2 !== 0 ? "bg-zinc-900/30" : ""
+                    className={`border-b border-line/60 ${
+                      !v.is_active ? "opacity-50" : i % 2 !== 0 ? "bg-surface/30" : ""
                     }`}
                   >
                     <td className="px-3 py-2.5">
                       <div className="flex items-center gap-1.5">
                         {vIsKeg ? (
-                          <span className="text-xs px-1.5 py-0.5 rounded border border-orange-700 bg-orange-900/30 text-orange-300 font-medium uppercase shrink-0">Keg</span>
+                          <span className={`text-xs px-1.5 py-0.5 rounded ${KEG_TAG_BADGE} font-medium uppercase shrink-0`}>Keg</span>
                         ) : (
-                          <span className="text-xs px-1.5 py-0.5 rounded border border-blue-700 bg-blue-900/30 text-blue-300 font-medium uppercase shrink-0">Can</span>
+                          <span className="text-xs px-1.5 py-0.5 rounded border border-info-border bg-info-surface/30 text-info font-medium uppercase shrink-0">Can</span>
                         )}
-                        <span className="text-zinc-400 text-xs">{v.container?.name ?? "—"}</span>
+                        <span className="text-secondary text-xs">{v.container?.name ?? "—"}</span>
                       </div>
                     </td>
-                    <td className="px-3 py-2.5 text-zinc-200 font-medium text-xs">{v.name}</td>
-                    <td className="px-3 py-2.5 text-zinc-400 text-xs">{formatLabel}</td>
+                    <td className="px-3 py-2.5 text-strong font-medium text-xs">{v.name}</td>
+                    <td className="px-3 py-2.5 text-secondary text-xs">{formatLabel}</td>
                     <td className="px-3 py-2.5">
                       {hasComponents ? (
                         <div className="flex flex-wrap gap-1">
@@ -357,13 +358,13 @@ export default function PackagingVariationsPanel() {
                           {v.label   && <ComponentPill name={v.label.name}   type="label" />}
                         </div>
                       ) : (
-                        <span className="text-zinc-600">—</span>
+                        <span className="text-faint">—</span>
                       )}
                     </td>
-                    <td className="px-3 py-2.5 text-zinc-400 text-xs">{v.contract_brewing_partners?.company_name ?? "Generic"}</td>
+                    <td className="px-3 py-2.5 text-secondary text-xs">{v.contract_brewing_partners?.company_name ?? "Generic"}</td>
                     <td className="px-3 py-2.5 text-right whitespace-nowrap">
-                      <button onClick={() => openEdit(v)} className="text-xs text-zinc-400 hover:text-zinc-200 mr-3">Edit</button>
-                      <button onClick={() => handleDelete(v)} aria-label="Delete variation" className="text-xs text-zinc-600 hover:text-red-400">Delete</button>
+                      <button onClick={() => openEdit(v)} className="text-xs text-secondary hover:text-strong mr-3">Edit</button>
+                      <button onClick={() => handleDelete(v)} aria-label="Delete variation" className="text-xs text-faint hover:text-danger">Delete</button>
                     </td>
                   </tr>
                 );
@@ -386,7 +387,7 @@ export default function PackagingVariationsPanel() {
               </select>
             </Field>
             {isKeg ? (
-              <p className="text-xs text-zinc-500">
+              <p className="text-xs text-muted">
                 Kegs are packaged loose — no format, lid, PakTech, tray, or label applies.
               </p>
             ) : (
@@ -426,7 +427,7 @@ export default function PackagingVariationsPanel() {
                         checked={!form.is_labeled}
                         onChange={() => updateForm({ is_labeled: false })}
                       />
-                      <span className="text-sm text-zinc-300">Printed Can</span>
+                      <span className="text-sm text-body">Printed Can</span>
                     </label>
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input
@@ -434,7 +435,7 @@ export default function PackagingVariationsPanel() {
                         checked={form.is_labeled}
                         onChange={() => updateForm({ is_labeled: true })}
                       />
-                      <span className="text-sm text-zinc-300">Labeled Can</span>
+                      <span className="text-sm text-body">Labeled Can</span>
                     </label>
                   </div>
                 </Field>
@@ -454,7 +455,7 @@ export default function PackagingVariationsPanel() {
                 {partners.map((p) => <option key={p.id} value={p.id}>{p.company_name}</option>)}
               </select>
             </Field>
-            {error && <p className="text-xs text-red-400">{error}</p>}
+            {error && <p className="text-xs text-danger">{error}</p>}
             <ModalActions submitting={submitting} onCancel={() => setShowModal(false)} label={editingId ? "Save" : "Create"} />
           </form>
         </Modal>

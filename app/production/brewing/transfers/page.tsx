@@ -38,12 +38,12 @@ const TYPE_LABELS: Record<TransferType, string> = {
 };
 
 const TYPE_COLOR: Record<TransferType, string> = {
-  transfer:   "bg-zinc-700/60 text-zinc-300 border-zinc-600",
-  kegging:    "bg-emerald-900/50 text-emerald-300 border-emerald-700",
+  transfer:   "bg-surface-high/60 text-body border-line-subtle",
+  kegging:    "bg-success-surface/50 text-success border-success-border",
   canning:    "bg-cyan-900/50 text-cyan-300 border-cyan-700",
-  conversion: "bg-amber-900/50 text-amber-300 border-amber-700",
+  conversion: "bg-accent-muted/50 text-accent-soft border-accent-border",
   export:     "bg-purple-900/50 text-purple-300 border-purple-700",
-  brewing:    "bg-blue-900/50 text-blue-300 border-blue-700",
+  brewing:    "bg-info-surface/50 text-info border-info-border",
 };
 
 function TypeBadge({ type }: { type: TransferType }) {
@@ -91,17 +91,17 @@ export default function TransferLogPage() {
       <div className="mt-4 space-y-4">
         <div className="flex flex-wrap gap-2 items-end">
           <div className="flex flex-col gap-1">
-            <label className="text-xs text-zinc-500">From date</label>
+            <label className="text-xs text-muted">From date</label>
             <input type="date" className="inp" value={filters.from}
               onChange={(e) => setFilters((f) => ({ ...f, from: e.target.value }))} />
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-xs text-zinc-500">To date</label>
+            <label className="text-xs text-muted">To date</label>
             <input type="date" className="inp" value={filters.to}
               onChange={(e) => setFilters((f) => ({ ...f, to: e.target.value }))} />
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-xs text-zinc-500">Type</label>
+            <label className="text-xs text-muted">Type</label>
             <select className="inp" value={filters.type}
               onChange={(e) => setFilters((f) => ({ ...f, type: e.target.value }))}>
               <option value="">All types</option>
@@ -114,87 +114,87 @@ export default function TransferLogPage() {
           {(applied.from || applied.to || applied.type || applied.batch_id) && (
             <button onClick={clear} className="btn-ghost">Clear</button>
           )}
-          <span className="ml-auto text-xs text-zinc-500 self-end">
+          <span className="ml-auto text-xs text-muted self-end">
             {isLoading ? "Loading…" : `${rows.length} record${rows.length !== 1 ? "s" : ""}`}
           </span>
         </div>
 
         {isError && (
-          <p className="text-red-400 text-sm">Failed to load transfer log.</p>
+          <p className="text-danger text-sm">Failed to load transfer log.</p>
         )}
 
-        <div className="overflow-x-auto rounded border border-zinc-800">
+        <div className="overflow-x-auto rounded border border-line">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-zinc-800 text-left">
-                <th className="px-3 py-2 text-xs text-zinc-500 font-medium whitespace-nowrap">Date / Time</th>
-                <th className="px-3 py-2 text-xs text-zinc-500 font-medium">Type</th>
-                <th className="px-3 py-2 text-xs text-zinc-500 font-medium">Batch</th>
-                <th className="px-3 py-2 text-xs text-zinc-500 font-medium">From</th>
-                <th className="px-3 py-2 text-xs text-zinc-500 font-medium">To</th>
-                <th className="px-3 py-2 text-xs text-zinc-500 font-medium text-right">Volume</th>
-                <th className="px-3 py-2 text-xs text-zinc-500 font-medium text-right">Shrinkage</th>
-                <th className="px-3 py-2 text-xs text-zinc-500 font-medium">Actor</th>
-                <th className="px-3 py-2 text-xs text-zinc-500 font-medium">Notes</th>
+              <tr className="border-b border-line text-left">
+                <th className="px-3 py-2 text-xs text-muted font-medium whitespace-nowrap">Date / Time</th>
+                <th className="px-3 py-2 text-xs text-muted font-medium">Type</th>
+                <th className="px-3 py-2 text-xs text-muted font-medium">Batch</th>
+                <th className="px-3 py-2 text-xs text-muted font-medium">From</th>
+                <th className="px-3 py-2 text-xs text-muted font-medium">To</th>
+                <th className="px-3 py-2 text-xs text-muted font-medium text-right">Volume</th>
+                <th className="px-3 py-2 text-xs text-muted font-medium text-right">Shrinkage</th>
+                <th className="px-3 py-2 text-xs text-muted font-medium">Actor</th>
+                <th className="px-3 py-2 text-xs text-muted font-medium">Notes</th>
               </tr>
             </thead>
             <tbody>
               {rows.length === 0 && !isLoading && (
                 <tr>
-                  <td colSpan={9} className="px-3 py-6 text-center text-zinc-600 text-sm">
+                  <td colSpan={9} className="px-3 py-6 text-center text-faint text-sm">
                     No transfers found.
                   </td>
                 </tr>
               )}
               {rows.map((row) => (
-                <tr key={row.id} className="border-b border-zinc-800/60 hover:bg-zinc-800/30 transition-colors">
-                  <td className="px-3 py-2 text-zinc-400 whitespace-nowrap font-mono text-xs">
+                <tr key={row.id} className="border-b border-line/60 hover:bg-surface-mid/30 transition-colors">
+                  <td className="px-3 py-2 text-secondary whitespace-nowrap font-mono text-xs">
                     {fmtDateTime(row.transferred_at)}
                   </td>
                   <td className="px-3 py-2">
                     <TypeBadge type={row.transfer_type} />
                   </td>
                   <td className="px-3 py-2">
-                    <p className="text-zinc-100 font-medium leading-tight">{row.batch?.beer_name ?? "—"}</p>
+                    <p className="text-primary font-medium leading-tight">{row.batch?.beer_name ?? "—"}</p>
                     {row.batch?.batch_number && (
-                      <p className="text-zinc-500 font-mono text-xs">{row.batch.batch_number}</p>
+                      <p className="text-muted font-mono text-xs">{row.batch.batch_number}</p>
                     )}
                   </td>
-                  <td className="px-3 py-2 text-zinc-300 whitespace-nowrap">
-                    {row.from_tank?.name ?? <span className="text-zinc-600">—</span>}
+                  <td className="px-3 py-2 text-body whitespace-nowrap">
+                    {row.from_tank?.name ?? <span className="text-faint">—</span>}
                     {row.from_tank?.type && (
-                      <span className="text-zinc-600 text-xs ml-1">({row.from_tank.type})</span>
+                      <span className="text-faint text-xs ml-1">({row.from_tank.type})</span>
                     )}
                   </td>
                   <td className="px-3 py-2 whitespace-nowrap">
                     {row.to_batch_id ? (
-                      <span className="text-amber-300">
+                      <span className="text-accent-soft">
                         {row.to_batch?.beer_name ?? "child batch"}
                         {row.to_batch?.batch_number && (
-                          <span className="text-zinc-500 font-mono text-xs ml-1">{row.to_batch.batch_number}</span>
+                          <span className="text-muted font-mono text-xs ml-1">{row.to_batch.batch_number}</span>
                         )}
                       </span>
                     ) : (
-                      <span className="text-zinc-300">
-                        {row.to_tank?.name ?? <span className="text-zinc-600">—</span>}
+                      <span className="text-body">
+                        {row.to_tank?.name ?? <span className="text-faint">—</span>}
                         {row.to_tank?.type && (
-                          <span className="text-zinc-600 text-xs ml-1">({row.to_tank.type})</span>
+                          <span className="text-faint text-xs ml-1">({row.to_tank.type})</span>
                         )}
                       </span>
                     )}
                   </td>
-                  <td className="px-3 py-2 text-right text-zinc-200 font-mono tabular-nums whitespace-nowrap">
+                  <td className="px-3 py-2 text-right text-strong font-mono tabular-nums whitespace-nowrap">
                     {fmtBbl2(row.volume_bbl)}
                   </td>
                   <td className="px-3 py-2 text-right font-mono tabular-nums whitespace-nowrap">
                     {row.shrinkage_bbl > 0
-                      ? <span className="text-red-400">{fmtBbl2(row.shrinkage_bbl)}</span>
-                      : <span className="text-zinc-700">—</span>}
+                      ? <span className="text-danger">{fmtBbl2(row.shrinkage_bbl)}</span>
+                      : <span className="text-disabled">—</span>}
                   </td>
-                  <td className="px-3 py-2 text-zinc-400 text-xs whitespace-nowrap">
-                    {row.created_by_profile?.email ?? <span className="text-zinc-600">—</span>}
+                  <td className="px-3 py-2 text-secondary text-xs whitespace-nowrap">
+                    {row.created_by_profile?.email ?? <span className="text-faint">—</span>}
                   </td>
-                  <td className="px-3 py-2 text-zinc-500 text-xs max-w-48 truncate">
+                  <td className="px-3 py-2 text-muted text-xs max-w-48 truncate">
                     {row.notes ?? ""}
                   </td>
                 </tr>

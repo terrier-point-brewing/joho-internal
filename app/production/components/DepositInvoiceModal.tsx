@@ -88,17 +88,17 @@ export function DepositInvoiceModal({
         {/* ── Mark paid form ───────────────────────────────────────────────── */}
         {mode === "mark_paid" ? (
           <>
-            <p className="text-xs text-zinc-500">
+            <p className="text-xs text-muted">
               Record a deposit payment that was collected outside of Square. This will lock the allocation.
             </p>
 
-            <div className="rounded-lg bg-zinc-900 border border-zinc-800 p-4 space-y-3">
+            <div className="rounded-lg bg-surface border border-line p-4 space-y-3">
               <div className="space-y-1">
-                <label className="text-xs text-zinc-400">Source</label>
+                <label className="text-xs text-secondary">Source</label>
                 <select
                   value={mpSource}
                   onChange={(e) => setMpSource(e.target.value as "quickbooks" | "other")}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-sm text-zinc-200"
+                  className="w-full bg-surface-mid border border-line-strong rounded px-2 py-1.5 text-sm text-strong"
                 >
                   <option value="quickbooks">QuickBooks</option>
                   <option value="other">Other</option>
@@ -107,42 +107,42 @@ export function DepositInvoiceModal({
 
               {mpSource === "quickbooks" && (
                 <div className="space-y-1">
-                  <label className="text-xs text-zinc-400">QB Invoice # <span className="text-red-400">*</span></label>
+                  <label className="text-xs text-secondary">QB Invoice # <span className="text-danger">*</span></label>
                   <input
                     type="text"
                     value={mpRef}
                     onChange={(e) => setMpRef(e.target.value)}
                     placeholder="e.g. INV-1042"
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-sm text-zinc-200 placeholder:text-zinc-600"
+                    className="w-full bg-surface-mid border border-line-strong rounded px-2 py-1.5 text-sm text-strong placeholder:text-faint"
                   />
                 </div>
               )}
 
               {mpSource === "other" && (
                 <div className="space-y-1">
-                  <label className="text-xs text-zinc-400">Reference # (optional)</label>
+                  <label className="text-xs text-secondary">Reference # (optional)</label>
                   <input
                     type="text"
                     value={mpRef}
                     onChange={(e) => setMpRef(e.target.value)}
                     placeholder="e.g. check #1234"
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-sm text-zinc-200 placeholder:text-zinc-600"
+                    className="w-full bg-surface-mid border border-line-strong rounded px-2 py-1.5 text-sm text-strong placeholder:text-faint"
                   />
                 </div>
               )}
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <label className="text-xs text-zinc-400">Date paid <span className="text-red-400">*</span></label>
+                  <label className="text-xs text-secondary">Date paid <span className="text-danger">*</span></label>
                   <input
                     type="date"
                     value={mpPaidAt}
                     onChange={(e) => setMpPaidAt(e.target.value)}
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-sm text-zinc-200"
+                    className="w-full bg-surface-mid border border-line-strong rounded px-2 py-1.5 text-sm text-strong"
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs text-zinc-400">Amount ($) <span className="text-red-400">*</span></label>
+                  <label className="text-xs text-secondary">Amount ($) <span className="text-danger">*</span></label>
                   <input
                     type="number"
                     min="0.01"
@@ -150,7 +150,7 @@ export function DepositInvoiceModal({
                     value={mpAmount}
                     onChange={(e) => setMpAmount(e.target.value)}
                     placeholder="0.00"
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-sm text-zinc-200 placeholder:text-zinc-600"
+                    className="w-full bg-surface-mid border border-line-strong rounded px-2 py-1.5 text-sm text-strong placeholder:text-faint"
                   />
                 </div>
               </div>
@@ -158,19 +158,19 @@ export function DepositInvoiceModal({
 
             <div className="flex gap-2 justify-between pt-2">
               <button type="button" onClick={() => setMode("generate")}
-                className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors">
+                className="text-xs text-muted hover:text-body transition-colors">
                 ← Back
               </button>
               <div className="flex gap-2">
                 <button type="button" onClick={onClose}
-                  className="px-4 py-1.5 text-sm text-zinc-500 hover:text-zinc-300 transition-colors">
+                  className="px-4 py-1.5 text-sm text-muted hover:text-body transition-colors">
                   Cancel
                 </button>
                 <button
                   type="button"
                   onClick={handleMarkPaidSubmit}
                   disabled={markingPaid || !mpValid}
-                  className="px-4 py-1.5 text-sm bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white rounded font-medium transition-colors">
+                  className="px-4 py-1.5 text-sm bg-success-emphasis hover:bg-success-emphasis disabled:opacity-50 text-primary rounded font-medium transition-colors">
                   {markingPaid ? "Saving…" : "Mark Paid"}
                 </button>
               </div>
@@ -179,74 +179,74 @@ export function DepositInvoiceModal({
         ) : (
           <>
             {/* ── Generate mode ─────────────────────────────────────────────── */}
-            <div className="rounded-lg bg-zinc-900 border border-zinc-800 p-4 space-y-2">
+            <div className="rounded-lg bg-surface border border-line p-4 space-y-2">
               <div className="flex justify-between text-sm">
-                <span className="text-zinc-500">Partner</span>
-                <span className="text-zinc-200 font-medium">{partner?.company_name ?? "—"}</span>
+                <span className="text-muted">Partner</span>
+                <span className="text-strong font-medium">{partner?.company_name ?? "—"}</span>
               </div>
               <div className="flex justify-between text-sm">
-                <span className="text-zinc-500">Batch</span>
-                <span className="text-zinc-200">{allocation.brew_batches?.beer_name ?? "—"}</span>
+                <span className="text-muted">Batch</span>
+                <span className="text-strong">{allocation.brew_batches?.beer_name ?? "—"}</span>
               </div>
               <div className="flex justify-between text-sm">
-                <span className="text-zinc-500">Allocation</span>
-                <span className="text-zinc-200 tabular-nums">{pct.toFixed(1)}%</span>
+                <span className="text-muted">Allocation</span>
+                <span className="text-strong tabular-nums">{pct.toFixed(1)}%</span>
               </div>
               {requestedBbl != null && batchBbl != null && (
                 <div className="flex justify-between text-sm">
-                  <span className="text-zinc-500">Barrelage</span>
-                  <span className="text-zinc-400 tabular-nums text-right text-xs leading-snug">
-                    <span className="text-zinc-200">{requestedBbl.toFixed(2)} BBL</span>
-                    <span className="text-zinc-600"> requested ÷ </span>
-                    <span className="text-zinc-200">{batchBbl.toFixed(2)} BBL</span>
-                    <span className="text-zinc-600"> batch = </span>
-                    <span className="text-zinc-200">{pct.toFixed(1)}%</span>
+                  <span className="text-muted">Barrelage</span>
+                  <span className="text-secondary tabular-nums text-right text-xs leading-snug">
+                    <span className="text-strong">{requestedBbl.toFixed(2)} BBL</span>
+                    <span className="text-faint"> requested ÷ </span>
+                    <span className="text-strong">{batchBbl.toFixed(2)} BBL</span>
+                    <span className="text-faint"> batch = </span>
+                    <span className="text-strong">{pct.toFixed(1)}%</span>
                   </span>
                 </div>
               )}
             </div>
 
             {loading && (
-              <p className="text-xs text-zinc-500 text-center py-4">Calculating deposit…</p>
+              <p className="text-xs text-muted text-center py-4">Calculating deposit…</p>
             )}
 
             {calc && !loading && (
               <div className="space-y-3">
-                <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wide">Ingredient Cost Breakdown</p>
-                <div className="rounded-lg border border-zinc-800 overflow-hidden">
-                  <div className="max-h-72 overflow-y-auto divide-y divide-zinc-800/60">
+                <p className="text-xs font-semibold text-secondary uppercase tracking-wide">Ingredient Cost Breakdown</p>
+                <div className="rounded-lg border border-line overflow-hidden">
+                  <div className="max-h-72 overflow-y-auto divide-y divide-line/60">
                     {calc.breakdown.map((item, i) => (
                       <div key={i} className="flex justify-between px-3 py-1.5 text-xs">
-                        <span className="text-zinc-400">{item.name}</span>
-                        <span className="text-zinc-500 tabular-nums ml-4">
-                          {item.quantity_per_bbl.toFixed(3)} {item.unit}/BBL × {fmtUsd(item.cost_per_unit)} × {batchBbl?.toFixed(2)} BBL = <span className="text-zinc-300">{fmtUsd(item.line_total_usd)}</span>
+                        <span className="text-secondary">{item.name}</span>
+                        <span className="text-muted tabular-nums ml-4">
+                          {item.quantity_per_bbl.toFixed(3)} {item.unit}/BBL × {fmtUsd(item.cost_per_unit)} × {batchBbl?.toFixed(2)} BBL = <span className="text-body">{fmtUsd(item.line_total_usd)}</span>
                         </span>
                       </div>
                     ))}
                     {calc.breakdown.length === 0 && (
-                      <p className="text-xs text-zinc-600 px-3 py-3">No ingredients with costs found on this recipe.</p>
+                      <p className="text-xs text-faint px-3 py-3">No ingredients with costs found on this recipe.</p>
                     )}
                   </div>
 
-                  <div className="border-t border-zinc-700 px-3 py-2 bg-zinc-900/60 space-y-1">
+                  <div className="border-t border-line-strong px-3 py-2 bg-surface/60 space-y-1">
                     <div className="flex justify-between text-xs">
-                      <span className="text-zinc-500">Total ingredient cost (batch)</span>
-                      <span className="text-zinc-300 tabular-nums">{fmtUsd(calc.total_ingredient_cost_usd)}</span>
+                      <span className="text-muted">Total ingredient cost (batch)</span>
+                      <span className="text-body tabular-nums">{fmtUsd(calc.total_ingredient_cost_usd)}</span>
                     </div>
                     <div className="flex justify-between text-xs">
-                      <span className="text-zinc-500">Allocation share ({pct.toFixed(1)}%)</span>
-                      <span className="text-zinc-300 tabular-nums">× {(pct / 100).toFixed(4)}</span>
+                      <span className="text-muted">Allocation share ({pct.toFixed(1)}%)</span>
+                      <span className="text-body tabular-nums">× {(pct / 100).toFixed(4)}</span>
                     </div>
-                    <div className="flex justify-between text-sm font-semibold border-t border-zinc-700 pt-2 mt-1">
-                      <span className="text-zinc-300">Ingredient Deposit</span>
-                      <span className="text-amber-400 tabular-nums">{fmtUsd(calc.deposit_usd)}</span>
+                    <div className="flex justify-between text-sm font-semibold border-t border-line-strong pt-2 mt-1">
+                      <span className="text-body">Ingredient Deposit</span>
+                      <span className="text-accent tabular-nums">{fmtUsd(calc.deposit_usd)}</span>
                     </div>
-                    <p className="text-[10px] text-zinc-600 mt-1">No sales tax charged · payment by card or bank transfer</p>
+                    <p className="text-[10px] text-faint mt-1">No sales tax charged · payment by card or bank transfer</p>
                   </div>
                 </div>
 
                 {isRevision && (
-                  <div className="rounded bg-amber-900/20 border border-amber-800/40 px-3 py-2 text-xs text-amber-300">
+                  <div className="rounded bg-accent-muted/20 border border-accent-border/40 px-3 py-2 text-xs text-accent-soft">
                     A draft invoice already exists in Square. Regenerating will cancel it and create a new one — the invoice will need to be re-sent.
                   </div>
                 )}
@@ -254,7 +254,7 @@ export function DepositInvoiceModal({
             )}
 
             {calc && calc.deposit_cents === 0 && (
-              <div className="rounded bg-red-900/20 border border-red-800/40 px-3 py-2 text-xs text-red-300">
+              <div className="rounded bg-danger-surface/20 border border-danger-border/40 px-3 py-2 text-xs text-danger">
                 Deposit amount is $0. Ensure recipe ingredients have costs set before generating.
               </div>
             )}
@@ -262,20 +262,20 @@ export function DepositInvoiceModal({
             <div className="flex gap-2 justify-between pt-2">
               {onMarkPaid && !alreadyPaid ? (
                 <button type="button" onClick={() => setMode("mark_paid")}
-                  className="text-xs text-zinc-500 hover:text-zinc-300 underline underline-offset-2 transition-colors">
+                  className="text-xs text-muted hover:text-body underline underline-offset-2 transition-colors">
                   Mark as paid externally
                 </button>
               ) : <span />}
               <div className="flex gap-2">
                 <button type="button" onClick={onClose}
-                  className="px-4 py-1.5 text-sm text-zinc-500 hover:text-zinc-300 transition-colors">
+                  className="px-4 py-1.5 text-sm text-muted hover:text-body transition-colors">
                   Cancel
                 </button>
                 <button
                   type="button"
                   onClick={onGenerate}
                   disabled={generating || loading || !calc || calc.deposit_cents === 0}
-                  className="px-4 py-1.5 text-sm bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white rounded font-medium transition-colors">
+                  className="px-4 py-1.5 text-sm bg-accent-emphasis hover:bg-accent-emphasis disabled:opacity-50 text-primary rounded font-medium transition-colors">
                   {generating ? "Generating…" : isRevision ? "Regenerate Invoice" : "Create Draft Invoice"}
                 </button>
               </div>

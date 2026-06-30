@@ -77,20 +77,20 @@ export default function SafetyStockTab({
 
   return (
     <div>
-      <p className="text-sm text-zinc-500 mb-4">
+      <p className="text-sm text-muted mb-4">
         Minimum BBL floor per style. The demand calendar uses these floors to flag reorder urgency.
       </p>
       {recipes.length === 0 ? (
-        <p className="text-zinc-600 text-sm py-10 text-center">No recipes found.</p>
+        <p className="text-faint text-sm py-10 text-center">No recipes found.</p>
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-zinc-800">
+        <div className="overflow-x-auto rounded-lg border border-line">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-zinc-800 bg-zinc-900/50 text-left">
-                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500">Style</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 text-right">On Hand (BBL)</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500">Safety Floor (BBL)</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500"></th>
+              <tr className="border-b border-line bg-surface/50 text-left">
+                <th className="px-4 py-2.5 text-xs font-medium text-muted">Style</th>
+                <th className="px-4 py-2.5 text-xs font-medium text-muted text-right">On Hand (BBL)</th>
+                <th className="px-4 py-2.5 text-xs font-medium text-muted">Safety Floor (BBL)</th>
+                <th className="px-4 py-2.5 text-xs font-medium text-muted"></th>
               </tr>
             </thead>
             <tbody>
@@ -100,9 +100,9 @@ export default function SafetyStockTab({
                 const onHand = onHandBblByRecipe.get(recipe.id) ?? 0;
                 const below = floor != null && onHand < floor.floor_quantity;
                 return (
-                  <tr key={recipe.id} className={`border-b border-zinc-800/60 last:border-0 ${i % 2 !== 0 ? "bg-zinc-900/30" : ""}`}>
-                    <td className="px-4 py-2.5 text-zinc-100 font-medium">{recipe.beer_name}</td>
-                    <td className={`px-4 py-2.5 text-right tabular-nums ${below ? "text-red-400" : onHand > 0 ? "text-green-400" : "text-zinc-600"}`}>
+                  <tr key={recipe.id} className={`border-b border-line/60 last:border-0 ${i % 2 !== 0 ? "bg-surface/30" : ""}`}>
+                    <td className="px-4 py-2.5 text-primary font-medium">{recipe.beer_name}</td>
+                    <td className={`px-4 py-2.5 text-right tabular-nums ${below ? "text-danger" : onHand > 0 ? "text-success" : "text-faint"}`}>
                       {onHand.toFixed(2)}
                     </td>
                     <td className="px-4 py-2.5">
@@ -117,7 +117,7 @@ export default function SafetyStockTab({
                       <button
                         onClick={() => saveFloor(recipe.id)}
                         disabled={savingId === recipe.id || draft === ""}
-                        className="text-xs text-amber-500 hover:text-amber-400 font-medium disabled:opacity-50"
+                        className="text-xs text-accent-emphasis hover:text-accent font-medium disabled:opacity-50"
                       >
                         {savingId === recipe.id ? "Saving…" : "Save"}
                       </button>

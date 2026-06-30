@@ -7,12 +7,7 @@ import {
   parseISO, startOfDay, endOfDay,
 } from "date-fns";
 import { useBatchScheduleQuery, useBatchesQuery } from "../hooks/queries";
-
-const BATCH_PALETTE = [
-  "#f59e0b", "#3b82f6", "#10b981", "#8b5cf6",
-  "#f43f5e", "#06b6d4", "#f97316", "#14b8a6",
-  "#a855f7", "#84cc16", "#ec4899", "#6366f1",
-];
+import { BATCH_PALETTE } from "../lib/categoryColors";
 
 const STAGE_LABELS: Record<string, string> = {
   brewhouse: "Brew",

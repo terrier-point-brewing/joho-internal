@@ -5,14 +5,15 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRecipesQuery, useContractPartnersQuery, fetchJson } from "../hooks/queries";
 import type { AvailableInventoryLine, BatchAllocation, ExportChannel } from "../types";
 import { queryKeys } from "@/lib/query-keys";
+import { CHANNEL_COLOR, KEG_TAG_BADGE } from "../lib/categoryColors";
 
 // ── Channel display ────────────────────────────────────────────────────────────
 
 const CHANNEL_BADGE: Record<string, { label: string; cls: string }> = {
-  distribution:     { label: "Distribution",     cls: "border-cyan-700   bg-cyan-900/30   text-cyan-300"   },
-  contract_brewing: { label: "Contract Brewing", cls: "border-rose-700   bg-rose-900/30   text-rose-300"   },
-  wholesale:        { label: "Wholesale",        cls: "border-purple-700 bg-purple-900/30 text-purple-300" },
-  safety_stock:     { label: "Safety Stock",     cls: "border-zinc-600   bg-zinc-800/60   text-zinc-400"   },
+  distribution:     { label: "Distribution",     cls: `border ${CHANNEL_COLOR.distribution.bg} ${CHANNEL_COLOR.distribution.text}` },
+  contract_brewing: { label: "Contract Brewing", cls: `border ${CHANNEL_COLOR.contract_brewing.bg} ${CHANNEL_COLOR.contract_brewing.text}` },
+  wholesale:        { label: "Wholesale",        cls: `border ${CHANNEL_COLOR.wholesale.bg} ${CHANNEL_COLOR.wholesale.text}` },
+  safety_stock:     { label: "Safety Stock",     cls: "border border-line-subtle bg-surface-mid/60 text-secondary" },
 };
 
 const CHANNEL_CHIP_LABELS: Record<string, string> = {
@@ -42,7 +43,7 @@ function FilterChips({ label, options, value, onChange }: {
 }) {
   return (
     <div className="flex items-center gap-1.5 flex-wrap">
-      <span className="text-xs text-zinc-500 mr-0.5">{label}:</span>
+      <span className="text-xs text-muted mr-0.5">{label}:</span>
       {options.map((o) => (
         <button
           key={o.value}
@@ -50,8 +51,8 @@ function FilterChips({ label, options, value, onChange }: {
           onClick={() => onChange(o.value)}
           className={`text-[11px] px-2 py-0.5 rounded border transition-colors ${
             value === o.value
-              ? "border-amber-600 bg-amber-900/40 text-amber-300"
-              : "border-zinc-700 text-zinc-400 hover:border-zinc-500 hover:text-zinc-300"
+              ? "border-accent-border bg-accent-muted/40 text-accent-soft"
+              : "border-line-strong text-secondary hover:border-line-subtle hover:text-body"
           }`}
         >
           {o.label}
@@ -145,7 +146,7 @@ export default function ExportBayTab() {
   }
 
   if (inventoryLoading || allocationsLoading) {
-    return <p className="text-sm text-zinc-600 py-8 text-center">Loading…</p>;
+    return <p className="text-sm text-faint py-8 text-center">Loading…</p>;
   }
 
   // ── Group allocations by partner+recipe, then nest under recipe ──────────────
@@ -339,7 +340,7 @@ export default function ExportBayTab() {
           onClick={() => setShowAdHoc(true)}
           disabled={inventory.length === 0}
           title={inventory.length === 0 ? "No packaged inventory available" : undefined}
-          className="ml-auto text-xs px-2.5 py-1 border border-amber-700 text-amber-400 hover:bg-amber-900/30 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent shrink-0"
+          className="ml-auto text-xs px-2.5 py-1 border border-accent-border text-accent hover:bg-accent-muted/30 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent shrink-0"
         >
           + Ad-Hoc Export
         </button>
@@ -389,11 +390,11 @@ export default function ExportBayTab() {
       {/* Result count + clear */}
       {(isFiltered || hasFilters) && (
         <div className="flex items-center gap-2">
-          <span className="text-xs text-zinc-500">
+          <span className="text-xs text-muted">
             {filteredRecipeIds.length} of {allRecipeIds.length} recipe{allRecipeIds.length !== 1 ? "s" : ""}
           </span>
           {hasFilters && (
-            <button onClick={clearFilters} className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors">
+            <button onClick={clearFilters} className="text-xs text-faint hover:text-secondary transition-colors">
               Clear filters
             </button>
           )}
@@ -401,15 +402,15 @@ export default function ExportBayTab() {
       )}
 
       {/* Sticky column labels */}
-      <div className="sticky top-0 z-10 bg-zinc-950 grid grid-cols-1 md:grid-cols-2 gap-6 py-2 border-b border-zinc-800/60">
-        <h3 className="text-sm font-medium text-zinc-300">Available</h3>
-        <h3 className="text-sm font-medium text-zinc-300">Allocations</h3>
+      <div className="sticky top-0 z-10 bg-canvas grid grid-cols-1 md:grid-cols-2 gap-6 py-2 border-b border-line/60">
+        <h3 className="text-sm font-medium text-body">Available</h3>
+        <h3 className="text-sm font-medium text-body">Allocations</h3>
       </div>
 
       {!anyData ? (
-        <p className="text-sm text-zinc-600 pt-2">Nothing to show yet.</p>
+        <p className="text-sm text-faint pt-2">Nothing to show yet.</p>
       ) : filteredRecipeIds.length === 0 ? (
-        <p className="text-sm text-zinc-600 pt-2">No recipes match the current filters.</p>
+        <p className="text-sm text-faint pt-2">No recipes match the current filters.</p>
       ) : (
         <div className="space-y-6 pt-2">
           {filteredRecipeIds.map((recipeId) => {
@@ -441,27 +442,27 @@ export default function ExportBayTab() {
 
                 {/* Shared recipe section header */}
                 <div className="flex items-center justify-between px-0.5">
-                  <span className="text-sm font-medium text-zinc-200">{recipeName}</span>
+                  <span className="text-sm font-medium text-strong">{recipeName}</span>
                   <div className="flex items-center gap-2 text-xs">
                     {rg ? (
                       <>
                         {pendingCount > 0 && (
-                          <span className="text-amber-400">{pendingCount} pending</span>
+                          <span className="text-accent">{pendingCount} pending</span>
                         )}
                         {pendingCount > 0 && fulfilledCount > 0 && (
-                          <span className="text-zinc-700">·</span>
+                          <span className="text-disabled">·</span>
                         )}
                         {fulfilledCount > 0 && (
-                          <span className="text-zinc-600">{fulfilledCount} fulfilled</span>
+                          <span className="text-faint">{fulfilledCount} fulfilled</span>
                         )}
                       </>
                     ) : (
-                      <span className="text-zinc-600">no allocations</span>
+                      <span className="text-faint">no allocations</span>
                     )}
                     {hasInventory && (
                       <>
-                        <span className="text-zinc-700">·</span>
-                        <span className="text-zinc-500">{stockSummary(lines)} in stock</span>
+                        <span className="text-disabled">·</span>
+                        <span className="text-muted">{stockSummary(lines)} in stock</span>
                       </>
                     )}
                   </div>
@@ -472,20 +473,20 @@ export default function ExportBayTab() {
 
                   {/* Left: Available (inventory) */}
                   <div className={`rounded-lg border overflow-hidden flex flex-col ${
-                    !hasInventory ? "border-dashed border-zinc-700" : "border-zinc-800"
+                    !hasInventory ? "border-dashed border-line-strong" : "border-line"
                   }`}>
-                    <div className="px-3 py-2 bg-zinc-900/60 border-b border-zinc-800 flex items-center justify-between">
-                      <span className="text-xs font-medium text-zinc-500 uppercase tracking-wide">In Stock</span>
+                    <div className="px-3 py-2 bg-surface/60 border-b border-line flex items-center justify-between">
+                      <span className="text-xs font-medium text-muted uppercase tracking-wide">In Stock</span>
                       {hasInventory && (
-                        <span className="text-xs text-zinc-400">{stockSummary(lines)}</span>
+                        <span className="text-xs text-secondary">{stockSummary(lines)}</span>
                       )}
                     </div>
                     {!hasInventory ? (
-                      <div className="px-3 py-3 text-xs text-zinc-600 italic flex-1">
+                      <div className="px-3 py-3 text-xs text-faint italic flex-1">
                         No inventory available
                       </div>
                     ) : (
-                      <div className="divide-y divide-zinc-800 flex-1">
+                      <div className="divide-y divide-line flex-1">
                         {[...lines].sort((a, b) => {
                           const t = (a.container_type === "keg" ? 0 : 1) - (b.container_type === "keg" ? 0 : 1);
                           return t !== 0 ? t : a.variation_name.localeCompare(b.variation_name);
@@ -493,13 +494,13 @@ export default function ExportBayTab() {
                           <div key={l.variation_id} className="flex items-center justify-between px-3 py-2 text-sm gap-2">
                             <div className="flex items-center gap-1.5 min-w-0">
                               {l.container_type === "keg" ? (
-                                <span className="text-[10px] px-1.5 py-0.5 rounded border border-orange-700 bg-orange-900/30 text-orange-300 font-medium uppercase shrink-0">Keg</span>
+                                <span className={`text-[10px] px-1.5 py-0.5 rounded ${KEG_TAG_BADGE} font-medium uppercase shrink-0`}>Keg</span>
                               ) : l.container_type === "can" ? (
-                                <span className="text-[10px] px-1.5 py-0.5 rounded border border-blue-700 bg-blue-900/30 text-blue-300 font-medium uppercase shrink-0">Can</span>
+                                <span className="text-[10px] px-1.5 py-0.5 rounded border border-info-border bg-info-surface/30 text-info font-medium uppercase shrink-0">Can</span>
                               ) : null}
-                              <span className="text-zinc-300 truncate">{l.variation_name}</span>
+                              <span className="text-body truncate">{l.variation_name}</span>
                             </div>
-                            <span className="text-zinc-400 tabular-nums shrink-0">{l.quantity_on_hand}</span>
+                            <span className="text-secondary tabular-nums shrink-0">{l.quantity_on_hand}</span>
                           </div>
                         ))}
                       </div>
@@ -507,53 +508,53 @@ export default function ExportBayTab() {
                   </div>
 
                   {/* Right: Allocations */}
-                  <div className="rounded-lg border border-zinc-800 overflow-hidden flex flex-col">
+                  <div className="rounded-lg border border-line overflow-hidden flex flex-col">
                     {!rg ? (
-                      <div className="px-3 py-3 text-xs text-zinc-600 italic flex-1">
+                      <div className="px-3 py-3 text-xs text-faint italic flex-1">
                         No active allocations
                       </div>
                     ) : (
-                      <div className="divide-y divide-zinc-800/60 flex-1">
+                      <div className="divide-y divide-line/60 flex-1">
                         {visiblePartnerGroups.length === 0 ? (
-                          <div className="px-3 py-3 text-xs text-zinc-600 italic">
+                          <div className="px-3 py-3 text-xs text-faint italic">
                             All allocations fulfilled
                           </div>
                         ) : (
                           visiblePartnerGroups.map((g) => (
                             <div key={g.partnerId}>
-                              <div className="flex items-center justify-between px-3 py-1.5 bg-zinc-900/30">
-                                <span className="text-xs font-medium text-zinc-400">{g.partnerName}</span>
+                              <div className="flex items-center justify-between px-3 py-1.5 bg-surface/30">
+                                <span className="text-xs font-medium text-secondary">{g.partnerName}</span>
                                 <button
                                   onClick={() => setShipGroup(g)}
                                   disabled={!hasInventory}
                                   title={hasInventory ? undefined : "No packaged inventory available for this recipe"}
-                                  className="text-xs px-2.5 py-1 border border-amber-700 text-amber-400 hover:bg-amber-900/30 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                                  className="text-xs px-2.5 py-1 border border-accent-border text-accent hover:bg-accent-muted/30 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
                                 >
                                   Ship
                                 </button>
                               </div>
-                              <div className="divide-y divide-zinc-800">
+                              <div className="divide-y divide-line">
                                 {g.allocations.map((a) => (
                                   <div key={a.id} className="flex items-center justify-between px-3 py-2 text-sm gap-2">
                                     <div className="flex items-center gap-2 min-w-0">
                                       <ChannelBadge channel={a.channel} />
-                                      <span className="text-zinc-400 font-mono text-xs shrink-0">
+                                      <span className="text-secondary font-mono text-xs shrink-0">
                                         {a.brew_batches ? `#${a.brew_batches.batch_number}` : "—"}
                                       </span>
-                                      <span className="text-zinc-500 text-xs truncate">
+                                      <span className="text-muted text-xs truncate">
                                         Due {fmtDate(a.commitments?.desired_delivery_date ?? null)}
                                       </span>
                                     </div>
                                     <div className="flex items-center gap-3 shrink-0">
-                                      <span className="text-zinc-400 tabular-nums text-xs">
+                                      <span className="text-secondary tabular-nums text-xs">
                                         {a.exported_bbl.toFixed(2)} / {a.allocated_bbl != null ? a.allocated_bbl.toFixed(2) : "—"} BBL
                                       </span>
                                       {a.allocated_bbl == null ? (
-                                        <span className="text-xs text-zinc-600">Pending production</span>
+                                        <span className="text-xs text-faint">Pending production</span>
                                       ) : a.fulfilled ? (
-                                        <span className="text-xs text-emerald-400">Fulfilled</span>
+                                        <span className="text-xs text-success">Fulfilled</span>
                                       ) : (
-                                        <span className="text-xs text-amber-400">
+                                        <span className="text-xs text-accent">
                                           {a.allocated_bbl > 0
                                             ? `${((a.exported_bbl / a.allocated_bbl) * 100).toFixed(0)}%`
                                             : "Unfulfilled"}
@@ -570,7 +571,7 @@ export default function ExportBayTab() {
                           <div className="px-3 py-2">
                             <button
                               onClick={() => toggleFulfilled(recipeId)}
-                              className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
+                              className="text-xs text-faint hover:text-secondary transition-colors"
                             >
                               {showFulfilled ? "− Hide fulfilled" : `+ Show ${fulfilledCount} fulfilled`}
                             </button>
@@ -652,13 +653,13 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-      <div className="bg-zinc-900 border border-zinc-700 rounded-lg p-5 w-full max-w-md space-y-4">
-        <h3 className="text-sm font-medium text-zinc-100">
+      <div className="bg-surface border border-line-strong rounded-lg p-5 w-full max-w-md space-y-4">
+        <h3 className="text-sm font-medium text-primary">
           Ship to {group.partnerName} — {group.recipeName}
         </h3>
         <form onSubmit={handleSubmit} className="space-y-3">
           <div>
-            <label className="text-xs text-zinc-400 block mb-1">Packaging</label>
+            <label className="text-xs text-secondary block mb-1">Packaging</label>
             <select className="inp w-full" value={variationId} onChange={(e) => setVariationId(e.target.value)}>
               {inventoryLines.map((l) => (
                 <option key={l.variation_id} value={l.variation_id}>
@@ -668,20 +669,20 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
             </select>
           </div>
           <div>
-            <label className="text-xs text-zinc-400 block mb-1">Quantity</label>
+            <label className="text-xs text-secondary block mb-1">Quantity</label>
             <input type="number" min="0" step="1" className="inp w-full" required value={quantity} onChange={(e) => setQuantity(e.target.value)} />
           </div>
           <div>
-            <label className="text-xs text-zinc-400 block mb-1">Notes</label>
+            <label className="text-xs text-secondary block mb-1">Notes</label>
             <input className="inp w-full" value={notes} onChange={(e) => setNotes(e.target.value)} />
           </div>
-          {error && <p className="text-xs text-red-400">{error}</p>}
+          {error && <p className="text-xs text-danger">{error}</p>}
           <div className="flex justify-end gap-2 pt-2">
-            <button type="button" onClick={onClose} className="text-xs px-3 py-1.5 text-zinc-400 hover:text-zinc-200">Cancel</button>
+            <button type="button" onClick={onClose} className="text-xs px-3 py-1.5 text-secondary hover:text-strong">Cancel</button>
             <button
               type="submit"
               disabled={submitting || inventoryLines.length === 0}
-              className="text-xs px-3 py-1.5 bg-amber-700 hover:bg-amber-600 text-zinc-100 rounded disabled:opacity-50"
+              className="text-xs px-3 py-1.5 bg-accent-emphasis hover:bg-accent-emphasis text-primary rounded disabled:opacity-50"
             >
               {submitting ? "Shipping…" : "Ship"}
             </button>
@@ -766,11 +767,11 @@ function AdHocExportModal({ inventoryByRecipe, recipeNameById, onClose, onDone }
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-      <div className="bg-zinc-900 border border-zinc-700 rounded-lg p-5 w-full max-w-md space-y-4">
-        <h3 className="text-sm font-medium text-zinc-100">Ad-Hoc Export</h3>
+      <div className="bg-surface border border-line-strong rounded-lg p-5 w-full max-w-md space-y-4">
+        <h3 className="text-sm font-medium text-primary">Ad-Hoc Export</h3>
         <form onSubmit={handleSubmit} className="space-y-3">
           <div>
-            <label className="text-xs text-zinc-400 block mb-1">Channel</label>
+            <label className="text-xs text-secondary block mb-1">Channel</label>
             <select className="inp w-full" value={channel} onChange={(e) => setChannel(e.target.value as ExportChannel)}>
               <option value="taproom">Taproom</option>
               <option value="distribution">Distribution</option>
@@ -780,7 +781,7 @@ function AdHocExportModal({ inventoryByRecipe, recipeNameById, onClose, onDone }
           </div>
           {channel !== "taproom" && (
             <div>
-              <label className="text-xs text-zinc-400 block mb-1">Partner</label>
+              <label className="text-xs text-secondary block mb-1">Partner</label>
               <select className="inp w-full" required value={partnerId} onChange={(e) => setPartnerId(e.target.value)}>
                 <option value="" disabled>Select a partner…</option>
                 {partners.map((p) => (
@@ -791,12 +792,12 @@ function AdHocExportModal({ inventoryByRecipe, recipeNameById, onClose, onDone }
           )}
           {channel === "taproom" && (
             <div>
-              <label className="text-xs text-zinc-400 block mb-1">Recipient name (optional)</label>
+              <label className="text-xs text-secondary block mb-1">Recipient name (optional)</label>
               <input className="inp w-full" value={recipientName} onChange={(e) => setRecipientName(e.target.value)} />
             </div>
           )}
           <div>
-            <label className="text-xs text-zinc-400 block mb-1">Recipe</label>
+            <label className="text-xs text-secondary block mb-1">Recipe</label>
             <select className="inp w-full" value={recipeId} onChange={(e) => handleSelectRecipe(e.target.value)}>
               {recipeIds.map((id) => (
                 <option key={id} value={id}>{recipeNameById.get(id) ?? "Unknown recipe"}</option>
@@ -804,7 +805,7 @@ function AdHocExportModal({ inventoryByRecipe, recipeNameById, onClose, onDone }
             </select>
           </div>
           <div>
-            <label className="text-xs text-zinc-400 block mb-1">Packaging</label>
+            <label className="text-xs text-secondary block mb-1">Packaging</label>
             <select className="inp w-full" value={variationId} onChange={(e) => setVariationId(e.target.value)}>
               {linesForRecipe.map((l) => (
                 <option key={l.variation_id} value={l.variation_id}>
@@ -814,20 +815,20 @@ function AdHocExportModal({ inventoryByRecipe, recipeNameById, onClose, onDone }
             </select>
           </div>
           <div>
-            <label className="text-xs text-zinc-400 block mb-1">Quantity</label>
+            <label className="text-xs text-secondary block mb-1">Quantity</label>
             <input type="number" min="0" step="1" className="inp w-full" required value={quantity} onChange={(e) => setQuantity(e.target.value)} />
           </div>
           <div>
-            <label className="text-xs text-zinc-400 block mb-1">Notes</label>
+            <label className="text-xs text-secondary block mb-1">Notes</label>
             <input className="inp w-full" value={notes} onChange={(e) => setNotes(e.target.value)} />
           </div>
-          {error && <p className="text-xs text-red-400">{error}</p>}
+          {error && <p className="text-xs text-danger">{error}</p>}
           <div className="flex justify-end gap-2 pt-2">
-            <button type="button" onClick={onClose} className="text-xs px-3 py-1.5 text-zinc-400 hover:text-zinc-200">Cancel</button>
+            <button type="button" onClick={onClose} className="text-xs px-3 py-1.5 text-secondary hover:text-strong">Cancel</button>
             <button
               type="submit"
               disabled={submitting || linesForRecipe.length === 0}
-              className="text-xs px-3 py-1.5 bg-amber-700 hover:bg-amber-600 text-zinc-100 rounded disabled:opacity-50"
+              className="text-xs px-3 py-1.5 bg-accent-emphasis hover:bg-accent-emphasis text-primary rounded disabled:opacity-50"
             >
               {submitting ? "Shipping…" : "Ship"}
             </button>
