@@ -9,11 +9,11 @@ independently (other agents were working concurrently in separate areas).
 | PR | Scope | State |
 |---|---|---|
 | [#45](https://github.com/terrier-point-brewing/terrier-point-brewing/pull/45) | Foundation: `@theme` tokens, `.btn-*`/`.inp` redefinition, shared primitives, docs, shared-chrome migration | merged |
-| [#47](https://github.com/terrier-point-brewing/terrier-point-brewing/pull/47) | Core / settings / auth / payroll components | open |
-| [#56](https://github.com/terrier-point-brewing/terrier-point-brewing/pull/56) | Finance | open |
-| [#48](https://github.com/terrier-point-brewing/terrier-point-brewing/pull/48) | Production | open |
-| [#51](https://github.com/terrier-point-brewing/terrier-point-brewing/pull/51) | Taproom + Reports | open |
-| (this) | Codify into CLAUDE.md + this report | open |
+| [#47](https://github.com/terrier-point-brewing/terrier-point-brewing/pull/47) | Core / settings / auth / payroll components | merged |
+| [#56](https://github.com/terrier-point-brewing/terrier-point-brewing/pull/56) | Finance | merged |
+| [#48](https://github.com/terrier-point-brewing/terrier-point-brewing/pull/48) | Production | merged |
+| [#51](https://github.com/terrier-point-brewing/terrier-point-brewing/pull/51) | Taproom + Reports | merged |
+| [#57](https://github.com/terrier-point-brewing/terrier-point-brewing/pull/57) (this) | Codify into CLAUDE.md + this report | merging last |
 
 ## Coverage (vs. `ROUTE_MANIFEST.md`)
 
@@ -60,7 +60,10 @@ redefined `.btn-amber` (solid amber, dark text) in `globals.css`.
 **Created (per-area extractions):**
 - Finance: `app/finance/AccountSelect.tsx` (3 copies → 1), `app/finance/statements/lib.tsx`
   (pl/cash-flow/balance-sheet machinery), `app/finance/sales/SalesPageShell.tsx`,
-  `app/finance/lib/` (MONTH_NAMES + category colors).
+  `app/finance/lib/` (MONTH_NAMES + category colors). On merge, `SalesPageShell` gained
+  optional `unrecognized`/`exciseCoverage` props (rendering #58's `UnrecognizedBanner`), and
+  the wholesale sales tab #58 added concurrently was folded onto the shell too — finance
+  residual stays 0.
 - Production: `app/production/lib/categoryColors.ts` (batch-color cycle + status/type badge maps).
 - Reports: `app/reports/components/ReportTable.tsx` (7 copies → 1) + `categoryStyles.ts`;
   taproom `categoryStyles.ts`.
@@ -94,8 +97,12 @@ redefined `.btn-amber` (solid amber, dark text) in `globals.css`.
 - `docs/UI_STANDARD.md` (the contract), `docs/ui/ROUTE_MANIFEST.md`,
   `docs/ui/INCONSISTENCY_CATALOG.md`, and this report.
 
-## Suggested merge order
+## Merge order (as executed)
 
-Area PRs (#47, #56, #48, #51) and this codify PR are all independent and branch off the
-merged foundation — merge in any order. Rebase each on `main` if conflicts arise from
-concurrent non-UI work.
+Area PRs (#47, #56, #48, #51) and this codify PR all branch off the merged foundation and are
+mutually independent. They were landed alongside concurrent perf/feature work in an
+orchestrated order that let the large mechanical token PRs absorb conflicts last: structural
+PRs first (e.g. #50, #58), then the token sweeps. #56 (finance) was the one PR to hit a real
+conflict — against #58's `UnrecognizedBanner`/excise feature — resolved by threading the
+banner through `SalesPageShell` (see Finance note above). This codify PR merges last so the
+report reflects the completed pass.
