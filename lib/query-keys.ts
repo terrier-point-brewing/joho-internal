@@ -11,6 +11,12 @@
  * invalidateQueries will invalidate every query under that domain.
  */
 export const queryKeys = {
+  // ─── Auth ────────────────────────────────────────────────────────────────
+  auth: {
+    all: () => ["auth"] as const,
+    me:  () => ["auth", "me"] as const,
+  },
+
   // ─── Production ──────────────────────────────────────────────────────────
   production: {
     all:                  () => ["production"] as const,
@@ -74,6 +80,10 @@ export const queryKeys = {
     ledgerInvoice:  (id: string) => ["finance", "ledger", "invoice", id] as const,
     /** Invoice list filtered by year + source. */
     ledgerInvoices: (year: number, source: string) => ["finance", "ledger", "invoices", year, source] as const,
+    /** Flat chart-of-accounts list (invoice line-item GL mapping). */
+    chartOfAccounts: () => ["finance", "chart-of-accounts"] as const,
+    /** P&L / cash-flow statement aggregation, keyed by year + view. */
+    statements: (year: number, view: string) => ["finance", "statements", year, view] as const,
   },
 
   // ─── Taproom ──────────────────────────────────────────────────────────────
