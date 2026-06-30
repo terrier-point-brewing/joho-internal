@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import dynamic from "next/dynamic";
 import { addDays, parseISO } from "date-fns";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
@@ -18,10 +19,17 @@ import {
   productionKeys, useIngredientShortfallsQuery,
   type ScheduleEntry,
 } from "../hooks/queries";
-import { EquipmentScheduleSection } from "./EquipmentSchedule";
 import { computeBranchPackagingStatus } from "./EquipmentSchedule/constants";
 import { DepositInvoiceModal } from "./DepositInvoiceModal";
 import { RefundAdjustmentModal } from "./RefundAdjustmentModal";
+
+const EquipmentScheduleSection = dynamic(
+  () => import("./EquipmentSchedule").then((m) => m.EquipmentScheduleSection),
+  {
+    ssr: false,
+    loading: () => <div className="h-64 w-full animate-pulse rounded-lg bg-zinc-900/40" aria-hidden="true" />,
+  }
+);
 
 const fmtDate = fmtDateLong;
 
