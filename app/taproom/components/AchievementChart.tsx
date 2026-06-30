@@ -16,8 +16,8 @@ function ChartTooltip({ active, payload, label }: {
 }) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-xs shadow-lg">
-      <div className="text-zinc-300 font-medium mb-1">{label}</div>
+    <div className="bg-surface-mid border border-line-strong rounded px-3 py-2 text-xs shadow-lg">
+      <div className="text-body font-medium mb-1">{label}</div>
       {payload.map((p) => (
         <div key={p.name} style={{ color: p.color }} className="flex justify-between gap-4">
           <span>{p.name}</span>

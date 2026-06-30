@@ -117,18 +117,18 @@ function KpiCard({
   const isUp = change !== null && change >= 0;
 
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
-      <div className="text-xs text-zinc-500 mb-1">{label}</div>
-      <div className="text-base sm:text-xl font-semibold text-zinc-100">
-        {current !== null ? formatMetricValue(metric, current) : <span className="text-zinc-600">—</span>}
+    <div className="bg-surface border border-line rounded-lg p-4">
+      <div className="text-xs text-muted mb-1">{label}</div>
+      <div className="text-base sm:text-xl font-semibold text-primary">
+        {current !== null ? formatMetricValue(metric, current) : <span className="text-faint">—</span>}
       </div>
       {change !== null && (
-        <div className={`text-xs mt-1 ${isUp ? "text-green-400" : "text-red-400"}`}>
+        <div className={`text-xs mt-1 ${isUp ? "text-success" : "text-danger"}`}>
           {isUp ? "▲" : "▼"} {Math.abs(change).toFixed(1)}% vs prior week
         </div>
       )}
       {change === null && prior !== null && (
-        <div className="text-xs mt-1 text-zinc-600">No prior week data</div>
+        <div className="text-xs mt-1 text-faint">No prior week data</div>
       )}
     </div>
   );
@@ -148,7 +148,7 @@ const KPI_OPTIONS: { value: KpiMetric; label: string }[] = [
 
 const toggleBtn = (active: boolean) =>
   `px-3 py-1.5 text-xs font-medium transition-colors ${
-    active ? "bg-zinc-700 text-zinc-100" : "bg-zinc-800 text-zinc-400 hover:text-zinc-200"
+    active ? "bg-surface-high text-primary" : "bg-surface-mid text-secondary hover:text-strong"
   }`;
 
 export default function SalesPulseTab() {
@@ -243,23 +243,23 @@ export default function SalesPulseTab() {
       <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
         <button
           onClick={() => setWeekStart((w) => addDays(w, -7))}
-          className="px-3 py-1.5 text-sm bg-zinc-800 border border-zinc-700 rounded hover:bg-zinc-700 text-zinc-300"
+          className="px-3 py-1.5 text-sm bg-surface-mid border border-line-strong rounded hover:bg-surface-high text-body"
         >
           ‹ Prev
         </button>
-        <div className="text-sm font-medium text-zinc-200 text-center">
+        <div className="text-sm font-medium text-strong text-center">
           {isCurrentWeek ? (
-            <><span className="text-amber-400 text-xs font-medium mr-2">This Week</span>{weekLabel(weekStart)}</>
+            <><span className="text-accent text-xs font-medium mr-2">This Week</span>{weekLabel(weekStart)}</>
           ) : weekLabel(weekStart)}
         </div>
         <button
           onClick={() => setWeekStart((w) => addDays(w, 7))}
           disabled={isCurrentWeek}
-          className="px-3 py-1.5 text-sm bg-zinc-800 border border-zinc-700 rounded hover:bg-zinc-700 text-zinc-300 disabled:opacity-30 disabled:cursor-not-allowed"
+          className="px-3 py-1.5 text-sm bg-surface-mid border border-line-strong rounded hover:bg-surface-high text-body disabled:opacity-30 disabled:cursor-not-allowed"
         >
           Next ›
         </button>
-        {loading && <span className="text-xs text-zinc-500 ml-2">Loading…</span>}
+        {loading && <span className="text-xs text-muted ml-2">Loading…</span>}
       </div>
 
       {/* 4 KPI cards */}
@@ -291,26 +291,26 @@ export default function SalesPulseTab() {
       </div>
 
       {/* Chart */}
-      <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-3 sm:p-5">
+      <div className="bg-surface border border-line rounded-lg p-3 sm:p-5">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
-          <div className="text-sm font-medium text-zinc-300">Daily Performance</div>
+          <div className="text-sm font-medium text-body">Daily Performance</div>
           <div className="flex items-start sm:items-center gap-2">
-            <span className="text-xs text-zinc-500 shrink-0 pt-1.5 sm:pt-0">Metric</span>
+            <span className="text-xs text-muted shrink-0 pt-1.5 sm:pt-0">Metric</span>
             {/* Mobile: 2×2 grid */}
             <div className="sm:hidden grid grid-cols-2 gap-1 flex-1">
               {KPI_OPTIONS.map(({ value, label }) => (
                 <button key={value} onClick={() => setChartMetric(value)}
                   className={`px-2 py-1.5 text-xs font-medium rounded border transition-colors ${
                     chartMetric === value
-                      ? "bg-zinc-700 text-zinc-100 border-zinc-600"
-                      : "bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-zinc-200"
+                      ? "bg-surface-high text-primary border-line-subtle"
+                      : "bg-surface-mid text-secondary border-line-strong hover:text-strong"
                   }`}>
                   {label}
                 </button>
               ))}
             </div>
             {/* Desktop: horizontal strip */}
-            <div className="hidden sm:flex rounded overflow-hidden border border-zinc-700">
+            <div className="hidden sm:flex rounded overflow-hidden border border-line-strong">
               {KPI_OPTIONS.map(({ value, label }) => (
                 <button key={value} onClick={() => setChartMetric(value)} className={toggleBtn(chartMetric === value)}>
                   {label}
@@ -324,20 +324,20 @@ export default function SalesPulseTab() {
       </div>
 
       {/* Category breakdown */}
-      <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-3 sm:p-5">
+      <div className="bg-surface border border-line rounded-lg p-3 sm:p-5">
         <div className="flex items-center justify-between mb-3">
-          <div className="text-sm font-medium text-zinc-300">Category Breakdown</div>
+          <div className="text-sm font-medium text-body">Category Breakdown</div>
         </div>
 
         {/* Day-of-week filter */}
         <div className="flex items-center gap-1.5 mb-4 overflow-x-auto scrollbar-none pb-0.5">
-          <span className="text-xs text-zinc-600 mr-1">Day</span>
+          <span className="text-xs text-faint mr-1">Day</span>
           <button
             onClick={() => setCatDayFilter(null)}
             className={`shrink-0 px-2.5 py-1 rounded text-xs font-medium border transition-colors ${
               catDayFilter === null
-                ? "border-amber-600 bg-amber-900/20 text-amber-300"
-                : "border-zinc-700 text-zinc-500 hover:text-zinc-300 hover:border-zinc-600"
+                ? "border-accent-border bg-accent-muted/20 text-accent-soft"
+                : "border-line-strong text-muted hover:text-body hover:border-line-subtle"
             }`}
           >
             All
@@ -349,29 +349,29 @@ export default function SalesPulseTab() {
               disabled={isFuture}
               className={`shrink-0 px-2.5 py-1 rounded text-xs font-medium border transition-colors disabled:opacity-25 disabled:cursor-not-allowed ${
                 catDayFilter === i
-                  ? "border-amber-600 bg-amber-900/20 text-amber-300"
-                  : "border-zinc-700 text-zinc-500 hover:text-zinc-300 hover:border-zinc-600"
+                  ? "border-accent-border bg-accent-muted/20 text-accent-soft"
+                  : "border-line-strong text-muted hover:text-body hover:border-line-subtle"
               }`}
             >
               {label}
             </button>
           ))}
-          {catDayLoading && <span className="text-xs text-zinc-600 ml-1">Loading…</span>}
+          {catDayLoading && <span className="text-xs text-faint ml-1">Loading…</span>}
         </div>
 
         {!currentData && !loading && (
-          <div className="text-sm text-zinc-600 italic">No data loaded.</div>
+          <div className="text-sm text-faint italic">No data loaded.</div>
         )}
 
         {catSource && (
           <>
-            <div className="flex items-center gap-4 mb-3 text-xs text-zinc-500">
+            <div className="flex items-center gap-4 mb-3 text-xs text-muted">
               <span className="flex items-center gap-1.5">
-                <span className="inline-block w-3 h-0.5 bg-zinc-400 rounded" />
+                <span className="inline-block w-3 h-0.5 bg-text-secondary rounded" />
                 Included in taproom net sales
               </span>
               <span className="flex items-center gap-1.5">
-                <span className="inline-block w-3 h-0.5 bg-zinc-700 rounded" />
+                <span className="inline-block w-3 h-0.5 bg-surface-high rounded" />
                 Excluded
               </span>
             </div>
@@ -379,7 +379,7 @@ export default function SalesPulseTab() {
             <div className="overflow-x-auto -mx-5 px-5">
             <table className="w-full text-sm min-w-[540px]">
               <thead>
-                <tr className="text-xs text-zinc-500 uppercase border-b border-zinc-800">
+                <tr className="text-xs text-muted uppercase border-b border-line">
                   <th className="text-left py-2 font-medium">Category</th>
                   <th className="text-right py-2 px-3 font-medium">Gross Sales</th>
                   <th className="text-right py-2 px-3 font-medium">Discounts</th>
@@ -390,33 +390,33 @@ export default function SalesPulseTab() {
               </thead>
               <tbody>
                 {sortedCategories.map((cat) => {
-                  const dim = cat.excluded ? "text-zinc-600" : "text-zinc-200";
+                  const dim = cat.excluded ? "text-faint" : "text-strong";
                   const mono = `font-mono ${dim}`;
                   return (
                     <tr
                       key={cat.id}
-                      className={`border-b ${cat.excluded ? "border-zinc-800/30" : "border-zinc-800/60"}`}
+                      className={`border-b ${cat.excluded ? "border-line/30" : "border-line/60"}`}
                     >
                       <td className={`py-2.5 font-medium ${dim}`}>
                         {cat.label}
                         {cat.excluded && (
-                          <span className="ml-2 text-xs font-normal text-zinc-700 italic">excl.</span>
+                          <span className="ml-2 text-xs font-normal text-disabled italic">excl.</span>
                         )}
                       </td>
                       <td className={`py-2.5 px-3 text-right ${mono}`}>
-                        {cat.gross_sales_cents > 0 ? formatCurrency(cat.gross_sales_cents) : <span className="text-zinc-700">—</span>}
+                        {cat.gross_sales_cents > 0 ? formatCurrency(cat.gross_sales_cents) : <span className="text-disabled">—</span>}
                       </td>
                       <td className={`py-2.5 px-3 text-right ${mono}`}>
-                        {cat.discounts_cents > 0 ? <span className="text-red-400/70">({formatCurrency(cat.discounts_cents)})</span> : <span className="text-zinc-700">—</span>}
+                        {cat.discounts_cents > 0 ? <span className="text-danger/70">({formatCurrency(cat.discounts_cents)})</span> : <span className="text-disabled">—</span>}
                       </td>
                       <td className={`py-2.5 px-3 text-right ${mono}`}>
-                        {cat.returns_cents > 0 ? <span className="text-red-400/70">({formatCurrency(cat.returns_cents)})</span> : <span className="text-zinc-700">—</span>}
+                        {cat.returns_cents > 0 ? <span className="text-danger/70">({formatCurrency(cat.returns_cents)})</span> : <span className="text-disabled">—</span>}
                       </td>
-                      <td className={`py-2.5 px-3 text-right font-mono font-medium ${cat.excluded ? "text-zinc-600" : "text-zinc-100"}`}>
-                        {cat.net_sales_cents > 0 ? formatCurrency(cat.net_sales_cents) : <span className="text-zinc-700">—</span>}
+                      <td className={`py-2.5 px-3 text-right font-mono font-medium ${cat.excluded ? "text-faint" : "text-primary"}`}>
+                        {cat.net_sales_cents > 0 ? formatCurrency(cat.net_sales_cents) : <span className="text-disabled">—</span>}
                       </td>
                       <td className={`py-2.5 pl-3 text-right ${mono}`}>
-                        {cat.tax_cents > 0 ? formatCurrency(cat.tax_cents) : <span className="text-zinc-700">—</span>}
+                        {cat.tax_cents > 0 ? formatCurrency(cat.tax_cents) : <span className="text-disabled">—</span>}
                       </td>
                     </tr>
                   );
@@ -424,16 +424,16 @@ export default function SalesPulseTab() {
               </tbody>
               {catNetTotal > 0 && (
                 <tfoot>
-                  <tr className="border-t border-zinc-700 text-zinc-200 font-semibold">
+                  <tr className="border-t border-line-strong text-strong font-semibold">
                     <td className="py-2">Total (included)</td>
                     <td className="py-2 px-3 text-right font-mono">{formatCurrency(catGrossTotal)}</td>
-                    <td className="py-2 px-3 text-right font-mono text-red-400/70">
+                    <td className="py-2 px-3 text-right font-mono text-danger/70">
                       {catDiscTotal > 0 ? `(${formatCurrency(catDiscTotal)})` : "—"}
                     </td>
-                    <td className="py-2 px-3 text-right font-mono text-red-400/70">
+                    <td className="py-2 px-3 text-right font-mono text-danger/70">
                       {catRetTotal > 0 ? `(${formatCurrency(catRetTotal)})` : "—"}
                     </td>
-                    <td className="py-2 px-3 text-right font-mono text-zinc-100">{formatCurrency(catNetTotal)}</td>
+                    <td className="py-2 px-3 text-right font-mono text-primary">{formatCurrency(catNetTotal)}</td>
                     <td className="py-2 pl-3 text-right font-mono">{formatCurrency(catTaxTotal)}</td>
                   </tr>
                 </tfoot>

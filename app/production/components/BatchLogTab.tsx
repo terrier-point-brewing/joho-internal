@@ -28,7 +28,7 @@ const EquipmentScheduleSection = dynamic(
   () => import("./EquipmentSchedule").then((m) => m.EquipmentScheduleSection),
   {
     ssr: false,
-    loading: () => <div className="h-64 w-full animate-pulse rounded-lg bg-zinc-900/40" aria-hidden="true" />,
+    loading: () => <div className="h-64 w-full animate-pulse rounded-lg bg-surface/40" aria-hidden="true" />,
   }
 );
 
