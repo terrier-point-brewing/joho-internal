@@ -26,7 +26,7 @@ export async function GET() {
       contract_brewing_partners!partner_id(company_name)
     `)
     .not("partner_id", "is", null)
-    .eq("invoice_type", "standard")
+    .eq("invoice_type", "export_invoice")
     .order("invoice_date", { ascending: false });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
