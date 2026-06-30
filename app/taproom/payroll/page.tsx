@@ -19,7 +19,7 @@ export default async function TaproomPayrollRoot() {
   // No periods yet
   return (
     <main className="px-4 sm:px-6 py-8">
-      <p className="text-zinc-500 text-sm">No pay periods found. An admin needs to create the first period.</p>
+      <p className="text-muted text-sm">No pay periods found. An admin needs to create the first period.</p>
     </main>
   );
 }

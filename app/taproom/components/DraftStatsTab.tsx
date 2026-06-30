@@ -210,50 +210,50 @@ export default function DraftStatsTab() {
       {/* ── Header ── */}
       <div className="flex flex-wrap items-start justify-between gap-3 mb-5">
         <div>
-          <p className="text-sm text-zinc-500">
+          <p className="text-sm text-muted">
             Draft tap status, sell-through rates, and shrinkage trends from Square inventory.
           </p>
         </div>
         <div className="flex gap-2">
           <button onClick={() => refetch()}
-            className="px-3 py-1.5 border border-zinc-700 hover:border-zinc-500 text-zinc-300 text-sm font-medium rounded transition-colors">
+            className="px-3 py-1.5 border border-line-strong hover:border-line-subtle text-body text-sm font-medium rounded transition-colors">
             Refresh
           </button>
           <button onClick={editingTaps ? saveTaps : startEditTaps} disabled={saving}
             className={`px-3 py-1.5 text-sm font-medium rounded transition-colors ${
               editingTaps
-                ? "bg-amber-600 hover:bg-amber-500 text-white"
-                : "border border-zinc-700 hover:border-zinc-500 text-zinc-300"
+                ? "bg-accent-emphasis hover:bg-accent text-canvas"
+                : "border border-line-strong hover:border-line-subtle text-body"
             }`}>
             {saving ? "Saving…" : editingTaps ? "Save Taps" : "Configure Taps"}
           </button>
           {editingTaps && (
             <button onClick={() => setEditingTaps(false)}
-              className="px-3 py-1.5 border border-zinc-700 text-zinc-500 text-sm rounded transition-colors hover:text-zinc-300">
+              className="px-3 py-1.5 border border-line-strong text-muted text-sm rounded transition-colors hover:text-body">
               Cancel
             </button>
           )}
         </div>
       </div>
 
-      {err && <p className="text-sm text-red-400 mb-3">{err}</p>}
+      {err && <p className="text-sm text-danger mb-3">{err}</p>}
 
       {/* ── Tap count editor ── */}
       {editingTaps && (
-        <div className="mb-4 flex items-center gap-3 p-3 rounded-lg bg-zinc-900 border border-zinc-700">
-          <label className="text-xs text-zinc-400 whitespace-nowrap">Number of taps:</label>
+        <div className="mb-4 flex items-center gap-3 p-3 rounded-lg bg-surface border border-line-strong">
+          <label className="text-xs text-secondary whitespace-nowrap">Number of taps:</label>
           <input
             type="number" min="1" max="32" className="inp w-20 text-center"
             value={tapCountInput}
             onChange={(e) => setTapCountInput(e.target.value)}
           />
-          <span className="text-xs text-zinc-600">Tap assignment slots will update below.</span>
+          <span className="text-xs text-faint">Tap assignment slots will update below.</span>
         </div>
       )}
 
       {/* ── Tap grid ── */}
       {isLoading ? (
-        <p className="text-zinc-600 text-sm py-10 text-center">Loading tap data from Square…</p>
+        <p className="text-faint text-sm py-10 text-center">Loading tap data from Square…</p>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 mb-8">
           {tapsToRender.map((tapNum) => {
@@ -277,15 +277,18 @@ export default function DraftStatsTab() {
               : isRetired                              ? "retiring"
               : "good";
 
+            // Urgency ramp (critical→good) is a deliberate data-category palette,
+            // exempt from token migration per UI_STANDARD; only the neutral
+            // retiring/retired/none states use surface tokens.
             const cardCls: Record<Urgency, string> = {
               critical: "border-red-500     bg-red-950/25",
               low:      "border-orange-500  bg-orange-950/20",
               watch:    "border-amber-500   bg-amber-950/15",
               soon:     "border-yellow-500/70 bg-yellow-950/10",
               good:     "border-green-700/60 bg-green-950/10",
-              retiring: "border-zinc-700 border-dashed",
-              retired:  "border-zinc-800 opacity-55",
-              none:     "border-zinc-800",
+              retiring: "border-line-strong border-dashed",
+              retired:  "border-line opacity-55",
+              none:     "border-line",
             };
 
             const badgeCls: Partial<Record<Urgency, { wrap: string; text: string }>> = {
@@ -307,7 +310,7 @@ export default function DraftStatsTab() {
               : urgency === "watch"  ? "text-amber-400"
               : urgency === "soon"   ? "text-yellow-400"
               : urgency === "good"   ? "text-green-400"
-              : "text-zinc-600";
+              : "text-faint";
 
             return (
               <div
@@ -316,12 +319,12 @@ export default function DraftStatsTab() {
               >
                 {/* Tap number + urgency badge */}
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">
+                  <span className="text-xs font-semibold text-muted uppercase tracking-wider">
                     Tap {tapNum}
                   </span>
                   <div className="flex items-center gap-1.5">
                     {isRetired && (
-                      <span className="text-xs px-1.5 py-0.5 rounded border border-zinc-700 text-zinc-500 uppercase tracking-wide">
+                      <span className="text-xs px-1.5 py-0.5 rounded border border-line-strong text-muted uppercase tracking-wide">
                         Retired
                       </span>
                     )}
@@ -356,11 +359,11 @@ export default function DraftStatsTab() {
                 ) : (
                   <div>
                     {tap?.beer_name ? (
-                      <p className="text-sm font-medium text-zinc-100">{tap.beer_name}</p>
+                      <p className="text-sm font-medium text-primary">{tap.beer_name}</p>
                     ) : (
-                      <p className="text-sm text-zinc-600 italic">Empty</p>
+                      <p className="text-sm text-faint italic">Empty</p>
                     )}
-                    {tap?.label && <p className="text-xs text-zinc-500">{tap.label}</p>}
+                    {tap?.label && <p className="text-xs text-muted">{tap.label}</p>}
                   </div>
                 )}
 
@@ -369,25 +372,25 @@ export default function DraftStatsTab() {
                   <>
                     <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-xs">
                       <div>
-                        <span className="text-zinc-600">fl oz avail</span>
-                        <p className="text-zinc-200 tabular-nums font-medium">
+                        <span className="text-faint">fl oz avail</span>
+                        <p className="text-strong tabular-nums font-medium">
                           {tap.metrics.current_fl_oz.toLocaleString()} oz
                         </p>
                       </div>
                       <div>
-                        <span className="text-zinc-600">BBL on hand</span>
-                        <p className="text-zinc-200 tabular-nums font-medium">
+                        <span className="text-faint">BBL on hand</span>
+                        <p className="text-strong tabular-nums font-medium">
                           {tap.metrics.current_bbl.toFixed(2)}
                         </p>
                       </div>
                       <div>
-                        <span className="text-zinc-600">oz / day</span>
-                        <p className="text-zinc-300 tabular-nums">
+                        <span className="text-faint">oz / day</span>
+                        <p className="text-body tabular-nums">
                           {tap.metrics.daily_fl_oz > 0 ? Math.round(tap.metrics.daily_fl_oz).toLocaleString() : "—"}
                         </p>
                       </div>
                       <div>
-                        <span className="text-zinc-600">days left</span>
+                        <span className="text-faint">days left</span>
                         <p className={`tabular-nums font-semibold ${daysLeftCls}`}>
                           {daysLeft !== null ? `~${daysLeft}d` : "—"}
                         </p>
@@ -399,8 +402,8 @@ export default function DraftStatsTab() {
                         disabled={retiringSaving === tap.recipe_id}
                         className={`text-xs self-start px-2 py-0.5 rounded border transition-colors ${
                           isRetired
-                            ? "border-zinc-700 text-zinc-500 hover:text-zinc-300 hover:border-zinc-500"
-                            : "border-zinc-700 text-zinc-600 hover:text-amber-400 hover:border-amber-700"
+                            ? "border-line-strong text-muted hover:text-body hover:border-line-subtle"
+                            : "border-line-strong text-faint hover:text-accent hover:border-accent-border"
                         }`}
                       >
                         {retiringSaving === tap.recipe_id ? "…" : isRetired ? "Unretire" : "Mark Retired"}
@@ -419,8 +422,8 @@ export default function DraftStatsTab() {
         <div>
           <div className="flex items-center justify-between mb-3">
             <div>
-              <h3 className="text-sm font-semibold text-zinc-200">Draft Shrinkage</h3>
-              <p className="text-xs text-zinc-500 mt-0.5">
+              <h3 className="text-sm font-semibold text-strong">Draft Shrinkage</h3>
+              <p className="text-xs text-muted mt-0.5">
                 fl oz remaining when a keg was replaced — lower is better · last {shrinkageDays} days
               </p>
             </div>
@@ -430,12 +433,12 @@ export default function DraftStatsTab() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-6">
             {chartByShrinkageItem.map((item) => (
               <div key={item.recipe_id}
-                className="rounded-lg border border-zinc-800 p-3 flex items-center gap-3">
+                className="rounded-lg border border-line p-3 flex items-center gap-3">
                 <div className="w-3 h-3 rounded-full shrink-0" style={{ background: item.color }} />
                 <div className="min-w-0">
-                  <p className="text-sm font-medium text-zinc-200 truncate">{item.beer_name}</p>
-                  <p className="text-xs text-zinc-500">
-                    Avg <span className="text-zinc-300 tabular-nums">{item.avg_shrinkage_fl_oz} oz</span>
+                  <p className="text-sm font-medium text-strong truncate">{item.beer_name}</p>
+                  <p className="text-xs text-muted">
+                    Avg <span className="text-body tabular-nums">{item.avg_shrinkage_fl_oz} oz</span>
                     {" "}({item.avg_shrinkage_pct}%)
                     {" "}· {item.keg_count} keg{item.keg_count !== 1 ? "s" : ""}
                   </p>
@@ -446,8 +449,8 @@ export default function DraftStatsTab() {
 
           {/* Chart */}
           {chartData.length > 0 ? (
-            <div className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-4">
-              <h4 className="text-xs font-medium text-zinc-500 uppercase tracking-wide mb-3">
+            <div className="rounded-lg border border-line bg-surface/30 p-4">
+              <h4 className="text-xs font-medium text-muted uppercase tracking-wide mb-3">
                 Shrinkage per Keg Replacement (fl oz remaining)
               </h4>
               <DraftStatsChart chartData={chartData} chartByShrinkageItem={chartByShrinkageItem} />
@@ -455,7 +458,7 @@ export default function DraftStatsTab() {
               {/* Legend */}
               <div className="flex flex-wrap gap-3 mt-2">
                 {chartByShrinkageItem.map((item) => (
-                  <span key={item.recipe_id} className="flex items-center gap-1.5 text-xs text-zinc-400">
+                  <span key={item.recipe_id} className="flex items-center gap-1.5 text-xs text-secondary">
                     <span className="w-2.5 h-2.5 rounded-sm inline-block" style={{ background: item.color }} />
                     {item.beer_name}
                   </span>
@@ -463,7 +466,7 @@ export default function DraftStatsTab() {
               </div>
             </div>
           ) : (
-            <p className="text-sm text-zinc-600 py-4">
+            <p className="text-sm text-faint py-4">
               No keg replacement events detected in the last {shrinkageDays} days. Shrinkage is recorded when Square shows a physical count going from low back to ~660 fl oz.
             </p>
           )}
@@ -472,7 +475,7 @@ export default function DraftStatsTab() {
 
       {shrinkageItems.length === 0 && !isLoading && (
         <div className="py-8 text-center">
-          <p className="text-zinc-600 text-sm">
+          <p className="text-faint text-sm">
             {draftRecipeIds.size === 0
               ? "No draft items linked to Square yet. Visit Square Mappings in Settings to link recipes."
               : "No shrinkage data found for the selected period."}

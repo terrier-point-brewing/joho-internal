@@ -54,10 +54,8 @@ function today(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-const inputCls =
-  "bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm text-zinc-100 " +
-  "placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 " +
-  "transition-colors w-full";
+// Shared `.inp` primitive; callers append left-padding / alignment modifiers.
+const inputCls = "inp";
 
 // ---------------------------------------------------------------------------
 
@@ -138,18 +136,18 @@ export default function ManualEntriesTab() {
     <div className="max-w-3xl space-y-6">
       {/* Add form — admin only */}
       {!isAdmin && (
-        <div className="bg-zinc-900 border border-zinc-800 rounded-lg px-5 py-4 text-sm text-zinc-500">
+        <div className="bg-surface border border-line rounded-lg px-5 py-4 text-sm text-muted">
           Manual entries can only be created by admins.
         </div>
       )}
       {isAdmin && <form
         onSubmit={handleAdd}
-        className="bg-zinc-900 border border-zinc-800 rounded-lg p-6 space-y-4"
+        className="bg-surface border border-line rounded-lg p-6 space-y-4"
       >
         <div className="grid grid-cols-2 gap-4">
           {/* Start date */}
           <div>
-            <label className="block text-xs font-medium text-zinc-400 mb-1.5">Start Date</label>
+            <label className="block text-xs font-medium text-secondary mb-1.5">Start Date</label>
             <input
               type="date"
               value={formStart}
@@ -160,7 +158,7 @@ export default function ManualEntriesTab() {
 
           {/* End date */}
           <div>
-            <label className="block text-xs font-medium text-zinc-400 mb-1.5">End Date</label>
+            <label className="block text-xs font-medium text-secondary mb-1.5">End Date</label>
             <input
               type="date"
               value={formEnd}
@@ -171,9 +169,9 @@ export default function ManualEntriesTab() {
 
           {/* Amount */}
           <div>
-            <label className="block text-xs font-medium text-zinc-400 mb-1.5">Net Sales Amount</label>
+            <label className="block text-xs font-medium text-secondary mb-1.5">Net Sales Amount</label>
             <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 text-sm pointer-events-none">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted text-sm pointer-events-none">
                 $
               </span>
               <input
@@ -189,8 +187,8 @@ export default function ManualEntriesTab() {
 
           {/* Label */}
           <div>
-            <label className="block text-xs font-medium text-zinc-400 mb-1.5">
-              Label <span className="text-zinc-600 font-normal">(optional)</span>
+            <label className="block text-xs font-medium text-secondary mb-1.5">
+              Label <span className="text-faint font-normal">(optional)</span>
             </label>
             <input
               type="text"
@@ -203,19 +201,19 @@ export default function ManualEntriesTab() {
         </div>
 
         {formStart && formEnd && formStart <= formEnd && (
-          <p className="text-xs text-zinc-500">
+          <p className="text-xs text-muted">
             {Math.round((new Date(formEnd + "T00:00:00").getTime() - new Date(formStart + "T00:00:00").getTime()) / 86_400_000) + 1} day window — amount will be prorated by day overlap when applied to a period.
           </p>
         )}
 
         {formError && (
-          <p className="text-xs text-red-400">{formError}</p>
+          <p className="text-xs text-danger">{formError}</p>
         )}
 
         <button
           type="submit"
           disabled={saving}
-          className="bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white text-sm font-medium px-5 py-2 rounded transition-colors"
+          className="btn-amber"
         >
           {saving ? "Saving…" : saved ? "✓ Saved" : "Save Entry"}
         </button>
@@ -224,9 +222,9 @@ export default function ManualEntriesTab() {
       {/* Entries list */}
       <div>
         {loading ? (
-          <p className="text-sm text-zinc-500">Loading…</p>
+          <p className="text-sm text-muted">Loading…</p>
         ) : entries.length === 0 ? (
-          <p className="text-sm text-zinc-600">No manual entries yet.</p>
+          <p className="text-sm text-faint">No manual entries yet.</p>
         ) : (
           <div className="space-y-4">
             {years.map((y) => {
@@ -235,14 +233,14 @@ export default function ManualEntriesTab() {
                 .sort((a, b) => b.start_date.localeCompare(a.start_date));
 
               return (
-                <div key={y} className="bg-zinc-900 border border-zinc-800 rounded-lg">
-                  <div className="px-4 py-2 border-b border-zinc-800 text-xs font-semibold text-zinc-400 uppercase tracking-wide">
+                <div key={y} className="bg-surface border border-line rounded-lg">
+                  <div className="px-4 py-2 border-b border-line text-xs font-semibold text-secondary uppercase tracking-wide">
                     {y}
                   </div>
                   <div className="overflow-x-auto">
                   <table className="w-full text-sm min-w-[520px]">
                     <thead>
-                      <tr className="text-xs text-zinc-600 border-b border-zinc-800">
+                      <tr className="text-xs text-faint border-b border-line">
                         <th className="text-left px-4 py-2 font-medium">Date Range</th>
                         <th className="text-right px-4 py-2 font-medium">Days</th>
                         <th className="text-right px-4 py-2 font-medium">Net Sales</th>
@@ -257,31 +255,31 @@ export default function ManualEntriesTab() {
                         return (
                           <tr
                             key={entry.id}
-                            className="border-b border-zinc-800/50 last:border-0 hover:bg-zinc-800/30 transition-colors"
+                            className="border-b border-line/50 last:border-0 hover:bg-surface-mid/30 transition-colors"
                           >
-                            <td className="px-4 py-2.5 text-zinc-200 font-medium whitespace-nowrap">
+                            <td className="px-4 py-2.5 text-strong font-medium whitespace-nowrap">
                               {fmtDate(entry.start_date)}
                               {entry.start_date !== entry.end_date && (
                                 <> – {fmtDate(entry.end_date)}</>
                               )}
                             </td>
-                            <td className="px-4 py-2.5 text-right font-mono text-zinc-500">
+                            <td className="px-4 py-2.5 text-right font-mono text-muted">
                               {days}
                             </td>
-                            <td className="px-4 py-2.5 text-right font-mono text-zinc-100">
+                            <td className="px-4 py-2.5 text-right font-mono text-primary">
                               {currency(entry.amount_cents)}
                             </td>
-                            <td className="px-4 py-2.5 text-right font-mono text-zinc-500">
+                            <td className="px-4 py-2.5 text-right font-mono text-muted">
                               {currency(Math.round(entry.amount_cents / days))}
                             </td>
-                            <td className="px-4 py-2.5 text-zinc-500 text-xs">
-                              {entry.label ?? <span className="text-zinc-700">—</span>}
+                            <td className="px-4 py-2.5 text-muted text-xs">
+                              {entry.label ?? <span className="text-disabled">—</span>}
                             </td>
                             <td className="px-4 py-2.5 text-right">
                               <button
                                 onClick={() => handleDelete(entry.id)}
                                 disabled={deleting === entry.id}
-                                className="text-xs text-zinc-600 hover:text-red-400 disabled:opacity-40 transition-colors"
+                                className="text-xs text-faint hover:text-danger disabled:opacity-40 transition-colors"
                               >
                                 {deleting === entry.id ? "…" : "Delete"}
                               </button>
@@ -291,7 +289,7 @@ export default function ManualEntriesTab() {
                       })}
                     </tbody>
                     <tfoot>
-                      <tr className="border-t border-zinc-700 text-zinc-300 font-medium">
+                      <tr className="border-t border-line-strong text-body font-medium">
                         <td className="px-4 py-2" colSpan={2}>Total</td>
                         <td className="px-4 py-2 text-right font-mono">
                           {currency(yearEntries.reduce((s, e) => s + e.amount_cents, 0))}

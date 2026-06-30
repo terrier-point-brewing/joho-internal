@@ -12,8 +12,9 @@ independently (other agents were working concurrently in separate areas).
 | [#47](https://github.com/terrier-point-brewing/terrier-point-brewing/pull/47) | Core / settings / auth / payroll components | merged |
 | [#56](https://github.com/terrier-point-brewing/terrier-point-brewing/pull/56) | Finance | merged |
 | [#48](https://github.com/terrier-point-brewing/terrier-point-brewing/pull/48) | Production | merged |
-| [#51](https://github.com/terrier-point-brewing/terrier-point-brewing/pull/51) | Taproom + Reports | merged |
-| [#57](https://github.com/terrier-point-brewing/terrier-point-brewing/pull/57) (this) | Codify into CLAUDE.md + this report | merging last |
+| [#51](https://github.com/terrier-point-brewing/terrier-point-brewing/pull/51) | Taproom + Reports (page shells) | merged |
+| [#57](https://github.com/terrier-point-brewing/terrier-point-brewing/pull/57) | Codify into CLAUDE.md + this report | merged |
+| [#59](https://github.com/terrier-point-brewing/terrier-point-brewing/pull/59) | Residual cleanup: taproom tab-component bodies + post-pass surfaces (#52/#55/#58) | follow-up |
 
 ## Coverage (vs. `ROUTE_MANIFEST.md`)
 
@@ -21,13 +22,21 @@ Every in-scope content surface was visited. Verified per area with
 `grep -E "(bg|text|border|ring)-(zinc|amber|red|green|blue|gray)-[0-9]"` returning **zero**
 hits across non-exempt files, plus `npm run build` + `npm run lint` (0 errors) on each branch.
 
+> **Verification caveat (corrected in #59).** The per-branch grep confirmed the files *each
+> PR changed* were clean, not that each *area* was clean. Two classes of surface slipped
+> through: taproom **tab-component bodies** (`EventsTab`, `AchievementTab`, … — #51 migrated
+> the page shells that render them, not the components themselves), and small surfaces added
+> by perf/feature PRs *after* their area was audited (route skeletons #52, `ChartSkeleton`
+> #55, `UnrecognizedBanner` #58). #59 closes both; the codebase is at non-exempt residual 0
+> after it merges.
+
 | Area | Content surfaces | Status |
 |---|---|---|
 | Shared chrome (NavBar, SubNav, TabBar, PageHeader, SquareCatalogSelect) | 5 | ✅ done (#45) |
 | Core / settings / auth / payroll components | settings (8), auth (2), payroll components (6), root | ✅ done (#47) |
-| Finance | 17 content pages/components + 6 navs + SalesTable | ✅ done (#56), residual 0 |
+| Finance | 17 content pages/components + 6 navs + SalesTable | ✅ done (#56); `UnrecognizedBanner` #59 |
 | Production | 17 page shells + ~30 tab/panel components | ✅ done (#48), residual 0 |
-| Taproom + Reports | 9 taproom pages/tabs + 9 report components + section layouts | ✅ done (#51), residual 0 |
+| Taproom + Reports | 9 page shells + 9 report components + section layouts (#51); 6 tab-component bodies + 2 chart tooltips (#59) | ✅ done (#51 + #59), residual 0 |
 | API routes (`app/api/**`, ~150) | — | ⏭ out of scope (no UI) |
 | Redirect/guard pages (~20) | — | ⏭ no markup |
 

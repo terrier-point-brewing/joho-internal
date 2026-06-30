@@ -18,21 +18,21 @@ type Target = {
 };
 
 const TIERS: { value: Tier; label: string; color: string; description: string }[] = [
-  { value: "baseline", label: "Baseline", color: "text-zinc-400",  description: "Minimum acceptable" },
-  { value: "recovery", label: "Recovery", color: "text-blue-400",  description: "Recovering to normal" },
-  { value: "target",   label: "Target",   color: "text-amber-400", description: "Primary goal" },
-  { value: "stretch",  label: "Stretch",  color: "text-green-400", description: "Ambitious upside" },
+  { value: "baseline", label: "Baseline", color: "text-secondary",  description: "Minimum acceptable" },
+  { value: "recovery", label: "Recovery", color: "text-info",  description: "Recovering to normal" },
+  { value: "target",   label: "Target",   color: "text-accent", description: "Primary goal" },
+  { value: "stretch",  label: "Stretch",  color: "text-success", description: "Ambitious upside" },
 ];
 
 // Shared column header block (module-scoped so it isn't recreated each render).
 function ColHeaders() {
   return (
-    <div className="grid grid-cols-[80px_1fr_1fr_1fr_1fr] border-b border-zinc-800 bg-zinc-900/60">
+    <div className="grid grid-cols-[80px_1fr_1fr_1fr_1fr] border-b border-line bg-surface/60">
       <div className="px-4 py-3" />
       {TIERS.map((t) => (
         <div key={t.value} className="px-3 py-3 text-center">
           <div className={`text-sm font-semibold ${t.color}`}>{t.label}</div>
-          <div className="text-xs text-zinc-600 mt-0.5">{t.description}</div>
+          <div className="text-xs text-faint mt-0.5">{t.description}</div>
         </div>
       ))}
     </div>
@@ -73,14 +73,12 @@ function emptyGrid(): GridState {
   return g;
 }
 
-const inputCls =
-  "w-full bg-zinc-800 border border-zinc-700 rounded px-2.5 py-1.5 text-sm text-zinc-100 " +
-  "placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 " +
-  "text-right font-mono transition-colors";
+// Shared `.inp` primitive + numeric alignment; callers append left-padding.
+const inputCls = "inp text-right font-mono";
 
 const selectCls =
-  "bg-zinc-800 border border-zinc-600 rounded px-3 py-2 text-sm text-zinc-100 " +
-  "focus:outline-none focus:ring-2 focus:ring-amber-500";
+  "bg-surface-mid border border-line-subtle rounded px-3 py-2 text-sm text-primary " +
+  "focus:outline-none focus:ring-2 focus:ring-accent";
 
 // ---------------------------------------------------------------------------
 
@@ -206,8 +204,8 @@ export default function TargetSettingTab() {
               onClick={() => { populatedYearRef.current = null; setYear(y); }}
               className={`px-4 py-1.5 rounded text-sm font-medium border transition-colors ${
                 year === y
-                  ? "border-amber-600 bg-amber-900/20 text-amber-300"
-                  : "border-zinc-700 text-zinc-400 hover:text-zinc-200 hover:border-zinc-500"
+                  ? "border-accent-border bg-accent-muted/20 text-accent-soft"
+                  : "border-line-strong text-secondary hover:text-strong hover:border-line-subtle"
               }`}
             >
               {y}
@@ -215,10 +213,10 @@ export default function TargetSettingTab() {
           ))}
           {isAdmin && (
             <>
-              <div className="w-px h-5 bg-zinc-700 mx-1" />
+              <div className="w-px h-5 bg-surface-high mx-1" />
               <button
                 onClick={handleEnterEdit}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded border border-zinc-700 text-sm text-zinc-400 hover:text-zinc-100 hover:border-zinc-500 transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded border border-line-strong text-sm text-secondary hover:text-primary hover:border-line-subtle transition-colors"
               >
                 <span>✎</span> Edit
               </button>
@@ -227,27 +225,27 @@ export default function TargetSettingTab() {
         </div>
 
         {loading ? (
-          <p className="text-sm text-zinc-500">Loading…</p>
+          <p className="text-sm text-muted">Loading…</p>
         ) : (
-          <div className="bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden overflow-x-auto">
+          <div className="bg-surface border border-line rounded-lg overflow-hidden overflow-x-auto">
             <div className="min-w-[480px]">
             <ColHeaders />
             {[1, 2, 3, 4].map((q) => (
               <div
                 key={q}
-                className="grid grid-cols-[80px_1fr_1fr_1fr_1fr] border-b border-zinc-800 last:border-0"
+                className="grid grid-cols-[80px_1fr_1fr_1fr_1fr] border-b border-line last:border-0"
               >
                 <div className="px-4 py-4 flex items-center">
-                  <span className="text-sm font-semibold text-zinc-200">Q{q}</span>
+                  <span className="text-sm font-semibold text-strong">Q{q}</span>
                 </div>
                 {TIERS.map(({ value: tier }) => {
                   const val = savedValues[q][tier];
                   return (
                     <div key={tier} className="px-3 py-4 text-right">
                       {val !== null ? (
-                        <span className="text-sm font-mono text-zinc-100">{currency(val)}</span>
+                        <span className="text-sm font-mono text-primary">{currency(val)}</span>
                       ) : (
-                        <span className="text-sm text-zinc-700">—</span>
+                        <span className="text-sm text-disabled">—</span>
                       )}
                     </div>
                   );
@@ -255,10 +253,10 @@ export default function TargetSettingTab() {
               </div>
             ))}
             {!hasAnyForYear && (
-              <div className="px-4 py-6 text-center text-sm text-zinc-600">
+              <div className="px-4 py-6 text-center text-sm text-faint">
                 No targets set for {year}.{" "}
                 {isAdmin && (
-                  <button onClick={handleEnterEdit} className="text-amber-500 hover:text-amber-400 underline">
+                  <button onClick={handleEnterEdit} className="text-accent hover:text-accent underline">
                     Add some
                   </button>
                 )}
@@ -280,15 +278,15 @@ export default function TargetSettingTab() {
   return (
     <div className="max-w-4xl space-y-6">
       <div className="flex items-center justify-between">
-        <p className="text-xs text-zinc-600">Editing {year} · blank cells are skipped on save</p>
+        <p className="text-xs text-faint">Editing {year} · blank cells are skipped on save</p>
         <div className="flex items-center gap-3">
-          <button onClick={handleCancel} className="px-4 py-2 rounded border border-zinc-700 text-sm text-zinc-400 hover:text-zinc-200 transition-colors">
+          <button onClick={handleCancel} className="px-4 py-2 rounded border border-line-strong text-sm text-secondary hover:text-strong transition-colors">
             Cancel
           </button>
           <button
             onClick={handleSave}
             disabled={saving}
-            className="bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white text-sm font-medium px-5 py-2 rounded transition-colors"
+            className="btn-amber"
           >
             {saving ? "Saving…" : saved ? "✓ Saved" : "Save Changes"}
           </button>
@@ -297,7 +295,7 @@ export default function TargetSettingTab() {
 
       {/* Year selector in edit mode */}
       <div className="flex items-center gap-3">
-        <span className="text-sm text-zinc-500">Year</span>
+        <span className="text-sm text-muted">Year</span>
         <select
           value={year}
           onChange={(e) => { populatedYearRef.current = null; setYear(Number(e.target.value)); }}
@@ -309,16 +307,16 @@ export default function TargetSettingTab() {
         </select>
       </div>
 
-      <div className="bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden overflow-x-auto">
+      <div className="bg-surface border border-line rounded-lg overflow-hidden overflow-x-auto">
         <div className="min-w-[480px]">
         <ColHeaders />
         {[1, 2, 3, 4].map((q) => (
           <div
             key={q}
-            className="grid grid-cols-[80px_1fr_1fr_1fr_1fr] border-b border-zinc-800 last:border-0 hover:bg-zinc-800/20 transition-colors"
+            className="grid grid-cols-[80px_1fr_1fr_1fr_1fr] border-b border-line last:border-0 hover:bg-surface-mid/20 transition-colors"
           >
             <div className="px-4 py-3 flex items-center">
-              <span className="text-sm font-semibold text-zinc-200">Q{q}</span>
+              <span className="text-sm font-semibold text-strong">Q{q}</span>
             </div>
             {TIERS.map(({ value: tier }) => {
               const isDirty     = dirty.has(`${q}-${tier}`);
@@ -329,8 +327,8 @@ export default function TargetSettingTab() {
 
               return (
                 <div key={tier} className="px-3 py-2.5">
-                  <div className={`relative ${isDirty && !unchanged ? "ring-1 ring-amber-700/50 rounded" : ""}`}>
-                    <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500 text-sm pointer-events-none select-none">
+                  <div className={`relative ${isDirty && !unchanged ? "ring-1 ring-accent-border/50 rounded" : ""}`}>
+                    <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted text-sm pointer-events-none select-none">
                       $
                     </span>
                     <input
@@ -344,12 +342,12 @@ export default function TargetSettingTab() {
                   </div>
                   {/* Show change preview */}
                   {isDirty && !unchanged && parsedCents !== null && savedVal !== null && (
-                    <div className="text-xs text-zinc-600 text-right mt-0.5 pr-0.5">
+                    <div className="text-xs text-faint text-right mt-0.5 pr-0.5">
                       was {currency(savedVal)}
                     </div>
                   )}
                   {isDirty && !unchanged && parsedCents !== null && savedVal === null && (
-                    <div className="text-xs text-zinc-600 text-right mt-0.5 pr-0.5">new</div>
+                    <div className="text-xs text-faint text-right mt-0.5 pr-0.5">new</div>
                   )}
                 </div>
               );
@@ -360,7 +358,7 @@ export default function TargetSettingTab() {
       </div>
 
       {!hasChanges && (
-        <p className="text-xs text-zinc-600">No changes yet — edit cells above then save.</p>
+        <p className="text-xs text-faint">No changes yet — edit cells above then save.</p>
       )}
     </div>
   );
@@ -387,21 +385,21 @@ function AllYearsSummary({
 
   return (
     <div className="space-y-2">
-      <p className="text-xs text-zinc-500 uppercase tracking-wide">Other years</p>
+      <p className="text-xs text-muted uppercase tracking-wide">Other years</p>
       {otherYears.map((y) => {
         const yt = targets.filter((t) => t.year === y);
         const hasData = yt.length > 0;
         return (
-          <div key={y} className="bg-zinc-900 border border-zinc-800 rounded-lg px-4 py-3 flex items-center justify-between">
-            <span className="text-sm font-medium text-zinc-300">{y}</span>
+          <div key={y} className="bg-surface border border-line rounded-lg px-4 py-3 flex items-center justify-between">
+            <span className="text-sm font-medium text-body">{y}</span>
             {hasData ? (
-              <span className="text-xs text-zinc-500">{yt.length} target{yt.length !== 1 ? "s" : ""} set</span>
+              <span className="text-xs text-muted">{yt.length} target{yt.length !== 1 ? "s" : ""} set</span>
             ) : (
-              <span className="text-xs text-zinc-700">No targets</span>
+              <span className="text-xs text-disabled">No targets</span>
             )}
             <button
               onClick={() => onSelectYear(y)}
-              className="text-xs text-amber-500 hover:text-amber-400"
+              className="text-xs text-accent hover:text-accent"
             >
               View →
             </button>

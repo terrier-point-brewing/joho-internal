@@ -24,7 +24,7 @@ export default function TaproomPayrollPage() {
     <main className="px-4 sm:px-6 py-4 sm:py-8">
       <SubNav entries={TAPROOM_NAV} mobile />
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-zinc-100 font-semibold text-lg">Payroll</h1>
+        <h1 className="text-primary font-semibold text-lg">Payroll</h1>
         {periods && (
           <PeriodSelector
             periods={periods}

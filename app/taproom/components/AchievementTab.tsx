@@ -105,9 +105,9 @@ function buildWeekRange(start: Date, end: Date): Omit<Period,"net_sales_cents"|"
   return out;
 }
 
-const selectCls = "bg-zinc-800 border border-zinc-600 rounded px-1.5 py-1 sm:px-3 sm:py-2 text-xs sm:text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-amber-500";
+const selectCls = "bg-surface-mid border border-line-subtle rounded px-1.5 py-1 sm:px-3 sm:py-2 text-xs sm:text-sm text-primary focus:outline-none focus:ring-2 focus:ring-accent";
 const toggleBtn = (active: boolean) =>
-  `px-2 py-1 sm:px-4 sm:py-2 text-xs sm:text-sm font-medium transition-colors ${active ? "bg-zinc-700 text-zinc-100" : "bg-zinc-800 text-zinc-400 hover:text-zinc-200"}`;
+  `px-2 py-1 sm:px-4 sm:py-2 text-xs sm:text-sm font-medium transition-colors ${active ? "bg-surface-high text-primary" : "bg-surface-mid text-secondary hover:text-strong"}`;
 
 // ---------------------------------------------------------------------------
 // Component
@@ -274,7 +274,7 @@ export default function AchievementTab() {
 
       {/* Controls — one row, no scroll */}
       <div className="flex items-center gap-2 flex-wrap">
-        <div className="flex rounded overflow-hidden border border-zinc-700">
+        <div className="flex rounded overflow-hidden border border-line-strong">
           {(["quarter","year"] as Scope[]).map((s) => (
             <button key={s} onClick={() => setScope(s)} className={toggleBtn(scope === s)}>
               {s.charAt(0).toUpperCase() + s.slice(1)}
@@ -294,7 +294,7 @@ export default function AchievementTab() {
           </select>
         )}
 
-        <div className="flex rounded overflow-hidden border border-zinc-700">
+        <div className="flex rounded overflow-hidden border border-line-strong">
           {([["monthly","Mo"],["weekly","Wk"]] as const).map(([g, lbl]) => (
             <button key={g} onClick={() => setGrain(g as Grain)} className={toggleBtn(grain === g)}>
               <span className="sm:hidden">{lbl}</span>
@@ -306,7 +306,7 @@ export default function AchievementTab() {
 
       {/* Tier selector — label + 2×2 on mobile, single row on sm+ */}
       <div className="space-y-1.5 sm:space-y-0">
-        <span className="text-xs text-zinc-500">Compare vs.</span>
+        <span className="text-xs text-muted">Compare vs.</span>
         <div className="grid grid-cols-2 gap-1.5 sm:flex sm:flex-wrap sm:gap-2 sm:items-center mt-1.5 sm:mt-0">
           {TIERS.map((t) => {
             const has = targets.some((x) =>
@@ -317,7 +317,7 @@ export default function AchievementTab() {
             return (
               <button key={t.value} onClick={() => setActiveTier(t.value)} disabled={!has}
                 className={`px-3 py-1.5 rounded text-xs font-medium border transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${
-                  activeTier === t.value ? "border-current bg-zinc-800" : "border-zinc-700 text-zinc-400 hover:border-zinc-500 hover:text-zinc-200"
+                  activeTier === t.value ? "border-current bg-surface-mid" : "border-line-strong text-secondary hover:border-line-subtle hover:text-strong"
                 }`}
                 style={activeTier === t.value ? { color: t.color, borderColor: t.color } : {}}>
                 {t.label}
@@ -325,7 +325,7 @@ export default function AchievementTab() {
             );
           })}
           {quarterTiers.length === 0 && (
-            <span className="col-span-2 text-xs text-zinc-600 italic">
+            <span className="col-span-2 text-xs text-faint italic">
               {scope === "year" ? "Need all 4 quarters set for year total" : "No targets set for this quarter"}
             </span>
           )}
@@ -335,38 +335,38 @@ export default function AchievementTab() {
       {/* Summary cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
 
-        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
-          <div className="text-xs text-zinc-400 mb-1">{scope === "year" ? "Annual" : "Quarterly"} Target</div>
-          <div className="text-base sm:text-xl font-semibold text-zinc-100">
-            {targetCents !== null ? currency(targetCents) : <span className="text-zinc-500 text-sm sm:text-base">Not set</span>}
+        <div className="bg-surface border border-line rounded-lg p-4">
+          <div className="text-xs text-secondary mb-1">{scope === "year" ? "Annual" : "Quarterly"} Target</div>
+          <div className="text-base sm:text-xl font-semibold text-primary">
+            {targetCents !== null ? currency(targetCents) : <span className="text-muted text-sm sm:text-base">Not set</span>}
           </div>
           {scope === "year" && targetCents === null && targets.filter(t => t.year === year && t.tier === activeTier).length > 0 && (
-            <div className="text-xs text-zinc-600 mt-0.5">
+            <div className="text-xs text-faint mt-0.5">
               {targets.filter(t => t.year === year && t.tier === activeTier).length}/4 quarters set
             </div>
           )}
         </div>
 
-        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
-          <div className="text-xs text-zinc-400 mb-1">Actual Net Sales</div>
-          <div className="text-xl font-semibold text-zinc-100">{currency(actualCents)}</div>
+        <div className="bg-surface border border-line rounded-lg p-4">
+          <div className="text-xs text-secondary mb-1">Actual Net Sales</div>
+          <div className="text-xl font-semibold text-primary">{currency(actualCents)}</div>
           {targetCents !== null && (
-            <div className="text-xs text-zinc-500 mt-0.5">{pct((actualCents / targetCents) * 100)} of target</div>
+            <div className="text-xs text-muted mt-0.5">{pct((actualCents / targetCents) * 100)} of target</div>
           )}
         </div>
 
         {/* Pace / projection */}
-        <div className={`bg-zinc-900 border rounded-lg p-4 ${
-          onPace === true ? "border-green-700" : onPace === false ? "border-red-700" : "border-zinc-800"
+        <div className={`bg-surface border rounded-lg p-4 ${
+          onPace === true ? "border-success-border" : onPace === false ? "border-danger-border" : "border-line"
         }`}>
-          <div className="text-xs text-zinc-400 mb-1">Projected {scope === "year" ? "Full Year" : "Full Quarter"}</div>
+          <div className="text-xs text-secondary mb-1">Projected {scope === "year" ? "Full Year" : "Full Quarter"}</div>
           <div className={`text-base sm:text-xl font-semibold ${
-            onPace === true ? "text-green-400" : onPace === false ? "text-red-400" : "text-zinc-100"
+            onPace === true ? "text-success" : onPace === false ? "text-danger" : "text-primary"
           }`}>
             {projectedCents !== null ? currency(projectedCents) : "—"}
           </div>
           {onPace !== null && (
-            <div className={`text-xs mt-0.5 ${onPace ? "text-green-500" : "text-red-500"}`}>
+            <div className={`text-xs mt-0.5 ${onPace ? "text-success" : "text-danger"}`}>
               {onPace
                 ? "On pace"
                 : `Behind pace by ${currency(Math.abs(projectedCents! - targetCents!))}`}
@@ -378,23 +378,23 @@ export default function AchievementTab() {
         </div>
 
         {/* Gap to quarter target — raw arithmetic, not pace-adjusted */}
-        <div className={`bg-zinc-900 border rounded-lg p-4 ${
-          gapCents === null ? "border-zinc-800"
-          : gapCents <= 0    ? "border-green-800"
-          : "border-red-900"
+        <div className={`bg-surface border rounded-lg p-4 ${
+          gapCents === null ? "border-line"
+          : gapCents <= 0    ? "border-success-border"
+          : "border-danger-border"
         }`}>
-          <div className="text-xs text-zinc-400 mb-1">Gap to {scope === "year" ? "Annual" : "Quarter"} Target</div>
+          <div className="text-xs text-secondary mb-1">Gap to {scope === "year" ? "Annual" : "Quarter"} Target</div>
           {gapCents === null ? (
-            <div className="text-base sm:text-xl font-semibold text-zinc-500">—</div>
+            <div className="text-base sm:text-xl font-semibold text-muted">—</div>
           ) : gapCents <= 0 ? (
             <>
-              <div className="text-base sm:text-xl font-semibold text-green-400">{currency(Math.abs(gapCents))} ahead</div>
-              <div className="text-xs text-green-600 mt-0.5">Target exceeded</div>
+              <div className="text-base sm:text-xl font-semibold text-success">{currency(Math.abs(gapCents))} ahead</div>
+              <div className="text-xs text-success mt-0.5">Target exceeded</div>
             </>
           ) : (
             <>
-              <div className="text-base sm:text-xl font-semibold text-red-400">{currency(gapCents)} to go</div>
-              <div className="text-xs text-zinc-500 mt-0.5">vs. {tierLabel} goal</div>
+              <div className="text-base sm:text-xl font-semibold text-danger">{currency(gapCents)} to go</div>
+              <div className="text-xs text-muted mt-0.5">vs. {tierLabel} goal</div>
             </>
           )}
         </div>
@@ -404,17 +404,17 @@ export default function AchievementTab() {
       {/* Pace bar */}
       {targetCents !== null && (
         <div className="space-y-1">
-          <div className="flex justify-between text-xs text-zinc-400">
+          <div className="flex justify-between text-xs text-secondary">
             <span>{pct(elapsedFrac * 100)} of {scope === "year" ? "year" : "quarter"} elapsed</span>
             <span>{pct((actualCents / targetCents) * 100)} of target reached</span>
           </div>
-          <div className="relative h-3 bg-zinc-800 rounded-full overflow-hidden">
-            <div className="absolute top-0 bottom-0 w-0.5 bg-zinc-500 z-10"
+          <div className="relative h-3 bg-surface-mid rounded-full overflow-hidden">
+            <div className="absolute top-0 bottom-0 w-0.5 bg-line-subtle z-10"
               style={{ left: `${Math.min(elapsedFrac * 100, 100)}%` }} />
-            <div className={`h-full rounded-full transition-all ${onPace ? "bg-green-600" : "bg-red-600"}`}
+            <div className={`h-full rounded-full transition-all ${onPace ? "bg-success-emphasis" : "bg-danger-emphasis"}`}
               style={{ width: `${Math.min((actualCents / targetCents) * 100, 100)}%` }} />
           </div>
-          <div className="flex justify-between text-xs text-zinc-500">
+          <div className="flex justify-between text-xs text-muted">
             <span>$0</span><span>{currency(targetCents)}</span>
           </div>
         </div>
@@ -422,18 +422,18 @@ export default function AchievementTab() {
 
       {/* Chart */}
       {periods.length > 0 && (
-        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-3 sm:p-5">
+        <div className="bg-surface border border-line rounded-lg p-3 sm:p-5">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
-            <div className="text-sm font-medium text-zinc-300">
+            <div className="text-sm font-medium text-body">
               {chartView === "per-period"
                 ? `Net Sales per ${grain === "monthly" ? "Month" : "Week"}`
                 : `Cumulative Net Sales`}
             </div>
-            <div className="flex rounded overflow-hidden border border-zinc-700 self-start sm:self-auto">
+            <div className="flex rounded overflow-hidden border border-line-strong self-start sm:self-auto">
               {([["per-period","Per Period"],["cumulative","Cumulative"]] as const).map(([v, lbl]) => (
                 <button key={v} onClick={() => setChartView(v)}
                   className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                    chartView === v ? "bg-zinc-700 text-zinc-100" : "bg-zinc-800 text-zinc-400 hover:text-zinc-200"
+                    chartView === v ? "bg-surface-high text-primary" : "bg-surface-mid text-secondary hover:text-strong"
                   }`}>
                   {lbl}
                 </button>
@@ -458,7 +458,7 @@ export default function AchievementTab() {
       <div className="overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0">
       <table className="w-full text-sm border-collapse min-w-[460px]">
         <thead>
-          <tr className="text-xs text-zinc-400 uppercase border-b border-zinc-800">
+          <tr className="text-xs text-secondary uppercase border-b border-line">
             <th className="text-left py-2 pr-3 sm:pr-6">Period</th>
             <th className="text-right py-2 pr-3 sm:pr-6">Net Sales</th>
             {targetCents !== null && (
@@ -485,50 +485,50 @@ export default function AchievementTab() {
             const ahead     = variance !== null && variance >= 0;
 
             return (
-              <tr key={p.start} className={`border-b text-zinc-200 ${
-                isFuture ? "border-zinc-800/20 opacity-60" : "border-zinc-800/40"
+              <tr key={p.start} className={`border-b text-strong ${
+                isFuture ? "border-line/20 opacity-60" : "border-line/40"
               }`}>
                 <td className="py-2 pr-3 sm:pr-6">
-                  <span className={isFuture ? "text-zinc-500" : "text-zinc-300"}>
+                  <span className={isFuture ? "text-muted" : "text-body"}>
                     {p.label}
                   </span>
                   {isFuture && (
-                    <span className="ml-1 text-xs text-zinc-600 italic">proj.</span>
+                    <span className="ml-1 text-xs text-faint italic">proj.</span>
                   )}
                   {isInProgress && (
-                    <span className="ml-1 text-xs text-amber-600 italic">in prog.</span>
+                    <span className="ml-1 text-xs text-accent italic">in prog.</span>
                   )}
                 </td>
                 <td className="py-2 pr-3 sm:pr-6 text-right font-mono">
                   {p.loading ? (
-                    <span className="text-zinc-500">Loading…</span>
+                    <span className="text-muted">Loading…</span>
                   ) : isFuture ? (
                     displayCents !== null
-                      ? <span className="text-zinc-500 italic">{currency(displayCents)}</span>
-                      : <span className="text-zinc-700">—</span>
+                      ? <span className="text-muted italic">{currency(displayCents)}</span>
+                      : <span className="text-disabled">—</span>
                   ) : isInProgress && p.net_sales_cents !== null ? (
-                    <span className="text-zinc-400 italic">{currency(p.net_sales_cents)}</span>
+                    <span className="text-secondary italic">{currency(p.net_sales_cents)}</span>
                   ) : p.net_sales_cents !== null ? (
                     currency(p.net_sales_cents)
                   ) : (
-                    <span className="text-zinc-600">—</span>
+                    <span className="text-faint">—</span>
                   )}
                 </td>
                 {targetCents !== null && (
                   <>
                     <td className={`py-2 pr-2 sm:pr-4 text-right font-mono ${
-                      isFuture || isInProgress ? "text-zinc-600 italic"
-                      : actualPct === null ? "text-zinc-600"
-                      : ahead            ? "text-green-400"
-                      : "text-red-400"
+                      isFuture || isInProgress ? "text-faint italic"
+                      : actualPct === null ? "text-faint"
+                      : ahead            ? "text-success"
+                      : "text-danger"
                     }`}>
                       {actualPct !== null ? pct(actualPct) : "—"}
                     </td>
                     <td className={`py-2 text-right font-mono text-xs ${
-                      isFuture || isInProgress ? "text-zinc-700"
-                      : variance === null ? "text-zinc-600"
-                      : ahead             ? "text-green-500"
-                      : "text-red-500"
+                      isFuture || isInProgress ? "text-disabled"
+                      : variance === null ? "text-faint"
+                      : ahead             ? "text-success"
+                      : "text-danger"
                     }`}>
                       {!isFuture && !isInProgress && variance !== null
                         ? `${variance >= 0 ? "+" : ""}${pct(variance)}`
@@ -540,18 +540,18 @@ export default function AchievementTab() {
             );
           })}
           {periods.length > 0 && (
-            <tr className="text-zinc-100 font-medium border-t border-zinc-700">
+            <tr className="text-primary font-medium border-t border-line-strong">
               <td className="py-2 pr-3 sm:pr-6">Total (actual)</td>
               <td className="py-2 pr-3 sm:pr-6 text-right font-mono">{currency(actualCents)}</td>
               {targetCents !== null && (
                 <>
                   <td className={`py-2 pr-2 sm:pr-4 text-right font-mono ${
-                    actualCents >= targetCents ? "text-green-400" : "text-red-400"
+                    actualCents >= targetCents ? "text-success" : "text-danger"
                   }`}>
                     {pct((actualCents / targetCents) * 100)}
                   </td>
                   <td className={`py-2 text-right font-mono text-xs ${
-                    actualCents >= targetCents ? "text-green-500" : "text-red-500"
+                    actualCents >= targetCents ? "text-success" : "text-danger"
                   }`}>
                     {(() => {
                       const v = ((actualCents / targetCents) * 100) - 100;
