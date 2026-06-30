@@ -51,7 +51,7 @@ export default function UnrecognizedBanner({
   if (!hasRevenue && !hasExcise) return null;
 
   return (
-    <div className="mx-4 sm:mx-6 mb-4 bg-amber-900/20 border border-amber-700/60 rounded p-3 text-sm text-amber-200 space-y-2">
+    <div className="mx-4 sm:mx-6 mb-4 bg-accent-muted/20 border border-accent-border/60 rounded p-3 text-sm text-accent-soft space-y-2">
       {excise && excise.missingDetailTxns > 0 && (
         <div>
           Excise may be understated: <span className="font-semibold">{excise.missingDetailTxns}</span>
@@ -67,7 +67,7 @@ export default function UnrecognizedBanner({
           {" "}({data.count} line {data.count === 1 ? "item" : "items"}) couldn&apos;t be matched to a
           {" "}displayed row and is excluded from the totals below.
           {data.unmappedAccountCount > 0 && (
-            <span className="text-amber-300/80">
+            <span className="text-accent-soft/80">
               {" "}· {data.unmappedAccountCount} placed item{data.unmappedAccountCount === 1 ? "" : "s"} still
               {" "}missing a GL account mapping.
             </span>
@@ -76,7 +76,7 @@ export default function UnrecognizedBanner({
         {data.samples.length > 0 && (
           <button
             onClick={() => setOpen((o) => !o)}
-            className="shrink-0 px-2 py-1 text-xs rounded border border-amber-700/60 hover:bg-amber-800/30 transition-colors"
+            className="shrink-0 px-2 py-1 text-xs rounded border border-accent-border/60 hover:bg-accent-muted/30 transition-colors"
           >
             {open ? "Hide" : "Details"}
           </button>
@@ -84,10 +84,10 @@ export default function UnrecognizedBanner({
       </div>
 
       {open && (
-        <div className="mt-3 border-t border-amber-700/40 pt-2">
+        <div className="mt-3 border-t border-accent-border/40 pt-2">
           <table className="w-full text-xs">
             <thead>
-              <tr className="text-amber-300/70 text-left">
+              <tr className="text-accent-soft/70 text-left">
                 <th className="py-1 pr-3 font-medium">Date</th>
                 <th className="py-1 pr-3 font-medium">Description</th>
                 <th className="py-1 pr-3 font-medium">Channel</th>
@@ -97,18 +97,18 @@ export default function UnrecognizedBanner({
             </thead>
             <tbody>
               {data.samples.map((s, i) => (
-                <tr key={i} className="border-t border-amber-700/20">
-                  <td className="py-1 pr-3 whitespace-nowrap text-amber-200/80">{s.invoiceDate ?? "—"}</td>
+                <tr key={i} className="border-t border-accent-border/20">
+                  <td className="py-1 pr-3 whitespace-nowrap text-accent-soft/80">{s.invoiceDate ?? "—"}</td>
                   <td className="py-1 pr-3 max-w-[280px] truncate">{s.description}</td>
-                  <td className="py-1 pr-3 text-amber-200/80">{s.channel}</td>
-                  <td className="py-1 pr-3 text-amber-200/80">{REASON_LABELS[s.reason] ?? s.reason}</td>
+                  <td className="py-1 pr-3 text-accent-soft/80">{s.channel}</td>
+                  <td className="py-1 pr-3 text-accent-soft/80">{REASON_LABELS[s.reason] ?? s.reason}</td>
                   <td className="py-1 pl-3 text-right tabular-nums font-mono">{fmtUsd(s.amountDollars)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
           {data.count > data.samples.length && (
-            <p className="mt-2 text-amber-300/60 text-xs">
+            <p className="mt-2 text-accent-soft/60 text-xs">
               Showing {data.samples.length} of {data.count}. Map the underlying catalog variations in
               {" "}Settings → Account Mapping to clear these.
             </p>
