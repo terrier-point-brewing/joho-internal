@@ -403,7 +403,7 @@ async function handleInvoiceAction(req: NextRequest, params: RouteParams["params
       .from("invoices")
       .upsert(
         {
-          source:        "quickbooks",
+          source:        source === "quickbooks" ? "quickbooks" : "other",
           external_id:   externalRef,
           invoice_number: externalRef,
           invoice_type:  "allocation_deposit",
@@ -511,7 +511,7 @@ async function upsertFinanceLedgerInvoice(
         invoice_id:       inv.id,
         sort_order:       0,
         description:      "Ingredient Deposit",
-        category:         "other_services",
+        category:         "ingredient_deposit",
         quantity:         1,
         unit_price_cents: p.depositCents,
         total_cents:      p.depositCents,

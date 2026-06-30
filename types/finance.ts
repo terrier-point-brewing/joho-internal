@@ -3,9 +3,10 @@
 
 export type InvoiceSource = "quickbooks" | "square" | "other";
 export type InvoiceStatus = "open" | "paid" | "voided" | "partial" | "unknown" | "draft";
-export type InvoiceType = "standard" | "allocation_deposit";
+export type InvoiceType = "standard" | "allocation_deposit" | "export_invoice";
 
 export type InvoiceLineCategory =
+  | "ingredient_deposit"
   | "materials_packaging"
   | "packaging_fees"
   | "other_services"

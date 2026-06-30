@@ -25,8 +25,23 @@ const STATUS_CLS: Record<string, string> = {
   paid:    "bg-green-900/40 text-green-400",
   open:    "bg-amber-900/40 text-amber-400",
   partial: "bg-blue-900/40 text-blue-400",
-  voided:  "bg-zinc-800 text-zinc-500",
+  voided:  "bg-red-900/20 text-red-700",
+  draft:   "bg-zinc-800 text-zinc-500",
   unknown: "bg-zinc-800 text-zinc-500",
+};
+
+const SOURCE_LABEL: Record<string, string> = { square: "Square", quickbooks: "QuickBooks", other: "Other" };
+const SOURCE_CLS:   Record<string, string> = {
+  square:     "bg-blue-900/40 text-blue-400",
+  quickbooks: "bg-violet-900/40 text-violet-400",
+  other:      "bg-zinc-800 text-zinc-400",
+};
+
+const TYPE_LABEL: Record<string, string> = { standard: "Standard", allocation_deposit: "Deposit", export_invoice: "Export" };
+const TYPE_CLS:   Record<string, string> = {
+  standard:           "bg-zinc-800 text-zinc-400",
+  allocation_deposit: "bg-amber-900/40 text-amber-400",
+  export_invoice:     "bg-teal-900/40 text-teal-400",
 };
 
 
@@ -184,14 +199,14 @@ function InvoiceExpandableRow({
           {inv.contract_brewing_partners?.company_name ?? inv.customer_name ?? "—"}
         </td>
         <td className="px-4 py-2">
-          <div className="flex flex-wrap gap-1">
-            <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${inv.source === "square" ? "bg-blue-900/40 text-blue-400" : "bg-violet-900/40 text-violet-400"}`}>
-              {inv.source === "square" ? "Square" : "QuickBooks"}
-            </span>
-            {(inv as InvoiceRow).invoice_type === "allocation_deposit" && (
-              <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-900/40 text-amber-400">Deposit</span>
-            )}
-          </div>
+          <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${SOURCE_CLS[inv.source] ?? SOURCE_CLS.other}`}>
+            {SOURCE_LABEL[inv.source] ?? inv.source}
+          </span>
+        </td>
+        <td className="px-4 py-2">
+          <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${TYPE_CLS[(inv as InvoiceRow).invoice_type] ?? TYPE_CLS.standard}`}>
+            {TYPE_LABEL[(inv as InvoiceRow).invoice_type] ?? (inv as InvoiceRow).invoice_type}
+          </span>
         </td>
         <td className="px-4 py-2">
           <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${STATUS_CLS[inv.status] ?? STATUS_CLS.unknown}`}>
@@ -224,7 +239,7 @@ function InvoiceExpandableRow({
 
       {expanded && (
         <tr className="border-t border-zinc-800/20">
-          <td colSpan={9} className="p-0">
+          <td colSpan={10} className="p-0">
             <div className="bg-zinc-950 border-b border-zinc-800/60">
               {/* Line item headers */}
               <div className="grid grid-cols-[minmax(0,2fr)_60px_80px_80px_minmax(0,1fr)] gap-3 px-10 py-1.5 bg-zinc-900/40 text-[10px] text-zinc-600 uppercase tracking-wider">
@@ -537,7 +552,7 @@ function InvoiceSyncPanel({ year, onSynced }: { year: number; onSynced: () => vo
   );
 }
 
-type SortKey = "invoice_number" | "invoice_date" | "customer_name" | "source" | "total_cents" | "status";
+type SortKey = "invoice_number" | "invoice_date" | "customer_name" | "source" | "type" | "total_cents" | "status";
 
 function SortIcon({ k, sortKey, sortAsc }: { k: SortKey; sortKey: SortKey; sortAsc: boolean }) {
   return (
@@ -558,6 +573,7 @@ export default function InvoicesPage() {
   const [sortAsc,    setSortAsc] = useState(false);
   const [accounts,     setAccounts]     = useState<CoARef[]>([]);
   const [batches,      setBatches]      = useState<BrewBatch[]>([]);
+  const [showVoided,   setShowVoided]   = useState(false);
   const [autoMapping,  setAutoMapping]  = useState(false);
   const [autoMapResult, setAutoMapResult] = useState<{ mapped: number } | null>(null);
   const years = Array.from({ length: 5 }, (_, i) => currentYear - i);
@@ -603,6 +619,7 @@ export default function InvoicesPage() {
 
   // Client-side status + type + mapping filter + sort
   const invoices = (raw ?? [])
+    .filter((inv) => showVoided || status === "voided" || inv.status !== "voided")
     .filter((inv) => status === "all" || inv.status === status)
     .filter((inv) => typeFilter === "all" || (inv as InvoiceRow).invoice_type === typeFilter)
     .filter((inv) => {
@@ -621,6 +638,7 @@ export default function InvoicesPage() {
       else if (sortKey === "invoice_date") diff = (a.invoice_date ?? "").localeCompare(b.invoice_date ?? "");
       else if (sortKey === "customer_name") diff = (a.customer_name ?? "").localeCompare(b.customer_name ?? "");
       else if (sortKey === "source") diff = a.source.localeCompare(b.source);
+      else if (sortKey === "type") diff = ((a as InvoiceRow).invoice_type).localeCompare((b as InvoiceRow).invoice_type);
       else if (sortKey === "total_cents") diff = a.total_cents - b.total_cents;
       else if (sortKey === "status") diff = a.status.localeCompare(b.status);
       return sortAsc ? diff : -diff;
@@ -665,13 +683,20 @@ export default function InvoicesPage() {
             <option value="open">Open</option>
             <option value="paid">Paid</option>
             <option value="partial">Partial</option>
+            <option value="draft">Draft</option>
             <option value="voided">Voided</option>
           </select>
+          <button
+            onClick={() => setShowVoided((v) => !v)}
+            className={`btn-sm text-xs whitespace-nowrap ${showVoided ? "text-zinc-300" : "text-zinc-600"}`}>
+            {showVoided ? "Hide voided" : "Show voided"}
+          </button>
           <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value as typeof typeFilter)}
             className="inp w-auto">
             <option value="all">All types</option>
             <option value="standard">Standard</option>
             <option value="allocation_deposit">Deposit invoices</option>
+            <option value="export_invoice">Export invoices</option>
           </select>
           <select value={mappingFilter} onChange={(e) => setMappingFilter(e.target.value as typeof mappingFilter)}
             className="inp w-auto">
@@ -750,7 +775,11 @@ export default function InvoicesPage() {
                 </th>
                 <th className="px-4 py-2 text-left text-zinc-500 font-medium cursor-pointer select-none hover:text-zinc-300"
                   onClick={() => handleSort("source")}>
-                  Source / Type <SortIcon k="source" sortKey={sortKey} sortAsc={sortAsc} />
+                  Source <SortIcon k="source" sortKey={sortKey} sortAsc={sortAsc} />
+                </th>
+                <th className="px-4 py-2 text-left text-zinc-500 font-medium cursor-pointer select-none hover:text-zinc-300"
+                  onClick={() => handleSort("type")}>
+                  Type <SortIcon k="type" sortKey={sortKey} sortAsc={sortAsc} />
                 </th>
                 <th className="px-4 py-2 text-left text-zinc-500 font-medium cursor-pointer select-none hover:text-zinc-300"
                   onClick={() => handleSort("status")}>
@@ -766,9 +795,9 @@ export default function InvoicesPage() {
             </thead>
             <tbody>
               {isFetching ? (
-                <tr><td colSpan={9} className="px-4 py-8 text-center text-zinc-600">Loading…</td></tr>
+                <tr><td colSpan={10} className="px-4 py-8 text-center text-zinc-600">Loading…</td></tr>
               ) : invoices.length === 0 ? (
-                <tr><td colSpan={9} className="px-4 py-8 text-center text-zinc-600">
+                <tr><td colSpan={10} className="px-4 py-8 text-center text-zinc-600">
                   No invoices found.
                 </td></tr>
               ) : (
