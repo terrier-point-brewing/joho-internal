@@ -40,7 +40,7 @@ export function SquareCatalogSelect({
             setPendingItemId(newItemId);
           }
         }}
-        className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 focus:outline-none focus:border-amber-600"
+        className="inp-sm"
       >
         <option value="">— select item —</option>
         {items.map((i) => (
@@ -55,7 +55,7 @@ export function SquareCatalogSelect({
           setPendingItemId(null);
           onChange(effectiveItemId, newVariationId);
         }}
-        className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 disabled:opacity-40 focus:outline-none focus:border-amber-600"
+        className="inp-sm disabled:opacity-40"
       >
         <option value="">— select variation —</option>
         {(selectedItem?.variations ?? []).map((v) => (
@@ -79,7 +79,7 @@ export function SquareDiscountSelect({
     <select
       value={value ?? ""}
       onChange={(e) => onChange(e.target.value || null)}
-      className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 focus:outline-none focus:border-amber-600"
+      className="inp-sm"
     >
       <option value="">— select discount —</option>
       {discounts.map((d) => (
