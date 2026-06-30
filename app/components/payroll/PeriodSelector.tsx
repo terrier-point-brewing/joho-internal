@@ -16,7 +16,7 @@ export function PeriodSelector({ periods, currentId, basePath }: Props) {
     <select
       value={currentId}
       onChange={(e) => router.push(`${basePath}/${e.target.value}`)}
-      className="bg-zinc-800 border border-zinc-700 text-zinc-200 text-sm rounded px-2 py-1"
+      className="inp-sm"
     >
       {periods.map((p) => (
         <option key={p.id} value={p.id}>
