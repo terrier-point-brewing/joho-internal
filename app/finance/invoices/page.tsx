@@ -673,6 +673,7 @@ export default function InvoicesPage() {
             <option value="all">All types</option>
             <option value="standard">Standard</option>
             <option value="allocation_deposit">Deposit invoices</option>
+            <option value="export_invoice">Export invoices</option>
           </select>
           <select value={mappingFilter} onChange={(e) => setMappingFilter(e.target.value as typeof mappingFilter)}
             className="inp w-auto">
