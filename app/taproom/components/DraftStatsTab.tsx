@@ -6,12 +6,12 @@ import { queryKeys } from "@/lib/query-keys";
 import dynamic from "next/dynamic";
 import ChartSkeleton from "@/app/components/ChartSkeleton";
 import { fetchJson } from "../../production/hooks/queries";
+import type { RecipeSquareLinkRow } from "../../production/types";
 
 const DraftStatsChart = dynamic(() => import("./DraftStatsChart"), {
   ssr: false,
   loading: () => <ChartSkeleton height={260} />,
 });
-import type { RecipeSquareLinkRow } from "../../production/types";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
