@@ -38,7 +38,7 @@ Do this before running any dev commands.
 
 ## Model Selection
 - Default to **Sonnet** for all tasks.
-- Use **Opus** only when absolutely necessary: prod DB migrations, irreversible data ops, multi-file orchestration with high blast radius, or any decision that cannot be recovered if wrong.
+- Use **Opus** for: complex multi-file refactors, architectural decisions with high blast radius, prod DB migrations, irreversible data ops, systematic debugging of non-obvious issues, or when Sonnet output seems insufficient. Otherwise prefer Sonnet.
 
 ## Agent/Subagent Usage
 - Do NOT spawn subagents (Agent tool / Explore) for simple, single-file fixes or small well-scoped edits — read the file and make the change directly.

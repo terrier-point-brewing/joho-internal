@@ -1,6 +1,5 @@
 "use client";
 import { useState } from "react";
-import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import { fetchJson } from "@/app/production/hooks/queries";
@@ -799,8 +798,7 @@ export default function InvoicesPage() {
                 <tr><td colSpan={10} className="px-4 py-8 text-center text-zinc-600">Loading…</td></tr>
               ) : invoices.length === 0 ? (
                 <tr><td colSpan={10} className="px-4 py-8 text-center text-zinc-600">
-                  No invoices found.{" "}
-                  <Link href="/finance/settings/import" className="text-amber-500 hover:text-amber-400 underline">Import or sync invoices →</Link>
+                  No invoices found.
                 </td></tr>
               ) : (
                 invoices.map((inv) => (
