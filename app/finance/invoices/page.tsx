@@ -3,7 +3,8 @@ import { useState } from "react";
 import { formatCurrencyCents } from "@/lib/format";
 import { useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
-import { fetchJson } from "@/app/production/hooks/queries";
+import { fetchJson, useBatchesQuery } from "@/app/production/hooks/queries";
+import { useChartOfAccountsQuery, type CoARef } from "@/app/finance/hooks/queries";
 import type { Invoice, InvoiceType } from "@/types/finance";
 import FinanceNav from "../FinanceNav";
 import TransactionsNav from "../transactions/TransactionsNav";
@@ -47,8 +48,6 @@ const TYPE_CLS:   Record<string, string> = {
 
 
 // ── Invoice list with joined data ─────────────────────────────────────────────
-
-interface CoARef { id: string; account_name: string; account_number: string | null; account_type: string }
 
 interface InvoiceLineItemRow {
   id: string;
@@ -381,7 +380,7 @@ function InvoiceLineItemRow({
 
 interface BrewBatch {
   id: string;
-  batch_number: number | null;
+  batch_number: string | null;
   beer_name: string;
   planned_brew_date: string | null;
 }
@@ -572,25 +571,20 @@ export default function InvoicesPage() {
   const [mappingFilter, setMappingFilter] = useState<"all" | "mapped" | "partial" | "unmapped">("all");
   const [sortKey,    setSort]   = useState<SortKey>("invoice_date");
   const [sortAsc,    setSortAsc] = useState(false);
-  const [accounts,     setAccounts]     = useState<CoARef[]>([]);
-  const [batches,      setBatches]      = useState<BrewBatch[]>([]);
   const [showVoided,   setShowVoided]   = useState(false);
   const [autoMapping,  setAutoMapping]  = useState(false);
   const [autoMapResult, setAutoMapResult] = useState<{ mapped: number } | null>(null);
   const years = Array.from({ length: 5 }, (_, i) => currentYear - i);
 
-  useEffect(() => {
-    fetch("/api/finance/chart-of-accounts")
-      .then((r) => r.json())
-      .then((d: CoARef[]) => setAccounts(Array.isArray(d) ? d : []));
-    fetch("/api/production/batches")
-      .then((r) => r.json())
-      .then((d: { id: string; batch_number: number | null; beer_name: string; planned_brew_date: string | null }[]) => {
-        if (Array.isArray(d)) {
-          setBatches(d.map((b) => ({ id: b.id, batch_number: b.batch_number, beer_name: b.beer_name, planned_brew_date: b.planned_brew_date })));
-        }
-      });
-  }, []);
+  const { data: accounts = [] } = useChartOfAccountsQuery();
+  const { data: batchRows = [] } = useBatchesQuery();
+  // Project to the 4 fields this page uses (shares cache with the production area).
+  const batches: BrewBatch[] = batchRows.map((b) => ({
+    id: b.id,
+    batch_number: b.batch_number,
+    beer_name: b.beer_name,
+    planned_brew_date: b.planned_brew_date,
+  }));
 
   async function handleAutoMap() {
     setAutoMapping(true); setAutoMapResult(null);
