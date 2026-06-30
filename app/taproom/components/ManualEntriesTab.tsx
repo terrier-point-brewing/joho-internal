@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { formatCurrencyCents } from "@/lib/format";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchJson } from "@/app/production/hooks/queries";
 import { useUserRole } from "@/lib/hooks/useUserRole";
@@ -15,10 +16,7 @@ type ManualEntry = {
 };
 
 function currency(cents: number) {
-  return (cents / 100).toLocaleString("en-US", {
-    style: "currency", currency: "USD",
-    minimumFractionDigits: 0, maximumFractionDigits: 0,
-  });
+  return formatCurrencyCents(cents, 0);
 }
 
 function formatWithCommas(raw: string): string {

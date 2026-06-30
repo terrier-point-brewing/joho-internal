@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import { formatCurrency, formatNumber } from "@/lib/format";
 import { useQueryClient } from "@tanstack/react-query";
 import { PackagingItem, PackagingItemType, PackagingAdjustmentType } from "../types";
 import { Modal, Field, ModalActions } from "./shared";
@@ -252,12 +253,12 @@ export default function PackagingTab() {
                           <td className="px-3 py-2.5 text-zinc-400 truncate">{supplierName(item) ?? "—"}</td>
                           <td className="px-3 py-2.5 text-right tabular-nums">
                             <span className={Number(item.stock_quantity) < 0 ? "text-red-400" : "text-zinc-300"}>
-                              {Number(item.stock_quantity).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                              {formatNumber(Number(item.stock_quantity))}
                             </span>
                           </td>
                           <td className="px-3 py-2.5 text-zinc-400 text-right tabular-nums whitespace-nowrap">
                             {item.unit_cost != null
-                              ? `$${Number(item.unit_cost).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                              ? formatCurrency(Number(item.unit_cost))
                               : "—"}
                           </td>
                           <td className="px-3 py-2.5 text-zinc-400 text-right tabular-nums whitespace-nowrap">
@@ -267,7 +268,7 @@ export default function PackagingTab() {
                                   : "—")
                               : needsCanCount(t)
                               ? (item.can_count != null
-                                  ? `${Number(item.can_count).toLocaleString(undefined, { maximumFractionDigits: 0 })} cans`
+                                  ? `${formatNumber(Number(item.can_count))} cans`
                                   : "—")
                               : "—"}
                           </td>

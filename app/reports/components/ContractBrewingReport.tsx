@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { formatCurrency } from "@/lib/format";
 import ReportControls from "./ReportControls";
 import { useSort, SortTh } from "./SortControls";
 
@@ -9,7 +10,7 @@ type CustomerRow  = { customer: string; invoices: number; total_charged: string;
 
 function currency(v: string | number) {
   const n = typeof v === "string" ? parseFloat(v) : v;
-  return `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return formatCurrency(n);
 }
 
 function exportCSV(catRows: CategoryRow[], custRows: CustomerRow[]) {

@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
+import { formatCurrencyCents } from "@/lib/format";
 import FinanceNav from "../../FinanceNav";
 import StatementsNav from "../StatementsNav";
 import type { AccountBalance } from "@/app/api/finance/statements/route";
@@ -11,7 +12,7 @@ const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct"
 function fmtMoney(cents: number): string {
   if (cents === 0) return "—";
   const neg = cents < 0;
-  const abs = "$" + Math.abs(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const abs = formatCurrencyCents(Math.abs(cents));
   return neg ? `(${abs})` : abs;
 }
 

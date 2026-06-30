@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { formatCurrencyCents } from "@/lib/format";
 import { useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import {
@@ -74,10 +75,7 @@ function weekLabel(mon: Date): string {
 }
 
 function formatCurrency(cents: number, decimals = 0) {
-  return (cents / 100).toLocaleString("en-US", {
-    style: "currency", currency: "USD",
-    minimumFractionDigits: decimals, maximumFractionDigits: decimals,
-  });
+  return formatCurrencyCents(cents, decimals);
 }
 
 function formatMetricValue(metric: KpiMetric, value: number): string {

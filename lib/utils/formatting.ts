@@ -1,7 +1,11 @@
+import { formatCurrency, formatCurrencyCents, formatNumber, EM_DASH } from "@/lib/format";
+
 export function fmt(n: number, decimals = 3): string {
   return n.toFixed(decimals);
 }
 
+// Bare cents-to-dollar string (no "$") used for API response payloads, not
+// display. Left as-is intentionally — see lib/format.ts for display helpers.
 export function cents(n: number): string {
   return (n / 100).toFixed(2);
 }
@@ -37,14 +41,17 @@ export function fmtBbl2(v: number): string {
   return v.toFixed(2) + " BBL";
 }
 
+// Money display helpers — thin aliases over the single source of truth in
+// lib/format.ts. Kept for the many existing call sites; prefer importing the
+// format.ts functions directly in new code.
 export function fmtUsd(n: number): string {
-  return `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return formatCurrency(n);
 }
 
 export function fmtCents(n: number): string {
-  return fmtUsd(n / 100);
+  return formatCurrencyCents(n);
 }
 
 export function fmtUsd0(n: number): string {
-  return `$${Math.round(n).toLocaleString("en-US")}`;
+  return Number.isFinite(n) ? `$${formatNumber(n, 0)}` : EM_DASH;
 }

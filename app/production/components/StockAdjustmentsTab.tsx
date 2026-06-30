@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { formatCurrency, EM_DASH } from "@/lib/format";
 import { useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import {
@@ -57,8 +58,8 @@ function fmtQty(qty: number) {
 }
 
 function fmtValue(v: number | null | undefined) {
-  if (v == null) return "—";
-  return (v >= 0 ? "+" : "") + `$${Math.abs(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  if (v == null) return EM_DASH;
+  return (v >= 0 ? "+" : "") + formatCurrency(Math.abs(v));
 }
 
 function qtyColor(qty: number) {

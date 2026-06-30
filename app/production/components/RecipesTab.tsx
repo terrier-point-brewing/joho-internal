@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, Fragment } from "react";
+import { formatCurrency } from "@/lib/format";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import { Recipe, RecipeBrewActivityTemplate, INGREDIENT_CATEGORIES, IngredientCategory, leadTimeDays, RecipePackagingVariation } from "../types";
@@ -309,12 +310,12 @@ export default function RecipesTab() {
                     )}
                     {costPerTurn > 0 && (
                       <span className="text-xs text-zinc-400 tabular-nums">
-                        ${costPerTurn.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/turn
+                        {formatCurrency(costPerTurn)}/turn
                       </span>
                     )}
                     {costPerBblYield != null && costPerTurn > 0 && (
                       <span className="text-xs text-zinc-600 tabular-nums">
-                        ${costPerBblYield.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/BBL
+                        {formatCurrency(costPerBblYield)}/BBL
                       </span>
                     )}
                     <span className="text-xs text-zinc-600">
@@ -360,7 +361,7 @@ export default function RecipesTab() {
                                       <td className="px-4 py-2 text-zinc-200 pl-6">{ing.name}</td>
                                       <td className="px-4 py-2 text-zinc-500 text-right tabular-nums">
                                         {ing.cost_per_unit != null
-                                          ? `$${Number(ing.cost_per_unit).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / ${ing.unit}`
+                                          ? `${formatCurrency(Number(ing.cost_per_unit))} / ${ing.unit}`
                                           : "—"}
                                       </td>
                                       <td className="px-4 py-2 text-zinc-400 text-right tabular-nums">
@@ -368,7 +369,7 @@ export default function RecipesTab() {
                                       </td>
                                       <td className="px-4 py-2 text-zinc-300 text-right tabular-nums">
                                         {ing.cost_per_unit != null
-                                          ? `$${costPerLine.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                                          ? formatCurrency(costPerLine)
                                           : "—"}
                                       </td>
                                     </tr>
@@ -380,7 +381,7 @@ export default function RecipesTab() {
                               <tr className="border-t border-zinc-700 bg-zinc-900/50">
                                 <td className="px-4 py-2 text-xs font-medium text-zinc-400" colSpan={3}>Total cost / turn</td>
                                 <td className="px-4 py-2 text-right text-zinc-200 font-medium tabular-nums">
-                                  ${costPerTurn.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                  {formatCurrency(costPerTurn)}
                                 </td>
                               </tr>
                             )}
@@ -388,7 +389,7 @@ export default function RecipesTab() {
                               <tr className="bg-zinc-900/30">
                                 <td className="px-4 py-2 text-xs font-medium text-zinc-500" colSpan={3}>Cost / BBL yield</td>
                                 <td className="px-4 py-2 text-right text-zinc-400 tabular-nums text-xs">
-                                  ${costPerBblYield.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                  {formatCurrency(costPerBblYield)}
                                 </td>
                               </tr>
                             )}
@@ -668,7 +669,7 @@ export default function RecipesTab() {
                               <div className="text-right shrink-0 pb-1.5">
                                 <span className="text-xs text-zinc-500">$ / turn</span>
                                 <p className="text-sm text-zinc-300 tabular-nums">
-                                  ${costPerTurnLine.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                  {formatCurrency(costPerTurnLine)}
                                 </p>
                               </div>
                             )}
@@ -724,7 +725,7 @@ export default function RecipesTab() {
                             </td>
                             <td className="px-3 py-1.5 text-right text-xs text-zinc-500 tabular-nums whitespace-nowrap">
                               {ing?.cost_per_unit != null
-                                ? `$${Number(ing.cost_per_unit).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / ${ing.unit}`
+                                ? `${formatCurrency(Number(ing.cost_per_unit))} / ${ing.unit}`
                                 : "—"}
                             </td>
                             <td className="px-3 py-1.5 w-32">
@@ -752,7 +753,7 @@ export default function RecipesTab() {
                             </td>
                             <td className="px-3 py-1.5 text-right text-xs tabular-nums whitespace-nowrap">
                               {costPerTurnLine != null
-                                ? <span className="text-zinc-300">${costPerTurnLine.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                ? <span className="text-zinc-300">{formatCurrency(costPerTurnLine)}</span>
                                 : <span className="text-zinc-600">—</span>}
                             </td>
                             <td className="px-3 py-1.5 text-center">

@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { formatCurrencyCents } from "@/lib/format";
 import { useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import { fetchJson } from "@/app/production/hooks/queries";
@@ -18,7 +19,7 @@ function fmtDate(s: string | null) {
 
 function fmtDollars(cents: number) {
   if (cents === 0) return <span className="text-zinc-600">—</span>;
-  return <span>${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>;
+  return <span>{formatCurrencyCents(cents, 0)}</span>;
 }
 
 const STATUS_CLS: Record<string, string> = {
@@ -320,10 +321,10 @@ function InvoiceLineItemRow({
         </div>
         <span className="text-zinc-600 text-right tabular-nums pt-0.5">{item.quantity ?? 1}×</span>
         <span className="text-zinc-500 text-right tabular-nums font-mono pt-0.5">
-          {item.unit_price_cents ? "$" + (item.unit_price_cents / 100).toFixed(2) : "—"}
+          {item.unit_price_cents ? formatCurrencyCents(item.unit_price_cents) : "—"}
         </span>
         <span className="text-zinc-300 text-right tabular-nums font-mono pt-0.5">
-          ${(item.total_cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+          {formatCurrencyCents(item.total_cents)}
         </span>
         <div className="flex flex-col gap-1.5">
           {!isDeposit && (
@@ -731,12 +732,12 @@ export default function InvoicesPage() {
           </div>
           <div>
             <span className="text-xs text-zinc-500">Total value </span>
-            <span className="text-sm font-semibold text-zinc-200">${(totalValue / 100).toLocaleString("en-US", { maximumFractionDigits: 0 })}</span>
+            <span className="text-sm font-semibold text-zinc-200">{formatCurrencyCents(totalValue, 0)}</span>
           </div>
           {openValue > 0 && (
             <div>
               <span className="text-xs text-zinc-500">Open </span>
-              <span className="text-sm font-semibold text-amber-400">${(openValue / 100).toLocaleString("en-US", { maximumFractionDigits: 0 })}</span>
+              <span className="text-sm font-semibold text-amber-400">{formatCurrencyCents(openValue, 0)}</span>
             </div>
           )}
           {unlinkedCount > 0 && (
