@@ -1,17 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { formatCurrency } from "@/lib/format";
+import Banner from "@/app/components/ui/Banner";
+import Card from "@/app/components/ui/Card";
 import ReportControls from "./ReportControls";
+import ReportTable, { tdCls, numCls, currency, THEAD_ROW, TBODY, TR, TFOOT_ROW } from "./ReportTable";
 import { useSort, SortTh } from "./SortControls";
 
 type CategoryRow = { category: string; gross_sales: string; discounts: string; net_sales: string };
 type CustomerRow  = { customer: string; invoices: number; total_charged: string; total_outstanding: string };
-
-function currency(v: string | number) {
-  const n = typeof v === "string" ? parseFloat(v) : v;
-  return formatCurrency(n);
-}
 
 function exportCSV(catRows: CategoryRow[], custRows: CustomerRow[]) {
   const lines = [
@@ -28,8 +25,6 @@ function exportCSV(catRows: CategoryRow[], custRows: CustomerRow[]) {
   const a = document.createElement("a"); a.href = url; a.download = "contract-brewing.csv"; a.click();
   URL.revokeObjectURL(url);
 }
-
-const tdCls = "px-4 py-2";
 
 interface Props { start: string; end: string; onStartChange: (v: string) => void; onEndChange: (v: string) => void; }
 
@@ -72,92 +67,88 @@ export default function ContractBrewingReport({ start, end, onStartChange, onEnd
         groupBy="none" groupOptions={[]} onGroupByChange={() => {}}
       />
 
-      {error && <div className="mt-4 p-3 bg-red-950 border border-red-700 rounded-md text-sm text-red-300">{error}</div>}
+      {error && <Banner className="mt-4">{error}</Banner>}
 
       {catRows !== null && (
         <div className="mt-4 space-y-6">
 
           {/* Revenue by Category */}
           <div>
-            <h3 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider mb-2">Revenue by Category</h3>
-            <div className="overflow-x-auto rounded-lg border border-zinc-700">
-              <table className="min-w-full text-sm">
+            <h3 className="text-sm font-semibold text-secondary uppercase tracking-wider mb-2">Revenue by Category</h3>
+            <ReportTable>
                 <thead>
-                  <tr className="border-b border-zinc-700 bg-zinc-800">
+                  <tr className={THEAD_ROW}>
                     <SortTh label="Category"      col="category"   {...catSp} />
                     <SortTh label="Gross Revenue" col="gross_sales" {...catSp} align="right" />
                     <SortTh label="Net Revenue"   col="net_sales"   {...catSp} align="right" />
                   </tr>
                 </thead>
-                <tbody className="bg-zinc-900">
+                <tbody className={TBODY}>
                   {(catSort.sorted ?? []).map((row, i) => (
-                    <tr key={i} className="border-b border-zinc-800 hover:bg-zinc-800">
-                      <td className={`${tdCls} font-medium text-zinc-100`}>{row.category}</td>
-                      <td className={`${tdCls} text-right text-zinc-200`}>{currency(row.gross_sales)}</td>
-                      <td className={`${tdCls} text-right font-medium text-zinc-100`}>{currency(row.net_sales)}</td>
+                    <tr key={i} className={TR}>
+                      <td className={`${tdCls} font-medium text-primary`}>{row.category}</td>
+                      <td className={`${numCls} text-strong`}>{currency(row.gross_sales)}</td>
+                      <td className={`${numCls} font-medium text-primary`}>{currency(row.net_sales)}</td>
                     </tr>
                   ))}
                 </tbody>
                 {catTotals && (
                   <tfoot>
-                    <tr className="border-t-2 border-zinc-600 bg-zinc-800 font-semibold">
-                      <td className={`${tdCls} text-zinc-200`}>Total</td>
-                      <td className={`${tdCls} text-right text-zinc-200`}>{currency(catTotals.gross)}</td>
-                      <td className={`${tdCls} text-right text-zinc-100`}>{currency(catTotals.net)}</td>
+                    <tr className={TFOOT_ROW}>
+                      <td className={`${tdCls} text-strong`}>Total</td>
+                      <td className={`${numCls} text-strong`}>{currency(catTotals.gross)}</td>
+                      <td className={`${numCls} text-primary`}>{currency(catTotals.net)}</td>
                     </tr>
                   </tfoot>
                 )}
-              </table>
-            </div>
+            </ReportTable>
             {catTotals && catTotals.disc > 0 && (
-              <div className="mt-3 inline-flex items-center gap-3 px-4 py-3 bg-zinc-900 border border-zinc-700 rounded-lg">
-                <span className="text-sm font-medium text-zinc-300">Total Discounts Applied</span>
-                <span className="text-lg font-semibold text-amber-400">{currency(catTotals.disc)}</span>
-              </div>
+              <Card padding="px-4 py-3" className="mt-3 inline-flex items-center gap-3">
+                <span className="text-sm font-medium text-body">Total Discounts Applied</span>
+                <span className="text-base sm:text-xl font-semibold text-accent">{currency(catTotals.disc)}</span>
+              </Card>
             )}
           </div>
 
           {/* By Customer */}
           {custRows && custRows.length > 0 && (
             <div>
-              <h3 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider mb-2">By Customer</h3>
-              <div className="overflow-x-auto rounded-lg border border-zinc-700">
-                <table className="min-w-full text-sm">
+              <h3 className="text-sm font-semibold text-secondary uppercase tracking-wider mb-2">By Customer</h3>
+              <ReportTable>
                   <thead>
-                    <tr className="border-b border-zinc-700 bg-zinc-800">
+                    <tr className={THEAD_ROW}>
                       <SortTh label="Customer"    col="customer"          {...custSp} />
                       <SortTh label="Invoices"    col="invoices"          {...custSp} align="right" />
                       <SortTh label="Total Charged"    col="total_charged"     {...custSp} align="right" />
                       <SortTh label="Outstanding" col="total_outstanding" {...custSp} align="right" />
                     </tr>
                   </thead>
-                  <tbody className="bg-zinc-900">
+                  <tbody className={TBODY}>
                     {(custSort.sorted ?? []).map((row, i) => (
-                      <tr key={i} className="border-b border-zinc-800 hover:bg-zinc-800">
-                        <td className={`${tdCls} font-medium text-zinc-100`}>{row.customer}</td>
-                        <td className={`${tdCls} text-right text-zinc-200`}>{row.invoices}</td>
-                        <td className={`${tdCls} text-right text-zinc-200`}>{currency(row.total_charged)}</td>
-                        <td className={`${tdCls} text-right font-medium ${parseFloat(row.total_outstanding) > 0 ? "text-amber-400" : "text-zinc-500"}`}>
+                      <tr key={i} className={TR}>
+                        <td className={`${tdCls} font-medium text-primary`}>{row.customer}</td>
+                        <td className={`${numCls} text-strong`}>{row.invoices}</td>
+                        <td className={`${numCls} text-strong`}>{currency(row.total_charged)}</td>
+                        <td className={`${numCls} font-medium ${parseFloat(row.total_outstanding) > 0 ? "text-accent" : "text-muted"}`}>
                           {parseFloat(row.total_outstanding) > 0 ? currency(row.total_outstanding) : "—"}
                         </td>
                       </tr>
                     ))}
                   </tbody>
                   <tfoot>
-                    <tr className="border-t-2 border-zinc-600 bg-zinc-800 font-semibold">
-                      <td className={`${tdCls} text-zinc-200`}>Total</td>
-                      <td className={`${tdCls} text-right text-zinc-200`}>{custRows.reduce((s, r) => s + r.invoices, 0)}</td>
-                      <td className={`${tdCls} text-right text-zinc-200`}>{currency(custRows.reduce((s, r) => s + parseFloat(r.total_charged), 0))}</td>
-                      <td className={`${tdCls} text-right text-amber-400`}>{currency(custRows.reduce((s, r) => s + parseFloat(r.total_outstanding), 0))}</td>
+                    <tr className={TFOOT_ROW}>
+                      <td className={`${tdCls} text-strong`}>Total</td>
+                      <td className={`${numCls} text-strong`}>{custRows.reduce((s, r) => s + r.invoices, 0)}</td>
+                      <td className={`${numCls} text-strong`}>{currency(custRows.reduce((s, r) => s + parseFloat(r.total_charged), 0))}</td>
+                      <td className={`${numCls} text-accent`}>{currency(custRows.reduce((s, r) => s + parseFloat(r.total_outstanding), 0))}</td>
                     </tr>
                   </tfoot>
-                </table>
-              </div>
+              </ReportTable>
             </div>
           )}
 
           {catRows.every(r => parseFloat(r.gross_sales) === 0) && (
-            <p className="text-sm text-zinc-500">No contract brewing invoices found for this period.</p>
+            <p className="text-sm text-muted">No contract brewing invoices found for this period.</p>
           )}
         </div>
       )}

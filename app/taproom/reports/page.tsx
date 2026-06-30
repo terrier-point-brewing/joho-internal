@@ -62,10 +62,6 @@ function firstOfMonth() {
 }
 function today() { return new Date().toISOString().slice(0, 10); }
 
-const selectCls =
-  "bg-zinc-800 border border-zinc-600 rounded-md px-2 py-1.5 sm:px-3 sm:py-2 text-xs sm:text-sm text-zinc-100 " +
-  "focus:outline-none focus:ring-2 focus:ring-blue-500";
-
 export default function ReportsPage() {
   const router = useRouter();
   const { role, loading } = useUserRole();
@@ -96,20 +92,20 @@ export default function ReportsPage() {
 
       <div className="flex flex-col sm:flex-row flex-wrap gap-2 sm:gap-3 sm:items-center mb-6">
         <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
-          <label className="text-sm font-medium text-zinc-300">Category</label>
-          <select value={activeGroup} onChange={(e) => handleGroupChange(e.target.value as GroupId)} className={selectCls}>
+          <label className="text-sm font-medium text-body">Category</label>
+          <select value={activeGroup} onChange={(e) => handleGroupChange(e.target.value as GroupId)} className="inp">
             {REPORT_GROUPS.map((g) => <option key={g.id} value={g.id}>{g.label}</option>)}
           </select>
         </div>
         <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
-          <label className="text-sm font-medium text-zinc-300">Report</label>
-          <select value={activeReport} onChange={(e) => handleReportChange(e.target.value as ReportId)} className={selectCls}>
+          <label className="text-sm font-medium text-body">Report</label>
+          <select value={activeReport} onChange={(e) => handleReportChange(e.target.value as ReportId)} className="inp">
             {activeGroupReports.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
           </select>
         </div>
       </div>
 
-      <h3 className="text-sm font-medium text-zinc-400 mb-5">{getLabel(activeReport)}</h3>
+      <h3 className="text-sm font-semibold text-strong mb-5">{getLabel(activeReport)}</h3>
 
       {activeReport === "taproom-model"    && <TaproomModelReport    {...dateProps} />}
       {activeReport === "contract-brewing" && <ContractBrewingReport {...dateProps} />}

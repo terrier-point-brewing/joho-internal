@@ -1,8 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { formatCurrency } from "@/lib/format";
+import Banner from "@/app/components/ui/Banner";
+import Card from "@/app/components/ui/Card";
 import ReportControls from "./ReportControls";
+import ReportTable, { tdCls, numCls, currency, THEAD_ROW, TBODY, TR, TFOOT_ROW } from "./ReportTable";
 import { useSort, SortTh } from "./SortControls";
 
 type CategoryRow = {
@@ -13,11 +15,6 @@ type CategoryRow = {
   net_sales: string;
   tax: string;
 };
-
-function currency(v: string | number) {
-  const n = typeof v === "string" ? parseFloat(v) : v;
-  return formatCurrency(n);
-}
 
 function exportCSV(rows: CategoryRow[], tips: string) {
   const lines = [
@@ -31,7 +28,6 @@ function exportCSV(rows: CategoryRow[], tips: string) {
   URL.revokeObjectURL(url);
 }
 
-const tdCls = "px-4 py-2";
 const EXCLUDED_FROM_ATTRIBUTED = new Set(["CO2", "Other"]);
 
 interface Props { start: string; end: string; onStartChange: (v: string) => void; onEndChange: (v: string) => void; }
@@ -80,16 +76,13 @@ export default function TaproomModelReport({ start, end, onStartChange, onEndCha
         groupBy="none" groupOptions={[]} onGroupByChange={() => {}}
       />
 
-      {error && (
-        <div className="mt-4 p-3 bg-red-950 border border-red-700 rounded-md text-sm text-red-300">{error}</div>
-      )}
+      {error && <Banner className="mt-4">{error}</Banner>}
 
       {rows !== null && (
         <div className="mt-4 space-y-4">
-          <div className="overflow-x-auto rounded-lg border border-zinc-700">
-            <table className="min-w-full text-sm">
+          <ReportTable>
               <thead>
-                <tr className="border-b border-zinc-700 bg-zinc-800">
+                <tr className={THEAD_ROW}>
                   <SortTh label="Category"      col="category"   {...sp} />
                   <SortTh label="Gross Sales"   col="gross_sales" {...sp} align="right" />
                   <SortTh label="Discounts"     col="discounts"   {...sp} align="right" />
@@ -98,21 +91,21 @@ export default function TaproomModelReport({ start, end, onStartChange, onEndCha
                   <SortTh label="Tax Collected" col="tax"         {...sp} align="right" />
                 </tr>
               </thead>
-              <tbody className="bg-zinc-900">
+              <tbody className={TBODY}>
                 {(sorted ?? []).map((row, i) => {
                   const isZero = parseFloat(row.gross_sales) === 0 && parseFloat(row.net_sales) === 0;
                   return (
-                    <tr key={i} className="border-b border-zinc-800 hover:bg-zinc-800">
-                      <td className={`${tdCls} font-medium ${isZero ? "text-zinc-600" : "text-zinc-100"}`}>{row.category}</td>
-                      <td className={`${tdCls} text-right ${isZero ? "text-zinc-600" : "text-zinc-200"}`}>{currency(row.gross_sales)}</td>
-                      <td className={`${tdCls} text-right ${isZero ? "text-zinc-600" : "text-zinc-400"}`}>
+                    <tr key={i} className={TR}>
+                      <td className={`${tdCls} font-medium ${isZero ? "text-faint" : "text-primary"}`}>{row.category}</td>
+                      <td className={`${numCls} ${isZero ? "text-faint" : "text-strong"}`}>{currency(row.gross_sales)}</td>
+                      <td className={`${numCls} ${isZero ? "text-faint" : "text-secondary"}`}>
                         {parseFloat(row.discounts) > 0 ? currency(row.discounts) : "—"}
                       </td>
-                      <td className={`${tdCls} text-right ${parseFloat(row.returns) > 0 ? "text-red-400" : "text-zinc-600"}`}>
+                      <td className={`${numCls} ${parseFloat(row.returns) > 0 ? "text-danger" : "text-faint"}`}>
                         {parseFloat(row.returns) > 0 ? currency(row.returns) : "—"}
                       </td>
-                      <td className={`${tdCls} text-right font-medium ${isZero ? "text-zinc-600" : "text-zinc-100"}`}>{currency(row.net_sales)}</td>
-                      <td className={`${tdCls} text-right ${isZero ? "text-zinc-600" : "text-zinc-400"}`}>
+                      <td className={`${numCls} font-medium ${isZero ? "text-faint" : "text-primary"}`}>{currency(row.net_sales)}</td>
+                      <td className={`${numCls} ${isZero ? "text-faint" : "text-secondary"}`}>
                         {parseFloat(row.tax) > 0 ? currency(row.tax) : "—"}
                       </td>
                     </tr>
@@ -121,33 +114,32 @@ export default function TaproomModelReport({ start, end, onStartChange, onEndCha
               </tbody>
               {grandTotals && (
                 <tfoot>
-                  <tr className="border-t-2 border-zinc-600 bg-zinc-800 font-semibold">
-                    <td className={`${tdCls} text-zinc-200`}>Total</td>
-                    <td className={`${tdCls} text-right text-zinc-200`}>{currency(grandTotals.gross)}</td>
-                    <td className={`${tdCls} text-right text-zinc-400`}>{currency(grandTotals.discounts)}</td>
-                    <td className={`${tdCls} text-right ${grandTotals.returns > 0 ? "text-red-400" : "text-zinc-600"}`}>
+                  <tr className={TFOOT_ROW}>
+                    <td className={`${tdCls} text-strong`}>Total</td>
+                    <td className={`${numCls} text-strong`}>{currency(grandTotals.gross)}</td>
+                    <td className={`${numCls} text-secondary`}>{currency(grandTotals.discounts)}</td>
+                    <td className={`${numCls} ${grandTotals.returns > 0 ? "text-danger" : "text-faint"}`}>
                       {grandTotals.returns > 0 ? currency(grandTotals.returns) : "—"}
                     </td>
-                    <td className={`${tdCls} text-right text-zinc-100`}>{currency(grandTotals.net)}</td>
-                    <td className={`${tdCls} text-right text-zinc-400`}>{currency(grandTotals.tax)}</td>
+                    <td className={`${numCls} text-primary`}>{currency(grandTotals.net)}</td>
+                    <td className={`${numCls} text-secondary`}>{currency(grandTotals.tax)}</td>
                   </tr>
                 </tfoot>
               )}
-            </table>
-          </div>
+          </ReportTable>
 
           <div className="flex flex-wrap gap-3">
             {attributedNetSales !== null && (
-              <div className="inline-flex items-center gap-3 px-4 py-3 bg-zinc-900 border border-zinc-700 rounded-lg">
-                <span className="text-sm font-medium text-zinc-300">Taproom Attributed Net Sales</span>
-                <span className="text-lg font-semibold text-zinc-100">{currency(attributedNetSales)}</span>
-              </div>
+              <Card padding="px-4 py-3" className="inline-flex items-center gap-3">
+                <span className="text-sm font-medium text-body">Taproom Attributed Net Sales</span>
+                <span className="text-base sm:text-xl font-semibold text-primary">{currency(attributedNetSales)}</span>
+              </Card>
             )}
             {tips !== null && (
-              <div className="inline-flex items-center gap-3 px-4 py-3 bg-zinc-900 border border-zinc-700 rounded-lg">
-                <span className="text-sm font-medium text-zinc-300">Total Tips Collected</span>
-                <span className="text-lg font-semibold text-zinc-100">{currency(tips)}</span>
-              </div>
+              <Card padding="px-4 py-3" className="inline-flex items-center gap-3">
+                <span className="text-sm font-medium text-body">Total Tips Collected</span>
+                <span className="text-base sm:text-xl font-semibold text-primary">{currency(tips)}</span>
+              </Card>
             )}
           </div>
         </div>

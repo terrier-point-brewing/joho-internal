@@ -58,7 +58,7 @@ interface SortThProps {
   className?: string;
 }
 
-const BASE_TH = "px-4 py-3 font-medium text-zinc-300 cursor-pointer select-none whitespace-nowrap hover:text-zinc-100 transition-colors";
+const BASE_TH = "px-4 py-3 font-medium text-body cursor-pointer select-none whitespace-nowrap hover:text-primary transition-colors";
 
 export function SortTh({ label, col, sortKey, sortDir, onSort, align = "left", className = "" }: SortThProps) {
   const active = sortKey === col;
@@ -69,7 +69,7 @@ export function SortTh({ label, col, sortKey, sortDir, onSort, align = "left", c
     >
       <span className="inline-flex items-center gap-1">
         {label}
-        <span className={`text-xs ${active ? "text-blue-400" : "text-zinc-600"}`}>
+        <span className={`text-xs ${active ? "text-accent" : "text-faint"}`}>
           {active ? (sortDir === "asc" ? "↑" : "↓") : "↕"}
         </span>
       </span>

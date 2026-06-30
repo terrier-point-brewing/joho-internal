@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { formatCurrency } from "@/lib/format";
+import Banner from "@/app/components/ui/Banner";
 import ReportControls from "./ReportControls";
+import ReportTable, { tdCls, numCls, currency, THEAD_ROW, TBODY, TR, TFOOT_ROW } from "./ReportTable";
 import { useSort, SortTh } from "./SortControls";
 
 type SizeRow     = { size: string; qty: number; gross_sales: string; discounts: string; net_sales: string };
@@ -11,11 +12,6 @@ type CustomerRow = {
   total_charged: string; total_outstanding: string;
   half_keg_qty: number; sixth_keg_qty: number; quarter_keg_qty: number; cans_qty: number;
 };
-
-function currency(v: string | number) {
-  const n = typeof v === "string" ? parseFloat(v) : v;
-  return formatCurrency(n);
-}
 
 function exportCSV(sizeRows: SizeRow[], custRows: CustomerRow[]) {
   const lines = [
@@ -32,8 +28,6 @@ function exportCSV(sizeRows: SizeRow[], custRows: CustomerRow[]) {
   const a = document.createElement("a"); a.href = url; a.download = "distribution.csv"; a.click();
   URL.revokeObjectURL(url);
 }
-
-const tdCls = "px-4 py-2";
 
 interface Props { start: string; end: string; onStartChange: (v: string) => void; onEndChange: (v: string) => void; }
 
@@ -77,21 +71,20 @@ export default function DistributionReport({ start, end, onStartChange, onEndCha
         groupBy="none" groupOptions={[]} onGroupByChange={() => {}}
       />
 
-      {error && <div className="mt-4 p-3 bg-red-950 border border-red-700 rounded-md text-sm text-red-300">{error}</div>}
+      {error && <Banner className="mt-4">{error}</Banner>}
 
       {sizeRows !== null && (
         <div className="mt-4 space-y-6">
 
           {/* Revenue by Size */}
           <div>
-            <h3 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider mb-2">Revenue by Size</h3>
+            <h3 className="text-sm font-semibold text-secondary uppercase tracking-wider mb-2">Revenue by Size</h3>
             {sizeRows.length === 0 ? (
-              <p className="text-sm text-zinc-500">No distribution invoices found for this period.</p>
+              <p className="text-sm text-muted">No distribution invoices found for this period.</p>
             ) : (
-              <div className="overflow-x-auto rounded-lg border border-zinc-700">
-                <table className="min-w-full text-sm">
+              <ReportTable>
                   <thead>
-                    <tr className="border-b border-zinc-700 bg-zinc-800">
+                    <tr className={THEAD_ROW}>
                       <SortTh label="Size"       col="size"       {...sizeSp} />
                       <SortTh label="Qty"        col="qty"        {...sizeSp} align="right" />
                       <SortTh label="Gross Sales" col="gross_sales" {...sizeSp} align="right" />
@@ -99,43 +92,41 @@ export default function DistributionReport({ start, end, onStartChange, onEndCha
                       <SortTh label="Net Sales"  col="net_sales"  {...sizeSp} align="right" />
                     </tr>
                   </thead>
-                  <tbody className="bg-zinc-900">
+                  <tbody className={TBODY}>
                     {(sizeSort.sorted ?? []).map((row, i) => (
-                      <tr key={i} className="border-b border-zinc-800 hover:bg-zinc-800">
-                        <td className={`${tdCls} font-medium text-zinc-100`}>{row.size}</td>
-                        <td className={`${tdCls} text-right text-zinc-200`}>{row.qty}</td>
-                        <td className={`${tdCls} text-right text-zinc-200`}>{currency(row.gross_sales)}</td>
-                        <td className={`${tdCls} text-right ${parseFloat(row.discounts) > 0 ? "text-amber-400" : "text-zinc-600"}`}>
+                      <tr key={i} className={TR}>
+                        <td className={`${tdCls} font-medium text-primary`}>{row.size}</td>
+                        <td className={`${numCls} text-strong`}>{row.qty}</td>
+                        <td className={`${numCls} text-strong`}>{currency(row.gross_sales)}</td>
+                        <td className={`${numCls} ${parseFloat(row.discounts) > 0 ? "text-accent" : "text-faint"}`}>
                           {parseFloat(row.discounts) > 0 ? currency(row.discounts) : "—"}
                         </td>
-                        <td className={`${tdCls} text-right font-medium text-zinc-100`}>{currency(row.net_sales)}</td>
+                        <td className={`${numCls} font-medium text-primary`}>{currency(row.net_sales)}</td>
                       </tr>
                     ))}
                   </tbody>
                   {sizeTotals && (
                     <tfoot>
-                      <tr className="border-t-2 border-zinc-600 bg-zinc-800 font-semibold">
-                        <td className={`${tdCls} text-zinc-200`}>Total</td>
-                        <td className={`${tdCls} text-right text-zinc-200`}>{sizeTotals.qty}</td>
-                        <td className={`${tdCls} text-right text-zinc-200`}>{currency(sizeTotals.gross)}</td>
-                        <td className={`${tdCls} text-right text-amber-400`}>{sizeTotals.disc > 0 ? currency(sizeTotals.disc) : "—"}</td>
-                        <td className={`${tdCls} text-right text-zinc-100`}>{currency(sizeTotals.net)}</td>
+                      <tr className={TFOOT_ROW}>
+                        <td className={`${tdCls} text-strong`}>Total</td>
+                        <td className={`${numCls} text-strong`}>{sizeTotals.qty}</td>
+                        <td className={`${numCls} text-strong`}>{currency(sizeTotals.gross)}</td>
+                        <td className={`${numCls} text-accent`}>{sizeTotals.disc > 0 ? currency(sizeTotals.disc) : "—"}</td>
+                        <td className={`${numCls} text-primary`}>{currency(sizeTotals.net)}</td>
                       </tr>
                     </tfoot>
                   )}
-                </table>
-              </div>
+              </ReportTable>
             )}
           </div>
 
           {/* By Customer */}
           {custRows && custRows.length > 0 && (
             <div>
-              <h3 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider mb-2">By Customer</h3>
-              <div className="overflow-x-auto rounded-lg border border-zinc-700">
-                <table className="min-w-full text-sm">
+              <h3 className="text-sm font-semibold text-secondary uppercase tracking-wider mb-2">By Customer</h3>
+              <ReportTable>
                   <thead>
-                    <tr className="border-b border-zinc-700 bg-zinc-800">
+                    <tr className={THEAD_ROW}>
                       <SortTh label="Customer"     col="customer"          {...custSp} />
                       <SortTh label="Invoices"     col="invoices"          {...custSp} align="right" />
                       <SortTh label="Total Charged" col="total_charged"     {...custSp} align="right" />
@@ -146,36 +137,35 @@ export default function DistributionReport({ start, end, onStartChange, onEndCha
                       <SortTh label="Cans"         col="cans_qty"          {...custSp} align="right" />
                     </tr>
                   </thead>
-                  <tbody className="bg-zinc-900">
+                  <tbody className={TBODY}>
                     {(custSort.sorted ?? []).map((row, i) => (
-                      <tr key={i} className="border-b border-zinc-800 hover:bg-zinc-800">
-                        <td className={`${tdCls} font-medium text-zinc-100`}>{row.customer}</td>
-                        <td className={`${tdCls} text-right text-zinc-200`}>{row.invoices}</td>
-                        <td className={`${tdCls} text-right text-zinc-200`}>{currency(row.total_charged)}</td>
-                        <td className={`${tdCls} text-right font-medium ${parseFloat(row.total_outstanding) > 0 ? "text-amber-400" : "text-zinc-500"}`}>
+                      <tr key={i} className={TR}>
+                        <td className={`${tdCls} font-medium text-primary`}>{row.customer}</td>
+                        <td className={`${numCls} text-strong`}>{row.invoices}</td>
+                        <td className={`${numCls} text-strong`}>{currency(row.total_charged)}</td>
+                        <td className={`${numCls} font-medium ${parseFloat(row.total_outstanding) > 0 ? "text-accent" : "text-muted"}`}>
                           {parseFloat(row.total_outstanding) > 0 ? currency(row.total_outstanding) : "—"}
                         </td>
-                        <td className={`${tdCls} text-right text-zinc-200`}>{row.half_keg_qty    || "—"}</td>
-                        <td className={`${tdCls} text-right text-zinc-200`}>{row.sixth_keg_qty   || "—"}</td>
-                        <td className={`${tdCls} text-right text-zinc-200`}>{row.quarter_keg_qty || "—"}</td>
-                        <td className={`${tdCls} text-right text-zinc-200`}>{row.cans_qty        || "—"}</td>
+                        <td className={`${numCls} text-strong`}>{row.half_keg_qty    || "—"}</td>
+                        <td className={`${numCls} text-strong`}>{row.sixth_keg_qty   || "—"}</td>
+                        <td className={`${numCls} text-strong`}>{row.quarter_keg_qty || "—"}</td>
+                        <td className={`${numCls} text-strong`}>{row.cans_qty        || "—"}</td>
                       </tr>
                     ))}
                   </tbody>
                   <tfoot>
-                    <tr className="border-t-2 border-zinc-600 bg-zinc-800 font-semibold">
-                      <td className={`${tdCls} text-zinc-200`}>Total</td>
-                      <td className={`${tdCls} text-right text-zinc-200`}>{custRows.reduce((s, r) => s + r.invoices, 0)}</td>
-                      <td className={`${tdCls} text-right text-zinc-200`}>{currency(custRows.reduce((s, r) => s + parseFloat(r.total_charged), 0))}</td>
-                      <td className={`${tdCls} text-right text-amber-400`}>{currency(custRows.reduce((s, r) => s + parseFloat(r.total_outstanding), 0))}</td>
-                      <td className={`${tdCls} text-right text-zinc-200`}>{custRows.reduce((s, r) => s + r.half_keg_qty, 0) || "—"}</td>
-                      <td className={`${tdCls} text-right text-zinc-200`}>{custRows.reduce((s, r) => s + r.sixth_keg_qty, 0) || "—"}</td>
-                      <td className={`${tdCls} text-right text-zinc-200`}>{custRows.reduce((s, r) => s + r.quarter_keg_qty, 0) || "—"}</td>
-                      <td className={`${tdCls} text-right text-zinc-200`}>{custRows.reduce((s, r) => s + r.cans_qty, 0) || "—"}</td>
+                    <tr className={TFOOT_ROW}>
+                      <td className={`${tdCls} text-strong`}>Total</td>
+                      <td className={`${numCls} text-strong`}>{custRows.reduce((s, r) => s + r.invoices, 0)}</td>
+                      <td className={`${numCls} text-strong`}>{currency(custRows.reduce((s, r) => s + parseFloat(r.total_charged), 0))}</td>
+                      <td className={`${numCls} text-accent`}>{currency(custRows.reduce((s, r) => s + parseFloat(r.total_outstanding), 0))}</td>
+                      <td className={`${numCls} text-strong`}>{custRows.reduce((s, r) => s + r.half_keg_qty, 0) || "—"}</td>
+                      <td className={`${numCls} text-strong`}>{custRows.reduce((s, r) => s + r.sixth_keg_qty, 0) || "—"}</td>
+                      <td className={`${numCls} text-strong`}>{custRows.reduce((s, r) => s + r.quarter_keg_qty, 0) || "—"}</td>
+                      <td className={`${numCls} text-strong`}>{custRows.reduce((s, r) => s + r.cans_qty, 0) || "—"}</td>
                     </tr>
                   </tfoot>
-                </table>
-              </div>
+              </ReportTable>
             </div>
           )}
         </div>
