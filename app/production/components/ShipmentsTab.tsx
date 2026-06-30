@@ -103,14 +103,23 @@ const PKG_FORMAT_ORDER: Record<string, number> = {
   loose: 0, "4-pack": 1, "6-pack": 2, case: 3,
 };
 
+// Shared grid template so the column header and every product row stay aligned.
+// checkbox | date | channel | category | recipe | variation | qty | bbl | tax | chevron
+const ROW_GRID_COLS = "20px 84px 80px 92px minmax(110px,1fr) minmax(150px,1.5fr) 48px 72px 60px 20px";
+
 function getPackagingCategory(row: ShipmentRow): { label: string; sortKey: [number, number, number] } {
   const type = row.packaging_item_type;
   const vol = row.packaging_item_volume_fl_oz ?? 0;
   const format = row.packaging_format;
 
   if (type === "keg") {
+    // Normalize to the keg size, stripping any brand prefix so that
+    // "Fortnight 1/2 Keg", "Local Time 1/2 Keg", and "1/2 Keg" all share
+    // the same category ("1/2 Keg"). The size token sits right before "Keg".
+    const name = row.packaging_item_name ?? "Keg";
+    const sizeMatch = name.match(/(\S+)\s+Keg$/i);
     return {
-      label: row.packaging_item_name ?? "Keg",
+      label: sizeMatch ? `${sizeMatch[1]} Keg` : name,
       sortKey: [0, -vol, 0],  // kegs first; bigger keg (higher vol) sorts earlier via negative
     };
   }
@@ -439,6 +448,23 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
         <p className="text-sm text-zinc-600">No shipments match the current filters.</p>
       ) : (
         <div className="space-y-3">
+          {/* Column header — aligned to the product-row grid */}
+          <div
+            className="grid items-center gap-3 px-4 text-[10px] font-medium uppercase tracking-wide text-zinc-600"
+            style={{ gridTemplateColumns: ROW_GRID_COLS }}
+          >
+            <span />
+            <span>Date</span>
+            <span>Channel</span>
+            <span>Category</span>
+            <span>Recipe</span>
+            <span>Variation</span>
+            <span className="text-right">Qty</span>
+            <span className="text-right">BBL</span>
+            <span className="text-right">Tax</span>
+            <span />
+          </div>
+
           {filtered.map((group) => {
             const isLocked = !!lockedCustomerId && group.recipient_id !== lockedCustomerId;
             const partnerName = group.recipient_id
@@ -483,10 +509,10 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
                       key={`${product.recipe_id ?? ""}:${product.variant_label}`}
                       className={!isLastProduct ? "border-b border-zinc-800" : undefined}
                     >
-                      {/* Grid columns: checkbox | date | channel | beer | packaging | qty | bbl | tax | chevron */}
+                      {/* Grid columns: checkbox | date | channel | category | recipe | variation | qty | bbl | tax | chevron */}
                       <div
                         className="grid items-center gap-3 px-4 py-2.5"
-                        style={{ gridTemplateColumns: "20px 96px 96px 1fr 140px 48px 72px 60px 20px" }}
+                        style={{ gridTemplateColumns: ROW_GRID_COLS }}
                       >
                         <div className="flex items-center justify-center">
                           {canCheck ? (
@@ -510,15 +536,22 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
                           {CHANNEL_LABELS[product.channel] ?? product.channel}
                         </span>
 
-                        {/* Beer name */}
-                        <span className="text-sm text-zinc-200 truncate">{product.beer_name}</span>
-
                         {/* Packaging category */}
                         <span
                           className="text-xs px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300 whitespace-nowrap overflow-hidden text-ellipsis"
-                          title={product.variant_label}
+                          title={product.packaging_category}
                         >
                           {product.packaging_category}
+                        </span>
+
+                        {/* Recipe */}
+                        <span className="text-sm text-zinc-200 truncate" title={product.beer_name}>
+                          {product.beer_name}
+                        </span>
+
+                        {/* Packaging variation (actual variation shipped) */}
+                        <span className="text-xs text-zinc-400 truncate" title={product.variant_label}>
+                          {product.variant_label}
                         </span>
 
                         {/* Qty */}
