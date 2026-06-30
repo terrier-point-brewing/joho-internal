@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { formatCurrency } from "@/lib/format";
+import Banner from "@/app/components/ui/Banner";
 import ReportControls from "./ReportControls";
+import ReportTable, { tdCls, numCls, currency, THEAD_ROW, TBODY, TR, TFOOT_ROW } from "./ReportTable";
 import { useSort, SortTh } from "./SortControls";
 
 type RawRow = {
@@ -23,11 +24,6 @@ const GROUP_OPTIONS = [
 ];
 
 const KEG_SIZE_ORDER: Record<string, number> = { "1/6 Keg": 0, "1/4 Keg": 1, "1/2 Keg": 2 };
-
-function currency(v: string | number) {
-  const n = typeof v === "string" ? parseFloat(v) : v;
-  return formatCurrency(n);
-}
 
 function groupRows(rows: RawRow[], mode: "beer" | "beerSize"): GroupedRow[] {
   const map = new Map<string, GroupedRow>();
@@ -84,8 +80,6 @@ function exportCSV(rows: RawRow[], groupBy: string) {
   URL.revokeObjectURL(url);
 }
 
-const tdCls = "px-4 py-2";
-
 interface Props { start: string; end: string; onStartChange: (v: string) => void; onEndChange: (v: string) => void; }
 
 export default function KegSalesReport({ start, end, onStartChange, onEndChange }: Props) {
@@ -137,24 +131,21 @@ export default function KegSalesReport({ start, end, onStartChange, onEndChange 
         groupBy={groupBy} groupOptions={GROUP_OPTIONS} onGroupByChange={setGroupBy}
       />
 
-      {error && (
-        <div className="mt-4 p-3 bg-red-950 border border-red-700 rounded-md text-sm text-red-300">{error}</div>
-      )}
+      {error && <Banner className="mt-4">{error}</Banner>}
 
       {rows !== null && (
         <div className="mt-4">
-          <p className="text-sm text-zinc-400 mb-3">
+          <p className="text-sm text-secondary mb-3">
             {rows.length === 0
               ? "No keg sales found."
               : `${salesRows.length} sale${salesRows.length !== 1 ? "s" : ""}, ${totals.transfer_qty} transfer${totals.transfer_qty !== 1 ? "s" : ""}`}
           </p>
           {rows.length > 0 && (
-            <div className="overflow-x-auto rounded-lg border border-zinc-700">
-              <table className="min-w-full text-sm">
+            <ReportTable>
                 {isGrouped ? (
                   <>
                     <thead>
-                      <tr className="border-b border-zinc-700 bg-zinc-800">
+                      <tr className={THEAD_ROW}>
                         <SortTh label="Beer"        col="beer"        {...sp} />
                         {groupBy === "beerSize" && <SortTh label="Size" col="size" {...sp} />}
                         <SortTh label="Sales Qty"   col="sales_qty"   {...sp} align="right" />
@@ -165,83 +156,82 @@ export default function KegSalesReport({ start, end, onStartChange, onEndChange 
                         <SortTh label="Tax"         col="tax"         {...sp} align="right" />
                       </tr>
                     </thead>
-                    <tbody className="bg-zinc-900">
+                    <tbody className={TBODY}>
                       {(groupedSort.sorted ?? groupedRows ?? []).map((row, i) => (
-                        <tr key={i} className="border-b border-zinc-800 hover:bg-zinc-800">
-                          <td className={`${tdCls} font-medium text-zinc-100`}>{row.beer}</td>
-                          {groupBy === "beerSize" && <td className={`${tdCls} text-zinc-300`}>{row.size}</td>}
-                          <td className={`${tdCls} text-right text-zinc-200`}>{row.sales_qty || "—"}</td>
-                          <td className={`${tdCls} text-right text-amber-400`}>{row.transfer_qty || "—"}</td>
-                          <td className={`${tdCls} text-right text-zinc-200`}>{currency(row.gross_sales)}</td>
-                          <td className={`${tdCls} text-right text-zinc-400`}>{currency(row.discounts)}</td>
-                          <td className={`${tdCls} text-right font-medium text-zinc-100`}>{currency(row.net_sales)}</td>
-                          <td className={`${tdCls} text-right text-zinc-400`}>{currency(row.tax)}</td>
+                        <tr key={i} className={TR}>
+                          <td className={`${tdCls} font-medium text-primary`}>{row.beer}</td>
+                          {groupBy === "beerSize" && <td className={`${tdCls} text-body`}>{row.size}</td>}
+                          <td className={`${numCls} text-strong`}>{row.sales_qty || "—"}</td>
+                          <td className={`${numCls} text-accent`}>{row.transfer_qty || "—"}</td>
+                          <td className={`${numCls} text-strong`}>{currency(row.gross_sales)}</td>
+                          <td className={`${numCls} text-secondary`}>{currency(row.discounts)}</td>
+                          <td className={`${numCls} font-medium text-primary`}>{currency(row.net_sales)}</td>
+                          <td className={`${numCls} text-secondary`}>{currency(row.tax)}</td>
                         </tr>
                       ))}
                     </tbody>
                     <tfoot>
-                      <tr className="border-t-2 border-zinc-600 bg-zinc-800 font-semibold">
-                        <td className={`${tdCls} text-zinc-200`} colSpan={groupBy === "beerSize" ? 2 : 1}>Totals</td>
-                        <td className={`${tdCls} text-right text-zinc-200`}>{totals.sales_qty}</td>
-                        <td className={`${tdCls} text-right text-amber-400`}>{totals.transfer_qty}</td>
-                        <td className={`${tdCls} text-right text-zinc-200`}>{currency(totals.gross)}</td>
-                        <td className={`${tdCls} text-right text-zinc-400`}>{currency(totals.disc)}</td>
-                        <td className={`${tdCls} text-right text-zinc-100`}>{currency(totals.net)}</td>
-                        <td className={`${tdCls} text-right text-zinc-400`}>{currency(totals.tax)}</td>
+                      <tr className={TFOOT_ROW}>
+                        <td className={`${tdCls} text-strong`} colSpan={groupBy === "beerSize" ? 2 : 1}>Totals</td>
+                        <td className={`${numCls} text-strong`}>{totals.sales_qty}</td>
+                        <td className={`${numCls} text-accent`}>{totals.transfer_qty}</td>
+                        <td className={`${numCls} text-strong`}>{currency(totals.gross)}</td>
+                        <td className={`${numCls} text-secondary`}>{currency(totals.disc)}</td>
+                        <td className={`${numCls} text-primary`}>{currency(totals.net)}</td>
+                        <td className={`${numCls} text-secondary`}>{currency(totals.tax)}</td>
                       </tr>
                     </tfoot>
                   </>
                 ) : (
                   <>
                     <thead>
-                      <tr className="border-b border-zinc-700 bg-zinc-800">
+                      <tr className={THEAD_ROW}>
                         <SortTh label="Date"        col="date"        {...sp} />
                         <SortTh label="Time"        col="time"        {...sp} />
                         <SortTh label="Beer"        col="beer"        {...sp} />
                         <SortTh label="Size"        col="size"        {...sp} />
                         <SortTh label="Qty"         col="qty"         {...sp} align="right" />
-                        <th className="px-4 py-3 font-medium text-zinc-300 text-left">Type</th>
+                        <th className="px-4 py-3 font-medium text-body text-left">Type</th>
                         <SortTh label="Gross Sales" col="gross_sales" {...sp} align="right" />
                         <SortTh label="Discounts"   col="discounts"   {...sp} align="right" />
                         <SortTh label="Net Sales"   col="net_sales"   {...sp} align="right" />
                         <SortTh label="Tax"         col="tax"         {...sp} align="right" />
                       </tr>
                     </thead>
-                    <tbody className="bg-zinc-900">
+                    <tbody className={TBODY}>
                       {(rawSort.sorted ?? rows ?? []).map((row, i) => (
-                        <tr key={i} className={`border-b border-zinc-800 hover:bg-zinc-800 ${row.is_transfer ? "bg-zinc-800/50" : ""}`}>
-                          <td className={`${tdCls} text-zinc-200 whitespace-nowrap`}>{row.date}</td>
-                          <td className={`${tdCls} text-zinc-400 whitespace-nowrap`}>{row.time}</td>
-                          <td className={`${tdCls} font-medium text-zinc-100`}>{row.beer}</td>
-                          <td className={`${tdCls} text-zinc-300`}>{row.size}</td>
-                          <td className={`${tdCls} text-right text-zinc-200`}>{row.qty}</td>
+                        <tr key={i} className={`${TR} ${row.is_transfer ? "bg-surface-mid/50" : ""}`}>
+                          <td className={`${tdCls} text-strong whitespace-nowrap`}>{row.date}</td>
+                          <td className={`${tdCls} text-secondary whitespace-nowrap`}>{row.time}</td>
+                          <td className={`${tdCls} font-medium text-primary`}>{row.beer}</td>
+                          <td className={`${tdCls} text-body`}>{row.size}</td>
+                          <td className={`${numCls} text-strong`}>{row.qty}</td>
                           <td className={tdCls}>
                             {row.is_transfer
-                              ? <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-900 text-amber-300">Transfer</span>
-                              : <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-900 text-green-300">Sale</span>}
+                              ? <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-accent-muted text-accent-soft">Transfer</span>
+                              : <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-success-surface text-success">Sale</span>}
                           </td>
-                          <td className={`${tdCls} text-right text-zinc-200`}>{row.is_transfer ? "—" : currency(row.gross_sales)}</td>
-                          <td className={`${tdCls} text-right text-zinc-400`}>{row.is_transfer ? "—" : currency(row.discounts)}</td>
-                          <td className={`${tdCls} text-right font-medium text-zinc-100`}>{row.is_transfer ? "—" : currency(row.net_sales)}</td>
-                          <td className={`${tdCls} text-right text-zinc-400`}>{row.is_transfer ? "—" : currency(row.tax)}</td>
+                          <td className={`${numCls} text-strong`}>{row.is_transfer ? "—" : currency(row.gross_sales)}</td>
+                          <td className={`${numCls} text-secondary`}>{row.is_transfer ? "—" : currency(row.discounts)}</td>
+                          <td className={`${numCls} font-medium text-primary`}>{row.is_transfer ? "—" : currency(row.net_sales)}</td>
+                          <td className={`${numCls} text-secondary`}>{row.is_transfer ? "—" : currency(row.tax)}</td>
                         </tr>
                       ))}
                     </tbody>
                     <tfoot>
-                      <tr className="border-t-2 border-zinc-600 bg-zinc-800 font-semibold">
-                        <td className={tdCls} colSpan={4}><span className="text-zinc-300">Totals (Sales only)</span></td>
-                        <td className={`${tdCls} text-right text-zinc-200`}>{totals.sales_qty}</td>
+                      <tr className={TFOOT_ROW}>
+                        <td className={tdCls} colSpan={4}><span className="text-body">Totals (Sales only)</span></td>
+                        <td className={`${numCls} text-strong`}>{totals.sales_qty}</td>
                         <td className={tdCls} />
-                        <td className={`${tdCls} text-right text-zinc-200`}>{currency(totals.gross)}</td>
-                        <td className={`${tdCls} text-right text-zinc-400`}>{currency(totals.disc)}</td>
-                        <td className={`${tdCls} text-right text-zinc-100`}>{currency(totals.net)}</td>
-                        <td className={`${tdCls} text-right text-zinc-400`}>{currency(totals.tax)}</td>
+                        <td className={`${numCls} text-strong`}>{currency(totals.gross)}</td>
+                        <td className={`${numCls} text-secondary`}>{currency(totals.disc)}</td>
+                        <td className={`${numCls} text-primary`}>{currency(totals.net)}</td>
+                        <td className={`${numCls} text-secondary`}>{currency(totals.tax)}</td>
                       </tr>
                     </tfoot>
                   </>
                 )}
-              </table>
-            </div>
+            </ReportTable>
           )}
         </div>
       )}

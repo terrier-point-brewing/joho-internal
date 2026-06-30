@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { formatCurrency } from "@/lib/format";
+import Banner from "@/app/components/ui/Banner";
 import ReportControls from "./ReportControls";
+import ReportTable, { tdCls, numCls, currency, THEAD_ROW, TBODY, TR, TFOOT_ROW } from "./ReportTable";
 import { useSort, SortTh } from "./SortControls";
 
 type Row = {
@@ -10,11 +11,6 @@ type Row = {
   face_value: string; gross_sales: string; discounts: string;
   discount_names: string[]; net_sales: string; tax: string; order_id: string;
 };
-
-function currency(v: string | number) {
-  const n = typeof v === "string" ? parseFloat(v) : v;
-  return formatCurrency(n);
-}
 
 function exportCSV(rows: Row[]) {
   const csv = [
@@ -28,8 +24,6 @@ function exportCSV(rows: Row[]) {
   const a = document.createElement("a"); a.href = url; a.download = "gift-card-sales.csv"; a.click();
   URL.revokeObjectURL(url);
 }
-
-const tdCls = "px-4 py-2";
 
 interface Props { start: string; end: string; onStartChange: (v: string) => void; onEndChange: (v: string) => void; }
 
@@ -71,22 +65,19 @@ export default function GiftCardReport({ start, end, onStartChange, onEndChange 
         groupBy="none" groupOptions={[]} onGroupByChange={() => {}}
       />
 
-      {error && (
-        <div className="mt-4 p-3 bg-red-950 border border-red-700 rounded-md text-sm text-red-300">{error}</div>
-      )}
+      {error && <Banner className="mt-4">{error}</Banner>}
 
       {rows !== null && (
         <div className="mt-4">
-          <p className="text-sm text-zinc-400 mb-3">
+          <p className="text-sm text-secondary mb-3">
             {rows.length === 0
               ? "No gift card sales found for this period."
               : `${rows.length} transaction${rows.length !== 1 ? "s" : ""}`}
           </p>
           {rows.length > 0 && (
-            <div className="overflow-x-auto rounded-lg border border-zinc-700">
-              <table className="min-w-full text-sm">
+            <ReportTable>
                 <thead>
-                  <tr className="border-b border-zinc-700 bg-zinc-800">
+                  <tr className={THEAD_ROW}>
                     <SortTh label="Date"          col="date"        {...sp} />
                     <SortTh label="Time"          col="time"        {...sp} />
                     <SortTh label="Name"          col="name"        {...sp} />
@@ -94,32 +85,32 @@ export default function GiftCardReport({ start, end, onStartChange, onEndChange 
                     <SortTh label="Face Value"    col="face_value"  {...sp} align="right" />
                     <SortTh label="Gross Sales"   col="gross_sales" {...sp} align="right" />
                     <SortTh label="Discounts"     col="discounts"   {...sp} align="right" />
-                    <th className="px-4 py-3 font-medium text-zinc-300 text-left">Discount Notes</th>
+                    <th className="px-4 py-3 font-medium text-body text-left">Discount Notes</th>
                     <SortTh label="Net Sales"     col="net_sales"   {...sp} align="right" />
                     <SortTh label="Tax"           col="tax"         {...sp} align="right" />
                   </tr>
                 </thead>
-                <tbody className="bg-zinc-900">
+                <tbody className={TBODY}>
                   {(sorted ?? []).map((row, i) => {
                     const isComped = parseFloat(row.net_sales) === 0;
                     return (
-                      <tr key={i} className="border-b border-zinc-800 hover:bg-zinc-800">
-                        <td className={`${tdCls} text-zinc-200 whitespace-nowrap`}>{row.date}</td>
-                        <td className={`${tdCls} text-zinc-400 whitespace-nowrap`}>{row.time}</td>
-                        <td className={`${tdCls} font-medium text-zinc-100`}>{row.name}</td>
-                        <td className={`${tdCls} text-right text-zinc-200`}>{row.qty}</td>
-                        <td className={`${tdCls} text-right text-zinc-200`}>{currency(row.face_value)}</td>
-                        <td className={`${tdCls} text-right text-zinc-200`}>{currency(row.gross_sales)}</td>
-                        <td className={`${tdCls} text-right ${parseFloat(row.discounts) > 0 ? "text-amber-400" : "text-zinc-600"}`}>
+                      <tr key={i} className={TR}>
+                        <td className={`${tdCls} text-strong whitespace-nowrap`}>{row.date}</td>
+                        <td className={`${tdCls} text-secondary whitespace-nowrap`}>{row.time}</td>
+                        <td className={`${tdCls} font-medium text-primary`}>{row.name}</td>
+                        <td className={`${numCls} text-strong`}>{row.qty}</td>
+                        <td className={`${numCls} text-strong`}>{currency(row.face_value)}</td>
+                        <td className={`${numCls} text-strong`}>{currency(row.gross_sales)}</td>
+                        <td className={`${numCls} ${parseFloat(row.discounts) > 0 ? "text-accent" : "text-faint"}`}>
                           {parseFloat(row.discounts) > 0 ? currency(row.discounts) : "—"}
                         </td>
-                        <td className={`${tdCls} text-zinc-400 text-xs`}>
+                        <td className={`${tdCls} text-secondary text-xs`}>
                           {row.discount_names.length > 0 ? row.discount_names.join(", ") : "—"}
                         </td>
-                        <td className={`${tdCls} text-right font-medium ${isComped ? "text-zinc-500" : "text-zinc-100"}`}>
+                        <td className={`${numCls} font-medium ${isComped ? "text-muted" : "text-primary"}`}>
                           {currency(row.net_sales)}
                         </td>
-                        <td className={`${tdCls} text-right text-zinc-400`}>
+                        <td className={`${numCls} text-secondary`}>
                           {parseFloat(row.tax) > 0 ? currency(row.tax) : "—"}
                         </td>
                       </tr>
@@ -127,19 +118,18 @@ export default function GiftCardReport({ start, end, onStartChange, onEndChange 
                   })}
                 </tbody>
                 <tfoot>
-                  <tr className="border-t-2 border-zinc-600 bg-zinc-800 font-semibold">
-                    <td className={tdCls} colSpan={3}><span className="text-zinc-200">Totals</span></td>
-                    <td className={`${tdCls} text-right text-zinc-200`}>{totals!.qty}</td>
-                    <td className={`${tdCls} text-right text-zinc-200`}>{currency(totals!.face)}</td>
-                    <td className={`${tdCls} text-right text-zinc-200`}>{currency(totals!.gross)}</td>
-                    <td className={`${tdCls} text-right text-amber-400`}>{currency(totals!.disc)}</td>
+                  <tr className={TFOOT_ROW}>
+                    <td className={tdCls} colSpan={3}><span className="text-strong">Totals</span></td>
+                    <td className={`${numCls} text-strong`}>{totals!.qty}</td>
+                    <td className={`${numCls} text-strong`}>{currency(totals!.face)}</td>
+                    <td className={`${numCls} text-strong`}>{currency(totals!.gross)}</td>
+                    <td className={`${numCls} text-accent`}>{currency(totals!.disc)}</td>
                     <td className={tdCls} />
-                    <td className={`${tdCls} text-right text-zinc-100`}>{currency(totals!.net)}</td>
-                    <td className={`${tdCls} text-right text-zinc-400`}>{currency(totals!.tax)}</td>
+                    <td className={`${numCls} text-primary`}>{currency(totals!.net)}</td>
+                    <td className={`${numCls} text-secondary`}>{currency(totals!.tax)}</td>
                   </tr>
                 </tfoot>
-              </table>
-            </div>
+            </ReportTable>
           )}
         </div>
       )}

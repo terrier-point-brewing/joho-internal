@@ -1,8 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { formatCurrency } from "@/lib/format";
+import Banner from "@/app/components/ui/Banner";
+import Card from "@/app/components/ui/Card";
 import ReportControls from "./ReportControls";
+import ReportTable, { tdCls, numCls, currency, THEAD_ROW, TBODY, TR, TFOOT_ROW } from "./ReportTable";
+import { BBL_CHANNEL_TEXT } from "./categoryStyles";
 import { useSort, SortTh } from "./SortControls";
 
 type StyleRow = {
@@ -16,10 +19,6 @@ type ChannelRow = { channel: string; bbl: string; gallons: string };
 
 function bbl(v: string | number) { return (typeof v === "string" ? parseFloat(v) : v).toFixed(3); }
 function gal(v: string | number) { return (typeof v === "string" ? parseFloat(v) : v).toFixed(2); }
-function currency(v: string | number) {
-  const n = typeof v === "string" ? parseFloat(v) : v;
-  return formatCurrency(n);
-}
 
 function exportCSV(styleRows: StyleRow[], channelRows: ChannelRow[], excise: string) {
   const lines = [
@@ -40,8 +39,6 @@ function exportCSV(styleRows: StyleRow[], channelRows: ChannelRow[], excise: str
   const a = document.createElement("a"); a.href = url; a.download = "bbl-tracker.csv"; a.click();
   URL.revokeObjectURL(url);
 }
-
-const tdCls = "px-4 py-2";
 
 interface Props { start: string; end: string; onStartChange: (v: string) => void; onEndChange: (v: string) => void; }
 
@@ -96,21 +93,20 @@ export default function BBLTrackerReport({ start, end, onStartChange, onEndChang
         groupBy="none" groupOptions={[]} onGroupByChange={() => {}}
       />
 
-      {error && <div className="mt-4 p-3 bg-red-950 border border-red-700 rounded-md text-sm text-red-300">{error}</div>}
+      {error && <Banner className="mt-4">{error}</Banner>}
 
       {styleRows !== null && (
         <div className="mt-4 space-y-6">
 
           {/* By Beer Style */}
           <div>
-            <h3 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider mb-2">By Beer Style</h3>
+            <h3 className="text-sm font-semibold text-secondary uppercase tracking-wider mb-2">By Beer Style</h3>
             {styleRows.length === 0 ? (
-              <p className="text-sm text-zinc-500">No production data found for this period.</p>
+              <p className="text-sm text-muted">No production data found for this period.</p>
             ) : (
-              <div className="overflow-x-auto rounded-lg border border-zinc-700">
-                <table className="min-w-full text-sm">
+              <ReportTable>
                   <thead>
-                    <tr className="border-b border-zinc-700 bg-zinc-800">
+                    <tr className={THEAD_ROW}>
                       <SortTh label="Style"           col="style"              {...styleSp} />
                       <SortTh label="Draft (BBL)"     col="taproom_draft_bbl"  {...styleSp} align="right" />
                       <SortTh label="Taproom Pkg"     col="taproom_pkg_bbl"    {...styleSp} align="right" />
@@ -125,95 +121,92 @@ export default function BBLTrackerReport({ start, end, onStartChange, onEndChang
                       <SortTh label="Excise Tax"      col="excise_tax"         {...styleSp} align="right" />
                     </tr>
                   </thead>
-                  <tbody className="bg-zinc-900">
+                  <tbody className={TBODY}>
                     {(styleSort.sorted ?? []).map((row, i) => (
-                      <tr key={i} className="border-b border-zinc-800 hover:bg-zinc-800">
-                        <td className={`${tdCls} font-medium text-zinc-100`}>{row.style}</td>
-                        <td className={`${tdCls} text-right ${parseFloat(row.taproom_draft_bbl) > 0 ? "text-zinc-200" : "text-zinc-600"}`}>
+                      <tr key={i} className={TR}>
+                        <td className={`${tdCls} font-medium text-primary`}>{row.style}</td>
+                        <td className={`${numCls} ${parseFloat(row.taproom_draft_bbl) > 0 ? "text-strong" : "text-faint"}`}>
                           {parseFloat(row.taproom_draft_bbl) > 0 ? bbl(row.taproom_draft_bbl) : "—"}
                         </td>
-                        <td className={`${tdCls} text-right ${parseFloat(row.taproom_pkg_bbl) > 0 ? "text-zinc-200" : "text-zinc-600"}`}>
+                        <td className={`${numCls} ${parseFloat(row.taproom_pkg_bbl) > 0 ? "text-strong" : "text-faint"}`}>
                           {parseFloat(row.taproom_pkg_bbl) > 0 ? bbl(row.taproom_pkg_bbl) : "—"}
                         </td>
-                        <td className={`${tdCls} text-right ${parseFloat(row.dist_bbl) > 0 ? "text-blue-300" : "text-zinc-600"}`}>
+                        <td className={`${numCls} ${parseFloat(row.dist_bbl) > 0 ? BBL_CHANNEL_TEXT.dist.on : BBL_CHANNEL_TEXT.dist.off}`}>
                           {parseFloat(row.dist_bbl) > 0 ? bbl(row.dist_bbl) : "—"}
                         </td>
-                        <td className={`${tdCls} text-right ${parseFloat(row.contract_bbl) > 0 ? "text-purple-300" : "text-zinc-600"}`}>
+                        <td className={`${numCls} ${parseFloat(row.contract_bbl) > 0 ? BBL_CHANNEL_TEXT.contract.on : BBL_CHANNEL_TEXT.contract.off}`}>
                           {parseFloat(row.contract_bbl) > 0 ? bbl(row.contract_bbl) : "—"}
                         </td>
-                        <td className={`${tdCls} text-right text-zinc-200`}>{row.half_keg_count   || "—"}</td>
-                        {showQuarter && <td className={`${tdCls} text-right text-zinc-200`}>{row.quarter_keg_count || "—"}</td>}
-                        <td className={`${tdCls} text-right text-zinc-200`}>{row.sixth_keg_count  || "—"}</td>
-                        <td className={`${tdCls} text-right text-zinc-200`}>{row.total_cans       || "—"}</td>
-                        <td className={`${tdCls} text-right font-semibold text-zinc-100`}>{bbl(row.total_bbl)}</td>
-                        <td className={`${tdCls} text-right text-zinc-300`}>{gal(row.total_gallons)}</td>
-                        <td className={`${tdCls} text-right text-green-400`}>{currency(row.excise_tax)}</td>
+                        <td className={`${numCls} text-strong`}>{row.half_keg_count   || "—"}</td>
+                        {showQuarter && <td className={`${numCls} text-strong`}>{row.quarter_keg_count || "—"}</td>}
+                        <td className={`${numCls} text-strong`}>{row.sixth_keg_count  || "—"}</td>
+                        <td className={`${numCls} text-strong`}>{row.total_cans       || "—"}</td>
+                        <td className={`${numCls} font-semibold text-primary`}>{bbl(row.total_bbl)}</td>
+                        <td className={`${numCls} text-body`}>{gal(row.total_gallons)}</td>
+                        <td className={`${numCls} text-success`}>{currency(row.excise_tax)}</td>
                       </tr>
                     ))}
                   </tbody>
                   {styleTotals && (
                     <tfoot>
-                      <tr className="border-t-2 border-zinc-600 bg-zinc-800 font-semibold">
-                        <td className={`${tdCls} text-zinc-200`}>Total</td>
-                        <td className={`${tdCls} text-right text-zinc-200`}>{bbl(styleTotals.taproomDraft)}</td>
-                        <td className={`${tdCls} text-right text-zinc-200`}>{bbl(styleTotals.taproomPkg)}</td>
-                        <td className={`${tdCls} text-right text-blue-300`}>{bbl(styleTotals.dist)}</td>
-                        <td className={`${tdCls} text-right text-purple-300`}>{bbl(styleTotals.contract)}</td>
-                        <td className={`${tdCls} text-right text-zinc-200`}>{styleTotals.halfKeg   || "—"}</td>
-                        {showQuarter && <td className={`${tdCls} text-right text-zinc-200`}>{styleTotals.quarterKeg || "—"}</td>}
-                        <td className={`${tdCls} text-right text-zinc-200`}>{styleTotals.sixthKeg  || "—"}</td>
-                        <td className={`${tdCls} text-right text-zinc-200`}>{styleTotals.cans      || "—"}</td>
-                        <td className={`${tdCls} text-right text-zinc-100`}>{bbl(styleTotals.totalBBL)}</td>
-                        <td className={`${tdCls} text-right text-zinc-300`}>{gal(styleTotals.totalGal)}</td>
-                        <td className={`${tdCls} text-right text-green-400`}>{currency(exciseTax ?? 0)}</td>
+                      <tr className={TFOOT_ROW}>
+                        <td className={`${tdCls} text-strong`}>Total</td>
+                        <td className={`${numCls} text-strong`}>{bbl(styleTotals.taproomDraft)}</td>
+                        <td className={`${numCls} text-strong`}>{bbl(styleTotals.taproomPkg)}</td>
+                        <td className={`${numCls} ${BBL_CHANNEL_TEXT.dist.on}`}>{bbl(styleTotals.dist)}</td>
+                        <td className={`${numCls} ${BBL_CHANNEL_TEXT.contract.on}`}>{bbl(styleTotals.contract)}</td>
+                        <td className={`${numCls} text-strong`}>{styleTotals.halfKeg   || "—"}</td>
+                        {showQuarter && <td className={`${numCls} text-strong`}>{styleTotals.quarterKeg || "—"}</td>}
+                        <td className={`${numCls} text-strong`}>{styleTotals.sixthKeg  || "—"}</td>
+                        <td className={`${numCls} text-strong`}>{styleTotals.cans      || "—"}</td>
+                        <td className={`${numCls} text-primary`}>{bbl(styleTotals.totalBBL)}</td>
+                        <td className={`${numCls} text-body`}>{gal(styleTotals.totalGal)}</td>
+                        <td className={`${numCls} text-success`}>{currency(exciseTax ?? 0)}</td>
                       </tr>
                     </tfoot>
                   )}
-                </table>
-              </div>
+              </ReportTable>
             )}
           </div>
 
           {/* By Channel */}
           {channelRows && channelRows.length > 0 && (
             <div>
-              <h3 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider mb-2">By Channel</h3>
-              <div className="overflow-x-auto rounded-lg border border-zinc-700">
-                <table className="min-w-full text-sm">
+              <h3 className="text-sm font-semibold text-secondary uppercase tracking-wider mb-2">By Channel</h3>
+              <ReportTable>
                   <thead>
-                    <tr className="border-b border-zinc-700 bg-zinc-800">
+                    <tr className={THEAD_ROW}>
                       <SortTh label="Channel" col="channel" {...channelSp} />
                       <SortTh label="BBL"     col="bbl"     {...channelSp} align="right" />
                       <SortTh label="Gallons" col="gallons" {...channelSp} align="right" />
                     </tr>
                   </thead>
-                  <tbody className="bg-zinc-900">
+                  <tbody className={TBODY}>
                     {(channelSort.sorted ?? []).map((row, i) => (
-                      <tr key={i} className="border-b border-zinc-800 hover:bg-zinc-800">
-                        <td className={`${tdCls} font-medium text-zinc-100`}>{row.channel}</td>
-                        <td className={`${tdCls} text-right text-zinc-200`}>{bbl(row.bbl)}</td>
-                        <td className={`${tdCls} text-right text-zinc-300`}>{gal(row.gallons)}</td>
+                      <tr key={i} className={TR}>
+                        <td className={`${tdCls} font-medium text-primary`}>{row.channel}</td>
+                        <td className={`${numCls} text-strong`}>{bbl(row.bbl)}</td>
+                        <td className={`${numCls} text-body`}>{gal(row.gallons)}</td>
                       </tr>
                     ))}
                   </tbody>
                   <tfoot>
-                    <tr className="border-t-2 border-zinc-600 bg-zinc-800 font-semibold">
-                      <td className={`${tdCls} text-zinc-200`}>Total</td>
-                      <td className={`${tdCls} text-right text-zinc-100`}>{bbl(channelRows.reduce((s, r) => s + parseFloat(r.bbl), 0))}</td>
-                      <td className={`${tdCls} text-right text-zinc-300`}>{gal(channelRows.reduce((s, r) => s + parseFloat(r.gallons), 0))}</td>
+                    <tr className={TFOOT_ROW}>
+                      <td className={`${tdCls} text-strong`}>Total</td>
+                      <td className={`${numCls} text-primary`}>{bbl(channelRows.reduce((s, r) => s + parseFloat(r.bbl), 0))}</td>
+                      <td className={`${numCls} text-body`}>{gal(channelRows.reduce((s, r) => s + parseFloat(r.gallons), 0))}</td>
                     </tr>
                   </tfoot>
-                </table>
-              </div>
+              </ReportTable>
             </div>
           )}
 
           {exciseTax !== null && (
-            <div className="inline-flex items-center gap-3 px-4 py-3 bg-zinc-900 border border-zinc-700 rounded-lg">
-              <span className="text-sm font-medium text-zinc-300">Total Excise Tax Due</span>
-              <span className="text-lg font-semibold text-green-400">{currency(exciseTax)}</span>
-              <span className="text-xs text-zinc-500">(NC $0.6171/gal + Federal $3.50/BBL)</span>
-            </div>
+            <Card padding="px-4 py-3" className="inline-flex items-center gap-3">
+              <span className="text-sm font-medium text-body">Total Excise Tax Due</span>
+              <span className="text-base sm:text-xl font-semibold text-success">{currency(exciseTax)}</span>
+              <span className="text-xs text-muted">(NC $0.6171/gal + Federal $3.50/BBL)</span>
+            </Card>
           )}
         </div>
       )}
