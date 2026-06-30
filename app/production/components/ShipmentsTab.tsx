@@ -20,6 +20,10 @@ interface ShipmentRow {
   status: "invoice_required" | "unpaid" | "paid";
   invoice_id: string | null;
   invoice_number: string | null;
+  packaging_format: string | null;
+  packaging_item_type: string | null;
+  packaging_item_volume_fl_oz: number | null;
+  packaging_item_name: string | null;
   created_at: string;
   brew_batches: { id: string; beer_name: string; batch_number: number } | null;
 }
@@ -36,10 +40,13 @@ interface GroupProductRow {
   recipe_id: string | null;
   beer_name: string;
   variant_label: string;
+  packaging_category: string;
+  packaging_sort_key: [number, number, number];
   channel: "taproom" | "distribution" | "contract_brewing" | "wholesale";
   created_at: string;
   total_quantity: number;
   total_volume_bbl: number;
+  total_excise_tax_usd: number;
   allocations: AllocationCredit[];
 }
 
@@ -89,6 +96,34 @@ const STATUS_LABELS: Record<string, string> = {
 
 const STATUS_RANK: Record<string, number> = { invoice_required: 2, unpaid: 1, paid: 0 };
 
+const PKG_FORMAT_LABELS: Record<string, string> = {
+  loose: "Loose", "4-pack": "4-Pack", "6-pack": "6-Pack", case: "Case",
+};
+const PKG_FORMAT_ORDER: Record<string, number> = {
+  loose: 0, "4-pack": 1, "6-pack": 2, case: 3,
+};
+
+function getPackagingCategory(row: ShipmentRow): { label: string; sortKey: [number, number, number] } {
+  const type = row.packaging_item_type;
+  const vol = row.packaging_item_volume_fl_oz ?? 0;
+  const format = row.packaging_format;
+
+  if (type === "keg") {
+    return {
+      label: row.packaging_item_name ?? "Keg",
+      sortKey: [0, -vol, 0],  // kegs first; bigger keg (higher vol) sorts earlier via negative
+    };
+  }
+  if (type === "can") {
+    const formatLabel = format ? (PKG_FORMAT_LABELS[format] ?? format) : "";
+    return {
+      label: `${vol}oz ${formatLabel}`.trim(),
+      sortKey: [1, vol, PKG_FORMAT_ORDER[format ?? ""] ?? 99],
+    };
+  }
+  return { label: row.variant_label, sortKey: [2, 0, 0] };
+}
+
 function fmt(iso: string) {
   return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
@@ -126,14 +161,18 @@ function groupByInvoice(rows: ShipmentRow[]): InvoiceGroup[] {
       (p) => p.recipe_id === row.recipe_id && p.variant_label === row.variant_label
     );
     if (!product) {
+      const { label, sortKey } = getPackagingCategory(row);
       product = {
         recipe_id: row.recipe_id,
         beer_name: row.brew_batches?.beer_name ?? "Unknown",
         variant_label: row.variant_label,
+        packaging_category: label,
+        packaging_sort_key: sortKey,
         channel: row.channel,
         created_at: row.created_at,
         total_quantity: 0,
         total_volume_bbl: 0,
+        total_excise_tax_usd: 0,
         allocations: [],
       };
       group.products.push(product);
@@ -141,12 +180,24 @@ function groupByInvoice(rows: ShipmentRow[]): InvoiceGroup[] {
 
     product.total_quantity = Math.round((product.total_quantity + Number(row.quantity)) * 10000) / 10000;
     product.total_volume_bbl = Math.round((product.total_volume_bbl + Number(row.volume_bbl)) * 10000) / 10000;
+    product.total_excise_tax_usd = Math.round((product.total_excise_tax_usd + Number(row.total_excise_tax_usd)) * 100) / 100;
     product.allocations.push({
       id: row.id,
       batch_number: row.brew_batches?.batch_number ?? 0,
       quantity: Number(row.quantity),
       volume_bbl: Number(row.volume_bbl),
       status: row.status,
+    });
+  }
+
+  // Sort products within each group by packaging category (kegs first, then cans; by size; by format)
+  for (const group of map.values()) {
+    group.products.sort((a, b) => {
+      for (let i = 0; i < 3; i++) {
+        const diff = a.packaging_sort_key[i] - b.packaging_sort_key[i];
+        if (diff !== 0) return diff;
+      }
+      return a.variant_label.localeCompare(b.variant_label);
     });
   }
 
@@ -201,6 +252,21 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
       return true;
     });
   }, [invoiceGroups, channelFilter, statusFilter, customerFilter, dateFrom, dateTo]);
+
+  const summaryStats = useMemo(() => {
+    let totalBbl = 0;
+    let totalExciseTax = 0;
+    for (const group of filtered) {
+      for (const product of group.products) {
+        totalBbl += product.total_volume_bbl;
+        totalExciseTax += product.total_excise_tax_usd;
+      }
+    }
+    return {
+      totalBbl: Math.round(totalBbl * 10000) / 10000,
+      totalExciseTax: Math.round(totalExciseTax * 100) / 100,
+    };
+  }, [filtered]);
 
   const lockedCustomerId = selected?.customerId ?? null;
 
@@ -351,6 +417,23 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
         />
       </div>
 
+      {/* Summary stats */}
+      {filtered.length > 0 && (
+        <div className="flex items-center gap-4 px-4 py-2 bg-zinc-900/30 border border-zinc-800 rounded-lg text-xs">
+          <span className="text-zinc-500">Showing {filtered.length} shipment{filtered.length !== 1 ? "s" : ""}</span>
+          <span className="text-zinc-700">·</span>
+          <span className="text-zinc-300">
+            <span className="tabular-nums font-medium">{summaryStats.totalBbl.toFixed(2)}</span>
+            <span className="text-zinc-500 ml-1">bbl</span>
+          </span>
+          <span className="text-zinc-700">·</span>
+          <span className="text-zinc-300">
+            <span className="tabular-nums font-medium">${summaryStats.totalExciseTax.toFixed(2)}</span>
+            <span className="text-zinc-500 ml-1">excise tax</span>
+          </span>
+        </div>
+      )}
+
       {/* Invoice group list */}
       {filtered.length === 0 ? (
         <p className="text-sm text-zinc-600">No shipments match the current filters.</p>
@@ -400,8 +483,12 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
                       key={`${product.recipe_id ?? ""}:${product.variant_label}`}
                       className={!isLastProduct ? "border-b border-zinc-800" : undefined}
                     >
-                      <div className="flex items-center gap-3 px-4 py-2.5">
-                        <div className="w-5 flex-shrink-0">
+                      {/* Grid columns: checkbox | date | channel | beer | packaging | qty | bbl | tax | chevron */}
+                      <div
+                        className="grid items-center gap-3 px-4 py-2.5"
+                        style={{ gridTemplateColumns: "20px 96px 96px 1fr 140px 48px 72px 60px 20px" }}
+                      >
+                        <div className="flex items-center justify-center">
                           {canCheck ? (
                             <input
                               type="checkbox"
@@ -410,38 +497,49 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
                               className="accent-amber-500"
                               aria-label={`Select ${product.beer_name}`}
                             />
-                          ) : (
-                            <span className="w-5 block" />
-                          )}
+                          ) : null}
                         </div>
 
                         {/* Date */}
-                        <span className="text-xs text-zinc-500 whitespace-nowrap w-24 flex-shrink-0">
+                        <span className="text-xs text-zinc-500 whitespace-nowrap">
                           {fmt(product.created_at)}
                         </span>
 
                         {/* Channel badge */}
-                        <span className={`text-xs px-1.5 py-0.5 rounded whitespace-nowrap flex-shrink-0 ${CHANNEL_BADGE[product.channel] ?? "bg-zinc-800 text-zinc-400"}`}>
+                        <span className={`text-xs px-1.5 py-0.5 rounded whitespace-nowrap ${CHANNEL_BADGE[product.channel] ?? "bg-zinc-800 text-zinc-400"}`}>
                           {CHANNEL_LABELS[product.channel] ?? product.channel}
                         </span>
 
                         {/* Beer name */}
-                        <span className="text-sm text-zinc-200 flex-1 min-w-0 truncate">{product.beer_name}</span>
+                        <span className="text-sm text-zinc-200 truncate">{product.beer_name}</span>
 
-                        {/* Packaging */}
-                        <span className="text-xs px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300 whitespace-nowrap flex-shrink-0">
-                          {product.variant_label}
+                        {/* Packaging category */}
+                        <span
+                          className="text-xs px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300 whitespace-nowrap overflow-hidden text-ellipsis"
+                          title={product.variant_label}
+                        >
+                          {product.packaging_category}
                         </span>
 
                         {/* Qty */}
-                        <span className="text-sm text-zinc-200 tabular-nums whitespace-nowrap w-12 text-right flex-shrink-0">
+                        <span className="text-sm text-zinc-200 tabular-nums text-right">
                           {fmtQty(product.total_quantity)}
+                        </span>
+
+                        {/* BBL */}
+                        <span className="text-xs text-zinc-500 tabular-nums text-right">
+                          {product.total_volume_bbl.toFixed(2)}<span className="text-zinc-700 ml-0.5">bbl</span>
+                        </span>
+
+                        {/* Excise tax */}
+                        <span className="text-xs text-zinc-500 tabular-nums text-right">
+                          ${product.total_excise_tax_usd.toFixed(2)}
                         </span>
 
                         {/* Expand chevron */}
                         <button
                           onClick={() => toggleExpand(productKey)}
-                          className="text-zinc-600 hover:text-zinc-400 transition-colors flex-shrink-0"
+                          className="text-zinc-600 hover:text-zinc-400 transition-colors flex justify-center"
                           aria-label={isExpanded ? "Collapse allocation detail" : "Expand allocation detail"}
                         >
                           <svg
