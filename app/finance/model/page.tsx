@@ -9,18 +9,20 @@ import { fetchJson } from "@/app/production/hooks/queries";
 const ROWS: SalesRow[] = [
   // ── Gross Revenue ─────────────────────────────────────────────────────────
   { type: "section",  label: "Gross Revenue" },
-  { type: "data",     key: "cb_gross",       label: "Contract Brewing", indent: true },
-  { type: "data",     key: "dist_gross",     label: "Distribution",     indent: true },
-  { type: "data",     key: "tap_gross",      label: "Taproom",          indent: true },
-  { type: "subtotal", key: "gross_revenue",  label: "Gross Revenue" },
+  { type: "data",     key: "cb_gross",        label: "Contract Brewing", indent: true },
+  { type: "data",     key: "dist_gross",      label: "Distribution",     indent: true },
+  { type: "data",     key: "wholesale_gross", label: "Wholesale",        indent: true },
+  { type: "data",     key: "tap_gross",       label: "Taproom",          indent: true },
+  { type: "subtotal", key: "gross_revenue",   label: "Gross Revenue" },
   { type: "spacer" },
 
   // ── Deductions ────────────────────────────────────────────────────────────
   { type: "section",  label: "Deductions" },
-  { type: "data",     key: "cb_deductions",    label: "Contract Brewing", indent: true },
-  { type: "data",     key: "dist_deductions",  label: "Distribution",     indent: true },
-  { type: "data",     key: "tap_deductions",   label: "Taproom",          indent: true },
-  { type: "subtotal", key: "total_deductions", label: "Deductions" },
+  { type: "data",     key: "cb_deductions",        label: "Contract Brewing", indent: true },
+  { type: "data",     key: "dist_deductions",      label: "Distribution",     indent: true },
+  { type: "data",     key: "wholesale_deductions", label: "Wholesale",        indent: true },
+  { type: "data",     key: "tap_deductions",       label: "Taproom",          indent: true },
+  { type: "subtotal", key: "total_deductions",     label: "Deductions" },
   { type: "spacer" },
 
   // ── Net Sales ─────────────────────────────────────────────────────────────
@@ -43,6 +45,7 @@ interface InvoiceSalesData {
   months: string[];
   contractBrewing: Record<string, Record<string, number>>;
   distribution:    Record<string, Record<string, number>>;
+  wholesale:       Record<string, Record<string, number>>;
 }
 
 export default function ModelPage() {
@@ -81,30 +84,36 @@ export default function ModelPage() {
       const tap  = taproomData?.monthly[ym]         ?? {};
       const cb   = invoiceData?.contractBrewing[ym] ?? {};
       const dist = invoiceData?.distribution[ym]    ?? {};
+      const whl  = invoiceData?.wholesale[ym]       ?? {};
 
       const cbGross   = cb.gross_revenue   ?? 0;
       const distGross = dist.gross_revenue ?? 0;
+      const whlGross  = whl.gross_revenue  ?? 0;
       const tapGross  = tap.gross_revenue  ?? 0;
-      const grossRev  = cbGross + distGross + tapGross;
+      const grossRev  = cbGross + distGross + whlGross + tapGross;
 
       const cbDeduct    = cb.total_deductions   ?? 0;
       const distDeduct  = dist.total_deductions ?? 0;
+      const whlDeduct   = whl.total_deductions  ?? 0;
       const tapDeduct   = (tap.total_discounts  ?? 0) + (tap.total_returns ?? 0);
-      const totalDeduct = cbDeduct + distDeduct + tapDeduct;
+      const totalDeduct = cbDeduct + distDeduct + whlDeduct + tapDeduct;
 
       const exciseTax =
         (cb.excise_tax_nc   ?? 0) + (cb.excise_tax_federal   ?? 0) +
-        (dist.excise_tax_nc ?? 0) + (dist.excise_tax_federal ?? 0);
+        (dist.excise_tax_nc ?? 0) + (dist.excise_tax_federal ?? 0) +
+        (whl.excise_tax_nc  ?? 0) + (whl.excise_tax_federal  ?? 0);
 
       result[ym] = {
-        cb_gross:         cbGross,
-        dist_gross:       distGross,
-        tap_gross:        tapGross,
-        gross_revenue:    grossRev,
-        cb_deductions:    cbDeduct,
-        dist_deductions:  distDeduct,
-        tap_deductions:   tapDeduct,
-        total_deductions: totalDeduct,
+        cb_gross:            cbGross,
+        dist_gross:          distGross,
+        wholesale_gross:     whlGross,
+        tap_gross:           tapGross,
+        gross_revenue:       grossRev,
+        cb_deductions:       cbDeduct,
+        dist_deductions:     distDeduct,
+        wholesale_deductions: whlDeduct,
+        tap_deductions:      tapDeduct,
+        total_deductions:    totalDeduct,
         net_sales:        grossRev - totalDeduct,
         tips:             tap.tips ?? 0,
         sales_tax:        tap.tax  ?? 0,
