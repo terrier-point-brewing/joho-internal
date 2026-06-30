@@ -52,13 +52,15 @@ export async function POST(req: NextRequest) {
   let newCostPerUnit: number | null = currentCost;
 
   if (type === "received" && purchase_cost != null && Number(purchase_cost) > 0) {
-    adjCostPerUnit   = Number(purchase_cost);
-    totalValueChange = delta * adjCostPerUnit;
-    // Weighted average cost
+    adjCostPerUnit = Number(purchase_cost);
+    // Landed cost per unit: bake shipping into WAC so deposit calculations see full cost.
+    const shippingAmt = shipping_cost != null ? Number(shipping_cost) : 0;
+    const landedPerUnit = (adjCostPerUnit * delta + shippingAmt) / delta;
+    totalValueChange = delta * landedPerUnit;
     const totalQty = currentQty + delta;
     newCostPerUnit = totalQty > 0
-      ? ((currentQty * (currentCost ?? 0)) + (delta * adjCostPerUnit)) / totalQty
-      : adjCostPerUnit;
+      ? ((currentQty * (currentCost ?? 0)) + (delta * landedPerUnit)) / totalQty
+      : landedPerUnit;
   }
 
   const { data: adj, error: adjErr } = await supabase

@@ -5,6 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { PackagingItem, PackagingItemType, PackagingAdjustmentType } from "../types";
 import { Modal, Field, ModalActions } from "./shared";
 import { usePackagingQuery, useContractPartnersQuery, useSuppliersQuery, productionKeys } from "../hooks/queries";
+import { useUserRole } from "@/lib/hooks/useUserRole";
 import { fmtUsd } from "@/lib/utils/formatting";
 
 const PKG_ADJ_TYPES: { value: PackagingAdjustmentType; label: string; hint: string; sign: "positive" | "negative" | "count" }[] = [
@@ -50,6 +51,8 @@ function supplierName(item: PackagingItem): string | null {
 
 export default function PackagingTab() {
   const qc = useQueryClient();
+  const { role } = useUserRole();
+  const isAdmin = role === "admin";
   const { data: packaging = [] } = usePackagingQuery();
   const { data: partners = [] } = useContractPartnersQuery();
   const { data: suppliers = [] } = useSuppliersQuery();
@@ -66,12 +69,13 @@ export default function PackagingTab() {
   const [adjType, setAdjType] = useState<PackagingAdjustmentType>("received");
   const [adjQty, setAdjQty] = useState("");
   const [adjCost, setAdjCost] = useState("");
+  const [adjShipping, setAdjShipping] = useState("");
   const [adjNote, setAdjNote] = useState("");
   const [adjSubmitting, setAdjSubmitting] = useState(false);
 
 
   function openAdj(item: PackagingItem) {
-    setAdjItem(item); setAdjType("received"); setAdjQty(""); setAdjCost(""); setAdjNote("");
+    setAdjItem(item); setAdjType("received"); setAdjQty(""); setAdjCost(""); setAdjShipping(""); setAdjNote("");
   }
 
   async function handleAdjSubmit(e: React.FormEvent) {
@@ -90,6 +94,7 @@ export default function PackagingTab() {
         body.quantity = parseFloat(adjQty);
       }
       if (adjType === "received" && adjCost !== "") body.purchase_cost = parseFloat(adjCost);
+      if (adjType === "received" && adjShipping !== "") body.shipping_cost = parseFloat(adjShipping);
 
       const res = await fetch("/api/production/packaging-adjustments", {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
@@ -282,8 +287,8 @@ export default function PackagingTab() {
                           <td className="px-3 py-2.5">
                             <div className="flex gap-1.5 justify-end items-center whitespace-nowrap text-zinc-700">
                               <button onClick={() => openAdj(item)} className="text-xs text-amber-500 hover:text-amber-400 transition-colors font-medium">Adjust</button>
-                              <span aria-hidden>·</span>
-                              <button onClick={() => openEdit(item)} className="text-xs text-zinc-500 hover:text-zinc-200 transition-colors">Edit</button>
+                              {isAdmin && (<><span aria-hidden>·</span>
+                              <button onClick={() => openEdit(item)} className="text-xs text-zinc-500 hover:text-zinc-200 transition-colors">Edit</button></>)}
                               <span aria-hidden>·</span>
                               <button onClick={() => handleDelete(item)} className="text-xs text-zinc-600 hover:text-red-400 transition-colors">Del</button>
                             </div>
@@ -345,6 +350,9 @@ export default function PackagingTab() {
               <input type="number" step="0.01" min="0" className="inp" placeholder="0.00" value={form.unit_cost}
                 onChange={(e) => setForm((f) => ({ ...f, unit_cost: e.target.value }))} />
             </Field>
+            <div className="rounded bg-amber-900/20 border border-amber-800/40 px-3 py-2 text-xs text-amber-300">
+              Unit cost must be the <strong>landed cost</strong> — include freight and shipping. Use stock adjustments (Received) to recalculate this automatically when new inventory arrives.
+            </div>
 
             {needsVolume(form.type) && (
               <Field label="Volume (fl oz)" required>
@@ -426,10 +434,17 @@ export default function PackagingTab() {
             </Field>
 
             {adjType === "received" && (
-              <Field label="Purchase Cost ($ per unit)">
-                <input type="number" step="0.01" min="0" className="inp" placeholder="0.00"
-                  value={adjCost} onChange={(e) => setAdjCost(e.target.value)} />
-              </Field>
+              <>
+                <Field label="Purchase Cost ($ per unit)" required>
+                  <input type="number" step="0.01" min="0" className="inp" placeholder="0.00"
+                    required value={adjCost} onChange={(e) => setAdjCost(e.target.value)} />
+                </Field>
+                <Field label="Shipping Cost ($ total)" required>
+                  <input type="number" step="0.01" min="0" className="inp" placeholder="0.00"
+                    required value={adjShipping} onChange={(e) => setAdjShipping(e.target.value)} />
+                  <p className="text-xs mt-1 text-zinc-500">Enter 0 if no freight charge on this order.</p>
+                </Field>
+              </>
             )}
 
             <Field label="Note">
