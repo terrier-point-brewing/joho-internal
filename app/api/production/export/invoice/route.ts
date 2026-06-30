@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
 
   const { data: txs, error: txErr } = await supabase
     .from("export_transactions")
-    .select("id, recipient_id, recipient_name, status, invoice_id")
+    .select("id, recipient_id, recipient_name, status, invoice_id, batch_id")
     .in("id", transactionIds);
   if (txErr) return NextResponse.json({ error: txErr.message }, { status: 500 });
   if (!txs || txs.length !== transactionIds.length) {
@@ -113,7 +113,7 @@ export async function POST(req: NextRequest) {
           external_id: result.invoiceId,
           square_invoice_id: result.invoiceId,
           invoice_number: result.invoiceNumber ?? null,
-          invoice_type: "standard",
+          invoice_type: "export_invoice",
           partner_id: customerId,
           customer_name: partner.company_name,
           invoice_date: today,
@@ -157,6 +157,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { error: `Invoice created but updating transaction records failed: ${updateErr.message}` },
         { status: 500 }
+      );
+    }
+
+    // Create invoice_batch_links for distinct batches covered by these transactions
+    const batchIds = [...new Set(
+      txs.map((t) => (t as typeof t & { batch_id: string | null }).batch_id).filter((id): id is string => !!id)
+    )];
+    if (batchIds.length > 0) {
+      await supabase.from("invoice_batch_links").upsert(
+        batchIds.map((batchId) => ({ invoice_id: inv.id, batch_id: batchId })),
+        { onConflict: "invoice_id,batch_id", ignoreDuplicates: true }
       );
     }
 
@@ -285,8 +296,7 @@ export async function POST(req: NextRequest) {
     if (updateErr) return NextResponse.json({ error: updateErr.message }, { status: 500 });
 
     const externalId = externalRef ?? `other:${crypto.randomUUID()}`;
-    // invoices.source only allows 'quickbooks' | 'square' — map 'other' to 'quickbooks'
-    const dbSource = source === "quickbooks" ? "quickbooks" : "quickbooks"; // TODO: add 'other' to constraint if needed
+    const dbSource = source as "quickbooks" | "other";
     const { data: inv } = await supabase
       .from("invoices")
       .upsert(
@@ -294,7 +304,7 @@ export async function POST(req: NextRequest) {
           source: dbSource,
           external_id:    externalId,
           invoice_number: externalRef ?? null,
-          invoice_type:   "standard",
+          invoice_type:   "export_invoice",
           partner_id:     customerId,
           customer_name:  txs[0].recipient_name ?? null,
           invoice_date:   (invoiceDate ?? new Date().toISOString()).slice(0, 10),
@@ -327,6 +337,17 @@ export async function POST(req: NextRequest) {
         .from("export_transactions")
         .update({ invoice_id: inv.id })
         .in("id", transactionIds);
+
+      // Create invoice_batch_links for distinct batches
+      const batchIds = [...new Set(
+        txs.map((t) => (t as typeof t & { batch_id: string | null }).batch_id).filter((id): id is string => !!id)
+      )];
+      if (batchIds.length > 0) {
+        await supabase.from("invoice_batch_links").upsert(
+          batchIds.map((batchId) => ({ invoice_id: inv.id, batch_id: batchId })),
+          { onConflict: "invoice_id,batch_id", ignoreDuplicates: true }
+        );
+      }
     }
 
     return NextResponse.json({ ok: true });
@@ -358,15 +379,14 @@ export async function POST(req: NextRequest) {
     if (updateErr) return NextResponse.json({ error: updateErr.message }, { status: 500 });
 
     const externalId = externalRef ?? `other:${crypto.randomUUID()}`;
-    // invoices.source only allows 'quickbooks' | 'square' — 'other' maps to 'quickbooks'
     const { data: inv } = await supabase
       .from("invoices")
       .upsert(
         {
-          source:         "quickbooks",
+          source:         source as "quickbooks" | "other",
           external_id:    externalId,
           invoice_number: externalRef ?? null,
-          invoice_type:   "standard",
+          invoice_type:   "export_invoice",
           partner_id:     customerId,
           customer_name:  txs[0].recipient_name ?? null,
           invoice_date:   paidAt.slice(0, 10),
@@ -386,6 +406,17 @@ export async function POST(req: NextRequest) {
         .from("export_transactions")
         .update({ invoice_id: inv.id })
         .in("id", transactionIds);
+
+      // Create invoice_batch_links for distinct batches
+      const batchIds = [...new Set(
+        txs.map((t) => (t as typeof t & { batch_id: string | null }).batch_id).filter((id): id is string => !!id)
+      )];
+      if (batchIds.length > 0) {
+        await supabase.from("invoice_batch_links").upsert(
+          batchIds.map((batchId) => ({ invoice_id: inv.id, batch_id: batchId })),
+          { onConflict: "invoice_id,batch_id", ignoreDuplicates: true }
+        );
+      }
     }
 
     return NextResponse.json({ ok: true });
