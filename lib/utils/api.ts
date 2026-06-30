@@ -9,6 +9,13 @@ export function requireDateRange(req: NextRequest): { start: string; end: string
 }
 
 export function apiError(err: unknown, status = 500): NextResponse {
-  const msg = typeof err === "string" ? err : err instanceof Error ? err.message : String(err);
+  const msg =
+    typeof err === "string" ? err
+    : err instanceof Error ? err.message
+    // Non-Error objects (e.g. Supabase PostgrestError) carry a string `message`;
+    // surface it instead of String(err) → "[object Object]".
+    : err && typeof err === "object" && typeof (err as { message?: unknown }).message === "string"
+      ? (err as { message: string }).message
+    : String(err);
   return NextResponse.json({ error: msg }, { status });
 }
