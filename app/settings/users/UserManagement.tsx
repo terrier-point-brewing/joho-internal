@@ -3,6 +3,10 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchJson } from "@/app/production/hooks/queries";
+import PageHeader from "@/app/components/PageHeader";
+import Banner from "@/app/components/ui/Banner";
+import Card from "@/app/components/ui/Card";
+import { Modal, Field, ModalActions } from "@/app/components/ui/Modal";
 
 type UserRole = "viewer" | "brewer" | "manager" | "admin";
 
@@ -17,10 +21,10 @@ interface Profile {
 const ROLES: UserRole[] = ["viewer", "brewer", "manager", "admin"];
 
 const ROLE_COLORS: Record<UserRole, string> = {
-  viewer:  "text-zinc-400 bg-zinc-800",
-  brewer:  "text-blue-400 bg-blue-900/30",
-  manager: "text-amber-400 bg-amber-900/30",
-  admin:   "text-red-400 bg-red-900/30",
+  viewer:  "text-secondary bg-surface-mid",
+  brewer:  "text-info bg-info-surface/40",
+  manager: "text-accent bg-accent-muted/30",
+  admin:   "text-danger bg-danger-surface/40",
 };
 
 const QUERY_KEY = ["admin", "users"] as const;
@@ -126,21 +130,19 @@ export default function UserManagement() {
 
   return (
     <div className="p-4 sm:p-6 max-w-4xl mx-auto">
-      <h2 className="text-base font-semibold text-zinc-100 mb-6">Users</h2>
+      <PageHeader title="Users" />
 
-      {isLoading && <p className="text-sm text-zinc-500">Loading…</p>}
+      {isLoading && <p className="text-sm text-muted">Loading…</p>}
       {displayError && (
-        <p className="text-sm text-red-400 bg-red-950/30 border border-red-900/50 rounded px-3 py-2 mb-4">
-          {displayError}
-        </p>
+        <Banner tone="danger" className="mb-4">{displayError}</Banner>
       )}
 
       {!isLoading && (
         <>
-          <div className="flex justify-end mb-4">
+          <div className="flex justify-end mb-4 mt-4">
             <button
               onClick={() => setShowCreate(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-zinc-950 text-sm font-semibold rounded transition-colors"
+              className="btn-amber flex items-center gap-1.5"
             >
               <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
                 <path d="M6 1v10M1 6h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
@@ -149,10 +151,10 @@ export default function UserManagement() {
             </button>
           </div>
 
-          <div className="bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden">
+          <Card padding="" className="overflow-hidden">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-zinc-800 text-zinc-500 text-xs uppercase tracking-wide">
+                <tr className="border-b border-line text-muted text-xs uppercase tracking-wide">
                   <th className="text-left px-4 py-3 font-medium">Email</th>
                   <th className="text-left px-4 py-3 font-medium">Role</th>
                   <th className="text-left px-4 py-3 font-medium">Confirmed</th>
@@ -162,8 +164,8 @@ export default function UserManagement() {
               </thead>
               <tbody>
                 {users.map((u) => (
-                  <tr key={u.id} className="border-b border-zinc-800/50 last:border-0">
-                    <td className="px-4 py-3 text-zinc-200">{u.email}</td>
+                  <tr key={u.id} className="border-b border-line/50 last:border-0">
+                    <td className="px-4 py-3 text-strong">{u.email}</td>
                     <td className="px-4 py-3">
                       <select
                         value={u.role}
@@ -171,7 +173,7 @@ export default function UserManagement() {
                         className={`text-xs font-medium rounded px-2 py-1 border-0 outline-none cursor-pointer ${ROLE_COLORS[u.role]} bg-opacity-100`}
                       >
                         {ROLES.map((r) => (
-                          <option key={r} value={r} className="bg-zinc-900 text-zinc-100">
+                          <option key={r} value={r} className="bg-surface text-primary">
                             {r}
                           </option>
                         ))}
@@ -179,33 +181,33 @@ export default function UserManagement() {
                     </td>
                     <td className="px-4 py-3">
                       {u.email_confirmed ? (
-                        <span className="text-xs font-medium text-green-400 bg-green-900/30 px-2 py-0.5 rounded">
+                        <span className="text-xs font-medium text-success bg-success-surface/40 px-2 py-0.5 rounded">
                           Confirmed
                         </span>
                       ) : (
                         <button
                           onClick={() => handleConfirmEmail(u.id)}
-                          className="text-xs font-medium text-amber-400 bg-amber-900/30 hover:bg-amber-900/50 px-2 py-0.5 rounded transition-colors"
+                          className="text-xs font-medium text-accent bg-accent-muted/30 hover:bg-accent-muted/50 px-2 py-0.5 rounded transition-colors"
                         >
                           Confirm
                         </button>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-zinc-500">
+                    <td className="px-4 py-3 text-muted">
                       {new Date(u.created_at).toLocaleDateString()}
                     </td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex gap-2 justify-end items-center">
                         <button
                           onClick={() => { setPwUserId(u.id); setPwValue(""); setPwError(null); setApiError(null); }}
-                          className="text-xs text-zinc-500 hover:text-zinc-200 transition-colors"
+                          className="text-xs text-muted hover:text-strong transition-colors"
                           title="Set password"
                         >
                           Set pwd
                         </button>
                         <button
                           onClick={() => handleDeleteUser(u.id)}
-                          className="text-zinc-600 hover:text-red-400 transition-colors"
+                          className="text-faint hover:text-danger transition-colors"
                           title="Delete user"
                         >
                           <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
@@ -218,133 +220,91 @@ export default function UserManagement() {
                 ))}
                 {users.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="px-4 py-6 text-center text-zinc-600 text-sm">
+                    <td colSpan={5} className="px-4 py-6 text-center text-faint text-sm">
                       No users yet
                     </td>
                   </tr>
                 )}
               </tbody>
             </table>
-          </div>
+          </Card>
         </>
       )}
 
       {/* Set password modal */}
       {pwUserId && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-          <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-6 w-full max-w-sm mx-4">
-            <h2 className="text-base font-semibold text-zinc-100 mb-1">Set password</h2>
-            <p className="text-sm text-zinc-500 mb-4">
-              Set a new password for{" "}
-              <span className="text-zinc-300">{users.find((u) => u.id === pwUserId)?.email}</span>.
-            </p>
+        <Modal title="Set password" onClose={() => { setPwUserId(null); setPwValue(""); setPwError(null); }}>
+          <p className="text-sm text-muted mb-4">
+            Set a new password for{" "}
+            <span className="text-body">{users.find((u) => u.id === pwUserId)?.email}</span>.
+          </p>
 
-            {pwError && (
-              <p className="text-sm text-red-400 bg-red-950/30 border border-red-900/50 rounded px-3 py-2 mb-4">
-                {pwError}
-              </p>
-            )}
+          {pwError && <Banner tone="danger" className="mb-4">{pwError}</Banner>}
 
-            <form onSubmit={handleSetPassword} className="flex flex-col gap-3">
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-medium text-zinc-400">New password</label>
-                <input
-                  type="password"
-                  required
-                  minLength={8}
-                  value={pwValue}
-                  onChange={(e) => setPwValue(e.target.value)}
-                  autoFocus
-                  className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-amber-500 transition-colors"
-                />
-              </div>
-              <div className="flex gap-2 mt-1">
-                <button
-                  type="button"
-                  onClick={() => { setPwUserId(null); setPwValue(""); setPwError(null); }}
-                  className="flex-1 py-2 rounded border border-zinc-700 text-sm text-zinc-400 hover:text-zinc-200 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={pwSaving}
-                  className="flex-1 py-2 rounded bg-amber-500 hover:bg-amber-400 disabled:bg-amber-500/50 text-zinc-950 text-sm font-semibold transition-colors"
-                >
-                  {pwSaving ? "Saving…" : "Set password"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+          <form onSubmit={handleSetPassword} className="flex flex-col gap-3">
+            <Field label="New password" required>
+              <input
+                type="password"
+                required
+                minLength={8}
+                value={pwValue}
+                onChange={(e) => setPwValue(e.target.value)}
+                autoFocus
+                className="inp w-full"
+              />
+            </Field>
+            <ModalActions
+              submitting={pwSaving}
+              onCancel={() => { setPwUserId(null); setPwValue(""); setPwError(null); }}
+              label="Set password"
+            />
+          </form>
+        </Modal>
       )}
 
       {/* Create user modal */}
       {showCreate && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-          <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-6 w-full max-w-sm mx-4">
-            <h2 className="text-base font-semibold text-zinc-100 mb-4">Create user</h2>
+        <Modal title="Create user" onClose={() => { setShowCreate(false); setCreateError(null); }}>
+          {createError && <Banner tone="danger" className="mb-4">{createError}</Banner>}
 
-            {createError && (
-              <p className="text-sm text-red-400 bg-red-950/30 border border-red-900/50 rounded px-3 py-2 mb-4">
-                {createError}
-              </p>
-            )}
-
-            <form onSubmit={handleCreateUser} className="flex flex-col gap-3">
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-medium text-zinc-400">Email</label>
-                <input
-                  type="email"
-                  required
-                  value={createForm.email}
-                  onChange={(e) => setCreateForm((f) => ({ ...f, email: e.target.value }))}
-                  className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-amber-500 transition-colors"
-                />
-              </div>
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-medium text-zinc-400">Password</label>
-                <input
-                  type="password"
-                  required
-                  minLength={8}
-                  value={createForm.password}
-                  onChange={(e) => setCreateForm((f) => ({ ...f, password: e.target.value }))}
-                  className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-amber-500 transition-colors"
-                />
-              </div>
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-medium text-zinc-400">Role</label>
-                <select
-                  value={createForm.role}
-                  onChange={(e) => setCreateForm((f) => ({ ...f, role: e.target.value as UserRole }))}
-                  className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-amber-500 transition-colors"
-                >
-                  {ROLES.map((r) => (
-                    <option key={r} value={r}>{r}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="flex gap-2 mt-1">
-                <button
-                  type="button"
-                  onClick={() => { setShowCreate(false); setCreateError(null); }}
-                  className="flex-1 py-2 rounded border border-zinc-700 text-sm text-zinc-400 hover:text-zinc-200 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={creating}
-                  className="flex-1 py-2 rounded bg-amber-500 hover:bg-amber-400 disabled:bg-amber-500/50 text-zinc-950 text-sm font-semibold transition-colors"
-                >
-                  {creating ? "Creating…" : "Create"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+          <form onSubmit={handleCreateUser} className="flex flex-col gap-3">
+            <Field label="Email" required>
+              <input
+                type="email"
+                required
+                value={createForm.email}
+                onChange={(e) => setCreateForm((f) => ({ ...f, email: e.target.value }))}
+                className="inp w-full"
+              />
+            </Field>
+            <Field label="Password" required>
+              <input
+                type="password"
+                required
+                minLength={8}
+                value={createForm.password}
+                onChange={(e) => setCreateForm((f) => ({ ...f, password: e.target.value }))}
+                className="inp w-full"
+              />
+            </Field>
+            <Field label="Role" required>
+              <select
+                value={createForm.role}
+                onChange={(e) => setCreateForm((f) => ({ ...f, role: e.target.value as UserRole }))}
+                className="inp w-full"
+              >
+                {ROLES.map((r) => (
+                  <option key={r} value={r}>{r}</option>
+                ))}
+              </select>
+            </Field>
+            <ModalActions
+              submitting={creating}
+              onCancel={() => { setShowCreate(false); setCreateError(null); }}
+              label="Create"
+            />
+          </form>
+        </Modal>
       )}
     </div>
   );

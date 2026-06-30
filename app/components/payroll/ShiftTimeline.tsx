@@ -55,10 +55,10 @@ export function ShiftTimeline({ periodId }: { periodId: string }) {
     staleTime: 60_000,
   });
 
-  if (isLoading) return <p className="text-zinc-500 text-sm py-6">Loading shifts…</p>;
-  if (error) return <p className="text-red-400 text-sm py-6">{(error as Error).message}</p>;
+  if (isLoading) return <p className="text-muted text-sm py-6">Loading shifts…</p>;
+  if (error) return <p className="text-danger text-sm py-6">{(error as Error).message}</p>;
   if (!data || data.rows.length === 0) {
-    return <p className="text-zinc-600 text-sm py-6">No closed shifts found for this period.</p>;
+    return <p className="text-faint text-sm py-6">No closed shifts found for this period.</p>;
   }
 
   const { days, rows, tip_pool_frequency } = data;
@@ -78,22 +78,22 @@ export function ShiftTimeline({ periodId }: { periodId: string }) {
       <table className="text-xs border-collapse">
         <thead>
           <tr>
-            <th className="text-left py-2 pr-8 text-zinc-500 font-medium whitespace-nowrap">Employee</th>
+            <th className="text-left py-2 pr-8 text-muted font-medium whitespace-nowrap">Employee</th>
             {weeks.map((week, wi) => (
               <Fragment key={wi}>
                 {week.map(d => (
-                  <th key={d} className="px-1 py-2 text-zinc-500 font-normal text-center w-20">
+                  <th key={d} className="px-1 py-2 text-muted font-normal text-center w-20">
                     {dayLabel(d)}
                   </th>
                 ))}
                 {multiWeek && (
-                  <th className="pl-3 pr-2 py-2 text-zinc-400 font-medium text-right whitespace-nowrap border-l border-zinc-800">
+                  <th className="pl-3 pr-2 py-2 text-secondary font-medium text-right whitespace-nowrap border-l border-line">
                     Wk {wi + 1}
                   </th>
                 )}
               </Fragment>
             ))}
-            <th className={`py-2 text-zinc-500 font-medium text-right whitespace-nowrap ${multiWeek ? "pl-3 pr-0 border-l border-zinc-800" : "pl-5"}`}>
+            <th className={`py-2 text-muted font-medium text-right whitespace-nowrap ${multiWeek ? "pl-3 pr-0 border-l border-line" : "pl-5"}`}>
               Total
             </th>
           </tr>
@@ -104,7 +104,7 @@ export function ShiftTimeline({ periodId }: { periodId: string }) {
             const hasCash = row.daily_cash_tips_cents !== null;
             return (
               <tr key={row.employee_id} className={i > 0 ? "border-t border-transparent" : ""}>
-                <td className="pr-8 py-1 text-zinc-300 whitespace-nowrap font-medium align-middle">
+                <td className="pr-8 py-1 text-body whitespace-nowrap font-medium align-middle">
                   {row.name}
                 </td>
 
@@ -128,18 +128,18 @@ export function ShiftTimeline({ periodId }: { periodId: string }) {
                                   {h.toFixed(1)}h
                                 </span>
                                 {isTipped && (
-                                  <span className={`text-xs font-mono leading-none ${t && t > 0 ? "text-emerald-400" : "text-zinc-600"}`}>
+                                  <span className={`text-xs font-mono leading-none ${t && t > 0 ? "text-emerald-400" : "text-faint"}`}>
                                     {t && t > 0 ? fmtCents(t) : "—"}
                                   </span>
                                 )}
                                 {hasCash && (
-                                  <span className={`text-xs font-mono leading-none ${ct && ct > 0 ? "text-amber-300" : "text-zinc-700"}`}>
+                                  <span className={`text-xs font-mono leading-none ${ct && ct > 0 ? "text-amber-300" : "text-disabled"}`}>
                                     {ct && ct > 0 ? fmtCents(ct) : "—"}
                                   </span>
                                 )}
                               </div>
                             ) : (
-                              <div className={`w-20 ${cardH} rounded-lg bg-zinc-900/30`} />
+                              <div className={`w-20 ${cardH} rounded-lg bg-surface/30`} />
                             )}
                           </td>
                         );
@@ -147,25 +147,25 @@ export function ShiftTimeline({ periodId }: { periodId: string }) {
 
                       {/* Week subtotal column */}
                       {multiWeek && (
-                        <td className="pl-3 pr-2 py-1 align-top border-l border-zinc-800">
+                        <td className="pl-3 pr-2 py-1 align-top border-l border-line">
                           {wkHours > 0 ? (
-                            <div className={`w-20 ${cardH} rounded-lg px-3 py-2 flex flex-col justify-center gap-0.5 bg-zinc-800 border border-zinc-700`}>
-                              <span className="text-sm font-mono font-semibold leading-none text-zinc-200">
+                            <div className={`w-20 ${cardH} rounded-lg px-3 py-2 flex flex-col justify-center gap-0.5 bg-surface-mid border border-line-strong`}>
+                              <span className="text-sm font-mono font-semibold leading-none text-strong">
                                 {wkHours.toFixed(1)}h
                               </span>
                               {isTipped && (
-                                <span className={`text-xs font-mono leading-none ${wkTips && wkTips > 0 ? "text-emerald-400" : "text-zinc-600"}`}>
+                                <span className={`text-xs font-mono leading-none ${wkTips && wkTips > 0 ? "text-emerald-400" : "text-faint"}`}>
                                   {wkTips && wkTips > 0 ? fmtCents(wkTips) : "—"}
                                 </span>
                               )}
                               {hasCash && (
-                                <span className={`text-xs font-mono leading-none ${wkCashTips && wkCashTips > 0 ? "text-amber-300" : "text-zinc-700"}`}>
+                                <span className={`text-xs font-mono leading-none ${wkCashTips && wkCashTips > 0 ? "text-amber-300" : "text-disabled"}`}>
                                   {wkCashTips && wkCashTips > 0 ? fmtCents(wkCashTips) : "—"}
                                 </span>
                               )}
                             </div>
                           ) : (
-                            <div className={`w-20 ${cardH} rounded-lg bg-zinc-800/30 border border-zinc-800/50`} />
+                            <div className={`w-20 ${cardH} rounded-lg bg-surface-mid/30 border border-line/50`} />
                           )}
                         </td>
                       )}
@@ -174,9 +174,9 @@ export function ShiftTimeline({ periodId }: { periodId: string }) {
                 })}
 
                 {/* Period total */}
-                <td className={`py-1 align-middle text-right whitespace-nowrap ${multiWeek ? "pl-3 border-l border-zinc-800" : "pl-5"}`}>
+                <td className={`py-1 align-middle text-right whitespace-nowrap ${multiWeek ? "pl-3 border-l border-line" : "pl-5"}`}>
                   <div className="flex flex-col items-end gap-0.5">
-                    <span className="text-zinc-300 font-medium font-mono">{row.total_hours.toFixed(1)}h</span>
+                    <span className="text-body font-medium font-mono">{row.total_hours.toFixed(1)}h</span>
                     {isTipped && row.total_tips_cents != null && row.total_tips_cents > 0 && (
                       <span className="text-emerald-400 font-mono">{fmtCents(row.total_tips_cents)}</span>
                     )}
@@ -190,8 +190,8 @@ export function ShiftTimeline({ periodId }: { periodId: string }) {
           })}
         </tbody>
         <tfoot>
-          <tr className="border-t-2 border-zinc-700">
-            <td className="pr-8 py-2 text-zinc-500 font-medium text-xs whitespace-nowrap align-middle">Total</td>
+          <tr className="border-t-2 border-line-strong">
+            <td className="pr-8 py-2 text-muted font-medium text-xs whitespace-nowrap align-middle">Total</td>
             {weeks.map((week, wi) => {
               const wkTotalHours    = week.reduce((s, d) =>
                 s + rows.reduce((rs, r) => rs + (r.daily_hours[d] ?? 0), 0), 0);
@@ -212,7 +212,7 @@ export function ShiftTimeline({ periodId }: { periodId: string }) {
                       <td key={d} className="px-1 py-2 align-middle text-center">
                         {dayHours > 0 ? (
                           <div className="flex flex-col items-center gap-0.5">
-                            <span className="font-mono text-zinc-400">{dayHours.toFixed(1)}h</span>
+                            <span className="font-mono text-secondary">{dayHours.toFixed(1)}h</span>
                             {dayTips != null && dayTips > 0 && (
                               <span className="font-mono text-emerald-800 text-xs">{fmtCents(dayTips)}</span>
                             )}
@@ -221,15 +221,15 @@ export function ShiftTimeline({ periodId }: { periodId: string }) {
                             )}
                           </div>
                         ) : (
-                          <span className="text-zinc-800">—</span>
+                          <span className="text-disabled">—</span>
                         )}
                       </td>
                     );
                   })}
                   {multiWeek && (
-                    <td className="pl-3 pr-2 py-2 align-middle border-l border-zinc-800 text-right">
+                    <td className="pl-3 pr-2 py-2 align-middle border-l border-line text-right">
                       <div className="flex flex-col items-end gap-0.5">
-                        <span className="font-mono font-semibold text-zinc-300">{wkTotalHours.toFixed(1)}h</span>
+                        <span className="font-mono font-semibold text-body">{wkTotalHours.toFixed(1)}h</span>
                         {wkTotalTips != null && wkTotalTips > 0 && (
                           <span className="font-mono text-emerald-400 text-xs">{fmtCents(wkTotalTips)}</span>
                         )}
@@ -242,9 +242,9 @@ export function ShiftTimeline({ periodId }: { periodId: string }) {
                 </Fragment>
               );
             })}
-            <td className={`py-2 align-middle text-right whitespace-nowrap ${multiWeek ? "pl-3 border-l border-zinc-800" : "pl-5"}`}>
+            <td className={`py-2 align-middle text-right whitespace-nowrap ${multiWeek ? "pl-3 border-l border-line" : "pl-5"}`}>
               <div className="flex flex-col items-end gap-0.5">
-                <span className="font-mono font-semibold text-zinc-200">
+                <span className="font-mono font-semibold text-strong">
                   {rows.reduce((s, r) => s + r.total_hours, 0).toFixed(1)}h
                 </span>
                 {hasTippedRows && (() => {
@@ -265,7 +265,7 @@ export function ShiftTimeline({ periodId }: { periodId: string }) {
         </tfoot>
       </table>
 
-      <div className="flex items-center gap-4 mt-4 text-zinc-700 text-xs">
+      <div className="flex items-center gap-4 mt-4 text-disabled text-xs">
         <span>Hours per shift start date (local time)</span>
         {hasTippedRows && (
           <span className="text-emerald-900">Card tips from {FREQ_LABELS[tip_pool_frequency]} pool</span>

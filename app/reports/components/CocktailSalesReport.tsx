@@ -1,8 +1,10 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { formatCurrency } from "@/lib/format";
+import Banner from "@/app/components/ui/Banner";
 import ReportControls from "./ReportControls";
+import ReportTable, { tdCls, numCls, currency, THEAD_ROW, TBODY, TR, TFOOT_ROW } from "./ReportTable";
+import { COCKTAIL_TYPE_BADGE } from "./categoryStyles";
 import { useSort, SortTh } from "./SortControls";
 
 type RawRow = {
@@ -18,11 +20,6 @@ const GROUP_OPTIONS = [
   { value: "date", label: "Date" },
   { value: "item", label: "Item" },
 ];
-
-function currency(v: string | number) {
-  const n = typeof v === "string" ? parseFloat(v) : v;
-  return formatCurrency(n);
-}
 
 function groupRows(rows: RawRow[]): GroupedRow[] {
   const map = new Map<string, GroupedRow>();
@@ -56,8 +53,6 @@ function exportCSV(rows: RawRow[], groupBy: string) {
   const a = document.createElement("a"); a.href = url; a.download = "cocktail-sales.csv"; a.click();
   URL.revokeObjectURL(url);
 }
-
-const tdCls = "px-4 py-2";
 
 interface Props { start: string; end: string; onStartChange: (v: string) => void; onEndChange: (v: string) => void; }
 
@@ -107,22 +102,19 @@ export default function CocktailSalesReport({ start, end, onStartChange, onEndCh
         groupBy={groupBy} groupOptions={GROUP_OPTIONS} onGroupByChange={setGroupBy}
       />
 
-      {error && (
-        <div className="mt-4 p-3 bg-red-950 border border-red-700 rounded-md text-sm text-red-300">{error}</div>
-      )}
+      {error && <Banner className="mt-4">{error}</Banner>}
 
       {displayRows !== null && (
         <div className="mt-4">
-          <p className="text-sm text-zinc-400 mb-3">
+          <p className="text-sm text-secondary mb-3">
             {displayRows.length === 0
               ? "No cocktail sales found for this period."
               : `${displayRows.length} row${displayRows.length !== 1 ? "s" : ""}`}
           </p>
           {displayRows.length > 0 && (
-            <div className="overflow-x-auto rounded-lg border border-zinc-700">
-              <table className="min-w-full text-sm">
+            <ReportTable>
                 <thead>
-                  <tr className="border-b border-zinc-700 bg-zinc-800">
+                  <tr className={THEAD_ROW}>
                     {!isGrouped && (
                       <>
                         <SortTh label="Date" col="date" {...sp} />
@@ -138,44 +130,43 @@ export default function CocktailSalesReport({ start, end, onStartChange, onEndCh
                     <SortTh label="Tax"         col="tax"         {...sp} align="right" />
                   </tr>
                 </thead>
-                <tbody className="bg-zinc-900">
+                <tbody className={TBODY}>
                   {displayRows.map((row, i) => (
-                    <tr key={i} className="border-b border-zinc-800 hover:bg-zinc-800">
+                    <tr key={i} className={TR}>
                       {!isGrouped && "date" in row && (
                         <>
-                          <td className={`${tdCls} text-zinc-200 whitespace-nowrap`}>{(row as RawRow).date}</td>
-                          <td className={`${tdCls} text-zinc-400 whitespace-nowrap`}>{(row as RawRow).time}</td>
+                          <td className={`${tdCls} text-strong whitespace-nowrap`}>{(row as RawRow).date}</td>
+                          <td className={`${tdCls} text-secondary whitespace-nowrap`}>{(row as RawRow).time}</td>
                         </>
                       )}
-                      <td className={`${tdCls} font-medium text-zinc-100`}>{row.item}</td>
+                      <td className={`${tdCls} font-medium text-primary`}>{row.item}</td>
                       {!isGrouped && "is_combo" in row && (
                         <td className={tdCls}>
                           {(row as RawRow).is_combo
-                            ? <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-900 text-purple-200">Combo</span>
-                            : <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-900 text-blue-200">Single</span>}
+                            ? <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${COCKTAIL_TYPE_BADGE.combo}`}>Combo</span>
+                            : <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${COCKTAIL_TYPE_BADGE.single}`}>Single</span>}
                         </td>
                       )}
-                      <td className={`${tdCls} text-right text-zinc-200`}>{row.qty}</td>
-                      <td className={`${tdCls} text-right text-zinc-200`}>{currency(row.gross_sales)}</td>
-                      <td className={`${tdCls} text-right text-zinc-400`}>{currency(row.discounts)}</td>
-                      <td className={`${tdCls} text-right font-medium text-zinc-100`}>{currency(row.net_sales)}</td>
-                      <td className={`${tdCls} text-right text-zinc-400`}>{currency(row.tax)}</td>
+                      <td className={`${numCls} text-strong`}>{row.qty}</td>
+                      <td className={`${numCls} text-strong`}>{currency(row.gross_sales)}</td>
+                      <td className={`${numCls} text-secondary`}>{currency(row.discounts)}</td>
+                      <td className={`${numCls} font-medium text-primary`}>{currency(row.net_sales)}</td>
+                      <td className={`${numCls} text-secondary`}>{currency(row.tax)}</td>
                     </tr>
                   ))}
                 </tbody>
                 <tfoot>
-                  <tr className="border-t-2 border-zinc-600 bg-zinc-800 font-semibold">
+                  <tr className={TFOOT_ROW}>
                     {!isGrouped && <td className={tdCls} colSpan={3} />}
-                    <td className={`${tdCls} text-zinc-200`}>Totals</td>
-                    <td className={`${tdCls} text-right text-zinc-200`}>{totals!.qty}</td>
-                    <td className={`${tdCls} text-right text-zinc-200`}>{currency(totals!.gross)}</td>
-                    <td className={`${tdCls} text-right text-zinc-400`}>{currency(totals!.disc)}</td>
-                    <td className={`${tdCls} text-right text-zinc-100`}>{currency(totals!.net)}</td>
-                    <td className={`${tdCls} text-right text-zinc-400`}>{currency(totals!.tax)}</td>
+                    <td className={`${tdCls} text-strong`}>Totals</td>
+                    <td className={`${numCls} text-strong`}>{totals!.qty}</td>
+                    <td className={`${numCls} text-strong`}>{currency(totals!.gross)}</td>
+                    <td className={`${numCls} text-secondary`}>{currency(totals!.disc)}</td>
+                    <td className={`${numCls} text-primary`}>{currency(totals!.net)}</td>
+                    <td className={`${numCls} text-secondary`}>{currency(totals!.tax)}</td>
                   </tr>
                 </tfoot>
-              </table>
-            </div>
+            </ReportTable>
           )}
         </div>
       )}

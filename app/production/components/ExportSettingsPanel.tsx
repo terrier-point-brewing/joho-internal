@@ -43,25 +43,25 @@ function ExciseTaxRateRow({
   }
 
   return (
-    <tr className="border-b border-zinc-800 last:border-0">
+    <tr className="border-b border-line last:border-0">
       <td className="px-4 py-2.5">
         <input value={name} onChange={(e) => setName(e.target.value)} onBlur={commitName}
-          className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 w-32" />
+          className="bg-surface-mid border border-line-strong rounded px-2 py-1 text-xs text-strong w-32" />
       </td>
       <td className="px-4 py-2.5">
         <input value={party} onChange={(e) => setParty(e.target.value)} onBlur={commitParty} placeholder="—"
-          className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 w-32" />
+          className="bg-surface-mid border border-line-strong rounded px-2 py-1 text-xs text-strong w-32" />
       </td>
       <td className="px-4 py-2.5">
         <select value={unit} onChange={(e) => { const v = e.target.value as "bbl" | "gallon"; setUnit(v); update({ unit: v }); }}
-          className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200">
+          className="bg-surface-mid border border-line-strong rounded px-2 py-1 text-xs text-strong">
           <option value="bbl">bbl</option>
           <option value="gallon">gallon</option>
         </select>
       </td>
       <td className="px-4 py-2.5 text-right">
         <input type="number" step="0.01" value={rateUsd} onChange={(e) => setRateUsd(e.target.value)} onBlur={commitRate}
-          className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 w-24 text-right" />
+          className="bg-surface-mid border border-line-strong rounded px-2 py-1 text-xs text-strong w-24 text-right" />
       </td>
       <td className="px-4 py-2.5">
         <SquareCatalogSelect
@@ -79,8 +79,8 @@ function ExciseTaxRateRow({
           disabled={saving}
           className={`text-xs px-2 py-1 rounded border transition-colors ${
             rate.is_active
-              ? "bg-emerald-900/40 border-emerald-700 text-emerald-300 hover:bg-emerald-900/60"
-              : "bg-zinc-900 border-zinc-700 text-zinc-500 hover:text-zinc-300"
+              ? "bg-success-surface/40 border-success-border text-success hover:bg-success-surface/60"
+              : "bg-surface border-line-strong text-muted hover:text-body"
           }`}
         >
           {rate.is_active ? "Active" : "Inactive"}
@@ -135,44 +135,44 @@ function ExciseTaxRatesSection() {
   return (
     <section>
       <div className="flex items-center justify-between mb-2">
-        <h3 className="text-sm font-medium text-zinc-200">Excise Tax Rates</h3>
+        <h3 className="text-sm font-medium text-strong">Excise Tax Rates</h3>
         <button
           onClick={() => setCreating((c) => !c)}
-          className="text-xs px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded transition-colors"
+          className="text-xs px-2.5 py-1 bg-accent-emphasis hover:bg-accent-emphasis text-primary rounded transition-colors"
         >
           {creating ? "Cancel" : "+ Add rate"}
         </button>
       </div>
 
       {creating && (
-        <div className="flex items-end gap-2 mb-3 p-3 bg-zinc-900/60 border border-zinc-800 rounded">
+        <div className="flex items-end gap-2 mb-3 p-3 bg-surface/60 border border-line rounded">
           <input value={draftName} onChange={(e) => setDraftName(e.target.value)} placeholder="Name"
-            className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 w-40" />
+            className="bg-surface-mid border border-line-strong rounded px-2 py-1 text-xs text-strong w-40" />
           <input value={draftParty} onChange={(e) => setDraftParty(e.target.value)} placeholder="Receiving party"
-            className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 w-40" />
+            className="bg-surface-mid border border-line-strong rounded px-2 py-1 text-xs text-strong w-40" />
           <select value={draftUnit} onChange={(e) => setDraftUnit(e.target.value as "bbl" | "gallon")}
-            className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200">
+            className="bg-surface-mid border border-line-strong rounded px-2 py-1 text-xs text-strong">
             <option value="bbl">bbl</option>
             <option value="gallon">gallon</option>
           </select>
           <input value={draftRate} onChange={(e) => setDraftRate(e.target.value)} placeholder="Rate (USD)" type="number" step="0.01"
-            className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 w-28" />
-          <button onClick={create} className="text-xs px-2.5 py-1 bg-zinc-700 hover:bg-zinc-600 text-zinc-200 rounded transition-colors">
+            className="bg-surface-mid border border-line-strong rounded px-2 py-1 text-xs text-strong w-28" />
+          <button onClick={create} className="text-xs px-2.5 py-1 bg-surface-high hover:bg-surface-high text-strong rounded transition-colors">
             Save
           </button>
         </div>
       )}
 
-      <div className="overflow-x-auto rounded-lg border border-zinc-800">
+      <div className="overflow-x-auto rounded-lg border border-line">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-zinc-800 bg-zinc-900/50 text-left">
-              <th className="px-4 py-2.5 text-xs font-medium text-zinc-500">Name</th>
-              <th className="px-4 py-2.5 text-xs font-medium text-zinc-500">Receiving Party</th>
-              <th className="px-4 py-2.5 text-xs font-medium text-zinc-500">Unit</th>
-              <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 text-right">Rate</th>
-              <th className="px-4 py-2.5 text-xs font-medium text-zinc-500">Square Mapping</th>
-              <th className="px-4 py-2.5 text-xs font-medium text-zinc-500">Status</th>
+            <tr className="border-b border-line bg-surface/50 text-left">
+              <th className="px-4 py-2.5 text-xs font-medium text-muted">Name</th>
+              <th className="px-4 py-2.5 text-xs font-medium text-muted">Receiving Party</th>
+              <th className="px-4 py-2.5 text-xs font-medium text-muted">Unit</th>
+              <th className="px-4 py-2.5 text-xs font-medium text-muted text-right">Rate</th>
+              <th className="px-4 py-2.5 text-xs font-medium text-muted">Square Mapping</th>
+              <th className="px-4 py-2.5 text-xs font-medium text-muted">Status</th>
             </tr>
           </thead>
           <tbody>
@@ -238,7 +238,7 @@ export function PartnerOverridePicker({ partners, excludeIds, onAdd }: {
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} className="text-xs text-amber-500 hover:text-amber-400 transition-colors">
+      <button onClick={() => setOpen(true)} className="text-xs text-accent-emphasis hover:text-accent transition-colors">
         + Add partner override
       </button>
     );
@@ -247,18 +247,18 @@ export function PartnerOverridePicker({ partners, excludeIds, onAdd }: {
   return (
     <div className="flex items-center gap-2">
       <select value={partnerId} onChange={(e) => setPartnerId(e.target.value)}
-        className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200">
+        className="bg-surface-mid border border-line-strong rounded px-2 py-1 text-xs text-strong">
         <option value="">— select partner —</option>
         {available.map((p) => <option key={p.id} value={p.id}>{p.company_name}</option>)}
       </select>
       <button
         onClick={() => { if (partnerId) { onAdd(partnerId); setOpen(false); setPartnerId(""); } }}
         disabled={!partnerId}
-        className="text-xs px-2 py-1 bg-zinc-700 hover:bg-zinc-600 text-zinc-200 rounded transition-colors disabled:opacity-40"
+        className="text-xs px-2 py-1 bg-surface-high hover:bg-surface-high text-strong rounded transition-colors disabled:opacity-40"
       >
         Add
       </button>
-      <button onClick={() => { setOpen(false); setPartnerId(""); }} className="text-xs text-zinc-500 hover:text-zinc-300">
+      <button onClick={() => { setOpen(false); setPartnerId(""); }} className="text-xs text-muted hover:text-body">
         Cancel
       </button>
     </div>
@@ -274,9 +274,9 @@ function SaveIndicator({ status }: { status: SaveStatus }) {
     : status.state === "saved" ? "Saved"
     : `⚠ ${status.message ?? "Save failed"}`;
   const color =
-    status.state === "error" ? "text-red-400"
-    : status.state === "saved" ? "text-emerald-400"
-    : "text-zinc-500";
+    status.state === "error" ? "text-danger"
+    : status.state === "saved" ? "text-success"
+    : "text-muted";
   return <span aria-live="polite" className={`text-xs shrink-0 ${color}`}>{text}</span>;
 }
 
@@ -395,17 +395,17 @@ function ServiceMappingDrawer({
   return (
     <>
       <div className="fixed inset-0 z-30 bg-black/40" onClick={onClose} aria-hidden="true" />
-      <div className="fixed inset-y-0 right-0 z-40 w-[400px] bg-zinc-950 border-l border-zinc-800 shadow-2xl flex flex-col">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800">
+      <div className="fixed inset-y-0 right-0 z-40 w-[400px] bg-canvas border-l border-line shadow-2xl flex flex-col">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-line">
           <div>
-            <p className="text-xs text-zinc-500 uppercase tracking-wide">Export Settings</p>
-            <p className="text-sm font-semibold text-zinc-100 mt-0.5">
+            <p className="text-xs text-muted uppercase tracking-wide">Export Settings</p>
+            <p className="text-sm font-semibold text-primary mt-0.5">
               {rowLabel} · {partnerName}
             </p>
           </div>
           <button
             onClick={onClose}
-            className="text-zinc-500 hover:text-zinc-200 transition-colors text-lg leading-none"
+            className="text-muted hover:text-strong transition-colors text-lg leading-none"
             aria-label="Close drawer"
           >
             ×
@@ -413,8 +413,8 @@ function ServiceMappingDrawer({
         </div>
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
           {currentLabel && (
-            <div className="rounded-lg border border-emerald-800/40 bg-emerald-950/20 px-3 py-2">
-              <span className="text-xs text-emerald-300">✓ {currentLabel}</span>
+            <div className="rounded-lg border border-success-border/40 bg-success-surface/20 px-3 py-2">
+              <span className="text-xs text-success">✓ {currentLabel}</span>
             </div>
           )}
           <div className="space-y-2">
@@ -447,7 +447,7 @@ function ServiceMappingDrawer({
               </button>
             )}
           </div>
-          {error && <p className="text-xs text-red-400">{error}</p>}
+          {error && <p className="text-xs text-danger">{error}</p>}
         </div>
       </div>
     </>
@@ -593,8 +593,8 @@ function ServiceMappingGrid() {
 
   return (
     <section>
-      <h3 className="text-sm font-medium text-zinc-200 mb-3">Service Mappings &amp; Discounts</h3>
-      <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-300px)] rounded-lg border border-zinc-800">
+      <h3 className="text-sm font-medium text-strong mb-3">Service Mappings &amp; Discounts</h3>
+      <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-300px)] rounded-lg border border-line">
         <table
           className="text-xs border-collapse"
           style={{ tableLayout: "fixed", width: "max-content", minWidth: "100%" }}
@@ -604,14 +604,14 @@ function ServiceMappingGrid() {
             {columns.map((_, i) => <col key={i} style={{ width: 200 }} />)}
           </colgroup>
           <thead>
-            <tr className="border-b border-zinc-800">
-              <th className="sticky left-0 top-0 z-30 bg-zinc-900 px-4 py-2.5 text-left font-semibold text-zinc-400 whitespace-nowrap">
+            <tr className="border-b border-line">
+              <th className="sticky left-0 top-0 z-30 bg-surface px-4 py-2.5 text-left font-semibold text-secondary whitespace-nowrap">
                 Service
               </th>
               {columns.map((col) => (
                 <th
                   key={col.partnerId ?? "default"}
-                  className="sticky top-0 z-20 bg-zinc-900 px-3 py-2.5 text-left font-medium text-zinc-400 whitespace-nowrap"
+                  className="sticky top-0 z-20 bg-surface px-3 py-2.5 text-left font-medium text-secondary whitespace-nowrap"
                 >
                   {col.label}
                 </th>
@@ -624,14 +624,14 @@ function ServiceMappingGrid() {
                 <tr key={entry.key}>
                   <td
                     colSpan={columns.length + 1}
-                    className="px-4 py-1 text-[10px] font-semibold uppercase tracking-widest text-zinc-600 bg-zinc-900/40 border-b border-zinc-800/40"
+                    className="px-4 py-1 text-[10px] font-semibold uppercase tracking-widest text-faint bg-surface/40 border-b border-line/40"
                   >
                     {entry.label}
                   </td>
                 </tr>
               ) : (
-                <tr key={entry.key} className="border-b border-zinc-800/40 hover:bg-zinc-900/20 transition-colors">
-                  <td className="sticky left-0 z-10 bg-zinc-950 px-4 py-2.5 font-medium text-zinc-200 whitespace-nowrap border-r border-zinc-800/40">
+                <tr key={entry.key} className="border-b border-line/40 hover:bg-surface/20 transition-colors">
+                  <td className="sticky left-0 z-10 bg-canvas px-4 py-2.5 font-medium text-strong whitespace-nowrap border-r border-line/40">
                     {entry.rowLabel}
                   </td>
                   {columns.map((col) => {
@@ -644,13 +644,13 @@ function ServiceMappingGrid() {
                       >
                         {cell.label ? (
                           <span
-                            className="inline-block px-1.5 py-0.5 rounded text-[10px] bg-emerald-900/30 border border-emerald-700/50 text-emerald-300 break-words leading-4 max-w-[170px] truncate"
+                            className="inline-block px-1.5 py-0.5 rounded text-[10px] bg-success-surface/30 border border-success-border/50 text-success break-words leading-4 max-w-[170px] truncate"
                             title={cell.label}
                           >
                             ✓ {cell.label}
                           </span>
                         ) : (
-                          <span className="inline-block px-1.5 py-0.5 rounded text-[10px] border border-red-900/40 text-red-700 bg-red-950/10 leading-4">
+                          <span className="inline-block px-1.5 py-0.5 rounded text-[10px] border border-danger-border/40 text-danger bg-danger-surface/10 leading-4">
                             —
                           </span>
                         )}
@@ -704,8 +704,8 @@ function InvoiceTermsSection() {
 
   return (
     <section>
-      <h3 className="text-sm font-medium text-zinc-200 mb-2">Default Invoice Net Terms</h3>
-      <p className="text-xs text-zinc-600 mb-2">
+      <h3 className="text-sm font-medium text-strong mb-2">Default Invoice Net Terms</h3>
+      <p className="text-xs text-faint mb-2">
         Days until payment is due on a generated export invoice, used when a partner has no override set.
       </p>
       <div className="flex items-center gap-2">
@@ -715,11 +715,11 @@ function InvoiceTermsSection() {
           max={365}
           value={draft !== "" ? draft : days}
           onChange={(e) => setDraft(e.target.value)}
-          className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 w-20"
+          className="bg-surface-mid border border-line-strong rounded px-2 py-1 text-xs text-strong w-20"
         />
-        <span className="text-xs text-zinc-500">days</span>
+        <span className="text-xs text-muted">days</span>
         <button onClick={save} disabled={saving}
-          className="text-xs px-2.5 py-1 bg-zinc-700 hover:bg-zinc-600 text-zinc-200 rounded transition-colors">
+          className="text-xs px-2.5 py-1 bg-surface-high hover:bg-surface-high text-strong rounded transition-colors">
           {saving ? "Saving…" : "Save"}
         </button>
       </div>

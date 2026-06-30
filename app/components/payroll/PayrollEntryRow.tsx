@@ -17,8 +17,7 @@ interface Props {
 const fmt = fmtCents;
 const fmtHrs = (h: number) => `${h.toFixed(2)}h`;
 
-const overrideInputCls =
-  "w-20 bg-zinc-800 border border-zinc-600 rounded px-1.5 py-0.5 text-xs text-zinc-200 text-right mt-0.5";
+const overrideInputCls = "inp-sm w-20 text-right mt-0.5";
 
 interface ValueCellProps {
   effectiveVal: string;
@@ -38,7 +37,7 @@ function ValueCell({
   if (editable && overrideMode) {
     return (
       <div className="flex flex-col items-end">
-        <span className="text-zinc-500 text-xs">{effectiveVal}</span>
+        <span className="text-muted text-xs">{effectiveVal}</span>
         <input
           type="number"
           step={step}
@@ -54,12 +53,12 @@ function ValueCell({
   if (adjIsSet) {
     return (
       <div className="flex flex-col items-end">
-        <span className="text-amber-300">{effectiveVal}</span>
-        <span className="text-zinc-600 text-xs line-through">{computedVal}</span>
+        <span className="text-accent-soft">{effectiveVal}</span>
+        <span className="text-faint text-xs line-through">{computedVal}</span>
       </div>
     );
   }
-  return <span className="text-zinc-300">{effectiveVal}</span>;
+  return <span className="text-body">{effectiveVal}</span>;
 }
 
 export function PayrollEntryRow({ entry, employee, periodId, editable, overrideMode }: Props) {
@@ -110,11 +109,11 @@ export function PayrollEntryRow({ entry, employee, periodId, editable, overrideM
   const vcProps = { editable, overrideMode };
 
   return (
-    <tr className={`border-b border-zinc-800 ${entry.effective_hours === 0 ? "opacity-40" : ""}`}>
-      <td className="py-2 px-3 text-zinc-200 text-sm">
+    <tr className={`border-b border-line ${entry.effective_hours === 0 ? "opacity-40" : ""}`}>
+      <td className="py-2 px-3 text-strong text-sm">
         {name}
         {hasAnyOverride && !overrideMode && (
-          <span className="ml-1.5 text-amber-500 text-xs" title="Has manual overrides">✦</span>
+          <span className="ml-1.5 text-accent-emphasis text-xs" title="Has manual overrides">✦</span>
         )}
       </td>
       <td className="py-2 px-3 text-sm text-right">
@@ -128,7 +127,7 @@ export function PayrollEntryRow({ entry, employee, periodId, editable, overrideM
           step="0.25"
         />
       </td>
-      <td className="py-2 px-3 text-zinc-300 text-sm text-right">
+      <td className="py-2 px-3 text-body text-sm text-right">
         {fmt(entry.base_pay_cents)}
       </td>
       <td className="py-2 px-3 text-sm text-right">
@@ -161,10 +160,10 @@ export function PayrollEntryRow({ entry, employee, periodId, editable, overrideM
           setAdj={setAdjBonus}
         />
       </td>
-      <td className="py-2 px-3 text-amber-400 text-sm text-right font-medium">
+      <td className="py-2 px-3 text-accent text-sm text-right font-medium">
         {fmt(entry.effective_total_compensation_cents)}
       </td>
-      <td className="py-2 px-3 text-zinc-400 text-sm text-right">
+      <td className="py-2 px-3 text-secondary text-sm text-right">
         {entry.effective_hours > 0
           ? `${fmtUsd(entry.effective_total_compensation_cents / entry.effective_hours / 100)}/hr`
           : "—"}
@@ -177,12 +176,12 @@ export function PayrollEntryRow({ entry, employee, periodId, editable, overrideM
               value={adjNotes}
               onChange={e => setAdjNotes(e.target.value)}
               placeholder="Notes…"
-              className="flex-1 bg-zinc-800 border border-zinc-700 rounded px-2 py-0.5 text-zinc-300 text-xs"
+              className="inp-sm flex-1"
             />
             <button
               onClick={save}
               disabled={saving}
-              className="text-xs text-zinc-400 hover:text-zinc-200 disabled:opacity-40 px-2 whitespace-nowrap"
+              className="text-xs text-secondary hover:text-strong disabled:opacity-40 px-2 whitespace-nowrap"
             >
               {saving ? "…" : "Save"}
             </button>

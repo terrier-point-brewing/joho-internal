@@ -5,12 +5,17 @@ import FinanceNav from "../FinanceNav";
 import PageHeader from "@/app/components/PageHeader";
 import Banner from "@/app/components/ui/Banner";
 import SalesTable, { type SalesRow } from "./SalesTable";
+import UnrecognizedBanner, { type UnrecognizedSummary, type ExciseCoverage } from "./UnrecognizedBanner";
 
 /**
  * Shared shell for the four finance sales tabs (taproom / events / contract-brewing /
  * distribution). They are byte-identical except for their ROWS and the data source, so the
  * full-height scroll layout, year picker, refresh button, error banner, and table card live
  * here once. Presentation only — callers own all data fetching.
+ *
+ * The channel tabs that carry invoice-derived revenue (contract-brewing / distribution) also
+ * pass `unrecognized`/`exciseCoverage`; the banner self-hides when both are empty, so the
+ * taproom/events tabs can omit them.
  */
 export default function SalesPageShell({
   rows,
@@ -22,6 +27,8 @@ export default function SalesPageShell({
   years,
   onYearChange,
   onRefresh,
+  unrecognized,
+  exciseCoverage,
 }: {
   rows: SalesRow[];
   months: string[];
@@ -32,6 +39,8 @@ export default function SalesPageShell({
   years: number[];
   onYearChange: (year: number) => void;
   onRefresh: () => void;
+  unrecognized?: UnrecognizedSummary;
+  exciseCoverage?: ExciseCoverage;
 }) {
   return (
     <div className="flex flex-col h-full bg-canvas text-primary">
@@ -58,6 +67,8 @@ export default function SalesPageShell({
           {error instanceof Error ? error.message : "Failed to load"}
         </Banner>
       )}
+
+      <UnrecognizedBanner data={unrecognized} excise={exciseCoverage} />
 
       <div className="flex-1 overflow-auto px-4 sm:px-6 pb-6 pt-4">
         <div className="bg-surface border border-line rounded-lg overflow-hidden">

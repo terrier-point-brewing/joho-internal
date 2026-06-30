@@ -3,6 +3,7 @@
 import { useState, useEffect, Suspense } from "react";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
+import Banner from "@/app/components/ui/Banner";
 
 function SetPasswordForm() {
   const router = useRouter();
@@ -94,11 +95,11 @@ function SetPasswordForm() {
 
   if (error) {
     return (
-      <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-6 flex flex-col gap-4 text-center">
-        <p className="text-sm text-red-400">{error}</p>
+      <div className="bg-surface border border-line rounded-lg p-6 flex flex-col gap-4 text-center">
+        <p className="text-sm text-danger">{error}</p>
         <button
           onClick={() => router.push("/login")}
-          className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+          className="text-xs text-muted hover:text-body transition-colors"
         >
           Back to sign in
         </button>
@@ -108,54 +109,46 @@ function SetPasswordForm() {
 
   if (!ready) {
     return (
-      <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-6 text-center">
-        <p className="text-sm text-zinc-500">Verifying your link…</p>
+      <div className="bg-surface border border-line rounded-lg p-6 text-center">
+        <p className="text-sm text-muted">Verifying your link…</p>
       </div>
     );
   }
 
   return (
-    <form onSubmit={handleSubmit} className="bg-zinc-900 border border-zinc-800 rounded-lg p-6 flex flex-col gap-4">
-      <h1 className="text-base font-semibold text-zinc-100">Set your password</h1>
-      <p className="text-xs text-zinc-500">Choose a password to complete your account setup.</p>
+    <form onSubmit={handleSubmit} className="bg-surface border border-line rounded-lg p-6 flex flex-col gap-4">
+      <h1 className="text-base font-semibold text-primary">Set your password</h1>
+      <p className="text-xs text-muted">Choose a password to complete your account setup.</p>
 
-      {error && (
-        <p className="text-sm text-red-400 bg-red-950/30 border border-red-900/50 rounded px-3 py-2">
-          {error}
-        </p>
-      )}
+      {error && <Banner tone="danger">{error}</Banner>}
 
       <div className="flex flex-col gap-1.5">
-        <label className="text-xs font-medium text-zinc-400">New password</label>
+        <label className="text-xs font-medium text-secondary">New password</label>
         <input
           type="password"
           required
           minLength={8}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-amber-500 transition-colors"
+          className="inp"
           placeholder="At least 8 characters"
         />
       </div>
 
       <div className="flex flex-col gap-1.5">
-        <label className="text-xs font-medium text-zinc-400">Confirm password</label>
+        <label className="text-xs font-medium text-secondary">Confirm password</label>
         <input
           type="password"
           required
           minLength={8}
           value={confirm}
           onChange={(e) => setConfirm(e.target.value)}
-          className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-amber-500 transition-colors"
+          className="inp"
           placeholder="Re-enter password"
         />
       </div>
 
-      <button
-        type="submit"
-        disabled={submitting}
-        className="mt-1 w-full bg-amber-500 hover:bg-amber-400 disabled:bg-amber-500/50 text-zinc-950 font-semibold text-sm rounded py-2 transition-colors"
-      >
+      <button type="submit" disabled={submitting} className="btn-amber mt-1 w-full">
         {submitting ? "Saving…" : "Set password"}
       </button>
     </form>
@@ -164,13 +157,13 @@ function SetPasswordForm() {
 
 export default function SetPasswordPage() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-zinc-950">
+    <div className="min-h-screen flex items-center justify-center bg-canvas">
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
-          <span className="text-2xl font-bold text-zinc-100 tracking-wide">TPB</span>
-          <p className="mt-1 text-sm text-zinc-500">Terrier Point Brewing</p>
+          <span className="text-2xl font-bold text-primary tracking-wide">TPB</span>
+          <p className="mt-1 text-sm text-muted">Terrier Point Brewing</p>
         </div>
-        <Suspense fallback={<p className="text-sm text-zinc-500 text-center">Loading…</p>}>
+        <Suspense fallback={<p className="text-sm text-muted text-center">Loading…</p>}>
           <SetPasswordForm />
         </Suspense>
       </div>

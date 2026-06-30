@@ -57,8 +57,8 @@ export default function MappingGrid({
   const { data, isLoading, error } = useSquareMappingGridQuery();
   const qc = useQueryClient();
 
-  if (isLoading) return <div className="text-sm text-zinc-500 py-8 text-center">Loading grid…</div>;
-  if (error) return <div className="text-sm text-red-400 py-8 text-center">{(error as Error).message}</div>;
+  if (isLoading) return <div className="text-sm text-muted py-8 text-center">Loading grid…</div>;
+  if (error) return <div className="text-sm text-danger py-8 text-center">{(error as Error).message}</div>;
   if (!data) return null;
 
   const { columns, rows } = data;
@@ -122,20 +122,20 @@ export default function MappingGrid({
   return (
     <div>
       {totalHigh > 0 && (
-        <div className="mb-3 flex items-center justify-between rounded-lg border border-blue-800/40 bg-blue-950/20 px-4 py-2.5">
-          <span className="text-sm text-blue-300">
+        <div className="mb-3 flex items-center justify-between rounded-lg border border-info-border/40 bg-info-surface/20 px-4 py-2.5">
+          <span className="text-sm text-info">
             {totalHigh} high-confidence suggestion{totalHigh !== 1 ? "s" : ""} ready to accept
           </span>
           <button
             onClick={fillAll}
-            className="text-xs px-3 py-1.5 rounded bg-blue-700 hover:bg-blue-600 text-white transition-colors"
+            className="text-xs px-3 py-1.5 rounded bg-info-emphasis hover:bg-info-emphasis text-primary transition-colors"
           >
             Fill all suggested
           </button>
         </div>
       )}
 
-      <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-140px)] rounded-lg border border-zinc-800">
+      <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-140px)] rounded-lg border border-line">
         <table className="text-xs border-collapse" style={{ tableLayout: "fixed", width: "max-content", minWidth: "100%" }}>
           <colgroup>
             <col style={{ width: 200 }} />
@@ -144,8 +144,8 @@ export default function MappingGrid({
             ))}
           </colgroup>
           <thead>
-            <tr className="border-b border-zinc-800">
-              <th className="sticky left-0 top-0 z-30 bg-zinc-900 px-4 py-2.5 text-left font-semibold text-zinc-400 whitespace-nowrap">
+            <tr className="border-b border-line">
+              <th className="sticky left-0 top-0 z-30 bg-surface px-4 py-2.5 text-left font-semibold text-secondary whitespace-nowrap">
                 Recipe
               </th>
               {columns.map((col) => {
@@ -153,14 +153,14 @@ export default function MappingGrid({
                 return (
                   <th
                     key={col.key}
-                    className={`sticky top-0 z-20 bg-zinc-900 px-3 py-2.5 text-left font-medium text-zinc-400 whitespace-nowrap ${colMinWidth(col)}`}
+                    className={`sticky top-0 z-20 bg-surface px-3 py-2.5 text-left font-medium text-secondary whitespace-nowrap ${colMinWidth(col)}`}
                   >
                     <div className="flex flex-col gap-1">
                       <span>{col.label}</span>
                       {n > 0 && (
                         <button
                           onClick={() => fillColumn(col)}
-                          className="text-[10px] px-1.5 py-0.5 rounded bg-blue-900/40 border border-blue-800/50 text-blue-400 hover:bg-blue-800/40 transition-colors w-fit"
+                          className="text-[10px] px-1.5 py-0.5 rounded bg-info-surface/40 border border-info-border/50 text-info hover:bg-info-surface/40 transition-colors w-fit"
                         >
                           Fill {n}
                         </button>
@@ -178,7 +178,7 @@ export default function MappingGrid({
                 <tr key={`group-${row.recipePartnerName ?? "house"}`}>
                   <td
                     colSpan={columns.length + 1}
-                    className="px-4 py-1 text-[10px] font-semibold uppercase tracking-widest text-zinc-600 bg-zinc-900/40 border-b border-zinc-800/40"
+                    className="px-4 py-1 text-[10px] font-semibold uppercase tracking-widest text-faint bg-surface/40 border-b border-line/40"
                   >
                     {row.recipePartnerName ?? "House"}
                   </td>
@@ -187,8 +187,8 @@ export default function MappingGrid({
 
               return [
                 header,
-                <tr key={row.recipeId} className="border-b border-zinc-800/40 hover:bg-zinc-900/20 transition-colors">
-                  <td className="sticky left-0 z-10 bg-zinc-950 px-4 py-2.5 font-medium text-zinc-200 whitespace-nowrap border-r border-zinc-800/40 overflow-hidden text-ellipsis">
+                <tr key={row.recipeId} className="border-b border-line/40 hover:bg-surface/20 transition-colors">
+                  <td className="sticky left-0 z-10 bg-canvas px-4 py-2.5 font-medium text-strong whitespace-nowrap border-r border-line/40 overflow-hidden text-ellipsis">
                     {row.recipeName}
                   </td>
                   {columns.map((col) => {
@@ -197,7 +197,7 @@ export default function MappingGrid({
                     // Recipe has no packaging variation for this column — structural empty
                     if (cell === null) {
                       return (
-                        <td key={col.key} className="px-3 py-2.5 text-center text-zinc-800">
+                        <td key={col.key} className="px-3 py-2.5 text-center text-disabled">
                           —
                         </td>
                       );
@@ -223,11 +223,11 @@ export default function MappingGrid({
                               return (
                                 <span
                                   key={v.variationId}
-                                  className="inline-block px-1.5 py-0.5 rounded text-[10px] bg-emerald-900/30 border border-emerald-700/50 text-emerald-300 break-words leading-4"
+                                  className="inline-block px-1.5 py-0.5 rounded text-[10px] bg-success-surface/30 border border-success-border/50 text-success break-words leading-4"
                                   title={squareName}
                                 >
                                   {label && (
-                                    <span className="text-emerald-600 mr-0.5">{label}:</span>
+                                    <span className="text-success mr-0.5">{label}:</span>
                                   )}
                                   ✓ {squareName}
                                 </span>
@@ -237,10 +237,10 @@ export default function MappingGrid({
                             if (isHighConf || isMedConf) {
                               const squareName = v.suggestion!.squareName;
                               const chipColor = isHighConf
-                                ? "border-blue-700/50 text-blue-300"
-                                : "border-amber-700/40 text-amber-400";
-                              const labelColor = isHighConf ? "text-blue-500" : "text-amber-500";
-                              const sparkColor = isHighConf ? "text-blue-500" : "text-amber-500";
+                                ? "border-info-border/50 text-info"
+                                : "border-accent-border/40 text-accent";
+                              const labelColor = isHighConf ? "text-info" : "text-accent-emphasis";
+                              const sparkColor = isHighConf ? "text-info" : "text-accent-emphasis";
                               return (
                                 <span
                                   key={v.variationId}
@@ -259,7 +259,7 @@ export default function MappingGrid({
                                   <button
                                     data-accept-chip
                                     type="button"
-                                    className="shrink-0 inline-flex items-center justify-center w-4 h-4 rounded-sm bg-emerald-900/50 border border-emerald-700/60 text-emerald-400 hover:bg-emerald-800/70 transition-colors self-start mt-0.5 text-[9px] leading-none"
+                                    className="shrink-0 inline-flex items-center justify-center w-4 h-4 rounded-sm bg-success-surface/50 border border-success-border/60 text-success hover:bg-success-surface/70 transition-colors self-start mt-0.5 text-[9px] leading-none"
                                     onClick={(e) => acceptOne(row, col, v, e)}
                                     title="Accept this suggestion"
                                   >
@@ -273,7 +273,7 @@ export default function MappingGrid({
                             return (
                               <span
                                 key={v.variationId}
-                                className="inline-block px-1.5 py-0.5 rounded text-[10px] border border-red-900/40 text-red-700 bg-red-950/10 break-words leading-4"
+                                className="inline-block px-1.5 py-0.5 rounded text-[10px] border border-danger-border/40 text-danger bg-danger-surface/10 break-words leading-4"
                               >
                                 {label ? `${label}: —` : "—"}
                               </span>

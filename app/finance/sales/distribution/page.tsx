@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import SalesPageShell from "../SalesPageShell";
 import { type SalesRow } from "../SalesTable";
+import { type UnrecognizedSummary, type ExciseCoverage } from "../UnrecognizedBanner";
 import { fetchJson } from "@/app/production/hooks/queries";
 
 const ROWS: SalesRow[] = [
@@ -46,6 +47,9 @@ interface InvoiceSalesData {
   months: string[];
   contractBrewing: Record<string, Record<string, number>>;
   distribution:    Record<string, Record<string, number>>;
+  wholesale:       Record<string, Record<string, number>>;
+  unrecognized:    UnrecognizedSummary;
+  exciseCoverage:  ExciseCoverage;
 }
 
 export default function DistributionSalesPage() {
@@ -72,6 +76,8 @@ export default function DistributionSalesPage() {
       years={years}
       onYearChange={setYear}
       onRefresh={() => refetch()}
+      unrecognized={data?.unrecognized}
+      exciseCoverage={data?.exciseCoverage}
     />
   );
 }

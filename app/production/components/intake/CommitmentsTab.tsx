@@ -15,18 +15,19 @@ import { fetchJson, useRecipePackagingVariationsQuery } from "../../hooks/querie
 import { useSort, SortTh } from "@/app/reports/components/SortControls";
 import { DepositInvoiceModal } from "../DepositInvoiceModal";
 import type { DepositCalculation } from "@/lib/square/square-invoices";
+import { CATEGORY_BADGE_CLASS as CC } from "../../lib/categoryColors";
 
 const STATUS_META: Record<ContractRequestStatus, { label: string; cls: string }> = {
-  open:        { label: "Open",        cls: "bg-amber-900/50 text-amber-400 border-amber-800" },
-  in_progress: { label: "In Progress", cls: "bg-blue-900/50 text-blue-400 border-blue-800" },
-  fulfilled:   { label: "Fulfilled",   cls: "bg-green-900/50 text-green-400 border-green-800" },
-  cancelled:   { label: "Cancelled",   cls: "bg-red-900/40 text-red-400 border-red-800" },
+  open:        { label: "Open",        cls: "bg-accent-muted/50 text-accent border-accent-border" },
+  in_progress: { label: "In Progress", cls: "bg-info-surface/50 text-info border-info-border" },
+  fulfilled:   { label: "Fulfilled",   cls: "bg-success-surface/50 text-success border-success-border" },
+  cancelled:   { label: "Cancelled",   cls: "bg-danger-surface/40 text-danger border-danger-border" },
 };
 
 const CHANNEL_META: Record<CommitmentChannel, { label: string; cls: string }> = {
-  distribution:     { label: "Distribution",     cls: "bg-blue-900/40 text-blue-300 border-blue-800" },
-  contract_brewing: { label: "Contract Brewing", cls: "bg-purple-900/40 text-purple-300 border-purple-800" },
-  wholesale:        { label: "Wholesale",        cls: "bg-amber-900/40 text-amber-300 border-amber-800" },
+  distribution:     { label: "Distribution",     cls: "bg-info-surface/40 text-info border-info-border" },
+  contract_brewing: { label: "Contract Brewing", cls: CC.purple },
+  wholesale:        { label: "Wholesale",        cls: "bg-accent-muted/40 text-accent-soft border-accent-border" },
 };
 
 function StatusBadge({ status }: { status: ContractRequestStatus }) {
@@ -44,15 +45,15 @@ function InvoiceStatusBadge({ a }: { a: CommitmentAllocationSummary }) {
     ? <span className="ml-1 font-mono opacity-70">#{a.deposit_invoice_number}</span>
     : null;
   if (a.invoice_paid_at) {
-    return <span className="inline-flex items-center gap-1 text-[10px] text-green-400 bg-green-900/30 border border-green-800/40 rounded px-1.5 py-0.5">✓ Deposit paid{numSuffix}</span>;
+    return <span className="inline-flex items-center gap-1 text-[10px] text-success bg-success-surface/30 border border-success-border/40 rounded px-1.5 py-0.5">✓ Deposit paid{numSuffix}</span>;
   }
   if (a.invoice_sent_at) {
-    return <span className="inline-flex items-center gap-1 text-[10px] text-amber-400 bg-amber-900/30 border border-amber-800/40 rounded px-1.5 py-0.5">● Invoice sent{numSuffix}</span>;
+    return <span className="inline-flex items-center gap-1 text-[10px] text-accent bg-accent-muted/30 border border-accent-border/40 rounded px-1.5 py-0.5">● Invoice sent{numSuffix}</span>;
   }
   if (a.invoice_generated_at) {
-    return <span className="inline-flex items-center gap-1 text-[10px] text-zinc-400 bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5">Draft ready{numSuffix}</span>;
+    return <span className="inline-flex items-center gap-1 text-[10px] text-secondary bg-surface-mid border border-line-strong rounded px-1.5 py-0.5">Draft ready{numSuffix}</span>;
   }
-  return <span className="inline-flex items-center gap-1 text-[10px] text-zinc-600 bg-zinc-900 border border-zinc-800 rounded px-1.5 py-0.5">Invoice pending</span>;
+  return <span className="inline-flex items-center gap-1 text-[10px] text-faint bg-surface border border-line rounded px-1.5 py-0.5">Invoice pending</span>;
 }
 
 // ─── Invoicing controls for a commitment's linked contract_brewing allocation(s) ──
@@ -68,21 +69,21 @@ function InvoicingCell({
   onSync: (id: string) => void;
   onDelete: (id: string, sent: boolean) => void;
 }) {
-  if (commitment.channel !== "contract_brewing") return <span className="text-zinc-600 text-xs">— (Deposit invoices are only used for Contract Brewing)</span>;
+  if (commitment.channel !== "contract_brewing") return <span className="text-faint text-xs">— (Deposit invoices are only used for Contract Brewing)</span>;
   const allocs = commitment.batch_allocations ?? [];
-  if (allocs.length === 0) return <span className="text-zinc-600 text-xs">No batch yet</span>;
+  if (allocs.length === 0) return <span className="text-faint text-xs">No batch yet</span>;
 
   return (
     <div className="space-y-1.5">
       {allocs.map((a) => (
         <div key={a.id} className="flex items-center gap-1.5 flex-wrap">
-          {a.brew_batches && <span className="text-[10px] text-zinc-500 whitespace-nowrap">#{a.brew_batches.batch_number}</span>}
+          {a.brew_batches && <span className="text-[10px] text-muted whitespace-nowrap">#{a.brew_batches.batch_number}</span>}
           <InvoiceStatusBadge a={a} />
           {/* View in Square — available whenever an invoice exists, paid or not */}
           {a.square_deposit_invoice_id && (
             <button type="button" onClick={() => onViewInSquare(a.id)}
               disabled={actionLoading === a.id}
-              className="text-[10px] text-zinc-500 hover:text-zinc-300 border border-zinc-700 rounded px-1.5 py-0.5 transition-colors disabled:opacity-40 whitespace-nowrap">
+              className="text-[10px] text-muted hover:text-body border border-line-strong rounded px-1.5 py-0.5 transition-colors disabled:opacity-40 whitespace-nowrap">
               View in Square ↗
             </button>
           )}
@@ -93,18 +94,18 @@ function InvoicingCell({
                 <button type="button"
                   onClick={() => onPreview({ ...a, commitments: { volume_bbl: commitment.volume_bbl } })}
                   disabled={actionLoading === a.id}
-                  className="text-[10px] text-amber-500 hover:text-amber-400 border border-amber-800/50 hover:border-amber-600 rounded px-1.5 py-0.5 transition-colors disabled:opacity-40 whitespace-nowrap">
+                  className="text-[10px] text-accent-emphasis hover:text-accent border border-accent-border/50 hover:border-accent-border rounded px-1.5 py-0.5 transition-colors disabled:opacity-40 whitespace-nowrap">
                   Generate Invoice
                 </button>
               )}
               {a.invoice_generated_at && !a.invoice_sent_at && (
                 <>
                   <button type="button" onClick={() => onSend(a.id)} disabled={actionLoading === a.id}
-                    className="text-[10px] text-amber-500 hover:text-amber-400 border border-amber-800/50 hover:border-amber-600 rounded px-1.5 py-0.5 transition-colors disabled:opacity-40 whitespace-nowrap">
+                    className="text-[10px] text-accent-emphasis hover:text-accent border border-accent-border/50 hover:border-accent-border rounded px-1.5 py-0.5 transition-colors disabled:opacity-40 whitespace-nowrap">
                     {actionLoading === a.id ? "Sending…" : "Send Invoice"}
                   </button>
                   <button type="button" onClick={() => onDelete(a.id, false)} disabled={actionLoading === a.id}
-                    className="text-[10px] text-red-700 hover:text-red-500 border border-red-900/50 hover:border-red-700 rounded px-1.5 py-0.5 transition-colors disabled:opacity-40 whitespace-nowrap">
+                    className="text-[10px] text-danger hover:text-danger border border-danger-border/50 hover:border-danger-border rounded px-1.5 py-0.5 transition-colors disabled:opacity-40 whitespace-nowrap">
                     Delete
                   </button>
                 </>
@@ -112,11 +113,11 @@ function InvoicingCell({
               {a.invoice_sent_at && (
                 <>
                   <button type="button" onClick={() => onSync(a.id)} disabled={actionLoading === a.id}
-                    className="text-[10px] text-zinc-500 hover:text-zinc-300 border border-zinc-700 rounded px-1.5 py-0.5 transition-colors disabled:opacity-40 whitespace-nowrap">
+                    className="text-[10px] text-muted hover:text-body border border-line-strong rounded px-1.5 py-0.5 transition-colors disabled:opacity-40 whitespace-nowrap">
                     {actionLoading === a.id ? "Syncing…" : "Sync Status"}
                   </button>
                   <button type="button" onClick={() => onDelete(a.id, true)} disabled={actionLoading === a.id}
-                    className="text-[10px] text-red-700 hover:text-red-500 border border-red-900/50 hover:border-red-700 rounded px-1.5 py-0.5 transition-colors disabled:opacity-40 whitespace-nowrap">
+                    className="text-[10px] text-danger hover:text-danger border border-danger-border/50 hover:border-danger-border rounded px-1.5 py-0.5 transition-colors disabled:opacity-40 whitespace-nowrap">
                     Delete
                   </button>
                 </>
@@ -283,7 +284,7 @@ function CommitmentModal({
           <div className="grid grid-cols-3 gap-2">
             {(["contract_brewing", "distribution", "wholesale"] as CommitmentChannel[]).map((c) => (
               <button key={c} type="button" onClick={() => set("channel", c)}
-                className={`px-3 py-2 rounded border text-sm transition-colors ${form.channel === c ? "border-amber-600 bg-amber-900/30 text-amber-300" : "border-zinc-700 bg-zinc-800/50 text-zinc-400 hover:border-zinc-500"}`}>
+                className={`px-3 py-2 rounded border text-sm transition-colors ${form.channel === c ? "border-accent-border bg-accent-muted/30 text-accent-soft" : "border-line-strong bg-surface-mid/50 text-secondary hover:border-line-subtle"}`}>
                 {CHANNEL_META[c].label}
               </button>
             ))}
@@ -316,7 +317,7 @@ function CommitmentModal({
               <div className="grid grid-cols-2 gap-2">
                 {(["one_time", "recurring"] as const).map((c) => (
                   <button key={c} type="button" onClick={() => set("cadence", c)}
-                    className={`px-3 py-2 rounded border text-sm transition-colors ${form.cadence === c ? "border-amber-600 bg-amber-900/30 text-amber-300" : "border-zinc-700 bg-zinc-800/50 text-zinc-400 hover:border-zinc-500"}`}>
+                    className={`px-3 py-2 rounded border text-sm transition-colors ${form.cadence === c ? "border-accent-border bg-accent-muted/30 text-accent-soft" : "border-line-strong bg-surface-mid/50 text-secondary hover:border-line-subtle"}`}>
                     {c === "one_time" ? "One-time" : "Recurring"}
                   </button>
                 ))}
@@ -356,11 +357,11 @@ function CommitmentModal({
         )}
 
         {/* Packaging preferences — multiple rows allowed */}
-        <div className="rounded border border-zinc-800 px-3 py-3 space-y-3">
+        <div className="rounded border border-line px-3 py-3 space-y-3">
           <div className="flex items-center justify-between">
-            <p className="text-xs font-medium text-zinc-400">Packaging Preferences</p>
+            <p className="text-xs font-medium text-secondary">Packaging Preferences</p>
             {totalPackagingBbl > 0 && (
-              <p className="text-xs text-zinc-500">Total: <span className="text-zinc-300 tabular-nums">{totalPackagingBbl.toFixed(2)} BBL</span></p>
+              <p className="text-xs text-muted">Total: <span className="text-body tabular-nums">{totalPackagingBbl.toFixed(2)} BBL</span></p>
             )}
           </div>
           <div className="space-y-2">
@@ -383,14 +384,14 @@ function CommitmentModal({
                   </select>
                   <input type="number" step="1" min="0" className="inp" placeholder="# of containers"
                     value={row.qty} onChange={(e) => setPackagingRow(i, { qty: e.target.value })} />
-                  <span className="text-xs text-zinc-500 tabular-nums text-right">{bbl != null ? `${bbl.toFixed(2)} BBL` : ""}</span>
+                  <span className="text-xs text-muted tabular-nums text-right">{bbl != null ? `${bbl.toFixed(2)} BBL` : ""}</span>
                   <button type="button" onClick={() => removePackagingRow(i)} disabled={form.packaging.length === 1}
-                    className="text-zinc-600 hover:text-red-400 disabled:opacity-30 text-sm leading-none">✕</button>
+                    className="text-faint hover:text-danger disabled:opacity-30 text-sm leading-none">✕</button>
                 </div>
               );
             })}
           </div>
-          <button type="button" onClick={addPackagingRow} className="text-xs text-amber-500 hover:text-amber-400 transition-colors">
+          <button type="button" onClick={addPackagingRow} className="text-xs text-accent-emphasis hover:text-accent transition-colors">
             + Add another preference
           </button>
         </div>
@@ -590,7 +591,7 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
         {prefs.map((p) => (
           <div key={p.id}>{p.qty} × {p.packaging_variations?.name ?? "—"}</div>
         ))}
-        {total > 0 && <div className="text-zinc-600">{total.toFixed(2)} BBL total</div>}
+        {total > 0 && <div className="text-faint">{total.toFixed(2)} BBL total</div>}
       </div>
     );
   }
@@ -633,15 +634,15 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
 
   return (
     <div>
-      <p className="text-sm text-zinc-500 mb-3">Distribution allocations and contract brewing requests. All are outflows from cold storage.</p>
+      <p className="text-sm text-muted mb-3">Distribution allocations and contract brewing requests. All are outflows from cold storage.</p>
       <div className="flex items-center gap-2 mb-4">
         {(["all", "distribution", "contract_brewing", "wholesale"] as const).map((f) => (
           <button key={f} onClick={() => setChannelFilter(f)}
-            className={`px-2.5 py-1 rounded text-xs font-medium transition-colors border shrink-0 ${channelFilter === f ? "border-amber-600 bg-amber-900/30 text-amber-300" : "border-zinc-700 text-zinc-500 hover:text-zinc-300"}`}>
+            className={`px-2.5 py-1 rounded text-xs font-medium transition-colors border shrink-0 ${channelFilter === f ? "border-accent-border bg-accent-muted/30 text-accent-soft" : "border-line-strong text-muted hover:text-body"}`}>
             {f === "all" ? "All" : CHANNEL_META[f].label}
           </button>
         ))}
-        <div className="w-px h-4 bg-zinc-700 shrink-0" />
+        <div className="w-px h-4 bg-surface-high shrink-0" />
         <select
           className="inp text-sm py-1.5 px-2"
           value={filterStyle}
@@ -661,49 +662,49 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
         {(filterStyle || filterPartner) && (
           <button
             onClick={() => { setFilterStyle(""); setFilterPartner(""); }}
-            className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors shrink-0"
+            className="text-xs text-muted hover:text-body transition-colors shrink-0"
           >
             Clear
           </button>
         )}
-        <button onClick={() => setShowModal(true)} className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white text-sm font-medium rounded transition-colors ml-auto shrink-0">+ New</button>
+        <button onClick={() => setShowModal(true)} className="px-3 py-1.5 bg-accent-emphasis hover:bg-accent-emphasis text-primary text-sm font-medium rounded transition-colors ml-auto shrink-0">+ New</button>
       </div>
 
       {displayRows.length === 0 ? (
-        <p className="text-zinc-600 text-sm py-10 text-center">No commitments recorded yet.</p>
+        <p className="text-faint text-sm py-10 text-center">No commitments recorded yet.</p>
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-zinc-800">
+        <div className="overflow-x-auto rounded-lg border border-line">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-zinc-800 bg-zinc-900/50 text-left">
-                <SortTh label="Channel" col="channel" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-zinc-500 !py-2.5 whitespace-nowrap" />
-                <SortTh label="Status" col="status" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-zinc-500 !py-2.5" />
-                <SortTh label="Style" col="beer_style" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-zinc-500 !py-2.5" />
-                <SortTh label="Partner" col="partner_name" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-zinc-500 !py-2.5" />
-                <SortTh label="Volume (BBL)" col="volume_bbl" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-zinc-500 !py-2.5 whitespace-nowrap" />
-                <SortTh label="Packaging" col="packaging_total_bbl" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-zinc-500 !py-2.5" />
-                <SortTh label="Delivery" col="schedule_sort" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-zinc-500 !py-2.5" />
-                <SortTh label="Received" col="received_on" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-zinc-500 !py-2.5" />
-                <SortTh label="Locked" col="locked_on" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-zinc-500 !py-2.5" />
-                <SortTh label="Edited" col="last_edited_on" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-zinc-500 !py-2.5" />
-                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 whitespace-nowrap">Invoicing</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500">Notes</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500" />
+              <tr className="border-b border-line bg-surface/50 text-left">
+                <SortTh label="Channel" col="channel" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-muted !py-2.5 whitespace-nowrap" />
+                <SortTh label="Status" col="status" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-muted !py-2.5" />
+                <SortTh label="Style" col="beer_style" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-muted !py-2.5" />
+                <SortTh label="Partner" col="partner_name" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-muted !py-2.5" />
+                <SortTh label="Volume (BBL)" col="volume_bbl" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-muted !py-2.5 whitespace-nowrap" />
+                <SortTh label="Packaging" col="packaging_total_bbl" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-muted !py-2.5" />
+                <SortTh label="Delivery" col="schedule_sort" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-muted !py-2.5" />
+                <SortTh label="Received" col="received_on" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-muted !py-2.5" />
+                <SortTh label="Locked" col="locked_on" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-muted !py-2.5" />
+                <SortTh label="Edited" col="last_edited_on" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-muted !py-2.5" />
+                <th className="px-4 py-2.5 text-xs font-medium text-muted whitespace-nowrap">Invoicing</th>
+                <th className="px-4 py-2.5 text-xs font-medium text-muted">Notes</th>
+                <th className="px-4 py-2.5 text-xs font-medium text-muted" />
               </tr>
             </thead>
             <tbody>
               {displayRows.map((q, i) => (
-                <tr key={q.id} className={`border-b border-zinc-800/60 ${i % 2 !== 0 ? "bg-zinc-900/30" : ""}`}>
+                <tr key={q.id} className={`border-b border-line/60 ${i % 2 !== 0 ? "bg-surface/30" : ""}`}>
                   <td className="px-4 py-2.5 whitespace-nowrap"><ChannelBadge channel={q.channel} /></td>
                   <td className="px-4 py-2.5"><StatusBadge status={q.status} /></td>
-                  <td className="px-4 py-2.5 text-zinc-100 font-medium">{q.beer_style}</td>
-                  <td className="px-4 py-2.5 text-zinc-300">{q.contract_brewing_partners?.company_name ?? "—"}</td>
-                  <td className="px-4 py-2.5 text-zinc-300 tabular-nums">{Number(q.volume_bbl)}</td>
-                  <td className="px-4 py-2.5 text-zinc-400 text-xs">{pkgLabel(q)}</td>
-                  <td className="px-4 py-2.5 text-zinc-400 text-xs whitespace-nowrap">{scheduleLabel(q)}</td>
-                  <td className="px-4 py-2.5 text-zinc-500 text-xs whitespace-nowrap">{q.received_on ? fmtDateLong(q.received_on) : "—"}</td>
-                  <td className="px-4 py-2.5 text-zinc-500 text-xs whitespace-nowrap">{q.locked_on ? fmtDateLong(q.locked_on) : "—"}</td>
-                  <td className="px-4 py-2.5 text-zinc-500 text-xs whitespace-nowrap">{q.last_edited_on ? fmtDateLong(q.last_edited_on.slice(0, 10)) : "—"}</td>
+                  <td className="px-4 py-2.5 text-primary font-medium">{q.beer_style}</td>
+                  <td className="px-4 py-2.5 text-body">{q.contract_brewing_partners?.company_name ?? "—"}</td>
+                  <td className="px-4 py-2.5 text-body tabular-nums">{Number(q.volume_bbl)}</td>
+                  <td className="px-4 py-2.5 text-secondary text-xs">{pkgLabel(q)}</td>
+                  <td className="px-4 py-2.5 text-secondary text-xs whitespace-nowrap">{scheduleLabel(q)}</td>
+                  <td className="px-4 py-2.5 text-muted text-xs whitespace-nowrap">{q.received_on ? fmtDateLong(q.received_on) : "—"}</td>
+                  <td className="px-4 py-2.5 text-muted text-xs whitespace-nowrap">{q.locked_on ? fmtDateLong(q.locked_on) : "—"}</td>
+                  <td className="px-4 py-2.5 text-muted text-xs whitespace-nowrap">{q.last_edited_on ? fmtDateLong(q.last_edited_on.slice(0, 10)) : "—"}</td>
                   <td className="px-4 py-2.5 min-w-[180px]">
                     <InvoicingCell
                       commitment={q}
@@ -715,13 +716,13 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
                       onDelete={handleDeleteInvoice}
                     />
                   </td>
-                  <td className="px-4 py-2.5 text-zinc-500 text-xs">
+                  <td className="px-4 py-2.5 text-muted text-xs">
                     <div className="max-w-[160px] truncate" title={q.notes ?? undefined}>{q.notes ?? "—"}</div>
                   </td>
                   <td className="px-4 py-2.5">
                     <div className="flex items-center gap-3 whitespace-nowrap">
-                      <button onClick={() => setEditing(q)} className="text-xs text-zinc-400 hover:text-zinc-200">Edit</button>
-                      <button onClick={() => handleDelete(q.id)} className="text-xs text-red-400/80 hover:text-red-400">Delete</button>
+                      <button onClick={() => setEditing(q)} className="text-xs text-secondary hover:text-strong">Edit</button>
+                      <button onClick={() => handleDelete(q.id)} className="text-xs text-danger/80 hover:text-danger">Delete</button>
                     </div>
                   </td>
                 </tr>

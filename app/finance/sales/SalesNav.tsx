@@ -6,6 +6,7 @@ const TABS = [
   { href: "/finance/sales/events",           label: "Events"           },
   { href: "/finance/sales/contract-brewing", label: "Contract Brewing" },
   { href: "/finance/sales/distribution",     label: "Distribution"     },
+  { href: "/finance/sales/wholesale",        label: "Wholesale"        },
 ];
 
 export default function SalesNav() {

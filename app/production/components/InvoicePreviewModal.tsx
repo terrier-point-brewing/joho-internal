@@ -98,17 +98,17 @@ export default function InvoicePreviewModal({
   return (
     <Modal title={title} onClose={onClose} extraWide>
       {isLoading ? (
-        <p className="text-sm text-zinc-500">Loading line items…</p>
+        <p className="text-sm text-muted">Loading line items…</p>
       ) : previewError ? (
-        <p className="text-sm text-red-400">{previewError instanceof Error ? previewError.message : "Failed to load preview"}</p>
+        <p className="text-sm text-danger">{previewError instanceof Error ? previewError.message : "Failed to load preview"}</p>
       ) : (
         <div className="space-y-4">
           {/* ── Mode toggle ─────────────────────────────────────────────────── */}
-          <div className="flex gap-1 p-0.5 bg-zinc-800 rounded-lg w-fit">
+          <div className="flex gap-1 p-0.5 bg-surface-mid rounded-lg w-fit">
             <button
               onClick={() => setInvoiceMode("square")}
               className={`px-3 py-1 text-xs rounded-md transition-colors ${
-                invoiceMode === "square" ? "bg-zinc-600 text-zinc-100" : "text-zinc-400 hover:text-zinc-200"
+                invoiceMode === "square" ? "bg-surface-high text-primary" : "text-secondary hover:text-strong"
               }`}
             >
               Via Square
@@ -116,7 +116,7 @@ export default function InvoicePreviewModal({
             <button
               onClick={() => setInvoiceMode("manual")}
               className={`px-3 py-1 text-xs rounded-md transition-colors ${
-                invoiceMode === "manual" ? "bg-zinc-600 text-zinc-100" : "text-zinc-400 hover:text-zinc-200"
+                invoiceMode === "manual" ? "bg-surface-high text-primary" : "text-secondary hover:text-strong"
               }`}
             >
               Manual
@@ -125,75 +125,75 @@ export default function InvoicePreviewModal({
 
           {/* ── Manual-only fields ──────────────────────────────────────────── */}
           {invoiceMode === "manual" && (
-            <div className="rounded-lg bg-zinc-900 border border-zinc-800 p-3 grid grid-cols-3 gap-3">
+            <div className="rounded-lg bg-surface border border-line p-3 grid grid-cols-3 gap-3">
               <div className="space-y-1">
-                <label className="text-xs text-zinc-400">Source</label>
+                <label className="text-xs text-secondary">Source</label>
                 <select
                   value={manualSource}
                   onChange={(e) => setManualSource(e.target.value as "quickbooks" | "other")}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-sm text-zinc-200"
+                  className="w-full bg-surface-mid border border-line-strong rounded px-2 py-1.5 text-sm text-strong"
                 >
                   <option value="quickbooks">QuickBooks</option>
                   <option value="other">Other</option>
                 </select>
               </div>
               <div className="space-y-1">
-                <label className="text-xs text-zinc-400">
-                  {manualSource === "quickbooks" ? <>QB Invoice # <span className="text-red-400">*</span></> : "Reference # (optional)"}
+                <label className="text-xs text-secondary">
+                  {manualSource === "quickbooks" ? <>QB Invoice # <span className="text-danger">*</span></> : "Reference # (optional)"}
                 </label>
                 <input
                   type="text"
                   value={manualRef}
                   onChange={(e) => setManualRef(e.target.value)}
                   placeholder={manualSource === "quickbooks" ? "e.g. INV-1042" : "e.g. PO-5678"}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-sm text-zinc-200 placeholder:text-zinc-600"
+                  className="w-full bg-surface-mid border border-line-strong rounded px-2 py-1.5 text-sm text-strong placeholder:text-faint"
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-xs text-zinc-400">Invoice date</label>
+                <label className="text-xs text-secondary">Invoice date</label>
                 <input
                   type="date"
                   value={manualDate}
                   onChange={(e) => setManualDate(e.target.value)}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-sm text-zinc-200"
+                  className="w-full bg-surface-mid border border-line-strong rounded px-2 py-1.5 text-sm text-strong"
                 />
               </div>
             </div>
           )}
 
           {/* ── Line items ──────────────────────────────────────────────────── */}
-          <div className="overflow-x-auto rounded-lg border border-zinc-800">
+          <div className="overflow-x-auto rounded-lg border border-line">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-zinc-800 bg-zinc-900/50 text-left">
-                  <th className="px-3 py-2 text-xs font-medium text-zinc-500">Description</th>
-                  <th className="px-3 py-2 text-xs font-medium text-zinc-500 text-right">Qty</th>
-                  <th className="px-3 py-2 text-xs font-medium text-zinc-500 text-right">Unit Price</th>
-                  <th className="px-3 py-2 text-xs font-medium text-zinc-500 text-right">Total</th>
+                <tr className="border-b border-line bg-surface/50 text-left">
+                  <th className="px-3 py-2 text-xs font-medium text-muted">Description</th>
+                  <th className="px-3 py-2 text-xs font-medium text-muted text-right">Qty</th>
+                  <th className="px-3 py-2 text-xs font-medium text-muted text-right">Unit Price</th>
+                  <th className="px-3 py-2 text-xs font-medium text-muted text-right">Total</th>
                   <th className="px-3 py-2" />
                 </tr>
               </thead>
               <tbody>
                 {effectiveLineItems.map((li) => (
-                  <tr key={li.id} className="border-b border-zinc-800 last:border-0">
+                  <tr key={li.id} className="border-b border-line last:border-0">
                     <td className="px-3 py-2">
-                      <input className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 w-64"
+                      <input className="bg-surface-mid border border-line-strong rounded px-2 py-1 text-xs text-strong w-64"
                         value={li.description} onChange={(e) => updateLine(li.id, { description: e.target.value })} />
                     </td>
                     <td className="px-3 py-2 text-right">
-                      <input type="number" min={0} step="1" className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 w-16 text-right"
+                      <input type="number" min={0} step="1" className="bg-surface-mid border border-line-strong rounded px-2 py-1 text-xs text-strong w-16 text-right"
                         value={li.quantity} onChange={(e) => updateLine(li.id, { quantity: Number(e.target.value) })} />
                     </td>
                     <td className="px-3 py-2 text-right">
-                      <input type="number" min={0} step="0.01" className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 w-24 text-right"
+                      <input type="number" min={0} step="0.01" className="bg-surface-mid border border-line-strong rounded px-2 py-1 text-xs text-strong w-24 text-right"
                         value={(li.unitPriceCents / 100).toFixed(2)}
                         onChange={(e) => updateLine(li.id, { unitPriceCents: Math.round(Number(e.target.value) * 100) })} />
                     </td>
-                    <td className="px-3 py-2 text-right text-zinc-300 tabular-nums">
+                    <td className="px-3 py-2 text-right text-body tabular-nums">
                       {fmtUsd((li.quantity * li.unitPriceCents) / 100)}
                     </td>
                     <td className="px-3 py-2">
-                      <button onClick={() => removeLine(li.id)} className="text-xs text-zinc-600 hover:text-red-400">×</button>
+                      <button onClick={() => removeLine(li.id)} className="text-xs text-faint hover:text-danger">×</button>
                     </td>
                   </tr>
                 ))}
@@ -201,29 +201,29 @@ export default function InvoicePreviewModal({
             </table>
           </div>
 
-          <button onClick={addLine} className="text-xs px-2.5 py-1 border border-zinc-700 hover:border-zinc-500 text-zinc-300 rounded transition-colors">
+          <button onClick={addLine} className="text-xs px-2.5 py-1 border border-line-strong hover:border-line-subtle text-body rounded transition-colors">
             + Add line item
           </button>
 
-          <div className="flex items-center justify-between pt-2 border-t border-zinc-800">
-            <span className="text-sm text-zinc-400">Total</span>
-            <span className="text-sm font-medium text-zinc-100 tabular-nums">{fmtUsd(totalCents / 100)}</span>
+          <div className="flex items-center justify-between pt-2 border-t border-line">
+            <span className="text-sm text-secondary">Total</span>
+            <span className="text-sm font-medium text-primary tabular-nums">{fmtUsd(totalCents / 100)}</span>
           </div>
 
           {invoiceMode === "manual" && (
-            <p className="text-xs text-zinc-500">
-              Manual invoices are recorded as <span className="text-zinc-300">Unpaid</span> — use &ldquo;Mark Paid&rdquo; once payment is received.
+            <p className="text-xs text-muted">
+              Manual invoices are recorded as <span className="text-body">Unpaid</span> — use &ldquo;Mark Paid&rdquo; once payment is received.
             </p>
           )}
 
-          {createError && <p className="text-xs text-red-400">{createError}</p>}
+          {createError && <p className="text-xs text-danger">{createError}</p>}
 
           <div className="flex justify-end gap-2 pt-1">
-            <button onClick={onClose} className="text-sm text-zinc-400 hover:text-zinc-200" disabled={creating}>Cancel</button>
+            <button onClick={onClose} className="text-sm text-secondary hover:text-strong" disabled={creating}>Cancel</button>
             <button
               onClick={handleCreate}
               disabled={creating || effectiveLineItems.length === 0 || (invoiceMode === "manual" && !manualValid)}
-              className="text-sm px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded transition-colors disabled:opacity-40"
+              className="text-sm px-3 py-1.5 bg-accent-emphasis hover:bg-accent-emphasis text-primary rounded transition-colors disabled:opacity-40"
             >
               {creating
                 ? (invoiceMode === "square" ? "Generating…" : "Recording…")

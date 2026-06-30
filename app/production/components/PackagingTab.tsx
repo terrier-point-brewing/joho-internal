@@ -8,6 +8,7 @@ import { Modal, Field, ModalActions } from "./shared";
 import { usePackagingQuery, useContractPartnersQuery, useSuppliersQuery, productionKeys } from "../hooks/queries";
 import { useUserRole } from "@/lib/hooks/useUserRole";
 import { fmtUsd } from "@/lib/utils/formatting";
+import { CATEGORY_BADGE_CLASS as CC } from "../lib/categoryColors";
 
 const PKG_ADJ_TYPES: { value: PackagingAdjustmentType; label: string; hint: string; sign: "positive" | "negative" | "count" }[] = [
   { value: "received",        label: "Received",        hint: "Stock received from supplier", sign: "positive" },
@@ -17,12 +18,12 @@ const PKG_ADJ_TYPES: { value: PackagingAdjustmentType; label: string; hint: stri
 ];
 
 const TYPE_META: Record<PackagingItemType, { label: string; color: string }> = {
-  keg:     { label: "Keg",     color: "bg-orange-900/60 text-orange-300 border-orange-700" },
-  can:     { label: "Can",     color: "bg-blue-900/60 text-blue-300 border-blue-700" },
-  lid:     { label: "Lid",     color: "bg-sky-900/60 text-sky-300 border-sky-700" },
-  paktech: { label: "PakTech", color: "bg-purple-900/60 text-purple-300 border-purple-700" },
-  tray:    { label: "Tray",    color: "bg-teal-900/60 text-teal-300 border-teal-700" },
-  label:   { label: "Label",   color: "bg-rose-900/60 text-rose-300 border-rose-700" },
+  keg:     { label: "Keg",     color: CC.orange },
+  can:     { label: "Can",     color: CC.blue },
+  lid:     { label: "Lid",     color: CC.sky },
+  paktech: { label: "PakTech", color: CC.purple },
+  tray:    { label: "Tray",    color: CC.teal },
+  label:   { label: "Label",   color: CC.rose },
 };
 
 const TYPES = Object.keys(TYPE_META) as PackagingItemType[];
@@ -189,14 +190,14 @@ export default function PackagingTab() {
         <div className="flex gap-2 flex-wrap">
           <button
             onClick={() => setFilterType("all")}
-            className={`text-xs px-2.5 py-1 rounded border transition-colors ${filterType === "all" ? "border-zinc-500 text-zinc-200 bg-zinc-800" : "border-zinc-700 text-zinc-500 hover:text-zinc-300"}`}
+            className={`text-xs px-2.5 py-1 rounded border transition-colors ${filterType === "all" ? "border-line-subtle text-strong bg-surface-mid" : "border-line-strong text-muted hover:text-body"}`}
           >
             All
           </button>
           {TYPES.map((t) => (
             <button key={t}
               onClick={() => setFilterType(t)}
-              className={`text-xs px-2.5 py-1 rounded border transition-colors ${filterType === t ? `border-current ${TYPE_META[t].color}` : "border-zinc-700 text-zinc-500 hover:text-zinc-300"}`}
+              className={`text-xs px-2.5 py-1 rounded border transition-colors ${filterType === t ? `border-current ${TYPE_META[t].color}` : "border-line-strong text-muted hover:text-body"}`}
             >
               {TYPE_META[t].label}
             </button>
@@ -206,7 +207,7 @@ export default function PackagingTab() {
       </div>
 
       {packaging.length === 0 ? (
-        <p className="text-zinc-600 text-sm">No packaging items yet.</p>
+        <p className="text-faint text-sm">No packaging items yet.</p>
       ) : (
         <div className="space-y-6">
           {TYPES.map((t) => {
@@ -217,9 +218,9 @@ export default function PackagingTab() {
               <div key={t}>
                 <div className="flex items-center gap-2 mb-2">
                   <span className={`text-xs px-2 py-px rounded border ${meta.color}`}>{meta.label}</span>
-                  <span className="text-xs text-zinc-600">{items.length} item{items.length !== 1 ? "s" : ""}</span>
+                  <span className="text-xs text-faint">{items.length} item{items.length !== 1 ? "s" : ""}</span>
                 </div>
-                <div className="overflow-x-auto rounded-lg border border-zinc-800">
+                <div className="overflow-x-auto rounded-lg border border-line">
                   <table className="w-full text-sm table-fixed min-w-[680px]">
                     <colgroup>
                       <col style={{ width: "20%" }} />
@@ -232,36 +233,36 @@ export default function PackagingTab() {
                       <col style={{ width: "23%" }} />
                     </colgroup>
                     <thead>
-                      <tr className="border-b border-zinc-800 bg-zinc-900/50 text-left">
-                        <th className="px-3 py-2.5 text-xs font-medium text-zinc-500 whitespace-nowrap">Name</th>
-                        <th className="px-3 py-2.5 text-xs font-medium text-zinc-500 whitespace-nowrap">Partner</th>
-                        <th className="px-3 py-2.5 text-xs font-medium text-zinc-500 whitespace-nowrap">Supplier</th>
-                        <th className="px-3 py-2.5 text-xs font-medium text-zinc-500 text-right whitespace-nowrap">Stock</th>
-                        <th className="px-3 py-2.5 text-xs font-medium text-zinc-500 text-right whitespace-nowrap">Unit Cost</th>
-                        <th className="px-3 py-2.5 text-xs font-medium text-zinc-500 text-right whitespace-nowrap">
+                      <tr className="border-b border-line bg-surface/50 text-left">
+                        <th className="px-3 py-2.5 text-xs font-medium text-muted whitespace-nowrap">Name</th>
+                        <th className="px-3 py-2.5 text-xs font-medium text-muted whitespace-nowrap">Partner</th>
+                        <th className="px-3 py-2.5 text-xs font-medium text-muted whitespace-nowrap">Supplier</th>
+                        <th className="px-3 py-2.5 text-xs font-medium text-muted text-right whitespace-nowrap">Stock</th>
+                        <th className="px-3 py-2.5 text-xs font-medium text-muted text-right whitespace-nowrap">Unit Cost</th>
+                        <th className="px-3 py-2.5 text-xs font-medium text-muted text-right whitespace-nowrap">
                           {needsVolume(t) ? "Volume" : needsCanCount(t) ? "Can Count" : "Details"}
                         </th>
-                        <th className="px-3 py-2.5 text-xs font-medium text-zinc-500 text-center whitespace-nowrap">Default</th>
-                        <th className="px-3 py-2.5 text-xs font-medium text-zinc-500"></th>
+                        <th className="px-3 py-2.5 text-xs font-medium text-muted text-center whitespace-nowrap">Default</th>
+                        <th className="px-3 py-2.5 text-xs font-medium text-muted"></th>
                       </tr>
                     </thead>
                     <tbody>
                       {items.map((item, i) => (
-                        <tr key={item.id} className={`border-b border-zinc-800/60 ${i % 2 !== 0 ? "bg-zinc-900/30" : ""}`}>
-                          <td className="px-3 py-2.5 text-zinc-200 font-medium truncate">{item.name}</td>
-                          <td className="px-3 py-2.5 text-zinc-400 truncate">{partnerName(item) ?? "—"}</td>
-                          <td className="px-3 py-2.5 text-zinc-400 truncate">{supplierName(item) ?? "—"}</td>
+                        <tr key={item.id} className={`border-b border-line/60 ${i % 2 !== 0 ? "bg-surface/30" : ""}`}>
+                          <td className="px-3 py-2.5 text-strong font-medium truncate">{item.name}</td>
+                          <td className="px-3 py-2.5 text-secondary truncate">{partnerName(item) ?? "—"}</td>
+                          <td className="px-3 py-2.5 text-secondary truncate">{supplierName(item) ?? "—"}</td>
                           <td className="px-3 py-2.5 text-right tabular-nums">
-                            <span className={Number(item.stock_quantity) < 0 ? "text-red-400" : "text-zinc-300"}>
+                            <span className={Number(item.stock_quantity) < 0 ? "text-danger" : "text-body"}>
                               {formatNumber(Number(item.stock_quantity))}
                             </span>
                           </td>
-                          <td className="px-3 py-2.5 text-zinc-400 text-right tabular-nums whitespace-nowrap">
+                          <td className="px-3 py-2.5 text-secondary text-right tabular-nums whitespace-nowrap">
                             {item.unit_cost != null
                               ? formatCurrency(Number(item.unit_cost))
                               : "—"}
                           </td>
-                          <td className="px-3 py-2.5 text-zinc-400 text-right tabular-nums whitespace-nowrap">
+                          <td className="px-3 py-2.5 text-secondary text-right tabular-nums whitespace-nowrap">
                             {needsVolume(t)
                               ? (item.volume_fl_oz != null
                                   ? `${Number(item.volume_fl_oz).toLocaleString(undefined, { maximumFractionDigits: 1 })} oz`
@@ -278,20 +279,20 @@ export default function PackagingTab() {
                               title={item.is_default ? "Remove default" : "Set as default"}
                               className={`text-xs px-1.5 py-0.5 rounded border transition-colors ${
                                 item.is_default
-                                  ? "border-amber-600 bg-amber-900/30 text-amber-300"
-                                  : "border-zinc-700 text-zinc-600 hover:border-zinc-500 hover:text-zinc-400"
+                                  ? "border-accent-border bg-accent-muted/30 text-accent-soft"
+                                  : "border-line-strong text-faint hover:border-line-subtle hover:text-secondary"
                               }`}
                             >
                               {item.is_default ? "★" : "☆"}
                             </button>
                           </td>
                           <td className="px-3 py-2.5">
-                            <div className="flex gap-1.5 justify-end items-center whitespace-nowrap text-zinc-700">
-                              <button onClick={() => openAdj(item)} className="text-xs text-amber-500 hover:text-amber-400 transition-colors font-medium">Adjust</button>
+                            <div className="flex gap-1.5 justify-end items-center whitespace-nowrap text-disabled">
+                              <button onClick={() => openAdj(item)} className="text-xs text-accent-emphasis hover:text-accent transition-colors font-medium">Adjust</button>
                               {isAdmin && (<><span aria-hidden>·</span>
-                              <button onClick={() => openEdit(item)} className="text-xs text-zinc-500 hover:text-zinc-200 transition-colors">Edit</button></>)}
+                              <button onClick={() => openEdit(item)} className="text-xs text-muted hover:text-strong transition-colors">Edit</button></>)}
                               <span aria-hidden>·</span>
-                              <button onClick={() => handleDelete(item)} className="text-xs text-zinc-600 hover:text-red-400 transition-colors">Del</button>
+                              <button onClick={() => handleDelete(item)} className="text-xs text-faint hover:text-danger transition-colors">Del</button>
                             </div>
                           </td>
                         </tr>
@@ -316,7 +317,7 @@ export default function PackagingTab() {
                     className={`px-3 py-1.5 rounded border text-xs font-medium transition-colors ${
                       form.type === t
                         ? `border-current ${TYPE_META[t].color}`
-                        : "border-zinc-700 bg-zinc-800/50 text-zinc-400 hover:border-zinc-500"
+                        : "border-line-strong bg-surface-mid/50 text-secondary hover:border-line-subtle"
                     }`}
                   >
                     {TYPE_META[t].label}
@@ -351,7 +352,7 @@ export default function PackagingTab() {
               <input type="number" step="0.01" min="0" className="inp" placeholder="0.00" value={form.unit_cost}
                 onChange={(e) => setForm((f) => ({ ...f, unit_cost: e.target.value }))} />
             </Field>
-            <div className="rounded bg-amber-900/20 border border-amber-800/40 px-3 py-2 text-xs text-amber-300">
+            <div className="rounded bg-accent-muted/20 border border-accent-border/40 px-3 py-2 text-xs text-accent-soft">
               Unit cost must be the <strong>landed cost</strong> — include freight and shipping. Use stock adjustments (Received) to recalculate this automatically when new inventory arrives.
             </div>
 
@@ -360,9 +361,9 @@ export default function PackagingTab() {
                 <div className="flex items-center gap-2">
                   <input type="number" step="0.1" min="0" className="inp w-40" placeholder="e.g. 1984" required value={form.volume_fl_oz}
                     onChange={(e) => setForm((f) => ({ ...f, volume_fl_oz: e.target.value }))} />
-                  <span className="text-zinc-500 text-sm">fl oz</span>
+                  <span className="text-muted text-sm">fl oz</span>
                   {form.volume_fl_oz && (
-                    <span className="text-zinc-600 text-xs">
+                    <span className="text-faint text-xs">
                       = {(parseFloat(form.volume_fl_oz) / 128).toFixed(2)} gal
                       / {(parseFloat(form.volume_fl_oz) / 3968).toFixed(4)} BBL
                     </span>
@@ -376,12 +377,12 @@ export default function PackagingTab() {
                 <div className="flex items-center gap-2">
                   <input type="number" min="1" className="inp w-40" placeholder="e.g. 24" required value={form.can_count}
                     onChange={(e) => setForm((f) => ({ ...f, can_count: e.target.value }))} />
-                  <span className="text-zinc-500 text-sm">cans</span>
+                  <span className="text-muted text-sm">cans</span>
                 </div>
               </Field>
             )}
 
-            <div className="flex items-center gap-3 p-3 rounded bg-zinc-800/40 border border-zinc-700">
+            <div className="flex items-center gap-3 p-3 rounded bg-surface-mid/40 border border-line-strong">
               <input
                 type="checkbox"
                 id="is_default"
@@ -389,10 +390,10 @@ export default function PackagingTab() {
                 onChange={(e) => setForm((f) => ({ ...f, is_default: e.target.checked }))}
                 className="w-4 h-4 accent-amber-500"
               />
-              <label htmlFor="is_default" className="text-sm text-zinc-300 cursor-pointer select-none">
+              <label htmlFor="is_default" className="text-sm text-body cursor-pointer select-none">
                 Set as default {TYPE_META[form.type].label}
-                {form.type !== "keg" && <span className="text-zinc-600 text-xs ml-1">(replaces current default for this type)</span>}
-                {form.type === "keg" && <span className="text-zinc-600 text-xs ml-1">(kegs can have multiple defaults)</span>}
+                {form.type !== "keg" && <span className="text-faint text-xs ml-1">(replaces current default for this type)</span>}
+                {form.type === "keg" && <span className="text-faint text-xs ml-1">(kegs can have multiple defaults)</span>}
               </label>
             </div>
 
@@ -406,14 +407,14 @@ export default function PackagingTab() {
       {adjItem && (
         <Modal title={`Adjust Stock — ${adjItem.name}`} onClose={() => setAdjItem(null)}>
           <form onSubmit={handleAdjSubmit} className="space-y-4">
-            <div className="p-3 bg-zinc-800/50 rounded text-sm grid grid-cols-2 gap-4">
+            <div className="p-3 bg-surface-mid/50 rounded text-sm grid grid-cols-2 gap-4">
               <div>
-                <p className="text-xs text-zinc-500 mb-0.5">Current stock</p>
-                <p className="text-zinc-100 font-medium">{Number(adjItem.stock_quantity).toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
+                <p className="text-xs text-muted mb-0.5">Current stock</p>
+                <p className="text-primary font-medium">{Number(adjItem.stock_quantity).toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
               </div>
               <div>
-                <p className="text-xs text-zinc-500 mb-0.5">Unit cost</p>
-                <p className="text-zinc-100 font-medium">{adjItem.unit_cost != null ? fmtUsd(Number(adjItem.unit_cost)) : "—"}</p>
+                <p className="text-xs text-muted mb-0.5">Unit cost</p>
+                <p className="text-primary font-medium">{adjItem.unit_cost != null ? fmtUsd(Number(adjItem.unit_cost)) : "—"}</p>
               </div>
             </div>
 
@@ -421,7 +422,7 @@ export default function PackagingTab() {
               <div className="grid grid-cols-2 gap-2">
                 {PKG_ADJ_TYPES.map((t) => (
                   <button key={t.value} type="button" onClick={() => setAdjType(t.value)}
-                    className={`px-3 py-2 rounded border text-sm text-left transition-colors ${adjType === t.value ? "border-amber-600 bg-amber-900/30 text-amber-300" : "border-zinc-700 bg-zinc-800/50 text-zinc-400 hover:border-zinc-500"}`}>
+                    className={`px-3 py-2 rounded border text-sm text-left transition-colors ${adjType === t.value ? "border-accent-border bg-accent-muted/30 text-accent-soft" : "border-line-strong bg-surface-mid/50 text-secondary hover:border-line-subtle"}`}>
                     <div className="font-medium">{t.label}</div>
                     <div className="text-xs opacity-70 mt-0.5">{t.hint}</div>
                   </button>
@@ -443,7 +444,7 @@ export default function PackagingTab() {
                 <Field label="Shipping Cost ($ total)" required>
                   <input type="number" step="0.01" min="0" className="inp" placeholder="0.00"
                     required value={adjShipping} onChange={(e) => setAdjShipping(e.target.value)} />
-                  <p className="text-xs mt-1 text-zinc-500">Enter 0 if no freight charge on this order.</p>
+                  <p className="text-xs mt-1 text-muted">Enter 0 if no freight charge on this order.</p>
                 </Field>
               </>
             )}
