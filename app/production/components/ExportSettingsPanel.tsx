@@ -138,7 +138,7 @@ function ExciseTaxRatesSection() {
         <h3 className="text-sm font-medium text-strong">Excise Tax Rates</h3>
         <button
           onClick={() => setCreating((c) => !c)}
-          className="text-xs px-2.5 py-1 bg-accent-emphasis hover:bg-accent-emphasis text-primary rounded transition-colors"
+          className="btn-amber btn-xs"
         >
           {creating ? "Cancel" : "+ Add rate"}
         </button>
@@ -157,7 +157,7 @@ function ExciseTaxRatesSection() {
           </select>
           <input value={draftRate} onChange={(e) => setDraftRate(e.target.value)} placeholder="Rate (USD)" type="number" step="0.01"
             className="bg-surface-mid border border-line-strong rounded px-2 py-1 text-xs text-strong w-28" />
-          <button onClick={create} className="text-xs px-2.5 py-1 bg-surface-high hover:bg-surface-high text-strong rounded transition-colors">
+          <button onClick={create} className="btn-amber btn-xs">
             Save
           </button>
         </div>
@@ -254,7 +254,7 @@ export function PartnerOverridePicker({ partners, excludeIds, onAdd }: {
       <button
         onClick={() => { if (partnerId) { onAdd(partnerId); setOpen(false); setPartnerId(""); } }}
         disabled={!partnerId}
-        className="text-xs px-2 py-1 bg-surface-high hover:bg-surface-high text-strong rounded transition-colors disabled:opacity-40"
+        className="btn-amber btn-xs"
       >
         Add
       </button>
@@ -718,8 +718,7 @@ function InvoiceTermsSection() {
           className="bg-surface-mid border border-line-strong rounded px-2 py-1 text-xs text-strong w-20"
         />
         <span className="text-xs text-muted">days</span>
-        <button onClick={save} disabled={saving}
-          className="text-xs px-2.5 py-1 bg-surface-high hover:bg-surface-high text-strong rounded transition-colors">
+        <button onClick={save} disabled={saving} className="btn-amber btn-xs">
           {saving ? "Saving…" : "Save"}
         </button>
       </div>

@@ -385,7 +385,7 @@ function InvoiceExpandedPanel({
                   <button
                     onClick={addLineItem}
                     disabled={actionLoading || (!addDesc && !addMappingId) || !addPrice}
-                    className="text-xs px-2.5 py-1 bg-surface-high hover:bg-surface-high text-strong rounded transition-colors disabled:opacity-40"
+                    className="btn-ghost btn-xs"
                   >
                     {actionLoading ? "Adding…" : "Add"}
                   </button>
@@ -412,7 +412,7 @@ function InvoiceExpandedPanel({
             <button
               onClick={handleSend}
               disabled={actionLoading}
-              className="text-xs px-3 py-1.5 bg-accent-emphasis hover:bg-accent-emphasis text-primary rounded transition-colors disabled:opacity-40"
+              className="btn-amber btn-xs"
             >
               {actionLoading ? "Sending…" : "Send Invoice"}
             </button>
@@ -421,7 +421,7 @@ function InvoiceExpandedPanel({
             <button
               onClick={handleSync}
               disabled={actionLoading}
-              className="text-xs px-3 py-1.5 bg-surface-high hover:bg-surface-high text-strong rounded transition-colors disabled:opacity-40"
+              className="btn-ghost btn-xs"
             >
               {actionLoading ? "Syncing…" : "Sync from Square"}
             </button>

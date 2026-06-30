@@ -210,17 +210,31 @@ All interactive primitives come from `globals.css` classes or shared components.
 baked in so consumers can't drift.
 
 ### Buttons (`globals.css`)
+Buttons are a **size × color matrix**: pick one color class, optionally add the `.btn-xs`
+size modifier.
+
+**Color (required):**
 | Class | Style | Use |
 |---|---|---|
 | `.btn-amber` | **solid** `bg-accent-emphasis hover:bg-accent text-canvas`, `py-1.5 px-3`, `text-sm font-medium` | primary action |
 | `.btn-ghost` | `bg-surface-mid border-line-strong text-secondary`, same size | secondary / cancel |
 | `.btn-danger` | `bg-danger-surface/.. text-danger border-danger-border`, same size | destructive |
-| `.btn-sm` | `py-1 px-2.5 text-xs` | dense table toolbars |
 
-`.btn-amber` is **redefined** to the ratified solid style. All inline `bg-amber-600 …
-text-white`, `bg-amber-500 … text-zinc-950`, and `bg-blue-600` primaries migrate to
-`.btn-amber`. Fix `production/components/shared.tsx` `ModalActions` to use `.btn-amber` /
-`.btn-ghost`.
+**Size (optional modifier):**
+| Class | Effect | Use |
+|---|---|---|
+| _(none)_ | md — `py-1.5 px-3 text-sm` | default; page-level actions, modal footers |
+| `.btn-xs` | shrinks to `py-1 px-2.5 text-xs` | composes with any color class — use when the button sits next to `.inp-sm` selects or `text-xs` filter pills so heights match (`btn-amber btn-xs`, `btn-ghost btn-xs`, `btn-danger btn-xs`) |
+| `.btn-sm` | standalone neutral small button (`py-1 px-2.5 text-xs`, surface-mid) | back-compat alias ≈ `.btn-ghost.btn-xs`; prefer the composable form for new code |
+
+**Single primary = amber.** There is no info/success/blue button. Any colored *action*
+button (including former `bg-info-emphasis` / `bg-success-emphasis` inline buttons) uses
+`.btn-amber`; reserve `.btn-ghost` for secondary/cancel and `.btn-danger` for destructive.
+Never hand-roll `px-* py-* bg-*-emphasis … rounded` button boxes — that bypasses both the
+size tier (causing oversized buttons next to small controls) and the token system.
+
+`.btn-amber` is the ratified solid style. All inline `bg-amber-600 … text-white`,
+`bg-amber-500 … text-zinc-950`, and `bg-blue-600` primaries migrate to `.btn-amber`.
 
 ### Inputs (`globals.css`)
 - `.inp` is the **only** input/select/textarea style (`py-1.5 px-2 text-sm`, surface-mid bg,
@@ -264,8 +278,9 @@ border border-danger-border/50 rounded px-3 py-2 text-sm`. Replaces ~12 copies.
 | Arbitrary `text-[Npx]`, `*-[Npx]` spacing, inline `style` padding | type scale (§1) / spacing scale (§3) |
 | Hand-rolled `<h1>/<h2>` page headers | `<PageHeader>` |
 | Hand-rolled tab rows (SettingsTabs, PayrollPeriodView, SalesNav, StatementsNav, SettingsNav, PayrollNav) | `<SubNav>` / `<TabBar>` |
-| Inline primary buttons (`bg-amber-600 text-white`, `bg-amber-500 text-zinc-950`, `bg-blue-600`) | `.btn-amber` |
-| Inline ghost/cancel buttons | `.btn-ghost` / `.btn-sm` |
+| Inline primary/action buttons (`bg-amber-600 text-white`, `bg-amber-500 text-zinc-950`, `bg-blue-600`, `bg-accent/info/success-emphasis … rounded`) | `.btn-amber` (+ `.btn-xs` if dense) |
+| Inline ghost/cancel buttons | `.btn-ghost` (+ `.btn-xs` if dense) / `.btn-sm` |
+| Oversized buttons next to `.inp-sm` / `text-xs` filters (size mismatch) | add `.btn-xs` to the color class |
 | Local `inputCls`/`selectCls`, raw inputs, micro-inputs | `.inp` (/`.inp-sm`) |
 | Hand-rolled card divs | `<Card>` |
 | Hand-rolled modals | `<Modal>` |

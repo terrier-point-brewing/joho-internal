@@ -682,7 +682,7 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
             <button
               type="submit"
               disabled={submitting || inventoryLines.length === 0}
-              className="text-xs px-3 py-1.5 bg-accent-emphasis hover:bg-accent-emphasis text-primary rounded disabled:opacity-50"
+              className="btn-amber btn-xs"
             >
               {submitting ? "Shipping…" : "Ship"}
             </button>
@@ -828,7 +828,7 @@ function AdHocExportModal({ inventoryByRecipe, recipeNameById, onClose, onDone }
             <button
               type="submit"
               disabled={submitting || linesForRecipe.length === 0}
-              className="text-xs px-3 py-1.5 bg-accent-emphasis hover:bg-accent-emphasis text-primary rounded disabled:opacity-50"
+              className="btn-amber btn-xs"
             >
               {submitting ? "Shipping…" : "Ship"}
             </button>

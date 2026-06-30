@@ -560,16 +560,16 @@ export default function IngredientsTab() {
         <div className="flex gap-2 shrink-0">
           {bulkEditMode ? (
             <>
-              <button onClick={() => setBulkEditMode(false)} className="btn-ghost text-sm" disabled={bulkSaving}>Cancel</button>
-              <button onClick={saveBulkEdit} className="btn-amber" disabled={bulkSaving}>
+              <button onClick={() => setBulkEditMode(false)} className="btn-ghost btn-xs" disabled={bulkSaving}>Cancel</button>
+              <button onClick={saveBulkEdit} className="btn-amber btn-xs" disabled={bulkSaving}>
                 {bulkSaving ? "Saving…" : "Save All"}
               </button>
             </>
           ) : (
             <>
-              <button onClick={enterBulkEdit} className="btn-ghost text-sm" disabled={ingredients.length === 0}>Bulk Edit</button>
-              <button onClick={() => setShowBulkModal(true)} className="btn-amber">↑ Bulk Upload</button>
-              <button onClick={openNew} className="btn-amber">+ New Ingredient</button>
+              <button onClick={enterBulkEdit} className="btn-ghost btn-xs" disabled={ingredients.length === 0}>Bulk Edit</button>
+              <button onClick={() => setShowBulkModal(true)} className="btn-amber btn-xs">↑ Bulk Upload</button>
+              <button onClick={openNew} className="btn-amber btn-xs">+ New Ingredient</button>
             </>
           )}
         </div>

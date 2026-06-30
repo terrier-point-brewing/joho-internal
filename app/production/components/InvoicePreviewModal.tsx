@@ -223,7 +223,7 @@ export default function InvoicePreviewModal({
             <button
               onClick={handleCreate}
               disabled={creating || effectiveLineItems.length === 0 || (invoiceMode === "manual" && !manualValid)}
-              className="text-sm px-3 py-1.5 bg-accent-emphasis hover:bg-accent-emphasis text-primary rounded transition-colors disabled:opacity-40"
+              className="btn-amber"
             >
               {creating
                 ? (invoiceMode === "square" ? "Generating…" : "Recording…")

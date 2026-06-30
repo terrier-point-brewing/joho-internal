@@ -61,7 +61,7 @@ export function RefundAdjustmentModal({
             type="button"
             onClick={onConfirm}
             disabled={submitting}
-            className="px-4 py-1.5 text-sm bg-accent-emphasis hover:bg-accent-emphasis disabled:opacity-50 text-primary rounded font-medium transition-colors">
+            className="btn-amber">
             {submitting ? "Refunding…" : "Refund & Save"}
           </button>
         </div>

@@ -1139,7 +1139,7 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
 
           <div className="flex gap-2 pt-1">
             <button type="button" onClick={handleAdd} disabled={saving || !newPct}
-              className="px-4 py-1.5 text-xs bg-accent-emphasis hover:bg-accent-emphasis disabled:opacity-50 text-primary rounded font-medium transition-colors">
+              className="btn-amber btn-xs">
               {saving ? "Adding…" : "Add"}
             </button>
             <button type="button" onClick={() => { setShowAddForm(false); setNewPct(""); setNewCommitmentId(""); setNewChannel("taproom"); }}
@@ -1614,7 +1614,7 @@ function BrewActivityLogManager({ batch }: { batch: BrewBatch }) {
             onChange={(e) => setNewRow((r) => ({ ...r, amount: e.target.value }))} />
         </div>
         <button type="button" onClick={addRow} disabled={saving || !newRow.activity.trim()}
-          className="px-3 py-1.5 text-xs bg-surface-mid border border-line-strong hover:border-line-subtle text-body rounded transition-colors disabled:opacity-50 shrink-0">
+          className="btn-ghost btn-xs shrink-0">
           {saving ? "…" : "+ Add"}
         </button>
       </div>

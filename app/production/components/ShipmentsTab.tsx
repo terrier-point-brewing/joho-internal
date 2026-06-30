@@ -619,13 +619,13 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
           )}
           <button
             onClick={() => setShowModal(true)}
-            className="px-3 py-1.5 bg-accent-emphasis hover:bg-accent-emphasis text-primary rounded transition-colors"
+            className="btn-amber"
           >
             Generate Invoice
           </button>
           <button
             onClick={openMarkPaid}
-            className="px-3 py-1.5 bg-success-emphasis hover:bg-success-emphasis text-primary rounded transition-colors"
+            className="btn-amber"
           >
             Mark Paid
           </button>
@@ -720,7 +720,7 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
               <button
                 onClick={submitMarkPaid}
                 disabled={mpLoading || !mpValid}
-                className="text-sm px-3 py-1.5 bg-success-emphasis hover:bg-success-emphasis text-primary rounded transition-colors disabled:opacity-40"
+                className="btn-amber"
               >
                 {mpLoading ? "Saving…" : "Mark Paid"}
               </button>

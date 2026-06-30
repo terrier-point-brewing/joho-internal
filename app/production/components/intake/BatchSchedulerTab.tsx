@@ -1001,7 +1001,7 @@ export default function BatchSchedulerTab({
                     <button
                       onClick={() => commitBatch(activeRow)}
                       disabled={blocked}
-                      className="px-5 py-2 bg-accent-emphasis hover:bg-accent-emphasis disabled:opacity-50 disabled:cursor-not-allowed text-primary text-sm font-medium rounded transition-colors"
+                      className="btn-amber"
                     >
                       {committing ? "Committing…" : "Commit Batch →"}
                     </button>

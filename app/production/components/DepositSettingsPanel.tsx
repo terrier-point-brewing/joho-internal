@@ -116,8 +116,7 @@ function DepositInvoiceTermsSection() {
           className="bg-surface-mid border border-line-strong rounded px-2 py-1 text-xs text-strong w-20"
         />
         <span className="text-xs text-muted">days</span>
-        <button onClick={save} disabled={saving}
-          className="text-xs px-2.5 py-1 bg-surface-high hover:bg-surface-high text-strong rounded transition-colors">
+        <button onClick={save} disabled={saving} className="btn-amber btn-xs">
           {saving ? "Saving…" : "Save"}
         </button>
       </div>
