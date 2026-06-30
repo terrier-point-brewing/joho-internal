@@ -56,7 +56,7 @@ export default function SalesPageShell({
             >
               {years.map((y) => <option key={y} value={y}>{y}</option>)}
             </select>
-            <button onClick={onRefresh} className="btn-amber">Refresh</button>
+            <button onClick={onRefresh} className="btn-amber btn-xs">Refresh</button>
           </div>
         </div>
         <SalesNav />

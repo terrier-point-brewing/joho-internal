@@ -246,7 +246,7 @@ export default function SalesPulseTab() {
       <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
         <button
           onClick={() => setWeekStart((w) => addDays(w, -7))}
-          className="px-3 py-1.5 text-sm bg-surface-mid border border-line-strong rounded hover:bg-surface-high text-body"
+          className="btn-ghost"
         >
           ‹ Prev
         </button>
@@ -258,7 +258,7 @@ export default function SalesPulseTab() {
         <button
           onClick={() => setWeekStart((w) => addDays(w, 7))}
           disabled={isCurrentWeek}
-          className="px-3 py-1.5 text-sm bg-surface-mid border border-line-strong rounded hover:bg-surface-high text-body disabled:opacity-30 disabled:cursor-not-allowed"
+          className="btn-ghost"
         >
           Next ›
         </button>

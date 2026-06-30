@@ -281,14 +281,14 @@ function BulkMapper({
             onClick={() => apply(false)}
             disabled={applying || unmappedCount === 0}
             title={`Fill ${unmappedCount} unmapped`}
-            className="px-2 py-1 bg-accent-emphasis hover:bg-accent disabled:opacity-40 text-canvas text-[10px] rounded transition-colors whitespace-nowrap">
+            className="btn-amber btn-xs whitespace-nowrap">
             {applying ? "…" : `Fill ${unmappedCount}`}
           </button>
           <button
             onClick={() => apply(true)}
             disabled={applying}
             title="Overwrite all"
-            className="px-2 py-1 bg-surface-high hover:bg-surface-mid disabled:opacity-40 text-body text-[10px] rounded transition-colors whitespace-nowrap">
+            className="btn-ghost btn-xs whitespace-nowrap">
             All
           </button>
         </>
@@ -353,11 +353,11 @@ function BulkSourceMapper({
           />
             </div>
             <button onClick={() => apply("chart_of_accounts_id_pos", draftPos, false)} disabled={applying || !draftPos}
-              className="px-2 py-1 bg-accent-emphasis hover:bg-accent disabled:opacity-30 text-canvas text-[10px] rounded whitespace-nowrap transition-colors">
+              className="btn-amber btn-xs whitespace-nowrap">
               {applying ? "…" : "Fill unmapped"}
             </button>
             <button onClick={() => apply("chart_of_accounts_id_pos", draftPos, true)} disabled={applying || !draftPos}
-              className="px-2 py-1 bg-surface-high hover:bg-surface-mid disabled:opacity-30 text-body text-[10px] rounded whitespace-nowrap transition-colors">
+              className="btn-ghost btn-xs whitespace-nowrap">
               Overwrite all
             </button>
           </div>
@@ -371,11 +371,11 @@ function BulkSourceMapper({
           />
             </div>
             <button onClick={() => apply("chart_of_accounts_id_invoice", draftInv, false)} disabled={applying || !draftInv}
-              className="px-2 py-1 bg-accent-emphasis hover:bg-accent disabled:opacity-30 text-canvas text-[10px] rounded whitespace-nowrap transition-colors">
+              className="btn-amber btn-xs whitespace-nowrap">
               {applying ? "…" : "Fill unmapped"}
             </button>
             <button onClick={() => apply("chart_of_accounts_id_invoice", draftInv, true)} disabled={applying || !draftInv}
-              className="px-2 py-1 bg-surface-high hover:bg-surface-mid disabled:opacity-30 text-body text-[10px] rounded whitespace-nowrap transition-colors">
+              className="btn-ghost btn-xs whitespace-nowrap">
               Overwrite all
             </button>
           </div>

@@ -170,7 +170,7 @@ export function DepositInvoiceModal({
                   type="button"
                   onClick={handleMarkPaidSubmit}
                   disabled={markingPaid || !mpValid}
-                  className="px-4 py-1.5 text-sm bg-success-emphasis hover:bg-success-emphasis disabled:opacity-50 text-primary rounded font-medium transition-colors">
+                  className="btn-amber">
                   {markingPaid ? "Saving…" : "Mark Paid"}
                 </button>
               </div>
@@ -275,7 +275,7 @@ export function DepositInvoiceModal({
                   type="button"
                   onClick={onGenerate}
                   disabled={generating || loading || !calc || calc.deposit_cents === 0}
-                  className="px-4 py-1.5 text-sm bg-accent-emphasis hover:bg-accent-emphasis disabled:opacity-50 text-primary rounded font-medium transition-colors">
+                  className="btn-amber">
                   {generating ? "Generating…" : isRevision ? "Regenerate Invoice" : "Create Draft Invoice"}
                 </button>
               </div>

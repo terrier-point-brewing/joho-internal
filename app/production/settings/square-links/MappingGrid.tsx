@@ -128,7 +128,7 @@ export default function MappingGrid({
           </span>
           <button
             onClick={fillAll}
-            className="text-xs px-3 py-1.5 rounded bg-info-emphasis hover:bg-info-emphasis text-primary transition-colors"
+            className="btn-amber btn-xs"
           >
             Fill all suggested
           </button>

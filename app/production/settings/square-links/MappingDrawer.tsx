@@ -264,7 +264,7 @@ export default function MappingDrawer({ recipeId, colKey, onClose }: Props) {
                           <button
                             onClick={() => handleAccept(v, v.suggestion!.squareVariationId)}
                             disabled={isBusy}
-                            className="text-xs px-2 py-1 rounded bg-info-emphasis hover:bg-info-emphasis text-primary disabled:opacity-30 shrink-0 transition-colors"
+                            className="btn-amber btn-xs shrink-0"
                           >
                             Accept
                           </button>
