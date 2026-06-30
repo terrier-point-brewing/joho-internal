@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
+import { useStatementsQuery } from "@/app/finance/hooks/queries";
 import { formatCurrencyCents } from "@/lib/format";
 import FinanceNav from "../../FinanceNav";
 import StatementsNav from "../StatementsNav";
@@ -201,25 +202,11 @@ export default function CashFlowPage() {
   const now = new Date();
   const currentYear = now.getFullYear();
   const [year, setYear] = useState(currentYear);
-  const [data, setData] = useState<{ year: number; accounts: AccountBalanceMoM[] } | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [expandAll, setExpandAll] = useState<boolean | null>(null);
   const years = Array.from({ length: 5 }, (_, i) => currentYear - i);
 
-  useEffect(() => {
-    async function load() {
-      setLoading(true); setError(null);
-      try {
-        const r = await fetch(`/api/finance/statements?view=cash&year=${year}`);
-        const d = await r.json();
-        setData(d);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Failed to load");
-      } finally { setLoading(false); }
-    }
-    load();
-  }, [year]);
+  const { data, isFetching: loading, error: queryError } = useStatementsQuery(year, "cash");
+  const error = queryError instanceof Error ? queryError.message : queryError ? "Failed to load" : null;
 
   // eslint-disable-next-line react-hooks/preserve-manual-memoization
   const handleExpandAll = useCallback((val: boolean) => {

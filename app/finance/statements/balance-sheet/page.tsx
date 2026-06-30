@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
+import { useBalanceSheetQuery } from "@/app/finance/hooks/queries";
 import { formatCurrencyCents } from "@/lib/format";
 import FinanceNav from "../../FinanceNav";
 import StatementsNav from "../StatementsNav";
@@ -189,27 +190,11 @@ export default function BalanceSheetPage() {
   const currentMonth = now.getMonth() + 1;
   const [year, setYear]   = useState(currentYear);
   const [month, setMonth] = useState(currentMonth);
-  const [data, setData]   = useState<{ year: number; accounts: AccountBalance[] } | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError]    = useState<string | null>(null);
   const [expandAll, setExpandAll] = useState<boolean | null>(null);
   const years = Array.from({ length: 5 }, (_, i) => currentYear - i);
 
-  useEffect(() => {
-    async function load() {
-      setLoading(true); setError(null);
-      try {
-        const params = new URLSearchParams({ year: String(year), cumulative: "true" });
-        if (month > 0) params.set("month", String(month));
-        const r = await fetch(`/api/finance/statements?${params}`);
-        const d = await r.json();
-        setData(d);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Failed to load");
-      } finally { setLoading(false); }
-    }
-    load();
-  }, [year, month]);
+  const { data, isFetching: loading, error: queryError } = useBalanceSheetQuery(year, month);
+  const error = queryError instanceof Error ? queryError.message : queryError ? "Failed to load" : null;
 
   // eslint-disable-next-line react-hooks/preserve-manual-memoization
   const handleExpandAll = useCallback((val: boolean) => {
