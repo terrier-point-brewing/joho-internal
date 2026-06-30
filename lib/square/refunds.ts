@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { unstable_cache } from "next/cache";
 import { squareGetAll, squarePost } from "./client";
 import { dayRangeUtc } from "@/lib/utils/datetime";
 
@@ -12,7 +13,7 @@ export interface SquareRefund {
   reason?: string;
 }
 
-export async function fetchRefunds(startDate: string, endDate: string): Promise<SquareRefund[]> {
+async function fetchRefundsUncached(startDate: string, endDate: string): Promise<SquareRefund[]> {
   const { startUtc, endUtc } = dayRangeUtc(startDate, endDate);
   return squareGetAll<SquareRefund>("/refunds", "refunds", {
     begin_time: startUtc,
@@ -20,6 +21,15 @@ export async function fetchRefunds(startDate: string, endDate: string): Promise<
     limit: "100",
   });
 }
+
+// Fetched alongside orders by every sales report route; cache cross-request
+// (keyed by start/end) on the same tag so one range hits Square once. See
+// fetchCompletedOrders for rationale. Bust via revalidateTag("square-sales").
+export const fetchRefunds = unstable_cache(
+  fetchRefundsUncached,
+  ["square-refunds"],
+  { revalidate: 90, tags: ["square-sales"] },
+);
 
 interface SquareRefundResponse {
   refund: { id: string; status: string };

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { formatCurrencyCents } from "@/lib/format";
 import { useQuery } from "@tanstack/react-query";
-import { queryKeys } from "@/lib/query-keys";
+import { queryKeys, SALES_REPORT_STALE_TIME } from "@/lib/query-keys";
 import dynamic from "next/dynamic";
 import ChartSkeleton from "@/app/components/ChartSkeleton";
 
@@ -175,10 +175,12 @@ export default function SalesPulseTab() {
   const { data: currentData = null, isLoading: loading } = useQuery({
     queryKey: queryKeys.taproom.salesPulse(curStart, effectiveEnd),
     queryFn: () => fetchPulse(curStart, effectiveEnd),
+    staleTime: SALES_REPORT_STALE_TIME,
   });
   const { data: priorData = null } = useQuery({
     queryKey: queryKeys.taproom.salesPulse(priorStart, priorEnd),
     queryFn: () => fetchPulse(priorStart, priorEnd),
+    staleTime: SALES_REPORT_STALE_TIME,
   });
 
   // Per-day category breakdown — only fetched when day filter is active.
@@ -187,6 +189,7 @@ export default function SalesPulseTab() {
   const { data: catDayData = null, isLoading: catDayLoading } = useQuery({
     queryKey: queryKeys.taproom.salesPulseDay(dayDate ?? ""),
     queryFn: () => fetchPulse(dayDate!, dayDate!),
+    staleTime: SALES_REPORT_STALE_TIME,
     enabled: dayDate !== null && !dayIsFuture,
   });
 

@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { queryKeys } from "@/lib/query-keys";
+import { queryKeys, SALES_REPORT_STALE_TIME } from "@/lib/query-keys";
 import SalesPageShell from "../SalesPageShell";
 import { type SalesRow } from "../SalesTable";
 import { fetchJson } from "@/app/production/hooks/queries";
@@ -85,6 +85,7 @@ export default function TaproomSalesPage() {
   const { data, isFetching, error, refetch } = useQuery({
     queryKey: queryKeys.finance.salesTaproom(year),
     queryFn:  () => fetchJson<TaproomSalesData>(`/api/finance/sales/taproom?year=${year}`),
+    staleTime: SALES_REPORT_STALE_TIME,
   });
 
   const months  = data?.months  ?? [];

@@ -1,7 +1,7 @@
 "use client";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { queryKeys } from "@/lib/query-keys";
+import { queryKeys, SALES_REPORT_STALE_TIME } from "@/lib/query-keys";
 import SalesTable, { type SalesRow } from "../sales/SalesTable";
 import FinanceNav from "../FinanceNav";
 import PageHeader from "@/app/components/PageHeader";
@@ -60,6 +60,7 @@ export default function ModelPage() {
   } = useQuery({
     queryKey: queryKeys.finance.salesTaproom(year),
     queryFn:  () => fetchJson<TaproomSalesData>(`/api/finance/sales/taproom?year=${year}`),
+    staleTime: SALES_REPORT_STALE_TIME,
   });
 
   const {
@@ -67,6 +68,7 @@ export default function ModelPage() {
   } = useQuery({
     queryKey: queryKeys.finance.salesInvoices(year),
     queryFn:  () => fetchJson<InvoiceSalesData>(`/api/finance/sales/invoices?year=${year}`),
+    staleTime: SALES_REPORT_STALE_TIME,
   });
 
   const isFetching = taproomFetching || invoiceFetching;

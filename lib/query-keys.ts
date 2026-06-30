@@ -10,6 +10,15 @@
  * Passing the domain root (e.g. queryKeys.production.all()) to
  * invalidateQueries will invalidate every query under that domain.
  */
+/**
+ * staleTime for queries backed by live Square calls (orders/refunds/invoices).
+ * The underlying routes are cached server-side (~90s via unstable_cache), so a
+ * longer client staleTime keeps tab-to-tab navigation from issuing redundant
+ * round-trips for data that barely changes. Mutations still invalidate
+ * explicitly, so writes surface immediately regardless of this value.
+ */
+export const SALES_REPORT_STALE_TIME = 5 * 60_000;
+
 export const queryKeys = {
   // ─── Auth ────────────────────────────────────────────────────────────────
   auth: {
