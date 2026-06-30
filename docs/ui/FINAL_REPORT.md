@@ -27,7 +27,7 @@ hits across non-exempt files, plus `npm run build` + `npm run lint` (0 errors) o
 | Core / settings / auth / payroll components | settings (8), auth (2), payroll components (6), root | ✅ done (#47) |
 | Finance | 17 content pages/components + 6 navs + SalesTable | ✅ done (#56), residual 0 |
 | Production | 17 page shells + ~30 tab/panel components | ✅ done (#48), residual 0 |
-| Taproom + Reports | 9 taproom pages/tabs + 9 report components | ✅ done (#51), residual 0 |
+| Taproom + Reports | 9 taproom pages/tabs + 9 report components + section layouts | ✅ done (#51), residual 0 |
 | API routes (`app/api/**`, ~150) | — | ⏭ out of scope (no UI) |
 | Redirect/guard pages (~20) | — | ⏭ no markup |
 
@@ -73,10 +73,7 @@ redefined `.btn-amber` (solid amber, dark text) in `globals.css`.
 
 ## Needs human review / judgment calls
 
-1. **Taproom section `layout.tsx` dedup deferred** (#51): `performance/` and `targets/` leaf
-   pages still each render the `PageHeader`+dual-`SubNav` shell with duplicated description
-   strings. Token migration is complete; this structural dedup is a small follow-up.
-2. **`taproom/reports`** keeps its two-level `<select>` view switcher (admin-only,
+1. **`taproom/reports`** keeps its two-level `<select>` view switcher (admin-only,
    category→report) rather than tabs — tokenized in place.
 3. **Finance full-height shells** (`flex flex-col h-full`) kept where the scroll behavior is
    load-bearing (per UI_STANDARD §4 exception), rather than forced onto the `<main>` template.
