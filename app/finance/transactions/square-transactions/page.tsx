@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useRef, useCallback } from "react";
+import { formatCurrencyCents } from "@/lib/format";
 import FinanceNav from "../../FinanceNav";
 import TransactionsNav from "../TransactionsNav";
 
@@ -49,7 +50,7 @@ interface Transaction {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function fmtMoney(cents: number) {
-  return (cents / 100).toLocaleString("en-US", { style: "currency", currency: "USD" });
+  return formatCurrencyCents(cents);
 }
 
 function fmtDate(iso: string) {

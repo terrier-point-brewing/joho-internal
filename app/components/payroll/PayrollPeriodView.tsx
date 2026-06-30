@@ -196,7 +196,7 @@ export function PayrollPeriodView({ periodId, editable, showSalaried, showGustoS
                 </span>
               )}
               {tip_buckets.length === 1 && (
-                <span className="font-mono text-amber-300 font-medium">${(total_pooled_tips_cents / 100).toFixed(2)}</span>
+                <span className="font-mono text-amber-300 font-medium">{fmtCents(total_pooled_tips_cents)}</span>
               )}
               {tip_buckets.length > 4 && (
                 <span className="text-zinc-600">({tip_buckets.length} days — see Shifts tab)</span>

@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
+import { formatCurrencyCents } from "@/lib/format";
 import FinanceNav from "../../FinanceNav";
 import StatementsNav from "../StatementsNav";
 import type { AccountBalanceMoM } from "@/app/api/finance/statements/route";
@@ -11,14 +12,14 @@ const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct"
 function fmtCents(cents: number): string {
   if (cents === 0) return "—";
   const neg = cents < 0;
-  const abs = "$" + Math.abs(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const abs = formatCurrencyCents(Math.abs(cents));
   return neg ? `(${abs})` : abs;
 }
 
 function MoneyCell({ cents, dim }: { cents: number; dim?: boolean }) {
   if (cents === 0) return <span className="text-zinc-700">—</span>;
   const neg = cents < 0;
-  const abs = "$" + Math.abs(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const abs = formatCurrencyCents(Math.abs(cents));
   const text = neg ? `(${abs})` : abs;
   return <span className={dim ? "text-zinc-500" : neg ? "text-red-400" : "text-zinc-200"}>{text}</span>;
 }

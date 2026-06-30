@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { formatCurrency, formatCurrencyCents, formatPercent } from "@/lib/format";
 import { useQuery } from "@tanstack/react-query";
 import { fetchJson } from "@/app/production/hooks/queries";
 import { queryKeys } from "@/lib/query-keys";
@@ -38,18 +39,12 @@ const TIERS: { value: Tier; label: string; color: string }[] = [
 // ---------------------------------------------------------------------------
 
 function currency(cents: number) {
-  return (cents / 100).toLocaleString("en-US", {
-    style: "currency", currency: "USD",
-    minimumFractionDigits: 0, maximumFractionDigits: 0,
-  });
+  return formatCurrencyCents(cents, 0);
 }
 function fmtDollars(d: number) {
-  return d.toLocaleString("en-US", {
-    style: "currency", currency: "USD",
-    minimumFractionDigits: 0, maximumFractionDigits: 0,
-  });
+  return formatCurrency(d, 0);
 }
-function pct(n: number, decimals = 1) { return `${n.toFixed(decimals)}%`; }
+function pct(n: number, decimals = 1) { return formatPercent(n / 100, decimals); }
 
 function quarterDateRange(year: number, quarter: number) {
   const s = (quarter - 1) * 3;

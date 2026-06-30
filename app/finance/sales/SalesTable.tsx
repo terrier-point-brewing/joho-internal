@@ -1,5 +1,7 @@
 "use client";
 
+import { formatCurrency } from "@/lib/format";
+
 export type RowType = "data" | "subtotal" | "spacer" | "section";
 
 export interface SalesRow {
@@ -20,8 +22,8 @@ interface Props {
 function fmtUsd(n: number) {
   if (n === 0) return <span className="text-zinc-700">—</span>;
   const neg = n < 0;
-  const s = Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
-  return <span className={neg ? "text-red-400" : undefined}>{neg ? `($${s})` : `$${s}`}</span>;
+  const s = formatCurrency(Math.abs(n), 0);
+  return <span className={neg ? "text-red-400" : undefined}>{neg ? `(${s})` : s}</span>;
 }
 
 function fmtQty(n: number) {

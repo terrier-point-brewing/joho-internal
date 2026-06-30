@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { formatCurrencyCents } from "@/lib/format";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import { fetchJson } from "@/app/production/hooks/queries";
@@ -43,7 +44,7 @@ interface EventFormState {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function fmtUsd(cents: number) {
-  return (cents / 100).toLocaleString("en-US", { style: "currency", currency: "USD" });
+  return formatCurrencyCents(cents);
 }
 
 function fmtDatetimeLocal(iso: string) {

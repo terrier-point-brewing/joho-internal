@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef } from "react";
+import { formatCurrency } from "@/lib/format";
 import { useQueryClient } from "@tanstack/react-query";
 import { Ingredient, AdjustmentType, IngredientCategory, INGREDIENT_CATEGORIES } from "../types";
 import { Modal, Field, ModalActions } from "./shared";
@@ -329,8 +330,7 @@ const ADJUSTMENT_TYPES: {
 const ING_EMPTY = { name: "", category: "" as IngredientCategory | "", supplier_id: "", partner_id: "", unit: "", cost_per_unit: "", stock_quantity: "0", alpha_acid: "", color_lovibond: "" };
 
 function fmtValue(v: number | null | undefined) {
-  if (v == null) return "—";
-  return `$${v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return formatCurrency(v);
 }
 
 export default function IngredientsTab() {

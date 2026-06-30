@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { formatCurrency } from "@/lib/format";
 import ReportControls from "./ReportControls";
 import { useSort, SortTh } from "./SortControls";
 
@@ -17,7 +18,7 @@ function bbl(v: string | number) { return (typeof v === "string" ? parseFloat(v)
 function gal(v: string | number) { return (typeof v === "string" ? parseFloat(v) : v).toFixed(2); }
 function currency(v: string | number) {
   const n = typeof v === "string" ? parseFloat(v) : v;
-  return `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return formatCurrency(n);
 }
 
 function exportCSV(styleRows: StyleRow[], channelRows: ChannelRow[], excise: string) {

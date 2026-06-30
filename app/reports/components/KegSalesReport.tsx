@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { formatCurrency } from "@/lib/format";
 import ReportControls from "./ReportControls";
 import { useSort, SortTh } from "./SortControls";
 
@@ -25,7 +26,7 @@ const KEG_SIZE_ORDER: Record<string, number> = { "1/6 Keg": 0, "1/4 Keg": 1, "1/
 
 function currency(v: string | number) {
   const n = typeof v === "string" ? parseFloat(v) : v;
-  return `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return formatCurrency(n);
 }
 
 function groupRows(rows: RawRow[], mode: "beer" | "beerSize"): GroupedRow[] {
