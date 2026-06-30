@@ -1310,7 +1310,13 @@ function BatchTable({
                   <td className="px-4 py-2.5 text-right tabular-nums">
                     {b.status === "planning" ? <span className="text-zinc-700">—</span> : (() => {
                       const bd = computeLocationBreakdown(b.id, Number(b.volume_bbl), transfers, tankTypeById, assignedBatchIds.has(b.id));
-                      const avail = bd.backlog + bd.brewhouse + bd.fermenter + bd.brite + bd.coldStorage;
+                      const hasTransfers = transfers.some((t) => t.batch_id === b.id);
+                      // Cold storage = packaged, not liquid-in-process — exclude.
+                      // Batches with no transfer records fall back to backlog=volume; for
+                      // complete batches (e.g. same-day conversion → CSI) that's wrong → 0.
+                      const avail = (!hasTransfers && b.status === "complete")
+                        ? 0
+                        : bd.backlog + bd.brewhouse + bd.fermenter + bd.brite;
                       return <span className={avail > 0 ? "text-green-400" : "text-zinc-700"}>{avail.toFixed(2)} BBL</span>;
                     })()}
                   </td>
