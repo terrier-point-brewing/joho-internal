@@ -159,7 +159,7 @@ export async function buildInvoiceSalesReport(
     .from("invoices")
     .select(`
       id, invoice_date, status, total_cents,
-      invoice_line_items ( category, total_cents, chart_of_accounts_id, variation_name, quantity, raw_data ),
+      invoice_line_items!invoice_line_items_invoice_id_fkey ( category, total_cents, chart_of_accounts_id, variation_name, quantity, raw_data ),
       export_transactions (
         channel, volume_bbl, quantity, variant_label,
         export_transaction_taxes ( tax_name, amount_usd )
