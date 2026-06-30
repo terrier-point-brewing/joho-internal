@@ -649,6 +649,16 @@ export default function InvoicesPage() {
   const openValue     = invoices.filter((i) => i.status === "open").reduce((s, i) => s + i.total_cents, 0);
   const unlinkedCount = invoices.filter((i) => (i.invoice_batch_links as unknown as { count: number }[])[0]?.count === 0).length;
 
+  // Built once and shared by every row (React Compiler memoizes this call site).
+  const allInvoices: InvoiceSummary[] = (raw ?? []).map((i) => ({
+    id: i.id,
+    invoice_number: i.invoice_number ?? null,
+    square_invoice_id: i.square_invoice_id ?? null,
+    invoice_date: i.invoice_date ?? null,
+    customer_name: i.customer_name ?? null,
+    status: i.status,
+  }));
+
   return (
     <div className="flex flex-col h-full bg-zinc-950 text-zinc-100">
       <FinanceNav mobile />
@@ -802,7 +812,7 @@ export default function InvoicesPage() {
                     inv={inv}
                     accounts={accounts}
                     batches={batches}
-                    allInvoices={(raw ?? []).map((i) => ({ id: i.id, invoice_number: i.invoice_number ?? null, square_invoice_id: i.square_invoice_id ?? null, invoice_date: i.invoice_date ?? null, customer_name: i.customer_name ?? null, status: i.status }))}
+                    allInvoices={allInvoices}
                     onSaveLineItem={handleSaveLineItem}
                     onBatchChanged={() => refetch()}
                   />
