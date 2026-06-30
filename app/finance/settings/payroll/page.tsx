@@ -2,6 +2,8 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, useEffect } from "react";
+import PageHeader from "@/app/components/PageHeader";
+import Banner from "@/app/components/ui/Banner";
 import { queryKeys } from "@/lib/query-keys";
 import type { Employee, PayrollConfig } from "@/lib/payroll/types";
 
@@ -203,23 +205,23 @@ export default function PayrollSettingsPage() {
     },
   });
 
-  const inputCls = "mt-1 w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-1.5 text-zinc-200 text-sm";
-  const labelCls = "block text-zinc-500 text-xs";
+  const inputCls = "inp mt-1 w-full";
+  const labelCls = "block text-xs text-secondary";
 
   return (
     <main className="px-4 sm:px-6 py-8 max-w-3xl">
-      <h2 className="text-zinc-100 font-semibold text-base mb-8">Payroll</h2>
+      <PageHeader title="Payroll" />
 
       {/* ── Pay Schedule ─────────────────────────────────────────────────── */}
-      <section className="mb-10">
+      <section className="mt-6 mb-10">
         <div className="flex items-center gap-3 mb-4">
-          <h3 className="text-zinc-300 font-medium text-sm">Pay Schedule</h3>
+          <h3 className="text-sm font-semibold text-strong">Pay Schedule</h3>
           {config?.id ? (
-            <span className="text-xs px-2 py-0.5 rounded-full bg-green-900/30 text-green-400">
+            <span className="text-xs px-2 py-0.5 rounded-full bg-success-surface/40 text-success">
               Active — {config.pay_period_frequency}, due {config.due_date_days_after_end}d after period end
             </span>
           ) : (
-            <span className="text-xs px-2 py-0.5 rounded-full bg-amber-900/30 text-amber-400">
+            <span className="text-xs px-2 py-0.5 rounded-full bg-accent-muted/30 text-accent">
               Not configured — save settings below to activate
             </span>
           )}
@@ -249,24 +251,24 @@ export default function PayrollSettingsPage() {
             />
           </label>
         </div>
-        <p className="text-xs text-zinc-600 mb-4">
+        <p className="text-xs text-faint mb-4">
           Saving creates the current period if it does not exist yet. The daily cron creates the next period as soon as the current one starts.
         </p>
         <div className="flex items-center gap-3">
           <button
             onClick={() => saveSchedule.mutate()}
             disabled={saveSchedule.isPending}
-            className="text-sm px-4 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded disabled:opacity-40"
+            className="btn-amber"
           >
             {saveSchedule.isPending ? "Saving…" : "Save Pay Schedule"}
           </button>
-          {scheduleMsg && <span className="text-xs text-green-400">{scheduleMsg}</span>}
+          {scheduleMsg && <span className="text-xs text-success">{scheduleMsg}</span>}
         </div>
       </section>
 
       {/* ── Rate Configuration ────────────────────────────────────────────── */}
       <section className="mb-10">
-        <h3 className="text-zinc-300 font-medium text-sm mb-4">Rate Configuration</h3>
+        <h3 className="text-sm font-semibold text-strong mb-4">Rate Configuration</h3>
         <div className="grid grid-cols-2 gap-4 mb-4">
           <label className="block">
             <span className={labelCls}>Base Rate ($/hr)</span>
@@ -320,46 +322,46 @@ export default function PayrollSettingsPage() {
             </select>
           </label>
         </div>
-        <p className="text-xs text-zinc-600 mb-3">
+        <p className="text-xs text-faint mb-3">
           Controls at what granularity tips and guaranteed-rate bonuses are calculated. Daily and weekly ensure the minimum guarantee applies within each sub-period.
         </p>
         <button
           onClick={() => saveRates.mutate()}
           disabled={saveRates.isPending}
-          className="text-sm px-4 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded disabled:opacity-40"
+          className="btn-amber"
         >
           {saveRates.isPending ? "Saving…" : "Save Rates"}
         </button>
 
-        <div className="mt-6 bg-zinc-900 border border-zinc-800 rounded-lg p-4 text-xs text-zinc-400 space-y-2 font-mono">
-          <p><span className="text-zinc-200">hour_share</span> = employee_hours / total_tipped_hours</p>
-          <p><span className="text-zinc-200">paycheck_tips</span> = hour_share × total_pooled_tips <span className="text-zinc-600">(from Square)</span></p>
-          <p><span className="text-zinc-200">cash_tips</span> = hour_share × <span className="text-amber-400">{cashTipsRate || "0.01"}</span> × total_cash_take</p>
-          <p><span className="text-zinc-200">base_pay</span> = hours × <span className="text-amber-400">${baseRate || "?"}/hr</span></p>
-          <p><span className="text-zinc-200">guaranteed_min</span> = hours × <span className="text-amber-400">${guaranteedRate || "?"}/hr</span></p>
-          <p><span className="text-zinc-200">bonus</span> = max(0, guaranteed_min − base_pay − paycheck_tips − cash_tips)</p>
+        <div className="mt-6 bg-surface border border-line rounded-lg p-4 text-xs text-secondary space-y-2 font-mono">
+          <p><span className="text-strong">hour_share</span> = employee_hours / total_tipped_hours</p>
+          <p><span className="text-strong">paycheck_tips</span> = hour_share × total_pooled_tips <span className="text-faint">(from Square)</span></p>
+          <p><span className="text-strong">cash_tips</span> = hour_share × <span className="text-accent">{cashTipsRate || "0.01"}</span> × total_cash_take</p>
+          <p><span className="text-strong">base_pay</span> = hours × <span className="text-accent">${baseRate || "?"}/hr</span></p>
+          <p><span className="text-strong">guaranteed_min</span> = hours × <span className="text-accent">${guaranteedRate || "?"}/hr</span></p>
+          <p><span className="text-strong">bonus</span> = max(0, guaranteed_min − base_pay − paycheck_tips − cash_tips)</p>
         </div>
-        <p className="text-xs text-zinc-600 mt-2">
-          Tip model: <span className="text-zinc-400">Proportional Hours</span>
+        <p className="text-xs text-faint mt-2">
+          Tip model: <span className="text-secondary">Proportional Hours</span>
         </p>
       </section>
 
       {/* ── Employees ────────────────────────────────────────────────────── */}
       <section>
         <div className="flex items-center justify-between mb-3">
-          <h3 className="text-zinc-300 font-medium text-sm">Employees</h3>
+          <h3 className="text-sm font-semibold text-strong">Employees</h3>
           <div className="flex items-center gap-2">
-            {syncMsg && <span className="text-xs text-green-400">{syncMsg}</span>}
+            {syncMsg && <span className="text-xs text-success">{syncMsg}</span>}
             <button
               onClick={() => syncSquare.mutate()}
               disabled={syncSquare.isPending}
-              className="text-xs px-3 py-1 bg-zinc-700 hover:bg-zinc-600 text-zinc-200 rounded disabled:opacity-40"
+              className="btn-ghost btn-sm"
             >
               {syncSquare.isPending ? "Syncing…" : "Sync from Square"}
             </button>
             <button
               onClick={() => setShowAddForm(v => !v)}
-              className="text-xs px-3 py-1 bg-zinc-700 hover:bg-zinc-600 text-zinc-200 rounded"
+              className="btn-ghost btn-sm"
             >
               {showAddForm ? "Cancel" : "+ Add Employee"}
             </button>
@@ -368,7 +370,7 @@ export default function PayrollSettingsPage() {
 
         {/* Add employee inline form */}
         {showAddForm && (
-          <div className="mb-4 p-4 bg-zinc-900 border border-zinc-700 rounded-lg">
+          <div className="mb-4 p-4 bg-surface border border-line-strong rounded-lg">
             <div className="grid grid-cols-2 gap-3 mb-3">
               <label className="block">
                 <span className={labelCls}>First Name *</span>
@@ -418,59 +420,59 @@ export default function PayrollSettingsPage() {
                 onChange={e => setNewTips(e.target.checked)}
                 className="accent-amber-500"
               />
-              <span className="text-zinc-400 text-sm">Receives tips</span>
+              <span className="text-secondary text-sm">Receives tips</span>
             </label>
             <div className="flex gap-2">
               <button
                 onClick={() => addEmployee.mutate()}
                 disabled={addEmployee.isPending || !newFirst || !newLast || !newEmail}
-                className="text-sm px-4 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded disabled:opacity-40"
+                className="btn-amber"
               >
                 {addEmployee.isPending ? "Adding…" : "Add Employee"}
               </button>
               <button
                 onClick={() => setShowAddForm(false)}
-                className="text-sm px-4 py-1.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 rounded"
+                className="btn-ghost"
               >
                 Cancel
               </button>
             </div>
             {addEmployee.isError && (
-              <p className="text-red-400 text-xs mt-2">{String(addEmployee.error)}</p>
+              <Banner className="mt-2">{String(addEmployee.error)}</Banner>
             )}
           </div>
         )}
 
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-zinc-700">
-              <th className="text-left py-2 px-3 text-zinc-500">Name</th>
-              <th className="text-left py-2 px-3 text-zinc-500">Title</th>
-              <th className="text-left py-2 px-3 text-zinc-500">Type</th>
-              <th className="text-left py-2 px-3 text-zinc-500">Tips</th>
-              <th className="text-left py-2 px-3 text-zinc-500">Square ID</th>
-              <th className="py-2 px-3 text-zinc-500">Active</th>
-              <th className="py-2 px-3 text-zinc-500"></th>
+            <tr className="border-b border-line-strong">
+              <th className="text-left py-2 px-3 text-muted">Name</th>
+              <th className="text-left py-2 px-3 text-muted">Title</th>
+              <th className="text-left py-2 px-3 text-muted">Type</th>
+              <th className="text-left py-2 px-3 text-muted">Tips</th>
+              <th className="text-left py-2 px-3 text-muted">Square ID</th>
+              <th className="py-2 px-3 text-muted">Active</th>
+              <th className="py-2 px-3 text-muted"></th>
             </tr>
           </thead>
           <tbody>
             {(employees ?? []).map(emp => (
               <>
-                <tr key={emp.id} className="border-b border-zinc-800">
-                  <td className="py-2 px-3 text-zinc-200">{emp.first_name} {emp.last_name}</td>
-                  <td className="py-2 px-3 text-zinc-400 text-xs">{emp.job_title}</td>
-                  <td className="py-2 px-3 text-zinc-400 text-xs">{EMP_TYPE_LABELS[emp.employment_type] ?? emp.employment_type}</td>
-                  <td className="py-2 px-3 text-zinc-400 text-xs">
+                <tr key={emp.id} className="border-b border-line">
+                  <td className="py-2 px-3 text-strong">{emp.first_name} {emp.last_name}</td>
+                  <td className="py-2 px-3 text-secondary text-xs">{emp.job_title}</td>
+                  <td className="py-2 px-3 text-secondary text-xs">{EMP_TYPE_LABELS[emp.employment_type] ?? emp.employment_type}</td>
+                  <td className="py-2 px-3 text-secondary text-xs">
                     {emp.receives_tips ? "Yes" : (
                       <>
                         No
                         {emp.square_team_member_id && (
-                          <span className="ml-1 text-amber-600" title="Square tips excluded from pool">⚠</span>
+                          <span className="ml-1 text-accent-border" title="Square tips excluded from pool">⚠</span>
                         )}
                       </>
                     )}
                   </td>
-                  <td className="py-2 px-3 text-zinc-600 text-xs font-mono">
+                  <td className="py-2 px-3 text-faint text-xs font-mono">
                     {emp.square_team_member_id?.slice(0, 12) ?? "—"}
                   </td>
                   <td className="py-2 px-3 text-center">
@@ -478,8 +480,8 @@ export default function PayrollSettingsPage() {
                       onClick={() => toggleEmployee.mutate({ id: emp.id, active: !emp.active })}
                       className={`text-xs px-2 py-0.5 rounded ${
                         emp.active
-                          ? "bg-green-900/30 text-green-400 hover:bg-red-900/30 hover:text-red-400"
-                          : "bg-zinc-800 text-zinc-500 hover:bg-green-900/30 hover:text-green-400"
+                          ? "bg-success-surface/40 text-success hover:bg-danger-surface/40 hover:text-danger"
+                          : "bg-surface-mid text-muted hover:bg-success-surface/40 hover:text-success"
                       }`}
                     >
                       {emp.active ? "Active" : "Inactive"}
@@ -488,14 +490,14 @@ export default function PayrollSettingsPage() {
                   <td className="py-2 px-3 text-center">
                     <button
                       onClick={() => editingId === emp.id ? setEditingId(null) : startEdit(emp)}
-                      className="text-xs text-zinc-500 hover:text-zinc-300"
+                      className="text-xs text-muted hover:text-body"
                     >
                       {editingId === emp.id ? "Cancel" : "Edit"}
                     </button>
                   </td>
                 </tr>
                 {editingId === emp.id && (
-                  <tr key={`${emp.id}-edit`} className="border-b border-zinc-700 bg-zinc-900/50">
+                  <tr key={`${emp.id}-edit`} className="border-b border-line-strong bg-surface/50">
                     <td colSpan={7} className="px-3 py-4">
                       <div className="grid grid-cols-2 gap-3 mb-3">
                         <label className="block">
@@ -542,24 +544,24 @@ export default function PayrollSettingsPage() {
                       <div className="mb-3">
                         <label className="flex items-center gap-2 cursor-pointer">
                           <input type="checkbox" checked={editDraft.receives_tips ?? false} onChange={e => setEditDraft(d => ({ ...d, receives_tips: e.target.checked }))} className="accent-amber-500" />
-                          <span className="text-zinc-400 text-sm">Receives tips</span>
+                          <span className="text-secondary text-sm">Receives tips</span>
                         </label>
                         {editDraft.square_team_member_id && !editDraft.receives_tips && (
-                          <div className="mt-2 flex items-start gap-2 bg-amber-950/30 border border-amber-800/50 rounded px-3 py-2 text-xs text-amber-400">
+                          <Banner tone="accent" className="mt-2 flex items-start gap-2">
                             <span className="mt-0.5 shrink-0">⚠</span>
                             <span>This employee has a Square Team Member ID. Any tips credited to their shifts in Square will be <strong>excluded</strong> from the shared tip pool — they won&apos;t flow into other employees&apos; calculations.</span>
-                          </div>
+                          </Banner>
                         )}
                       </div>
                       <div className="flex gap-2">
                         <button
                           onClick={() => updateEmployee.mutate({ id: emp.id, patch: editDraft })}
                           disabled={updateEmployee.isPending}
-                          className="text-sm px-4 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded disabled:opacity-40"
+                          className="btn-amber"
                         >
                           {updateEmployee.isPending ? "Saving…" : "Save"}
                         </button>
-                        <button onClick={() => setEditingId(null)} className="text-sm px-3 py-1.5 text-zinc-500 hover:text-zinc-300">
+                        <button onClick={() => setEditingId(null)} className="btn-ghost btn-sm">
                           Cancel
                         </button>
                       </div>
@@ -570,7 +572,7 @@ export default function PayrollSettingsPage() {
             ))}
             {(employees ?? []).length === 0 && (
               <tr>
-                <td colSpan={7} className="py-6 text-center text-zinc-600">
+                <td colSpan={7} className="py-6 text-center text-faint">
                   No employees yet.
                 </td>
               </tr>

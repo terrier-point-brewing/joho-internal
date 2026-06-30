@@ -4,6 +4,8 @@ import { useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import SalesTable, { type SalesRow } from "../sales/SalesTable";
 import FinanceNav from "../FinanceNav";
+import PageHeader from "@/app/components/PageHeader";
+import Banner from "@/app/components/ui/Banner";
 import { fetchJson } from "@/app/production/hooks/queries";
 
 const ROWS: SalesRow[] = [
@@ -115,40 +117,32 @@ export default function ModelPage() {
   }, [months, taproomData, invoiceData]);
 
   return (
-    <div className="flex flex-col h-full bg-zinc-950 text-zinc-100">
+    <div className="flex flex-col h-full bg-canvas text-primary">
       <FinanceNav mobile />
-      <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-5 pb-4">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h1 className="text-base font-semibold text-zinc-100">Finance</h1>
-            <p className="text-xs text-zinc-500 mt-0.5">Admin only</p>
-          </div>
+      <div className="shrink-0 px-4 sm:px-6">
+        <div className="flex items-center justify-between">
+          <PageHeader title="Finance" description="Admin only" />
           <div className="flex items-center gap-2">
             <select
               value={year}
               onChange={(e) => setYear(Number(e.target.value))}
-              className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200"
+              className="inp-sm w-auto"
             >
               {years.map((y) => <option key={y} value={y}>{y}</option>)}
             </select>
-            <button
-              onClick={handleRefresh}
-              className="px-3 py-1 bg-amber-600 hover:bg-amber-500 text-white text-xs rounded transition-colors"
-            >
-              Refresh
-            </button>
+            <button onClick={handleRefresh} className="btn-amber">Refresh</button>
           </div>
         </div>
       </div>
 
       {error && (
-        <div className="mx-4 sm:mx-6 mb-4 bg-red-900/30 border border-red-700 rounded p-3 text-sm text-red-300">
+        <Banner className="mx-4 sm:mx-6 mb-4 mt-4">
           {error instanceof Error ? error.message : "Failed to load"}
-        </div>
+        </Banner>
       )}
 
-      <div className="flex-1 overflow-auto px-4 sm:px-6 pb-6">
-        <div className="bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden">
+      <div className="flex-1 overflow-auto px-4 sm:px-6 pb-6 pt-4">
+        <div className="bg-surface border border-line rounded-lg overflow-hidden">
           <SalesTable rows={ROWS} months={months} monthly={monthly} loading={isFetching} />
         </div>
       </div>

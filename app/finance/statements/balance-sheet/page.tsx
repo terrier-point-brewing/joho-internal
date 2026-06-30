@@ -1,50 +1,16 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
-import { formatCurrencyCents } from "@/lib/format";
 import FinanceNav from "../../FinanceNav";
 import StatementsNav from "../StatementsNav";
+import {
+  MONTH_NAMES, fmtCents as fmtMoney, shortName, buildTree, StatementHeader,
+  type TreeNode,
+} from "../lib";
 import type { AccountBalance } from "@/app/api/finance/statements/route";
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Balance-sheet specific tree math ────────────────────────────────────────────
 
-const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-
-function fmtMoney(cents: number): string {
-  if (cents === 0) return "—";
-  const neg = cents < 0;
-  const abs = formatCurrencyCents(Math.abs(cents));
-  return neg ? `(${abs})` : abs;
-}
-
-function shortName(name: string, parentName: string | undefined): string {
-  if (!parentName) return name;
-  const prefix = parentName + ":";
-  if (name.startsWith(prefix)) return name.slice(prefix.length).trim();
-  const prefixSpace = parentName + " : ";
-  if (name.startsWith(prefixSpace)) return name.slice(prefixSpace.length).trim();
-  return name;
-}
-
-// ── Tree ─────────────────────────────────────────────────────────────────────
-
-interface TreeNode {
-  acct: AccountBalance;
-  children: TreeNode[];
-}
-
-function buildTree(accounts: AccountBalance[]): TreeNode[] {
-  const byId = new Map<string, TreeNode>();
-  for (const acct of accounts) byId.set(acct.id, { acct, children: [] });
-  const roots: TreeNode[] = [];
-  for (const node of byId.values()) {
-    const pid = node.acct.parent_id;
-    if (pid && byId.has(pid)) byId.get(pid)!.children.push(node);
-    else roots.push(node);
-  }
-  return roots;
-}
-
-function nodeBalance(node: TreeNode): number {
+function nodeBalance(node: TreeNode<AccountBalance>): number {
   return node.acct.balance_cents + node.children.reduce((s, c) => s + nodeBalance(c), 0);
 }
 
@@ -56,7 +22,7 @@ function AccountRow({
   parentName,
   expandAll,
 }: {
-  node: TreeNode;
+  node: TreeNode<AccountBalance>;
   depth: number;
   parentName?: string;
   expandAll: boolean | null;
@@ -75,25 +41,25 @@ function AccountRow({
   return (
     <>
       <div
-        className={`grid grid-cols-[minmax(0,1fr)_100px] gap-4 py-1.5 border-t border-zinc-800/30 hover:bg-zinc-900/20 ${total === 0 ? "opacity-40" : ""}`}
+        className={`grid grid-cols-[minmax(0,1fr)_100px] gap-4 py-1.5 border-t border-line/30 hover:bg-surface/20 ${total === 0 ? "opacity-40" : ""}`}
         style={{ paddingLeft: `${(depth + 1) * 20 + 12}px`, paddingRight: "24px" }}
       >
         <div className="flex items-center gap-1.5 min-w-0">
           {hasChildren ? (
-            <button onClick={() => setExpanded(e => !e)} className="text-zinc-600 hover:text-zinc-400 w-3 shrink-0 text-[10px]">
+            <button onClick={() => setExpanded(e => !e)} className="text-faint hover:text-secondary w-3 shrink-0 text-[10px]">
               {expanded ? "▾" : "▸"}
             </button>
           ) : (
             <span className="w-3 shrink-0" />
           )}
           {node.acct.account_number && (
-            <span className="text-zinc-600 font-mono text-[10px] shrink-0">{node.acct.account_number}</span>
+            <span className="text-faint font-mono text-[10px] shrink-0">{node.acct.account_number}</span>
           )}
-          <span className={`truncate text-xs ${hasChildren ? "font-medium text-zinc-200" : "text-zinc-400"}`}>
+          <span className={`truncate text-xs ${hasChildren ? "font-medium text-strong" : "text-secondary"}`}>
             {displayName}
           </span>
         </div>
-        <span className="text-right font-mono tabular-nums text-xs self-center text-zinc-400">
+        <span className="text-right font-mono tabular-nums text-xs self-center text-secondary">
           {hasChildren && !expanded ? fmtMoney(total) : fmtMoney(node.acct.balance_cents)}
         </span>
       </div>
@@ -119,7 +85,7 @@ function Section({
   expandAll,
 }: {
   title: string;
-  nodes: TreeNode[];
+  nodes: TreeNode<AccountBalance>[];
   totalLabel: string;
   expandAll: boolean | null;
 }) {
@@ -134,16 +100,16 @@ function Section({
   const hasData = totalCents !== 0;
 
   return (
-    <div className="border-b border-zinc-800/60">
+    <div className="border-b border-line/60">
       <button
         onClick={() => setExpanded(e => !e)}
-        className="w-full flex items-center justify-between px-4 sm:px-6 py-3 hover:bg-zinc-900/30 transition-colors text-left">
+        className="w-full flex items-center justify-between px-4 sm:px-6 py-3 hover:bg-surface/30 transition-colors text-left">
         <div className="flex items-center gap-2">
-          <span className="text-zinc-600 text-xs w-3">{expanded ? "▾" : "▸"}</span>
-          <span className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">{title}</span>
-          {!hasData && <span className="text-[10px] text-zinc-600 italic">no mapped data</span>}
+          <span className="text-faint text-xs w-3">{expanded ? "▾" : "▸"}</span>
+          <span className="text-xs font-semibold text-body uppercase tracking-wider">{title}</span>
+          {!hasData && <span className="text-[10px] text-faint italic">no mapped data</span>}
         </div>
-        <span className="text-xs font-mono font-semibold text-zinc-200 tabular-nums">{fmtMoney(totalCents)}</span>
+        <span className="text-xs font-mono font-semibold text-strong tabular-nums">{fmtMoney(totalCents)}</span>
       </button>
 
       {expanded && nodes.length > 0 && (
@@ -154,9 +120,9 @@ function Section({
         </div>
       )}
 
-      <div className="flex items-center justify-between px-4 sm:px-6 py-2 bg-zinc-900/40 border-t border-zinc-800/60">
-        <span className="text-xs text-zinc-400 font-medium">{totalLabel}</span>
-        <span className="text-xs font-mono font-semibold tabular-nums text-zinc-100">{fmtMoney(totalCents)}</span>
+      <div className="flex items-center justify-between px-4 sm:px-6 py-2 bg-surface/40 border-t border-line/60">
+        <span className="text-xs text-secondary font-medium">{totalLabel}</span>
+        <span className="text-xs font-mono font-semibold tabular-nums text-primary">{fmtMoney(totalCents)}</span>
       </div>
     </div>
   );
@@ -164,17 +130,17 @@ function Section({
 
 function GroupHeader({ label }: { label: string }) {
   return (
-    <div className="px-4 sm:px-6 py-2 bg-zinc-900 border-b border-zinc-800">
-      <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest">{label}</span>
+    <div className="px-4 sm:px-6 py-2 bg-surface border-b border-line">
+      <span className="text-[11px] font-bold text-secondary uppercase tracking-widest">{label}</span>
     </div>
   );
 }
 
 function GroupTotal({ label, cents }: { label: string; cents: number }) {
   return (
-    <div className="flex items-center justify-between px-4 sm:px-6 py-3 bg-zinc-800/50 border-b border-zinc-700">
-      <span className="text-sm font-bold text-zinc-200">{label}</span>
-      <span className={`text-sm font-mono font-bold tabular-nums ${cents < 0 ? "text-red-400" : "text-zinc-100"}`}>
+    <div className="flex items-center justify-between px-4 sm:px-6 py-3 bg-surface-mid/50 border-b border-line-strong">
+      <span className="text-sm font-bold text-strong">{label}</span>
+      <span className={`text-sm font-mono font-bold tabular-nums ${cents < 0 ? "text-danger" : "text-primary"}`}>
         {fmtMoney(cents)}
       </span>
     </div>
@@ -218,7 +184,7 @@ export default function BalanceSheetPage() {
   }, []);
 
   const accounts = data?.accounts ?? [];
-  const sum = (nodes: TreeNode[]) => nodes.reduce((s, n) => s + nodeBalance(n), 0);
+  const sum = (nodes: TreeNode<AccountBalance>[]) => nodes.reduce((s, n) => s + nodeBalance(n), 0);
 
   const bsSections = new Set(["bank","ar","other_current_assets","fixed_assets","ap","credit_card","other_current_liabilities","long_term_liabilities","equity"]);
   const treeAll = buildTree(accounts.filter(a => bsSections.has(a.section)));
@@ -256,39 +222,29 @@ export default function BalanceSheetPage() {
     : `Dec 31, ${year}`;
 
   return (
-    <div className="flex flex-col h-full bg-zinc-950 text-zinc-100">
+    <div className="flex flex-col h-full bg-canvas text-primary">
       <FinanceNav mobile />
 
-      <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-5 pb-3 flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-base font-semibold text-zinc-100">Balance Sheet</h1>
-          <p className="text-xs text-zinc-500 mt-0.5">As of {periodLabel} · cumulative from inception</p>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <button onClick={() => handleExpandAll(true)}
-            className="px-2.5 py-1.5 text-[10px] text-zinc-400 border border-zinc-700 rounded hover:bg-zinc-800 hover:text-zinc-200 transition-colors">
-            Expand All
-          </button>
-          <button onClick={() => handleExpandAll(false)}
-            className="px-2.5 py-1.5 text-[10px] text-zinc-400 border border-zinc-700 rounded hover:bg-zinc-800 hover:text-zinc-200 transition-colors">
-            Collapse All
-          </button>
-          <select value={month} onChange={(e) => setMonth(Number(e.target.value))}
-            className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-xs text-zinc-200">
-            <option value={0}>Annual (Dec 31)</option>
-            {MONTH_NAMES.map((m, i) => <option key={i + 1} value={i + 1}>{m}</option>)}
-          </select>
-          <select value={year} onChange={(e) => setYear(Number(e.target.value))}
-            className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-xs text-zinc-200">
-            {years.map((y) => <option key={y} value={y}>{y}</option>)}
-          </select>
-        </div>
+      <StatementHeader
+        title="Balance Sheet"
+        description={`As of ${periodLabel} · cumulative from inception`}
+        onExpandAll={handleExpandAll}
+      >
+        <select value={month} onChange={(e) => setMonth(Number(e.target.value))} className="inp-sm w-auto">
+          <option value={0}>Annual (Dec 31)</option>
+          {MONTH_NAMES.map((m, i) => <option key={i + 1} value={i + 1}>{m}</option>)}
+        </select>
+        <select value={year} onChange={(e) => setYear(Number(e.target.value))} className="inp-sm w-auto">
+          {years.map((y) => <option key={y} value={y}>{y}</option>)}
+        </select>
+      </StatementHeader>
+      <div className="px-4 sm:px-6 shrink-0">
+        <StatementsNav />
       </div>
-      <StatementsNav />
 
       <div className="flex-1 overflow-auto">
-        {loading && <div className="flex items-center justify-center h-32"><p className="text-xs text-zinc-600">Loading…</p></div>}
-        {error && <p className="text-xs text-red-400 px-6 py-4">{error}</p>}
+        {loading && <div className="flex items-center justify-center h-32"><p className="text-xs text-faint">Loading…</p></div>}
+        {error && <p className="text-xs text-danger px-6 py-4">{error}</p>}
 
         {!loading && !error && (
           <>
@@ -314,17 +270,17 @@ export default function BalanceSheetPage() {
 
             <GroupHeader label="Equity" />
             <Section title="Equity" nodes={equity} totalLabel="Total Equity Accounts" expandAll={expandAll} />
-            <div className="flex items-center justify-between px-10 py-1.5 text-xs border-t border-zinc-800/30">
-              <span className="text-zinc-400">Net Income (cumulative through {periodLabel})</span>
-              <span className={`font-mono tabular-nums ${netIncome < 0 ? "text-red-400" : "text-zinc-300"}`}>{fmtMoney(netIncome)}</span>
+            <div className="flex items-center justify-between px-10 py-1.5 text-xs border-t border-line/30">
+              <span className="text-secondary">Net Income (cumulative through {periodLabel})</span>
+              <span className={`font-mono tabular-nums ${netIncome < 0 ? "text-danger" : "text-body"}`}>{fmtMoney(netIncome)}</span>
             </div>
-            <div className="flex items-center justify-between px-4 sm:px-6 py-2 bg-zinc-900/40 border-t border-zinc-800/60 border-b border-zinc-800/60">
-              <span className="text-xs text-zinc-400 font-medium">Total Equity</span>
-              <span className="text-xs font-mono font-semibold tabular-nums text-zinc-100">{fmtMoney(totalEquity)}</span>
+            <div className="flex items-center justify-between px-4 sm:px-6 py-2 bg-surface/40 border-t border-line/60 border-b border-line/60">
+              <span className="text-xs text-secondary font-medium">Total Equity</span>
+              <span className="text-xs font-mono font-semibold tabular-nums text-primary">{fmtMoney(totalEquity)}</span>
             </div>
             <GroupTotal label="Total Liabilities + Equity" cents={totalLiabEquity} />
 
-            <div className="px-4 sm:px-6 py-4 text-[10px] text-zinc-600">
+            <div className="px-4 sm:px-6 py-4 text-[10px] text-faint">
               A/R reflects open invoices as of this date. Deposit invoices pending delivery are recorded to their mapped BS account.
               Bank, credit card, and equity balances require Ramp integration and/or manual journal entries.
             </div>

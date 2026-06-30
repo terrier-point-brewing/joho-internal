@@ -1,7 +1,11 @@
 "use client";
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import FinanceNav from "../../FinanceNav";
 import SettingsNav from "../SettingsNav";
+import AccountSelect from "../../AccountSelect";
+import PageHeader from "@/app/components/PageHeader";
+import Banner from "@/app/components/ui/Banner";
+import { SPLIT_CATEGORY_CLS, DEPOSIT_CATEGORY_CLS } from "../../lib/categoryColors";
 
 interface CoAAccount {
   id: string;
@@ -68,154 +72,6 @@ function fmtPrice(amount: number | null, currency: string | null, pricingType: s
   return (amount / 100).toLocaleString("en-US", { style: "currency", currency: currency ?? "USD" });
 }
 
-function accountLabel(a: { account_name: string; account_number: string | null }) {
-  return a.account_number ? `${a.account_number} · ${a.account_name}` : a.account_name;
-}
-
-function shortAccountName(name: string) {
-  const parts = name.split(":");
-  return parts[parts.length - 1].trim();
-}
-
-function AccountSelect({
-  value,
-  onChange,
-  accounts,
-  placeholder = "— no mapping —",
-}: {
-  value: string | null;
-  onChange: (id: string | null) => void;
-  accounts: CoAAccount[];
-  placeholder?: string;
-}) {
-  const [open, setOpen]   = useState(false);
-  const [query, setQuery] = useState("");
-  const wrapRef           = useRef<HTMLDivElement>(null);
-  const inputRef          = useRef<HTMLInputElement>(null);
-
-  const selected = accounts.find((a) => a.id === value) ?? null;
-
-  const filtered = query.trim()
-    ? accounts.filter((a) =>
-        `${a.account_number ?? ""} ${a.account_name} ${a.account_type}`
-          .toLowerCase()
-          .includes(query.toLowerCase())
-      )
-    : accounts;
-
-  // Group filtered results by account_type
-  const grouped = filtered.reduce<Record<string, CoAAccount[]>>((acc, a) => {
-    (acc[a.account_type] ??= []).push(a);
-    return acc;
-  }, {});
-  const groupEntries = Object.entries(grouped).sort(([a], [b]) => a.localeCompare(b));
-
-  useEffect(() => {
-    if (!open) return;
-    function onDown(e: MouseEvent) {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
-        setOpen(false);
-        setQuery("");
-      }
-    }
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, [open]);
-
-  function handleOpen() {
-    setOpen(true);
-    setQuery("");
-    setTimeout(() => inputRef.current?.focus(), 0);
-  }
-
-  function handleSelect(id: string | null) {
-    onChange(id);
-    setOpen(false);
-    setQuery("");
-  }
-
-  return (
-    <div ref={wrapRef} className="relative w-full max-w-[360px]">
-      {/* Trigger */}
-      <button
-        type="button"
-        onClick={handleOpen}
-        className="w-full flex items-center justify-between gap-1 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-left focus:outline-none focus:border-amber-600 hover:border-zinc-500 transition-colors"
-      >
-        <span className={`truncate ${selected ? "text-zinc-200" : "text-zinc-500"}`} title={selected ? accountLabel(selected) : undefined}>
-          {selected
-            ? (selected.account_number
-                ? `${selected.account_number} · ${shortAccountName(selected.account_name)}`
-                : shortAccountName(selected.account_name))
-            : placeholder}
-        </span>
-        <span className="text-zinc-600 shrink-0">⌄</span>
-      </button>
-
-      {open && (
-        <div className="absolute z-50 left-0 right-0 mt-1 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl flex flex-col max-h-64">
-          {/* Search input */}
-          <div className="p-1.5 border-b border-zinc-800 shrink-0">
-            <input
-              ref={inputRef}
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Escape") { setOpen(false); setQuery(""); } }}
-              placeholder="Search accounts…"
-              className="w-full bg-zinc-800 rounded px-2 py-1 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none"
-            />
-          </div>
-
-          {/* Options */}
-          <div className="overflow-y-auto">
-            {/* Clear option */}
-            <button
-              type="button"
-              onMouseDown={(e) => { e.preventDefault(); handleSelect(null); }}
-              className={`w-full text-left px-3 py-2 text-xs border-b border-zinc-800/50 transition-colors ${
-                !value ? "text-amber-400 bg-amber-900/20" : "text-zinc-500 hover:bg-zinc-800"
-              }`}
-            >
-              {placeholder}
-            </button>
-
-            {groupEntries.length === 0 && (
-              <p className="px-3 py-3 text-xs text-zinc-600 italic text-center">No matches</p>
-            )}
-
-            {groupEntries.map(([type, accs]) => (
-              <div key={type}>
-                <div className="px-3 py-1 text-[10px] text-zinc-600 uppercase tracking-wider bg-zinc-900/80 sticky top-0">
-                  {type}
-                </div>
-                {accs
-                  .sort((a, b) => (a.account_number ?? "").localeCompare(b.account_number ?? "") || a.account_name.localeCompare(b.account_name))
-                  .map((a) => (
-                    <button
-                      key={a.id}
-                      type="button"
-                      onMouseDown={(e) => { e.preventDefault(); handleSelect(a.id); }}
-                      className={`w-full text-left px-3 py-2 text-xs transition-colors border-t border-zinc-800/30 ${
-                        a.id === value
-                          ? "bg-amber-900/30 text-amber-300"
-                          : "text-zinc-300 hover:bg-zinc-800"
-                      }`}
-                    >
-                      {a.account_number && (
-                        <span className="text-zinc-500 font-mono mr-1.5">{a.account_number}</span>
-                      )}
-                      {a.account_name}
-                    </button>
-                  ))}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 function VariationMappingRow({
   variation,
   accounts,
@@ -272,22 +128,24 @@ function VariationMappingRow({
   const price = fmtPrice(variation.price_amount, variation.price_currency, variation.pricing_type);
 
   return (
-    <div className="border-t border-zinc-800/30">
+    <div className="border-t border-line/30">
       {/* Main row */}
-      <div className="flex items-center gap-3 pl-6 pr-4 py-2.5 bg-zinc-950/40 hover:bg-zinc-900/30 transition-colors">
+      <div className="flex items-center gap-3 pl-6 pr-4 py-2.5 bg-canvas/40 hover:bg-surface/30 transition-colors">
         {/* Left: variation name + price */}
         <div className="w-44 shrink-0 min-w-0">
-          <div className="text-xs text-zinc-300 truncate">{variation.variation_name}</div>
-          <div className="text-[10px] text-zinc-600 tabular-nums mt-0.5">{price}</div>
+          <div className="text-xs text-body truncate">{variation.variation_name}</div>
+          <div className="text-[10px] text-faint tabular-nums mt-0.5">{price}</div>
         </div>
         {/* Middle: default GL account */}
         <div className="flex-1 min-w-0 flex items-center gap-2">
-          {saving && <span className="text-[10px] text-zinc-600 shrink-0">Saving…</span>}
+          {saving && <span className="text-[10px] text-faint shrink-0">Saving…</span>}
           <AccountSelect
             value={variation.chart_of_accounts_id}
             onChange={handleChange}
             accounts={accounts}
             placeholder="— no mapping —"
+            shortLabel
+            className="w-full max-w-[360px]"
           />
         </div>
         {/* Right: toggles */}
@@ -298,8 +156,8 @@ function VariationMappingRow({
             title={splitOpen ? "Hide POS/Invoice overrides" : "Split by POS / Invoice source"}
             className={`px-2 py-1.5 text-[10px] rounded border transition-colors ${
               hasSplit
-                ? "bg-blue-900/40 border-blue-700 text-blue-300 hover:bg-blue-900/60"
-                : "bg-zinc-900 border-zinc-700 text-zinc-500 hover:text-zinc-300 hover:border-zinc-500"
+                ? "bg-info-surface/40 border-info-border text-info hover:bg-info-surface/60"
+                : "bg-surface border-line-strong text-muted hover:text-body hover:border-line-subtle"
             }`}
           >
             {splitOpen ? "▴ split" : "split ▾"}
@@ -311,7 +169,7 @@ function VariationMappingRow({
             className={`px-2 py-1.5 text-[10px] rounded border transition-colors ${
               hasDeposit
                 ? "bg-violet-900/40 border-violet-700 text-violet-300 hover:bg-violet-900/60"
-                : "bg-zinc-900 border-zinc-700 text-zinc-500 hover:text-zinc-300 hover:border-zinc-500"
+                : "bg-surface border-line-strong text-muted hover:text-body hover:border-line-subtle"
             }`}
           >
             {depositOpen ? "▴ deposit" : "deposit ▾"}
@@ -321,59 +179,67 @@ function VariationMappingRow({
 
       {/* Source override rows (POS / Invoice) */}
       {splitOpen && (
-        <div className="pl-6 pr-4 pb-3 pt-2 flex flex-col gap-2 bg-blue-950/10 border-t border-blue-900/20">
+        <div className="pl-6 pr-4 pb-3 pt-2 flex flex-col gap-2 bg-info-surface/10 border-t border-info-border/20">
           <div className="flex items-center gap-3">
-            <span className="text-[10px] text-zinc-500 w-16 shrink-0 text-right">POS</span>
+            <span className="text-[10px] text-muted w-16 shrink-0 text-right">POS</span>
             <AccountSelect
               value={variation.chart_of_accounts_id_pos}
               onChange={(id) => handleSourceChange("chart_of_accounts_id_pos", id)}
               accounts={accounts}
               placeholder="— same as default —"
-            />
+            shortLabel
+            className="w-full max-w-[360px]"
+          />
           </div>
           <div className="flex items-center gap-3">
-            <span className="text-[10px] text-zinc-500 w-16 shrink-0 text-right">Invoice</span>
+            <span className="text-[10px] text-muted w-16 shrink-0 text-right">Invoice</span>
             <AccountSelect
               value={variation.chart_of_accounts_id_invoice}
               onChange={(id) => handleSourceChange("chart_of_accounts_id_invoice", id)}
               accounts={accounts}
               placeholder="— same as default —"
-            />
+            shortLabel
+            className="w-full max-w-[360px]"
+          />
           </div>
           {hasSplit && (
-            <button type="button" onClick={handleClearSplit} className="self-end text-[10px] text-zinc-600 hover:text-red-400 transition-colors">
+            <button type="button" onClick={handleClearSplit} className="self-end text-[10px] text-faint hover:text-danger transition-colors">
               Clear overrides
             </button>
           )}
         </div>
       )}
 
-      {/* Deposit recognition rows (BS / P&L) */}
+      {/* Deposit recognition rows (BS / P&L) — violet = data category, no token */}
       {depositOpen && (
         <div className="pl-6 pr-4 pb-3 pt-2 flex flex-col gap-2 bg-violet-950/10 border-t border-violet-900/20">
-          <p className="text-[10px] text-zinc-500 leading-relaxed">
+          <p className="text-[10px] text-muted leading-relaxed">
             When a line item has deposit accounts set, it records to <span className="text-violet-300">Balance Sheet</span> until the linked delivery invoice is paid, then moves to <span className="text-violet-300">P&amp;L</span>.
           </p>
           <div className="flex items-center gap-3">
-            <span className="text-[10px] text-zinc-400 w-16 shrink-0 text-right">BS account</span>
+            <span className="text-[10px] text-secondary w-16 shrink-0 text-right">BS account</span>
             <AccountSelect
               value={variation.bs_chart_of_accounts_id}
               onChange={(id) => handleDepositChange("bs_chart_of_accounts_id", id)}
               accounts={accounts}
               placeholder="— none —"
-            />
+            shortLabel
+            className="w-full max-w-[360px]"
+          />
           </div>
           <div className="flex items-center gap-3">
-            <span className="text-[10px] text-zinc-400 w-16 shrink-0 text-right">P&amp;L account</span>
+            <span className="text-[10px] text-secondary w-16 shrink-0 text-right">P&amp;L account</span>
             <AccountSelect
               value={variation.pl_chart_of_accounts_id}
               onChange={(id) => handleDepositChange("pl_chart_of_accounts_id", id)}
               accounts={accounts}
               placeholder="— none —"
-            />
+            shortLabel
+            className="w-full max-w-[360px]"
+          />
           </div>
           {hasDeposit && (
-            <button type="button" onClick={handleClearDeposit} className="self-end text-[10px] text-zinc-600 hover:text-red-400 transition-colors">
+            <button type="button" onClick={handleClearDeposit} className="self-end text-[10px] text-faint hover:text-danger transition-colors">
               Clear deposit mapping
             </button>
           )}
@@ -405,21 +271,24 @@ function BulkMapper({
 
   return (
     <div className="flex items-center gap-1.5 shrink-0">
-      <AccountSelect value={draft} onChange={setDraft} accounts={accounts} placeholder="Bulk map…" />
+      <AccountSelect value={draft} onChange={setDraft} accounts={accounts} placeholder="Bulk map…"
+            shortLabel
+            className="w-full max-w-[360px]"
+          />
       {draft && (
         <>
           <button
             onClick={() => apply(false)}
             disabled={applying || unmappedCount === 0}
             title={`Fill ${unmappedCount} unmapped`}
-            className="px-2 py-1 bg-amber-600 hover:bg-amber-500 disabled:opacity-40 text-white text-[10px] rounded transition-colors whitespace-nowrap">
+            className="px-2 py-1 bg-accent-emphasis hover:bg-accent disabled:opacity-40 text-canvas text-[10px] rounded transition-colors whitespace-nowrap">
             {applying ? "…" : `Fill ${unmappedCount}`}
           </button>
           <button
             onClick={() => apply(true)}
             disabled={applying}
             title="Overwrite all"
-            className="px-2 py-1 bg-zinc-700 hover:bg-zinc-600 disabled:opacity-40 text-zinc-300 text-[10px] rounded transition-colors whitespace-nowrap">
+            className="px-2 py-1 bg-surface-high hover:bg-surface-mid disabled:opacity-40 text-body text-[10px] rounded transition-colors whitespace-nowrap">
             All
           </button>
         </>
@@ -457,10 +326,10 @@ function BulkSourceMapper({
         onClick={() => setOpen((o) => !o)}
         className={`shrink-0 px-1.5 py-1 text-[10px] rounded border transition-colors ${
           open
-            ? "bg-blue-900/60 border-blue-600 text-blue-200"
+            ? "bg-info-surface/60 border-info-emphasis text-info"
             : hasSplits
-            ? "bg-blue-900/40 border-blue-700 text-blue-300 hover:bg-blue-900/60"
-            : "bg-zinc-800 border-zinc-700 text-zinc-500 hover:text-zinc-300 hover:border-zinc-500"
+            ? "bg-info-surface/40 border-info-border text-info hover:bg-info-surface/60"
+            : "bg-surface-mid border-line-strong text-muted hover:text-body hover:border-line-subtle"
         }`}
         title="Set POS vs Invoice source overrides in bulk"
       >
@@ -469,38 +338,44 @@ function BulkSourceMapper({
 
       {/* Expanded panel — anchored below the row */}
       {open && (
-        <div className="absolute top-full left-0 right-0 z-20 border-t border-blue-900/40 bg-zinc-950 px-4 py-2.5 flex flex-col gap-2 shadow-lg">
+        <div className="absolute top-full left-0 right-0 z-20 border-t border-info-border/40 bg-canvas px-4 py-2.5 flex flex-col gap-2 shadow-lg">
           <div className="flex items-center justify-between mb-0.5">
-            <span className="text-[10px] text-blue-400 font-medium uppercase tracking-wider">Source overrides</span>
-            <button type="button" onClick={() => setOpen(false)} className="text-[10px] text-zinc-600 hover:text-zinc-300 px-1">✕ close</button>
+            <span className="text-[10px] text-info font-medium uppercase tracking-wider">Source overrides</span>
+            <button type="button" onClick={() => setOpen(false)} className="text-[10px] text-faint hover:text-body px-1">✕ close</button>
           </div>
           {/* POS row */}
           <div className="flex items-center gap-3">
-            <span className="text-xs text-zinc-400 w-16 shrink-0">POS</span>
+            <span className="text-xs text-secondary w-16 shrink-0">POS</span>
             <div className="flex-1 min-w-0">
-              <AccountSelect value={draftPos} onChange={setDraftPos} accounts={accounts} placeholder="— select account —" />
+              <AccountSelect value={draftPos} onChange={setDraftPos} accounts={accounts} placeholder="— select account —"
+            shortLabel
+            className="w-full max-w-[360px]"
+          />
             </div>
             <button onClick={() => apply("chart_of_accounts_id_pos", draftPos, false)} disabled={applying || !draftPos}
-              className="px-2 py-1 bg-amber-600 hover:bg-amber-500 disabled:opacity-30 text-white text-[10px] rounded whitespace-nowrap transition-colors">
+              className="px-2 py-1 bg-accent-emphasis hover:bg-accent disabled:opacity-30 text-canvas text-[10px] rounded whitespace-nowrap transition-colors">
               {applying ? "…" : "Fill unmapped"}
             </button>
             <button onClick={() => apply("chart_of_accounts_id_pos", draftPos, true)} disabled={applying || !draftPos}
-              className="px-2 py-1 bg-zinc-700 hover:bg-zinc-600 disabled:opacity-30 text-zinc-300 text-[10px] rounded whitespace-nowrap transition-colors">
+              className="px-2 py-1 bg-surface-high hover:bg-surface-mid disabled:opacity-30 text-body text-[10px] rounded whitespace-nowrap transition-colors">
               Overwrite all
             </button>
           </div>
           {/* Invoice row */}
           <div className="flex items-center gap-3">
-            <span className="text-xs text-zinc-400 w-16 shrink-0">Invoice</span>
+            <span className="text-xs text-secondary w-16 shrink-0">Invoice</span>
             <div className="flex-1 min-w-0">
-              <AccountSelect value={draftInv} onChange={setDraftInv} accounts={accounts} placeholder="— select account —" />
+              <AccountSelect value={draftInv} onChange={setDraftInv} accounts={accounts} placeholder="— select account —"
+            shortLabel
+            className="w-full max-w-[360px]"
+          />
             </div>
             <button onClick={() => apply("chart_of_accounts_id_invoice", draftInv, false)} disabled={applying || !draftInv}
-              className="px-2 py-1 bg-amber-600 hover:bg-amber-500 disabled:opacity-30 text-white text-[10px] rounded whitespace-nowrap transition-colors">
+              className="px-2 py-1 bg-accent-emphasis hover:bg-accent disabled:opacity-30 text-canvas text-[10px] rounded whitespace-nowrap transition-colors">
               {applying ? "…" : "Fill unmapped"}
             </button>
             <button onClick={() => apply("chart_of_accounts_id_invoice", draftInv, true)} disabled={applying || !draftInv}
-              className="px-2 py-1 bg-zinc-700 hover:bg-zinc-600 disabled:opacity-30 text-zinc-300 text-[10px] rounded whitespace-nowrap transition-colors">
+              className="px-2 py-1 bg-surface-high hover:bg-surface-mid disabled:opacity-30 text-body text-[10px] rounded whitespace-nowrap transition-colors">
               Overwrite all
             </button>
           </div>
@@ -800,56 +675,53 @@ export default function AccountMappingPage() {
   }
 
   if (loading) return (
-    <div className="flex flex-col h-full bg-zinc-950 text-zinc-100">
+    <div className="flex flex-col h-full bg-canvas text-primary">
       <FinanceNav mobile /><SettingsNav />
-      <div className="flex-1 flex items-center justify-center"><p className="text-xs text-zinc-500">Loading…</p></div>
+      <div className="flex-1 flex items-center justify-center"><p className="text-xs text-muted">Loading…</p></div>
     </div>
   );
 
   return (
-    <div className="flex flex-col h-full bg-zinc-950 text-zinc-100">
+    <div className="flex flex-col h-full bg-canvas text-primary">
       <FinanceNav mobile />
 
-      <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-5 pb-3 flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-base font-semibold text-zinc-100">Account Mapping</h1>
-          <p className="text-xs text-zinc-500 mt-0.5">
-            {totalVariations > 0
-              ? `${mappedVariations} of ${totalVariations} variations mapped`
-              : "Sync the catalog first to load variations."}
-          </p>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
+      <div className="shrink-0 px-4 sm:px-6 flex items-start justify-between gap-4">
+        <PageHeader
+          title="Account Mapping"
+          description={totalVariations > 0
+            ? `${mappedVariations} of ${totalVariations} variations mapped`
+            : "Sync the catalog first to load variations."}
+        />
+        <div className="flex items-center gap-2 shrink-0 mt-4">
           {syncResult && (
-            <span className="text-xs text-green-400">{syncResult.items} items · {syncResult.variations} variations synced</span>
+            <span className="text-xs text-success">{syncResult.items} items · {syncResult.variations} variations synced</span>
           )}
-          <button onClick={handleSync} disabled={syncing}
-            className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 text-zinc-200 text-xs rounded border border-zinc-700 transition-colors">
+          <button onClick={handleSync} disabled={syncing} className="btn-ghost btn-sm">
             {syncing ? "Syncing…" : "Sync Catalog"}
           </button>
         </div>
       </div>
       <SettingsNav />
 
-      {error && <p className="text-xs text-red-400 px-4 sm:px-6 py-2">{error}</p>}
+      {error && <Banner className="mx-4 sm:mx-6 my-2">{error}</Banner>}
 
       {accounts.length === 0 ? (
         <div className="flex-1 flex items-center justify-center text-center px-6">
           <div>
-            <p className="text-sm text-zinc-400">Upload a chart of accounts first.</p>
-            <p className="text-xs text-zinc-600 mt-1">Go to Chart of Accounts → Upload CSV.</p>
+            <p className="text-sm text-secondary">Upload a chart of accounts first.</p>
+            <p className="text-xs text-faint mt-1">Go to Chart of Accounts → Upload CSV.</p>
           </div>
         </div>
       ) : variations.length === 0 ? (
         <div className="flex-1 flex items-center justify-center text-center px-6">
           <div>
-            <p className="text-sm text-zinc-400">No catalog items yet.</p>
-            <p className="text-xs text-zinc-600 mt-1">Click &ldquo;Sync Catalog&rdquo; to pull from Square.</p>
+            <p className="text-sm text-secondary">No catalog items yet.</p>
+            <p className="text-xs text-faint mt-1">Click &ldquo;Sync Catalog&rdquo; to pull from Square.</p>
           </div>
         </div>
       ) : (
         <div className="flex-1 overflow-auto pb-8">
-          <div className="divide-y divide-zinc-800/60">
+          <div className="divide-y divide-line/60">
             {groups.map((parent) => {
               const parentKey     = parent.parent_id ?? "__uncategorized__";
               const isParentExpanded = expandedCategories.has(parentKey);
@@ -862,23 +734,23 @@ export default function AccountMappingPage() {
               return (
                 <div key={parentKey}>
                   {/* Parent category row */}
-                  <div className="relative px-4 sm:px-6 py-3 bg-zinc-900 border-b border-zinc-800">
+                  <div className="relative px-4 sm:px-6 py-3 bg-surface border-b border-line">
                     <div className="flex items-center gap-3 min-w-0">
                       <button onClick={() => toggleCategory(parentKey)} className="flex items-center gap-2 flex-1 min-w-0 text-left">
-                        <span className="text-zinc-500 text-xs w-3 shrink-0">{isParentExpanded ? "▾" : "▸"}</span>
-                        <span className="text-sm font-semibold text-zinc-100 truncate">{parent.parent_name}</span>
-                        <span className="text-[10px] text-zinc-600 shrink-0">{parentTotal} var.</span>
+                        <span className="text-muted text-xs w-3 shrink-0">{isParentExpanded ? "▾" : "▸"}</span>
+                        <span className="text-sm font-semibold text-primary truncate">{parent.parent_name}</span>
+                        <span className="text-[10px] text-faint shrink-0">{parentTotal} var.</span>
                         {parentMapped > 0 && parentMapped < parentTotal && (
-                          <span className="text-[10px] text-amber-500 shrink-0">{parentMapped}/{parentTotal}</span>
+                          <span className="text-[10px] text-accent-emphasis shrink-0">{parentMapped}/{parentTotal}</span>
                         )}
                         {parentMapped === parentTotal && parentTotal > 0 && (
-                          <span className="text-[10px] text-green-500 shrink-0">✓ all</span>
+                          <span className="text-[10px] text-success shrink-0">✓ all</span>
                         )}
                         {parentHasSplit && (
-                          <span className="text-[10px] text-blue-400 shrink-0 px-1 bg-blue-900/30 rounded">split</span>
+                          <span className={`text-[10px] shrink-0 px-1 rounded ${SPLIT_CATEGORY_CLS}`}>split</span>
                         )}
                         {parentHasDeposit && (
-                          <span className="text-[10px] text-violet-400 shrink-0 px-1 bg-violet-900/30 rounded">deposit</span>
+                          <span className={`text-[10px] shrink-0 px-1 rounded ${DEPOSIT_CATEGORY_CLS}`}>deposit</span>
                         )}
                       </button>
                       <div className="flex items-center gap-2 shrink-0">
@@ -914,23 +786,23 @@ export default function AccountMappingPage() {
                         <div key={catKey}>
                           {/* Subcategory row — only shown when there's actual nesting */}
                           {!isSingleLevel && (
-                            <div className="relative pl-8 pr-4 sm:pr-6 py-2.5 bg-zinc-900/40 border-b border-zinc-800/50">
+                            <div className="relative pl-8 pr-4 sm:pr-6 py-2.5 bg-surface/40 border-b border-line/50">
                               <div className="flex items-center gap-3 min-w-0">
                                 <button onClick={() => toggleCategory(catKey)} className="flex items-center gap-2 flex-1 min-w-0 text-left">
-                                  <span className="text-zinc-600 text-xs w-3 shrink-0">{isCatExpanded ? "▾" : "▸"}</span>
-                                  <span className="text-xs font-semibold text-zinc-300 truncate">{cat.category_name}</span>
-                                  <span className="text-[10px] text-zinc-600 shrink-0">{catTotal} var.</span>
+                                  <span className="text-faint text-xs w-3 shrink-0">{isCatExpanded ? "▾" : "▸"}</span>
+                                  <span className="text-xs font-semibold text-body truncate">{cat.category_name}</span>
+                                  <span className="text-[10px] text-faint shrink-0">{catTotal} var.</span>
                                   {catMapped > 0 && catMapped < catTotal && (
-                                    <span className="text-[10px] text-amber-500 shrink-0">{catMapped}/{catTotal}</span>
+                                    <span className="text-[10px] text-accent-emphasis shrink-0">{catMapped}/{catTotal}</span>
                                   )}
                                   {catMapped === catTotal && catTotal > 0 && (
-                                    <span className="text-[10px] text-green-500 shrink-0">✓ all</span>
+                                    <span className="text-[10px] text-success shrink-0">✓ all</span>
                                   )}
                                   {catHasSplit && (
-                                    <span className="text-[10px] text-blue-400 shrink-0 px-1 bg-blue-900/30 rounded">split</span>
+                                    <span className={`text-[10px] shrink-0 px-1 rounded ${SPLIT_CATEGORY_CLS}`}>split</span>
                                   )}
                                   {catHasDeposit && (
-                                    <span className="text-[10px] text-violet-400 shrink-0 px-1 bg-violet-900/30 rounded">deposit</span>
+                                    <span className={`text-[10px] shrink-0 px-1 rounded ${DEPOSIT_CATEGORY_CLS}`}>deposit</span>
                                   )}
                                 </button>
                                 <div className="flex items-center gap-2 shrink-0">
@@ -964,27 +836,27 @@ export default function AccountMappingPage() {
                         {(() => {
                           const catalogItemId = item.variations[0]?.square_catalog_items?.id ?? null;
                           return (
-                            <div className={`relative pr-4 sm:pr-6 py-2.5 border-t border-zinc-800/30 ${isSingleLevel ? "pl-8" : "pl-14"}`}>
+                            <div className={`relative pr-4 sm:pr-6 py-2.5 border-t border-line/30 ${isSingleLevel ? "pl-8" : "pl-14"}`}>
                               <div className="flex items-center gap-3 min-w-0">
                                 <button
                                   onClick={() => toggleItem(itemKey)}
                                   className="flex items-center gap-2 flex-1 min-w-0 text-left">
-                                  <span className="text-zinc-700 text-xs w-3 shrink-0">{isItemExpanded ? "▾" : "▸"}</span>
-                                  <span className={`text-xs font-medium flex-1 truncate ${item.is_archived ? "text-zinc-600 line-through" : "text-zinc-200"}`}>
+                                  <span className="text-disabled text-xs w-3 shrink-0">{isItemExpanded ? "▾" : "▸"}</span>
+                                  <span className={`text-xs font-medium flex-1 truncate ${item.is_archived ? "text-faint line-through" : "text-strong"}`}>
                                     {item.item_name}
                                   </span>
-                                  <span className="text-[10px] text-zinc-600 shrink-0">{item.variations.length} var.</span>
+                                  <span className="text-[10px] text-faint shrink-0">{item.variations.length} var.</span>
                                   {itemMapped > 0 && itemMapped < item.variations.length && (
-                                    <span className="text-[10px] text-amber-600 shrink-0">{itemMapped}/{item.variations.length}</span>
+                                    <span className="text-[10px] text-accent-border shrink-0">{itemMapped}/{item.variations.length}</span>
                                   )}
                                   {itemMapped === item.variations.length && item.variations.length > 0 && (
-                                    <span className="text-[10px] text-green-500 shrink-0">✓</span>
+                                    <span className="text-[10px] text-success shrink-0">✓</span>
                                   )}
                                   {itemHasSplit && (
-                                    <span className="text-[10px] text-blue-400 shrink-0 px-1 bg-blue-900/30 rounded">split</span>
+                                    <span className={`text-[10px] shrink-0 px-1 rounded ${SPLIT_CATEGORY_CLS}`}>split</span>
                                   )}
                                   {itemHasDeposit && (
-                                    <span className="text-[10px] text-violet-400 shrink-0 px-1 bg-violet-900/30 rounded">deposit</span>
+                                    <span className={`text-[10px] shrink-0 px-1 rounded ${DEPOSIT_CATEGORY_CLS}`}>deposit</span>
                                   )}
                                 </button>
                                 {catalogItemId && (
@@ -1009,10 +881,10 @@ export default function AccountMappingPage() {
                         {/* Variation sub-header + rows */}
                         {isItemExpanded && (
                           <>
-                            <div className="flex items-center gap-3 pl-6 pr-4 py-1 bg-zinc-900/60 border-t border-zinc-800/40">
-                              <span className="text-[10px] text-zinc-600 uppercase tracking-wider w-44 shrink-0">Variation · Price</span>
-                              <span className="text-[10px] text-zinc-600 uppercase tracking-wider flex-1">Default GL Account</span>
-                              <span className="text-[10px] text-zinc-600 uppercase tracking-wider w-14 text-right">Split</span>
+                            <div className="flex items-center gap-3 pl-6 pr-4 py-1 bg-surface/60 border-t border-line/40">
+                              <span className="text-[10px] text-faint uppercase tracking-wider w-44 shrink-0">Variation · Price</span>
+                              <span className="text-[10px] text-faint uppercase tracking-wider flex-1">Default GL Account</span>
+                              <span className="text-[10px] text-faint uppercase tracking-wider w-14 text-right">Split</span>
                             </div>
                             {item.variations.map((v) => (
                               <VariationMappingRow

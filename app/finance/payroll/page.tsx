@@ -4,10 +4,10 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import Link from "next/link";
 import { PayrollNav } from "./PayrollNav";
+import Banner from "@/app/components/ui/Banner";
+import Badge from "@/app/components/ui/Badge";
 import { queryKeys } from "@/lib/query-keys";
 import type { PayPeriod } from "@/lib/payroll/types";
-
-const inputCls = "bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-zinc-200 text-sm";
 
 export default function FinancePayrollPage() {
   const qc = useQueryClient();
@@ -41,12 +41,9 @@ export default function FinancePayrollPage() {
   return (
     <main className="px-4 sm:px-6 py-8">
       <div className="flex items-center justify-between mb-4">
-        <h1 className="text-zinc-100 font-semibold text-lg">Payroll</h1>
+        <h1 className="text-base font-semibold text-primary">Payroll</h1>
         {!showForm && (
-          <button
-            onClick={() => setShowForm(true)}
-            className="text-sm px-3 py-1.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-200 rounded transition-colors"
-          >
+          <button onClick={() => setShowForm(true)} className="btn-ghost btn-sm">
             + New Period
           </button>
         )}
@@ -54,65 +51,61 @@ export default function FinancePayrollPage() {
       <PayrollNav />
 
       {showForm && (
-        <div className="mb-6 p-4 bg-zinc-900 border border-zinc-700 rounded-lg flex flex-wrap items-end gap-3">
+        <div className="mb-6 p-4 bg-surface border border-line-strong rounded-lg flex flex-wrap items-end gap-3">
           <label className="block">
-            <span className="block text-zinc-500 text-xs mb-1">Start date</span>
-            <input type="date" value={newStart} onChange={e => setNewStart(e.target.value)} className={inputCls} />
+            <span className="block text-secondary text-xs mb-1">Start date</span>
+            <input type="date" value={newStart} onChange={e => setNewStart(e.target.value)} className="inp inp-sm" />
           </label>
           <label className="block">
-            <span className="block text-zinc-500 text-xs mb-1">End date</span>
-            <input type="date" value={newEnd} onChange={e => setNewEnd(e.target.value)} className={inputCls} />
+            <span className="block text-secondary text-xs mb-1">End date</span>
+            <input type="date" value={newEnd} onChange={e => setNewEnd(e.target.value)} className="inp inp-sm" />
           </label>
           <button
             onClick={() => createPeriod.mutate({ start_date: newStart, end_date: newEnd })}
             disabled={createPeriod.isPending || !newStart || !newEnd}
-            className="text-sm px-4 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded disabled:opacity-40"
+            className="btn-amber"
           >
             {createPeriod.isPending ? "Creating…" : "Create"}
           </button>
           <button
             onClick={() => { setShowForm(false); setNewStart(""); setNewEnd(""); }}
-            className="text-sm px-3 py-1.5 text-zinc-500 hover:text-zinc-300"
+            className="btn-ghost btn-sm"
           >
             Cancel
           </button>
           {createPeriod.isError && (
-            <p className="w-full text-red-400 text-xs">{(createPeriod.error as Error).message}</p>
+            <Banner className="w-full">{(createPeriod.error as Error).message}</Banner>
           )}
         </div>
       )}
       {isLoading ? (
-        <p className="text-zinc-500 text-sm">Loading…</p>
+        <p className="text-muted text-sm">Loading…</p>
       ) : (
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-zinc-700">
-              <th className="text-left py-2 px-3 text-zinc-500">Period</th>
-              <th className="text-left py-2 px-3 text-zinc-500">Status</th>
+            <tr className="border-b border-line-strong">
+              <th className="text-left py-2 px-3 text-muted">Period</th>
+              <th className="text-left py-2 px-3 text-muted">Status</th>
             </tr>
           </thead>
           <tbody>
             {(periods ?? []).map((p) => (
-              <tr key={p.id} className="border-b border-zinc-800 hover:bg-zinc-800/30">
+              <tr key={p.id} className="border-b border-line hover:bg-surface-mid/30">
                 <td className="py-2 px-3">
-                  <Link href={`/finance/payroll/${p.id}`} className="text-zinc-200 hover:text-amber-400">
+                  <Link href={`/finance/payroll/${p.id}`} className="text-strong hover:text-accent">
                     {p.start_date} – {p.end_date}
                   </Link>
                 </td>
                 <td className="py-2 px-3">
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${
-                    p.status === "locked"
-                      ? "bg-zinc-700 text-zinc-400"
-                      : "bg-amber-900/30 text-amber-400"
-                  }`}>
+                  <Badge tone={p.status === "locked" ? "neutral" : "accent"}>
                     {p.status === "locked" ? "Locked" : "Open"}
-                  </span>
+                  </Badge>
                 </td>
               </tr>
             ))}
             {(periods ?? []).length === 0 && (
               <tr>
-                <td colSpan={2} className="py-6 text-center text-zinc-600">
+                <td colSpan={2} className="py-6 text-center text-faint">
                   No pay periods yet. Click &quot;+ New Period&quot; to create the first one.
                 </td>
               </tr>
