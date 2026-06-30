@@ -54,7 +54,15 @@ Do this before running any dev commands.
 - **No premature abstraction, but no throwaway code either.** Don't build speculative generic frameworks for a one-off; but anything touching a table or route that other features already depend on must be written assuming a third and fourth consumer will show up.
 - **Efficiency:** avoid redundant Supabase round-trips and Square API calls — batch/join queries where possible, reuse already-fetched data (e.g. via `useProductionData.ts` / `query-keys.ts`) instead of re-fetching.
 
+## UI Conventions (strict — full spec in `docs/UI_STANDARD.md`)
+- **`app/globals.css` + `app/components/` are the UI source of truth.** Color tokens live in the `@theme` block; shared primitives live in `app/components/ui/` and `app/components/`.
+- **No raw colors in feature code.** Never use `zinc-*`/`amber-*`/`red-*`/`green-*`/`blue-*`/`gray-*` utilities or hex/rgb literals. Use token utilities: surfaces `bg-canvas/surface/surface-mid/surface-high`; borders `border-line/-strong/-subtle`; text `text-primary/strong/body/secondary/muted/faint/disabled`; accent `text-accent`/`text-accent-emphasis`/`text-accent-soft`/`bg-accent-muted`; status `text-danger`/`text-success`/`text-info` (+ matching `-surface`/`-border`). Exempt only: Recharts color props and React-Flow/absolute canvases (EquipmentSchedule, Gantt/Calendar, floorplan).
+- **No hand-rolled primitives.** Buttons → `.btn-amber`/`.btn-ghost`/`.btn-danger`/`.btn-sm`. Inputs/selects → `.inp`/`.inp-sm` (no local `inputCls`/`selectCls`). Page title → `<PageHeader>`. Cards → `<Card>`. Modals → `<Modal>`/`<ModalActions>`/`<Field>`. Errors/alerts → `<Banner>`. Status pills → `<Badge tone>`. Tabs → `<SubNav>` (link) / `<TabBar>` (button) — never re-implement the underline-tab row.
+- **No one-off sizing.** Use the type scale + spacing scale (0/0.5/1/1.5/2/2.5/3/4/6/8); no arbitrary `text-[Npx]`. Page shell = `<main className="px-4 sm:px-6 py-4 sm:py-8">`.
+- **Data-category color maps go in one shared constant** per area, not inlined per file.
+
 ## Extended Documentation Triggers
+- Building or restyling any UI (pages/components) → follow `docs/UI_STANDARD.md`; reuse `app/components/ui/` primitives + token utilities, never raw colors or hand-rolled primitives
 - Touching production scheduling/transfers/tank logic → read `app/production/lib/volumeLedger.ts` and `lib/production/commitments.ts` first
 - Touching the equipment schedule graph → read `app/production/components/EquipmentSchedule/buildGraphData.ts` fully before editing nodes/edges
 - Adding/changing a Square integration → check `lib/square/client.ts` for the shared request wrapper before adding a new module
