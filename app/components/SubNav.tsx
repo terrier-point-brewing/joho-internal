@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useUserRole } from "@/lib/hooks/useUserRole";
+import { TAB_ROW, tabItem } from "./ui/tabStyles";
 
 export interface NavEntry {
   href: string;
@@ -32,10 +33,10 @@ export default function SubNav({
   });
 
   const cls = mobile
-    ? "md:hidden flex border-b border-zinc-800 overflow-x-auto overflow-y-hidden scrollbar-none"
+    ? `md:hidden ${TAB_ROW}`
     : sticky
-    ? "flex gap-1 border-b border-zinc-800 overflow-x-auto overflow-y-hidden scrollbar-none sticky top-11 md:static z-40 bg-zinc-950/95"
-    : "flex gap-1 border-b border-zinc-800 overflow-x-auto overflow-y-hidden scrollbar-none";
+    ? `${TAB_ROW} sticky top-11 md:static z-40 bg-canvas/95`
+    : TAB_ROW;
 
   return (
     <div className={cls}>
@@ -45,15 +46,7 @@ export default function SubNav({
           (!exact && pathname.startsWith(match ?? href + "/")) ||
           (also != null && pathname.startsWith(also));
         return (
-          <Link
-            key={href}
-            href={href}
-            className={`px-4 py-2.5 text-sm font-medium whitespace-nowrap transition-colors border-b-2 -mb-px ${
-              active
-                ? "text-amber-400 border-amber-500"
-                : "text-zinc-500 border-transparent hover:text-zinc-300"
-            }`}
-          >
+          <Link key={href} href={href} className={tabItem(active)}>
             {label}
           </Link>
         );
