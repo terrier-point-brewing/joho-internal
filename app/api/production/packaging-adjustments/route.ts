@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
   const supabase = await createSupabaseServerClient();
 
   const body = await req.json();
-  const { packaging_item_id, type, quantity: rawQty, note, purchase_cost, new_total } = body;
+  const { packaging_item_id, type, quantity: rawQty, note, purchase_cost, shipping_cost, new_total } = body;
   if (!packaging_item_id || !type) return NextResponse.json({ error: "packaging_item_id and type required" }, { status: 400 });
 
   // Fetch current state
@@ -54,11 +54,14 @@ export async function POST(req: NextRequest) {
   let totalValueChange = null;
   if (type === "received" && purchase_cost != null && purchase_cost !== "") {
     const pc = Number(purchase_cost);
+    // Landed cost per unit: bake shipping into WAC so deposit calculations see full cost.
+    const shippingAmt = shipping_cost != null ? Number(shipping_cost) : 0;
+    const landedPerUnit = (pc * delta + shippingAmt) / delta;
     const newStock = currentStock + delta;
     if (newStock > 0) {
-      newCostPerUnit = ((currentStock * (currentCost ?? 0)) + (delta * pc)) / newStock;
+      newCostPerUnit = ((currentStock * (currentCost ?? 0)) + (delta * landedPerUnit)) / newStock;
     }
-    totalValueChange = delta * pc;
+    totalValueChange = delta * landedPerUnit;
   }
 
   const { data: adj, error: adjErr } = await supabase
@@ -69,6 +72,7 @@ export async function POST(req: NextRequest) {
       type,
       note: note || null,
       cost_per_unit: type === "received" && purchase_cost ? Number(purchase_cost) : null,
+      shipping_cost: type === "received" && shipping_cost != null ? Number(shipping_cost) : null,
       total_value_change: totalValueChange,
     })
     .select()

@@ -5,6 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Ingredient, AdjustmentType, IngredientCategory, INGREDIENT_CATEGORIES } from "../types";
 import { Modal, Field, ModalActions } from "./shared";
 import { useContractPartnersQuery, useSuppliersQuery, useIngredientsQuery, productionKeys } from "../hooks/queries";
+import { useUserRole } from "@/lib/hooks/useUserRole";
 import { fmtUsd } from "@/lib/utils/formatting";
 
 const INGREDIENT_CATEGORY_META: Record<IngredientCategory, { color: string }> = {
@@ -334,6 +335,8 @@ function fmtValue(v: number | null | undefined) {
 
 export default function IngredientsTab() {
   const qc = useQueryClient();
+  const { role } = useUserRole();
+  const isAdmin = role === "admin";
   const { data: ingredients = [] } = useIngredientsQuery();
   const { data: suppliersList = [] } = useSuppliersQuery();
   const { data: partnersList = [] } = useContractPartnersQuery();
@@ -517,15 +520,17 @@ export default function IngredientsTab() {
 
   const adjTypeMeta = ADJUSTMENT_TYPES.find((t) => t.value === adjType);
 
-  // Preview calculations for "received" type
-  const previewQty  = parseFloat(adjQty) || 0;
-  const previewCost = parseFloat(adjPurchaseCost) || 0;
+  // Preview calculations for "received" type (mirrors server WAC logic, shipping baked in)
+  const previewQty      = parseFloat(adjQty) || 0;
+  const previewCost     = parseFloat(adjPurchaseCost) || 0;
+  const previewShipping = parseFloat(adjShippingCost) || 0;
   const currentStock = adjIngredient?.stock_quantity ?? 0;
   const currentCost  = adjIngredient?.cost_per_unit ?? null;
   const currentValue = currentCost != null ? currentStock * currentCost : null;
   const newStock     = currentStock + previewQty;
+  const landedPerUnit = previewQty > 0 ? (previewCost * previewQty + previewShipping) / previewQty : previewCost;
   const newCostPerUnit = adjType === "received" && previewCost > 0 && previewQty > 0 && newStock > 0
-    ? ((currentStock * (currentCost ?? 0)) + (previewQty * previewCost)) / newStock
+    ? ((currentStock * (currentCost ?? 0)) + (previewQty * landedPerUnit)) / newStock
     : currentCost;
   const newValue = newCostPerUnit != null ? newStock * newCostPerUnit : null;
 
@@ -683,8 +688,8 @@ export default function IngredientsTab() {
                             <td className="px-3 py-2.5">
                               <div className="flex gap-2 justify-end w-full">
                                 <button onClick={() => openAdj(ing)} className="text-xs text-amber-500 hover:text-amber-400 transition-colors font-medium whitespace-nowrap">Adjust</button>
-                                <span className="text-zinc-700">·</span>
-                                <button onClick={() => openEdit(ing)} className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors whitespace-nowrap">Edit</button>
+                                {isAdmin && (<><span className="text-zinc-700">·</span>
+                                <button onClick={() => openEdit(ing)} className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors whitespace-nowrap">Edit</button></>)}
                                 <span className="text-zinc-700">·</span>
                                 <button onClick={() => handleDelete(ing.id, ing.name)} className="text-xs text-zinc-600 hover:text-red-400 transition-colors whitespace-nowrap">Del</button>
                               </div>
@@ -753,6 +758,9 @@ export default function IngredientsTab() {
                   value={ingForm.cost_per_unit}
                   onChange={(e) => setIngForm((f) => ({ ...f, cost_per_unit: e.target.value }))} />
               </Field>
+            </div>
+            <div className="rounded bg-amber-900/20 border border-amber-800/40 px-3 py-2 text-xs text-amber-300">
+              Cost per unit must be the <strong>landed cost</strong> — include freight and shipping. Use stock adjustments (Received) to recalculate this automatically when new inventory arrives.
             </div>
             <Field label="Starting Stock">
               <input type="number" step="0.001" min="0" className="inp" value={ingForm.stock_quantity}
@@ -845,13 +853,14 @@ export default function IngredientsTab() {
             {/* Purchase cost + shipping — only shown for "received" */}
             {adjType === "received" && (
               <>
-                <Field label="Purchase Cost ($ per unit)">
+                <Field label="Purchase Cost ($ per unit)" required>
                   <input type="number" step="0.01" min="0" className="inp" placeholder="0.00"
-                    value={adjPurchaseCost} onChange={(e) => setAdjPurchaseCost(e.target.value)} />
+                    required value={adjPurchaseCost} onChange={(e) => setAdjPurchaseCost(e.target.value)} />
                 </Field>
-                <Field label="Shipping Cost ($ total, optional)">
+                <Field label="Shipping Cost ($ total)" required>
                   <input type="number" step="0.01" min="0" className="inp" placeholder="0.00"
-                    value={adjShippingCost} onChange={(e) => setAdjShippingCost(e.target.value)} />
+                    required value={adjShippingCost} onChange={(e) => setAdjShippingCost(e.target.value)} />
+                  <p className="text-xs mt-1 text-zinc-500">Enter 0 if no freight charge on this order.</p>
                 </Field>
                 {previewQty > 0 && previewCost > 0 && (
                   <div className="p-2.5 rounded bg-zinc-800/60 border border-zinc-700 text-xs space-y-1">
@@ -874,13 +883,13 @@ export default function IngredientsTab() {
                       </span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-zinc-500">Receipt value</span>
-                      <span className="text-green-400">+{fmtValue(previewQty * previewCost)}</span>
+                      <span className="text-zinc-500">Landed value</span>
+                      <span className="text-green-400">+{fmtValue(previewQty * landedPerUnit)}</span>
                     </div>
-                    {adjShippingCost !== "" && parseFloat(adjShippingCost) > 0 && (
+                    {previewShipping > 0 && (
                       <div className="flex justify-between">
-                        <span className="text-zinc-500">Shipping</span>
-                        <span className="text-zinc-400">+{fmtValue(parseFloat(adjShippingCost))}</span>
+                        <span className="text-zinc-500 pl-3">incl. shipping</span>
+                        <span className="text-zinc-400">+{fmtValue(previewShipping)}</span>
                       </div>
                     )}
                   </div>
