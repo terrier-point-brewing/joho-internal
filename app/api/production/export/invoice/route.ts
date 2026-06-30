@@ -297,7 +297,7 @@ export async function POST(req: NextRequest) {
 
     const externalId = externalRef ?? `other:${crypto.randomUUID()}`;
     const dbSource = source as "quickbooks" | "other";
-    const { data: inv } = await supabase
+    const { data: inv, error: invErr } = await supabase
       .from("invoices")
       .upsert(
         {
@@ -318,6 +318,10 @@ export async function POST(req: NextRequest) {
       )
       .select("id")
       .single();
+
+    if (invErr || !inv) {
+      return NextResponse.json({ error: `Failed to create invoice record: ${invErr?.message}` }, { status: 500 });
+    }
 
     if (inv?.id) {
       if (lineItems?.length) {
@@ -379,7 +383,7 @@ export async function POST(req: NextRequest) {
     if (updateErr) return NextResponse.json({ error: updateErr.message }, { status: 500 });
 
     const externalId = externalRef ?? `other:${crypto.randomUUID()}`;
-    const { data: inv } = await supabase
+    const { data: inv, error: invErr } = await supabase
       .from("invoices")
       .upsert(
         {
@@ -400,6 +404,10 @@ export async function POST(req: NextRequest) {
       )
       .select("id")
       .single();
+
+    if (invErr || !inv) {
+      return NextResponse.json({ error: `Failed to create invoice record: ${invErr?.message}` }, { status: 500 });
+    }
 
     if (inv?.id) {
       await supabase
