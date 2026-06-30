@@ -19,7 +19,7 @@ export default function FinancePayrollPeriodPage() {
   return (
     <main className="px-4 sm:px-6 py-8">
       <div className="flex items-center justify-between mb-4">
-        <h1 className="text-zinc-100 font-semibold text-lg">Payroll</h1>
+        <h1 className="text-base font-semibold text-primary">Payroll</h1>
         {periods && (
           <PeriodSelector
             periods={periods}

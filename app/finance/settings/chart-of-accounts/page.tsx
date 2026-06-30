@@ -2,6 +2,7 @@
 import { useState, useCallback, useEffect } from "react";
 import FinanceNav from "../../FinanceNav";
 import SettingsNav from "../SettingsNav";
+import PageHeader from "@/app/components/PageHeader";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -237,30 +238,30 @@ function EditPanel({
   }
 
   return (
-    <form onSubmit={handleSave} className="bg-zinc-900/80 border-t border-zinc-700 px-4 py-4 space-y-3">
+    <form onSubmit={handleSave} className="bg-surface/80 border-t border-line-strong px-4 py-4 space-y-3">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="space-y-1">
-          <label className="text-[10px] uppercase tracking-wider text-zinc-500">Account Name <span className="text-red-400">*</span></label>
+          <label className="text-[10px] uppercase tracking-wider text-muted">Account Name <span className="text-danger">*</span></label>
           <input required value={form.account_name} onChange={(e) => setForm((f) => ({ ...f, account_name: e.target.value }))}
-            className="w-full bg-zinc-800 border border-zinc-700 rounded px-2.5 py-1.5 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-amber-600" />
+            className="inp inp-sm w-full" />
         </div>
         <div className="space-y-1">
-          <label className="text-[10px] uppercase tracking-wider text-zinc-500">Account Number</label>
+          <label className="text-[10px] uppercase tracking-wider text-muted">Account Number</label>
           <input value={form.account_number} onChange={(e) => setForm((f) => ({ ...f, account_number: e.target.value }))}
             placeholder="e.g. 4100"
-            className="w-full bg-zinc-800 border border-zinc-700 rounded px-2.5 py-1.5 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-amber-600" />
+            className="inp inp-sm w-full" />
         </div>
         <div className="space-y-1">
-          <label className="text-[10px] uppercase tracking-wider text-zinc-500">Account Type <span className="text-red-400">*</span></label>
+          <label className="text-[10px] uppercase tracking-wider text-muted">Account Type <span className="text-danger">*</span></label>
           <select required value={form.account_type} onChange={(e) => setForm((f) => ({ ...f, account_type: e.target.value }))}
-            className="w-full bg-zinc-800 border border-zinc-700 rounded px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-amber-600">
+            className="inp inp-sm w-full">
             {ACCOUNT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
         </div>
         <div className="space-y-1">
-          <label className="text-[10px] uppercase tracking-wider text-zinc-500">Parent Account</label>
+          <label className="text-[10px] uppercase tracking-wider text-muted">Parent Account</label>
           <select value={form.parent_id} onChange={(e) => setForm((f) => ({ ...f, parent_id: e.target.value }))}
-            className="w-full bg-zinc-800 border border-zinc-700 rounded px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-amber-600">
+            className="inp inp-sm w-full">
             <option value="">— none (top-level) —</option>
             {parentOptions.sort((a, b) => (a.account_number ?? "").localeCompare(b.account_number ?? "") || a.account_name.localeCompare(b.account_name))
               .map((a) => (
@@ -271,12 +272,12 @@ function EditPanel({
           </select>
         </div>
         <div className="space-y-1">
-          <label className="text-[10px] uppercase tracking-wider text-zinc-500">
+          <label className="text-[10px] uppercase tracking-wider text-muted">
             Statement Section Override
-            <span className="ml-1 text-zinc-600 normal-case">(auto if blank)</span>
+            <span className="ml-1 text-faint normal-case">(auto if blank)</span>
           </label>
           <select value={form.statement_section} onChange={(e) => setForm((f) => ({ ...f, statement_section: e.target.value }))}
-            className="w-full bg-zinc-800 border border-zinc-700 rounded px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-amber-600">
+            className="inp inp-sm w-full">
             <option value="">— auto from account type —</option>
             <optgroup label="P&L">
               {PL_SECTIONS.map((s) => <option key={s} value={s}>{SECTION_LABELS[s]}</option>)}
@@ -287,32 +288,32 @@ function EditPanel({
           </select>
         </div>
         <div className="space-y-1">
-          <label className="text-[10px] uppercase tracking-wider text-zinc-500">Detail Type</label>
+          <label className="text-[10px] uppercase tracking-wider text-muted">Detail Type</label>
           <input value={form.detail_type} onChange={(e) => setForm((f) => ({ ...f, detail_type: e.target.value }))}
             placeholder="e.g. Sales of Product Income"
-            className="w-full bg-zinc-800 border border-zinc-700 rounded px-2.5 py-1.5 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-amber-600" />
+            className="inp inp-sm w-full" />
         </div>
         <div className="space-y-1 sm:col-span-2">
-          <label className="text-[10px] uppercase tracking-wider text-zinc-500">Description</label>
+          <label className="text-[10px] uppercase tracking-wider text-muted">Description</label>
           <input value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
             placeholder="Optional description"
-            className="w-full bg-zinc-800 border border-zinc-700 rounded px-2.5 py-1.5 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-amber-600" />
+            className="inp inp-sm w-full" />
         </div>
       </div>
       <div className="flex items-center justify-between">
         <label className="flex items-center gap-2 cursor-pointer">
           <input type="checkbox" checked={form.is_active} onChange={(e) => setForm((f) => ({ ...f, is_active: e.target.checked }))}
             className="accent-amber-500" />
-          <span className="text-xs text-zinc-400">Active</span>
+          <span className="text-xs text-secondary">Active</span>
         </label>
         <div className="flex gap-2">
-          {error && <span className="text-xs text-red-400 self-center">{error}</span>}
+          {error && <span className="text-xs text-danger self-center">{error}</span>}
           <button type="button" onClick={onClose}
-            className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs rounded transition-colors">
+            className="btn-ghost btn-sm">
             Cancel
           </button>
           <button type="submit" disabled={saving}
-            className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 disabled:opacity-40 text-white text-xs rounded transition-colors">
+            className="btn-amber btn-sm">
             {saving ? "Saving…" : "Save"}
           </button>
         </div>
@@ -380,12 +381,12 @@ function StatementSection({
   if (accounts.length === 0) return null;
 
   return (
-    <div className="border-b border-zinc-800/60">
+    <div className="border-b border-line/60">
       <button onClick={() => setExpanded((e) => !e)}
-        className="w-full flex items-center gap-2 px-4 sm:px-6 py-2.5 hover:bg-zinc-900/40 text-left transition-colors">
-        <span className="text-zinc-600 text-[10px] w-3">{expanded ? "▾" : "▸"}</span>
-        <span className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">{SECTION_LABELS[sectionKey]}</span>
-        <span className="ml-auto text-[10px] text-zinc-600">{accounts.length} account{accounts.length !== 1 ? "s" : ""}</span>
+        className="w-full flex items-center gap-2 px-4 sm:px-6 py-2.5 hover:bg-surface/40 text-left transition-colors">
+        <span className="text-faint text-[10px] w-3">{expanded ? "▾" : "▸"}</span>
+        <span className="text-xs font-semibold text-body uppercase tracking-wider">{SECTION_LABELS[sectionKey]}</span>
+        <span className="ml-auto text-[10px] text-faint">{accounts.length} account{accounts.length !== 1 ? "s" : ""}</span>
       </button>
 
       {expanded && (
@@ -420,25 +421,25 @@ function AccountRow({
     <>
       <button
         onClick={onEdit}
-        className={`w-full grid grid-cols-[minmax(0,1fr)_auto] gap-3 text-left border-t border-zinc-800/30 transition-colors hover:bg-zinc-900/30 ${isEditing ? "bg-zinc-900/50" : ""} ${!account.is_active ? "opacity-40" : ""}`}
+        className={`w-full grid grid-cols-[minmax(0,1fr)_auto] gap-3 text-left border-t border-line/30 transition-colors hover:bg-surface/30 ${isEditing ? "bg-surface/50" : ""} ${!account.is_active ? "opacity-40" : ""}`}
         style={{ paddingLeft: `${(indent + 1) * 1.25 + 0.75}rem`, paddingRight: "1rem", paddingTop: "0.375rem", paddingBottom: "0.375rem" }}
       >
         <div className="flex items-center gap-2 min-w-0">
-          {indent > 0 && <span className="text-zinc-700 shrink-0 font-mono text-[10px]">{"·".repeat(indent)}└</span>}
+          {indent > 0 && <span className="text-disabled shrink-0 font-mono text-[10px]">{"·".repeat(indent)}└</span>}
           {account.account_number && (
-            <span className="text-zinc-600 font-mono text-xs shrink-0">{account.account_number}</span>
+            <span className="text-faint font-mono text-xs shrink-0">{account.account_number}</span>
           )}
-          <span className="text-xs text-zinc-200 truncate">{account.account_name}</span>
+          <span className="text-xs text-strong truncate">{account.account_name}</span>
           {hasOverride && (
-            <span className="text-[9px] px-1 py-0.5 rounded bg-amber-900/40 text-amber-400 border border-amber-800/40 shrink-0">override</span>
+            <span className="text-[9px] px-1 py-0.5 rounded bg-accent-muted/40 text-accent border border-accent-border/40 shrink-0">override</span>
           )}
-          {!account.is_active && <span className="text-[9px] text-zinc-600 shrink-0">inactive</span>}
+          {!account.is_active && <span className="text-[9px] text-faint shrink-0">inactive</span>}
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {account.detail_type && (
-            <span className="text-[10px] text-zinc-600 hidden sm:block truncate max-w-[120px]">{account.detail_type}</span>
+            <span className="text-[10px] text-faint hidden sm:block truncate max-w-[120px]">{account.detail_type}</span>
           )}
-          <span className="text-zinc-600 text-xs">✎</span>
+          <span className="text-faint text-xs">✎</span>
         </div>
       </button>
       {isEditing && (
@@ -472,16 +473,16 @@ function TypeViewTable({ accounts, allAccounts, editingId, onEdit, onSave, onClo
     <div className="space-y-5">
       {Object.entries(typeGroups).sort(([a], [b]) => a.localeCompare(b)).map(([type, rows]) => (
         <div key={type}>
-          <h3 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-2">{type}</h3>
-          <div className="bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden">
+          <h3 className="text-xs font-semibold text-secondary uppercase tracking-wider mb-2">{type}</h3>
+          <div className="bg-surface border border-line rounded-lg overflow-hidden">
             <table className="w-full text-xs border-collapse">
               <thead>
-                <tr className="border-b border-zinc-800">
-                  <th className="px-3 py-2 text-left text-zinc-500 font-medium w-6"></th>
-                  <th className="px-3 py-2 text-left text-zinc-500 font-medium w-24">Number</th>
-                  <th className="px-3 py-2 text-left text-zinc-500 font-medium">Name</th>
-                  <th className="px-3 py-2 text-left text-zinc-500 font-medium hidden sm:table-cell">Section</th>
-                  <th className="px-3 py-2 text-left text-zinc-500 font-medium hidden md:table-cell">Detail Type</th>
+                <tr className="border-b border-line">
+                  <th className="px-3 py-2 text-left text-muted font-medium w-6"></th>
+                  <th className="px-3 py-2 text-left text-muted font-medium w-24">Number</th>
+                  <th className="px-3 py-2 text-left text-muted font-medium">Name</th>
+                  <th className="px-3 py-2 text-left text-muted font-medium hidden sm:table-cell">Section</th>
+                  <th className="px-3 py-2 text-left text-muted font-medium hidden md:table-cell">Detail Type</th>
                 </tr>
               </thead>
               <tbody>
@@ -492,19 +493,19 @@ function TypeViewTable({ accounts, allAccounts, editingId, onEdit, onSave, onClo
                     <>
                       <tr key={a.id}
                         onClick={() => onEdit(a.id)}
-                        className={`border-t border-zinc-800/50 cursor-pointer hover:bg-zinc-800/40 transition-colors ${!a.is_active ? "opacity-40" : ""} ${editingId === a.id ? "bg-zinc-800/60" : ""}`}>
-                        <td className="px-3 py-1.5 text-zinc-600 text-center">
-                          {a.parent_id && <span className="text-zinc-700">└</span>}
+                        className={`border-t border-line/50 cursor-pointer hover:bg-surface-mid/40 transition-colors ${!a.is_active ? "opacity-40" : ""} ${editingId === a.id ? "bg-surface-mid/60" : ""}`}>
+                        <td className="px-3 py-1.5 text-faint text-center">
+                          {a.parent_id && <span className="text-disabled">└</span>}
                         </td>
-                        <td className="px-3 py-1.5 font-mono text-zinc-500">{a.account_number ?? "—"}</td>
-                        <td className="px-3 py-1.5 text-zinc-200">{a.account_name}</td>
+                        <td className="px-3 py-1.5 font-mono text-muted">{a.account_number ?? "—"}</td>
+                        <td className="px-3 py-1.5 text-strong">{a.account_name}</td>
                         <td className="px-3 py-1.5 hidden sm:table-cell">
-                          <span className={`text-[10px] ${hasOverride ? "text-amber-400" : "text-zinc-600"}`}>
+                          <span className={`text-[10px] ${hasOverride ? "text-accent" : "text-faint"}`}>
                             {SECTION_LABELS[sec] ?? sec}
                             {hasOverride && " ✎"}
                           </span>
                         </td>
-                        <td className="px-3 py-1.5 text-zinc-500 hidden md:table-cell">{a.detail_type ?? "—"}</td>
+                        <td className="px-3 py-1.5 text-muted hidden md:table-cell">{a.detail_type ?? "—"}</td>
                       </tr>
                       {editingId === a.id && (
                         <tr key={`${a.id}-edit`}>
@@ -647,25 +648,21 @@ export default function ChartOfAccountsPage() {
   const uncategorized   = accounts.filter((a) => !allSections.includes(effectiveSection(a)));
 
   return (
-    <div className="flex flex-col h-full bg-zinc-950 text-zinc-100">
+    <div className="flex flex-col h-full bg-canvas text-primary">
       <FinanceNav mobile />
-      <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-5 pb-4 flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-base font-semibold text-zinc-100">Chart of Accounts</h1>
-          {uploadedAt && !loading && (
-            <p className="text-xs text-zinc-500 mt-0.5">
-              {accounts.length} accounts · last uploaded {fmt(uploadedAt)}
-            </p>
-          )}
-        </div>
+      <div className="shrink-0 px-4 sm:px-6 flex items-start justify-between gap-4">
+        <PageHeader
+          title="Chart of Accounts"
+          description={uploadedAt && !loading ? `${accounts.length} accounts · last uploaded ${fmt(uploadedAt)}` : undefined}
+        />
         {step === "idle" && (
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2 shrink-0 mt-4">
             <button
               onClick={() => { setShowAddForm((v) => !v); setAddError(null); setEditingId(null); }}
-              className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium rounded border border-zinc-700 transition-colors">
+              className="btn-ghost btn-sm">
               {showAddForm ? "Cancel" : "Add Account"}
             </button>
-            <label className="cursor-pointer px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white text-xs font-medium rounded transition-colors">
+            <label className="btn-amber btn-sm cursor-pointer">
               Upload CSV
               <input type="file" accept=".csv,text/csv" className="sr-only" onChange={handleFile} />
             </label>
@@ -678,37 +675,37 @@ export default function ChartOfAccountsPage() {
 
         {/* Manual add form */}
         {showAddForm && step === "idle" && (
-          <form onSubmit={handleAddAccount} className="bg-zinc-900 border border-zinc-800 rounded-lg p-5 space-y-4">
-            <h2 className="text-sm font-semibold text-zinc-200">Add Account</h2>
+          <form onSubmit={handleAddAccount} className="bg-surface border border-line rounded-lg p-5 space-y-4">
+            <h2 className="text-sm font-semibold text-strong">Add Account</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
-                <label className="text-[10px] uppercase tracking-wider text-zinc-500">Account Name <span className="text-red-400">*</span></label>
+                <label className="text-[10px] uppercase tracking-wider text-muted">Account Name <span className="text-danger">*</span></label>
                 <input required value={addForm.account_name}
                   onChange={(e) => setAddForm((f) => ({ ...f, account_name: e.target.value }))}
                   placeholder="e.g. Merchandise Sales"
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded px-2.5 py-1.5 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-amber-600" />
+                  className="inp inp-sm w-full" />
               </div>
               <div className="space-y-1">
-                <label className="text-[10px] uppercase tracking-wider text-zinc-500">Account Number</label>
+                <label className="text-[10px] uppercase tracking-wider text-muted">Account Number</label>
                 <input value={addForm.account_number}
                   onChange={(e) => setAddForm((f) => ({ ...f, account_number: e.target.value }))}
                   placeholder="e.g. 4100"
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded px-2.5 py-1.5 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-amber-600" />
+                  className="inp inp-sm w-full" />
               </div>
               <div className="space-y-1">
-                <label className="text-[10px] uppercase tracking-wider text-zinc-500">Account Type <span className="text-red-400">*</span></label>
+                <label className="text-[10px] uppercase tracking-wider text-muted">Account Type <span className="text-danger">*</span></label>
                 <select required value={addForm.account_type}
                   onChange={(e) => setAddForm((f) => ({ ...f, account_type: e.target.value }))}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-amber-600">
+                  className="inp inp-sm w-full">
                   <option value="">— select type —</option>
                   {ACCOUNT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
                 </select>
               </div>
               <div className="space-y-1">
-                <label className="text-[10px] uppercase tracking-wider text-zinc-500">Parent Account</label>
+                <label className="text-[10px] uppercase tracking-wider text-muted">Parent Account</label>
                 <select value={addForm.parent_id}
                   onChange={(e) => setAddForm((f) => ({ ...f, parent_id: e.target.value }))}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-amber-600">
+                  className="inp inp-sm w-full">
                   <option value="">— none (top-level) —</option>
                   {accounts
                     .sort((a, b) => (a.account_number ?? "").localeCompare(b.account_number ?? "") || a.account_name.localeCompare(b.account_name))
@@ -720,13 +717,13 @@ export default function ChartOfAccountsPage() {
                 </select>
               </div>
               <div className="space-y-1">
-                <label className="text-[10px] uppercase tracking-wider text-zinc-500">
+                <label className="text-[10px] uppercase tracking-wider text-muted">
                   Statement Section Override
-                  <span className="ml-1 text-zinc-600 normal-case">(auto if blank)</span>
+                  <span className="ml-1 text-faint normal-case">(auto if blank)</span>
                 </label>
                 <select value={addForm.statement_section}
                   onChange={(e) => setAddForm((f) => ({ ...f, statement_section: e.target.value }))}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-amber-600">
+                  className="inp inp-sm w-full">
                   <option value="">— auto from account type —</option>
                   <optgroup label="P&L">
                     {PL_SECTIONS.map((s) => <option key={s} value={s}>{SECTION_LABELS[s]}</option>)}
@@ -737,18 +734,18 @@ export default function ChartOfAccountsPage() {
                 </select>
               </div>
               <div className="space-y-1">
-                <label className="text-[10px] uppercase tracking-wider text-zinc-500">Detail Type</label>
+                <label className="text-[10px] uppercase tracking-wider text-muted">Detail Type</label>
                 <input value={addForm.detail_type}
                   onChange={(e) => setAddForm((f) => ({ ...f, detail_type: e.target.value }))}
                   placeholder="e.g. Sales of Product Income"
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded px-2.5 py-1.5 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-amber-600" />
+                  className="inp inp-sm w-full" />
               </div>
               <div className="space-y-1 sm:col-span-2">
-                <label className="text-[10px] uppercase tracking-wider text-zinc-500">Description</label>
+                <label className="text-[10px] uppercase tracking-wider text-muted">Description</label>
                 <input value={addForm.description}
                   onChange={(e) => setAddForm((f) => ({ ...f, description: e.target.value }))}
                   placeholder="Optional description"
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded px-2.5 py-1.5 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-amber-600" />
+                  className="inp inp-sm w-full" />
               </div>
             </div>
             <div className="flex items-center gap-3">
@@ -756,17 +753,17 @@ export default function ChartOfAccountsPage() {
                 <input type="checkbox" checked={addForm.is_active}
                   onChange={(e) => setAddForm((f) => ({ ...f, is_active: e.target.checked }))}
                   className="accent-amber-500" />
-                <span className="text-xs text-zinc-400">Active</span>
+                <span className="text-xs text-secondary">Active</span>
               </label>
             </div>
-            {addError && <p className="text-xs text-red-400">{addError}</p>}
+            {addError && <p className="text-xs text-danger">{addError}</p>}
             <div className="flex gap-3">
               <button type="button" onClick={() => { setShowAddForm(false); setAddForm(BLANK_FORM); setAddError(null); }}
-                className="px-4 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs rounded transition-colors">
+                className="btn-ghost btn-sm">
                 Cancel
               </button>
               <button type="submit" disabled={addSaving}
-                className="px-4 py-1.5 bg-amber-600 hover:bg-amber-500 disabled:opacity-40 text-white text-xs rounded transition-colors">
+                className="btn-amber btn-sm">
                 {addSaving ? "Saving…" : "Save Account"}
               </button>
             </div>
@@ -802,73 +799,73 @@ export default function ChartOfAccountsPage() {
           const delCount  = toDelete.length;
 
           return (
-            <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-5 space-y-4">
+            <div className="bg-surface border border-line rounded-lg p-5 space-y-4">
               <div>
-                <h2 className="text-sm font-semibold text-zinc-200">Review before uploading</h2>
+                <h2 className="text-sm font-semibold text-strong">Review before uploading</h2>
                 <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1.5">
-                  {newCount  > 0 && <span className="text-xs text-green-400"><span className="font-semibold">{newCount}</span> new</span>}
-                  {updCount  > 0 && <span className="text-xs text-amber-400"><span className="font-semibold">{updCount}</span> updated</span>}
-                  {sameCount > 0 && <span className="text-xs text-zinc-500"><span className="font-semibold">{sameCount}</span> unchanged</span>}
-                  {delCount  > 0 && <span className="text-xs text-red-400"><span className="font-semibold">{delCount}</span> deleted</span>}
+                  {newCount  > 0 && <span className="text-xs text-success"><span className="font-semibold">{newCount}</span> new</span>}
+                  {updCount  > 0 && <span className="text-xs text-accent"><span className="font-semibold">{updCount}</span> updated</span>}
+                  {sameCount > 0 && <span className="text-xs text-muted"><span className="font-semibold">{sameCount}</span> unchanged</span>}
+                  {delCount  > 0 && <span className="text-xs text-danger"><span className="font-semibold">{delCount}</span> deleted</span>}
                 </div>
               </div>
 
               {delCount > 0 && (
-                <div className="bg-red-950/30 border border-red-900/50 rounded p-3 space-y-1">
-                  <p className="text-xs text-red-400 font-medium">Accounts to be deleted ({delCount})</p>
+                <div className="bg-danger-surface/30 border border-danger-border/50 rounded p-3 space-y-1">
+                  <p className="text-xs text-danger font-medium">Accounts to be deleted ({delCount})</p>
                   {toDelete.map((a) => (
-                    <p key={a.id} className="text-xs text-red-300/70">
+                    <p key={a.id} className="text-xs text-danger/70">
                       {a.account_number ? <span className="font-mono mr-1.5">{a.account_number}</span> : null}
                       {a.account_name}
-                      <span className="text-red-900 ml-1.5">· {a.account_type}</span>
+                      <span className="text-danger-border ml-1.5">· {a.account_type}</span>
                     </p>
                   ))}
                 </div>
               )}
 
               {warnings.map((w, i) => (
-                <p key={i} className="text-xs text-amber-400">{w}</p>
+                <p key={i} className="text-xs text-accent">{w}</p>
               ))}
 
               {parsed.length > 0 ? (
-                <div className="bg-zinc-950 border border-zinc-800 rounded overflow-hidden max-h-64 overflow-y-auto">
+                <div className="bg-canvas border border-line rounded overflow-hidden max-h-64 overflow-y-auto">
                   <table className="w-full text-xs border-collapse">
                     <thead>
-                      <tr className="border-b border-zinc-800 sticky top-0 bg-zinc-950">
-                        <th className="px-3 py-2 text-left text-zinc-500 font-medium w-20">Status</th>
-                        <th className="px-3 py-2 text-left text-zinc-500 font-medium">Number</th>
-                        <th className="px-3 py-2 text-left text-zinc-500 font-medium">Name</th>
-                        <th className="px-3 py-2 text-left text-zinc-500 font-medium hidden sm:table-cell">Type</th>
+                      <tr className="border-b border-line sticky top-0 bg-canvas">
+                        <th className="px-3 py-2 text-left text-muted font-medium w-20">Status</th>
+                        <th className="px-3 py-2 text-left text-muted font-medium">Number</th>
+                        <th className="px-3 py-2 text-left text-muted font-medium">Name</th>
+                        <th className="px-3 py-2 text-left text-muted font-medium hidden sm:table-cell">Type</th>
                       </tr>
                     </thead>
                     <tbody>
                       {taggedRows.map(({ row, status }, i) => (
-                        <tr key={i} className={`border-t border-zinc-800/50 ${status === "unchanged" ? "opacity-40" : ""}`}>
+                        <tr key={i} className={`border-t border-line/50 ${status === "unchanged" ? "opacity-40" : ""}`}>
                           <td className="px-3 py-1.5">
-                            {status === "new"       && <span className="text-green-400 font-medium">New</span>}
-                            {status === "updated"   && <span className="text-amber-400">Updated</span>}
-                            {status === "unchanged" && <span className="text-zinc-600">—</span>}
+                            {status === "new"       && <span className="text-success font-medium">New</span>}
+                            {status === "updated"   && <span className="text-accent">Updated</span>}
+                            {status === "unchanged" && <span className="text-faint">—</span>}
                           </td>
-                          <td className="px-3 py-1.5 font-mono text-zinc-500">{row.account_number ?? "—"}</td>
-                          <td className="px-3 py-1.5 text-zinc-200">{row.account_name}</td>
-                          <td className="px-3 py-1.5 text-zinc-400 hidden sm:table-cell">{row.account_type}</td>
+                          <td className="px-3 py-1.5 font-mono text-muted">{row.account_number ?? "—"}</td>
+                          <td className="px-3 py-1.5 text-strong">{row.account_name}</td>
+                          <td className="px-3 py-1.5 text-secondary hidden sm:table-cell">{row.account_type}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
               ) : (
-                <p className="text-xs text-red-400">No valid accounts found in CSV. Check that your file has Name and Account Type columns.</p>
+                <p className="text-xs text-danger">No valid accounts found in CSV. Check that your file has Name and Account Type columns.</p>
               )}
 
-              {uploadError && <p className="text-xs text-red-400">{uploadError}</p>}
+              {uploadError && <p className="text-xs text-danger">{uploadError}</p>}
               <div className="flex gap-3">
                 <button onClick={() => { setStep("idle"); setParsed([]); setWarnings([]); }}
-                  className="px-4 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs rounded transition-colors">
+                  className="btn-ghost btn-sm">
                   Cancel
                 </button>
                 <button onClick={handleCommit} disabled={submitting || parsed.length === 0}
-                  className="px-4 py-1.5 bg-amber-600 hover:bg-amber-500 disabled:opacity-40 text-white text-xs rounded transition-colors">
+                  className="btn-amber btn-sm">
                   {submitting ? "Uploading…" : "Apply changes"}
                 </button>
               </div>
@@ -880,10 +877,10 @@ export default function ChartOfAccountsPage() {
           const parts: string[] = [];
           if (inserted > 0) parts.push(`${inserted} account${inserted !== 1 ? "s" : ""} saved`);
           return (
-            <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-5 flex items-center justify-between">
-              <p className="text-sm text-green-400">{parts.join(" · ") || "Upload complete."}</p>
+            <div className="bg-surface border border-line rounded-lg p-5 flex items-center justify-between">
+              <p className="text-sm text-success">{parts.join(" · ") || "Upload complete."}</p>
               <button onClick={() => setStep("idle")}
-                className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs rounded transition-colors">
+                className="btn-ghost btn-sm">
                 Done
               </button>
             </div>
@@ -892,33 +889,33 @@ export default function ChartOfAccountsPage() {
 
         {/* Account list */}
         {loading ? (
-          <p className="text-xs text-zinc-500">Loading…</p>
+          <p className="text-xs text-muted">Loading…</p>
         ) : error ? (
-          <p className="text-xs text-red-400">{error}</p>
+          <p className="text-xs text-danger">{error}</p>
         ) : accounts.length === 0 ? (
           <div className="text-center py-16 space-y-2">
-            <p className="text-sm text-zinc-400">No chart of accounts loaded yet.</p>
-            <p className="text-xs text-zinc-600">Upload a QuickBooks Online CSV export to get started.</p>
+            <p className="text-sm text-secondary">No chart of accounts loaded yet.</p>
+            <p className="text-xs text-faint">Upload a QuickBooks Online CSV export to get started.</p>
           </div>
         ) : step === "idle" ? (
           <>
             {/* View toggle */}
-            <div className="flex items-center gap-1 bg-zinc-900 border border-zinc-800 rounded p-0.5 w-fit">
+            <div className="flex items-center gap-1 bg-surface border border-line rounded p-0.5 w-fit">
               <button onClick={() => setViewMode("statement")}
-                className={`px-3 py-1 text-xs rounded transition-colors ${viewMode === "statement" ? "bg-zinc-700 text-zinc-100" : "text-zinc-500 hover:text-zinc-300"}`}>
+                className={`px-3 py-1 text-xs rounded transition-colors ${viewMode === "statement" ? "bg-surface-high text-primary" : "text-muted hover:text-body"}`}>
                 Statement View
               </button>
               <button onClick={() => setViewMode("type")}
-                className={`px-3 py-1 text-xs rounded transition-colors ${viewMode === "type" ? "bg-zinc-700 text-zinc-100" : "text-zinc-500 hover:text-zinc-300"}`}>
+                className={`px-3 py-1 text-xs rounded transition-colors ${viewMode === "type" ? "bg-surface-high text-primary" : "text-muted hover:text-body"}`}>
                 By Type
               </button>
             </div>
 
             {viewMode === "statement" ? (
-              <div className="bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden">
+              <div className="bg-surface border border-line rounded-lg overflow-hidden">
                 {/* P&L */}
-                <div className="px-4 sm:px-6 py-2 bg-zinc-900 border-b border-zinc-800">
-                  <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest">Profit & Loss</span>
+                <div className="px-4 sm:px-6 py-2 bg-surface border-b border-line">
+                  <span className="text-[11px] font-bold text-secondary uppercase tracking-widest">Profit & Loss</span>
                 </div>
                 {PL_SECTIONS.map((key) => (
                   <StatementSection key={key} sectionKey={key}
@@ -928,8 +925,8 @@ export default function ChartOfAccountsPage() {
                 ))}
 
                 {/* Balance Sheet */}
-                <div className="px-4 sm:px-6 py-2 bg-zinc-900 border-t border-zinc-800 border-b border-zinc-800 mt-2">
-                  <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest">Balance Sheet</span>
+                <div className="px-4 sm:px-6 py-2 bg-surface border-t border-line border-b border-line mt-2">
+                  <span className="text-[11px] font-bold text-secondary uppercase tracking-widest">Balance Sheet</span>
                 </div>
                 {BS_SECTIONS.map((key) => (
                   <StatementSection key={key} sectionKey={key}
@@ -941,8 +938,8 @@ export default function ChartOfAccountsPage() {
                 {/* Uncategorized */}
                 {uncategorized.length > 0 && (
                   <>
-                    <div className="px-4 sm:px-6 py-2 bg-zinc-900 border-t border-zinc-800 mt-2">
-                      <span className="text-[11px] font-bold text-zinc-600 uppercase tracking-widest">Uncategorized</span>
+                    <div className="px-4 sm:px-6 py-2 bg-surface border-t border-line mt-2">
+                      <span className="text-[11px] font-bold text-faint uppercase tracking-widest">Uncategorized</span>
                     </div>
                     {uncategorized.map((acct) => (
                       <AccountRow key={acct.id} account={acct} allAccounts={accounts}
@@ -955,8 +952,8 @@ export default function ChartOfAccountsPage() {
                   </>
                 )}
 
-                <div className="px-4 sm:px-6 py-2.5 border-t border-zinc-800 bg-zinc-900/40">
-                  <p className="text-[10px] text-zinc-600">Click any account to edit. Statement Section Override remaps an account to a different P&L or Balance Sheet section regardless of its Account Type.</p>
+                <div className="px-4 sm:px-6 py-2.5 border-t border-line bg-surface/40">
+                  <p className="text-[10px] text-faint">Click any account to edit. Statement Section Override remaps an account to a different P&L or Balance Sheet section regardless of its Account Type.</p>
                 </div>
               </div>
             ) : (

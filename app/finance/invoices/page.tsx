@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { formatCurrencyCents } from "@/lib/format";
 import { useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
@@ -8,6 +8,12 @@ import type { Invoice, InvoiceType } from "@/types/finance";
 import FinanceNav from "../FinanceNav";
 import TransactionsNav from "../transactions/TransactionsNav";
 import PageHeader from "@/app/components/PageHeader";
+import Banner from "@/app/components/ui/Banner";
+import AccountSelect from "../AccountSelect";
+import {
+  INVOICE_STATUS_CLS, INVOICE_SOURCE_LABEL, INVOICE_SOURCE_CLS,
+  INVOICE_TYPE_LABEL, INVOICE_TYPE_CLS, DEPOSIT_CATEGORY_CLS,
+} from "../lib/categoryColors";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -18,32 +24,15 @@ function fmtDate(s: string | null) {
 }
 
 function fmtDollars(cents: number) {
-  if (cents === 0) return <span className="text-zinc-600">—</span>;
+  if (cents === 0) return <span className="text-faint">—</span>;
   return <span>{formatCurrencyCents(cents, 0)}</span>;
 }
 
-const STATUS_CLS: Record<string, string> = {
-  paid:    "bg-green-900/40 text-green-400",
-  open:    "bg-amber-900/40 text-amber-400",
-  partial: "bg-blue-900/40 text-blue-400",
-  voided:  "bg-red-900/20 text-red-700",
-  draft:   "bg-zinc-800 text-zinc-500",
-  unknown: "bg-zinc-800 text-zinc-500",
-};
-
-const SOURCE_LABEL: Record<string, string> = { square: "Square", quickbooks: "QuickBooks", other: "Other" };
-const SOURCE_CLS:   Record<string, string> = {
-  square:     "bg-blue-900/40 text-blue-400",
-  quickbooks: "bg-violet-900/40 text-violet-400",
-  other:      "bg-zinc-800 text-zinc-400",
-};
-
-const TYPE_LABEL: Record<string, string> = { standard: "Standard", allocation_deposit: "Deposit", export_invoice: "Export" };
-const TYPE_CLS:   Record<string, string> = {
-  standard:           "bg-zinc-800 text-zinc-400",
-  allocation_deposit: "bg-amber-900/40 text-amber-400",
-  export_invoice:     "bg-teal-900/40 text-teal-400",
-};
+const STATUS_CLS = INVOICE_STATUS_CLS;
+const SOURCE_LABEL = INVOICE_SOURCE_LABEL;
+const SOURCE_CLS = INVOICE_SOURCE_CLS;
+const TYPE_LABEL = INVOICE_TYPE_LABEL;
+const TYPE_CLS = INVOICE_TYPE_CLS;
 
 
 // ── Invoice list with joined data ─────────────────────────────────────────────
@@ -75,89 +64,6 @@ interface InvoiceRow extends Omit<Invoice, "invoice_line_items"> {
   allocation_id: string | null;
 }
 
-// ── Invoice line item CoA editor ──────────────────────────────────────────────
-
-import { useRef, useEffect } from "react";
-
-function CoASelect({
-  value,
-  accounts,
-  onChange,
-}: {
-  value: string | null;
-  accounts: CoARef[];
-  onChange: (id: string | null) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const wrapRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  const selected = accounts.find((a) => a.id === value) ?? null;
-  const filtered = query.trim()
-    ? accounts.filter((a) =>
-        `${a.account_number ?? ""} ${a.account_name} ${a.account_type}`.toLowerCase().includes(query.toLowerCase())
-      )
-    : accounts;
-  const grouped = filtered.reduce<Record<string, CoARef[]>>((acc, a) => {
-    (acc[a.account_type] ??= []).push(a);
-    return acc;
-  }, {});
-
-  useEffect(() => {
-    if (!open) return;
-    function onDown(e: MouseEvent) {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) { setOpen(false); setQuery(""); }
-    }
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, [open]);
-
-  function handleSelect(id: string | null) { onChange(id); setOpen(false); setQuery(""); }
-
-  const coaLabel = (a: CoARef) => a.account_number ? `${a.account_number} · ${a.account_name}` : a.account_name;
-
-  return (
-    <div ref={wrapRef} className="relative w-full max-w-[300px]">
-      <button type="button" onClick={() => { setOpen(true); setTimeout(() => inputRef.current?.focus(), 0); }}
-        className="w-full flex items-center justify-between gap-1 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-left focus:outline-none hover:border-zinc-500 transition-colors">
-        <span className={`truncate ${selected ? "text-zinc-200" : "text-zinc-500"}`}>
-          {selected ? coaLabel(selected) : "— no mapping —"}
-        </span>
-        <span className="text-zinc-600 shrink-0">⌄</span>
-      </button>
-      {open && (
-        <div className="absolute z-50 left-0 right-0 mt-1 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl flex flex-col max-h-52 min-w-[260px]">
-          <div className="p-1.5 border-b border-zinc-800 shrink-0">
-            <input ref={inputRef} value={query} onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Escape") { setOpen(false); setQuery(""); } }}
-              placeholder="Search accounts…"
-              className="w-full bg-zinc-800 rounded px-2 py-1 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none" />
-          </div>
-          <div className="overflow-y-auto">
-            <button type="button" onMouseDown={(e) => { e.preventDefault(); handleSelect(null); }}
-              className={`w-full text-left px-3 py-2 text-xs border-b border-zinc-800/50 transition-colors ${!value ? "text-amber-400 bg-amber-900/20" : "text-zinc-500 hover:bg-zinc-800"}`}>
-              — no mapping —
-            </button>
-            {Object.entries(grouped).sort(([a], [b]) => a.localeCompare(b)).map(([type, accs]) => (
-              <div key={type}>
-                <div className="px-3 py-1 text-[10px] text-zinc-600 uppercase tracking-wider bg-zinc-900/80 sticky top-0">{type}</div>
-                {accs.sort((a, b) => (a.account_number ?? "").localeCompare(b.account_number ?? "")).map((a) => (
-                  <button key={a.id} type="button" onMouseDown={(e) => { e.preventDefault(); handleSelect(a.id); }}
-                    className={`w-full text-left px-3 py-2 text-xs transition-colors border-t border-zinc-800/30 ${a.id === value ? "bg-amber-900/30 text-amber-300" : "text-zinc-300 hover:bg-zinc-800"}`}>
-                    {a.account_number && <span className="text-zinc-500 font-mono mr-1.5">{a.account_number}</span>}
-                    {a.account_name}
-                  </button>
-                ))}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ── Expandable invoice row ────────────────────────────────────────────────────
 
 interface InvoiceSummary { id: string; invoice_number: string | null; square_invoice_id: string | null; invoice_date: string | null; customer_name: string | null; status: string }
@@ -187,16 +93,16 @@ function InvoiceExpandableRow({
   return (
     <>
       <tr
-        className="border-t border-zinc-800/40 hover:bg-zinc-800/20 cursor-pointer"
+        className="border-t border-line/40 hover:bg-surface-mid/20 cursor-pointer"
         onClick={() => setExpanded((e) => !e)}>
         <td className="px-4 py-2 w-6">
-          <span className="text-zinc-600 text-[10px]">{expanded ? "▾" : "▸"}</span>
+          <span className="text-faint text-[10px]">{expanded ? "▾" : "▸"}</span>
         </td>
-        <td className="px-4 py-2 font-mono text-amber-400">
+        <td className="px-4 py-2 font-mono text-accent">
           {inv.invoice_number ?? inv.square_invoice_id}
         </td>
-        <td className="px-4 py-2 text-zinc-400">{fmtDate(inv.invoice_date)}</td>
-        <td className="px-4 py-2 text-zinc-300">
+        <td className="px-4 py-2 text-secondary">{fmtDate(inv.invoice_date)}</td>
+        <td className="px-4 py-2 text-body">
           {inv.contract_brewing_partners?.company_name ?? inv.customer_name ?? "—"}
         </td>
         <td className="px-4 py-2">
@@ -217,33 +123,33 @@ function InvoiceExpandableRow({
         <td className="px-4 py-2">
           <div className="flex flex-col gap-1">
             {lineItems.length === 0
-              ? <span className="text-zinc-700">—</span>
+              ? <span className="text-disabled">—</span>
               : allMapped
-                ? <span className="text-[10px] text-green-500">✓ all mapped</span>
+                ? <span className="text-[10px] text-success">✓ all mapped</span>
                 : mappedCount > 0
-                  ? <span className="text-[10px] text-amber-500">{mappedCount}/{lineItems.length} mapped</span>
-                  : <span className="text-[10px] text-zinc-600">unmapped</span>}
+                  ? <span className="text-[10px] text-accent-emphasis">{mappedCount}/{lineItems.length} mapped</span>
+                  : <span className="text-[10px] text-faint">unmapped</span>}
             {missingDelivery && (
-              <span className="text-[10px] text-amber-400">⚠ deposit missing delivery</span>
+              <span className="text-[10px] text-accent">⚠ deposit missing delivery</span>
             )}
           </div>
         </td>
-        <td className="px-4 py-2 text-right font-mono text-zinc-200 tabular-nums">
+        <td className="px-4 py-2 text-right font-mono text-strong tabular-nums">
           {fmtDollars(inv.total_cents)}
         </td>
         <td className="px-4 py-2 text-center">
           {linkCount > 0
-            ? <span className="text-green-400 font-medium">{linkCount}</span>
-            : <span className="text-zinc-600">—</span>}
+            ? <span className="text-success font-medium">{linkCount}</span>
+            : <span className="text-faint">—</span>}
         </td>
       </tr>
 
       {expanded && (
-        <tr className="border-t border-zinc-800/20">
+        <tr className="border-t border-line/20">
           <td colSpan={10} className="p-0">
-            <div className="bg-zinc-950 border-b border-zinc-800/60">
+            <div className="bg-canvas border-b border-line/60">
               {/* Line item headers */}
-              <div className="grid grid-cols-[minmax(0,2fr)_60px_80px_80px_minmax(0,1fr)] gap-3 px-10 py-1.5 bg-zinc-900/40 text-[10px] text-zinc-600 uppercase tracking-wider">
+              <div className="grid grid-cols-[minmax(0,2fr)_60px_80px_80px_minmax(0,1fr)] gap-3 px-10 py-1.5 bg-surface/40 text-[10px] text-faint uppercase tracking-wider">
                 <span>Description</span>
                 <span className="text-right">Qty</span>
                 <span className="text-right">Unit Price</span>
@@ -251,7 +157,7 @@ function InvoiceExpandableRow({
                 <span>GL Account</span>
               </div>
               {lineItems.length === 0
-                ? <p className="px-10 py-3 text-xs text-zinc-600 italic">No line items</p>
+                ? <p className="px-10 py-3 text-xs text-faint italic">No line items</p>
                 : lineItems
                     .slice()
                     .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
@@ -307,51 +213,51 @@ function InvoiceLineItemRow({
   const deliveryPaid = deliveryInv?.status === "paid";
 
   return (
-    <div className="border-t border-zinc-800/30 hover:bg-zinc-900/20 transition-colors">
+    <div className="border-t border-line/30 hover:bg-surface/20 transition-colors">
       {/* Main row */}
       <div className="grid grid-cols-[minmax(0,2fr)_60px_80px_80px_minmax(0,1fr)] gap-3 px-10 py-2 text-xs items-start">
         <div className="min-w-0 pt-0.5">
-          <span className="text-zinc-400 truncate block">{item.description}</span>
-          {item.variation_name && <span className="text-[10px] text-zinc-600">{item.variation_name}</span>}
+          <span className="text-secondary truncate block">{item.description}</span>
+          {item.variation_name && <span className="text-[10px] text-faint">{item.variation_name}</span>}
           {isDeposit && (
-            <span className="inline-block mt-0.5 ml-1 px-1 py-0.5 rounded text-[10px] font-medium bg-violet-900/40 text-violet-400">
+            <span className={`inline-block mt-0.5 ml-1 px-1 py-0.5 rounded text-[10px] font-medium ${DEPOSIT_CATEGORY_CLS}`}>
               deposit
             </span>
           )}
         </div>
-        <span className="text-zinc-600 text-right tabular-nums pt-0.5">{item.quantity ?? 1}×</span>
-        <span className="text-zinc-500 text-right tabular-nums font-mono pt-0.5">
+        <span className="text-faint text-right tabular-nums pt-0.5">{item.quantity ?? 1}×</span>
+        <span className="text-muted text-right tabular-nums font-mono pt-0.5">
           {item.unit_price_cents ? formatCurrencyCents(item.unit_price_cents) : "—"}
         </span>
-        <span className="text-zinc-300 text-right tabular-nums font-mono pt-0.5">
+        <span className="text-body text-right tabular-nums font-mono pt-0.5">
           {formatCurrencyCents(item.total_cents)}
         </span>
         <div className="flex flex-col gap-1.5">
           {!isDeposit && (
             <div className="flex items-center gap-2">
-              <CoASelect value={coaId} accounts={accounts} onChange={handleCoaChange} />
-              {saving && <span className="text-[10px] text-zinc-600 animate-pulse shrink-0">…</span>}
+              <AccountSelect value={coaId} accounts={accounts} onChange={handleCoaChange} className="w-full max-w-[300px]" />
+              {saving && <span className="text-[10px] text-faint animate-pulse shrink-0">…</span>}
             </div>
           )}
           {isDeposit && (
             <div className="flex flex-col gap-1.5">
-              {/* BS account */}
+              {/* BS account — violet = balance-sheet recognition (data category, no token) */}
               <div className="flex items-center gap-1.5">
-                <span className={`text-[10px] font-medium px-1 py-0.5 rounded shrink-0 ${!deliveryPaid ? "bg-violet-900/60 text-violet-300" : "bg-zinc-800 text-zinc-500"}`}>BS</span>
-                <CoASelect value={bsId} accounts={accounts} onChange={handleBsChange} />
+                <span className={`text-[10px] font-medium px-1 py-0.5 rounded shrink-0 ${!deliveryPaid ? "bg-violet-900/60 text-violet-300" : "bg-surface-mid text-muted"}`}>BS</span>
+                <AccountSelect value={bsId} accounts={accounts} onChange={handleBsChange} className="w-full max-w-[300px]" />
               </div>
-              {/* PL account */}
+              {/* PL account — green = P&L recognition (success token) */}
               <div className="flex items-center gap-1.5">
-                <span className={`text-[10px] font-medium px-1 py-0.5 rounded shrink-0 ${deliveryPaid ? "bg-green-900/60 text-green-300" : "bg-zinc-800 text-zinc-500"}`}>P&L</span>
-                <CoASelect value={plId} accounts={accounts} onChange={handlePlChange} />
+                <span className={`text-[10px] font-medium px-1 py-0.5 rounded shrink-0 ${deliveryPaid ? "bg-success-surface/60 text-success" : "bg-surface-mid text-muted"}`}>P&L</span>
+                <AccountSelect value={plId} accounts={accounts} onChange={handlePlChange} className="w-full max-w-[300px]" />
               </div>
               {/* Delivery invoice */}
               <div className="flex items-center gap-1.5">
-                <span className="text-[10px] text-zinc-600 shrink-0">delivery</span>
+                <span className="text-[10px] text-faint shrink-0">delivery</span>
                 <select
                   value={delivId ?? ""}
                   onChange={(e) => handleDelivChange(e.target.value || null)}
-                  className="inp text-[10px] py-0.5 px-1.5 flex-1">
+                  className="inp inp-sm flex-1">
                   <option value="">— no delivery invoice —</option>
                   {allInvoices.map((inv) => (
                     <option key={inv.id} value={inv.id}>
@@ -365,9 +271,9 @@ function InvoiceLineItemRow({
               </div>
               {/* Warning */}
               {!delivId && (
-                <p className="text-[10px] text-amber-500/80">No delivery invoice linked — showing as Balance Sheet</p>
+                <p className="text-[10px] text-accent-emphasis/80">No delivery invoice linked — showing as Balance Sheet</p>
               )}
-              {saving && <span className="text-[10px] text-zinc-600 animate-pulse">…</span>}
+              {saving && <span className="text-[10px] text-faint animate-pulse">…</span>}
             </div>
           )}
         </div>
@@ -448,22 +354,22 @@ function BatchLinkEditor({
   const availableBatches = batches.filter((b) => !linkedBatchIds.has(b.id));
 
   return (
-    <div className="px-10 py-3 border-t border-zinc-800/40 bg-zinc-950/40">
-      <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-2">Batch Links</div>
+    <div className="px-10 py-3 border-t border-line/40 bg-canvas/40">
+      <div className="text-[10px] text-muted uppercase tracking-wider mb-2">Batch Links</div>
       {loadingLinks ? (
-        <p className="text-xs text-zinc-600">Loading…</p>
+        <p className="text-xs text-faint">Loading…</p>
       ) : (
         <>
           {links.length > 0 && (
             <div className="flex flex-wrap gap-2 mb-2">
               {links.map((link) => (
-                <div key={link.id} className="flex items-center gap-1.5 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs">
-                  <span className="text-zinc-300">
+                <div key={link.id} className="flex items-center gap-1.5 bg-surface-mid border border-line-strong rounded px-2 py-1 text-xs">
+                  <span className="text-body">
                     {link.brew_batches?.batch_number != null ? `#${link.brew_batches.batch_number} · ` : ""}
                     {link.brew_batches?.beer_name ?? "Unknown batch"}
                   </span>
                   <button onClick={() => handleRemove(link.id)}
-                    className="text-zinc-600 hover:text-red-400 transition-colors ml-1">×</button>
+                    className="text-faint hover:text-danger transition-colors ml-1">×</button>
                 </div>
               ))}
             </div>
@@ -483,7 +389,7 @@ function BatchLinkEditor({
               className="btn-sm">
               {adding ? "Linking…" : "Link"}
             </button>
-            {addError && <span className="text-xs text-red-400">{addError}</span>}
+            {addError && <span className="text-xs text-danger">{addError}</span>}
           </div>
         </>
       )}
@@ -532,7 +438,7 @@ function InvoiceSyncPanel({ year, onSynced }: { year: number; onSynced: () => vo
   return (
     <div className="flex items-center gap-2 flex-wrap">
       {days != null && (
-        <span className={`text-xs ${days >= 7 ? "text-amber-400" : "text-zinc-500"}`}>
+        <span className={`text-xs ${days >= 7 ? "text-accent" : "text-muted"}`}>
           Last sync: {days === 0 ? "today" : `${days}d ago`}
         </span>
       )}
@@ -540,13 +446,13 @@ function InvoiceSyncPanel({ year, onSynced }: { year: number; onSynced: () => vo
         className="btn-sm whitespace-nowrap">
         {syncing ? "Syncing invoices…" : "Sync from Square"}
       </button>
-      {syncError && <span className="text-xs text-red-400">{syncError}</span>}
+      {syncError && <span className="text-xs text-danger">{syncError}</span>}
       {result && (
-        <span className="text-xs text-zinc-400">
-          {result.synced > 0 && <span className="text-green-400 mr-1">{result.synced} new</span>}
-          {result.updated > 0 && <span className="text-zinc-400 mr-1">{result.updated} updated</span>}
-          {result.total === 0 && <span className="text-zinc-600">No invoices found</span>}
-          {result.errors?.length ? <span className="text-red-400">{result.errors.length} errors</span> : null}
+        <span className="text-xs text-secondary">
+          {result.synced > 0 && <span className="text-success mr-1">{result.synced} new</span>}
+          {result.updated > 0 && <span className="text-secondary mr-1">{result.updated} updated</span>}
+          {result.total === 0 && <span className="text-faint">No invoices found</span>}
+          {result.errors?.length ? <span className="text-danger">{result.errors.length} errors</span> : null}
         </span>
       )}
     </div>
@@ -557,7 +463,7 @@ type SortKey = "invoice_number" | "invoice_date" | "customer_name" | "source" | 
 
 function SortIcon({ k, sortKey, sortAsc }: { k: SortKey; sortKey: SortKey; sortAsc: boolean }) {
   return (
-    <span className={`ml-1 ${sortKey === k ? "text-amber-400" : "text-zinc-700"}`}>
+    <span className={`ml-1 ${sortKey === k ? "text-accent" : "text-disabled"}`}>
       {sortKey === k ? (sortAsc ? "↑" : "↓") : "↕"}
     </span>
   );
@@ -656,17 +562,17 @@ export default function InvoicesPage() {
   const unlinkedCount = invoices.filter((i) => (i.invoice_batch_links as unknown as { count: number }[])[0]?.count === 0).length;
 
   return (
-    <div className="flex flex-col h-full bg-zinc-950 text-zinc-100">
+    <div className="flex flex-col h-full bg-canvas text-primary">
       <FinanceNav mobile />
       {/* Header */}
-      <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-6">
+      <div className="shrink-0 px-4 sm:px-6">
         <PageHeader
           title="Invoices"
           description="Square and QuickBooks invoices · map line items to GL accounts"
         />
       </div>
       <TransactionsNav />
-      <div className="shrink-0 px-4 sm:px-6 pb-4 border-b border-zinc-800">
+      <div className="shrink-0 px-4 sm:px-6 pb-4 border-b border-line">
         <div className="flex flex-wrap items-center gap-2">
           <select value={year} onChange={(e) => setYear(Number(e.target.value))}
             className="inp w-auto">
@@ -689,7 +595,7 @@ export default function InvoicesPage() {
           </select>
           <button
             onClick={() => setShowVoided((v) => !v)}
-            className={`btn-sm text-xs whitespace-nowrap ${showVoided ? "text-zinc-300" : "text-zinc-600"}`}>
+            className={`btn-sm whitespace-nowrap ${showVoided ? "text-body" : "text-faint"}`}>
             {showVoided ? "Hide voided" : "Show voided"}
           </button>
           <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value as typeof typeFilter)}
@@ -715,8 +621,8 @@ export default function InvoicesPage() {
             {autoMapResult && (
               <span className="text-xs">
                 {autoMapResult.mapped > 0
-                  ? <span className="text-green-400">{autoMapResult.mapped} mapped</span>
-                  : <span className="text-zinc-600">Nothing to map</span>}
+                  ? <span className="text-success">{autoMapResult.mapped} mapped</span>
+                  : <span className="text-faint">Nothing to map</span>}
               </span>
             )}
           </div>
@@ -725,80 +631,80 @@ export default function InvoicesPage() {
 
       {/* Summary bar */}
       {!isFetching && invoices.length > 0 && (
-        <div className="shrink-0 flex flex-wrap items-center gap-4 sm:gap-6 px-4 sm:px-6 py-3 border-b border-zinc-800/60 bg-zinc-900/30">
+        <div className="shrink-0 flex flex-wrap items-center gap-4 sm:gap-6 px-4 sm:px-6 py-3 border-b border-line/60 bg-surface/30">
           <div>
-            <span className="text-xs text-zinc-500">Invoices </span>
-            <span className="text-sm font-semibold text-zinc-200">{invoices.length}</span>
+            <span className="text-xs text-muted">Invoices </span>
+            <span className="text-sm font-semibold text-strong">{invoices.length}</span>
           </div>
           <div>
-            <span className="text-xs text-zinc-500">Total value </span>
-            <span className="text-sm font-semibold text-zinc-200">{formatCurrencyCents(totalValue, 0)}</span>
+            <span className="text-xs text-muted">Total value </span>
+            <span className="text-sm font-semibold text-strong">{formatCurrencyCents(totalValue, 0)}</span>
           </div>
           {openValue > 0 && (
             <div>
-              <span className="text-xs text-zinc-500">Open </span>
-              <span className="text-sm font-semibold text-amber-400">{formatCurrencyCents(openValue, 0)}</span>
+              <span className="text-xs text-muted">Open </span>
+              <span className="text-sm font-semibold text-accent">{formatCurrencyCents(openValue, 0)}</span>
             </div>
           )}
           {unlinkedCount > 0 && (
             <div>
-              <span className="text-xs text-zinc-500">Unlinked to batch </span>
-              <span className="text-sm font-semibold text-zinc-400">{unlinkedCount}</span>
+              <span className="text-xs text-muted">Unlinked to batch </span>
+              <span className="text-sm font-semibold text-secondary">{unlinkedCount}</span>
             </div>
           )}
         </div>
       )}
 
       {error && (
-        <div className="mx-6 mt-4 bg-red-900/30 border border-red-700 rounded p-3 text-sm text-red-300">
+        <Banner className="mx-6 mt-4">
           {error instanceof Error ? error.message : "Failed to load"}
-        </div>
+        </Banner>
       )}
 
       {/* Table */}
       <div className="flex-1 overflow-auto px-4 sm:px-6 py-4">
-        <div className="bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden">
+        <div className="bg-surface border border-line rounded-lg overflow-hidden">
           <table className="w-full text-xs border-collapse">
             <thead>
-              <tr className="border-b border-zinc-800">
+              <tr className="border-b border-line">
                 <th className="w-6 px-2" />
-                <th className="px-4 py-2 text-left text-zinc-500 font-medium cursor-pointer select-none hover:text-zinc-300"
+                <th className="px-4 py-2 text-left text-muted font-medium cursor-pointer select-none hover:text-body"
                   onClick={() => handleSort("invoice_number")}>
                   Invoice # <SortIcon k="invoice_number" sortKey={sortKey} sortAsc={sortAsc} />
                 </th>
-                <th className="px-4 py-2 text-left text-zinc-500 font-medium cursor-pointer select-none hover:text-zinc-300"
+                <th className="px-4 py-2 text-left text-muted font-medium cursor-pointer select-none hover:text-body"
                   onClick={() => handleSort("invoice_date")}>
                   Date <SortIcon k="invoice_date" sortKey={sortKey} sortAsc={sortAsc} />
                 </th>
-                <th className="px-4 py-2 text-left text-zinc-500 font-medium cursor-pointer select-none hover:text-zinc-300"
+                <th className="px-4 py-2 text-left text-muted font-medium cursor-pointer select-none hover:text-body"
                   onClick={() => handleSort("customer_name")}>
                   Customer <SortIcon k="customer_name" sortKey={sortKey} sortAsc={sortAsc} />
                 </th>
-                <th className="px-4 py-2 text-left text-zinc-500 font-medium cursor-pointer select-none hover:text-zinc-300"
+                <th className="px-4 py-2 text-left text-muted font-medium cursor-pointer select-none hover:text-body"
                   onClick={() => handleSort("source")}>
                   Source <SortIcon k="source" sortKey={sortKey} sortAsc={sortAsc} />
                 </th>
-                <th className="px-4 py-2 text-left text-zinc-500 font-medium cursor-pointer select-none hover:text-zinc-300"
+                <th className="px-4 py-2 text-left text-muted font-medium cursor-pointer select-none hover:text-body"
                   onClick={() => handleSort("type")}>
                   Type <SortIcon k="type" sortKey={sortKey} sortAsc={sortAsc} />
                 </th>
-                <th className="px-4 py-2 text-left text-zinc-500 font-medium cursor-pointer select-none hover:text-zinc-300"
+                <th className="px-4 py-2 text-left text-muted font-medium cursor-pointer select-none hover:text-body"
                   onClick={() => handleSort("status")}>
                   Status <SortIcon k="status" sortKey={sortKey} sortAsc={sortAsc} />
                 </th>
-                <th className="px-4 py-2 text-left text-zinc-500 font-medium">GL / Categories</th>
-                <th className="px-4 py-2 text-right text-zinc-500 font-medium cursor-pointer select-none hover:text-zinc-300"
+                <th className="px-4 py-2 text-left text-muted font-medium">GL / Categories</th>
+                <th className="px-4 py-2 text-right text-muted font-medium cursor-pointer select-none hover:text-body"
                   onClick={() => handleSort("total_cents")}>
                   Total <SortIcon k="total_cents" sortKey={sortKey} sortAsc={sortAsc} />
                 </th>
-                <th className="px-4 py-2 text-center text-zinc-500 font-medium">Batches</th>
+                <th className="px-4 py-2 text-center text-muted font-medium">Batches</th>
               </tr>
             </thead>
             <tbody>
               {isFetching ? (
-                <tr><td colSpan={10} className="px-4 py-8 text-center text-zinc-600">Loading…</td></tr>
+                <tr><td colSpan={10} className="px-4 py-8 text-center text-faint">Loading…</td></tr>
               ) : invoices.length === 0 ? (
-                <tr><td colSpan={10} className="px-4 py-8 text-center text-zinc-600">
+                <tr><td colSpan={10} className="px-4 py-8 text-center text-faint">
                   No invoices found.
                 </td></tr>
               ) : (

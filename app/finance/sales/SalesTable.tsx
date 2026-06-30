@@ -20,19 +20,19 @@ interface Props {
 }
 
 function fmtUsd(n: number) {
-  if (n === 0) return <span className="text-zinc-700">—</span>;
+  if (n === 0) return <span className="text-faint">—</span>;
   const neg = n < 0;
   const s = formatCurrency(Math.abs(n), 0);
-  return <span className={neg ? "text-red-400" : undefined}>{neg ? `(${s})` : s}</span>;
+  return <span className={neg ? "text-danger" : undefined}>{neg ? `(${s})` : s}</span>;
 }
 
 function fmtQty(n: number) {
-  if (n === 0) return <span className="text-zinc-700">—</span>;
+  if (n === 0) return <span className="text-faint">—</span>;
   return <>{n.toLocaleString()}</>;
 }
 
 function fmtBbl(n: number) {
-  if (n === 0) return <span className="text-zinc-700">—</span>;
+  if (n === 0) return <span className="text-faint">—</span>;
   return <>{n.toFixed(2)}</>;
 }
 
@@ -61,14 +61,14 @@ export default function SalesTable({ rows, months, monthly, loading }: Props) {
     <div className="overflow-x-auto">
       <table className="w-full text-xs border-collapse">
         <thead>
-          <tr className="border-b border-zinc-800">
-            <th className="sticky left-0 bg-zinc-950 px-4 py-2 text-left text-zinc-500 font-medium w-36 min-w-[144px] sm:w-52 sm:min-w-[208px]" />
+          <tr className="border-b border-line">
+            <th className="sticky left-0 bg-canvas px-4 py-2 text-left text-muted font-medium w-36 min-w-[144px] sm:w-52 sm:min-w-[208px]" />
             {MONTHS.map((ym) => (
-              <th key={ym} className="px-3 py-2 text-right text-zinc-500 font-medium min-w-[80px]">
+              <th key={ym} className="px-3 py-2 text-right text-muted font-medium min-w-[80px]">
                 {monthLabel(ym)}
               </th>
             ))}
-            <th className="px-3 py-2 text-right text-zinc-400 font-semibold min-w-[88px] border-l border-zinc-800">
+            <th className="px-3 py-2 text-right text-secondary font-semibold min-w-[88px] border-l border-line">
               Total
             </th>
           </tr>
@@ -83,7 +83,7 @@ export default function SalesTable({ rows, months, monthly, loading }: Props) {
               return (
                 <tr key={i}>
                   <td colSpan={MONTHS.length + 2}
-                    className="sticky left-0 bg-zinc-950 px-4 pt-3 pb-1 text-zinc-500 uppercase tracking-wider text-[10px] font-semibold w-36 min-w-[144px] sm:w-52 sm:min-w-[208px]">
+                    className="sticky left-0 bg-canvas px-4 pt-3 pb-1 text-muted uppercase tracking-wider text-xs font-semibold w-36 min-w-[144px] sm:w-52 sm:min-w-[208px]">
                     {row.label}
                   </td>
                 </tr>
@@ -95,23 +95,23 @@ export default function SalesTable({ rows, months, monthly, loading }: Props) {
             const fmt = row.format ?? "usd";
 
             return (
-              <tr key={i} className={`border-t ${isSubtotal ? "border-zinc-700 bg-zinc-900/40" : "border-zinc-800/40 hover:bg-zinc-900/30"}`}>
-                <td className={`sticky left-0 ${isSubtotal ? "bg-zinc-900" : "bg-zinc-950 hover:bg-zinc-900/30"} px-4 py-1.5 font-${isSubtotal ? "semibold" : "normal"} ${isSubtotal ? "text-zinc-200" : row.indent ? "text-zinc-500 pl-8" : "text-zinc-400"} w-36 min-w-[144px] sm:w-52 sm:min-w-[208px] max-w-[144px] sm:max-w-[208px] truncate`}>
+              <tr key={i} className={`border-t ${isSubtotal ? "border-line-strong bg-surface/40" : "border-line/40 hover:bg-surface/30"}`}>
+                <td className={`sticky left-0 ${isSubtotal ? "bg-surface" : "bg-canvas hover:bg-surface/30"} px-4 py-1.5 font-${isSubtotal ? "semibold" : "normal"} ${isSubtotal ? "text-strong" : row.indent ? "text-muted pl-8" : "text-secondary"} w-36 min-w-[144px] sm:w-52 sm:min-w-[208px] max-w-[144px] sm:max-w-[208px] truncate`}>
                   {row.label}
                 </td>
                 {loading ? (
-                  <td colSpan={MONTHS.length + 1} className="px-3 py-1.5 text-zinc-700 text-center">—</td>
+                  <td colSpan={MONTHS.length + 1} className="px-3 py-1.5 text-faint text-center">—</td>
                 ) : (
                   <>
                     {MONTHS.map((ym) => {
                       const val = monthly[ym]?.[key] ?? 0;
                       return (
-                        <td key={ym} className={`px-3 py-1.5 text-right tabular-nums font-mono ${isSubtotal ? "text-zinc-200 font-semibold" : "text-zinc-400"}`}>
+                        <td key={ym} className={`px-3 py-1.5 text-right tabular-nums font-mono ${isSubtotal ? "text-strong font-semibold" : "text-secondary"}`}>
                           {fmtVal(val, fmt)}
                         </td>
                       );
                     })}
-                    <td className={`px-3 py-1.5 text-right tabular-nums font-mono border-l border-zinc-800 ${isSubtotal ? "text-amber-400 font-bold" : "text-zinc-500"}`}>
+                    <td className={`px-3 py-1.5 text-right tabular-nums font-mono border-l border-line ${isSubtotal ? "text-accent font-bold" : "text-muted"}`}>
                       {colTotal(key, fmt)}
                     </td>
                   </>
