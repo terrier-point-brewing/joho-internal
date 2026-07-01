@@ -11,10 +11,11 @@ export function GustoSummaryPanel({ entries, employees, salariedEmployees }: Pro
   const empMap = new Map(employees.map((e) => [e.id, e]));
 
   return (
-    <div className="mt-8">
-      <h3 className="text-sm font-semibold text-strong mb-3">Gusto Summary</h3>
+    <div>
       <p className="text-xs text-muted mb-4">
-        Copy these values into Gusto when running payroll. Salaried employees require no manual entry.
+        Copy these values into Gusto when running payroll. Hourly staff are listed with the
+        figures to enter; salaried employees are included below as a reminder to run them —
+        they require no manual entry.
       </p>
       <table className="w-full text-sm">
         <thead>
