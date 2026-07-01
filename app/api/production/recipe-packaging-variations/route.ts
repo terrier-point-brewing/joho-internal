@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { PACKAGING_VARIATION_SELECT } from "@/lib/production/packagingVariations";
 
 export const dynamic = "force-dynamic";
 
@@ -9,13 +10,14 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from("recipe_packaging_variations")
+    // Reuse the shared variation select so the embedded container (and its
+    // type) resolves via the explicit FK-constraint hint. packaging_variations
+    // has five FKs to packaging_items, so a bare `container_id` column target is
+    // ambiguous and leaves `container` unpopulated — which silently dropped
+    // recipe-linked keg/can variations from the kegging/canning dropdowns.
     .select(`
       id, recipe_id, variation_id, created_at,
-      packaging_variations(
-        id, name, container_id, format, partner_id, total_volume_fl_oz, is_active,
-        packaging_items:container_id(id, name, type, volume_fl_oz),
-        contract_brewing_partners(id, company_name)
-      )
+      packaging_variations(${PACKAGING_VARIATION_SELECT})
     `)
     .order("created_at");
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
