@@ -2,9 +2,10 @@
  * GET /api/finance/statements?year=YYYY[&month=M]
  * GET /api/finance/statements?view=mom&year=YYYY
  *
- * Returns aggregated financial statement data from two sources:
+ * Returns aggregated financial statement data from three sources:
  *   1. pos_line_items mapped to chart_of_accounts (POS revenue)
  *   2. invoice_line_items mapped to chart_of_accounts (invoice revenue/COGS)
+ *   3. expenses mapped to chart_of_accounts (Ramp etc. spend; cash view = cleared only)
  *
  * Deposit recognition: invoice line items with bs/pl split accounts are
  * recorded to BS until their linked delivery invoice is paid, then shift to P&L.
@@ -184,6 +185,24 @@ export async function GET(req: NextRequest) {
       cur.count += 1;
     }
 
+    // Mapped expenses (Ramp etc.), recognized by accounting_date. amount_cents
+    // is positive for spend, so it adds straight into the mapped account.
+    const { data: expRows } = await supabase
+      .from("expenses")
+      .select("chart_of_accounts_id, amount_cents, accounting_date")
+      .gte("accounting_date", `${year}-01-01`)
+      .lte("accounting_date", `${year}-12-31`)
+      .not("chart_of_accounts_id", "is", null)
+      .or("state.is.null,state.neq.DECLINED");
+
+    for (const row of expRows ?? []) {
+      if (!row.chart_of_accounts_id || !row.accounting_date) continue;
+      const key = (row.accounting_date as string).slice(0, 7);
+      const cur = getOrCreate(row.chart_of_accounts_id, key);
+      cur.cents += row.amount_cents ?? 0;
+      cur.count += 1;
+    }
+
     const result: AccountBalanceMoM[] = (accounts ?? []).map((acct) => {
       const mmap = balanceMap.get(acct.id);
       const monthly: Record<string, { cents: number; count: number }> = {};
@@ -206,7 +225,7 @@ export async function GET(req: NextRequest) {
 
   if (view === "cash") {
     // Direct-method cash flow: same CoA structure as P&L, but invoices filtered
-    // to status='paid' only. POS is always cash. Ramp (expenses) not yet connected.
+    // to status='paid' only. POS is always cash. Expenses = cleared card spend.
     const start = `${year}-01-01T00:00:00Z`;
     const end   = `${year + 1}-01-01T00:00:00Z`;
 
@@ -263,6 +282,23 @@ export async function GET(req: NextRequest) {
       const key = `${parts[0]}-${parts[1]}`;
       const cur = getOrCreate(row.chart_of_accounts_id, key);
       cur.cents += row.total_cents ?? 0;
+      cur.count += 1;
+    }
+
+    // Cash basis: only expenses that have actually cleared the card.
+    const { data: expRows } = await supabase
+      .from("expenses")
+      .select("chart_of_accounts_id, amount_cents, accounting_date")
+      .gte("accounting_date", `${year}-01-01`)
+      .lte("accounting_date", `${year}-12-31`)
+      .not("chart_of_accounts_id", "is", null)
+      .eq("state", "CLEARED");
+
+    for (const row of expRows ?? []) {
+      if (!row.chart_of_accounts_id || !row.accounting_date) continue;
+      const key = (row.accounting_date as string).slice(0, 7);
+      const cur = getOrCreate(row.chart_of_accounts_id, key);
+      cur.cents += row.amount_cents ?? 0;
       cur.count += 1;
     }
 
@@ -369,6 +405,26 @@ export async function GET(req: NextRequest) {
     const cur = balanceMap.get(coaId) ?? { cents: 0, count: 0 };
     balanceMap.set(coaId, {
       cents: cur.cents + (row.total_cents ?? 0),
+      count: cur.count + 1,
+    });
+  }
+
+  // Mapped expenses, bounded like invoices (cumulative from inception in BS mode).
+  let expQuery = supabase
+    .from("expenses")
+    .select("chart_of_accounts_id, amount_cents, accounting_date")
+    .lte("accounting_date", endDate)
+    .not("chart_of_accounts_id", "is", null)
+    .or("state.is.null,state.neq.DECLINED");
+  if (invStart) expQuery = expQuery.gte("accounting_date", invStart);
+
+  const { data: expAgg } = await expQuery;
+
+  for (const row of expAgg ?? []) {
+    if (!row.chart_of_accounts_id) continue;
+    const cur = balanceMap.get(row.chart_of_accounts_id) ?? { cents: 0, count: 0 };
+    balanceMap.set(row.chart_of_accounts_id, {
+      cents: cur.cents + (row.amount_cents ?? 0),
       count: cur.count + 1,
     });
   }

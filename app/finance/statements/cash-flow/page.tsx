@@ -69,7 +69,7 @@ export default function CashFlowPage() {
 
       <StatementHeader
         title="Cash Flow — Operating"
-        description={`Full Year ${year} · direct method · cash collected/paid per CoA account · Square sources only`}
+        description={`Full Year ${year} · direct method · cash collected/paid per CoA account · Square + Ramp`}
         onExpandAll={handleExpandAll}
       >
         <select value={year} onChange={(e) => { setYear(Number(e.target.value)); setExpandAll(null); }}
@@ -116,7 +116,7 @@ export default function CashFlowPage() {
               <tr>
                 <td colSpan={months.length + 2} className="px-4 py-4 text-[10px] text-faint">
                   Cash In: Square POS (net sales) + paid Square invoices, by CoA account.
-                  Cash Out: expense accounts pending Ramp integration.
+                  Cash Out: cleared Ramp expenses mapped to CoA accounts.
                   Difference from P&amp;L = uncollected revenue (open invoices = A/R on Balance Sheet).
                 </td>
               </tr>
