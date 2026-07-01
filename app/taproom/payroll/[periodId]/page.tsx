@@ -33,12 +33,7 @@ export default function TaproomPayrollPage() {
           />
         )}
       </div>
-      <PayrollPeriodView
-        periodId={periodId}
-        editable={isAdmin}
-        showSalaried={false}
-        showGustoSummary={false}
-      />
+      <PayrollPeriodView periodId={periodId} editable={isAdmin} />
     </main>
   );
 }

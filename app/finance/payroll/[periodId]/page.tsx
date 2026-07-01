@@ -17,7 +17,7 @@ export default function FinancePayrollPeriodPage() {
   });
 
   return (
-    <main className="px-4 sm:px-6 py-8">
+    <main className="px-4 sm:px-6 py-4 sm:py-8">
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-base font-semibold text-primary">Payroll</h1>
         {periods && (
@@ -29,12 +29,7 @@ export default function FinancePayrollPeriodPage() {
         )}
       </div>
       <PayrollNav />
-      <PayrollPeriodView
-        periodId={periodId}
-        editable={true}
-        showSalaried={true}
-        showGustoSummary={true}
-      />
+      <PayrollPeriodView periodId={periodId} editable={false} tabs={["gusto"]} />
     </main>
   );
 }

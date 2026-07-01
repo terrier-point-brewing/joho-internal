@@ -6,26 +6,33 @@ import { usePayrollPeriod } from "@/lib/hooks/usePayrollPeriod";
 import { fmtCents, fmtUsd } from "@/lib/utils/formatting";
 import { PayrollEntryRow } from "./PayrollEntryRow";
 import { GustoSummaryPanel } from "./GustoSummaryPanel";
-import { SalariedConfirmationList } from "./SalariedConfirmationList";
 import { ShiftTimeline } from "./ShiftTimeline";
 import { queryKeys } from "@/lib/query-keys";
 import TabBar from "@/app/components/TabBar";
 import Badge from "@/app/components/ui/Badge";
 import { Modal } from "@/app/components/ui/Modal";
 
+export type PayrollTab = "summary" | "shifts" | "gusto";
+
+const TAB_LABELS: Record<PayrollTab, string> = {
+  summary: "Summary",
+  shifts: "Shifts",
+  gusto: "Gusto Summary",
+};
+
 interface Props {
   periodId: string;
   editable: boolean;
-  showSalaried: boolean;
-  showGustoSummary: boolean;
+  /** Which subtabs to expose, in order. First entry is the default. */
+  tabs?: PayrollTab[];
 }
 
-export function PayrollPeriodView({ periodId, editable, showSalaried, showGustoSummary }: Props) {
+export function PayrollPeriodView({ periodId, editable, tabs = ["summary", "shifts"] }: Props) {
   const { data: preview, isLoading, error } = usePayrollPeriod(periodId);
   const qc = useQueryClient();
   const [locking, setLocking] = useState(false);
   const [showLockConfirm, setShowLockConfirm] = useState(false);
-  const [activeTab, setActiveTab] = useState<"summary" | "shifts">("summary");
+  const [activeTab, setActiveTab] = useState<PayrollTab>(tabs[0]);
   const [overrideMode, setOverrideMode] = useState(false);
 
   async function handleLock() {
@@ -100,10 +107,7 @@ export function PayrollPeriodView({ periodId, editable, showSalaried, showGustoS
 
       {/* Tabs */}
       <TabBar
-        tabs={[
-          { key: "summary", label: "Summary" },
-          { key: "shifts", label: "Shifts" },
-        ]}
+        tabs={tabs.map((key) => ({ key, label: TAB_LABELS[key] }))}
         activeKey={activeTab}
         onSelect={(tab) => {
           setActiveTab(tab);
@@ -151,6 +155,12 @@ export function PayrollPeriodView({ periodId, editable, showSalaried, showGustoS
       {/* Tab content */}
       {activeTab === "shifts" ? (
         <ShiftTimeline periodId={periodId} />
+      ) : activeTab === "gusto" ? (
+        <GustoSummaryPanel
+          entries={entries}
+          employees={employees}
+          salariedEmployees={salaried_employees}
+        />
       ) : (
         <>
           {/* Tip pool summary */}
@@ -239,15 +249,6 @@ export function PayrollPeriodView({ periodId, editable, showSalaried, showGustoS
               </tfoot>
             )}
           </table>
-
-          {showSalaried && <SalariedConfirmationList employees={salaried_employees} />}
-          {showGustoSummary && (
-            <GustoSummaryPanel
-              entries={entries}
-              employees={employees}
-              salariedEmployees={salaried_employees}
-            />
-          )}
         </>
       )}
     </div>
