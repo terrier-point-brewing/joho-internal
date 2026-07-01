@@ -257,7 +257,7 @@ function InvoiceLineItemRow({
                 <select
                   value={delivId ?? ""}
                   onChange={(e) => handleDelivChange(e.target.value || null)}
-                  className="inp inp-sm flex-1">
+                  className="inp-sm flex-1">
                   <option value="">— no delivery invoice —</option>
                   {allInvoices.map((inv) => (
                     <option key={inv.id} value={inv.id}>
@@ -376,7 +376,7 @@ function BatchLinkEditor({
           )}
           <div className="flex items-center gap-2 flex-wrap">
             <select value={selectedBatch} onChange={(e) => setSelectedBatch(e.target.value)}
-              className="inp min-w-[200px] w-auto">
+              className="inp-sm min-w-[200px] w-auto">
               <option value="">Select a batch…</option>
               {availableBatches.map((b) => (
                 <option key={b.id} value={b.id}>
@@ -575,17 +575,17 @@ export default function InvoicesPage() {
       <div className="shrink-0 px-4 sm:px-6 pb-4 border-b border-line">
         <div className="flex flex-wrap items-center gap-2">
           <select value={year} onChange={(e) => setYear(Number(e.target.value))}
-            className="inp w-auto">
+            className="inp-sm w-auto">
             {years.map((y) => <option key={y} value={y}>{y}</option>)}
           </select>
           <select value={source} onChange={(e) => setSource(e.target.value as typeof source)}
-            className="inp w-auto">
+            className="inp-sm w-auto">
             <option value="all">All sources</option>
             <option value="square">Square</option>
             <option value="quickbooks">QuickBooks</option>
           </select>
           <select value={status} onChange={(e) => setStatus(e.target.value as typeof status)}
-            className="inp w-auto">
+            className="inp-sm w-auto">
             <option value="all">All statuses</option>
             <option value="open">Open</option>
             <option value="paid">Paid</option>
@@ -599,14 +599,14 @@ export default function InvoicesPage() {
             {showVoided ? "Hide voided" : "Show voided"}
           </button>
           <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value as typeof typeFilter)}
-            className="inp w-auto">
+            className="inp-sm w-auto">
             <option value="all">All types</option>
             <option value="standard">Standard</option>
             <option value="allocation_deposit">Deposit invoices</option>
             <option value="export_invoice">Export invoices</option>
           </select>
           <select value={mappingFilter} onChange={(e) => setMappingFilter(e.target.value as typeof mappingFilter)}
-            className="inp w-auto">
+            className="inp-sm w-auto">
             <option value="all">All GL mappings</option>
             <option value="mapped">Fully mapped</option>
             <option value="partial">Partially mapped</option>

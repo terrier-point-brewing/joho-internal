@@ -262,7 +262,7 @@ function SyncPanel({ year, onSynced }: { year: number; onSynced: () => void }) {
         </span>
       )}
       <select value={month} onChange={(e) => { setMonth(Number(e.target.value)); setResult(null); }}
-        className="inp inp-sm w-auto">
+        className="inp-sm w-auto">
         {MONTH_LABELS.map((lbl, i) => <option key={i + 1} value={i + 1}>{lbl}</option>)}
         <option value={0}>Full year</option>
       </select>
@@ -394,11 +394,11 @@ export default function SquareTransactionsPage() {
         </p>
         <div className="flex items-center gap-3 flex-wrap">
           <select value={year} onChange={(e) => handleYearChange(Number(e.target.value))}
-            className="inp w-auto">
+            className="inp-sm w-auto">
             {years.map((y) => <option key={y} value={y}>{y}</option>)}
           </select>
           <select value={mappingFilter} onChange={(e) => setMappingFilter(e.target.value as MappingFilter)}
-            className="inp w-auto">
+            className="inp-sm w-auto">
             <option value="all">All mappings</option>
             <option value="mapped">Fully mapped</option>
             <option value="partial">Partially mapped</option>

@@ -10,8 +10,8 @@ export default function ExciseTaxSettingsPage() {
       <FinanceNav mobile />
       <div className="shrink-0 px-4 sm:px-6">
         <PageHeader title="Excise Tax" description="Barrel excise tax rates and their Square line-item mappings." />
-        <SettingsNav />
       </div>
+      <SettingsNav />
       <div className="flex-1 overflow-auto px-4 sm:px-6 py-4">
         <ExportSettingsPanel scope="excise-only" />
       </div>

@@ -4,6 +4,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, useEffect } from "react";
 import PageHeader from "@/app/components/PageHeader";
 import Banner from "@/app/components/ui/Banner";
+import FinanceNav from "../../FinanceNav";
+import SettingsNav from "../SettingsNav";
 import { queryKeys } from "@/lib/query-keys";
 import type { Employee, PayrollConfig } from "@/lib/payroll/types";
 
@@ -209,9 +211,14 @@ export default function PayrollSettingsPage() {
   const labelCls = "block text-xs text-secondary";
 
   return (
-    <main className="px-4 sm:px-6 py-8 max-w-3xl">
-      <PageHeader title="Payroll" />
+    <div className="flex flex-col h-full bg-canvas text-primary">
+      <FinanceNav mobile />
+      <div className="shrink-0 px-4 sm:px-6">
+        <PageHeader title="Payroll" />
+      </div>
+      <SettingsNav />
 
+      <div className="flex-1 overflow-auto px-4 sm:px-6 py-4 sm:py-6 max-w-3xl">
       {/* ── Pay Schedule ─────────────────────────────────────────────────── */}
       <section className="mt-6 mb-10">
         <div className="flex items-center gap-3 mb-4">
@@ -580,6 +587,7 @@ export default function PayrollSettingsPage() {
           </tbody>
         </table>
       </section>
-    </main>
+      </div>
+    </div>
   );
 }
