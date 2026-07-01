@@ -126,7 +126,7 @@ export async function GET(req: NextRequest) {
         delivery_invoice_id,
         account_mode,
         total_cents,
-        invoices!invoice_line_items_invoice_id_fkey ( invoice_date, status )
+        invoices!invoice_line_items_invoice_id_fkey!inner ( invoice_date, status )
       `)
       .gte("invoices.invoice_date", `${year}-01-01`)
       .lte("invoices.invoice_date", `${year}-12-31`)
