@@ -83,7 +83,7 @@ export default function PLPage() {
 
       <StatementHeader
         title="Profit & Loss"
-        description={`Full Year ${year} · Square POS transactions and invoices mapped to Chart of Accounts`}
+        description={`Full Year ${year} · Square POS, invoices, and Ramp expenses mapped to Chart of Accounts`}
         onExpandAll={handleExpandAll}
       >
         <select
@@ -131,7 +131,7 @@ export default function PLPage() {
 
               <tr>
                 <td colSpan={months.length + 2} className="px-4 py-4 text-[10px] text-faint">
-                  Amounts reflect cash basis from synced Square POS transactions and mapped invoices.
+                  Amounts reflect synced Square POS transactions, mapped invoices, and mapped Ramp expenses.
                   Accounts with no mapped transactions show —.
                 </td>
               </tr>

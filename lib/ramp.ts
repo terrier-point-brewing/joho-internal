@@ -28,16 +28,32 @@ export async function getRampToken(): Promise<string> {
   return _tokenCache.token;
 }
 
+/**
+ * The GL account a transaction is coded against in Ramp. Ramp mirrors the same
+ * chart of accounts as QuickBooks, so this is what lets an imported expense
+ * resolve directly to a `chart_of_accounts` row without manual mapping.
+ *
+ * Sourced from the transaction's `accounting_field_selections` (or a line
+ * item's) where `type === "GL_ACCOUNT"`.
+ */
+export interface RampGlAccount {
+  id:          string;         // Ramp's stable option id for the GL account
+  external_id: string | null;  // ERP/QuickBooks account id or number, when present
+  name:        string;         // account name as it appears in Ramp
+}
+
 export interface RampTransaction {
   id:                               string;
   amount:                           number;   // USD dollars (positive = spend, negative = refund/credit)
   currency_code:                    string;
   memo:                             string;
+  merchant_name:                    string;
   merchant_category_code_description: string;
   sk_category_name:                 string | null;
   state:                            string;
   user_transaction_time:            string;   // ISO
   accounting_date:                  string;   // ISO
+  gl_account:                       RampGlAccount | null;
   card_holder: {
     first_name:      string;
     last_name:       string;
@@ -62,6 +78,42 @@ function parseAmount(raw: unknown): number {
   return (r.amount ?? 0) / (r.minor_unit_conversion_rate ?? 100);
 }
 
+/**
+ * Pull the GL account a transaction is coded against out of Ramp's
+ * `accounting_field_selections`. The field lives at the transaction level and,
+ * on split transactions, on each line item — we check both and take the first
+ * GL_ACCOUNT selection found. Returns null when the transaction is uncoded.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function extractGlAccount(txn: any): RampGlAccount | null {
+  const pools: unknown[] = [];
+  if (Array.isArray(txn?.accounting_field_selections)) pools.push(...txn.accounting_field_selections);
+  for (const li of txn?.line_items ?? []) {
+    if (Array.isArray(li?.accounting_field_selections)) pools.push(...li.accounting_field_selections);
+  }
+
+  for (const raw of pools) {
+    const sel  = raw as Record<string, unknown>;
+    // Ramp nests the account details under `category_info`; older shapes put
+    // them on the selection itself. Support both.
+    const info = (sel.category_info ?? sel) as Record<string, unknown>;
+    const type = (info.type ?? sel.type) as string | undefined;
+    if (type !== "GL_ACCOUNT") continue;
+
+    const id   = (info.id ?? sel.id) as string | undefined;
+    const name = (info.name ?? sel.name) as string | undefined;
+    const ext  = (info.external_id ?? sel.external_id) as string | undefined;
+    if (!id && !name) continue;
+
+    return {
+      id:          id ?? (ext ?? name)!,
+      external_id: ext ?? null,
+      name:        name ?? "",
+    };
+  }
+  return null;
+}
+
 export async function getRampTransactions(from?: string, to?: string): Promise<RampTransaction[]> {
   const token   = await getRampToken();
   const results: RampTransaction[] = [];
@@ -84,11 +136,13 @@ export async function getRampTransactions(from?: string, to?: string): Promise<R
         amount:                           parseAmount(t.original_transaction_amount),
         currency_code:                    t.currency_code ?? "USD",
         memo:                             t.memo ?? "",
+        merchant_name:                    t.merchant_name ?? "",
         merchant_category_code_description: t.merchant_category_code_description ?? "Other",
         sk_category_name:                 t.sk_category_name ?? null,
         state:                            t.state ?? "",
         user_transaction_time:            t.user_transaction_time ?? "",
         accounting_date:                  t.accounting_date ?? "",
+        gl_account:                       extractGlAccount(t),
         card_holder: {
           first_name:      t.card_holder?.first_name      ?? "",
           last_name:       t.card_holder?.last_name       ?? "",

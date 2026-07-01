@@ -282,7 +282,7 @@ export default function BalanceSheetPage() {
 
             <div className="px-4 sm:px-6 py-4 text-[10px] text-faint">
               A/R reflects open invoices as of this date. Deposit invoices pending delivery are recorded to their mapped BS account.
-              Bank, credit card, and equity balances require Ramp integration and/or manual journal entries.
+              Ramp expenses mapped to a balance-sheet account (e.g. fixed assets, credit card) are included; full bank and equity balances still require manual journal entries.
             </div>
           </>
         )}
