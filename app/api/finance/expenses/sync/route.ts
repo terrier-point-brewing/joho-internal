@@ -1,14 +1,16 @@
 /**
- * POST /api/finance/ramp/expenses/sync?from=YYYY-MM-DD&to=YYYY-MM-DD
+ * POST /api/finance/expenses/sync?from=YYYY-MM-DD&to=YYYY-MM-DD
  *
- * Pulls Ramp transactions for the range, imports them as clean ramp_expenses
- * rows, and auto-maps them to the chart of accounts via the GL→CoA rule table.
- * Manual per-expense overrides are preserved. Returns import + mapping counts.
+ * Imports Ramp spend for the range as clean `expenses` rows (source='ramp') and
+ * auto-maps them to the chart of accounts via the account rule table. Manual
+ * per-expense overrides are preserved. Returns import + mapping counts.
+ *
+ * Ramp is the only source wired today; add sibling importers here as needed.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth";
 import { getRampTransactions } from "@/lib/ramp";
-import { syncRampExpenses } from "@/lib/finance/rampExpenseSync";
+import { syncRampExpenses } from "@/lib/finance/rampExpenses";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { apiError } from "@/lib/utils/api";
 

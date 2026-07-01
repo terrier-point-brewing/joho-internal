@@ -1,13 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  dollarsToCents,
-  rampTxnToExpenseRecord,
-  matchGlToCoa,
-  resolveExpenseMapping,
-  type CoaAccountRef,
-  type RuleRef,
-  type MappingSource,
-} from "./rampExpenses";
+import { rampTxnToExpenseRecord, syncRampExpenses } from "./rampExpenses";
 import type { RampTransaction } from "@/lib/ramp";
 
 function txn(over: Partial<RampTransaction> = {}): RampTransaction {
@@ -28,33 +20,23 @@ function txn(over: Partial<RampTransaction> = {}): RampTransaction {
   };
 }
 
-describe("dollarsToCents", () => {
-  it("converts and rounds half-away-from-zero", () => {
-    expect(dollarsToCents(12.34)).toBe(1234);
-    expect(dollarsToCents(0)).toBe(0);
-    expect(dollarsToCents(-5.5)).toBe(-550);
-    expect(dollarsToCents(1.01)).toBe(101);
-  });
-});
-
 describe("rampTxnToExpenseRecord", () => {
-  it("shapes a clean record with GL fields and cents", () => {
+  it("shapes a clean source='ramp' record with external-account fields and cents", () => {
     const r = rampTxnToExpenseRecord(txn());
     expect(r).toMatchObject({
-      ramp_transaction_id: "t1",
+      source: "ramp",
+      source_transaction_id: "t1",
       amount_cents: 1234,
       currency_code: "USD",
       memo: "lunch",
       merchant_name: "Cafe",
       merchant_category: "Restaurants",
-      sk_category_name: "Meals",
-      state: "CLEARED",
       card_holder_name: "Sam Doe",
       department_name: "Ops",
       accounting_date: "2026-06-15",
-      ramp_gl_id: "gl-1",
-      ramp_gl_name: "Meals & Entertainment",
-      ramp_gl_code: "6000",
+      external_account_id: "gl-1",
+      external_account_name: "Meals & Entertainment",
+      external_account_code: "6000",
     });
   });
 
@@ -69,70 +51,122 @@ describe("rampTxnToExpenseRecord", () => {
     }));
     expect(r.memo).toBeNull();
     expect(r.merchant_name).toBeNull();
-    expect(r.sk_category_name).toBeNull();
     expect(r.accounting_date).toBeNull();
     expect(r.card_holder_name).toBeNull();
     expect(r.department_name).toBeNull();
-    expect(r.ramp_gl_id).toBeNull();
-    expect(r.currency_code).toBe("USD");
+    expect(r.external_account_id).toBeNull();
+    expect(r.source).toBe("ramp");
   });
 });
 
-describe("matchGlToCoa", () => {
-  const accounts: CoaAccountRef[] = [
-    { id: "a1", account_name: "Meals & Entertainment", account_number: "6000" },
-    { id: "a2", account_name: "Office Expenses:Software", account_number: "6100" },
-    { id: "a3", account_name: "Utilities", account_number: null },
-    { id: "a4", account_name: "Rent:Warehouse:Software", account_number: "6200" },
-  ];
+// ── syncRampExpenses ─────────────────────────────────────────────────────────
+type Row = Record<string, unknown>;
 
-  it("matches by account number first", () => {
-    expect(matchGlToCoa({ name: "whatever", external_id: "6000" }, accounts)).toBe("a1");
+/**
+ * Minimal fake of the Supabase query surface used by syncRampExpenses.
+ * select() returns a chainable/thenable builder supporting .eq()/.in();
+ * upsert() captures the written rows.
+ */
+function makeClient(cfg: { coa: Row[]; rules: Row[]; existing: Row[] }) {
+  const captured = { ruleUpserts: [] as Row[], expenseUpserts: [] as Row[] };
+
+  function query(baseData: Row[]) {
+    const filters: ((r: Row) => boolean)[] = [];
+    const q = {
+      eq(col: string, val: unknown) { filters.push((r) => r[col] === val); return q; },
+      in(col: string, vals: unknown[]) { filters.push((r) => vals.includes(r[col])); return q; },
+      then(res: (v: { data: Row[]; error: null }) => unknown) {
+        const data = baseData.filter((r) => filters.every((f) => f(r)));
+        return Promise.resolve({ data, error: null }).then(res);
+      },
+    };
+    return q;
+  }
+
+  const client = {
+    from(table: string) {
+      const baseData =
+        table === "chart_of_accounts"        ? cfg.coa :
+        table === "expense_account_mappings" ? cfg.rules :
+        table === "expenses"                 ? cfg.existing : [];
+      return {
+        select() { return query(baseData); },
+        upsert(rows: Row[]) {
+          if (table === "expense_account_mappings") captured.ruleUpserts.push(...rows);
+          if (table === "expenses")                 captured.expenseUpserts.push(...rows);
+          return Promise.resolve({ error: null });
+        },
+      };
+    },
+  };
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return { client: client as any, captured };
+}
+
+function glTxn(id: string, gl: RampTransaction["gl_account"]): RampTransaction {
+  return txn({ id, gl_account: gl });
+}
+
+describe("syncRampExpenses", () => {
+  it("auto-matches a new external account to the chart of accounts and maps its expense", async () => {
+    const { client, captured } = makeClient({
+      coa: [{ id: "coa-1", account_name: "Marketing", account_number: "6000" }],
+      rules: [],
+      existing: [],
+    });
+
+    const res = await syncRampExpenses(client, [glTxn("t1", { id: "gl-1", external_id: "6000", name: "Marketing" })]);
+
+    expect(res).toMatchObject({ imported: 1, mapped: 1, unmapped: 0, new_rules: 1, auto_matched_rules: 1 });
+    expect(captured.ruleUpserts[0]).toMatchObject({ source: "ramp", external_account_id: "gl-1", chart_of_accounts_id: "coa-1", auto_matched: true });
+    expect(captured.expenseUpserts[0]).toMatchObject({ source: "ramp", source_transaction_id: "t1", chart_of_accounts_id: "coa-1", mapping_source: "rule" });
   });
 
-  it("matches by exact full name (case/space-insensitive) when no number", () => {
-    expect(matchGlToCoa({ name: "  meals &   entertainment " }, accounts)).toBe("a1");
+  it("creates an unmapped rule when the external account has no CoA match", async () => {
+    const { client, captured } = makeClient({
+      coa: [{ id: "coa-1", account_name: "Marketing", account_number: "6000" }],
+      rules: [],
+      existing: [],
+    });
+
+    const res = await syncRampExpenses(client, [glTxn("t1", { id: "gl-9", external_id: "9999", name: "Mystery" })]);
+
+    expect(res).toMatchObject({ mapped: 0, unmapped: 1, new_rules: 1, auto_matched_rules: 0 });
+    expect(captured.ruleUpserts[0]).toMatchObject({ external_account_id: "gl-9", chart_of_accounts_id: null });
+    expect(captured.expenseUpserts[0]).toMatchObject({ mapping_source: "unmapped", chart_of_accounts_id: null });
   });
 
-  it("matches by unambiguous leaf name", () => {
-    expect(matchGlToCoa({ name: "Software" }, [accounts[0], accounts[1]])).toBe("a2");
+  it("follows an existing rule and does not recreate it", async () => {
+    const { client, captured } = makeClient({
+      coa: [{ id: "coa-1", account_name: "Marketing", account_number: "6000" }],
+      rules: [{ source: "ramp", external_account_id: "gl-1", chart_of_accounts_id: "coa-1" }],
+      existing: [],
+    });
+
+    const res = await syncRampExpenses(client, [glTxn("t1", { id: "gl-1", external_id: "6000", name: "Marketing" })]);
+
+    expect(res.new_rules).toBe(0);
+    expect(res.mapped).toBe(1);
+    expect(captured.expenseUpserts[0]).toMatchObject({ chart_of_accounts_id: "coa-1", mapping_source: "rule" });
   });
 
-  it("does not match an ambiguous leaf name", () => {
-    // "Software" is the leaf of both a2 and a4
-    expect(matchGlToCoa({ name: "Software" }, accounts)).toBeNull();
+  it("preserves a manual per-expense override across re-sync", async () => {
+    const { client, captured } = makeClient({
+      coa: [{ id: "coa-1", account_name: "Marketing", account_number: "6000" }],
+      rules: [{ source: "ramp", external_account_id: "gl-1", chart_of_accounts_id: "coa-1" }],
+      existing: [{ source: "ramp", source_transaction_id: "t1", mapping_source: "manual", chart_of_accounts_id: "coa-manual" }],
+    });
+
+    await syncRampExpenses(client, [glTxn("t1", { id: "gl-1", external_id: "6000", name: "Marketing" })]);
+
+    expect(captured.expenseUpserts[0]).toMatchObject({ chart_of_accounts_id: "coa-manual", mapping_source: "manual" });
   });
 
-  it("returns null when nothing matches or name is empty", () => {
-    expect(matchGlToCoa({ name: "Nonexistent", external_id: "9999" }, accounts)).toBeNull();
-    expect(matchGlToCoa({ name: "" }, accounts)).toBeNull();
-  });
-});
-
-describe("resolveExpenseMapping", () => {
-  const rules = new Map<string, RuleRef>([
-    ["gl-1", { ramp_gl_id: "gl-1", chart_of_accounts_id: "a1" }],
-    ["gl-2", { ramp_gl_id: "gl-2", chart_of_accounts_id: null }],
-  ]);
-
-  const base = (over: Partial<{ ramp_gl_id: string | null; mapping_source: MappingSource; chart_of_accounts_id: string | null }>) =>
-    ({ ramp_gl_id: "gl-1", mapping_source: "unmapped" as MappingSource, chart_of_accounts_id: null, ...over });
-
-  it("preserves a manual override untouched", () => {
-    const r = resolveExpenseMapping(base({ mapping_source: "manual", chart_of_accounts_id: "manual-acct" }), rules);
-    expect(r).toEqual({ chart_of_accounts_id: "manual-acct", mapping_source: "manual" });
-  });
-
-  it("resolves via the GL rule", () => {
-    expect(resolveExpenseMapping(base({}), rules)).toEqual({ chart_of_accounts_id: "a1", mapping_source: "rule" });
-  });
-
-  it("stays unmapped when the rule has no account", () => {
-    expect(resolveExpenseMapping(base({ ramp_gl_id: "gl-2" }), rules)).toEqual({ chart_of_accounts_id: null, mapping_source: "unmapped" });
-  });
-
-  it("stays unmapped when there is no GL tag or no matching rule", () => {
-    expect(resolveExpenseMapping(base({ ramp_gl_id: null }), rules)).toEqual({ chart_of_accounts_id: null, mapping_source: "unmapped" });
-    expect(resolveExpenseMapping(base({ ramp_gl_id: "gl-unknown" }), rules)).toEqual({ chart_of_accounts_id: null, mapping_source: "unmapped" });
+  it("leaves untagged expenses unmapped", async () => {
+    const { client, captured } = makeClient({ coa: [], rules: [], existing: [] });
+    const res = await syncRampExpenses(client, [glTxn("t1", null)]);
+    expect(res).toMatchObject({ mapped: 0, unmapped: 1, new_rules: 0 });
+    expect(captured.expenseUpserts[0]).toMatchObject({ mapping_source: "unmapped" });
   });
 });
