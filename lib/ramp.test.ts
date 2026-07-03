@@ -1,5 +1,16 @@
 import { describe, it, expect } from "vitest";
-import { extractGlAccount } from "./ramp";
+import { extractGlAccount, toRampDatetime } from "./ramp";
+
+describe("toRampDatetime", () => {
+  it("expands a bare date to an RFC 3339 datetime (start vs end of day)", () => {
+    expect(toRampDatetime("2026-01-01")).toBe("2026-01-01T00:00:00Z");
+    expect(toRampDatetime("2026-12-31", true)).toBe("2026-12-31T23:59:59Z");
+  });
+
+  it("passes through a value that already has a time component", () => {
+    expect(toRampDatetime("2026-01-01T09:30:00Z")).toBe("2026-01-01T09:30:00Z");
+  });
+});
 
 describe("extractGlAccount", () => {
   it("pulls a GL account from transaction-level accounting_field_selections (category_info shape)", () => {

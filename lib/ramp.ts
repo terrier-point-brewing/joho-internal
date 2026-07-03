@@ -114,13 +114,23 @@ export function extractGlAccount(txn: any): RampGlAccount | null {
   return null;
 }
 
+/**
+ * Ramp's from_date/to_date want an RFC 3339 datetime, not a bare date — a plain
+ * "2026-01-01" is rejected with "Not a valid datetime". Coerce date-only inputs
+ * (start → midnight, end → end-of-day) and pass through anything already timed.
+ */
+export function toRampDatetime(value: string, endOfDay = false): string {
+  if (value.includes("T")) return value;
+  return `${value}T${endOfDay ? "23:59:59" : "00:00:00"}Z`;
+}
+
 export async function getRampTransactions(from?: string, to?: string): Promise<RampTransaction[]> {
   const token   = await getRampToken();
   const results: RampTransaction[] = [];
 
   const params = new URLSearchParams({ page_size: "100" });
-  if (from) params.set("from_date", from);
-  if (to)   params.set("to_date",   to);
+  if (from) params.set("from_date", toRampDatetime(from));
+  if (to)   params.set("to_date",   toRampDatetime(to, true));
 
   let url: string | null = `${RAMP_BASE}/transactions?${params}`;
 
