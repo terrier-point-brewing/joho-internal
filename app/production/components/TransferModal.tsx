@@ -27,9 +27,11 @@ const SAME_TANK_ALLOWED_SOURCE_TYPES = new Set(["fermenter", "brite"]);
 
 // Valid conversion-destination tank types by source type — conversion can be
 // drawn off during fermenting OR conditioning, landing in whichever tank type
-// matches that stage.
+// matches that stage. A conversion drawn off a fermenting batch can land in a
+// brite tank (the split heads straight into conditioning), so fermenter sources
+// allow both fermenter and brite destinations.
 const CONVERT_DEST_TYPES: Partial<Record<string, string[]>> = {
-  fermenter: ["fermenter"],
+  fermenter: ["fermenter", "brite"],
   brite:     ["brite", "fermenter"],
 };
 
