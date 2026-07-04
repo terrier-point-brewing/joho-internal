@@ -134,11 +134,9 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
   // Conversion-specific state
   const [convertToBatchId, setConvertToBatchId] = useState(initialConvert?.toBatchId ?? "");
   const [convertBbl,       setConvertBbl]        = useState(initialConvert?.bbl ?? "");
-  // Existing target batch vs. create a brand-new one inline. Pre-planned
-  // conversions arrive with a target batch, so default to "existing" then.
-  const [convertTarget, setConvertTarget] = useState<"existing" | "new">(
-    initialConvert?.toBatchId ? "existing" : "existing",
-  );
+  // Existing target batch vs. create a brand-new one inline. Defaults to
+  // "existing" (pre-planned conversions arrive with a target batch).
+  const [convertTarget, setConvertTarget] = useState<"existing" | "new">("existing");
   const [newBeerName, setNewBeerName] = useState(initialConvert?.beerName ?? "");
   const [newRecipeId, setNewRecipeId] = useState("");
 
