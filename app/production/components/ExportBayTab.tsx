@@ -590,8 +590,8 @@ export default function ExportBayTab() {
                                       {a.deposit_backed && a.final_entitlement_bbl != null && (
                                         <span className="text-[10px] text-faint tabular-nums">
                                           final {a.final_entitlement_bbl.toFixed(2)}
-                                          {a.shrinkage_shortfall_bbl != null && a.shrinkage_shortfall_bbl > 0 && (
-                                            <span className="text-accent-soft"> · refund {a.shrinkage_shortfall_bbl.toFixed(2)}</span>
+                                          {a.under_delivered_bbl != null && a.under_delivered_bbl > 0 && (
+                                            <span className="text-accent-soft"> · owed {a.under_delivered_bbl.toFixed(2)}</span>
                                           )}
                                           {a.over_delivered_bbl != null && a.over_delivered_bbl > 0 && (
                                             <span className="text-danger"> · over {a.over_delivered_bbl.toFixed(2)}</span>

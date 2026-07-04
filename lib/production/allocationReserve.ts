@@ -97,30 +97,33 @@ export function batchReserve(batch: BatchInput): BatchReserve {
 // ── Completion reconciliation (contract only) ────────────────────────────────
 
 export interface CompletionReconciliation {
-  finalEntitlementBbl: number;   // A = percentage × final produced
-  overDeliveredBbl: number;      // max(0, E − A) — beer shipped beyond the final entitlement
-  underDeliveredBbl: number;     // max(0, A − E) — beer still owed
-  shrinkageShortfallBbl: number; // max(0, B − A) — paid-for but un-yielded → deposit refund basis
+  finalEntitlementBbl: number; // A = percentage × final produced
+  overDeliveredBbl: number;    // max(0, E − A) — beer shipped beyond the final entitlement (bill or absorb)
+  underDeliveredBbl: number;   // max(0, A − E) — beer still owed (make good in beer, or manual refund)
 }
 
 /**
- * At batch completion, reconcile a contract allocation's deposit (B) against the
- * final actual entitlement (A = percentage × final produced) and what shipped (E).
- * Returns null for soft channels (no deposit) or before the batch is complete
- * (A is not yet final). This is DERIVED and advisory — it proposes a shrinkage
- * refund basis; it does not issue anything.
+ * At batch completion, reconcile a contract allocation's final actual entitlement
+ * (A = percentage × final produced) against what shipped (E). Returns null for
+ * soft channels (no deposit) or before the batch is complete (A is not final).
+ *
+ * NOTE — shrinkage does NOT create a refund. The deposit buys a PERCENTAGE of the
+ * batch, and the partner bears their pro-rata share of shrinkage: delivering A
+ * (their % of actual produced) fully satisfies the deposit even though A < the
+ * booked estimate B. Refunds come only from a reduction in the partner's
+ * percentage (the manual allocations/[id]/adjust flow), not from yield. So we
+ * surface only the two actionable gaps: over-delivery (E − A) and under-delivery
+ * (A − E). Both are advisory; nothing is issued here.
  */
 export function completionReconciliation(alloc: AllocationInput, batch: BatchInput): CompletionReconciliation | null {
   if (!isDepositBacked(alloc.channel)) return null;
   if (batch.status !== "complete") return null;
   const a = (alloc.percentage / 100) * batch.producedBbl;
-  const b = alloc.bookedBbl ?? 0;
   const e = alloc.exportedBbl;
   return {
     finalEntitlementBbl: round4(a),
     overDeliveredBbl: round4(Math.max(0, e - a)),
     underDeliveredBbl: round4(Math.max(0, a - e)),
-    shrinkageShortfallBbl: round4(Math.max(0, b - a)),
   };
 }
 

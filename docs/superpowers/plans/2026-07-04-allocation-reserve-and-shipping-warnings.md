@@ -2,11 +2,13 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-> **Status (2026-07-04):** Tasks 1–6 implemented on branch `claude/allocation-reserve-warnings`. Reserve math + crediting are shared between the ship and ship/preview routes via `lib/production/shipReserveContext.ts`. **Task 6 scope note:** completion reconciliation ships as *derived, advisory* fields on the allocations API (`shrinkage_shortfall_bbl`, `over_delivered_bbl`, `under_delivered_bbl`) surfaced on the Export Bay card — it does **not** auto-issue Square refunds. The bbl→cents translation and refund issuance stay with the existing manual `allocations/[id]/adjust` flow (a finance decision), so no auto-refund/auto-charge was wired and `batchCompletion.ts` was left untouched.
+> **Status (2026-07-04):** Tasks 1–6 implemented on branch `claude/allocation-reserve-warnings`. Reserve math + crediting are shared between the ship and ship/preview routes via `lib/production/shipReserveContext.ts`. **Task 6 scope note:** completion reconciliation ships as *derived, advisory* fields on the allocations API (`over_delivered_bbl`, `under_delivered_bbl`) surfaced on the Export Bay card — it does **not** auto-issue anything.
+>
+> **Correction (superseding earlier drafts):** an earlier version modeled a `shrinkage_shortfall_bbl = B − A` as a "refund." That was WRONG and has been removed. Shrinkage yields no refund — the deposit buys a *percentage* of the batch and the partner bears pro-rata shrinkage. Refunds come only from a percentage reduction via the manual `allocations/[id]/adjust` flow.
 
 **Goal:** Replace Export Bay's single hard "exceeds allocation" block with a channel-aware model that (a) treats contract-brewing deposits as hard, pre-paid guarantees and wholesale/distribution as soft reservations, (b) protects deposit guarantees with a produced-vs-guaranteed *reserve* warning, and (c) records over-delivery explicitly instead of inflating an allocation past 100%.
 
-**Background / why:** Contract-brewing partners pay a deposit up front to book a percentage of a batch (e.g. 75% of a planned 20 bbl = 15 bbl "booked"). Shrinkage means the batch never yields the full planned volume, so the *definite* amount owed is `percentage × actual produced` (e.g. 75% × 17 = 12.75 bbl), and the difference is a deposit refund. Because kegging/canning happens incrementally as shipments are needed, we routinely ship before a batch is fully packaged — so we can accidentally ship soft (wholesale/distribution) beer, or over-serve one partner, and strand another partner's guaranteed volume. Wholesale/distribution allocations carry no deposit (confirmed in `lib/production/exportInvoicePreview.ts`: contract invoices bill *service fees* + deposit reconciliation; distribution/wholesale invoices bill *product at catalog price* for whatever actually shipped), so over-allocating them is financially a non-event.
+**Background / why:** Contract-brewing partners pay a deposit up front to book a percentage of a batch (e.g. 75% of a planned 20 bbl = 15 bbl "booked"). Shrinkage means the batch never yields the full planned volume, so the *definite* amount owed is `percentage × actual produced` (e.g. 75% × 17 = 12.75 bbl). **Shrinkage does NOT create a refund** — the deposit buys a *percentage* of the batch and the partner bears their pro-rata share of shrinkage, so delivering 12.75 fully satisfies the deposit even though it's below the 15 bbl booked estimate. Refunds come only from a reduction in the partner's *percentage* (the manual `allocations/[id]/adjust` flow), never from yield. Because kegging/canning happens incrementally as shipments are needed, we routinely ship before a batch is fully packaged — so we can accidentally ship soft (wholesale/distribution) beer, or over-serve one partner, and strand another partner's guaranteed volume. Wholesale/distribution allocations carry no deposit (confirmed in `lib/production/exportInvoicePreview.ts`: contract invoices bill *service fees* + deposit reconciliation; distribution/wholesale invoices bill *product at catalog price* for whatever actually shipped), so over-allocating them is financially a non-event.
 
 **Architecture:** All allocation math and warning evaluation moves into a pure, Vitest-tested module `lib/production/allocationReserve.ts`. The ship routes and the allocations API consume it; no business logic stays inline in the route handlers. A new preview endpoint lets the Ship modal show warnings *before* committing. Over-delivery is recorded as distinct `export_transactions` rows flagged `over_allocation = true`.
 
@@ -63,7 +65,7 @@ Soft (wholesale/distribution) shipments get **no** allocation-based cap — only
 
 ### Completion reconciliation (contract only)
 
-On `batch.status → complete`: `A_i` becomes final. `E_i vs A_i` = over/under **beer** delivered; `B_i − A_i` = shrinkage **refund** owed → feed the existing `app/api/production/allocations/[id]/adjust` deposit-adjust path. `fulfilled` is judged against `A_i` (never `S_i`).
+On `batch.status → complete`: `A_i` becomes final. Only `E_i vs A_i` matters — over-delivery (`E_i − A_i`, bill or absorb) and under-delivery (`A_i − E_i`, make good in beer or a manual refund). **`B_i − A_i` is NOT a refund** — shrinkage is shouldered pro-rata by the partner, so a below-`B` final entitlement is expected and settled by delivering `A_i`. Refunds arise only from a percentage reduction via `allocations/[id]/adjust`. `fulfilled` is judged against `A_i` (never `S_i`).
 
 ---
 
@@ -183,15 +185,15 @@ export interface ShipmentPlan {
 
 - [ ] **Step 1:** `POST /ship/preview` — same inputs as ship, returns `{ warnings }` only (no writes), via `planShipment`.
 - [ ] **Step 2:** Ship modal — call preview on quantity change (debounced); render `warnings[]` inline (amber `<Banner>`/token utilities) *before* submit; keep submit enabled (advisory). After submit, surface any returned `warnings` then close.
-- [ ] **Step 3:** Allocation cards — contract: `E / B booked` primary, muted `≈ S realizable · batch NN%` while packaging, `final A · refund B−A` when complete; soft: `E / planned` advisory, no refund line. Add `under_covered` badge on the recipe/batch header.
+- [ ] **Step 3:** Allocation cards — contract: `E / B booked` primary, muted `≈ S realizable · batch NN%` while packaging, `final A · owed (A−E) / over (E−A)` when complete (NO refund line — shrinkage is shouldered by the partner); soft: `E / planned` advisory. Add `under_covered` badge on the recipe/batch header.
 - [ ] **Step 4:** Base the `fulfilled` badge on completion + `A` for contract; advisory for soft.
 
-## Task 6: Completion reconciliation → deposit refund (largest; may split to a follow-up)
+## Task 6: Completion reconciliation (over/under-delivery only — NOT a shrinkage refund)
 
 **Files:** Modify `app/api/production/allocations/[id]/adjust/route.ts` (+ its callers), completion hook in `lib/production/batchCompletion.ts`
 
-- [ ] **Step 1:** On batch `complete`, for each contract allocation compute `A_i`, `E_i − A_i` (over/under beer), `B_i − A_i` (refund).
-- [ ] **Step 2:** Propose/record the deposit refund via the existing adjust flow; surface over/under-delivery for review. Do **not** auto-issue refunds — queue for confirmation.
+- [ ] **Step 1:** On batch `complete`, for each contract allocation compute `A_i`, over-delivery `E_i − A_i`, and under-delivery `A_i − E_i`. Do NOT compute a `B − A` "refund" — shrinkage is shouldered by the partner.
+- [ ] **Step 2:** Surface over/under-delivery for review. Refunds (percentage reductions) and over-delivery billing remain the manual `allocations/[id]/adjust` + invoice flows — nothing auto-issued.
 - [ ] **Step 3:** Tests for the reconciliation math in `lib/production/allocationReserve.test.ts`.
 
 ## Task 7: Consolidate the two cold-storage shipment writers ✅ (branch `claude/consolidate-shipment-writer`)

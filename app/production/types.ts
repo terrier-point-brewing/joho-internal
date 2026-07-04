@@ -450,11 +450,11 @@ export interface BatchAllocation {
   /** Batch-level: production hasn't yet reached the guaranteed contract total. */
   under_covered: boolean;
   // ── Completion reconciliation (advisory; null until the batch is complete) ─
-  /** max(0, booked − final entitlement) — shrinkage refund basis (deposit paid but not yielded). */
-  shrinkage_shortfall_bbl: number | null;
-  /** max(0, exported − final entitlement) — beer shipped beyond the final entitlement. */
+  // Shrinkage yields NO refund — the partner bears pro-rata shrinkage — so only
+  // the two actionable gaps against the final entitlement are surfaced.
+  /** max(0, exported − final entitlement) — beer shipped beyond the final entitlement (bill or absorb). */
   over_delivered_bbl: number | null;
-  /** max(0, final entitlement − exported) — beer still owed at completion. */
+  /** max(0, final entitlement − exported) — beer still owed (make good in beer, or manual refund). */
   under_delivered_bbl: number | null;
 }
 
