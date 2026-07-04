@@ -25,13 +25,13 @@ export async function checkAndFulfillCommitment(supabase: SupabaseClient, alloca
 
   const { data: transfers } = await supabase
     .from("batch_transfers")
-    .select("volume_bbl, shrinkage_bbl, transfer_type")
+    .select("volume_bbl, transfer_type")
     .eq("batch_id", allocation.batch_id)
     .in("transfer_type", ["kegging", "canning"]);
-  const producedBbl = (transfers ?? []).reduce(
-    (s, t) => s + (Number(t.volume_bbl) - Number(t.shrinkage_bbl ?? 0)),
-    0
-  );
+  // produced = sum(volume_bbl), net fill. volume_bbl is already the net beer in
+  // containers; shrinkage_bbl is a separate loss figure and must NOT be
+  // subtracted here (would double-count). See the allocation-reserve plan.
+  const producedBbl = (transfers ?? []).reduce((s, t) => s + Number(t.volume_bbl), 0);
   if (producedBbl <= 0) return;
   const allocatedBbl = (Number(allocation.percentage) / 100) * producedBbl;
 

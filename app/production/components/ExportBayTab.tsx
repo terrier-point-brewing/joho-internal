@@ -1,11 +1,30 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRecipesQuery, useContractPartnersQuery, fetchJson } from "../hooks/queries";
 import type { AvailableInventoryLine, BatchAllocation, ExportChannel } from "../types";
+import type { ShipmentWarning } from "@/lib/production/allocationReserve";
 import { queryKeys } from "@/lib/query-keys";
 import { CHANNEL_COLOR, KEG_TAG_BADGE } from "../lib/categoryColors";
+
+function formatShipmentWarning(w: ShipmentWarning): string {
+  switch (w.type) {
+    case "guarantee_coverage":
+      return `Dips into deposit-reserved beer — after this shipment only ${w.onHandAfterBbl.toFixed(2)} BBL would remain on a batch that still owes ${w.reservedBbl.toFixed(2)} BBL to contract deposits.`;
+    case "under_production":
+      return `A batch has produced ${w.producedBbl.toFixed(2)} of ${w.guaranteedBbl.toFixed(2)} BBL guaranteed to contract deposits — final yield may fall short.`;
+    case "over_booked":
+      return `Shipped ${w.overBbl.toFixed(2)} BBL beyond this customer's booked deposit for this recipe.`;
+  }
+}
+
+// Progress denominator: contract allocations measure against their booked deposit;
+// soft allocations against their produced-so-far share. null = nothing produced yet.
+function allocDenomBbl(a: BatchAllocation): number | null {
+  const d = a.deposit_backed ? a.booked_bbl : a.realizable_bbl;
+  return d != null && d > 0 ? d : null;
+}
 
 // ── Channel display ────────────────────────────────────────────────────────────
 
@@ -551,23 +570,41 @@ export default function ExportBayTab() {
                                       <span className="text-secondary font-mono text-xs shrink-0">
                                         {a.brew_batches ? `#${a.brew_batches.batch_number}` : "—"}
                                       </span>
+                                      {a.deposit_backed && a.under_covered && (
+                                        <span className="text-[10px] px-1 py-px rounded border border-danger-border bg-danger-surface/40 text-danger shrink-0">
+                                          under-covered
+                                        </span>
+                                      )}
                                       <span className="text-muted text-xs truncate">
                                         Due {fmtDate(a.commitments?.desired_delivery_date ?? null)}
                                       </span>
                                     </div>
-                                    <div className="flex items-center gap-3 shrink-0">
+                                    <div className="flex flex-col items-end gap-0.5 shrink-0">
                                       <span className="text-secondary tabular-nums text-xs">
-                                        {a.exported_bbl.toFixed(2)} / {a.allocated_bbl != null ? a.allocated_bbl.toFixed(2) : "—"} BBL
+                                        {a.exported_bbl.toFixed(2)} / {allocDenomBbl(a) != null ? allocDenomBbl(a)!.toFixed(2) : "—"} BBL
+                                        <span className="text-faint ml-1">{a.deposit_backed ? "booked" : "plan"}</span>
                                       </span>
-                                      {a.allocated_bbl == null ? (
+                                      {a.deposit_backed && a.final_entitlement_bbl == null && (
+                                        <span className="text-[10px] text-faint tabular-nums">≈ {a.realizable_bbl.toFixed(2)} so far</span>
+                                      )}
+                                      {a.deposit_backed && a.final_entitlement_bbl != null && (
+                                        <span className="text-[10px] text-faint tabular-nums">
+                                          final {a.final_entitlement_bbl.toFixed(2)}
+                                          {a.shrinkage_shortfall_bbl != null && a.shrinkage_shortfall_bbl > 0 && (
+                                            <span className="text-accent-soft"> · refund {a.shrinkage_shortfall_bbl.toFixed(2)}</span>
+                                          )}
+                                          {a.over_delivered_bbl != null && a.over_delivered_bbl > 0 && (
+                                            <span className="text-danger"> · over {a.over_delivered_bbl.toFixed(2)}</span>
+                                          )}
+                                        </span>
+                                      )}
+                                      {allocDenomBbl(a) == null ? (
                                         <span className="text-xs text-faint">Pending production</span>
                                       ) : a.fulfilled ? (
                                         <span className="text-xs text-success">Fulfilled</span>
                                       ) : (
                                         <span className="text-xs text-accent">
-                                          {a.allocated_bbl > 0
-                                            ? `${((a.exported_bbl / a.allocated_bbl) * 100).toFixed(0)}%`
-                                            : "Unfulfilled"}
+                                          {`${Math.min(100, (a.exported_bbl / allocDenomBbl(a)!) * 100).toFixed(0)}%`}
                                         </span>
                                       )}
                                     </div>
@@ -771,7 +808,28 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
   const [notes,       setNotes]       = useState("");
   const [submitting,  setSubmitting]  = useState(false);
   const [error,       setError]       = useState<string | null>(null);
-  const [warning,     setWarning]     = useState<string | null>(null);
+  const [warnings,    setWarnings]    = useState<ShipmentWarning[]>([]);
+  const [preview,     setPreview]     = useState<{ warnings: ShipmentWarning[]; insufficientStock: boolean; available: number } | null>(null);
+
+  // Live advisory preview: ask the server what warnings this shipment would raise
+  // (coverage / over-booking / under-production) before the user commits.
+  useEffect(() => {
+    const q = parseFloat(quantity);
+    const ctrl = new AbortController();
+    const t = setTimeout(async () => {
+      if (!variationId || !q || q <= 0) { setPreview(null); return; }
+      try {
+        const res = await fetch("/api/production/export-bay/ship/preview", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: ctrl.signal,
+          body: JSON.stringify({ partner_id: group.partnerId, recipe_id: group.recipeId, variation_id: variationId, quantity: q }),
+        });
+        if (res.ok) setPreview(await res.json());
+      } catch { /* aborted / network — advisory only, ignore */ }
+    }, 400);
+    return () => { clearTimeout(t); ctrl.abort(); };
+  }, [quantity, variationId, group.partnerId, group.recipeId]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -791,9 +849,10 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? "Error");
-      // Over-allocation shipments succeed but return a warning — show it and let
-      // the user acknowledge before closing, instead of silently completing.
-      if (data.warning) setWarning(data.warning as string);
+      // Shipment succeeds; if it raised advisory warnings, show them and let the
+      // user acknowledge before closing instead of silently completing.
+      const ws: ShipmentWarning[] = Array.isArray(data.warnings) ? data.warnings : [];
+      if (ws.length > 0) setWarnings(ws);
       else onDone();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Error");
@@ -808,11 +867,15 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
         <h3 className="text-sm font-medium text-primary">
           Ship to {group.partnerName} — {group.recipeName}
         </h3>
-        {warning ? (
+        {warnings.length > 0 ? (
           <div className="space-y-4">
-            <div className="rounded border border-accent-border bg-accent-muted/30 px-3 py-2">
-              <p className="text-xs font-medium text-accent-soft mb-0.5">Shipped — over allocation</p>
-              <p className="text-xs text-secondary">{warning}</p>
+            <div className="rounded border border-accent-border bg-accent-muted/30 px-3 py-2 space-y-1.5">
+              <p className="text-xs font-medium text-accent-soft">Shipped — with advisories</p>
+              <ul className="space-y-1">
+                {warnings.map((w, i) => (
+                  <li key={i} className="text-xs text-secondary">{formatShipmentWarning(w)}</li>
+                ))}
+              </ul>
             </div>
             <div className="flex justify-end pt-1">
               <button type="button" onClick={onDone} className="btn-amber btn-xs">Done</button>
@@ -838,12 +901,25 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
             <label className="text-xs text-secondary block mb-1">Notes</label>
             <input className="inp w-full" value={notes} onChange={(e) => setNotes(e.target.value)} />
           </div>
+          {preview?.insufficientStock && (
+            <p className="text-xs text-danger">Only {preview.available} available — reduce the quantity.</p>
+          )}
+          {preview && preview.warnings.length > 0 && (
+            <div className="rounded border border-accent-border bg-accent-muted/30 px-3 py-2 space-y-1">
+              <p className="text-xs font-medium text-accent-soft">Heads up</p>
+              <ul className="space-y-0.5">
+                {preview.warnings.map((w, i) => (
+                  <li key={i} className="text-xs text-secondary">{formatShipmentWarning(w)}</li>
+                ))}
+              </ul>
+            </div>
+          )}
           {error && <p className="text-xs text-danger">{error}</p>}
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={onClose} className="text-xs px-3 py-1.5 text-secondary hover:text-strong">Cancel</button>
             <button
               type="submit"
-              disabled={submitting || inventoryLines.length === 0}
+              disabled={submitting || inventoryLines.length === 0 || preview?.insufficientStock}
               className="btn-amber btn-xs"
             >
               {submitting ? "Shipping…" : "Ship"}

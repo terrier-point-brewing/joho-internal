@@ -30,6 +30,7 @@ export async function writeExportTransaction(
     notes?: string | null;
     packagingFormat: string;
     unitsPerPackage: number;
+    overAllocation?: boolean;
     sourceRef?: string | null;
   }
 ): Promise<string> {
@@ -56,6 +57,7 @@ export async function writeExportTransaction(
       source_transfer_id: null,
       source_ref: params.sourceRef ?? null,
       notes: params.notes ?? null,
+      over_allocation: params.overAllocation ?? false,
     })
     .select("id")
     .single();

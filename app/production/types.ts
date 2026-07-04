@@ -430,9 +430,32 @@ export interface BatchAllocation {
   commitments?: { id: string; volume_bbl: number; received_on: string | null; created_at: string; desired_delivery_date: string | null } | null;
   // Computed fulfillment fields (returned by API)
   produced_bbl: number | null;
+  /** @deprecated alias of realizable_bbl (percentage × produced-so-far); use realizable_bbl. */
   allocated_bbl: number | null;
   exported_bbl: number;
   fulfilled: boolean;
+  // ── Reserve / entitlement model (allocationReserve) ──────────────────────
+  /** percentage × produced-so-far (S). */
+  realizable_bbl: number;
+  /** Pre-paid deposit volume (B); null for soft channels. */
+  booked_bbl: number | null;
+  /** percentage × final produced (A); null until the batch is complete. */
+  final_entitlement_bbl: number | null;
+  /** True only for contract_brewing (deposit-backed hard guarantee). */
+  deposit_backed: boolean;
+  /** Batch-level: bbl still owed to contract deposits from this allocation's batch. */
+  reserved_for_contract_bbl: number;
+  /** Batch-level: unclaimed surplus available to ship without touching deposits. */
+  free_to_ship_bbl: number;
+  /** Batch-level: production hasn't yet reached the guaranteed contract total. */
+  under_covered: boolean;
+  // ── Completion reconciliation (advisory; null until the batch is complete) ─
+  /** max(0, booked − final entitlement) — shrinkage refund basis (deposit paid but not yielded). */
+  shrinkage_shortfall_bbl: number | null;
+  /** max(0, exported − final entitlement) — beer shipped beyond the final entitlement. */
+  over_delivered_bbl: number | null;
+  /** max(0, final entitlement − exported) — beer still owed at completion. */
+  under_delivered_bbl: number | null;
 }
 
 export interface BrewActivityEntry {

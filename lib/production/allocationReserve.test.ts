@@ -3,6 +3,7 @@ import {
   allocationView,
   batchReserve,
   planShipment,
+  completionReconciliation,
   isDepositBacked,
   type AllocationInput,
   type BatchInput,
@@ -91,6 +92,33 @@ describe("batchReserve", () => {
     expect(r.reservedForContractBbl).toBe(0);
     expect(r.freeToShipBbl).toBeCloseTo(10);
     expect(r.underCovered).toBe(false);
+  });
+});
+
+describe("completionReconciliation", () => {
+  it("returns null for soft channels (no deposit)", () => {
+    const soft = alloc({ channel: "distribution", bookedBbl: null });
+    expect(completionReconciliation(soft, batch({ status: "complete" }))).toBeNull();
+  });
+
+  it("returns null before the batch is complete", () => {
+    expect(completionReconciliation(alloc(), batch({ status: "packaging" }))).toBeNull();
+  });
+
+  it("computes final entitlement, shrinkage shortfall, and over/under delivery", () => {
+    // booked 15 (75% of a planned 20), but batch only yielded 16 → A = 12
+    const complete = batch({ producedBbl: 16, status: "complete" });
+    // exported exactly A → no over/under, but 3 BBL shrinkage refund owed (15 − 12)
+    expect(completionReconciliation(alloc({ exportedBbl: 12 }), complete)).toEqual({
+      finalEntitlementBbl: 12,
+      overDeliveredBbl: 0,
+      underDeliveredBbl: 0,
+      shrinkageShortfallBbl: 3,
+    });
+    // over-delivered 1 (shipped 13 vs entitlement 12)
+    expect(completionReconciliation(alloc({ exportedBbl: 13 }), complete)).toMatchObject({ overDeliveredBbl: 1, underDeliveredBbl: 0 });
+    // under-delivered 2 (shipped 10 vs entitlement 12)
+    expect(completionReconciliation(alloc({ exportedBbl: 10 }), complete)).toMatchObject({ overDeliveredBbl: 0, underDeliveredBbl: 2, shrinkageShortfallBbl: 3 });
   });
 });
 
