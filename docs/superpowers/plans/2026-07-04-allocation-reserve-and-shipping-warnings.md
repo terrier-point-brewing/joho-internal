@@ -194,6 +194,17 @@ export interface ShipmentPlan {
 - [ ] **Step 2:** Propose/record the deposit refund via the existing adjust flow; surface over/under-delivery for review. Do **not** auto-issue refunds — queue for confirmation.
 - [ ] **Step 3:** Tests for the reconciliation math in `lib/production/allocationReserve.test.ts`.
 
+## Task 7: Consolidate the two cold-storage shipment writers ✅ (branch `claude/consolidate-shipment-writer`)
+
+**Problem:** two writers with overlapping responsibilities — `writeColdStorageShipment` (physical: one row per drained batch, from PR #83, used by ad-hoc + taproom) and the ship route's inline allocation-crediting writer. Both deplete cold storage and write `export_transactions`; only the row-attribution differs.
+
+**Files:** `lib/production/shipmentWriter.ts`, `app/api/production/export-bay/ship/route.ts`, `lib/production/allocationReserve.ts` (+ test).
+
+- [x] **Step 1:** Extract the pure `planCreditedWrites(plan, {candidates, depleted, quantity, overDeliveryChannel})` from the ship route into `allocationReserve.ts` (+ tests) — allocation credits → allocation's batch, over-delivery split across drawn batches, quantity distributed by volume.
+- [x] **Step 2:** Fold both modes into one `writeColdStorageShipment`, selected by an explicit `credit?: { partnerId }` param (NOT auto-detected — ad-hoc/taproom must be able to bypass crediting even when allocations exist). Physical mode = flat one-row-per-drained-batch; crediting mode = `loadShipReserveContext` → `planShipment` → `planCreditedWrites`, returning reserve `warnings`. Channel policy stays in the pure `planShipment`; the writer never branches on channel. Shared deplete → write → complete → fulfill pipeline.
+- [x] **Step 3:** Ship route becomes thin (availability guard + delegate); return shape extended with `created` + `warnings` (superset — ad-hoc/taproom callers unchanged). Stale "both routes delegate here" docstring fixed.
+- [ ] *Deferred (optional):* surface `guarantee_coverage` / `under_production` warnings on the ad-hoc path too by reusing the batch-warning evaluation — not wired to avoid loading reserve state on the taproom cron path.
+
 ---
 
 ## Rollout & Safety

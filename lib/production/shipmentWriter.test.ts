@@ -110,6 +110,8 @@ describe("writeColdStorageShipment", () => {
       shipmentId: "ship-1",
       exportTransactionIds: ["tx-1"],
       depleted: [{ batchId: "b1", depletedQty: 10 }],
+      created: [{ batch_id: "b1", export_transaction_id: "tx-1" }],
+      warnings: [],
     });
   });
 

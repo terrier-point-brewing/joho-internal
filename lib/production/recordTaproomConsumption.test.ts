@@ -38,6 +38,8 @@ beforeEach(() => {
     shipmentId: "ship-1",
     exportTransactionIds: ["tx-1", "tx-2"],
     depleted: [],
+    created: [],
+    warnings: [],
   });
 });
 

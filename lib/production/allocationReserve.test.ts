@@ -3,6 +3,7 @@ import {
   allocationView,
   batchReserve,
   planShipment,
+  planCreditedWrites,
   completionReconciliation,
   isDepositBacked,
   type AllocationInput,
@@ -269,5 +270,44 @@ describe("planShipment", () => {
     });
     expect(plan.warnings).toHaveLength(0);
     expect(plan.credits).toHaveLength(0);
+  });
+});
+
+describe("planCreditedWrites", () => {
+  it("attributes an allocation credit to its batch and assigns full quantity", () => {
+    const candidates = [{ allocationId: "A", batchId: "b1", channel: "contract_brewing" as const, bookedRemainingBbl: 15 }];
+    const plan = { credits: [{ allocationId: "A", bbl: 12, overAllocation: false }], warnings: [] };
+    const writes = planCreditedWrites(plan, {
+      candidates,
+      depleted: [{ batchId: "b1", depletedQty: 12 }],
+      quantity: 12,
+      overDeliveryChannel: "distribution",
+    });
+    expect(writes).toEqual([
+      { batchId: "b1", allocationId: "A", channel: "contract_brewing", bbl: 12, qty: 12, overAllocation: false },
+    ]);
+  });
+
+  it("splits over-delivery across drawn batches, flags it, and quantities sum to the shipment", () => {
+    const candidates = [{ allocationId: "A", batchId: "b1", channel: "contract_brewing" as const, bookedRemainingBbl: 15 }];
+    const plan = {
+      credits: [
+        { allocationId: "A", bbl: 15, overAllocation: false },
+        { allocationId: null, bbl: 5, overAllocation: true },
+      ],
+      warnings: [],
+    };
+    const writes = planCreditedWrites(plan, {
+      candidates,
+      depleted: [{ batchId: "b1", depletedQty: 10 }, { batchId: "b2", depletedQty: 10 }],
+      quantity: 20,
+      overDeliveryChannel: "distribution",
+    });
+    expect(writes.map((w) => ({ b: w.batchId, a: w.allocationId, bbl: w.bbl, over: w.overAllocation }))).toEqual([
+      { b: "b1", a: "A", bbl: 15, over: false },
+      { b: "b1", a: null, bbl: 2.5, over: true },
+      { b: "b2", a: null, bbl: 2.5, over: true },
+    ]);
+    expect(writes.reduce((s, w) => s + w.qty, 0)).toBeCloseTo(20);
   });
 });

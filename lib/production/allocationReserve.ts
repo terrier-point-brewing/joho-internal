@@ -232,6 +232,59 @@ export function planShipment(input: ShipmentPlanInput): ShipmentPlan {
   return { credits, warnings };
 }
 
+export interface PlannedWrite {
+  batchId: string;
+  allocationId: string | null; // null → over-delivery / un-allocated row
+  channel: string;
+  bbl: number;
+  qty: number;
+  overAllocation: boolean;
+}
+
+/**
+ * Expand a ShipmentPlan's credits into concrete export-row writes: an allocation
+ * credit is attributed to that allocation's batch (logical fulfillment); the
+ * over-delivery bucket is split across the physically drawn batches proportional
+ * to how much each was drawn. Quantity is then distributed across all rows in
+ * proportion to volume, with the last row taking the rounding remainder. Pure.
+ */
+export function planCreditedWrites(
+  plan: ShipmentPlan,
+  args: {
+    candidates: ShipmentCandidate[];
+    depleted: { batchId: string; depletedQty: number }[];
+    quantity: number;
+    overDeliveryChannel: string;
+  }
+): PlannedWrite[] {
+  const { candidates, depleted, quantity, overDeliveryChannel } = args;
+  const candById = new Map(candidates.map((c) => [c.allocationId, c]));
+  const totalDrawQty = depleted.reduce((s, d) => s + d.depletedQty, 0);
+
+  const writes: PlannedWrite[] = [];
+  for (const cr of plan.credits) {
+    if (cr.allocationId) {
+      const cand = candById.get(cr.allocationId);
+      if (!cand) continue;
+      writes.push({ batchId: cand.batchId, allocationId: cr.allocationId, channel: cand.channel, bbl: cr.bbl, qty: 0, overAllocation: false });
+    } else if (totalDrawQty > 0) {
+      for (const d of depleted) {
+        const portion = cr.bbl * (d.depletedQty / totalDrawQty);
+        if (portion <= EPS) continue;
+        writes.push({ batchId: d.batchId, allocationId: null, channel: overDeliveryChannel, bbl: round4(portion), qty: 0, overAllocation: cr.overAllocation });
+      }
+    }
+  }
+
+  const totalWriteBbl = writes.reduce((s, w) => s + w.bbl, 0) || 1;
+  let qtyAssigned = 0;
+  writes.forEach((w, i) => {
+    w.qty = i === writes.length - 1 ? round4(quantity - qtyAssigned) : round4((w.bbl / totalWriteBbl) * quantity);
+    qtyAssigned += w.qty;
+  });
+  return writes;
+}
+
 function round4(n: number): number {
   return Math.round(n * 10000) / 10000;
 }
