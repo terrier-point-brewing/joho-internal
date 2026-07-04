@@ -1,6 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  allocationView,
+  batchReserve,
+  completionReconciliation,
+  type AllocationChannel,
+  type AllocationInput,
+  type BatchInput,
+} from "@/lib/production/allocationReserve";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +23,7 @@ export async function GET(req: NextRequest) {
     .from("batch_allocations")
     .select(`
       *,
-      brew_batches(id, beer_name, batch_number, volume_bbl, recipe_id),
+      brew_batches(id, beer_name, batch_number, volume_bbl, recipe_id, status),
       contract_brewing_partners(id, company_name),
       commitments(id, volume_bbl, desired_delivery_date, received_on, created_at, channel)
     `)
@@ -51,20 +59,74 @@ export async function GET(req: NextRequest) {
     .select("batch_id, channel, recipient_id, volume_bbl")
     .in("batch_id", batchIds);
 
-  // Build fulfillment lookup: key = `${batch_id}:${channel}:${recipient_id ?? ""}`
+  // Build fulfillment lookup (per allocation) and per-batch totals (for reserve).
   const exportedMap: Record<string, number> = {};
+  const totalExportedByBatch: Record<string, number> = {};
   for (const e of exports_ ?? []) {
     const key = `${e.batch_id}:${e.channel}:${e.recipient_id ?? ""}`;
     exportedMap[key] = (exportedMap[key] ?? 0) + (e.volume_bbl ?? 0);
+    totalExportedByBatch[e.batch_id] = (totalExportedByBatch[e.batch_id] ?? 0) + (Number(e.volume_bbl) || 0);
+  }
+
+  // ── Reserve/entitlement model (see lib/production/allocationReserve.ts) ────
+  const toAllocInput = (a: (typeof allocations)[number]): AllocationInput => {
+    const channel = a.channel as AllocationChannel;
+    const booked = (a.commitments as { volume_bbl: number } | null)?.volume_bbl ?? null;
+    return {
+      id: a.id,
+      batchId: a.batch_id,
+      channel,
+      percentage: Number(a.percentage),
+      bookedBbl: channel === "contract_brewing" ? booked : null,
+      exportedBbl: exportedMap[`${a.batch_id}:${a.channel}:${a.partner_id ?? ""}`] ?? 0,
+    };
+  };
+
+  const statusByBatch: Record<string, string> = {};
+  const inputsByBatch = new Map<string, AllocationInput[]>();
+  for (const a of allocations) {
+    statusByBatch[a.batch_id] = (a.brew_batches as { status?: string } | null)?.status ?? "";
+    const list = inputsByBatch.get(a.batch_id) ?? [];
+    list.push(toAllocInput(a));
+    inputsByBatch.set(a.batch_id, list);
+  }
+  const batchInputById = new Map<string, BatchInput>();
+  for (const bid of batchIds) {
+    batchInputById.set(bid, {
+      batchId: bid,
+      producedBbl: producedByBatch[bid] ?? 0,
+      totalExportedBbl: totalExportedByBatch[bid] ?? 0,
+      status: statusByBatch[bid] ?? "",
+      allocations: inputsByBatch.get(bid) ?? [],
+    });
   }
 
   const enriched = allocations.map((a) => {
-    const produced = producedByBatch[a.batch_id] ?? 0;
-    const allocated_bbl = produced > 0 ? (a.percentage / 100) * produced : null;
-    const key = `${a.batch_id}:${a.channel}:${a.partner_id ?? ""}`;
-    const exported_bbl = exportedMap[key] ?? 0;
-    const fulfilled = allocated_bbl != null && exported_bbl >= allocated_bbl;
-    return { ...a, allocated_bbl, exported_bbl, fulfilled, produced_bbl: produced > 0 ? produced : null };
+    const bi = batchInputById.get(a.batch_id)!;
+    const input = toAllocInput(a);
+    const view = allocationView(input, bi);
+    const reserve = batchReserve(bi);
+    const recon = completionReconciliation(input, bi); // null unless complete + contract
+    return {
+      ...a,
+      produced_bbl: bi.producedBbl > 0 ? bi.producedBbl : null,
+      realizable_bbl: view.realizableBbl,
+      // Deprecated alias for realizable_bbl (kept one release); preserves the old
+      // null-when-nothing-produced-yet semantics.
+      allocated_bbl: view.realizableBbl > 0 ? view.realizableBbl : null,
+      booked_bbl: view.bookedBbl,
+      final_entitlement_bbl: view.finalEntitlementBbl,
+      exported_bbl: view.exportedBbl,
+      deposit_backed: view.depositBacked,
+      fulfilled: view.fulfilled,
+      reserved_for_contract_bbl: reserve.reservedForContractBbl,
+      free_to_ship_bbl: reserve.freeToShipBbl,
+      under_covered: reserve.underCovered,
+      // Completion reconciliation (advisory; null until the batch is complete).
+      shrinkage_shortfall_bbl: recon?.shrinkageShortfallBbl ?? null,
+      over_delivered_bbl: recon?.overDeliveredBbl ?? null,
+      under_delivered_bbl: recon?.underDeliveredBbl ?? null,
+    };
   });
 
   // Fetch invoice numbers for any deposit invoices linked via square_deposit_invoice_id

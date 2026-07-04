@@ -7,17 +7,11 @@ import { getAvailableColdStorageQuantity, depleteColdStorageInventory } from "@/
 import { writeExportTransaction } from "@/lib/production/exportTransactionWriter";
 import { getUnitsPerPackage } from "@/lib/production/packagingVariations";
 import { BBL_TO_FL_OZ } from "@/lib/constants/production";
-import {
-  planShipment,
-  type AllocationChannel,
-  type AllocationInput,
-  type BatchInput,
-  type ShipmentCandidate,
-} from "@/lib/production/allocationReserve";
+import { planShipment } from "@/lib/production/allocationReserve";
+import { loadShipReserveContext } from "@/lib/production/shipReserveContext";
 
 export const dynamic = "force-dynamic";
 
-const ZERO_UUID = "00000000-0000-0000-0000-000000000000";
 const round4 = (n: number) => Math.round(n * 10000) / 10000;
 
 interface ShipRequest {
@@ -71,20 +65,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // ── 3. This partner's allocations for the recipe (crediting candidates) ───
-  const { data: allocRows, error: allocErr } = await supabase
-    .from("batch_allocations")
-    .select(`
-      id, batch_id, channel, partner_id, percentage, contract_request_id,
-      commitments(volume_bbl),
-      brew_batches!inner(id, recipe_id, created_at, status)
-    `)
-    .eq("partner_id", partner_id)
-    .neq("channel", "taproom")
-    .eq("brew_batches.recipe_id", recipe_id);
-  if (allocErr) return NextResponse.json({ error: allocErr.message }, { status: 500 });
-
-  // ── 4. Deplete cold storage (physical, oldest-first) → per-batch draw ─────
+  // ── 3. Deplete cold storage (physical, oldest-first) → per-batch draw ─────
   let depleted: { batchId: string; depletedQty: number }[];
   try {
     depleted = await depleteColdStorageInventory(supabase, { recipeId: recipe_id, variationId: variation_id, quantity });
@@ -94,96 +75,14 @@ export async function POST(req: NextRequest) {
   const bblPerUnit = variation.total_volume_fl_oz / BBL_TO_FL_OZ;
   const perBatchDrawBbl = depleted.map((d) => ({ batchId: d.batchId, drawBbl: d.depletedQty * bblPerUnit }));
 
-  // ── 5. Reserve state for every batch this shipment credits or draws from ──
-  const reserveBatchIds = [...new Set([
-    ...(allocRows ?? []).map((a) => a.batch_id),
-    ...depleted.map((d) => d.batchId),
-  ])];
-  const inList = reserveBatchIds.length ? reserveBatchIds : [ZERO_UUID];
+  // ── 4. Reserve state + crediting candidates (shared with the preview route) ─
+  const { candidates, batches } = await loadShipReserveContext(supabase, {
+    recipeId: recipe_id,
+    partnerId: partner_id,
+    drawnBatchIds: depleted.map((d) => d.batchId),
+  });
 
-  // Every non-taproom allocation on those batches — other partners' contract
-  // claims count toward the guarantee reserve, not just this partner's.
-  const { data: reserveAllocRows } = await supabase
-    .from("batch_allocations")
-    .select("id, batch_id, channel, partner_id, percentage, contract_request_id, commitments(volume_bbl)")
-    .in("batch_id", inList)
-    .neq("channel", "taproom");
-
-  // produced = sum(volume_bbl) of kegging/canning (net fill, NOT minus shrinkage)
-  const { data: prodTransfers } = await supabase
-    .from("batch_transfers")
-    .select("batch_id, volume_bbl")
-    .in("batch_id", inList)
-    .in("transfer_type", ["kegging", "canning"]);
-  const producedByBatch: Record<string, number> = {};
-  for (const t of prodTransfers ?? []) {
-    producedByBatch[t.batch_id] = (producedByBatch[t.batch_id] ?? 0) + Number(t.volume_bbl);
-  }
-
-  // exports: total per batch (on-hand) + per batch:channel:recipient (allocation exported)
-  const { data: priorExports } = await supabase
-    .from("export_transactions")
-    .select("batch_id, channel, recipient_id, volume_bbl")
-    .in("batch_id", inList);
-  const totalExportedByBatch: Record<string, number> = {};
-  const exportedByKey: Record<string, number> = {};
-  for (const e of priorExports ?? []) {
-    totalExportedByBatch[e.batch_id] = (totalExportedByBatch[e.batch_id] ?? 0) + Number(e.volume_bbl);
-    const key = `${e.batch_id}:${e.channel}:${e.recipient_id ?? ""}`;
-    exportedByKey[key] = (exportedByKey[key] ?? 0) + Number(e.volume_bbl);
-  }
-
-  const { data: batchRows } = await supabase.from("brew_batches").select("id, status").in("id", inList);
-  const statusById = new Map((batchRows ?? []).map((b) => [b.id as string, b.status as string]));
-
-  type ReserveAllocRow = { id: string; batch_id: string; channel: string; partner_id: string | null; percentage: number; commitments: { volume_bbl: number } | null };
-  const allocInput = (r: ReserveAllocRow): AllocationInput => {
-    const channel = r.channel as AllocationChannel;
-    const key = `${r.batch_id}:${r.channel}:${r.partner_id ?? ""}`;
-    return {
-      id: r.id,
-      batchId: r.batch_id,
-      channel,
-      percentage: Number(r.percentage),
-      bookedBbl: channel === "contract_brewing" ? (r.commitments?.volume_bbl ?? null) : null,
-      exportedBbl: exportedByKey[key] ?? 0,
-    };
-  };
-  const allocsByBatch = new Map<string, AllocationInput[]>();
-  for (const r of (reserveAllocRows ?? []) as unknown as ReserveAllocRow[]) {
-    const list = allocsByBatch.get(r.batch_id) ?? [];
-    list.push(allocInput(r));
-    allocsByBatch.set(r.batch_id, list);
-  }
-  const batches: BatchInput[] = reserveBatchIds.map((bid) => ({
-    batchId: bid,
-    producedBbl: producedByBatch[bid] ?? 0,
-    totalExportedBbl: totalExportedByBatch[bid] ?? 0,
-    status: statusById.get(bid) ?? "",
-    allocations: allocsByBatch.get(bid) ?? [],
-  }));
-
-  // ── 6. Crediting candidates: contract first (up to booked), then soft, oldest first ─
-  type CandRow = { id: string; batch_id: string; channel: string; percentage: number; commitments: { volume_bbl: number } | null; brew_batches: { created_at: string } };
-  const candidates: ShipmentCandidate[] = ((allocRows ?? []) as unknown as CandRow[])
-    .map((a) => {
-      const channel = a.channel as AllocationChannel;
-      const exported = exportedByKey[`${a.batch_id}:${a.channel}:${partner_id}`] ?? 0;
-      const booked = channel === "contract_brewing" ? (a.commitments?.volume_bbl ?? 0) : null;
-      const bookedRemainingBbl = channel === "contract_brewing" ? Math.max(0, (booked ?? 0) - exported) : null;
-      return { allocationId: a.id, batchId: a.batch_id, channel, bookedRemainingBbl, _createdAt: a.brew_batches.created_at };
-    })
-    // Drop fully-shipped contract allocations; keep all soft (uncapped absorbers).
-    .filter((c) => (c.channel === "contract_brewing" ? (c.bookedRemainingBbl ?? 0) > 0.0001 : true))
-    .sort((x, y) => {
-      const cx = x.channel === "contract_brewing" ? 0 : 1;
-      const cy = y.channel === "contract_brewing" ? 0 : 1;
-      if (cx !== cy) return cx - cy;
-      return new Date(x._createdAt).getTime() - new Date(y._createdAt).getTime();
-    })
-    .map(({ allocationId, batchId, channel, bookedRemainingBbl }) => ({ allocationId, batchId, channel, bookedRemainingBbl }));
-
-  // ── 7. Plan credits + advisory warnings ──────────────────────────────────
+  // ── 5. Plan credits + advisory warnings ──────────────────────────────────
   const plan = planShipment({ requestedBbl, candidates, perBatchDrawBbl, batches });
 
   // ── 8. Expand credits into export writes. Over-delivery (allocation_id null)
