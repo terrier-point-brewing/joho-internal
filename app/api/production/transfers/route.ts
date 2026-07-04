@@ -4,6 +4,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { BBL_TO_FL_OZ } from "@/lib/constants/production";
 import { checkAndCompleteBatch } from "@/lib/production/batchCompletion";
+import { finalizeConversion, createConversionTargetBatch } from "@/lib/production/conversionFinalizer";
 
 export const dynamic = "force-dynamic";
 
@@ -640,6 +641,7 @@ export async function POST(req: NextRequest) {
     transfer_type,
     notes,
     packaging_lines,
+    new_batch,
   } = body as {
     batch_id: string;
     from_tank_id: string | null;
@@ -650,6 +652,7 @@ export async function POST(req: NextRequest) {
     volume_bbl?: number;
     shrinkage_bbl?: number;
     packaging_lines?: { variation_id: string; quantity: number }[];
+    new_batch?: { beer_name: string; recipe_id: string } | null;
   };
 
   const { data: batchRow } = await supabase.from("brew_batches").select("recipe_id").eq("id", batch_id).single();
@@ -770,22 +773,53 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Conversion side effects ────────────────────────────────────────────────
-  if (transfer_type === "conversion" && to_batch_id && transfers.length > 0) {
-    const transferId = (transfers[0] as { id?: string }).id;
-    if (transferId) {
-      // Stamp to_batch_id on the source transfer row
-      await supabase
-        .from("batch_transfers")
-        .update({ to_batch_id })
-        .eq("id", transferId);
+  if (transfer_type === "conversion" && (to_batch_id || new_batch) && transfers.length > 0) {
+    const convertedVol = Number(body.volume_bbl ?? 0);
+
+    // Resolve the target batch: an existing one, or a brand-new batch created inline.
+    let targetBatchId = to_batch_id ?? null;
+    if (!targetBatchId && new_batch?.beer_name && new_batch?.recipe_id) {
+      try {
+        targetBatchId = await createConversionTargetBatch(supabase, {
+          sourceBatchId: batch_id,
+          beerName:      new_batch.beer_name,
+          recipeId:      new_batch.recipe_id,
+          volumeBbl:     convertedVol,
+        });
+      } catch (createErr) {
+        return NextResponse.json({ error: (createErr as Error).message }, { status: 500 });
+      }
     }
-    // Mark the batch_conversions planning record as executed
-    await supabase
-      .from("batch_conversions")
-      .update({ converted_at: new Date().toISOString() })
-      .eq("source_batch_id", batch_id)
-      .eq("target_batch_id", to_batch_id)
-      .is("converted_at", null);
+
+    if (targetBatchId) {
+      const transferId = (transfers[0] as { id?: string }).id;
+      if (transferId) {
+        await supabase.from("batch_transfers").update({ to_batch_id: targetBatchId }).eq("id", transferId);
+      }
+      // Mark any pre-planned batch_conversions record as executed (no-op for ad-hoc new batches).
+      await supabase
+        .from("batch_conversions")
+        .update({ converted_at: new Date().toISOString() })
+        .eq("source_batch_id", batch_id)
+        .eq("target_batch_id", targetBatchId)
+        .is("converted_at", null);
+
+      // Hand the destination tank to the target batch and complete the exhausted
+      // source — record_batch_transfer + reconcileSchedule attribute the dest
+      // occupancy to the SOURCE, which is wrong for conversions.
+      try {
+        await finalizeConversion(supabase, {
+          sourceBatchId: batch_id,
+          targetBatchId,
+          fromTankId:    from_tank_id,
+          toTankId:      to_tank_id,
+          volumeBbl:     convertedVol,
+          today:         new Date().toISOString().split("T")[0],
+        });
+      } catch (finalizeErr) {
+        console.error("[transfers] Conversion finalize failed (transfer committed):", finalizeErr);
+      }
+    }
   }
 
   return NextResponse.json({ transfers, schedule_update: allScheduleUpdates }, { status: 201 });
