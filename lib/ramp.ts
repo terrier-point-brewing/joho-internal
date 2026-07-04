@@ -33,8 +33,8 @@ export async function getRampToken(): Promise<string> {
  * chart of accounts as QuickBooks, so this is what lets an imported expense
  * resolve directly to a `chart_of_accounts` row without manual mapping.
  *
- * Sourced from the transaction's `accounting_field_selections` (or a line
- * item's) where `type === "GL_ACCOUNT"`.
+ * Sourced from the selected value of the transaction's (or a line item's)
+ * `accounting_field_selections` entry whose dimension `type === "GL_ACCOUNT"`.
  */
 export interface RampGlAccount {
   id:          string;         // Ramp's stable option id for the GL account
@@ -83,6 +83,14 @@ function parseAmount(raw: unknown): number {
  * `accounting_field_selections`. The field lives at the transaction level and,
  * on split transactions, on each line item — we check both and take the first
  * GL_ACCOUNT selection found. Returns null when the transaction is uncoded.
+ *
+ * Shape note: each selection has two parts. `category_info` describes the
+ * accounting FIELD/dimension itself (e.g. the "Category" GL dimension, with a
+ * stable field id and `type: "GL_ACCOUNT"`) — it is NOT the chosen account. The
+ * SELECTED account lives on the selection element's own top-level fields:
+ * `name` (account name), `external_id` (its ERP/QuickBooks account number) and
+ * `id` (Ramp's option id). Reading the account out of `category_info` is what
+ * previously collapsed every expense into a single "Category" group.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function extractGlAccount(txn: any): RampGlAccount | null {
@@ -94,16 +102,19 @@ export function extractGlAccount(txn: any): RampGlAccount | null {
 
   for (const raw of pools) {
     const sel  = raw as Record<string, unknown>;
-    // Ramp nests the account details under `category_info`; older shapes put
-    // them on the selection itself. Support both.
-    const info = (sel.category_info ?? sel) as Record<string, unknown>;
-    const type = (info.type ?? sel.type) as string | undefined;
+    const info = (sel.category_info ?? null) as Record<string, unknown> | null;
+    // The dimension's type gates whether this selection maps to the chart of
+    // accounts. It lives on `category_info` (nested shape) or on the selection
+    // itself (flat/legacy shape).
+    const type = (info?.type ?? sel.type) as string | undefined;
     if (type !== "GL_ACCOUNT") continue;
 
-    const id   = (info.id ?? sel.id) as string | undefined;
-    const name = (info.name ?? sel.name) as string | undefined;
-    const ext  = (info.external_id ?? sel.external_id) as string | undefined;
-    if (!id && !name) continue;
+    // Always read the selected account from the selection element itself — never
+    // from `category_info`, which only ever holds the dimension label.
+    const id   = sel.id as string | undefined;
+    const name = sel.name as string | undefined;
+    const ext  = sel.external_id as string | undefined;
+    if (!id && !name && !ext) continue;
 
     return {
       id:          id ?? (ext ?? name)!,
