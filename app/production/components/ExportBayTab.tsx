@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRecipesQuery, useContractPartnersQuery, fetchJson } from "../hooks/queries";
 import type { AvailableInventoryLine, BatchAllocation, ExportChannel } from "../types";
-import type { ShipmentWarning } from "@/lib/production/allocationReserve";
+import { assessWriteOff, type ShipmentWarning } from "@/lib/production/allocationReserve";
 import { queryKeys } from "@/lib/query-keys";
 import { CHANNEL_COLOR, KEG_TAG_BADGE } from "../lib/categoryColors";
 
@@ -147,6 +147,7 @@ export default function ExportBayTab() {
   const [shipGroup,         setShipGroup]         = useState<CustomerRecipeGroup | null>(null);
   const [showAdHoc,         setShowAdHoc]         = useState(false);
   const [showSync,          setShowSync]          = useState(false);
+  const [writeOffAlloc,     setWriteOffAlloc]     = useState<BatchAllocation | null>(null);
   const [expandedFulfilled, setExpandedFulfilled] = useState<Set<string>>(new Set());
 
   // Search / filter / sort
@@ -342,6 +343,17 @@ export default function ExportBayTab() {
     qc.invalidateQueries({ queryKey: queryKeys.production.exportBayInventory() });
     qc.invalidateQueries({ queryKey: queryKeys.production.allocations() });
     setShipGroup(null);
+  }
+
+  async function undoWriteOff(a: BatchAllocation) {
+    if (!window.confirm("Reopen this allocation? It will no longer count as fulfilled.")) return;
+    try {
+      const res = await fetch(`/api/production/allocations/${a.id}/write-off`, { method: "DELETE" });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Error");
+      qc.invalidateQueries({ queryKey: queryKeys.production.allocations() });
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : "Failed to reverse write-off");
+    }
   }
 
   return (
@@ -598,14 +610,37 @@ export default function ExportBayTab() {
                                           )}
                                         </span>
                                       )}
-                                      {allocDenomBbl(a) == null ? (
+                                      {a.written_off_at ? (
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-xs text-secondary">
+                                            Written off{a.written_off_bbl && a.written_off_bbl > 0.001 ? ` · ${a.written_off_bbl.toFixed(2)} BBL` : ""}
+                                          </span>
+                                          <button
+                                            type="button"
+                                            onClick={() => undoWriteOff(a)}
+                                            className="text-[10px] text-faint hover:text-secondary underline decoration-dotted"
+                                          >
+                                            Undo
+                                          </button>
+                                        </div>
+                                      ) : allocDenomBbl(a) == null ? (
                                         <span className="text-xs text-faint">Pending production</span>
                                       ) : a.fulfilled ? (
                                         <span className="text-xs text-success">Fulfilled</span>
                                       ) : (
-                                        <span className="text-xs text-accent">
-                                          {`${Math.min(100, (a.exported_bbl / allocDenomBbl(a)!) * 100).toFixed(0)}%`}
-                                        </span>
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-xs text-accent">
+                                            {`${Math.min(100, (a.exported_bbl / allocDenomBbl(a)!) * 100).toFixed(0)}%`}
+                                          </span>
+                                          <button
+                                            type="button"
+                                            onClick={() => setWriteOffAlloc(a)}
+                                            title="Forgive the remaining owed volume and mark this allocation fulfilled"
+                                            className="text-[10px] text-faint hover:text-secondary underline decoration-dotted"
+                                          >
+                                            Write off
+                                          </button>
+                                        </div>
                                       )}
                                     </div>
                                   </div>
@@ -662,6 +697,129 @@ export default function ExportBayTab() {
           onRecorded={() => qc.invalidateQueries({ queryKey: queryKeys.production.exportBayInventory() })}
         />
       )}
+
+      {writeOffAlloc && (
+        <WriteOffModal
+          alloc={writeOffAlloc}
+          partnerName={writeOffAlloc.partner_id ? (partnerNameById.get(writeOffAlloc.partner_id) ?? "") : ""}
+          recipeName={writeOffAlloc.brew_batches?.recipe_id ? (recipeNameById.get(writeOffAlloc.brew_batches.recipe_id) ?? "") : ""}
+          onClose={() => setWriteOffAlloc(null)}
+          onDone={() => {
+            qc.invalidateQueries({ queryKey: queryKeys.production.allocations() });
+            setWriteOffAlloc(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── WriteOffModal ────────────────────────────────────────────────────────────────
+
+function WriteOffModal({ alloc, partnerName, recipeName, onClose, onDone }: {
+  alloc: BatchAllocation;
+  partnerName: string;
+  recipeName: string;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [note,       setNote]       = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error,      setError]      = useState<string | null>(null);
+
+  // Same pure assessment the server runs — remaining owed + tolerance verdict.
+  const assessment = assessWriteOff({
+    depositBacked:       alloc.deposit_backed,
+    bookedBbl:           alloc.booked_bbl,
+    finalEntitlementBbl: alloc.final_entitlement_bbl,
+    realizableBbl:       alloc.realizable_bbl,
+    exportedBbl:         alloc.exported_bbl,
+  });
+  const pctForgiven = Math.round(assessment.fraction * 100);
+  const pctWarn     = Math.round(assessment.warnFraction * 100);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setSubmitting(true);
+    try {
+      const res = await fetch(`/api/production/allocations/${alloc.id}/write-off`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ note: note || null }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "Error");
+      onDone();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Error");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+      <div className="bg-surface border border-line-strong rounded-lg p-5 w-full max-w-md space-y-4">
+        <div>
+          <h3 className="text-sm font-medium text-primary">Write off remaining allocation</h3>
+          <p className="text-xs text-muted mt-1">
+            {[partnerName, recipeName, alloc.brew_batches ? `#${alloc.brew_batches.batch_number}` : null]
+              .filter(Boolean).join(" · ")}
+          </p>
+        </div>
+
+        <div className="rounded border border-line px-3 py-2 space-y-1 text-xs">
+          <div className="flex justify-between">
+            <span className="text-muted">Delivered</span>
+            <span className="text-secondary tabular-nums">{assessment.exportedBbl.toFixed(2)} BBL</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-muted">{alloc.deposit_backed ? "Owed (entitlement)" : "Planned share"}</span>
+            <span className="text-secondary tabular-nums">{assessment.entitlementBbl.toFixed(2)} BBL</span>
+          </div>
+          <div className="flex justify-between font-medium">
+            <span className="text-body">To write off</span>
+            <span className="text-strong tabular-nums">{assessment.remainingBbl.toFixed(2)} BBL</span>
+          </div>
+        </div>
+
+        {assessment.fullyDelivered ? (
+          <p className="text-xs text-muted">
+            Nothing is owed on this allocation — writing it off simply marks it fulfilled.
+          </p>
+        ) : assessment.exceedsTolerance ? (
+          <div className="rounded border border-danger-border bg-danger-surface/30 px-3 py-2">
+            <p className="text-xs text-danger">
+              You&apos;re forgiving {assessment.remainingBbl.toFixed(2)} BBL — {pctForgiven}% of the entitlement,
+              above the {pctWarn}% tolerance. Confirm this is intended before writing it off.
+            </p>
+          </div>
+        ) : (
+          <p className="text-xs text-muted">
+            Forgiving {assessment.remainingBbl.toFixed(2)} BBL ({pctForgiven}% of the entitlement). No refund is
+            issued — this just closes the allocation as fulfilled.
+          </p>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <div>
+            <label className="text-xs text-secondary block mb-1">Note (optional)</label>
+            <input className="inp w-full" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Reason for the write-off" />
+          </div>
+          {error && <p className="text-xs text-danger">{error}</p>}
+          <div className="flex justify-end gap-2 pt-1">
+            <button type="button" onClick={onClose} className="text-xs px-3 py-1.5 text-secondary hover:text-strong">Cancel</button>
+            <button
+              type="submit"
+              disabled={submitting}
+              className={assessment.exceedsTolerance ? "btn-danger btn-xs" : "btn-amber btn-xs"}
+            >
+              {submitting ? "Writing off…" : "Write off"}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }

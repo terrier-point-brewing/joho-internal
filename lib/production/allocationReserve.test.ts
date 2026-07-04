@@ -5,7 +5,9 @@ import {
   planShipment,
   planCreditedWrites,
   completionReconciliation,
+  assessWriteOff,
   isDepositBacked,
+  WRITE_OFF_WARN_FRACTION,
   type AllocationInput,
   type BatchInput,
   type ShipmentWarning,
@@ -60,6 +62,12 @@ describe("allocationView", () => {
     expect(v.realizableBbl).toBe(0);
     expect(v.finalEntitlementBbl).toBe(0);
   });
+
+  it("written-off allocation is fulfilled even when under-delivered on an incomplete batch", () => {
+    const v = allocationView(alloc({ exportedBbl: 2, writtenOff: true }), batch({ producedBbl: 16, status: "packaging" }));
+    expect(v.writtenOff).toBe(true);
+    expect(v.fulfilled).toBe(true); // forgiven → closed
+  });
 });
 
 describe("batchReserve", () => {
@@ -79,12 +87,33 @@ describe("batchReserve", () => {
     expect(r.underCovered).toBe(false);               // produced 16 ≥ booked 15
   });
 
-  it("underCovered when produced hasn't reached guaranteed total", () => {
+  it("underCovered when a COMPLETE batch's produced fell short of the guaranteed total", () => {
     const b = batch({
       producedBbl: 12,
+      status: "complete",
       allocations: [alloc({ channel: "contract_brewing", percentage: 75, bookedBbl: 15 })],
     });
-    expect(batchReserve(b).underCovered).toBe(true); // 12 < 15
+    expect(batchReserve(b).underCovered).toBe(true); // complete, 12 < 15
+  });
+
+  it("NOT underCovered before the batch is complete (production still climbing)", () => {
+    // A batch that hasn't finished packaging (or hasn't started) is expected to
+    // sit below its guaranteed total — that is not a shortfall, so no badge.
+    expect(batchReserve(batch({ producedBbl: 0, status: "planning",
+      allocations: [alloc({ channel: "contract_brewing", percentage: 75, bookedBbl: 15 })] })).underCovered).toBe(false);
+    expect(batchReserve(batch({ producedBbl: 8, status: "packaging",
+      allocations: [alloc({ channel: "contract_brewing", percentage: 75, bookedBbl: 15 })] })).underCovered).toBe(false);
+  });
+
+  it("a written-off contract allocation releases its reserve and clears under-coverage", () => {
+    const b = batch({
+      producedBbl: 12,
+      status: "complete",
+      allocations: [alloc({ channel: "contract_brewing", percentage: 75, bookedBbl: 15, exportedBbl: 3, writtenOff: true })],
+    });
+    const r = batchReserve(b);
+    expect(r.reservedForContractBbl).toBe(0); // written off → nothing reserved
+    expect(r.underCovered).toBe(false);        // written off → no longer counts toward guarantee
   });
 
   it("soft-only batch has zero contract reserve", () => {
@@ -126,6 +155,55 @@ describe("completionReconciliation", () => {
     expect(completionReconciliation(alloc({ exportedBbl: 10 }), complete)).toEqual({
       finalEntitlementBbl: 12, overDeliveredBbl: 0, underDeliveredBbl: 2,
     });
+  });
+});
+
+describe("assessWriteOff", () => {
+  it("contract, incomplete batch: entitlement is the booked deposit", () => {
+    const a = assessWriteOff({ depositBacked: true, bookedBbl: 15, finalEntitlementBbl: null, realizableBbl: 12, exportedBbl: 10 });
+    expect(a.entitlementBbl).toBe(15);
+    expect(a.remainingBbl).toBe(5);
+    expect(a.fraction).toBeCloseTo(5 / 15);
+    expect(a.exceedsTolerance).toBe(true); // 33% > 10%
+    expect(a.fullyDelivered).toBe(false);
+  });
+
+  it("contract, complete batch: entitlement is the final actual (A), not the booked estimate", () => {
+    // booked 15, but produced only yielded A = 12.75; shipped 12.5 → owed 0.25.
+    const a = assessWriteOff({ depositBacked: true, bookedBbl: 15, finalEntitlementBbl: 12.75, realizableBbl: 12.75, exportedBbl: 12.5 });
+    expect(a.entitlementBbl).toBe(12.75);
+    expect(a.remainingBbl).toBe(0.25);
+    expect(a.exceedsTolerance).toBe(false); // 0.25/12.75 ≈ 2% < 10%
+  });
+
+  it("warns exactly at the boundary above the tolerance", () => {
+    // remaining 1.5 of 10 = 15% > 10% → warn
+    const warn = assessWriteOff({ depositBacked: true, bookedBbl: 10, finalEntitlementBbl: 10, realizableBbl: 10, exportedBbl: 8.5 });
+    expect(warn.exceedsTolerance).toBe(true);
+    // remaining 1.0 of 10 = 10% → NOT above tolerance
+    const ok = assessWriteOff({ depositBacked: true, bookedBbl: 10, finalEntitlementBbl: 10, realizableBbl: 10, exportedBbl: 9 });
+    expect(ok.exceedsTolerance).toBe(false);
+    expect(ok.warnFraction).toBe(WRITE_OFF_WARN_FRACTION);
+  });
+
+  it("soft channel: entitlement is the produced-so-far share", () => {
+    const a = assessWriteOff({ depositBacked: false, bookedBbl: null, finalEntitlementBbl: null, realizableBbl: 8, exportedBbl: 6 });
+    expect(a.entitlementBbl).toBe(8);
+    expect(a.remainingBbl).toBe(2);
+  });
+
+  it("nothing left to forgive when already fully delivered", () => {
+    const a = assessWriteOff({ depositBacked: true, bookedBbl: 15, finalEntitlementBbl: 12, realizableBbl: 12, exportedBbl: 12 });
+    expect(a.remainingBbl).toBe(0);
+    expect(a.fullyDelivered).toBe(true);
+    expect(a.exceedsTolerance).toBe(false);
+  });
+
+  it("zero entitlement does not divide by zero", () => {
+    const a = assessWriteOff({ depositBacked: false, bookedBbl: null, finalEntitlementBbl: null, realizableBbl: 0, exportedBbl: 0 });
+    expect(a.fraction).toBe(0);
+    expect(a.remainingBbl).toBe(0);
+    expect(a.fullyDelivered).toBe(true);
   });
 });
 
@@ -217,10 +295,11 @@ describe("planShipment", () => {
     expect(plan.warnings).toHaveLength(0);
   });
 
-  it("under-produced batch warns under_production", () => {
+  it("under-produced COMPLETE batch warns under_production", () => {
     const b = batch({
       batchId: "b1",
       producedBbl: 12,
+      status: "complete",
       allocations: [alloc({ id: "A", channel: "contract_brewing", percentage: 75, bookedBbl: 15, exportedBbl: 0 })],
     });
     const plan = planShipment({
@@ -233,10 +312,27 @@ describe("planShipment", () => {
     expect(w).toMatchObject({ batchId: "b1", producedBbl: 12, guaranteedBbl: 15 });
   });
 
+  it("does NOT warn under_production while a batch is still packaging", () => {
+    const b = batch({
+      batchId: "b1",
+      producedBbl: 12,
+      status: "packaging", // final yield unknown — sub-guarantee is expected, not a shortfall
+      allocations: [alloc({ id: "A", channel: "contract_brewing", percentage: 75, bookedBbl: 15, exportedBbl: 0 })],
+    });
+    const plan = planShipment({
+      requestedBbl: 1,
+      candidates: [{ allocationId: "A", batchId: "b1", channel: "contract_brewing", bookedRemainingBbl: 15 }],
+      perBatchDrawBbl: [{ batchId: "b1", drawBbl: 1 }],
+      batches: [b],
+    });
+    expect(hasType(plan.warnings, "under_production")).toBe(false);
+  });
+
   it("multi-batch FIFO: soft draw strands an older batch's deposit", () => {
     const b1 = batch({
       batchId: "b1",
       producedBbl: 8,
+      status: "complete", // final yield known — 8 < 10 guaranteed is a real shortfall
       totalExportedBbl: 0,
       allocations: [alloc({ id: "C1", channel: "contract_brewing", percentage: 100, bookedBbl: 10, exportedBbl: 0 })],
     });

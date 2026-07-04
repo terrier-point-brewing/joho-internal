@@ -30,7 +30,7 @@ export async function loadShipReserveContext(
   const { data: allocRows } = await supabase
     .from("batch_allocations")
     .select(`
-      id, batch_id, channel, partner_id, percentage, contract_request_id,
+      id, batch_id, channel, partner_id, percentage, contract_request_id, written_off_at,
       commitments(volume_bbl),
       brew_batches!inner(id, recipe_id, created_at, status)
     `)
@@ -46,7 +46,7 @@ export async function loadShipReserveContext(
 
   const { data: reserveAllocRows } = await supabase
     .from("batch_allocations")
-    .select("id, batch_id, channel, partner_id, percentage, contract_request_id, commitments(volume_bbl)")
+    .select("id, batch_id, channel, partner_id, percentage, contract_request_id, written_off_at, commitments(volume_bbl)")
     .in("batch_id", inList)
     .neq("channel", "taproom");
 
@@ -76,7 +76,7 @@ export async function loadShipReserveContext(
   const { data: batchRows } = await supabase.from("brew_batches").select("id, status").in("id", inList);
   const statusById = new Map((batchRows ?? []).map((b) => [b.id as string, b.status as string]));
 
-  type ReserveAllocRow = { id: string; batch_id: string; channel: string; partner_id: string | null; percentage: number; commitments: { volume_bbl: number } | null };
+  type ReserveAllocRow = { id: string; batch_id: string; channel: string; partner_id: string | null; percentage: number; written_off_at: string | null; commitments: { volume_bbl: number } | null };
   const allocInput = (r: ReserveAllocRow): AllocationInput => {
     const channel = r.channel as AllocationChannel;
     const key = `${r.batch_id}:${r.channel}:${r.partner_id ?? ""}`;
@@ -87,6 +87,7 @@ export async function loadShipReserveContext(
       percentage: Number(r.percentage),
       bookedBbl: channel === "contract_brewing" ? (r.commitments?.volume_bbl ?? null) : null,
       exportedBbl: exportedByKey[key] ?? 0,
+      writtenOff: !!r.written_off_at,
     };
   };
   const allocsByBatch = new Map<string, AllocationInput[]>();
@@ -103,8 +104,10 @@ export async function loadShipReserveContext(
     allocations: allocsByBatch.get(bid) ?? [],
   }));
 
-  type CandRow = { id: string; batch_id: string; channel: string; percentage: number; commitments: { volume_bbl: number } | null; brew_batches: { created_at: string } };
+  type CandRow = { id: string; batch_id: string; channel: string; percentage: number; written_off_at: string | null; commitments: { volume_bbl: number } | null; brew_batches: { created_at: string } };
   const candidates: ShipmentCandidate[] = ((allocRows ?? []) as unknown as CandRow[])
+    // A written-off allocation is closed — never credit new shipments to it.
+    .filter((a) => !a.written_off_at)
     .map((a) => {
       const channel = a.channel as AllocationChannel;
       const exported = exportedByKey[`${a.batch_id}:${a.channel}:${partnerId}`] ?? 0;

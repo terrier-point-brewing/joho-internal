@@ -28,6 +28,7 @@ export interface AllocationInput {
   percentage: number;         // 0–100, locked at deposit time
   bookedBbl: number | null;   // commitments.volume_bbl; null for soft channels
   exportedBbl: number;        // volume already credited to this allocation
+  writtenOff?: boolean;       // remaining owed volume forgiven → treated as fulfilled, reserve released
 }
 
 export interface BatchInput {
@@ -46,6 +47,7 @@ export interface AllocationView {
   finalEntitlementBbl: number | null; // A — percentage × final produced (null until complete)
   exportedBbl: number;                // E
   depositBacked: boolean;
+  writtenOff: boolean;                // remaining owed volume forgiven
   fulfilled: boolean;
 }
 
@@ -54,18 +56,24 @@ export function allocationView(alloc: AllocationInput, batch: BatchInput): Alloc
   const realizableBbl = (alloc.percentage / 100) * batch.producedBbl;
   const complete = batch.status === "complete";
   const finalEntitlementBbl = complete ? realizableBbl : null;
-  // Contract fulfillment is only meaningful once the batch is complete (A is
-  // final). Soft channels have no deposit, so "fulfilled" is advisory: shipped
-  // at least the produced-so-far share.
-  const fulfilled = depositBacked
-    ? complete && finalEntitlementBbl != null && alloc.exportedBbl >= finalEntitlementBbl - EPS
-    : alloc.exportedBbl >= realizableBbl - EPS;
+  const writtenOff = !!alloc.writtenOff;
+  // A written-off allocation is closed out (its remaining owed volume was
+  // forgiven), so it counts as fulfilled regardless of how much shipped.
+  // Otherwise: contract fulfillment is only meaningful once the batch is
+  // complete (A is final); soft channels have no deposit, so "fulfilled" is
+  // advisory — shipped at least the produced-so-far share.
+  const fulfilled = writtenOff
+    ? true
+    : depositBacked
+      ? complete && finalEntitlementBbl != null && alloc.exportedBbl >= finalEntitlementBbl - EPS
+      : alloc.exportedBbl >= realizableBbl - EPS;
   return {
     bookedBbl: alloc.bookedBbl,
     realizableBbl,
     finalEntitlementBbl,
     exportedBbl: alloc.exportedBbl,
     depositBacked,
+    writtenOff,
     fulfilled,
   };
 }
@@ -82,7 +90,9 @@ export interface BatchReserve {
 }
 
 export function batchReserve(batch: BatchInput): BatchReserve {
-  const contract = batch.allocations.filter((a) => isDepositBacked(a.channel));
+  // Written-off contract allocations are closed — they no longer reserve beer,
+  // nor do they count toward the guaranteed total that drives under-coverage.
+  const contract = batch.allocations.filter((a) => isDepositBacked(a.channel) && !a.writtenOff);
   const reservedForContractBbl = contract.reduce((s, a) => {
     const realizable = (a.percentage / 100) * batch.producedBbl;
     return s + Math.max(0, realizable - a.exportedBbl);
@@ -90,7 +100,12 @@ export function batchReserve(batch: BatchInput): BatchReserve {
   const onHandBbl = Math.max(0, batch.producedBbl - batch.totalExportedBbl);
   const freeToShipBbl = Math.max(0, onHandBbl - reservedForContractBbl);
   const guaranteedBbl = contract.reduce((s, a) => s + (a.bookedBbl ?? 0), 0);
-  const underCovered = batch.producedBbl < guaranteedBbl - EPS;
+  // Under-coverage is a *final-yield shortfall* — production finished below the
+  // guaranteed contract total. It is only meaningful once the batch is COMPLETE:
+  // before that, produced is still climbing as kegging/canning proceeds, so a
+  // sub-guarantee figure is expected, not a shortfall. Gating on completion
+  // stops the badge from firing on unproduced / partially-packaged batches.
+  const underCovered = batch.status === "complete" && batch.producedBbl < guaranteedBbl - EPS;
   return { batchId: batch.batchId, producedBbl: batch.producedBbl, onHandBbl, reservedForContractBbl, freeToShipBbl, underCovered };
 }
 
@@ -226,7 +241,7 @@ export function planShipment(input: ShipmentPlanInput): ShipmentPlan {
 
     if (res.underCovered) {
       const guaranteedBbl = batch.allocations
-        .filter((a) => isDepositBacked(a.channel))
+        .filter((a) => isDepositBacked(a.channel) && !a.writtenOff)
         .reduce((s, a) => s + (a.bookedBbl ?? 0), 0);
       warnings.push({ type: "under_production", batchId: draw.batchId, producedBbl: round4(batch.producedBbl), guaranteedBbl: round4(guaranteedBbl) });
     }
@@ -286,6 +301,61 @@ export function planCreditedWrites(
     qtyAssigned += w.qty;
   });
   return writes;
+}
+
+// ── Write-off assessment ─────────────────────────────────────────────────────
+//
+// "Writing off" an allocation forgives whatever is still owed on it and marks it
+// fulfilled — used to close out a contract that fell short (e.g. a batch that
+// under-yielded, or beer that shipped elsewhere). No refund is issued; it is a
+// bookkeeping decision. Forgiving a small remainder is routine (shrinkage
+// rounding), so we only warn when the forgiven amount is a large share of the
+// entitlement — a give-away that should be a conscious choice.
+
+/** Warn when the write-off forgives more than this fraction of the entitlement. */
+export const WRITE_OFF_WARN_FRACTION = 0.1; // 10%
+
+export interface WriteOffAssessment {
+  entitlementBbl: number;    // what the allocation is owed: contract → A (if complete) else B; soft → S
+  exportedBbl: number;       // already delivered
+  remainingBbl: number;      // max(0, entitlement − exported) — the amount that would be forgiven
+  fraction: number;          // remaining / entitlement (0 when entitlement is 0)
+  warnFraction: number;      // threshold used
+  exceedsTolerance: boolean; // remaining share is above warnFraction — surface a warning
+  fullyDelivered: boolean;   // nothing meaningful left to forgive
+}
+
+/**
+ * Assess a prospective write-off from an allocation's already-computed reserve
+ * fields (the shape the allocations API returns). Pure and side-effect free, so
+ * both the write-off route and the Export Bay UI derive the same remainder and
+ * tolerance verdict without a round-trip.
+ */
+export function assessWriteOff(input: {
+  depositBacked: boolean;
+  bookedBbl: number | null;
+  finalEntitlementBbl: number | null;
+  realizableBbl: number;
+  exportedBbl: number;
+  warnFraction?: number;
+}): WriteOffAssessment {
+  const warnFraction = input.warnFraction ?? WRITE_OFF_WARN_FRACTION;
+  // Contract entitlement: the final actual owed (A) once the batch is complete;
+  // otherwise the pre-paid booked amount (B). Soft: the produced-so-far share.
+  const entitlementBbl = input.depositBacked
+    ? (input.finalEntitlementBbl ?? input.bookedBbl ?? input.realizableBbl)
+    : input.realizableBbl;
+  const remainingBbl = Math.max(0, entitlementBbl - input.exportedBbl);
+  const fraction = entitlementBbl > EPS ? remainingBbl / entitlementBbl : 0;
+  return {
+    entitlementBbl: round4(entitlementBbl),
+    exportedBbl: round4(input.exportedBbl),
+    remainingBbl: round4(remainingBbl),
+    fraction: round4(fraction),
+    warnFraction,
+    exceedsTolerance: fraction > warnFraction + EPS,
+    fullyDelivered: remainingBbl <= EPS,
+  };
 }
 
 function round4(n: number): number {
