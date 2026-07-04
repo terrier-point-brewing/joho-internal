@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { checkAndCompleteBatch } from "./batchCompletion";
 
 /** Batch status implied by the stage a batch occupies in a given equipment type. */
 export function conversionTargetStatus(
@@ -48,4 +49,108 @@ export async function createConversionTargetBatch(
 
   if (error || !child) throw new Error(error?.message ?? "Failed to create conversion target batch");
   return (child as { id: string }).id;
+}
+
+export interface FinalizeConversionArgs {
+  sourceBatchId: string;
+  targetBatchId: string;
+  fromTankId: string | null;
+  toTankId: string | null;
+  volumeBbl: number;
+  today: string; // 'YYYY-MM-DD'
+}
+
+/**
+ * Re-point a just-recorded conversion transfer's destination-tank occupancy from
+ * the SOURCE batch (where record_batch_transfer + reconcileSchedule wrongly put
+ * it) onto the TARGET batch, and complete the source if it is now exhausted.
+ * Call once per conversion transfer, after the transfer row exists.
+ */
+export async function finalizeConversion(
+  supabase: SupabaseClient,
+  { sourceBatchId, targetBatchId, toTankId, volumeBbl, today }: FinalizeConversionArgs,
+): Promise<void> {
+  if (toTankId) {
+    const { data: destEq } = await supabase
+      .from("equipment").select("type").eq("id", toTankId).maybeSingle();
+    const destType = (destEq as { type: string | null } | null)?.type ?? null;
+    const targetStatus = conversionTargetStatus(destType);
+    const stage = destType === "fermenter" ? "fermenting" : destType === "brite" ? "conditioning" : null;
+
+    // 2. Release the source from the destination tank (RPC assigned it there).
+    await supabase
+      .from("batch_tank_assignments")
+      .update({ released_at: new Date().toISOString() })
+      .eq("batch_id", sourceBatchId).eq("tank_id", toTankId).is("released_at", null);
+
+    // 3. Cancel the source's spurious open schedule entry on the destination tank.
+    await supabase
+      .from("batch_schedule_entries")
+      .update({ cancelled_at: new Date().toISOString(), cancellation_reason: "conversion: destination belongs to target batch", updated_at: new Date().toISOString() })
+      .eq("batch_id", sourceBatchId).eq("equipment_id", toTankId)
+      .is("cancelled_at", null).is("actual_end", null);
+
+    // 4. Assign the target to the destination tank (constrained types only).
+    if (targetStatus) {
+      const { data: existing } = await supabase
+        .from("batch_tank_assignments")
+        .select("id").eq("batch_id", targetBatchId).eq("tank_id", toTankId).is("released_at", null)
+        .maybeSingle();
+      if (!existing) {
+        await supabase.from("batch_tank_assignments").insert({ batch_id: targetBatchId, tank_id: toTankId });
+      }
+    }
+
+    // 5. Advance the target's status (forward-only).
+    if (targetStatus) {
+      const { data: tb } = await supabase
+        .from("brew_batches").select("status").eq("id", targetBatchId).maybeSingle();
+      if (isForward((tb as { status: string | null } | null)?.status, targetStatus)) {
+        await supabase.from("brew_batches").update({ status: targetStatus }).eq("id", targetBatchId);
+        await supabase.from("batch_status_history").insert({
+          batch_id: targetBatchId, status: targetStatus, note: `Auto: conversion into ${destType}`,
+        });
+      }
+    }
+
+    // 6. Stamp (or create) the target's schedule entry on the destination tank.
+    if (stage) {
+      const { data: entry } = await supabase
+        .from("batch_schedule_entries")
+        .select("id, actual_start")
+        .eq("batch_id", targetBatchId).eq("equipment_id", toTankId).eq("stage", stage)
+        .is("cancelled_at", null)
+        .order("planned_start", { ascending: true }).limit(1)
+        .maybeSingle();
+      const row = entry as { id: string; actual_start: string | null } | null;
+      if (row) {
+        const updates: Record<string, unknown> = { volume_bbl: volumeBbl, updated_at: new Date().toISOString() };
+        if (row.actual_start == null) updates.actual_start = today;
+        await supabase.from("batch_schedule_entries").update(updates).eq("id", row.id);
+      } else {
+        await supabase.from("batch_schedule_entries").insert({
+          batch_id: targetBatchId, equipment_id: toTankId, stage,
+          planned_start: today, planned_end: today, actual_start: today,
+          volume_bbl: volumeBbl, notes: "Auto-created on conversion",
+        });
+      }
+    }
+  }
+
+  // 7. Correct the source's status from the tank it still occupies (partial
+  //    conversions; RPC guessed the dest-tank stage). Completion wins in step 8.
+  const { data: srcAssign } = await supabase
+    .from("batch_tank_assignments")
+    .select("tank_id, equipment:tank_id(type)")
+    .eq("batch_id", sourceBatchId).is("released_at", null)
+    .order("assigned_at", { ascending: false }).limit(1)
+    .maybeSingle();
+  const srcType = (srcAssign as { equipment: { type: string | null } | null } | null)?.equipment?.type ?? null;
+  const srcStatus = conversionTargetStatus(srcType);
+  if (srcStatus) {
+    await supabase.from("brew_batches").update({ status: srcStatus }).eq("id", sourceBatchId);
+  }
+
+  // 8. Complete the source if fully exhausted (full conversion).
+  await checkAndCompleteBatch(supabase, sourceBatchId);
 }
