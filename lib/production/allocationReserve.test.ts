@@ -105,20 +105,26 @@ describe("completionReconciliation", () => {
     expect(completionReconciliation(alloc(), batch({ status: "packaging" }))).toBeNull();
   });
 
-  it("computes final entitlement, shrinkage shortfall, and over/under delivery", () => {
-    // booked 15 (75% of a planned 20), but batch only yielded 16 → A = 12
-    const complete = batch({ producedBbl: 16, status: "complete" });
-    // exported exactly A → no over/under, but 3 BBL shrinkage refund owed (15 − 12)
-    expect(completionReconciliation(alloc({ exportedBbl: 12 }), complete)).toEqual({
-      finalEntitlementBbl: 12,
+  it("delivering the full share of actual yield satisfies the deposit — NO refund", () => {
+    // booked 15 (75% of a planned 20); shrinkage leaves 17 produced → A = 75% × 17 = 12.75.
+    // Shipping exactly 12.75 fully settles the deposit; the partner shoulders the
+    // shrinkage, so there is no over/under delivery and (crucially) no refund field.
+    const complete = batch({ producedBbl: 17, status: "complete" });
+    expect(completionReconciliation(alloc({ exportedBbl: 12.75 }), complete)).toEqual({
+      finalEntitlementBbl: 12.75,
       overDeliveredBbl: 0,
       underDeliveredBbl: 0,
-      shrinkageShortfallBbl: 3,
     });
-    // over-delivered 1 (shipped 13 vs entitlement 12)
-    expect(completionReconciliation(alloc({ exportedBbl: 13 }), complete)).toMatchObject({ overDeliveredBbl: 1, underDeliveredBbl: 0 });
-    // under-delivered 2 (shipped 10 vs entitlement 12)
-    expect(completionReconciliation(alloc({ exportedBbl: 10 }), complete)).toMatchObject({ overDeliveredBbl: 0, underDeliveredBbl: 2, shrinkageShortfallBbl: 3 });
+  });
+
+  it("flags over- and under-delivery against the final entitlement", () => {
+    const complete = batch({ producedBbl: 16, status: "complete" }); // A = 75% × 16 = 12
+    expect(completionReconciliation(alloc({ exportedBbl: 13 }), complete)).toEqual({
+      finalEntitlementBbl: 12, overDeliveredBbl: 1, underDeliveredBbl: 0,
+    });
+    expect(completionReconciliation(alloc({ exportedBbl: 10 }), complete)).toEqual({
+      finalEntitlementBbl: 12, overDeliveredBbl: 0, underDeliveredBbl: 2,
+    });
   });
 });
 

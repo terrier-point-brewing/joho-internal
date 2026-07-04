@@ -123,7 +123,8 @@ export async function GET(req: NextRequest) {
       free_to_ship_bbl: reserve.freeToShipBbl,
       under_covered: reserve.underCovered,
       // Completion reconciliation (advisory; null until the batch is complete).
-      shrinkage_shortfall_bbl: recon?.shrinkageShortfallBbl ?? null,
+      // Shrinkage yields no refund — the partner bears pro-rata shrinkage — so we
+      // surface only the two actionable gaps against the final entitlement.
       over_delivered_bbl: recon?.overDeliveredBbl ?? null,
       under_delivered_bbl: recon?.underDeliveredBbl ?? null,
     };
