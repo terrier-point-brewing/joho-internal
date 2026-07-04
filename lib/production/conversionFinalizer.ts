@@ -137,18 +137,35 @@ export async function finalizeConversion(
     }
   }
 
-  // 7. Correct the source's status from the tank it still occupies (partial
-  //    conversions; RPC guessed the dest-tank stage). Completion wins in step 8.
+  // 7. Correct the source's status from the stage it still occupies (partial
+  //    conversions; the RPC guessed the dest-tank stage). Resolve the stage from
+  //    the source's OPEN schedule entry on its remaining tank so a fermenter that
+  //    is hosting conditioning is not mis-set to 'fermenting'; fall back to the
+  //    tank-type mapping when no open entry exists. Completion wins in step 8.
   const { data: srcAssign } = await supabase
     .from("batch_tank_assignments")
     .select("tank_id, equipment:tank_id(type)")
     .eq("batch_id", sourceBatchId).is("released_at", null)
     .order("assigned_at", { ascending: false }).limit(1)
     .maybeSingle();
+  const srcTankId = (srcAssign as { tank_id: string | null } | null)?.tank_id ?? null;
   const srcType = (srcAssign as { equipment: { type: string | null } | null } | null)?.equipment?.type ?? null;
-  const srcStatus = conversionTargetStatus(srcType);
-  if (srcStatus) {
-    await supabase.from("brew_batches").update({ status: srcStatus }).eq("id", sourceBatchId);
+  if (srcTankId) {
+    const { data: srcEntry } = await supabase
+      .from("batch_schedule_entries")
+      .select("stage")
+      .eq("batch_id", sourceBatchId).eq("equipment_id", srcTankId)
+      .is("cancelled_at", null).is("actual_end", null)
+      .in("stage", ["fermenting", "conditioning"])
+      .order("actual_start", { ascending: false }).limit(1)
+      .maybeSingle();
+    const entryStage = (srcEntry as { stage: string | null } | null)?.stage ?? null;
+    const srcStatus = entryStage === "fermenting" || entryStage === "conditioning"
+      ? entryStage
+      : conversionTargetStatus(srcType);
+    if (srcStatus) {
+      await supabase.from("brew_batches").update({ status: srcStatus }).eq("id", sourceBatchId);
+    }
   }
 
   // 8. Complete the source if fully exhausted (full conversion).

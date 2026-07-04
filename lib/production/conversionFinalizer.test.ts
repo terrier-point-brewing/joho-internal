@@ -68,16 +68,18 @@ function stub(rows: {
   targetStatus?: string | null;
   targetEntry?: { id: string; actual_start: string | null } | null;
   sourceAssignment?: { tank_id: string; equipment: { type: string | null } | null } | null;
+  sourceEntry?: { stage: string } | null;
   exhaustion?: { is_exhausted: boolean } | null;
 }) {
   const recorded: Rec[] = [];
   const from = (table: string) => {
     const match: Record<string, unknown> = {};
     const b: Record<string, unknown> = {};
-    b.select = () => b;
+    let isSourceEntryRead = false;
+    b.select = (cols: string) => { if (table === "batch_schedule_entries" && cols.includes("stage")) isSourceEntryRead = true; return b; };
     b.eq = (k: string, v: unknown) => { match[k] = v; return b; };
     b.is = (k: string, v: unknown) => { match[`${k}:is`] = v; return b; };
-    b.not = () => b; b.order = () => b; b.limit = () => b;
+    b.not = () => b; b.order = () => b; b.limit = () => b; b.in = () => b;
     // update()/insert() are called before the trailing .eq()/.is() filters in
     // real chains (`.update(payload).eq(...).eq(...)`), so record a *live*
     // reference to `match` (not a spread snapshot) and only freeze it once the
@@ -85,16 +87,18 @@ function stub(rows: {
     // immediately for insert (which has no trailing filters here).
     b.update = (payload: unknown) => { recorded.push({ table, op: "update", payload, match }); return b; };
     b.insert = (payload: unknown) => { recorded.push({ table, op: "insert", payload, match: { ...match } }); return Promise.resolve({ data: null, error: null }); };
-    b.maybeSingle = () => read(table);
-    b.single = () => read(table);
+    b.maybeSingle = () => read(table, isSourceEntryRead);
+    b.single = () => read(table, isSourceEntryRead);
     b.then = (resolve: (v: unknown) => void) => resolve({ data: null, error: null }); // update().eq()... await
     return b;
   };
-  const read = (table: string) => {
+  const read = (table: string, isSourceEntryRead: boolean) => {
     if (table === "equipment") return Promise.resolve({ data: { type: rows.equipmentType ?? null }, error: null });
     if (table === "batch_exhaustion") return Promise.resolve({ data: rows.exhaustion ?? null, error: null });
     if (table === "brew_batches") return Promise.resolve({ data: { status: rows.targetStatus ?? null }, error: null });
-    if (table === "batch_schedule_entries") return Promise.resolve({ data: rows.targetEntry ?? null, error: null });
+    if (table === "batch_schedule_entries") {
+      return Promise.resolve({ data: isSourceEntryRead ? (rows.sourceEntry ?? null) : (rows.targetEntry ?? null), error: null });
+    }
     if (table === "batch_tank_assignments") return Promise.resolve({ data: rows.sourceAssignment ?? null, error: null });
     return Promise.resolve({ data: null, error: null });
   };
@@ -135,5 +139,17 @@ describe("finalizeConversion", () => {
     const { client, recorded } = stub({ equipmentType: null, exhaustion: { is_exhausted: false } });
     await finalizeConversion(client, { ...base, toTankId: null });
     expect(recorded.find(r => r.table === "batch_tank_assignments" && r.op === "insert")).toBeUndefined();
+  });
+
+  it("sets source status from its open schedule entry stage, not tank type (fermenter hosting conditioning, partial conversion)", async () => {
+    const { client, recorded } = stub({
+      equipmentType: "brite", targetStatus: "planning",
+      sourceAssignment: { tank_id: "src", equipment: { type: "fermenter" } },
+      sourceEntry: { stage: "conditioning" },
+      exhaustion: { is_exhausted: false },
+    });
+    await finalizeConversion(client, base);
+    const srcUpd = recorded.find(r => r.table === "brew_batches" && r.op === "update" && r.match["id"] === "S");
+    expect(srcUpd?.payload).toEqual({ status: "conditioning" });
   });
 });
