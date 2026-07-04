@@ -6,6 +6,14 @@
 -- applied directly to prod on 2026-07-04 after snapshotting the table into
 -- cold_storage_inventory_bak_20260704 / brew_batches_bak_20260704.
 --
+-- ⚠️  ALREADY APPLIED TO PROD on 2026-07-04. It is idempotent, but re-running
+--     RESETS these counts to the 2026-07-04 snapshot and will OVERWRITE any
+--     legitimate cold-storage movements recorded afterward. Do NOT re-apply to
+--     prod without first confirming no newer kegging/canning/ship activity has
+--     touched these recipe+variation lines. Kept purely so a from-scratch
+--     rebuild reproduces the reconciled state; filename is dated 20260712 so it
+--     sorts AFTER the packaging-variation migrations (20260707) it depends on.
+--
 -- Method (agreed with owner):
 --   * cold_storage_inventory is the Export Bay's "available" source of truth;
 --     its only writers are kegging/canning transfers (+) and Export Bay ships (-).
