@@ -13,10 +13,17 @@ describe("toRampDatetime", () => {
 });
 
 describe("extractGlAccount", () => {
-  it("pulls a GL account from transaction-level accounting_field_selections (category_info shape)", () => {
+  it("pulls the SELECTED account, not the dimension descriptor in category_info", () => {
+    // Real Ramp shape: `category_info` is the "Category" GL dimension; the chosen
+    // account lives on the selection's own top-level id/name/external_id.
     const gl = extractGlAccount({
       accounting_field_selections: [
-        { category_info: { id: "gl-1", external_id: "6000", name: "Marketing", type: "GL_ACCOUNT" } },
+        {
+          category_info: { id: "field-uuid", external_id: "QuickbooksCategory", name: "Category", type: "GL_ACCOUNT" },
+          id: "gl-1",
+          external_id: "6000",
+          name: "Marketing",
+        },
       ],
     });
     expect(gl).toEqual({ id: "gl-1", external_id: "6000", name: "Marketing" });
@@ -31,24 +38,28 @@ describe("extractGlAccount", () => {
     expect(gl).toEqual({ id: "gl-2", external_id: null, name: "Software" });
   });
 
-  it("skips non-GL_ACCOUNT selections and finds the GL one", () => {
+  it("skips non-GL_ACCOUNT dimensions and finds the GL one", () => {
     const gl = extractGlAccount({
       accounting_field_selections: [
-        { category_info: { id: "d-1", name: "Sales", type: "DEPARTMENT" } },
-        { category_info: { id: "gl-3", name: "Travel", type: "GL_ACCOUNT" } },
+        { category_info: { id: "d-field", name: "Department", type: "DEPARTMENT" }, id: "d-1", name: "Sales" },
+        { category_info: { id: "gl-field", name: "Category", type: "GL_ACCOUNT" }, id: "gl-3", external_id: "6100", name: "Travel" },
       ],
     });
     expect(gl?.id).toBe("gl-3");
+    expect(gl?.name).toBe("Travel");
   });
 
   it("falls back to line-item selections when none at the top level", () => {
     const gl = extractGlAccount({
       accounting_field_selections: [],
       line_items: [
-        { accounting_field_selections: [{ category_info: { id: "gl-4", name: "Utilities", type: "GL_ACCOUNT" } }] },
+        { accounting_field_selections: [
+          { category_info: { id: "gl-field", name: "Category", type: "GL_ACCOUNT" }, id: "gl-4", external_id: "6200", name: "Utilities" },
+        ] },
       ],
     });
     expect(gl?.id).toBe("gl-4");
+    expect(gl?.name).toBe("Utilities");
   });
 
   it("uses external_id then name as the id when Ramp option id is absent", () => {
@@ -58,7 +69,9 @@ describe("extractGlAccount", () => {
 
   it("returns null when uncoded or missing identifying info", () => {
     expect(extractGlAccount({})).toBeNull();
+    // A GL dimension present but with no account selected on it.
+    expect(extractGlAccount({ accounting_field_selections: [{ category_info: { id: "gl-field", name: "Category", type: "GL_ACCOUNT" } }] })).toBeNull();
     expect(extractGlAccount({ accounting_field_selections: [{ type: "GL_ACCOUNT" }] })).toBeNull();
-    expect(extractGlAccount({ accounting_field_selections: [{ category_info: { id: "x", name: "y", type: "DEPARTMENT" } }] })).toBeNull();
+    expect(extractGlAccount({ accounting_field_selections: [{ category_info: { id: "d-field", name: "Department", type: "DEPARTMENT" }, id: "d-1", name: "Sales" }] })).toBeNull();
   });
 });
