@@ -46,6 +46,13 @@ batch_conversions                ← replaced channel='conversion' allocations +
   POST /api/production/batch-conversions — inserts row; patches target batch converted_from_batch_id
   Executing a conversion: POST /api/production/transfers with transfer_type='conversion'
     and to_batch_id — sets converted_at on the batch_conversions row.
+  Conversions execute via a single path: `POST /api/production/transfers` with
+  `transfer_type='conversion'` and either an existing `to_batch_id` OR a
+  `new_batch: { beer_name, recipe_id }` (created inline). That route then runs
+  `finalizeConversion` (`lib/production/conversionFinalizer.ts`), which hands the
+  destination tank's assignment + schedule entry to the TARGET batch and completes
+  the SOURCE batch when fully exhausted. (The standalone `/api/production/conversions`
+  new-child route was removed 2026-07-04; its capability lives in the transfers path.)
 
 ingredients
   id, name, supplier, unit, cost_per_unit, stock_quantity, created_at

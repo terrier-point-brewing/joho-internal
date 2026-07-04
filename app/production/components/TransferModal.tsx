@@ -134,6 +134,11 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
   // Conversion-specific state
   const [convertToBatchId, setConvertToBatchId] = useState(initialConvert?.toBatchId ?? "");
   const [convertBbl,       setConvertBbl]        = useState(initialConvert?.bbl ?? "");
+  // Existing target batch vs. create a brand-new one inline. Defaults to
+  // "existing" (pre-planned conversions arrive with a target batch).
+  const [convertTarget, setConvertTarget] = useState<"existing" | "new">("existing");
+  const [newBeerName, setNewBeerName] = useState(initialConvert?.beerName ?? "");
+  const [newRecipeId, setNewRecipeId] = useState("");
 
   const destTank = allTanks.find((t) => t.id === destId);
 
@@ -209,10 +214,11 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
     setSubmitting(true);
     try {
       if (mode === "convert") {
-        if (!convertToBatchId || !convertBbl) {
-          alert("Please select a target batch and enter the volume to convert.");
-          return;
-        }
+        const usingExisting = convertTarget === "existing";
+        if (usingExisting && !convertToBatchId) { alert("Select a target batch."); return; }
+        if (!usingExisting && (!newBeerName.trim() || !newRecipeId)) { alert("Enter a name and recipe for the new batch."); return; }
+        if (!convertBbl) { alert("Enter the volume to convert."); return; }
+
         const res = await fetch("/api/production/transfers", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -220,7 +226,8 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
             batch_id:      batch.id,
             from_tank_id:  fromTank.id,
             to_tank_id:    effectiveDestId || null,
-            to_batch_id:   convertToBatchId,
+            to_batch_id:   usingExisting ? convertToBatchId : null,
+            new_batch:     usingExisting ? null : { beer_name: newBeerName.trim(), recipe_id: newRecipeId },
             volume_bbl:    parseFloat(convertBbl),
             shrinkage_bbl: 0,
             transfer_type: "conversion",
@@ -329,7 +336,7 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
             {/* Convert mode description */}
             {mode === "convert" && (
               <div className="px-3 py-2 rounded border border-accent-border/40 bg-accent-muted/30 text-xs text-accent-soft">
-                Split a partial volume into a <span className="font-semibold">new batch</span> under a different recipe. The remaining volume stays in {fromTank.name} under the original batch.
+                Convert volume into another recipe. Pick an <span className="font-semibold">existing target batch</span> or create a <span className="font-semibold">new batch</span> inline. Remaining volume stays in {fromTank.name} under the original batch; a full conversion completes it.
               </div>
             )}
 
@@ -376,19 +383,46 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
             {/* ── Convert mode fields ── */}
             {mode === "convert" && (
               <>
-                <Field label="Target Batch" required>
-                  <select className="inp" value={convertToBatchId} required onChange={e => setConvertToBatchId(e.target.value)}>
-                    <option value="">— select batch —</option>
-                    {batches
-                      .filter(b => b.id !== batch.id && b.status !== "complete")
-                      .map(b => (
-                        <option key={b.id} value={b.id}>
-                          {b.batch_number ? `#${b.batch_number} ` : ""}{b.beer_name}
-                        </option>
-                      ))
-                    }
-                  </select>
-                </Field>
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => setConvertTarget("existing")}
+                    className={`px-3 py-1.5 text-sm rounded border transition-colors ${convertTarget === "existing" ? "border-accent-border bg-accent-muted/30 text-accent-soft" : "border-line-strong bg-surface-mid text-secondary hover:text-strong"}`}>
+                    Existing batch
+                  </button>
+                  <button type="button" onClick={() => setConvertTarget("new")}
+                    className={`px-3 py-1.5 text-sm rounded border transition-colors ${convertTarget === "new" ? "border-accent-border bg-accent-muted/30 text-accent-soft" : "border-line-strong bg-surface-mid text-secondary hover:text-strong"}`}>
+                    New batch
+                  </button>
+                </div>
+
+                {convertTarget === "existing" ? (
+                  <Field label="Target Batch" required>
+                    <select className="inp" value={convertToBatchId} required onChange={e => setConvertToBatchId(e.target.value)}>
+                      <option value="">— select batch —</option>
+                      {batches
+                        .filter(b => b.id !== batch.id && b.status !== "complete")
+                        .map(b => (
+                          <option key={b.id} value={b.id}>
+                            {b.batch_number ? `#${b.batch_number} ` : ""}{b.beer_name}
+                          </option>
+                        ))}
+                    </select>
+                  </Field>
+                ) : (
+                  <>
+                    <Field label="New Batch Name" required>
+                      <input className="inp" placeholder="e.g. Pumpkin Ale" required
+                        value={newBeerName} onChange={e => setNewBeerName(e.target.value)} />
+                    </Field>
+                    <Field label="Recipe" required>
+                      <select className="inp" value={newRecipeId} required onChange={e => setNewRecipeId(e.target.value)}>
+                        <option value="">— select recipe —</option>
+                        {recipes.map(r => (
+                          <option key={r.id} value={r.id}>{r.beer_name}</option>
+                        ))}
+                      </select>
+                    </Field>
+                  </>
+                )}
 
                 <Field label="Volume to Convert (BBL)" required>
                   <div className="flex items-center gap-2">
