@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/payroll-advance",
       "schedule": "0 5 * * *"
+    },
+    {
+      "path": "/api/cron/ramp-expenses-sync",
+      "schedule": "30 6 * * *"
     }
   ]
 }

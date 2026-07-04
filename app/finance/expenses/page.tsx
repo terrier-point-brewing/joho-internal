@@ -1,11 +1,10 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
-import FinanceNav from "../../FinanceNav";
-import StatementsNav from "../StatementsNav";
-import AccountSelect, { type CoARef } from "../../AccountSelect";
+import FinanceNav from "../FinanceNav";
+import AccountSelect, { type CoARef } from "../AccountSelect";
 import PageHeader from "@/app/components/PageHeader";
 import Banner from "@/app/components/ui/Banner";
-import { fmtCents } from "../lib";
+import { fmtCents } from "../statements/lib";
 
 // ── Types (mirror the API responses) ──────────────────────────────────────────
 interface CoaJoin {
@@ -226,9 +225,6 @@ export default function ExpensesPage() {
             {syncing ? "Syncing…" : "Sync Ramp"}
           </button>
         </div>
-      </div>
-      <div className="px-4 sm:px-6 shrink-0">
-        <StatementsNav />
       </div>
 
       {error && <Banner className="mx-4 sm:mx-6 my-2">{error}</Banner>}
