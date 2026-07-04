@@ -625,6 +625,7 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
   const [notes,       setNotes]       = useState("");
   const [submitting,  setSubmitting]  = useState(false);
   const [error,       setError]       = useState<string | null>(null);
+  const [warning,     setWarning]     = useState<string | null>(null);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -642,8 +643,12 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
           notes:        notes || null,
         }),
       });
-      if (!res.ok) throw new Error((await res.json()).error ?? "Error");
-      onDone();
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "Error");
+      // Over-allocation shipments succeed but return a warning — show it and let
+      // the user acknowledge before closing, instead of silently completing.
+      if (data.warning) setWarning(data.warning as string);
+      else onDone();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Error");
     } finally {
@@ -657,6 +662,17 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
         <h3 className="text-sm font-medium text-primary">
           Ship to {group.partnerName} — {group.recipeName}
         </h3>
+        {warning ? (
+          <div className="space-y-4">
+            <div className="rounded border border-accent-border bg-accent-muted/30 px-3 py-2">
+              <p className="text-xs font-medium text-accent-soft mb-0.5">Shipped — over allocation</p>
+              <p className="text-xs text-secondary">{warning}</p>
+            </div>
+            <div className="flex justify-end pt-1">
+              <button type="button" onClick={onDone} className="btn-amber btn-xs">Done</button>
+            </div>
+          </div>
+        ) : (
         <form onSubmit={handleSubmit} className="space-y-3">
           <div>
             <label className="text-xs text-secondary block mb-1">Packaging</label>
@@ -688,6 +704,7 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
             </button>
           </div>
         </form>
+        )}
       </div>
     </div>
   );
