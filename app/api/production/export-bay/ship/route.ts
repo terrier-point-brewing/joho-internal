@@ -109,16 +109,19 @@ export async function POST(req: NextRequest) {
   }
   candidates.sort((x, y) => new Date(x.batchCreatedAt).getTime() - new Date(y.batchCreatedAt).getTime());
 
+  // Over-allocation is allowed — we warn, we do not block. The final credited row
+  // absorbs any quantity beyond this customer's remaining allocation; if the
+  // customer has no creditable allocation at all, an un-allocated fallback record
+  // is written after depletion (step 5) so the depleted stock is never lost.
   const totalRemaining = candidates.reduce((s, c) => s + c.remainingBbl, 0);
-  if (requestedBbl > totalRemaining + 0.0001) {
-    return NextResponse.json(
-      { error: `Requested ${requestedBbl.toFixed(4)} BBL exceeds this customer's remaining allocation for this recipe (${totalRemaining.toFixed(4)} BBL).` },
-      { status: 422 }
-    );
-  }
+  const overAllocationBbl = requestedBbl - totalRemaining;
+  const warning = overAllocationBbl > 0.0001
+    ? `Shipped ${overAllocationBbl.toFixed(2)} BBL beyond this customer's remaining allocation for this recipe `
+      + `(requested ${requestedBbl.toFixed(2)} BBL, allocation remaining ${totalRemaining.toFixed(2)} BBL).`
+    : null;
 
   // ── 4. Credit allocations sequentially, oldest batch first ───────────────
-  type Credit = { allocationId: string; batchId: string; channel: string; creditedBbl: number; creditedQty: number };
+  type Credit = { allocationId: string | null; batchId: string; channel: string; creditedBbl: number; creditedQty: number };
   const credits: Credit[] = [];
   let bblLeft = requestedBbl;
   for (let i = 0; i < candidates.length && bblLeft > 0.0001; i++) {
@@ -139,14 +142,26 @@ export async function POST(req: NextRequest) {
   }
 
   // ── 5. Deplete cold_storage_inventory, oldest row first ───────────────────
+  let depleted: { batchId: string; depletedQty: number }[];
   try {
-    await depleteColdStorageInventory(supabase, {
+    depleted = await depleteColdStorageInventory(supabase, {
       recipeId: recipe_id,
       variationId: variation_id,
       quantity,
     });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Unknown error" }, { status: 500 });
+  }
+
+  // No creditable allocation existed (e.g. none of this customer's allocations
+  // have packaged production yet) — still record the shipment against the
+  // depleted batches, un-allocated, so the depleted stock is not lost.
+  if (credits.length === 0) {
+    const fallbackChannel = (allocRows?.[0]?.channel as string | undefined) ?? "distribution";
+    for (const d of depleted) {
+      const creditedBbl = (d.depletedQty * variation.total_volume_fl_oz) / BBL_TO_FL_OZ;
+      credits.push({ allocationId: null, batchId: d.batchId, channel: fallbackChannel, creditedBbl, creditedQty: d.depletedQty });
+    }
   }
 
   // ── 6. Write one export_transaction per credited allocation ───────────────
@@ -181,10 +196,10 @@ export async function POST(req: NextRequest) {
       await checkAndCompleteBatch(supabase, c.batchId);
       completedBatches.add(c.batchId);
     }
-    await checkAndFulfillCommitment(supabase, c.allocationId);
+    if (c.allocationId) await checkAndFulfillCommitment(supabase, c.allocationId);
 
     created.push({ batch_id: c.batchId, export_transaction_id: exportTxId });
   }
 
-  return NextResponse.json({ created }, { status: 201 });
+  return NextResponse.json({ created, warning }, { status: 201 });
 }
