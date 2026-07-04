@@ -4,8 +4,20 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRecipesQuery, useContractPartnersQuery, fetchJson } from "../hooks/queries";
 import type { AvailableInventoryLine, BatchAllocation, ExportChannel } from "../types";
+import type { ShipmentWarning } from "@/lib/production/allocationReserve";
 import { queryKeys } from "@/lib/query-keys";
 import { CHANNEL_COLOR, KEG_TAG_BADGE } from "../lib/categoryColors";
+
+function formatShipmentWarning(w: ShipmentWarning): string {
+  switch (w.type) {
+    case "guarantee_coverage":
+      return `Dips into deposit-reserved beer — after this shipment only ${w.onHandAfterBbl.toFixed(2)} BBL would remain on a batch that still owes ${w.reservedBbl.toFixed(2)} BBL to contract deposits.`;
+    case "under_production":
+      return `A batch has produced ${w.producedBbl.toFixed(2)} of ${w.guaranteedBbl.toFixed(2)} BBL guaranteed to contract deposits — final yield may fall short.`;
+    case "over_booked":
+      return `Shipped ${w.overBbl.toFixed(2)} BBL beyond this customer's booked deposit for this recipe.`;
+  }
+}
 
 // ── Channel display ────────────────────────────────────────────────────────────
 
@@ -625,7 +637,7 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
   const [notes,       setNotes]       = useState("");
   const [submitting,  setSubmitting]  = useState(false);
   const [error,       setError]       = useState<string | null>(null);
-  const [warning,     setWarning]     = useState<string | null>(null);
+  const [warnings,    setWarnings]    = useState<ShipmentWarning[]>([]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -645,9 +657,10 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? "Error");
-      // Over-allocation shipments succeed but return a warning — show it and let
-      // the user acknowledge before closing, instead of silently completing.
-      if (data.warning) setWarning(data.warning as string);
+      // Shipment succeeds; if it raised advisory warnings, show them and let the
+      // user acknowledge before closing instead of silently completing.
+      const ws: ShipmentWarning[] = Array.isArray(data.warnings) ? data.warnings : [];
+      if (ws.length > 0) setWarnings(ws);
       else onDone();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Error");
@@ -662,11 +675,15 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
         <h3 className="text-sm font-medium text-primary">
           Ship to {group.partnerName} — {group.recipeName}
         </h3>
-        {warning ? (
+        {warnings.length > 0 ? (
           <div className="space-y-4">
-            <div className="rounded border border-accent-border bg-accent-muted/30 px-3 py-2">
-              <p className="text-xs font-medium text-accent-soft mb-0.5">Shipped — over allocation</p>
-              <p className="text-xs text-secondary">{warning}</p>
+            <div className="rounded border border-accent-border bg-accent-muted/30 px-3 py-2 space-y-1.5">
+              <p className="text-xs font-medium text-accent-soft">Shipped — with advisories</p>
+              <ul className="space-y-1">
+                {warnings.map((w, i) => (
+                  <li key={i} className="text-xs text-secondary">{formatShipmentWarning(w)}</li>
+                ))}
+              </ul>
             </div>
             <div className="flex justify-end pt-1">
               <button type="button" onClick={onDone} className="btn-amber btn-xs">Done</button>

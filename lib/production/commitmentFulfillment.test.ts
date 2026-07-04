@@ -110,14 +110,15 @@ describe("checkAndFulfillCommitment", () => {
     expect(recorded).toEqual([]);
   });
 
-  it("fulfills when exported meets the allocated share (net of shrinkage)", async () => {
-    // produced = (12-2)+(11-1) = 20 ; allocated = 50% × 20 = 10 ; exported = 10 ≥ 10
+  it("fulfills when exported meets the allocated share (shrinkage ignored)", async () => {
+    // produced = sum(volume_bbl) = 12+8 = 20 (shrinkage_bbl NOT subtracted) ;
+    // allocated = 50% × 20 = 10 ; exported = 6+4 = 10 ≥ 10 → fulfill
     const { client, recorded } = stub({
       allocation: fullAllocation,
       batch: { status: "complete" },
       transfers: [
         { volume_bbl: 12, shrinkage_bbl: 2, transfer_type: "kegging" },
-        { volume_bbl: 11, shrinkage_bbl: 1, transfer_type: "canning" },
+        { volume_bbl: 8, shrinkage_bbl: 1, transfer_type: "canning" },
       ],
       exports: [{ volume_bbl: 6 }, { volume_bbl: 4 }],
       commitment: { status: "pending" },
@@ -126,6 +127,20 @@ describe("checkAndFulfillCommitment", () => {
     expect(recorded).toEqual([
       { table: "commitments", op: "update", payload: { status: "fulfilled" } },
     ]);
+  });
+
+  it("ignores shrinkage_bbl entirely: high shrinkage does not lower producedBbl", async () => {
+    // produced = sum(volume_bbl) = 20 even with 5 bbl shrinkage ; allocated 10 ;
+    // exported 10 → fulfill (old net-of-shrinkage math would have blocked this)
+    const { client, recorded } = stub({
+      allocation: fullAllocation,
+      batch: { status: "complete" },
+      transfers: [{ volume_bbl: 20, shrinkage_bbl: 5, transfer_type: "kegging" }],
+      exports: [{ volume_bbl: 10 }],
+      commitment: { status: "pending" },
+    });
+    await checkAndFulfillCommitment(client, "a1");
+    expect(recorded).toHaveLength(1);
   });
 
   it("is idempotent: no update when the commitment is already fulfilled", async () => {

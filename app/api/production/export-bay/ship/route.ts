@@ -7,8 +7,18 @@ import { getAvailableColdStorageQuantity, depleteColdStorageInventory } from "@/
 import { writeExportTransaction } from "@/lib/production/exportTransactionWriter";
 import { getUnitsPerPackage } from "@/lib/production/packagingVariations";
 import { BBL_TO_FL_OZ } from "@/lib/constants/production";
+import {
+  planShipment,
+  type AllocationChannel,
+  type AllocationInput,
+  type BatchInput,
+  type ShipmentCandidate,
+} from "@/lib/production/allocationReserve";
 
 export const dynamic = "force-dynamic";
+
+const ZERO_UUID = "00000000-0000-0000-0000-000000000000";
+const round4 = (n: number) => Math.round(n * 10000) / 10000;
 
 interface ShipRequest {
   partner_id: string;
@@ -61,145 +71,190 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // ── 3. Fetch this customer's eligible allocations for this recipe ────────
+  // ── 3. This partner's allocations for the recipe (crediting candidates) ───
   const { data: allocRows, error: allocErr } = await supabase
     .from("batch_allocations")
     .select(`
       id, batch_id, channel, partner_id, percentage, contract_request_id,
-      brew_batches!inner(id, recipe_id, created_at)
+      commitments(volume_bbl),
+      brew_batches!inner(id, recipe_id, created_at, status)
     `)
     .eq("partner_id", partner_id)
     .neq("channel", "taproom")
     .eq("brew_batches.recipe_id", recipe_id);
   if (allocErr) return NextResponse.json({ error: allocErr.message }, { status: 500 });
 
-  const batchIds = [...new Set((allocRows ?? []).map((a) => a.batch_id))];
+  // ── 4. Deplete cold storage (physical, oldest-first) → per-batch draw ─────
+  let depleted: { batchId: string; depletedQty: number }[];
+  try {
+    depleted = await depleteColdStorageInventory(supabase, { recipeId: recipe_id, variationId: variation_id, quantity });
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : "Unknown error" }, { status: 500 });
+  }
+  const bblPerUnit = variation.total_volume_fl_oz / BBL_TO_FL_OZ;
+  const perBatchDrawBbl = depleted.map((d) => ({ batchId: d.batchId, drawBbl: d.depletedQty * bblPerUnit }));
+
+  // ── 5. Reserve state for every batch this shipment credits or draws from ──
+  const reserveBatchIds = [...new Set([
+    ...(allocRows ?? []).map((a) => a.batch_id),
+    ...depleted.map((d) => d.batchId),
+  ])];
+  const inList = reserveBatchIds.length ? reserveBatchIds : [ZERO_UUID];
+
+  // Every non-taproom allocation on those batches — other partners' contract
+  // claims count toward the guarantee reserve, not just this partner's.
+  const { data: reserveAllocRows } = await supabase
+    .from("batch_allocations")
+    .select("id, batch_id, channel, partner_id, percentage, contract_request_id, commitments(volume_bbl)")
+    .in("batch_id", inList)
+    .neq("channel", "taproom");
+
+  // produced = sum(volume_bbl) of kegging/canning (net fill, NOT minus shrinkage)
   const { data: prodTransfers } = await supabase
     .from("batch_transfers")
-    .select("batch_id, volume_bbl, shrinkage_bbl")
-    .in("batch_id", batchIds.length > 0 ? batchIds : ["00000000-0000-0000-0000-000000000000"])
+    .select("batch_id, volume_bbl")
+    .in("batch_id", inList)
     .in("transfer_type", ["kegging", "canning"]);
   const producedByBatch: Record<string, number> = {};
   for (const t of prodTransfers ?? []) {
-    producedByBatch[t.batch_id] = (producedByBatch[t.batch_id] ?? 0) + (Number(t.volume_bbl) - Number(t.shrinkage_bbl ?? 0));
+    producedByBatch[t.batch_id] = (producedByBatch[t.batch_id] ?? 0) + Number(t.volume_bbl);
   }
 
+  // exports: total per batch (on-hand) + per batch:channel:recipient (allocation exported)
   const { data: priorExports } = await supabase
     .from("export_transactions")
     .select("batch_id, channel, recipient_id, volume_bbl")
-    .in("batch_id", batchIds.length > 0 ? batchIds : ["00000000-0000-0000-0000-000000000000"]);
+    .in("batch_id", inList);
+  const totalExportedByBatch: Record<string, number> = {};
   const exportedByKey: Record<string, number> = {};
   for (const e of priorExports ?? []) {
+    totalExportedByBatch[e.batch_id] = (totalExportedByBatch[e.batch_id] ?? 0) + Number(e.volume_bbl);
     const key = `${e.batch_id}:${e.channel}:${e.recipient_id ?? ""}`;
     exportedByKey[key] = (exportedByKey[key] ?? 0) + Number(e.volume_bbl);
   }
 
-  type Candidate = { allocationId: string; batchId: string; channel: string; remainingBbl: number; batchCreatedAt: string };
-  const candidates: Candidate[] = [];
-  for (const a of allocRows ?? []) {
-    const produced = producedByBatch[a.batch_id] ?? 0;
-    if (produced <= 0) continue;
-    const allocatedBbl = (Number(a.percentage) / 100) * produced;
-    const key = `${a.batch_id}:${a.channel}:${a.partner_id ?? ""}`;
-    const exportedBbl = exportedByKey[key] ?? 0;
-    const remaining = allocatedBbl - exportedBbl;
-    if (remaining <= 0.0001) continue;
-    const batchRow = a.brew_batches as unknown as { created_at: string };
-    candidates.push({ allocationId: a.id, batchId: a.batch_id, channel: a.channel, remainingBbl: remaining, batchCreatedAt: batchRow.created_at });
+  const { data: batchRows } = await supabase.from("brew_batches").select("id, status").in("id", inList);
+  const statusById = new Map((batchRows ?? []).map((b) => [b.id as string, b.status as string]));
+
+  type ReserveAllocRow = { id: string; batch_id: string; channel: string; partner_id: string | null; percentage: number; commitments: { volume_bbl: number } | null };
+  const allocInput = (r: ReserveAllocRow): AllocationInput => {
+    const channel = r.channel as AllocationChannel;
+    const key = `${r.batch_id}:${r.channel}:${r.partner_id ?? ""}`;
+    return {
+      id: r.id,
+      batchId: r.batch_id,
+      channel,
+      percentage: Number(r.percentage),
+      bookedBbl: channel === "contract_brewing" ? (r.commitments?.volume_bbl ?? null) : null,
+      exportedBbl: exportedByKey[key] ?? 0,
+    };
+  };
+  const allocsByBatch = new Map<string, AllocationInput[]>();
+  for (const r of (reserveAllocRows ?? []) as unknown as ReserveAllocRow[]) {
+    const list = allocsByBatch.get(r.batch_id) ?? [];
+    list.push(allocInput(r));
+    allocsByBatch.set(r.batch_id, list);
   }
-  candidates.sort((x, y) => new Date(x.batchCreatedAt).getTime() - new Date(y.batchCreatedAt).getTime());
+  const batches: BatchInput[] = reserveBatchIds.map((bid) => ({
+    batchId: bid,
+    producedBbl: producedByBatch[bid] ?? 0,
+    totalExportedBbl: totalExportedByBatch[bid] ?? 0,
+    status: statusById.get(bid) ?? "",
+    allocations: allocsByBatch.get(bid) ?? [],
+  }));
 
-  // Over-allocation is allowed — we warn, we do not block. The final credited row
-  // absorbs any quantity beyond this customer's remaining allocation; if the
-  // customer has no creditable allocation at all, an un-allocated fallback record
-  // is written after depletion (step 5) so the depleted stock is never lost.
-  const totalRemaining = candidates.reduce((s, c) => s + c.remainingBbl, 0);
-  const overAllocationBbl = requestedBbl - totalRemaining;
-  const warning = overAllocationBbl > 0.0001
-    ? `Shipped ${overAllocationBbl.toFixed(2)} BBL beyond this customer's remaining allocation for this recipe `
-      + `(requested ${requestedBbl.toFixed(2)} BBL, allocation remaining ${totalRemaining.toFixed(2)} BBL).`
-    : null;
+  // ── 6. Crediting candidates: contract first (up to booked), then soft, oldest first ─
+  type CandRow = { id: string; batch_id: string; channel: string; percentage: number; commitments: { volume_bbl: number } | null; brew_batches: { created_at: string } };
+  const candidates: ShipmentCandidate[] = ((allocRows ?? []) as unknown as CandRow[])
+    .map((a) => {
+      const channel = a.channel as AllocationChannel;
+      const exported = exportedByKey[`${a.batch_id}:${a.channel}:${partner_id}`] ?? 0;
+      const booked = channel === "contract_brewing" ? (a.commitments?.volume_bbl ?? 0) : null;
+      const bookedRemainingBbl = channel === "contract_brewing" ? Math.max(0, (booked ?? 0) - exported) : null;
+      return { allocationId: a.id, batchId: a.batch_id, channel, bookedRemainingBbl, _createdAt: a.brew_batches.created_at };
+    })
+    // Drop fully-shipped contract allocations; keep all soft (uncapped absorbers).
+    .filter((c) => (c.channel === "contract_brewing" ? (c.bookedRemainingBbl ?? 0) > 0.0001 : true))
+    .sort((x, y) => {
+      const cx = x.channel === "contract_brewing" ? 0 : 1;
+      const cy = y.channel === "contract_brewing" ? 0 : 1;
+      if (cx !== cy) return cx - cy;
+      return new Date(x._createdAt).getTime() - new Date(y._createdAt).getTime();
+    })
+    .map(({ allocationId, batchId, channel, bookedRemainingBbl }) => ({ allocationId, batchId, channel, bookedRemainingBbl }));
 
-  // ── 4. Credit allocations sequentially, oldest batch first ───────────────
-  type Credit = { allocationId: string | null; batchId: string; channel: string; creditedBbl: number; creditedQty: number };
-  const credits: Credit[] = [];
-  let bblLeft = requestedBbl;
-  for (let i = 0; i < candidates.length && bblLeft > 0.0001; i++) {
-    const c = candidates[i];
-    const isLast = i === candidates.length - 1 || bblLeft <= c.remainingBbl;
-    const creditedBbl = isLast ? bblLeft : Math.min(c.remainingBbl, bblLeft);
-    credits.push({ allocationId: c.allocationId, batchId: c.batchId, channel: c.channel, creditedBbl, creditedQty: 0 });
-    bblLeft -= creditedBbl;
-  }
+  // ── 7. Plan credits + advisory warnings ──────────────────────────────────
+  const plan = planShipment({ requestedBbl, candidates, perBatchDrawBbl, batches });
 
-  let qtyAssigned = 0;
-  for (let i = 0; i < credits.length; i++) {
-    const isLastCredit = i === credits.length - 1;
-    credits[i].creditedQty = isLastCredit
-      ? Math.round((quantity - qtyAssigned) * 10000) / 10000
-      : Math.round((credits[i].creditedBbl / requestedBbl) * quantity * 10000) / 10000;
-    qtyAssigned += credits[i].creditedQty;
-  }
+  // ── 8. Expand credits into export writes. Over-delivery (allocation_id null)
+  //       is attributed to the physically drawn batches; quantity is split
+  //       proportional to volume with the last write taking the remainder. ───
+  const candById = new Map(candidates.map((c) => [c.allocationId, c]));
+  const overDeliveryChannel: string =
+    candidates.find((c) => c.channel === "contract_brewing")?.channel
+    ?? candidates[0]?.channel
+    ?? "distribution";
+  const totalDrawQty = depleted.reduce((s, d) => s + d.depletedQty, 0);
 
-  // ── 5. Deplete cold_storage_inventory, oldest row first ───────────────────
-  let depleted: { batchId: string; depletedQty: number }[];
-  try {
-    depleted = await depleteColdStorageInventory(supabase, {
-      recipeId: recipe_id,
-      variationId: variation_id,
-      quantity,
-    });
-  } catch (e) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : "Unknown error" }, { status: 500 });
-  }
-
-  // No creditable allocation existed (e.g. none of this customer's allocations
-  // have packaged production yet) — still record the shipment against the
-  // depleted batches, un-allocated, so the depleted stock is not lost.
-  if (credits.length === 0) {
-    const fallbackChannel = (allocRows?.[0]?.channel as string | undefined) ?? "distribution";
-    for (const d of depleted) {
-      const creditedBbl = (d.depletedQty * variation.total_volume_fl_oz) / BBL_TO_FL_OZ;
-      credits.push({ allocationId: null, batchId: d.batchId, channel: fallbackChannel, creditedBbl, creditedQty: d.depletedQty });
+  type Write = { batchId: string; allocationId: string | null; channel: string; bbl: number; overAllocation: boolean; qty: number };
+  const writes: Write[] = [];
+  for (const cr of plan.credits) {
+    if (cr.allocationId) {
+      const cand = candById.get(cr.allocationId)!;
+      writes.push({ batchId: cand.batchId, allocationId: cr.allocationId, channel: cand.channel, bbl: cr.bbl, overAllocation: false, qty: 0 });
+    } else if (totalDrawQty > 0) {
+      for (const d of depleted) {
+        const portion = cr.bbl * (d.depletedQty / totalDrawQty);
+        if (portion <= 0.0001) continue;
+        writes.push({ batchId: d.batchId, allocationId: null, channel: overDeliveryChannel, bbl: round4(portion), overAllocation: cr.overAllocation, qty: 0 });
+      }
     }
   }
 
-  // ── 6. Write one export_transaction per credited allocation ───────────────
+  const totalWriteBbl = writes.reduce((s, w) => s + w.bbl, 0) || 1;
+  let qtyAssigned = 0;
+  writes.forEach((w, i) => {
+    w.qty = i === writes.length - 1 ? round4(quantity - qtyAssigned) : round4((w.bbl / totalWriteBbl) * quantity);
+    qtyAssigned += w.qty;
+  });
+
+  // ── 9. Write export_transactions ─────────────────────────────────────────
   const shipmentId = crypto.randomUUID();
   const created: { batch_id: string; export_transaction_id: string }[] = [];
   const completedBatches = new Set<string>();
 
-  for (const c of credits) {
+  for (const w of writes) {
     let exportTxId: string;
     try {
       exportTxId = await writeExportTransaction(supabase, {
         shipmentId,
-        batchId: c.batchId,
+        batchId: w.batchId,
         recipeId: recipe_id,
         packagingItemId: variation.container_id,
         variantLabel: variation.name,
-        quantity: c.creditedQty,
-        volumeBbl: c.creditedBbl,
-        channel: c.channel,
+        quantity: w.qty,
+        volumeBbl: w.bbl,
+        channel: w.channel,
         recipientId: partner_id,
         recipientName: null,
-        allocationId: c.allocationId,
+        allocationId: w.allocationId,
         notes,
         packagingFormat: variation.format,
         unitsPerPackage,
+        overAllocation: w.overAllocation,
       });
     } catch (e) {
       return NextResponse.json({ error: e instanceof Error ? e.message : "Unknown error" }, { status: 500 });
     }
 
-    if (!completedBatches.has(c.batchId)) {
-      await checkAndCompleteBatch(supabase, c.batchId);
-      completedBatches.add(c.batchId);
+    if (!completedBatches.has(w.batchId)) {
+      await checkAndCompleteBatch(supabase, w.batchId);
+      completedBatches.add(w.batchId);
     }
-    if (c.allocationId) await checkAndFulfillCommitment(supabase, c.allocationId);
+    if (w.allocationId) await checkAndFulfillCommitment(supabase, w.allocationId);
 
-    created.push({ batch_id: c.batchId, export_transaction_id: exportTxId });
+    created.push({ batch_id: w.batchId, export_transaction_id: exportTxId });
   }
 
-  return NextResponse.json({ created, warning }, { status: 201 });
+  return NextResponse.json({ created, warnings: plan.warnings }, { status: 201 });
 }
