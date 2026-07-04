@@ -1,8 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Modal } from "./shared";
-import { useInvoicePreview } from "../hooks/queries";
+import Banner from "@/app/components/ui/Banner";
+import { SquareCatalogSelect, SquareDiscountSelect } from "@/app/components/SquareCatalogSelect";
+import { useInvoicePreview, useExportSquareCatalogQuery } from "../hooks/queries";
+import type { SquareCatalogOptions } from "../types";
 import { fmtUsd } from "@/lib/utils/formatting";
 
 interface DraftLineItem {
@@ -12,6 +15,27 @@ interface DraftLineItem {
   unitPriceCents: number;
   squareCatalogVariationId: string | null;
   discountCatalogId?: string | null;
+}
+
+type CatalogDiscount = SquareCatalogOptions["discounts"][number];
+
+// Estimate what a Square catalog discount takes off a line's subtotal. Square
+// computes the authoritative amount on its side; this is only for showing the
+// user a running total in the modal.
+function estimateDiscountCents(subtotalCents: number, d: CatalogDiscount | undefined): number {
+  if (!d || subtotalCents <= 0) return 0;
+  if (d.percentage) {
+    const pct = parseFloat(d.percentage);
+    if (!Number.isNaN(pct)) return Math.round(subtotalCents * (pct / 100));
+  }
+  if (d.amountCents != null) return Math.min(d.amountCents, subtotalCents);
+  return 0;
+}
+
+function discountLabel(d: CatalogDiscount): string {
+  if (d.percentage) return `${d.name} (${d.percentage}%)`;
+  if (d.amountCents != null) return `${d.name} (${fmtUsd(d.amountCents / 100)})`;
+  return d.name;
 }
 
 export default function InvoicePreviewModal({
@@ -24,6 +48,7 @@ export default function InvoicePreviewModal({
   onCreated: () => void;
 }) {
   const { data, isLoading, error: previewError } = useInvoicePreview(transactionIds);
+  const { data: catalog } = useExportSquareCatalogQuery();
   const [lineItems, setLineItems] = useState<DraftLineItem[] | null>(null);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -35,7 +60,38 @@ export default function InvoicePreviewModal({
   const [manualDate, setManualDate] = useState(() => new Date().toISOString().slice(0, 10));
 
   const effectiveLineItems = lineItems ?? data?.lineItems ?? [];
+  const channel = data?.channel ?? null;
+  const discountsApply = channel === "distribution" || channel === "wholesale";
 
+  // ── Catalog lookups ─────────────────────────────────────────────────────────
+  const items = useMemo(() => catalog?.items ?? [], [catalog]);
+  const discounts = useMemo(() => catalog?.discounts ?? [], [catalog]);
+
+  const variationIndex = useMemo(() => {
+    const m = new Map<string, { itemId: string; itemName: string; variationName: string; priceCents: number | null }>();
+    for (const it of items) {
+      for (const v of it.variations) {
+        m.set(v.variationId, {
+          itemId: it.itemId,
+          itemName: it.itemName,
+          variationName: v.variationName,
+          priceCents: v.priceCents ?? null,
+        });
+      }
+    }
+    return m;
+  }, [items]);
+
+  const discountById = useMemo(
+    () => new Map(discounts.map((d) => [d.id, d])),
+    [discounts]
+  );
+
+  const defaultDiscount = data?.defaultDiscountCatalogId
+    ? discountById.get(data.defaultDiscountCatalogId)
+    : undefined;
+
+  // ── Line mutations ────────────────────────────────────────────────────────
   function updateLine(id: string, patch: Partial<DraftLineItem>) {
     setLineItems(effectiveLineItems.map((li) => (li.id === id ? { ...li, ...patch } : li)));
   }
@@ -47,13 +103,46 @@ export default function InvoicePreviewModal({
   function addLine() {
     setLineItems([
       ...effectiveLineItems,
-      { id: crypto.randomUUID(), description: "", quantity: 1, unitPriceCents: 0, squareCatalogVariationId: null },
+      { id: crypto.randomUUID(), description: "", quantity: 1, unitPriceCents: 0, squareCatalogVariationId: null, discountCatalogId: null },
     ]);
   }
 
-  const totalCents = effectiveLineItems.reduce((s, li) => s + li.quantity * li.unitPriceCents, 0);
+  // Picking a Square catalog item fills in the mapped variation, its name, and
+  // its catalog price — the way Square's own invoice editor behaves.
+  function pickCatalogItem(id: string, variationId: string | null) {
+    if (!variationId) {
+      updateLine(id, { squareCatalogVariationId: null });
+      return;
+    }
+    const v = variationIndex.get(variationId);
+    updateLine(id, {
+      squareCatalogVariationId: variationId,
+      description: v ? `${v.itemName}${v.variationName ? ` · ${v.variationName}` : ""}` : effectiveLineItems.find((li) => li.id === id)?.description ?? "",
+      ...(v?.priceCents != null ? { unitPriceCents: v.priceCents } : {}),
+    });
+  }
 
-  const manualValid = totalCents > 0 && effectiveLineItems.length > 0 &&
+  function applyDefaultDiscountToAll() {
+    const discId = data?.defaultDiscountCatalogId;
+    if (!discId) return;
+    setLineItems(effectiveLineItems.map((li) => ({ ...li, discountCatalogId: discId })));
+  }
+
+  function clearAllDiscounts() {
+    setLineItems(effectiveLineItems.map((li) => ({ ...li, discountCatalogId: null })));
+  }
+
+  // ── Totals ───────────────────────────────────────────────────────────────
+  const subtotalCents = effectiveLineItems.reduce((s, li) => s + li.quantity * li.unitPriceCents, 0);
+  const discountCents = invoiceMode === "square"
+    ? effectiveLineItems.reduce(
+        (s, li) => s + estimateDiscountCents(li.quantity * li.unitPriceCents, li.discountCatalogId ? discountById.get(li.discountCatalogId) : undefined),
+        0
+      )
+    : 0;
+  const netTotalCents = subtotalCents - discountCents;
+
+  const manualValid = subtotalCents > 0 && effectiveLineItems.length > 0 &&
     (manualSource === "other" || manualRef.trim().length > 0);
 
   async function handleCreate() {
@@ -77,7 +166,7 @@ export default function InvoicePreviewModal({
             source: manualSource,
             external_ref: manualRef.trim() || undefined,
             invoice_date: manualDate,
-            total_cents: totalCents,
+            total_cents: subtotalCents,
             lineItems: effectiveLineItems,
           }),
         });
@@ -161,58 +250,159 @@ export default function InvoicePreviewModal({
             </div>
           )}
 
+          {/* ── Bulk-discount banner (distribution / wholesale, Square mode) ──── */}
+          {invoiceMode === "square" && discountsApply && (
+            defaultDiscount ? (
+              <Banner tone="info" className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                <span className="flex-1 min-w-[12rem]">
+                  <span className="font-medium">{discountLabel(defaultDiscount)}</span> is the mapped{" "}
+                  {channel === "distribution" ? "bulk" : "wholesale"} discount for this channel. Adjust or
+                  remove it per line below, or apply other discounts at your discretion.
+                </span>
+                <span className="flex items-center gap-2 shrink-0">
+                  <button onClick={applyDefaultDiscountToAll} className="btn-ghost btn-xs">
+                    Apply to all
+                  </button>
+                  <button onClick={clearAllDiscounts} className="text-xs text-secondary hover:text-strong">
+                    Clear all
+                  </button>
+                </span>
+              </Banner>
+            ) : (
+              <Banner tone="accent">
+                No {channel === "distribution" ? "bulk" : "wholesale"} discount is mapped for this channel — set
+                one under Export Settings → Service Mappings &amp; Discounts, or pick a discount manually per line.
+              </Banner>
+            )
+          )}
+
           {/* ── Line items ──────────────────────────────────────────────────── */}
-          <div className="overflow-x-auto rounded-lg border border-line">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-line bg-surface/50 text-left">
-                  <th className="px-3 py-2 text-xs font-medium text-muted">Description</th>
-                  <th className="px-3 py-2 text-xs font-medium text-muted text-right">Qty</th>
-                  <th className="px-3 py-2 text-xs font-medium text-muted text-right">Unit Price</th>
-                  <th className="px-3 py-2 text-xs font-medium text-muted text-right">Total</th>
-                  <th className="px-3 py-2" />
-                </tr>
-              </thead>
-              <tbody>
-                {effectiveLineItems.map((li) => (
-                  <tr key={li.id} className="border-b border-line last:border-0">
-                    <td className="px-3 py-2">
-                      <input className="bg-surface-mid border border-line-strong rounded px-2 py-1 text-xs text-strong w-64"
-                        value={li.description} onChange={(e) => updateLine(li.id, { description: e.target.value })} />
-                    </td>
-                    <td className="px-3 py-2 text-right">
-                      <input type="number" min={0} step="1" className="bg-surface-mid border border-line-strong rounded px-2 py-1 text-xs text-strong w-16 text-right"
-                        value={li.quantity} onChange={(e) => updateLine(li.id, { quantity: Number(e.target.value) })} />
-                    </td>
-                    <td className="px-3 py-2 text-right">
-                      <input type="number" min={0} step="0.01" className="bg-surface-mid border border-line-strong rounded px-2 py-1 text-xs text-strong w-24 text-right"
+          <div className="space-y-2">
+            {effectiveLineItems.map((li) => {
+              const mapped = li.squareCatalogVariationId ? variationIndex.get(li.squareCatalogVariationId) : undefined;
+              const lineSub = li.quantity * li.unitPriceCents;
+              const lineDiscount = invoiceMode === "square" && li.discountCatalogId
+                ? estimateDiscountCents(lineSub, discountById.get(li.discountCatalogId))
+                : 0;
+
+              return (
+                <div key={li.id} className="rounded-lg border border-line p-3 space-y-2.5">
+                  {/* Square catalog item picker + remove */}
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="space-y-1">
+                      <label className="text-[11px] uppercase tracking-wide text-muted">Square line item</label>
+                      <SquareCatalogSelect
+                        items={items}
+                        itemId={mapped?.itemId ?? null}
+                        variationId={li.squareCatalogVariationId}
+                        onChange={(_itemId, variationId) => pickCatalogItem(li.id, variationId)}
+                      />
+                      {li.squareCatalogVariationId ? (
+                        <p className="text-[11px] text-success">
+                          ✓ Mapped{mapped ? `: ${mapped.itemName}${mapped.variationName ? ` · ${mapped.variationName}` : ""}` : " to Square catalog"}
+                        </p>
+                      ) : (
+                        <p className="text-[11px] text-muted">Custom line — not linked to a Square catalog item</p>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => removeLine(li.id)}
+                      className="text-sm text-faint hover:text-danger shrink-0"
+                      aria-label="Remove line item"
+                    >
+                      ×
+                    </button>
+                  </div>
+
+                  {/* Description */}
+                  <div className="space-y-1">
+                    <label className="text-[11px] uppercase tracking-wide text-muted">Description</label>
+                    <input
+                      className="inp-sm w-full"
+                      value={li.description}
+                      placeholder="Line description shown on the invoice"
+                      onChange={(e) => updateLine(li.id, { description: e.target.value })}
+                    />
+                  </div>
+
+                  {/* Qty / Unit price / Discount / Total */}
+                  <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
+                    <div className="space-y-1">
+                      <label className="text-[11px] uppercase tracking-wide text-muted">Qty</label>
+                      <input
+                        type="number" min={0} step="1"
+                        className="inp-sm w-16 text-right"
+                        value={li.quantity}
+                        onChange={(e) => updateLine(li.id, { quantity: Number(e.target.value) })}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[11px] uppercase tracking-wide text-muted">Unit price</label>
+                      <input
+                        type="number" min={0} step="0.01"
+                        className="inp-sm w-24 text-right"
                         value={(li.unitPriceCents / 100).toFixed(2)}
-                        onChange={(e) => updateLine(li.id, { unitPriceCents: Math.round(Number(e.target.value) * 100) })} />
-                    </td>
-                    <td className="px-3 py-2 text-right text-body tabular-nums">
-                      {fmtUsd((li.quantity * li.unitPriceCents) / 100)}
-                    </td>
-                    <td className="px-3 py-2">
-                      <button onClick={() => removeLine(li.id)} className="text-xs text-faint hover:text-danger">×</button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                        onChange={(e) => updateLine(li.id, { unitPriceCents: Math.round(Number(e.target.value) * 100) })}
+                      />
+                    </div>
+                    {invoiceMode === "square" && (
+                      <div className="space-y-1">
+                        <label className="text-[11px] uppercase tracking-wide text-muted">Discount</label>
+                        <SquareDiscountSelect
+                          discounts={discounts}
+                          value={li.discountCatalogId ?? null}
+                          onChange={(discId) => updateLine(li.id, { discountCatalogId: discId })}
+                        />
+                      </div>
+                    )}
+                    <div className="ml-auto text-right space-y-0.5">
+                      <label className="block text-[11px] uppercase tracking-wide text-muted">Line total</label>
+                      {lineDiscount > 0 ? (
+                        <span className="text-sm text-body tabular-nums">
+                          <span className="text-faint line-through mr-1.5">{fmtUsd(lineSub / 100)}</span>
+                          {fmtUsd((lineSub - lineDiscount) / 100)}
+                        </span>
+                      ) : (
+                        <span className="text-sm text-body tabular-nums">{fmtUsd(lineSub / 100)}</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
 
           <button onClick={addLine} className="text-xs px-2.5 py-1 border border-line-strong hover:border-line-subtle text-body rounded transition-colors">
             + Add line item
           </button>
 
-          <div className="flex items-center justify-between pt-2 border-t border-line">
-            <span className="text-sm text-secondary">Total</span>
-            <span className="text-sm font-medium text-primary tabular-nums">{fmtUsd(totalCents / 100)}</span>
+          {/* ── Totals ──────────────────────────────────────────────────────── */}
+          <div className="pt-2 border-t border-line space-y-1">
+            {discountCents > 0 && (
+              <>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-secondary">Subtotal</span>
+                  <span className="text-body tabular-nums">{fmtUsd(subtotalCents / 100)}</span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-secondary">Discounts (est.)</span>
+                  <span className="text-success tabular-nums">−{fmtUsd(discountCents / 100)}</span>
+                </div>
+              </>
+            )}
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-secondary">Total{discountCents > 0 ? " (est.)" : ""}</span>
+              <span className="text-sm font-medium text-primary tabular-nums">{fmtUsd(netTotalCents / 100)}</span>
+            </div>
+            {discountCents > 0 && (
+              <p className="text-[11px] text-faint">Square calculates the exact discounted total when the invoice is created.</p>
+            )}
           </div>
 
           {invoiceMode === "manual" && (
             <p className="text-xs text-muted">
               Manual invoices are recorded as <span className="text-body">Unpaid</span> — use &ldquo;Mark Paid&rdquo; once payment is received.
+              Square catalog discounts don&rsquo;t apply to manually-recorded invoices.
             </p>
           )}
 
