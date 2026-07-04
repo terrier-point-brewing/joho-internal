@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { fetchSellThrough } from "@/lib/square/sell-through";
 import { fetchPhysicalCounts, type PhysicalCount } from "@/lib/square/inventory";
+import { detectKegSwaps } from "@/lib/square/draftKegEvents";
 import { apiError } from "@/lib/utils/api";
 import { BBL_TO_FL_OZ } from "@/lib/constants/production";
 
@@ -10,7 +11,6 @@ export const dynamic = "force-dynamic";
 // A full sixth-barrel keg (~660 fl oz). Counts at or above this threshold
 // indicate a fresh keg was just tapped.
 const FULL_KEG_FL_OZ = 660;
-const FULL_KEG_THRESHOLD = 580;
 
 interface KegEvent {
   date: string;
@@ -19,20 +19,11 @@ interface KegEvent {
 }
 
 function detectKegEvents(counts: PhysicalCount[]): KegEvent[] {
-  const sorted = [...counts].sort((a, b) => a.occurred_at.localeCompare(b.occurred_at));
-  const events: KegEvent[] = [];
-  for (let i = 1; i < sorted.length; i++) {
-    const prev = parseFloat(sorted[i - 1].quantity);
-    const curr = parseFloat(sorted[i].quantity);
-    if (curr >= FULL_KEG_THRESHOLD && prev < FULL_KEG_THRESHOLD) {
-      events.push({
-        date:            sorted[i].occurred_at.slice(0, 10),
-        shrinkage_fl_oz: Number(prev.toFixed(1)),
-        shrinkage_pct:   Number((prev / FULL_KEG_FL_OZ * 100).toFixed(1)),
-      });
-    }
-  }
-  return events;
+  return detectKegSwaps(counts, FULL_KEG_FL_OZ).map((event) => ({
+    date:            event.date,
+    shrinkage_fl_oz: event.remainingFlOz,
+    shrinkage_pct:   Number((event.remainingFlOz / FULL_KEG_FL_OZ * 100).toFixed(1)),
+  }));
 }
 
 export async function GET(req: NextRequest) {
