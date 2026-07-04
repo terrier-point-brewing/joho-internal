@@ -25,6 +25,7 @@ export default function SettingsTabs({ isAdmin }: { isAdmin: boolean }) {
     ...(isAdmin ? [
       { label: "Users", href: "/settings/users", badge: 0 },
       { label: "Access Requests", href: "/settings/requests", badge: pendingCount },
+      { label: "Cron Jobs", href: "/settings/cron", badge: 0 },
     ] : []),
   ];
 

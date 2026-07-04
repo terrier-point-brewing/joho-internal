@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getRampTransactions } from "@/lib/ramp";
 import { syncRampExpenses } from "@/lib/finance/rampExpenses";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { runCronJob } from "@/lib/cron/runCronJob";
 import { apiError } from "@/lib/utils/api";
 
 export const dynamic = "force-dynamic";
@@ -28,12 +29,12 @@ export async function GET(req: NextRequest) {
   const fromStr = from.toISOString().slice(0, 10);
   const toStr   = to.toISOString().slice(0, 10);
 
-  try {
+  const outcome = await runCronJob("ramp-expenses-sync", async () => {
     const txns     = await getRampTransactions(fromStr, toStr);
     const supabase = createSupabaseAdminClient();
     const result   = await syncRampExpenses(supabase, txns);
-    return NextResponse.json({ ...result, window: { from: fromStr, to: toStr } });
-  } catch (err) {
-    return apiError(err);
-  }
+    return { ...result, window: { from: fromStr, to: toStr } };
+  });
+
+  return outcome.ok ? NextResponse.json(outcome.detail) : apiError(outcome.error);
 }
