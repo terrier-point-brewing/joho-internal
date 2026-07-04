@@ -10,6 +10,8 @@ export interface CronJobMeta {
   schedule:      string;   // cron expression, mirrors vercel.json
   scheduleLabel: string;   // human-readable
   description:   string;
+  /** Flag the job as overdue if its last successful run is older than this. */
+  maxAgeHours:   number;
 }
 
 export const CRON_JOBS: CronJobMeta[] = [
@@ -19,6 +21,7 @@ export const CRON_JOBS: CronJobMeta[] = [
     schedule:      "0 5 * * *",
     scheduleLabel: "Daily · 05:00 UTC",
     description:   "Creates the next open pay period ahead of time.",
+    maxAgeHours:   25,
   },
   {
     job:           "ramp-expenses-sync",
@@ -26,5 +29,6 @@ export const CRON_JOBS: CronJobMeta[] = [
     schedule:      "30 6 * * *",
     scheduleLabel: "Daily · 06:30 UTC",
     description:   "Imports recent Ramp expenses and auto-maps them to the chart of accounts.",
+    maxAgeHours:   25,
   },
 ];

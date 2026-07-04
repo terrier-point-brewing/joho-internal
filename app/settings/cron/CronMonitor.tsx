@@ -10,6 +10,7 @@ interface CronJobMeta {
   schedule: string;
   scheduleLabel: string;
   description: string;
+  maxAgeHours: number;
 }
 
 interface CronRun {
@@ -33,6 +34,10 @@ function timeAgo(iso: string): string {
   if (hrs < 24) return `${hrs}h ago`;
   const days = Math.round(hrs / 24);
   return `${days}d ago`;
+}
+
+function hoursSince(iso: string): number {
+  return (Date.now() - new Date(iso).getTime()) / 3_600_000;
 }
 
 function fmtWhen(iso: string): string {
@@ -93,7 +98,7 @@ export default function CronMonitor() {
   const registeredIds = new Set(jobs.map((j) => j.job));
   const orphanJobs = [...runsByJob.keys()]
     .filter((j) => !registeredIds.has(j))
-    .map((job): CronJobMeta => ({ job, path: "—", schedule: "", scheduleLabel: "Not in registry", description: "Runs recorded, but not in the cron registry." }));
+    .map((job): CronJobMeta => ({ job, path: "—", schedule: "", scheduleLabel: "Not in registry", description: "Runs recorded, but not in the cron registry.", maxAgeHours: Infinity }));
   const allJobs = [...jobs, ...orphanJobs];
 
   function toggle(job: string) {
@@ -124,6 +129,8 @@ export default function CronMonitor() {
             const isOpen = expanded.has(job.job);
             const statusTone = !last ? "neutral" : last.status === "success" ? "success" : "danger";
             const statusLabel = !last ? "Never run" : last.status === "success" ? "Success" : "Error";
+            const ageHours = last ? hoursSince(last.started_at) : null;
+            const overdue = ageHours != null && Number.isFinite(job.maxAgeHours) && ageHours > job.maxAgeHours;
 
             return (
               <Card key={job.job} padding="p-0">
@@ -133,6 +140,7 @@ export default function CronMonitor() {
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-sm font-medium text-strong font-mono">{job.job}</span>
                         <Badge tone={statusTone}>{statusLabel}</Badge>
+                        {overdue && <Badge tone="accent">Overdue · {Math.round(ageHours!)}h</Badge>}
                         {last && <span className="text-[11px] text-faint">{timeAgo(last.started_at)}</span>}
                       </div>
                       <p className="text-xs text-muted mt-1">{job.description}</p>
