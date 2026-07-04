@@ -20,6 +20,15 @@ export interface InvoicePreviewResult {
   squareCustomerId: string | null;
   lineItems: InvoiceLineItemDraft[];
   dueDays: number;
+  /** Shared channel of the selected transactions (all must match). */
+  channel: string;
+  /**
+   * Square catalog discount mapped for this channel (the "bulk discount" for
+   * distribution / the wholesale discount for wholesale), or null when none is
+   * configured. The modal uses this to label the auto-applied discount and to
+   * offer re-applying it after manual edits.
+   */
+  defaultDiscountCatalogId: string | null;
 }
 
 interface ExportTxRow {
@@ -226,6 +235,7 @@ export async function buildInvoicePreview(
   const priceByVariationId = buildStandalonePriceMap(catalogItems);
 
   const lineItems: InvoiceLineItemDraft[] = [];
+  let defaultDiscountCatalogId: string | null = null;
 
   if (channel === "contract_brewing") {
     // ── 5a. Packaging Fee lines ─────────────────────────────────────────────
@@ -330,6 +340,7 @@ export async function buildInvoicePreview(
     const discountServiceType = channel === "distribution" ? "distribution_discount" : "wholesale_discount";
     const discountMapping = findMapping(discountServiceType, null);
     const discountCatalogId = discountMapping?.square_catalog_discount_id ?? null;
+    defaultDiscountCatalogId = discountCatalogId;
 
     for (const line of productLines) {
       lineItems.push({ ...line, discountCatalogId });
@@ -350,5 +361,7 @@ export async function buildInvoicePreview(
     squareCustomerId: partner.square_customer_id,
     lineItems,
     dueDays,
+    channel,
+    defaultDiscountCatalogId,
   };
 }
