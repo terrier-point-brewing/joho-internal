@@ -201,8 +201,8 @@ export interface ShipmentPlan {
 - **Order of merge:** Tasks 1–2 (backend correctness) can ship first and independently; 3–5 (schema + UI) next; 6 last. Each task is independently revertable.
 - **Data:** Task 3 is additive (nullable-default column) — safe. No backfill needed; historical rows read as `over_allocation = false`.
 
-## Open Decisions (resolve before Task 2)
+## Resolved Decisions (2026-07-04)
 
-1. **Coverage granularity:** per-batch (precise, uses simulated FIFO draw) vs recipe-level aggregate (simpler, less precise). Plan assumes **per-batch**; confirm.
-2. **`produced_b` definition:** standardize on `sum(volume_bbl)` (net fill, no shrinkage subtraction). Confirm and align `commitmentFulfillment.ts`.
-3. **Over-delivery billing:** contract over-delivery beyond `B` — bill as extra product, or absorb? Affects whether over-delivery rows are invoiceable. Default: flag only; finance decides at invoice time.
+1. **Coverage granularity → per-batch.** The `guarantee_coverage` check simulates the cold-storage FIFO draw and evaluates each drawn batch's `freeToShip_b` against that batch's own contract reserve. Recipe-level aggregation is rejected — deposits are per-batch and an aggregate can mask a single stranded batch. (Locks Task 1 `planShipment` to `perBatchDrawBbl`, and Task 2 Step 2 to simulate/return the per-batch draw.)
+2. **`produced_b` → `sum(volume_bbl)`**, net fill, **no** shrinkage subtraction — `volume_bbl` on kegging/canning rows is already the net beer in containers; `shrinkage_bbl` is a separate loss figure and subtracting it double-counts. **Action:** align `commitmentFulfillment.ts` to this in Task 2 Step 5 (it currently subtracts `shrinkage_bbl` — that is the bug of record).
+3. **Over-delivery → flag only, decide at invoice.** Contract shipments beyond `B` are recorded `over_allocation = true` and surfaced; no automatic billing or comping in code. Finance chooses bill-as-extra-product vs gift when generating the invoice. (Task 6 Step 2 records/flags only; no auto-refund, no auto-charge.)
