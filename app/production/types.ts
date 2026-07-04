@@ -456,6 +456,13 @@ export interface BatchAllocation {
   over_delivered_bbl: number | null;
   /** max(0, final entitlement − exported) — beer still owed (make good in beer, or manual refund). */
   under_delivered_bbl: number | null;
+  // ── Write-off (remaining owed volume forgiven; treated as fulfilled) ────────
+  /** When set, the remaining owed volume was written off — the allocation counts as fulfilled. */
+  written_off_at: string | null;
+  /** BBL still owed at the moment of write-off (snapshot). */
+  written_off_bbl: number | null;
+  /** Optional operator note explaining the write-off. */
+  write_off_note: string | null;
 }
 
 export interface BrewActivityEntry {

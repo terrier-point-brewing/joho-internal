@@ -79,6 +79,7 @@ export async function GET(req: NextRequest) {
       percentage: Number(a.percentage),
       bookedBbl: channel === "contract_brewing" ? booked : null,
       exportedBbl: exportedMap[`${a.batch_id}:${a.channel}:${a.partner_id ?? ""}`] ?? 0,
+      writtenOff: !!a.written_off_at,
     };
   };
 
