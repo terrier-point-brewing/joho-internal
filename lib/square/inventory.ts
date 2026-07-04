@@ -1,5 +1,6 @@
 import { squarePost, squarePostAll, squareLocationId } from "./client";
 import { dayRangeUtc } from "@/lib/utils/datetime";
+import { KEG_TRANSFER_DISCOUNT_NAME } from "@/types/reports";
 
 interface InventoryCount {
   catalog_object_id: string;
@@ -58,13 +59,17 @@ interface ChangesResponse {
 interface OrderLineItem {
   catalog_object_id?: string;
   quantity?: string;
+  applied_discounts?: Array<{ discount_uid: string }>;
 }
 
 interface Order {
   id: string;
   state?: string;
   source?: { name?: string };
+  closed_at?: string;
+  created_at?: string;
   line_items?: OrderLineItem[];
+  discounts?: Array<{ uid: string; name?: string }>;
 }
 
 interface OrderSearchResponse {
@@ -126,6 +131,111 @@ export async function fetchOrderSales(
   } while (cursor);
 
   return totals;
+}
+
+export interface DayBucketOrder {
+  closed_at?: string;
+  created_at?: string;
+  source?: { name?: string };
+  line_items?: Array<{ catalog_object_id?: string; quantity?: string; applied_discounts?: Array<{ discount_uid: string }> }>;
+  discounts?: Array<{ uid: string; name?: string }>;
+}
+
+/**
+ * Pure bucketer: aggregates order line items into a map keyed
+ * `"<variationId>\t<YYYY-MM-DD>"` → total units.
+ *
+ * Skips Invoices-sourced orders (wholesale/contract, not taproom) and orders
+ * with neither a closed_at nor created_at timestamp. With `opts.ids` set, only
+ * those variations are counted. With `opts.excludeTransfers`, line items that
+ * carry a KEG_TRANSFER_DISCOUNT_NAME discount (internal draft transfers, not
+ * sales) are dropped.
+ */
+export function bucketOrderLinesByDay(
+  orders: DayBucketOrder[],
+  opts?: { ids?: string[]; excludeTransfers?: boolean },
+): Map<string, number> {
+  const map = new Map<string, number>();
+
+  for (const order of orders) {
+    // Skip invoice-sourced orders — those are wholesale/contract, not taproom.
+    if (order.source?.name === "Invoices") continue;
+
+    const day = (order.closed_at ?? order.created_at)?.slice(0, 10);
+    if (!day) continue;
+
+    let transferUids: Set<string> | undefined;
+    if (opts?.excludeTransfers) {
+      transferUids = new Set(
+        (order.discounts ?? [])
+          .filter((d) => d.name === KEG_TRANSFER_DISCOUNT_NAME)
+          .map((d) => d.uid),
+      );
+    }
+
+    for (const item of order.line_items ?? []) {
+      const varId = item.catalog_object_id;
+      if (!varId) continue;
+      if (opts?.ids && !opts.ids.includes(varId)) continue;
+      if (
+        transferUids &&
+        (item.applied_discounts ?? []).some((ad) => transferUids!.has(ad.discount_uid))
+      ) {
+        continue;
+      }
+      const qty = parseFloat(item.quantity ?? "0");
+      if (qty <= 0) continue;
+      const key = `${varId}\t${day}`;
+      map.set(key, (map.get(key) ?? 0) + qty);
+    }
+  }
+
+  return map;
+}
+
+/**
+ * Fetch completed taproom sales for a date range, bucketed per (variation, day).
+ * Returns a map keyed `"<variationId>\t<YYYY-MM-DD>"` → total units sold.
+ * Uses the same /orders/search request as fetchOrderSales, then excludes
+ * invoice-sourced orders and internal keg-transfer line items.
+ */
+export async function fetchOrderSalesByDay(
+  startDate: string,
+  endDate: string,
+  catalogObjectIds?: string[],
+): Promise<Map<string, number>> {
+  const locationId = squareLocationId();
+
+  const orders: Order[] = [];
+  let cursor: string | undefined;
+
+  do {
+    const body: Record<string, unknown> = {
+      location_ids: [locationId],
+      query: {
+        filter: {
+          state_filter: { states: ["COMPLETED"] },
+          date_time_filter: {
+            closed_at: {
+              start_at: new Date(startDate).toISOString(),
+              end_at: new Date(endDate).toISOString(),
+            },
+          },
+        },
+      },
+      limit: 500,
+    };
+    if (cursor) body.cursor = cursor;
+
+    const data = await squarePost<OrderSearchResponse>("/orders/search", body);
+    if (data.errors?.length) throw new Error(data.errors[0].detail);
+
+    orders.push(...(data.orders ?? []));
+
+    cursor = data.cursor;
+  } while (cursor);
+
+  return bucketOrderLinesByDay(orders, { ids: catalogObjectIds, excludeTransfers: true });
 }
 
 // Fetch physical count inventory changes for a date range.

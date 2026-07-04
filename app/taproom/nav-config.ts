@@ -4,7 +4,6 @@ export const TAPROOM_NAV: NavEntry[] = [
   { href: "/taproom/performance", label: "Performance" },
   { href: "/taproom/targets",     label: "Targets"     },
   { href: "/taproom/payroll",     label: "Payroll",     managerOnly: true },
-  { href: "/taproom/reports",     label: "Reports",     adminOnly: true },
 ];
 
 export const PERFORMANCE_NAV: NavEntry[] = [
