@@ -7,6 +7,10 @@
     {
       "path": "/api/cron/ramp-expenses-sync",
       "schedule": "30 6 * * *"
+    },
+    {
+      "path": "/api/cron/taproom-consumption-sync",
+      "schedule": "0 7 * * *"
     }
   ]
 }

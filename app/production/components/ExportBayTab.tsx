@@ -146,6 +146,7 @@ export default function ExportBayTab() {
   // ── UI state ──────────────────────────────────────────────────────────────────
   const [shipGroup,         setShipGroup]         = useState<CustomerRecipeGroup | null>(null);
   const [showAdHoc,         setShowAdHoc]         = useState(false);
+  const [showSync,          setShowSync]          = useState(false);
   const [expandedFulfilled, setExpandedFulfilled] = useState<Set<string>>(new Set());
 
   // Search / filter / sort
@@ -355,14 +356,23 @@ export default function ExportBayTab() {
           onChange={(e) => setSearch(e.target.value)}
           className="inp flex-1 max-w-xs text-sm"
         />
-        <button
-          onClick={() => setShowAdHoc(true)}
-          disabled={inventory.length === 0}
-          title={inventory.length === 0 ? "No packaged inventory available" : undefined}
-          className="ml-auto text-xs px-2.5 py-1 border border-accent-border text-accent hover:bg-accent-muted/30 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent shrink-0"
-        >
-          + Ad-Hoc Export
-        </button>
+        <div className="ml-auto flex items-center gap-2 shrink-0">
+          <button
+            onClick={() => setShowSync(true)}
+            title="Reconcile taproom pours from Square into cold-storage draws"
+            className="text-xs px-2.5 py-1 border border-line-strong text-secondary hover:border-line-subtle hover:text-body rounded transition-colors"
+          >
+            ↻ Sync Taproom
+          </button>
+          <button
+            onClick={() => setShowAdHoc(true)}
+            disabled={inventory.length === 0}
+            title={inventory.length === 0 ? "No packaged inventory available" : undefined}
+            className="text-xs px-2.5 py-1 border border-accent-border text-accent hover:bg-accent-muted/30 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+          >
+            + Ad-Hoc Export
+          </button>
+        </div>
       </div>
 
       {/* Filter + sort chips */}
@@ -645,6 +655,142 @@ export default function ExportBayTab() {
           }}
         />
       )}
+
+      {showSync && (
+        <SyncConsumptionModal
+          onClose={() => setShowSync(false)}
+          onRecorded={() => qc.invalidateQueries({ queryKey: queryKeys.production.exportBayInventory() })}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── SyncConsumptionModal ─────────────────────────────────────────────────────────
+
+interface SyncDiscrepancy {
+  kind: "unconfigured_draft_swap" | "short_stock";
+  recipeId: string;
+  beerName?: string;
+  swapCount?: number;
+  variationId?: string;
+  label?: string;
+  requestedQty?: number;
+  recordedQty?: number;
+  shortfallQty?: number;
+}
+
+interface SyncResult {
+  windowDays: number;
+  recorded: { kind: string; label: string; recordedQty: number }[];
+  recordedUnits: number;
+  skipped: number;
+  totalRecordedQty: number;
+  discrepancies: SyncDiscrepancy[];
+}
+
+function SyncConsumptionModal({ onClose, onRecorded }: { onClose: () => void; onRecorded: () => void }) {
+  const [days,      setDays]      = useState("2");
+  const [running,   setRunning]   = useState(false);
+  const [error,     setError]     = useState<string | null>(null);
+  const [result,    setResult]    = useState<SyncResult | null>(null);
+
+  async function run() {
+    setRunning(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/production/taproom-consumption/sync?days=${encodeURIComponent(days || "2")}`, {
+        method: "POST",
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? "Error");
+      const data: SyncResult = await res.json();
+      setResult(data);
+      if (data.recordedUnits > 0) onRecorded();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Error");
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  const configDiscs = result?.discrepancies.filter((d) => d.kind === "unconfigured_draft_swap") ?? [];
+  const shortDiscs  = result?.discrepancies.filter((d) => d.kind === "short_stock") ?? [];
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+      <div className="bg-surface border border-line-strong rounded-lg p-5 w-full max-w-lg space-y-4">
+        <div>
+          <h3 className="text-sm font-medium text-primary">Sync Taproom Consumption</h3>
+          <p className="text-xs text-muted mt-1">
+            Reconciles keg/can sales and draft keg-swaps from Square into taproom shipments that
+            drain cold storage. Safe to re-run — only unrecorded activity is booked.
+          </p>
+        </div>
+
+        <div className="flex items-end gap-2">
+          <div>
+            <label className="text-xs text-secondary block mb-1">Look-back (days)</label>
+            <input
+              type="number" min="1" max="120" className="inp w-24"
+              value={days} onChange={(e) => setDays(e.target.value)}
+            />
+          </div>
+          <button onClick={run} disabled={running} className="btn-amber btn-xs">
+            {running ? "Syncing…" : "Run sync"}
+          </button>
+        </div>
+
+        {error && <p className="text-xs text-danger">{error}</p>}
+
+        {result && (
+          <div className="space-y-3 text-xs">
+            <div className="rounded border border-line px-3 py-2 text-secondary">
+              Recorded <span className="text-strong tabular-nums">{result.recordedUnits}</span> unit
+              {result.recordedUnits !== 1 ? "s" : ""}
+              {" "}(<span className="text-strong tabular-nums">{result.totalRecordedQty}</span> total)
+              {" · "}<span className="tabular-nums">{result.skipped}</span> already up to date
+              {" · "}last {result.windowDays}d
+            </div>
+
+            {configDiscs.length > 0 && (
+              <div>
+                <p className="text-secondary font-medium mb-1">Draft swap inventory not configured</p>
+                <ul className="space-y-1">
+                  {configDiscs.map((d) => (
+                    <li key={d.recipeId} className="text-muted">
+                      {d.beerName ?? d.recipeId} — {d.swapCount} swap{d.swapCount !== 1 ? "s" : ""} not recorded.
+                      Set its swap keg in Draft Stats.
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {shortDiscs.length > 0 && (
+              <div>
+                <p className="text-secondary font-medium mb-1">Insufficient cold storage</p>
+                <ul className="space-y-1">
+                  {shortDiscs.map((d, i) => (
+                    <li key={`${d.variationId}-${i}`} className="text-muted">
+                      {d.label} — recorded {d.recordedQty}, {d.shortfallQty} short. Check the missing kegging entry.
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {result.discrepancies.length === 0 && (
+              <p className="text-success">No discrepancies.</p>
+            )}
+          </div>
+        )}
+
+        <div className="flex justify-end gap-2 pt-1">
+          <button type="button" onClick={onClose} className="text-xs px-3 py-1.5 text-secondary hover:text-strong">
+            {result ? "Done" : "Cancel"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

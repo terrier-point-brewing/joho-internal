@@ -31,6 +31,7 @@ export async function writeExportTransaction(
     packagingFormat: string;
     unitsPerPackage: number;
     overAllocation?: boolean;
+    sourceRef?: string | null;
   }
 ): Promise<string> {
   const taxBreakdown = await computeExciseTaxBreakdown(supabase, params.volumeBbl);
@@ -54,6 +55,7 @@ export async function writeExportTransaction(
       recipient_name: params.recipientName,
       total_excise_tax_usd: totalExciseTaxUsd,
       source_transfer_id: null,
+      source_ref: params.sourceRef ?? null,
       notes: params.notes ?? null,
       over_allocation: params.overAllocation ?? false,
     })

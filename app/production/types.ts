@@ -605,8 +605,18 @@ export interface ExportServiceMapping {
 }
 
 export interface SquareCatalogOptions {
-  items: { itemId: string; itemName: string; variations: { variationId: string; variationName: string }[] }[];
-  discounts: { id: string; name: string }[];
+  items: {
+    itemId: string;
+    itemName: string;
+    variations: { variationId: string; variationName: string; priceCents?: number | null }[];
+  }[];
+  discounts: {
+    id: string;
+    name: string;
+    discountType?: string | null;
+    percentage?: string | null;
+    amountCents?: number | null;
+  }[];
 }
 
 // ── Square Mappings Grid ──────────────────────────────────────────────────────

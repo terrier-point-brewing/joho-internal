@@ -31,4 +31,12 @@ export const CRON_JOBS: CronJobMeta[] = [
     description:   "Imports recent Ramp expenses and auto-maps them to the chart of accounts.",
     maxAgeHours:   25,
   },
+  {
+    job:           "taproom-consumption-sync",
+    path:          "/api/cron/taproom-consumption-sync",
+    schedule:      "0 7 * * *",
+    scheduleLabel: "Daily · 07:00 UTC",
+    description:   "Reconciles taproom pours (keg/can sales + draft keg-swaps) from Square into taproom shipments that drain cold storage.",
+    maxAgeHours:   25,
+  },
 ];
