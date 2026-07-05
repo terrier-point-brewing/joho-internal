@@ -332,14 +332,18 @@ export default function AchievementTab() {
   // ---------------------------------------------------------------------------
   // Each period's expected share of the target = its share of the scope's
   // calendar days (same day-boundary basis as elapsedFrac), NOT a flat 1/N.
-  // Periods tile the scope exactly (edge weeks are clipped), so these fractions
-  // sum to 1 — a completed period is "on pace" when it delivered its own
-  // time-weighted slice, consistent with the headline straight-line verdict.
+  // Only the ELAPSED slice of each period counts, clamped to the same "now"
+  // boundary the pace bar uses — so a period whose last day is today is judged
+  // against the days that have actually passed (not its full span), and the
+  // per-period "vs. pace" can never disagree with the cumulative pace bar on a
+  // period-boundary day. These slices sum to elapsedFrac, so the table and the
+  // headline stay consistent every day of the scope.
   const expectedPctByStart = new Map<string, number>();
   for (const p of periods) {
     const pStartMs = new Date(dayStartUtc(p.start, tz)).getTime();
     const pEndMs   = new Date(dayStartUtc(addDaysStr(p.end, 1), tz)).getTime();
-    expectedPctByStart.set(p.start, totalMs > 0 ? ((pEndMs - pStartMs) / totalMs) * 100 : 0);
+    const elapsedInPeriodMs = Math.min(Math.max(nowMs - pStartMs, 0), pEndMs - pStartMs);
+    expectedPctByStart.set(p.start, totalMs > 0 ? (elapsedInPeriodMs / totalMs) * 100 : 0);
   }
 
   // ---------------------------------------------------------------------------
