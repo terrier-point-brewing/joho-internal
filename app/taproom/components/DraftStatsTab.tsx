@@ -250,9 +250,12 @@ export default function DraftStatsTab() {
         if (!cur.recipe_id || cur.swap_variation_id) continue;
         const kegs = kegOptionsByRecipe.get(cur.recipe_id) ?? [];
         if (kegs.length === 0) continue;
-        const pick = kegs.length === 1
-          ? kegs[0]
-          : [...kegs].sort((a, b) => (containerVolumeFor(b) ?? 0) - (containerVolumeFor(a) ?? 0))[0];
+        // Bias toward 1/6 kegs whenever one is on hand; else sole SKU, else largest.
+        const sixths = kegs.filter((k) => containerVolumeFor(k) === 660);
+        const pool = sixths.length ? sixths : kegs;
+        const pick = pool.length === 1
+          ? pool[0]
+          : [...pool].sort((a, b) => (containerVolumeFor(b) ?? 0) - (containerVolumeFor(a) ?? 0))[0];
         const vol = containerVolumeFor(pick);
         next[n] = {
           ...cur,
@@ -539,24 +542,31 @@ export default function DraftStatsTab() {
 
                 {/* Recipe assignment */}
                 {editingTaps ? (
-                  <div className="space-y-1.5">
-                    <select
-                      className="inp text-xs w-full"
-                      value={edit.recipe_id}
-                      onChange={(e) => setTapEdit(tapNum, "recipe_id", e.target.value)}
-                    >
-                      <option value="">— empty tap —</option>
-                      {draftRecipes.map((r) => (
-                        <option key={r.id} value={r.id}>{r.beer_name}</option>
-                      ))}
-                    </select>
-                    <input
-                      className="inp text-xs w-full"
-                      placeholder="Label (optional)"
-                      value={edit.label}
-                      onChange={(e) => setTapEdit(tapNum, "label", e.target.value)}
-                    />
-                    <div>
+                  <div className="space-y-2">
+                    <div className="space-y-1">
+                      <label className="block text-xs text-secondary">Beer on this tap</label>
+                      <select
+                        className="inp text-xs w-full"
+                        value={edit.recipe_id}
+                        onChange={(e) => setTapEdit(tapNum, "recipe_id", e.target.value)}
+                      >
+                        <option value="">— empty tap —</option>
+                        {draftRecipes.map((r) => (
+                          <option key={r.id} value={r.id}>{r.beer_name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="block text-xs text-secondary">Tap label (optional)</label>
+                      <input
+                        className="inp text-xs w-full"
+                        placeholder="e.g. House lager"
+                        value={edit.label}
+                        onChange={(e) => setTapEdit(tapNum, "label", e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="block text-xs text-secondary">Square “Draft Restock” line</label>
                       <select
                         className="inp text-xs w-full disabled:opacity-40"
                         value={edit.restock_variation_id}
@@ -575,37 +585,43 @@ export default function DraftStatsTab() {
                       const needsKeg = edit.recipe_id && !edit.swap_variation_id;
                       return (
                         <>
-                          <select
-                            className="inp text-xs w-full disabled:opacity-40"
-                            value={edit.swap_variation_id}
-                            disabled={!edit.recipe_id}
-                            title="Cold-storage keg drained when this tap is swapped"
-                            onChange={(e) => {
-                              const opt = kegs.find((k) => k.variation_id === e.target.value);
-                              setTapEdit(tapNum, "swap_variation_id", e.target.value);
-                              // Auto-fill volume from the lot's container when empty.
-                              if (opt && !getTapEdit(tapNum).swap_volume_fl_oz) {
-                                const vol = containerVolumeFor(opt);
-                                if (vol) setTapEdit(tapNum, "swap_volume_fl_oz", String(vol));
-                              }
-                            }}
-                          >
-                            <option value="">— keg to drain —</option>
-                            {kegs.map((k) => (
-                              <option key={k.variation_id} value={k.variation_id}>
-                                {k.variation_name} ({k.quantity_on_hand} on hand)
-                              </option>
-                            ))}
-                          </select>
-                          <input
-                            className="inp text-xs w-full"
-                            placeholder="Full-keg fl oz (recount target)"
-                            value={edit.swap_volume_fl_oz}
-                            onChange={(e) => setTapEdit(tapNum, "swap_volume_fl_oz", e.target.value)}
-                          />
-                          {needsKeg && (
-                            <p className="text-xs text-danger">Needs a swap keg</p>
-                          )}
+                          <div className="space-y-1">
+                            <label className="block text-xs text-secondary">Cold-storage keg to drain on swap</label>
+                            <select
+                              className="inp text-xs w-full disabled:opacity-40"
+                              value={edit.swap_variation_id}
+                              disabled={!edit.recipe_id}
+                              title="Cold-storage keg drained when this tap is swapped"
+                              onChange={(e) => {
+                                const opt = kegs.find((k) => k.variation_id === e.target.value);
+                                setTapEdit(tapNum, "swap_variation_id", e.target.value);
+                                // Auto-fill volume from the lot's container when empty.
+                                if (opt && !getTapEdit(tapNum).swap_volume_fl_oz) {
+                                  const vol = containerVolumeFor(opt);
+                                  if (vol) setTapEdit(tapNum, "swap_volume_fl_oz", String(vol));
+                                }
+                              }}
+                            >
+                              <option value="">— keg to drain —</option>
+                              {kegs.map((k) => (
+                                <option key={k.variation_id} value={k.variation_id}>
+                                  {k.variation_name} ({k.quantity_on_hand} on hand)
+                                </option>
+                              ))}
+                            </select>
+                            {needsKeg && (
+                              <p className="text-xs text-danger">Needs a swap keg</p>
+                            )}
+                          </div>
+                          <div className="space-y-1">
+                            <label className="block text-xs text-secondary">Full-keg volume — recount target (fl oz)</label>
+                            <input
+                              className="inp text-xs w-full"
+                              placeholder="e.g. 660"
+                              value={edit.swap_volume_fl_oz}
+                              onChange={(e) => setTapEdit(tapNum, "swap_volume_fl_oz", e.target.value)}
+                            />
+                          </div>
                         </>
                       );
                     })()}
@@ -627,7 +643,10 @@ export default function DraftStatsTab() {
                     <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-xs">
                       <div>
                         <span className="text-faint">fl oz avail</span>
-                        <p className="text-strong tabular-nums font-medium">
+                        <p
+                          className={`tabular-nums font-medium ${tap.metrics.current_fl_oz < 0 ? "text-danger" : "text-strong"}`}
+                          title={tap.metrics.current_fl_oz < 0 ? "Negative on-tap level — ring a Draft Restock to swap the keg" : undefined}
+                        >
                           {tap.metrics.current_fl_oz.toLocaleString()} oz
                         </p>
                       </div>

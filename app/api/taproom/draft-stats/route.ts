@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { fetchSellThrough } from "@/lib/square/sell-through";
 import { aggregateShrinkage, type SwapShrinkageRow } from "@/lib/reports/draftShrinkage";
+import { swapReserveFlOz, tapBblOnHand } from "@/lib/reports/draftTapMetrics";
 import { apiError } from "@/lib/utils/api";
 import { BBL_TO_FL_OZ } from "@/lib/constants/production";
 
@@ -12,16 +13,19 @@ export async function GET(req: NextRequest) {
   try {
     const days = Math.min(parseInt(new URL(req.url).searchParams.get("days") ?? "90"), 365);
 
-    // Fetch tap config, sell-through data (draft only), and retired settings in parallel.
-    // Shrinkage physical counts depend on the draft variation IDs, so they run after.
-    const [tapCfgRes, tapCountRes, draftSellThrough, kegSellThrough, settingsRes] = await Promise.all([
+    // Fetch tap config, sell-through data (draft only), swap-keg cold storage, and
+    // retired settings in parallel. Shrinkage rows are read afterward.
+    const [tapCfgRes, tapCountRes, draftSellThrough, coldStorageRes, settingsRes] = await Promise.all([
       supabase
         .from("tap_assignments")
-        .select("tap_number, recipe_id, label, recipes(beer_name)")
+        .select("tap_number, recipe_id, label, swap_variation_id, swap_volume_fl_oz, recipes(beer_name)")
         .order("tap_number"),
       supabase.from("system_settings").select("value").eq("key", "tap_count").maybeSingle(),
       fetchSellThrough(supabase, { packaging: "draft" }),
-      fetchSellThrough(supabase, { packaging: "keg" }),
+      supabase
+        .from("cold_storage_inventory")
+        .select("recipe_id, variation_id, quantity_on_hand")
+        .not("recipe_id", "is", null),
       supabase.from("taproom_recipe_settings").select("recipe_id, is_retired"),
     ]);
 
@@ -30,6 +34,15 @@ export async function GET(req: NextRequest) {
     const retiredIds = new Set(
       (settingsRes.data ?? []).filter((r) => r.is_retired).map((r) => r.recipe_id as string)
     );
+
+    // Cold-storage on-hand per (recipe, packaging variation). Keyed by both because
+    // the generic "1/6 Keg" variation is shared across beers — variation alone
+    // would sum every recipe's kegs together.
+    const onHandByRecipeVar = new Map<string, number>();
+    for (const row of coldStorageRes.data ?? []) {
+      const key = `${row.recipe_id}|${row.variation_id}`;
+      onHandByRecipeVar.set(key, (onHandByRecipeVar.get(key) ?? 0) + Number(row.quantity_on_hand));
+    }
 
     const emptyTaps = Array.from({ length: tapCount }, (_, i) => {
       const tap = taps.find((t) => t.tap_number === i + 1);
@@ -46,14 +59,10 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ tap_count: tapCount, taps: emptyTaps, shrinkage_by_recipe: [] });
     }
 
-    // Keg inventory per recipe (packaged kegs in reserve, not yet on tap)
-    const kegBblByRecipe = new Map<string, number>();
-    for (const link of kegSellThrough) {
-      kegBblByRecipe.set(link.recipe_id, (kegBblByRecipe.get(link.recipe_id) ?? 0) + link.current_bbl);
-    }
-
-    // Aggregate per-recipe (multiple draft links possible, though rare)
-    const byRecipe = new Map<string, { beer_name: string; current_fl_oz: number; daily_fl_oz: number; keg_bbl: number }>();
+    // Aggregate draft-on-tap per-recipe (multiple draft links possible, though rare).
+    // The keg reserve is now sourced per-tap from the tap's swap keg (below), not
+    // from keg sell-through, so it isn't aggregated here.
+    const byRecipe = new Map<string, { beer_name: string; current_fl_oz: number; daily_fl_oz: number }>();
     for (const link of draftSellThrough) {
       const flOz  = link.current_bbl * BBL_TO_FL_OZ;
       const dFlOz = link.daily_sell_through_bbl * BBL_TO_FL_OZ;
@@ -63,7 +72,6 @@ export async function GET(req: NextRequest) {
           beer_name:     link.item_name ?? "—",
           current_fl_oz: flOz,
           daily_fl_oz:   dFlOz,
-          keg_bbl:       kegBblByRecipe.get(link.recipe_id) ?? 0,
         });
       } else {
         entry.current_fl_oz += flOz;
@@ -87,19 +95,30 @@ export async function GET(req: NextRequest) {
     );
 
     const enrichedTaps = Array.from({ length: tapCount }, (_, i) => {
-      const tap      = taps.find((t) => t.tap_number === i + 1);
-      const recipeId = tap?.recipe_id as string | undefined;
+      const tap      = taps.find((t) => t.tap_number === i + 1) as
+        | { tap_number: number; recipe_id: string | null; label: string | null;
+            swap_variation_id: string | null; swap_volume_fl_oz: number | null;
+            recipes: { beer_name: string } | null }
+        | undefined;
+      const recipeId = tap?.recipe_id ?? undefined;
       const metrics  = recipeId ? (byRecipe.get(recipeId) ?? null) : null;
+
+      // Reserve = this tap's swap keg on hand in cold storage × its full-keg volume.
+      const swapKegsOnHand = recipeId && tap?.swap_variation_id
+        ? onHandByRecipeVar.get(`${recipeId}|${tap.swap_variation_id}`) ?? 0
+        : 0;
+      const reserveFlOz = swapReserveFlOz(swapKegsOnHand, tap?.swap_volume_fl_oz ?? null);
+
       return {
         tap_number: i + 1,
         recipe_id:  recipeId ?? null,
         label:      tap?.label ?? null,
-        beer_name:  (tap?.recipes as unknown as { beer_name: string } | null)?.beer_name ?? null,
+        beer_name:  tap?.recipes?.beer_name ?? null,
         metrics: metrics ? {
           current_fl_oz:  Number(metrics.current_fl_oz.toFixed(1)),
-          current_bbl:    Number((metrics.current_fl_oz / BBL_TO_FL_OZ + metrics.keg_bbl).toFixed(3)),
+          current_bbl:    Number(tapBblOnHand(metrics.current_fl_oz, reserveFlOz).toFixed(3)),
           draft_bbl:      Number((metrics.current_fl_oz / BBL_TO_FL_OZ).toFixed(3)),
-          keg_bbl:        Number(metrics.keg_bbl.toFixed(3)),
+          keg_bbl:        Number((reserveFlOz / BBL_TO_FL_OZ).toFixed(3)),
           daily_fl_oz:    Number(metrics.daily_fl_oz.toFixed(1)),
           daily_bbl:      Number((metrics.daily_fl_oz / BBL_TO_FL_OZ).toFixed(4)),
           is_retired:     retiredIds.has(recipeId!),
