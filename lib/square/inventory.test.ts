@@ -1,6 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { bucketOrderLinesByDay, type DayBucketOrder } from "./inventory";
+import { bucketOrderLinesByDay, extractRestockLineItems, type DayBucketOrder } from "./inventory";
 import { KEG_TRANSFER_DISCOUNT_NAME } from "@/types/reports";
+
+// Order shape accepted by the restock extractor (a subset of lib/square Order).
+type ScanOrder = Parameters<typeof extractRestockLineItems>[0][number];
 
 describe("bucketOrderLinesByDay", () => {
   it("buckets a variation across two different days", () => {
@@ -161,5 +164,62 @@ describe("bucketOrderLinesByDay", () => {
 
     expect(map.get("V1\t2026-07-01")).toBe(2);
     expect(map.size).toBe(1);
+  });
+});
+
+describe("extractRestockLineItems", () => {
+  const RESTOCK = ["tap1-var", "tap3-var"];
+
+  it("returns one event per matching restock line, keyed by order + line uid", () => {
+    const orders: ScanOrder[] = [
+      {
+        id: "o1",
+        closed_at: "2026-07-04T20:00:00Z",
+        line_items: [
+          { uid: "li-a", catalog_object_id: "tap1-var", quantity: "1" },
+          { uid: "li-b", catalog_object_id: "some-beer", quantity: "2" }, // not a restock
+        ],
+      },
+    ];
+
+    const events = extractRestockLineItems(orders, RESTOCK);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      orderId: "o1",
+      lineUid: "li-a",
+      squareVariationId: "tap1-var",
+      quantity: 1,
+      occurredAt: "2026-07-04T20:00:00Z",
+    });
+  });
+
+  it("uses closed_at, falling back to created_at, and skips lines with neither", () => {
+    const orders: ScanOrder[] = [
+      { id: "o2", created_at: "2026-07-04T10:00:00Z", line_items: [{ uid: "x", catalog_object_id: "tap3-var", quantity: "1" }] },
+      { id: "o3", line_items: [{ uid: "y", catalog_object_id: "tap3-var", quantity: "1" }] }, // no timestamp → skipped
+    ];
+
+    const events = extractRestockLineItems(orders, RESTOCK);
+    expect(events).toHaveLength(1);
+    expect(events[0].occurredAt).toBe("2026-07-04T10:00:00Z");
+  });
+
+  it("defaults non-positive or missing quantity to 1 and falls back lineUid to the variation id", () => {
+    const orders: ScanOrder[] = [
+      { id: "o4", closed_at: "2026-07-04T12:00:00Z", line_items: [{ catalog_object_id: "tap1-var" }] },
+    ];
+
+    const events = extractRestockLineItems(orders, RESTOCK);
+    expect(events[0].quantity).toBe(1);
+    expect(events[0].lineUid).toBe("tap1-var");
+  });
+
+  it("skips invoice-sourced orders and returns nothing when no restock ids are given", () => {
+    const orders: ScanOrder[] = [
+      { id: "o5", closed_at: "2026-07-04T12:00:00Z", source: { name: "Invoices" }, line_items: [{ uid: "z", catalog_object_id: "tap1-var", quantity: "1" }] },
+    ];
+
+    expect(extractRestockLineItems(orders, RESTOCK)).toHaveLength(0);
+    expect(extractRestockLineItems([{ id: "o6", closed_at: "2026-07-04T12:00:00Z", line_items: [{ uid: "z", catalog_object_id: "tap1-var", quantity: "1" }] }], [])).toHaveLength(0);
   });
 });

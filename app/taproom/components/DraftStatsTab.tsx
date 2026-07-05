@@ -54,7 +54,21 @@ interface DraftStatsData {
 
 interface TapConfig {
   tap_count: number;
-  taps: { tap_number: number; recipe_id: string | null; label: string | null; recipes?: { beer_name: string } | null }[];
+  draft_restock_item_id: string | null;
+  taps: {
+    tap_number: number;
+    recipe_id: string | null;
+    label: string | null;
+    restock_variation_id?: string | null;
+    recipes?: { beer_name: string } | null;
+  }[];
+}
+
+interface SquareCatalogVariation {
+  variation_id: string;
+  item_id: string;
+  item_name: string;
+  variation_name: string;
 }
 
 interface RecipeOption {
@@ -98,14 +112,37 @@ export default function DraftStatsTab() {
     staleTime: 5 * 60_000,
   });
 
+  // Square catalog variations (for the per-tap "Draft Restock" line mapping).
+  const { data: catalogVariations = [] } = useQuery({
+    queryKey: queryKeys.production.squareCatalog(),
+    queryFn:  () => fetchJson<SquareCatalogVariation[]>("/api/production/square-catalog"),
+    staleTime: 5 * 60_000,
+  });
+
   // Recipes with at least one draft link
   const draftRecipeIds = new Set(links.filter((l) => l.packaging === "draft").map((l) => l.recipe_id));
 
   const [editingTaps, setEditingTaps] = useState(false);
   const [tapCountInput, setTapCountInput] = useState("");
-  const [tapEdits, setTapEdits] = useState<Record<number, { recipe_id: string; label: string }>>({});
+  const [tapEdits, setTapEdits] = useState<Record<number, { recipe_id: string; label: string; restock_variation_id: string }>>({});
+  const [restockItemId, setRestockItemId] = useState("");
   const [saving, setSaving] = useState(false);
   const [retiringSaving, setRetiringSaving] = useState<string | null>(null);
+
+  // Variations belonging to the chosen "Draft Restock" Square item, for the
+  // per-tap dropdowns. Empty until an item is selected.
+  const restockVariations = catalogVariations.filter((v) => v.item_id === restockItemId);
+  // Distinct Square items, for the restock-item picker.
+  const catalogItems = Array.from(
+    new Map(catalogVariations.map((v) => [v.item_id, v.item_name])).entries(),
+  )
+    .map(([item_id, item_name]) => ({ item_id, item_name }))
+    .sort((a, b) => a.item_name.localeCompare(b.item_name));
+
+  // Tap numbers that already have a restock line mapped (for the at-a-glance badge).
+  const restockMappedTaps = new Set(
+    (tapConfig?.taps ?? []).filter((t) => t.restock_variation_id).map((t) => t.tap_number),
+  );
 
   const err = error instanceof Error ? error.message : null;
   const shrinkageDays = 90;
@@ -123,34 +160,64 @@ export default function DraftStatsTab() {
 
   function startEditTaps() {
     setTapCountInput(String(stats?.tap_count ?? tapConfig?.tap_count ?? 8));
-    const edits: Record<number, { recipe_id: string; label: string }> = {};
+    setRestockItemId(tapConfig?.draft_restock_item_id ?? "");
+    const edits: Record<number, { recipe_id: string; label: string; restock_variation_id: string }> = {};
+    // Recipe/label come from the richest source; restock mapping lives only on
+    // the tap-config payload, so key it in by tap number from there.
+    const restockByTap = new Map((tapConfig?.taps ?? []).map((t) => [t.tap_number, t.restock_variation_id ?? ""]));
     const src = stats?.taps ?? tapConfig?.taps ?? [];
     for (const t of src) {
-      edits[t.tap_number] = { recipe_id: t.recipe_id ?? "", label: t.label ?? "" };
+      edits[t.tap_number] = {
+        recipe_id: t.recipe_id ?? "",
+        label: t.label ?? "",
+        restock_variation_id: restockByTap.get(t.tap_number) ?? "",
+      };
     }
     setTapEdits(edits);
     setEditingTaps(true);
   }
 
   function getTapEdit(n: number) {
-    return tapEdits[n] ?? { recipe_id: "", label: "" };
+    return tapEdits[n] ?? { recipe_id: "", label: "", restock_variation_id: "" };
   }
-  function setTapEdit(n: number, field: "recipe_id" | "label", val: string) {
+  function setTapEdit(n: number, field: "recipe_id" | "label" | "restock_variation_id", val: string) {
     setTapEdits((e) => ({ ...e, [n]: { ...getTapEdit(n), [field]: val } }));
+  }
+
+  // Auto-map each tap to the restock variation whose name contains its tap
+  // number (e.g. "Tap 3"), for the chosen restock item. Never clobbers a slot
+  // that already has a mapping.
+  function autoMatchRestock() {
+    const count = parseInt(tapCountInput) || 8;
+    setTapEdits((e) => {
+      const next = { ...e };
+      for (let n = 1; n <= count; n++) {
+        const cur = next[n] ?? getTapEdit(n);
+        if (cur.restock_variation_id) continue;
+        const match = restockVariations.find((v) => new RegExp(`\\b0*${n}\\b`).test(v.variation_name));
+        if (match) next[n] = { ...cur, restock_variation_id: match.variation_id };
+      }
+      return next;
+    });
   }
 
   async function saveTaps() {
     setSaving(true);
     const count = parseInt(tapCountInput) || 8;
     const taps = Array.from({ length: count }, (_, i) => {
-      const e = tapEdits[i + 1] ?? { recipe_id: "", label: "" };
-      return { tap_number: i + 1, recipe_id: e.recipe_id || null, label: e.label || null };
+      const e = tapEdits[i + 1] ?? { recipe_id: "", label: "", restock_variation_id: "" };
+      return {
+        tap_number: i + 1,
+        recipe_id: e.recipe_id || null,
+        label: e.label || null,
+        restock_variation_id: e.restock_variation_id || null,
+      };
     });
     try {
       const res = await fetch("/api/taproom/tap-config", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tap_count: count, taps }),
+        body: JSON.stringify({ tap_count: count, draft_restock_item_id: restockItemId || null, taps }),
       });
       if (!res.ok) throw new Error((await res.json()).error ?? "Error");
       setEditingTaps(false);
@@ -251,6 +318,60 @@ export default function DraftStatsTab() {
         </div>
       )}
 
+      {/* ── Draft Restock mapping + Square setup explainer ── */}
+      {editingTaps && (
+        <div className="mb-6 p-4 rounded-lg bg-surface border border-line-strong space-y-3">
+          <div>
+            <h3 className="text-sm font-semibold text-strong">Draft Restock line item → tap mapping</h3>
+            <p className="text-xs text-muted mt-1 leading-relaxed">
+              When a bartender rings the <span className="text-body font-medium">Draft Restock</span> line for a tap,
+              the app records a keg-swap shipment (draining the cold-storage keg set in{" "}
+              <span className="text-body font-medium">Draft Swap Inventory</span> below) and recounts that
+              tap&rsquo;s draft item back to full in Square. Map each tap to its restock variation here.
+            </p>
+          </div>
+
+          {/* Square setup explainer */}
+          <details className="text-xs rounded-md border border-line bg-canvas/40 px-3 py-2">
+            <summary className="cursor-pointer text-secondary font-medium select-none">
+              How to set up the Square line item
+            </summary>
+            <ol className="mt-2 ml-4 list-decimal space-y-1 text-muted leading-relaxed">
+              <li>In Square, create one item named <span className="text-body">Draft Restock</span> (or similar), priced <span className="text-body">$0.00</span>.</li>
+              <li>Add one <span className="text-body">variation per tap</span>, named so the tap number is clear — e.g. <span className="text-body">&ldquo;Tap 1&rdquo;, &ldquo;Tap 2&rdquo;…</span></li>
+              <li>Leave <span className="text-body">inventory tracking off</span> for this item — it&rsquo;s a swap marker, not stock.</li>
+              <li>Run <span className="text-body">Sync Catalog</span> (Settings → Square Mappings), then pick the item and map each tap below.</li>
+            </ol>
+          </details>
+
+          {/* Restock item picker + auto-match */}
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="text-xs text-secondary whitespace-nowrap">Restock item:</label>
+            <select
+              className="inp text-xs w-56"
+              value={restockItemId}
+              onChange={(e) => setRestockItemId(e.target.value)}
+            >
+              <option value="">— select Square item —</option>
+              {catalogItems.map((it) => (
+                <option key={it.item_id} value={it.item_id}>{it.item_name}</option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={autoMatchRestock}
+              disabled={!restockItemId || restockVariations.length === 0}
+              className="btn-ghost btn-sm disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Auto-match by tap #
+            </button>
+            {!restockItemId && (
+              <span className="text-xs text-faint">Pick the Square item to enable per-tap mapping.</span>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ── Tap grid ── */}
       {isLoading ? (
         <p className="text-faint text-sm py-10 text-center">Loading tap data from Square…</p>
@@ -319,8 +440,16 @@ export default function DraftStatsTab() {
               >
                 {/* Tap number + urgency badge */}
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-muted uppercase tracking-wider">
+                  <span className="text-xs font-semibold text-muted uppercase tracking-wider flex items-center gap-1">
                     Tap {tapNum}
+                    {!editingTaps && restockMappedTaps.has(tapNum) && (
+                      <span
+                        title="Draft Restock line item mapped — keg swaps auto-recount this tap"
+                        className="text-accent-soft normal-case tracking-normal"
+                      >
+                        ⟳
+                      </span>
+                    )}
                   </span>
                   <div className="flex items-center gap-1.5">
                     {isRetired && (
@@ -355,6 +484,20 @@ export default function DraftStatsTab() {
                       value={edit.label}
                       onChange={(e) => setTapEdit(tapNum, "label", e.target.value)}
                     />
+                    <div>
+                      <select
+                        className="inp text-xs w-full disabled:opacity-40"
+                        value={edit.restock_variation_id}
+                        disabled={!restockItemId}
+                        title={restockItemId ? "Square Draft Restock variation for this tap" : "Pick the restock item above first"}
+                        onChange={(e) => setTapEdit(tapNum, "restock_variation_id", e.target.value)}
+                      >
+                        <option value="">— restock variation —</option>
+                        {restockVariations.map((v) => (
+                          <option key={v.variation_id} value={v.variation_id}>{v.variation_name}</option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
                 ) : (
                   <div>

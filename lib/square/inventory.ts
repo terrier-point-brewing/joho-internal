@@ -38,6 +38,44 @@ export async function fetchCurrentCounts(
   return map;
 }
 
+/**
+ * Recount a single variation to an absolute quantity by writing a PHYSICAL_COUNT
+ * inventory change to Square (the one place this app *writes* inventory).
+ *
+ * Used when a draft keg is swapped: the mapped draft SKU is set back to its
+ * full-keg fl oz so Square's on-hand and the taproom draft-stats stay accurate.
+ * `occurredAt` should be the triggering event's timestamp (RFC3339), e.g. the
+ * restock order's `closed_at`, so the count lands at the right point in history.
+ */
+export async function setPhysicalCount(
+  variationId: string,
+  quantity: number,
+  occurredAt: string,
+): Promise<void> {
+  const locationId = squareLocationId();
+  const res = await squarePost<{ errors?: Array<{ detail?: string }> }>(
+    "/inventory/changes/batch-create",
+    {
+      idempotency_key: crypto.randomUUID(),
+      changes: [
+        {
+          type: "PHYSICAL_COUNT",
+          physical_count: {
+            catalog_object_id: variationId,
+            location_id: locationId,
+            quantity: String(quantity),
+            state: "IN_STOCK",
+            occurred_at: occurredAt,
+          },
+        },
+      ],
+    },
+  );
+  if (res.errors?.length) {
+    throw new Error(res.errors[0].detail ?? "Square inventory write failed");
+  }
+}
+
 export interface PhysicalCount {
   id: string;
   catalog_object_id: string;
@@ -57,6 +95,7 @@ interface ChangesResponse {
 }
 
 interface OrderLineItem {
+  uid?: string;
   catalog_object_id?: string;
   quantity?: string;
   applied_discounts?: Array<{ discount_uid: string }>;
@@ -236,6 +275,94 @@ export async function fetchOrderSalesByDay(
   } while (cursor);
 
   return bucketOrderLinesByDay(orders, { ids: catalogObjectIds, excludeTransfers: true });
+}
+
+/** One completed "Draft Restock" line item — a bartender-recorded keg swap. */
+export interface RestockLineEvent {
+  orderId: string;
+  lineUid: string; // Square line-item uid — stable idempotency anchor per swap
+  squareVariationId: string; // the restock variation (identifies the tap)
+  quantity: number; // kegs swapped on this line (defaults to 1)
+  occurredAt: string; // order closed_at || created_at (RFC3339)
+}
+
+/**
+ * Pure extractor: pull individual "Draft Restock" line items out of a batch of
+ * orders. Each matching line item is one keg-swap event, keyed by order + line
+ * uid so the sync can record it exactly once. Invoice-sourced orders (wholesale)
+ * and lines with no timestamp are skipped.
+ */
+export function extractRestockLineItems(
+  orders: Order[],
+  restockVariationIds: string[],
+): RestockLineEvent[] {
+  const idSet = new Set(restockVariationIds);
+  if (idSet.size === 0) return [];
+
+  const events: RestockLineEvent[] = [];
+  for (const order of orders) {
+    if (order.source?.name === "Invoices") continue;
+    const occurredAt = order.closed_at ?? order.created_at;
+    if (!occurredAt) continue;
+
+    for (const item of order.line_items ?? []) {
+      const varId = item.catalog_object_id;
+      if (!varId || !idSet.has(varId)) continue;
+      const qty = parseFloat(item.quantity ?? "1");
+      events.push({
+        orderId: order.id,
+        lineUid: item.uid ?? varId,
+        squareVariationId: varId,
+        quantity: qty > 0 ? qty : 1,
+        occurredAt,
+      });
+    }
+  }
+  return events;
+}
+
+/**
+ * Fetch completed "Draft Restock" line items for a date range. Same
+ * /orders/search request as the sales fetchers, then narrowed to the given
+ * restock variation ids via `extractRestockLineItems`.
+ */
+export async function fetchDraftRestockLineItems(
+  startDate: string,
+  endDate: string,
+  restockVariationIds: string[],
+): Promise<RestockLineEvent[]> {
+  if (restockVariationIds.length === 0) return [];
+  const locationId = squareLocationId();
+
+  const orders: Order[] = [];
+  let cursor: string | undefined;
+
+  do {
+    const body: Record<string, unknown> = {
+      location_ids: [locationId],
+      query: {
+        filter: {
+          state_filter: { states: ["COMPLETED"] },
+          date_time_filter: {
+            closed_at: {
+              start_at: new Date(startDate).toISOString(),
+              end_at: new Date(endDate).toISOString(),
+            },
+          },
+        },
+      },
+      limit: 500,
+    };
+    if (cursor) body.cursor = cursor;
+
+    const data = await squarePost<OrderSearchResponse>("/orders/search", body);
+    if (data.errors?.length) throw new Error(data.errors[0].detail);
+
+    orders.push(...(data.orders ?? []));
+    cursor = data.cursor;
+  } while (cursor);
+
+  return extractRestockLineItems(orders, restockVariationIds);
 }
 
 // Fetch physical count inventory changes for a date range.

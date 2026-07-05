@@ -7,15 +7,19 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   const supabase = await createSupabaseServerClient();
-  const [settingsRes, tapsRes] = await Promise.all([
+  const [countRes, restockItemRes, tapsRes] = await Promise.all([
     supabase.from("system_settings").select("value").eq("key", "tap_count").maybeSingle(),
+    supabase.from("system_settings").select("value").eq("key", "draft_restock_item_id").maybeSingle(),
     supabase
       .from("tap_assignments")
-      .select("tap_number, recipe_id, label, recipes(beer_name)")
+      .select("tap_number, recipe_id, label, restock_variation_id, recipes(beer_name)")
       .order("tap_number"),
   ]);
   return NextResponse.json({
-    tap_count: Number(settingsRes.data?.value ?? 8),
+    tap_count: Number(countRes.data?.value ?? 8),
+    // The Square catalog item id chosen as the "Draft Restock" item — scopes the
+    // per-tap variation pickers in the UI. Stored as text in system_settings.
+    draft_restock_item_id: (restockItemRes.data?.value as string | null) ?? null,
     taps: tapsRes.data ?? [],
   });
 }
@@ -26,9 +30,15 @@ export async function PUT(req: NextRequest) {
   try {
     const body = await req.json() as {
       tap_count?: number;
-      taps?: { tap_number: number; recipe_id: string | null; label?: string }[];
+      draft_restock_item_id?: string | null;
+      taps?: {
+        tap_number: number;
+        recipe_id: string | null;
+        label?: string;
+        restock_variation_id?: string | null;
+      }[];
     };
-    const { tap_count, taps } = body;
+    const { tap_count, draft_restock_item_id, taps } = body;
 
     if (tap_count !== undefined) {
       await adminSupabase
@@ -39,16 +49,26 @@ export async function PUT(req: NextRequest) {
         );
     }
 
+    if (draft_restock_item_id !== undefined) {
+      await adminSupabase
+        .from("system_settings")
+        .upsert(
+          { key: "draft_restock_item_id", value: draft_restock_item_id, updated_at: new Date().toISOString() },
+          { onConflict: "key" }
+        );
+    }
+
     if (taps !== undefined) {
       for (const tap of taps) {
         await supabase
           .from("tap_assignments")
           .upsert(
             {
-              tap_number: tap.tap_number,
-              recipe_id:  tap.recipe_id || null,
-              label:      tap.label || null,
-              updated_at: new Date().toISOString(),
+              tap_number:           tap.tap_number,
+              recipe_id:            tap.recipe_id || null,
+              label:                tap.label || null,
+              restock_variation_id: tap.restock_variation_id || null,
+              updated_at:           new Date().toISOString(),
             },
             { onConflict: "tap_number" }
           );
