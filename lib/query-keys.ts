@@ -118,4 +118,10 @@ export const queryKeys = {
     preview:   (id: string) => ["payroll", "preview", id] as const,
     shifts:    (id: string) => ["payroll", "shifts", id] as const,
   },
+
+  // ─── Settings (app-wide) ──────────────────────────────────────────────────
+  settings: {
+    all:             () => ["settings"] as const,
+    breweryTimezone: () => ["settings", "brewery-timezone"] as const,
+  },
 } as const;

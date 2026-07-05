@@ -89,3 +89,27 @@ export function eachDateString(startDate: string, endDate: string): string[] {
   }
   return out;
 }
+
+// Add `n` days (may be negative) to a YYYY-MM-DD string, returning YYYY-MM-DD.
+// Anchored at UTC noon so DST transitions never drop or duplicate a day. This is
+// pure calendar arithmetic — it never touches the runtime's local zone, so the
+// result is identical no matter where the code runs (browser or server).
+export function addDaysStr(dateStr: string, n: number): string {
+  const d = new Date(`${dateStr}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+// Day of week (0=Sun .. 6=Sat) for a YYYY-MM-DD calendar date, evaluated at UTC
+// noon so the runtime's local zone can never shift it to an adjacent day.
+export function weekdayOf(dateStr: string): number {
+  return new Date(`${dateStr}T12:00:00Z`).getUTCDay();
+}
+
+// The current calendar date (YYYY-MM-DD) in the given zone. Pass an explicit
+// `now` for deterministic tests; defaults to the real current instant. Use this
+// instead of `new Date().getFullYear()` etc. so "today" means today *at the
+// brewery*, not in whatever zone the viewer's browser happens to be in.
+export function todayLocalDate(tz: string = BREWERY_TZ, now: Date = new Date()): string {
+  return localDateString(now.toISOString(), tz);
+}

@@ -2,6 +2,9 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { formatCurrencyCents, formatPercent } from "@/lib/format";
+import { todayLocalDate, addDaysStr, weekdayOf, dayStartUtc } from "@/lib/utils/datetime";
+import { useBreweryTimezone } from "@/app/hooks/useBreweryTimezone";
+import TimezoneLabel from "@/app/components/TimezoneLabel";
 import { useQuery } from "@tanstack/react-query";
 import { fetchJson } from "@/app/production/hooks/queries";
 import { queryKeys } from "@/lib/query-keys";
@@ -46,21 +49,32 @@ function currency(cents: number) {
 }
 function pct(n: number, decimals = 1) { return formatPercent(n / 100, decimals); }
 
-function quarterDateRange(year: number, quarter: number) {
-  const s = (quarter - 1) * 3;
-  return { start: new Date(year, s, 1), end: new Date(year, s + 3, 0) };
-}
-function toISO(d: Date) { return d.toISOString().slice(0, 10); }
-function addDays(d: Date, n: number) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
+// All period math runs on YYYY-MM-DD calendar strings, never on the viewer's
+// local `Date`, so the buckets (and which weekday a boundary lands on) are pinned
+// to the brewery zone regardless of where the report is opened from. See
+// `lib/utils/datetime.ts` for the shared BREWERY_TZ config + string helpers.
 
 const MA = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const MO = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+
+const pad = (n: number) => String(n).padStart(2, "0");
+const isoDate = (year: number, month1: number, day: number) => `${year}-${pad(month1)}-${pad(day)}`;
+// Last calendar day of a 1-based month. Magnitude only (via UTC) → zone-independent.
+const daysInMonth = (year: number, month1: number) => new Date(Date.UTC(year, month1, 0)).getUTCDate();
+// Split a YYYY-MM-DD into [year, month1, day].
+const partsOf = (dateStr: string) => dateStr.split("-").map(Number) as [number, number, number];
+
+function quarterDateRange(year: number, quarter: number) {
+  const startMonth = (quarter - 1) * 3 + 1;
+  const endMonth   = startMonth + 2;
+  return { start: isoDate(year, startMonth, 1), end: isoDate(year, endMonth, daysInMonth(year, endMonth)) };
+}
 
 function buildMonthlyPeriods(year: number, quarter: number): Omit<Period,"net_sales_cents"|"loading">[] {
-  const { start } = quarterDateRange(year, quarter);
+  const startMonth = (quarter - 1) * 3 + 1;
   return Array.from({ length: 3 }, (_, m) => {
-    const ms = new Date(start.getFullYear(), start.getMonth() + m, 1);
-    const me = new Date(start.getFullYear(), start.getMonth() + m + 1, 0);
-    return { label: ms.toLocaleString("default",{month:"long",year:"numeric"}), shortLabel: MA[ms.getMonth()], start: toISO(ms), end: toISO(me) };
+    const month1 = startMonth + m;
+    return { label: `${MO[month1 - 1]} ${year}`, shortLabel: MA[month1 - 1], start: isoDate(year, month1, 1), end: isoDate(year, month1, daysInMonth(year, month1)) };
   });
 }
 
@@ -71,36 +85,36 @@ function buildWeeklyPeriods(year: number, quarter: number): Omit<Period,"net_sal
 
 function buildYearlyMonthlyPeriods(year: number): Omit<Period,"net_sales_cents"|"loading">[] {
   return Array.from({ length: 12 }, (_, m) => {
-    const ms = new Date(year, m, 1);
-    const me = new Date(year, m + 1, 0);
-    return { label: ms.toLocaleString("default",{month:"long",year:"numeric"}), shortLabel: MA[m], start: toISO(ms), end: toISO(me) };
+    const month1 = m + 1;
+    return { label: `${MO[m]} ${year}`, shortLabel: MA[m], start: isoDate(year, month1, 1), end: isoDate(year, month1, daysInMonth(year, month1)) };
   });
 }
 
 function buildYearlyWeeklyPeriods(year: number): Omit<Period,"net_sales_cents"|"loading">[] {
-  return buildWeekRange(new Date(year, 0, 1), new Date(year, 11, 31));
+  return buildWeekRange(isoDate(year, 1, 1), isoDate(year, 12, 31));
 }
 
-function snapToMonday(d: Date): Date {
-  const day = d.getDay(); // 0=Sun, 1=Mon ...
+// Snap a calendar date back to the Monday of its week.
+function snapToMonday(dateStr: string): string {
+  const day = weekdayOf(dateStr); // 0=Sun, 1=Mon ...
   const diff = day === 0 ? -6 : 1 - day;
-  const mon = new Date(d);
-  mon.setDate(d.getDate() + diff);
-  mon.setHours(0, 0, 0, 0);
-  return mon;
+  return addDaysStr(dateStr, diff);
 }
 
-function buildWeekRange(start: Date, end: Date): Omit<Period,"net_sales_cents"|"loading">[] {
+function buildWeekRange(start: string, end: string): Omit<Period,"net_sales_cents"|"loading">[] {
   const out: Omit<Period,"net_sales_cents"|"loading">[] = [];
   let cur = snapToMonday(start);
   while (cur <= end) {
-    const ae = (() => { const w = addDays(cur, 6); return w > end ? end : w; })();
-    const shortLabel = `${MA[cur.getMonth()]} ${cur.getDate()}`;
-    const label = ae.getMonth() === cur.getMonth()
-      ? `${MA[cur.getMonth()]} ${cur.getDate()}–${ae.getDate()}`
-      : `${MA[cur.getMonth()]} ${cur.getDate()} – ${MA[ae.getMonth()]} ${ae.getDate()}`;
-    out.push({ label, shortLabel, start: toISO(cur), end: toISO(ae) });
-    cur = addDays(ae, 1);
+    const wkEnd = addDaysStr(cur, 6);
+    const ae    = wkEnd > end ? end : wkEnd;
+    const [, cm, cd] = partsOf(cur);
+    const [, am, ad] = partsOf(ae);
+    const shortLabel = `${MA[cm - 1]} ${cd}`;
+    const label = am === cm
+      ? `${MA[cm - 1]} ${cd}–${ad}`
+      : `${MA[cm - 1]} ${cd} – ${MA[am - 1]} ${ad}`;
+    out.push({ label, shortLabel, start: cur, end: ae });
+    cur = addDaysStr(ae, 1);
   }
   return out;
 }
@@ -114,9 +128,14 @@ const toggleBtn = (active: boolean) =>
 // ---------------------------------------------------------------------------
 
 export default function AchievementTab() {
-  const today       = new Date();
-  const currentYear = today.getFullYear();
-  const currentQ    = Math.ceil((today.getMonth() + 1) / 3) as 1|2|3|4;
+  // "Today" and all period boundaries are computed in the taproom's configured
+  // zone (Settings → Business), not the viewer's local zone — so they never drift
+  // by a day when the report is opened from another timezone.
+  const { timezone: tz } = useBreweryTimezone();
+  const todayStr    = todayLocalDate(tz);
+  const [ty, tm]    = todayStr.split("-").map(Number);
+  const currentYear = ty;
+  const currentQ    = Math.ceil(tm / 3) as 1|2|3|4;
 
   const [grain,      setGrain]      = useState<Grain>("weekly");
   const [scope,      setScope]      = useState<Scope>("quarter");
@@ -136,7 +155,7 @@ export default function AchievementTab() {
         ? grain === "monthly" ? buildYearlyMonthlyPeriods(year) : buildYearlyWeeklyPeriods(year)
         : grain === "monthly" ? buildMonthlyPeriods(year, quarter) : buildWeeklyPeriods(year, quarter);
 
-    const now   = toISO(today);
+    const now   = todayStr;
     const live: Period[] = base.map((p) => ({ ...p, net_sales_cents: null, loading: p.start <= now }));
     setPeriods(live);
 
@@ -155,8 +174,10 @@ export default function AchievementTab() {
         return { ...p, loading: false, net_sales_cents: res?.status === "fulfilled" ? (res.value.net_sales_cents ?? null) : null };
       })
     );
+  // tz: rebuild periods once the configured zone resolves (or if it changes), so
+  // boundaries and the fetched date windows match the taproom's timezone.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [grain, scope, year, quarter]);
+  }, [grain, scope, year, quarter, tz]);
 
   // eslint-disable-next-line react-hooks/set-state-in-effect -- progressive parallel fetches require setState in callback
   useEffect(() => { loadPeriods(); }, [loadPeriods]);
@@ -185,13 +206,35 @@ export default function AchievementTab() {
   const actualCents = periods.reduce((s, p) => s + (p.net_sales_cents ?? 0), 0);
   const gapCents    = targetCents !== null ? targetCents - actualCents : null;
 
-  // Pace / projection
-  const rangeStart = scope === "year" ? new Date(year, 0, 1) : quarterDateRange(year, quarter).start;
-  const rangeEnd   = scope === "year" ? new Date(year, 11, 31) : quarterDateRange(year, quarter).end;
-  const totalMs    = rangeEnd.getTime() - rangeStart.getTime();
-  const elapsedMs  = Math.min(Math.max(today.getTime() - rangeStart.getTime(), 0), totalMs);
-  const elapsedFrac = totalMs > 0 ? elapsedMs / totalMs : 0;
-  const projectedCents = elapsedFrac > 0 ? Math.round(actualCents / elapsedFrac) : null;
+  const now = todayStr;
+  // Only fully-elapsed periods count toward the actuals average; the current in-progress
+  // week is partial data and would pull the average down if included.
+  const completedPeriods    = periods.filter((p) => p.end <= now && p.net_sales_cents !== null);
+  const completedActualCents = completedPeriods.reduce((s, p) => s + (p.net_sales_cents ?? 0), 0);
+  const avgDollarsPerPeriod = completedPeriods.length > 0 ? (completedActualCents / completedPeriods.length) / 100 : 0;
+  const lastCompletedIdx    = periods.reduce<number>((last, p, i) => (p.end <= now && p.net_sales_cents !== null ? i : last), -1);
+
+  // Pace / projection — project the run rate of completed periods across the full scope,
+  // the same basis as the chart's dashed "Forecast Total" line (avg completed period ×
+  // number of periods). The in-progress partial period is excluded so it doesn't distort
+  // the rate. A pure wall-clock extrapolation (actual ÷ fraction-of-time-elapsed) diverges
+  // sharply from this early in a quarter and over-projects, so it is intentionally not used.
+  const rangeStartStr = scope === "year" ? isoDate(year, 1, 1)  : quarterDateRange(year, quarter).start;
+  const rangeEndStr   = scope === "year" ? isoDate(year, 12, 31) : quarterDateRange(year, quarter).end;
+  // Anchor the elapsed fraction to brewery-local day boundaries: [00:00 of the
+  // first day, 00:00 of the day after the last day). "Now" is the start of today
+  // in the brewery zone (day granularity is plenty for the pace bar, and keeping
+  // it derived from todayStr keeps this pure — no impure clock read during render).
+  // Uses dayStartUtc (not the known-buggy dayEndUtc) so the window is exact.
+  const startMs    = new Date(dayStartUtc(rangeStartStr, tz)).getTime();
+  const endMs      = new Date(dayStartUtc(addDaysStr(rangeEndStr, 1), tz)).getTime();
+  const nowMs      = new Date(dayStartUtc(todayStr, tz)).getTime();
+  const totalMs    = endMs - startMs;
+  const elapsedMs  = Math.min(Math.max(nowMs - startMs, 0), totalMs);
+  const elapsedFrac = totalMs > 0 ? elapsedMs / totalMs : 0; // used by the pace bar only
+  const projectedCents = completedPeriods.length > 0 && periods.length > 0
+    ? Math.round(avgDollarsPerPeriod * periods.length * 100)
+    : null;
   const onPace = projectedCents !== null && targetCents !== null ? projectedCents >= targetCents : null;
 
   const activeTierColor = TIERS.find((t) => t.value === activeTier)?.color ?? "#f59e0b";
@@ -200,14 +243,6 @@ export default function AchievementTab() {
   // ---------------------------------------------------------------------------
   // Chart data
   // ---------------------------------------------------------------------------
-
-  const now = toISO(today);
-  // Only fully-elapsed periods count toward the actuals average; the current in-progress
-  // week is partial data and would pull the average down if included.
-  const completedPeriods    = periods.filter((p) => p.end <= now && p.net_sales_cents !== null);
-  const completedActualCents = completedPeriods.reduce((s, p) => s + (p.net_sales_cents ?? 0), 0);
-  const avgDollarsPerPeriod = completedPeriods.length > 0 ? (completedActualCents / completedPeriods.length) / 100 : 0;
-  const lastCompletedIdx    = periods.reduce<number>((last, p, i) => (p.end <= now && p.net_sales_cents !== null ? i : last), -1);
 
   const chartData = periods.map((p, i) => {
     const isComplete       = p.end <= now;
@@ -302,6 +337,8 @@ export default function AchievementTab() {
             </button>
           ))}
         </div>
+
+        <TimezoneLabel className="w-full sm:w-auto sm:ml-auto" />
       </div>
 
       {/* Tier selector — label + 2×2 on mobile, single row on sm+ */}

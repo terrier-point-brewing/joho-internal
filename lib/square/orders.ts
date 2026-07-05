@@ -2,19 +2,22 @@ import { unstable_cache } from "next/cache";
 import { squarePostAll, squareLocationId } from "./client";
 import type { Order, SquareInvoice } from "@/types/square";
 import { dayRangeUtc } from "@/lib/utils/datetime";
+import { getBreweryTimezone } from "@/lib/settings/breweryTimezone.server";
 
-function dateRange(startDate: string, endDate: string) {
-  const { startUtc, endUtc } = dayRangeUtc(startDate, endDate);
+function dateRange(startDate: string, endDate: string, tz: string) {
+  const { startUtc, endUtc } = dayRangeUtc(startDate, endDate, tz);
   return { start_at: startUtc, end_at: endUtc };
 }
 
-// POS / hardware orders — completed only
-async function fetchCompletedOrdersUncached(startDate: string, endDate: string): Promise<Order[]> {
+// POS / hardware orders — completed only. `tz` (the active brewery zone) is an
+// explicit arg so it participates in the cache key below and day boundaries
+// follow the configured location, not the server's UTC.
+async function fetchCompletedOrdersUncached(startDate: string, endDate: string, tz: string): Promise<Order[]> {
   return squarePostAll<Order>("/orders/search", "orders", {
     location_ids: [squareLocationId()],
     query: {
       filter: {
-        date_time_filter: { created_at: dateRange(startDate, endDate) },
+        date_time_filter: { created_at: dateRange(startDate, endDate, tz) },
         state_filter: { states: ["COMPLETED"] },
       },
     },
@@ -24,14 +27,22 @@ async function fetchCompletedOrdersUncached(startDate: string, endDate: string):
 }
 
 // SearchOrders paginates sequentially, and ~13 report routes fetch the same
-// date range independently. Cache cross-request (keyed by start/end via the
+// date range independently. Cache cross-request (keyed by start/end/tz via the
 // function args) so a burst of report tabs for one range hits Square once, not
-// once per route. Bust via revalidateTag("square-sales") after a sale-data sync.
-export const fetchCompletedOrders = unstable_cache(
+// once per route. Bust via revalidateTag("square-sales") after a sale-data sync
+// or a brewery-timezone change.
+const fetchCompletedOrdersCached = unstable_cache(
   fetchCompletedOrdersUncached,
   ["square-completed-orders"],
   { revalidate: 90, tags: ["square-sales"] },
 );
+
+// Public entry point — signature unchanged for the ~10 report routes that call
+// it. The brewery zone is resolved centrally here so no caller has to thread it.
+export async function fetchCompletedOrders(startDate: string, endDate: string): Promise<Order[]> {
+  const tz = await getBreweryTimezone();
+  return fetchCompletedOrdersCached(startDate, endDate, tz);
+}
 
 // Fetch Square invoices via the Invoices API.
 // The Square Invoices search API does not support date-range filtering — we
@@ -48,11 +59,12 @@ export async function fetchSquareInvoices(): Promise<SquareInvoice[]> {
 
 // Invoice orders — includes OPEN (unpaid) and COMPLETED so we can show outstanding balances
 export async function fetchInvoiceOrders(startDate: string, endDate: string): Promise<Order[]> {
+  const tz = await getBreweryTimezone();
   const all = await squarePostAll<Order>("/orders/search", "orders", {
     location_ids: [squareLocationId()],
     query: {
       filter: {
-        date_time_filter: { created_at: dateRange(startDate, endDate) },
+        date_time_filter: { created_at: dateRange(startDate, endDate, tz) },
         state_filter: { states: ["OPEN", "COMPLETED"] },
       },
     },

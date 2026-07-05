@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { queryKeys, SALES_REPORT_STALE_TIME } from "@/lib/query-keys";
 import dynamic from "next/dynamic";
 import ChartSkeleton from "@/app/components/ChartSkeleton";
+import TimezoneLabel from "@/app/components/TimezoneLabel";
 
 const SalesPulseChart = dynamic(() => import("./SalesPulseChart"), {
   ssr: false,
@@ -263,6 +264,7 @@ export default function SalesPulseTab() {
           Next ›
         </button>
         {loading && <span className="text-xs text-muted ml-2">Loading…</span>}
+        <TimezoneLabel className="w-full sm:w-auto sm:ml-auto" />
       </div>
 
       {/* 4 KPI cards */}

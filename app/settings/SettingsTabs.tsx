@@ -23,6 +23,7 @@ export default function SettingsTabs({ isAdmin }: { isAdmin: boolean }) {
   const tabs = [
     { label: "Account", href: "/settings/account", badge: 0 },
     ...(isAdmin ? [
+      { label: "Business", href: "/settings/business", badge: 0 },
       { label: "Users", href: "/settings/users", badge: 0 },
       { label: "Access Requests", href: "/settings/requests", badge: pendingCount },
       { label: "Cron Jobs", href: "/settings/cron", badge: 0 },
