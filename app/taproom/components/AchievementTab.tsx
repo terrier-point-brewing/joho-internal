@@ -185,13 +185,27 @@ export default function AchievementTab() {
   const actualCents = periods.reduce((s, p) => s + (p.net_sales_cents ?? 0), 0);
   const gapCents    = targetCents !== null ? targetCents - actualCents : null;
 
-  // Pace / projection
+  const now = toISO(today);
+  // Only fully-elapsed periods count toward the actuals average; the current in-progress
+  // week is partial data and would pull the average down if included.
+  const completedPeriods    = periods.filter((p) => p.end <= now && p.net_sales_cents !== null);
+  const completedActualCents = completedPeriods.reduce((s, p) => s + (p.net_sales_cents ?? 0), 0);
+  const avgDollarsPerPeriod = completedPeriods.length > 0 ? (completedActualCents / completedPeriods.length) / 100 : 0;
+  const lastCompletedIdx    = periods.reduce<number>((last, p, i) => (p.end <= now && p.net_sales_cents !== null ? i : last), -1);
+
+  // Pace / projection — project the run rate of completed periods across the full scope,
+  // the same basis as the chart's dashed "Forecast Total" line (avg completed period ×
+  // number of periods). The in-progress partial period is excluded so it doesn't distort
+  // the rate. A pure wall-clock extrapolation (actual ÷ fraction-of-time-elapsed) diverges
+  // sharply from this early in a quarter and over-projects, so it is intentionally not used.
   const rangeStart = scope === "year" ? new Date(year, 0, 1) : quarterDateRange(year, quarter).start;
   const rangeEnd   = scope === "year" ? new Date(year, 11, 31) : quarterDateRange(year, quarter).end;
   const totalMs    = rangeEnd.getTime() - rangeStart.getTime();
   const elapsedMs  = Math.min(Math.max(today.getTime() - rangeStart.getTime(), 0), totalMs);
-  const elapsedFrac = totalMs > 0 ? elapsedMs / totalMs : 0;
-  const projectedCents = elapsedFrac > 0 ? Math.round(actualCents / elapsedFrac) : null;
+  const elapsedFrac = totalMs > 0 ? elapsedMs / totalMs : 0; // used by the pace bar only
+  const projectedCents = completedPeriods.length > 0 && periods.length > 0
+    ? Math.round(avgDollarsPerPeriod * periods.length * 100)
+    : null;
   const onPace = projectedCents !== null && targetCents !== null ? projectedCents >= targetCents : null;
 
   const activeTierColor = TIERS.find((t) => t.value === activeTier)?.color ?? "#f59e0b";
@@ -200,14 +214,6 @@ export default function AchievementTab() {
   // ---------------------------------------------------------------------------
   // Chart data
   // ---------------------------------------------------------------------------
-
-  const now = toISO(today);
-  // Only fully-elapsed periods count toward the actuals average; the current in-progress
-  // week is partial data and would pull the average down if included.
-  const completedPeriods    = periods.filter((p) => p.end <= now && p.net_sales_cents !== null);
-  const completedActualCents = completedPeriods.reduce((s, p) => s + (p.net_sales_cents ?? 0), 0);
-  const avgDollarsPerPeriod = completedPeriods.length > 0 ? (completedActualCents / completedPeriods.length) / 100 : 0;
-  const lastCompletedIdx    = periods.reduce<number>((last, p, i) => (p.end <= now && p.net_sales_cents !== null ? i : last), -1);
 
   const chartData = periods.map((p, i) => {
     const isComplete       = p.end <= now;
