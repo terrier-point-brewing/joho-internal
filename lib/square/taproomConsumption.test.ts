@@ -6,8 +6,22 @@
 // its tap. Unmapped / unconfigured restocks surface as discrepancies; nothing is
 // inferred from physical-count crossings anymore.
 import { describe, it, expect } from "vitest";
-import { assembleConsumption, type KegCanLink, type DraftLink, type TapRestockLink } from "./taproomConsumption";
+import { assembleConsumption, trailingWindow, type KegCanLink, type DraftLink, type TapRestockLink } from "./taproomConsumption";
 import type { RestockLineEvent } from "./inventory";
+
+describe("trailingWindow", () => {
+  it("ends at now so same-day orders are inside the window", () => {
+    const now = new Date("2026-07-05T19:44:00.000Z");
+    const { startIso, endIso } = trailingWindow(now, 1);
+    expect(endIso).toBe("2026-07-05T19:44:00.000Z"); // includes today up to now, not today-00:00
+    expect(startIso).toBe("2026-07-04T00:00:00.000Z"); // UTC day boundary, 1 day back
+  });
+
+  it("widens the start with more days", () => {
+    const { startIso } = trailingWindow(new Date("2026-07-05T12:00:00.000Z"), 2);
+    expect(startIso).toBe("2026-07-03T00:00:00.000Z");
+  });
+});
 
 const kegLink: KegCanLink = {
   squareVariationId: "sqvar-keg",
