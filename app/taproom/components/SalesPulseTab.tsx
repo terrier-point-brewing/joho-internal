@@ -7,6 +7,9 @@ import { queryKeys, SALES_REPORT_STALE_TIME } from "@/lib/query-keys";
 import dynamic from "next/dynamic";
 import ChartSkeleton from "@/app/components/ChartSkeleton";
 import TimezoneLabel from "@/app/components/TimezoneLabel";
+import { useBreweryTimezone } from "@/app/hooks/useBreweryTimezone";
+import { todayLocalDate, mondayOf, addDaysStr } from "@/lib/utils/datetime";
+import { buildSalesWeekView, weekLabel, DAY_LABELS } from "@/lib/reports/salesPulseWeek";
 
 const SalesPulseChart = dynamic(() => import("./SalesPulseChart"), {
   ssr: false,
@@ -50,33 +53,6 @@ type PulseData = {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-
-function toISO(d: Date) {
-  return d.toISOString().slice(0, 10);
-}
-
-function getMondayOf(d: Date): Date {
-  const day = d.getDay(); // 0=Sun, 1=Mon ...
-  const diff = (day === 0 ? -6 : 1 - day);
-  const mon = new Date(d);
-  mon.setDate(d.getDate() + diff);
-  mon.setHours(0, 0, 0, 0);
-  return mon;
-}
-
-function addDays(d: Date, n: number): Date {
-  const r = new Date(d);
-  r.setDate(r.getDate() + n);
-  return r;
-}
-
-function weekLabel(mon: Date): string {
-  const sun = addDays(mon, 6);
-  const opts: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" };
-  return `${mon.toLocaleDateString("en-US", opts)} – ${sun.toLocaleDateString("en-US", opts)}`;
-}
 
 function formatCurrency(cents: number, decimals = 0) {
   return formatCurrencyCents(cents, decimals);
@@ -153,19 +129,18 @@ const toggleBtn = (active: boolean) =>
   }`;
 
 export default function SalesPulseTab() {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  const { timezone } = useBreweryTimezone();
+  // "Today" and every week/day boundary are resolved in the brewery timezone,
+  // never the viewer's browser zone, so the grid lines up with the API's
+  // brewery-local day buckets. See lib/reports/salesPulseWeek.ts.
+  const todayStr = todayLocalDate(timezone);
 
-  const [weekStart,      setWeekStart]      = useState<Date>(() => getMondayOf(today));
+  const [weekStart,      setWeekStart]      = useState<string>(() => mondayOf(todayLocalDate(timezone)));
   const [chartMetric,    setChartMetric]    = useState<KpiMetric>("net_sales");
   const [catDayFilter,   setCatDayFilter]   = useState<number | null>(null); // null = whole week; 0=Mon…6=Sun
-  // Date bounds for the current week and its prior-week comparator.
-  const curEnd       = toISO(addDays(weekStart, 6));
-  const priorStart   = toISO(addDays(weekStart, -7));
-  const priorEnd     = toISO(addDays(weekStart, -1));
-  const todayStr     = toISO(today);
-  const effectiveEnd = curEnd < todayStr ? curEnd : todayStr;
-  const curStart     = toISO(weekStart);
+
+  const { curStart, priorStart, priorEnd, effectiveEnd, isCurrentWeek, dayPills } =
+    buildSalesWeekView(weekStart, todayStr);
 
   async function fetchPulse(start: string, end: string): Promise<PulseData | null> {
     const res = await fetch(`/api/sales-pulse?start=${start}&end=${end}`);
@@ -185,8 +160,8 @@ export default function SalesPulseTab() {
   });
 
   // Per-day category breakdown — only fetched when day filter is active.
-  const dayDate   = catDayFilter !== null ? toISO(addDays(weekStart, catDayFilter)) : null;
-  const dayIsFuture = dayDate ? dayDate > todayStr : false;
+  const dayDate     = catDayFilter !== null ? dayPills[catDayFilter].dateStr : null;
+  const dayIsFuture = catDayFilter !== null ? dayPills[catDayFilter].isFuture : false;
   const { data: catDayData = null, isLoading: catDayLoading } = useQuery({
     queryKey: queryKeys.taproom.salesPulseDay(dayDate ?? ""),
     queryFn: () => fetchPulse(dayDate!, dayDate!),
@@ -227,18 +202,9 @@ export default function SalesPulseTab() {
   const catRetTotal   = catSource?.by_category.filter((c) => !c.excluded).reduce((s, c) => s + c.returns_cents,     0) ?? 0;
   const catTaxTotal   = catSource?.by_category.filter((c) => !c.excluded).reduce((s, c) => s + c.tax_cents,         0) ?? 0;
 
-  // Day pills — only show days that have started (≤ today) — todayStr defined above at data layer
-  const dayPills = DAY_LABELS.map((label, i) => {
-    const date    = addDays(weekStart, i);
-    const dateStr = toISO(date);
-    return { label, i, dateStr, isFuture: dateStr > todayStr };
-  });
-
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
-
-  const isCurrentWeek = toISO(weekStart) === toISO(getMondayOf(today));
 
   return (
     <div className="space-y-6 max-w-5xl">
@@ -246,7 +212,7 @@ export default function SalesPulseTab() {
       {/* Week selector */}
       <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
         <button
-          onClick={() => setWeekStart((w) => addDays(w, -7))}
+          onClick={() => setWeekStart((w) => addDaysStr(w, -7))}
           className="btn-ghost"
         >
           ‹ Prev
@@ -257,7 +223,7 @@ export default function SalesPulseTab() {
           ) : weekLabel(weekStart)}
         </div>
         <button
-          onClick={() => setWeekStart((w) => addDays(w, 7))}
+          onClick={() => setWeekStart((w) => addDaysStr(w, 7))}
           disabled={isCurrentWeek}
           className="btn-ghost"
         >
@@ -347,13 +313,13 @@ export default function SalesPulseTab() {
           >
             All
           </button>
-          {dayPills.map(({ label, i, isFuture }) => (
+          {dayPills.map(({ label, index, isFuture }) => (
             <button
-              key={i}
-              onClick={() => !isFuture && setCatDayFilter(i)}
+              key={index}
+              onClick={() => !isFuture && setCatDayFilter(index)}
               disabled={isFuture}
               className={`shrink-0 px-2.5 py-1 rounded text-xs font-medium border transition-colors disabled:opacity-25 disabled:cursor-not-allowed ${
-                catDayFilter === i
+                catDayFilter === index
                   ? "border-accent-border bg-accent-muted/20 text-accent-soft"
                   : "border-line-strong text-muted hover:text-body hover:border-line-subtle"
               }`}
