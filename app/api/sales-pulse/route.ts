@@ -60,9 +60,18 @@ export async function GET(req: NextRequest) {
 
     // Daily breakdown — group orders and refunds by date, then run the full
     // taproom model report per day so the numbers match the weekly totals exactly.
+    //
+    // Bucket on `created_at` (when the order was rung up), NOT `closed_at`. Two
+    // reasons: (1) the Square fetch above filters on created_at, so bucketing on
+    // any other field can push an order into a local day outside the requested
+    // range — the daily rows would then fail to reconcile with the weekly/
+    // category totals. (2) A taproom open past midnight settles tabs after 12am;
+    // keying on closed_at scatters one business night across two calendar days
+    // (e.g. a Sat-night tab paid at 12:30am lands on Sunday). created_at keeps
+    // the whole night on the day the sale actually happened.
     const dailyOrderMap = new Map<string, typeof orders>();
     for (const order of orders) {
-      const date = localDateString(order.closed_at ?? order.created_at ?? "", tz);
+      const date = localDateString(order.created_at ?? order.closed_at ?? "", tz);
       if (!dailyOrderMap.has(date)) dailyOrderMap.set(date, []);
       dailyOrderMap.get(date)!.push(order);
     }
