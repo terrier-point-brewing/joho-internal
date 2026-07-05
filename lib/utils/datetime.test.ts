@@ -8,6 +8,7 @@ import {
   eachDateString,
   addDaysStr,
   weekdayOf,
+  mondayOf,
   todayLocalDate,
 } from "./datetime";
 
@@ -225,6 +226,29 @@ describe("weekdayOf", () => {
 
   it("returns 1 (Monday) for 2026-07-06", () => {
     expect(weekdayOf("2026-07-06")).toBe(1);
+  });
+});
+
+describe("mondayOf", () => {
+  it("returns the same date when given a Monday", () => {
+    expect(mondayOf("2026-06-29")).toBe("2026-06-29");
+  });
+
+  it("returns the prior Monday for a Sunday (end of ISO week)", () => {
+    // 2026-07-05 is a Sunday; its ISO week began Mon 2026-06-29.
+    expect(mondayOf("2026-07-05")).toBe("2026-06-29");
+  });
+
+  it("returns the week's Monday for a Saturday", () => {
+    expect(mondayOf("2026-07-04")).toBe("2026-06-29");
+  });
+
+  it("returns the week's Monday for a midweek date", () => {
+    expect(mondayOf("2026-07-01")).toBe("2026-06-29"); // Wednesday
+  });
+
+  it("crosses a month boundary backwards", () => {
+    expect(mondayOf("2026-07-05")).toBe("2026-06-29");
   });
 });
 

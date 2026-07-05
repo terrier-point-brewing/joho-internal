@@ -106,6 +106,16 @@ export function weekdayOf(dateStr: string): number {
   return new Date(`${dateStr}T12:00:00Z`).getUTCDay();
 }
 
+// Monday (YYYY-MM-DD) of the ISO week containing `dateStr`. Pure calendar math
+// built on weekdayOf/addDaysStr, so it never touches the runtime's local zone —
+// pass a brewery-local date to keep a weekly grid pinned to the taproom's zone
+// instead of the viewer's browser.
+export function mondayOf(dateStr: string): string {
+  const dow = weekdayOf(dateStr); // 0=Sun .. 6=Sat
+  const diff = dow === 0 ? -6 : 1 - dow;
+  return addDaysStr(dateStr, diff);
+}
+
 // The current calendar date (YYYY-MM-DD) in the given zone. Pass an explicit
 // `now` for deterministic tests; defaults to the real current instant. Use this
 // instead of `new Date().getFullYear()` etc. so "today" means today *at the
