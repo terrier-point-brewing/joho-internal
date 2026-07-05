@@ -7,6 +7,20 @@ import {
 
 export type ConsumptionKind = "keg_sale" | "can_sale" | "draft_swap";
 
+/**
+ * Trailing reconcile window: from the UTC day boundary `days` back, up to *now*.
+ *
+ * The end MUST be `now`, not the start of today — Square order search filters on
+ * `closed_at`, so a window ending at today-00:00 UTC would miss every order rung
+ * today (e.g. a Draft Restock a bartender just fired), which is exactly the case
+ * the webhook exists to catch.
+ */
+export function trailingWindow(now: Date, days: number): { startIso: string; endIso: string } {
+  const start = new Date(now.getTime() - days * 86400000);
+  start.setUTCHours(0, 0, 0, 0);
+  return { startIso: start.toISOString(), endIso: now.toISOString() };
+}
+
 /** Square recount to apply after a unit is first recorded (draft keg swaps only). */
 export interface RecountInstruction {
   squareVariationId: string; // the draft SKU to reset
@@ -185,9 +199,7 @@ export async function deriveTaproomConsumption(
   supabase: SupabaseClient,
   opts: { days: number },
 ): Promise<{ units: ConsumptionUnit[]; discrepancies: AssemblyDiscrepancy[] }> {
-  const now = new Date();
-  const endDate = now.toISOString().slice(0, 10);
-  const startDate = new Date(now.getTime() - opts.days * 86400000).toISOString().slice(0, 10);
+  const { startIso: startDate, endIso: endDate } = trailingWindow(new Date(), opts.days);
 
   const { data: linkRows, error: linkErr } = await supabase
     .from("recipe_square_links")

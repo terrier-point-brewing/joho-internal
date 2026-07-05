@@ -63,9 +63,16 @@ export async function POST(req: NextRequest) {
   after(async () => {
     try {
       const supabase = createSupabaseAdminClient();
-      await runTaproomConsumptionSync(supabase, { days: WINDOW_DAYS });
-    } catch {
-      // Nothing to return to Square; the cron (and the next webhook) reconcile anyway.
+      const result = await runTaproomConsumptionSync(supabase, { days: WINDOW_DAYS });
+      console.log("[square-webhook] reconcile", {
+        type: event.type,
+        recordedUnits: result.recordedUnits,
+        recountsApplied: result.recountsApplied,
+        discrepancies: result.discrepancies.length,
+      });
+    } catch (e) {
+      // Logged, not returned — Square already has its 200; the cron reconciles too.
+      console.error("[square-webhook] reconcile failed", e);
     }
   });
 
