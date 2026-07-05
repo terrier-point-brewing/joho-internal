@@ -1,10 +1,12 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { runTaproomConsumptionSync } from "@/lib/production/taproomConsumptionSync";
 import { verifySquareSignature, isReconcilableSquareEvent } from "@/lib/square/webhook";
-import { apiError } from "@/lib/utils/api";
 
 export const dynamic = "force-dynamic";
+// Give the background reconcile (Square API round-trips) room to finish after we
+// respond; Vercel caps this to the plan's max.
+export const maxDuration = 60;
 
 /**
  * Square webhook → near-real-time taproom-consumption reconcile.
@@ -53,17 +55,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ignored: true, type: event.type ?? null });
   }
 
-  try {
-    const supabase = createSupabaseAdminClient();
-    const result = await runTaproomConsumptionSync(supabase, { days: WINDOW_DAYS });
-    return NextResponse.json({
-      ok: true,
-      type: event.type,
-      recordedUnits: result.recordedUnits,
-      recountsApplied: result.recountsApplied,
-    });
-  } catch (err) {
-    // 5xx makes Square retry with backoff — safe because the sync is idempotent.
-    return apiError(err);
-  }
+  // Reconcile in the background so Square gets an immediate 200. The full sync
+  // makes several Square round-trips and would otherwise blow the gateway timeout
+  // (504) — and Square would then retry a delivery we already accepted. It's
+  // idempotent per source_ref and the daily cron is the safety net, so a dropped
+  // or partial background run self-heals on the next trigger.
+  after(async () => {
+    try {
+      const supabase = createSupabaseAdminClient();
+      await runTaproomConsumptionSync(supabase, { days: WINDOW_DAYS });
+    } catch {
+      // Nothing to return to Square; the cron (and the next webhook) reconcile anyway.
+    }
+  });
+
+  return NextResponse.json({ ok: true, queued: true, type: event.type });
 }
