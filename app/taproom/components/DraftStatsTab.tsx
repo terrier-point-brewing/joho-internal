@@ -6,7 +6,7 @@ import { queryKeys } from "@/lib/query-keys";
 import dynamic from "next/dynamic";
 import ChartSkeleton from "@/app/components/ChartSkeleton";
 import { fetchJson } from "../../production/hooks/queries";
-import type { RecipeSquareLinkRow } from "../../production/types";
+import type { RecipeSquareLinkRow, AvailableInventoryLine } from "../../production/types";
 
 const DraftStatsChart = dynamic(() => import("./DraftStatsChart"), {
   ssr: false,
@@ -60,6 +60,8 @@ interface TapConfig {
     recipe_id: string | null;
     label: string | null;
     restock_variation_id?: string | null;
+    swap_variation_id?: string | null;
+    swap_volume_fl_oz?: number | null;
     recipes?: { beer_name: string } | null;
   }[];
 }
@@ -119,12 +121,38 @@ export default function DraftStatsTab() {
     staleTime: 5 * 60_000,
   });
 
+  // Cold-storage on-hand kegs, for the per-tap "keg to drain" dropdown.
+  const { data: coldStorage = [] } = useQuery({
+    queryKey: queryKeys.production.exportBayInventory(),
+    queryFn:  () => fetchJson<AvailableInventoryLine[]>("/api/production/export-bay/inventory"),
+    staleTime: 60_000,
+  });
+
+  // Per-recipe keg lots actually on hand (container = keg, qty > 0).
+  const kegOptionsByRecipe = new Map<string, AvailableInventoryLine[]>();
+  for (const line of coldStorage) {
+    if (line.container_type !== "keg" || line.quantity_on_hand <= 0) continue;
+    const list = kegOptionsByRecipe.get(line.recipe_id) ?? [];
+    list.push(line);
+    kegOptionsByRecipe.set(line.recipe_id, list);
+  }
+
+  // Best-effort full-keg fl oz from a keg lot's name; blank if unknown (editable).
+  const KEG_FL_OZ: Record<string, number> = { "1/6": 660, "1/4": 992, "1/2": 1984 };
+  function containerVolumeFor(line: AvailableInventoryLine): number | null {
+    const m = line.variation_name.match(/1\/[0-9]+/);
+    return m ? (KEG_FL_OZ[m[0]] ?? null) : null;
+  }
+
   // Recipes with at least one draft link
   const draftRecipeIds = new Set(links.filter((l) => l.packaging === "draft").map((l) => l.recipe_id));
 
   const [editingTaps, setEditingTaps] = useState(false);
   const [tapCountInput, setTapCountInput] = useState("");
-  const [tapEdits, setTapEdits] = useState<Record<number, { recipe_id: string; label: string; restock_variation_id: string }>>({});
+  const [tapEdits, setTapEdits] = useState<Record<number, {
+    recipe_id: string; label: string; restock_variation_id: string;
+    swap_variation_id: string; swap_volume_fl_oz: string;
+  }>>({});
   const [restockItemId, setRestockItemId] = useState("");
   const [saving, setSaving] = useState(false);
   const [retiringSaving, setRetiringSaving] = useState<string | null>(null);
@@ -164,16 +192,23 @@ export default function DraftStatsTab() {
     qc.invalidateQueries({ queryKey: queryKeys.production.squareCatalog() });
     setTapCountInput(String(stats?.tap_count ?? tapConfig?.tap_count ?? 8));
     setRestockItemId(tapConfig?.draft_restock_item_id ?? "");
-    const edits: Record<number, { recipe_id: string; label: string; restock_variation_id: string }> = {};
-    // Recipe/label come from the richest source; restock mapping lives only on
-    // the tap-config payload, so key it in by tap number from there.
+    const edits: Record<number, {
+      recipe_id: string; label: string; restock_variation_id: string;
+      swap_variation_id: string; swap_volume_fl_oz: string;
+    }> = {};
+    // Recipe/label come from the richest source; restock + swap config live only
+    // on the tap-config payload, so key those in by tap number from there.
     const restockByTap = new Map((tapConfig?.taps ?? []).map((t) => [t.tap_number, t.restock_variation_id ?? ""]));
+    const swapVarByTap = new Map((tapConfig?.taps ?? []).map((t) => [t.tap_number, t.swap_variation_id ?? ""]));
+    const swapVolByTap = new Map((tapConfig?.taps ?? []).map((t) => [t.tap_number, t.swap_volume_fl_oz != null ? String(t.swap_volume_fl_oz) : ""]));
     const src = stats?.taps ?? tapConfig?.taps ?? [];
     for (const t of src) {
       edits[t.tap_number] = {
         recipe_id: t.recipe_id ?? "",
         label: t.label ?? "",
         restock_variation_id: restockByTap.get(t.tap_number) ?? "",
+        swap_variation_id: swapVarByTap.get(t.tap_number) ?? "",
+        swap_volume_fl_oz: swapVolByTap.get(t.tap_number) ?? "",
       };
     }
     setTapEdits(edits);
@@ -181,9 +216,9 @@ export default function DraftStatsTab() {
   }
 
   function getTapEdit(n: number) {
-    return tapEdits[n] ?? { recipe_id: "", label: "", restock_variation_id: "" };
+    return tapEdits[n] ?? { recipe_id: "", label: "", restock_variation_id: "", swap_variation_id: "", swap_volume_fl_oz: "" };
   }
-  function setTapEdit(n: number, field: "recipe_id" | "label" | "restock_variation_id", val: string) {
+  function setTapEdit(n: number, field: "recipe_id" | "label" | "restock_variation_id" | "swap_variation_id" | "swap_volume_fl_oz", val: string) {
     setTapEdits((e) => ({ ...e, [n]: { ...getTapEdit(n), [field]: val } }));
   }
 
@@ -204,16 +239,43 @@ export default function DraftStatsTab() {
     });
   }
 
+  // Fill each tap's swap keg from its recipe's on-hand cold-storage kegs: the
+  // sole SKU when there's one, else the largest-volume. Never clobbers a manual
+  // pick, and auto-fills the recount volume when empty.
+  function autoMapKegs() {
+    setTapEdits((prev) => {
+      const next = { ...prev };
+      for (let n = 1; n <= (tapsToRender.length || 0); n++) {
+        const cur = next[n] ?? { recipe_id: "", label: "", restock_variation_id: "", swap_variation_id: "", swap_volume_fl_oz: "" };
+        if (!cur.recipe_id || cur.swap_variation_id) continue;
+        const kegs = kegOptionsByRecipe.get(cur.recipe_id) ?? [];
+        if (kegs.length === 0) continue;
+        const pick = kegs.length === 1
+          ? kegs[0]
+          : [...kegs].sort((a, b) => (containerVolumeFor(b) ?? 0) - (containerVolumeFor(a) ?? 0))[0];
+        const vol = containerVolumeFor(pick);
+        next[n] = {
+          ...cur,
+          swap_variation_id: pick.variation_id,
+          swap_volume_fl_oz: cur.swap_volume_fl_oz || (vol ? String(vol) : ""),
+        };
+      }
+      return next;
+    });
+  }
+
   async function saveTaps() {
     setSaving(true);
     const count = parseInt(tapCountInput) || 8;
     const taps = Array.from({ length: count }, (_, i) => {
-      const e = tapEdits[i + 1] ?? { recipe_id: "", label: "", restock_variation_id: "" };
+      const e = tapEdits[i + 1] ?? { recipe_id: "", label: "", restock_variation_id: "", swap_variation_id: "", swap_volume_fl_oz: "" };
       return {
         tap_number: i + 1,
         recipe_id: e.recipe_id || null,
         label: e.label || null,
         restock_variation_id: e.restock_variation_id || null,
+        swap_variation_id: e.swap_variation_id || null,
+        swap_volume_fl_oz: e.swap_volume_fl_oz ? Number(e.swap_volume_fl_oz) : null,
       };
     });
     try {
@@ -328,8 +390,8 @@ export default function DraftStatsTab() {
             <h3 className="text-sm font-semibold text-strong">Draft Restock line item → tap mapping</h3>
             <p className="text-xs text-muted mt-1 leading-relaxed">
               When a bartender rings the <span className="text-body font-medium">Draft Restock</span> line for a tap,
-              the app records a keg-swap shipment (draining the cold-storage keg set in{" "}
-              <span className="text-body font-medium">Draft Swap Inventory</span> below) and recounts that
+              the app records a keg-swap shipment (draining the tap&rsquo;s{" "}
+              <span className="text-body font-medium">keg to drain</span> set on each tap card below) and recounts that
               tap&rsquo;s draft item back to full in Square. Map each tap to its restock variation here.
             </p>
           </div>
@@ -367,6 +429,13 @@ export default function DraftStatsTab() {
               className="btn-ghost btn-sm disabled:opacity-40 disabled:cursor-not-allowed"
             >
               Auto-match by tap #
+            </button>
+            <button
+              type="button"
+              onClick={autoMapKegs}
+              className="btn-ghost btn-sm"
+            >
+              Auto-map kegs
             </button>
             {!restockItemId && (
               <span className="text-xs text-faint">Pick the Square item to enable per-tap mapping.</span>
@@ -501,6 +570,45 @@ export default function DraftStatsTab() {
                         ))}
                       </select>
                     </div>
+                    {(() => {
+                      const kegs = kegOptionsByRecipe.get(edit.recipe_id) ?? [];
+                      const needsKeg = edit.recipe_id && !edit.swap_variation_id;
+                      return (
+                        <>
+                          <select
+                            className="inp text-xs w-full disabled:opacity-40"
+                            value={edit.swap_variation_id}
+                            disabled={!edit.recipe_id}
+                            title="Cold-storage keg drained when this tap is swapped"
+                            onChange={(e) => {
+                              const opt = kegs.find((k) => k.variation_id === e.target.value);
+                              setTapEdit(tapNum, "swap_variation_id", e.target.value);
+                              // Auto-fill volume from the lot's container when empty.
+                              if (opt && !getTapEdit(tapNum).swap_volume_fl_oz) {
+                                const vol = containerVolumeFor(opt);
+                                if (vol) setTapEdit(tapNum, "swap_volume_fl_oz", String(vol));
+                              }
+                            }}
+                          >
+                            <option value="">— keg to drain —</option>
+                            {kegs.map((k) => (
+                              <option key={k.variation_id} value={k.variation_id}>
+                                {k.variation_name} ({k.quantity_on_hand} on hand)
+                              </option>
+                            ))}
+                          </select>
+                          <input
+                            className="inp text-xs w-full"
+                            placeholder="Full-keg fl oz (recount target)"
+                            value={edit.swap_volume_fl_oz}
+                            onChange={(e) => setTapEdit(tapNum, "swap_volume_fl_oz", e.target.value)}
+                          />
+                          {needsKeg && (
+                            <p className="text-xs text-danger">Needs a swap keg</p>
+                          )}
+                        </>
+                      );
+                    })()}
                   </div>
                 ) : (
                   <div>
@@ -629,187 +737,6 @@ export default function DraftStatsTab() {
         </div>
       )}
 
-      {draftRecipes.length > 0 && <DraftSwapInventorySection draftRecipes={draftRecipes} />}
-
-    </div>
-  );
-}
-
-// ─── Draft swap inventory ───────────────────────────────────────────────────────
-// Per draft recipe, declare which cold-storage keg variation is consumed on a tap
-// swap and the full-keg fl oz that marks a fresh keg. Both drive the taproom
-// consumption sync (which keg to deplete) and swap detection (the retop level).
-
-interface SwapSettingRow {
-  recipe_id: string;
-  swap_variation_id: string | null;
-  swap_volume_fl_oz: number | null;
-}
-
-interface RPVRow {
-  recipe_id: string;
-  variation_id: string;
-  packaging_variations:
-    | {
-        id: string;
-        name: string;
-        is_active: boolean;
-        container?: { type?: string | null; volume_fl_oz?: number | null } | null;
-      }
-    | null;
-}
-
-interface KegOption {
-  variation_id: string;
-  name: string;
-  container_volume_fl_oz: number | null;
-}
-
-function DraftSwapInventorySection({ draftRecipes }: { draftRecipes: RecipeOption[] }) {
-  const qc = useQueryClient();
-
-  const { data: settings = [] } = useQuery({
-    queryKey: queryKeys.production.taproomRecipeSettings(),
-    queryFn:  () => fetchJson<SwapSettingRow[]>("/api/production/taproom-recipe-settings"),
-    staleTime: 60_000,
-  });
-  const { data: rpv = [] } = useQuery({
-    queryKey: queryKeys.production.recipePackagingVariations(),
-    queryFn:  () => fetchJson<RPVRow[]>("/api/production/recipe-packaging-variations"),
-    staleTime: 5 * 60_000,
-  });
-
-  // Keg-container variations available per recipe, for the dropdown.
-  const kegOptionsByRecipe = new Map<string, KegOption[]>();
-  for (const row of rpv) {
-    const pv = row.packaging_variations;
-    if (!pv || !pv.is_active || pv.container?.type !== "keg") continue;
-    const list = kegOptionsByRecipe.get(row.recipe_id) ?? [];
-    list.push({ variation_id: pv.id, name: pv.name, container_volume_fl_oz: pv.container?.volume_fl_oz ?? null });
-    kegOptionsByRecipe.set(row.recipe_id, list);
-  }
-
-  const settingByRecipe = new Map(settings.map((s) => [s.recipe_id, s]));
-
-  const [edits, setEdits]   = useState<Record<string, { variationId: string; volume: string }>>({});
-  const [savingId, setSaving] = useState<string | null>(null);
-  const [error, setError]   = useState<string | null>(null);
-
-  function currentFor(recipeId: string): { variationId: string; volume: string } {
-    if (edits[recipeId]) return edits[recipeId];
-    const s = settingByRecipe.get(recipeId);
-    return {
-      variationId: s?.swap_variation_id ?? "",
-      volume:      s?.swap_volume_fl_oz != null ? String(s.swap_volume_fl_oz) : "",
-    };
-  }
-
-  function onSelectVariation(recipeId: string, variationId: string) {
-    const opt = (kegOptionsByRecipe.get(recipeId) ?? []).find((o) => o.variation_id === variationId);
-    const cur = currentFor(recipeId);
-    // Auto-fill the full-keg volume from the chosen container, but only when the
-    // field is empty so a manual override is never clobbered.
-    const volume = cur.volume === "" && opt?.container_volume_fl_oz != null
-      ? String(opt.container_volume_fl_oz)
-      : cur.volume;
-    setEdits((e) => ({ ...e, [recipeId]: { variationId, volume } }));
-  }
-
-  function onVolume(recipeId: string, volume: string) {
-    setEdits((e) => ({ ...e, [recipeId]: { ...currentFor(recipeId), volume } }));
-  }
-
-  async function save(recipeId: string) {
-    const cur = currentFor(recipeId);
-    setSaving(recipeId);
-    setError(null);
-    try {
-      const res = await fetch("/api/production/taproom-recipe-settings", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          recipe_id:          recipeId,
-          swap_variation_id:  cur.variationId || null,
-          swap_volume_fl_oz:  cur.volume ? Number(cur.volume) : null,
-        }),
-      });
-      if (!res.ok) throw new Error((await res.json()).error ?? "Error");
-      setEdits((e) => { const n = { ...e }; delete n[recipeId]; return n; });
-      await Promise.all([
-        qc.invalidateQueries({ queryKey: queryKeys.production.taproomRecipeSettings() }),
-        qc.invalidateQueries({ queryKey: queryKeys.taproom.draftStats() }),
-      ]);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Error");
-    } finally {
-      setSaving(null);
-    }
-  }
-
-  return (
-    <div className="mt-8">
-      <div className="mb-3">
-        <h3 className="text-sm font-semibold text-strong">Draft Swap Inventory</h3>
-        <p className="text-xs text-muted mt-0.5">
-          Which cold-storage keg is consumed when a tap is swapped, and the full-keg fl oz.
-          Drives taproom consumption tracking and shrinkage detection.
-        </p>
-      </div>
-
-      {error && <p className="text-xs text-danger mb-2">{error}</p>}
-
-      <div className="rounded-lg border border-line divide-y divide-line">
-        {draftRecipes.map((r) => {
-          const opts       = kegOptionsByRecipe.get(r.id) ?? [];
-          const cur        = currentFor(r.id);
-          const setting    = settingByRecipe.get(r.id);
-          const configured = Boolean(setting?.swap_variation_id && setting?.swap_volume_fl_oz);
-          const dirty      = Boolean(edits[r.id]);
-
-          return (
-            <div key={r.id} className="flex flex-wrap items-center gap-2 px-3 py-2">
-              <div className="flex items-center gap-2 min-w-0 flex-1">
-                <span className="text-sm text-strong truncate">{r.beer_name}</span>
-                {!configured && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded border border-line-strong text-muted uppercase tracking-wide shrink-0">
-                    Not configured
-                  </span>
-                )}
-              </div>
-
-              <select
-                className="inp text-xs w-44"
-                value={cur.variationId}
-                onChange={(e) => onSelectVariation(r.id, e.target.value)}
-              >
-                <option value="">— swap keg —</option>
-                {opts.map((o) => (
-                  <option key={o.variation_id} value={o.variation_id}>{o.name}</option>
-                ))}
-              </select>
-
-              <div className="flex items-center gap-1">
-                <input
-                  type="number" min="0" step="1"
-                  className="inp text-xs w-24"
-                  placeholder="fl oz"
-                  value={cur.volume}
-                  onChange={(e) => onVolume(r.id, e.target.value)}
-                />
-                <span className="text-xs text-faint">fl oz</span>
-              </div>
-
-              <button
-                onClick={() => save(r.id)}
-                disabled={savingId === r.id || !dirty}
-                className="btn-amber btn-xs disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                {savingId === r.id ? "Saving…" : "Save"}
-              </button>
-            </div>
-          );
-        })}
-      </div>
     </div>
   );
 }
