@@ -1,5 +1,6 @@
 import { SupabaseClient } from "@supabase/supabase-js";
-import { deriveTaproomConsumption, type ConsumptionKind, type ConfigDiscrepancy } from "@/lib/square/taproomConsumption";
+import { deriveTaproomConsumption, type ConsumptionKind, type AssemblyDiscrepancy } from "@/lib/square/taproomConsumption";
+import { setPhysicalCount } from "@/lib/square/inventory";
 import { recordTaproomConsumption } from "@/lib/production/recordTaproomConsumption";
 
 /**
@@ -23,7 +24,7 @@ export interface RecordedLine {
 }
 
 export type SyncDiscrepancy =
-  | ConfigDiscrepancy
+  | AssemblyDiscrepancy
   | {
       kind: "short_stock";
       recipeId: string;
@@ -32,6 +33,12 @@ export type SyncDiscrepancy =
       requestedQty: number;
       recordedQty: number;
       shortfallQty: number;
+    }
+  | {
+      kind: "recount_failed";
+      sourceRef: string;
+      label: string;
+      detail: string;
     };
 
 export interface TaproomSyncResult {
@@ -41,6 +48,7 @@ export interface TaproomSyncResult {
   recordedUnits: number;
   skipped: number;
   totalRecordedQty: number;
+  recountsApplied: number;
   discrepancies: SyncDiscrepancy[];
 }
 
@@ -82,11 +90,14 @@ export async function runTaproomConsumptionSync(
   const shipmentId = crypto.randomUUID();
   const recordedLines: RecordedLine[] = [];
   const shortStock: SyncDiscrepancy[] = [];
+  const recountWarnings: SyncDiscrepancy[] = [];
   let skipped = 0;
   let totalRecordedQty = 0;
+  let recountsApplied = 0;
 
   for (const u of units) {
-    const delta = remainingDelta(u.quantity, recorded.get(u.sourceRef) ?? 0);
+    const alreadyRecorded = recorded.get(u.sourceRef) ?? 0;
+    const delta = remainingDelta(u.quantity, alreadyRecorded);
     if (delta <= 0) { skipped++; continue; }
 
     const res = await recordTaproomConsumption(supabase, {
@@ -108,6 +119,25 @@ export async function runTaproomConsumptionSync(
         recordedQty: res.recordedQty,
       });
       totalRecordedQty += res.recordedQty;
+
+      // Restock-driven swaps carry a recount. Fire it once — on the first run
+      // that durably records this swap (alreadyRecorded === 0) — so the mapped
+      // draft SKU is reset to full in Square. Tying it to a persisted shipment
+      // row guarantees fire-once: subsequent runs see alreadyRecorded > 0 and
+      // skip. Best-effort: a Square failure is flagged, never fatal.
+      if (u.recount && alreadyRecorded === 0) {
+        try {
+          await setPhysicalCount(u.recount.squareVariationId, u.recount.quantity, u.recount.occurredAt);
+          recountsApplied++;
+        } catch (e) {
+          recountWarnings.push({
+            kind: "recount_failed",
+            sourceRef: u.sourceRef,
+            label: u.label,
+            detail: e instanceof Error ? e.message : String(e),
+          });
+        }
+      }
     } else {
       skipped++;
     }
@@ -132,6 +162,7 @@ export async function runTaproomConsumptionSync(
     recordedUnits: recordedLines.length,
     skipped,
     totalRecordedQty: Math.round(totalRecordedQty * 10000) / 10000,
-    discrepancies: [...configDiscrepancies, ...shortStock],
+    recountsApplied,
+    discrepancies: [...configDiscrepancies, ...shortStock, ...recountWarnings],
   };
 }
