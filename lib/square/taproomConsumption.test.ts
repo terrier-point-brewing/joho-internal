@@ -1,26 +1,13 @@
 // lib/square/taproomConsumption.test.ts
 //
 // Unit tests for the PURE assembler. It maps Square keg/can sales (per variation
-// per day) into keg_sale/can_sale units, and draft physical-count series into
-// draft_swap units — using the real detectKegSwaps threshold logic — while
-// surfacing unconfigured-swap discrepancies for draft recipes lacking a complete
-// swap config.
+// per day) into keg_sale/can_sale units, and bartender-rung "Draft Restock" line
+// items into draft_swap units — resolving each restock's swap keg + recount from
+// its tap. Unmapped / unconfigured restocks surface as discrepancies; nothing is
+// inferred from physical-count crossings anymore.
 import { describe, it, expect } from "vitest";
-import { assembleConsumption, type KegCanLink, type DraftLink, type SwapConfig, type TapRestockLink } from "./taproomConsumption";
-import type { PhysicalCount, RestockLineEvent } from "./inventory";
-
-function count(id: string, quantity: number, occurredAt: string): PhysicalCount {
-  return {
-    id,
-    catalog_object_id: "draft-sqvar",
-    catalog_object_type: "ITEM_VARIATION",
-    state: "IN_STOCK",
-    location_id: "LZ8TH4A632YW0",
-    quantity: String(quantity),
-    occurred_at: occurredAt,
-    created_at: occurredAt,
-  };
-}
+import { assembleConsumption, type KegCanLink, type DraftLink, type TapRestockLink } from "./taproomConsumption";
+import type { RestockLineEvent } from "./inventory";
 
 const kegLink: KegCanLink = {
   squareVariationId: "sqvar-keg",
@@ -45,8 +32,6 @@ function empty() {
     salesByDay: new Map<string, number>(),
     kegCanLinks: [] as KegCanLink[],
     draftLinks: [] as DraftLink[],
-    physicalCountsByVar: new Map<string, PhysicalCount[]>(),
-    swapByRecipe: new Map<string, SwapConfig>(),
   };
 }
 
@@ -95,179 +80,79 @@ describe("assembleConsumption — keg/can sales", () => {
   });
 });
 
-describe("assembleConsumption — draft swaps", () => {
-  // A low→high crossing over the 580/660 threshold = one detected swap.
-  const swapCounts: PhysicalCount[] = [
-    count("pc-1", 600, "2026-07-01T12:00:00Z"), // full
-    count("pc-2", 120, "2026-07-02T12:00:00Z"), // poured down (< 580)
-    count("pc-3", 640, "2026-07-03T12:00:00Z"), // fresh keg tapped (>= 580) → swap
-  ];
+const draftLink: DraftLink = { squareVariationId: "draft-sqvar", recipeId: "recipe-1", beerName: "Vienna Lager" };
 
-  const draftLink: DraftLink = {
-    squareVariationId: "draft-sqvar",
-    recipeId: "recipe-draft",
-    beerName: "Pilsner",
-  };
-
-  it("emits one draft_swap unit per swap when config is complete", () => {
-    const { units, discrepancies } = assembleConsumption({
-      ...empty(),
-      draftLinks: [draftLink],
-      physicalCountsByVar: new Map([["draft-sqvar", swapCounts]]),
-      swapByRecipe: new Map([["recipe-draft", { swapVariationId: "pv-swap", swapVolumeFlOz: 660 }]]),
-    });
-
-    expect(discrepancies).toEqual([]);
-    expect(units).toHaveLength(1);
-    expect(units[0]).toEqual({
-      recipeId: "recipe-draft",
-      variationId: "pv-swap",
-      quantity: 1,
-      sourceRef: "sqkegswap:pc-3",
-      kind: "draft_swap",
-      label: "Pilsner · keg swap · 2026-07-03",
-    });
-  });
-
-  it("reports an unconfigured_draft_swap discrepancy when swaps exist but config is incomplete", () => {
-    const { units, discrepancies } = assembleConsumption({
-      ...empty(),
-      draftLinks: [draftLink],
-      physicalCountsByVar: new Map([["draft-sqvar", swapCounts]]),
-      // swapVariationId present but volume missing → incomplete
-      swapByRecipe: new Map([["recipe-draft", { swapVariationId: "pv-swap", swapVolumeFlOz: null }]]),
-    });
-
-    expect(units).toEqual([]);
-    expect(discrepancies).toEqual([
-      { kind: "unconfigured_draft_swap", recipeId: "recipe-draft", beerName: "Pilsner", swapCount: 1 },
-    ]);
-  });
-
-  it("emits nothing when config is complete but no swaps are detected", () => {
-    const noSwapCounts: PhysicalCount[] = [
-      count("pc-1", 400, "2026-07-01T12:00:00Z"),
-      count("pc-2", 200, "2026-07-02T12:00:00Z"),
-      count("pc-3", 60, "2026-07-03T12:00:00Z"), // monotonic drain, never crosses up
-    ];
-
-    const { units, discrepancies } = assembleConsumption({
-      ...empty(),
-      draftLinks: [draftLink],
-      physicalCountsByVar: new Map([["draft-sqvar", noSwapCounts]]),
-      swapByRecipe: new Map([["recipe-draft", { swapVariationId: "pv-swap", swapVolumeFlOz: 660 }]]),
-    });
-
-    expect(units).toEqual([]);
-    expect(discrepancies).toEqual([]);
-  });
+const tapLink = (over: Partial<TapRestockLink> = {}): TapRestockLink => ({
+  restockVariationId: "restock-tap3",
+  tapNumber: 3,
+  recipeId: "recipe-1",
+  beerName: "Vienna Lager",
+  swapVariationId: "pv-keg-1",
+  swapVolumeFlOz: 660,
+  ...over,
 });
 
-describe("assembleConsumption — restock line items (bartender-recorded keg swaps)", () => {
-  const draftLink: DraftLink = {
-    squareVariationId: "draft-sqvar",
-    recipeId: "recipe-draft",
-    beerName: "Pilsner",
-  };
-  const tapLink: TapRestockLink = {
-    restockVariationId: "restock-tap3",
-    tapNumber: 3,
-    recipeId: "recipe-draft",
-    beerName: "Pilsner",
-  };
-  const restockEvent = (over: Partial<RestockLineEvent> = {}): RestockLineEvent => ({
-    orderId: "ord-1",
-    lineUid: "line-1",
-    squareVariationId: "restock-tap3",
-    quantity: 1,
-    occurredAt: "2026-07-04T20:00:00Z",
-    ...over,
-  });
+const restockEvent = (over: Partial<RestockLineEvent> = {}): RestockLineEvent => ({
+  orderId: "ord-1",
+  lineUid: "line-1",
+  squareVariationId: "restock-tap3",
+  quantity: 1,
+  occurredAt: "2026-07-04T20:00:00Z",
+  ...over,
+});
 
-  it("emits a draft_swap unit with a recount and sqtransfer sourceRef", () => {
+describe("assembleConsumption — restock draft swaps (tap grain)", () => {
+  it("maps a restock line to a draft_swap unit with the tap's swap keg + recount", () => {
     const { units, discrepancies } = assembleConsumption({
       ...empty(),
       draftLinks: [draftLink],
-      swapByRecipe: new Map([["recipe-draft", { swapVariationId: "pv-swap", swapVolumeFlOz: 660 }]]),
-      tapRestockLinks: [tapLink],
       restockEvents: [restockEvent()],
+      tapRestockLinks: [tapLink()],
     });
-
-    expect(discrepancies).toEqual([]);
-    expect(units).toEqual([
-      {
-        recipeId: "recipe-draft",
-        variationId: "pv-swap",
-        quantity: 1,
-        sourceRef: "sqtransfer:ord-1:line-1",
-        kind: "draft_swap",
-        label: "Pilsner · Tap 3 restock · 2026-07-04",
-        recount: { squareVariationId: "draft-sqvar", quantity: 660, occurredAt: "2026-07-04T20:00:00Z" },
-      },
-    ]);
+    expect(discrepancies).toHaveLength(0);
+    expect(units).toHaveLength(1);
+    expect(units[0]).toMatchObject({
+      recipeId: "recipe-1",
+      variationId: "pv-keg-1",
+      kind: "draft_swap",
+      sourceRef: "sqtransfer:ord-1:line-1",
+      tapNumber: 3,
+      recount: { squareVariationId: "draft-sqvar", quantity: 660, occurredAt: "2026-07-04T20:00:00Z" },
+    });
   });
 
-  it("does NOT double-count: a restock-mapped recipe skips physical-count crossing detection", () => {
-    const crossing: PhysicalCount[] = [
-      count("pc-1", 600, "2026-07-01T12:00:00Z"),
-      count("pc-2", 120, "2026-07-02T12:00:00Z"),
-      count("pc-3", 640, "2026-07-03T12:00:00Z"), // would be an inferred swap if not skipped
-    ];
+  it("flags an unconfigured swap when the tap has no swap keg", () => {
+    const { units, discrepancies } = assembleConsumption({
+      ...empty(),
+      draftLinks: [draftLink],
+      restockEvents: [restockEvent()],
+      tapRestockLinks: [tapLink({ swapVariationId: null })],
+    });
+    expect(units).toHaveLength(0);
+    expect(discrepancies).toContainEqual(
+      expect.objectContaining({ kind: "unconfigured_draft_swap", recipeId: "recipe-1", swapCount: 1 }),
+    );
+  });
+
+  it("flags an unmapped restock when the variation maps to no tap", () => {
+    const { units, discrepancies } = assembleConsumption({
+      ...empty(),
+      restockEvents: [restockEvent({ squareVariationId: "restock-unknown" })],
+      tapRestockLinks: [tapLink()],
+    });
+    expect(units).toHaveLength(0);
+    expect(discrepancies).toContainEqual(
+      expect.objectContaining({ kind: "unmapped_restock", squareVariationId: "restock-unknown", count: 1 }),
+    );
+  });
+
+  it("omits the recount when the recipe has no draft Square link", () => {
     const { units } = assembleConsumption({
       ...empty(),
-      draftLinks: [draftLink],
-      physicalCountsByVar: new Map([["draft-sqvar", crossing]]),
-      swapByRecipe: new Map([["recipe-draft", { swapVariationId: "pv-swap", swapVolumeFlOz: 660 }]]),
-      tapRestockLinks: [tapLink],
+      draftLinks: [],
       restockEvents: [restockEvent()],
+      tapRestockLinks: [tapLink()],
     });
-
-    // Exactly one unit — the restock one — not two.
-    expect(units).toHaveLength(1);
-    expect(units[0].sourceRef).toBe("sqtransfer:ord-1:line-1");
-  });
-
-  it("flags an unconfigured_draft_swap when the tap's recipe has no swap config", () => {
-    const { units, discrepancies } = assembleConsumption({
-      ...empty(),
-      draftLinks: [draftLink],
-      swapByRecipe: new Map(), // no swap config
-      tapRestockLinks: [tapLink],
-      restockEvents: [restockEvent(), restockEvent({ lineUid: "line-2" })],
-    });
-
-    expect(units).toEqual([]);
-    expect(discrepancies).toEqual([
-      { kind: "unconfigured_draft_swap", recipeId: "recipe-draft", beerName: "Pilsner", swapCount: 2 },
-    ]);
-  });
-
-  it("flags an unmapped_restock when the variation isn't mapped to a tap+recipe", () => {
-    const { units, discrepancies } = assembleConsumption({
-      ...empty(),
-      draftLinks: [draftLink],
-      swapByRecipe: new Map([["recipe-draft", { swapVariationId: "pv-swap", swapVolumeFlOz: 660 }]]),
-      tapRestockLinks: [], // no mapping
-      restockEvents: [restockEvent(), restockEvent({ lineUid: "line-2" })],
-    });
-
-    expect(units).toEqual([]);
-    expect(discrepancies).toEqual([
-      { kind: "unmapped_restock", squareVariationId: "restock-tap3", count: 2 },
-    ]);
-  });
-
-  it("omits recount when the recipe has no draft SKU link, but still records the shipment", () => {
-    const { units } = assembleConsumption({
-      ...empty(),
-      draftLinks: [], // no draft link → can't resolve a recount target
-      swapByRecipe: new Map([["recipe-draft", { swapVariationId: "pv-swap", swapVolumeFlOz: 660 }]]),
-      tapRestockLinks: [tapLink],
-      restockEvents: [restockEvent()],
-    });
-
-    expect(units).toHaveLength(1);
     expect(units[0].recount).toBeUndefined();
-    expect(units[0].variationId).toBe("pv-swap");
   });
 });
