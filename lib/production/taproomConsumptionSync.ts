@@ -1,6 +1,6 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 import { deriveTaproomConsumption, type ConsumptionKind, type AssemblyDiscrepancy } from "@/lib/square/taproomConsumption";
-import { setPhysicalCount } from "@/lib/square/inventory";
+import { setPhysicalCount, fetchPhysicalCounts, type PhysicalCount } from "@/lib/square/inventory";
 import { recordTaproomConsumption } from "@/lib/production/recordTaproomConsumption";
 
 /**
@@ -39,6 +39,11 @@ export type SyncDiscrepancy =
       sourceRef: string;
       label: string;
       detail: string;
+    }
+  | {
+      kind: "shrinkage_capture_failed";
+      sourceRef: string;
+      detail: string;
     };
 
 export interface TaproomSyncResult {
@@ -58,6 +63,15 @@ const EPS = 1e-4;
 export function remainingDelta(targetQty: number, alreadyRecorded: number): number {
   const d = targetQty - alreadyRecorded;
   return d > EPS ? d : 0;
+}
+
+/** Draft SKU on-hand as of a timestamp: the latest PHYSICAL_COUNT at or before it. */
+export function remainingAtOrBefore(counts: PhysicalCount[], occurredAt: string): number | null {
+  const prior = counts
+    .filter((c) => c.occurred_at <= occurredAt)
+    .sort((a, b) => a.occurred_at.localeCompare(b.occurred_at));
+  const last = prior.at(-1);
+  return last ? parseFloat(last.quantity) : null;
 }
 
 /** Sum of already-recorded quantity per source_ref (chunked to stay under `in` limits). */
@@ -91,6 +105,7 @@ export async function runTaproomConsumptionSync(
   const recordedLines: RecordedLine[] = [];
   const shortStock: SyncDiscrepancy[] = [];
   const recountWarnings: SyncDiscrepancy[] = [];
+  const shrinkageWarnings: SyncDiscrepancy[] = [];
   let skipped = 0;
   let totalRecordedQty = 0;
   let recountsApplied = 0;
@@ -126,6 +141,33 @@ export async function runTaproomConsumptionSync(
       // row guarantees fire-once: subsequent runs see alreadyRecorded > 0 and
       // skip. Best-effort: a Square failure is flagged, never fatal.
       if (u.recount && alreadyRecorded === 0) {
+        // Deterministic shrinkage: the draft SKU's on-hand as of the swap,
+        // captured before the recount overwrites it to full. Best-effort —
+        // never fatal, so a read/write failure never blocks the recount.
+        try {
+          const day = (s: string) => s.slice(0, 10);
+          const windowStart = new Date(new Date(u.recount.occurredAt).getTime() - 45 * 86400000).toISOString();
+          const counts = await fetchPhysicalCounts(day(windowStart), day(u.recount.occurredAt), [u.recount.squareVariationId]);
+          const remaining = remainingAtOrBefore(counts, u.recount.occurredAt);
+          if (remaining !== null) {
+            const { error } = await supabase.from("draft_swap_shrinkage").upsert({
+              source_ref:      u.sourceRef,
+              recipe_id:       u.recipeId,
+              tap_number:      u.tapNumber ?? null,
+              occurred_at:     u.recount.occurredAt,
+              remaining_fl_oz: remaining,
+              full_fl_oz:      u.recount.quantity,
+            }, { onConflict: "source_ref" });
+            if (error) throw new Error(error.message);
+          }
+        } catch (e) {
+          shrinkageWarnings.push({
+            kind: "shrinkage_capture_failed",
+            sourceRef: u.sourceRef,
+            detail: e instanceof Error ? e.message : String(e),
+          });
+        }
+
         try {
           await setPhysicalCount(u.recount.squareVariationId, u.recount.quantity, u.recount.occurredAt);
           recountsApplied++;
@@ -163,6 +205,6 @@ export async function runTaproomConsumptionSync(
     skipped,
     totalRecordedQty: Math.round(totalRecordedQty * 10000) / 10000,
     recountsApplied,
-    discrepancies: [...configDiscrepancies, ...shortStock, ...recountWarnings],
+    discrepancies: [...configDiscrepancies, ...shortStock, ...recountWarnings, ...shrinkageWarnings],
   };
 }

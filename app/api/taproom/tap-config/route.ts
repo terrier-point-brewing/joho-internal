@@ -12,7 +12,7 @@ export async function GET() {
     supabase.from("system_settings").select("value").eq("key", "draft_restock_item_id").maybeSingle(),
     supabase
       .from("tap_assignments")
-      .select("tap_number, recipe_id, label, restock_variation_id, recipes(beer_name)")
+      .select("tap_number, recipe_id, label, restock_variation_id, swap_variation_id, swap_volume_fl_oz, recipes(beer_name)")
       .order("tap_number"),
   ]);
   return NextResponse.json({
@@ -36,6 +36,8 @@ export async function PUT(req: NextRequest) {
         recipe_id: string | null;
         label?: string;
         restock_variation_id?: string | null;
+        swap_variation_id?: string | null;
+        swap_volume_fl_oz?: number | null;
       }[];
     };
     const { tap_count, draft_restock_item_id, taps } = body;
@@ -68,6 +70,8 @@ export async function PUT(req: NextRequest) {
               recipe_id:            tap.recipe_id || null,
               label:                tap.label || null,
               restock_variation_id: tap.restock_variation_id || null,
+              swap_variation_id:    tap.swap_variation_id || null,
+              swap_volume_fl_oz:    tap.swap_volume_fl_oz ?? null,
               updated_at:           new Date().toISOString(),
             },
             { onConflict: "tap_number" }

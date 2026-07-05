@@ -1,12 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   fetchOrderSalesByDay,
-  fetchPhysicalCounts,
   fetchDraftRestockLineItems,
-  type PhysicalCount,
   type RestockLineEvent,
 } from "./inventory";
-import { detectKegSwaps } from "./draftKegEvents";
 
 export type ConsumptionKind = "keg_sale" | "can_sale" | "draft_swap";
 
@@ -24,6 +21,7 @@ export interface ConsumptionUnit {
   sourceRef: string; // "sqsale:<sqVarId>:<day>" | "sqkegswap:<physicalCountId>" | "sqtransfer:<orderId>:<lineUid>"
   kind: ConsumptionKind;
   label: string; // human label for discrepancy/summary display
+  tapNumber?: number; // the tap this swap drained (restock-driven draft swaps only)
   recount?: RecountInstruction; // set for restock-driven draft swaps; drives the Square recount
 }
 
@@ -59,23 +57,15 @@ export interface DraftLink {
   beerName: string;
 }
 
-// tap → its Square "Draft Restock" variation, with the recipe currently on the tap
+// tap → its Square "Draft Restock" variation, plus the tap's own swap config
 export interface TapRestockLink {
   restockVariationId: string;
   tapNumber: number;
   recipeId: string | null;
   beerName: string;
+  swapVariationId: string | null;   // cold-storage packaging variation to drain
+  swapVolumeFlOz: number | null;    // full-keg recount target
 }
-
-// per-recipe swap config from taproom_recipe_settings
-export interface SwapConfig {
-  swapVariationId: string | null;
-  swapVolumeFlOz: number | null;
-}
-
-// Default full-keg retop level (fl oz) for swap detection when a recipe has no
-// explicit swap_volume_fl_oz — a 1/6 barrel keg.
-const DEFAULT_SWAP_VOLUME_FL_OZ = 660;
 
 /**
  * PURE assembler: turns Square taproom activity + config into target
@@ -86,17 +76,13 @@ export function assembleConsumption(input: {
   salesByDay: Map<string, number>; // "<squareVariationId>\t<YYYY-MM-DD>" -> units
   kegCanLinks: KegCanLink[];
   draftLinks: DraftLink[];
-  physicalCountsByVar: Map<string, PhysicalCount[]>; // squareVariationId -> counts
-  swapByRecipe: Map<string, SwapConfig>;
   restockEvents?: RestockLineEvent[]; // bartender-recorded keg swaps (the new path)
-  tapRestockLinks?: TapRestockLink[]; // restock variation → tap → recipe
+  tapRestockLinks?: TapRestockLink[]; // restock variation → tap → recipe + swap config
 }): { units: ConsumptionUnit[]; discrepancies: AssemblyDiscrepancy[] } {
   const {
     salesByDay,
     kegCanLinks,
     draftLinks,
-    physicalCountsByVar,
-    swapByRecipe,
     restockEvents = [],
     tapRestockLinks = [],
   } = input;
@@ -128,26 +114,21 @@ export function assembleConsumption(input: {
   }
 
   // Restock line items (bartender-recorded keg swaps) → deterministic draft_swap
-  // units. This is the preferred path: a rung line item is an unambiguous signal,
-  // and each unit carries a recount that resets the draft SKU to full.
+  // units. This is the ONLY draft-swap path: a rung line item is an unambiguous
+  // signal, its swap keg + recount target come from the tap, and each unit carries
+  // a recount that resets the draft SKU to full.
   const linkByRestockVar = new Map<string, TapRestockLink>();
-  const restockRecipeIds = new Set<string>(); // recipes handled here (skip crossing-inference)
-  for (const link of tapRestockLinks) {
-    linkByRestockVar.set(link.restockVariationId, link);
-    if (link.recipeId) restockRecipeIds.add(link.recipeId);
-  }
+  for (const link of tapRestockLinks) linkByRestockVar.set(link.restockVariationId, link);
 
   const restockUnconfigured = new Map<string, { beerName: string; count: number }>();
   const unmappedRestock = new Map<string, number>();
   for (const ev of restockEvents) {
     const link = linkByRestockVar.get(ev.squareVariationId);
     if (!link || !link.recipeId) {
-      // A restock line rung for a variation not mapped to a tap+recipe.
       unmappedRestock.set(ev.squareVariationId, (unmappedRestock.get(ev.squareVariationId) ?? 0) + 1);
       continue;
     }
-    const cfg = swapByRecipe.get(link.recipeId);
-    if (!cfg?.swapVariationId || !cfg?.swapVolumeFlOz) {
+    if (!link.swapVariationId || !link.swapVolumeFlOz) {
       const prev = restockUnconfigured.get(link.recipeId);
       restockUnconfigured.set(link.recipeId, { beerName: link.beerName, count: (prev?.count ?? 0) + 1 });
       continue;
@@ -155,13 +136,14 @@ export function assembleConsumption(input: {
     const draftSquareVar = draftSquareVarByRecipe.get(link.recipeId);
     units.push({
       recipeId: link.recipeId,
-      variationId: cfg.swapVariationId,
+      variationId: link.swapVariationId,
       quantity: ev.quantity,
       sourceRef: `sqtransfer:${ev.orderId}:${ev.lineUid}`,
       kind: "draft_swap",
       label: `${link.beerName} · Tap ${link.tapNumber} restock · ${ev.occurredAt.slice(0, 10)}`,
+      tapNumber: link.tapNumber,
       recount: draftSquareVar
-        ? { squareVariationId: draftSquareVar, quantity: cfg.swapVolumeFlOz, occurredAt: ev.occurredAt }
+        ? { squareVariationId: draftSquareVar, quantity: link.swapVolumeFlOz, occurredAt: ev.occurredAt }
         : undefined,
     });
   }
@@ -170,41 +152,6 @@ export function assembleConsumption(input: {
   }
   for (const [squareVariationId, count] of unmappedRestock) {
     discrepancies.push({ kind: "unmapped_restock", squareVariationId, count });
-  }
-
-  // Draft keg swaps → one unit per swap when configured, else a discrepancy.
-  // Recipes with a restock mapping are handled above (deterministically) — skip
-  // them here so a restock-triggered recount to full isn't double-counted as an
-  // inferred crossing.
-  for (const draft of draftLinks) {
-    if (restockRecipeIds.has(draft.recipeId)) continue;
-    const counts = physicalCountsByVar.get(draft.squareVariationId) ?? [];
-    const cfg = swapByRecipe.get(draft.recipeId);
-    const complete = Boolean(cfg?.swapVariationId && cfg?.swapVolumeFlOz);
-    const swaps = detectKegSwaps(counts, cfg?.swapVolumeFlOz ?? DEFAULT_SWAP_VOLUME_FL_OZ);
-
-    if (swaps.length === 0) continue;
-
-    if (!complete) {
-      discrepancies.push({
-        kind: "unconfigured_draft_swap",
-        recipeId: draft.recipeId,
-        beerName: draft.beerName,
-        swapCount: swaps.length,
-      });
-      continue;
-    }
-
-    for (const swap of swaps) {
-      units.push({
-        recipeId: draft.recipeId,
-        variationId: cfg!.swapVariationId!,
-        quantity: 1,
-        sourceRef: `sqkegswap:${swap.physicalCountId}`,
-        kind: "draft_swap",
-        label: `${draft.beerName} · keg swap · ${swap.date}`,
-      });
-    }
   }
 
   return { units, discrepancies };
@@ -220,23 +167,19 @@ interface RecipeSquareLinkRow {
   recipes: { beer_name: string } | null;
 }
 
-interface TaproomRecipeSettingsRow {
-  recipe_id: string;
-  swap_variation_id: string | null;
-  swap_volume_fl_oz: number | null;
-}
-
 interface TapAssignmentRow {
   tap_number: number;
   recipe_id: string | null;
   restock_variation_id: string | null;
+  swap_variation_id: string | null;
+  swap_volume_fl_oz: number | null;
   recipes: { beer_name: string } | null;
 }
 
 /**
- * IO wrapper: loads the Square links + swap config from Supabase, pulls the
- * matching Square sales/physical-counts for the trailing `days` window, then
- * hands everything to the pure `assembleConsumption`.
+ * IO wrapper: loads the Square links + per-tap swap config from Supabase, pulls
+ * the matching Square sales + restock line items for the trailing `days` window,
+ * then hands everything to the pure `assembleConsumption`.
  */
 export async function deriveTaproomConsumption(
   supabase: SupabaseClient,
@@ -280,23 +223,11 @@ export async function deriveTaproomConsumption(
     }
   }
 
-  const { data: settingsRows, error: settingsErr } = await supabase
-    .from("taproom_recipe_settings")
-    .select("recipe_id, swap_variation_id, swap_volume_fl_oz");
-  if (settingsErr) throw new Error(settingsErr.message);
-
-  const swapByRecipe = new Map<string, SwapConfig>();
-  for (const s of (settingsRows ?? []) as TaproomRecipeSettingsRow[]) {
-    swapByRecipe.set(s.recipe_id, {
-      swapVariationId: s.swap_variation_id,
-      swapVolumeFlOz: s.swap_volume_fl_oz,
-    });
-  }
-
-  // Tap → restock variation mapping (only taps that have a restock line configured).
+  // Tap → restock variation mapping + the tap's own swap config (only taps that
+  // have a restock line configured).
   const { data: tapRows, error: tapErr } = await supabase
     .from("tap_assignments")
-    .select("tap_number, recipe_id, restock_variation_id, recipes(beer_name)");
+    .select("tap_number, recipe_id, restock_variation_id, swap_variation_id, swap_volume_fl_oz, recipes(beer_name)");
   if (tapErr) throw new Error(tapErr.message);
 
   const tapRestockLinks: TapRestockLink[] = [];
@@ -307,27 +238,18 @@ export async function deriveTaproomConsumption(
       tapNumber: t.tap_number,
       recipeId: t.recipe_id,
       beerName: t.recipes?.beer_name ?? "",
+      swapVariationId: t.swap_variation_id,
+      swapVolumeFlOz: t.swap_volume_fl_oz,
     });
   }
 
   const kegCanSquareVarIds = kegCanLinks.map((l) => l.squareVariationId);
-  const draftSquareVarIds = draftLinks.map((l) => l.squareVariationId);
   const restockSquareVarIds = tapRestockLinks.map((l) => l.restockVariationId);
 
   const salesByDay =
     kegCanSquareVarIds.length > 0
       ? await fetchOrderSalesByDay(startDate, endDate, kegCanSquareVarIds)
       : new Map<string, number>();
-
-  const physicalCountsByVar = new Map<string, PhysicalCount[]>();
-  if (draftSquareVarIds.length > 0) {
-    const counts = await fetchPhysicalCounts(startDate, endDate, draftSquareVarIds);
-    for (const c of counts) {
-      const list = physicalCountsByVar.get(c.catalog_object_id) ?? [];
-      list.push(c);
-      physicalCountsByVar.set(c.catalog_object_id, list);
-    }
-  }
 
   const restockEvents =
     restockSquareVarIds.length > 0
@@ -338,8 +260,6 @@ export async function deriveTaproomConsumption(
     salesByDay,
     kegCanLinks,
     draftLinks,
-    physicalCountsByVar,
-    swapByRecipe,
     restockEvents,
     tapRestockLinks,
   });
