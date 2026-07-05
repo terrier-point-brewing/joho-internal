@@ -159,6 +159,9 @@ export default function DraftStatsTab() {
     .sort((a, b) => a.beer_name.localeCompare(b.beer_name));
 
   function startEditTaps() {
+    // Pull the latest Square catalog so a just-synced restock item is selectable
+    // without a manual page reload.
+    qc.invalidateQueries({ queryKey: queryKeys.production.squareCatalog() });
     setTapCountInput(String(stats?.tap_count ?? tapConfig?.tap_count ?? 8));
     setRestockItemId(tapConfig?.draft_restock_item_id ?? "");
     const edits: Record<number, { recipe_id: string; label: string; restock_variation_id: string }> = {};
