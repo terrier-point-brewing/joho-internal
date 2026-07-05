@@ -212,12 +212,10 @@ export default function AchievementTab() {
   const gapCents    = targetCents !== null ? targetCents - actualCents : null;
 
   const now = todayStr;
-  // Only fully-elapsed periods count toward the actuals average; the current in-progress
-  // week is partial data and would pull the average down if included.
-  const completedPeriods    = periods.filter((p) => p.end <= now && p.net_sales_cents !== null);
+  // Completed periods anchor the chart's dashed forecast at the last real point.
+  const completedPeriods     = periods.filter((p) => p.end <= now && p.net_sales_cents !== null);
   const completedActualCents = completedPeriods.reduce((s, p) => s + (p.net_sales_cents ?? 0), 0);
-  const avgDollarsPerPeriod = completedPeriods.length > 0 ? (completedActualCents / completedPeriods.length) / 100 : 0;
-  const lastCompletedIdx    = periods.reduce<number>((last, p, i) => (p.end <= now && p.net_sales_cents !== null ? i : last), -1);
+  const lastCompletedIdx     = periods.reduce<number>((last, p, i) => (p.end <= now && p.net_sales_cents !== null ? i : last), -1);
 
   // Elapsed fraction of the scope, anchored to brewery-local day boundaries:
   // [00:00 of the first day, 00:00 of the day after the last day). "Now" is the
@@ -233,24 +231,41 @@ export default function AchievementTab() {
   const elapsedMs  = Math.min(Math.max(nowMs - startMs, 0), totalMs);
   const elapsedFrac = totalMs > 0 ? elapsedMs / totalMs : 0;
 
+  // Whole-day counts + per-period day spans, for the day-based run rate. Handles
+  // DST-length days via rounding. dailyRateDollars ($/day so far) drives both the
+  // projection and the chart forecast, so the two never diverge in shape.
+  const MS_PER_DAY = 86_400_000;
+  const elapsedDays   = Math.round(elapsedMs / MS_PER_DAY);
+  const periodDaysArr = periods.map((p) =>
+    Math.round((new Date(dayStartUtc(addDaysStr(p.end, 1), tz)).getTime()
+              - new Date(dayStartUtc(p.start, tz)).getTime()) / MS_PER_DAY));
+  const dailyRateDollars = elapsedDays > 0 ? (actualCents / 100) / elapsedDays : 0;
+
   // ── Pace to date (the headline "are we on pace?" signal) ──────────────────
   // On pace = actual is at or above where we *should* be by today on a
   // straight-line path to the target: expected-to-date = target × elapsedFrac.
   // This is valid every day of the scope (that's the whole point), so it needs
-  // no "wait until the quarter ends" gating. It is deliberately NOT the run-rate
-  // projection below — that answers a different question (year-end forecast).
+  // no "wait until the quarter ends" gating.
   const expectedToDateCents = targetCents !== null ? Math.round(targetCents * elapsedFrac) : null;
   const paceDeltaCents      = expectedToDateCents !== null ? actualCents - expectedToDateCents : null;
   const onPace              = expectedToDateCents !== null ? actualCents >= expectedToDateCents : null;
 
-  // Run-rate projection — avg completed period × number of periods, the same
-  // basis as the chart's dashed "Forecast Total" line. The in-progress partial
-  // period is excluded so it doesn't distort the rate. Surfaced as a *forecast*
-  // ("Projected — run rate"), distinct from the pace-to-date verdict above.
-  const projectedCents   = completedPeriods.length > 0 && periods.length > 0
-    ? Math.round(avgDollarsPerPeriod * periods.length * 100)
+  // Run-rate projection — extend today's daily sales rate across the whole scope
+  // (actual ÷ fraction elapsed). Projecting by DAYS, not by whole-week slots,
+  // avoids extrapolating a clipped 5-day edge week as if it were a full week, and
+  // makes "projected ≥ target" the SAME condition as "on pace" (both reduce to
+  // reached% ≥ elapsed%) — so the two cards can never contradict. Early on it
+  // rests on very little data and swings hard, so below projectionMinElapsed it
+  // is flagged low-confidence rather than shown as a firm red/green verdict.
+  const projectionMinElapsed = 0.15;
+  const projectionConfident  = elapsedFrac >= projectionMinElapsed;
+  const projectedCents   = elapsedFrac > 0 && periods.length > 0
+    ? Math.round(actualCents / elapsedFrac)
     : null;
-  const projectedOnTrack = projectedCents !== null && targetCents !== null ? projectedCents >= targetCents : null;
+  // Same inequality as onPace (actual/elapsedFrac ≥ target ⟺ actual ≥ target·elapsedFrac),
+  // so bind it to onPace directly — recomputing from the rounded projectedCents could
+  // flip at a sub-cent boundary and let the two cards contradict.
+  const projectedOnTrack = projectedCents !== null ? onPace : null;
 
   const activeTierColor = TIERS.find((t) => t.value === activeTier)?.color ?? "#f59e0b";
   const tierLabel       = TIERS.find((t) => t.value === activeTier)?.label ?? "Target";
@@ -268,15 +283,18 @@ export default function AchievementTab() {
       (s, x) => s + (x.end <= now && x.net_sales_cents !== null ? x.net_sales_cents / 100 : 0), 0
     );
 
-    // Dashed forecast covers the in-progress week and all future weeks
+    // Dashed forecast covers the in-progress week and all future weeks, at the
+    // day-based run rate (rate × the period's own day-span), so a short edge week
+    // forecasts less than a full one — consistent with the projection card.
     const forecastPerPeriod: number | undefined =
-      !isComplete && avgDollarsPerPeriod > 0 ? Math.round(avgDollarsPerPeriod) : undefined;
+      !isComplete && dailyRateDollars > 0 ? Math.round(dailyRateDollars * periodDaysArr[i]) : undefined;
 
     let forecastCumulative: number | undefined;
     if (i === lastCompletedIdx && lastCompletedIdx >= 0) {
       forecastCumulative = Math.round(cumCompletedDollars);
-    } else if (i > lastCompletedIdx && lastCompletedIdx >= 0 && avgDollarsPerPeriod > 0) {
-      forecastCumulative = Math.round(completedActualCents / 100 + (i - lastCompletedIdx) * avgDollarsPerPeriod);
+    } else if (i > lastCompletedIdx && lastCompletedIdx >= 0 && dailyRateDollars > 0) {
+      const forecastDays = periodDaysArr.slice(lastCompletedIdx + 1, i + 1).reduce((s, d) => s + d, 0);
+      forecastCumulative = Math.round(completedActualCents / 100 + dailyRateDollars * forecastDays);
     }
 
     return {
@@ -314,14 +332,18 @@ export default function AchievementTab() {
   // ---------------------------------------------------------------------------
   // Each period's expected share of the target = its share of the scope's
   // calendar days (same day-boundary basis as elapsedFrac), NOT a flat 1/N.
-  // Periods tile the scope exactly (edge weeks are clipped), so these fractions
-  // sum to 1 — a completed period is "on pace" when it delivered its own
-  // time-weighted slice, consistent with the headline straight-line verdict.
+  // Only the ELAPSED slice of each period counts, clamped to the same "now"
+  // boundary the pace bar uses — so a period whose last day is today is judged
+  // against the days that have actually passed (not its full span), and the
+  // per-period "vs. pace" can never disagree with the cumulative pace bar on a
+  // period-boundary day. These slices sum to elapsedFrac, so the table and the
+  // headline stay consistent every day of the scope.
   const expectedPctByStart = new Map<string, number>();
   for (const p of periods) {
     const pStartMs = new Date(dayStartUtc(p.start, tz)).getTime();
     const pEndMs   = new Date(dayStartUtc(addDaysStr(p.end, 1), tz)).getTime();
-    expectedPctByStart.set(p.start, totalMs > 0 ? ((pEndMs - pStartMs) / totalMs) * 100 : 0);
+    const elapsedInPeriodMs = Math.min(Math.max(nowMs - pStartMs, 0), pEndMs - pStartMs);
+    expectedPctByStart.set(p.start, totalMs > 0 ? (elapsedInPeriodMs / totalMs) * 100 : 0);
   }
 
   // ---------------------------------------------------------------------------
@@ -425,22 +447,34 @@ export default function AchievementTab() {
           )}
         </div>
 
-        {/* Run-rate forecast (year-end projection — distinct from pace to date) */}
+        {/* Run-rate forecast (year-end projection — distinct from pace to date).
+            Firm red/green only once projectionConfident; before that it's neutral
+            with a low-confidence note, since a few days of data swing wildly. */}
         <div className={`bg-surface border rounded-lg p-4 ${
-          projectedOnTrack === true ? "border-success-border" : projectedOnTrack === false ? "border-danger-border" : "border-line"
+          !projectionConfident ? "border-line"
+          : projectedOnTrack === true ? "border-success-border"
+          : projectedOnTrack === false ? "border-danger-border" : "border-line"
         }`}>
           <div className="text-xs text-secondary mb-1">Projected {scope === "year" ? "Full Year" : "Full Quarter"} · run rate</div>
           <div className={`text-base sm:text-xl font-semibold ${
-            projectedOnTrack === true ? "text-success" : projectedOnTrack === false ? "text-danger" : "text-primary"
+            !projectionConfident ? "text-primary"
+            : projectedOnTrack === true ? "text-success"
+            : projectedOnTrack === false ? "text-danger" : "text-primary"
           }`}>
             {projectedCents !== null ? currency(projectedCents) : "—"}
           </div>
           {projectedOnTrack !== null && (
-            <div className={`text-xs mt-0.5 ${projectedOnTrack ? "text-success" : "text-danger"}`}>
-              {projectedOnTrack
-                ? `Above target · +${currency(projectedCents! - targetCents!)}`
-                : `Below target by ${currency(Math.abs(projectedCents! - targetCents!))}`}
-            </div>
+            projectionConfident ? (
+              <div className={`text-xs mt-0.5 ${projectedOnTrack ? "text-success" : "text-danger"}`}>
+                {projectedOnTrack
+                  ? `Above target · +${currency(projectedCents! - targetCents!)}`
+                  : `Below target by ${currency(Math.abs(projectedCents! - targetCents!))}`}
+              </div>
+            ) : (
+              <div className="text-xs mt-0.5 text-muted">
+                Trending {projectedOnTrack ? "above" : "below"} · low confidence, {pct(elapsedFrac * 100, 0)} elapsed
+              </div>
+            )
           )}
         </div>
 
@@ -497,6 +531,19 @@ export default function AchievementTab() {
         </div>
       )}
 
+      {/* How to read the two signals — documents the metric definitions in-UI */}
+      {targetCents !== null && (
+        <div className="rounded-lg border border-line bg-surface-mid/40 px-3 py-2.5 text-xs text-muted leading-relaxed">
+          <span className="text-secondary font-medium">On pace</span> compares sales so far to the straight-line
+          target for today — <span className="text-secondary">target × {pct(elapsedFrac * 100, 0)} elapsed</span>.{" "}
+          <span className="text-secondary font-medium">Projected · run rate</span> extends your current daily sales
+          rate across the whole {scope === "year" ? "year" : "quarter"}, so it&apos;s always on the same side of target
+          as the pace bar. Early on it rests on only a few days of sales and swings a lot, so it stays a neutral
+          &ldquo;low confidence&rdquo; estimate until {pct(projectionMinElapsed * 100, 0)} of the{" "}
+          {scope === "year" ? "year" : "quarter"} has elapsed.
+        </div>
+      )}
+
       {/* Chart */}
       {periods.length > 0 && (
         <div className="bg-surface border border-line rounded-lg p-3 sm:p-5">
@@ -547,12 +594,13 @@ export default function AchievementTab() {
           </tr>
         </thead>
         <tbody>
-          {periods.map((p) => {
+          {periods.map((p, i) => {
             const isFuture     = p.start > now;
             const isInProgress = p.start <= now && p.end > now;
-            // For future periods, use the avg per-period forecast as a projected value
+            // For future periods, forecast at the day-based run rate × the period's
+            // day-span (same basis as the chart forecast and projection card).
             const displayCents: number | null = isFuture
-              ? (avgDollarsPerPeriod > 0 ? Math.round(avgDollarsPerPeriod * 100) : null)
+              ? (dailyRateDollars > 0 ? Math.round(dailyRateDollars * periodDaysArr[i] * 100) : null)
               : p.net_sales_cents;
 
             const actualPct = (targetCents !== null && displayCents !== null)
