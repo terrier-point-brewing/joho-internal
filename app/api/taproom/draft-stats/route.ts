@@ -1,30 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { fetchSellThrough } from "@/lib/square/sell-through";
-import { fetchPhysicalCounts, type PhysicalCount } from "@/lib/square/inventory";
-import { detectKegSwaps } from "@/lib/square/draftKegEvents";
+import { aggregateShrinkage, type SwapShrinkageRow } from "@/lib/reports/draftShrinkage";
 import { apiError } from "@/lib/utils/api";
 import { BBL_TO_FL_OZ } from "@/lib/constants/production";
 
 export const dynamic = "force-dynamic";
-
-// A full sixth-barrel keg (~660 fl oz). Counts at or above this threshold
-// indicate a fresh keg was just tapped.
-const FULL_KEG_FL_OZ = 660;
-
-interface KegEvent {
-  date: string;
-  shrinkage_fl_oz: number;
-  shrinkage_pct: number;
-}
-
-function detectKegEvents(counts: PhysicalCount[]): KegEvent[] {
-  return detectKegSwaps(counts, FULL_KEG_FL_OZ).map((event) => ({
-    date:            event.date,
-    shrinkage_fl_oz: event.remainingFlOz,
-    shrinkage_pct:   Number((event.remainingFlOz / FULL_KEG_FL_OZ * 100).toFixed(1)),
-  }));
-}
 
 export async function GET(req: NextRequest) {
   const supabase = await createSupabaseServerClient();
@@ -90,51 +71,20 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Shrinkage: physical count history on the base draft variations
-    const draftVarIds = draftSellThrough.map((l) => l.square_variation_id);
-    const shrinkageStart = new Date(Date.now() - days * 86400000);
-    const now = new Date();
+    // Deterministic shrinkage: read persisted per-swap rows for the window.
+    const shrinkageStart = new Date(Date.now() - days * 86400000).toISOString();
+    const { data: shrinkRows } = await supabase
+      .from("draft_swap_shrinkage")
+      .select("recipe_id, occurred_at, remaining_fl_oz, full_fl_oz")
+      .gte("occurred_at", shrinkageStart);
 
-    const physicalCounts = await fetchPhysicalCounts(
-      shrinkageStart.toISOString().slice(0, 10),
-      now.toISOString().slice(0, 10),
-      draftVarIds,
-    ).catch((): PhysicalCount[] => []);
-
-    const varToRecipeId = new Map(draftSellThrough.map((l) => [l.square_variation_id, l.recipe_id]));
-    const varToName     = new Map(draftSellThrough.map((l) => [l.square_variation_id, l.item_name ?? "—"]));
-
-    const countsByVar = new Map<string, PhysicalCount[]>();
-    for (const pc of physicalCounts) {
-      const arr = countsByVar.get(pc.catalog_object_id) ?? [];
-      arr.push(pc);
-      countsByVar.set(pc.catalog_object_id, arr);
-    }
-
-    const eventsByRecipe = new Map<string, KegEvent[]>();
-    for (const [varId, counts] of countsByVar) {
-      const recipeId = varToRecipeId.get(varId);
-      if (!recipeId) continue;
-      const existing = eventsByRecipe.get(recipeId) ?? [];
-      eventsByRecipe.set(recipeId, [...existing, ...detectKegEvents(counts)]);
-    }
-
-    const shrinkageByRecipe = [...eventsByRecipe.entries()]
-      .map(([recipeId, rawEvents]) => {
-        const events = [...rawEvents].sort((a, b) => a.date.localeCompare(b.date));
-        const avg = events.length > 0
-          ? events.reduce((s, e) => s + e.shrinkage_fl_oz, 0) / events.length
-          : 0;
-        return {
-          recipe_id:           recipeId,
-          beer_name:           byRecipe.get(recipeId)?.beer_name ?? varToName.get(recipeId) ?? "—",
-          events,
-          avg_shrinkage_fl_oz: Number(avg.toFixed(1)),
-          avg_shrinkage_pct:   Number((avg / FULL_KEG_FL_OZ * 100).toFixed(1)),
-          keg_count:           events.length,
-        };
-      })
-      .sort((a, b) => b.avg_shrinkage_fl_oz - a.avg_shrinkage_fl_oz);
+    const beerNameByRecipe = new Map<string, string>(
+      [...byRecipe.entries()].map(([id, v]) => [id, v.beer_name]),
+    );
+    const shrinkageByRecipe = aggregateShrinkage(
+      (shrinkRows ?? []) as SwapShrinkageRow[],
+      beerNameByRecipe,
+    );
 
     const enrichedTaps = Array.from({ length: tapCount }, (_, i) => {
       const tap      = taps.find((t) => t.tap_number === i + 1);
