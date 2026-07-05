@@ -13,13 +13,13 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from("cold_storage_inventory")
-    .select("recipe_id, variation_id, quantity_on_hand, packaging_variations(name, container:packaging_items!packaging_variations_container_id_fkey(type))")
+    .select("recipe_id, variation_id, quantity_on_hand, packaging_variations(name, total_volume_fl_oz, container:packaging_items!packaging_variations_container_id_fkey(type))")
     .not("recipe_id", "is", null);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  type PVRow = { name: string; container?: { type: string } | null } | null;
-  const grouped = new Map<string, { recipe_id: string; variation_id: string; variation_name: string; container_type: string | null; quantity_on_hand: number }>();
+  type PVRow = { name: string; total_volume_fl_oz: number | null; container?: { type: string } | null } | null;
+  const grouped = new Map<string, { recipe_id: string; variation_id: string; variation_name: string; container_type: string | null; total_volume_fl_oz: number | null; quantity_on_hand: number }>();
   for (const row of data ?? []) {
     const key = `${row.recipe_id}|${row.variation_id}`;
     const pv = row.packaging_variations as unknown as PVRow;
@@ -34,6 +34,7 @@ export async function GET() {
         variation_id: row.variation_id,
         variation_name: variationName,
         container_type: containerType,
+        total_volume_fl_oz: pv?.total_volume_fl_oz != null ? Number(pv.total_volume_fl_oz) : null,
         quantity_on_hand: Number(row.quantity_on_hand),
       });
     }

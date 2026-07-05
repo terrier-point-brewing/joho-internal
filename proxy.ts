@@ -3,6 +3,16 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 export async function proxy(request: NextRequest) {
+  // Machine-to-machine endpoints authenticate themselves (Square HMAC signature,
+  // CRON_SECRET bearer) and carry no session cookie. They must never be redirected
+  // to /login or depend on session refresh, so let them straight through — without
+  // this, Vercel cron GETs and Square webhook POSTs both 307 to /login and their
+  // handlers never run.
+  const { pathname: earlyPath } = request.nextUrl;
+  if (earlyPath.startsWith("/api/webhooks/") || earlyPath.startsWith("/api/cron/")) {
+    return NextResponse.next({ request });
+  }
+
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!url) throw new Error("Missing required environment variable: NEXT_PUBLIC_SUPABASE_URL");

@@ -139,6 +139,7 @@ export interface AvailableInventoryLine {
   variation_id: string;
   variation_name: string;
   container_type: string | null;
+  total_volume_fl_oz: number | null;
   quantity_on_hand: number;
 }
 
