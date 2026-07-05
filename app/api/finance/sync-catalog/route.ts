@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidateTag } from "next/cache";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { fetchCatalogItems, fetchCatalogCategories, fetchCatalogTaxes } from "@/lib/square/catalog";
@@ -8,6 +9,13 @@ export const dynamic = "force-dynamic";
 
 export async function POST() {
   try { await requireRole([]); } catch (res) { return res as Response; }
+
+  // Bust the 5-min live-catalog cache so this sync — and every cached reader of
+  // it, e.g. the taproom restock picker via /api/production/square-catalog —
+  // sees Square's current catalog, not a stale entry. Without this a freshly
+  // created item (like Draft Restock) won't appear in mapping pickers for up to
+  // 5 minutes after a sync.
+  revalidateTag("square-catalog", "max");
 
   const [items, categories, taxes] = await Promise.all([
     fetchCatalogItems(),
