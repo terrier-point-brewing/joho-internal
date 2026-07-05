@@ -2,23 +2,39 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("@/lib/square/taproomConsumption", () => ({ deriveTaproomConsumption: vi.fn() }));
 vi.mock("@/lib/production/recordTaproomConsumption", () => ({ recordTaproomConsumption: vi.fn() }));
-vi.mock("@/lib/square/inventory", () => ({ setPhysicalCount: vi.fn() }));
+vi.mock("@/lib/square/inventory", () => ({
+  setPhysicalCount: vi.fn(),
+  fetchPhysicalCounts: vi.fn(),
+}));
 
-import { runTaproomConsumptionSync, remainingDelta } from "./taproomConsumptionSync";
+import { runTaproomConsumptionSync, remainingDelta, remainingAtOrBefore } from "./taproomConsumptionSync";
 import { deriveTaproomConsumption } from "@/lib/square/taproomConsumption";
 import { recordTaproomConsumption } from "@/lib/production/recordTaproomConsumption";
-import { setPhysicalCount } from "@/lib/square/inventory";
+import { setPhysicalCount, fetchPhysicalCounts } from "@/lib/square/inventory";
 
 const derive = vi.mocked(deriveTaproomConsumption);
 const record = vi.mocked(recordTaproomConsumption);
 const recount = vi.mocked(setPhysicalCount);
+const fetchCounts = vi.mocked(fetchPhysicalCounts);
 
 const RECOUNT = { squareVariationId: "draft-sqvar", quantity: 660, occurredAt: "2026-07-04T20:00:00Z" };
 
-// Fake supabase: export_transactions "already recorded" lookup returns `rows`.
-function fakeSupabase(rows: { source_ref: string; quantity: number }[]) {
+const pc = (id: string, quantity: number, occurredAt: string) => ({
+  id, catalog_object_id: "draft-sqvar", catalog_object_type: "ITEM_VARIATION",
+  state: "IN_STOCK", location_id: "LZ8TH4A632YW0",
+  quantity: String(quantity), occurred_at: occurredAt, created_at: occurredAt,
+});
+
+// Fake supabase: export_transactions "already recorded" lookup returns `rows`;
+// draft_swap_shrinkage upserts are captured into `sink.shrinkage`.
+function fakeSupabase(rows: { source_ref: string; quantity: number }[], sink?: { shrinkage: unknown[] }) {
   return {
-    from: () => ({ select: () => ({ in: async () => ({ data: rows, error: null }) }) }),
+    from: (table: string) => {
+      if (table === "draft_swap_shrinkage") {
+        return { upsert: async (row: unknown) => { sink?.shrinkage.push(row); return { error: null }; } };
+      }
+      return { select: () => ({ in: async () => ({ data: rows, error: null }) }) };
+    },
   } as never;
 }
 
@@ -28,13 +44,31 @@ const unit = (over: Partial<Record<string, unknown>> = {}) => ({
   label: "Beer · 1/6 Keg · 2026-07-03", ...over,
 });
 
-beforeEach(() => { derive.mockReset(); record.mockReset(); recount.mockReset(); });
+const swapUnit = (over: Record<string, unknown> = {}) => ({
+  recipeId: "r1", variationId: "pv-keg", quantity: 1,
+  sourceRef: "sqtransfer:ord-1:line-1", kind: "draft_swap" as const,
+  label: "Vienna · Tap 3 restock · 2026-07-04", tapNumber: 3,
+  recount: { squareVariationId: "draft-sqvar", quantity: 660, occurredAt: "2026-07-04T20:00:00Z" },
+  ...over,
+});
+
+beforeEach(() => { derive.mockReset(); record.mockReset(); recount.mockReset(); fetchCounts.mockReset(); });
 
 describe("remainingDelta", () => {
   it("returns the unrecorded remainder", () => { expect(remainingDelta(3, 2)).toBe(1); });
   it("is zero when fully recorded", () => { expect(remainingDelta(3, 3)).toBe(0); });
   it("never goes negative when over-recorded", () => { expect(remainingDelta(2, 3)).toBe(0); });
   it("returns the full target when nothing recorded", () => { expect(remainingDelta(1, 0)).toBe(1); });
+});
+
+describe("remainingAtOrBefore", () => {
+  it("returns the latest count at or before the timestamp", () => {
+    const counts = [pc("a", 500, "2026-07-01T00:00:00Z"), pc("b", 45, "2026-07-04T18:00:00Z"), pc("c", 660, "2026-07-04T21:00:00Z")];
+    expect(remainingAtOrBefore(counts, "2026-07-04T20:00:00Z")).toBe(45);
+  });
+  it("returns null when no count precedes the timestamp", () => {
+    expect(remainingAtOrBefore([pc("c", 660, "2026-07-05T00:00:00Z")], "2026-07-04T20:00:00Z")).toBeNull();
+  });
 });
 
 describe("runTaproomConsumptionSync", () => {
@@ -119,5 +153,41 @@ describe("runTaproomConsumptionSync", () => {
     expect(res.discrepancies.find((d) => d.kind === "recount_failed")).toMatchObject({
       kind: "recount_failed", sourceRef: "sqtransfer:o2:l2", detail: "Square 429",
     });
+  });
+
+  it("captures shrinkage once and recounts to full on first record", async () => {
+    const sink = { shrinkage: [] as unknown[] };
+    derive.mockResolvedValue({ units: [swapUnit()], discrepancies: [] });
+    record.mockResolvedValue({ recordedQty: 1, shortfallQty: 0, exportTransactionIds: ["x"] });
+    fetchCounts.mockResolvedValue([pc("b", 45, "2026-07-04T18:00:00Z")]);
+    const res = await runTaproomConsumptionSync(fakeSupabase([], sink), { days: 2 });
+    expect(sink.shrinkage).toHaveLength(1);
+    expect(sink.shrinkage[0]).toMatchObject({
+      source_ref: "sqtransfer:ord-1:line-1", recipe_id: "r1", tap_number: 3,
+      remaining_fl_oz: 45, full_fl_oz: 660, occurred_at: "2026-07-04T20:00:00Z",
+    });
+    expect(recount).toHaveBeenCalledWith("draft-sqvar", 660, "2026-07-04T20:00:00Z");
+    expect(res.recountsApplied).toBe(1);
+  });
+
+  it("does not capture shrinkage again when already recorded", async () => {
+    const sink = { shrinkage: [] as unknown[] };
+    derive.mockResolvedValue({ units: [swapUnit()], discrepancies: [] });
+    const res = await runTaproomConsumptionSync(
+      fakeSupabase([{ source_ref: "sqtransfer:ord-1:line-1", quantity: 1 }], sink), { days: 2 });
+    expect(sink.shrinkage).toHaveLength(0);
+    expect(recount).not.toHaveBeenCalled();
+    expect(res.skipped).toBe(1);
+  });
+
+  it("flags shrinkage capture failure without aborting the recount", async () => {
+    const sink = { shrinkage: [] as unknown[] };
+    derive.mockResolvedValue({ units: [swapUnit()], discrepancies: [] });
+    record.mockResolvedValue({ recordedQty: 1, shortfallQty: 0, exportTransactionIds: ["x"] });
+    fetchCounts.mockRejectedValue(new Error("square down"));
+    const res = await runTaproomConsumptionSync(fakeSupabase([], sink), { days: 2 });
+    expect(recount).toHaveBeenCalled();
+    expect(res.discrepancies).toContainEqual(
+      expect.objectContaining({ kind: "shrinkage_capture_failed", sourceRef: "sqtransfer:ord-1:line-1" }));
   });
 });
