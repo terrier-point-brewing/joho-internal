@@ -1,6 +1,20 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 import { computeExciseTaxBreakdown } from "@/lib/production/exciseTax";
 
+export type ExportTransactionStatus = "invoice_required" | "unpaid" | "paid";
+
+/**
+ * The initial invoice-lifecycle status for a freshly written export row.
+ *
+ * Taproom consumption is internal — payment is already collected at the
+ * point of sale, so those rows are terminal ('paid') and never enter the
+ * invoicing workflow. Every partner channel (distribution / wholesale /
+ * contract_brewing) still starts at 'invoice_required'.
+ */
+export function initialExportStatus(channel: string): ExportTransactionStatus {
+  return channel === "taproom" ? "paid" : "invoice_required";
+}
+
 /**
  * Inserts an export_transactions row plus its export_transaction_taxes children.
  *
@@ -51,6 +65,7 @@ export async function writeExportTransaction(
       units_per_package: params.unitsPerPackage,
       volume_bbl: Math.round(params.volumeBbl * 10000) / 10000,
       channel: params.channel,
+      status: initialExportStatus(params.channel),
       recipient_id: params.recipientId,
       recipient_name: params.recipientName,
       total_excise_tax_usd: totalExciseTaxUsd,

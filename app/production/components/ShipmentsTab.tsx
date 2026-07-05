@@ -21,6 +21,7 @@ interface ShipmentRow {
   status: "invoice_required" | "unpaid" | "paid";
   invoice_id: string | null;
   invoice_number: string | null;
+  source_ref: string | null;
   packaging_format: string | null;
   packaging_item_type: string | null;
   packaging_item_volume_fl_oz: number | null;
@@ -48,10 +49,14 @@ interface GroupProductRow {
   total_quantity: number;
   total_volume_bbl: number;
   total_excise_tax_usd: number;
+  /** True when any constituent row came from a restock-driven draft keg swap. */
+  isDraftRecount: boolean;
   allocations: AllocationCredit[];
 }
 
-// Groups by invoice_id when one exists, otherwise by shipment_id (pre-invoice shipments)
+// Groups invoiced rows by invoice_id, partner shipments by shipment_id, and
+// taproom consumption by day (taproom is internal — never invoiced, and a day's
+// sync may span several shipment_ids we want collapsed into one card).
 interface InvoiceGroup {
   key: string;
   invoice_id: string | null;
@@ -59,7 +64,16 @@ interface InvoiceGroup {
   recipient_id: string | null;
   recipient_name: string | null;
   status: "invoice_required" | "unpaid" | "paid";
+  /** Set for taproom day-groups; drives the date-labelled header. */
+  isTaproom: boolean;
+  day: string | null;
   products: GroupProductRow[];
+}
+
+const DRAFT_RECOUNT_PREFIX = "sqtransfer:";
+
+function isDraftRecountRef(sourceRef: string | null): boolean {
+  return !!sourceRef && sourceRef.startsWith(DRAFT_RECOUNT_PREFIX);
 }
 
 interface ShipmentsTabProps {
@@ -144,8 +158,11 @@ function groupByInvoice(rows: ShipmentRow[]): InvoiceGroup[] {
   const map = new Map<string, InvoiceGroup>();
 
   for (const row of rows) {
-    // Invoiced rows share a card; un-invoiced rows group by shipment_id
-    const key = row.invoice_id ?? row.shipment_id;
+    // Taproom consumption groups by day; invoiced rows share a card; other
+    // un-invoiced shipments group by shipment_id.
+    const isTaproom = row.channel === "taproom";
+    const day = row.created_at.slice(0, 10);
+    const key = isTaproom ? `taproom:${day}` : (row.invoice_id ?? row.shipment_id);
 
     if (!map.has(key)) {
       map.set(key, {
@@ -155,6 +172,8 @@ function groupByInvoice(rows: ShipmentRow[]): InvoiceGroup[] {
         recipient_id: row.recipient_id,
         recipient_name: row.recipient_name,
         status: row.status,
+        isTaproom,
+        day: isTaproom ? day : null,
         products: [],
       });
     }
@@ -181,10 +200,13 @@ function groupByInvoice(rows: ShipmentRow[]): InvoiceGroup[] {
         total_quantity: 0,
         total_volume_bbl: 0,
         total_excise_tax_usd: 0,
+        isDraftRecount: false,
         allocations: [],
       };
       group.products.push(product);
     }
+
+    if (isDraftRecountRef(row.source_ref)) product.isDraftRecount = true;
 
     product.total_quantity = Math.round((product.total_quantity + Number(row.quantity)) * 10000) / 10000;
     product.total_volume_bbl = Math.round((product.total_volume_bbl + Number(row.volume_bbl)) * 10000) / 10000;
@@ -475,19 +497,30 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
                 key={group.key}
                 className={`border border-line rounded-lg overflow-hidden transition-opacity ${isLocked ? "opacity-40" : ""}`}
               >
-                {/* Group header: invoice# + customer + status */}
+                {/* Group header: invoice#/day + customer + status */}
                 <div className="flex items-center gap-3 px-4 py-2.5 bg-surface/50 border-b border-line text-xs">
-                  {group.invoice_number ? (
-                    <button
-                      onClick={() => onNavigateToInvoice?.(group.invoice_id!)}
-                      className="font-mono font-medium text-accent hover:text-accent-soft underline"
-                    >
-                      #{group.invoice_number}
-                    </button>
+                  {group.isTaproom ? (
+                    <>
+                      <span className={`px-1.5 py-0.5 rounded whitespace-nowrap ${CHANNEL_BADGE.taproom ?? "bg-surface-mid text-secondary"}`}>
+                        Taproom
+                      </span>
+                      <span className="text-strong font-medium">{group.day ? fmt(group.day) : "—"}</span>
+                    </>
                   ) : (
-                    <span className="text-faint italic">No invoice</span>
+                    <>
+                      {group.invoice_number ? (
+                        <button
+                          onClick={() => onNavigateToInvoice?.(group.invoice_id!)}
+                          className="font-mono font-medium text-accent hover:text-accent-soft underline"
+                        >
+                          #{group.invoice_number}
+                        </button>
+                      ) : (
+                        <span className="text-faint italic">No invoice</span>
+                      )}
+                      <span className="text-strong font-medium">{partnerName}</span>
+                    </>
                   )}
-                  <span className="text-strong font-medium">{partnerName}</span>
                   <div className="ml-auto">
                     <span className={`px-1.5 py-0.5 rounded ${STATUS_BADGE[group.status] ?? "bg-surface-mid text-secondary"}`}>
                       {STATUS_LABELS[group.status] ?? group.status}
@@ -549,8 +582,18 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
                         </span>
 
                         {/* Packaging variation (actual variation shipped) */}
-                        <span className="text-xs text-secondary truncate" title={product.variant_label}>
-                          {product.variant_label}
+                        <span className="flex items-center gap-1.5 min-w-0">
+                          <span className="text-xs text-secondary truncate" title={product.variant_label}>
+                            {product.variant_label}
+                          </span>
+                          {product.isDraftRecount && (
+                            <span
+                              className="text-[10px] px-1.5 py-0.5 rounded bg-info-surface/50 text-info whitespace-nowrap shrink-0"
+                              title="Keg drained by a draft line restock (recount swap), not a partner shipment"
+                            >
+                              Draft recount
+                            </span>
+                          )}
                         </span>
 
                         {/* Qty */}
