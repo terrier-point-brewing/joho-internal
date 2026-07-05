@@ -11,7 +11,7 @@ export async function GET() {
     .select(`
       id, shipment_id, recipe_id, channel, recipient_id, recipient_name, variant_label,
       quantity, volume_bbl, total_excise_tax_usd, status, invoice_id,
-      packaging_item_id, packaging_format,
+      packaging_item_id, packaging_format, source_ref,
       created_at,
       brew_batches(id, beer_name, batch_number),
       invoices!invoice_id(invoice_number),
