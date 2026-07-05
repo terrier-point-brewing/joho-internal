@@ -137,12 +137,9 @@ export default function DraftStatsTab() {
     kegOptionsByRecipe.set(line.recipe_id, list);
   }
 
-  // Best-effort full-keg fl oz from a keg lot's name; blank if unknown (editable).
-  const KEG_FL_OZ: Record<string, number> = { "1/6": 660, "1/4": 992, "1/2": 1984 };
-  function containerVolumeFor(line: AvailableInventoryLine): number | null {
-    const m = line.variation_name.match(/1\/[0-9]+/);
-    return m ? (KEG_FL_OZ[m[0]] ?? null) : null;
-  }
+  // Full-keg volume is the packaging variation's coded fl oz — never hand-entered.
+  const codedVolumeFor = (line: AvailableInventoryLine): number | null => line.total_volume_fl_oz;
+  const isSixthKeg = (line: AvailableInventoryLine): boolean => /\b1\/6\b/.test(line.variation_name);
 
   // Recipes with at least one draft link
   const draftRecipeIds = new Set(links.filter((l) => l.packaging === "draft").map((l) => l.recipe_id));
@@ -251,16 +248,16 @@ export default function DraftStatsTab() {
         const kegs = kegOptionsByRecipe.get(cur.recipe_id) ?? [];
         if (kegs.length === 0) continue;
         // Bias toward 1/6 kegs whenever one is on hand; else sole SKU, else largest.
-        const sixths = kegs.filter((k) => containerVolumeFor(k) === 660);
+        const sixths = kegs.filter(isSixthKeg);
         const pool = sixths.length ? sixths : kegs;
         const pick = pool.length === 1
           ? pool[0]
-          : [...pool].sort((a, b) => (containerVolumeFor(b) ?? 0) - (containerVolumeFor(a) ?? 0))[0];
-        const vol = containerVolumeFor(pick);
+          : [...pool].sort((a, b) => (codedVolumeFor(b) ?? 0) - (codedVolumeFor(a) ?? 0))[0];
+        const vol = codedVolumeFor(pick);
         next[n] = {
           ...cur,
           swap_variation_id: pick.variation_id,
-          swap_volume_fl_oz: cur.swap_volume_fl_oz || (vol ? String(vol) : ""),
+          swap_volume_fl_oz: vol != null ? String(vol) : "",
         };
       }
       return next;
@@ -595,11 +592,9 @@ export default function DraftStatsTab() {
                               onChange={(e) => {
                                 const opt = kegs.find((k) => k.variation_id === e.target.value);
                                 setTapEdit(tapNum, "swap_variation_id", e.target.value);
-                                // Auto-fill volume from the lot's container when empty.
-                                if (opt && !getTapEdit(tapNum).swap_volume_fl_oz) {
-                                  const vol = containerVolumeFor(opt);
-                                  if (vol) setTapEdit(tapNum, "swap_volume_fl_oz", String(vol));
-                                }
+                                // Recount target always comes from the keg's coded volume.
+                                const vol = opt ? codedVolumeFor(opt) : null;
+                                setTapEdit(tapNum, "swap_volume_fl_oz", vol != null ? String(vol) : "");
                               }}
                             >
                               <option value="">— keg to drain —</option>
@@ -614,13 +609,12 @@ export default function DraftStatsTab() {
                             )}
                           </div>
                           <div className="space-y-1">
-                            <label className="block text-xs text-secondary">Full-keg volume — recount target (fl oz)</label>
-                            <input
-                              className="inp text-xs w-full"
-                              placeholder="e.g. 660"
-                              value={edit.swap_volume_fl_oz}
-                              onChange={(e) => setTapEdit(tapNum, "swap_volume_fl_oz", e.target.value)}
-                            />
+                            <label className="block text-xs text-secondary">Full-keg volume — recount target</label>
+                            <p className="text-xs text-body tabular-nums px-1 py-1" title="From the selected keg's packaging variation — not editable">
+                              {edit.swap_volume_fl_oz
+                                ? `${Number(edit.swap_volume_fl_oz).toLocaleString()} fl oz`
+                                : <span className="text-faint">— select a keg —</span>}
+                            </p>
                           </div>
                         </>
                       );
