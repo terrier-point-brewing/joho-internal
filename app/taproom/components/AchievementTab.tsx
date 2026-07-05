@@ -106,14 +106,19 @@ function buildWeekRange(start: string, end: string): Omit<Period,"net_sales_cent
   let cur = snapToMonday(start);
   while (cur <= end) {
     const wkEnd = addDaysStr(cur, 6);
-    const ae    = wkEnd > end ? end : wkEnd;
-    const [, cm, cd] = partsOf(cur);
+    // Clip both edges to the scope so the leading/trailing weeks don't spill
+    // into the neighbouring quarter/year: without clipping the first week the
+    // sales fetch (and "reached %") would count days before the scope start.
+    // Middle weeks stay full Mon–Sun; iteration still advances by aligned weeks.
+    const as    = cur   < start ? start : cur;
+    const ae    = wkEnd > end   ? end   : wkEnd;
+    const [, cm, cd] = partsOf(as);
     const [, am, ad] = partsOf(ae);
     const shortLabel = `${MA[cm - 1]} ${cd}`;
     const label = am === cm
       ? `${MA[cm - 1]} ${cd}–${ad}`
       : `${MA[cm - 1]} ${cd} – ${MA[am - 1]} ${ad}`;
-    out.push({ label, shortLabel, start: cur, end: ae });
+    out.push({ label, shortLabel, start: as, end: ae });
     cur = addDaysStr(ae, 1);
   }
   return out;
@@ -214,28 +219,38 @@ export default function AchievementTab() {
   const avgDollarsPerPeriod = completedPeriods.length > 0 ? (completedActualCents / completedPeriods.length) / 100 : 0;
   const lastCompletedIdx    = periods.reduce<number>((last, p, i) => (p.end <= now && p.net_sales_cents !== null ? i : last), -1);
 
-  // Pace / projection — project the run rate of completed periods across the full scope,
-  // the same basis as the chart's dashed "Forecast Total" line (avg completed period ×
-  // number of periods). The in-progress partial period is excluded so it doesn't distort
-  // the rate. A pure wall-clock extrapolation (actual ÷ fraction-of-time-elapsed) diverges
-  // sharply from this early in a quarter and over-projects, so it is intentionally not used.
+  // Elapsed fraction of the scope, anchored to brewery-local day boundaries:
+  // [00:00 of the first day, 00:00 of the day after the last day). "Now" is the
+  // start of today in the brewery zone (day granularity is plenty here, and
+  // deriving it from todayStr keeps this pure — no impure clock read during
+  // render). Uses dayStartUtc (not the known-buggy dayEndUtc) so the window is exact.
   const rangeStartStr = scope === "year" ? isoDate(year, 1, 1)  : quarterDateRange(year, quarter).start;
   const rangeEndStr   = scope === "year" ? isoDate(year, 12, 31) : quarterDateRange(year, quarter).end;
-  // Anchor the elapsed fraction to brewery-local day boundaries: [00:00 of the
-  // first day, 00:00 of the day after the last day). "Now" is the start of today
-  // in the brewery zone (day granularity is plenty for the pace bar, and keeping
-  // it derived from todayStr keeps this pure — no impure clock read during render).
-  // Uses dayStartUtc (not the known-buggy dayEndUtc) so the window is exact.
   const startMs    = new Date(dayStartUtc(rangeStartStr, tz)).getTime();
   const endMs      = new Date(dayStartUtc(addDaysStr(rangeEndStr, 1), tz)).getTime();
   const nowMs      = new Date(dayStartUtc(todayStr, tz)).getTime();
   const totalMs    = endMs - startMs;
   const elapsedMs  = Math.min(Math.max(nowMs - startMs, 0), totalMs);
-  const elapsedFrac = totalMs > 0 ? elapsedMs / totalMs : 0; // used by the pace bar only
-  const projectedCents = completedPeriods.length > 0 && periods.length > 0
+  const elapsedFrac = totalMs > 0 ? elapsedMs / totalMs : 0;
+
+  // ── Pace to date (the headline "are we on pace?" signal) ──────────────────
+  // On pace = actual is at or above where we *should* be by today on a
+  // straight-line path to the target: expected-to-date = target × elapsedFrac.
+  // This is valid every day of the scope (that's the whole point), so it needs
+  // no "wait until the quarter ends" gating. It is deliberately NOT the run-rate
+  // projection below — that answers a different question (year-end forecast).
+  const expectedToDateCents = targetCents !== null ? Math.round(targetCents * elapsedFrac) : null;
+  const paceDeltaCents      = expectedToDateCents !== null ? actualCents - expectedToDateCents : null;
+  const onPace              = expectedToDateCents !== null ? actualCents >= expectedToDateCents : null;
+
+  // Run-rate projection — avg completed period × number of periods, the same
+  // basis as the chart's dashed "Forecast Total" line. The in-progress partial
+  // period is excluded so it doesn't distort the rate. Surfaced as a *forecast*
+  // ("Projected — run rate"), distinct from the pace-to-date verdict above.
+  const projectedCents   = completedPeriods.length > 0 && periods.length > 0
     ? Math.round(avgDollarsPerPeriod * periods.length * 100)
     : null;
-  const onPace = projectedCents !== null && targetCents !== null ? projectedCents >= targetCents : null;
+  const projectedOnTrack = projectedCents !== null && targetCents !== null ? projectedCents >= targetCents : null;
 
   const activeTierColor = TIERS.find((t) => t.value === activeTier)?.color ?? "#f59e0b";
   const tierLabel       = TIERS.find((t) => t.value === activeTier)?.label ?? "Target";
@@ -297,8 +312,17 @@ export default function AchievementTab() {
   // ---------------------------------------------------------------------------
   // Table: expected pace per period
   // ---------------------------------------------------------------------------
-  const numPeriods         = periods.length;
-  const expectedPctPerPeriod = numPeriods > 0 ? 100 / numPeriods : null;
+  // Each period's expected share of the target = its share of the scope's
+  // calendar days (same day-boundary basis as elapsedFrac), NOT a flat 1/N.
+  // Periods tile the scope exactly (edge weeks are clipped), so these fractions
+  // sum to 1 — a completed period is "on pace" when it delivered its own
+  // time-weighted slice, consistent with the headline straight-line verdict.
+  const expectedPctByStart = new Map<string, number>();
+  for (const p of periods) {
+    const pStartMs = new Date(dayStartUtc(p.start, tz)).getTime();
+    const pEndMs   = new Date(dayStartUtc(addDaysStr(p.end, 1), tz)).getTime();
+    expectedPctByStart.set(p.start, totalMs > 0 ? ((pEndMs - pStartMs) / totalMs) * 100 : 0);
+  }
 
   // ---------------------------------------------------------------------------
   // Render
@@ -384,41 +408,45 @@ export default function AchievementTab() {
           )}
         </div>
 
-        <div className="bg-surface border border-line rounded-lg p-4">
+        <div className={`bg-surface border rounded-lg p-4 ${
+          onPace === true ? "border-success-border" : onPace === false ? "border-danger-border" : "border-line"
+        }`}>
           <div className="text-xs text-secondary mb-1">Actual Net Sales</div>
           <div className="text-xl font-semibold text-primary">{currency(actualCents)}</div>
           {targetCents !== null && (
             <div className="text-xs text-muted mt-0.5">{pct((actualCents / targetCents) * 100)} of target</div>
           )}
-        </div>
-
-        {/* Pace / projection */}
-        <div className={`bg-surface border rounded-lg p-4 ${
-          onPace === true ? "border-success-border" : onPace === false ? "border-danger-border" : "border-line"
-        }`}>
-          <div className="text-xs text-secondary mb-1">Projected {scope === "year" ? "Full Year" : "Full Quarter"}</div>
-          <div className={`text-base sm:text-xl font-semibold ${
-            onPace === true ? "text-success" : onPace === false ? "text-danger" : "text-primary"
-          }`}>
-            {projectedCents !== null ? currency(projectedCents) : "—"}
-          </div>
-          {onPace !== null && (
-            <div className={`text-xs mt-0.5 ${onPace ? "text-success" : "text-danger"}`}>
+          {onPace !== null && paceDeltaCents !== null && (
+            <div className={`text-xs mt-0.5 font-medium ${onPace ? "text-success" : "text-danger"}`}>
               {onPace
-                ? "On pace"
-                : `Behind pace by ${currency(Math.abs(projectedCents! - targetCents!))}`}
-              {onPace && targetCents !== null && projectedCents !== null && (
-                <> · +{currency(projectedCents - targetCents)}</>
-              )}
+                ? `On pace · ${currency(paceDeltaCents)} ahead`
+                : `Behind pace · ${currency(Math.abs(paceDeltaCents))} short`}
             </div>
           )}
         </div>
 
-        {/* Gap to quarter target — raw arithmetic, not pace-adjusted */}
+        {/* Run-rate forecast (year-end projection — distinct from pace to date) */}
         <div className={`bg-surface border rounded-lg p-4 ${
-          gapCents === null ? "border-line"
-          : gapCents <= 0    ? "border-success-border"
-          : "border-danger-border"
+          projectedOnTrack === true ? "border-success-border" : projectedOnTrack === false ? "border-danger-border" : "border-line"
+        }`}>
+          <div className="text-xs text-secondary mb-1">Projected {scope === "year" ? "Full Year" : "Full Quarter"} · run rate</div>
+          <div className={`text-base sm:text-xl font-semibold ${
+            projectedOnTrack === true ? "text-success" : projectedOnTrack === false ? "text-danger" : "text-primary"
+          }`}>
+            {projectedCents !== null ? currency(projectedCents) : "—"}
+          </div>
+          {projectedOnTrack !== null && (
+            <div className={`text-xs mt-0.5 ${projectedOnTrack ? "text-success" : "text-danger"}`}>
+              {projectedOnTrack
+                ? `Above target · +${currency(projectedCents! - targetCents!)}`
+                : `Below target by ${currency(Math.abs(projectedCents! - targetCents!))}`}
+            </div>
+          )}
+        </div>
+
+        {/* Gap to target — raw remaining amount, not a pace verdict → neutral while short */}
+        <div className={`bg-surface border rounded-lg p-4 ${
+          gapCents !== null && gapCents <= 0 ? "border-success-border" : "border-line"
         }`}>
           <div className="text-xs text-secondary mb-1">Gap to {scope === "year" ? "Annual" : "Quarter"} Target</div>
           {gapCents === null ? (
@@ -430,7 +458,7 @@ export default function AchievementTab() {
             </>
           ) : (
             <>
-              <div className="text-base sm:text-xl font-semibold text-danger">{currency(gapCents)} to go</div>
+              <div className="text-base sm:text-xl font-semibold text-primary">{currency(gapCents)} to go</div>
               <div className="text-xs text-muted mt-0.5">vs. {tierLabel} goal</div>
             </>
           )}
@@ -438,21 +466,33 @@ export default function AchievementTab() {
 
       </div>
 
-      {/* Pace bar */}
+      {/* Pace bar — reached (fill) vs. where you should be today (marker).
+          On pace ⇔ fill reaches/passes the marker, so colour matches geometry. */}
       {targetCents !== null && (
-        <div className="space-y-1">
-          <div className="flex justify-between text-xs text-secondary">
-            <span>{pct(elapsedFrac * 100)} of {scope === "year" ? "year" : "quarter"} elapsed</span>
-            <span>{pct((actualCents / targetCents) * 100)} of target reached</span>
+        <div className="space-y-1.5">
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="text-xs text-secondary">Pace to date</span>
+            {onPace !== null && paceDeltaCents !== null && (
+              <span className={`text-xs font-medium ${onPace ? "text-success" : "text-danger"}`}>
+                {onPace
+                  ? `On pace · ${currency(paceDeltaCents)} ahead of target`
+                  : `Behind pace · ${currency(Math.abs(paceDeltaCents))} short of target`}
+              </span>
+            )}
           </div>
           <div className="relative h-3 bg-surface-mid rounded-full overflow-hidden">
+            {/* Where you should be today: target × elapsed */}
             <div className="absolute top-0 bottom-0 w-0.5 bg-line-subtle z-10"
               style={{ left: `${Math.min(elapsedFrac * 100, 100)}%` }} />
+            {/* Where you actually are: reached */}
             <div className={`h-full rounded-full transition-all ${onPace ? "bg-success-emphasis" : "bg-danger-emphasis"}`}
               style={{ width: `${Math.min((actualCents / targetCents) * 100, 100)}%` }} />
           </div>
           <div className="flex justify-between text-xs text-muted">
-            <span>$0</span><span>{currency(targetCents)}</span>
+            <span>{pct((actualCents / targetCents) * 100)} reached</span>
+            {expectedToDateCents !== null && (
+              <span>{pct(elapsedFrac * 100)} elapsed · {currency(expectedToDateCents)} expected by today</span>
+            )}
           </div>
         </div>
       )}
@@ -517,8 +557,9 @@ export default function AchievementTab() {
 
             const actualPct = (targetCents !== null && displayCents !== null)
               ? (displayCents / targetCents) * 100 : null;
-            const variance  = (actualPct !== null && expectedPctPerPeriod !== null)
-              ? actualPct - expectedPctPerPeriod : null;
+            const expectedPct = expectedPctByStart.get(p.start) ?? null;
+            const variance  = (actualPct !== null && expectedPct !== null)
+              ? actualPct - expectedPct : null;
             const ahead     = variance !== null && variance >= 0;
 
             return (
@@ -583,15 +624,16 @@ export default function AchievementTab() {
               {targetCents !== null && (
                 <>
                   <td className={`py-2 pr-2 sm:pr-4 text-right font-mono ${
-                    actualCents >= targetCents ? "text-success" : "text-danger"
+                    onPace === null ? "text-faint" : onPace ? "text-success" : "text-danger"
                   }`}>
                     {pct((actualCents / targetCents) * 100)}
                   </td>
                   <td className={`py-2 text-right font-mono text-xs ${
-                    actualCents >= targetCents ? "text-success" : "text-danger"
+                    onPace === null ? "text-faint" : onPace ? "text-success" : "text-danger"
                   }`}>
                     {(() => {
-                      const v = ((actualCents / targetCents) * 100) - 100;
+                      // vs. straight-line pace: reached% minus elapsed% (where you should be today)
+                      const v = ((actualCents / targetCents) * 100) - (elapsedFrac * 100);
                       return `${v >= 0 ? "+" : ""}${pct(v)}`;
                     })()}
                   </td>
