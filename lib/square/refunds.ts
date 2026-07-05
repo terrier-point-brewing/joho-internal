@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { unstable_cache } from "next/cache";
 import { squareGetAll, squarePost } from "./client";
 import { dayRangeUtc } from "@/lib/utils/datetime";
+import { getBreweryTimezone } from "@/lib/settings/breweryTimezone.server";
 
 export interface SquareRefund {
   id: string;
@@ -13,8 +14,8 @@ export interface SquareRefund {
   reason?: string;
 }
 
-async function fetchRefundsUncached(startDate: string, endDate: string): Promise<SquareRefund[]> {
-  const { startUtc, endUtc } = dayRangeUtc(startDate, endDate);
+async function fetchRefundsUncached(startDate: string, endDate: string, tz: string): Promise<SquareRefund[]> {
+  const { startUtc, endUtc } = dayRangeUtc(startDate, endDate, tz);
   return squareGetAll<SquareRefund>("/refunds", "refunds", {
     begin_time: startUtc,
     end_time: endUtc,
@@ -23,13 +24,20 @@ async function fetchRefundsUncached(startDate: string, endDate: string): Promise
 }
 
 // Fetched alongside orders by every sales report route; cache cross-request
-// (keyed by start/end) on the same tag so one range hits Square once. See
+// (keyed by start/end/tz) on the same tag so one range hits Square once. See
 // fetchCompletedOrders for rationale. Bust via revalidateTag("square-sales").
-export const fetchRefunds = unstable_cache(
+const fetchRefundsCached = unstable_cache(
   fetchRefundsUncached,
   ["square-refunds"],
   { revalidate: 90, tags: ["square-sales"] },
 );
+
+// Public entry point — signature unchanged for callers; brewery zone resolved
+// centrally so day boundaries follow the configured location.
+export async function fetchRefunds(startDate: string, endDate: string): Promise<SquareRefund[]> {
+  const tz = await getBreweryTimezone();
+  return fetchRefundsCached(startDate, endDate, tz);
+}
 
 interface SquareRefundResponse {
   refund: { id: string; status: string };

@@ -2,7 +2,9 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { formatCurrencyCents, formatPercent } from "@/lib/format";
-import { BREWERY_TZ, todayLocalDate, addDaysStr, weekdayOf, dayStartUtc } from "@/lib/utils/datetime";
+import { todayLocalDate, addDaysStr, weekdayOf, dayStartUtc } from "@/lib/utils/datetime";
+import { useBreweryTimezone } from "@/app/hooks/useBreweryTimezone";
+import TimezoneLabel from "@/app/components/TimezoneLabel";
 import { useQuery } from "@tanstack/react-query";
 import { fetchJson } from "@/app/production/hooks/queries";
 import { queryKeys } from "@/lib/query-keys";
@@ -126,10 +128,11 @@ const toggleBtn = (active: boolean) =>
 // ---------------------------------------------------------------------------
 
 export default function AchievementTab() {
-  // "Today" is the current calendar day *at the taproom* (BREWERY_TZ), not in the
-  // viewer's local zone — so period boundaries and pace never drift by a day when
-  // the report is opened from another timezone.
-  const todayStr    = todayLocalDate(BREWERY_TZ);
+  // "Today" and all period boundaries are computed in the taproom's configured
+  // zone (Settings → Business), not the viewer's local zone — so they never drift
+  // by a day when the report is opened from another timezone.
+  const { timezone: tz } = useBreweryTimezone();
+  const todayStr    = todayLocalDate(tz);
   const [ty, tm]    = todayStr.split("-").map(Number);
   const currentYear = ty;
   const currentQ    = Math.ceil(tm / 3) as 1|2|3|4;
@@ -171,8 +174,10 @@ export default function AchievementTab() {
         return { ...p, loading: false, net_sales_cents: res?.status === "fulfilled" ? (res.value.net_sales_cents ?? null) : null };
       })
     );
+  // tz: rebuild periods once the configured zone resolves (or if it changes), so
+  // boundaries and the fetched date windows match the taproom's timezone.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [grain, scope, year, quarter]);
+  }, [grain, scope, year, quarter, tz]);
 
   // eslint-disable-next-line react-hooks/set-state-in-effect -- progressive parallel fetches require setState in callback
   useEffect(() => { loadPeriods(); }, [loadPeriods]);
@@ -221,9 +226,9 @@ export default function AchievementTab() {
   // in the brewery zone (day granularity is plenty for the pace bar, and keeping
   // it derived from todayStr keeps this pure — no impure clock read during render).
   // Uses dayStartUtc (not the known-buggy dayEndUtc) so the window is exact.
-  const startMs    = new Date(dayStartUtc(rangeStartStr)).getTime();
-  const endMs      = new Date(dayStartUtc(addDaysStr(rangeEndStr, 1))).getTime();
-  const nowMs      = new Date(dayStartUtc(todayStr)).getTime();
+  const startMs    = new Date(dayStartUtc(rangeStartStr, tz)).getTime();
+  const endMs      = new Date(dayStartUtc(addDaysStr(rangeEndStr, 1), tz)).getTime();
+  const nowMs      = new Date(dayStartUtc(todayStr, tz)).getTime();
   const totalMs    = endMs - startMs;
   const elapsedMs  = Math.min(Math.max(nowMs - startMs, 0), totalMs);
   const elapsedFrac = totalMs > 0 ? elapsedMs / totalMs : 0; // used by the pace bar only
@@ -332,6 +337,8 @@ export default function AchievementTab() {
             </button>
           ))}
         </div>
+
+        <TimezoneLabel className="w-full sm:w-auto sm:ml-auto" />
       </div>
 
       {/* Tier selector — label + 2×2 on mobile, single row on sm+ */}

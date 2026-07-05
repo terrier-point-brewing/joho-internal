@@ -1,5 +1,6 @@
 import { squarePost, squarePostAll, squareLocationId } from "./client";
 import { dayRangeUtc } from "@/lib/utils/datetime";
+import { getBreweryTimezone } from "@/lib/settings/breweryTimezone.server";
 import { KEG_TRANSFER_DISCOUNT_NAME } from "@/types/reports";
 
 interface InventoryCount {
@@ -247,7 +248,8 @@ export async function fetchPhysicalCounts(
 ): Promise<PhysicalCount[]> {
   const locationId = squareLocationId();
 
-  const { startUtc: updatedAfter, endUtc: updatedBefore } = dayRangeUtc(startDate, endDate);
+  const tz = await getBreweryTimezone();
+  const { startUtc: updatedAfter, endUtc: updatedBefore } = dayRangeUtc(startDate, endDate, tz);
 
   const results: PhysicalCount[] = [];
   let cursor: string | undefined;

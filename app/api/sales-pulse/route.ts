@@ -6,6 +6,7 @@ import { buildTaproomModelReport } from "@/lib/reports/taproom-model";
 import { TAPROOM_MODEL_CATEGORIES } from "@/lib/constants/categories";
 import { requireDateRange, apiError } from "@/lib/utils/api";
 import { localDateString, eachDateString } from "@/lib/utils/datetime";
+import { getBreweryTimezone } from "@/lib/settings/breweryTimezone.server";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +18,8 @@ export async function GET(req: NextRequest) {
   const { start, end } = range;
 
   try {
-    const [catalogItems, allOrders, refunds] = await Promise.all([
+    const [tz, catalogItems, allOrders, refunds] = await Promise.all([
+      getBreweryTimezone(),
       fetchCatalogItems(),
       fetchCompletedOrders(start, end),
       fetchRefunds(start, end),
@@ -60,14 +62,14 @@ export async function GET(req: NextRequest) {
     // taproom model report per day so the numbers match the weekly totals exactly.
     const dailyOrderMap = new Map<string, typeof orders>();
     for (const order of orders) {
-      const date = localDateString(order.closed_at ?? order.created_at ?? "");
+      const date = localDateString(order.closed_at ?? order.created_at ?? "", tz);
       if (!dailyOrderMap.has(date)) dailyOrderMap.set(date, []);
       dailyOrderMap.get(date)!.push(order);
     }
 
     const dailyRefundMap = new Map<string, typeof refunds>();
     for (const refund of refunds) {
-      const date = localDateString(refund.created_at ?? "");
+      const date = localDateString(refund.created_at ?? "", tz);
       if (!dailyRefundMap.has(date)) dailyRefundMap.set(date, []);
       dailyRefundMap.get(date)!.push(refund);
     }
