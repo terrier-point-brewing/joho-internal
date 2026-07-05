@@ -6,6 +6,9 @@ import {
   dayRangeUtc,
   localDateString,
   eachDateString,
+  addDaysStr,
+  weekdayOf,
+  todayLocalDate,
 } from "./datetime";
 
 describe("BREWERY_TZ", () => {
@@ -174,5 +177,69 @@ describe("eachDateString", () => {
       "2028-02-29",
       "2028-03-01",
     ]);
+  });
+});
+
+describe("addDaysStr", () => {
+  it("adds days within a month", () => {
+    expect(addDaysStr("2026-07-01", 6)).toBe("2026-07-07");
+  });
+
+  it("subtracts days (negative n)", () => {
+    expect(addDaysStr("2026-07-01", -2)).toBe("2026-06-29");
+  });
+
+  it("returns the same date for n=0", () => {
+    expect(addDaysStr("2026-07-01", 0)).toBe("2026-07-01");
+  });
+
+  it("crosses a month boundary", () => {
+    expect(addDaysStr("2026-07-31", 1)).toBe("2026-08-01");
+  });
+
+  it("crosses a year boundary", () => {
+    expect(addDaysStr("2026-12-31", 1)).toBe("2027-01-01");
+  });
+
+  it("crosses the spring-forward DST boundary without skipping a day", () => {
+    expect(addDaysStr("2026-03-07", 2)).toBe("2026-03-09");
+  });
+
+  it("crosses the fall-back DST boundary without duplicating a day", () => {
+    expect(addDaysStr("2026-10-31", 2)).toBe("2026-11-02");
+  });
+
+  it("handles a leap day", () => {
+    expect(addDaysStr("2028-02-28", 1)).toBe("2028-02-29");
+  });
+});
+
+describe("weekdayOf", () => {
+  it("returns 3 (Wednesday) for 2026-07-01", () => {
+    expect(weekdayOf("2026-07-01")).toBe(3);
+  });
+
+  it("returns 0 (Sunday) for 2026-07-05", () => {
+    expect(weekdayOf("2026-07-05")).toBe(0);
+  });
+
+  it("returns 1 (Monday) for 2026-07-06", () => {
+    expect(weekdayOf("2026-07-06")).toBe(1);
+  });
+});
+
+describe("todayLocalDate", () => {
+  it("uses the brewery zone: 03:30Z buckets into the prior local day", () => {
+    // 03:30Z on Jul 5 is 23:30 EDT on Jul 4.
+    expect(todayLocalDate(BREWERY_TZ, new Date("2026-07-05T03:30:00Z"))).toBe("2026-07-04");
+  });
+
+  it("uses the brewery zone: midday UTC stays the same local day", () => {
+    expect(todayLocalDate(BREWERY_TZ, new Date("2026-07-05T16:00:00Z"))).toBe("2026-07-05");
+  });
+
+  it("respects an explicit zone override", () => {
+    // Same instant is already Jul 5 in Tokyo (UTC+9).
+    expect(todayLocalDate("Asia/Tokyo", new Date("2026-07-05T03:30:00Z"))).toBe("2026-07-05");
   });
 });
