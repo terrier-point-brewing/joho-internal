@@ -643,7 +643,10 @@ export default function DraftStatsTab() {
                     <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-xs">
                       <div>
                         <span className="text-faint">fl oz avail</span>
-                        <p className="text-strong tabular-nums font-medium">
+                        <p
+                          className={`tabular-nums font-medium ${tap.metrics.current_fl_oz < 0 ? "text-danger" : "text-strong"}`}
+                          title={tap.metrics.current_fl_oz < 0 ? "Negative on-tap level — ring a Draft Restock to swap the keg" : undefined}
+                        >
                           {tap.metrics.current_fl_oz.toLocaleString()} oz
                         </p>
                       </div>
