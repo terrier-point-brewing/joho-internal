@@ -16,7 +16,7 @@ const INGREDIENT_CATEGORY_META: Record<IngredientCategory, { color: string }> = 
   "Yeast":        { color: CC.yellow },
   "Brewing Aids": { color: "border-info-border bg-info-surface/30 text-info" },
   "Fruit":        { color: CC.rose },
-  "Abstrax":      { color: CC.purple },
+  "Terpenes":     { color: CC.purple },
 };
 
 // ─── CSV bulk upload ──────────────────────────────────────────────────────────
