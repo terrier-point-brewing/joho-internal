@@ -1,5 +1,5 @@
 import { unstable_cache } from "next/cache";
-import { squarePostAll, squareLocationId } from "./client";
+import { squarePost, squarePostAll, squareLocationId } from "./client";
 import type { Order, SquareInvoice } from "@/types/square";
 import { dayRangeUtc } from "@/lib/utils/datetime";
 import { getBreweryTimezone } from "@/lib/settings/breweryTimezone.server";
@@ -42,6 +42,21 @@ const fetchCompletedOrdersCached = unstable_cache(
 export async function fetchCompletedOrders(startDate: string, endDate: string): Promise<Order[]> {
   const tz = await getBreweryTimezone();
   return fetchCompletedOrdersCached(startDate, endDate, tz);
+}
+
+// Retrieve specific orders by id (up to 100 per call) via the Batch Retrieve
+// Orders API. Uncached and always fresh — the Square webhook calls this with the
+// just-changed order id, so it must reflect the latest state, not a 90s cache.
+export async function fetchOrdersByIds(orderIds: string[]): Promise<Order[]> {
+  if (orderIds.length === 0) return [];
+  const all: Order[] = [];
+  for (let i = 0; i < orderIds.length; i += 100) {
+    const res = await squarePost<{ orders?: Order[] }>("/orders/batch-retrieve", {
+      order_ids: orderIds.slice(i, i + 100),
+    });
+    all.push(...(res.orders ?? []));
+  }
+  return all;
 }
 
 // Fetch Square invoices via the Invoices API.

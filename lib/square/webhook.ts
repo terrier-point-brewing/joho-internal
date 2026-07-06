@@ -36,3 +36,30 @@ export function verifySquareSignature(params: {
 export function isReconcilableSquareEvent(type: unknown): boolean {
   return typeof type === "string" && type.startsWith("order.");
 }
+
+/**
+ * Pull the affected order id out of a Square `order.*` webhook event so we can
+ * refetch and sync just that order. Square puts it at `data.id`; we also fall
+ * back to the `data.object.order_*.order_id` shapes for resilience. Returns null
+ * if no order id is present (a non-order event or an unexpected payload).
+ */
+export function extractSquareOrderId(event: unknown): string | null {
+  if (!event || typeof event !== "object") return null;
+  const data = (event as { data?: unknown }).data;
+  if (!data || typeof data !== "object") return null;
+
+  const id = (data as { id?: unknown }).id;
+  if (typeof id === "string" && id) return id;
+
+  const obj = (data as { object?: unknown }).object;
+  if (obj && typeof obj === "object") {
+    for (const key of ["order_updated", "order_created", "order_fulfillment_updated"]) {
+      const inner = (obj as Record<string, unknown>)[key];
+      if (inner && typeof inner === "object") {
+        const orderId = (inner as { order_id?: unknown }).order_id;
+        if (typeof orderId === "string" && orderId) return orderId;
+      }
+    }
+  }
+  return null;
+}

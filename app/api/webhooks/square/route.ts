@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse, after } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { runTaproomConsumptionSync } from "@/lib/production/taproomConsumptionSync";
-import { verifySquareSignature, isReconcilableSquareEvent } from "@/lib/square/webhook";
+import { syncPosOrdersByIds } from "@/lib/finance/syncPosTransactions";
+import {
+  verifySquareSignature,
+  isReconcilableSquareEvent,
+  extractSquareOrderId,
+} from "@/lib/square/webhook";
 
 export const dynamic = "force-dynamic";
 // Give the background reconcile (Square API round-trips) room to finish after we
@@ -9,14 +14,20 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 /**
- * Square webhook → near-real-time taproom-consumption reconcile.
+ * Square webhook → near-real-time sync on `order.*` events. Two consumers run
+ * off the same delivery:
  *
- * When a bartender rings a Draft Restock (or any order changes), Square POSTs an
- * order event here. We verify the HMAC signature (the only auth — this endpoint
- * is public), then run the SAME idempotent sync the daily cron uses over a short
- * window, so the swap shipment + recount + shrinkage land within seconds instead
- * of by the next 07:00 cron. The cron stays as a safety net for missed deliveries;
- * idempotency (per source_ref) makes overlapping webhook + cron runs harmless.
+ *  1. Finance transactions — upsert the changed order into `square_orders` /
+ *     `pos_line_items` so `finance > transactions` reflects the sale within
+ *     seconds instead of only after someone clicks "Sync from Square". Only the
+ *     one changed order is refetched (by id), not a whole window.
+ *  2. Taproom consumption — run the SAME idempotent reconcile the daily cron
+ *     uses over a short window, so a Draft Restock's swap shipment + recount +
+ *     shrinkage land immediately.
+ *
+ * Both are idempotent, and the daily crons stay as safety nets for missed
+ * deliveries, so overlapping webhook + cron runs are harmless. A public
+ * endpoint: the HMAC signature is the only auth.
  *
  * Env: SQUARE_WEBHOOK_SIGNATURE_KEY (dashboard signature key) and
  * SQUARE_WEBHOOK_URL (the exact notification URL configured in Square — it is
@@ -41,9 +52,9 @@ export async function POST(req: NextRequest) {
   });
   if (!valid) return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
 
-  let event: { type?: string } = {};
+  let event: { type?: string; data?: unknown } = {};
   try {
-    event = JSON.parse(rawBody) as { type?: string };
+    event = JSON.parse(rawBody) as { type?: string; data?: unknown };
   } catch {
     // A verified-but-unparseable body shouldn't happen; ack so Square stops retrying.
     return NextResponse.json({ ignored: true, reason: "unparseable" });
@@ -61,8 +72,29 @@ export async function POST(req: NextRequest) {
   // idempotent per source_ref and the daily cron is the safety net, so a dropped
   // or partial background run self-heals on the next trigger.
   after(async () => {
+    const supabase = createSupabaseAdminClient();
+    const orderId = extractSquareOrderId(event);
+
+    // 1) Finance transactions — sync just the changed order. Wrapped
+    // independently so a failure here doesn't skip the taproom reconcile.
+    if (orderId) {
+      try {
+        const result = await syncPosOrdersByIds(supabase, [orderId]);
+        console.log("[square-webhook] finance sync", {
+          type: event.type,
+          orderId,
+          synced: result.synced,
+          errors: result.errors?.length ?? 0,
+        });
+      } catch (e) {
+        // Logged, not returned — Square already has its 200; the daily sync/cron
+        // and the manual "Sync from Square" button reconcile too.
+        console.error("[square-webhook] finance sync failed", e);
+      }
+    }
+
+    // 2) Taproom consumption reconcile over a short window.
     try {
-      const supabase = createSupabaseAdminClient();
       const result = await runTaproomConsumptionSync(supabase, { days: WINDOW_DAYS });
       console.log("[square-webhook] reconcile", {
         type: event.type,
