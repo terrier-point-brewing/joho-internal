@@ -1,6 +1,13 @@
 import { describe, it, expect } from "vitest";
 import { createHmac } from "node:crypto";
-import { verifySquareSignature, isReconcilableSquareEvent, extractSquareOrderId } from "./webhook";
+import {
+  verifySquareSignature,
+  isReconcilableSquareEvent,
+  isFinanceSyncableEvent,
+  isRefundEvent,
+  extractSquareOrderId,
+  extractSquareRefund,
+} from "./webhook";
 
 const sign = (key: string, url: string, body: string) =>
   createHmac("sha256", key).update(url + body).digest("base64");
@@ -87,5 +94,73 @@ describe("extractSquareOrderId", () => {
     expect(extractSquareOrderId({ data: {} })).toBeNull();
     expect(extractSquareOrderId({ data: { id: "" } })).toBeNull();
     expect(extractSquareOrderId({ data: { object: { payment_updated: { payment_id: "P1" } } } })).toBeNull();
+  });
+});
+
+describe("isFinanceSyncableEvent", () => {
+  it("is true for order.* and refund.* events", () => {
+    expect(isFinanceSyncableEvent("order.created")).toBe(true);
+    expect(isFinanceSyncableEvent("order.updated")).toBe(true);
+    expect(isFinanceSyncableEvent("refund.created")).toBe(true);
+    expect(isFinanceSyncableEvent("refund.updated")).toBe(true);
+  });
+
+  it("is false for unrelated events and non-strings", () => {
+    expect(isFinanceSyncableEvent("payment.updated")).toBe(false);
+    expect(isFinanceSyncableEvent("inventory.count.updated")).toBe(false);
+    expect(isFinanceSyncableEvent(undefined)).toBe(false);
+  });
+});
+
+describe("isRefundEvent", () => {
+  it("is true only for refund.* events", () => {
+    expect(isRefundEvent("refund.created")).toBe(true);
+    expect(isRefundEvent("refund.updated")).toBe(true);
+    expect(isRefundEvent("order.updated")).toBe(false);
+    expect(isRefundEvent(null)).toBe(false);
+  });
+});
+
+describe("extractSquareRefund", () => {
+  const refundEvent = {
+    type: "refund.updated",
+    data: {
+      type: "refund",
+      id: "REFUND_1", // NOTE: data.id is the refund id, not an order id
+      object: {
+        refund: {
+          id: "REFUND_1",
+          order_id: "ORDER_9",
+          payment_id: "PAY_9",
+          amount_money: { amount: 500, currency: "USD" },
+          status: "COMPLETED",
+          reason: "Customer changed mind",
+          created_at: "2026-07-05T12:00:00Z",
+          updated_at: "2026-07-05T12:05:00Z",
+        },
+      },
+    },
+  };
+
+  it("reads the refund object from data.object.refund", () => {
+    const r = extractSquareRefund(refundEvent);
+    expect(r?.id).toBe("REFUND_1");
+    expect(r?.order_id).toBe("ORDER_9");
+    expect(r?.amount_money?.amount).toBe(500);
+    expect(r?.status).toBe("COMPLETED");
+  });
+
+  it("does NOT confuse the refund id with an order id", () => {
+    // extractSquareOrderId would wrongly return the refund id off data.id;
+    // callers must use extractSquareRefund(...).order_id for refund events.
+    expect(extractSquareOrderId(refundEvent)).toBe("REFUND_1");
+    expect(extractSquareRefund(refundEvent)?.order_id).toBe("ORDER_9");
+  });
+
+  it("returns null for non-refund or malformed payloads", () => {
+    expect(extractSquareRefund(null)).toBeNull();
+    expect(extractSquareRefund({ data: { object: {} } })).toBeNull();
+    expect(extractSquareRefund({ data: { object: { refund: {} } } })).toBeNull();
+    expect(extractSquareRefund({ data: { object: { order_updated: { order_id: "O1" } } } })).toBeNull();
   });
 });

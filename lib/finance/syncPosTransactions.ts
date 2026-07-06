@@ -15,7 +15,7 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Order } from "@/types/square";
-import { fetchCompletedOrders, fetchOrdersByIds } from "@/lib/square/orders";
+import { fetchCompletedOrders, fetchCanceledOrders, fetchOrdersByIds } from "@/lib/square/orders";
 
 const BATCH_SIZE = 100;
 
@@ -24,8 +24,12 @@ export interface PosSyncResult {
   total: number;
   posOrders: number;
   invoiceOrders: number;
+  canceled: number;
   errors?: string[];
 }
+
+/** What the sync should do with a fetched order, based on its Square state. */
+export type OrderSyncAction = "upsert" | "cancel" | "skip";
 
 /** Catalog-variation → chart-of-accounts mapping row (source-aware overrides). */
 export interface CatalogCoaMapping {
@@ -41,13 +45,18 @@ interface InvoiceLookupRow {
 }
 
 /**
- * Whether an order should land in finance transactions. Only COMPLETED orders
- * represent finalized sales — this matches `fetchCompletedOrders` (so the
- * date-range path is a no-op filter) and gates the webhook path, where a
- * batch-retrieve can return an order still OPEN. Kept pure for testing.
+ * Decide what to do with a fetched order from its Square state. COMPLETED orders
+ * are finalized sales (upsert). CANCELED orders must be actively withdrawn — a
+ * previously-synced order that flips to CANCELED would otherwise linger as a
+ * phantom sale in the grid and statements — so we mark them and clear their line
+ * items. OPEN/DRAFT orders aren't sales yet, so we skip them. Kept pure for
+ * testing. NOTE: a refund does NOT change order state (a refunded order stays
+ * COMPLETED); refunds are handled separately in syncRefunds.ts.
  */
-export function isSyncableOrder(order: Pick<Order, "state">): boolean {
-  return order.state === "COMPLETED";
+export function classifyOrderForSync(order: Pick<Order, "state">): OrderSyncAction {
+  if (order.state === "COMPLETED") return "upsert";
+  if (order.state === "CANCELED") return "cancel";
+  return "skip";
 }
 
 /**
@@ -163,10 +172,14 @@ export async function syncSquareOrders(
   supabase: SupabaseClient,
   ordersInput: Order[],
 ): Promise<PosSyncResult> {
-  const orders = ordersInput.filter(isSyncableOrder);
-  if (orders.length === 0) {
-    return { synced: 0, total: 0, posOrders: 0, invoiceOrders: 0 };
+  const actionable = ordersInput
+    .map((order) => ({ order, action: classifyOrderForSync(order) }))
+    .filter((x) => x.action !== "skip");
+  if (actionable.length === 0) {
+    return { synced: 0, total: 0, posOrders: 0, invoiceOrders: 0, canceled: 0 };
   }
+  const orders = actionable.map((x) => x.order);
+  const actionByOrderId = new Map<string, OrderSyncAction>(actionable.map((x) => [x.order.id, x.action]));
 
   const [mappingsRes, invoiceRes] = await Promise.all([
     supabase
@@ -215,15 +228,27 @@ export async function syncSquareOrders(
   }
 
   let synced = 0;
+  let canceled = 0;
   const posLineItems: object[] = [];
   const invoiceLineItemsToInsert: { invoiceId: string; items: object[] }[] = [];
 
   for (const order of orders) {
     const dbId = upsertedIds.get(order.id);
     if (!dbId) continue;
-    synced++;
 
     const invoiceId = invoiceIdByOrderId.get(order.id) ?? null;
+
+    // Canceled: the order row stays (status now CANCELED, an audit trail) but its
+    // line items are withdrawn so it contributes nothing to statements. POS lines
+    // were already deleted above; for invoice-backed orders, clear them here by
+    // queueing an empty item set (delete-then-insert-nothing).
+    if (actionByOrderId.get(order.id) === "cancel") {
+      canceled++;
+      if (invoiceId) invoiceLineItemsToInsert.push({ invoiceId, items: [] });
+      continue;
+    }
+
+    synced++;
     if (invoiceId) {
       invoiceLineItemsToInsert.push({
         invoiceId,
@@ -252,6 +277,7 @@ export async function syncSquareOrders(
     total: orders.length,
     posOrders: posOrderDbIds.length,
     invoiceOrders: invoiceOrderDbIds.length,
+    canceled,
     errors: errors.length ? errors : undefined,
   };
 }
@@ -262,8 +288,11 @@ export async function syncPosTransactionsForRange(
   startDate: string,
   endDate: string,
 ): Promise<PosSyncResult & { dateRange: { startDate: string; endDate: string } }> {
-  const orders = await fetchCompletedOrders(startDate, endDate);
-  const result = await syncSquareOrders(supabase, orders);
+  const [completed, canceled] = await Promise.all([
+    fetchCompletedOrders(startDate, endDate),
+    fetchCanceledOrders(startDate, endDate),
+  ]);
+  const result = await syncSquareOrders(supabase, [...completed, ...canceled]);
   return { ...result, dateRange: { startDate, endDate } };
 }
 
@@ -273,7 +302,7 @@ export async function syncPosOrdersByIds(
   orderIds: string[],
 ): Promise<PosSyncResult> {
   if (orderIds.length === 0) {
-    return { synced: 0, total: 0, posOrders: 0, invoiceOrders: 0 };
+    return { synced: 0, total: 0, posOrders: 0, invoiceOrders: 0, canceled: 0 };
   }
   const orders = await fetchOrdersByIds(orderIds);
   return syncSquareOrders(supabase, orders);

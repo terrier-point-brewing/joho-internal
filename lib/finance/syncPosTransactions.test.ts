@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  isSyncableOrder,
+  classifyOrderForSync,
   buildCoaResolvers,
   buildInvoiceLookup,
   buildOrderPayload,
@@ -38,12 +38,12 @@ const order: Order = {
   ],
 };
 
-describe("isSyncableOrder", () => {
-  it("accepts COMPLETED orders only", () => {
-    expect(isSyncableOrder({ state: "COMPLETED" })).toBe(true);
-    expect(isSyncableOrder({ state: "OPEN" })).toBe(false);
-    expect(isSyncableOrder({ state: "DRAFT" })).toBe(false);
-    expect(isSyncableOrder({ state: "CANCELED" })).toBe(false);
+describe("classifyOrderForSync", () => {
+  it("upserts COMPLETED, cancels CANCELED, skips the rest", () => {
+    expect(classifyOrderForSync({ state: "COMPLETED" })).toBe("upsert");
+    expect(classifyOrderForSync({ state: "CANCELED" })).toBe("cancel");
+    expect(classifyOrderForSync({ state: "OPEN" })).toBe("skip");
+    expect(classifyOrderForSync({ state: "DRAFT" })).toBe("skip");
   });
 });
 

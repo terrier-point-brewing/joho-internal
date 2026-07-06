@@ -2,10 +2,13 @@ import { NextRequest, NextResponse, after } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { runTaproomConsumptionSync } from "@/lib/production/taproomConsumptionSync";
 import { syncPosOrdersByIds } from "@/lib/finance/syncPosTransactions";
+import { syncRefunds } from "@/lib/finance/syncRefunds";
 import {
   verifySquareSignature,
-  isReconcilableSquareEvent,
+  isFinanceSyncableEvent,
+  isRefundEvent,
   extractSquareOrderId,
+  extractSquareRefund,
 } from "@/lib/square/webhook";
 
 export const dynamic = "force-dynamic";
@@ -60,9 +63,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ignored: true, reason: "unparseable" });
   }
 
-  // Only order events trigger a reconcile; ack everything else with 200 so Square
-  // doesn't retry non-actionable deliveries.
-  if (!isReconcilableSquareEvent(event.type)) {
+  // Order and refund events drive a finance sync; order events also drive the
+  // taproom reconcile. Ack everything else with 200 so Square doesn't retry
+  // non-actionable deliveries.
+  if (!isFinanceSyncableEvent(event.type)) {
     return NextResponse.json({ ignored: true, type: event.type ?? null });
   }
 
@@ -73,10 +77,42 @@ export async function POST(req: NextRequest) {
   // or partial background run self-heals on the next trigger.
   after(async () => {
     const supabase = createSupabaseAdminClient();
+
+    // Refund events: refunds never change order state, so the order sync can't
+    // see them. Persist the refund (nets against revenue on statements) and
+    // re-sync the underlying order so its stored totals/raw stay fresh. Refunds
+    // don't add consumption, so they skip the taproom reconcile below.
+    if (isRefundEvent(event.type)) {
+      const refund = extractSquareRefund(event);
+      if (refund) {
+        try {
+          const result = await syncRefunds(supabase, [refund]);
+          console.log("[square-webhook] refund sync", {
+            type: event.type,
+            refundId: refund.id,
+            orderId: refund.order_id ?? null,
+            synced: result.synced,
+            errors: result.errors?.length ?? 0,
+          });
+        } catch (e) {
+          console.error("[square-webhook] refund sync failed", e);
+        }
+        if (refund.order_id) {
+          try {
+            await syncPosOrdersByIds(supabase, [refund.order_id]);
+          } catch (e) {
+            console.error("[square-webhook] refund order re-sync failed", e);
+          }
+        }
+      }
+      return;
+    }
+
     const orderId = extractSquareOrderId(event);
 
-    // 1) Finance transactions — sync just the changed order. Wrapped
-    // independently so a failure here doesn't skip the taproom reconcile.
+    // 1) Finance transactions — sync just the changed order (upsert on COMPLETED,
+    // withdraw on CANCELED). Wrapped independently so a failure here doesn't skip
+    // the taproom reconcile.
     if (orderId) {
       try {
         const result = await syncPosOrdersByIds(supabase, [orderId]);
@@ -84,6 +120,7 @@ export async function POST(req: NextRequest) {
           type: event.type,
           orderId,
           synced: result.synced,
+          canceled: result.canceled,
           errors: result.errors?.length ?? 0,
         });
       } catch (e) {

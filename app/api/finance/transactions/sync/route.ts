@@ -12,6 +12,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { syncPosTransactionsForRange } from "@/lib/finance/syncPosTransactions";
+import { syncRefundsForRange } from "@/lib/finance/syncRefunds";
 
 export const dynamic = "force-dynamic";
 
@@ -40,6 +41,7 @@ export async function POST(req: NextRequest) {
   }
 
   const result = await syncPosTransactionsForRange(supabase, startDate, endDate);
+  const refunds = await syncRefundsForRange(supabase, startDate, endDate);
 
-  return NextResponse.json({ updated: 0, skipped: 0, ...result });
+  return NextResponse.json({ updated: 0, skipped: 0, ...result, refunds });
 }

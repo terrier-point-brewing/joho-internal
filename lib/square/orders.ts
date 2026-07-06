@@ -44,6 +44,27 @@ export async function fetchCompletedOrders(startDate: string, endDate: string): 
   return fetchCompletedOrdersCached(startDate, endDate, tz);
 }
 
+// Canceled orders in a window — so the range sync/cron can withdraw an order
+// that was synced while COMPLETED and later canceled (the webhook catches these
+// in real time; this is the safety-net path). Uncached: cancellations are rare
+// and staleness here would leave a phantom sale on the books. Filtered by
+// created_at like fetchCompletedOrders, so a cancellation of an order created
+// before the window is only caught by the webhook, not this backfill.
+export async function fetchCanceledOrders(startDate: string, endDate: string): Promise<Order[]> {
+  const tz = await getBreweryTimezone();
+  return squarePostAll<Order>("/orders/search", "orders", {
+    location_ids: [squareLocationId()],
+    query: {
+      filter: {
+        date_time_filter: { created_at: dateRange(startDate, endDate, tz) },
+        state_filter: { states: ["CANCELED"] },
+      },
+    },
+    return_entries: false,
+    limit: 500,
+  });
+}
+
 // Retrieve specific orders by id (up to 100 per call) via the Batch Retrieve
 // Orders API. Uncached and always fresh — the Square webhook calls this with the
 // just-changed order id, so it must reflect the latest state, not a 90s cache.
