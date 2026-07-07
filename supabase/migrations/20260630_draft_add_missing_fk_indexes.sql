@@ -110,6 +110,3 @@ create index if not exists idx_stock_adjustments_ingredient_id on public.stock_a
 create index if not exists idx_system_settings_updated_by on public.system_settings (updated_by);
 -- tap_assignments
 create index if not exists idx_tap_assignments_recipe_id on public.tap_assignments (recipe_id);
--- workflow_template_steps  (NOTE: table is a drop candidate — see S8; skip if dropping)
-create index if not exists idx_workflow_template_steps_equipment_id on public.workflow_template_steps (equipment_id);
-create index if not exists idx_workflow_template_steps_template_id on public.workflow_template_steps (template_id);

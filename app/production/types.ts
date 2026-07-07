@@ -554,25 +554,6 @@ export interface Equipment {
   created_at: string;
 }
 
-export interface WorkflowTemplateStep {
-  id: string;
-  template_id: string;
-  step_order: number;
-  equipment_id: string;
-  duration_days: number | null;
-  notes: string | null;
-  equipment: Pick<Equipment, "id" | "name" | "type">;
-}
-
-export interface WorkflowTemplate {
-  id: string;
-  name: string;
-  description: string | null;
-  workflow_template_steps: WorkflowTemplateStep[];
-  created_at: string;
-}
-
-
 export interface BatchTankAssignment {
   id: string;
   batch_id: string;
