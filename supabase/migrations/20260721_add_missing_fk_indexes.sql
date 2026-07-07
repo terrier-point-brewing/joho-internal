@@ -1,18 +1,11 @@
--- DRAFT — DO NOT APPLY WITHOUT REVIEW
---
--- Finding S6 (schema audit 2026-06-30): 66 foreign-key columns in the public schema
--- have no covering index. Cascade deletes and joins on the parent therefore fall back
--- to sequential scans. Source: cross-check of pg_constraint (contype='f') against
--- pg_index leading-column coverage on the live DB (project drlsazatrcrdwaihjmex),
--- read-only.
---
--- This change is ADDITIVE and non-destructive: it only creates indexes. It was NOT run.
--- Reviewer notes:
---   * `IF NOT EXISTS` guards make this idempotent / safe to re-run.
---   * Tables are small today, so plain CREATE INDEX is fine. If applying against prod
---     under load, switch each to `CREATE INDEX CONCURRENTLY` (and run outside a txn).
---   * This file lists ALL 66 missing-FK-index columns found. Trim to taste before
---     applying if some columns are never used as a join/delete predicate.
+-- Add covering indexes for foreign-key columns that had none (schema audit finding
+-- S6, Tier-0). Without these, cascade deletes and joins on the parent fall back to
+-- sequential scans. Promoted from the reviewed 2026-06-30 draft; entries for tables
+-- since dropped (workflow_template_steps, batch_brew_activity_log,
+-- brew_step_template_steps) were removed. ADDITIVE only — every statement is
+-- `if not exists`, so it is idempotent and safe to re-run. Tables are small, so plain
+-- CREATE INDEX is fine; switch to CREATE INDEX CONCURRENTLY (outside a txn) if applying
+-- under load.
 
 -- batch_allocations
 create index if not exists idx_batch_allocations_contract_request_id on public.batch_allocations (contract_request_id);
