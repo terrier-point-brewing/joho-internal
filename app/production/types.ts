@@ -96,23 +96,6 @@ export interface PackagingStockAdjustment {
   packaging_items?: { name: string; type: PackagingItemType };
 }
 
-export type BrewAdjustmentType = "sold" | "distributed" | "waste" | "inventory_count";
-
-export interface BrewInventoryAdjustment {
-  id: string;
-  batch_transfer_id: string;
-  quantity: number;
-  type: BrewAdjustmentType;
-  note: string | null;
-  /** Packaging format label, e.g. "1/6 BBL" or "can" */
-  product_label: string | null;
-  /** "keg" or "can" */
-  product_type: string | null;
-  /** Unit of quantity, e.g. "kegs" or "cans" */
-  unit: string | null;
-  created_at: string;
-}
-
 export interface BatchTransfer {
   id: string;
   batch_id: string;
@@ -470,7 +453,7 @@ export interface BrewActivityEntry {
   id: string;
   batch_id?: string;
   recipe_id?: string;
-  template_id?: string | null;
+  library_template_id?: string | null;
   sort_order: number;
   activity: string;
   time_label: string | null;
@@ -553,25 +536,6 @@ export interface Equipment {
   grid_height: number;
   created_at: string;
 }
-
-export interface WorkflowTemplateStep {
-  id: string;
-  template_id: string;
-  step_order: number;
-  equipment_id: string;
-  duration_days: number | null;
-  notes: string | null;
-  equipment: Pick<Equipment, "id" | "name" | "type">;
-}
-
-export interface WorkflowTemplate {
-  id: string;
-  name: string;
-  description: string | null;
-  workflow_template_steps: WorkflowTemplateStep[];
-  created_at: string;
-}
-
 
 export interface BatchTankAssignment {
   id: string;

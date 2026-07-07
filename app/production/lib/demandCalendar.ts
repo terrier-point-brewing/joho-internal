@@ -102,7 +102,6 @@ function expandRecurring(
 
 export interface BuildDemandCalendarInput {
   lots: ColdStorageLot[];
-  adjustmentsByTransfer: Map<string, number>;
   packagingById: Map<string, PackagingItem>;
   packagingByBatchTransfer: Map<string, PackagingItem>;
   safetyFloors: SafetyStockFloor[];
@@ -119,7 +118,7 @@ export interface BuildDemandCalendarInput {
 
 export function buildDemandCalendar(input: BuildDemandCalendarInput): DemandRow[] {
   const {
-    lots, adjustmentsByTransfer, packagingById, packagingByBatchTransfer,
+    lots, packagingByBatchTransfer,
     safetyFloors, allocations, contractRequests, activeBatches, recipes,
     taproomDailyBblByRecipe, taproomCurrentBblByRecipe,
   } = input;
@@ -140,8 +139,7 @@ export function buildDemandCalendar(input: BuildDemandCalendarInput): DemandRow[
   for (const lot of lots) {
     const recipeId = lot.batch?.recipe_id;
     if (!recipeId) continue;
-    const adj = adjustmentsByTransfer.get(lot.transfer.id) ?? 0;
-    const netQty = lot.initialQty + adj;
+    const netQty = lot.initialQty;
     if (netQty <= 0) continue;
     const pkgItem = packagingByBatchTransfer.get(lot.transfer.id) ?? null;
     const bbl = unitsToBbl(netQty, pkgItem);

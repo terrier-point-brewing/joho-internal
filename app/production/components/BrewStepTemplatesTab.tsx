@@ -236,14 +236,14 @@ function ApplyModal({
       const existingIds = recipe?.recipe_brew_activity_templates?.map((t) => t.id) ?? [];
       await Promise.all(
         existingIds.map((tid) =>
-          fetch(`/api/production/recipe-brew-activity-templates?id=${tid}`, { method: "DELETE" })
+          fetch(`/api/production/brew-activities?id=${tid}`, { method: "DELETE" })
         )
       );
 
       // Insert new steps from template
       for (let i = 0; i < template.brew_step_template_steps.length; i++) {
         const s = template.brew_step_template_steps[i];
-        await fetch("/api/production/recipe-brew-activity-templates", {
+        await fetch("/api/production/brew-activities", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({

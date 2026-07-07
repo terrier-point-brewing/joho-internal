@@ -27,7 +27,6 @@ export async function GET() {
       { data: allocs },
       { data: contracts },
       { data: recipes },
-      { data: adjustments },
       { data: squareLinks },
     ] = await Promise.all([
       supabase.from("batch_transfers").select("*"),
@@ -47,7 +46,6 @@ export async function GET() {
         .eq("status", "open"),
       supabase.from("recipes")
         .select("*, recipe_ingredients(*, ingredients(*))"),
-      supabase.from("brew_inventory_adjustments").select("*"),
       supabase.from("recipe_square_links")
         .select("id, recipe_id, packaging, variation_name, square_variation_id, packaging_items(volume_fl_oz)"),
     ]);
@@ -62,13 +60,6 @@ export async function GET() {
     const typedRecipes = (recipes ?? []) as Recipe[];
 
     const packagingById = new Map(typedPkg.map((p) => [p.id, p]));
-
-    // Aggregate brew_inventory_adjustments by transfer_id
-    const adjByTransfer = new Map<string, number>();
-    for (const a of adjustments ?? []) {
-      const id = a.batch_transfer_id as string;
-      adjByTransfer.set(id, (adjByTransfer.get(id) ?? 0) + Number(a.quantity));
-    }
 
     // Resolve each lot's real packaging item via the variation actually
     // recorded on its transfer — no more guessing a "default" item per type.
@@ -134,7 +125,6 @@ export async function GET() {
 
     const rows = buildDemandCalendar({
       lots,
-      adjustmentsByTransfer: adjByTransfer,
       packagingById,
       packagingByBatchTransfer,
       safetyFloors: typedFloors,
