@@ -43,7 +43,8 @@ function isFiniteNumber(value: Numeric): value is number {
 /**
  * Format integer-cent values (Square's native money format). Divides by 100
  * internally — pass `1599` to render `$15.99`. `decimals` defaults to 2; pass
- * `0` for whole-dollar displays (`$16`).
+ * `0` for whole-dollar displays (`$16`). Accounting style: negatives render in
+ * parentheses and exact zero renders as the em-dash sentinel.
  */
 export function formatCurrencyCents(cents: Numeric, decimals = 2): string {
   if (!isFiniteNumber(cents)) return EM_DASH;
@@ -53,15 +54,22 @@ export function formatCurrencyCents(cents: Numeric, decimals = 2): string {
 /**
  * Format a value already expressed in dollars. Pass `15.99` to render `$15.99`.
  * `decimals` defaults to 2; pass `0` for whole-dollar displays (`$16`).
+ *
+ * Accounting presentation (single source of truth for money display):
+ *   • non-finite / null / undefined → em-dash sentinel
+ *   • exact zero                    → em-dash sentinel
+ *   • negative                      → parentheses, e.g. `($25.00)`
+ *   • positive                      → `$25.00`
  */
 export function formatCurrency(dollars: Numeric, decimals = 2): string {
-  if (!isFiniteNumber(dollars)) return EM_DASH;
-  return getFormatter(`currency:${decimals}`, {
+  if (!isFiniteNumber(dollars) || dollars === 0) return EM_DASH;
+  const abs = getFormatter(`currency:${decimals}`, {
     style: "currency",
     currency: CURRENCY,
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
-  }).format(dollars);
+  }).format(Math.abs(dollars));
+  return dollars < 0 ? `(${abs})` : abs;
 }
 
 /**

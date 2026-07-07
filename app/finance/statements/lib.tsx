@@ -3,28 +3,21 @@
 // Extracted from three near-identical copies. Presentation/structure only — no data logic.
 
 import { useState, useEffect, type ReactNode } from "react";
-import { formatCurrencyCents } from "@/lib/format";
+import { formatCurrencyCents, EM_DASH } from "@/lib/format";
 import PageHeader from "@/app/components/PageHeader";
 
 export const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
 // ── Money formatting ────────────────────────────────────────────────────────────
-
-/** Plain string for a cents value: "—" for zero, "(…)" for negatives. */
-export function fmtCents(cents: number): string {
-  if (cents === 0) return "—";
-  const neg = cents < 0;
-  const abs = formatCurrencyCents(Math.abs(cents));
-  return neg ? `(${abs})` : abs;
-}
+// Money display comes from the single source of truth in lib/format.ts:
+// `formatCurrencyCents` renders accounting style (parentheses for negatives,
+// em-dash for zero).
 
 /** Colored money cell for the MoM tables. */
 export function MoneyCell({ cents, dim }: { cents: number; dim?: boolean }) {
-  if (cents === 0) return <span className="text-faint">—</span>;
+  if (cents === 0) return <span className="text-faint">{EM_DASH}</span>;
   const neg = cents < 0;
-  const abs = formatCurrencyCents(Math.abs(cents));
-  const text = neg ? `(${abs})` : abs;
-  return <span className={dim ? "text-muted" : neg ? "text-danger" : "text-strong"}>{text}</span>;
+  return <span className={dim ? "text-muted" : neg ? "text-danger" : "text-strong"}>{formatCurrencyCents(cents)}</span>;
 }
 
 // Strip "Parent Name: " prefix from sub-account names (QuickBooks export format)
@@ -195,11 +188,11 @@ export function SectionRows<T extends MoMAccount>({
         <td className="py-1.5 px-4 text-xs text-secondary font-medium">{totalLabel}</td>
         {sectionTotals.map((cents, i) => (
           <td key={months[i]} className="py-1.5 px-2 text-right font-mono tabular-nums text-xs font-semibold text-strong">
-            {fmtCents(cents)}
+            {formatCurrencyCents(cents)}
           </td>
         ))}
         <td className="py-1.5 pl-2 pr-4 text-right font-mono tabular-nums text-xs font-bold text-primary">
-          {fmtCents(grandTotal)}
+          {formatCurrencyCents(grandTotal)}
         </td>
       </tr>
     </>
@@ -219,11 +212,11 @@ export function SubtotalRow({
       <td className={`py-2 px-4 text-xs font-bold ${highlight ? "text-primary" : "text-strong"}`}>{label}</td>
       {monthTotals.map((cents, i) => (
         <td key={i} className={`py-2 px-2 text-right font-mono tabular-nums text-xs font-bold ${cents < 0 ? "text-danger" : highlight ? "text-accent-soft" : "text-primary"}`}>
-          {fmtCents(cents)}
+          {formatCurrencyCents(cents)}
         </td>
       ))}
       <td className={`py-2 pl-2 pr-4 text-right font-mono tabular-nums text-sm font-bold ${grand < 0 ? "text-danger" : highlight ? "text-accent-soft" : "text-primary"}`}>
-        {fmtCents(grand)}
+        {formatCurrencyCents(grand)}
       </td>
     </tr>
   );

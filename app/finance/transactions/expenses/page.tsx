@@ -5,7 +5,7 @@ import Banner from "@/app/components/ui/Banner";
 import YearSelect from "../components/YearSelect";
 import SyncPanel from "../components/SyncPanel";
 import SummaryStatBar from "../components/SummaryStatBar";
-import { fmtCents } from "../../statements/lib";
+import { formatCurrencyCents } from "@/lib/format";
 
 // ── Types (mirror the API responses) ──────────────────────────────────────────
 interface CoaJoin {
@@ -201,7 +201,7 @@ export default function ExpensesPage() {
         <SummaryStatBar
           stats={[
             { label: "Mapped", value: `${mappedCount} / ${totalCount}` },
-            { label: "Total spend", value: fmtCents(totalSpend) },
+            { label: "Total spend", value: formatCurrencyCents(totalSpend) },
           ]}
         />
       )}
@@ -270,7 +270,7 @@ export default function ExpensesPage() {
                         )}
                       </div>
 
-                      <span className="text-xs text-body tabular-nums w-24 text-right shrink-0">{fmtCents(g.total_cents)}</span>
+                      <span className="text-xs text-body tabular-nums w-24 text-right shrink-0">{formatCurrencyCents(g.total_cents)}</span>
                       <span className="text-[10px] text-faint tabular-nums w-16 text-right shrink-0">{g.expenses.length}</span>
                     </div>
                   </div>
@@ -312,7 +312,7 @@ export default function ExpensesPage() {
                             )}
                           </div>
                           <span className={`text-xs tabular-nums w-24 text-right shrink-0 ${e.amount_cents < 0 ? "text-success" : "text-body"}`}>
-                            {fmtCents(e.amount_cents)}
+                            {formatCurrencyCents(e.amount_cents)}
                           </span>
                         </div>
                       ))}
