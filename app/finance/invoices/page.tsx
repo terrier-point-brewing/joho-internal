@@ -10,6 +10,13 @@ import TransactionsNav from "../transactions/TransactionsNav";
 import PageHeader from "@/app/components/PageHeader";
 import Banner from "@/app/components/ui/Banner";
 import AccountSelect from "../AccountSelect";
+import SyncPanel from "../transactions/components/SyncPanel";
+import MappingFilter from "../transactions/components/MappingFilter";
+import MappingStatusPill from "../transactions/components/MappingStatusPill";
+import AutoMapButton from "../transactions/components/AutoMapButton";
+import YearSelect from "../transactions/components/YearSelect";
+import SummaryStatBar from "../transactions/components/SummaryStatBar";
+import { matchesMappingFilter, type MappingFilterValue } from "@/lib/finance/mappingStatus";
 import {
   INVOICE_STATUS_CLS, INVOICE_SOURCE_LABEL, INVOICE_SOURCE_CLS,
   INVOICE_TYPE_LABEL, INVOICE_TYPE_CLS, DEPOSIT_CATEGORY_CLS,
@@ -87,7 +94,6 @@ function InvoiceExpandableRow({
   const linkCount = (inv.invoice_batch_links as unknown as { count: number }[])[0]?.count ?? 0;
   const lineItems = inv.invoice_line_items ?? [];
   const mappedCount = lineItems.filter((li) => li.chart_of_accounts_id || li.bs_chart_of_accounts_id).length;
-  const allMapped = lineItems.length > 0 && mappedCount === lineItems.length;
   const missingDelivery = lineItems.some((li) => li.bs_chart_of_accounts_id && !li.delivery_invoice_id);
 
   return (
@@ -124,11 +130,7 @@ function InvoiceExpandableRow({
           <div className="flex flex-col gap-1">
             {lineItems.length === 0
               ? <span className="text-disabled">—</span>
-              : allMapped
-                ? <span className="text-[10px] text-success">✓ all mapped</span>
-                : mappedCount > 0
-                  ? <span className="text-[10px] text-accent-emphasis">{mappedCount}/{lineItems.length} mapped</span>
-                  : <span className="text-[10px] text-faint">unmapped</span>}
+              : <MappingStatusPill mapped={mappedCount} total={lineItems.length} />}
             {missingDelivery && (
               <span className="text-[10px] text-accent">⚠ deposit missing delivery</span>
             )}
@@ -397,67 +399,9 @@ function BatchLinkEditor({
   );
 }
 
-// ── Invoice sync panel ─────────────────────────────────────────────────────────
+// ── Invoice sync result shape ──────────────────────────────────────────────────
 
-const INVOICE_LAST_SYNC_KEY = "tpb-invoices-last-sync";
-
-function daysSince(isoStr: string): number {
-  return Math.floor((Date.now() - new Date(isoStr).getTime()) / 86_400_000);
-}
-
-function InvoiceSyncPanel({ year, onSynced }: { year: number; onSynced: () => void }) {
-  const [syncing, setSyncing] = useState(false);
-  const [result, setResult] = useState<{ synced: number; updated: number; total: number; errors?: string[] } | null>(null);
-  const [syncError, setSyncError] = useState<string | null>(null);
-  const [lastSync, setLastSync] = useState<string | null>(null);
-
-  useEffect(() => {
-    const stored = localStorage.getItem(INVOICE_LAST_SYNC_KEY);
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (stored) setLastSync(stored);
-  }, []);
-
-  async function handleSync() {
-    setSyncing(true); setSyncError(null); setResult(null);
-    try {
-      const res = await fetch(`/api/finance/ledger/sync-square?year=${year}`, { method: "POST" });
-      const json = await res.json();
-      if (!res.ok) { setSyncError(json.error ?? "Sync failed"); return; }
-      setResult(json);
-      const now = new Date().toISOString();
-      localStorage.setItem(INVOICE_LAST_SYNC_KEY, now);
-      setLastSync(now);
-      onSynced();
-    } catch (e) {
-      setSyncError(e instanceof Error ? e.message : "Network error");
-    } finally { setSyncing(false); }
-  }
-
-  const days = lastSync != null ? daysSince(lastSync) : null;
-
-  return (
-    <div className="flex items-center gap-2 flex-wrap">
-      {days != null && (
-        <span className={`text-xs ${days >= 7 ? "text-accent" : "text-muted"}`}>
-          Last sync: {days === 0 ? "today" : `${days}d ago`}
-        </span>
-      )}
-      <button onClick={handleSync} disabled={syncing}
-        className="btn-sm whitespace-nowrap">
-        {syncing ? "Syncing invoices…" : "Sync from Square"}
-      </button>
-      {syncError && <span className="text-xs text-danger">{syncError}</span>}
-      {result && (
-        <span className="text-xs text-secondary">
-          {result.synced > 0 && <span className="text-success mr-1">{result.synced} new</span>}
-          {result.updated > 0 && <span className="text-secondary mr-1">{result.updated} updated</span>}
-          {result.total === 0 && <span className="text-faint">No invoices found</span>}
-          {result.errors?.length ? <span className="text-danger">{result.errors.length} errors</span> : null}
-        </span>
-      )}
-    </div>
-  );
-}
+interface InvoiceSyncResult { synced: number; updated: number; total: number; errors?: string[] }
 
 type SortKey = "invoice_number" | "invoice_date" | "customer_name" | "source" | "type" | "total_cents" | "status";
 
@@ -475,16 +419,12 @@ export default function InvoicesPage() {
   const [source,     setSource] = useState<"all" | "square" | "quickbooks">("all");
   const [status,     setStatus] = useState<"all" | "open" | "paid" | "partial" | "voided" | "unknown">("all");
   const [typeFilter,    setTypeFilter]    = useState<"all" | InvoiceType>("all");
-  const [mappingFilter, setMappingFilter] = useState<"all" | "mapped" | "partial" | "unmapped">("all");
+  const [mappingFilter, setMappingFilter] = useState<MappingFilterValue>("all");
   const [sortKey,    setSort]   = useState<SortKey>("invoice_date");
   const [sortAsc,    setSortAsc] = useState(false);
   const [accounts,     setAccounts]     = useState<CoARef[]>([]);
   const [batches,      setBatches]      = useState<BrewBatch[]>([]);
   const [showVoided,   setShowVoided]   = useState(false);
-  const [autoMapping,  setAutoMapping]  = useState(false);
-  const [autoMapResult, setAutoMapResult] = useState<{ mapped: number } | null>(null);
-  const years = Array.from({ length: 5 }, (_, i) => currentYear - i);
-
   useEffect(() => {
     fetch("/api/finance/chart-of-accounts")
       .then((r) => r.json())
@@ -498,13 +438,11 @@ export default function InvoicesPage() {
       });
   }, []);
 
-  async function handleAutoMap() {
-    setAutoMapping(true); setAutoMapResult(null);
+  async function handleAutoMap(): Promise<{ mapped: number }> {
     const res = await fetch(`/api/finance/ledger/invoices/auto-map?year=${year}`, { method: "POST" });
     const json = await res.json();
-    setAutoMapResult(json);
     if (json.mapped > 0) refetch();
-    setAutoMapping(false);
+    return json;
   }
 
   async function handleSaveLineItem(id: string, patch: Record<string, string | null>) {
@@ -530,14 +468,9 @@ export default function InvoicesPage() {
     .filter((inv) => status === "all" || inv.status === status)
     .filter((inv) => typeFilter === "all" || (inv as InvoiceRow).invoice_type === typeFilter)
     .filter((inv) => {
-      if (mappingFilter === "all") return true;
       const items = (inv as InvoiceRow).invoice_line_items ?? [];
-      if (items.length === 0) return mappingFilter === "unmapped";
       const mapped = items.filter((li) => li.chart_of_accounts_id || li.bs_chart_of_accounts_id).length;
-      if (mappingFilter === "mapped")   return mapped === items.length;
-      if (mappingFilter === "partial")  return mapped > 0 && mapped < items.length;
-      if (mappingFilter === "unmapped") return mapped === 0;
-      return true;
+      return matchesMappingFilter(mappingFilter, mapped, items.length);
     })
     .sort((a, b) => {
       let diff = 0;
@@ -574,10 +507,7 @@ export default function InvoicesPage() {
       <TransactionsNav />
       <div className="shrink-0 px-4 sm:px-6 pb-4 border-b border-line">
         <div className="flex flex-wrap items-center gap-2">
-          <select value={year} onChange={(e) => setYear(Number(e.target.value))}
-            className="inp-sm w-auto">
-            {years.map((y) => <option key={y} value={y}>{y}</option>)}
-          </select>
+          <YearSelect year={year} onChange={setYear} />
           <select value={source} onChange={(e) => setSource(e.target.value as typeof source)}
             className="inp-sm w-auto">
             <option value="all">All sources</option>
@@ -605,54 +535,36 @@ export default function InvoicesPage() {
             <option value="allocation_deposit">Deposit invoices</option>
             <option value="export_invoice">Export invoices</option>
           </select>
-          <select value={mappingFilter} onChange={(e) => setMappingFilter(e.target.value as typeof mappingFilter)}
-            className="inp-sm w-auto">
-            <option value="all">All GL mappings</option>
-            <option value="mapped">Fully mapped</option>
-            <option value="partial">Partially mapped</option>
-            <option value="unmapped">Unmapped</option>
-          </select>
-          <InvoiceSyncPanel year={year} onSynced={() => refetch()} />
-          <div className="flex items-center gap-2">
-            <button onClick={handleAutoMap} disabled={autoMapping}
-              className="btn-sm whitespace-nowrap">
-              {autoMapping ? "Mapping…" : "Auto-map all"}
-            </button>
-            {autoMapResult && (
-              <span className="text-xs">
-                {autoMapResult.mapped > 0
-                  ? <span className="text-success">{autoMapResult.mapped} mapped</span>
-                  : <span className="text-faint">Nothing to map</span>}
-              </span>
+          <MappingFilter value={mappingFilter} onChange={setMappingFilter} />
+          <SyncPanel<InvoiceSyncResult>
+            year={year}
+            storageKey="tpb-invoices-last-sync"
+            label="from Square"
+            buildEndpoint={({ year }) => `/api/finance/ledger/sync-square?year=${year}`}
+            onSynced={() => refetch()}
+            renderResult={(r) => (
+              <>
+                {r.synced > 0 && <span className="text-success mr-1">{r.synced} new</span>}
+                {r.updated > 0 && <span className="text-secondary mr-1">{r.updated} updated</span>}
+                {r.total === 0 && <span className="text-faint">No invoices found</span>}
+                {r.errors?.length ? <span className="text-danger">{r.errors.length} errors</span> : null}
+              </>
             )}
-          </div>
+          />
+          <AutoMapButton key={year} onRun={handleAutoMap} />
         </div>
       </div>
 
       {/* Summary bar */}
       {!isFetching && invoices.length > 0 && (
-        <div className="shrink-0 flex flex-wrap items-center gap-4 sm:gap-6 px-4 sm:px-6 py-3 border-b border-line/60 bg-surface/30">
-          <div>
-            <span className="text-xs text-muted">Invoices </span>
-            <span className="text-sm font-semibold text-strong">{invoices.length}</span>
-          </div>
-          <div>
-            <span className="text-xs text-muted">Total value </span>
-            <span className="text-sm font-semibold text-strong">{formatCurrencyCents(totalValue, 0)}</span>
-          </div>
-          {openValue > 0 && (
-            <div>
-              <span className="text-xs text-muted">Open </span>
-              <span className="text-sm font-semibold text-accent">{formatCurrencyCents(openValue, 0)}</span>
-            </div>
-          )}
-          {unlinkedCount > 0 && (
-            <div>
-              <span className="text-xs text-muted">Unlinked to batch </span>
-              <span className="text-sm font-semibold text-secondary">{unlinkedCount}</span>
-            </div>
-          )}
-        </div>
+        <SummaryStatBar
+          stats={[
+            { label: "Invoices", value: invoices.length },
+            { label: "Total value", value: formatCurrencyCents(totalValue, 0) },
+            ...(openValue > 0 ? [{ label: "Open", value: formatCurrencyCents(openValue, 0), tone: "accent" as const }] : []),
+            ...(unlinkedCount > 0 ? [{ label: "Unlinked to batch", value: unlinkedCount, tone: "secondary" as const }] : []),
+          ]}
+        />
       )}
 
       {error && (

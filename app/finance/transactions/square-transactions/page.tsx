@@ -1,10 +1,16 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
 import { formatCurrencyCents } from "@/lib/format";
+import { matchesMappingFilter, type MappingFilterValue } from "@/lib/finance/mappingStatus";
 import FinanceNav from "../../FinanceNav";
 import TransactionsNav from "../TransactionsNav";
 import AccountSelect from "../../AccountSelect";
 import PageHeader from "@/app/components/PageHeader";
+import SyncPanel from "../components/SyncPanel";
+import MappingFilter from "../components/MappingFilter";
+import MappingStatusPill from "../components/MappingStatusPill";
+import AutoMapButton from "../components/AutoMapButton";
+import YearSelect from "../components/YearSelect";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -140,7 +146,6 @@ function TransactionRow({
   const [expanded, setExpanded] = useState(false);
   const lineItems = txn.pos_line_items ?? [];
   const mappedCount = lineItems.filter((li) => li.effective_chart_of_accounts_id).length;
-  const allMapped = lineItems.length > 0 && mappedCount === lineItems.length;
 
   return (
     <div className="border-b border-line/60">
@@ -159,13 +164,7 @@ function TransactionRow({
           <span className="text-[10px] text-faint font-mono truncate">{txn.square_order_id.slice(-8)}</span>
           <span className="text-xs text-body tabular-nums font-mono text-right">{fmtMoney(txn.total_cents)}</span>
           <div className="flex justify-end">
-            {allMapped
-              ? <span className="text-[10px] text-success">✓ mapped</span>
-              : mappedCount > 0
-                ? <span className="text-[10px] text-accent-emphasis">{mappedCount}/{lineItems.length}</span>
-                : lineItems.length > 0
-                  ? <span className="text-[10px] text-faint">unmapped</span>
-                  : null}
+            <MappingStatusPill mapped={mappedCount} total={lineItems.length} />
           </div>
         </div>
       </button>
@@ -211,79 +210,11 @@ function TransactionRow({
   );
 }
 
-// ── Sync panel ────────────────────────────────────────────────────────────────
+// ── Sync result shape ─────────────────────────────────────────────────────────
 
-const MONTH_LABELS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-
-const LAST_SYNC_KEY = "tpb-pos-last-sync";
-
-function daysSince(isoStr: string): number {
-  return Math.floor((Date.now() - new Date(isoStr).getTime()) / 86_400_000);
-}
-
-function SyncPanel({ year, onSynced }: { year: number; onSynced: () => void }) {
-  const currentMonth = new Date().getMonth() + 1;
-  const [month, setMonth]   = useState(currentMonth);
-  const [syncing, setSyncing] = useState(false);
-  const [result, setResult]   = useState<{ synced: number; updated: number; total: number; dateRange?: { startDate: string; endDate: string }; errors?: string[] } | null>(null);
-  const [error, setError]     = useState<string | null>(null);
-  const [lastSync, setLastSync] = useState<string | null>(null);
-
-  useEffect(() => {
-    const stored = localStorage.getItem(LAST_SYNC_KEY);
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (stored) setLastSync(stored);
-  }, []);
-
-  async function handleSync() {
-    setSyncing(true); setError(null); setResult(null);
-    try {
-      const res  = await fetch(`/api/finance/transactions/sync?year=${year}&month=${month}`, { method: "POST" });
-      const json = await res.json();
-      if (!res.ok) { setError(json.error ?? "Sync failed"); return; }
-      setResult(json);
-      const now = new Date().toISOString();
-      localStorage.setItem(LAST_SYNC_KEY, now);
-      setLastSync(now);
-      onSynced();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Network error");
-    } finally { setSyncing(false); }
-  }
-
-  const monthLabel = month === 0 ? "full year" : MONTH_LABELS[month - 1];
-  const days = lastSync != null ? daysSince(lastSync) : null;
-
-  return (
-    <div className="flex items-center gap-2 flex-wrap">
-      {days != null && (
-        <span className={`text-xs ${days >= 7 ? "text-accent" : "text-muted"}`}>
-          Last sync: {days === 0 ? "today" : `${days}d ago`}
-        </span>
-      )}
-      <select value={month} onChange={(e) => { setMonth(Number(e.target.value)); setResult(null); }}
-        className="inp-sm w-auto">
-        {MONTH_LABELS.map((lbl, i) => <option key={i + 1} value={i + 1}>{lbl}</option>)}
-        <option value={0}>Full year</option>
-      </select>
-      <button onClick={handleSync} disabled={syncing} className="btn-sm whitespace-nowrap">
-        {syncing ? `Syncing ${monthLabel}…` : `Sync ${monthLabel} from Square`}
-      </button>
-      {error && <span className="text-xs text-danger">{error}</span>}
-      {result && (
-        <span className="text-xs text-secondary">
-          {result.synced > 0 && <span className="text-success mr-2">{result.synced} orders</span>}
-          {result.total === 0 && <span className="text-faint">No orders found</span>}
-          {result.errors?.length ? <span className="text-danger ml-2">{result.errors.length} errors</span> : null}
-        </span>
-      )}
-    </div>
-  );
-}
+interface SyncResult { synced: number; updated: number; total: number; errors?: string[] }
 
 // ── Page ──────────────────────────────────────────────────────────────────────
-
-type MappingFilter = "all" | "mapped" | "partial" | "unmapped";
 
 export default function SquareTransactionsPage() {
   const currentYear = new Date().getFullYear();
@@ -294,11 +225,8 @@ export default function SquareTransactionsPage() {
   const [accounts, setAccounts]       = useState<CoARef[]>([]);
   const [loading, setLoading]         = useState(true);
   const [error, setError]             = useState<string | null>(null);
-  const [mappingFilter, setMappingFilter] = useState<MappingFilter>("all");
-  const [autoMapping, setAutoMapping] = useState(false);
-  const [autoMapResult, setAutoMapResult] = useState<{ mapped: number } | null>(null);
+  const [mappingFilter, setMappingFilter] = useState<MappingFilterValue>("all");
   const pageSize = 50;
-  const years = Array.from({ length: 5 }, (_, i) => currentYear - i);
 
   const loadTransactions = useCallback(async (yr: number, pg: number) => {
     setLoading(true); setError(null);
@@ -326,15 +254,13 @@ export default function SquareTransactionsPage() {
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { loadTransactions(year, page); }, [year, page, loadTransactions]);
 
-  function handleYearChange(y: number) { setYear(y); setPage(1); setAutoMapResult(null); }
+  function handleYearChange(y: number) { setYear(y); setPage(1); }
 
-  async function handleAutoMap() {
-    setAutoMapping(true); setAutoMapResult(null);
+  async function handleAutoMap(): Promise<{ mapped: number }> {
     const res = await fetch(`/api/finance/transactions/auto-map?year=${year}`, { method: "POST" });
     const json = await res.json();
-    setAutoMapResult(json);
     if (json.mapped > 0) loadTransactions(year, page);
-    setAutoMapping(false);
+    return json;
   }
 
   async function handleSaveLineItem(id: string, patch: { chart_of_accounts_id: string | null }) {
@@ -369,12 +295,8 @@ export default function SquareTransactionsPage() {
 
   const filteredTransactions = mappingFilter === "all" ? transactions : transactions.filter((txn) => {
     const items = txn.pos_line_items ?? [];
-    if (items.length === 0) return mappingFilter === "unmapped";
     const mapped = items.filter((li) => li.effective_chart_of_accounts_id).length;
-    if (mappingFilter === "mapped")   return mapped === items.length;
-    if (mappingFilter === "partial")  return mapped > 0 && mapped < items.length;
-    if (mappingFilter === "unmapped") return mapped === 0;
-    return true;
+    return matchesMappingFilter(mappingFilter, mapped, items.length);
   });
 
   return (
@@ -393,31 +315,24 @@ export default function SquareTransactionsPage() {
             : "No transactions synced yet"}
         </p>
         <div className="flex items-center gap-3 flex-wrap">
-          <select value={year} onChange={(e) => handleYearChange(Number(e.target.value))}
-            className="inp-sm w-auto">
-            {years.map((y) => <option key={y} value={y}>{y}</option>)}
-          </select>
-          <select value={mappingFilter} onChange={(e) => setMappingFilter(e.target.value as MappingFilter)}
-            className="inp-sm w-auto">
-            <option value="all">All mappings</option>
-            <option value="mapped">Fully mapped</option>
-            <option value="partial">Partially mapped</option>
-            <option value="unmapped">Unmapped</option>
-          </select>
-          <div className="flex items-center gap-2">
-            <button onClick={handleAutoMap} disabled={autoMapping}
-              className="btn-sm whitespace-nowrap">
-              {autoMapping ? "Mapping…" : "Auto-map all"}
-            </button>
-            {autoMapResult && (
-              <span className="text-xs text-secondary">
-                {autoMapResult.mapped > 0
-                  ? <span className="text-success">{autoMapResult.mapped} items mapped</span>
-                  : <span className="text-faint">Nothing to map</span>}
-              </span>
+          <YearSelect year={year} onChange={handleYearChange} />
+          <MappingFilter value={mappingFilter} onChange={setMappingFilter} />
+          <AutoMapButton key={year} onRun={handleAutoMap} />
+          <SyncPanel<SyncResult>
+            year={year}
+            storageKey="tpb-pos-last-sync"
+            label="from Square"
+            showMonthPicker
+            buildEndpoint={({ year, month }) => `/api/finance/transactions/sync?year=${year}&month=${month}`}
+            onSynced={() => loadTransactions(year, 1)}
+            renderResult={(r) => (
+              <>
+                {r.synced > 0 && <span className="text-success mr-2">{r.synced} orders</span>}
+                {r.total === 0 && <span className="text-faint">No orders found</span>}
+                {r.errors?.length ? <span className="text-danger ml-2">{r.errors.length} errors</span> : null}
+              </>
             )}
-          </div>
-          <SyncPanel year={year} onSynced={() => loadTransactions(year, 1)} />
+          />
         </div>
       </div>
 
