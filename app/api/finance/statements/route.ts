@@ -203,6 +203,26 @@ export async function GET(req: NextRequest) {
       cur.count += 1;
     }
 
+    // Square refunds net against revenue via the contra-revenue account they map
+    // to (subtracted, so that account carries a negative balance). Only COMPLETED
+    // refunds represent money actually returned.
+    const { data: refundRows } = await supabase
+      .from("square_refunds")
+      .select("chart_of_accounts_id, amount_cents, refunded_at")
+      .gte("refunded_at", start)
+      .lt("refunded_at", end)
+      .eq("status", "COMPLETED")
+      .not("chart_of_accounts_id", "is", null);
+
+    for (const row of refundRows ?? []) {
+      if (!row.chart_of_accounts_id || !row.refunded_at) continue;
+      const d = new Date(row.refunded_at as string);
+      const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+      const cur = getOrCreate(row.chart_of_accounts_id, key);
+      cur.cents -= row.amount_cents ?? 0;
+      cur.count += 1;
+    }
+
     const result: AccountBalanceMoM[] = (accounts ?? []).map((acct) => {
       const mmap = balanceMap.get(acct.id);
       const monthly: Record<string, { cents: number; count: number }> = {};
@@ -299,6 +319,24 @@ export async function GET(req: NextRequest) {
       const key = (row.accounting_date as string).slice(0, 7);
       const cur = getOrCreate(row.chart_of_accounts_id, key);
       cur.cents += row.amount_cents ?? 0;
+      cur.count += 1;
+    }
+
+    // Refunds are cash out — net them against revenue on the cash-flow view too.
+    const { data: refundRows } = await supabase
+      .from("square_refunds")
+      .select("chart_of_accounts_id, amount_cents, refunded_at")
+      .gte("refunded_at", start)
+      .lt("refunded_at", end)
+      .eq("status", "COMPLETED")
+      .not("chart_of_accounts_id", "is", null);
+
+    for (const row of refundRows ?? []) {
+      if (!row.chart_of_accounts_id || !row.refunded_at) continue;
+      const d = new Date(row.refunded_at as string);
+      const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+      const cur = getOrCreate(row.chart_of_accounts_id, key);
+      cur.cents -= row.amount_cents ?? 0;
       cur.count += 1;
     }
 
@@ -425,6 +463,26 @@ export async function GET(req: NextRequest) {
     const cur = balanceMap.get(row.chart_of_accounts_id) ?? { cents: 0, count: 0 };
     balanceMap.set(row.chart_of_accounts_id, {
       cents: cur.cents + (row.amount_cents ?? 0),
+      count: cur.count + 1,
+    });
+  }
+
+  // Refunds net against revenue via their contra account, bounded like the rest.
+  let refundQuery = supabase
+    .from("square_refunds")
+    .select("chart_of_accounts_id, amount_cents, refunded_at")
+    .lt("refunded_at", end)
+    .eq("status", "COMPLETED")
+    .not("chart_of_accounts_id", "is", null);
+  if (start) refundQuery = refundQuery.gte("refunded_at", start);
+
+  const { data: refundAgg } = await refundQuery;
+
+  for (const row of refundAgg ?? []) {
+    if (!row.chart_of_accounts_id) continue;
+    const cur = balanceMap.get(row.chart_of_accounts_id) ?? { cents: 0, count: 0 };
+    balanceMap.set(row.chart_of_accounts_id, {
+      cents: cur.cents - (row.amount_cents ?? 0),
       count: cur.count + 1,
     });
   }
