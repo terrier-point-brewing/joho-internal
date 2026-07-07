@@ -453,7 +453,7 @@ export interface BrewActivityEntry {
   id: string;
   batch_id?: string;
   recipe_id?: string;
-  template_id?: string | null;
+  library_template_id?: string | null;
   sort_order: number;
   activity: string;
   time_label: string | null;

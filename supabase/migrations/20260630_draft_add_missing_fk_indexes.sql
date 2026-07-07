@@ -16,8 +16,6 @@
 
 -- batch_allocations
 create index if not exists idx_batch_allocations_contract_request_id on public.batch_allocations (contract_request_id);
--- batch_brew_activity_log
-create index if not exists idx_batch_brew_activity_log_template_id on public.batch_brew_activity_log (template_id);
 -- batch_conversions
 create index if not exists idx_batch_conversions_source_equipment_id on public.batch_conversions (source_equipment_id);
 create index if not exists idx_batch_conversions_target_batch_id on public.batch_conversions (target_batch_id);
@@ -35,8 +33,6 @@ create index if not exists idx_batch_transfers_variation_id on public.batch_tran
 -- brew_batches
 create index if not exists idx_brew_batches_converted_from_batch_id on public.brew_batches (converted_from_batch_id);
 create index if not exists idx_brew_batches_recipe_id on public.brew_batches (recipe_id);
--- brew_step_template_steps
-create index if not exists idx_brew_step_template_steps_template_id on public.brew_step_template_steps (template_id);
 -- chart_of_accounts
 create index if not exists idx_chart_of_accounts_parent_id on public.chart_of_accounts (parent_id);
 create index if not exists idx_chart_of_accounts_uploaded_by on public.chart_of_accounts (uploaded_by);

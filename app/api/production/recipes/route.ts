@@ -9,7 +9,7 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from("recipes")
-    .select("*, partner:contract_brewing_partners(company_name), recipe_ingredients(*, ingredients(*)), recipe_brew_activity_templates(*)")
+    .select("*, partner:contract_brewing_partners(company_name), recipe_ingredients(*, ingredients(*)), recipe_brew_activity_templates:brew_activities(*)")
     .order("beer_name");
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
 
   const { data, error } = await supabase
     .from("recipes")
-    .select("*, partner:contract_brewing_partners(company_name), recipe_ingredients(*, ingredients(*)), recipe_brew_activity_templates(*)")
+    .select("*, partner:contract_brewing_partners(company_name), recipe_ingredients(*, ingredients(*)), recipe_brew_activity_templates:brew_activities(*)")
     .eq("id", recipe.id)
     .single();
 

@@ -46,7 +46,7 @@ export async function PATCH(
 
   const { data, error } = await supabase
     .from("recipes")
-    .select("*, recipe_ingredients(*, ingredients(*)), recipe_brew_activity_templates(*)")
+    .select("*, recipe_ingredients(*, ingredients(*)), recipe_brew_activity_templates:brew_activities(*)")
     .eq("id", id)
     .single();
 
