@@ -4,6 +4,7 @@ import AccountSelect, { type CoARef } from "../../AccountSelect";
 import Banner from "@/app/components/ui/Banner";
 import YearSelect from "../components/YearSelect";
 import SyncPanel from "../components/SyncPanel";
+import SummaryStatBar from "../components/SummaryStatBar";
 import { fmtCents } from "../../statements/lib";
 
 // ── Types (mirror the API responses) ──────────────────────────────────────────
@@ -178,30 +179,32 @@ export default function ExpensesPage() {
 
   return (
     <>
-      <div className="shrink-0 px-4 sm:px-6 py-3 border-b border-line flex items-center justify-between gap-4 flex-wrap">
-        <p className="text-xs text-muted">
-          {totalCount > 0
-            ? `${mappedCount} of ${totalCount} expenses mapped · ${fmtCents(totalSpend)} total spend`
-            : "Sync to import expenses and map them to the chart of accounts."}
-        </p>
-        <div className="flex items-center gap-3 flex-wrap">
-          <YearSelect year={year} onChange={setYear} />
-          <SyncPanel<SyncResult>
-            year={year}
-            storageKey="tpb-expenses-last-sync"
-            label="Ramp"
-            buildEndpoint={({ year }) => `/api/finance/expenses/sync?from=${year}-01-01&to=${year}-12-31`}
-            onSynced={() => loadAll(year)}
-            renderResult={(r) => (
-              <span title={`${r.imported} imported · ${r.mapped} mapped · ${r.new_rules} new accounts (${r.auto_matched_rules} auto-matched)`}>
-                <span className="text-success mr-1">{r.imported} imported</span>
-                <span className="text-secondary mr-1">{r.mapped} mapped</span>
-                {r.new_rules > 0 && <span className="text-secondary">{r.new_rules} new accounts</span>}
-              </span>
-            )}
-          />
-        </div>
+      <div className="shrink-0 px-4 sm:px-6 py-3 border-b border-line flex items-center gap-3 flex-wrap">
+        <YearSelect year={year} onChange={setYear} />
+        <SyncPanel<SyncResult>
+          year={year}
+          storageKey="tpb-expenses-last-sync"
+          label="Ramp"
+          buildEndpoint={({ year }) => `/api/finance/expenses/sync?from=${year}-01-01&to=${year}-12-31`}
+          onSynced={() => loadAll(year)}
+          renderResult={(r) => (
+            <span title={`${r.imported} imported · ${r.mapped} mapped · ${r.new_rules} new accounts (${r.auto_matched_rules} auto-matched)`}>
+              <span className="text-success mr-1">{r.imported} imported</span>
+              <span className="text-secondary mr-1">{r.mapped} mapped</span>
+              {r.new_rules > 0 && <span className="text-secondary">{r.new_rules} new accounts</span>}
+            </span>
+          )}
+        />
       </div>
+
+      {totalCount > 0 && (
+        <SummaryStatBar
+          stats={[
+            { label: "Mapped", value: `${mappedCount} / ${totalCount}` },
+            { label: "Total spend", value: fmtCents(totalSpend) },
+          ]}
+        />
+      )}
 
       {error && <Banner className="mx-4 sm:mx-6 my-2">{error}</Banner>}
 

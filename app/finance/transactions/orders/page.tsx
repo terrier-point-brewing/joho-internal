@@ -8,6 +8,7 @@ import MappingFilter from "../components/MappingFilter";
 import MappingStatusPill from "../components/MappingStatusPill";
 import AutoMapButton from "../components/AutoMapButton";
 import YearSelect from "../components/YearSelect";
+import SummaryStatBar from "../components/SummaryStatBar";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -298,33 +299,37 @@ export default function SquareTransactionsPage() {
 
   return (
     <>
-      <div className="shrink-0 px-4 sm:px-6 py-3 border-b border-line flex items-center justify-between gap-4 flex-wrap">
-        <p className="text-xs text-muted">
-          {total > 0
-            ? `${total} transactions · ${unmappedTotal > 0 ? `${unmappedTotal} line items unmapped` : "all line items mapped"}`
-            : "No transactions synced yet"}
-        </p>
-        <div className="flex items-center gap-3 flex-wrap">
-          <YearSelect year={year} onChange={handleYearChange} />
-          <MappingFilter value={mappingFilter} onChange={setMappingFilter} />
-          <AutoMapButton key={year} onRun={handleAutoMap} />
-          <SyncPanel<SyncResult>
-            year={year}
-            storageKey="tpb-pos-last-sync"
-            label="from Square"
-            showMonthPicker
-            buildEndpoint={({ year, month }) => `/api/finance/transactions/sync?year=${year}&month=${month}`}
-            onSynced={() => loadTransactions(year, 1)}
-            renderResult={(r) => (
-              <>
-                {r.synced > 0 && <span className="text-success mr-2">{r.synced} orders</span>}
-                {r.total === 0 && <span className="text-faint">No orders found</span>}
-                {r.errors?.length ? <span className="text-danger ml-2">{r.errors.length} errors</span> : null}
-              </>
-            )}
-          />
-        </div>
+      <div className="shrink-0 px-4 sm:px-6 py-3 border-b border-line flex items-center gap-3 flex-wrap">
+        <YearSelect year={year} onChange={handleYearChange} />
+        <MappingFilter value={mappingFilter} onChange={setMappingFilter} />
+        <AutoMapButton key={year} onRun={handleAutoMap} />
+        <SyncPanel<SyncResult>
+          year={year}
+          storageKey="tpb-pos-last-sync"
+          label="from Square"
+          showMonthPicker
+          buildEndpoint={({ year, month }) => `/api/finance/transactions/sync?year=${year}&month=${month}`}
+          onSynced={() => loadTransactions(year, 1)}
+          renderResult={(r) => (
+            <>
+              {r.synced > 0 && <span className="text-success mr-2">{r.synced} orders</span>}
+              {r.total === 0 && <span className="text-faint">No orders found</span>}
+              {r.errors?.length ? <span className="text-danger ml-2">{r.errors.length} errors</span> : null}
+            </>
+          )}
+        />
       </div>
+
+      {total > 0 && (
+        <SummaryStatBar
+          stats={[
+            { label: "Transactions", value: total },
+            ...(unmappedTotal > 0
+              ? [{ label: "Unmapped line items", value: unmappedTotal, tone: "accent" as const }]
+              : [{ label: "Line items", value: "all mapped", tone: "secondary" as const }]),
+          ]}
+        />
+      )}
 
       {/* Table column headers */}
       {transactions.length > 0 && (
