@@ -1,4 +1,4 @@
 import { redirect } from "next/navigation";
 export default function TransactionsPage() {
-  redirect("/finance/transactions/square-transactions");
+  redirect("/finance/transactions/orders");
 }
