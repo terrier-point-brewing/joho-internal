@@ -290,7 +290,7 @@ export default function InvoicePreviewModal({
                   {/* Square catalog item picker + remove */}
                   <div className="flex items-start justify-between gap-3">
                     <div className="space-y-1">
-                      <label className="text-[11px] uppercase tracking-wide text-muted">Square line item</label>
+                      <label className="block text-[11px] uppercase tracking-wide text-muted">Square line item</label>
                       <SquareCatalogSelect
                         items={items}
                         itemId={mapped?.itemId ?? null}
@@ -316,7 +316,7 @@ export default function InvoicePreviewModal({
 
                   {/* Description */}
                   <div className="space-y-1">
-                    <label className="text-[11px] uppercase tracking-wide text-muted">Description</label>
+                    <label className="block text-[11px] uppercase tracking-wide text-muted">Description</label>
                     <input
                       className="inp-sm w-full"
                       value={li.description}
@@ -328,7 +328,7 @@ export default function InvoicePreviewModal({
                   {/* Qty / Unit price / Discount / Total */}
                   <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
                     <div className="space-y-1">
-                      <label className="text-[11px] uppercase tracking-wide text-muted">Qty</label>
+                      <label className="block text-[11px] uppercase tracking-wide text-muted">Qty</label>
                       <input
                         type="number" min={0} step="1"
                         className="inp-sm w-16 text-right"
@@ -337,7 +337,7 @@ export default function InvoicePreviewModal({
                       />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-[11px] uppercase tracking-wide text-muted">Unit price</label>
+                      <label className="block text-[11px] uppercase tracking-wide text-muted">Unit price</label>
                       <input
                         type="number" min={0} step="0.01"
                         className="inp-sm w-24 text-right"
@@ -347,7 +347,7 @@ export default function InvoicePreviewModal({
                     </div>
                     {invoiceMode === "square" && (
                       <div className="space-y-1">
-                        <label className="text-[11px] uppercase tracking-wide text-muted">Discount</label>
+                        <label className="block text-[11px] uppercase tracking-wide text-muted">Discount</label>
                         <SquareDiscountSelect
                           discounts={discounts}
                           value={li.discountCatalogId ?? null}
