@@ -96,23 +96,6 @@ export interface PackagingStockAdjustment {
   packaging_items?: { name: string; type: PackagingItemType };
 }
 
-export type BrewAdjustmentType = "sold" | "distributed" | "waste" | "inventory_count";
-
-export interface BrewInventoryAdjustment {
-  id: string;
-  batch_transfer_id: string;
-  quantity: number;
-  type: BrewAdjustmentType;
-  note: string | null;
-  /** Packaging format label, e.g. "1/6 BBL" or "can" */
-  product_label: string | null;
-  /** "keg" or "can" */
-  product_type: string | null;
-  /** Unit of quantity, e.g. "kegs" or "cans" */
-  unit: string | null;
-  created_at: string;
-}
-
 export interface BatchTransfer {
   id: string;
   batch_id: string;

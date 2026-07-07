@@ -3,7 +3,7 @@
 import { useState, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
-import { Recipe, BatchTransfer, Equipment, BrewBatch, SafetyStockFloor, BrewInventoryAdjustment, PackagingItem } from "../../types";
+import { Recipe, BatchTransfer, Equipment, BrewBatch, SafetyStockFloor, PackagingItem } from "../../types";
 import { coldStorageLots } from "../../lib/coldStorage";
 import { fetchJson, usePackagingQuery } from "../../hooks/queries";
 import { BBL_TO_FL_OZ } from "@/lib/constants/production";
@@ -21,10 +21,6 @@ export default function SafetyStockTab({
     queryKey: queryKeys.production.safetyStock(),
     queryFn: () => fetchJson<SafetyStockFloor[]>("/api/production/safety-stock"),
   });
-  const { data: adjustments = [] } = useQuery({
-    queryKey: queryKeys.production.brewAdjustments(),
-    queryFn: () => fetchJson<BrewInventoryAdjustment[]>("/api/production/brew-adjustments"),
-  });
   const { data: packagingItems = [] } = usePackagingQuery();
   const loadFloors = () => qc.invalidateQueries({ queryKey: queryKeys.production.safetyStock() });
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -32,10 +28,6 @@ export default function SafetyStockTab({
 
   // On-hand BBL per recipe (summed across keg + can).
   const onHandBblByRecipe = useMemo(() => {
-    const adjByTransfer = new Map<string, number>();
-    for (const a of adjustments) {
-      adjByTransfer.set(a.batch_transfer_id, (adjByTransfer.get(a.batch_transfer_id) ?? 0) + Number(a.quantity));
-    }
     // Build a default packaging item lookup by type for BBL conversion.
     const pkgByType = new Map<string, PackagingItem>();
     for (const p of packagingItems) {
@@ -46,14 +38,14 @@ export default function SafetyStockTab({
     for (const lot of coldStorageLots(transfers, tanks, batches)) {
       const recipeId = lot.batch?.recipe_id;
       if (!recipeId) continue;
-      const netQty = lot.initialQty + (adjByTransfer.get(lot.transfer.id) ?? 0);
+      const netQty = lot.initialQty;
       if (netQty <= 0) continue;
       const pkg = pkgByType.get(lot.packaging);
       const bbl = pkg?.volume_fl_oz ? (netQty * pkg.volume_fl_oz) / BBL_TO_FL_OZ : 0;
       map.set(recipeId, (map.get(recipeId) ?? 0) + bbl);
     }
     return map;
-  }, [transfers, tanks, batches, adjustments, packagingItems]);
+  }, [transfers, tanks, batches, packagingItems]);
 
   async function saveFloor(recipeId: string) {
     const value = drafts[recipeId];

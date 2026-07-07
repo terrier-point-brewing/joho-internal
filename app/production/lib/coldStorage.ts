@@ -15,8 +15,8 @@ export interface ColdStorageLot {
 
 /**
  * Packaged lots currently held in cold storage: kegging/canning transfers whose
- * destination tank is a cold_storage unit. NOTE initialQty is the recorded packaged
- * count; net on-hand additionally requires summing brew_inventory_adjustments per lot.
+ * destination tank is a cold_storage unit. initialQty is the recorded packaged count,
+ * which is the current on-hand quantity for the lot.
  */
 export function coldStorageLots(
   transfers: BatchTransfer[],

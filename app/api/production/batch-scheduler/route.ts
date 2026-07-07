@@ -96,7 +96,6 @@ export async function GET() {
       { data: allocs },
       { data: contracts },
       { data: recipes },
-      { data: adjustments },
       { data: scheduleEntries },
       { data: squareLinks },
       { data: activeAssignments },
@@ -118,7 +117,6 @@ export async function GET() {
         .eq("channel", "contract_brewing")
         .eq("status", "open"),
       supabase.from("recipes").select("*, recipe_ingredients(*, ingredients(*))"),
-      supabase.from("brew_inventory_adjustments").select("*"),
       supabase.from("batch_schedule_entries").select("equipment_id, planned_start, planned_end, actual_start, actual_end, cancelled_at"),
       supabase.from("recipe_square_links").select("id, recipe_id, packaging, variation_name, square_variation_id, packaging_items(volume_fl_oz)"),
       supabase.from("batch_tank_assignments").select("tank_id, assigned_at").is("released_at", null),
@@ -153,12 +151,6 @@ export async function GET() {
     const typedEntries = [...(scheduleEntries ?? []) as ScheduleEntry[], ...syntheticEntries];
 
     const packagingById = new Map(typedPkg.map((p) => [p.id, p]));
-
-    const adjByTransfer = new Map<string, number>();
-    for (const a of adjustments ?? []) {
-      const id = a.batch_transfer_id as string;
-      adjByTransfer.set(id, (adjByTransfer.get(id) ?? 0) + Number(a.quantity));
-    }
 
     const lots = coldStorageLots(typedTransfers, typedTanks, typedBatches);
     const packagingByBatchTransfer = new Map<string, PackagingItem>();
@@ -200,7 +192,7 @@ export async function GET() {
     }
 
     const demandRows = buildDemandCalendar({
-      lots, adjustmentsByTransfer: adjByTransfer, packagingById,
+      lots, packagingById,
       packagingByBatchTransfer, safetyFloors: typedFloors, allocations: typedAllocs,
       contractRequests: typedContracts, activeBatches: typedBatches, recipes: typedRecipes,
       taproomDailyBblByRecipe, taproomCurrentBblByRecipe,
