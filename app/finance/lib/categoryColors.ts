@@ -42,6 +42,23 @@ export const INVOICE_TYPE_CLS: Record<string, string> = {
   export_invoice:     "bg-teal-900/40 text-teal-400",
 };
 
+/** POS order status pill (keyed by lower-cased status). */
+export const ORDER_STATUS_CLS: Record<string, string> = {
+  completed: "bg-success-surface/40 text-success",
+  open:      "bg-accent-muted/40 text-accent",
+  canceled:  "bg-danger-surface/20 text-danger",
+  cancelled: "bg-danger-surface/20 text-danger",
+  draft:     "bg-surface-mid text-muted",
+};
+
+/** Ramp expense state pill (keyed by lower-cased state). */
+export const EXPENSE_STATE_CLS: Record<string, string> = {
+  cleared:  "bg-success-surface/40 text-success",
+  pending:  "bg-accent-muted/40 text-accent",
+  declined: "bg-danger-surface/20 text-danger",
+  flagged:  "bg-info-surface/40 text-info",
+};
+
 /** "Split by source" data category (info). */
 export const SPLIT_CATEGORY_CLS = "text-info bg-info-surface/30";
 /** "Deposit / QuickBooks" data category (violet — no token equivalent). */

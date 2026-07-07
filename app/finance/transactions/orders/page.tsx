@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { formatCurrencyCents } from "@/lib/format";
 import { matchesMappingFilter, type MappingFilterValue } from "@/lib/finance/mappingStatus";
+import { ORDER_STATUS_CLS } from "../../lib/categoryColors";
 import AccountSelect from "../../AccountSelect";
 import SyncPanel from "../components/SyncPanel";
 import MappingFilter from "../components/MappingFilter";
@@ -9,6 +10,7 @@ import MappingStatusPill from "../components/MappingStatusPill";
 import AutoMapButton from "../components/AutoMapButton";
 import YearSelect from "../components/YearSelect";
 import SummaryStatBar from "../components/SummaryStatBar";
+import { LedgerTable, SortableTh, Th, CategoryBadges, useTableSort } from "../components/LedgerTable";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -67,6 +69,11 @@ function fmtTime(iso: string) {
   return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 }
 
+/** Distinct GL-account names an order's line items resolve to (its "categories"). */
+function orderCategories(lineItems: LineItem[]): string[] {
+  return [...new Set(lineItems.map((li) => li.effective_chart_of_accounts?.account_name).filter((n): n is string => !!n))];
+}
+
 // ── Line item row (editable) ──────────────────────────────────────────────────
 
 function LineItemRow({
@@ -93,7 +100,7 @@ function LineItemRow({
   }
 
   return (
-    <div className="grid grid-cols-[minmax(0,2fr)_50px_80px_60px_60px_90px_minmax(0,1fr)_18px] gap-2 items-center px-4 py-2 border-t border-line/40 bg-canvas/20 text-xs">
+    <div className="grid grid-cols-[minmax(0,2fr)_50px_80px_60px_60px_90px_minmax(0,1fr)_18px] gap-2 items-center px-4 py-2 border-t border-line/40 hover:bg-surface/20 text-xs">
       <div className="min-w-0 flex flex-col gap-0.5">
         <div className="truncate text-secondary flex items-center gap-1.5">
           <span className="text-faint">└</span>
@@ -130,9 +137,9 @@ function LineItemRow({
   );
 }
 
-// ── Transaction row (collapsible) ─────────────────────────────────────────────
+// ── Order row (expandable) ────────────────────────────────────────────────────
 
-function TransactionRow({
+function OrderRow({
   txn,
   accounts,
   onSaveLineItem,
@@ -144,73 +151,80 @@ function TransactionRow({
   const [expanded, setExpanded] = useState(false);
   const lineItems = txn.pos_line_items ?? [];
   const mappedCount = lineItems.filter((li) => li.effective_chart_of_accounts_id).length;
+  const status = txn.status?.toLowerCase() ?? "";
 
   return (
-    <div className="border-b border-line/60">
-      <button
-        onClick={() => setExpanded((e) => !e)}
-        className="w-full flex items-center gap-3 px-4 sm:px-6 py-3 text-left hover:bg-surface/40 transition-colors">
-        <span className="text-faint text-xs w-3 shrink-0">{expanded ? "▾" : "▸"}</span>
-        <div className="flex-1 min-w-0 grid grid-cols-[minmax(0,1fr)_100px_90px_70px] gap-3 items-center">
-          <div className="min-w-0">
-            <span className="text-xs text-body font-medium">{fmtDate(txn.transaction_date)}</span>
-            <span className="text-[10px] text-faint ml-2">{fmtTime(txn.transaction_date)}</span>
-            {txn.customer_name && (
-              <span className="text-[10px] text-muted ml-2 truncate">{txn.customer_name}</span>
-            )}
-          </div>
-          <span className="text-[10px] text-faint font-mono truncate">{txn.square_order_id.slice(-8)}</span>
-          <span className="text-xs text-body tabular-nums font-mono text-right">{fmtMoney(txn.total_cents)}</span>
-          <div className="flex justify-end">
-            <MappingStatusPill mapped={mappedCount} total={lineItems.length} />
-          </div>
-        </div>
-      </button>
+    <>
+      <tr className="border-t border-line/40 hover:bg-surface-mid/20 cursor-pointer" onClick={() => setExpanded((e) => !e)}>
+        <td className="px-4 py-2 w-6"><span className="text-faint text-[10px]">{expanded ? "▾" : "▸"}</span></td>
+        <td className="px-4 py-2 text-secondary whitespace-nowrap">
+          {fmtDate(txn.transaction_date)}
+          <span className="text-[10px] text-faint ml-1.5">{fmtTime(txn.transaction_date)}</span>
+        </td>
+        <td className="px-4 py-2 font-mono text-accent">{txn.square_order_id.slice(-8)}</td>
+        <td className="px-4 py-2 text-body">{txn.customer_name ?? "—"}</td>
+        <td className="px-4 py-2"><CategoryBadges items={orderCategories(lineItems)} /></td>
+        <td className="px-4 py-2">
+          {status && (
+            <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${ORDER_STATUS_CLS[status] ?? "bg-surface-mid text-muted"}`}>
+              {status}
+            </span>
+          )}
+        </td>
+        <td className="px-4 py-2"><MappingStatusPill mapped={mappedCount} total={lineItems.length} /></td>
+        <td className="px-4 py-2 text-right font-mono text-strong tabular-nums">{fmtMoney(txn.total_cents)}</td>
+      </tr>
 
       {expanded && (
-        <div className="pb-1">
-          {/* Transaction breakdown summary */}
-          <div className="grid grid-cols-4 gap-px mx-4 mb-2 mt-1 bg-surface-mid rounded overflow-hidden text-center">
-            {[
-              { label: "Gross Sales", cents: lineItems.reduce((s, li) => s + li.gross_sales_cents, 0) },
-              { label: "Discounts",   cents: -txn.discount_cents },
-              { label: "Tax",         cents: txn.tax_cents },
-              { label: "Tips",        cents: txn.tip_cents },
-            ].map(({ label, cents }) => (
-              <div key={label} className="bg-surface px-2 py-2">
-                <div className="text-[10px] text-faint mb-0.5">{label}</div>
-                <div className={`text-xs font-mono tabular-nums font-medium ${cents < 0 ? "text-danger" : cents > 0 ? "text-strong" : "text-faint"}`}>
-                  {cents === 0 ? "—" : fmtMoney(cents)}
-                </div>
+        <tr className="border-t border-line/20">
+          <td colSpan={8} className="p-0">
+            <div className="bg-canvas border-b border-line/60 pb-1">
+              {/* Order breakdown summary */}
+              <div className="grid grid-cols-4 gap-px mx-4 my-2 bg-surface-mid rounded overflow-hidden text-center">
+                {[
+                  { label: "Gross Sales", cents: lineItems.reduce((s, li) => s + li.gross_sales_cents, 0) },
+                  { label: "Discounts",   cents: -txn.discount_cents },
+                  { label: "Tax",         cents: txn.tax_cents },
+                  { label: "Tips",        cents: txn.tip_cents },
+                ].map(({ label, cents }) => (
+                  <div key={label} className="bg-surface px-2 py-2">
+                    <div className="text-[10px] text-faint mb-0.5">{label}</div>
+                    <div className={`text-xs font-mono tabular-nums font-medium ${cents < 0 ? "text-danger" : cents > 0 ? "text-strong" : "text-faint"}`}>
+                      {cents === 0 ? "—" : fmtMoney(cents)}
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
 
-          {/* Line item column headers */}
-          <div className="grid grid-cols-[minmax(0,2fr)_50px_80px_60px_60px_90px_minmax(0,1fr)_18px] gap-2 px-4 py-1.5 bg-surface/30">
-            <span className="text-[10px] text-faint uppercase tracking-wider pl-4">Item</span>
-            <span className="text-[10px] text-faint uppercase tracking-wider text-right">Qty</span>
-            <span className="text-[10px] text-faint uppercase tracking-wider text-right">Gross</span>
-            <span className="text-[10px] text-faint uppercase tracking-wider text-right">Disc</span>
-            <span className="text-[10px] text-faint uppercase tracking-wider text-right">Tax</span>
-            <span className="text-[10px] text-faint uppercase tracking-wider">GL Account</span>
-            <span></span>
-            <span></span>
-          </div>
-          {lineItems.length === 0
-            ? <p className="px-8 py-3 text-xs text-faint italic">No line items</p>
-            : lineItems.map((li) => (
-                <LineItemRow key={li.id} item={li} accounts={accounts} onSave={onSaveLineItem} />
-              ))}
-        </div>
+              {/* Line item column headers */}
+              <div className="grid grid-cols-[minmax(0,2fr)_50px_80px_60px_60px_90px_minmax(0,1fr)_18px] gap-2 px-4 py-1.5 bg-surface/40">
+                <span className="text-[10px] text-faint uppercase tracking-wider pl-4">Item</span>
+                <span className="text-[10px] text-faint uppercase tracking-wider text-right">Qty</span>
+                <span className="text-[10px] text-faint uppercase tracking-wider text-right">Gross</span>
+                <span className="text-[10px] text-faint uppercase tracking-wider text-right">Disc</span>
+                <span className="text-[10px] text-faint uppercase tracking-wider text-right">Tax</span>
+                <span className="text-[10px] text-faint uppercase tracking-wider">GL Account</span>
+                <span></span>
+                <span></span>
+              </div>
+              {lineItems.length === 0
+                ? <p className="px-8 py-3 text-xs text-faint italic">No line items</p>
+                : lineItems.map((li) => (
+                    <LineItemRow key={li.id} item={li} accounts={accounts} onSave={onSaveLineItem} />
+                  ))}
+            </div>
+          </td>
+        </tr>
       )}
-    </div>
+    </>
   );
 }
 
 // ── Sync result shape ─────────────────────────────────────────────────────────
 
 interface SyncResult { synced: number; updated: number; total: number; errors?: string[] }
+
+type SortKey = "date" | "order" | "customer" | "status" | "total";
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
@@ -224,6 +238,7 @@ export default function SquareTransactionsPage() {
   const [loading, setLoading]         = useState(true);
   const [error, setError]             = useState<string | null>(null);
   const [mappingFilter, setMappingFilter] = useState<MappingFilterValue>("all");
+  const sort = useTableSort<SortKey>("date");
   const pageSize = 50;
 
   const loadTransactions = useCallback(async (yr: number, pg: number) => {
@@ -291,10 +306,18 @@ export default function SquareTransactionsPage() {
   const unmappedTotal = transactions.flatMap((t) => t.pos_line_items)
     .filter((li) => !li.effective_chart_of_accounts_id).length;
 
-  const filteredTransactions = mappingFilter === "all" ? transactions : transactions.filter((txn) => {
+  const visibleTransactions = (mappingFilter === "all" ? transactions : transactions.filter((txn) => {
     const items = txn.pos_line_items ?? [];
     const mapped = items.filter((li) => li.effective_chart_of_accounts_id).length;
     return matchesMappingFilter(mappingFilter, mapped, items.length);
+  })).slice().sort((a, b) => {
+    let diff = 0;
+    if (sort.key === "date")          diff = a.transaction_date.localeCompare(b.transaction_date);
+    else if (sort.key === "order")    diff = a.square_order_id.localeCompare(b.square_order_id);
+    else if (sort.key === "customer") diff = (a.customer_name ?? "").localeCompare(b.customer_name ?? "");
+    else if (sort.key === "status")   diff = (a.status ?? "").localeCompare(b.status ?? "");
+    else if (sort.key === "total")    diff = a.total_cents - b.total_cents;
+    return sort.asc ? diff : -diff;
   });
 
   return (
@@ -323,7 +346,7 @@ export default function SquareTransactionsPage() {
       {total > 0 && (
         <SummaryStatBar
           stats={[
-            { label: "Transactions", value: total },
+            { label: "Orders", value: total },
             ...(unmappedTotal > 0
               ? [{ label: "Unmapped line items", value: unmappedTotal, tone: "accent" as const }]
               : [{ label: "Line items", value: "all mapped", tone: "secondary" as const }]),
@@ -331,46 +354,42 @@ export default function SquareTransactionsPage() {
         />
       )}
 
-      {/* Table column headers */}
-      {transactions.length > 0 && (
-        <div className="shrink-0 bg-surface border-b border-line px-4 sm:px-6 py-2 grid grid-cols-[16px_minmax(0,1fr)_100px_90px_70px] gap-3 items-center">
-          <span></span>
-          <span className="text-[10px] text-faint uppercase tracking-wider">Date / Customer</span>
-          <span className="text-[10px] text-faint uppercase tracking-wider">Order ID</span>
-          <span className="text-[10px] text-faint uppercase tracking-wider text-right">Total</span>
-          <span className="text-[10px] text-faint uppercase tracking-wider text-right">Mapping</span>
-        </div>
-      )}
-
       {/* Body */}
-      <div className="flex-1 overflow-auto">
-        {loading && (
-          <div className="flex items-center justify-center h-32">
-            <p className="text-xs text-faint">Loading…</p>
-          </div>
-        )}
-        {error && <p className="text-xs text-danger px-6 py-4">{error}</p>}
+      <div className="flex-1 overflow-auto px-4 sm:px-6 py-4">
+        {loading && <p className="text-xs text-faint px-2 py-8 text-center">Loading…</p>}
+        {error && <p className="text-xs text-danger px-2 py-4">{error}</p>}
         {!loading && !error && transactions.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-40 gap-2 text-center px-6">
-            <p className="text-sm text-secondary">No transactions for {year}.</p>
+          <div className="flex flex-col items-center justify-center h-40 gap-2 text-center">
+            <p className="text-sm text-secondary">No orders for {year}.</p>
             <p className="text-xs text-faint">Click &ldquo;Sync from Square&rdquo; to pull POS orders.</p>
           </div>
         )}
-        {!loading && filteredTransactions.map((txn) => (
-          <TransactionRow
-            key={txn.id}
-            txn={txn}
-            accounts={accounts}
-            onSaveLineItem={handleSaveLineItem}
-          />
-        ))}
+        {!loading && transactions.length > 0 && (
+          <LedgerTable
+            head={
+              <>
+                <Th className="w-6" />
+                <SortableTh label="Date" sortKey="date" sort={sort} />
+                <SortableTh label="Order #" sortKey="order" sort={sort} />
+                <SortableTh label="Customer" sortKey="customer" sort={sort} />
+                <Th label="Categories" />
+                <SortableTh label="Status" sortKey="status" sort={sort} />
+                <Th label="Mapping" />
+                <SortableTh label="Total" sortKey="total" sort={sort} align="right" />
+              </>
+            }>
+            {visibleTransactions.map((txn) => (
+              <OrderRow key={txn.id} txn={txn} accounts={accounts} onSaveLineItem={handleSaveLineItem} />
+            ))}
+          </LedgerTable>
+        )}
       </div>
 
       {/* Pagination */}
       {totalPages > 1 && (
         <div className="shrink-0 border-t border-line px-4 sm:px-6 py-3 flex items-center justify-between">
           <span className="text-xs text-faint">
-            Page {page} of {totalPages} · {total} transactions
+            Page {page} of {totalPages} · {total} orders
           </span>
           <div className="flex gap-2">
             <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}
