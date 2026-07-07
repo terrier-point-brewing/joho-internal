@@ -71,20 +71,51 @@ describe("buildInventoryGrid", () => {
     expect(grid.grandTotalBbl).toBe(5);
   });
 
-  it("drops unlinked variations and links with no inventory, leaving an empty cell", () => {
+  it("drops recipes with no on-hand stock so only taproom-available inventory shows", () => {
     const rows: GridRow[] = [
       row("r1", "Ghost Beer", {
         draft: { variations: [cellVar("draft", "Draft", null)] }, // unmapped
         "keg|1984": { variations: [cellVar("v-keg", "1/2 Keg", "L-missing")] }, // linked but no inventory row
         "can|12|6-pack": null,
       }),
+      // Partner beer that is brewed here but not stocked for the taproom.
+      row("r2", "Contract Lager", {
+        draft: null,
+        "keg|1984": { variations: [cellVar("v-keg2", "1/2 Keg", "L-empty")] },
+        "can|12|6-pack": null,
+      }, "Fortnight Brewing"),
     ];
 
     const grid = buildInventoryGrid({ columns, rows }, new Map());
 
-    expect(grid.rows[0].cells["draft"]).toEqual({ totalBbl: 0, variations: [] });
-    expect(grid.rows[0].cells["keg|1984"]).toEqual({ totalBbl: 0, variations: [] });
-    expect(grid.rows[0].totalBbl).toBe(0);
+    // No stock anywhere → both rows are dropped from the taproom-availability view.
+    expect(grid.rows).toHaveLength(0);
     expect(grid.grandTotalBbl).toBe(0);
+  });
+
+  it("keeps a recipe with stock but drops its zero-stock partner neighbours", () => {
+    const rows: GridRow[] = [
+      row("r1", "Stocked IPA", {
+        draft: { variations: [cellVar("draft", "Draft", "L1")] },
+        "keg|1984": null,
+        "can|12|6-pack": null,
+      }),
+      row("r2", "Empty Partner Ale", {
+        draft: { variations: [cellVar("draft", "Draft", "L2")] },
+        "keg|1984": null,
+        "can|12|6-pack": null,
+      }, "Argus Beverage Ventures LLC"),
+    ];
+
+    const inv = new Map<string, LinkInventory>([
+      ["L1", { currentQty: 1984, currentBbl: 0.5, packaging: "draft" }],
+      // L2 has an inventory row but zero on hand — not available to the taproom.
+      ["L2", { currentQty: 0, currentBbl: 0, packaging: "draft" }],
+    ]);
+
+    const grid = buildInventoryGrid({ columns, rows }, inv);
+
+    expect(grid.rows).toHaveLength(1);
+    expect(grid.rows[0].recipeName).toBe("Stocked IPA");
   });
 });

@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import { fetchJson } from "@/app/production/hooks/queries";
@@ -104,22 +105,68 @@ export default function InventoryTab() {
     queryFn: () => fetchJson<InventoryGrid>("/api/taproom/inventory"),
   });
 
+  const [query, setQuery] = useState("");
+  const q = query.trim().toLowerCase();
+
+  // Client-side search over recipe + partner name, with column/grand totals
+  // recomputed from the matches so the banner and footer track what's visible.
+  const view = useMemo(() => {
+    const cols = data?.columns ?? [];
+    const source = data?.rows ?? [];
+    const rows = q
+      ? source.filter(
+          (r) =>
+            r.recipeName.toLowerCase().includes(q) ||
+            (r.recipePartnerName?.toLowerCase().includes(q) ?? false),
+        )
+      : source;
+
+    const columnTotals: Record<string, number> = Object.fromEntries(cols.map((c) => [c.key, 0]));
+    let grandTotalBbl = 0;
+    for (const r of rows) {
+      grandTotalBbl += r.totalBbl;
+      for (const col of cols) {
+        const cell = r.cells[col.key];
+        if (cell) columnTotals[col.key] += cell.totalBbl;
+      }
+    }
+    for (const k of Object.keys(columnTotals)) columnTotals[k] = Number(columnTotals[k].toFixed(2));
+    return { rows, columnTotals, grandTotalBbl: Number(grandTotalBbl.toFixed(2)) };
+  }, [data, q]);
+
   if (isLoading) return <div className="text-sm text-muted py-8 text-center">Loading inventory…</div>;
   if (error) return <div className="text-sm text-danger py-8 text-center">{(error as Error).message}</div>;
   if (!data) return null;
 
-  const { columns, rows, columnTotals, grandTotalBbl } = data;
+  const { columns } = data;
+  const { rows, columnTotals, grandTotalBbl } = view;
 
   return (
     <div>
       <div className="mb-2 flex items-center justify-between rounded-lg border border-accent-border/30 bg-accent-muted/20 px-3 py-2">
         <span className="text-sm text-body">Cold storage available to the taproom</span>
         <span className="text-sm text-strong font-semibold tabular-nums">
-          {fmtBbl(grandTotalBbl)} bbl total
+          {fmtBbl(grandTotalBbl)} bbl{q ? " shown" : " total"}
         </span>
       </div>
 
-      <div className="overflow-auto max-h-[calc(100vh-240px)] rounded-lg border border-line">
+      <div className="mb-2 flex items-center gap-2">
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search recipe or partner…"
+          className="inp-sm w-full max-w-xs"
+          aria-label="Search inventory"
+        />
+        {q && (
+          <span className="text-xs text-muted tabular-nums whitespace-nowrap">
+            {rows.length} {pluralize(rows.length, "recipe", "recipes")}
+          </span>
+        )}
+      </div>
+
+      <div className="overflow-auto max-h-[calc(100vh-290px)] rounded-lg border border-line">
         <table className="text-xs border-collapse" style={{ tableLayout: "fixed", width: "max-content" }}>
           <colgroup>
             <col style={{ width: 170 }} />
@@ -147,6 +194,13 @@ export default function InventoryTab() {
             </tr>
           </thead>
           <tbody>
+            {rows.length === 0 && (
+              <tr>
+                <td colSpan={columns.length + 2} className="px-4 py-8 text-center text-muted">
+                  No recipes match “{query.trim()}”.
+                </td>
+              </tr>
+            )}
             {rows.flatMap((row: InventoryRow, i) => {
               const showHeader = i === 0 || row.recipePartnerName !== rows[i - 1].recipePartnerName;
               const header = showHeader ? (

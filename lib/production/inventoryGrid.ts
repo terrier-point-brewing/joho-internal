@@ -59,7 +59,7 @@ export function buildInventoryGrid(
   const columnTotals: Record<string, number> = Object.fromEntries(columns.map((c) => [c.key, 0]));
   let grandTotalBbl = 0;
 
-  const rows: InventoryRow[] = grid.rows.map((row) => {
+  const allRows: InventoryRow[] = grid.rows.map((row) => {
     const cells: Record<string, InventoryCell | null> = {};
     let rowTotalBbl = 0;
 
@@ -104,6 +104,15 @@ export function buildInventoryGrid(
   });
 
   for (const key of Object.keys(columnTotals)) columnTotals[key] = round(columnTotals[key]);
+
+  // This grid is the "cold storage available to the taproom" view, so only
+  // surface recipes with stock actually on hand. Recipes with nothing in cold
+  // storage — notably contract-partner beer that isn't stocked for the taproom —
+  // are dropped rather than shown as empty rows. Column/grand totals are
+  // unaffected: dropped rows contribute zero to every cell.
+  const rows = allRows.filter((r) =>
+    Object.values(r.cells).some((c) => c != null && c.variations.some((v) => v.currentQty > 0)),
+  );
 
   return { columns, rows, columnTotals, grandTotalBbl: round(grandTotalBbl) };
 }
