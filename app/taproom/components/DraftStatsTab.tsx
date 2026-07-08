@@ -457,17 +457,18 @@ export default function DraftStatsTab() {
               ? daysUntilEmpty(tap.metrics.current_bbl, tap.metrics.daily_bbl)
               : null;
             // Urgency tiers based on days remaining.
-            // Retired taps keep their urgency color while stock remains so staff
-            // know the keg is still running low. Grey out only when truly empty.
+            // An empty (or over-drawn) tap that still has a beer assigned is the
+            // most urgent state → red "critical". Only retired taps grey out; an
+            // unassigned slot stays neutral "none".
             type Urgency = "critical" | "low" | "watch" | "soon" | "good" | "retiring" | "retired" | "none";
             const urgency: Urgency =
-              !tap?.recipe_id                          ? "none"
-              : daysLeft === null || daysLeft === 0    ? (isRetired ? "retired" : "none")
-              : daysLeft <= 3                          ? "critical"
-              : daysLeft <= 7                          ? "low"
-              : daysLeft <= 14                         ? "watch"
-              : daysLeft <= 30                         ? "soon"
-              : isRetired                              ? "retiring"
+              !tap?.recipe_id                                     ? "none"
+              : isRetired && (daysLeft === null || daysLeft <= 0) ? "retired"
+              : daysLeft === null || daysLeft <= 3                ? "critical"
+              : daysLeft <= 7                                     ? "low"
+              : daysLeft <= 14                                    ? "watch"
+              : daysLeft <= 30                                    ? "soon"
+              : isRetired                                         ? "retiring"
               : "good";
 
             // Urgency ramp (critical→good) is a deliberate data-category palette,
