@@ -13,6 +13,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { runCronJob } from "@/lib/cron/runCronJob";
 import { syncPosTransactionsForRange } from "@/lib/finance/syncPosTransactions";
 import { syncRefundsForRange } from "@/lib/finance/syncRefunds";
+import { reconcileInvoiceStatus } from "@/lib/finance/reconcileInvoiceStatus";
 import { apiError } from "@/lib/utils/api";
 
 export const dynamic = "force-dynamic";
@@ -33,7 +34,29 @@ export async function GET(req: NextRequest) {
 
     const orders = await syncPosTransactionsForRange(supabase, startDate, endDate);
     const refunds = await syncRefundsForRange(supabase, startDate, endDate);
-    return { windowDays: WINDOW_DAYS, orders, refunds };
+
+    // Safety-net for the invoice webhook: re-reconcile every non-terminal Square
+    // invoice so a missed delivery self-heals within a day. Bounded to unpaid
+    // invoices; idempotent (same code path as the webhook).
+    const { data: openInvoices, error: openInvoicesErr } = await supabase
+      .from("invoices")
+      .select("square_invoice_id")
+      .eq("source", "square")
+      .not("square_invoice_id", "is", null)
+      .in("status", ["draft", "open", "partial"]);
+    if (openInvoicesErr) console.error("[finance-sync] failed to load non-terminal invoices", openInvoicesErr);
+
+    let invoicesReconciled = 0;
+    for (const row of openInvoices ?? []) {
+      try {
+        await reconcileInvoiceStatus(supabase, row.square_invoice_id as string);
+        invoicesReconciled++;
+      } catch (e) {
+        console.error("[finance-sync] invoice reconcile failed", { squareInvoiceId: row.square_invoice_id, error: e });
+      }
+    }
+
+    return { windowDays: WINDOW_DAYS, orders, refunds, invoicesReconciled };
   });
 
   return outcome.ok ? NextResponse.json(outcome.detail) : apiError(outcome.error);

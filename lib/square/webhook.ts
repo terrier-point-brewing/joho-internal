@@ -107,3 +107,34 @@ export function extractSquareOrderId(event: unknown): string | null {
   }
   return null;
 }
+
+/** Whether an event type is a Square invoice event (`invoice.*`). */
+export function isInvoiceEvent(type: unknown): boolean {
+  return typeof type === "string" && type.startsWith("invoice.");
+}
+
+/**
+ * Pull the affected invoice id out of a Square `invoice.*` webhook event so we
+ * can refetch and reconcile just that invoice. Square nests it at
+ * `data.object.invoice.id`; we fall back to `data.id`. Returns null if no
+ * invoice id is present (a non-invoice event or unexpected payload).
+ */
+export function extractSquareInvoiceId(event: unknown): string | null {
+  if (!event || typeof event !== "object") return null;
+  const data = (event as { data?: unknown }).data;
+  if (!data || typeof data !== "object") return null;
+
+  const obj = (data as { object?: unknown }).object;
+  if (obj && typeof obj === "object") {
+    const invoice = (obj as { invoice?: unknown }).invoice;
+    if (invoice && typeof invoice === "object") {
+      const id = (invoice as { id?: unknown }).id;
+      if (typeof id === "string" && id) return id;
+    }
+  }
+
+  const dataId = (data as { id?: unknown }).id;
+  if (typeof dataId === "string" && dataId) return dataId;
+
+  return null;
+}

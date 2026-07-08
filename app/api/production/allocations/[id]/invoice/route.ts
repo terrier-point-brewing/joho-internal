@@ -9,8 +9,8 @@ import {
   publishInvoice,
   reviseDepositInvoice,
   getInvoiceStatus,
-  getOrderPayment,
 } from "@/lib/square/square-invoices";
+import { reconcileInvoiceStatus } from "@/lib/finance/reconcileInvoiceStatus";
 
 export const dynamic = "force-dynamic";
 
@@ -268,55 +268,17 @@ async function handleInvoiceAction(req: NextRequest, params: RouteParams["params
       return NextResponse.json({ error: "No invoice to sync" }, { status: 400 });
     }
 
-    const squareStatus = await getInvoiceStatus(allocation.square_deposit_invoice_id);
+    const result = await reconcileInvoiceStatus(adminSupabase, allocation.square_deposit_invoice_id);
 
-    const allocationUpdate: Record<string, unknown> = {};
-    const invoiceUpdate: Record<string, unknown> = {
-      status: mapSquareStatus(squareStatus.status),
-      ...(squareStatus.invoiceNumber ? { invoice_number: squareStatus.invoiceNumber } : {}),
-    };
+    // Re-read the allocation (server client, RLS-correct) for the response.
+    const { data: updated, error: reReadErr } = await supabase
+      .from("batch_allocations")
+      .select("*")
+      .eq("id", id)
+      .single();
+    if (reReadErr) return NextResponse.json({ error: reReadErr.message }, { status: 500 });
 
-    if (squareStatus.status === "PAID" && !allocation.invoice_paid_at) {
-      allocationUpdate.invoice_paid_at = squareStatus.paidAt ?? new Date().toISOString();
-
-      // Capture the payment reference now — this is the only point Square
-      // makes it available; if missed here, refunds can't be issued later.
-      if (allocation.square_deposit_order_id) {
-        const { paymentId, amountPaidCents } = await getOrderPayment(allocation.square_deposit_order_id);
-        if (!paymentId) {
-          console.error(
-            `[invoice sync] Allocation ${id}: invoice marked PAID but no Square payment_id was found on order ${allocation.square_deposit_order_id} — refunds will be unavailable for this allocation until manually resolved via the Square Dashboard.`
-          );
-        }
-        allocationUpdate.square_payment_id = paymentId;
-        allocationUpdate.deposit_amount_paid_cents = amountPaidCents;
-      }
-    }
-
-    if (squareStatus.status === "CANCELED" || squareStatus.status === "FAILED") {
-      allocationUpdate.invoice_sent_at = null;
-    }
-
-    let updated = allocation;
-    if (Object.keys(allocationUpdate).length > 0) {
-      const { data, error: updateErr } = await supabase
-        .from("batch_allocations")
-        .update(allocationUpdate)
-        .eq("id", id)
-        .select("*")
-        .single();
-      if (updateErr) return NextResponse.json({ error: updateErr.message }, { status: 500 });
-      updated = data;
-    }
-
-    // Update finance ledger
-    await adminSupabase
-      .from("invoices")
-      .update(invoiceUpdate)
-      .eq("source", "square")
-      .eq("square_invoice_id", allocation.square_deposit_invoice_id);
-
-    return NextResponse.json({ allocation: updated, squareStatus: squareStatus.status });
+    return NextResponse.json({ allocation: updated, squareStatus: result.squareStatus });
   }
 
   // ── delete ────────────────────────────────────────────────────────────────
@@ -443,20 +405,6 @@ function addDaysIso(isoDate: string, days: number): string {
   const d = new Date(isoDate);
   d.setDate(d.getDate() + days);
   return d.toISOString().slice(0, 10);
-}
-
-function mapSquareStatus(squareStatus: string): string {
-  const map: Record<string, string> = {
-    DRAFT:           "draft",
-    UNPAID:          "open",
-    SCHEDULED:       "open",
-    PARTIALLY_PAID:  "partial",
-    PAID:            "paid",
-    REFUNDED:        "paid",
-    CANCELED:        "voided",
-    FAILED:          "voided",
-  };
-  return map[squareStatus] ?? "unknown";
 }
 
 interface LedgerInvoiceParams {
