@@ -1,30 +1,36 @@
 // lib/production/inventoryGrid.ts
 //
-// Pure transform: takes the Square-mapping grid (columns + rows, from
-// fetchMappingGrid) and a map of link_id → on-hand inventory (from
-// fetchSellThrough) and produces a taproom cold-storage inventory grid.
+// Pure transform: joins the Square-mapping grid (columns + rows) with on-hand
+// inventory to produce the taproom cold-storage inventory grid.
 //
-// The mapping grid already establishes which recipe/variation belongs in which
-// column and carries the recipe_square_links id (`linkId`) on every linked cell
-// variation. Sell-through supplies on-hand quantity keyed by that same link id,
-// so the two join with zero re-derivation. Suggestions and unlinked/no-inventory
-// variations are dropped — this view shows only what is actually sellable.
+// SOURCE OF TRUTH: keg/can quantities come from cold_storage_inventory (keyed by
+// recipe_id + packaging_variation), NOT Square. Square's per-format can counts are
+// unit-conversion derivations (base loose ÷ pack size) and are not real inventory.
+// Draft is the one exception — the tapped keg's remaining fl oz still lives in
+// Square, so draft cells read the draft map. Only linked (mapped/sellable)
+// variations are shown; unmapped recipes are dropped.
 
 import type { ColumnDef, GridRow } from "@/lib/production/squareMappingGrid";
+import { BBL_TO_FL_OZ } from "@/lib/constants/production";
+import { coldStorageKey, type ColdStorageOnHand } from "@/lib/production/coldStorageOnHand";
 
 export type Packaging = "draft" | "keg" | "can";
 
-/** On-hand inventory for a single recipe_square_links row. */
-export interface LinkInventory {
-  currentQty: number; // draft: fl oz remaining in keg. keg/can: unit count.
+export interface DraftOnHand {
+  currentQty: number; // fl oz remaining in the tapped keg
   currentBbl: number;
-  packaging: Packaging;
+}
+
+export interface InventorySources {
+  coldStorage: Map<string, ColdStorageOnHand>; // key: coldStorageKey(recipeId, variationId)
+  draftByLinkId: Map<string, DraftOnHand>;
 }
 
 export interface InventoryCellVariation {
   variationId: string;
   variationName: string;
   packaging: Packaging;
+  format: string | null; // 'loose' | '4-pack' | '6-pack' | 'case' for cans; null otherwise
   currentQty: number;
   currentBbl: number;
 }
@@ -39,7 +45,7 @@ export interface InventoryRow {
   recipeName: string;
   recipePartnerName: string | null;
   totalBbl: number;
-  cells: Record<string, InventoryCell | null>; // null = recipe has no variation for this column
+  cells: Record<string, InventoryCell | null>;
 }
 
 export interface InventoryGrid {
@@ -53,7 +59,7 @@ const round = (n: number) => Number(n.toFixed(2));
 
 export function buildInventoryGrid(
   grid: { columns: ColumnDef[]; rows: GridRow[] },
-  inventoryByLinkId: Map<string, LinkInventory>,
+  sources: InventorySources,
 ): InventoryGrid {
   const { columns } = grid;
   const columnTotals: Record<string, number> = Object.fromEntries(columns.map((c) => [c.key, 0]));
@@ -62,15 +68,10 @@ export function buildInventoryGrid(
   const built = grid.rows.map((row) => {
     const cells: Record<string, InventoryCell | null> = {};
     let rowTotalBbl = 0;
-    // A recipe belongs in the taproom view iff it's mapped into Square — i.e. it
-    // has at least one recipe_square_links link. On-hand quantity is irrelevant:
-    // a mapped recipe that's currently out of stock still shows (as an empty row).
     let mapped = false;
 
     for (const col of columns) {
       const cell = row.cells[col.key];
-
-      // Structural empty — recipe has no variation for this column.
       if (cell === null || cell === undefined) {
         cells[col.key] = null;
         continue;
@@ -78,18 +79,33 @@ export function buildInventoryGrid(
 
       const variations: InventoryCellVariation[] = [];
       for (const v of cell.variations) {
-        // Only linked variations can carry inventory; skip suggestions/unmapped slots.
-        if (!v.linkId) continue;
-        mapped = true; // this recipe is mapped into Square, regardless of on-hand count
-        const inv = inventoryByLinkId.get(v.linkId);
-        if (!inv) continue;
-        variations.push({
-          variationId: v.variationId,
-          variationName: v.variationName,
-          packaging: inv.packaging,
-          currentQty: inv.currentQty,
-          currentBbl: inv.currentBbl,
-        });
+        if (!v.linkId) continue; // only mapped/sellable variations carry inventory
+        mapped = true;
+
+        if (col.type === "draft") {
+          const inv = sources.draftByLinkId.get(v.linkId);
+          if (!inv) continue;
+          variations.push({
+            variationId: v.variationId,
+            variationName: v.variationName,
+            packaging: "draft",
+            format: null,
+            currentQty: inv.currentQty,
+            currentBbl: inv.currentBbl,
+          });
+        } else {
+          const inv = sources.coldStorage.get(coldStorageKey(row.recipeId, v.variationId));
+          if (!inv) continue;
+          const currentBbl = (inv.qty * inv.totalVolumeFlOz) / BBL_TO_FL_OZ;
+          variations.push({
+            variationId: v.variationId,
+            variationName: v.variationName,
+            packaging: col.type, // 'keg' | 'can'
+            format: col.format,
+            currentQty: inv.qty,
+            currentBbl,
+          });
+        }
       }
 
       const cellTotal = variations.reduce((s, v) => s + v.currentBbl, 0);
@@ -110,12 +126,6 @@ export function buildInventoryGrid(
   });
 
   for (const key of Object.keys(columnTotals)) columnTotals[key] = round(columnTotals[key]);
-
-  // Drop recipes that aren't mapped into Square: with no link they carry no
-  // taproom inventory and don't belong in this "cold storage available to the
-  // taproom" view. Column/grand totals are unaffected — unmapped rows contribute
-  // zero to every cell.
   const rows = built.filter((b) => b.mapped).map((b) => b.inventoryRow);
-
   return { columns, rows, columnTotals, grandTotalBbl: round(grandTotalBbl) };
 }

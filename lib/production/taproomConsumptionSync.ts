@@ -2,6 +2,7 @@ import { SupabaseClient } from "@supabase/supabase-js";
 import { deriveTaproomConsumption, type ConsumptionKind, type AssemblyDiscrepancy } from "@/lib/square/taproomConsumption";
 import { setPhysicalCount, fetchPhysicalCounts, type PhysicalCount } from "@/lib/square/inventory";
 import { recordTaproomConsumption } from "@/lib/production/recordTaproomConsumption";
+import { reconcileSquareCanInventory } from "@/lib/production/reconcileSquareCanInventory";
 
 /**
  * Reconciling taproom-consumption sync.
@@ -57,6 +58,7 @@ export interface TaproomSyncResult {
   packsBrokenDown: number;
   packagingWarnings: string[];
   discrepancies: SyncDiscrepancy[];
+  squareWriteback: { applied: number; writes: import("./reconcileSquareCanInventory").ReconcileWrite[]; warnings: string[] };
 }
 
 const EPS = 1e-4;
@@ -207,6 +209,20 @@ export async function runTaproomConsumptionSync(
     }
   }
 
+  // Reflect cold storage back onto Square for every can recipe this run touched.
+  // Cold storage trumps: this writes the loose-can total onto each family's base
+  // Square variation. Best-effort — a Square failure is logged, never fatal.
+  const canRecipeIds = [...new Set(units.filter((u) => u.kind === "can_sale").map((u) => u.recipeId))];
+  let squareWriteback = { applied: 0, writes: [] as import("./reconcileSquareCanInventory").ReconcileWrite[], warnings: [] as string[] };
+  if (canRecipeIds.length > 0) {
+    try {
+      const rc = await reconcileSquareCanInventory(supabase, { recipeIds: canRecipeIds });
+      squareWriteback = { applied: rc.applied, writes: rc.writes, warnings: rc.warnings };
+    } catch (e) {
+      squareWriteback.warnings.push(`reconcile failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
   return {
     shipmentId,
     windowDays: days,
@@ -218,5 +234,6 @@ export async function runTaproomConsumptionSync(
     packsBrokenDown,
     packagingWarnings: [...packagingWarnings],
     discrepancies: [...configDiscrepancies, ...shortStock, ...recountWarnings, ...shrinkageWarnings],
+    squareWriteback,
   };
 }

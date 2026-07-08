@@ -6,16 +6,21 @@ vi.mock("@/lib/square/inventory", () => ({
   setPhysicalCount: vi.fn(),
   fetchPhysicalCounts: vi.fn(),
 }));
+vi.mock("@/lib/production/reconcileSquareCanInventory", () => ({
+  reconcileSquareCanInventory: vi.fn(async () => ({ writes: [], skips: [], warnings: [], applied: 0 })),
+}));
 
 import { runTaproomConsumptionSync, remainingDelta, remainingAtOrBefore } from "./taproomConsumptionSync";
 import { deriveTaproomConsumption } from "@/lib/square/taproomConsumption";
 import { recordTaproomConsumption } from "@/lib/production/recordTaproomConsumption";
 import { setPhysicalCount, fetchPhysicalCounts } from "@/lib/square/inventory";
+import { reconcileSquareCanInventory } from "@/lib/production/reconcileSquareCanInventory";
 
 const derive = vi.mocked(deriveTaproomConsumption);
 const record = vi.mocked(recordTaproomConsumption);
 const recount = vi.mocked(setPhysicalCount);
 const fetchCounts = vi.mocked(fetchPhysicalCounts);
+const reconcile = vi.mocked(reconcileSquareCanInventory);
 
 const RECOUNT = { squareVariationId: "draft-sqvar", quantity: 660, occurredAt: "2026-07-04T20:00:00Z" };
 
@@ -44,6 +49,12 @@ const unit = (over: Partial<Record<string, unknown>> = {}) => ({
   label: "Beer · 1/6 Keg · 2026-07-03", ...over,
 });
 
+const canUnit = (over: Partial<Record<string, unknown>> = {}) => ({
+  recipeId: "r-can", variationId: "v-can", quantity: 2,
+  sourceRef: "sqsale:sv-can:2026-07-03", kind: "can_sale" as const,
+  label: "Beer · Can · 2026-07-03", ...over,
+});
+
 const swapUnit = (over: Record<string, unknown> = {}) => ({
   recipeId: "r1", variationId: "pv-keg", quantity: 1,
   sourceRef: "sqtransfer:ord-1:line-1", kind: "draft_swap" as const,
@@ -52,7 +63,11 @@ const swapUnit = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-beforeEach(() => { derive.mockReset(); record.mockReset(); recount.mockReset(); fetchCounts.mockReset(); });
+beforeEach(() => {
+  derive.mockReset(); record.mockReset(); recount.mockReset(); fetchCounts.mockReset();
+  reconcile.mockReset();
+  reconcile.mockResolvedValue({ writes: [], skips: [], warnings: [], applied: 0 });
+});
 
 describe("remainingDelta", () => {
   it("returns the unrecorded remainder", () => { expect(remainingDelta(3, 2)).toBe(1); });
@@ -241,5 +256,34 @@ describe("runTaproomConsumptionSync", () => {
     expect(recount).toHaveBeenCalled();
     expect(res.discrepancies).toContainEqual(
       expect.objectContaining({ kind: "shrinkage_capture_failed", sourceRef: "sqtransfer:ord-1:line-1" }));
+  });
+
+  it("reconciles Square can inventory for the can-sale recipes this run touched", async () => {
+    derive.mockResolvedValue({ units: [unit({ sourceRef: "ref-A" }), canUnit()], discrepancies: [] });
+    record.mockResolvedValue({ recordedQty: 1, shortfallQty: 0, exportTransactionIds: ["x"], breaks: [], warnings: [] });
+    const res = await runTaproomConsumptionSync(fakeSupabase([]), { days: 2 });
+    expect(reconcile).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ recipeIds: expect.arrayContaining(["r-can"]) }),
+    );
+    // keg-only recipe "r1" should not be swept in — only the can-sale recipeId.
+    expect(reconcile.mock.calls[0]?.[1]?.recipeIds).toEqual(["r-can"]);
+    expect(res.squareWriteback).toEqual({ applied: 0, writes: [], warnings: [] });
+  });
+
+  it("does not call the reconciler when no can_sale units are in this run", async () => {
+    derive.mockResolvedValue({ units: [unit({ sourceRef: "ref-A" })], discrepancies: [] });
+    record.mockResolvedValue({ recordedQty: 1, shortfallQty: 0, exportTransactionIds: ["x"], breaks: [], warnings: [] });
+    await runTaproomConsumptionSync(fakeSupabase([]), { days: 2 });
+    expect(reconcile).not.toHaveBeenCalled();
+  });
+
+  it("captures a reconciler failure into squareWriteback.warnings without throwing", async () => {
+    derive.mockResolvedValue({ units: [canUnit()], discrepancies: [] });
+    record.mockResolvedValue({ recordedQty: 1, shortfallQty: 0, exportTransactionIds: ["x"], breaks: [], warnings: [] });
+    reconcile.mockRejectedValue(new Error("Square down"));
+    const res = await runTaproomConsumptionSync(fakeSupabase([]), { days: 2 });
+    expect(res.squareWriteback.warnings).toEqual(["reconcile failed: Square down"]);
+    expect(res.recorded).toHaveLength(1); // sync itself still completes
   });
 });
