@@ -4,6 +4,7 @@ import { fetchCatalogItems } from "@/lib/square/catalog";
 import { buildStandalonePriceMap } from "@/lib/square/catalog";
 import { GALLONS_PER_BBL } from "@/lib/constants/production";
 import { resolveProductSku } from "@/lib/square/skuMappings";
+import { dollarsToCents } from "@/lib/money";
 
 export interface InvoiceLineItemDraft {
   id: string;
@@ -46,7 +47,8 @@ interface ExportTxRow {
 
 const DEFAULT_DUE_DAYS = 30;
 
-async function buildExciseTaxLines(
+// Exported for unit testing of the amount_usd → cents conversion seam.
+export async function buildExciseTaxLines(
   supabase: SupabaseClient,
   transactionIds: string[],
   rows: ExportTxRow[]
@@ -74,7 +76,9 @@ async function buildExciseTaxLines(
     const unit = (rate?.unit ?? "bbl") as "bbl" | "gallon";
     const units = unit === "bbl" ? volumeBbl : volumeBbl * GALLONS_PER_BBL;
     const entry = byParty.get(party) ?? { amountCents: 0, units: 0, unit, variationId: rate?.square_catalog_variation_id ?? null };
-    entry.amountCents += Math.round(t.amount_usd * 100);
+    // UNIT CROSSING: export_transaction_taxes.amount_usd is decimal USD dollars;
+    // invoice line item unit prices are integer cents. Round dollars → cents.
+    entry.amountCents += dollarsToCents(t.amount_usd);
     entry.units += units;
     byParty.set(party, entry);
   }

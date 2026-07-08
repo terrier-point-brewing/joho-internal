@@ -1,5 +1,6 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 import { GALLONS_PER_BBL } from "@/lib/constants/production";
+import { centsToDollars, dollarsToCents } from "@/lib/money";
 
 export interface ExciseTaxLine {
   rateId: string | null;
@@ -23,7 +24,10 @@ export async function computeExciseTaxBreakdown(supabase: SupabaseClient, volume
 
   return (rates ?? []).map((r) => {
     const units = r.unit === "bbl" ? volumeBbl : volumeBbl * GALLONS_PER_BBL;
-    const amountUsd = Math.round(r.rate_usd * units * 100) / 100;
+    // UNIT CROSSING: rate_usd is a decimal USD rate; snap the computed amount to
+    // whole cents (dollars → cents → dollars) so the stored figure is cent-exact.
+    // The rate math itself stays in decimal dollars.
+    const amountUsd = centsToDollars(dollarsToCents(r.rate_usd * units));
     return { rateId: r.id, name: r.name, unit: r.unit as "bbl" | "gallon", rateUsd: r.rate_usd, amountUsd };
   });
 }
