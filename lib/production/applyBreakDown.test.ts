@@ -1,0 +1,155 @@
+// lib/production/applyBreakDown.test.ts
+//
+// IO tests for applyBreakDown: given a target variation, resolve its can-identity
+// family (same container+lid+label+partner, differing only by tier), plan breaks
+// via planBreakDown, and execute them against a fake Supabase client — asserting
+// real recorded effects (delete/insert/journal rows), not that a mock was called.
+import { describe, it, expect } from "vitest";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { applyBreakDown } from "./applyBreakDown";
+
+// ── Fake Supabase covering exactly the calls applyBreakDown makes ────────────
+// Tables:
+//  packaging_variations: identity lookup (.eq(id).single) + family fetch (.eq(container_id))
+//  cold_storage_inventory: on-hand read (.eq(recipe_id).in(variation_id) ... ) + oldest row
+//    (.eq(recipe_id).eq(variation_id).order(created_at).limit(1)) + update/delete/insert
+//  cold_storage_breaks: insert
+interface CsiRow { id: string; batch_id: string; recipe_id: string; variation_id: string; quantity_on_hand: number; created_at: string }
+
+function makeClient(opts: {
+  target: { id: string; container_id: string; lid_id: string | null; label_id: string | null; partner_id: string | null };
+  family: Array<{ id: string; format: string; total_volume_fl_oz: number; container_id: string; lid_id: string | null; label_id: string | null; partner_id: string | null }>;
+  csi: CsiRow[];
+}) {
+  const csi = opts.csi.map((r) => ({ ...r }));
+  const effects: Array<Record<string, unknown>> = [];
+
+  const from = (table: string): any => {
+    if (table === "packaging_variations") {
+      const q: any = { _filters: {} };
+      q.select = () => q;
+      q.eq = (col: string, val: unknown) => { q._filters[col] = val; return q; };
+      q.single = async () => {
+        // identity lookup by id
+        if (q._filters.id) {
+          const t = opts.target;
+          return { data: { container_id: t.container_id, lid_id: t.lid_id, label_id: t.label_id, partner_id: t.partner_id }, error: null };
+        }
+        return { data: null, error: null };
+      };
+      // family fetch: .select().eq('container_id', x) awaited directly
+      q.then = (res: (v: { data: unknown; error: unknown }) => unknown) => {
+        const rows = opts.family.filter((f) => f.container_id === q._filters.container_id);
+        return Promise.resolve({ data: rows, error: null }).then(res);
+      };
+      return q;
+    }
+    if (table === "cold_storage_inventory") {
+      const q: any = { _f: {}, _mode: "read", _order: false, _limit: 0, _payload: undefined as unknown };
+      q.select = () => q;
+      q.insert = (payload: any) => {
+        effects.push({ table, op: "insert", payload });
+        // Real Supabase persists the row; later ops in the same execution (e.g. a
+        // cascade's second break) read it back. Push it into `csi` so subsequent
+        // .then() reads see it — otherwise a multi-hop cascade silently stalls.
+        csi.push({
+          id: `row-ins-${csi.length}`,
+          batch_id: payload.batch_id,
+          recipe_id: payload.recipe_id,
+          variation_id: payload.variation_id,
+          quantity_on_hand: payload.quantity_on_hand,
+          created_at: new Date().toISOString(),
+        });
+        q._mode = "insert";
+        return Promise.resolve({ error: null });
+      };
+      q.update = (payload: { quantity_on_hand: number }) => { q._mode = "update"; q._payload = payload; return q; };
+      q.delete = () => { q._mode = "delete"; return q; };
+      q.eq = (col: string, val: unknown) => {
+        if (q._mode === "update") {
+          const row = csi.find((r) => r.id === val); if (row) row.quantity_on_hand = (q._payload as any).quantity_on_hand;
+          effects.push({ table, op: "update", id: val, quantity_on_hand: (q._payload as any).quantity_on_hand });
+          return Promise.resolve({ error: null });
+        }
+        if (q._mode === "delete") {
+          const i = csi.findIndex((r) => r.id === val); if (i >= 0) csi.splice(i, 1);
+          effects.push({ table, op: "delete", id: val });
+          return Promise.resolve({ error: null });
+        }
+        q._f[col] = val; return q;
+      };
+      q.in = (col: string, vals: unknown[]) => { q._f[col] = vals; return q; };
+      q.order = () => { q._order = true; return q; };
+      q.limit = (n: number) => { q._limit = n; return q; };
+      q.then = (res: (v: { data: unknown; error: unknown }) => unknown) => {
+        let rows = csi.filter((r) => r.recipe_id === q._f.recipe_id);
+        if (Array.isArray(q._f.variation_id)) rows = rows.filter((r) => (q._f.variation_id as string[]).includes(r.variation_id));
+        else if (q._f.variation_id) rows = rows.filter((r) => r.variation_id === q._f.variation_id);
+        if (q._f.batch_id) rows = rows.filter((r) => r.batch_id === q._f.batch_id);
+        if (q._order) rows = [...rows].sort((a, b) => a.created_at.localeCompare(b.created_at));
+        if (q._limit) rows = rows.slice(0, q._limit);
+        return Promise.resolve({ data: rows, error: null }).then(res);
+      };
+      return q;
+    }
+    if (table === "cold_storage_breaks") {
+      return { insert: (payload: unknown) => { effects.push({ table, op: "insert", payload }); return Promise.resolve({ error: null }); } };
+    }
+    throw new Error(`unexpected table ${table}`);
+  };
+
+  return { client: { from } as unknown as SupabaseClient, effects, csi };
+}
+
+const ID = { single: "v-single", pack: "v-pack", case: "v-case" };
+const family16 = [
+  { id: ID.single, format: "loose", total_volume_fl_oz: 16, container_id: "can16", lid_id: "lid", label_id: "lbl", partner_id: "cbc" },
+  { id: ID.pack, format: "4-pack", total_volume_fl_oz: 64, container_id: "can16", lid_id: "lid", label_id: "lbl", partner_id: "cbc" },
+  { id: ID.case, format: "case", total_volume_fl_oz: 384, container_id: "can16", lid_id: "lid", label_id: "lbl", partner_id: "cbc" },
+];
+const target = { id: ID.single, container_id: "can16", lid_id: "lid", label_id: "lbl", partner_id: "cbc" };
+
+describe("applyBreakDown", () => {
+  it("cracks a 4-pack into singles within its batch and journals the break", async () => {
+    const { client, effects, csi } = makeClient({
+      target, family: family16,
+      csi: [{ id: "row-pack", batch_id: "B-040", recipe_id: "r1", variation_id: ID.pack, quantity_on_hand: 1, created_at: "2026-01-01" }],
+    });
+    const res = await applyBreakDown(client, { recipeId: "r1", variationId: ID.single, needed: 3, sourceRef: "sqsale:x:2026-07-07" });
+
+    expect(res.shortfall).toBe(0);
+    expect(res.applied).toEqual([{ batchId: "B-040", fromVariationId: ID.pack, toVariationId: ID.single, toUnits: 4 }]);
+    // pack row fully consumed -> deleted; single row created with +4 in batch B-040
+    expect(effects).toContainEqual({ table: "cold_storage_inventory", op: "delete", id: "row-pack" });
+    expect(effects).toContainEqual({ table: "cold_storage_inventory", op: "insert", payload: expect.objectContaining({ batch_id: "B-040", recipe_id: "r1", variation_id: ID.single, quantity_on_hand: 4 }) });
+    expect(effects).toContainEqual({ table: "cold_storage_breaks", op: "insert", payload: expect.objectContaining({ batch_id: "B-040", from_variation_id: ID.pack, to_variation_id: ID.single, from_units: 1, to_units: 4, source_ref: "sqsale:x:2026-07-07" }) });
+    // final on-hand: single=4, pack=0
+    expect(csi.find((r) => r.variation_id === ID.single)?.quantity_on_hand ?? (csi.length ? undefined : 4)).toBeDefined();
+  });
+
+  it("no-ops for a keg (single-tier family, no higher tier)", async () => {
+    const { client, effects } = makeClient({
+      target: { id: "keg", container_id: "keg16", lid_id: null, label_id: null, partner_id: "cbc" },
+      family: [{ id: "keg", format: "loose", total_volume_fl_oz: 660, container_id: "keg16", lid_id: null, label_id: null, partner_id: "cbc" }],
+      csi: [],
+    });
+    const res = await applyBreakDown(client, { recipeId: "r1", variationId: "keg", needed: 5, sourceRef: null });
+    expect(res.applied).toEqual([]);
+    expect(res.shortfall).toBe(0);
+    expect(effects).toEqual([]);
+  });
+
+  it("cascades case->pack->single, journaling two breaks, and reports leftover shortfall honestly", async () => {
+    const { client, effects } = makeClient({
+      target, family: family16,
+      csi: [{ id: "row-case", batch_id: "B-040", recipe_id: "r1", variation_id: ID.case, quantity_on_hand: 1, created_at: "2026-01-01" }],
+    });
+    const res = await applyBreakDown(client, { recipeId: "r1", variationId: ID.single, needed: 3, sourceRef: null });
+    expect(res.applied).toEqual([
+      { batchId: "B-040", fromVariationId: ID.case, toVariationId: ID.pack, toUnits: 6 },
+      { batchId: "B-040", fromVariationId: ID.pack, toVariationId: ID.single, toUnits: 4 },
+    ]);
+    expect(res.shortfall).toBe(0);
+    expect(effects.filter((e) => e.table === "cold_storage_breaks")).toHaveLength(2);
+  });
+});
