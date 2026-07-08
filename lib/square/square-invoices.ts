@@ -337,12 +337,13 @@ export async function cancelInvoice(invoiceId: string): Promise<void> {
 /** Fetches the current status of an invoice from Square. */
 export async function getInvoiceStatus(
   invoiceId: string
-): Promise<{ status: string; paidAt: string | null; version: number; publicUrl: string | null; invoiceNumber: string | null }> {
+): Promise<{ status: string; paidAt: string | null; updatedAt: string | null; version: number; publicUrl: string | null; invoiceNumber: string | null }> {
   const { invoice } = await squareGet<SquareInvoiceGetResponse>(`/invoices/${invoiceId}`);
   const isPaid = invoice.status === "PAID";
   return {
     status: invoice.status,
     paidAt: isPaid ? (invoice.updated_at ?? new Date().toISOString()) : null,
+    updatedAt: invoice.updated_at ?? null,
     version: invoice.version,
     publicUrl: invoice.public_url ?? null,
     invoiceNumber: invoice.invoice_number ?? null,
