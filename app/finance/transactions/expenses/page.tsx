@@ -2,6 +2,8 @@
 import { useState, useEffect, useCallback } from "react";
 import AccountSelect, { type CoARef } from "../../AccountSelect";
 import Banner from "@/app/components/ui/Banner";
+import InventoryAlertBanner from "./InventoryAlertBanner";
+import { selectInventoryAlerts } from "@/lib/finance/inventoryAlerts";
 import YearSelect from "../components/YearSelect";
 import SyncPanel from "../components/SyncPanel";
 import SummaryStatBar from "../components/SummaryStatBar";
@@ -34,6 +36,7 @@ interface ExpenseRow {
   external_account_code: string | null;
   chart_of_accounts_id: string | null;
   mapping_source: "unmapped" | "rule" | "manual";
+  inventory_alert_dismissed: boolean;
   chart_of_accounts: CoaJoin | null;
 }
 
@@ -144,6 +147,17 @@ export default function ExpensesPage() {
       : e));
   }
 
+  // Dismiss the production-inventory alert for one expense (optimistic local update).
+  async function handleDismissInventoryAlert(id: string) {
+    const res = await fetch("/api/finance/expenses", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, inventory_alert_dismissed: true }),
+    });
+    if (!res.ok) return;
+    setExpenses((es) => es.map((e) => (e.id === id ? { ...e, inventory_alert_dismissed: true } : e)));
+  }
+
   // ── Group expenses by (source, external account) ────────────────────────────
   const ruleByKey = new Map(rules.map((r) => [groupKey(r.source, r.external_account_id), r]));
   const groupMap = new Map<string, AccountGroup>();
@@ -207,6 +221,11 @@ export default function ExpensesPage() {
       )}
 
       {error && <Banner className="mx-4 sm:mx-6 my-2">{error}</Banner>}
+
+      <InventoryAlertBanner
+        expenses={selectInventoryAlerts(expenses)}
+        onDismiss={handleDismissInventoryAlert}
+      />
 
       {loading ? (
         <div className="flex-1 flex items-center justify-center"><p className="text-xs text-muted">Loading…</p></div>
