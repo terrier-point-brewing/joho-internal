@@ -30,12 +30,24 @@ interface ShipmentRow {
   brew_batches: { id: string; beer_name: string; batch_number: number } | null;
 }
 
+// Display status shown on the Shipments tab. "draft" is a UI-only state derived
+// from a transaction that has an invoice_id but is still `invoice_required` in
+// the DB — i.e. a Square draft invoice has been generated but not yet sent. The
+// underlying tx status stays `invoice_required` (the `send` action depends on
+// that), so this distinction lives entirely in the client.
+type DisplayStatus = "invoice_required" | "draft" | "unpaid" | "paid";
+
+function rowDisplayStatus(row: Pick<ShipmentRow, "invoice_id" | "status">): DisplayStatus {
+  if (row.invoice_id && row.status === "invoice_required") return "draft";
+  return row.status;
+}
+
 interface AllocationCredit {
   id: string;
   batch_number: number;
   quantity: number;
   volume_bbl: number;
-  status: "invoice_required" | "unpaid" | "paid";
+  status: DisplayStatus;
 }
 
 interface GroupProductRow {
@@ -63,7 +75,7 @@ interface InvoiceGroup {
   invoice_number: string | null;
   recipient_id: string | null;
   recipient_name: string | null;
-  status: "invoice_required" | "unpaid" | "paid";
+  status: DisplayStatus;
   /** Set for taproom day-groups; drives the date-labelled header. */
   isTaproom: boolean;
   day: string | null;
@@ -81,7 +93,7 @@ interface ShipmentsTabProps {
 }
 
 type ChannelFilter = "all" | "taproom" | "distribution" | "contract_brewing" | "wholesale";
-type StatusFilter = "all" | "invoice_required" | "unpaid" | "paid";
+type StatusFilter = "all" | "invoice_required" | "draft" | "unpaid" | "paid";
 
 const CHANNEL_LABELS: Record<string, string> = {
   taproom: "Taproom",
@@ -98,16 +110,18 @@ const CHANNEL_BADGE: Record<string, string> = Object.fromEntries(
 const STATUS_BADGE: Record<string, string> = {
   paid: "bg-success-surface/40 text-success",
   unpaid: "bg-accent-muted/40 text-accent",
+  draft: "bg-info-surface/40 text-info",
   invoice_required: "bg-surface-mid text-secondary",
 };
 
 const STATUS_LABELS: Record<string, string> = {
   paid: "Paid",
   unpaid: "Unpaid",
+  draft: "Invoice Drafted",
   invoice_required: "Invoice Required",
 };
 
-const STATUS_RANK: Record<string, number> = { invoice_required: 2, unpaid: 1, paid: 0 };
+const STATUS_RANK: Record<string, number> = { invoice_required: 3, draft: 2, unpaid: 1, paid: 0 };
 
 const PKG_FORMAT_LABELS: Record<string, string> = {
   loose: "Loose", "4-pack": "4-Pack", "6-pack": "6-Pack", case: "Case",
@@ -163,6 +177,7 @@ function groupByInvoice(rows: ShipmentRow[]): InvoiceGroup[] {
     const isTaproom = row.channel === "taproom";
     const day = row.created_at.slice(0, 10);
     const key = isTaproom ? `taproom:${day}` : (row.invoice_id ?? row.shipment_id);
+    const displayStatus = rowDisplayStatus(row);
 
     if (!map.has(key)) {
       map.set(key, {
@@ -171,7 +186,7 @@ function groupByInvoice(rows: ShipmentRow[]): InvoiceGroup[] {
         invoice_number: row.invoice_number,
         recipient_id: row.recipient_id,
         recipient_name: row.recipient_name,
-        status: row.status,
+        status: displayStatus,
         isTaproom,
         day: isTaproom ? day : null,
         products: [],
@@ -180,8 +195,8 @@ function groupByInvoice(rows: ShipmentRow[]): InvoiceGroup[] {
 
     const group = map.get(key)!;
 
-    if (STATUS_RANK[row.status] > STATUS_RANK[group.status]) {
-      group.status = row.status;
+    if (STATUS_RANK[displayStatus] > STATUS_RANK[group.status]) {
+      group.status = displayStatus;
     }
 
     let product = group.products.find(
@@ -216,7 +231,7 @@ function groupByInvoice(rows: ShipmentRow[]): InvoiceGroup[] {
       batch_number: row.brew_batches?.batch_number ?? 0,
       quantity: Number(row.quantity),
       volume_bbl: Number(row.volume_bbl),
-      status: row.status,
+      status: displayStatus,
     });
   }
 
@@ -333,6 +348,9 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
 
   function canProductCheck(product: GroupProductRow, group: InvoiceGroup): boolean {
     if (product.channel === "taproom") return false;
+    // Once an invoice exists (draft, sent, or paid) these lines are spoken for —
+    // block re-selection so a second invoice can't be generated for them.
+    if (group.invoice_id) return false;
     if (product.allocations.some((a) => a.status !== "invoice_required")) return false;
     if (lockedCustomerId && group.recipient_id !== lockedCustomerId) return false;
     return true;
@@ -413,6 +431,7 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
         >
           <option value="all">All Statuses</option>
           <option value="invoice_required">Invoice Required</option>
+          <option value="draft">Invoice Drafted</option>
           <option value="unpaid">Unpaid</option>
           <option value="paid">Paid</option>
         </select>
@@ -508,12 +527,12 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
                     </>
                   ) : (
                     <>
-                      {group.invoice_number ? (
+                      {group.invoice_id ? (
                         <button
                           onClick={() => onNavigateToInvoice?.(group.invoice_id!)}
                           className="font-mono font-medium text-accent hover:text-accent-soft underline"
                         >
-                          #{group.invoice_number}
+                          {group.invoice_number ? `#${group.invoice_number}` : "View invoice"}
                         </button>
                       ) : (
                         <span className="text-faint italic">No invoice</span>
