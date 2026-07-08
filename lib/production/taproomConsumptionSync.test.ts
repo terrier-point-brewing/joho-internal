@@ -267,7 +267,7 @@ describe("runTaproomConsumptionSync", () => {
       expect.objectContaining({ recipeIds: expect.arrayContaining(["r-can"]) }),
     );
     // keg-only recipe "r1" should not be swept in — only the can-sale recipeId.
-    expect(reconcile.mock.calls[0][1].recipeIds).toEqual(["r-can"]);
+    expect(reconcile.mock.calls[0]?.[1]?.recipeIds).toEqual(["r-can"]);
     expect(res.squareWriteback).toEqual({ applied: 0, writes: [], warnings: [] });
   });
 
