@@ -91,6 +91,36 @@ already tracked separately by the refund sync.
 `syncSquareInvoicesForYear` is updated to call this shared mapper so the bulk
 reconciler and the per-invoice reconciler never diverge.
 
+### 1b. `lib/finance/syncSquareInvoices.ts` — stop wiping COA mappings on re-sync (bug fix)
+
+**Bug:** the `invoice_line_items` upsert (`onConflict: "invoice_id,sort_order"`)
+includes `chart_of_accounts_id`, `bs_chart_of_accounts_id`,
+`pl_chart_of_accounts_id` computed from the *current*
+`square_catalog_variations` mapping (or `null`). Postgres
+`ON CONFLICT DO UPDATE` overwrites those three columns for existing rows on every
+re-sync, so a manually-set or auto-mapped COA that differs from the variation
+default (commonly `null` for custom lines / unmapped variations) is reset — i.e.
+the user's mapping is removed. `delivery_invoice_id` / `account_mode` are omitted
+from the payload and already survive; only the three COA columns are clobbered.
+
+This contradicts the rest of the app, which treats mappings as fill-nulls-only,
+never overwrite (`invoices/auto-map` guards on `!chart_of_accounts_id`; expenses
+auto-map guards on `.is("chart_of_accounts_id", null)`).
+
+**Fix — existing wins, prefill only fills gaps:** before the upsert, load the
+invoice's existing line items keyed by `sort_order` with their three COA columns.
+For each line item, write `existing?.<coa> ?? variationPrefill` for each of the
+three columns. Existing non-null mappings are preserved across re-syncs;
+brand-new rows still receive the variation prefill; still-null rows are still
+prefilled (matching auto-map semantics). No mapping is ever removed.
+
+`delivery_invoice_id` and `account_mode` stay omitted from the payload (already
+preserved on update).
+
+The per-invoice webhook reconcile path (§2) never rewrites line items
+(status-only), so it cannot trigger this bug; the fix is confined to the
+year-sync.
+
 ### 2. `lib/finance/reconcileInvoiceStatus.ts` (new) — shared reconcile
 
 ```ts
@@ -218,6 +248,12 @@ the webhook. Add an `invoices` summary to the cron `outcome.detail`.
 - `lib/finance/invoiceStatus.test.ts` — full mapping table incl. the
   `REFUNDED → voided` and `PARTIALLY_REFUNDED → paid` cases and the unknown
   default.
+- `lib/finance/syncSquareInvoices.test.ts` (new) — TDD for the mapping-preservation
+  fix: an existing line item with a manual `chart_of_accounts_id` (and bs/pl)
+  survives a re-sync where the variation default is `null` or different; a
+  brand-new line item still receives the variation prefill; a still-null item is
+  prefilled from the variation. Write the failing "manual mapping survives" test
+  first, then implement the existing-wins merge.
 - `lib/square/webhook.test.ts` (extend) — `isInvoiceEvent` true/false;
   `extractSquareInvoiceId` for `data.object.invoice.id`, `data.id` fallback, and
   malformed/null payloads.
@@ -248,7 +284,8 @@ New:
 
 Modified:
 - `lib/square/webhook.ts` (+ existing test extended)
-- `lib/finance/syncSquareInvoices.ts` (use shared mapper)
+- `lib/finance/syncSquareInvoices.ts` (use shared mapper + preserve COA mappings
+  on re-sync; + new `syncSquareInvoices.test.ts`)
 - `app/api/webhooks/square/route.ts`
 - `app/api/production/export/invoice/route.ts` (`sync` action)
 - `app/api/production/allocations/[id]/invoice/route.ts` (`sync` action)
