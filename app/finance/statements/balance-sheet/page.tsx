@@ -3,9 +3,10 @@ import { useState, useEffect, useCallback } from "react";
 import FinanceNav from "../../FinanceNav";
 import StatementsNav from "../StatementsNav";
 import {
-  MONTH_NAMES, fmtCents as fmtMoney, shortName, buildTree, StatementHeader,
+  MONTH_NAMES, shortName, buildTree, StatementHeader,
   type TreeNode,
 } from "../lib";
+import { formatCurrencyCents as fmtMoney } from "@/lib/format";
 import type { AccountBalance } from "@/app/api/finance/statements/route";
 
 // ── Balance-sheet specific tree math ────────────────────────────────────────────

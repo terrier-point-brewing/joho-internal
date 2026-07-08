@@ -2,8 +2,9 @@
 import SubNav from "@/app/components/SubNav";
 
 const TABS = [
-  { href: "/finance/transactions/square-transactions", label: "POS Transactions" },
-  { href: "/finance/invoices",                         label: "Invoices"          },
+  { href: "/finance/transactions/orders",   label: "Orders"   },
+  { href: "/finance/transactions/invoices", label: "Invoices" },
+  { href: "/finance/transactions/expenses", label: "Expenses" },
 ];
 
 export default function TransactionsNav() {

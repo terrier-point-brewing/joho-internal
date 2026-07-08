@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import { fetchJson } from "@/app/production/hooks/queries";
@@ -52,14 +53,14 @@ function QuantityCard({
       : pluralize(v.currentQty, "can", "cans");
 
   return (
-    <div className="rounded-md border border-accent-border/30 bg-accent-muted/20 px-2 py-1.5">
-      {label && <div className="text-[9px] text-accent-soft mb-0.5 leading-none">{label}</div>}
+    <div className="rounded-md border border-accent-border/30 bg-accent-muted/20 px-1.5 py-1">
+      {label && <div className="text-[9px] text-accent-soft leading-none">{label}</div>}
       <div className="flex items-baseline gap-1">
-        <span className="text-base font-semibold text-accent-emphasis leading-none tabular-nums">{headline}</span>
+        <span className="text-sm font-semibold text-accent-emphasis leading-none tabular-nums">{headline}</span>
         <span className="text-[10px] text-muted">{unit}</span>
       </div>
       {!isDraft && (
-        <div className="text-[10px] text-secondary mt-0.5 tabular-nums">{fmtBbl(v.currentBbl)} bbl</div>
+        <div className="text-[10px] text-secondary tabular-nums leading-tight">{fmtBbl(v.currentBbl)} bbl</div>
       )}
     </div>
   );
@@ -68,20 +69,20 @@ function QuantityCard({
 function Cell({ cell, col }: { cell: InventoryCell | null | undefined; col: MappingColumn }) {
   // Structural empty — recipe has no variation for this column.
   if (cell === null || cell === undefined) {
-    return <td className="px-3 py-2.5 text-center text-disabled">—</td>;
+    return <td className="px-2 py-1.5 text-center text-disabled">—</td>;
   }
 
   const stocked = cell.variations.filter((v) => v.currentQty > 0);
 
   // Linked but nothing on hand — de-emphasize so available inventory stands out.
   if (stocked.length === 0) {
-    return <td className="px-3 py-2.5 text-center text-faint">—</td>;
+    return <td className="px-2 py-1.5 text-center text-faint">—</td>;
   }
 
   const multi = stocked.length > 1;
 
   return (
-    <td className="px-3 py-2.5 align-top">
+    <td className="px-2 py-1.5 align-top">
       <div className="flex flex-col gap-1">
         {stocked.map((v) => (
           <QuantityCard key={v.variationId} v={v} label={multi ? varLabel(v.variationName, col.label) : null} />
@@ -104,49 +105,102 @@ export default function InventoryTab() {
     queryFn: () => fetchJson<InventoryGrid>("/api/taproom/inventory"),
   });
 
+  const [query, setQuery] = useState("");
+  const q = query.trim().toLowerCase();
+
+  // Client-side search over recipe + partner name, with column/grand totals
+  // recomputed from the matches so the banner and footer track what's visible.
+  const view = useMemo(() => {
+    const cols = data?.columns ?? [];
+    const source = data?.rows ?? [];
+    const rows = q
+      ? source.filter(
+          (r) =>
+            r.recipeName.toLowerCase().includes(q) ||
+            (r.recipePartnerName?.toLowerCase().includes(q) ?? false),
+        )
+      : source;
+
+    const columnTotals: Record<string, number> = Object.fromEntries(cols.map((c) => [c.key, 0]));
+    let grandTotalBbl = 0;
+    for (const r of rows) {
+      grandTotalBbl += r.totalBbl;
+      for (const col of cols) {
+        const cell = r.cells[col.key];
+        if (cell) columnTotals[col.key] += cell.totalBbl;
+      }
+    }
+    for (const k of Object.keys(columnTotals)) columnTotals[k] = Number(columnTotals[k].toFixed(2));
+    return { rows, columnTotals, grandTotalBbl: Number(grandTotalBbl.toFixed(2)) };
+  }, [data, q]);
+
   if (isLoading) return <div className="text-sm text-muted py-8 text-center">Loading inventory…</div>;
   if (error) return <div className="text-sm text-danger py-8 text-center">{(error as Error).message}</div>;
   if (!data) return null;
 
-  const { columns, rows, columnTotals, grandTotalBbl } = data;
+  const { columns } = data;
+  const { rows, columnTotals, grandTotalBbl } = view;
 
   return (
     <div>
-      <div className="mb-3 flex items-center justify-between rounded-lg border border-accent-border/30 bg-accent-muted/20 px-4 py-2.5">
+      <div className="mb-2 flex items-center justify-between rounded-lg border border-accent-border/30 bg-accent-muted/20 px-3 py-2">
         <span className="text-sm text-body">Cold storage available to the taproom</span>
         <span className="text-sm text-strong font-semibold tabular-nums">
-          {fmtBbl(grandTotalBbl)} bbl total
+          {fmtBbl(grandTotalBbl)} bbl{q ? " shown" : " total"}
         </span>
       </div>
 
-      <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-200px)] rounded-lg border border-line">
-        <table className="text-xs border-collapse" style={{ tableLayout: "fixed", width: "max-content", minWidth: "100%" }}>
+      <div className="mb-2 flex items-center gap-2">
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search recipe or partner…"
+          className="inp-sm w-full max-w-xs"
+          aria-label="Search inventory"
+        />
+        {q && (
+          <span className="text-xs text-muted tabular-nums whitespace-nowrap">
+            {rows.length} {pluralize(rows.length, "recipe", "recipes")}
+          </span>
+        )}
+      </div>
+
+      <div className="overflow-auto max-h-[calc(100vh-290px)] rounded-lg border border-line">
+        <table className="text-xs border-collapse" style={{ tableLayout: "fixed", width: "max-content" }}>
           <colgroup>
-            <col style={{ width: 200 }} />
+            <col style={{ width: 170 }} />
             {columns.map((col) => (
-              <col key={col.key} style={{ width: 180 }} />
+              <col key={col.key} style={{ width: 108 }} />
             ))}
-            <col style={{ width: 110 }} />
+            <col style={{ width: 76 }} />
           </colgroup>
           <thead>
             <tr className="border-b border-line">
-              <th className="sticky left-0 top-0 z-30 bg-surface px-4 py-2.5 text-left font-semibold text-secondary whitespace-nowrap">
+              <th className="sticky left-0 top-0 z-30 bg-surface px-3 py-2 text-left font-semibold text-secondary whitespace-nowrap">
                 Recipe
               </th>
               {columns.map((col) => (
                 <th
                   key={col.key}
-                  className="sticky top-0 z-20 bg-surface px-3 py-2.5 text-left font-medium text-secondary whitespace-nowrap"
+                  className="sticky top-0 z-20 bg-surface px-2 py-2 text-left font-medium text-secondary leading-tight"
                 >
                   {col.label}
                 </th>
               ))}
-              <th className="sticky right-0 top-0 z-30 bg-surface px-3 py-2.5 text-right font-semibold text-secondary whitespace-nowrap border-l border-line/40">
+              <th className="sticky right-0 top-0 z-30 bg-surface px-2 py-2 text-right font-semibold text-secondary leading-tight border-l border-line/40">
                 Total (BBL)
               </th>
             </tr>
           </thead>
           <tbody>
+            {rows.length === 0 && (
+              <tr>
+                <td colSpan={columns.length + 2} className="px-4 py-8 text-center text-muted">
+                  No recipes match “{query.trim()}”.
+                </td>
+              </tr>
+            )}
             {rows.flatMap((row: InventoryRow, i) => {
               const showHeader = i === 0 || row.recipePartnerName !== rows[i - 1].recipePartnerName;
               const header = showHeader ? (
@@ -165,14 +219,14 @@ export default function InventoryTab() {
               return [
                 header,
                 <tr key={row.recipeId} className="border-b border-line/40 hover:bg-surface/20 transition-colors">
-                  <td className="sticky left-0 z-10 bg-canvas px-4 py-2.5 font-medium text-strong whitespace-nowrap border-r border-line/40 overflow-hidden text-ellipsis">
+                  <td className="sticky left-0 z-10 bg-canvas px-3 py-1.5 font-medium text-strong whitespace-nowrap border-r border-line/40 overflow-hidden text-ellipsis">
                     {row.recipeName}
                   </td>
                   {columns.map((col) => (
                     <Cell key={col.key} cell={row.cells[col.key]} col={col} />
                   ))}
                   <td
-                    className={`sticky right-0 z-10 bg-canvas px-3 py-2.5 text-right font-semibold tabular-nums border-l border-line/40 ${
+                    className={`sticky right-0 z-10 bg-canvas px-2 py-1.5 text-right font-semibold tabular-nums border-l border-line/40 ${
                       empty ? "text-faint" : "text-strong"
                     }`}
                   >
@@ -184,15 +238,15 @@ export default function InventoryTab() {
           </tbody>
           <tfoot>
             <tr className="border-t border-line-strong bg-surface sticky bottom-0 z-20">
-              <td className="sticky left-0 z-30 bg-surface px-4 py-2.5 text-left font-semibold text-secondary whitespace-nowrap border-r border-line/40">
+              <td className="sticky left-0 z-30 bg-surface px-3 py-2 text-left font-semibold text-secondary whitespace-nowrap border-r border-line/40">
                 Total (BBL)
               </td>
               {columns.map((col) => (
-                <td key={col.key} className="px-3 py-2.5 text-left font-semibold text-body tabular-nums">
+                <td key={col.key} className="px-2 py-2 text-left font-semibold text-body tabular-nums">
                   {fmtBbl(columnTotals[col.key] ?? 0)}
                 </td>
               ))}
-              <td className="sticky right-0 z-30 bg-surface px-3 py-2.5 text-right font-bold text-accent-emphasis tabular-nums border-l border-line/40">
+              <td className="sticky right-0 z-30 bg-surface px-2 py-2 text-right font-bold text-accent-emphasis tabular-nums border-l border-line/40">
                 {fmtBbl(grandTotalBbl)}
               </td>
             </tr>

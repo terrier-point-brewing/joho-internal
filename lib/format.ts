@@ -46,6 +46,8 @@ function isFiniteNumber(value: Numeric): value is number {
  * pass `1599` to render `$15.99`. Do NOT pass dollars here — `15.99` would
  * render `$0.16`. For a value already in dollars use {@link formatCurrency}.
  * `decimals` defaults to 2; pass `0` for whole-dollar displays (`$16`).
+ * Accounting style: negatives render in parentheses and exact zero renders as
+ * the em-dash sentinel.
  */
 export function formatCurrencyCents(cents: Numeric, decimals = 2): string {
   if (!isFiniteNumber(cents)) return EM_DASH;
@@ -58,15 +60,22 @@ export function formatCurrencyCents(cents: Numeric, decimals = 2): string {
  * cents here — `1599` would render `$1,599.00`. For a value in integer cents
  * use {@link formatCurrencyCents}.
  * `decimals` defaults to 2; pass `0` for whole-dollar displays (`$16`).
+ *
+ * Accounting presentation (single source of truth for money display):
+ *   • non-finite / null / undefined → em-dash sentinel
+ *   • exact zero                    → em-dash sentinel
+ *   • negative                      → parentheses, e.g. `($25.00)`
+ *   • positive                      → `$25.00`
  */
 export function formatCurrency(dollars: Numeric, decimals = 2): string {
-  if (!isFiniteNumber(dollars)) return EM_DASH;
-  return getFormatter(`currency:${decimals}`, {
+  if (!isFiniteNumber(dollars) || dollars === 0) return EM_DASH;
+  const abs = getFormatter(`currency:${decimals}`, {
     style: "currency",
     currency: CURRENCY,
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
-  }).format(dollars);
+  }).format(Math.abs(dollars));
+  return dollars < 0 ? `(${abs})` : abs;
 }
 
 /**

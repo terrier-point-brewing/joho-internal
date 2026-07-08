@@ -12,12 +12,12 @@ describe("formatCurrencyCents", () => {
     expect(formatCurrencyCents(1599)).toBe("$15.99");
   });
 
-  it("renders zero as $0.00", () => {
-    expect(formatCurrencyCents(0)).toBe("$0.00");
+  it("renders exact zero as the em-dash sentinel (accounting style)", () => {
+    expect(formatCurrencyCents(0)).toBe(EM_DASH);
   });
 
-  it("renders negative cents", () => {
-    expect(formatCurrencyCents(-2500)).toBe("-$25.00");
+  it("renders negative cents in parentheses (accounting style)", () => {
+    expect(formatCurrencyCents(-2500)).toBe("($25.00)");
   });
 
   it("respects a 0-decimal whole-dollar display (rounds)", () => {
@@ -56,12 +56,12 @@ describe("formatCurrency", () => {
     expect(formatCurrency(15.99)).toBe("$15.99");
   });
 
-  it("renders zero", () => {
-    expect(formatCurrency(0)).toBe("$0.00");
+  it("renders exact zero as the em-dash sentinel (accounting style)", () => {
+    expect(formatCurrency(0)).toBe(EM_DASH);
   });
 
-  it("renders negatives", () => {
-    expect(formatCurrency(-1.5)).toBe("-$1.50");
+  it("renders negatives in parentheses (accounting style)", () => {
+    expect(formatCurrency(-1.5)).toBe("($1.50)");
   });
 
   it("supports a 0-decimal display", () => {

@@ -11,6 +11,10 @@
     {
       "path": "/api/cron/taproom-consumption-sync",
       "schedule": "0 7 * * *"
+    },
+    {
+      "path": "/api/cron/finance-sync",
+      "schedule": "30 7 * * *"
     }
   ]
 }
