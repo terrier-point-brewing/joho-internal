@@ -83,18 +83,70 @@ describe("runTaproomConsumptionSync", () => {
 
   it("records only the remaining delta", async () => {
     derive.mockResolvedValue({ units: [unit({ sourceRef: "ref-A" })], discrepancies: [] });
-    record.mockResolvedValue({ recordedQty: 1, shortfallQty: 0, exportTransactionIds: ["x"] });
+    record.mockResolvedValue({ recordedQty: 1, shortfallQty: 0, exportTransactionIds: ["x"], breaks: [], warnings: [] });
     const res = await runTaproomConsumptionSync(
       fakeSupabase([{ source_ref: "ref-A", quantity: 2 }]), { days: 2 });
     // target 3, already 2 -> delta 1
     expect(record).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ quantity: 1, sourceRef: "ref-A" }));
     expect(res.recorded).toHaveLength(1);
     expect(res.totalRecordedQty).toBe(1);
+    expect(res.packsBrokenDown).toBe(0);
+  });
+
+  it("counts a pack break-down surfaced by recordTaproomConsumption", async () => {
+    derive.mockResolvedValue({ units: [unit({ sourceRef: "ref-A" })], discrepancies: [] });
+    record.mockResolvedValue({
+      recordedQty: 1,
+      shortfallQty: 0,
+      exportTransactionIds: ["x"],
+      breaks: [{ batchId: "B-040", fromVariationId: "pack", toVariationId: "single", toUnits: 4 }],
+      warnings: [],
+    });
+    const res = await runTaproomConsumptionSync(
+      fakeSupabase([{ source_ref: "ref-A", quantity: 2 }]), { days: 2 });
+    expect(res.packsBrokenDown).toBe(1);
+  });
+
+  it("counts a pack break-down even when nothing ended up recordable", async () => {
+    // A break can mutate cold-storage inventory (parent decremented, child
+    // credited) yet the topped-up tier still falls short of the requested
+    // delta, so recordTaproomConsumption records 0. The break itself still
+    // happened and should still be counted.
+    derive.mockResolvedValue({ units: [unit({ sourceRef: "ref-A" })], discrepancies: [] });
+    record.mockResolvedValue({
+      recordedQty: 0,
+      shortfallQty: 1,
+      exportTransactionIds: [],
+      breaks: [{ batchId: "B-040", fromVariationId: "pack", toVariationId: "single", toUnits: 4 }],
+      warnings: [],
+    });
+    const res = await runTaproomConsumptionSync(
+      fakeSupabase([{ source_ref: "ref-A", quantity: 2 }]), { days: 2 });
+    expect(res.packsBrokenDown).toBe(1);
+    expect(res.recorded).toHaveLength(0);
+  });
+
+  it("collects deriveCansEach warnings surfaced by recordTaproomConsumption into packagingWarnings, de-duplicated", async () => {
+    derive.mockResolvedValue({
+      units: [unit({ sourceRef: "ref-A" }), unit({ sourceRef: "ref-D", recipeId: "r2" })],
+      discrepancies: [],
+    });
+    const warning = "6-pack variation v-pack: volume implies 4 cans, expected 6 for format '6-pack'";
+    record.mockResolvedValue({
+      recordedQty: 1,
+      shortfallQty: 0,
+      exportTransactionIds: ["x"],
+      breaks: [{ batchId: "B-040", fromVariationId: "pack", toVariationId: "single", toUnits: 4 }],
+      warnings: [warning],
+    });
+    const res = await runTaproomConsumptionSync(
+      fakeSupabase([{ source_ref: "ref-A", quantity: 2 }, { source_ref: "ref-D", quantity: 2 }]), { days: 2 });
+    expect(res.packagingWarnings).toEqual([warning]);
   });
 
   it("flags a short-stock shortfall as a discrepancy", async () => {
     derive.mockResolvedValue({ units: [unit({ sourceRef: "ref-B", quantity: 3 })], discrepancies: [] });
-    record.mockResolvedValue({ recordedQty: 1, shortfallQty: 2, exportTransactionIds: ["x"] });
+    record.mockResolvedValue({ recordedQty: 1, shortfallQty: 2, exportTransactionIds: ["x"], breaks: [], warnings: [] });
     const res = await runTaproomConsumptionSync(fakeSupabase([]), { days: 2 });
     const short = res.discrepancies.find((d) => d.kind === "short_stock");
     expect(short).toMatchObject({ kind: "short_stock", shortfallQty: 2, recordedQty: 1 });
@@ -105,7 +157,7 @@ describe("runTaproomConsumptionSync", () => {
       units: [unit({ sourceRef: "ref-C" })],
       discrepancies: [{ kind: "unconfigured_draft_swap", recipeId: "r9", beerName: "Hazy", swapCount: 2 }],
     });
-    record.mockResolvedValue({ recordedQty: 0, shortfallQty: 3, exportTransactionIds: [] });
+    record.mockResolvedValue({ recordedQty: 0, shortfallQty: 3, exportTransactionIds: [], breaks: [], warnings: [] });
     const res = await runTaproomConsumptionSync(fakeSupabase([]), { days: 2 });
     expect(res.recorded).toHaveLength(0);
     expect(res.skipped).toBe(1);
@@ -118,7 +170,7 @@ describe("runTaproomConsumptionSync", () => {
       units: [unit({ sourceRef: "sqtransfer:o1:l1", kind: "draft_swap", quantity: 1, recount: RECOUNT })],
       discrepancies: [],
     });
-    record.mockResolvedValue({ recordedQty: 1, shortfallQty: 0, exportTransactionIds: ["x"] });
+    record.mockResolvedValue({ recordedQty: 1, shortfallQty: 0, exportTransactionIds: ["x"], breaks: [], warnings: [] });
     recount.mockResolvedValue(undefined);
 
     const res = await runTaproomConsumptionSync(fakeSupabase([]), { days: 2 });
@@ -144,7 +196,7 @@ describe("runTaproomConsumptionSync", () => {
       units: [unit({ sourceRef: "sqtransfer:o2:l2", kind: "draft_swap", quantity: 1, recount: RECOUNT })],
       discrepancies: [],
     });
-    record.mockResolvedValue({ recordedQty: 1, shortfallQty: 0, exportTransactionIds: ["x"] });
+    record.mockResolvedValue({ recordedQty: 1, shortfallQty: 0, exportTransactionIds: ["x"], breaks: [], warnings: [] });
     recount.mockRejectedValue(new Error("Square 429"));
 
     const res = await runTaproomConsumptionSync(fakeSupabase([]), { days: 2 });
@@ -158,7 +210,7 @@ describe("runTaproomConsumptionSync", () => {
   it("captures shrinkage once and recounts to full on first record", async () => {
     const sink = { shrinkage: [] as unknown[] };
     derive.mockResolvedValue({ units: [swapUnit()], discrepancies: [] });
-    record.mockResolvedValue({ recordedQty: 1, shortfallQty: 0, exportTransactionIds: ["x"] });
+    record.mockResolvedValue({ recordedQty: 1, shortfallQty: 0, exportTransactionIds: ["x"], breaks: [], warnings: [] });
     fetchCounts.mockResolvedValue([pc("b", 45, "2026-07-04T18:00:00Z")]);
     const res = await runTaproomConsumptionSync(fakeSupabase([], sink), { days: 2 });
     expect(sink.shrinkage).toHaveLength(1);
@@ -183,7 +235,7 @@ describe("runTaproomConsumptionSync", () => {
   it("flags shrinkage capture failure without aborting the recount", async () => {
     const sink = { shrinkage: [] as unknown[] };
     derive.mockResolvedValue({ units: [swapUnit()], discrepancies: [] });
-    record.mockResolvedValue({ recordedQty: 1, shortfallQty: 0, exportTransactionIds: ["x"] });
+    record.mockResolvedValue({ recordedQty: 1, shortfallQty: 0, exportTransactionIds: ["x"], breaks: [], warnings: [] });
     fetchCounts.mockRejectedValue(new Error("square down"));
     const res = await runTaproomConsumptionSync(fakeSupabase([], sink), { days: 2 });
     expect(recount).toHaveBeenCalled();

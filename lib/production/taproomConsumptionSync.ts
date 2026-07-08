@@ -54,6 +54,8 @@ export interface TaproomSyncResult {
   skipped: number;
   totalRecordedQty: number;
   recountsApplied: number;
+  packsBrokenDown: number;
+  packagingWarnings: string[];
   discrepancies: SyncDiscrepancy[];
 }
 
@@ -109,6 +111,8 @@ export async function runTaproomConsumptionSync(
   let skipped = 0;
   let totalRecordedQty = 0;
   let recountsApplied = 0;
+  let packsBrokenDown = 0;
+  const packagingWarnings = new Set<string>();
 
   for (const u of units) {
     const alreadyRecorded = recorded.get(u.sourceRef) ?? 0;
@@ -123,6 +127,12 @@ export async function runTaproomConsumptionSync(
       sourceRef: u.sourceRef,
       notes: null,
     });
+
+    // A break that mutated inventory (parent decremented/deleted, child
+    // credited) is counted even if nothing ended up recordable afterward
+    // (e.g. the topped-up tier still fell short of `delta`).
+    packsBrokenDown += res.breaks.length;
+    for (const w of res.warnings) packagingWarnings.add(w);
 
     if (res.recordedQty > EPS) {
       recordedLines.push({
@@ -205,6 +215,8 @@ export async function runTaproomConsumptionSync(
     skipped,
     totalRecordedQty: Math.round(totalRecordedQty * 10000) / 10000,
     recountsApplied,
+    packsBrokenDown,
+    packagingWarnings: [...packagingWarnings],
     discrepancies: [...configDiscrepancies, ...shortStock, ...recountWarnings, ...shrinkageWarnings],
   };
 }
