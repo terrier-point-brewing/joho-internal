@@ -4,6 +4,7 @@ import { requireRole } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createExportInvoice, publishInvoice, getInvoiceStatus } from "@/lib/square/square-invoices";
 import { syncSquareInvoicesForYear } from "@/lib/finance/syncSquareInvoices";
+import { reconcileInvoiceStatus } from "@/lib/finance/reconcileInvoiceStatus";
 import type { InvoiceLineItemDraft } from "@/lib/production/exportInvoicePreview";
 
 export const dynamic = "force-dynamic";
@@ -246,29 +247,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invoice record not found or missing Square ID" }, { status: 400 });
     }
 
-    const squareStatus = await getInvoiceStatus(inv.square_invoice_id as string);
-
-    if (squareStatus.status === "PAID") {
-      const { error: txUpdateErr } = await supabase
-        .from("export_transactions")
-        .update({ status: "paid" })
-        .in("id", transactionIds)
-        .eq("status", "unpaid");
-      if (txUpdateErr) return NextResponse.json({ error: txUpdateErr.message }, { status: 500 });
-
-      await supabase
-        .from("invoices")
-        .update({ status: "paid" })
-        .eq("id", invoiceId);
-    }
-
-    try {
-      await syncSquareInvoicesForYear(supabase, new Date().getFullYear());
-    } catch (err) {
-      console.error("[export-invoice] post-sync Finance sync failed:", err);
-    }
-
-    return NextResponse.json({ squareStatus: squareStatus.status });
+    const result = await reconcileInvoiceStatus(supabase, inv.square_invoice_id as string);
+    return NextResponse.json({ squareStatus: result.squareStatus });
   }
 
   // ── record ────────────────────────────────────────────────────────────────
