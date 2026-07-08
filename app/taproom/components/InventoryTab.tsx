@@ -23,6 +23,17 @@ function pluralize(n: number, one: string, many: string) {
   return n === 1 ? one : many;
 }
 
+// Noun for a packaged unit, by cold-storage format. A case is a case — not a can.
+function packagedUnit(format: string | null, n: number): string {
+  switch (format) {
+    case "case":   return pluralize(n, "case", "cases");
+    case "4-pack": return pluralize(n, "4-pack", "4-packs");
+    case "6-pack": return pluralize(n, "6-pack", "6-packs");
+    case "loose":  return pluralize(n, "can", "cans");
+    default:       return pluralize(n, "unit", "units");
+  }
+}
+
 // Short label for a variation within a multi-variation cell — strips the column
 // context, mirroring the Square-mapping grid so the two views read the same.
 function varLabel(variationName: string, colLabel: string): string {
@@ -50,7 +61,7 @@ function QuantityCard({
     ? "bbl on tap"
     : v.packaging === "keg"
       ? pluralize(v.currentQty, "keg", "kegs")
-      : pluralize(v.currentQty, "can", "cans");
+      : packagedUnit(v.format, v.currentQty);
 
   return (
     <div className="rounded-md border border-accent-border/30 bg-accent-muted/20 px-1.5 py-1">
