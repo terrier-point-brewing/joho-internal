@@ -7,6 +7,8 @@ import {
   isRefundEvent,
   extractSquareOrderId,
   extractSquareRefund,
+  isInvoiceEvent,
+  extractSquareInvoiceId,
 } from "./webhook";
 
 const sign = (key: string, url: string, body: string) =>
@@ -162,5 +164,44 @@ describe("extractSquareRefund", () => {
     expect(extractSquareRefund({ data: { object: {} } })).toBeNull();
     expect(extractSquareRefund({ data: { object: { refund: {} } } })).toBeNull();
     expect(extractSquareRefund({ data: { object: { order_updated: { order_id: "O1" } } } })).toBeNull();
+  });
+});
+
+describe("isInvoiceEvent", () => {
+  it("is true only for invoice.* events", () => {
+    expect(isInvoiceEvent("invoice.published")).toBe(true);
+    expect(isInvoiceEvent("invoice.payment_made")).toBe(true);
+    expect(isInvoiceEvent("invoice.canceled")).toBe(true);
+    expect(isInvoiceEvent("order.updated")).toBe(false);
+    expect(isInvoiceEvent("refund.created")).toBe(false);
+    expect(isInvoiceEvent(undefined)).toBe(false);
+    expect(isInvoiceEvent(7)).toBe(false);
+  });
+});
+
+describe("extractSquareInvoiceId", () => {
+  it("reads the invoice id from data.object.invoice.id (canonical shape)", () => {
+    const event = {
+      type: "invoice.payment_made",
+      data: {
+        type: "invoice",
+        id: "INV_ABC",
+        object: { invoice: { id: "INV_ABC", status: "PAID" } },
+      },
+    };
+    expect(extractSquareInvoiceId(event)).toBe("INV_ABC");
+  });
+
+  it("falls back to data.id when object.invoice.id is absent", () => {
+    expect(extractSquareInvoiceId({ data: { id: "INV_FALLBACK" } })).toBe("INV_FALLBACK");
+  });
+
+  it("returns null for malformed or non-invoice payloads", () => {
+    expect(extractSquareInvoiceId(null)).toBeNull();
+    expect(extractSquareInvoiceId(undefined)).toBeNull();
+    expect(extractSquareInvoiceId({})).toBeNull();
+    expect(extractSquareInvoiceId({ data: {} })).toBeNull();
+    expect(extractSquareInvoiceId({ data: { id: "" } })).toBeNull();
+    expect(extractSquareInvoiceId({ data: { object: { invoice: {} } } })).toBeNull();
   });
 });
