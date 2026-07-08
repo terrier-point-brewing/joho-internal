@@ -5,20 +5,9 @@ import { buildKegIndex } from "@/lib/reports/kegs";
 import { canOzPerUnit } from "@/lib/reports/bbl-tracker";
 import { CATEGORY_IDS } from "@/lib/constants/categories";
 import { classifyLineItem } from "@/lib/finance/classify";
+import { mapSquareInvoiceStatus } from "@/lib/finance/invoiceStatus";
 import type { CatalogItem, Order, SquareInvoice } from "@/types/square";
-import type { InvoiceStatus, InvoiceLineCategory } from "@/types/finance";
-
-function squareStatusToLedger(status: string): InvoiceStatus {
-  switch (status.toUpperCase()) {
-    case "PAID":                         return "paid";
-    case "DRAFT":                        return "draft";
-    case "UNPAID": case "SCHEDULED":     return "open";
-    case "PARTIALLY_PAID":               return "partial";
-    case "CANCELED": case "REFUNDED":    return "voided";
-    case "PARTIALLY_REFUNDED":            return "paid";
-    default:                             return "unknown";
-  }
-}
+import type { InvoiceLineCategory } from "@/types/finance";
 
 function recipientName(inv: SquareInvoice): string {
   const r = inv.primary_recipient;
@@ -117,7 +106,7 @@ export async function syncSquareInvoicesForYear(
     const taxCents   = order.total_tax_money?.amount ?? 0;
     const subtotal   = totalCents - taxCents;
 
-    const status = squareStatusToLedger(inv.status);
+    const status = mapSquareInvoiceStatus(inv.status);
 
     const rawData = {
       square_invoice_id: inv.id,
