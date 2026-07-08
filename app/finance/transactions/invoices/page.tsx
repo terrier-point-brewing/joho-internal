@@ -13,6 +13,7 @@ import MappingStatusPill from "../components/MappingStatusPill";
 import AutoMapButton from "../components/AutoMapButton";
 import YearSelect from "../components/YearSelect";
 import SummaryStatBar from "../components/SummaryStatBar";
+import { LedgerTable, SortableTh, Th, useTableSort } from "../components/LedgerTable";
 import { matchesMappingFilter, type MappingFilterValue } from "@/lib/finance/mappingStatus";
 import {
   INVOICE_STATUS_CLS, INVOICE_SOURCE_LABEL, INVOICE_SOURCE_CLS,
@@ -402,14 +403,6 @@ interface InvoiceSyncResult { synced: number; updated: number; total: number; er
 
 type SortKey = "invoice_number" | "invoice_date" | "customer_name" | "source" | "type" | "total_cents" | "status";
 
-function SortIcon({ k, sortKey, sortAsc }: { k: SortKey; sortKey: SortKey; sortAsc: boolean }) {
-  return (
-    <span className={`ml-1 ${sortKey === k ? "text-accent" : "text-disabled"}`}>
-      {sortKey === k ? (sortAsc ? "↑" : "↓") : "↕"}
-    </span>
-  );
-}
-
 export default function InvoicesPage() {
   const currentYear = new Date().getFullYear();
   const [year,       setYear]   = useState(currentYear);
@@ -417,8 +410,7 @@ export default function InvoicesPage() {
   const [status,     setStatus] = useState<"all" | "open" | "paid" | "partial" | "voided" | "unknown">("all");
   const [typeFilter,    setTypeFilter]    = useState<"all" | InvoiceType>("all");
   const [mappingFilter, setMappingFilter] = useState<MappingFilterValue>("all");
-  const [sortKey,    setSort]   = useState<SortKey>("invoice_date");
-  const [sortAsc,    setSortAsc] = useState(false);
+  const sort = useTableSort<SortKey>("invoice_date");
   const [accounts,     setAccounts]     = useState<CoARef[]>([]);
   const [batches,      setBatches]      = useState<BrewBatch[]>([]);
   const [showVoided,   setShowVoided]   = useState(false);
@@ -471,20 +463,15 @@ export default function InvoicesPage() {
     })
     .sort((a, b) => {
       let diff = 0;
-      if (sortKey === "invoice_number") diff = (a.invoice_number ?? a.square_invoice_id ?? "").localeCompare(b.invoice_number ?? b.square_invoice_id ?? "");
-      else if (sortKey === "invoice_date") diff = (a.invoice_date ?? "").localeCompare(b.invoice_date ?? "");
-      else if (sortKey === "customer_name") diff = (a.customer_name ?? "").localeCompare(b.customer_name ?? "");
-      else if (sortKey === "source") diff = a.source.localeCompare(b.source);
-      else if (sortKey === "type") diff = ((a as InvoiceRow).invoice_type).localeCompare((b as InvoiceRow).invoice_type);
-      else if (sortKey === "total_cents") diff = a.total_cents - b.total_cents;
-      else if (sortKey === "status") diff = a.status.localeCompare(b.status);
-      return sortAsc ? diff : -diff;
+      if (sort.key === "invoice_number") diff = (a.invoice_number ?? a.square_invoice_id ?? "").localeCompare(b.invoice_number ?? b.square_invoice_id ?? "");
+      else if (sort.key === "invoice_date") diff = (a.invoice_date ?? "").localeCompare(b.invoice_date ?? "");
+      else if (sort.key === "customer_name") diff = (a.customer_name ?? "").localeCompare(b.customer_name ?? "");
+      else if (sort.key === "source") diff = a.source.localeCompare(b.source);
+      else if (sort.key === "type") diff = ((a as InvoiceRow).invoice_type).localeCompare((b as InvoiceRow).invoice_type);
+      else if (sort.key === "total_cents") diff = a.total_cents - b.total_cents;
+      else if (sort.key === "status") diff = a.status.localeCompare(b.status);
+      return sort.asc ? diff : -diff;
     });
-
-  function handleSort(key: SortKey) {
-    if (sortKey === key) setSortAsc((v) => !v);
-    else { setSort(key); setSortAsc(false); }
-  }
 
   // Summary stats
   const totalValue    = invoices.reduce((s, i) => s + i.total_cents, 0);
@@ -563,66 +550,41 @@ export default function InvoicesPage() {
 
       {/* Table */}
       <div className="flex-1 overflow-auto px-4 sm:px-6 py-4">
-        <div className="bg-surface border border-line rounded-lg overflow-hidden">
-          <table className="w-full text-xs border-collapse">
-            <thead>
-              <tr className="border-b border-line">
-                <th className="w-6 px-2" />
-                <th className="px-4 py-2 text-left text-muted font-medium cursor-pointer select-none hover:text-body"
-                  onClick={() => handleSort("invoice_number")}>
-                  Invoice # <SortIcon k="invoice_number" sortKey={sortKey} sortAsc={sortAsc} />
-                </th>
-                <th className="px-4 py-2 text-left text-muted font-medium cursor-pointer select-none hover:text-body"
-                  onClick={() => handleSort("invoice_date")}>
-                  Date <SortIcon k="invoice_date" sortKey={sortKey} sortAsc={sortAsc} />
-                </th>
-                <th className="px-4 py-2 text-left text-muted font-medium cursor-pointer select-none hover:text-body"
-                  onClick={() => handleSort("customer_name")}>
-                  Customer <SortIcon k="customer_name" sortKey={sortKey} sortAsc={sortAsc} />
-                </th>
-                <th className="px-4 py-2 text-left text-muted font-medium cursor-pointer select-none hover:text-body"
-                  onClick={() => handleSort("source")}>
-                  Source <SortIcon k="source" sortKey={sortKey} sortAsc={sortAsc} />
-                </th>
-                <th className="px-4 py-2 text-left text-muted font-medium cursor-pointer select-none hover:text-body"
-                  onClick={() => handleSort("type")}>
-                  Type <SortIcon k="type" sortKey={sortKey} sortAsc={sortAsc} />
-                </th>
-                <th className="px-4 py-2 text-left text-muted font-medium cursor-pointer select-none hover:text-body"
-                  onClick={() => handleSort("status")}>
-                  Status <SortIcon k="status" sortKey={sortKey} sortAsc={sortAsc} />
-                </th>
-                <th className="px-4 py-2 text-left text-muted font-medium">GL / Categories</th>
-                <th className="px-4 py-2 text-right text-muted font-medium cursor-pointer select-none hover:text-body"
-                  onClick={() => handleSort("total_cents")}>
-                  Total <SortIcon k="total_cents" sortKey={sortKey} sortAsc={sortAsc} />
-                </th>
-                <th className="px-4 py-2 text-center text-muted font-medium">Batches</th>
-              </tr>
-            </thead>
-            <tbody>
-              {isFetching ? (
-                <tr><td colSpan={10} className="px-4 py-8 text-center text-faint">Loading…</td></tr>
-              ) : invoices.length === 0 ? (
-                <tr><td colSpan={10} className="px-4 py-8 text-center text-faint">
-                  No invoices found.
-                </td></tr>
-              ) : (
-                invoices.map((inv) => (
-                  <InvoiceExpandableRow
-                    key={inv.id}
-                    inv={inv}
-                    accounts={accounts}
-                    batches={batches}
-                    allInvoices={(raw ?? []).map((i) => ({ id: i.id, invoice_number: i.invoice_number ?? null, square_invoice_id: i.square_invoice_id ?? null, invoice_date: i.invoice_date ?? null, customer_name: i.customer_name ?? null, status: i.status }))}
-                    onSaveLineItem={handleSaveLineItem}
-                    onBatchChanged={() => refetch()}
-                  />
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+        <LedgerTable
+          head={
+            <>
+              <Th className="w-6" />
+              <SortableTh label="Invoice #" sortKey="invoice_number" sort={sort} />
+              <SortableTh label="Date" sortKey="invoice_date" sort={sort} />
+              <SortableTh label="Customer" sortKey="customer_name" sort={sort} />
+              <SortableTh label="Source" sortKey="source" sort={sort} />
+              <SortableTh label="Type" sortKey="type" sort={sort} />
+              <SortableTh label="Status" sortKey="status" sort={sort} />
+              <Th label="GL / Categories" />
+              <SortableTh label="Total" sortKey="total_cents" sort={sort} align="right" />
+              <Th label="Batches" align="center" />
+            </>
+          }>
+          {isFetching ? (
+            <tr><td colSpan={10} className="px-4 py-8 text-center text-faint">Loading…</td></tr>
+          ) : invoices.length === 0 ? (
+            <tr><td colSpan={10} className="px-4 py-8 text-center text-faint">
+              No invoices found.
+            </td></tr>
+          ) : (
+            invoices.map((inv) => (
+              <InvoiceExpandableRow
+                key={inv.id}
+                inv={inv}
+                accounts={accounts}
+                batches={batches}
+                allInvoices={(raw ?? []).map((i) => ({ id: i.id, invoice_number: i.invoice_number ?? null, square_invoice_id: i.square_invoice_id ?? null, invoice_date: i.invoice_date ?? null, customer_name: i.customer_name ?? null, status: i.status }))}
+                onSaveLineItem={handleSaveLineItem}
+                onBatchChanged={() => refetch()}
+              />
+            ))
+          )}
+        </LedgerTable>
       </div>
     </>
   );

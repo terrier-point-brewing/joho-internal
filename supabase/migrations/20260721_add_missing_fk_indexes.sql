@@ -1,23 +1,14 @@
--- DRAFT — DO NOT APPLY WITHOUT REVIEW
---
--- Finding S6 (schema audit 2026-06-30): 66 foreign-key columns in the public schema
--- have no covering index. Cascade deletes and joins on the parent therefore fall back
--- to sequential scans. Source: cross-check of pg_constraint (contype='f') against
--- pg_index leading-column coverage on the live DB (project drlsazatrcrdwaihjmex),
--- read-only.
---
--- This change is ADDITIVE and non-destructive: it only creates indexes. It was NOT run.
--- Reviewer notes:
---   * `IF NOT EXISTS` guards make this idempotent / safe to re-run.
---   * Tables are small today, so plain CREATE INDEX is fine. If applying against prod
---     under load, switch each to `CREATE INDEX CONCURRENTLY` (and run outside a txn).
---   * This file lists ALL 66 missing-FK-index columns found. Trim to taste before
---     applying if some columns are never used as a join/delete predicate.
+-- Add covering indexes for foreign-key columns that had none (schema audit finding
+-- S6, Tier-0). Without these, cascade deletes and joins on the parent fall back to
+-- sequential scans. Promoted from the reviewed 2026-06-30 draft; entries for tables
+-- since dropped (workflow_template_steps, batch_brew_activity_log,
+-- brew_step_template_steps) were removed. ADDITIVE only — every statement is
+-- `if not exists`, so it is idempotent and safe to re-run. Tables are small, so plain
+-- CREATE INDEX is fine; switch to CREATE INDEX CONCURRENTLY (outside a txn) if applying
+-- under load.
 
 -- batch_allocations
 create index if not exists idx_batch_allocations_contract_request_id on public.batch_allocations (contract_request_id);
--- batch_brew_activity_log
-create index if not exists idx_batch_brew_activity_log_template_id on public.batch_brew_activity_log (template_id);
 -- batch_conversions
 create index if not exists idx_batch_conversions_source_equipment_id on public.batch_conversions (source_equipment_id);
 create index if not exists idx_batch_conversions_target_batch_id on public.batch_conversions (target_batch_id);
@@ -35,8 +26,6 @@ create index if not exists idx_batch_transfers_variation_id on public.batch_tran
 -- brew_batches
 create index if not exists idx_brew_batches_converted_from_batch_id on public.brew_batches (converted_from_batch_id);
 create index if not exists idx_brew_batches_recipe_id on public.brew_batches (recipe_id);
--- brew_step_template_steps
-create index if not exists idx_brew_step_template_steps_template_id on public.brew_step_template_steps (template_id);
 -- chart_of_accounts
 create index if not exists idx_chart_of_accounts_parent_id on public.chart_of_accounts (parent_id);
 create index if not exists idx_chart_of_accounts_uploaded_by on public.chart_of_accounts (uploaded_by);
@@ -110,6 +99,3 @@ create index if not exists idx_stock_adjustments_ingredient_id on public.stock_a
 create index if not exists idx_system_settings_updated_by on public.system_settings (updated_by);
 -- tap_assignments
 create index if not exists idx_tap_assignments_recipe_id on public.tap_assignments (recipe_id);
--- workflow_template_steps  (NOTE: table is a drop candidate — see S8; skip if dropping)
-create index if not exists idx_workflow_template_steps_equipment_id on public.workflow_template_steps (equipment_id);
-create index if not exists idx_workflow_template_steps_template_id on public.workflow_template_steps (template_id);

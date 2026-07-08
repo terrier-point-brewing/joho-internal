@@ -1475,7 +1475,7 @@ function BrewActivityLogManager({ batch }: { batch: BrewBatch }) {
     try {
       const dirty = rows.filter((r) => r.dirty);
       await Promise.all(dirty.map((r) =>
-        fetch("/api/production/brew-activity-log", {
+        fetch("/api/production/brew-activities", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -1499,7 +1499,7 @@ function BrewActivityLogManager({ batch }: { batch: BrewBatch }) {
 
   async function deleteRow(id: string) {
     if (!confirm("Remove this activity entry?")) return;
-    await fetch(`/api/production/brew-activity-log?id=${id}`, { method: "DELETE" });
+    await fetch(`/api/production/brew-activities?id=${id}`, { method: "DELETE" });
     setRows((rs) => rs.filter((r) => r.id !== id));
     await refresh();
   }
@@ -1509,7 +1509,7 @@ function BrewActivityLogManager({ batch }: { batch: BrewBatch }) {
     setSaving(true);
     try {
       const maxOrder = rows.reduce((m, r) => Math.max(m, r.sort_order), -1);
-      const res = await fetch("/api/production/brew-activity-log", {
+      const res = await fetch("/api/production/brew-activities", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

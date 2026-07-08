@@ -180,6 +180,9 @@ async function createInvoice(params: CreateInvoiceCoreParams): Promise<{ orderId
           catalog_object_id: li.squareCatalogVariationId,
           quantity: String(li.quantity),
           base_price_money: { amount: li.unitPriceCents, currency: "USD" },
+          // For catalog lines the name comes from Square's catalog, so surface the
+          // user-entered description as the line item's note instead of losing it.
+          ...(li.description ? { note: li.description } : {}),
         }
       : {
           uid,
@@ -299,6 +302,9 @@ export async function createExportInvoice(
     title: params.title,
     lineItems: params.lineItems,
     dueDays: params.dueDays,
+    // Square requires accepted_payment_methods on any invoice with a payment
+    // request. Default to card + bank transfer (ACH), matching the deposit flow.
+    acceptedPaymentMethods: { card: true, bank_account: true, cash_app_pay: false, buy_now_pay_later: false },
     metadataType: "export-invoice",
   });
 }

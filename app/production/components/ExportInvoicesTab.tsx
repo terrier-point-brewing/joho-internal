@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchJson, useContractPartnersQuery, useExportServiceMappingsQuery } from "../hooks/queries";
+import { fetchJson, useContractPartnersQuery, useExportServiceMappingsQuery, useExportSquareCatalogQuery } from "../hooks/queries";
 import { queryKeys } from "@/lib/query-keys";
 import { fmtUsd } from "@/lib/utils/formatting";
 
@@ -37,6 +37,7 @@ interface ExportInvoiceListItem {
   status: "draft" | "open" | "paid" | "voided" | "partial" | "unknown";
   source: "square" | "quickbooks";
   square_invoice_id: string | null;
+  square_dashboard_url: string | null;
   subtotal_cents: number;
   total_cents: number;
   line_items: InvoiceLineItem[];
@@ -76,35 +77,6 @@ function fmt(iso: string) {
   return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
-function ViewInSquareButton({ squareInvoiceId }: { squareInvoiceId: string }) {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function open() {
-    setLoading(true); setError(null);
-    try {
-      const res = await fetch(`/api/production/export/invoice-status?invoiceId=${squareInvoiceId}`);
-      const data = await res.json();
-      if (!res.ok || !data.publicUrl) { setError("Link unavailable"); return; }
-      window.open(data.publicUrl, "_blank");
-    } catch { setError("Failed"); }
-    finally { setLoading(false); }
-  }
-
-  return (
-    <span className="inline-flex items-center gap-1.5">
-      <button
-        onClick={open}
-        disabled={loading}
-        className="text-xs text-accent hover:text-accent-soft underline disabled:opacity-50"
-      >
-        {loading ? "Loading…" : "View in Square →"}
-      </button>
-      {error && <span className="text-xs text-danger">{error}</span>}
-    </span>
-  );
-}
-
 function InvoiceExpandedPanel({
   invoice,
   onRefresh,
@@ -113,6 +85,7 @@ function InvoiceExpandedPanel({
   onRefresh: () => void;
 }) {
   const { data: mappings = [] } = useExportServiceMappingsQuery();
+  const { data: catalog } = useExportSquareCatalogQuery();
   const [addOpen, setAddOpen] = useState(false);
   const [addDesc, setAddDesc] = useState("");
   const [addQty, setAddQty] = useState("1");
@@ -121,9 +94,28 @@ function InvoiceExpandedPanel({
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
+  // Inline line-item editing (Draft only).
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDesc, setEditDesc] = useState("");
+  const [editQty, setEditQty] = useState("1");
+  const [editPrice, setEditPrice] = useState("");
+
   const isDraft = invoice.status === "draft";
   const isSquare = invoice.source === "square";
   const isPaid = invoice.status === "paid";
+
+  // Resolve a Square catalog variation ID to its "Item · Variation" name so the
+  // panel shows the same label the generate-invoice UI does. The user-entered
+  // description then reads as the line's note beneath it.
+  const variationName = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const it of catalog?.items ?? []) {
+      for (const v of it.variations) {
+        m.set(v.variationId, `${it.itemName}${v.variationName ? ` · ${v.variationName}` : ""}`);
+      }
+    }
+    return m;
+  }, [catalog]);
 
   // Service mappings with a Square variation (usable as line items)
   const selectableMappings = mappings.filter(
@@ -149,6 +141,35 @@ function InvoiceExpandedPanel({
   async function removeLineItem(lineItemId: string) {
     if (!confirm("Remove this line item? The Square draft will be cancelled and recreated.")) return;
     await patchLineItem({ action: "remove", line_item_id: lineItemId });
+  }
+
+  function startEdit(li: InvoiceLineItem) {
+    setEditingId(li.id);
+    setEditDesc(li.description ?? "");
+    setEditQty(String(li.quantity));
+    setEditPrice((li.unit_price_cents / 100).toFixed(2));
+    setActionError(null);
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+  }
+
+  async function saveEdit(lineItemId: string) {
+    const quantity = Number(editQty);
+    const unitPriceCents = Math.round(parseFloat(editPrice) * 100);
+    if (!quantity || quantity <= 0 || isNaN(unitPriceCents) || unitPriceCents < 0) {
+      setActionError("Quantity must be positive and unit price non-negative");
+      return;
+    }
+    await patchLineItem({
+      action: "edit",
+      line_item_id: lineItemId,
+      description: editDesc,
+      quantity,
+      unit_price_cents: unitPriceCents,
+    });
+    setEditingId(null);
   }
 
   async function addLineItem() {
@@ -228,19 +249,20 @@ function InvoiceExpandedPanel({
           </span>
           <span className="text-muted">Source</span>
           <span className="text-body capitalize">{invoice.source}</span>
-          {isSquare && invoice.square_invoice_id && (
+          {isSquare && invoice.square_dashboard_url && (
             <React.Fragment>
-              <span className="text-muted">Square ID</span>
-              <ViewInSquareButton squareInvoiceId={invoice.square_invoice_id} />
+              <span className="text-muted">Square</span>
+              <a
+                href={invoice.square_dashboard_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-accent hover:text-accent-soft underline"
+              >
+                View in Square →
+              </a>
             </React.Fragment>
           )}
         </div>
-        <a
-          href="/finance/invoices"
-          className="text-xs text-accent hover:text-accent-soft underline mt-1 inline-block"
-        >
-          View in Finance →
-        </a>
       </div>
 
       {/* Included Shipments */}
@@ -284,34 +306,113 @@ function InvoiceExpandedPanel({
         <table className="w-full text-xs">
           <thead>
             <tr className="text-left text-muted border-b border-line">
-              <th className="pb-1">Description</th>
+              <th className="pb-1">Item / Note</th>
               <th className="pb-1 text-right">Qty</th>
               <th className="pb-1 text-right">Unit Price</th>
               <th className="pb-1 text-right">Total</th>
-              {isDraft && <th className="pb-1 w-4" aria-label="Remove" />}
+              {isDraft && <th className="pb-1 w-14 text-right" aria-label="Actions" />}
             </tr>
           </thead>
           <tbody>
-            {invoice.line_items.map((li) => (
-              <tr key={li.id} className="border-b border-line/50 last:border-0">
-                <td className="py-1 text-strong">{li.description ?? "—"}</td>
-                <td className="py-1 text-right text-secondary">{li.quantity}</td>
-                <td className="py-1 text-right text-secondary">{fmtUsd(li.unit_price_cents / 100)}</td>
-                <td className="py-1 text-right text-body">{fmtUsd(li.total_cents / 100)}</td>
-                {isDraft && (
-                  <td className="py-1 text-right">
-                    <button
-                      onClick={() => removeLineItem(li.id)}
-                      disabled={actionLoading}
-                      className="text-faint hover:text-danger disabled:opacity-30"
-                      aria-label="Remove line item"
-                    >
-                      ×
-                    </button>
+            {invoice.line_items.map((li) => {
+              const catName = li.square_catalog_variation_id
+                ? variationName.get(li.square_catalog_variation_id) ?? null
+                : null;
+              const isEditing = editingId === li.id;
+              const inpCls = "bg-surface-mid border border-line-strong rounded px-2 py-1 text-xs text-strong";
+
+              if (isEditing) {
+                const liveQty = Number(editQty);
+                const liveCents = Math.round(parseFloat(editPrice) * 100);
+                const liveTotal = !isNaN(liveQty) && !isNaN(liveCents) ? liveQty * liveCents : 0;
+                return (
+                  <tr key={li.id} className="border-b border-line/50 last:border-0 align-top">
+                    <td className="py-1 pr-2">
+                      {catName && <div className="text-strong mb-1">{catName}</div>}
+                      <input
+                        type="text"
+                        value={editDesc}
+                        onChange={(e) => setEditDesc(e.target.value)}
+                        placeholder="Item note / description"
+                        className={`${inpCls} w-full`}
+                        aria-label="Line item note"
+                      />
+                    </td>
+                    <td className="py-1 text-right">
+                      <input
+                        type="number" min="1"
+                        value={editQty}
+                        onChange={(e) => setEditQty(e.target.value)}
+                        className={`${inpCls} w-14 text-right`}
+                        aria-label="Quantity"
+                      />
+                    </td>
+                    <td className="py-1 text-right">
+                      <input
+                        type="number" min="0" step="0.01"
+                        value={editPrice}
+                        onChange={(e) => setEditPrice(e.target.value)}
+                        className={`${inpCls} w-20 text-right`}
+                        aria-label="Unit price"
+                      />
+                    </td>
+                    <td className="py-1 text-right text-body">{fmtUsd(liveTotal / 100)}</td>
+                    <td className="py-1 text-right whitespace-nowrap">
+                      <button
+                        onClick={() => saveEdit(li.id)}
+                        disabled={actionLoading}
+                        className="text-success hover:text-success/80 disabled:opacity-30 mr-1.5"
+                        aria-label="Save line item"
+                      >
+                        {actionLoading ? "…" : "✓"}
+                      </button>
+                      <button
+                        onClick={cancelEdit}
+                        disabled={actionLoading}
+                        className="text-faint hover:text-body disabled:opacity-30"
+                        aria-label="Cancel edit"
+                      >
+                        ×
+                      </button>
+                    </td>
+                  </tr>
+                );
+              }
+
+              return (
+                <tr key={li.id} className="border-b border-line/50 last:border-0 align-top">
+                  <td className="py-1">
+                    <div className="text-strong">{catName ?? li.description ?? "—"}</div>
+                    {catName && li.description && (
+                      <div className="text-[11px] text-muted">Note: {li.description}</div>
+                    )}
                   </td>
-                )}
-              </tr>
-            ))}
+                  <td className="py-1 text-right text-secondary">{li.quantity}</td>
+                  <td className="py-1 text-right text-secondary">{fmtUsd(li.unit_price_cents / 100)}</td>
+                  <td className="py-1 text-right text-body">{fmtUsd(li.total_cents / 100)}</td>
+                  {isDraft && (
+                    <td className="py-1 text-right whitespace-nowrap">
+                      <button
+                        onClick={() => startEdit(li)}
+                        disabled={actionLoading || !!editingId}
+                        className="text-faint hover:text-accent disabled:opacity-30 mr-1.5"
+                        aria-label="Edit line item"
+                      >
+                        ✎
+                      </button>
+                      <button
+                        onClick={() => removeLineItem(li.id)}
+                        disabled={actionLoading || !!editingId}
+                        className="text-faint hover:text-danger disabled:opacity-30"
+                        aria-label="Remove line item"
+                      >
+                        ×
+                      </button>
+                    </td>
+                  )}
+                </tr>
+              );
+            })}
           </tbody>
         </table>
         <div className="flex justify-end pt-1 border-t border-line mt-1">

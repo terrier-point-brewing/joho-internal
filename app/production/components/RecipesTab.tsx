@@ -201,13 +201,13 @@ export default function RecipesTab() {
       if (editingId) {
         const existingIds = (recipes.find((r) => r.id === editingId)?.recipe_brew_activity_templates ?? []).map((t) => t.id);
         for (const tid of existingIds) {
-          await fetch(`/api/production/recipe-brew-activity-templates?id=${tid}`, { method: "DELETE" });
+          await fetch(`/api/production/brew-activities?id=${tid}`, { method: "DELETE" });
         }
       }
       for (let i = 0; i < activityLines.length; i++) {
         const al = activityLines[i];
         if (!al.activity.trim()) continue;
-        await fetch("/api/production/recipe-brew-activity-templates", {
+        await fetch("/api/production/brew-activities", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({

@@ -32,7 +32,6 @@ export const queryKeys = {
     ingredients:          () => ["production", "ingredients"] as const,
     stockAdjustments:     () => ["production", "stock-adjustments"] as const,
     packagingAdjustments: () => ["production", "packaging-adjustments"] as const,
-    brewAdjustments:      () => ["production", "brew-adjustments"] as const,
     recipes:              () => ["production", "recipes"] as const,
     batches:              () => ["production", "batches"] as const,
     equipment:            () => ["production", "equipment"] as const,

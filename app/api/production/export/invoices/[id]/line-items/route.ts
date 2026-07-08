@@ -18,7 +18,15 @@ interface RemoveBody {
   line_item_id: string;
 }
 
-type PatchBody = AddBody | RemoveBody;
+interface EditBody {
+  action: "edit";
+  line_item_id: string;
+  description?: string;
+  quantity?: number;
+  unit_price_cents?: number;
+}
+
+type PatchBody = AddBody | RemoveBody | EditBody;
 
 export async function PATCH(
   req: NextRequest,
@@ -35,8 +43,8 @@ export async function PATCH(
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  if (!["add", "remove"].includes(body.action)) {
-    return NextResponse.json({ error: "action must be add or remove" }, { status: 400 });
+  if (!["add", "remove", "edit"].includes(body.action)) {
+    return NextResponse.json({ error: "action must be add, remove, or edit" }, { status: 400 });
   }
 
   const supabase = createSupabaseAdminClient();
@@ -108,6 +116,27 @@ export async function PATCH(
       square_catalog_variation_id: body.square_catalog_variation_id ?? null,
     };
     updatedItems = [...updatedItems, newItem];
+  } else if (body.action === "edit") {
+    const target = updatedItems.find((item) => item.id === body.line_item_id);
+    if (!target) {
+      return NextResponse.json({ error: "Line item not found" }, { status: 404 });
+    }
+    const nextQty = body.quantity ?? target.quantity;
+    const nextPrice = body.unit_price_cents ?? target.unit_price_cents;
+    if (nextQty <= 0 || nextPrice < 0 || isNaN(nextQty) || isNaN(nextPrice)) {
+      return NextResponse.json({ error: "quantity must be a positive number and unit_price_cents must be non-negative" }, { status: 400 });
+    }
+    updatedItems = updatedItems.map((item) =>
+      item.id === body.line_item_id
+        ? {
+            ...item,
+            description: body.description ?? item.description,
+            quantity: nextQty,
+            unit_price_cents: nextPrice,
+            total_cents: nextQty * nextPrice,
+          }
+        : item
+    );
   } else {
     updatedItems = updatedItems.filter((item) => item.id !== body.line_item_id);
     if (updatedItems.length === (currentItems ?? []).length) {

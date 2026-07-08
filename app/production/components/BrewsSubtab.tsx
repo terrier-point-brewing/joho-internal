@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { useTransfersQuery, useEquipmentQuery, useBatchesQuery } from "../hooks/queries";
 
 interface StockRow {
@@ -14,21 +13,6 @@ export default function BrewsSubtab() {
   const { data: tanks = [] }     = useEquipmentQuery();
   const { data: batches = [] }   = useBatchesQuery();
 
-  const [adjByTransfer, setAdjByTransfer] = useState<Record<string, number>>({});
-
-  useEffect(() => {
-    fetch("/api/production/brew-adjustments")
-      .then((r) => r.ok ? r.json() : [])
-      .then((rows: { batch_transfer_id: string; quantity: number }[]) => {
-        const map: Record<string, number> = {};
-        for (const r of rows) {
-          map[r.batch_transfer_id] = (map[r.batch_transfer_id] ?? 0) + Number(r.quantity);
-        }
-        setAdjByTransfer(map);
-      })
-      .catch(() => {});
-  }, []);
-
   const coldIds   = new Set(tanks.filter((t) => t.type === "cold_storage").map((t) => t.id));
   const batchById = Object.fromEntries(batches.map((b) => [b.id, b]));
 
@@ -40,8 +24,7 @@ export default function BrewsSubtab() {
     if (tr.transfer_type !== "kegging" && tr.transfer_type !== "canning") continue;
 
     const beerName = batchById[tr.batch_id]?.beer_name ?? "Unknown";
-    const adj      = adjByTransfer[tr.id] ?? 0;
-    const net = Math.round((tr.quantity ?? 0) + adj);
+    const net = Math.round(tr.quantity ?? 0);
     if (net > 0) {
       const packagingName = tr.packaging_variations?.name ?? (tr.transfer_type === "kegging" ? "Kegs" : "Cans");
       const key = `${beerName}||${packagingName}`;

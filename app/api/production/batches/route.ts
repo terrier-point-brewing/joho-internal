@@ -3,6 +3,7 @@ import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSquareProject } from "@/lib/square/projects";
 import { upsertCommitments } from "@/lib/production/commitments";
+import { seedBatchActivities } from "@/lib/production/brewActivities";
 
 export const dynamic = "force-dynamic";
 
@@ -11,7 +12,7 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from("brew_batches")
-    .select("*, recipes(beer_name, expected_yield_bbl, partner:contract_brewing_partners(company_name)), batch_status_history(*), batch_brew_activity_log(*), converted_from_batch:converted_from_batch_id(id, beer_name, batch_number)")
+    .select("*, recipes(beer_name, expected_yield_bbl, partner:contract_brewing_partners(company_name)), batch_status_history(*), batch_brew_activity_log:brew_activities(*), converted_from_batch:converted_from_batch_id(id, beer_name, batch_number)")
     .order("planned_brew_date", { ascending: false });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -105,33 +106,17 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  // Copy recipe activity templates into the new batch's activity log
+  // Seed the new batch's activity log from the recipe's default activities.
   const { data: templates, error: templatesErr } = await supabase
-    .from("recipe_brew_activity_templates")
-    .select("*")
+    .from("brew_activities")
+    .select("sort_order, activity, time_label, temp, temp_unit, amount, amount_unit, vsp")
     .eq("recipe_id", recipe_id)
     .order("sort_order");
   if (templatesErr) return NextResponse.json({ error: templatesErr.message }, { status: 500 });
   if (templates && templates.length > 0) {
-    const { error: logErr } = await supabase.from("batch_brew_activity_log").insert(
-      templates.map((t: {
-        id: string; sort_order: number; activity: string; time_label: string | null;
-        temp: number | null; temp_unit?: string | null;
-        amount: number | null; amount_unit?: string | null;
-        vsp?: number | null;
-      }) => ({
-        batch_id:    batch.id,
-        template_id: t.id,
-        sort_order:  t.sort_order,
-        activity:    t.activity,
-        time_label:  t.time_label,
-        temp:        t.temp,
-        temp_unit:   t.temp_unit ?? "F",
-        amount:      t.amount,
-        amount_unit: t.amount_unit ?? null,
-        vsp:         t.vsp ?? null,
-      }))
-    );
+    const { error: logErr } = await supabase
+      .from("brew_activities")
+      .insert(seedBatchActivities(templates, batch.id));
     if (logErr) return NextResponse.json({ error: logErr.message }, { status: 500 });
   }
 
@@ -179,7 +164,7 @@ export async function POST(req: NextRequest) {
 
   const { data, error } = await supabase
     .from("brew_batches")
-    .select("*, recipes(beer_name, expected_yield_bbl, partner:contract_brewing_partners(company_name)), batch_status_history(*), batch_brew_activity_log(*), converted_from_batch:converted_from_batch_id(id, beer_name, batch_number)")
+    .select("*, recipes(beer_name, expected_yield_bbl, partner:contract_brewing_partners(company_name)), batch_status_history(*), batch_brew_activity_log:brew_activities(*), converted_from_batch:converted_from_batch_id(id, beer_name, batch_number)")
     .eq("id", batch.id)
     .single();
 

@@ -5,15 +5,15 @@ import { formatCurrency, EM_DASH } from "@/lib/format";
 import { useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import {
-  StockAdjustment, PackagingStockAdjustment, BrewInventoryAdjustment,
-  AdjustmentType, PackagingAdjustmentType, BrewAdjustmentType,
-  Ingredient, PackagingItem, BatchTransfer, BrewBatch,
+  StockAdjustment, PackagingStockAdjustment,
+  AdjustmentType, PackagingAdjustmentType,
+  Ingredient, PackagingItem,
 } from "../types";
 import {
-  useAdjustmentsQuery, useIngredientsQuery, usePackagingQuery, useTransfersQuery, useBatchesQuery, fetchJson,
+  useAdjustmentsQuery, useIngredientsQuery, usePackagingQuery, fetchJson,
 } from "../hooks/queries";
 
-type Source = "all" | "ingredients" | "packaging" | "brew";
+type Source = "all" | "ingredients" | "packaging";
 type SortDir = "desc" | "asc";
 
 const ING_TYPE_LABELS: Record<AdjustmentType, string> = {
@@ -29,16 +29,9 @@ const PKG_TYPE_LABELS: Record<PackagingAdjustmentType, string> = {
   waste:           "Waste / Loss",
   inventory_count: "Inventory Count",
 };
-const BREW_TYPE_LABELS: Record<BrewAdjustmentType, string> = {
-  sold:            "Sold",
-  distributed:     "Distributed",
-  waste:           "Waste / Loss",
-  inventory_count: "Inventory Count",
-};
-
 type Row = {
   id: string;
-  source: "ingredients" | "packaging" | "brew";
+  source: "ingredients" | "packaging";
   sourceLabel: string;
   itemName: string;
   type: string;
@@ -73,21 +66,16 @@ function valColor(v: number | null) {
 const SOURCE_COLORS: Record<Row["source"], string> = {
   ingredients: "bg-accent-muted/40 text-accent-soft border-accent-border",
   packaging:   "bg-info-surface/40 text-info border-info-border",
-  brew:        "bg-success-surface/40 text-success border-success-border",
 };
 
 function buildRows(
   ingAdjs: StockAdjustment[],
   pkgAdjs: PackagingStockAdjustment[],
-  brewAdjs: BrewInventoryAdjustment[],
   ingredients: Ingredient[],
   packaging: PackagingItem[],
-  transfers: BatchTransfer[],
-  batches: BrewBatch[],
 ): Row[] {
   const ingMap = Object.fromEntries(ingredients.map((i) => [i.id, i]));
   const pkgMap = Object.fromEntries(packaging.map((p) => [p.id, p]));
-  const trMap  = Object.fromEntries(transfers.map((t) => [t.id, t]));
 
   const ingRows: Row[] = ingAdjs.map((a) => {
     const ing = ingMap[a.ingredient_id];
@@ -127,52 +115,25 @@ function buildRows(
     };
   });
 
-  const brewRows: Row[] = brewAdjs.map((a) => {
-    const tr = trMap[a.batch_transfer_id];
-    const unit = tr?.transfer_type === "kegging" ? "keg" : "can";
-    const batchName = tr ? batches.find((b) => b.id === tr.batch_id)?.beer_name ?? "" : "";
-    return {
-      id: a.id,
-      source: "brew",
-      sourceLabel: "Brew",
-      itemName: tr ? `${unit.charAt(0).toUpperCase() + unit.slice(1)}s — ${batchName}`.trim() : "Brew lot",
-      type: a.type,
-      typeLabel: BREW_TYPE_LABELS[a.type] ?? a.type,
-      quantity: a.quantity,
-      unitLabel: `${unit}s`,
-      costPerUnit: null,
-      valueChange: null,
-      note: a.note,
-      batch: null,
-      createdAt: a.created_at,
-    };
-  });
-
-  return [...ingRows, ...pkgRows, ...brewRows];
+  return [...ingRows, ...pkgRows];
 }
 
 export default function StockAdjustmentsTab() {
   const { data: ingAdjustments = [] } = useAdjustmentsQuery();
   const { data: ingredients = [] } = useIngredientsQuery();
   const { data: packaging = [] } = usePackagingQuery();
-  const { data: transfers = [] } = useTransfersQuery();
-  const { data: batches = [] } = useBatchesQuery();
   const { data: pkgAdjs = [], isLoading: pkgLoading } = useQuery({
     queryKey: queryKeys.production.packagingAdjustments(),
     queryFn: () => fetchJson<PackagingStockAdjustment[]>("/api/production/packaging-adjustments"),
   });
-  const { data: brewAdjs = [], isLoading: brewLoading } = useQuery({
-    queryKey: queryKeys.production.brewAdjustments(),
-    queryFn: () => fetchJson<BrewInventoryAdjustment[]>("/api/production/brew-adjustments"),
-  });
-  const loading = pkgLoading || brewLoading;
+  const loading = pkgLoading;
 
   const [source, setSource]         = useState<Source>("all");
   const [search, setSearch]         = useState("");
   const [sortDir, setSortDir]       = useState<SortDir>("desc");
   const [groupByDate, setGroupByDate] = useState(false);
 
-  const allRows = buildRows(ingAdjustments, pkgAdjs, brewAdjs, ingredients, packaging, transfers, batches);
+  const allRows = buildRows(ingAdjustments, pkgAdjs, ingredients, packaging);
 
   const filtered = allRows
     .filter((r) => source === "all" || r.source === source)
@@ -224,7 +185,7 @@ export default function StockAdjustmentsTab() {
       <div className="flex items-center gap-3 mb-4 flex-wrap">
         {/* Source filter */}
         <div className="flex gap-1 flex-wrap">
-          {(["all", "ingredients", "packaging", "brew"] as Source[]).map((s) => (
+          {(["all", "ingredients", "packaging"] as Source[]).map((s) => (
             <button
               key={s}
               onClick={() => setSource(s)}
@@ -234,7 +195,7 @@ export default function StockAdjustmentsTab() {
                   : "border-line-strong text-muted hover:text-body"
               }`}
             >
-              {s === "all" ? "All" : s === "ingredients" ? "Ingredients" : s === "packaging" ? "Packaging" : "Brew (Kegs/Cans)"}
+              {s === "all" ? "All" : s === "ingredients" ? "Ingredients" : "Packaging"}
             </button>
           ))}
         </div>
