@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import { fetchJson } from "@/app/production/hooks/queries";
+import Banner from "@/app/components/ui/Banner";
 import type {
   InventoryGrid,
   InventoryRow,
@@ -11,6 +12,16 @@ import type {
   InventoryCellVariation,
 } from "@/lib/production/inventoryGrid";
 import type { MappingColumn } from "@/app/production/types";
+
+interface ReconEvent {
+  recipe_id: string | null;
+  base_variation_name: string | null;
+  cold_storage_cans: number;
+  square_cans_before: number;
+  drift: number;
+  occurred_at: string;
+}
+type TaproomInventoryResponse = InventoryGrid & { reconciliations: ReconEvent[] };
 
 // ── formatting ────────────────────────────────────────────────────────────────
 
@@ -113,11 +124,20 @@ function Cell({ cell, col }: { cell: InventoryCell | null | undefined; col: Mapp
 export default function InventoryTab() {
   const { data, isLoading, error } = useQuery({
     queryKey: queryKeys.taproom.inventory(),
-    queryFn: () => fetchJson<InventoryGrid>("/api/taproom/inventory"),
+    queryFn: () => fetchJson<TaproomInventoryResponse>("/api/taproom/inventory"),
   });
 
   const [query, setQuery] = useState("");
   const q = query.trim().toLowerCase();
+
+  const lastReconcile = useMemo(() => {
+    const events = data?.reconciliations ?? [];
+    if (events.length === 0) return null;
+    const latest = events[0].occurred_at;
+    // Count corrections from the most recent reconcile batch (same occurred_at).
+    const inBatch = events.filter((e) => e.occurred_at === latest);
+    return { at: latest, count: inBatch.length, sample: inBatch.slice(0, 3) };
+  }, [data]);
 
   // Client-side search over recipe + partner name, with column/grand totals
   // recomputed from the matches so the banner and footer track what's visible.
@@ -160,6 +180,14 @@ export default function InventoryTab() {
           {fmtBbl(grandTotalBbl)} bbl{q ? " shown" : " total"}
         </span>
       </div>
+
+      {lastReconcile && (
+        <Banner tone="info" className="mb-2">
+          Square inventory is auto-synced from cold storage. Last correction{" "}
+          {new Date(lastReconcile.at).toLocaleString()} — {lastReconcile.count}{" "}
+          {pluralize(lastReconcile.count, "SKU", "SKUs")} adjusted to match cold storage.
+        </Banner>
+      )}
 
       <div className="mb-2 flex items-center gap-2">
         <input
