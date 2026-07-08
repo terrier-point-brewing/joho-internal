@@ -136,7 +136,7 @@ export default function InventoryTab() {
     const latest = events[0].occurred_at;
     // Count corrections from the most recent reconcile batch (same occurred_at).
     const inBatch = events.filter((e) => e.occurred_at === latest);
-    return { at: latest, count: inBatch.length, sample: inBatch.slice(0, 3) };
+    return { at: latest, count: inBatch.length };
   }, [data]);
 
   // Client-side search over recipe + partner name, with column/grand totals

@@ -3,6 +3,7 @@ import { buildInventoryGrid, type InventorySources } from "./inventoryGrid";
 import { coldStorageKey } from "./coldStorageOnHand";
 import type { ColdStorageOnHand } from "./coldStorageOnHand";
 import type { ColumnDef, GridRow } from "./squareMappingGrid";
+import { BBL_TO_FL_OZ } from "@/lib/constants/production";
 
 const columns: ColumnDef[] = [
   { key: "draft", label: "Draft", type: "draft", volumeFlOz: null, format: null },
@@ -45,7 +46,7 @@ describe("buildInventoryGrid", () => {
     expect(cells["can|16|loose"]!.variations[0]).toMatchObject({ packaging: "can", format: "loose", currentQty: 8 });
     expect(cells["can|16|case"]!.variations[0]).toMatchObject({ packaging: "can", format: "case", currentQty: 1 });
     // bbl uses the per-format total volume: case = 384 fl oz.
-    expect(cells["can|16|case"]!.variations[0].currentBbl).toBeCloseTo(384 / 3968.077, 3);
+    expect(cells["can|16|case"]!.variations[0].currentBbl).toBeCloseTo(384 / BBL_TO_FL_OZ, 3);
     // Draft still comes from the draft map.
     expect(cells["draft"]!.variations[0]).toMatchObject({ packaging: "draft", currentBbl: 0.5 });
   });

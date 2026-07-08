@@ -188,10 +188,19 @@ export async function reconcileSquareCanInventory(
       // link, take the item id from whichever resolve, take the stem from a
       // NON-loose tier's name when available, then pick the item's tracked parent.
       const tierLinks = (await Promise.all(
-        derived.tiers.map(async (t) => ({
-          format: t.format,
-          sku: await resolveProductSku(supabase, { kind: "packaged", variationId: t.variationId }),
-        })),
+        derived.tiers.map(async (t) => {
+          try {
+            return {
+              format: t.format,
+              sku: await resolveProductSku(supabase, { kind: "packaged", variationId: t.variationId }),
+            };
+          } catch {
+            // A single broken/duplicate link (e.g. a `.maybeSingle()` throwing on
+            // more than one row) should not abort the whole reconcile run —
+            // just skip this tier's contribution to base-variation resolution.
+            return { format: t.format, sku: null };
+          }
+        }),
       )).filter((x) => x.sku);
       const itemId = tierLinks.map((x) => x.sku!.squareItemId).find((id): id is string => !!id) ?? null;
       const stemSource = tierLinks.find((x) => x.format !== "loose") ?? tierLinks[0];
