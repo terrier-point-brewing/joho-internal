@@ -143,10 +143,13 @@ export async function reconcileInvoiceStatus(
 
 Steps:
 
-1. **Refetch from Square** — `getInvoiceStatus(squareInvoiceId)` returns
-   `{ status, paidAt, version, publicUrl, invoiceNumber }`. Square is the source
-   of truth; we do not trust the webhook payload (mirrors the order webhook,
-   which refetches the order by id).
+1. **Refetch from Square** — `getInvoiceStatus(squareInvoiceId)`. Square is the
+   source of truth; we do not trust the webhook payload (mirrors the order
+   webhook, which refetches the order by id). **Small extension:**
+   `getInvoiceStatus` currently returns
+   `{ status, paidAt, version, publicUrl, invoiceNumber }`; add `updatedAt`
+   (Square invoice `updated_at`) so the reconcile can timestamp `invoice_sent_at`
+   from the invoice's own publish time rather than delivery time.
 2. **Load ledger row** — `invoices` where `source='square'` and
    `square_invoice_id = squareInvoiceId`. If absent → return early with
    `skippedReason: "no-ledger-row"` and log (generate always creates the row
@@ -158,14 +161,32 @@ Steps:
    set `status='paid'` when ledger status is `paid`; set `status='unpaid'` when
    `open`/`partial`. Guarded so it is idempotent.
 5. **Cascade `batch_allocations`** — find the allocation with
-   `square_deposit_invoice_id = squareInvoiceId`. If found:
-   - When ledger status is `paid` and `invoice_paid_at` is null: set
+   `square_deposit_invoice_id = squareInvoiceId`. If found, drive the full
+   deposit lifecycle (the batch-log and commitments UIs gate their Send / Sync /
+   Delete buttons entirely on these three timestamps):
+   - **Sent/published:** when the Square status is past DRAFT
+     (`UNPAID` / `SCHEDULED` / `PARTIALLY_PAID` / `PAID`) and `invoice_sent_at`
+     is null, set `invoice_sent_at = sq.updatedAt ?? now`. This makes the webhook
+     mark the invoice as sent regardless of whether the publish originated in our
+     app or directly in Square — flipping both UIs from **Send Invoice** →
+     **Sync Status** (duplicate send prevented) and switching **Delete** to its
+     sent-path cancellation-warning confirm.
+   - **Paid:** when ledger status is `paid` and `invoice_paid_at` is null: set
      `invoice_paid_at = sq.paidAt ?? now`, and capture the payment reference via
      `getOrderPayment(square_deposit_order_id)` → `square_payment_id`,
      `deposit_amount_paid_cents`. If no `payment_id` is returned, log an error
      (refunds unavailable until manually resolved) but still record `paid`.
-   - When Square status is `CANCELED`/`FAILED`: clear `invoice_sent_at`
-     (matches current sync behavior).
+     (A `PAID` invoice is also implicitly sent, so `invoice_sent_at` is
+     backfilled by the sent rule above in the same run if it was somehow null.)
+   - **Canceled/failed:** when Square status is `CANCELED`/`FAILED`, clear
+     `invoice_sent_at` (matches current sync behavior — reopens the invoice for
+     regeneration).
+
+   **Deletion policy (decided):** a sent-but-unpaid deposit invoice keeps the
+   existing warn-confirm delete (UI shows the cancellation-warning dialog; the
+   route still allows it); only `invoice_paid_at` hard-blocks deletion. No
+   delete-route or UI change is required — setting `invoice_sent_at` via the
+   webhook is what makes the warn-confirm path engage automatically.
 6. **Return** the result summary for logging.
 
 **Idempotency:** every write is guarded (`invoice_paid_at IS NULL`,
@@ -261,7 +282,10 @@ the webhook. Add an `invoices` summary to the cron `outcome.detail`.
   / `getOrderPayment` and a mocked Supabase client:
   - ledger status update,
   - export_transactions cascade to paid/unpaid,
+  - deposit allocation **sent transition** (published/UNPAID sets
+    `invoice_sent_at` when null; already-sent is left untouched),
   - deposit allocation paid + payment-reference capture,
+  - deposit allocation canceled clears `invoice_sent_at`,
   - idempotency (second run makes no duplicate writes),
   - `no-ledger-row` skip,
   - missing `payment_id` logs but records paid.
@@ -286,6 +310,7 @@ Modified:
 - `lib/square/webhook.ts` (+ existing test extended)
 - `lib/finance/syncSquareInvoices.ts` (use shared mapper + preserve COA mappings
   on re-sync; + new `syncSquareInvoices.test.ts`)
+- `lib/square/square-invoices.ts` (`getInvoiceStatus` also returns `updatedAt`)
 - `app/api/webhooks/square/route.ts`
 - `app/api/production/export/invoice/route.ts` (`sync` action)
 - `app/api/production/allocations/[id]/invoice/route.ts` (`sync` action)
