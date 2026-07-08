@@ -12,6 +12,8 @@ import MappingFilter from "../components/MappingFilter";
 import MappingStatusPill from "../components/MappingStatusPill";
 import AutoMapButton from "../components/AutoMapButton";
 import { LedgerTable, SortableTh, Th, CategoryBadges, useTableSort } from "../components/LedgerTable";
+import InventoryAlertBanner from "./InventoryAlertBanner";
+import { selectInventoryAlerts } from "@/lib/finance/inventoryAlerts";
 
 // ── Types (mirror the API responses) ──────────────────────────────────────────
 interface CoaJoin {
@@ -40,6 +42,7 @@ interface ExpenseRow {
   external_account_code: string | null;
   chart_of_accounts_id: string | null;
   mapping_source: "unmapped" | "rule" | "manual";
+  inventory_alert_dismissed: boolean;
   chart_of_accounts: CoaJoin | null;
 }
 
@@ -212,6 +215,17 @@ export default function ExpensesPage() {
       : e));
   }
 
+  // Dismiss the production-inventory alert for one expense (optimistic local update).
+  async function handleDismissInventoryAlert(id: string) {
+    const res = await fetch("/api/finance/expenses", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, inventory_alert_dismissed: true }),
+    });
+    if (!res.ok) return;
+    setExpenses((es) => es.map((e) => (e.id === id ? { ...e, inventory_alert_dismissed: true } : e)));
+  }
+
   async function handleAutoMap(): Promise<{ mapped: number }> {
     const res = await fetch(`/api/finance/expenses/auto-map?from=${year}-01-01&to=${year}-12-31`, { method: "POST" });
     const json = await res.json();
@@ -268,6 +282,11 @@ export default function ExpensesPage() {
       )}
 
       {error && <Banner className="mx-4 sm:mx-6 my-2">{error}</Banner>}
+
+      <InventoryAlertBanner
+        expenses={selectInventoryAlerts(expenses)}
+        onDismiss={handleDismissInventoryAlert}
+      />
 
       {loading ? (
         <div className="flex-1 flex items-center justify-center"><p className="text-xs text-muted">Loading…</p></div>
