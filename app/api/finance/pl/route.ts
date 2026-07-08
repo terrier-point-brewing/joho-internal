@@ -8,6 +8,8 @@ import { fetchCatalogItems } from "@/lib/square/catalog";
 import { buildTaproomModelReport } from "@/lib/reports/taproom-model";
 import { TAPROOM_MODEL_CATEGORIES } from "@/lib/constants/categories";
 import { apiError } from "@/lib/utils/api";
+import { sumAdjustmentCost } from "@/lib/finance/cogs";
+import { computePlSummary, proratedManualRevenue } from "@/lib/finance/pl";
 
 export const dynamic = "force-dynamic";
 
@@ -61,36 +63,23 @@ export async function GET(req: NextRequest) {
   const invoiceOrders = allOrders.filter((o) => o.source?.name === "Invoices");
 
   const taproomReport = buildTaproomModelReport(posOrders, catalogItems, refunds);
-  const taproomRevenue = TAPROOM_MODEL_CATEGORIES.reduce((sum, cat) => {
+  // Taproom net sales stay in INTEGER CENTS here; the cents→dollars conversion
+  // happens once, inside computePlSummary.
+  const taproomNetSalesCents = TAPROOM_MODEL_CATEGORIES.reduce((sum, cat) => {
     if (EXCLUDED_CATEGORY_IDS.has(cat.id)) return sum;
     return sum + (taproomReport.byCategory[cat.id]?.netSalesCents ?? 0);
-  }, 0) / 100;
-
-  // Invoice revenue = sum of completed invoice orders
-  const invoiceRevenue = invoiceOrders.reduce((sum, o) => {
-    return sum + (o.total_money?.amount ? Number(o.total_money.amount) / 100 : 0);
   }, 0);
 
-  // Manual entries
+  // Invoice revenue = sum of completed invoice orders, in INTEGER CENTS.
+  const invoiceTotalCents = invoiceOrders.reduce((sum, o) => {
+    return sum + (o.total_money?.amount ? Number(o.total_money.amount) : 0);
+  }, 0);
+
+  // Manual entries (amount_cents) prorated onto the window → dollars.
   const { data: manualEntries } = await supabase
     .from("manual_net_sales_entries")
     .select("start_date, end_date, amount_cents");
-  const startDate = new Date(from + "T00:00:00");
-  const endDate   = new Date(to   + "T00:00:00");
-  let manualRevenue = 0;
-  for (const entry of manualEntries ?? []) {
-    const eStart = new Date(entry.start_date + "T00:00:00");
-    const eEnd   = new Date(entry.end_date   + "T00:00:00");
-    const oStart = startDate > eStart ? startDate : eStart;
-    const oEnd   = endDate   < eEnd   ? endDate   : eEnd;
-    if (oStart <= oEnd) {
-      const eDays = Math.round((eEnd.getTime()   - eStart.getTime()) / 86_400_000) + 1;
-      const oDays = Math.round((oEnd.getTime()   - oStart.getTime()) / 86_400_000) + 1;
-      manualRevenue += Math.round(entry.amount_cents * oDays / eDays) / 100;
-    }
-  }
-
-  const totalRevenue = taproomRevenue + invoiceRevenue + manualRevenue;
+  const manualRevenue = proratedManualRevenue(manualEntries ?? [], from, to);
 
   // ── COGS ───────────────────────────────────────────────────────────────────
   // KNOWN TIMING POLICY: ingredient costs accrue at brew-turn start (tank assignment)
@@ -99,13 +88,8 @@ export async function GET(req: NextRequest) {
   // TODO: align both to "COGS on cold-storage arrival" by joining stock_adjustments
   // through batch_transfers WHERE transfer_type IN ('kegging','canning') to match
   // ingredient costs to the period the batch was actually packaged.
-  const ingredientCost = (ingResult.data ?? []).reduce((s, r) => {
-    return s + Math.abs(r.total_value_change ?? (r.quantity * (r.cost_per_unit ?? 0)));
-  }, 0);
-  const packagingCost = (pkgResult.data ?? []).reduce((s, r) => {
-    return s + Math.abs(r.total_value_change ?? (r.quantity * (r.cost_per_unit ?? 0)));
-  }, 0);
-  const totalCogs = ingredientCost + packagingCost;
+  const ingredientCost = sumAdjustmentCost(ingResult.data ?? []);
+  const packagingCost = sumAdjustmentCost(pkgResult.data ?? []);
 
   // ── Operating Expenses (Ramp) ──────────────────────────────────────────────
   const clearedTxns  = rampTxns.filter((t) => t.state === "CLEARED");
@@ -119,31 +103,32 @@ export async function GET(req: NextRequest) {
   }
 
   // ── Gross Profit / Net Income ──────────────────────────────────────────────
-  const grossProfit    = totalRevenue - totalCogs;
-  const operatingIncome = grossProfit - totalExpenses;
+  const summary = computePlSummary({
+    taproomNetSalesCents,
+    invoiceTotalCents,
+    manualRevenueDollars: manualRevenue,
+    ingredientCostDollars: ingredientCost,
+    packagingCostDollars: packagingCost,
+    operatingExpensesDollars: totalExpenses,
+  });
 
   return NextResponse.json({
     period: { from, to },
-    revenue: {
-      taproom:  Math.round(taproomRevenue * 100)  / 100,
-      invoices: Math.round(invoiceRevenue * 100)  / 100,
-      manual:   Math.round(manualRevenue * 100)   / 100,
-      total:    Math.round(totalRevenue * 100)    / 100,
-    },
+    revenue: summary.revenue,
     cogs: {
-      ingredients: Math.round(ingredientCost * 100) / 100,
-      packaging:   Math.round(packagingCost  * 100) / 100,
-      total:       Math.round(totalCogs      * 100) / 100,
+      ingredients: summary.cogs.ingredients,
+      packaging:   summary.cogs.packaging,
+      total:       summary.cogs.total,
       // Ingredients accrue at brew-turn start; packaging at kegging/canning transfer.
       // Both costs for the same batch may therefore land in different reporting periods.
       policy: "accrual_at_activity_date",
     },
-    gross_profit:      Math.round(grossProfit      * 100) / 100,
-    operating_expenses: Math.round(totalExpenses   * 100) / 100,
+    gross_profit:      summary.grossProfit,
+    operating_expenses: summary.operatingExpenses,
     expenses_by_category: Object.fromEntries(
       Object.entries(expensesByCategory).map(([k, v]) => [k, Math.round(v * 100) / 100])
     ),
-    operating_income:  Math.round(operatingIncome  * 100) / 100,
+    operating_income:  summary.operatingIncome,
   });
   } catch (err) {
     return apiError(err);
