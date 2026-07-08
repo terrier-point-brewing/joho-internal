@@ -41,10 +41,13 @@ function isFiniteNumber(value: Numeric): value is number {
 }
 
 /**
- * Format integer-cent values (Square's native money format). Divides by 100
- * internally — pass `1599` to render `$15.99`. `decimals` defaults to 2; pass
- * `0` for whole-dollar displays (`$16`). Accounting style: negatives render in
- * parentheses and exact zero renders as the em-dash sentinel.
+ * Format a money value expressed in **integer cents** (Square's native money
+ * format — the unit of every `*_cents` column). Divides by 100 internally, so
+ * pass `1599` to render `$15.99`. Do NOT pass dollars here — `15.99` would
+ * render `$0.16`. For a value already in dollars use {@link formatCurrency}.
+ * `decimals` defaults to 2; pass `0` for whole-dollar displays (`$16`).
+ * Accounting style: negatives render in parentheses and exact zero renders as
+ * the em-dash sentinel.
  */
 export function formatCurrencyCents(cents: Numeric, decimals = 2): string {
   if (!isFiniteNumber(cents)) return EM_DASH;
@@ -52,7 +55,10 @@ export function formatCurrencyCents(cents: Numeric, decimals = 2): string {
 }
 
 /**
- * Format a value already expressed in dollars. Pass `15.99` to render `$15.99`.
+ * Format a money value already expressed in **dollars** (the unit of `*_usd`
+ * and per-unit cost columns). Pass `15.99` to render `$15.99`. Do NOT pass
+ * cents here — `1599` would render `$1,599.00`. For a value in integer cents
+ * use {@link formatCurrencyCents}.
  * `decimals` defaults to 2; pass `0` for whole-dollar displays (`$16`).
  *
  * Accounting presentation (single source of truth for money display):

@@ -8,6 +8,7 @@
 
 import crypto from "crypto";
 import { squarePost, squareGet, squareDelete, squareLocationId } from "./client";
+import { dollarsToCents } from "@/lib/money";
 import type { InvoiceLineItemDraft } from "@/lib/production/exportInvoicePreview";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -130,7 +131,9 @@ export async function calculateIngredientDeposit(
   }
 
   const depositUsd = totalIngredientCostUsd * (percentage / 100);
-  const depositCents = Math.round(depositUsd * 100);
+  // UNIT CROSSING: ingredient cost math runs in decimal USD dollars (cost_per_unit
+  // is a decimal column); Square invoice amounts are integer cents. Round → cents.
+  const depositCents = dollarsToCents(depositUsd);
 
   return {
     total_ingredient_cost_usd: totalIngredientCostUsd,
