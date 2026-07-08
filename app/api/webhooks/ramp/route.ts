@@ -51,16 +51,21 @@ export async function POST(req: NextRequest) {
   }
   const type = event.type;
 
-  // Endpoint-verification handshake: during subscription setup Ramp POSTs a
-  // `webhooks.verification` event carrying a challenge. Handle it before the
-  // signature gate (its only "action" is echoing the challenge back, which is
-  // safe) and log the full payload so the exact verification response can be
-  // confirmed against a live delivery.
-  // TODO(ramp-verify): wire the exact verification response/callback per the
-  // "Verify your webhook" doc once its request shape is confirmed.
+  // One-time endpoint-verification handshake. During subscription setup Ramp
+  // POSTs a `webhooks.verification` challenge here; the subscription is confirmed
+  // by a SEPARATE authenticated call back to Ramp:
+  //   POST /developer/v1/webhooks/{webhook_id}/verify  { "challenge": "<value>" }
+  // That call needs a webhooks:write-scoped token, which this endpoint's
+  // read-only runtime token deliberately lacks — so verification is completed
+  // out-of-band during setup, not from this always-on handler. We ack 200 (Ramp
+  // just needs reachability here) and log the challenge for that step. Handled
+  // before the signature gate since we take no action on its contents.
   if (type === "webhooks.verification") {
-    console.log("[ramp-webhook] verification challenge", rawBody);
-    return NextResponse.json({ challenge: event.challenge ?? null });
+    console.log("[ramp-webhook] verification challenge received", {
+      challenge: event.challenge ?? null,
+      raw: rawBody,
+    });
+    return NextResponse.json({ ok: true });
   }
 
   // Every business event is signed — verify before acting on any of its data.
