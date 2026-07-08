@@ -3,11 +3,14 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { runTaproomConsumptionSync } from "@/lib/production/taproomConsumptionSync";
 import { syncPosOrdersByIds } from "@/lib/finance/syncPosTransactions";
 import { syncRefunds } from "@/lib/finance/syncRefunds";
+import { reconcileInvoiceStatus } from "@/lib/finance/reconcileInvoiceStatus";
 import {
   verifySquareSignature,
   isFinanceSyncableEvent,
   isRefundEvent,
+  isInvoiceEvent,
   extractSquareOrderId,
+  extractSquareInvoiceId,
   extractSquareRefund,
 } from "@/lib/square/webhook";
 
@@ -66,7 +69,8 @@ export async function POST(req: NextRequest) {
   // Order and refund events drive a finance sync; order events also drive the
   // taproom reconcile. Ack everything else with 200 so Square doesn't retry
   // non-actionable deliveries.
-  if (!isFinanceSyncableEvent(event.type)) {
+  const invoiceEvent = isInvoiceEvent(event.type);
+  if (!isFinanceSyncableEvent(event.type) && !invoiceEvent) {
     return NextResponse.json({ ignored: true, type: event.type ?? null });
   }
 
@@ -77,6 +81,30 @@ export async function POST(req: NextRequest) {
   // or partial background run self-heals on the next trigger.
   after(async () => {
     const supabase = createSupabaseAdminClient();
+
+    // Invoice events → reconcile that one invoice's status across the ledger,
+    // export transactions, and deposit allocations. Separate from order/refund
+    // handling below.
+    if (invoiceEvent) {
+      const invoiceId = extractSquareInvoiceId(event);
+      if (invoiceId) {
+        try {
+          const result = await reconcileInvoiceStatus(supabase, invoiceId);
+          console.log("[square-webhook] invoice reconcile", {
+            type: event.type,
+            invoiceId,
+            ledgerStatus: result.ledgerStatus,
+            updatedExportTransactions: result.updatedExportTransactions,
+            updatedAllocation: result.updatedAllocation,
+            paymentCaptured: result.paymentCaptured,
+            skipped: result.skippedReason ?? null,
+          });
+        } catch (e) {
+          console.error("[square-webhook] invoice reconcile failed", e);
+        }
+      }
+      return;
+    }
 
     // Refund events: refunds never change order state, so the order sync can't
     // see them. Persist the refund (nets against revenue on statements) and
