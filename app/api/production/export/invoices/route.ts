@@ -33,6 +33,12 @@ export async function GET() {
 
   const enriched = (data ?? []).map((inv) => {
     const partner = inv.contract_brewing_partners as unknown as { company_name: string } | null;
+    // Square's public_url is only populated after an invoice is sent, so it's
+    // always null for drafts. Link to the Square Dashboard invoice instead —
+    // valid for drafts and published alike (mirrors the deposit-invoice flow).
+    const squareDashboardUrl = inv.square_invoice_id
+      ? `https://app.squareup.com/dashboard/invoices/${inv.square_invoice_id}/edit?currentUnitToken=${process.env.SQUARE_LOCATION_ID}`
+      : null;
     return {
       id: inv.id,
       invoice_number: inv.invoice_number,
@@ -43,6 +49,7 @@ export async function GET() {
       status: inv.status,
       source: inv.source,
       square_invoice_id: inv.square_invoice_id,
+      square_dashboard_url: squareDashboardUrl,
       subtotal_cents: inv.subtotal_cents,
       total_cents: inv.total_cents,
       line_items: (inv.invoice_line_items ?? []).sort(
