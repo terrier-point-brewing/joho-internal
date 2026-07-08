@@ -54,6 +54,7 @@ export interface TaproomSyncResult {
   skipped: number;
   totalRecordedQty: number;
   recountsApplied: number;
+  packsBrokenDown: number;
   discrepancies: SyncDiscrepancy[];
 }
 
@@ -109,6 +110,7 @@ export async function runTaproomConsumptionSync(
   let skipped = 0;
   let totalRecordedQty = 0;
   let recountsApplied = 0;
+  let packsBrokenDown = 0;
 
   for (const u of units) {
     const alreadyRecorded = recorded.get(u.sourceRef) ?? 0;
@@ -125,6 +127,7 @@ export async function runTaproomConsumptionSync(
     });
 
     if (res.recordedQty > EPS) {
+      packsBrokenDown += res.breaks.length;
       recordedLines.push({
         kind: u.kind,
         recipeId: u.recipeId,
@@ -205,6 +208,7 @@ export async function runTaproomConsumptionSync(
     skipped,
     totalRecordedQty: Math.round(totalRecordedQty * 10000) / 10000,
     recountsApplied,
+    packsBrokenDown,
     discrepancies: [...configDiscrepancies, ...shortStock, ...recountWarnings, ...shrinkageWarnings],
   };
 }
