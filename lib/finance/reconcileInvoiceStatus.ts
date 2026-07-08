@@ -132,21 +132,23 @@ export async function reconcileInvoiceStatus(
   // ── Export transactions (invoice_id FK) ──────────────────────────────────────
   const exportTarget = exportStatusForLedger(ledgerStatus);
   if (exportTarget === "paid") {
-    const { data } = await supabase
+    const { data, error: exPaidErr } = await supabase
       .from("export_transactions")
       .update({ status: "paid" })
       .eq("invoice_id", inv.id)
       .neq("status", "paid")
       .select("id");
+    if (exPaidErr) throw new Error(`export_transactions paid update failed: ${exPaidErr.message}`);
     base.updatedExportTransactions = data?.length ?? 0;
   } else if (exportTarget === "unpaid") {
     // Advance invoice_required → unpaid on publish; never regress a paid row.
-    const { data } = await supabase
+    const { data, error: exUnpaidErr } = await supabase
       .from("export_transactions")
       .update({ status: "unpaid" })
       .eq("invoice_id", inv.id)
       .eq("status", "invoice_required")
       .select("id");
+    if (exUnpaidErr) throw new Error(`export_transactions unpaid update failed: ${exUnpaidErr.message}`);
     base.updatedExportTransactions = data?.length ?? 0;
   }
 
