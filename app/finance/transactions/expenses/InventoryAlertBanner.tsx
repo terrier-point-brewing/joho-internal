@@ -27,13 +27,16 @@ export default function InventoryAlertBanner({
   const [open, setOpen] = useState(false);
   if (expenses.length === 0) return null;
   const n = expenses.length;
+  // Widen to number — the constant is a fixed-length `as const` tuple, so a literal
+  // `.length === 1` would be a type error, but the count is conceptually dynamic.
+  const accountCount: number = PRODUCTION_INVENTORY_ACCOUNT_NUMBERS.length;
 
   return (
     <Banner tone="info" className="mx-4 sm:mx-6 my-2">
       <div className="flex items-start justify-between gap-3">
         <div>
           <span className="font-semibold">{n}</span> expense{n === 1 ? "" : "s"} on account
-          {PRODUCTION_INVENTORY_ACCOUNT_NUMBERS.length === 1 ? "" : "s"}{" "}
+          {accountCount === 1 ? "" : "s"}{" "}
           {PRODUCTION_INVENTORY_ACCOUNT_NUMBERS.join(" / ")} need a production inventory update.
         </div>
         <div className="flex items-center gap-2 shrink-0">
