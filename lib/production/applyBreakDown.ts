@@ -18,6 +18,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { planBreakDown, deriveCansEach, type Tier } from "./coldStorageBreak";
+import { CAN_FORMATS, nullSafeEq } from "./canIdentityFamily";
 
 export interface AppliedBreak {
   batchId: string;
@@ -32,10 +33,7 @@ export interface ApplyBreakResult {
   warnings: string[];
 }
 
-const CAN_FORMATS = new Set(["loose", "4-pack", "6-pack", "case"]);
 const DUST = 1e-4;
-
-const nullSafeEq = (a: unknown, b: unknown) => (a ?? null) === (b ?? null);
 
 export async function applyBreakDown(
   supabase: SupabaseClient,
