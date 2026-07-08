@@ -43,6 +43,7 @@ export async function GET(req: NextRequest) {
       external_account_code,
       chart_of_accounts_id,
       mapping_source,
+      inventory_alert_dismissed,
       chart_of_accounts!expenses_chart_of_accounts_id_fkey ( account_name, account_number, account_type )
     `)
     .order("accounting_date", { ascending: false, nullsFirst: false })
@@ -62,7 +63,8 @@ export async function PATCH(req: NextRequest) {
 
   const body = await req.json() as {
     id: string;
-    chart_of_accounts_id: string | null;
+    chart_of_accounts_id?: string | null;
+    inventory_alert_dismissed?: boolean;
   };
 
   if (!body.id) {
@@ -70,6 +72,19 @@ export async function PATCH(req: NextRequest) {
   }
 
   const supabase = createSupabaseAdminClient();
+
+  // Dismiss / un-dismiss the production-inventory alert for this expense. A single
+  // boolean toggle, independent of CoA mapping — return early so the two don't tangle.
+  if (typeof body.inventory_alert_dismissed === "boolean") {
+    const { data, error } = await supabase
+      .from("expenses")
+      .update({ inventory_alert_dismissed: body.inventory_alert_dismissed })
+      .eq("id", body.id)
+      .select("id, inventory_alert_dismissed")
+      .single();
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json(data);
+  }
 
   let coaId: string | null = body.chart_of_accounts_id ?? null;
   let source: MappingSource = "manual";
