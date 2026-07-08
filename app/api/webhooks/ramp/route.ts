@@ -35,11 +35,6 @@ interface RampWebhookEvent {
 }
 
 export async function POST(req: NextRequest) {
-  const secret = process.env.RAMP_WEBHOOK_SECRET;
-  if (!secret) {
-    return NextResponse.json({ error: "Webhook not configured" }, { status: 500 });
-  }
-
   // Raw body is required for signature verification — read it before parsing.
   const rawBody = await req.text();
 
@@ -55,17 +50,22 @@ export async function POST(req: NextRequest) {
   // POSTs a `webhooks.verification` challenge here; the subscription is confirmed
   // by a SEPARATE authenticated call back to Ramp:
   //   POST /developer/v1/webhooks/{webhook_id}/verify  { "challenge": "<value>" }
-  // That call needs a webhooks:write-scoped token, which this endpoint's
-  // read-only runtime token deliberately lacks — so verification is completed
-  // out-of-band during setup, not from this always-on handler. We ack 200 (Ramp
-  // just needs reachability here) and log the challenge for that step. Handled
-  // before the signature gate since we take no action on its contents.
+  // It needs neither the signing secret nor the signature, and it arrives right
+  // after creation — before RAMP_WEBHOOK_SECRET has been configured — so it MUST
+  // be handled before the secret/signature gates below, otherwise the challenge
+  // 500s and never gets logged, stranding setup. We ack 200 (Ramp just needs
+  // reachability) and log the challenge so the /verify call can be completed.
   if (type === "webhooks.verification") {
     console.log("[ramp-webhook] verification challenge received", {
       challenge: event.challenge ?? null,
       raw: rawBody,
     });
     return NextResponse.json({ ok: true });
+  }
+
+  const secret = process.env.RAMP_WEBHOOK_SECRET;
+  if (!secret) {
+    return NextResponse.json({ error: "Webhook not configured" }, { status: 500 });
   }
 
   // Every business event is signed — verify before acting on any of its data.
