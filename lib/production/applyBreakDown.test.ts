@@ -24,8 +24,9 @@ function makeClient(opts: {
   const csi = opts.csi.map((r) => ({ ...r }));
   const effects: Array<Record<string, unknown>> = [];
 
-  const from = (table: string): any => {
+  const from = (table: string) => {
     if (table === "packaging_variations") {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const q: any = { _filters: {} };
       q.select = () => q;
       q.eq = (col: string, val: unknown) => { q._filters[col] = val; return q; };
@@ -45,9 +46,10 @@ function makeClient(opts: {
       return q;
     }
     if (table === "cold_storage_inventory") {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const q: any = { _f: {}, _mode: "read", _order: false, _limit: 0, _payload: undefined as unknown };
       q.select = () => q;
-      q.insert = (payload: any) => {
+      q.insert = (payload: { batch_id: string; recipe_id: string; variation_id: string; quantity_on_hand: number }) => {
         effects.push({ table, op: "insert", payload });
         // Real Supabase persists the row; later ops in the same execution (e.g. a
         // cascade's second break) read it back. Push it into `csi` so subsequent
@@ -67,8 +69,8 @@ function makeClient(opts: {
       q.delete = () => { q._mode = "delete"; return q; };
       q.eq = (col: string, val: unknown) => {
         if (q._mode === "update") {
-          const row = csi.find((r) => r.id === val); if (row) row.quantity_on_hand = (q._payload as any).quantity_on_hand;
-          effects.push({ table, op: "update", id: val, quantity_on_hand: (q._payload as any).quantity_on_hand });
+          const row = csi.find((r) => r.id === val); if (row) row.quantity_on_hand = (q._payload as { quantity_on_hand: number }).quantity_on_hand;
+          effects.push({ table, op: "update", id: val, quantity_on_hand: (q._payload as { quantity_on_hand: number }).quantity_on_hand });
           return Promise.resolve({ error: null });
         }
         if (q._mode === "delete") {
