@@ -1285,16 +1285,19 @@ function BatchTable({
                   <td className="px-4 py-2.5 font-mono text-xs text-secondary whitespace-nowrap min-w-[110px]">
                     <span className="flex items-center gap-1.5">
                       {b.batch_number ?? "—"}
-                      {scheduleMissing && b.status !== "complete" && (
-                        <span
-                          className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-accent-emphasis text-canvas text-[10px] font-bold leading-none shrink-0"
-                          title="Schedule incomplete — missing required stages"
-                        >
-                          !
-                        </span>
-                      )}
-                      <AllocationBadge batchId={b.id} batchVol={Number(b.volume_bbl)} status={b.status} />
-                      <DepositInvoiceBadge batchId={b.id} status={b.status} />
+                      {/* Warning dots stack 2-per-row (auto tracks so 1 dot doesn't reserve a phantom column); empty:hidden drops the gap when a batch is clean. */}
+                      <span className="grid grid-cols-[auto_auto] gap-0.5 empty:hidden">
+                        {scheduleMissing && b.status !== "complete" && (
+                          <span
+                            className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-accent-emphasis text-canvas text-[10px] font-bold leading-none shrink-0"
+                            title="Schedule incomplete — missing required stages"
+                          >
+                            !
+                          </span>
+                        )}
+                        <AllocationBadge batchId={b.id} batchVol={Number(b.volume_bbl)} status={b.status} />
+                        <DepositInvoiceBadge batchId={b.id} status={b.status} />
+                      </span>
                     </span>
                   </td>
                   <td className="px-4 py-2.5 text-primary font-medium">
@@ -1727,21 +1730,39 @@ function DepositInvoiceBadge({ batchId, status }: { batchId: string; status: str
     queryFn: () => fetchJson<BatchAllocation[]>(`/api/production/allocations?batch_id=${batchId}`),
   });
   if (status === "complete") return null;
-  // Warn whenever a contract deposit is still owed — whether or not the invoice
-  // has been generated yet. Missing invoice and generated-but-unpaid both count.
+  // Warn whenever a contract deposit is still owed, split by how far the invoice
+  // has progressed so the two gaps read as distinct dots:
+  //   • not sent  (orange $) — no invoice has reached the partner yet (un-created or draft)
+  //   • sent-open (red $)    — invoice was sent but the deposit is still unpaid
   const unpaid = allocations.filter(a => a.channel === "contract_brewing" && !a.invoice_paid_at);
   if (!unpaid.length) return null;
-  const notInvoiced = unpaid.filter(a => !a.invoice_generated_at).length;
-  const title = notInvoiced > 0
-    ? `${unpaid.length} unpaid deposit${unpaid.length > 1 ? "s" : ""} (${notInvoiced} not yet invoiced)`
-    : `${unpaid.length} unpaid deposit invoice${unpaid.length > 1 ? "s" : ""}`;
+  const notSent = unpaid.filter(a => !a.invoice_sent_at);
+  const sentOpen = unpaid.filter(a => a.invoice_sent_at);
+  const notInvoiced = notSent.filter(a => !a.invoice_generated_at).length;
+
+  const notSentTitle = `${notSent.length} deposit invoice${notSent.length > 1 ? "s" : ""} not sent`
+    + (notInvoiced > 0 ? ` (${notInvoiced} not yet created)` : "");
+  const sentOpenTitle = `${sentOpen.length} sent deposit invoice${sentOpen.length > 1 ? "s" : ""} still unpaid`;
+
   return (
-    <span
-      className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-orange-500 text-canvas text-[10px] font-bold leading-none shrink-0"
-      title={title}
-    >
-      $
-    </span>
+    <>
+      {notSent.length > 0 && (
+        <span
+          className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-orange-500 text-canvas text-[10px] font-bold leading-none shrink-0"
+          title={notSentTitle}
+        >
+          $
+        </span>
+      )}
+      {sentOpen.length > 0 && (
+        <span
+          className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-danger-emphasis text-canvas text-[10px] font-bold leading-none shrink-0"
+          title={sentOpenTitle}
+        >
+          $
+        </span>
+      )}
+    </>
   );
 }
 
