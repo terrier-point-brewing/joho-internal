@@ -38,12 +38,13 @@ export async function GET(req: NextRequest) {
     // Safety-net for the invoice webhook: re-reconcile every non-terminal Square
     // invoice so a missed delivery self-heals within a day. Bounded to unpaid
     // invoices; idempotent (same code path as the webhook).
-    const { data: openInvoices } = await supabase
+    const { data: openInvoices, error: openInvoicesErr } = await supabase
       .from("invoices")
       .select("square_invoice_id")
       .eq("source", "square")
       .not("square_invoice_id", "is", null)
       .in("status", ["draft", "open", "partial"]);
+    if (openInvoicesErr) console.error("[finance-sync] failed to load non-terminal invoices", openInvoicesErr);
 
     let invoicesReconciled = 0;
     for (const row of openInvoices ?? []) {

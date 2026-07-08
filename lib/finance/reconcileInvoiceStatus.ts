@@ -130,6 +130,10 @@ export async function reconcileInvoiceStatus(
   base.updatedLedger = true;
 
   // ── Export transactions (invoice_id FK) ──────────────────────────────────────
+  // A voided/refunded or draft ledger status yields no export target: we
+  // intentionally leave already-`paid` export_transactions rows as paid on a
+  // full refund (refunded dollars are tracked separately by the refund sync)
+  // and never regress a paid row. Only paid/open/partial produce a target.
   const exportTarget = exportStatusForLedger(ledgerStatus);
   if (exportTarget === "paid") {
     const { data, error: exPaidErr } = await supabase
