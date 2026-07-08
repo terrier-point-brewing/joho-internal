@@ -59,9 +59,13 @@ export function buildInventoryGrid(
   const columnTotals: Record<string, number> = Object.fromEntries(columns.map((c) => [c.key, 0]));
   let grandTotalBbl = 0;
 
-  const rows: InventoryRow[] = grid.rows.map((row) => {
+  const built = grid.rows.map((row) => {
     const cells: Record<string, InventoryCell | null> = {};
     let rowTotalBbl = 0;
+    // A recipe belongs in the taproom view iff it's mapped into Square — i.e. it
+    // has at least one recipe_square_links link. On-hand quantity is irrelevant:
+    // a mapped recipe that's currently out of stock still shows (as an empty row).
+    let mapped = false;
 
     for (const col of columns) {
       const cell = row.cells[col.key];
@@ -76,6 +80,7 @@ export function buildInventoryGrid(
       for (const v of cell.variations) {
         // Only linked variations can carry inventory; skip suggestions/unmapped slots.
         if (!v.linkId) continue;
+        mapped = true; // this recipe is mapped into Square, regardless of on-hand count
         const inv = inventoryByLinkId.get(v.linkId);
         if (!inv) continue;
         variations.push({
@@ -94,16 +99,23 @@ export function buildInventoryGrid(
     }
 
     grandTotalBbl += rowTotalBbl;
-    return {
+    const inventoryRow: InventoryRow = {
       recipeId: row.recipeId,
       recipeName: row.recipeName,
       recipePartnerName: row.recipePartnerName,
       totalBbl: round(rowTotalBbl),
       cells,
     };
+    return { inventoryRow, mapped };
   });
 
   for (const key of Object.keys(columnTotals)) columnTotals[key] = round(columnTotals[key]);
+
+  // Drop recipes that aren't mapped into Square: with no link they carry no
+  // taproom inventory and don't belong in this "cold storage available to the
+  // taproom" view. Column/grand totals are unaffected — unmapped rows contribute
+  // zero to every cell.
+  const rows = built.filter((b) => b.mapped).map((b) => b.inventoryRow);
 
   return { columns, rows, columnTotals, grandTotalBbl: round(grandTotalBbl) };
 }

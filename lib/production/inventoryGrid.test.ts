@@ -71,20 +71,60 @@ describe("buildInventoryGrid", () => {
     expect(grid.grandTotalBbl).toBe(5);
   });
 
-  it("drops unlinked variations and links with no inventory, leaving an empty cell", () => {
+  it("drops recipes that aren't mapped into Square, keeping mapped rows even at zero stock", () => {
     const rows: GridRow[] = [
-      row("r1", "Ghost Beer", {
-        draft: { variations: [cellVar("draft", "Draft", null)] }, // unmapped
-        "keg|1984": { variations: [cellVar("v-keg", "1/2 Keg", "L-missing")] }, // linked but no inventory row
+      // Fully unmapped — no link on any variation. Not in the taproom view.
+      row("r1", "Unmapped House Ale", {
+        draft: { variations: [cellVar("draft", "Draft", null)] },
+        "keg|1984": { variations: [cellVar("v-keg", "1/2 Keg", null)] },
         "can|12|6-pack": null,
       }),
+      // Mapped but currently out of stock (link present, no inventory row) — kept.
+      row("r2", "Mapped But Empty", {
+        draft: { variations: [cellVar("draft", "Draft", "L-empty")] },
+        "keg|1984": null,
+        "can|12|6-pack": null,
+      }, "Fortnight Brewing"),
     ];
 
     const grid = buildInventoryGrid({ columns, rows }, new Map());
 
-    expect(grid.rows[0].cells["draft"]).toEqual({ totalBbl: 0, variations: [] });
-    expect(grid.rows[0].cells["keg|1984"]).toEqual({ totalBbl: 0, variations: [] });
+    // Unmapped recipe dropped; mapped-but-empty recipe kept as an empty row.
+    expect(grid.rows).toHaveLength(1);
+    expect(grid.rows[0].recipeName).toBe("Mapped But Empty");
     expect(grid.rows[0].totalBbl).toBe(0);
+    expect(grid.rows[0].cells["draft"]).toEqual({ totalBbl: 0, variations: [] });
     expect(grid.grandTotalBbl).toBe(0);
+  });
+
+  it("keeps mapped recipes regardless of on-hand quantity", () => {
+    const rows: GridRow[] = [
+      row("r1", "Stocked IPA", {
+        draft: { variations: [cellVar("draft", "Draft", "L1")] },
+        "keg|1984": null,
+        "can|12|6-pack": null,
+      }),
+      row("r2", "Empty Mapped Ale", {
+        draft: { variations: [cellVar("draft", "Draft", "L2")] },
+        "keg|1984": null,
+        "can|12|6-pack": null,
+      }, "Argus Beverage Ventures LLC"),
+      row("r3", "Unmapped Ale", {
+        draft: { variations: [cellVar("draft", "Draft", null)] },
+        "keg|1984": null,
+        "can|12|6-pack": null,
+      }),
+    ];
+
+    const inv = new Map<string, LinkInventory>([
+      ["L1", { currentQty: 1984, currentBbl: 0.5, packaging: "draft" }],
+      ["L2", { currentQty: 0, currentBbl: 0, packaging: "draft" }], // mapped, zero on hand
+    ]);
+
+    const grid = buildInventoryGrid({ columns, rows }, inv);
+
+    // Both mapped recipes kept (stocked and empty); only the unmapped one drops.
+    expect(grid.rows.map((r) => r.recipeName)).toEqual(["Stocked IPA", "Empty Mapped Ale"]);
+    expect(grid.grandTotalBbl).toBe(0.5);
   });
 });
