@@ -180,6 +180,9 @@ async function createInvoice(params: CreateInvoiceCoreParams): Promise<{ orderId
           catalog_object_id: li.squareCatalogVariationId,
           quantity: String(li.quantity),
           base_price_money: { amount: li.unitPriceCents, currency: "USD" },
+          // For catalog lines the name comes from Square's catalog, so surface the
+          // user-entered description as the line item's note instead of losing it.
+          ...(li.description ? { note: li.description } : {}),
         }
       : {
           uid,
