@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { adjustmentCost } from "@/lib/finance/cogs";
 
 export const dynamic = "force-dynamic";
 
@@ -56,7 +57,7 @@ export async function GET(req: NextRequest) {
     quantity:    r.quantity,
     unit:        r.unit,
     cost_per_unit: r.cost_per_unit,
-    total_cost:  Math.abs(r.total_value_change ?? (r.quantity * (r.cost_per_unit ?? 0))),
+    total_cost:  adjustmentCost(r),
     date:        r.created_at,
     type:        "ingredient" as const,
   }));
@@ -71,7 +72,7 @@ export async function GET(req: NextRequest) {
     quantity:     r.quantity,
     unit:         null,
     cost_per_unit: r.cost_per_unit,
-    total_cost:   Math.abs(r.total_value_change ?? (r.quantity * (r.cost_per_unit ?? 0))),
+    total_cost:   adjustmentCost(r),
     date:         r.created_at,
     type:         "packaging" as const,
   }));

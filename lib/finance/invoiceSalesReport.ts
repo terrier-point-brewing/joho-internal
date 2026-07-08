@@ -35,7 +35,7 @@ const REPORT_CHANNELS: ReportChannel[] = ["distribution", "contract_brewing", "w
 // excise on wholesale shipments is the buyer's liability, not TPB's.
 const EXCISE_LIABLE_CHANNELS = new Set<ReportChannel>(["distribution", "contract_brewing"]);
 
-interface LineItemRow {
+export interface LineItemRow {
   category: string | null;
   total_cents: number | null;
   chart_of_accounts_id: string | null;
@@ -44,12 +44,12 @@ interface LineItemRow {
   raw_data: Record<string, unknown> | null;
 }
 
-interface ExciseTaxRow {
+export interface ExciseTaxRow {
   tax_name: string;
   amount_usd: number | null;
 }
 
-interface ExportTxnRow {
+export interface ExportTxnRow {
   channel: string;
   volume_bbl: number | null;
   quantity: number | null;
@@ -57,7 +57,7 @@ interface ExportTxnRow {
   export_transaction_taxes: ExciseTaxRow[] | null;
 }
 
-interface InvoiceRow {
+export interface InvoiceRow {
   id: string;
   invoice_date: string | null;
   status: string;
@@ -143,14 +143,6 @@ export async function buildInvoiceSalesReport(
   supabase: SupabaseClient,
   year: number
 ): Promise<InvoiceSalesReport> {
-  const now = new Date();
-  const months: string[] = [];
-  for (let m = 1; m <= 12; m++) {
-    if (year < now.getFullYear() || m <= now.getMonth() + 1) {
-      months.push(`${year}-${String(m).padStart(2, "0")}`);
-    }
-  }
-
   // One query gets revenue (line items) + channel/volume/excise (export txns)
   // for every non-draft export invoice in the year. Drafts are excluded: their
   // line items carry placeholder categories until send/sync. Excise comes from
@@ -171,6 +163,32 @@ export async function buildInvoiceSalesReport(
     .lte("invoice_date", `${year}-12-31`);
 
   if (error) throw error;
+
+  return assembleInvoiceSalesReport((data ?? []) as unknown as InvoiceRow[], year);
+}
+
+/**
+ * Pure assembly of the invoice sales report from already-fetched invoice rows.
+ *
+ * This is the mixed-unit money seam: line-item revenue arrives as INTEGER CENTS
+ * (`total_cents`, `raw_data.gross/discount`) and is divided by 100 into dollars,
+ * while excise arrives as DECIMAL DOLLARS (`amount_usd`) and is summed as-is.
+ * Both must land in the same dollar-denominated statement row, so the ÷100 must
+ * be applied to revenue and NOT to excise.
+ *
+ * `now` is injectable so the "months so far" logic is testable deterministically.
+ */
+export function assembleInvoiceSalesReport(
+  invoices: readonly InvoiceRow[],
+  year: number,
+  now: Date = new Date()
+): InvoiceSalesReport {
+  const months: string[] = [];
+  for (let m = 1; m <= 12; m++) {
+    if (year < now.getFullYear() || m <= now.getMonth() + 1) {
+      months.push(`${year}-${String(m).padStart(2, "0")}`);
+    }
+  }
 
   const exciseCoverage: ExciseCoverage = {
     missingDetailTxns: 0,
@@ -201,8 +219,6 @@ export async function buildInvoiceSalesReport(
     unrecognized.byChannel[key] = (unrecognized.byChannel[key] ?? 0) + s.amountDollars;
     if (unrecognized.samples.length < 25) unrecognized.samples.push(s);
   }
-
-  const invoices = (data ?? []) as unknown as InvoiceRow[];
 
   for (const inv of invoices) {
     const ym = (inv.invoice_date ?? "").slice(0, 7);
