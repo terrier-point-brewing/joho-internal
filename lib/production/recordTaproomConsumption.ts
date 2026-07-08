@@ -27,7 +27,7 @@ const EPS = 1e-4;
 export async function recordTaproomConsumption(
   supabase: SupabaseClient,
   params: RecordTaproomConsumptionParams,
-): Promise<{ recordedQty: number; shortfallQty: number; exportTransactionIds: string[]; breaks: AppliedBreak[] }> {
+): Promise<{ recordedQty: number; shortfallQty: number; exportTransactionIds: string[]; breaks: AppliedBreak[]; warnings: string[] }> {
   const { recipeId, variationId, quantity } = params;
 
   let available = await getAvailableColdStorageQuantity(supabase, { recipeId, variationId });
@@ -36,9 +36,11 @@ export async function recordTaproomConsumption(
   // up (case->pack->single, smallest-first). Only the taproom path breaks; sealed
   // wholesale stock is never auto-cracked. No-op for kegs / no-higher-tier cans.
   let breaks: AppliedBreak[] = [];
+  let warnings: string[] = [];
   if (available < quantity - EPS) {
     const bd = await applyBreakDown(supabase, { recipeId, variationId, needed: quantity, sourceRef: params.sourceRef });
     breaks = bd.applied;
+    warnings = bd.warnings;
     if (bd.applied.length > 0) {
       available = await getAvailableColdStorageQuantity(supabase, { recipeId, variationId });
     }
@@ -48,7 +50,7 @@ export async function recordTaproomConsumption(
   const shortfall = quantity - recordable;
 
   if (recordable <= 0) {
-    return { recordedQty: 0, shortfallQty: shortfall, exportTransactionIds: [], breaks };
+    return { recordedQty: 0, shortfallQty: shortfall, exportTransactionIds: [], breaks, warnings };
   }
 
   const result = await writeColdStorageShipment(supabase, {
@@ -64,5 +66,5 @@ export async function recordTaproomConsumption(
     notes: params.notes ?? null,
   });
 
-  return { recordedQty: recordable, shortfallQty: shortfall, exportTransactionIds: result.exportTransactionIds, breaks };
+  return { recordedQty: recordable, shortfallQty: shortfall, exportTransactionIds: result.exportTransactionIds, breaks, warnings };
 }

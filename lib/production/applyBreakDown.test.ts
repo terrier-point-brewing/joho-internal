@@ -152,4 +152,49 @@ describe("applyBreakDown", () => {
     expect(res.shortfall).toBe(0);
     expect(effects.filter((e) => e.table === "cold_storage_breaks")).toHaveLength(2);
   });
+
+  it("skips an op whose oldest parent row holds less than one whole unit, even though the tier's aggregate on-hand looked sufficient to the planner", async () => {
+    // Two pack rows (0.6 + 0.5 = 1.1) satisfy planBreakDown's own aggregate
+    // on-hand threshold (>= 1 - EPS), so it plans a single pack->single break.
+    // But the OLDEST physical row (fetched at execution time) only holds 0.6 of
+    // a unit -- not enough to crack a whole parent. Without the guard, the old
+    // code would still delete that row (0.6 - 1 <= DUST) and credit a full 4
+    // singles, manufacturing 3.4 cans' worth of stock from nothing.
+    const { client, effects, csi } = makeClient({
+      target, family: family16,
+      csi: [
+        { id: "row-pack-a", batch_id: "B-1", recipe_id: "r1", variation_id: ID.pack, quantity_on_hand: 0.6, created_at: "2026-01-01" },
+        { id: "row-pack-b", batch_id: "B-2", recipe_id: "r1", variation_id: ID.pack, quantity_on_hand: 0.5, created_at: "2026-01-02" },
+      ],
+    });
+    const res = await applyBreakDown(client, { recipeId: "r1", variationId: ID.single, needed: 4, sourceRef: null });
+
+    expect(res.applied).toEqual([]);
+    // Neither pack row was touched, no single row was created, no break journaled.
+    expect(effects.filter((e) => e.table === "cold_storage_inventory" && e.op !== undefined)).toEqual([]);
+    expect(effects.filter((e) => e.table === "cold_storage_breaks")).toEqual([]);
+    expect(csi.find((r) => r.id === "row-pack-a")?.quantity_on_hand).toBe(0.6);
+    expect(csi.find((r) => r.id === "row-pack-b")?.quantity_on_hand).toBe(0.5);
+    expect(csi.some((r) => r.variation_id === ID.single)).toBe(false);
+  });
+
+  it("returns a defensive no-op instead of throwing when the sold variation isn't among the derived can tiers", async () => {
+    // Shape: the sold variation's own container/lid/label/partner identity matches
+    // a container that (for whatever data reason) also hosts >=2 real can tiers,
+    // but the sold variation itself isn't one of those tiers (its format didn't
+    // pass the CAN_FORMATS filter, so it's simply absent from the derived family).
+    // planBreakDown would throw "not in tiers" for this; applyBreakDown should
+    // defensively no-op instead of aborting the whole sync run.
+    const oddballTarget = { id: "v-target-oddball", container_id: "canY", lid_id: "lid", label_id: "lbl", partner_id: "cbc" };
+    const oddballFamily = [
+      { id: "v-real-single", format: "loose", total_volume_fl_oz: 16, container_id: "canY", lid_id: "lid", label_id: "lbl", partner_id: "cbc" },
+      { id: "v-real-pack", format: "4-pack", total_volume_fl_oz: 64, container_id: "canY", lid_id: "lid", label_id: "lbl", partner_id: "cbc" },
+    ];
+    const { client, effects } = makeClient({ target: oddballTarget, family: oddballFamily, csi: [] });
+
+    const res = await applyBreakDown(client, { recipeId: "r1", variationId: "v-target-oddball", needed: 2, sourceRef: null });
+
+    expect(res).toEqual({ applied: [], shortfall: 0, warnings: [] });
+    expect(effects).toEqual([]);
+  });
 });

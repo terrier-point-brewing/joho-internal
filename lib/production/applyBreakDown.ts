@@ -6,6 +6,15 @@
 // journals each break to cold_storage_breaks. Breaks stay within a single batch so
 // attribution is preserved. Scoped to the taproom fungible path — the caller
 // (recordTaproomConsumption) invokes this only when the target tier is short.
+//
+// Accepted wholesale-case behavior: cold storage is a single shared pool with
+// wholesale -- there is no reservation overlay carving out sealed cases for
+// wholesale-only use. planBreakDown cracks smallest-first (case only breaks
+// into packs, never straight to singles), but if a beer is stocked as cases
+// only, a single taproom sale WILL crack a sealed case meant for wholesale.
+// This is intentional, not a bug: the break is journaled to cold_storage_breaks
+// for audit, and adding a reservation system is out of scope unless this proves
+// to be a real operational problem.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { planBreakDown, deriveCansEach, type Tier } from "./coldStorageBreak";
@@ -67,6 +76,17 @@ export async function applyBreakDown(
     variations: family.map((v) => ({ variationId: v.id, format: v.format, totalVolumeFlOz: Number(v.total_volume_fl_oz) })),
   });
 
+  // 4b. Defensive guard: the sold variation should always be one of the derived
+  // tiers (it shares identity with the family we just built it from). It can
+  // fall out only if its own format isn't a CAN_FORMATS member while >=2 sibling
+  // can-tiers still share its container/lid/label/partner identity -- a data
+  // shape planBreakDown would reject with a thrown "not in tiers". Rather than
+  // let that exception abort the whole sync run, no-op: nothing to break for a
+  // variation that isn't part of a can family in the first place.
+  if (!derived.some((t) => t.variationId === variationId)) {
+    return { applied: [], shortfall: 0, warnings };
+  }
+
   // 5. Current on-hand per tier for this recipe.
   const varIds = derived.map((t) => t.variationId);
   const { data: onHandRows, error: ohErr } = await supabase
@@ -84,6 +104,19 @@ export async function applyBreakDown(
   const plan = planBreakDown({ tiers, targetVariationId: variationId, needed });
 
   // 7. Execute each op within a single batch.
+  //
+  // NOTE on atomicity: the three writes below (parent decrement/delete, child
+  // add/insert, journal insert) are NOT wrapped in a DB transaction -- they're
+  // three sequential round-trips. Ordering is parent-first deliberately: if the
+  // process dies mid-op after the parent write but before the child write, the
+  // result UNDERSTATES stock (a parent unit vanishes with no child credited),
+  // which is safe -- it can never oversell. The inverse ordering could create
+  // phantom child units backed by a parent that was never actually decremented.
+  // This is not self-healing: a lost parent unit from a partial failure won't
+  // be recovered by a later run (there's nothing recorded to reconcile from).
+  // Accepted for now since this runs single-threaded in a background reconcile
+  // job; revisit with a plpgsql RPC (single atomic statement) if partial
+  // failures ever prove to be a real problem in practice.
   const applied: AppliedBreak[] = [];
   for (const op of plan.ops) {
     // Oldest cold-storage row of the parent tier for this recipe -> its batch.
@@ -96,7 +129,16 @@ export async function applyBreakDown(
       .limit(1);
     if (sErr) throw new Error(sErr.message);
     const srcRow = (srcRows ?? [])[0];
-    if (!srcRow) continue; // raced away since planning; skip (caller re-checks availability)
+    // Skip if raced away since planning, OR if the oldest physical row holds
+    // less than one whole unit. planBreakDown only checks the tier's AGGREGATE
+    // on-hand (which can be >= 1 across several fractional rows, e.g. 0.6 + 0.5)
+    // before deciding to crack it; but this loop always cracks a single physical
+    // row. If that row itself holds < 1 unit, decrementing it would hit the
+    // dust-delete path below while still crediting a full `toUnits` children --
+    // manufacturing cans from a parent that never physically existed. Skip the
+    // op instead; the caller (recordTaproomConsumption) re-checks availability
+    // and reports any resulting shortfall honestly.
+    if (!srcRow || Number(srcRow.quantity_on_hand) < 1 - DUST) continue;
     const batchId = srcRow.batch_id;
 
     // Decrement one parent unit (delete at dust).
