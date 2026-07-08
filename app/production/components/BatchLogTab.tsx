@@ -864,16 +864,21 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
         </div>
       )}
 
-      {/* Unpaid deposit invoices banner */}
+      {/* Unpaid deposit banner — covers both un-invoiced and invoiced-but-unpaid deposits */}
       {(() => {
-        const unpaid = allocations.filter(a => a.channel === "contract_brewing" && a.invoice_generated_at && !a.invoice_paid_at);
+        const unpaid = allocations.filter(a => a.channel === "contract_brewing" && !a.invoice_paid_at);
         if (!unpaid.length) return null;
+        const notInvoiced = unpaid.filter(a => !a.invoice_generated_at).length;
         const sentCount = unpaid.filter(a => a.invoice_sent_at).length;
-        const label = unpaid.length === 1 ? "invoice" : "invoices";
+        const label = unpaid.length === 1 ? "deposit" : "deposits";
+        const detail = [
+          notInvoiced > 0 ? `${notInvoiced} not yet invoiced` : null,
+          sentCount > 0 ? `${sentCount} sent` : null,
+        ].filter(Boolean).join(", ");
         return (
-          <div className="px-3 py-2 rounded border border-orange-700/50 bg-orange-950/20 text-xs text-orange-400 leading-relaxed">
-            <span className="font-semibold">⚠ Unpaid deposit {label}</span>
-            {" "}— {unpaid.length} contract brewing allocation{unpaid.length > 1 ? "s" : ""} {sentCount > 0 ? `(${sentCount} sent)` : ""} awaiting payment.
+          <div className="px-3 py-2 rounded border border-orange-700/50 bg-orange-950/20 text-orange-400 text-xs leading-relaxed">
+            <span className="font-semibold">⚠ Unpaid contract {label}</span>
+            {" "}— {unpaid.length} contract brewing allocation{unpaid.length > 1 ? "s" : ""} {detail ? `(${detail}) ` : ""}awaiting deposit payment.
           </div>
         );
       })()}
@@ -1722,9 +1727,14 @@ function DepositInvoiceBadge({ batchId, status }: { batchId: string; status: str
     queryFn: () => fetchJson<BatchAllocation[]>(`/api/production/allocations?batch_id=${batchId}`),
   });
   if (status === "complete") return null;
-  const unpaid = allocations.filter(a => a.channel === "contract_brewing" && a.invoice_generated_at && !a.invoice_paid_at);
+  // Warn whenever a contract deposit is still owed — whether or not the invoice
+  // has been generated yet. Missing invoice and generated-but-unpaid both count.
+  const unpaid = allocations.filter(a => a.channel === "contract_brewing" && !a.invoice_paid_at);
   if (!unpaid.length) return null;
-  const title = `${unpaid.length} unpaid deposit invoice${unpaid.length > 1 ? "s" : ""}`;
+  const notInvoiced = unpaid.filter(a => !a.invoice_generated_at).length;
+  const title = notInvoiced > 0
+    ? `${unpaid.length} unpaid deposit${unpaid.length > 1 ? "s" : ""} (${notInvoiced} not yet invoiced)`
+    : `${unpaid.length} unpaid deposit invoice${unpaid.length > 1 ? "s" : ""}`;
   return (
     <span
       className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-orange-500 text-canvas text-[10px] font-bold leading-none shrink-0"
