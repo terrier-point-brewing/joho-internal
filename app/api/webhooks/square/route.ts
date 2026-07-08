@@ -94,6 +94,7 @@ export async function POST(req: NextRequest) {
             type: event.type,
             invoiceId,
             ledgerStatus: result.ledgerStatus,
+            invoiceMissing: result.invoiceMissing ?? false,
             updatedExportTransactions: result.updatedExportTransactions,
             updatedAllocation: result.updatedAllocation,
             paymentCaptured: result.paymentCaptured,

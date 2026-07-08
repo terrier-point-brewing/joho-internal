@@ -1,7 +1,16 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getInvoiceStatus, getOrderPayment } from "@/lib/square/square-invoices";
+import { isSquareNotFound } from "@/lib/square/client";
 import { mapSquareInvoiceStatus } from "@/lib/finance/invoiceStatus";
 import type { InvoiceStatus } from "@/types/finance";
+
+/**
+ * Synthetic Square status recorded when an invoice was deleted directly in the
+ * Square dashboard (Square returns 404 / `NOT_FOUND`, so there is no real status
+ * to read). Treated as terminal: it maps to a `voided` ledger row and reopens a
+ * deposit allocation for regeneration, exactly like CANCELED/FAILED.
+ */
+export const MISSING_SQUARE_STATUS = "DELETED";
 
 /**
  * Target `export_transactions.status` for a given ledger status, or null when
@@ -25,7 +34,7 @@ export interface AllocationInvoiceTimestamps {
   invoice_paid_at?: string | null;
 }
 
-const SQUARE_TERMINAL_FAILURE = new Set(["CANCELED", "FAILED"]);
+const SQUARE_TERMINAL_FAILURE = new Set(["CANCELED", "FAILED", MISSING_SQUARE_STATUS]);
 
 /**
  * Compute the deposit-allocation timestamp changes for a reconcile. Pure — the
@@ -74,6 +83,12 @@ export interface ReconcileInvoiceStatusResult {
   updatedAllocation: boolean;
   paymentCaptured: boolean;
   skippedReason?: "no-ledger-row";
+  /**
+   * True when Square returned 404 / NOT_FOUND — the invoice was deleted directly
+   * in the Square dashboard. The reconcile treats this as terminal (voids the
+   * ledger row) rather than throwing, so the daily cron stops re-hitting it.
+   */
+  invoiceMissing?: boolean;
 }
 
 /**
@@ -90,7 +105,17 @@ export async function reconcileInvoiceStatus(
   supabase: SupabaseClient,
   squareInvoiceId: string,
 ): Promise<ReconcileInvoiceStatusResult> {
-  const sq = await getInvoiceStatus(squareInvoiceId);
+  let sq: Awaited<ReturnType<typeof getInvoiceStatus>>;
+  try {
+    sq = await getInvoiceStatus(squareInvoiceId);
+  } catch (err) {
+    // Invoice deleted directly in Square (404 / NOT_FOUND). Terminal, not an
+    // error to retry: void the ledger row so the daily cron's non-terminal
+    // filter stops re-hitting it every run. Any other Square failure still
+    // throws (transient — the cron/webhook should retry).
+    if (isSquareNotFound(err)) return voidMissingInvoice(supabase, squareInvoiceId);
+    throw err;
+  }
   const ledgerStatus = mapSquareInvoiceStatus(sq.status);
   const now = new Date().toISOString();
 
@@ -190,6 +215,82 @@ export async function reconcileInvoiceStatus(
     if (Object.keys(patch).length > 0) {
       const { error: allocErr } = await supabase.from("batch_allocations").update(patch).eq("id", alloc.id);
       if (allocErr) throw new Error(`allocation update failed: ${allocErr.message}`);
+      base.updatedAllocation = true;
+    }
+  }
+
+  return base;
+}
+
+/**
+ * Handle a Square invoice that no longer exists (deleted in the Square
+ * dashboard → 404 / NOT_FOUND from `getInvoiceStatus`). Terminal, never throws
+ * for the missing invoice itself:
+ *  - Void the finance ledger row (status → `voided`) and stamp raw_data so the
+ *    daily cron's `('draft','open','partial')` filter no longer selects it —
+ *    which stops the perpetual per-run error log.
+ *  - Reopen any deposit allocation (clear `invoice_sent_at`) for regeneration,
+ *    matching the CANCELED/FAILED path via `buildAllocationInvoiceTimestamps`.
+ *
+ * DB write failures still throw (a genuinely broken write should surface).
+ */
+async function voidMissingInvoice(
+  supabase: SupabaseClient,
+  squareInvoiceId: string,
+): Promise<ReconcileInvoiceStatusResult> {
+  const now = new Date().toISOString();
+  const base: ReconcileInvoiceStatusResult = {
+    squareInvoiceId,
+    squareStatus: MISSING_SQUARE_STATUS,
+    ledgerStatus: "voided",
+    updatedLedger: false,
+    updatedExportTransactions: 0,
+    updatedAllocation: false,
+    paymentCaptured: false,
+    invoiceMissing: true,
+  };
+
+  const { data: inv } = await supabase
+    .from("invoices")
+    .select("id, raw_data")
+    .eq("source", "square")
+    .eq("square_invoice_id", squareInvoiceId)
+    .maybeSingle();
+
+  if (!inv) {
+    console.warn("[reconcileInvoiceStatus] deleted Square invoice has no ledger row", { squareInvoiceId });
+    return { ...base, skippedReason: "no-ledger-row" };
+  }
+
+  const rawData = { ...((inv.raw_data as Record<string, unknown> | null) ?? {}), square_status: MISSING_SQUARE_STATUS, deleted_at: now };
+  const { error: ledgerErr } = await supabase
+    .from("invoices")
+    .update({ status: "voided", raw_data: rawData })
+    .eq("id", inv.id);
+  if (ledgerErr) throw new Error(`ledger void failed: ${ledgerErr.message}`);
+  base.updatedLedger = true;
+
+  // ── Deposit allocation ───────────────────────────────────────────────────────
+  // A deleted deposit invoice reopens the allocation (same as CANCELED); no
+  // payment could exist for a now-nonexistent invoice, so nothing to capture.
+  const { data: alloc } = await supabase
+    .from("batch_allocations")
+    .select("id, invoice_sent_at, invoice_paid_at")
+    .eq("square_deposit_invoice_id", squareInvoiceId)
+    .maybeSingle();
+
+  if (alloc) {
+    const patch = buildAllocationInvoiceTimestamps({
+      squareStatus: MISSING_SQUARE_STATUS,
+      ledgerStatus: "voided",
+      current: { invoice_sent_at: alloc.invoice_sent_at, invoice_paid_at: alloc.invoice_paid_at },
+      paidAt: null,
+      updatedAt: null,
+      now,
+    });
+    if (Object.keys(patch).length > 0) {
+      const { error: allocErr } = await supabase.from("batch_allocations").update(patch).eq("id", alloc.id);
+      if (allocErr) throw new Error(`allocation void failed: ${allocErr.message}`);
       base.updatedAllocation = true;
     }
   }
