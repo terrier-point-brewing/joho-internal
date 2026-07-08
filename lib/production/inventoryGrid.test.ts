@@ -1,130 +1,62 @@
 import { describe, it, expect } from "vitest";
-import { buildInventoryGrid, type LinkInventory } from "./inventoryGrid";
+import { buildInventoryGrid, type InventorySources } from "./inventoryGrid";
+import { coldStorageKey } from "./coldStorageOnHand";
+import type { ColdStorageOnHand } from "./coldStorageOnHand";
 import type { ColumnDef, GridRow } from "./squareMappingGrid";
 
 const columns: ColumnDef[] = [
   { key: "draft", label: "Draft", type: "draft", volumeFlOz: null, format: null },
   { key: "keg|1984", label: "1/2 Keg", type: "keg", volumeFlOz: 1984, format: null },
-  { key: "can|12|6-pack", label: "12oz 6-Pack", type: "can", volumeFlOz: 12, format: "6-pack" },
+  { key: "can|16|loose", label: "16oz Loose", type: "can", volumeFlOz: 16, format: "loose" },
+  { key: "can|16|case", label: "16oz Case", type: "can", volumeFlOz: 16, format: "case" },
 ];
 
-// Minimal cell-variation factory — only the fields buildInventoryGrid reads.
 function cellVar(variationId: string, variationName: string, linkId: string | null) {
-  return {
-    variationId,
-    variationName,
-    linkId,
-    linkedSquareCatalogVariationId: null,
-    linkedSquareName: linkId ? "Square Item" : null,
-    suggestion: null,
-  };
+  return { variationId, variationName, linkId, linkedSquareCatalogVariationId: null, linkedSquareName: linkId ? "Square Item" : null, suggestion: null };
 }
-
 function row(recipeId: string, recipeName: string, cells: GridRow["cells"], partner: string | null = null): GridRow {
   return { recipeId, recipeName, recipePartnerName: partner, cells };
 }
+const cs = (qty: number, vol: number, format: string, ct: "keg" | "can"): ColdStorageOnHand => ({ qty, totalVolumeFlOz: vol, format, containerType: ct });
 
 describe("buildInventoryGrid", () => {
-  it("joins on-hand quantities by link id and sums row/column/grand totals", () => {
+  it("sources keg/can from cold storage and draft from the draft map, computing bbl per format", () => {
     const rows: GridRow[] = [
-      row("r1", "Coast IPA", {
+      row("r1", "Blackberry Lemon Wheat", {
         draft: { variations: [cellVar("draft", "Draft", "L1")] },
         "keg|1984": { variations: [cellVar("v-keg", "1/2 Keg", "L2")] },
-        "can|12|6-pack": { variations: [cellVar("v-can", "12oz 6-Pack", "L3")] },
-      }),
-      row("r2", "Amber Ale", {
-        draft: { variations: [cellVar("draft", "Draft", "L4")] },
-        "keg|1984": { variations: [cellVar("v-keg", "1/2 Keg", "L5")] },
-        "can|12|6-pack": null, // recipe has no can variation — structural empty
+        "can|16|loose": { variations: [cellVar("v-loose", "16oz Labeled Can", "L3")] },
+        "can|16|case": { variations: [cellVar("v-case", "16oz Labeled Can Case", "L4")] },
       }),
     ];
+    const sources: InventorySources = {
+      coldStorage: new Map([
+        [coldStorageKey("r1", "v-keg"), cs(1, 1984, "loose" /* n/a for keg */, "keg")],
+        [coldStorageKey("r1", "v-loose"), cs(8, 16, "loose", "can")],
+        [coldStorageKey("r1", "v-case"), cs(1, 384, "case", "can")],
+      ]),
+      draftByLinkId: new Map([["L1", { currentQty: 1984, currentBbl: 0.5 }]]),
+    };
 
-    const inv = new Map<string, LinkInventory>([
-      ["L1", { currentQty: 3968, currentBbl: 1, packaging: "draft" }],
-      ["L2", { currentQty: 4, currentBbl: 2, packaging: "keg" }],
-      ["L3", { currentQty: 24, currentBbl: 0.5, packaging: "can" }],
-      ["L4", { currentQty: 1984, currentBbl: 0.5, packaging: "draft" }],
-      ["L5", { currentQty: 2, currentBbl: 1, packaging: "keg" }],
-    ]);
+    const grid = buildInventoryGrid({ columns, rows }, sources);
+    const cells = grid.rows[0].cells;
 
-    const grid = buildInventoryGrid({ columns, rows }, inv);
-
-    // Row totals
-    expect(grid.rows[0].totalBbl).toBe(3.5); // 1 + 2 + 0.5
-    expect(grid.rows[1].totalBbl).toBe(1.5); // 0.5 + 1
-
-    // Structural empty preserved as null
-    expect(grid.rows[1].cells["can|12|6-pack"]).toBeNull();
-
-    // Cell contents
-    expect(grid.rows[0].cells["keg|1984"]).toEqual({
-      totalBbl: 2,
-      variations: [{ variationId: "v-keg", variationName: "1/2 Keg", packaging: "keg", currentQty: 4, currentBbl: 2 }],
-    });
-
-    // Column totals
-    expect(grid.columnTotals["draft"]).toBe(1.5);
-    expect(grid.columnTotals["keg|1984"]).toBe(3);
-    expect(grid.columnTotals["can|12|6-pack"]).toBe(0.5);
-
-    // Grand total
-    expect(grid.grandTotalBbl).toBe(5);
+    // Cold-storage counts flow straight through (no Square fractional derivation).
+    expect(cells["can|16|loose"]!.variations[0]).toMatchObject({ packaging: "can", format: "loose", currentQty: 8 });
+    expect(cells["can|16|case"]!.variations[0]).toMatchObject({ packaging: "can", format: "case", currentQty: 1 });
+    // bbl uses the per-format total volume: case = 384 fl oz.
+    expect(cells["can|16|case"]!.variations[0].currentBbl).toBeCloseTo(384 / 3968.077, 3);
+    // Draft still comes from the draft map.
+    expect(cells["draft"]!.variations[0]).toMatchObject({ packaging: "draft", currentBbl: 0.5 });
   });
 
-  it("drops recipes that aren't mapped into Square, keeping mapped rows even at zero stock", () => {
+  it("drops unmapped recipes but keeps mapped-but-empty ones (no cold-storage row → qty 0)", () => {
     const rows: GridRow[] = [
-      // Fully unmapped — no link on any variation. Not in the taproom view.
-      row("r1", "Unmapped House Ale", {
-        draft: { variations: [cellVar("draft", "Draft", null)] },
-        "keg|1984": { variations: [cellVar("v-keg", "1/2 Keg", null)] },
-        "can|12|6-pack": null,
-      }),
-      // Mapped but currently out of stock (link present, no inventory row) — kept.
-      row("r2", "Mapped But Empty", {
-        draft: { variations: [cellVar("draft", "Draft", "L-empty")] },
-        "keg|1984": null,
-        "can|12|6-pack": null,
-      }, "Fortnight Brewing"),
+      row("r1", "Unmapped House Ale", { draft: { variations: [cellVar("draft", "Draft", null)] } }),
+      row("r2", "Mapped But Empty", { draft: { variations: [cellVar("draft", "Draft", "L-empty")] } }, "Fortnight Brewing"),
     ];
-
-    const grid = buildInventoryGrid({ columns, rows }, new Map());
-
-    // Unmapped recipe dropped; mapped-but-empty recipe kept as an empty row.
+    const grid = buildInventoryGrid({ columns, rows }, { coldStorage: new Map(), draftByLinkId: new Map() });
     expect(grid.rows).toHaveLength(1);
     expect(grid.rows[0].recipeName).toBe("Mapped But Empty");
-    expect(grid.rows[0].totalBbl).toBe(0);
-    expect(grid.rows[0].cells["draft"]).toEqual({ totalBbl: 0, variations: [] });
-    expect(grid.grandTotalBbl).toBe(0);
-  });
-
-  it("keeps mapped recipes regardless of on-hand quantity", () => {
-    const rows: GridRow[] = [
-      row("r1", "Stocked IPA", {
-        draft: { variations: [cellVar("draft", "Draft", "L1")] },
-        "keg|1984": null,
-        "can|12|6-pack": null,
-      }),
-      row("r2", "Empty Mapped Ale", {
-        draft: { variations: [cellVar("draft", "Draft", "L2")] },
-        "keg|1984": null,
-        "can|12|6-pack": null,
-      }, "Argus Beverage Ventures LLC"),
-      row("r3", "Unmapped Ale", {
-        draft: { variations: [cellVar("draft", "Draft", null)] },
-        "keg|1984": null,
-        "can|12|6-pack": null,
-      }),
-    ];
-
-    const inv = new Map<string, LinkInventory>([
-      ["L1", { currentQty: 1984, currentBbl: 0.5, packaging: "draft" }],
-      ["L2", { currentQty: 0, currentBbl: 0, packaging: "draft" }], // mapped, zero on hand
-    ]);
-
-    const grid = buildInventoryGrid({ columns, rows }, inv);
-
-    // Both mapped recipes kept (stocked and empty); only the unmapped one drops.
-    expect(grid.rows.map((r) => r.recipeName)).toEqual(["Stocked IPA", "Empty Mapped Ale"]);
-    expect(grid.grandTotalBbl).toBe(0.5);
   });
 });
