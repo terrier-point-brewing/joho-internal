@@ -9,6 +9,26 @@ import { mapSquareInvoiceStatus } from "@/lib/finance/invoiceStatus";
 import type { CatalogItem, Order, SquareInvoice } from "@/types/square";
 import type { InvoiceLineCategory } from "@/types/finance";
 
+export interface LineItemCoa {
+  chart_of_accounts_id: string | null;
+  bs_chart_of_accounts_id: string | null;
+  pl_chart_of_accounts_id: string | null;
+}
+
+/**
+ * Chart-of-accounts values to write for a line item on (re-)sync. An existing
+ * non-null mapping (user-set or auto-mapped) always wins; the variation prefill
+ * only fills gaps. This makes re-syncs non-destructive — matching the app's
+ * fill-nulls-only mapping convention (invoices/auto-map, expenses/auto-map).
+ */
+export function resolveLineItemCoa(existing: LineItemCoa | undefined, prefill: LineItemCoa): LineItemCoa {
+  return {
+    chart_of_accounts_id:    existing?.chart_of_accounts_id    ?? prefill.chart_of_accounts_id,
+    bs_chart_of_accounts_id: existing?.bs_chart_of_accounts_id ?? prefill.bs_chart_of_accounts_id,
+    pl_chart_of_accounts_id: existing?.pl_chart_of_accounts_id ?? prefill.pl_chart_of_accounts_id,
+  };
+}
+
 function recipientName(inv: SquareInvoice): string {
   const r = inv.primary_recipient;
   if (!r) return "Unknown";
@@ -158,6 +178,23 @@ export async function syncSquareInvoicesForYear(
       pl_chart_of_accounts_id?: string | null;
     }[] = [];
 
+    // Load existing COA mappings so a re-sync never wipes a manual/auto-mapped
+    // account — the upsert below would otherwise overwrite these columns.
+    const { data: existingLines } = await supabase
+      .from("invoice_line_items")
+      .select("sort_order, chart_of_accounts_id, bs_chart_of_accounts_id, pl_chart_of_accounts_id")
+      .eq("invoice_id", invRow.id);
+    const existingCoaBySort = new Map<number, LineItemCoa>(
+      (existingLines ?? []).map((r) => [
+        r.sort_order as number,
+        {
+          chart_of_accounts_id:    r.chart_of_accounts_id,
+          bs_chart_of_accounts_id: r.bs_chart_of_accounts_id,
+          pl_chart_of_accounts_id: r.pl_chart_of_accounts_id,
+        },
+      ]),
+    );
+
     const carveOutAmounts = (order.discounts ?? [])
       .filter((d) => d.name.toLowerCase().includes("carve out"))
       .map((d) => d.applied_money?.amount ?? 0)
@@ -184,6 +221,11 @@ export async function syncSquareInvoicesForYear(
       if (!category) category = classifyLineItem(li.name);
 
       const varMapping = varId ? variationById.get(varId) : undefined;
+      const coa = resolveLineItemCoa(existingCoaBySort.get(i), {
+        chart_of_accounts_id:    varMapping?.chart_of_accounts_id_invoice ?? null,
+        bs_chart_of_accounts_id: varMapping?.bs_chart_of_accounts_id ?? null,
+        pl_chart_of_accounts_id: varMapping?.pl_chart_of_accounts_id ?? null,
+      });
       lineItems.push({
         invoice_id:              invRow.id,
         sort_order:              i,
@@ -193,9 +235,9 @@ export async function syncSquareInvoicesForYear(
         unit_price_cents:        li.base_price_money?.amount ?? 0,
         total_cents:             li.total_money?.amount ?? 0,
         variation_name:          varName || null,
-        chart_of_accounts_id:    varMapping?.chart_of_accounts_id_invoice ?? null,
-        bs_chart_of_accounts_id: varMapping?.bs_chart_of_accounts_id ?? null,
-        pl_chart_of_accounts_id: varMapping?.pl_chart_of_accounts_id ?? null,
+        chart_of_accounts_id:    coa.chart_of_accounts_id,
+        bs_chart_of_accounts_id: coa.bs_chart_of_accounts_id,
+        pl_chart_of_accounts_id: coa.pl_chart_of_accounts_id,
         raw_data: {
           uid:       li.uid,
           name:      li.name,
