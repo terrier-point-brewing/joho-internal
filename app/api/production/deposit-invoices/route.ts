@@ -33,7 +33,7 @@ export async function GET() {
     const alloc = inv.batch_allocations as unknown as {
       percentage: number | null; invoice_generated_at: string | null;
       invoice_sent_at: string | null; invoice_paid_at: string | null;
-      brew_batches: { beer_name: string; batch_number: number; volume_bbl: number } | null;
+      brew_batches: { beer_name: string; batch_number: string; volume_bbl: number } | null;
     } | null;
     const squareDashboardUrl = inv.square_invoice_id
       ? `https://app.squareup.com/dashboard/invoices/${inv.square_invoice_id}/edit?currentUnitToken=${process.env.SQUARE_LOCATION_ID}`
