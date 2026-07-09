@@ -287,7 +287,7 @@ function InvoiceLineItemRow({
 
 interface BrewBatch {
   id: string;
-  batch_number: number | null;
+  batch_number: string | null;
   beer_name: string;
   planned_brew_date: string | null;
 }
@@ -296,7 +296,7 @@ interface BatchLink {
   id: string;
   note: string | null;
   created_at: string;
-  brew_batches: { id: string; beer_name: string; batch_number: number | null; planned_brew_date: string | null } | null;
+  brew_batches: { id: string; beer_name: string; batch_number: string | null; planned_brew_date: string | null } | null;
 }
 
 // ── Batch link editor (shown in expanded invoice row) ─────────────────────────
@@ -420,7 +420,7 @@ export default function InvoicesPage() {
       .then((d: CoARef[]) => setAccounts(Array.isArray(d) ? d : []));
     fetch("/api/production/batches")
       .then((r) => r.json())
-      .then((d: { id: string; batch_number: number | null; beer_name: string; planned_brew_date: string | null }[]) => {
+      .then((d: { id: string; batch_number: string | null; beer_name: string; planned_brew_date: string | null }[]) => {
         if (Array.isArray(d)) {
           setBatches(d.map((b) => ({ id: b.id, batch_number: b.batch_number, beer_name: b.beer_name, planned_brew_date: b.planned_brew_date })));
         }

@@ -20,6 +20,7 @@ export interface DepositCalculation {
   deposit_cents: number;
   ingredient_count: number;
   breakdown: Array<{
+    ingredient_id: string;
     name: string;
     quantity_per_bbl: number;
     cost_per_unit: number;
@@ -122,6 +123,7 @@ export async function calculateIngredientDeposit(
 
     totalIngredientCostUsd += lineTotal;
     breakdown.push({
+      ingredient_id: ing.id,
       name: ing.name,
       quantity_per_bbl: qtyPerBbl,
       cost_per_unit: costPerUnit,

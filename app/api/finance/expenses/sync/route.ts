@@ -9,8 +9,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth";
-import { getRampTransactions } from "@/lib/ramp";
-import { syncRampExpenses } from "@/lib/finance/rampExpenses";
+import { syncAllRamp } from "@/lib/finance/rampSync";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { apiError } from "@/lib/utils/api";
 
@@ -23,9 +22,8 @@ export async function POST(req: NextRequest) {
   const to   = req.nextUrl.searchParams.get("to")   ?? undefined;
 
   try {
-    const txns     = await getRampTransactions(from, to);
     const supabase = createSupabaseAdminClient();
-    const result   = await syncRampExpenses(supabase, txns);
+    const result = await syncAllRamp(supabase, from, to);
     return NextResponse.json(result);
   } catch (err) {
     return apiError(err);

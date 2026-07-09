@@ -25,6 +25,7 @@ interface CoaJoin {
 interface ExpenseRow {
   id: string;
   source: string;
+  ramp_object: "card" | "bill" | "bank";
   source_transaction_id: string;
   amount_cents: number;
   currency_code: string;
@@ -91,7 +92,14 @@ function ExpenseRowView({
         <td className="px-4 py-2 w-6"><span className="text-faint text-[10px]">{expanded ? "▾" : "▸"}</span></td>
         <td className="px-4 py-2 text-secondary whitespace-nowrap">{fmtDate(e.accounting_date)}</td>
         <td className="px-4 py-2 text-body">
-          <div className="truncate max-w-[240px]">{e.merchant_name ?? "—"}</div>
+          <div className="flex items-center gap-1.5">
+            <span className="truncate max-w-[240px]">{e.merchant_name ?? "—"}</span>
+            {e.ramp_object !== "card" && (
+              <span className="shrink-0 px-1 py-0.5 rounded text-[9px] font-medium bg-surface-mid text-muted uppercase tracking-wide">
+                {e.ramp_object === "bill" ? "Bill" : "Bank"}
+              </span>
+            )}
+          </div>
           {(e.memo || e.card_holder_name) && (
             <div className="text-[10px] text-faint truncate max-w-[240px]">
               {[e.memo, e.card_holder_name].filter(Boolean).join(" · ")}
@@ -107,7 +115,7 @@ function ExpenseRowView({
           )}
         </td>
         <td className="px-4 py-2"><MappingStatusPill mapped={mapped} total={1} /></td>
-        <td className={`px-4 py-2 text-right font-mono tabular-nums ${e.amount_cents < 0 ? "text-success" : "text-strong"}`}>
+        <td className="px-4 py-2 text-right font-mono tabular-nums text-strong">
           {formatCurrencyCents(e.amount_cents)}
         </td>
       </tr>
@@ -301,7 +309,7 @@ export default function ExpensesPage() {
         <div className="flex-1 flex items-center justify-center text-center px-6">
           <div>
             <p className="text-sm text-secondary">No expenses for {year}.</p>
-            <p className="text-xs text-faint mt-1">Click &ldquo;Sync Ramp&rdquo; to import transactions.</p>
+            <p className="text-xs text-faint mt-1">Click &ldquo;Sync Ramp&rdquo; to import transactions and bills.</p>
           </div>
         </div>
       ) : (

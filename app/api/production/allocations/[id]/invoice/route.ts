@@ -11,6 +11,7 @@ import {
   getInvoiceStatus,
 } from "@/lib/square/square-invoices";
 import { reconcileInvoiceStatus } from "@/lib/finance/reconcileInvoiceStatus";
+import { snapshotDepositBreakdown, type BreakdownInput } from "@/lib/production/depositBreakdown";
 
 export const dynamic = "force-dynamic";
 
@@ -215,6 +216,19 @@ async function handleInvoiceAction(req: NextRequest, params: RouteParams["params
         );
     }
 
+    if (ledgerInvoiceId) {
+      try {
+        await snapshotDepositBreakdown(
+          adminSupabase,
+          ledgerInvoiceId,
+          calcToBreakdownInputs(calculation),
+          calculation.deposit_cents
+        );
+      } catch (e) {
+        console.error("[deposit-invoice] generate breakdown snapshot failed:", e);
+      }
+    }
+
     return NextResponse.json({ allocation: updated, calculation, invoiceId: result.invoiceId, invoiceUrl: result.invoiceUrl });
   }
 
@@ -393,6 +407,15 @@ async function handleInvoiceAction(req: NextRequest, params: RouteParams["params
         );
     }
 
+    if (inv?.id) {
+      try {
+        const calc = await calculateIngredientDeposit(supabase, batch.id, Number(allocation.percentage));
+        await snapshotDepositBreakdown(adminSupabase, inv.id, calcToBreakdownInputs(calc), amountCents);
+      } catch (e) {
+        console.error("[deposit-invoice] mark_paid breakdown snapshot failed:", e);
+      }
+    }
+
     return NextResponse.json({ allocation: updated });
   }
 
@@ -405,6 +428,17 @@ function addDaysIso(isoDate: string, days: number): string {
   const d = new Date(isoDate);
   d.setDate(d.getDate() + days);
   return d.toISOString().slice(0, 10);
+}
+
+function calcToBreakdownInputs(calc: { breakdown: Array<{ ingredient_id: string; name: string; unit: string; quantity_per_bbl: number; cost_per_unit: number; line_total_usd: number }> }): BreakdownInput[] {
+  return calc.breakdown.map((b) => ({
+    ingredient_id: b.ingredient_id,
+    name: b.name,
+    unit: b.unit,
+    quantity_per_bbl: b.quantity_per_bbl,
+    cost_per_unit: b.cost_per_unit,
+    weight: b.line_total_usd, // full-batch cost; volume/% cancel under scaling
+  }));
 }
 
 interface LedgerInvoiceParams {

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { runCronJob } from "@/lib/cron/runCronJob";
 import { apiError } from "@/lib/utils/api";
 import { computeNextPeriodDates, addDays } from "@/lib/payroll/periodUtils";
@@ -14,7 +14,10 @@ export async function GET(req: NextRequest) {
   }
 
   const outcome = await runCronJob("payroll-advance", async () => {
-    const supabase = await createSupabaseServerClient();
+    // Cron runs with no user session, so it must use the service-role client
+    // (bypasses RLS) — the same pattern as the other cron routes. With RLS on,
+    // the anon/server client would act as `anon` and be denied.
+    const supabase = createSupabaseAdminClient();
 
     const { data: config, error: configErr } = await supabase
       .from("payroll_config")

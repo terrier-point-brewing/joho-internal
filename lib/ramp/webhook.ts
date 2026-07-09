@@ -40,12 +40,15 @@ export function verifyRampSignature(params: {
 /**
  * Whether a Ramp webhook event warrants an expense re-sync. Card spend arrives as
  * `transactions.*` events (`transactions.authorized`, `transactions.cleared` —
- * which also fires for refunds/reversals — `transactions.declined`, etc.); other
- * resources (bills, reimbursements, users) are acknowledged but skip the sync.
+ * which also fires for refunds/reversals — `transactions.declined`, etc.); bill
+ * spend arrives as `bill.*` events (`bill.created`, `bill.paid`, etc.); bank
+ * activity arrives as `banking.*` events (e.g. `banking.transaction.created`) —
+ * all three now trigger a re-sync. Other resources (reimbursements, users) are
+ * acknowledged but skip the sync.
  *
  * NOT reconcilable: `webhooks.verification` (the endpoint-verification handshake)
  * and `tests.test_event` — the route handles those separately.
  */
 export function isReconcilableRampEvent(type: unknown): boolean {
-  return typeof type === "string" && type.startsWith("transactions.");
+  return typeof type === "string" && (type.startsWith("transactions.") || type.startsWith("bill.") || type.startsWith("banking."));
 }

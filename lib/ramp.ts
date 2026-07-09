@@ -3,7 +3,7 @@ import { env } from "./env";
 const RAMP_TOKEN_URL = "https://api.ramp.com/developer/v1/token";
 const RAMP_BASE      = "https://api.ramp.com/developer/v1";
 const RAMP_SCOPES    =
-  "transactions:read statements:read cards:read users:read business:read reimbursements:read";
+  "transactions:read statements:read cards:read users:read business:read reimbursements:read bills:read banking:read transfers:read accounting:read treasury:read";
 
 let _tokenCache: { token: string; expiresAt: number } | null = null;
 
@@ -72,6 +72,26 @@ export interface RampStatement {
   statement_url:   string | null;
 }
 
+export interface RampBillLineItem {
+  amount:                      number;        // USD dollars for this line
+  memo:                        string | null;
+  accounting_field_selections: unknown[];     // GL coding lives here (per line)
+}
+
+export interface RampBill {
+  id:              string;
+  amount:          number;   // USD dollars, bill total
+  currency_code:   string;
+  vendor_name:     string;
+  status:          string;   // OPEN | PAID
+  issued_at:       string;   // ISO
+  accounting_date: string;   // ISO
+  due_at:          string | null;
+  memo:            string | null;
+  invoice_number:  string | null;
+  line_items:      RampBillLineItem[];
+}
+
 function parseAmount(raw: unknown): number {
   if (!raw || typeof raw !== "object") return 0;
   const r = raw as Record<string, number>;
@@ -110,15 +130,17 @@ export function extractGlAccount(txn: any): RampGlAccount | null {
     if (type !== "GL_ACCOUNT") continue;
 
     // Always read the selected account from the selection element itself — never
-    // from `category_info`, which only ever holds the dimension label.
+    // from `category_info`, which only ever holds the dimension label. The
+    // QuickBooks account NUMBER lives in `external_code`; `external_id` is a Ramp
+    // internal id, so prefer `external_code` for the code we match on.
     const id   = sel.id as string | undefined;
     const name = sel.name as string | undefined;
-    const ext  = sel.external_id as string | undefined;
-    if (!id && !name && !ext) continue;
+    const code = (sel.external_code as string | undefined) ?? (sel.external_id as string | undefined);
+    if (!id && !name && !code) continue;
 
     return {
-      id:          id ?? (ext ?? name)!,
-      external_id: ext ?? null,
+      id:          id ?? (code ?? name)!,
+      external_id: code ?? null,
       name:        name ?? "",
     };
   }
@@ -179,6 +201,53 @@ export async function getRampTransactions(from?: string, to?: string): Promise<R
   return results;
 }
 
+/**
+ * Pull Ramp bill-pay records. The list endpoint doesn't reliably honor a date
+ * filter, so we page through all and filter client-side by accounting_date when
+ * a window is given (bill volume is low — monthly, not per-swipe). Line-item
+ * amounts are pre-divided to dollars; `accounting_field_selections` are passed
+ * through raw so `extractGlAccount` can read each line's GL account.
+ */
+export async function getRampBills(from?: string, to?: string): Promise<RampBill[]> {
+  const token = await getRampToken();
+  const results: RampBill[] = [];
+
+  let url: string | null = `${RAMP_BASE}/bills?page_size=100`;
+  while (url) {
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data: any = await res.json();
+    if (data.error_v2) throw new Error(`Ramp bills: ${data.error_v2.message}`);
+
+    for (const b of data.data ?? []) {
+      const accountingDate: string = b.accounting_date ?? b.issued_at ?? "";
+      const day = accountingDate.slice(0, 10);
+      if (from && day && day < from) continue;
+      if (to && day && day > to) continue;
+
+      results.push({
+        id:              b.id,
+        amount:          parseAmount(b.amount),
+        currency_code:   b.amount?.currency_code ?? "USD",
+        vendor_name:     b.vendor?.name ?? "",
+        status:          b.status ?? "",
+        issued_at:       b.issued_at ?? "",
+        accounting_date: accountingDate,
+        due_at:          b.due_at ?? null,
+        memo:            b.memo ?? b.vendor_memo ?? null,
+        invoice_number:  b.invoice_number ?? null,
+        line_items: (b.line_items ?? []).map((li: Record<string, unknown>) => ({
+          amount:                      parseAmount(li.amount),
+          memo:                        (li.memo as string | null) ?? null,
+          accounting_field_selections: (li.accounting_field_selections as unknown[]) ?? [],
+        })),
+      });
+    }
+    url = data.page?.next ?? null;
+  }
+  return results;
+}
+
 export async function getRampStatements(): Promise<RampStatement[]> {
   const token = await getRampToken();
   const res   = await fetch(`${RAMP_BASE}/statements?page_size=24`, {
@@ -235,7 +304,14 @@ export async function getRampBankAccounts(): Promise<RampBankAccount[]> {
   }));
 }
 
-export async function getRampBankTransactions(): Promise<RampBankLine[]> {
+/**
+ * Pull bank-account (Ramp Business Account) money movement. The
+ * syncable-transactions endpoint has no reliable server-side date filter, so we
+ * bound the result client-side by each line's `date` when a window is given —
+ * mirroring getRampBills — so callers only process (classify + upsert) the
+ * window they asked for instead of the whole history on every sync.
+ */
+export async function getRampBankTransactions(from?: string, to?: string): Promise<RampBankLine[]> {
   const token = await getRampToken();
   const results: RampBankLine[] = [];
 
@@ -247,6 +323,9 @@ export async function getRampBankTransactions(): Promise<RampBankLine[]> {
     if (data.error_v2) throw new Error(`Ramp banking transactions: ${data.error_v2.message}`);
 
     for (const t of data.data ?? []) {
+      const day = (t.date ?? "").slice(0, 10);
+      if (from && day && day < from) continue;
+      if (to && day && day > to) continue;
       results.push({
         id:                       t.id,
         amount:                   parseAmount(t.amount),
