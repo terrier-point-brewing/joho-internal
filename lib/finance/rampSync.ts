@@ -12,7 +12,7 @@ import type { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 export async function syncAllRamp(supabase: ReturnType<typeof createSupabaseAdminClient>, from?: string, to?: string) {
   const [txns, bills, bankLines, bankAccounts] = await Promise.all([
-    getRampTransactions(from, to), getRampBills(from, to), getRampBankTransactions(), getRampBankAccounts(),
+    getRampTransactions(from, to), getRampBills(from, to), getRampBankTransactions(from, to), getRampBankAccounts(),
   ]);
   const ownAccounts = new Set(bankAccounts.map((a) => normalizeCounterparty(a.name)));
   const { expenseRecords, ledgerRecords } = partitionBankLines(bankLines, ownAccounts);

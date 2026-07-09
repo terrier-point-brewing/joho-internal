@@ -10,6 +10,7 @@
 import type { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import type { RampTransaction, RampBill } from "@/lib/ramp";
 import { extractGlAccount } from "@/lib/ramp";
+import { chunk } from "@/lib/utils/chunk";
 import {
   dollarsToCents,
   matchAccountToCoa,
@@ -116,11 +117,6 @@ export function rampBillToExpenseRecords(bill: RampBill): ExpenseRecord[] {
   });
 }
 
-function chunk<T>(arr: T[], size: number): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
-  return out;
-}
 
 export async function syncExpenseRecords(
   supabase: AdminClient,

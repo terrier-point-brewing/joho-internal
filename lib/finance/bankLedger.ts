@@ -8,6 +8,7 @@
 import type { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { normalizeCounterparty, type RampBankLine } from "@/lib/ramp";
 import { dollarsToCents, type ExpenseRecord } from "./expenses";
+import { chunk } from "@/lib/utils/chunk";
 
 type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
 
@@ -145,11 +146,6 @@ export function partitionBankLines(
   return { expenseRecords, ledgerRecords };
 }
 
-function chunk<T>(arr: T[], size: number): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
-  return out;
-}
 
 export async function syncBankLedger(
   supabase: AdminClient,

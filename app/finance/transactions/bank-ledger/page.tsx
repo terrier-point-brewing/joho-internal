@@ -11,12 +11,11 @@ import Banner from "@/app/components/ui/Banner";
 const FLOW_TYPES = ["interest_income", "internal_transfer", "bill_settlement", "card_settlement", "deposit", "unclassified"] as const;
 type FlowType = typeof FLOW_TYPES[number];
 
-interface CoaJoin { account_name: string; account_number: string | null; account_type: string }
 interface BankRow {
   id: string; amount_cents: number; description: string | null; counterparty_name: string | null;
   source_account_name: string | null; destination_account_name: string | null; flow_type: FlowType;
   affects_pl: boolean; transaction_date: string | null; chart_of_accounts_id: string | null;
-  mapping_source: "unmapped" | "rule" | "manual"; chart_of_accounts: CoaJoin | null;
+  mapping_source: "unmapped" | "rule" | "manual";
 }
 
 // No dedicated "warning" tone exists in app/components/ui/tone.ts (Tone = neutral | accent |
