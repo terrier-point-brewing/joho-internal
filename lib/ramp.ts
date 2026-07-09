@@ -3,7 +3,7 @@ import { env } from "./env";
 const RAMP_TOKEN_URL = "https://api.ramp.com/developer/v1/token";
 const RAMP_BASE      = "https://api.ramp.com/developer/v1";
 const RAMP_SCOPES    =
-  "transactions:read statements:read cards:read users:read business:read reimbursements:read bills:read banking:read transfers:read accounting:read";
+  "transactions:read statements:read cards:read users:read business:read reimbursements:read bills:read banking:read transfers:read accounting:read treasury:read";
 
 let _tokenCache: { token: string; expiresAt: number } | null = null;
 
