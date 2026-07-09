@@ -17,6 +17,7 @@ import {
   type ExpenseRecord,
   type CoaAccountRef,
   type RuleRef,
+  type CounterpartyRuleRef,
   type MappingSource,
 } from "./expenses";
 
@@ -58,6 +59,8 @@ export function rampTxnToExpenseRecord(txn: RampTransaction): ExpenseRecord {
     external_account_id:   txn.gl_account?.id ?? null,
     external_account_name: txn.gl_account?.name ?? null,
     external_account_code: txn.gl_account?.external_id ?? null,
+    counterparty_key:      null,
+    counterparty_label:    null,
   };
 }
 
@@ -72,17 +75,19 @@ export function rampBillToExpenseRecords(bill: RampBill): ExpenseRecord[] {
   const day = bill.accounting_date ? bill.accounting_date.slice(0, 10) : null;
 
   const base = {
-    source:            SOURCE,
-    ramp_object:       "bill" as const,
-    currency_code:     bill.currency_code || "USD",
-    merchant_name:     bill.vendor_name || null,
-    merchant_category: null,
-    sk_category_name:  null,
-    state:             bill.status || null,
-    card_holder_name:  null,
-    department_name:   null,
-    transaction_time:  bill.issued_at || null,
-    accounting_date:   day,
+    source:             SOURCE,
+    ramp_object:        "bill" as const,
+    currency_code:      bill.currency_code || "USD",
+    merchant_name:      bill.vendor_name || null,
+    merchant_category:  null,
+    sk_category_name:   null,
+    state:              bill.status || null,
+    card_holder_name:   null,
+    department_name:    null,
+    transaction_time:   bill.issued_at || null,
+    accounting_date:    day,
+    counterparty_key:   null,
+    counterparty_label: null,
   };
 
   if (bill.line_items.length === 0) {
@@ -181,12 +186,40 @@ export async function syncExpenseRecords(
     if (error) throw new Error(`Insert expense mappings failed: ${error.message}`);
   }
 
+  // Counterparty rules (for bank-sourced rows with no GL coding).
+  const { data: cpRows, error: cpErr } = await supabase
+    .from("expense_counterparty_mappings")
+    .select("counterparty_key, chart_of_accounts_id")
+    .eq("source", SOURCE);
+  if (cpErr) throw new Error(`Load counterparty mappings failed: ${cpErr.message}`);
+
+  const ruleByCounterparty = new Map<string, CounterpartyRuleRef>();
+  for (const r of cpRows ?? []) {
+    ruleByCounterparty.set(r.counterparty_key, { counterparty_key: r.counterparty_key, chart_of_accounts_id: r.chart_of_accounts_id });
+  }
+
+  // Ensure a rule row exists for every counterparty in this batch (unmapped —
+  // counterparties don't name-match the CoA, so the user assigns in Settings).
+  const newCpRules: { source: string; counterparty_key: string; counterparty_label: string; chart_of_accounts_id: null; auto_matched: boolean }[] = [];
+  for (const rec of records) {
+    if (rec.counterparty_key && !ruleByCounterparty.has(rec.counterparty_key)) {
+      ruleByCounterparty.set(rec.counterparty_key, { counterparty_key: rec.counterparty_key, chart_of_accounts_id: null });
+      newCpRules.push({ source: SOURCE, counterparty_key: rec.counterparty_key, counterparty_label: rec.counterparty_label ?? rec.counterparty_key, chart_of_accounts_id: null, auto_matched: false });
+    }
+  }
+  if (newCpRules.length > 0) {
+    const { error } = await supabase
+      .from("expense_counterparty_mappings")
+      .upsert(newCpRules, { onConflict: "source,counterparty_key" });
+    if (error) throw new Error(`Insert counterparty mappings failed: ${error.message}`);
+  }
+
   // Preserve manual per-expense overrides across re-syncs.
   const existing = new Map<string, { mapping_source: MappingSource; chart_of_accounts_id: string | null }>();
   for (const ids of chunk(records.map((r) => r.source_transaction_id), 500)) {
     const { data } = await supabase
       .from("expenses")
-      .select("source_transaction_id, mapping_source, chart_of_accounts_id")
+      .select("source_transaction_id, mapping_source, chart_of_accounts_id, counterparty_key")
       .eq("source", SOURCE)
       .in("source_transaction_id", ids);
     for (const e of data ?? []) {
@@ -203,10 +236,12 @@ export async function syncExpenseRecords(
     const resolved = resolveExpenseMapping(
       {
         external_account_id:  rec.external_account_id,
+        counterparty_key:     rec.counterparty_key,
         mapping_source:       prior?.mapping_source ?? "unmapped",
         chart_of_accounts_id: prior?.chart_of_accounts_id ?? null,
       },
       ruleByAccountId,
+      ruleByCounterparty,
     );
     if (resolved.chart_of_accounts_id) mapped++;
     else unmapped++;

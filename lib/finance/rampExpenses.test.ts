@@ -127,9 +127,10 @@ function makeClient(cfg: { coa: Row[]; rules: Row[]; existing: Row[] }) {
   const client = {
     from(table: string) {
       const baseData =
-        table === "chart_of_accounts"        ? cfg.coa :
-        table === "expense_account_mappings" ? cfg.rules :
-        table === "expenses"                 ? cfg.existing : [];
+        table === "chart_of_accounts"             ? cfg.coa :
+        table === "expense_account_mappings"      ? cfg.rules :
+        table === "expense_counterparty_mappings" ? [] :
+        table === "expenses"                      ? cfg.existing : [];
       return {
         select() { return query(baseData); },
         upsert(rows: Row[]) {
