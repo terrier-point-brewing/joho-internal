@@ -8,7 +8,8 @@
  * IO (Supabase reads/writes) lives here.
  */
 import type { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import type { RampTransaction } from "@/lib/ramp";
+import type { RampTransaction, RampBill } from "@/lib/ramp";
+import { extractGlAccount } from "@/lib/ramp";
 import {
   dollarsToCents,
   matchAccountToCoa,
@@ -58,6 +59,56 @@ export function rampTxnToExpenseRecord(txn: RampTransaction): ExpenseRecord {
     external_account_name: txn.gl_account?.name ?? null,
     external_account_code: txn.gl_account?.external_id ?? null,
   };
+}
+
+/**
+ * Shape a Ramp bill into one ExpenseRecord PER LINE ITEM. Bills carry GL coding
+ * per line and may split one invoice across accounts, so line-item grain keeps
+ * statements accurate. source_transaction_id namespaces the line index under the
+ * bill id so re-syncs upsert idempotently. A bill with no line items yields a
+ * single uncoded record for the whole total.
+ */
+export function rampBillToExpenseRecords(bill: RampBill): ExpenseRecord[] {
+  const day = bill.accounting_date ? bill.accounting_date.slice(0, 10) : null;
+
+  const base = {
+    source:            SOURCE,
+    ramp_object:       "bill" as const,
+    currency_code:     bill.currency_code || "USD",
+    merchant_name:     bill.vendor_name || null,
+    merchant_category: null,
+    sk_category_name:  null,
+    state:             bill.status || null,
+    card_holder_name:  null,
+    department_name:   null,
+    transaction_time:  bill.issued_at || null,
+    accounting_date:   day,
+  };
+
+  if (bill.line_items.length === 0) {
+    return [{
+      ...base,
+      source_transaction_id: `${bill.id}:0`,
+      amount_cents:          -dollarsToCents(bill.amount),
+      memo:                  bill.memo,
+      external_account_id:   null,
+      external_account_name: null,
+      external_account_code: null,
+    }];
+  }
+
+  return bill.line_items.map((li, i) => {
+    const gl = extractGlAccount({ accounting_field_selections: li.accounting_field_selections });
+    return {
+      ...base,
+      source_transaction_id: `${bill.id}:${i}`,
+      amount_cents:          -dollarsToCents(li.amount),
+      memo:                  li.memo ?? bill.memo,
+      external_account_id:   gl?.id ?? null,
+      external_account_name: gl?.name ?? null,
+      external_account_code: gl?.external_id ?? null,
+    };
+  });
 }
 
 function chunk<T>(arr: T[], size: number): T[][] {

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { rampTxnToExpenseRecord, syncRampExpenses } from "./rampExpenses";
-import type { RampTransaction } from "@/lib/ramp";
+import { rampTxnToExpenseRecord, rampBillToExpenseRecords, syncRampExpenses } from "./rampExpenses";
+import type { RampTransaction, RampBill } from "@/lib/ramp";
 
 function txn(over: Partial<RampTransaction> = {}): RampTransaction {
   return {
@@ -19,6 +19,45 @@ function txn(over: Partial<RampTransaction> = {}): RampTransaction {
     ...over,
   };
 }
+
+function glSelection(name: string, code: string) {
+  return { id: `opt-${code}`, name, external_id: "internal", external_code: code, category_info: { type: "GL_ACCOUNT" } };
+}
+
+function bill(over: Partial<RampBill> = {}): RampBill {
+  return {
+    id: "b1", amount: 130.44, currency_code: "USD", vendor_name: "RahrBSG",
+    status: "PAID", issued_at: "2026-05-19T00:00:00Z", accounting_date: "2026-05-19T00:00:00Z",
+    due_at: "2026-06-18T00:00:00Z", memo: "malt", invoice_number: "INV-1",
+    line_items: [
+      { amount: 100.00, memo: "malt", accounting_field_selections: [glSelection("COGS:Raw Materials", "5110")] },
+      { amount: 30.44,  memo: "freight", accounting_field_selections: [glSelection("COGS:Freight", "5120")] },
+    ],
+    ...over,
+  };
+}
+
+describe("rampBillToExpenseRecords", () => {
+  it("emits one outflow-negative record per line item with its own GL account", () => {
+    const recs = rampBillToExpenseRecords(bill());
+    expect(recs).toHaveLength(2);
+    expect(recs[0]).toMatchObject({
+      source: "ramp", ramp_object: "bill", source_transaction_id: "b1:0",
+      amount_cents: -10000, merchant_name: "RahrBSG", state: "PAID",
+      accounting_date: "2026-05-19", external_account_code: "5110",
+      external_account_name: "COGS:Raw Materials", memo: "malt",
+    });
+    expect(recs[1]).toMatchObject({ source_transaction_id: "b1:1", amount_cents: -3044, external_account_code: "5120" });
+    expect(recs[0].card_holder_name).toBeNull();
+    expect(recs[0].department_name).toBeNull();
+  });
+
+  it("falls back to a single uncoded record when a bill has no line items", () => {
+    const recs = rampBillToExpenseRecords(bill({ line_items: [] }));
+    expect(recs).toHaveLength(1);
+    expect(recs[0]).toMatchObject({ source_transaction_id: "b1:0", amount_cents: -13044, external_account_id: null });
+  });
+});
 
 describe("rampTxnToExpenseRecord", () => {
   it("shapes a clean source='ramp' record with external-account fields and cents", () => {
