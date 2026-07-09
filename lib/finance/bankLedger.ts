@@ -34,6 +34,11 @@ function isRampCard(name: string): boolean {
   return /ramp/i.test(name);
 }
 
+/** Whether a bank-ledger flow_type affects the P&L. In the ledger table only interest is income; transfers/settlements/deposits/unclassified are non-P&L. */
+export function affectsPlForFlowType(flowType: FlowType): boolean {
+  return flowType === "interest_income";
+}
+
 export function classifyBankLine(line: RampBankLine, ownAccounts: Set<string>): BankClassification {
   const desc    = line.description.trim();
   const destKey = normalizeCounterparty(line.destination_account_name);
@@ -150,26 +155,37 @@ export async function syncBankLedger(
   supabase: AdminClient,
   records: BankLedgerRecord[],
 ): Promise<{ imported: number; by_flow_type: Record<string, number> }> {
-  // Preserve manual coding on interest/other income across re-syncs.
-  const existing = new Map<string, { mapping_source: string; chart_of_accounts_id: string | null }>();
+  // Preserve manual coding — AND a manual flow_type recode — across re-syncs.
+  const existing = new Map<string, { mapping_source: string; chart_of_accounts_id: string | null; flow_type: FlowType; affects_pl: boolean }>();
   for (const ids of chunk(records.map((r) => r.source_transaction_id), 500)) {
     const { data, error } = await supabase
       .from("ramp_bank_ledger")
-      .select("source_transaction_id, mapping_source, chart_of_accounts_id")
+      .select("source_transaction_id, mapping_source, chart_of_accounts_id, flow_type, affects_pl")
       .eq("source", "ramp")
       .in("source_transaction_id", ids);
     if (error) throw new Error(`Load bank ledger failed: ${error.message}`);
-    for (const e of data ?? []) existing.set(e.source_transaction_id, { mapping_source: e.mapping_source, chart_of_accounts_id: e.chart_of_accounts_id });
+    for (const e of data ?? []) {
+      existing.set(e.source_transaction_id, {
+        mapping_source: e.mapping_source,
+        chart_of_accounts_id: e.chart_of_accounts_id,
+        flow_type: e.flow_type,
+        affects_pl: e.affects_pl,
+      });
+    }
   }
 
   const syncedAt = new Date().toISOString();
   const by_flow_type: Record<string, number> = {};
   const rows = records.map((rec) => {
-    by_flow_type[rec.flow_type] = (by_flow_type[rec.flow_type] ?? 0) + 1;
     const prior = existing.get(rec.source_transaction_id);
     const manual = prior?.mapping_source === "manual";
+    const flow_type  = manual ? prior!.flow_type  : rec.flow_type;
+    const affects_pl = manual ? prior!.affects_pl : rec.affects_pl;
+    by_flow_type[flow_type] = (by_flow_type[flow_type] ?? 0) + 1;
     return {
       ...rec,
+      flow_type,
+      affects_pl,
       chart_of_accounts_id: manual ? prior!.chart_of_accounts_id : null,
       mapping_source:       manual ? "manual" : "unmapped",
       synced_at:            syncedAt,

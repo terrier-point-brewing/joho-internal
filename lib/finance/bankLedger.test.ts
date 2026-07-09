@@ -94,7 +94,7 @@ describe("partitionBankLines", () => {
 
 import { syncBankLedger, type BankLedgerRecord } from "./bankLedger";
 
-function fakeSupabase(existing: Record<string, { mapping_source: string; chart_of_accounts_id: string | null }> = {}) {
+function fakeSupabase(existing: Record<string, { mapping_source: string; chart_of_accounts_id: string | null; flow_type?: string; affects_pl?: boolean }> = {}) {
   const upserts: BankLedgerRecord[] = [];
   return {
     upserts,
@@ -123,14 +123,34 @@ describe("syncBankLedger", () => {
   });
 
   it("preserves a manually-coded row's mapping_source + chart_of_accounts_id across re-sync", async () => {
-    const sb = fakeSupabase({ int: { mapping_source: "manual", chart_of_accounts_id: "coa-interest" } });
+    const sb = fakeSupabase({ int: { mapping_source: "manual", chart_of_accounts_id: "coa-interest", flow_type: "interest_income", affects_pl: true } });
     await syncBankLedger(sb as never, [rec]);
     expect(sb.upserts[0]).toMatchObject({ mapping_source: "manual", chart_of_accounts_id: "coa-interest" });
   });
 
   it("resets a non-manual (e.g. rule-derived) prior mapping to unmapped/null on re-sync", async () => {
-    const sb = fakeSupabase({ int: { mapping_source: "rule", chart_of_accounts_id: "coa-old-rule" } });
+    const sb = fakeSupabase({ int: { mapping_source: "rule", chart_of_accounts_id: "coa-old-rule", flow_type: "interest_income", affects_pl: true } });
     await syncBankLedger(sb as never, [rec]);
     expect(sb.upserts[0]).toMatchObject({ mapping_source: "unmapped", chart_of_accounts_id: null });
+  });
+
+  it("preserves a manual flow_type recode across re-sync, even when re-classification would revert it", async () => {
+    // Prior human recode: an unclassified row was manually set to internal_transfer.
+    const sb = fakeSupabase({
+      unc: { mapping_source: "manual", chart_of_accounts_id: null, flow_type: "internal_transfer", affects_pl: false },
+    });
+    const reclassified: BankLedgerRecord = {
+      source: "ramp", source_transaction_id: "unc", amount_cents: -500000, currency_code: "USD",
+      description: "Withdrawal", counterparty_name: "Mystery Co", source_account_name: "Operating Account",
+      destination_account_name: "Mystery Co", flow_type: "unclassified", affects_pl: false, transaction_date: "2026-07-01",
+    };
+    await syncBankLedger(sb as never, [reclassified]);
+    expect(sb.upserts[0]).toMatchObject({ flow_type: "internal_transfer", affects_pl: false, mapping_source: "manual" });
+  });
+
+  it("lets the freshly-classified flow_type through for a non-manual prior row", async () => {
+    const sb = fakeSupabase({ int: { mapping_source: "unmapped", chart_of_accounts_id: null, flow_type: "unclassified", affects_pl: false } });
+    await syncBankLedger(sb as never, [rec]);
+    expect(sb.upserts[0]).toMatchObject({ flow_type: "interest_income", affects_pl: true, mapping_source: "unmapped" });
   });
 });

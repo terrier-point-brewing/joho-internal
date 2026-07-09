@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { affectsPlForFlowType, type FlowType } from "@/lib/finance/bankLedger";
 
 export const dynamic = "force-dynamic";
 
@@ -28,14 +29,18 @@ export async function PATCH(req: NextRequest) {
   if (!body.id) return NextResponse.json({ error: "id required" }, { status: 400 });
 
   const patch: Record<string, unknown> = {};
-  if (body.flow_type) patch.flow_type = body.flow_type;
+  if (body.flow_type) {
+    patch.flow_type = body.flow_type;
+    patch.affects_pl = affectsPlForFlowType(body.flow_type as FlowType);
+    patch.mapping_source = "manual";
+  }
   if ("chart_of_accounts_id" in body) {
     patch.chart_of_accounts_id = body.chart_of_accounts_id ?? null;
-    patch.mapping_source = body.chart_of_accounts_id ? "manual" : "unmapped";
+    if (!patch.mapping_source) patch.mapping_source = body.chart_of_accounts_id ? "manual" : "unmapped";
   }
 
   const supabase = createSupabaseAdminClient();
-  const { data, error } = await supabase.from("ramp_bank_ledger").update(patch).eq("id", body.id).select("id, flow_type, chart_of_accounts_id, mapping_source").single();
+  const { data, error } = await supabase.from("ramp_bank_ledger").update(patch).eq("id", body.id).select("id, flow_type, affects_pl, chart_of_accounts_id, mapping_source").single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data);
 }
