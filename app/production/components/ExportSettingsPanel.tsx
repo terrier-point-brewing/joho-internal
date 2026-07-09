@@ -77,7 +77,11 @@ function ExciseTaxRateRow({
         <button
           onClick={() => update({ is_active: !rate.is_active })}
           disabled={saving}
-          className="btn-secondary text-xs px-2 py-1"
+          className={`text-xs px-2 py-1 rounded border transition-colors ${
+            rate.is_active
+              ? "bg-success-surface/40 border-success-border text-success hover:bg-success-surface/60"
+              : "bg-surface border-line-strong text-muted hover:text-body"
+          }`}
         >
           {rate.is_active ? "Active" : "Inactive"}
         </button>
