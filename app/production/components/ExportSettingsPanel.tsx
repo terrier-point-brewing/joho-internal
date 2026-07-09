@@ -441,7 +441,7 @@ function ServiceMappingDrawer({
               <button
                 onClick={handleSave}
                 disabled={saving}
-                className="btn-primary text-xs w-full disabled:opacity-30"
+                className="btn-primary w-full"
               >
                 {saving ? "Saving…" : "Save"}
               </button>

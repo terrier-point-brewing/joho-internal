@@ -242,7 +242,7 @@ export default function PackagingVariationsPanel() {
         <p className="text-xs text-muted">
           Strictly-defined packaging combinations — container + format + specific components. Used by Recipes to declare which variations they&apos;re packaged as.
         </p>
-        <button onClick={openNew} className="btn-primary text-xs py-1 px-2.5 shrink-0">+ Add Variation</button>
+        <button onClick={openNew} className="btn-primary shrink-0">+ Add Variation</button>
       </div>
 
       {/* Search + filters */}

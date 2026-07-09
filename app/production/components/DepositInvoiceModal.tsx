@@ -162,8 +162,7 @@ export function DepositInvoiceModal({
                 ← Back
               </button>
               <div className="flex gap-2">
-                <button type="button" onClick={onClose}
-                  className="px-4 py-1.5 text-sm text-muted hover:text-body transition-colors">
+                <button type="button" onClick={onClose} className="btn-secondary">
                   Cancel
                 </button>
                 <button
@@ -267,8 +266,7 @@ export function DepositInvoiceModal({
                 </button>
               ) : <span />}
               <div className="flex gap-2">
-                <button type="button" onClick={onClose}
-                  className="px-4 py-1.5 text-sm text-muted hover:text-body transition-colors">
+                <button type="button" onClick={onClose} className="btn-secondary">
                   Cancel
                 </button>
                 <button

@@ -306,7 +306,7 @@ function BulkUploadModal({ onClose, onDone }: { onClose: () => void; onDone: () 
             type="button"
             onClick={handleImport}
             disabled={!parsed || validCount === 0 || submitting}
-            className="btn-primary disabled:opacity-40 disabled:cursor-not-allowed"
+            className="btn-primary"
           >
             {submitting ? "Importing…" : `Import ${validCount > 0 ? validCount : ""} Ingredient${validCount !== 1 ? "s" : ""}`}
           </button>

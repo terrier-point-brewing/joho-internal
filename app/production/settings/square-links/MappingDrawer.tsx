@@ -281,7 +281,7 @@ export default function MappingDrawer({ recipeId, colKey, onClose }: Props) {
                       <button
                         onClick={() => handleAccept(v, pendingId)}
                         disabled={isBusy}
-                        className="btn-primary text-xs w-full disabled:opacity-30"
+                        className="btn-primary w-full"
                       >
                         {isBusy ? "Saving…" : "Link"}
                       </button>

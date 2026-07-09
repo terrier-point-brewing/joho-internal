@@ -43,14 +43,14 @@ export default function InventoryAlertBanner({
           <button
             type="button"
             onClick={() => expenses.forEach((e) => onDismiss(e.id))}
-            className="btn-secondary text-xs px-2 py-1"
+            className="btn-secondary"
           >
             Dismiss all
           </button>
           <button
             type="button"
             onClick={() => setOpen((o) => !o)}
-            className="btn-secondary text-xs px-2 py-1"
+            className="btn-secondary"
           >
             {open ? "Hide" : "Details"}
           </button>
