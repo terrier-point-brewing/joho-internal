@@ -24,3 +24,13 @@ drop trigger if exists audit_deposit_invoice_ingredients on public.deposit_invoi
 create trigger audit_deposit_invoice_ingredients
   after insert or update or delete on public.deposit_invoice_ingredients
   for each row execute function public.audit_trigger_fn();
+
+-- ── RLS (admin-only, matching the parent invoices cluster) ───────────────────
+alter table public.deposit_invoice_ingredients enable row level security;
+
+create policy "Admins only — deposit_invoice_ingredients"
+  on public.deposit_invoice_ingredients for all
+  using (exists (
+    select 1 from profiles p
+    where p.id = auth.uid() and p.role = 'admin'
+  ));

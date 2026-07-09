@@ -111,12 +111,18 @@ export async function POST(req: NextRequest) {
     if (lines.length === 0) { skip(inv, "skipped:no-lines"); continue; }
 
     const sum = lines.reduce((s, l) => s + l.line_total_cents, 0);
-    results.push({ invoice_id: inv.id, status: apply ? "written" : "dry-run", lines: lines.length, sum_cents: sum, total_cents: inv.total_cents });
 
     if (apply) {
-      await snapshotDepositBreakdown(db, inv.id, inputs, inv.total_cents);
+      try {
+        await snapshotDepositBreakdown(db, inv.id, inputs, inv.total_cents);
+      } catch (e) {
+        fail(inv, `error:write:${e instanceof Error ? e.message : String(e)}`);
+        continue;
+      }
       written++;
     }
+
+    results.push({ invoice_id: inv.id, status: apply ? "written" : "dry-run", lines: lines.length, sum_cents: sum, total_cents: inv.total_cents });
   }
 
   return NextResponse.json({
