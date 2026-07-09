@@ -10,7 +10,7 @@ import { BrewBatch, BatchTransfer, BrewActivityEntry, BatchAllocation, Allocatio
 import { BREWHOUSE_BBL, StatusBadge, Modal, Field, ModalActions } from "./shared";
 import { fmtDateLong, fmtBbl2 } from "@/lib/utils/formatting";
 import { EQ } from "../equipmentMeta";
-import { computeLocationBreakdown } from "../lib/volumeLedger";
+import { computeLocationBreakdown } from "@/lib/production/volumeLedger";
 import { fetchJson } from "../hooks/queries";
 import type { DepositCalculation } from "@/lib/square/square-invoices";
 import {
