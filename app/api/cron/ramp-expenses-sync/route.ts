@@ -7,8 +7,8 @@
  * sync on the Expenses tab.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { getRampTransactions } from "@/lib/ramp";
-import { syncRampExpenses } from "@/lib/finance/rampExpenses";
+import { getRampTransactions, getRampBills } from "@/lib/ramp";
+import { rampTxnToExpenseRecord, rampBillToExpenseRecords, syncExpenseRecords } from "@/lib/finance/rampExpenses";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { runCronJob } from "@/lib/cron/runCronJob";
 import { apiError } from "@/lib/utils/api";
@@ -30,9 +30,10 @@ export async function GET(req: NextRequest) {
   const toStr   = to.toISOString().slice(0, 10);
 
   const outcome = await runCronJob("ramp-expenses-sync", async () => {
-    const txns     = await getRampTransactions(fromStr, toStr);
+    const [txns, bills] = await Promise.all([getRampTransactions(fromStr, toStr), getRampBills(fromStr, toStr)]);
+    const records = [...txns.map(rampTxnToExpenseRecord), ...bills.flatMap(rampBillToExpenseRecords)];
     const supabase = createSupabaseAdminClient();
-    const result   = await syncRampExpenses(supabase, txns);
+    const result = await syncExpenseRecords(supabase, records);
     return { ...result, window: { from: fromStr, to: toStr } };
   });
 
