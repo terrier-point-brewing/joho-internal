@@ -8,7 +8,8 @@
  * IO (Supabase reads/writes) lives here.
  */
 import type { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import type { RampTransaction } from "@/lib/ramp";
+import type { RampTransaction, RampBill } from "@/lib/ramp";
+import { extractGlAccount } from "@/lib/ramp";
 import {
   dollarsToCents,
   matchAccountToCoa,
@@ -16,6 +17,7 @@ import {
   type ExpenseRecord,
   type CoaAccountRef,
   type RuleRef,
+  type CounterpartyRuleRef,
   type MappingSource,
 } from "./expenses";
 
@@ -41,8 +43,9 @@ export function rampTxnToExpenseRecord(txn: RampTransaction): ExpenseRecord {
 
   return {
     source:                SOURCE,
+    ramp_object:           "card",
     source_transaction_id: txn.id,
-    amount_cents:          dollarsToCents(txn.amount),
+    amount_cents:          -dollarsToCents(txn.amount),   // outflow negative
     currency_code:         txn.currency_code || "USD",
     memo:                  txn.memo || null,
     merchant_name:         txn.merchant_name || null,
@@ -56,7 +59,61 @@ export function rampTxnToExpenseRecord(txn: RampTransaction): ExpenseRecord {
     external_account_id:   txn.gl_account?.id ?? null,
     external_account_name: txn.gl_account?.name ?? null,
     external_account_code: txn.gl_account?.external_id ?? null,
+    counterparty_key:      null,
+    counterparty_label:    null,
   };
+}
+
+/**
+ * Shape a Ramp bill into one ExpenseRecord PER LINE ITEM. Bills carry GL coding
+ * per line and may split one invoice across accounts, so line-item grain keeps
+ * statements accurate. source_transaction_id namespaces the line index under the
+ * bill id so re-syncs upsert idempotently. A bill with no line items yields a
+ * single uncoded record for the whole total.
+ */
+export function rampBillToExpenseRecords(bill: RampBill): ExpenseRecord[] {
+  const day = bill.accounting_date ? bill.accounting_date.slice(0, 10) : null;
+
+  const base = {
+    source:             SOURCE,
+    ramp_object:        "bill" as const,
+    currency_code:      bill.currency_code || "USD",
+    merchant_name:      bill.vendor_name || null,
+    merchant_category:  null,
+    sk_category_name:   null,
+    state:              bill.status || null,
+    card_holder_name:   null,
+    department_name:    null,
+    transaction_time:   bill.issued_at || null,
+    accounting_date:    day,
+    counterparty_key:   null,
+    counterparty_label: null,
+  };
+
+  if (bill.line_items.length === 0) {
+    return [{
+      ...base,
+      source_transaction_id: `${bill.id}:0`,
+      amount_cents:          -dollarsToCents(bill.amount),
+      memo:                  bill.memo,
+      external_account_id:   null,
+      external_account_name: null,
+      external_account_code: null,
+    }];
+  }
+
+  return bill.line_items.map((li, i) => {
+    const gl = extractGlAccount({ accounting_field_selections: li.accounting_field_selections });
+    return {
+      ...base,
+      source_transaction_id: `${bill.id}:${i}`,
+      amount_cents:          -dollarsToCents(li.amount),
+      memo:                  li.memo ?? bill.memo,
+      external_account_id:   gl?.id ?? null,
+      external_account_name: gl?.name ?? null,
+      external_account_code: gl?.external_id ?? null,
+    };
+  });
 }
 
 function chunk<T>(arr: T[], size: number): T[][] {
@@ -65,12 +122,10 @@ function chunk<T>(arr: T[], size: number): T[][] {
   return out;
 }
 
-export async function syncRampExpenses(
+export async function syncExpenseRecords(
   supabase: AdminClient,
-  txns: RampTransaction[],
+  records: ExpenseRecord[],
 ): Promise<RampSyncResult> {
-  const records = txns.map(rampTxnToExpenseRecord);
-
   // Chart of accounts — for auto-matching new external accounts.
   const { data: accountRows, error: coaErr } = await supabase
     .from("chart_of_accounts")
@@ -131,14 +186,43 @@ export async function syncRampExpenses(
     if (error) throw new Error(`Insert expense mappings failed: ${error.message}`);
   }
 
+  // Counterparty rules (for bank-sourced rows with no GL coding).
+  const { data: cpRows, error: cpErr } = await supabase
+    .from("expense_counterparty_mappings")
+    .select("counterparty_key, chart_of_accounts_id")
+    .eq("source", SOURCE);
+  if (cpErr) throw new Error(`Load counterparty mappings failed: ${cpErr.message}`);
+
+  const ruleByCounterparty = new Map<string, CounterpartyRuleRef>();
+  for (const r of cpRows ?? []) {
+    ruleByCounterparty.set(r.counterparty_key, { counterparty_key: r.counterparty_key, chart_of_accounts_id: r.chart_of_accounts_id });
+  }
+
+  // Ensure a rule row exists for every counterparty in this batch (unmapped —
+  // counterparties don't name-match the CoA, so the user assigns in Settings).
+  const newCpRules: { source: string; counterparty_key: string; counterparty_label: string; chart_of_accounts_id: null; auto_matched: boolean }[] = [];
+  for (const rec of records) {
+    if (rec.counterparty_key && !ruleByCounterparty.has(rec.counterparty_key)) {
+      ruleByCounterparty.set(rec.counterparty_key, { counterparty_key: rec.counterparty_key, chart_of_accounts_id: null });
+      newCpRules.push({ source: SOURCE, counterparty_key: rec.counterparty_key, counterparty_label: rec.counterparty_label ?? rec.counterparty_key, chart_of_accounts_id: null, auto_matched: false });
+    }
+  }
+  if (newCpRules.length > 0) {
+    const { error } = await supabase
+      .from("expense_counterparty_mappings")
+      .upsert(newCpRules, { onConflict: "source,counterparty_key" });
+    if (error) throw new Error(`Insert counterparty mappings failed: ${error.message}`);
+  }
+
   // Preserve manual per-expense overrides across re-syncs.
   const existing = new Map<string, { mapping_source: MappingSource; chart_of_accounts_id: string | null }>();
   for (const ids of chunk(records.map((r) => r.source_transaction_id), 500)) {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("expenses")
-      .select("source_transaction_id, mapping_source, chart_of_accounts_id")
+      .select("source_transaction_id, mapping_source, chart_of_accounts_id, counterparty_key")
       .eq("source", SOURCE)
       .in("source_transaction_id", ids);
+    if (error) throw new Error(`Load existing expenses failed: ${error.message}`);
     for (const e of data ?? []) {
       existing.set(e.source_transaction_id, { mapping_source: e.mapping_source, chart_of_accounts_id: e.chart_of_accounts_id });
     }
@@ -153,10 +237,12 @@ export async function syncRampExpenses(
     const resolved = resolveExpenseMapping(
       {
         external_account_id:  rec.external_account_id,
+        counterparty_key:     rec.counterparty_key,
         mapping_source:       prior?.mapping_source ?? "unmapped",
         chart_of_accounts_id: prior?.chart_of_accounts_id ?? null,
       },
       ruleByAccountId,
+      ruleByCounterparty,
     );
     if (resolved.chart_of_accounts_id) mapped++;
     else unmapped++;
@@ -182,4 +268,12 @@ export async function syncRampExpenses(
     new_rules:          newRules.length,
     auto_matched_rules: autoMatched,
   };
+}
+
+/** Back-compat: sync a batch of Ramp card transactions. */
+export async function syncRampExpenses(
+  supabase: AdminClient,
+  txns: RampTransaction[],
+): Promise<RampSyncResult> {
+  return syncExpenseRecords(supabase, txns.map(rampTxnToExpenseRecord));
 }

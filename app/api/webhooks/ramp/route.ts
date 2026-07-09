@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse, after } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { getRampTransactions } from "@/lib/ramp";
-import { syncRampExpenses } from "@/lib/finance/rampExpenses";
+import { syncAllRamp } from "@/lib/finance/rampSync";
 import { verifyRampSignature, isReconcilableRampEvent } from "@/lib/ramp/webhook";
 
 export const dynamic = "force-dynamic";
@@ -13,14 +12,16 @@ export const maxDuration = 60;
 /**
  * Ramp webhook → near-real-time expense re-sync.
  *
- * When card spend posts or changes, Ramp POSTs a `transactions.*` event here. We
- * verify the `X-Ramp-Signature` HMAC (the only auth — this endpoint is public),
- * then run the SAME idempotent sync the daily cron uses over a short trailing
- * window, so the expense (and later state changes like authorized → cleared)
- * lands within seconds instead of by the next 06:30 cron. The cron stays as a
- * safety net for missed deliveries; idempotency (upsert keyed
- * source,source_transaction_id) makes overlapping webhook + cron runs harmless,
- * and the trailing-window re-derive absorbs Ramp's out-of-order deliveries.
+ * When card spend, bill spend, or bank activity posts or changes, Ramp POSTs a
+ * `transactions.*`, `bill.*`, or `banking.*` event here. We verify the
+ * `X-Ramp-Signature` HMAC (the only auth —
+ * this endpoint is public), then run the SAME idempotent sync the daily cron
+ * uses over a short trailing window, so the expense (and later state changes
+ * like authorized → cleared) lands within seconds instead of by the next 06:30
+ * cron. The cron stays as a safety net for missed deliveries; idempotency
+ * (upsert keyed source,source_transaction_id) makes overlapping webhook + cron
+ * runs harmless, and the trailing-window re-derive absorbs Ramp's out-of-order
+ * deliveries.
  *
  * Env: RAMP_WEBHOOK_SECRET — the `secret` field returned when the subscription
  * is created via POST /developer/v1/webhooks.
@@ -76,8 +77,8 @@ export async function POST(req: NextRequest) {
   });
   if (!valid) return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
 
-  // Only transaction events trigger a re-sync; ack everything else with 200 so
-  // Ramp doesn't retry non-actionable deliveries.
+  // Only transaction, bill, and banking events trigger a re-sync; ack everything
+  // else with 200 so Ramp doesn't retry non-actionable deliveries.
   if (!isReconcilableRampEvent(type)) {
     return NextResponse.json({ ignored: true, type: type ?? null });
   }
@@ -94,15 +95,13 @@ export async function POST(req: NextRequest) {
       const fromStr = from.toISOString().slice(0, 10);
       const toStr = to.toISOString().slice(0, 10);
 
-      const txns = await getRampTransactions(fromStr, toStr);
       const supabase = createSupabaseAdminClient();
-      const result = await syncRampExpenses(supabase, txns);
+      const result = await syncAllRamp(supabase, fromStr, toStr);
       console.log("[ramp-webhook] reconcile", {
         type,
         eventId: event.id,
         imported: result.imported,
-        mapped: result.mapped,
-        unmapped: result.unmapped,
+        bank: result.bank.imported,
         window: { from: fromStr, to: toStr },
       });
     } catch (e) {
