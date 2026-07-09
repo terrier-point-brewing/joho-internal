@@ -22,7 +22,7 @@ export interface ExpenseRecord {
   source:                ExpenseSource;
   ramp_object:           RampObject;
   source_transaction_id: string;   // the source system's transaction id
-  amount_cents:          number;   // positive = spend, negative = refund/credit
+  amount_cents:          number;   // signed by cash direction: outflow (spend) negative, inflow (refund/credit) positive
   currency_code:         string;
   memo:                  string | null;
   merchant_name:         string | null;

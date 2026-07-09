@@ -217,11 +217,12 @@ export async function syncExpenseRecords(
   // Preserve manual per-expense overrides across re-syncs.
   const existing = new Map<string, { mapping_source: MappingSource; chart_of_accounts_id: string | null }>();
   for (const ids of chunk(records.map((r) => r.source_transaction_id), 500)) {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("expenses")
       .select("source_transaction_id, mapping_source, chart_of_accounts_id, counterparty_key")
       .eq("source", SOURCE)
       .in("source_transaction_id", ids);
+    if (error) throw new Error(`Load existing expenses failed: ${error.message}`);
     for (const e of data ?? []) {
       existing.set(e.source_transaction_id, { mapping_source: e.mapping_source, chart_of_accounts_id: e.chart_of_accounts_id });
     }

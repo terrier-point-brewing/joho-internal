@@ -108,15 +108,16 @@ type Row = Record<string, unknown>;
  * select() returns a chainable/thenable builder supporting .eq()/.in();
  * upsert() captures the written rows.
  */
-function makeClient(cfg: { coa: Row[]; rules: Row[]; existing: Row[] }) {
+function makeClient(cfg: { coa: Row[]; rules: Row[]; existing: Row[]; existingSelectError?: string }) {
   const captured = { ruleUpserts: [] as Row[], expenseUpserts: [] as Row[] };
 
-  function query(baseData: Row[]) {
+  function query(baseData: Row[], errorMessage?: string) {
     const filters: ((r: Row) => boolean)[] = [];
     const q = {
       eq(col: string, val: unknown) { filters.push((r) => r[col] === val); return q; },
       in(col: string, vals: unknown[]) { filters.push((r) => vals.includes(r[col])); return q; },
-      then(res: (v: { data: Row[]; error: null }) => unknown) {
+      then(res: (v: { data: Row[] | null; error: { message: string } | null }) => unknown) {
+        if (errorMessage) return Promise.resolve({ data: null, error: { message: errorMessage } }).then(res);
         const data = baseData.filter((r) => filters.every((f) => f(r)));
         return Promise.resolve({ data, error: null }).then(res);
       },
@@ -132,7 +133,7 @@ function makeClient(cfg: { coa: Row[]; rules: Row[]; existing: Row[] }) {
         table === "expense_counterparty_mappings" ? [] :
         table === "expenses"                      ? cfg.existing : [];
       return {
-        select() { return query(baseData); },
+        select() { return query(baseData, table === "expenses" ? cfg.existingSelectError : undefined); },
         upsert(rows: Row[]) {
           if (table === "expense_account_mappings") captured.ruleUpserts.push(...rows);
           if (table === "expenses")                 captured.expenseUpserts.push(...rows);
@@ -203,6 +204,18 @@ describe("syncRampExpenses", () => {
     await syncRampExpenses(client, [glTxn("t1", { id: "gl-1", external_id: "6000", name: "Marketing" })]);
 
     expect(captured.expenseUpserts[0]).toMatchObject({ chart_of_accounts_id: "coa-manual", mapping_source: "manual" });
+  });
+
+  it("throws (never silently drops manual pins) when the existing-expenses lookup errors", async () => {
+    const { client } = makeClient({
+      coa: [{ id: "coa-1", account_name: "Marketing", account_number: "6000" }],
+      rules: [{ source: "ramp", external_account_id: "gl-1", chart_of_accounts_id: "coa-1" }],
+      existing: [{ source: "ramp", source_transaction_id: "t1", mapping_source: "manual", chart_of_accounts_id: "coa-manual" }],
+      existingSelectError: "connection reset",
+    });
+
+    await expect(syncRampExpenses(client, [glTxn("t1", { id: "gl-1", external_id: "6000", name: "Marketing" })]))
+      .rejects.toThrow(/Load existing expenses failed: connection reset/);
   });
 
   it("leaves untagged expenses unmapped", async () => {
