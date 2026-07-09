@@ -2,7 +2,7 @@
 // Search/filter/sort standard guard. Warn-only unless --strict.
 // See docs/UI_STANDARD.md and docs/superpowers/specs/2026-07-09-search-filter-standards-design.md
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join, relative } from "node:path";
+import { join, relative, sep } from "node:path";
 
 const ROOT = process.cwd();
 const SCAN_DIR = join(ROOT, "app");
@@ -20,7 +20,7 @@ function walk(dir, out = []) {
   for (const name of readdirSync(dir)) {
     const full = join(dir, name);
     const rel = relative(ROOT, full);
-    if (EXCLUDE.some((e) => rel.startsWith(e))) continue;
+    if (EXCLUDE.some((e) => rel === e || rel.startsWith(e + sep))) continue;
     if (statSync(full).isDirectory()) walk(full, out);
     else if (/\.(tsx|ts)$/.test(name)) out.push(full);
   }
