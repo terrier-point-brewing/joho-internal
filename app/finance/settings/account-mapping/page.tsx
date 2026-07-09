@@ -281,14 +281,14 @@ function BulkMapper({
             onClick={() => apply(false)}
             disabled={applying || unmappedCount === 0}
             title={`Fill ${unmappedCount} unmapped`}
-            className="btn-amber btn-xs whitespace-nowrap">
+            className="btn-primary whitespace-nowrap">
             {applying ? "…" : `Fill ${unmappedCount}`}
           </button>
           <button
             onClick={() => apply(true)}
             disabled={applying}
             title="Overwrite all"
-            className="btn-ghost btn-xs whitespace-nowrap">
+            className="btn-secondary whitespace-nowrap">
             All
           </button>
         </>
@@ -353,11 +353,11 @@ function BulkSourceMapper({
           />
             </div>
             <button onClick={() => apply("chart_of_accounts_id_pos", draftPos, false)} disabled={applying || !draftPos}
-              className="btn-amber btn-xs whitespace-nowrap">
+              className="btn-primary whitespace-nowrap">
               {applying ? "…" : "Fill unmapped"}
             </button>
             <button onClick={() => apply("chart_of_accounts_id_pos", draftPos, true)} disabled={applying || !draftPos}
-              className="btn-ghost btn-xs whitespace-nowrap">
+              className="btn-secondary whitespace-nowrap">
               Overwrite all
             </button>
           </div>
@@ -371,11 +371,11 @@ function BulkSourceMapper({
           />
             </div>
             <button onClick={() => apply("chart_of_accounts_id_invoice", draftInv, false)} disabled={applying || !draftInv}
-              className="btn-amber btn-xs whitespace-nowrap">
+              className="btn-primary whitespace-nowrap">
               {applying ? "…" : "Fill unmapped"}
             </button>
             <button onClick={() => apply("chart_of_accounts_id_invoice", draftInv, true)} disabled={applying || !draftInv}
-              className="btn-ghost btn-xs whitespace-nowrap">
+              className="btn-secondary whitespace-nowrap">
               Overwrite all
             </button>
           </div>
@@ -696,7 +696,7 @@ export default function AccountMappingPage() {
           {syncResult && (
             <span className="text-xs text-success">{syncResult.items} items · {syncResult.variations} variations synced</span>
           )}
-          <button onClick={handleSync} disabled={syncing} className="btn-ghost btn-sm">
+          <button onClick={handleSync} disabled={syncing} className="btn-secondary btn-secondary">
             {syncing ? "Syncing…" : "Sync Catalog"}
           </button>
         </div>

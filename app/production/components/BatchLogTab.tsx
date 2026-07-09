@@ -265,7 +265,7 @@ export default function BatchLogTab() {
             Clear
           </button>
         )}
-        <button onClick={openNew} className="btn-amber ml-auto shrink-0">+ New Batch</button>
+        <button onClick={openNew} className="btn-primary ml-auto shrink-0">+ New Batch</button>
       </div>
 
       {recipes.length === 0 && (
@@ -1144,7 +1144,7 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
 
           <div className="flex gap-2 pt-1">
             <button type="button" onClick={handleAdd} disabled={saving || !newPct}
-              className="btn-amber btn-xs">
+              className="btn-primary">
               {saving ? "Adding…" : "Add"}
             </button>
             <button type="button" onClick={() => { setShowAddForm(false); setNewPct(""); setNewCommitmentId(""); setNewChannel("taproom"); }}
@@ -1622,7 +1622,7 @@ function BrewActivityLogManager({ batch }: { batch: BrewBatch }) {
             onChange={(e) => setNewRow((r) => ({ ...r, amount: e.target.value }))} />
         </div>
         <button type="button" onClick={addRow} disabled={saving || !newRow.activity.trim()}
-          className="btn-ghost btn-xs shrink-0">
+          className="btn-secondary shrink-0">
           {saving ? "…" : "+ Add"}
         </button>
       </div>

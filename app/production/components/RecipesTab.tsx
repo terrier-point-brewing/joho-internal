@@ -253,7 +253,7 @@ export default function RecipesTab() {
     <>
       <div className="flex items-center justify-between mb-4">
         <p className="text-sm text-muted">Define beer recipes with ingredient bills and brew steps</p>
-        <button onClick={openNew} className="btn-amber">+ New Recipe</button>
+        <button onClick={openNew} className="btn-primary">+ New Recipe</button>
       </div>
 
       {recipes.length === 0 ? (

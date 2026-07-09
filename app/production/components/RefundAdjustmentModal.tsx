@@ -61,7 +61,7 @@ export function RefundAdjustmentModal({
             type="button"
             onClick={onConfirm}
             disabled={submitting}
-            className="btn-amber">
+            className="btn-primary">
             {submitting ? "Refunding…" : "Refund & Save"}
           </button>
         </div>

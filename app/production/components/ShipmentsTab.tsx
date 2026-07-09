@@ -681,13 +681,13 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
           )}
           <button
             onClick={() => setShowModal(true)}
-            className="btn-amber"
+            className="btn-primary"
           >
             Generate Invoice
           </button>
           <button
             onClick={openMarkPaid}
-            className="btn-amber"
+            className="btn-primary"
           >
             Mark Paid
           </button>
@@ -782,7 +782,7 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
               <button
                 onClick={submitMarkPaid}
                 disabled={mpLoading || !mpValid}
-                className="btn-amber"
+                className="btn-primary"
               >
                 {mpLoading ? "Saving…" : "Mark Paid"}
               </button>

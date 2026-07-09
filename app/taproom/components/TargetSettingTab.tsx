@@ -286,7 +286,7 @@ export default function TargetSettingTab() {
           <button
             onClick={handleSave}
             disabled={saving}
-            className="btn-amber"
+            className="btn-primary"
           >
             {saving ? "Saving…" : saved ? "✓ Saved" : "Save Changes"}
           </button>

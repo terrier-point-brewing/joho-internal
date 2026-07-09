@@ -43,7 +43,7 @@ export default function FinancePayrollPage() {
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-base font-semibold text-primary">Payroll</h1>
         {!showForm && (
-          <button onClick={() => setShowForm(true)} className="btn-ghost btn-sm">
+          <button onClick={() => setShowForm(true)} className="btn-secondary btn-secondary">
             + New Period
           </button>
         )}
@@ -63,13 +63,13 @@ export default function FinancePayrollPage() {
           <button
             onClick={() => createPeriod.mutate({ start_date: newStart, end_date: newEnd })}
             disabled={createPeriod.isPending || !newStart || !newEnd}
-            className="btn-amber"
+            className="btn-primary"
           >
             {createPeriod.isPending ? "Creating…" : "Create"}
           </button>
           <button
             onClick={() => { setShowForm(false); setNewStart(""); setNewEnd(""); }}
-            className="btn-ghost btn-sm"
+            className="btn-secondary btn-secondary"
           >
             Cancel
           </button>

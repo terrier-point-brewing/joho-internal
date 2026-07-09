@@ -203,7 +203,7 @@ export default function PackagingTab() {
             </button>
           ))}
         </div>
-        <button onClick={openNew} className="btn-amber shrink-0">+ Add Item</button>
+        <button onClick={openNew} className="btn-primary shrink-0">+ Add Item</button>
       </div>
 
       {packaging.length === 0 ? (

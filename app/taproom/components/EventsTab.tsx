@@ -111,12 +111,12 @@ function EventForm({
         <textarea className="inp w-full text-sm resize-none" rows={2} value={form.notes} onChange={set("notes")} placeholder="Optional notes…" />
       </div>
       <div className="flex gap-2 justify-end pt-1">
-        <button type="button" onClick={onCancel} className="btn-ghost text-sm" disabled={saving}>Cancel</button>
+        <button type="button" onClick={onCancel} className="btn-secondary text-sm" disabled={saving}>Cancel</button>
         <button
           type="button"
           onClick={() => onSave(form)}
           disabled={!valid || saving}
-          className="btn-amber disabled:opacity-40 disabled:cursor-not-allowed text-sm"
+          className="btn-primary disabled:opacity-40 disabled:cursor-not-allowed text-sm"
         >
           {saving ? "Saving…" : "Save Event"}
         </button>
@@ -280,7 +280,7 @@ export default function EventsTab() {
         {!creating && (
           <button
             onClick={() => { setCreating(true); setEditingId(null); setFormError(null); }}
-            className="btn-amber text-sm shrink-0 ml-4"
+            className="btn-primary text-sm shrink-0 ml-4"
           >
             + New Event
           </button>

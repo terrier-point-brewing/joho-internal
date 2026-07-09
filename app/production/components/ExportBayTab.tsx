@@ -813,7 +813,7 @@ function WriteOffModal({ alloc, partnerName, recipeName, onClose, onDone }: {
             <button
               type="submit"
               disabled={submitting}
-              className={assessment.exceedsTolerance ? "btn-danger btn-xs" : "btn-amber btn-xs"}
+              className={assessment.exceedsTolerance ? "btn-danger" : "btn-primary"}
             >
               {submitting ? "Writing off…" : "Write off"}
             </button>
@@ -893,7 +893,7 @@ function SyncConsumptionModal({ onClose, onRecorded }: { onClose: () => void; on
               value={days} onChange={(e) => setDays(e.target.value)}
             />
           </div>
-          <button onClick={run} disabled={running} className="btn-amber btn-xs">
+          <button onClick={run} disabled={running} className="btn-primary">
             {running ? "Syncing…" : "Run sync"}
           </button>
         </div>
@@ -1036,7 +1036,7 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
               </ul>
             </div>
             <div className="flex justify-end pt-1">
-              <button type="button" onClick={onDone} className="btn-amber btn-xs">Done</button>
+              <button type="button" onClick={onDone} className="btn-primary">Done</button>
             </div>
           </div>
         ) : (
@@ -1078,7 +1078,7 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
             <button
               type="submit"
               disabled={submitting || inventoryLines.length === 0 || preview?.insufficientStock}
-              className="btn-amber btn-xs"
+              className="btn-primary"
             >
               {submitting ? "Shipping…" : "Ship"}
             </button>
@@ -1225,7 +1225,7 @@ function AdHocExportModal({ inventoryByRecipe, recipeNameById, onClose, onDone }
             <button
               type="submit"
               disabled={submitting || linesForRecipe.length === 0}
-              className="btn-amber btn-xs"
+              className="btn-primary"
             >
               {submitting ? "Shipping…" : "Ship"}
             </button>

@@ -667,7 +667,7 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
             Clear
           </button>
         )}
-        <button onClick={() => setShowModal(true)} className="btn-amber ml-auto shrink-0">+ New</button>
+        <button onClick={() => setShowModal(true)} className="btn-primary ml-auto shrink-0">+ New</button>
       </div>
 
       {displayRows.length === 0 ? (

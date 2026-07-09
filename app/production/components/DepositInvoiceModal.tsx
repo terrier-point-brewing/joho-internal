@@ -170,7 +170,7 @@ export function DepositInvoiceModal({
                   type="button"
                   onClick={handleMarkPaidSubmit}
                   disabled={markingPaid || !mpValid}
-                  className="btn-amber">
+                  className="btn-primary">
                   {markingPaid ? "Saving…" : "Mark Paid"}
                 </button>
               </div>
@@ -275,7 +275,7 @@ export function DepositInvoiceModal({
                   type="button"
                   onClick={onGenerate}
                   disabled={generating || loading || !calc || calc.deposit_cents === 0}
-                  className="btn-amber">
+                  className="btn-primary">
                   {generating ? "Generating…" : isRevision ? "Regenerate Invoice" : "Create Draft Invoice"}
                 </button>
               </div>

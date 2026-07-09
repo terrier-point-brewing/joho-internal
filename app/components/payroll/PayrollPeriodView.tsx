@@ -93,12 +93,12 @@ export function PayrollPeriodView({ periodId, editable, tabs = ["summary", "shif
             {activeTab === "summary" && (
               <button
                 onClick={() => setOverrideMode(v => !v)}
-                className={overrideMode ? "btn-amber" : "btn-ghost"}
+                className={overrideMode ? "btn-primary" : "btn-secondary"}
               >
                 {overrideMode ? "Exit Override" : "Override Mode"}
               </button>
             )}
-            <button onClick={() => setShowLockConfirm(true)} className="btn-amber">
+            <button onClick={() => setShowLockConfirm(true)} className="btn-primary">
               Lock Period
             </button>
           </div>
@@ -142,10 +142,10 @@ export function PayrollPeriodView({ periodId, editable, tabs = ["summary", "shif
             </tbody>
           </table>
           <div className="flex gap-2 justify-end pt-2 border-t border-line">
-            <button onClick={() => setShowLockConfirm(false)} className="btn-ghost">
+            <button onClick={() => setShowLockConfirm(false)} className="btn-secondary">
               Cancel
             </button>
-            <button onClick={handleLock} disabled={locking} className="btn-amber">
+            <button onClick={handleLock} disabled={locking} className="btn-primary">
               {locking ? "Locking…" : "Confirm Lock"}
             </button>
           </div>

@@ -128,7 +128,7 @@ export default function MappingGrid({
           </span>
           <button
             onClick={fillAll}
-            className="btn-amber btn-xs"
+            className="btn-primary"
           >
             Fill all suggested
           </button>

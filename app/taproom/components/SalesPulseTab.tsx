@@ -213,7 +213,7 @@ export default function SalesPulseTab() {
       <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
         <button
           onClick={() => setWeekStart((w) => addDaysStr(w, -7))}
-          className="btn-ghost"
+          className="btn-secondary"
         >
           ‹ Prev
         </button>
@@ -225,7 +225,7 @@ export default function SalesPulseTab() {
         <button
           onClick={() => setWeekStart((w) => addDaysStr(w, 7))}
           disabled={isCurrentWeek}
-          className="btn-ghost"
+          className="btn-secondary"
         >
           Next ›
         </button>

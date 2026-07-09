@@ -443,7 +443,7 @@ export default function BrewStatusTab() {
         {/* Mobile: New Batch shortcut */}
         <button
           onClick={() => { setBatchForm(BATCH_EMPTY); setShowNewBatch(true); }}
-          className="md:hidden btn-amber text-xs"
+          className="md:hidden btn-primary text-xs"
         >
           + New Batch
         </button>
@@ -470,7 +470,7 @@ export default function BrewStatusTab() {
                 {editMode ? "🔓 Editing Layout" : "🔒 Edit Layout"}
               </button>
               {editMode && (
-                <button onClick={eqCrud.openNew} className="btn-amber">+ Add Equipment</button>
+                <button onClick={eqCrud.openNew} className="btn-primary">+ Add Equipment</button>
               )}
             </div>
           )}

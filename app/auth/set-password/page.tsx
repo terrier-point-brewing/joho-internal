@@ -148,7 +148,7 @@ function SetPasswordForm() {
         />
       </div>
 
-      <button type="submit" disabled={submitting} className="btn-amber mt-1 w-full">
+      <button type="submit" disabled={submitting} className="btn-primary mt-1 w-full">
         {submitting ? "Saving…" : "Set password"}
       </button>
     </form>

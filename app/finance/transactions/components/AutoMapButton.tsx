@@ -20,7 +20,7 @@ export default function AutoMapButton({ onRun }: { onRun: () => Promise<{ mapped
 
   return (
     <div className="flex items-center gap-2">
-      <button onClick={handle} disabled={running} className="btn-sm whitespace-nowrap">
+      <button onClick={handle} disabled={running} className="btn-secondary whitespace-nowrap">
         {running ? "Mapping…" : "Auto-map all"}
       </button>
       {result && (

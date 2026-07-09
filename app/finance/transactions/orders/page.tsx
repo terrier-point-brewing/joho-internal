@@ -393,11 +393,11 @@ export default function SquareTransactionsPage() {
           </span>
           <div className="flex gap-2">
             <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}
-              className="btn-ghost btn-sm">
+              className="btn-secondary btn-secondary">
               ← Prev
             </button>
             <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages}
-              className="btn-ghost btn-sm">
+              className="btn-secondary btn-secondary">
               Next →
             </button>
           </div>

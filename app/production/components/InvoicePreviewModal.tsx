@@ -260,7 +260,7 @@ export default function InvoicePreviewModal({
                   remove it per line below, or apply other discounts at your discretion.
                 </span>
                 <span className="flex items-center gap-2 shrink-0">
-                  <button onClick={applyDefaultDiscountToAll} className="btn-ghost btn-xs">
+                  <button onClick={applyDefaultDiscountToAll} className="btn-secondary">
                     Apply to all
                   </button>
                   <button onClick={clearAllDiscounts} className="text-xs text-secondary hover:text-strong">
@@ -413,7 +413,7 @@ export default function InvoicePreviewModal({
             <button
               onClick={handleCreate}
               disabled={creating || effectiveLineItems.length === 0 || (invoiceMode === "manual" && !manualValid)}
-              className="btn-amber"
+              className="btn-primary"
             >
               {creating
                 ? (invoiceMode === "square" ? "Generating…" : "Recording…")
