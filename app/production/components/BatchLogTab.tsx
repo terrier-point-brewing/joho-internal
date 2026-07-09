@@ -992,7 +992,7 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
                               <button type="button"
                                 onClick={() => { setInvoiceModalMode("mark_paid"); setInvoiceModalAlloc(a); setInvoicePreview(null); }}
                                 disabled={invoiceActionLoading === a.id}
-                                className="text-[10px] text-success hover:text-success border border-success-border/50 hover:border-success-border rounded px-1.5 py-1 transition-colors disabled:opacity-40 whitespace-nowrap">
+                                className="btn-secondary whitespace-nowrap">
                                 Mark Paid (Ext.)
                               </button>
                             </>

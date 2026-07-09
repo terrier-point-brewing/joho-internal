@@ -154,11 +154,7 @@ function VariationMappingRow({
             type="button"
             onClick={() => { setSplitOpen((o) => !o); setDepositOpen(false); }}
             title={splitOpen ? "Hide POS/Invoice overrides" : "Split by POS / Invoice source"}
-            className={`px-2 py-1.5 text-[10px] rounded border transition-colors ${
-              hasSplit
-                ? "bg-info-surface/40 border-info-border text-info hover:bg-info-surface/60"
-                : "bg-surface border-line-strong text-muted hover:text-body hover:border-line-subtle"
-            }`}
+            className="btn-secondary text-[10px] px-2 py-1.5"
           >
             {splitOpen ? "▴ split" : "split ▾"}
           </button>
@@ -324,13 +320,7 @@ function BulkSourceMapper({
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className={`shrink-0 px-1.5 py-1 text-[10px] rounded border transition-colors ${
-          open
-            ? "bg-info-surface/60 border-info-emphasis text-info"
-            : hasSplits
-            ? "bg-info-surface/40 border-info-border text-info hover:bg-info-surface/60"
-            : "bg-surface-mid border-line-strong text-muted hover:text-body hover:border-line-subtle"
-        }`}
+        className="btn-secondary shrink-0 px-1.5 py-1 text-[10px]"
         title="Set POS vs Invoice source overrides in bulk"
       >
         {hasSplits ? "✦ split" : "split"}
