@@ -22,13 +22,22 @@ export default function SearchInput({
   ariaLabel?: string;
 }) {
   const [text, setText] = useState(value);
-  const onChangeRef = useRef(onChange);
-  onChangeRef.current = onChange;
+  const [prevValue, setPrevValue] = useState(value);
 
-  // keep local text in sync when the controlled value changes externally (e.g. reset)
-  useEffect(() => {
+  // Adjust local text when the controlled value changes externally (e.g. reset).
+  // React's "store info from previous renders" pattern — no effect, so it never
+  // triggers a cascading render (see https://react.dev/reference/react/useState).
+  if (value !== prevValue) {
+    setPrevValue(value);
     setText(value);
-  }, [value]);
+  }
+
+  // Keep a live ref to onChange so the debounce timer never fires a stale one.
+  // Updated in an effect (not during render) to satisfy the refs-in-render rule.
+  const onChangeRef = useRef(onChange);
+  useEffect(() => {
+    onChangeRef.current = onChange;
+  });
 
   useEffect(() => {
     if (text === value) return;
