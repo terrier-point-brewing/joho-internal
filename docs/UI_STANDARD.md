@@ -299,3 +299,46 @@ may use sub-`xs` type. Their **shared color constants** (batch-color cycle) shou
 centralized. Additionally, the fixed nav micro-labels in `NavBar` (mobile bottom-nav item
 labels and the account role caption) may keep `text-[10px]` — bumping them risks wrapping
 the compact bottom bar.
+
+## Search / Filter / Sort (strict)
+
+All list/table search, filtering, and sorting use the shared primitives in
+`app/components/ui/` + the `useTableControls` hook. Do not hand-roll
+`<input type="search">`, inline `.toLowerCase().includes()`, or per-file
+`SortTh`/`FilterChips`. The engine and URL logic live in `lib/table/`
+(`applyControls.ts`, `urlState.ts`) — pure and unit-tested.
+
+**Free-text search — entity-scoped, field-coded.**
+- One search box maps to ONE entity. The placeholder must name the field(s):
+  `"Search recipes…"`, never a bare `"Search…"`.
+- Different entities → separate controls. A recipe-name-OR-partner-name box is
+  wrong: partner becomes a categorical filter, recipe stays a text box.
+- An entity's own identity fields may share one box (account number + name,
+  item + variation of the same SKU) — pass an array accessor for that box.
+- Case-insensitive substring, debounced ~200 ms (built into `<SearchInput>`).
+
+**Categorical filters — preferred.**
+- If a field has a bounded, known value set, filter categorically, never with
+  free text.
+- ≤ 5 mutually-exclusive options → `<FilterChips>` (segmented); > 5 options or
+  tight space → `<FilterSelect>` (dropdown). Multi-select via `multiple`.
+- "All" is always the default and first option (state = empty array).
+
+**Sort — lean toward enabling it.**
+- Prefer sortable columns on any tabular list. Headers use `<SortableTh>`, one
+  active column at a time, toggling asc → desc. Declare a default via
+  `config.sort.default`.
+
+**Persistence & naming.**
+- Search/filter/sort state syncs to the URL via `useTableControls` (shareable,
+  reload-safe). Params: `q` / `q_<field>` for search, the dimension name for
+  filters (`status`, `channel`, `partner`), `sort=key` / `sort=-key` for sort.
+- Multi-table pages pass a `prefix` to namespace their params.
+
+**Data-category colors** (channels, urgency ramps) remain the sanctioned
+raw-color exception — pass category color classes via `FilterChips`
+`options[].className`; do not token-swap them.
+
+**Enforcement:** `npm run check:search-filter` (CI, warn-only during the PR 1–4
+retrofit sweep; blocking afterward) flags raw search inputs, inline
+`.toLowerCase().includes()`, and local `SortTh`/`FilterChips` in feature code.
