@@ -119,6 +119,18 @@ describe("syncBankLedger", () => {
     const res = await syncBankLedger(sb as never, [rec]);
     expect(res.imported).toBe(1);
     expect(res.by_flow_type.interest_income).toBe(1);
-    expect(sb.upserts[0].source_transaction_id).toBe("int");
+    expect(sb.upserts[0]).toMatchObject({ source_transaction_id: "int", mapping_source: "unmapped", chart_of_accounts_id: null });
+  });
+
+  it("preserves a manually-coded row's mapping_source + chart_of_accounts_id across re-sync", async () => {
+    const sb = fakeSupabase({ int: { mapping_source: "manual", chart_of_accounts_id: "coa-interest" } });
+    await syncBankLedger(sb as never, [rec]);
+    expect(sb.upserts[0]).toMatchObject({ mapping_source: "manual", chart_of_accounts_id: "coa-interest" });
+  });
+
+  it("resets a non-manual (e.g. rule-derived) prior mapping to unmapped/null on re-sync", async () => {
+    const sb = fakeSupabase({ int: { mapping_source: "rule", chart_of_accounts_id: "coa-old-rule" } });
+    await syncBankLedger(sb as never, [rec]);
+    expect(sb.upserts[0]).toMatchObject({ mapping_source: "unmapped", chart_of_accounts_id: null });
   });
 });

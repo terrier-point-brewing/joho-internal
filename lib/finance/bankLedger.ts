@@ -153,11 +153,12 @@ export async function syncBankLedger(
   // Preserve manual coding on interest/other income across re-syncs.
   const existing = new Map<string, { mapping_source: string; chart_of_accounts_id: string | null }>();
   for (const ids of chunk(records.map((r) => r.source_transaction_id), 500)) {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("ramp_bank_ledger")
       .select("source_transaction_id, mapping_source, chart_of_accounts_id")
       .eq("source", "ramp")
       .in("source_transaction_id", ids);
+    if (error) throw new Error(`Load bank ledger failed: ${error.message}`);
     for (const e of data ?? []) existing.set(e.source_transaction_id, { mapping_source: e.mapping_source, chart_of_accounts_id: e.chart_of_accounts_id });
   }
 
