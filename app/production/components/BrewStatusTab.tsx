@@ -587,7 +587,7 @@ export default function BrewStatusTab() {
                                   {!editMode && (
                                     <button
                                       onClick={() => { setTransferTankId(tank.id); setTransferBatchId(otherBatch.id); setTransferFromVol(volFor(otherBatch)); setTransferInitialMode(undefined); setTransferInitialDestId(undefined); setTransferInitialConvert(undefined); }}
-                                      className="text-xs text-accent-emphasis hover:text-accent border border-accent-border hover:border-accent-border px-3 py-1.5 rounded transition-colors shrink-0"
+                                      className="btn-primary shrink-0"
                                     >
                                       Transfer
                                     </button>
@@ -598,7 +598,7 @@ export default function BrewStatusTab() {
                             {!editMode && (
                               <button
                                 onClick={() => { setTransferTankId(tank.id); setTransferBatchId(batch.id); setTransferFromVol(volFor(batch)); setTransferInitialMode(undefined); setTransferInitialDestId(undefined); setTransferInitialConvert(undefined); }}
-                                className="text-xs text-accent-emphasis hover:text-accent border border-accent-border hover:border-accent-border px-3 py-1.5 rounded transition-colors"
+                                className="btn-primary"
                               >
                                 Transfer
                               </button>
@@ -624,7 +624,7 @@ export default function BrewStatusTab() {
                               {!editMode && tank.type === "brewhouse" && unassignedBatches.length > 0 && (
                                 <button
                                   onClick={() => assign.openAssign(tank.id)}
-                                  className="text-xs text-accent-emphasis hover:text-accent border border-accent-border hover:border-accent-border px-3 py-1.5 rounded transition-colors shrink-0"
+                                  className="btn-primary shrink-0"
                                 >
                                   Assign
                                 </button>
@@ -884,8 +884,7 @@ export default function BrewStatusTab() {
                             <button
                               onClick={() => { setBatchForm(BATCH_EMPTY); setShowNewBatch(true); }}
                               onMouseDown={(e) => e.stopPropagation()}
-                              className="w-full text-accent-emphasis hover:text-accent border border-accent-border hover:border-accent-border px-1.5 rounded transition-colors"
-                              style={{ fontSize: 9 }}
+                              className="btn-primary w-full"
                             >
                               + New Batch
                             </button>
@@ -1017,8 +1016,7 @@ export default function BrewStatusTab() {
                                 <button
                                   onClick={() => { setTransferTankId(tank.id); setTransferBatchId(batch.id); setTransferFromVol(volFor(batch)); setTransferInitialMode(undefined); setTransferInitialDestId(undefined); setTransferInitialConvert(undefined); }}
                                   onMouseDown={(e) => e.stopPropagation()}
-                                  className="w-full text-accent-emphasis hover:text-accent border border-accent-border hover:border-accent-border px-1.5 rounded transition-colors"
-                                  style={{ fontSize: 9 }}
+                                  className="btn-primary w-full"
                                 >
                                   Transfer
                                 </button>
@@ -1051,8 +1049,7 @@ export default function BrewStatusTab() {
                                 <button
                                   onClick={() => assign.openAssign(tank.id)}
                                   onMouseDown={(e) => e.stopPropagation()}
-                                  className="w-full text-accent-emphasis hover:text-accent border border-accent-border hover:border-accent-border px-1.5 rounded transition-colors"
-                                  style={{ fontSize: 9 }}
+                                  className="btn-primary w-full"
                                 >
                                   Assign
                                 </button>

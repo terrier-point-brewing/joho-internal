@@ -691,7 +691,7 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
           >
             Mark Paid
           </button>
-          <button onClick={clearSelection} className="px-3 py-1.5 text-secondary hover:text-strong transition-colors">
+          <button onClick={clearSelection} className="btn-secondary">
             Clear
           </button>
         </div>
@@ -776,7 +776,7 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
             </div>
             {mpError && <p className="text-xs text-danger">{mpError}</p>}
             <div className="flex justify-end gap-2 pt-1">
-              <button onClick={() => setShowMarkPaid(false)} className="text-sm text-secondary hover:text-strong">
+              <button onClick={() => setShowMarkPaid(false)} className="btn-secondary">
                 Cancel
               </button>
               <button

@@ -942,7 +942,7 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
                             <button type="button"
                               onClick={() => viewInvoiceInSquare(a)}
                               disabled={invoiceActionLoading === a.id}
-                              className="text-[10px] text-muted hover:text-body border border-line-strong rounded px-1.5 py-1 transition-colors disabled:opacity-40 whitespace-nowrap">
+                              className="btn-secondary whitespace-nowrap">
                               View in Square ↗
                             </button>
                           )}
@@ -953,7 +953,7 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
                                 <button type="button"
                                   onClick={() => openInvoiceModal(a)}
                                   disabled={invoiceActionLoading === a.id}
-                                  className="text-[10px] text-accent-emphasis hover:text-accent border border-accent-border/50 hover:border-accent-border rounded px-1.5 py-1 transition-colors disabled:opacity-40 whitespace-nowrap">
+                                  className="btn-primary whitespace-nowrap">
                                   Generate Invoice
                                 </button>
                               )}
@@ -962,13 +962,13 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
                                   <button type="button"
                                     onClick={() => handleSendInvoice(a.id)}
                                     disabled={invoiceActionLoading === a.id}
-                                    className="text-[10px] text-accent-emphasis hover:text-accent border border-accent-border/50 hover:border-accent-border rounded px-1.5 py-1 transition-colors disabled:opacity-40 whitespace-nowrap">
+                                    className="btn-primary whitespace-nowrap">
                                     {invoiceActionLoading === a.id ? "Sending…" : "Send Invoice"}
                                   </button>
                                   <button type="button"
                                     onClick={() => handleDeleteInvoice(a.id, false)}
                                     disabled={invoiceActionLoading === a.id}
-                                    className="text-[10px] text-danger hover:text-danger border border-danger-border/50 hover:border-danger-border rounded px-1.5 py-1 transition-colors disabled:opacity-40 whitespace-nowrap">
+                                    className="btn-danger whitespace-nowrap">
                                     Delete
                                   </button>
                                 </>
@@ -978,13 +978,13 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
                                   <button type="button"
                                     onClick={() => handleSyncInvoice(a.id)}
                                     disabled={invoiceActionLoading === a.id}
-                                    className="text-[10px] text-muted hover:text-body border border-line-strong rounded px-1.5 py-1 transition-colors disabled:opacity-40 whitespace-nowrap">
+                                    className="btn-secondary whitespace-nowrap">
                                     {invoiceActionLoading === a.id ? "Syncing…" : "Sync Status"}
                                   </button>
                                   <button type="button"
                                     onClick={() => handleDeleteInvoice(a.id, true)}
                                     disabled={invoiceActionLoading === a.id}
-                                    className="text-[10px] text-danger hover:text-danger border border-danger-border/50 hover:border-danger-border rounded px-1.5 py-1 transition-colors disabled:opacity-40 whitespace-nowrap">
+                                    className="btn-danger whitespace-nowrap">
                                     Delete
                                   </button>
                                 </>
@@ -1148,7 +1148,7 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
               {saving ? "Adding…" : "Add"}
             </button>
             <button type="button" onClick={() => { setShowAddForm(false); setNewPct(""); setNewCommitmentId(""); setNewChannel("taproom"); }}
-              className="px-3 py-1.5 text-xs text-muted hover:text-body transition-colors">
+              className="btn-secondary">
               Cancel
             </button>
           </div>
@@ -1839,7 +1839,7 @@ function ReassignTankSection({ batchId, equipment }: { batchId: string; equipmen
           <input className="inp text-sm" placeholder="e.g. entered wrong tank" value={reason} onChange={(e) => { setReason(e.target.value); setDone(false); }} />
         </div>
         <button type="submit" disabled={saving || !tankId}
-          className="px-3 py-1.5 text-sm rounded border border-danger-border bg-danger-surface/40 text-danger hover:bg-danger-surface/40 disabled:opacity-40 transition-colors">
+          className="btn-danger">
           {saving ? "Saving…" : "Reassign"}
         </button>
       </form>
