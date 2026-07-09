@@ -334,6 +334,10 @@ All list/table search, filtering, and sorting use the shared primitives in
   reload-safe). Params: `q` / `q_<field>` for search, the dimension name for
   filters (`status`, `channel`, `partner`), `sort=key` / `sort=-key` for sort.
 - Multi-table pages pass a `prefix` to namespace their params.
+- **Give `useTableControls` a stable `config`** — define it module-scope or wrap
+  it in `useMemo`. A fresh inline object every render re-runs the filter/sort
+  pass and re-creates the returned setters each render (defeating `React.memo`
+  on rows). The `accessor` closures are the only per-render cost you want.
 
 **Data-category colors** (channels, urgency ramps) remain the sanctioned
 raw-color exception — pass category color classes via `FilterChips`

@@ -1,6 +1,15 @@
 import type { ControlsConfig, ControlsState } from "./types";
 
-/** Coerce a value to a comparable primitive (number takes priority). */
+/**
+ * Coerce a value to a comparable primitive (number takes priority).
+ *
+ * Known limitation: the numeric guess is per-cell, not per-column — a string
+ * that `parseFloat`s (e.g. "8 Ball Stout" → 8) sorts as a number while its
+ * peers ("Hazy IPA") stay strings, which can misorder a text column that
+ * happens to have leading digits. Acceptable for the common numeric/text cases;
+ * if a column needs deterministic text ordering, have its `SortSpec.accessor`
+ * return a non-numeric-leading string (or add a per-column type later).
+ */
 function coerce(v: unknown): number | string {
   if (typeof v === "number") return v;
   if (typeof v === "string") {
