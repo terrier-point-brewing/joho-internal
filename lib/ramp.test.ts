@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { extractGlAccount, toRampDatetime } from "./ramp";
+import { extractGlAccount, toRampDatetime, normalizeCounterparty } from "./ramp";
 
 describe("toRampDatetime", () => {
   it("expands a bare date to an RFC 3339 datetime (start vs end of day)", () => {
@@ -73,5 +73,13 @@ describe("extractGlAccount", () => {
     expect(extractGlAccount({ accounting_field_selections: [{ category_info: { id: "gl-field", name: "Category", type: "GL_ACCOUNT" } }] })).toBeNull();
     expect(extractGlAccount({ accounting_field_selections: [{ type: "GL_ACCOUNT" }] })).toBeNull();
     expect(extractGlAccount({ accounting_field_selections: [{ category_info: { id: "d-field", name: "Department", type: "DEPARTMENT" }, id: "d-1", name: "Sales" }] })).toBeNull();
+  });
+});
+
+describe("normalizeCounterparty", () => {
+  it("lowercases, trims, and collapses whitespace", () => {
+    expect(normalizeCounterparty("  ERIE   INSURANCE ")).toBe("erie insurance");
+    expect(normalizeCounterparty("GUSTO")).toBe("gusto");
+    expect(normalizeCounterparty(null)).toBe("");
   });
 });

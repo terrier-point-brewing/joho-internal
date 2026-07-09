@@ -201,3 +201,63 @@ export async function getRampStatements(): Promise<RampStatement[]> {
     };
   });
 }
+
+export interface RampBankAccount {
+  id:           string;
+  name:         string;
+  account_type: string;
+}
+
+export interface RampBankLine {
+  id:                       string;
+  amount:                   number;  // USD dollars, unsigned magnitude
+  currency_code:            string;
+  date:                     string;  // ISO
+  description:              string;  // Withdrawal | Deposit | Interest | Vendor Payment | …
+  source_account_name:      string | null;
+  destination_account_name: string | null;
+}
+
+/** Normalize a counterparty/account name into a stable key (lowercase, single-spaced). */
+export function normalizeCounterparty(name: string | null | undefined): string {
+  return (name ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+export async function getRampBankAccounts(): Promise<RampBankAccount[]> {
+  const token = await getRampToken();
+  const res   = await fetch(`${RAMP_BASE}/banking/accounts`, {
+    headers: { Authorization: `Bearer ${token}` }, cache: "no-store",
+  });
+  const data  = await res.json();
+  if (data.error_v2) throw new Error(`Ramp banking accounts: ${data.error_v2.message}`);
+  return (data.data ?? []).map((a: Record<string, unknown>) => ({
+    id: a.id as string, name: (a.name as string) ?? "", account_type: (a.account_type as string) ?? "",
+  }));
+}
+
+export async function getRampBankTransactions(): Promise<RampBankLine[]> {
+  const token = await getRampToken();
+  const results: RampBankLine[] = [];
+
+  let url: string | null = `${RAMP_BASE}/banking/syncable-transactions?page_size=100`;
+  while (url) {
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data: any = await res.json();
+    if (data.error_v2) throw new Error(`Ramp banking transactions: ${data.error_v2.message}`);
+
+    for (const t of data.data ?? []) {
+      results.push({
+        id:                       t.id,
+        amount:                   parseAmount(t.amount),
+        currency_code:            t.amount?.currency_code ?? "USD",
+        date:                     t.date ?? "",
+        description:              t.description ?? "",
+        source_account_name:      t.source_account_name ?? null,
+        destination_account_name: t.destination_account_name ?? null,
+      });
+    }
+    url = data.page?.next ?? null;
+  }
+  return results;
+}
