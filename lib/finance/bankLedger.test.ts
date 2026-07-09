@@ -91,3 +91,34 @@ describe("partitionBankLines", () => {
     expect(xfer.affects_pl).toBe(false);
   });
 });
+
+import { syncBankLedger, type BankLedgerRecord } from "./bankLedger";
+
+function fakeSupabase(existing: Record<string, { mapping_source: string; chart_of_accounts_id: string | null }> = {}) {
+  const upserts: BankLedgerRecord[] = [];
+  return {
+    upserts,
+    from() {
+      return {
+        select() { return { eq() { return { in: async () => ({ data: Object.entries(existing).map(([source_transaction_id, v]) => ({ source_transaction_id, ...v })), error: null }) }; } }; },
+        upsert: async (rows: BankLedgerRecord[]) => { upserts.push(...rows); return { error: null }; },
+      };
+    },
+  };
+}
+
+describe("syncBankLedger", () => {
+  const rec: BankLedgerRecord = {
+    source: "ramp", source_transaction_id: "int", amount_cents: 4001, currency_code: "USD",
+    description: "Interest", counterparty_name: "Interest", source_account_name: null,
+    destination_account_name: "Operating Account", flow_type: "interest_income", affects_pl: true, transaction_date: "2026-07-01",
+  };
+
+  it("upserts ledger rows and reports counts by flow_type", async () => {
+    const sb = fakeSupabase();
+    const res = await syncBankLedger(sb as never, [rec]);
+    expect(res.imported).toBe(1);
+    expect(res.by_flow_type.interest_income).toBe(1);
+    expect(sb.upserts[0].source_transaction_id).toBe("int");
+  });
+});

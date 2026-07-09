@@ -5,8 +5,11 @@
  * underlying bill/card records aren't double-counted, and only direct external
  * debits become expenses. Anything unrecognized is `unclassified` for review.
  */
+import type { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { normalizeCounterparty, type RampBankLine } from "@/lib/ramp";
 import { dollarsToCents, type ExpenseRecord } from "./expenses";
+
+type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
 
 export type FlowType =
   | "operating_expense"
@@ -135,4 +138,46 @@ export function partitionBankLines(
     else              ledgerRecords.push(bankLineToLedgerRecord(line, c));
   }
   return { expenseRecords, ledgerRecords };
+}
+
+function chunk<T>(arr: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
+export async function syncBankLedger(
+  supabase: AdminClient,
+  records: BankLedgerRecord[],
+): Promise<{ imported: number; by_flow_type: Record<string, number> }> {
+  // Preserve manual coding on interest/other income across re-syncs.
+  const existing = new Map<string, { mapping_source: string; chart_of_accounts_id: string | null }>();
+  for (const ids of chunk(records.map((r) => r.source_transaction_id), 500)) {
+    const { data } = await supabase
+      .from("ramp_bank_ledger")
+      .select("source_transaction_id, mapping_source, chart_of_accounts_id")
+      .eq("source", "ramp")
+      .in("source_transaction_id", ids);
+    for (const e of data ?? []) existing.set(e.source_transaction_id, { mapping_source: e.mapping_source, chart_of_accounts_id: e.chart_of_accounts_id });
+  }
+
+  const syncedAt = new Date().toISOString();
+  const by_flow_type: Record<string, number> = {};
+  const rows = records.map((rec) => {
+    by_flow_type[rec.flow_type] = (by_flow_type[rec.flow_type] ?? 0) + 1;
+    const prior = existing.get(rec.source_transaction_id);
+    const manual = prior?.mapping_source === "manual";
+    return {
+      ...rec,
+      chart_of_accounts_id: manual ? prior!.chart_of_accounts_id : null,
+      mapping_source:       manual ? "manual" : "unmapped",
+      synced_at:            syncedAt,
+    };
+  });
+
+  for (const batch of chunk(rows, 500)) {
+    const { error } = await supabase.from("ramp_bank_ledger").upsert(batch, { onConflict: "source,source_transaction_id" });
+    if (error) throw new Error(`Upsert bank ledger failed: ${error.message}`);
+  }
+  return { imported: records.length, by_flow_type };
 }
