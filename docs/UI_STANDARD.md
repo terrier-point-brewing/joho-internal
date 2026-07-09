@@ -14,6 +14,11 @@ floorplan) are the only exempt surfaces.
 > title = `font-semibold` · added `success`(green) + `info`(blue) tokens · **full
 > token-variable rewrite** (every raw `zinc/amber/red` utility becomes a semantic
 > token utility; no visual change, full re-themeability).
+>
+> **Superseded 2026-07-09:** the "primary button = solid amber" decision is replaced by the
+> one-compact-hollow-button standard (`.btn-primary`/`.btn-secondary`/`.btn-danger`, outline
+> only, no solid fill, no md size). See §5 and
+> `docs/superpowers/specs/2026-07-09-button-style-standard-design.md`.
 
 ---
 
@@ -134,7 +139,7 @@ in feature `.tsx` (except exempt surfaces). Mapping is mechanical and color-fait
 | `text-green-*` (positive) | `text-success` |
 | `bg-green-900/950`, `border-green-*` | `bg-success-surface`, `border-success-border` |
 | `text-blue-*` (info/links) | `text-info` |
-| `bg-blue-600` (primary) | **→ `.btn-amber`** (blue was off-palette as a primary) |
+| `bg-blue-600` (primary) | **→ `.btn-primary`** (blue was off-palette as a primary) |
 
 **Semantic rules**
 - Accent = amber. Active nav/tab underline and the primary button use `accent-emphasis`
@@ -210,31 +215,24 @@ All interactive primitives come from `globals.css` classes or shared components.
 baked in so consumers can't drift.
 
 ### Buttons (`globals.css`)
-Buttons are a **size × color matrix**: pick one color class, optionally add the `.btn-xs`
-size modifier.
+One compact size, three hollow tiers. **No solid fills, no size modifier.** Every action
+button is `py-1 px-2.5 text-xs font-medium`, transparent fill, 1px outline.
 
-**Color (required):**
 | Class | Style | Use |
 |---|---|---|
-| `.btn-amber` | **solid** `bg-accent-emphasis hover:bg-accent text-canvas`, `py-1.5 px-3`, `text-sm font-medium` | primary action |
-| `.btn-ghost` | `bg-surface-mid border-line-strong text-secondary`, same size | secondary / cancel |
-| `.btn-danger` | `bg-danger-surface/.. text-danger border-danger-border`, same size | destructive |
+| `.btn-primary` | amber outline — `border-accent-border text-accent`, hover amber wash + `text-accent-soft` | the main action (New, Save, Run, Ship, Confirm) |
+| `.btn-secondary` | neutral outline — `border-line-strong text-secondary`, hover `border-line-subtle`/`text-body` | cancel, close, secondary/neutral actions |
+| `.btn-danger` | danger outline — `border-danger-border text-danger`, hover danger wash | destructive (Delete, Remove) |
 
-**Size (optional modifier):**
-| Class | Effect | Use |
-|---|---|---|
-| _(none)_ | md — `py-1.5 px-3 text-sm` | default; page-level actions, modal footers |
-| `.btn-xs` | shrinks to `py-1 px-2.5 text-xs` | composes with any color class — use when the button sits next to `.inp-sm` selects or `text-xs` filter pills so heights match (`btn-amber btn-xs`, `btn-ghost btn-xs`, `btn-danger btn-xs`) |
-| `.btn-sm` | standalone neutral small button (`py-1 px-2.5 text-xs`, surface-mid) | back-compat alias ≈ `.btn-ghost.btn-xs`; prefer the composable form for new code |
+All share `:disabled → opacity-40`, `:focus-visible → 2px accent outline`. There is **no
+`.btn-amber`/`.btn-ghost`/`.btn-sm`/`.btn-xs` and no md size** — do not hand-roll bordered or
+filled `<button>` boxes; use a tier class. Filter/toggle chips, inline text-link table
+actions (`Edit`/`Delete` as text), and tabs are separate patterns, not buttons.
 
-**Single primary = amber.** There is no info/success/blue button. Any colored *action*
-button (including former `bg-info-emphasis` / `bg-success-emphasis` inline buttons) uses
-`.btn-amber`; reserve `.btn-ghost` for secondary/cancel and `.btn-danger` for destructive.
-Never hand-roll `px-* py-* bg-*-emphasis … rounded` button boxes — that bypasses both the
-size tier (causing oversized buttons next to small controls) and the token system.
-
-`.btn-amber` is the ratified solid style. All inline `bg-amber-600 … text-white`,
-`bg-amber-500 … text-zinc-950`, and `bg-blue-600` primaries migrate to `.btn-amber`.
+There is no success/info button tier: any colored *action* button folds into `.btn-secondary`
+(or `.btn-primary` if it is the page's main action). This does not apply to status-encoding
+controls — a toggle whose color shows active/inactive, or a status badge — which are not
+buttons and keep their status color.
 
 ### Inputs (`globals.css`)
 - `.inp` is the **only** input/select/textarea style (`py-1.5 px-2 text-sm`, surface-mid bg,
@@ -278,9 +276,7 @@ border border-danger-border/50 rounded px-3 py-2 text-sm`. Replaces ~12 copies.
 | Arbitrary `text-[Npx]`, `*-[Npx]` spacing, inline `style` padding | type scale (§1) / spacing scale (§3) |
 | Hand-rolled `<h1>/<h2>` page headers | `<PageHeader>` |
 | Hand-rolled tab rows (SettingsTabs, PayrollPeriodView, SalesNav, StatementsNav, SettingsNav, PayrollNav) | `<SubNav>` / `<TabBar>` |
-| Inline primary/action buttons (`bg-amber-600 text-white`, `bg-amber-500 text-zinc-950`, `bg-blue-600`, `bg-accent/info/success-emphasis … rounded`) | `.btn-amber` (+ `.btn-xs` if dense) |
-| Inline ghost/cancel buttons | `.btn-ghost` (+ `.btn-xs` if dense) / `.btn-sm` |
-| Oversized buttons next to `.inp-sm` / `text-xs` filters (size mismatch) | add `.btn-xs` to the color class |
+| Solid amber / any inline bordered-or-filled `<button>` CTA; `.btn-amber`/`.btn-ghost`/`.btn-sm`/`.btn-xs`; md size | `.btn-primary` (amber outline) / `.btn-secondary` (neutral) / `.btn-danger` — one compact size |
 | Local `inputCls`/`selectCls`, raw inputs, micro-inputs | `.inp` (/`.inp-sm`) |
 | Hand-rolled card divs | `<Card>` |
 | Hand-rolled modals | `<Modal>` |
