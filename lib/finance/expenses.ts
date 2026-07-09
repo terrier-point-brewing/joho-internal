@@ -8,6 +8,9 @@
 /** Known spend sources. Extend the union (and the DB check) to add another. */
 export type ExpenseSource = "ramp" | "square" | "manual";
 
+/** Which Ramp resource an expense row originated from. */
+export type RampObject = "card" | "bill" | "bank";
+
 export interface CoaAccountRef {
   id:             string;
   account_name:   string;
@@ -17,6 +20,7 @@ export interface CoaAccountRef {
 /** A row shaped for the `expenses` table (minus resolved mapping). */
 export interface ExpenseRecord {
   source:                ExpenseSource;
+  ramp_object:           RampObject;
   source_transaction_id: string;   // the source system's transaction id
   amount_cents:          number;   // positive = spend, negative = refund/credit
   currency_code:         string;
