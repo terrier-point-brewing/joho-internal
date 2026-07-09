@@ -676,18 +676,42 @@ export async function POST(req: NextRequest) {
       })
     );
 
-    const ingIds = recipeIngredientsNow.map((r) => r.ingredient_id);
-    const riIds = recipeIngredientsNow.map((r) => r.recipe_ingredient_id);
     const auditSel = "table_name, record_id, operation, changed_at, old_data, new_data";
-    const { data: auditIng } = ingIds.length
+
+    // Recipe-ingredient audit for THIS recipe, matched on recipe_id inside the
+    // jsonb snapshot — NOT on current row ids. Recipe edits fully delete + re-insert
+    // recipe_ingredients (new uuids), so filtering by current ids would miss the
+    // rows that actually existed at asOf.
+    const { data: riAuditRaw } = await db
+      .from("audit_log")
+      .select(auditSel)
+      .eq("table_name", "recipe_ingredients")
+      .or(`new_data->>recipe_id.eq.${recipeId},old_data->>recipe_id.eq.${recipeId}`);
+    const recipeIngredientAudit = (riAuditRaw ?? []) as AuditRow[];
+
+    // Ingredient-id universe = every ingredient ever referenced by this recipe's
+    // historical membership (current + any that appear in the recipe_ingredients
+    // audit), so ingredients removed from the recipe still get historical costs.
+    const ingredientIdUniverse = new Set<string>(recipeIngredientsNow.map((r) => r.ingredient_id));
+    for (const r of recipeIngredientAudit) {
+      const nid = r.new_data?.["ingredient_id"];
+      const oid = r.old_data?.["ingredient_id"];
+      if (typeof nid === "string") ingredientIdUniverse.add(nid);
+      if (typeof oid === "string") ingredientIdUniverse.add(oid);
+    }
+    const ingIds = [...ingredientIdUniverse];
+    const { data: ingAuditRaw } = ingIds.length
       ? await db.from("audit_log").select(auditSel).eq("table_name", "ingredients").in("record_id", ingIds)
       : { data: [] };
-    const { data: auditRi } = riIds.length
-      ? await db.from("audit_log").select(auditSel).eq("table_name", "recipe_ingredients").in("record_id", riIds)
-      : { data: [] };
-    const audit = [...(auditIng ?? []), ...(auditRi ?? [])] as AuditRow[];
+    const ingredientAudit = (ingAuditRaw ?? []) as AuditRow[];
 
-    const inputs = reconstructBreakdownAsOf({ asOf, recipeIngredientsNow, ingredientsNow, audit });
+    const inputs = reconstructBreakdownAsOf({
+      asOf,
+      currentRecipeIngredients: recipeIngredientsNow,
+      ingredientsNow,
+      recipeIngredientAudit,
+      ingredientAudit,
+    });
     const lines = buildBreakdownLines(inputs, inv.total_cents);
 
     if (lines.length === 0) {
