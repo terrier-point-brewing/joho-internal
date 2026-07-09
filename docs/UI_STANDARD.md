@@ -142,8 +142,9 @@ in feature `.tsx` (except exempt surfaces). Mapping is mechanical and color-fait
 | `bg-blue-600` (primary) | **→ `.btn-primary`** (blue was off-palette as a primary) |
 
 **Semantic rules**
-- Accent = amber. Active nav/tab underline and the primary button use `accent-emphasis`
-  (amber-500); accent text/icons use `accent` (amber-400).
+- Accent = amber. The active nav/tab underline uses `accent-emphasis` (amber-500); accent
+  text/icons — and the hollow `.btn-primary` outline (`border-accent-border` + `text-accent`) —
+  use `accent` (amber-400).
 - Danger = red for errors/destructive only.
 - Success = green for positive/approved/on-target states.
 - Info = blue for neutral-informational badges/links only — **never** as a primary action.
