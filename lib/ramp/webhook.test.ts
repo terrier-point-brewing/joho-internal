@@ -68,4 +68,8 @@ describe("isReconcilableRampEvent", () => {
   it("still ignores the verification handshake", () => {
     expect(isReconcilableRampEvent("webhooks.verification")).toBe(false);
   });
+
+  it("treats banking transaction events as reconcilable", () => {
+    expect(isReconcilableRampEvent("banking.transaction.created")).toBe(true);
+  });
 });

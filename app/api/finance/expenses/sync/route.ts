@@ -9,8 +9,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth";
-import { getRampTransactions, getRampBills } from "@/lib/ramp";
-import { rampTxnToExpenseRecord, rampBillToExpenseRecords, syncExpenseRecords } from "@/lib/finance/rampExpenses";
+import { syncAllRamp } from "@/lib/finance/rampSync";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { apiError } from "@/lib/utils/api";
 
@@ -23,13 +22,8 @@ export async function POST(req: NextRequest) {
   const to   = req.nextUrl.searchParams.get("to")   ?? undefined;
 
   try {
-    const [txns, bills] = await Promise.all([getRampTransactions(from, to), getRampBills(from, to)]);
-    const records = [
-      ...txns.map(rampTxnToExpenseRecord),
-      ...bills.flatMap(rampBillToExpenseRecords),
-    ];
     const supabase = createSupabaseAdminClient();
-    const result = await syncExpenseRecords(supabase, records);
+    const result = await syncAllRamp(supabase, from, to);
     return NextResponse.json(result);
   } catch (err) {
     return apiError(err);
