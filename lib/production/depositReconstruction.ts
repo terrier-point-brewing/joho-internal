@@ -1,3 +1,4 @@
+// lib/production/depositReconstruction.ts
 import type { BreakdownInput } from "./depositBreakdown";
 
 export interface AuditRow {
@@ -28,6 +29,11 @@ function num(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+function str(v: unknown): string | null {
+  if (v == null) return null;
+  return typeof v === "string" ? v : String(v);
+}
+
 /**
  * Value of `field` for a single record as of `asOf`. `rows` must already be
  * filtered to one record_id (any table). Returns the last write at/before asOf;
@@ -53,53 +59,100 @@ export function reconstructFieldAsOf(
   return pre != null ? pre : fallback;
 }
 
-/** True if this recipe_ingredient's first audit event is an INSERT after asOf. */
-function insertedAfter(rows: AuditRow[], asOf: string): boolean {
+/**
+ * State of one recipe_ingredient record at asOf, or null if it did not exist
+ * then (inserted later, or already deleted). Uses the last audit event whose
+ * changed_at <= asOf.
+ */
+function recipeIngredientStateAsOf(
+  rows: AuditRow[],
+  asOf: string
+): { ingredient_id: string; quantity_per_bbl: number } | null {
   const sorted = [...rows].sort((a, b) => a.changed_at.localeCompare(b.changed_at));
-  const first = sorted[0];
-  return !!first && first.operation === "INSERT" && first.changed_at > asOf;
+  let last: AuditRow | null = null;
+  for (const r of sorted) {
+    if (r.changed_at <= asOf) last = r;
+  }
+  if (!last || last.operation === "DELETE") return null;
+  const data = last.new_data ?? last.old_data;
+  if (!data) return null;
+  const ingredient_id = str(data["ingredient_id"]);
+  const quantity_per_bbl = num(data["quantity_per_bbl"]);
+  if (ingredient_id == null || quantity_per_bbl == null) return null;
+  return { ingredient_id, quantity_per_bbl };
+}
+
+function groupByRecord(rows: AuditRow[]): Map<string, AuditRow[]> {
+  const m = new Map<string, AuditRow[]>();
+  for (const r of rows) {
+    const arr = m.get(r.record_id) ?? [];
+    arr.push(r);
+    m.set(r.record_id, arr);
+  }
+  return m;
 }
 
 /**
  * Reconstruct the frozen breakdown weights for an allocation's recipe as of
- * `asOf`. Starts from the current recipe_ingredients, drops rows inserted after
- * asOf, and uses historical cost/quantity. `weight = qty × cost` (volume and
- * allocation % are common factors that cancel under buildBreakdownLines scaling).
+ * `asOf`, driven by the recipe_ingredients audit trail so that recipe edits
+ * (full delete + re-insert) and membership changes are handled correctly:
+ *   - a recipe_ingredient inserted after asOf is excluded,
+ *   - one deleted after asOf is included with its historical quantity,
+ *   - a recipe_ingredient with no audit history at all falls back to its
+ *     current row (pre-audit / unaudited rows).
+ * `weight = qty × cost` (batch volume and allocation % are common factors that
+ * cancel under buildBreakdownLines scaling, so they are not reconstructed).
  */
 export function reconstructBreakdownAsOf(params: {
   asOf: string;
-  recipeIngredientsNow: RecipeIngredientNow[];
+  currentRecipeIngredients: RecipeIngredientNow[];
   ingredientsNow: Map<string, IngredientNow>;
-  audit: AuditRow[];
+  recipeIngredientAudit: AuditRow[];
+  ingredientAudit: AuditRow[];
 }): BreakdownInput[] {
-  const { asOf, recipeIngredientsNow, ingredientsNow, audit } = params;
+  const { asOf, currentRecipeIngredients, ingredientsNow, recipeIngredientAudit, ingredientAudit } = params;
 
-  const byRecord = new Map<string, AuditRow[]>();
-  for (const r of audit) {
-    const key = `${r.table_name}:${r.record_id}`;
-    (byRecord.get(key) ?? byRecord.set(key, []).get(key)!).push(r);
-  }
-  const rowsFor = (table: string, id: string) => byRecord.get(`${table}:${id}`) ?? [];
+  const riByRecord = groupByRecord(recipeIngredientAudit);
+  const ingByRecord = groupByRecord(ingredientAudit);
+  const currentById = new Map(currentRecipeIngredients.map((ri) => [ri.recipe_ingredient_id, ri]));
+
+  // Candidate recipe_ingredient records: everything seen in audit, plus current
+  // rows (covers rows created before the audit system existed / unaudited rows).
+  const recordIds = new Set<string>([...riByRecord.keys(), ...currentById.keys()]);
 
   const out: BreakdownInput[] = [];
-  for (const ri of recipeIngredientsNow) {
-    const riRows = rowsFor("recipe_ingredients", ri.recipe_ingredient_id);
-    if (insertedAfter(riRows, asOf)) continue;
+  for (const recordId of recordIds) {
+    const riRows = riByRecord.get(recordId) ?? [];
+    let state: { ingredient_id: string; quantity_per_bbl: number } | null;
+    if (riRows.length > 0) {
+      state = recipeIngredientStateAsOf(riRows, asOf);
+    } else {
+      const cur = currentById.get(recordId);
+      state = cur ? { ingredient_id: cur.ingredient_id, quantity_per_bbl: cur.quantity_per_bbl } : null;
+    }
+    if (!state) continue;
 
-    const ing = ingredientsNow.get(ri.ingredient_id);
-    const ingRows = rowsFor("ingredients", ri.ingredient_id);
-
-    const qty = reconstructFieldAsOf(riRows, "quantity_per_bbl", asOf, ri.quantity_per_bbl);
+    const ing = ingredientsNow.get(state.ingredient_id);
+    const ingRows = ingByRecord.get(state.ingredient_id) ?? [];
     const cost = reconstructFieldAsOf(ingRows, "cost_per_unit", asOf, ing?.cost_per_unit ?? NaN);
     if (!Number.isFinite(cost)) continue;
 
+    let name = ing?.name ?? null;
+    let unit = ing?.unit ?? null;
+    if (name == null || unit == null) {
+      const anyRow = [...ingRows].sort((a, b) => a.changed_at.localeCompare(b.changed_at)).pop();
+      const d = anyRow?.new_data ?? anyRow?.old_data ?? null;
+      name = name ?? (d ? str(d["name"]) : null) ?? "Unknown ingredient";
+      unit = unit ?? (d ? str(d["unit"]) : null) ?? "";
+    }
+
     out.push({
-      ingredient_id: ri.ingredient_id,
-      name: ing?.name ?? "Unknown ingredient",
-      unit: ing?.unit ?? "",
-      quantity_per_bbl: qty,
+      ingredient_id: state.ingredient_id,
+      name,
+      unit,
+      quantity_per_bbl: state.quantity_per_bbl,
       cost_per_unit: cost,
-      weight: qty * cost,
+      weight: state.quantity_per_bbl * cost,
     });
   }
   return out;
