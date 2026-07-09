@@ -13,7 +13,7 @@ export async function GET(req: NextRequest) {
   const supabase = createSupabaseAdminClient();
   let query = supabase
     .from("ramp_bank_ledger")
-    .select(`id, source_transaction_id, amount_cents, currency_code, description, counterparty_name, source_account_name, destination_account_name, flow_type, affects_pl, transaction_date, chart_of_accounts_id, mapping_source, chart_of_accounts!ramp_bank_ledger_chart_of_accounts_id_fkey ( account_name, account_number, account_type )`)
+    .select(`id, source_transaction_id, amount_cents, currency_code, description, counterparty_name, source_account_name, destination_account_name, flow_type, affects_pl, transaction_date, chart_of_accounts_id, mapping_source`)
     .order("transaction_date", { ascending: false, nullsFirst: false });
   if (from) query = query.gte("transaction_date", from);
   if (to)   query = query.lte("transaction_date", to);

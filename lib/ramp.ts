@@ -304,7 +304,14 @@ export async function getRampBankAccounts(): Promise<RampBankAccount[]> {
   }));
 }
 
-export async function getRampBankTransactions(): Promise<RampBankLine[]> {
+/**
+ * Pull bank-account (Ramp Business Account) money movement. The
+ * syncable-transactions endpoint has no reliable server-side date filter, so we
+ * bound the result client-side by each line's `date` when a window is given —
+ * mirroring getRampBills — so callers only process (classify + upsert) the
+ * window they asked for instead of the whole history on every sync.
+ */
+export async function getRampBankTransactions(from?: string, to?: string): Promise<RampBankLine[]> {
   const token = await getRampToken();
   const results: RampBankLine[] = [];
 
@@ -316,6 +323,9 @@ export async function getRampBankTransactions(): Promise<RampBankLine[]> {
     if (data.error_v2) throw new Error(`Ramp banking transactions: ${data.error_v2.message}`);
 
     for (const t of data.data ?? []) {
+      const day = (t.date ?? "").slice(0, 10);
+      if (from && day && day < from) continue;
+      if (to && day && day > to) continue;
       results.push({
         id:                       t.id,
         amount:                   parseAmount(t.amount),
