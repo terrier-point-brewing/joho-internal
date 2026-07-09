@@ -31,6 +31,9 @@ jobs:
       - name: Test
         run: npm run test
 
+      - name: Search/filter standard (warn-only)
+        run: npm run check:search-filter
+
       - name: Build
         run: npm run build
         env:
