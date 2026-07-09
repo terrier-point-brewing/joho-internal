@@ -179,7 +179,7 @@ function BulkUploadModal({ onClose, onDone }: { onClose: () => void; onDone: () 
           {invalidCount > 0 && (
             <p className="text-xs text-muted">{invalidCount} row{invalidCount !== 1 ? "s" : ""} with errors were skipped.</p>
           )}
-          <button onClick={onDone} className="btn-amber mx-auto block">Done</button>
+          <button onClick={onDone} className="btn-primary mx-auto block">Done</button>
         </div>
       </Modal>
     );
@@ -299,14 +299,14 @@ function BulkUploadModal({ onClose, onDone }: { onClose: () => void; onDone: () 
         )}
 
         <div className="flex justify-end gap-2 pt-1">
-          <button type="button" onClick={onClose} className="btn-ghost text-sm" disabled={submitting}>
+          <button type="button" onClick={onClose} className="btn-secondary" disabled={submitting}>
             Cancel
           </button>
           <button
             type="button"
             onClick={handleImport}
             disabled={!parsed || validCount === 0 || submitting}
-            className="btn-amber disabled:opacity-40 disabled:cursor-not-allowed"
+            className="btn-primary"
           >
             {submitting ? "Importing…" : `Import ${validCount > 0 ? validCount : ""} Ingredient${validCount !== 1 ? "s" : ""}`}
           </button>
@@ -560,16 +560,16 @@ export default function IngredientsTab() {
         <div className="flex gap-2 shrink-0">
           {bulkEditMode ? (
             <>
-              <button onClick={() => setBulkEditMode(false)} className="btn-ghost btn-xs" disabled={bulkSaving}>Cancel</button>
-              <button onClick={saveBulkEdit} className="btn-amber btn-xs" disabled={bulkSaving}>
+              <button onClick={() => setBulkEditMode(false)} className="btn-secondary" disabled={bulkSaving}>Cancel</button>
+              <button onClick={saveBulkEdit} className="btn-primary" disabled={bulkSaving}>
                 {bulkSaving ? "Saving…" : "Save All"}
               </button>
             </>
           ) : (
             <>
-              <button onClick={enterBulkEdit} className="btn-ghost btn-xs" disabled={ingredients.length === 0}>Bulk Edit</button>
-              <button onClick={() => setShowBulkModal(true)} className="btn-amber btn-xs">↑ Bulk Upload</button>
-              <button onClick={openNew} className="btn-amber btn-xs">+ New Ingredient</button>
+              <button onClick={enterBulkEdit} className="btn-secondary" disabled={ingredients.length === 0}>Bulk Edit</button>
+              <button onClick={() => setShowBulkModal(true)} className="btn-primary">↑ Bulk Upload</button>
+              <button onClick={openNew} className="btn-primary">+ New Ingredient</button>
             </>
           )}
         </div>

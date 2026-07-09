@@ -93,7 +93,7 @@ export default function SyncPanel<T>({
           <option value={0}>Full year</option>
         </select>
       )}
-      <button onClick={handleSync} disabled={syncing} className="btn-sm whitespace-nowrap">
+      <button onClick={handleSync} disabled={syncing} className="btn-secondary whitespace-nowrap">
         {syncing
           ? `Syncing${scope ? " " + scope : ""}…`
           : `Sync ${scope ? scope + " " : ""}${label}`}

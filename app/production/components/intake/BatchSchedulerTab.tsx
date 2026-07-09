@@ -1001,7 +1001,7 @@ export default function BatchSchedulerTab({
                     <button
                       onClick={() => commitBatch(activeRow)}
                       disabled={blocked}
-                      className="btn-amber"
+                      className="btn-primary"
                     >
                       {committing ? "Committing…" : "Commit Batch →"}
                     </button>

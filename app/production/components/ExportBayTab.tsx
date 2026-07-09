@@ -372,7 +372,7 @@ export default function ExportBayTab() {
           <button
             onClick={() => setShowSync(true)}
             title="Reconcile taproom pours from Square into cold-storage draws"
-            className="text-xs px-2.5 py-1 border border-line-strong text-secondary hover:border-line-subtle hover:text-body rounded transition-colors"
+            className="btn-secondary"
           >
             ↻ Sync Taproom
           </button>
@@ -380,7 +380,7 @@ export default function ExportBayTab() {
             onClick={() => setShowAdHoc(true)}
             disabled={inventory.length === 0}
             title={inventory.length === 0 ? "No packaged inventory available" : undefined}
-            className="text-xs px-2.5 py-1 border border-accent-border text-accent hover:bg-accent-muted/30 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+            className="btn-primary"
           >
             + Ad-Hoc Export
           </button>
@@ -569,7 +569,7 @@ export default function ExportBayTab() {
                                   onClick={() => setShipGroup(g)}
                                   disabled={!hasInventory}
                                   title={hasInventory ? undefined : "No packaged inventory available for this recipe"}
-                                  className="text-xs px-2.5 py-1 border border-accent-border text-accent hover:bg-accent-muted/30 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                                  className="btn-primary"
                                 >
                                   Ship
                                 </button>
@@ -809,11 +809,11 @@ function WriteOffModal({ alloc, partnerName, recipeName, onClose, onDone }: {
           </div>
           {error && <p className="text-xs text-danger">{error}</p>}
           <div className="flex justify-end gap-2 pt-1">
-            <button type="button" onClick={onClose} className="text-xs px-3 py-1.5 text-secondary hover:text-strong">Cancel</button>
+            <button type="button" onClick={onClose} className="btn-secondary">Cancel</button>
             <button
               type="submit"
               disabled={submitting}
-              className={assessment.exceedsTolerance ? "btn-danger btn-xs" : "btn-amber btn-xs"}
+              className={assessment.exceedsTolerance ? "btn-danger" : "btn-primary"}
             >
               {submitting ? "Writing off…" : "Write off"}
             </button>
@@ -893,7 +893,7 @@ function SyncConsumptionModal({ onClose, onRecorded }: { onClose: () => void; on
               value={days} onChange={(e) => setDays(e.target.value)}
             />
           </div>
-          <button onClick={run} disabled={running} className="btn-amber btn-xs">
+          <button onClick={run} disabled={running} className="btn-primary">
             {running ? "Syncing…" : "Run sync"}
           </button>
         </div>
@@ -944,7 +944,7 @@ function SyncConsumptionModal({ onClose, onRecorded }: { onClose: () => void; on
         )}
 
         <div className="flex justify-end gap-2 pt-1">
-          <button type="button" onClick={onClose} className="text-xs px-3 py-1.5 text-secondary hover:text-strong">
+          <button type="button" onClick={onClose} className="btn-secondary">
             {result ? "Done" : "Cancel"}
           </button>
         </div>
@@ -1036,7 +1036,7 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
               </ul>
             </div>
             <div className="flex justify-end pt-1">
-              <button type="button" onClick={onDone} className="btn-amber btn-xs">Done</button>
+              <button type="button" onClick={onDone} className="btn-primary">Done</button>
             </div>
           </div>
         ) : (
@@ -1074,11 +1074,11 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
           )}
           {error && <p className="text-xs text-danger">{error}</p>}
           <div className="flex justify-end gap-2 pt-2">
-            <button type="button" onClick={onClose} className="text-xs px-3 py-1.5 text-secondary hover:text-strong">Cancel</button>
+            <button type="button" onClick={onClose} className="btn-secondary">Cancel</button>
             <button
               type="submit"
               disabled={submitting || inventoryLines.length === 0 || preview?.insufficientStock}
-              className="btn-amber btn-xs"
+              className="btn-primary"
             >
               {submitting ? "Shipping…" : "Ship"}
             </button>
@@ -1221,11 +1221,11 @@ function AdHocExportModal({ inventoryByRecipe, recipeNameById, onClose, onDone }
           </div>
           {error && <p className="text-xs text-danger">{error}</p>}
           <div className="flex justify-end gap-2 pt-2">
-            <button type="button" onClick={onClose} className="text-xs px-3 py-1.5 text-secondary hover:text-strong">Cancel</button>
+            <button type="button" onClick={onClose} className="btn-secondary">Cancel</button>
             <button
               type="submit"
               disabled={submitting || linesForRecipe.length === 0}
-              className="btn-amber btn-xs"
+              className="btn-primary"
             >
               {submitting ? "Shipping…" : "Ship"}
             </button>

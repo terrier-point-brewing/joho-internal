@@ -486,7 +486,7 @@ function InvoiceExpandedPanel({
                   <button
                     onClick={addLineItem}
                     disabled={actionLoading || (!addDesc && !addMappingId) || !addPrice}
-                    className="btn-ghost btn-xs"
+                    className="btn-secondary"
                   >
                     {actionLoading ? "Adding…" : "Add"}
                   </button>
@@ -513,7 +513,7 @@ function InvoiceExpandedPanel({
             <button
               onClick={handleSend}
               disabled={actionLoading}
-              className="btn-amber btn-xs"
+              className="btn-primary"
             >
               {actionLoading ? "Sending…" : "Send Invoice"}
             </button>
@@ -522,7 +522,7 @@ function InvoiceExpandedPanel({
             <button
               onClick={handleSync}
               disabled={actionLoading}
-              className="btn-ghost btn-xs"
+              className="btn-secondary"
             >
               {actionLoading ? "Syncing…" : "Sync from Square"}
             </button>

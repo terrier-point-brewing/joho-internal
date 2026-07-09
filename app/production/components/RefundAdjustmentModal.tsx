@@ -53,15 +53,14 @@ export function RefundAdjustmentModal({
         </p>
 
         <div className="flex gap-2 justify-end pt-2">
-          <button type="button" onClick={onClose}
-            className="px-4 py-1.5 text-sm text-muted hover:text-body transition-colors">
+          <button type="button" onClick={onClose} className="btn-secondary">
             Cancel
           </button>
           <button
             type="button"
             onClick={onConfirm}
             disabled={submitting}
-            className="btn-amber">
+            className="btn-primary">
             {submitting ? "Refunding…" : "Refund & Save"}
           </button>
         </div>

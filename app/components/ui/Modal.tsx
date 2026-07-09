@@ -97,10 +97,10 @@ export function ModalActions({
 }) {
   return (
     <div className="flex justify-end gap-2 pt-2 border-t border-line mt-4">
-      <button type="button" onClick={onCancel} className="btn-ghost">
+      <button type="button" onClick={onCancel} className="btn-secondary">
         Cancel
       </button>
-      <button type="submit" disabled={submitting} className="btn-amber">
+      <button type="submit" disabled={submitting} className="btn-primary">
         {submitting ? "Saving…" : label}
       </button>
     </div>

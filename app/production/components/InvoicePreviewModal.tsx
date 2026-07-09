@@ -260,7 +260,7 @@ export default function InvoicePreviewModal({
                   remove it per line below, or apply other discounts at your discretion.
                 </span>
                 <span className="flex items-center gap-2 shrink-0">
-                  <button onClick={applyDefaultDiscountToAll} className="btn-ghost btn-xs">
+                  <button onClick={applyDefaultDiscountToAll} className="btn-secondary">
                     Apply to all
                   </button>
                   <button onClick={clearAllDiscounts} className="text-xs text-secondary hover:text-strong">
@@ -372,7 +372,7 @@ export default function InvoicePreviewModal({
             })}
           </div>
 
-          <button onClick={addLine} className="text-xs px-2.5 py-1 border border-line-strong hover:border-line-subtle text-body rounded transition-colors">
+          <button onClick={addLine} className="btn-secondary">
             + Add line item
           </button>
 
@@ -409,11 +409,11 @@ export default function InvoicePreviewModal({
           {createError && <p className="text-xs text-danger">{createError}</p>}
 
           <div className="flex justify-end gap-2 pt-1">
-            <button onClick={onClose} className="text-sm text-secondary hover:text-strong" disabled={creating}>Cancel</button>
+            <button onClick={onClose} className="btn-secondary" disabled={creating}>Cancel</button>
             <button
               onClick={handleCreate}
               disabled={creating || effectiveLineItems.length === 0 || (invoiceMode === "manual" && !manualValid)}
-              className="btn-amber"
+              className="btn-primary"
             >
               {creating
                 ? (invoiceMode === "square" ? "Generating…" : "Recording…")

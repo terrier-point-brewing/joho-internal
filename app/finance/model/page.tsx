@@ -141,7 +141,7 @@ export default function ModelPage() {
             >
               {years.map((y) => <option key={y} value={y}>{y}</option>)}
             </select>
-            <button onClick={handleRefresh} className="btn-amber btn-xs">Refresh</button>
+            <button onClick={handleRefresh} className="btn-primary">Refresh</button>
           </div>
         </div>
       </div>

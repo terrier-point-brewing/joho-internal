@@ -426,14 +426,14 @@ export default function DraftStatsTab() {
               type="button"
               onClick={autoMatchRestock}
               disabled={!restockItemId || restockVariations.length === 0}
-              className="btn-ghost btn-sm disabled:opacity-40 disabled:cursor-not-allowed"
+              className="btn-secondary"
             >
               Auto-match by tap #
             </button>
             <button
               type="button"
               onClick={autoMapKegs}
-              className="btn-ghost btn-sm"
+              className="btn-secondary"
             >
               Auto-map kegs
             </button>

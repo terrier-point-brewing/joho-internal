@@ -138,7 +138,7 @@ function ExciseTaxRatesSection() {
         <h3 className="text-sm font-medium text-strong">Excise Tax Rates</h3>
         <button
           onClick={() => setCreating((c) => !c)}
-          className="btn-amber btn-xs"
+          className="btn-primary"
         >
           {creating ? "Cancel" : "+ Add rate"}
         </button>
@@ -157,7 +157,7 @@ function ExciseTaxRatesSection() {
           </select>
           <input value={draftRate} onChange={(e) => setDraftRate(e.target.value)} placeholder="Rate (USD)" type="number" step="0.01"
             className="bg-surface-mid border border-line-strong rounded px-2 py-1 text-xs text-strong w-28" />
-          <button onClick={create} className="btn-amber btn-xs">
+          <button onClick={create} className="btn-primary">
             Save
           </button>
         </div>
@@ -254,7 +254,7 @@ export function PartnerOverridePicker({ partners, excludeIds, onAdd }: {
       <button
         onClick={() => { if (partnerId) { onAdd(partnerId); setOpen(false); setPartnerId(""); } }}
         disabled={!partnerId}
-        className="btn-amber btn-xs"
+        className="btn-primary"
       >
         Add
       </button>
@@ -441,7 +441,7 @@ function ServiceMappingDrawer({
               <button
                 onClick={handleSave}
                 disabled={saving}
-                className="btn-amber text-xs w-full disabled:opacity-30"
+                className="btn-primary w-full"
               >
                 {saving ? "Saving…" : "Save"}
               </button>
@@ -718,7 +718,7 @@ function InvoiceTermsSection() {
           className="bg-surface-mid border border-line-strong rounded px-2 py-1 text-xs text-strong w-20"
         />
         <span className="text-xs text-muted">days</span>
-        <button onClick={save} disabled={saving} className="btn-amber btn-xs">
+        <button onClick={save} disabled={saving} className="btn-primary">
           {saving ? "Saving…" : "Save"}
         </button>
       </div>
