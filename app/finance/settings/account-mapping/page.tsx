@@ -696,7 +696,7 @@ export default function AccountMappingPage() {
           {syncResult && (
             <span className="text-xs text-success">{syncResult.items} items · {syncResult.variations} variations synced</span>
           )}
-          <button onClick={handleSync} disabled={syncing} className="btn-secondary btn-secondary">
+          <button onClick={handleSync} disabled={syncing} className="btn-secondary">
             {syncing ? "Syncing…" : "Sync Catalog"}
           </button>
         </div>

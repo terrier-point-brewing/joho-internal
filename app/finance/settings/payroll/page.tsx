@@ -362,13 +362,13 @@ export default function PayrollSettingsPage() {
             <button
               onClick={() => syncSquare.mutate()}
               disabled={syncSquare.isPending}
-              className="btn-secondary btn-secondary"
+              className="btn-secondary"
             >
               {syncSquare.isPending ? "Syncing…" : "Sync from Square"}
             </button>
             <button
               onClick={() => setShowAddForm(v => !v)}
-              className="btn-secondary btn-secondary"
+              className="btn-secondary"
             >
               {showAddForm ? "Cancel" : "+ Add Employee"}
             </button>
@@ -568,7 +568,7 @@ export default function PayrollSettingsPage() {
                         >
                           {updateEmployee.isPending ? "Saving…" : "Save"}
                         </button>
-                        <button onClick={() => setEditingId(null)} className="btn-secondary btn-secondary">
+                        <button onClick={() => setEditingId(null)} className="btn-secondary">
                           Cancel
                         </button>
                       </div>

@@ -309,11 +309,11 @@ function EditPanel({
         <div className="flex gap-2">
           {error && <span className="text-xs text-danger self-center">{error}</span>}
           <button type="button" onClick={onClose}
-            className="btn-secondary btn-secondary">
+            className="btn-secondary">
             Cancel
           </button>
           <button type="submit" disabled={saving}
-            className="btn-primary btn-secondary">
+            className="btn-primary">
             {saving ? "Saving…" : "Save"}
           </button>
         </div>
@@ -659,10 +659,10 @@ export default function ChartOfAccountsPage() {
           <div className="flex items-center gap-2 shrink-0 mt-4">
             <button
               onClick={() => { setShowAddForm((v) => !v); setAddError(null); setEditingId(null); }}
-              className="btn-secondary btn-secondary">
+              className="btn-secondary">
               {showAddForm ? "Cancel" : "Add Account"}
             </button>
-            <label className="btn-primary btn-secondary cursor-pointer">
+            <label className="btn-primary cursor-pointer">
               Upload CSV
               <input type="file" accept=".csv,text/csv" className="sr-only" onChange={handleFile} />
             </label>
@@ -759,11 +759,11 @@ export default function ChartOfAccountsPage() {
             {addError && <p className="text-xs text-danger">{addError}</p>}
             <div className="flex gap-3">
               <button type="button" onClick={() => { setShowAddForm(false); setAddForm(BLANK_FORM); setAddError(null); }}
-                className="btn-secondary btn-secondary">
+                className="btn-secondary">
                 Cancel
               </button>
               <button type="submit" disabled={addSaving}
-                className="btn-primary btn-secondary">
+                className="btn-primary">
                 {addSaving ? "Saving…" : "Save Account"}
               </button>
             </div>
@@ -861,11 +861,11 @@ export default function ChartOfAccountsPage() {
               {uploadError && <p className="text-xs text-danger">{uploadError}</p>}
               <div className="flex gap-3">
                 <button onClick={() => { setStep("idle"); setParsed([]); setWarnings([]); }}
-                  className="btn-secondary btn-secondary">
+                  className="btn-secondary">
                   Cancel
                 </button>
                 <button onClick={handleCommit} disabled={submitting || parsed.length === 0}
-                  className="btn-primary btn-secondary">
+                  className="btn-primary">
                   {submitting ? "Uploading…" : "Apply changes"}
                 </button>
               </div>
@@ -880,7 +880,7 @@ export default function ChartOfAccountsPage() {
             <div className="bg-surface border border-line rounded-lg p-5 flex items-center justify-between">
               <p className="text-sm text-success">{parts.join(" · ") || "Upload complete."}</p>
               <button onClick={() => setStep("idle")}
-                className="btn-secondary btn-secondary">
+                className="btn-secondary">
                 Done
               </button>
             </div>
