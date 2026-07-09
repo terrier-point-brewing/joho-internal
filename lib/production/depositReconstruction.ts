@@ -62,7 +62,10 @@ export function reconstructFieldAsOf(
 /**
  * State of one recipe_ingredient record at asOf, or null if it did not exist
  * then (inserted later, or already deleted). Uses the last audit event whose
- * changed_at <= asOf.
+ * changed_at <= asOf. If there is no such event but the earliest recorded event
+ * is not an INSERT, the row already existed before the audit trail began for it
+ * (asOf predates its first recorded change) and its prior state is recovered
+ * from that event's old_data.
  */
 function recipeIngredientStateAsOf(
   rows: AuditRow[],
@@ -73,8 +76,17 @@ function recipeIngredientStateAsOf(
   for (const r of sorted) {
     if (r.changed_at <= asOf) last = r;
   }
-  if (!last || last.operation === "DELETE") return null;
-  const data = last.new_data ?? last.old_data;
+
+  let data: Record<string, unknown> | null;
+  if (last) {
+    if (last.operation === "DELETE") return null;
+    data = last.new_data ?? last.old_data;
+  } else {
+    const earliest = sorted[0];
+    if (!earliest || earliest.operation === "INSERT") return null;
+    data = earliest.old_data;
+  }
+
   if (!data) return null;
   const ingredient_id = str(data["ingredient_id"]);
   const quantity_per_bbl = num(data["quantity_per_bbl"]);

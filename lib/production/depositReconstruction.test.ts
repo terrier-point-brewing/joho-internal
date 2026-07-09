@@ -115,6 +115,24 @@ describe("reconstructBreakdownAsOf", () => {
     expect(out[0].weight).toBe(18);
   });
 
+  it("includes a pre-audit recipe ingredient deleted after asOf via delete old_data", () => {
+    const out = reconstructBreakdownAsOf({
+      asOf: "2026-02-01T00:00:00Z",
+      currentRecipeIngredients: [],
+      ingredientsNow,
+      // Row created before the audit system existed: its ONLY event is a DELETE
+      // dated after asOf. It genuinely existed at asOf and must be recovered.
+      recipeIngredientAudit: [
+        rirow({ record_id: "r1", operation: "DELETE", changed_at: "2026-05-01T00:00:00Z", old_data: { id: "r1", recipe_id: "rec", ingredient_id: "i1", quantity_per_bbl: 9 }, new_data: null }),
+      ],
+      ingredientAudit: [],
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0].ingredient_id).toBe("i1");
+    expect(out[0].quantity_per_bbl).toBe(9);
+    expect(out[0].weight).toBe(45);
+  });
+
   it("skips ingredients with no known cost", () => {
     const out = reconstructBreakdownAsOf({
       asOf: "2026-02-01T00:00:00Z",
