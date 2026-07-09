@@ -1,6 +1,6 @@
 export type SortDir = "asc" | "desc";
 
-/** null = no active sort (fall back to the config default or source order). */
+/** null = no active sort — applyControls leaves rows in source order. The config default (ControlsConfig.sort.default) is applied upstream at the URL-parse layer, which seeds this to the default when the sort param is absent. */
 export type SortState = { key: string; dir: SortDir } | null;
 
 /** One free-text search box. An accessor returning an array = identity-blend

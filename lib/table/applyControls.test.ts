@@ -89,4 +89,34 @@ describe("applyControls", () => {
     applyControls(ROWS, CONFIG, { ...EMPTY, sort: { key: "volume", dir: "desc" } });
     expect(ROWS).toEqual(copy);
   });
+
+  it("coerce(null/undefined) to empty string and sorts before non-empty strings", () => {
+    interface LocalRow {
+      id: string;
+      tag: string | null | undefined;
+    }
+
+    const localRows: LocalRow[] = [
+      { id: "a", tag: "zebra" },
+      { id: "b", tag: null },
+      { id: "c", tag: "apple" },
+      { id: "d", tag: undefined },
+    ];
+
+    const localConfig: ControlsConfig<LocalRow> = {
+      sort: {
+        columns: [{ key: "tag", accessor: (r) => r.tag }],
+      },
+    };
+
+    const sorted = applyControls(localRows, localConfig, {
+      search: {},
+      filters: {},
+      sort: { key: "tag", dir: "asc" },
+    });
+
+    // null and undefined both coerce to "", so they sort first (in stable order)
+    // followed by "apple", then "zebra"
+    expect(sorted.map((r) => r.id)).toEqual(["b", "d", "c", "a"]);
+  });
 });
