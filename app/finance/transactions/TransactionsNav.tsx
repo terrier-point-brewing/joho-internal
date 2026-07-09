@@ -5,6 +5,7 @@ const TABS = [
   { href: "/finance/transactions/orders",   label: "Orders"   },
   { href: "/finance/transactions/invoices", label: "Invoices" },
   { href: "/finance/transactions/expenses", label: "Expenses" },
+  { href: "/finance/transactions/bank-ledger", label: "Bank Ledger" },
 ];
 
 export default function TransactionsNav() {

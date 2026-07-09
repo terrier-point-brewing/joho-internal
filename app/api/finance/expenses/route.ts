@@ -26,6 +26,7 @@ export async function GET(req: NextRequest) {
     .select(`
       id,
       source,
+      ramp_object,
       source_transaction_id,
       amount_cents,
       currency_code,
@@ -41,6 +42,8 @@ export async function GET(req: NextRequest) {
       external_account_id,
       external_account_name,
       external_account_code,
+      counterparty_key,
+      counterparty_label,
       chart_of_accounts_id,
       mapping_source,
       inventory_alert_dismissed,
@@ -93,23 +96,29 @@ export async function PATCH(req: NextRequest) {
   if (!coaId) {
     const { data: expense } = await supabase
       .from("expenses")
-      .select("source, external_account_id")
+      .select("source, external_account_id, counterparty_key")
       .eq("id", body.id)
       .single();
 
-    const ruleByAccountId = new Map<string, { external_account_id: string; chart_of_accounts_id: string | null }>();
+    const glRules = new Map<string, { external_account_id: string; chart_of_accounts_id: string | null }>();
     if (expense?.external_account_id) {
       const { data: rule } = await supabase
         .from("expense_account_mappings")
         .select("external_account_id, chart_of_accounts_id")
-        .eq("source", expense.source)
-        .eq("external_account_id", expense.external_account_id)
-        .single();
-      if (rule) ruleByAccountId.set(rule.external_account_id, rule);
+        .eq("source", expense.source).eq("external_account_id", expense.external_account_id).single();
+      if (rule) glRules.set(rule.external_account_id, rule);
+    }
+    const cpRules = new Map<string, { counterparty_key: string; chart_of_accounts_id: string | null }>();
+    if (expense?.counterparty_key) {
+      const { data: rule } = await supabase
+        .from("expense_counterparty_mappings")
+        .select("counterparty_key, chart_of_accounts_id")
+        .eq("source", expense.source).eq("counterparty_key", expense.counterparty_key).single();
+      if (rule) cpRules.set(rule.counterparty_key, rule);
     }
     const resolved = resolveExpenseMapping(
-      { external_account_id: expense?.external_account_id ?? null, mapping_source: "unmapped", chart_of_accounts_id: null },
-      ruleByAccountId,
+      { external_account_id: expense?.external_account_id ?? null, counterparty_key: expense?.counterparty_key ?? null, mapping_source: "unmapped", chart_of_accounts_id: null },
+      glRules, cpRules,
     );
     coaId  = resolved.chart_of_accounts_id;
     source = resolved.mapping_source;

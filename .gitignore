@@ -43,3 +43,6 @@ next-env.d.ts
 supabase/.temp/
 .superpowers/
 .worktrees/
+
+# Ramp API spike raw dumps (contains live financial data — do not commit)
+ramp-spike-output/

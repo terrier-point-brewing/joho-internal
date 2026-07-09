@@ -27,7 +27,7 @@ interface ShipmentRow {
   packaging_item_volume_fl_oz: number | null;
   packaging_item_name: string | null;
   created_at: string;
-  brew_batches: { id: string; beer_name: string; batch_number: number } | null;
+  brew_batches: { id: string; beer_name: string; batch_number: string } | null;
 }
 
 // Display status shown on the Shipments tab. "draft" is a UI-only state derived
@@ -44,7 +44,7 @@ function rowDisplayStatus(row: Pick<ShipmentRow, "invoice_id" | "status">): Disp
 
 interface AllocationCredit {
   id: string;
-  batch_number: number;
+  batch_number: string;
   quantity: number;
   volume_bbl: number;
   status: DisplayStatus;
@@ -228,7 +228,7 @@ function groupByInvoice(rows: ShipmentRow[]): InvoiceGroup[] {
     product.total_excise_tax_usd = Math.round((product.total_excise_tax_usd + Number(row.total_excise_tax_usd)) * 100) / 100;
     product.allocations.push({
       id: row.id,
-      batch_number: row.brew_batches?.batch_number ?? 0,
+      batch_number: row.brew_batches?.batch_number ?? "",
       quantity: Number(row.quantity),
       volume_bbl: Number(row.volume_bbl),
       status: displayStatus,

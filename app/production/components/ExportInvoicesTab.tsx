@@ -24,7 +24,7 @@ interface InvoiceShipment {
   quantity: number;
   volume_bbl: number;
   created_at: string;
-  brew_batches: { id: string; beer_name: string; batch_number: number } | null;
+  brew_batches: { id: string; beer_name: string; batch_number: string } | null;
 }
 
 interface ExportInvoiceListItem {

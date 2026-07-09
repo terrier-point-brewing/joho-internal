@@ -316,7 +316,7 @@ export interface CommitmentAllocationSummary {
   invoice_paid_at: string | null;
   /** Human-readable invoice number (e.g. "000003") from the linked invoices row; null if not yet synced. */
   deposit_invoice_number: string | null;
-  brew_batches?: { id: string; beer_name: string; batch_number: number; volume_bbl: number } | null;
+  brew_batches?: { id: string; beer_name: string; batch_number: string; volume_bbl: number } | null;
   contract_brewing_partners?: { id: string; company_name: string } | null;
   /** Requested barrelage from the linked commitment — used to explain how % was derived. */
   commitments?: { volume_bbl: number } | null;
@@ -409,7 +409,7 @@ export interface BatchAllocation {
   refund_amount_cents: number | null;
   refunded_at: string | null;
   // ── Joined fields ────────────────────────────────────────────────────────
-  brew_batches?: { id: string; beer_name: string; batch_number: number; volume_bbl: number; recipe_id: string | null } | null;
+  brew_batches?: { id: string; beer_name: string; batch_number: string; volume_bbl: number; recipe_id: string | null } | null;
   contract_brewing_partners?: { id: string; company_name: string } | null;
   commitments?: { id: string; volume_bbl: number; received_on: string | null; created_at: string; desired_delivery_date: string | null } | null;
   // Computed fulfillment fields (returned by API)

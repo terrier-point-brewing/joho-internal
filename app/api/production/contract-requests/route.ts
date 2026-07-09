@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
@@ -78,7 +79,11 @@ export async function GET(req: NextRequest) {
 
   const invoiceNumberBySquareId = new Map<string, string | null>();
   if (squareDepositIds.length > 0) {
-    const { data: depositInvoices } = await supabase
+    // `invoices` is RLS-locked to admins; read via the service-role client so
+    // deposit invoice numbers resolve for non-admin callers too (see the export
+    // invoices route for the same rationale).
+    const admin = createSupabaseAdminClient();
+    const { data: depositInvoices } = await admin
       .from("invoices")
       .select("square_invoice_id, invoice_number")
       .in("square_invoice_id", squareDepositIds)

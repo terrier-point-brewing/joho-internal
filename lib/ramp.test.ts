@@ -13,6 +13,35 @@ describe("toRampDatetime", () => {
 });
 
 describe("extractGlAccount", () => {
+  it("reads the QuickBooks account number from external_code, not external_id", () => {
+    const gl = extractGlAccount({
+      line_items: [{
+        accounting_field_selections: [{
+          id: "opt-1",
+          name: "COST OF GOODS SOLD (COGS):Raw Materials",
+          external_id: "1150040025",   // Ramp internal id — NOT the account number
+          external_code: "5110",        // the QuickBooks account number
+          category_info: { type: "GL_ACCOUNT", name: "Category" },
+        }],
+      }],
+    });
+    expect(gl).toEqual({
+      id: "opt-1",
+      external_id: "5110",
+      name: "COST OF GOODS SOLD (COGS):Raw Materials",
+    });
+  });
+
+  it("falls back to external_id when external_code is absent", () => {
+    const gl = extractGlAccount({
+      accounting_field_selections: [{
+        id: "opt-2", name: "Meals", external_id: "6000", external_code: null,
+        category_info: { type: "GL_ACCOUNT" },
+      }],
+    });
+    expect(gl?.external_id).toBe("6000");
+  });
+
   it("pulls the SELECTED account, not the dimension descriptor in category_info", () => {
     // Real Ramp shape: `category_info` is the "Category" GL dimension; the chosen
     // account lives on the selection's own top-level id/name/external_id.

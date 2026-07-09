@@ -60,4 +60,16 @@ describe("isReconcilableRampEvent", () => {
     expect(isReconcilableRampEvent(undefined)).toBe(false);
     expect(isReconcilableRampEvent(42)).toBe(false);
   });
+
+  it("treats bill events as reconcilable", () => {
+    expect(isReconcilableRampEvent("bill.created")).toBe(true);
+    expect(isReconcilableRampEvent("bill.paid")).toBe(true);
+  });
+  it("still ignores the verification handshake", () => {
+    expect(isReconcilableRampEvent("webhooks.verification")).toBe(false);
+  });
+
+  it("treats banking transaction events as reconcilable", () => {
+    expect(isReconcilableRampEvent("banking.transaction.created")).toBe(true);
+  });
 });
