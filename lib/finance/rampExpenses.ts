@@ -41,8 +41,9 @@ export function rampTxnToExpenseRecord(txn: RampTransaction): ExpenseRecord {
 
   return {
     source:                SOURCE,
+    ramp_object:           "card",
     source_transaction_id: txn.id,
-    amount_cents:          dollarsToCents(txn.amount),
+    amount_cents:          -dollarsToCents(txn.amount),   // outflow negative
     currency_code:         txn.currency_code || "USD",
     memo:                  txn.memo || null,
     merchant_name:         txn.merchant_name || null,
@@ -65,12 +66,10 @@ function chunk<T>(arr: T[], size: number): T[][] {
   return out;
 }
 
-export async function syncRampExpenses(
+export async function syncExpenseRecords(
   supabase: AdminClient,
-  txns: RampTransaction[],
+  records: ExpenseRecord[],
 ): Promise<RampSyncResult> {
-  const records = txns.map(rampTxnToExpenseRecord);
-
   // Chart of accounts — for auto-matching new external accounts.
   const { data: accountRows, error: coaErr } = await supabase
     .from("chart_of_accounts")
@@ -182,4 +181,12 @@ export async function syncRampExpenses(
     new_rules:          newRules.length,
     auto_matched_rules: autoMatched,
   };
+}
+
+/** Back-compat: sync a batch of Ramp card transactions. */
+export async function syncRampExpenses(
+  supabase: AdminClient,
+  txns: RampTransaction[],
+): Promise<RampSyncResult> {
+  return syncExpenseRecords(supabase, txns.map(rampTxnToExpenseRecord));
 }

@@ -25,8 +25,9 @@ describe("rampTxnToExpenseRecord", () => {
     const r = rampTxnToExpenseRecord(txn());
     expect(r).toMatchObject({
       source: "ramp",
+      ramp_object: "card",
       source_transaction_id: "t1",
-      amount_cents: 1234,
+      amount_cents: -1234,
       currency_code: "USD",
       memo: "lunch",
       merchant_name: "Cafe",
@@ -56,6 +57,7 @@ describe("rampTxnToExpenseRecord", () => {
     expect(r.department_name).toBeNull();
     expect(r.external_account_id).toBeNull();
     expect(r.source).toBe("ramp");
+    expect(r.ramp_object).toBe("card");
   });
 });
 
