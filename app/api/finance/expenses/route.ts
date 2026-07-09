@@ -26,6 +26,7 @@ export async function GET(req: NextRequest) {
     .select(`
       id,
       source,
+      ramp_object,
       source_transaction_id,
       amount_cents,
       currency_code,
