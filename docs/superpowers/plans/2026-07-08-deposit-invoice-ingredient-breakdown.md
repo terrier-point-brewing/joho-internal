@@ -776,7 +776,7 @@ interface DepositInvoiceListItem {
   customer_name: string | null; partner_id: string | null; partner_name: string | null;
   status: string; source: string; square_invoice_id: string | null; square_dashboard_url: string | null;
   total_cents: number; percentage: number | null;
-  beer_name: string | null; batch_number: number | null; volume_bbl: number | null;
+  beer_name: string | null; batch_number: string | null; volume_bbl: number | null;
   generated_at: string | null; sent_at: string | null; paid_at: string | null;
   breakdown: DepositBreakdownLine[];
 }
@@ -829,7 +829,7 @@ export async function GET() {
     const alloc = inv.batch_allocations as unknown as {
       percentage: number | null; invoice_generated_at: string | null;
       invoice_sent_at: string | null; invoice_paid_at: string | null;
-      brew_batches: { beer_name: string; batch_number: number; volume_bbl: number } | null;
+      brew_batches: { beer_name: string; batch_number: string; volume_bbl: number } | null;
     } | null;
     const squareDashboardUrl = inv.square_invoice_id
       ? `https://app.squareup.com/dashboard/invoices/${inv.square_invoice_id}/edit?currentUnitToken=${process.env.SQUARE_LOCATION_ID}`
@@ -938,7 +938,7 @@ interface DepositInvoiceListItem {
   customer_name: string | null; partner_id: string | null; partner_name: string | null;
   status: string; source: string; square_invoice_id: string | null; square_dashboard_url: string | null;
   total_cents: number; percentage: number | null;
-  beer_name: string | null; batch_number: number | null; volume_bbl: number | null;
+  beer_name: string | null; batch_number: string | null; volume_bbl: number | null;
   generated_at: string | null; sent_at: string | null; paid_at: string | null;
   breakdown: DepositBreakdownLine[];
 }
