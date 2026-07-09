@@ -38,6 +38,10 @@ export interface ExpenseRecord {
   external_account_id:   string | null;
   external_account_name: string | null;
   external_account_code: string | null;
+  // For bank-sourced rows with no GL coding: the external party (Gusto, Erie),
+  // used to resolve an account from the counterparty rule table.
+  counterparty_key:      string | null;
+  counterparty_label:    string | null;
 }
 
 export type MappingSource = "unmapped" | "rule" | "manual";
@@ -91,24 +95,31 @@ export interface RuleRef {
   chart_of_accounts_id: string | null;
 }
 
+export interface CounterpartyRuleRef {
+  counterparty_key:     string;
+  chart_of_accounts_id: string | null;
+}
+
 /**
- * Resolve the effective CoA + source for an expense given the current rule set.
- * Manual overrides are preserved. Otherwise the expense follows its external
- * account's rule; an untagged expense (or a rule with no account) stays unmapped.
+ * Resolve the effective CoA + source for an expense. Priority: a manual pin wins;
+ * else a GL-account rule (card/bill coding); else a counterparty rule (bank
+ * lines, which carry no GL); else unmapped.
  */
 export function resolveExpenseMapping(
-  expense: { external_account_id: string | null; mapping_source: MappingSource; chart_of_accounts_id: string | null },
-  ruleByAccountId: Map<string, RuleRef>,
+  expense: { external_account_id: string | null; counterparty_key: string | null; mapping_source: MappingSource; chart_of_accounts_id: string | null },
+  glRules: Map<string, RuleRef>,
+  counterpartyRules: Map<string, CounterpartyRuleRef>,
 ): { chart_of_accounts_id: string | null; mapping_source: MappingSource } {
   if (expense.mapping_source === "manual") {
     return { chart_of_accounts_id: expense.chart_of_accounts_id, mapping_source: "manual" };
   }
-  if (!expense.external_account_id) {
-    return { chart_of_accounts_id: null, mapping_source: "unmapped" };
+  if (expense.external_account_id) {
+    const rule = glRules.get(expense.external_account_id);
+    if (rule?.chart_of_accounts_id) return { chart_of_accounts_id: rule.chart_of_accounts_id, mapping_source: "rule" };
   }
-  const rule = ruleByAccountId.get(expense.external_account_id);
-  if (rule?.chart_of_accounts_id) {
-    return { chart_of_accounts_id: rule.chart_of_accounts_id, mapping_source: "rule" };
+  if (expense.counterparty_key) {
+    const rule = counterpartyRules.get(expense.counterparty_key);
+    if (rule?.chart_of_accounts_id) return { chart_of_accounts_id: rule.chart_of_accounts_id, mapping_source: "rule" };
   }
   return { chart_of_accounts_id: null, mapping_source: "unmapped" };
 }
