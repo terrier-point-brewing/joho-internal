@@ -6,6 +6,7 @@
  * debits become expenses. Anything unrecognized is `unclassified` for review.
  */
 import { normalizeCounterparty, type RampBankLine } from "@/lib/ramp";
+import { dollarsToCents, type ExpenseRecord } from "./expenses";
 
 export type FlowType =
   | "operating_expense"
@@ -59,4 +60,79 @@ export function classifyBankLine(line: RampBankLine, ownAccounts: Set<string>): 
 
   // Unknown description — surface for manual review, never auto-book.
   return make("unclassified", false, srcKey && !ownAccounts.has(srcKey) ? "inflow" : "outflow", line.destination_account_name ?? line.source_account_name ?? "");
+}
+
+export interface BankLedgerRecord {
+  source:                   "ramp";
+  source_transaction_id:    string;
+  amount_cents:             number;
+  currency_code:            string;
+  description:              string | null;
+  counterparty_name:        string | null;
+  source_account_name:      string | null;
+  destination_account_name: string | null;
+  flow_type:                FlowType;
+  affects_pl:               boolean;
+  transaction_date:         string | null;
+}
+
+/** Signed cents from an unsigned magnitude + direction. */
+function signedCents(amount: number, direction: "inflow" | "outflow"): number {
+  const cents = dollarsToCents(amount);
+  return direction === "outflow" ? -cents : cents;
+}
+
+function bankLineToExpenseRecord(line: RampBankLine, c: BankClassification): ExpenseRecord {
+  return {
+    source:                "ramp",
+    ramp_object:           "bank",
+    source_transaction_id: line.id,
+    amount_cents:          signedCents(line.amount, c.direction),
+    currency_code:         line.currency_code || "USD",
+    memo:                  line.description || null,
+    merchant_name:         c.counterparty_name || null,
+    merchant_category:     null,
+    sk_category_name:      null,
+    state:                 null,
+    card_holder_name:      null,
+    department_name:       null,
+    transaction_time:      line.date || null,
+    accounting_date:       line.date ? line.date.slice(0, 10) : null,
+    external_account_id:   null,
+    external_account_name: null,
+    external_account_code: null,
+    counterparty_key:      c.counterparty_key || null,
+    counterparty_label:    c.counterparty_name || null,
+  };
+}
+
+function bankLineToLedgerRecord(line: RampBankLine, c: BankClassification): BankLedgerRecord {
+  return {
+    source:                   "ramp",
+    source_transaction_id:    line.id,
+    amount_cents:             signedCents(line.amount, c.direction),
+    currency_code:            line.currency_code || "USD",
+    description:              line.description || null,
+    counterparty_name:        c.counterparty_name || null,
+    source_account_name:      line.source_account_name,
+    destination_account_name: line.destination_account_name,
+    flow_type:                c.flow_type,
+    affects_pl:               c.affects_pl,
+    transaction_date:         line.date ? line.date.slice(0, 10) : null,
+  };
+}
+
+/** Classify every bank line and split into expense-bound vs ledger-bound records. */
+export function partitionBankLines(
+  lines: RampBankLine[],
+  ownAccounts: Set<string>,
+): { expenseRecords: ExpenseRecord[]; ledgerRecords: BankLedgerRecord[] } {
+  const expenseRecords: ExpenseRecord[] = [];
+  const ledgerRecords:  BankLedgerRecord[] = [];
+  for (const line of lines) {
+    const c = classifyBankLine(line, ownAccounts);
+    if (c.is_expense) expenseRecords.push(bankLineToExpenseRecord(line, c));
+    else              ledgerRecords.push(bankLineToLedgerRecord(line, c));
+  }
+  return { expenseRecords, ledgerRecords };
 }

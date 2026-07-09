@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { classifyBankLine } from "./bankLedger";
+import { classifyBankLine, partitionBankLines } from "./bankLedger";
 import { normalizeCounterparty, type RampBankLine } from "@/lib/ramp";
 
 const OWN = new Set(["operating account", "investment account"].map(normalizeCounterparty));
@@ -62,5 +62,32 @@ describe("classifyBankLine", () => {
     const ownWithRamp = new Set([...OWN, normalizeCounterparty("Ramp Reserve")]);
     const c = classifyBankLine(line({ destination_account_name: "Ramp Reserve" }), ownWithRamp);
     expect(c).toMatchObject({ flow_type: "internal_transfer", is_expense: false, affects_pl: false });
+  });
+});
+
+describe("partitionBankLines", () => {
+  const lines = [
+    line({ id: "exp", description: "Withdrawal", destination_account_name: "ERIE INSURANCE", amount: 271.05 }),
+    line({ id: "int", description: "Interest", source_account_name: null, destination_account_name: "Operating Account", amount: 40.01 }),
+    line({ id: "xfer", description: "Withdrawal", destination_account_name: "Investment Account", amount: 5000 }),
+  ];
+  const { expenseRecords, ledgerRecords } = partitionBankLines(lines, OWN);
+
+  it("routes operating expenses to expense records (ramp_object=bank, outflow-negative)", () => {
+    expect(expenseRecords).toHaveLength(1);
+    expect(expenseRecords[0]).toMatchObject({
+      source: "ramp", ramp_object: "bank", source_transaction_id: "exp",
+      amount_cents: -27105, merchant_name: "ERIE INSURANCE", counterparty_key: "erie insurance",
+      external_account_id: null,
+    });
+  });
+
+  it("routes interest + transfer to ledger records with flow_type + affects_pl and correct sign", () => {
+    expect(ledgerRecords.map((r) => r.flow_type).sort()).toEqual(["interest_income", "internal_transfer"]);
+    const interest = ledgerRecords.find((r) => r.flow_type === "interest_income")!;
+    expect(interest).toMatchObject({ amount_cents: 4001, affects_pl: true });   // inflow positive
+    const xfer = ledgerRecords.find((r) => r.flow_type === "internal_transfer")!;
+    expect(xfer.amount_cents).toBe(-500000);                                     // outflow negative
+    expect(xfer.affects_pl).toBe(false);
   });
 });
