@@ -34,7 +34,7 @@ export default function FilterChips({
   }
 
   const chip = (selected: boolean, extra = "") =>
-    `text-[11px] px-2 py-0.5 rounded border transition-colors ${
+    `text-xs px-2 py-0.5 rounded border transition-colors ${
       selected
         ? "border-accent-border bg-accent-muted/40 text-accent-soft"
         : "border-line-strong text-secondary hover:border-line-subtle hover:text-body"
