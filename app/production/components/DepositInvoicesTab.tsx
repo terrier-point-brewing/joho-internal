@@ -130,12 +130,12 @@ export default function DepositInvoicesTab() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <label htmlFor="dep-customer" className="sr-only">Filter by customer</label>
-        <select id="dep-customer" value={customerFilter} onChange={(e) => setCustomerFilter(e.target.value)} className="inp-sm">
+        <select id="dep-customer" value={customerFilter} onChange={(e) => setCustomerFilter(e.target.value)} className="inp-sm w-auto">
           <option value="all">All Customers</option>
           {partners.map((p) => <option key={p.id} value={p.id}>{p.company_name}</option>)}
         </select>
         <label htmlFor="dep-status" className="sr-only">Filter by status</label>
-        <select id="dep-status" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="inp-sm">
+        <select id="dep-status" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="inp-sm w-auto">
           <option value="all">All Statuses</option>
           <option value="draft">Draft</option>
           <option value="open">Sent / Open</option>
@@ -143,7 +143,7 @@ export default function DepositInvoicesTab() {
           <option value="voided">Voided</option>
         </select>
         <label htmlFor="dep-year" className="sr-only">Filter by year</label>
-        <select id="dep-year" value={yearFilter} onChange={(e) => setYearFilter(e.target.value)} className="inp-sm">
+        <select id="dep-year" value={yearFilter} onChange={(e) => setYearFilter(e.target.value)} className="inp-sm w-auto">
           <option value="all">All Years</option>
           {years.map((y) => <option key={y} value={y}>{y}</option>)}
         </select>
