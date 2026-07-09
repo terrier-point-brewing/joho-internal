@@ -217,12 +217,16 @@ async function handleInvoiceAction(req: NextRequest, params: RouteParams["params
     }
 
     if (ledgerInvoiceId) {
-      await snapshotDepositBreakdown(
-        adminSupabase,
-        ledgerInvoiceId,
-        calcToBreakdownInputs(calculation),
-        calculation.deposit_cents
-      );
+      try {
+        await snapshotDepositBreakdown(
+          adminSupabase,
+          ledgerInvoiceId,
+          calcToBreakdownInputs(calculation),
+          calculation.deposit_cents
+        );
+      } catch (e) {
+        console.error("[deposit-invoice] generate breakdown snapshot failed:", e);
+      }
     }
 
     return NextResponse.json({ allocation: updated, calculation, invoiceId: result.invoiceId, invoiceUrl: result.invoiceUrl });
