@@ -1,28 +1,54 @@
-import { BatchTransfer } from "../types";
+/**
+ * Minimal shape of a `batch_transfers` row needed for volume math. The full
+ * `BatchTransfer` type (app/production/types) is a structural superset, so
+ * callers pass it directly — this keeps the ledger logic decoupled from the app.
+ */
+export interface LedgerTransfer {
+  batch_id:      string;
+  from_tank_id:  string | null;
+  to_tank_id:    string | null;
+  to_batch_id:   string | null;
+  volume_bbl:    number;
+  shrinkage_bbl: number;
+  transferred_at: string;
+  from_tank?: { type?: string | null } | null;
+  to_tank?:   { type?: string | null } | null;
+}
 
 /**
  * Compute the volume currently held in each tank for a single batch.
  *
  * Algorithm:
- *  1. Sort transfers chronologically.
- *  2. Seed the first `from_tank_id` with `originalVol` — handles batches that existed
- *     before ledger tracking (assignment with no corresponding transfer record).
- *  3. Apply each transfer as a ±delta.
- *  4. Drop entries ≤ 0.001 BBL (floating-point dust).
+ *  1. Gather this batch's OWN transfers (batch_id === batchId) and any
+ *     conversion INFLOWS (to_batch_id === batchId — a sibling batch's row that
+ *     handed volume to this batch's tank).
+ *  2. Seed the first `from_tank_id` with `originalVol` — handles batches that
+ *     existed before ledger tracking (assignment with no transfer record). This
+ *     seed is skipped for conversion-born batches, whose starting volume is the
+ *     inbound conversion arrival (seeding would double-count).
+ *  3. Credit each conversion inflow to its destination tank.
+ *  4. Apply each own transfer as a ±delta.
+ *  5. Drop entries ≤ 0.001 BBL (floating-point dust).
  *
- * Returns {} when the batch has no transfers yet; caller falls back to
- * assignment-based volume.
+ * Returns {} when the batch has neither own transfers nor conversion inflows;
+ * caller falls back to assignment-based volume.
  */
 export function computeTankVolumes(
   batchId:     string,
   originalVol: number,
-  allTransfers: BatchTransfer[],
+  allTransfers: LedgerTransfer[],
 ): Record<string, number> {
-  const transfers = allTransfers
-    .filter((t) => t.batch_id === batchId)
-    .sort((a, b) => new Date(a.transferred_at).getTime() - new Date(b.transferred_at).getTime());
+  const byTime = (a: LedgerTransfer, b: LedgerTransfer) =>
+    new Date(a.transferred_at).getTime() - new Date(b.transferred_at).getTime();
 
-  if (transfers.length === 0) return {};
+  const own = allTransfers.filter((t) => t.batch_id === batchId).sort(byTime);
+  // Conversion inflows: recorded on the SOURCE batch's ledger, destined for this
+  // batch's tank. These are how a conversion-born batch receives its volume.
+  const inbound = allTransfers
+    .filter((t) => t.to_batch_id === batchId && t.batch_id !== batchId)
+    .sort(byTime);
+
+  if (own.length === 0 && inbound.length === 0) return {};
 
   const vols: Record<string, number> = {};
 
@@ -31,15 +57,27 @@ export function computeTankVolumes(
   // already explains how that tank got its volume (e.g. a prior Backlog→tank
   // transfer) — otherwise, on a fully-tracked batch, this double-counts when
   // same-day transfers tie-break in an order other than chronological intent.
-  const firstFrom = transfers[0].from_tank_id;
-  const firstFromHasArrival = transfers.some((t) => t.to_tank_id === firstFrom);
-  if (firstFrom && !firstFromHasArrival) vols[firstFrom] = originalVol;
+  //
+  // Skip entirely for conversion-born batches: their origin IS the inbound
+  // conversion arrival below, so seeding a phantom tank would double-count.
+  if (inbound.length === 0 && own.length > 0) {
+    const firstFrom = own[0].from_tank_id;
+    const firstFromHasArrival = own.some((t) => t.to_tank_id === firstFrom);
+    if (firstFrom && !firstFromHasArrival) vols[firstFrom] = originalVol;
+  }
 
-  for (const t of transfers) {
+  // Credit conversion inflows into this batch's destination tank. Shrinkage on
+  // these rows is the SOURCE batch's loss, not ours — only the delivered
+  // volume_bbl lands here.
+  for (const t of inbound) {
+    if (t.to_tank_id) vols[t.to_tank_id] = (vols[t.to_tank_id] ?? 0) + Number(t.volume_bbl ?? 0);
+  }
+
+  for (const t of own) {
     const vol    = Number(t.volume_bbl    ?? 0);
     const shrink = Number(t.shrinkage_bbl ?? 0);
     if (t.from_tank_id) vols[t.from_tank_id] = (vols[t.from_tank_id] ?? 0) - vol - shrink;
-    // Conversion transfers: volume goes to a DIFFERENT batch's tank — do not
+    // Own conversion transfers: volume goes to a DIFFERENT batch's tank — do not
     // credit the destination to this batch's ledger.
     if (t.to_tank_id && !t.to_batch_id) vols[t.to_tank_id] = (vols[t.to_tank_id] ?? 0) + vol;
   }
@@ -71,14 +109,19 @@ export interface LocationBreakdown {
 export function computeLocationBreakdown(
   batchId:      string,
   originalVol:  number,
-  allTransfers: BatchTransfer[],
+  allTransfers: LedgerTransfer[],
   tankTypeById: Record<string, string>,
   isAssigned:   boolean,
 ): LocationBreakdown {
   const batchTransfers = allTransfers.filter((t) => t.batch_id === batchId);
-  const tankVols       = computeTankVolumes(batchId, originalVol, allTransfers);
+  // A conversion-born batch has no own transfers but still holds volume that
+  // arrived via a sibling's conversion row.
+  const inboundConversions = allTransfers.filter(
+    (t) => t.to_batch_id === batchId && t.batch_id !== batchId,
+  );
+  const tankVols = computeTankVolumes(batchId, originalVol, allTransfers);
 
-  // Totals that come purely from transfer records
+  // Totals that come purely from this batch's own transfer records.
   let shrinkage = 0;
   let exported  = 0;
   let converted = 0;
@@ -100,17 +143,18 @@ export function computeLocationBreakdown(
     packaging: 0, coldStorage: 0, exported, converted, shrinkage,
   };
 
-  if (batchTransfers.length === 0) {
-    // No transfers yet — either in backlog (unassigned) or in the assigned tank.
-    // The caller knows which tank from the assignment; we just report the total.
+  if (batchTransfers.length === 0 && inboundConversions.length === 0) {
+    // No ledger activity at all — either in backlog (unassigned) or in the
+    // assigned tank. The caller knows which tank from the assignment; we just
+    // report the total.
     result.backlog = isAssigned ? 0 : originalVol;
     return result;
   }
 
-  // Classify each tank's net volume
+  // Classify each tank's net volume (includes conversion inflows)
   for (const [tankId, vol] of Object.entries(tankVols)) {
     const type = resolveType(tankId, undefined, tankTypeById)
-      || resolveFromTransfers(tankId, batchTransfers);
+      || resolveFromTransfers(tankId, allTransfers);
     switch (type) {
       case "brewhouse":    result.brewhouse   += vol; break;
       case "fermenter":    result.fermenter   += vol; break;
@@ -129,7 +173,7 @@ export function computeLocationBreakdown(
 
 function resolveType(
   tankId:      string | null | undefined,
-  embeddedType: string | undefined,
+  embeddedType: string | null | undefined,
   tankTypeById: Record<string, string>,
 ): string {
   if (embeddedType) return embeddedType;
@@ -137,7 +181,7 @@ function resolveType(
   return "";
 }
 
-function resolveFromTransfers(tankId: string, transfers: BatchTransfer[]): string {
+function resolveFromTransfers(tankId: string, transfers: LedgerTransfer[]): string {
   for (const t of transfers) {
     if (t.from_tank_id === tankId && t.from_tank?.type) return t.from_tank.type;
     if (t.to_tank_id   === tankId && t.to_tank?.type)   return t.to_tank.type;
