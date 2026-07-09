@@ -2,8 +2,8 @@ import { describe, it, expect } from "vitest";
 import { classifyTransfers, transferToLedgerRecord } from "./transferLedger";
 import type { RampTransfer, RampStatement } from "@/lib/ramp";
 
-function transfer(id: string, amount: number, created_at = "2026-06-26T05:15:26Z"): RampTransfer {
-  return { id, amount, status: "COMPLETED", created_at };
+function transfer(id: string, amount: number, status = "COMPLETED", created_at = "2026-06-26T05:15:26Z"): RampTransfer {
+  return { id, amount, status, created_at };
 }
 function statement(charges: number): RampStatement {
   return { id: `s-${charges}`, end_date: "2026-06-26", charges, credits: 0, payments: 0, ending_balance: 0, statement_url: null };
@@ -41,6 +41,26 @@ describe("classifyTransfers", () => {
   it("marks everything unclassified when there are no statements to match against", () => {
     const res = classifyTransfers([transfer("x", 500)], []);
     expect(res[0].flow_type).toBe("unclassified");
+  });
+
+  it("excludes non-COMPLETED transfers entirely (unsettled cash never enters the ledger)", () => {
+    const res = classifyTransfers(
+      [transfer("done", 6880.82, "COMPLETED"), transfer("pending", 6880.82, "PENDING")],
+      [statement(6880.82)],
+    );
+    expect(res).toHaveLength(1);
+    expect(res[0].transfer.id).toBe("done");
+    expect(res[0].flow_type).toBe("card_settlement");
+  });
+
+  it("does NOT sweep leftover transfers that only sum across MULTIPLE unrelated statements", () => {
+    // leftover sum 100+200 = 300 equals charges 120+180 summed, but no single
+    // charge is 300 → must stay unclassified, not be bulk-tagged.
+    const res = classifyTransfers(
+      [transfer("a", 100), transfer("b", 200)],
+      [statement(120), statement(180)],
+    );
+    expect(res.map((r) => r.flow_type)).toEqual(["unclassified", "unclassified"]);
   });
 });
 

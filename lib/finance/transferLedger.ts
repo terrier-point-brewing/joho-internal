@@ -33,11 +33,16 @@ export function classifyTransfers(
 ): TransferClassification[] {
   const remainingCharges = statements.map((s) => dollarsToCents(s.charges)).filter((c) => c > 0);
 
-  const rows = transfers.map((t) => ({
-    transfer:  t,
-    cents:     dollarsToCents(t.amount),
-    flow_type: "unclassified" as TransferFlow,
-  }));
+  // Only settled cash counts — a failed/pending ACH pull never moved money and
+  // must not enter the ledger. Non-completed transfers are dropped (a later
+  // idempotent sync picks them up once they complete).
+  const rows = transfers
+    .filter((t) => t.status.toUpperCase() === "COMPLETED")
+    .map((t) => ({
+      transfer:  t,
+      cents:     dollarsToCents(t.amount),
+      flow_type: "unclassified" as TransferFlow,
+    }));
 
   // Pass 1: exact single matches, each consuming one statement charge.
   for (const r of rows) {
@@ -48,14 +53,19 @@ export function classifyTransfers(
     }
   }
 
-  // Pass 2: the leftover transfers reconcile in aggregate to the leftover
-  // charges (a statement paid by several transfers). Only tag when the totals
-  // match exactly — otherwise leave them for review.
+  // Pass 2: several leftover transfers that together pay ONE statement (partial
+  // payments). Reconcile the leftover sum against a SINGLE remaining charge —
+  // never against the sum of multiple unrelated statements — so a coincidental
+  // cross-period total can't sweep transfers out of manual review. Anything that
+  // doesn't reconcile stays `unclassified`.
   const leftover = rows.filter((r) => r.flow_type === "unclassified");
-  const leftoverSum = leftover.reduce((s, r) => s + r.cents, 0);
-  const remChargeSum = remainingCharges.reduce((s, c) => s + c, 0);
-  if (leftover.length > 0 && remChargeSum > 0 && leftoverSum === remChargeSum) {
-    for (const r of leftover) r.flow_type = "card_settlement";
+  if (leftover.length > 1) {
+    const leftoverSum = leftover.reduce((s, r) => s + r.cents, 0);
+    const idx = remainingCharges.indexOf(leftoverSum);
+    if (idx >= 0) {
+      remainingCharges.splice(idx, 1);
+      for (const r of leftover) r.flow_type = "card_settlement";
+    }
   }
 
   return rows.map(({ transfer, flow_type }) => ({ transfer, flow_type }));
