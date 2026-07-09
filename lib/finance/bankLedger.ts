@@ -51,9 +51,9 @@ export function classifyBankLine(line: RampBankLine, ownAccounts: Set<string>): 
 
   if (desc === "Withdrawal") {
     const dest = line.destination_account_name ?? "";
-    if (dest === "") return make("unclassified", false, "outflow", "");
-    if (isRampCard(dest)) return make("card_settlement", false, "outflow", dest);
+    if (destKey === "") return make("unclassified", false, "outflow", "");
     if (destOwn) return make("internal_transfer", false, "outflow", dest);
+    if (isRampCard(dest)) return make("card_settlement", false, "outflow", dest);
     return make("operating_expense", true, "outflow", dest);
   }
 

@@ -25,17 +25,17 @@ describe("classifyBankLine", () => {
 
   it("Vendor Payment is a bill settlement, excluded from P&L (no double-count with bills)", () => {
     const c = classifyBankLine(line({ description: "Vendor Payment", destination_account_name: null }), OWN);
-    expect(c).toMatchObject({ flow_type: "bill_settlement", is_expense: false, affects_pl: false });
+    expect(c).toMatchObject({ flow_type: "bill_settlement", is_expense: false, affects_pl: false, direction: "outflow" });
   });
 
   it("Withdrawal between own accounts is an internal transfer", () => {
     const c = classifyBankLine(line({ destination_account_name: "Investment Account" }), OWN);
-    expect(c).toMatchObject({ flow_type: "internal_transfer", is_expense: false, affects_pl: false });
+    expect(c).toMatchObject({ flow_type: "internal_transfer", is_expense: false, affects_pl: false, direction: "outflow" });
   });
 
   it("a card-balance payment is a card settlement, excluded from P&L", () => {
     const c = classifyBankLine(line({ destination_account_name: "Ramp Card" }), OWN);
-    expect(c).toMatchObject({ flow_type: "card_settlement", is_expense: false, affects_pl: false });
+    expect(c).toMatchObject({ flow_type: "card_settlement", is_expense: false, affects_pl: false, direction: "outflow" });
   });
 
   it("Deposit is non-P&L pending review", () => {
@@ -45,11 +45,22 @@ describe("classifyBankLine", () => {
 
   it("a Withdrawal with no counterparty is unclassified (never silently an expense)", () => {
     const c = classifyBankLine(line({ destination_account_name: null }), OWN);
-    expect(c).toMatchObject({ flow_type: "unclassified", is_expense: false });
+    expect(c).toMatchObject({ flow_type: "unclassified", is_expense: false, affects_pl: false, direction: "outflow" });
   });
 
   it("an unknown description is unclassified", () => {
     const c = classifyBankLine(line({ description: "Adjustment" }), OWN);
-    expect(c.flow_type).toBe("unclassified");
+    expect(c).toMatchObject({ flow_type: "unclassified", is_expense: false, affects_pl: false });
+  });
+
+  it("a Withdrawal to a whitespace-only destination is unclassified, never a silent expense (regression)", () => {
+    const c = classifyBankLine(line({ destination_account_name: "   " }), OWN);
+    expect(c).toMatchObject({ flow_type: "unclassified", is_expense: false });
+  });
+
+  it("a Withdrawal to an own account whose name contains 'ramp' is an internal transfer, not a card settlement", () => {
+    const ownWithRamp = new Set([...OWN, normalizeCounterparty("Ramp Reserve")]);
+    const c = classifyBankLine(line({ destination_account_name: "Ramp Reserve" }), ownWithRamp);
+    expect(c).toMatchObject({ flow_type: "internal_transfer", is_expense: false, affects_pl: false });
   });
 });
