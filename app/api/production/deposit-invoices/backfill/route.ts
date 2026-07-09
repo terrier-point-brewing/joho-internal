@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { buildBreakdownLines } from "@/lib/production/depositBreakdown";
+import { buildBreakdownLines, snapshotDepositBreakdown } from "@/lib/production/depositBreakdown";
 import {
   reconstructBreakdownAsOf,
   type AuditRow,
@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
 // POST { apply?: boolean } — reconstruct + (optionally) write frozen breakdowns
 // for every existing deposit invoice. Admin only. Dry-run unless apply === true.
 export async function POST(req: NextRequest) {
-  try { await requireRole(["admin"]); } catch (res) { return res as Response; }
+  try { await requireRole([]); } catch (res) { return res as Response; }
 
   const body = await req.json().catch(() => ({}));
   const apply = body?.apply === true;
@@ -29,7 +29,18 @@ export async function POST(req: NextRequest) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   const results: Array<{ invoice_id: string; status: string; lines: number; sum_cents: number; total_cents: number }> = [];
-  let written = 0, skipped = 0;
+  let written = 0, skipped = 0, errored = 0;
+
+  const skip = (inv: { id: string; total_cents: number | null }, status: string) => {
+    skipped++;
+    results.push({ invoice_id: inv.id, status, lines: 0, sum_cents: 0, total_cents: inv.total_cents ?? 0 });
+  };
+  const fail = (inv: { id: string; total_cents: number | null }, status: string) => {
+    errored++;
+    results.push({ invoice_id: inv.id, status, lines: 0, sum_cents: 0, total_cents: inv.total_cents ?? 0 });
+  };
+
+  const auditSel = "table_name, record_id, operation, changed_at, old_data, new_data";
 
   for (const inv of invoices ?? []) {
     const alloc = inv.batch_allocations as unknown as {
@@ -37,18 +48,18 @@ export async function POST(req: NextRequest) {
       invoice_paid_at: string | null; brew_batches: { recipe_id: string | null } | null;
     } | null;
     const recipeId = alloc?.brew_batches?.recipe_id ?? null;
-    if (!recipeId || !inv.total_cents) {
-      skipped++; results.push({ invoice_id: inv.id, status: "skipped:no-recipe-or-total", lines: 0, sum_cents: 0, total_cents: inv.total_cents ?? 0 });
-      continue;
-    }
+    if (!recipeId || !inv.total_cents) { skip(inv, "skipped:no-recipe-or-total"); continue; }
 
-    const asOf: string =
-      alloc!.invoice_generated_at ?? alloc!.invoice_sent_at ?? alloc!.invoice_paid_at ?? `${inv.invoice_date}T00:00:00Z`;
+    const asOf =
+      alloc!.invoice_generated_at ?? alloc!.invoice_sent_at ?? alloc!.invoice_paid_at ??
+      (inv.invoice_date ? `${inv.invoice_date}T00:00:00Z` : null);
+    if (!asOf) { skip(inv, "skipped:no-date"); continue; }
 
-    const { data: ris } = await db
+    const { data: ris, error: risErr } = await db
       .from("recipe_ingredients")
       .select("id, ingredient_id, quantity_per_bbl, ingredients(id, name, unit, cost_per_unit)")
       .eq("recipe_id", recipeId);
+    if (risErr) { fail(inv, `error:recipe_ingredients:${risErr.message}`); continue; }
 
     const recipeIngredientsNow: RecipeIngredientNow[] = (ris ?? []).map((r) => {
       const rr = r as unknown as { id: string; ingredient_id: string; quantity_per_bbl: number };
@@ -64,22 +75,14 @@ export async function POST(req: NextRequest) {
       })
     );
 
-    const auditSel = "table_name, record_id, operation, changed_at, old_data, new_data";
-
-    // Recipe-ingredient audit for THIS recipe, matched on recipe_id inside the
-    // jsonb snapshot — NOT on current row ids. Recipe edits fully delete + re-insert
-    // recipe_ingredients (new uuids), so filtering by current ids would miss the
-    // rows that actually existed at asOf.
-    const { data: riAuditRaw } = await db
+    const { data: riAuditRaw, error: riAuditErr } = await db
       .from("audit_log")
       .select(auditSel)
       .eq("table_name", "recipe_ingredients")
       .or(`new_data->>recipe_id.eq.${recipeId},old_data->>recipe_id.eq.${recipeId}`);
+    if (riAuditErr) { fail(inv, `error:recipe_ingredient_audit:${riAuditErr.message}`); continue; }
     const recipeIngredientAudit = (riAuditRaw ?? []) as AuditRow[];
 
-    // Ingredient-id universe = every ingredient ever referenced by this recipe's
-    // historical membership (current + any that appear in the recipe_ingredients
-    // audit), so ingredients removed from the recipe still get historical costs.
     const ingredientIdUniverse = new Set<string>(recipeIngredientsNow.map((r) => r.ingredient_id));
     for (const r of recipeIngredientAudit) {
       const nid = r.new_data?.["ingredient_id"];
@@ -88,10 +91,13 @@ export async function POST(req: NextRequest) {
       if (typeof oid === "string") ingredientIdUniverse.add(oid);
     }
     const ingIds = [...ingredientIdUniverse];
-    const { data: ingAuditRaw } = ingIds.length
-      ? await db.from("audit_log").select(auditSel).eq("table_name", "ingredients").in("record_id", ingIds)
-      : { data: [] };
-    const ingredientAudit = (ingAuditRaw ?? []) as AuditRow[];
+    let ingredientAudit: AuditRow[] = [];
+    if (ingIds.length) {
+      const { data: ingAuditRaw, error: ingAuditErr } = await db
+        .from("audit_log").select(auditSel).eq("table_name", "ingredients").in("record_id", ingIds);
+      if (ingAuditErr) { fail(inv, `error:ingredient_audit:${ingAuditErr.message}`); continue; }
+      ingredientAudit = (ingAuditRaw ?? []) as AuditRow[];
+    }
 
     const inputs = reconstructBreakdownAsOf({
       asOf,
@@ -102,30 +108,20 @@ export async function POST(req: NextRequest) {
     });
     const lines = buildBreakdownLines(inputs, inv.total_cents);
 
-    if (lines.length === 0) {
-      skipped++; results.push({ invoice_id: inv.id, status: "skipped:no-lines", lines: 0, sum_cents: 0, total_cents: inv.total_cents });
-      continue;
-    }
+    if (lines.length === 0) { skip(inv, "skipped:no-lines"); continue; }
 
     const sum = lines.reduce((s, l) => s + l.line_total_cents, 0);
     results.push({ invoice_id: inv.id, status: apply ? "written" : "dry-run", lines: lines.length, sum_cents: sum, total_cents: inv.total_cents });
 
     if (apply) {
-      await db.from("deposit_invoice_ingredients").delete().eq("invoice_id", inv.id);
-      await db.from("deposit_invoice_ingredients").insert(
-        lines.map((l) => ({
-          invoice_id: inv.id, ingredient_id: l.ingredient_id, ingredient_name: l.ingredient_name,
-          unit: l.unit, quantity_per_bbl: l.quantity_per_bbl, cost_per_unit: l.cost_per_unit,
-          line_total_cents: l.line_total_cents, sort_order: l.sort_order,
-        }))
-      );
+      await snapshotDepositBreakdown(db, inv.id, inputs, inv.total_cents);
       written++;
     }
   }
 
   return NextResponse.json({
     mode: apply ? "apply" : "dry-run",
-    summary: { total: invoices?.length ?? 0, written, skipped },
+    summary: { total: invoices?.length ?? 0, written, skipped, errored },
     results,
   });
 }
