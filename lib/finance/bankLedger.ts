@@ -30,7 +30,13 @@ export interface BankClassification {
   counterparty_key:  string;
 }
 
-/** True when a name looks like a Ramp card account (card-balance payment target). */
+/**
+ * True when a name looks like a Ramp card account. Card statement settlements are
+ * authoritatively ingested from the /transfers endpoint (see transferLedger), so
+ * this only guards against a Ramp-card destination ever appearing in the
+ * syncable-transactions feed — routing it to a non-P&L bucket so it is never
+ * mis-booked as an operating expense (and never a second `card_settlement`).
+ */
 function isRampCard(name: string): boolean {
   return /ramp/i.test(name);
 }
@@ -63,7 +69,9 @@ export function classifyBankLine(line: RampBankLine, ownAccounts: Set<string>): 
     const dest = line.destination_account_name ?? "";
     if (destKey === "") return make("unclassified", false, "outflow", "");
     if (destOwn) return make("internal_transfer", false, "outflow", dest);
-    if (isRampCard(dest)) return make("card_settlement", false, "outflow", dest);
+    // Card settlements come from /transfers; a Ramp-card destination here is a
+    // non-P&L movement, not an operating expense (and not a second card_settlement).
+    if (isRampCard(dest)) return make("internal_transfer", false, "outflow", dest);
     return make("operating_expense", true, "outflow", dest);
   }
 

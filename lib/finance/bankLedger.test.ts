@@ -33,9 +33,9 @@ describe("classifyBankLine", () => {
     expect(c).toMatchObject({ flow_type: "internal_transfer", is_expense: false, affects_pl: false, direction: "outflow" });
   });
 
-  it("a card-balance payment is a card settlement, excluded from P&L", () => {
+  it("a Ramp-card-destination withdrawal is a non-P&L internal transfer (card settlements now come from /transfers, not this feed)", () => {
     const c = classifyBankLine(line({ destination_account_name: "Ramp Card" }), OWN);
-    expect(c).toMatchObject({ flow_type: "card_settlement", is_expense: false, affects_pl: false, direction: "outflow" });
+    expect(c).toMatchObject({ flow_type: "internal_transfer", is_expense: false, affects_pl: false, direction: "outflow" });
   });
 
   it("Deposit is non-P&L pending review", () => {

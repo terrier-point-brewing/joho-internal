@@ -271,6 +271,47 @@ export async function getRampStatements(): Promise<RampStatement[]> {
   });
 }
 
+/**
+ * A transfer out of the Ramp Business Account. In practice these are the ACH
+ * pulls that settle the monthly card statement — the endpoint is sparse (no
+ * description/counterparty/type), so the card-statement link is recovered by
+ * reconciling the amount against statement charges (see classifyTransfers).
+ */
+export interface RampTransfer {
+  id:         string;
+  amount:     number;   // USD dollars
+  status:     string;
+  created_at: string;   // ISO
+}
+
+/** Pull Ramp Business Account transfers, bounded client-side to the window (created_at). */
+export async function getRampTransfers(from?: string, to?: string): Promise<RampTransfer[]> {
+  const token = await getRampToken();
+  const results: RampTransfer[] = [];
+
+  let url: string | null = `${RAMP_BASE}/transfers?page_size=100`;
+  while (url) {
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data: any = await res.json();
+    if (data.error_v2) throw new Error(`Ramp transfers: ${data.error_v2.message}`);
+
+    for (const t of data.data ?? []) {
+      const day = (t.created_at ?? "").slice(0, 10);
+      if (from && day && day < from) continue;
+      if (to && day && day > to) continue;
+      results.push({
+        id:         t.id,
+        amount:     parseAmount(t.amount),
+        status:     t.status ?? "",
+        created_at: t.created_at ?? "",
+      });
+    }
+    url = data.page?.next ?? null;
+  }
+  return results;
+}
+
 export interface RampBankAccount {
   id:           string;
   name:         string;
