@@ -299,7 +299,7 @@ function BulkUploadModal({ onClose, onDone }: { onClose: () => void; onDone: () 
         )}
 
         <div className="flex justify-end gap-2 pt-1">
-          <button type="button" onClick={onClose} className="btn-secondary text-sm" disabled={submitting}>
+          <button type="button" onClick={onClose} className="btn-secondary" disabled={submitting}>
             Cancel
           </button>
           <button

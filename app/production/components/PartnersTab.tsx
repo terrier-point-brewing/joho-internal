@@ -192,7 +192,7 @@ function SquareImportModal({ linkingPartner, onClose, onDone }: SquareImportModa
           <button
             type="button"
             onClick={onClose}
-            className="btn-secondary text-sm"
+            className="btn-secondary"
             disabled={submitting}
           >
             Cancel
@@ -201,7 +201,7 @@ function SquareImportModal({ linkingPartner, onClose, onDone }: SquareImportModa
             type="button"
             onClick={handleImport}
             disabled={!selected || submitting}
-            className="btn-primary text-sm disabled:opacity-40 disabled:cursor-not-allowed"
+            className="btn-primary"
           >
             {submitting ? "Importing…" : actionLabel}
           </button>

@@ -426,7 +426,7 @@ export default function DraftStatsTab() {
               type="button"
               onClick={autoMatchRestock}
               disabled={!restockItemId || restockVariations.length === 0}
-              className="btn-secondary disabled:opacity-40 disabled:cursor-not-allowed"
+              className="btn-secondary"
             >
               Auto-match by tap #
             </button>
