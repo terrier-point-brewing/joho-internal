@@ -102,9 +102,18 @@ SECURITY DEFINER), so they add no new advisor findings. `get_my_role() = any('{}
 false, so Group 1 denies every authenticated role today; `service_role` bypasses RLS and keeps the
 app working. Anon (`get_my_role()` → null) is denied everywhere.
 
-The migration replaces each Group 1 table's Phase-1 `"authenticated full access"` policy with the
-`"finance readers"` policy, and each Group 2 table's Phase-1 policy with `"payroll readers"`. Group 3
-policies are untouched. Idempotent (`drop policy if exists` + `create policy`).
+**Note on the actual "before" state (discovered 2026-07-09):** the Group 1 tables were *not* covered
+by Phase 1's generic `"authenticated full access"` policy — Phase 1 skipped them because they already
+had bespoke policies from earlier migrations, several of which grant authenticated/viewer **read**
+access via the Data API (`"Authenticated users can read expenses"`, `"viewer_read_square_transactions"`,
+`"Admins only — invoice_line_items"`, etc.). Those pre-existing read grants *are* the cross-role
+exposure A1 closes. The app never uses them (it reads these tables via the admin client), so removing
+them is safe.
+
+The migration therefore **drops every existing policy** on each Group 1 table and replaces it with the
+single `"finance readers"` policy; and replaces each Group 2 table's Phase-1 `"manager and admin full
+access"` policy with `"payroll readers"`. Group 3 policies are untouched. Idempotent (drop-all +
+`create policy`, re-runnable).
 
 ## Verification
 
