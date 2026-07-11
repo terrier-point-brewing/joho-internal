@@ -53,11 +53,14 @@ GL auto-map ([`app/api/finance/ledger/invoices/auto-map/route.ts`](../../../app/
 5. `generate` and `sync` produce byte-identical rows by construction (shared mapping), eliminating drift.
 6. Existing mis-recorded invoices are corrected by a one-time backfill.
 
+**Also in scope (lower severity): deposit invoices** — see 3.10. They share the drift mechanism but not the money bug.
+
 **Non-goals**
 
-- Deposit invoices and standard (POS) invoices — out of scope except where they share the mapping function (they must not regress).
+- Standard (POS) invoices — out of scope except where they share the mapping function (they must not regress).
 - Changing what is sent *to* Square at invoice creation (line items + discounts are already correct in Square).
 - Redesigning the export preview modal's UX beyond what's needed to show/persist the discount correctly.
+- The deposit per-ingredient breakdown snapshot (separate table) — unaffected, left as-is.
 
 ---
 
@@ -163,6 +166,22 @@ Existing Style-A export invoices likely share #031's gross-total / missing-disco
 
 [`app/production/components/InvoicePreviewModal.tsx`](../../../app/production/components/InvoicePreviewModal.tsx) already computes and displays `netTotalCents`. No functional change required for correctness (persistence is fixed server-side via read-back). Optionally surface the per-line discount in the modal's line rows for parity with the finance view — nice-to-have, not required.
 
+### 3.10 Deposit invoices (`allocations/[id]/invoice`)
+
+Deposit `generate` writes its finance line via `upsertFinanceLedgerInvoice` ([`app/api/production/allocations/[id]/invoice/route.ts`](../../../app/api/production/allocations/[id]/invoice/route.ts) lines ~457-505), which hardcodes `description: "Ingredient Deposit"` and omits `square_catalog_variation_id`, `variation_name`, `note`, and GL prefill — the same structural gap as export `generate`.
+
+**Confirmed against live data (12 deposit invoices):**
+- Same **cosmetic drift**: `Ingredient Deposit` (Style-A) → `Ingredient Deposit — Regular` (Style-B) on sync.
+- **No money bug**: single line, qty 1, no discount, `unit_price_cents === total_cents` everywhere.
+- **GL already maps** even pre-sync (`coa=Y`): every deposit line shares the identical `"Ingredient Deposit"` description, so description-based auto-map propagates reliably.
+- Rich per-ingredient detail lives in a **separate breakdown snapshot table**, not in the line description — unaffected by sync overwrite.
+
+So deposits carry the low-severity half of the problem (label drift, missing canonical columns) but not the high-severity half (wrong money, unmapped GL).
+
+**Change:** route deposit `generate` through the same order read-back + `buildInvoiceLineItemRows` used by export (3.2/3.3), so the deposit line lands with `square_catalog_variation_id`, snapshot `line_item_name`/`variation_name`, GL prefill, and renders identically in the 7-column view. The deposit variation id is already in hand at generate (`mapping.square_catalog_variation_id`); the read-back also picks up Square's catalog names. `upsertFinanceLedgerInvoice`'s header write is retained; only the line-item write is replaced by the shared mapping.
+
+**Priority:** lower than the export money fix — deposits are display-consistency only. Sequence after the export path lands (see 6). Backfill re-sync (3.7) can include `invoice_type = allocation_deposit` in the same pass.
+
 ---
 
 ## 4. Money semantics (single reference)
@@ -204,7 +223,8 @@ Verification anchor (#031): net 221200 + 2332 + 12807 = **236339** = Square `tot
 4. Auto-map variation-primary.
 5. Finance display 7-col + summary rows + fetch select.
 6. Backfill re-sync of existing export invoices; verify sample vs Square.
-7. Migration 2 (drop retired catalog-ref columns) once backfill verified.
+7. Deposit `generate` → shared read-back/mapping (3.10); include deposits in a backfill re-sync pass.
+8. Migration 2 (drop retired catalog-ref columns) once backfill verified.
 
 Each migration applied to prod one at a time, explicit OK + backup, per project policy.
 
