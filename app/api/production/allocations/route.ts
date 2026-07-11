@@ -16,6 +16,8 @@ export const dynamic = "force-dynamic";
 // GET /api/production/allocations?batch_id=<uuid>
 // Returns allocations enriched with fulfillment data computed from export_transactions and batch_transfers.
 export async function GET(req: NextRequest) {
+  try { await requireRole(["viewer", "brewer", "manager"]); } catch (res) { return res as Response; }
+
   const supabase = await createSupabaseServerClient();
 
   const batch_id = req.nextUrl.searchParams.get("batch_id");
