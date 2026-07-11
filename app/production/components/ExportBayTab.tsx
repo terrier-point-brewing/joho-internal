@@ -296,8 +296,10 @@ export default function ExportBayTab() {
     };
   }, [recipeNameById, recipeGroups, inventoryByRecipe]);
 
+  // prefix the URL params: this tab shares /production/export with sibling tabs
+  // (Shipments, Export Invoices) that PR 2 will retrofit — avoid param collisions.
   const { rows: filteredRecipeIds, search, filters, sort, setSearch, setFilter, setSort, reset, activeCount } =
-    useTableControls(allRecipeIds, exportControls);
+    useTableControls(allRecipeIds, exportControls, { prefix: "bay_" });
 
   const anyData = inventory.length > 0 || recipeGroups.size > 0;
 
