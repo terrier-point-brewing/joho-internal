@@ -1,33 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+export { resolveLineItemCoa, type LineItemCoa } from "./invoiceLineItems";
+import { buildLineItemIndexes, buildInvoiceLineItemRows, persistInvoiceLineItems, type LineItemCoa } from "./invoiceLineItems";
 import { fetchSquareInvoices, fetchInvoiceOrders } from "@/lib/square/orders";
 import { fetchCatalogItems } from "@/lib/square/catalog";
-import { buildKegIndex } from "@/lib/reports/kegs";
-import { canOzPerUnit } from "@/lib/reports/bbl-tracker";
-import { CATEGORY_IDS } from "@/lib/constants/categories";
-import { classifyLineItem } from "@/lib/finance/classify";
 import { mapSquareInvoiceStatus } from "@/lib/finance/invoiceStatus";
 import type { CatalogItem, Order, SquareInvoice } from "@/types/square";
-import type { InvoiceLineCategory } from "@/types/finance";
-
-export interface LineItemCoa {
-  chart_of_accounts_id: string | null;
-  bs_chart_of_accounts_id: string | null;
-  pl_chart_of_accounts_id: string | null;
-}
-
-/**
- * Chart-of-accounts values to write for a line item on (re-)sync. An existing
- * non-null mapping (user-set or auto-mapped) always wins; the variation prefill
- * only fills gaps. This makes re-syncs non-destructive — matching the app's
- * fill-nulls-only mapping convention (invoices/auto-map, expenses/auto-map).
- */
-export function resolveLineItemCoa(existing: LineItemCoa | undefined, prefill: LineItemCoa): LineItemCoa {
-  return {
-    chart_of_accounts_id:    existing?.chart_of_accounts_id    ?? prefill.chart_of_accounts_id,
-    bs_chart_of_accounts_id: existing?.bs_chart_of_accounts_id ?? prefill.bs_chart_of_accounts_id,
-    pl_chart_of_accounts_id: existing?.pl_chart_of_accounts_id ?? prefill.pl_chart_of_accounts_id,
-  };
-}
 
 function recipientName(inv: SquareInvoice): string {
   const r = inv.primary_recipient;
@@ -82,31 +59,9 @@ export async function syncSquareInvoicesForYear(
   }
 
   // ── 3. Build catalog indexes (for keg/can line item classification) ───────
-  const kegIndex = buildKegIndex(catalogItems);
-
-  const canVariationOz = new Map<string, number>();
-  for (const item of catalogItems) {
-    if (!CATEGORY_IDS.CANS.has(item.item_data.reporting_category?.id ?? "")) continue;
-    for (const v of item.item_data.variations ?? []) {
-      canVariationOz.set(v.id, canOzPerUnit(v.item_variation_data.name));
-    }
-  }
+  const indexes = await buildLineItemIndexes(supabase, catalogItems);
 
   const orderById = new Map<string, Order>(orders.map((o) => [o.id, o]));
-
-  // ── 4. Load variation deposit mappings (BS/PL) ───────────────────────────
-  const { data: variationMappings } = await supabase
-    .from("square_catalog_variations")
-    .select("square_variation_id, chart_of_accounts_id_invoice, bs_chart_of_accounts_id, pl_chart_of_accounts_id")
-    .or("bs_chart_of_accounts_id.not.is.null,pl_chart_of_accounts_id.not.is.null,chart_of_accounts_id_invoice.not.is.null");
-
-  const variationById = new Map<string, {
-    chart_of_accounts_id_invoice: string | null;
-    bs_chart_of_accounts_id: string | null;
-    pl_chart_of_accounts_id: string | null;
-  }>(
-    (variationMappings ?? []).map((v) => [v.square_variation_id, v])
-  );
 
   // ── 5. Upsert each invoice ────────────────────────────────────────────────
   let synced  = 0;
@@ -168,16 +123,6 @@ export async function syncSquareInvoicesForYear(
     const wasInserted = invRow.created_at === invRow.updated_at;
     if (wasInserted) synced++; else updated++;
 
-    const lineItems: {
-      invoice_id: string; sort_order: number; description: string;
-      category: InvoiceLineCategory | null; quantity: number;
-      unit_price_cents: number; total_cents: number;
-      variation_name: string | null; raw_data: Record<string, string | number>;
-      chart_of_accounts_id?: string | null;
-      bs_chart_of_accounts_id?: string | null;
-      pl_chart_of_accounts_id?: string | null;
-    }[] = [];
-
     // Load existing COA mappings so a re-sync never wipes a manual/auto-mapped
     // account — the upsert below would otherwise overwrite these columns.
     const { data: existingLines } = await supabase
@@ -185,82 +130,16 @@ export async function syncSquareInvoicesForYear(
       .select("sort_order, chart_of_accounts_id, bs_chart_of_accounts_id, pl_chart_of_accounts_id")
       .eq("invoice_id", invRow.id);
     const existingCoaBySort = new Map<number, LineItemCoa>(
-      (existingLines ?? []).map((r) => [
-        r.sort_order as number,
-        {
-          chart_of_accounts_id:    r.chart_of_accounts_id,
-          bs_chart_of_accounts_id: r.bs_chart_of_accounts_id,
-          pl_chart_of_accounts_id: r.pl_chart_of_accounts_id,
-        },
-      ]),
+      (existingLines ?? []).map((r) => [r.sort_order as number, {
+        chart_of_accounts_id: r.chart_of_accounts_id,
+        bs_chart_of_accounts_id: r.bs_chart_of_accounts_id,
+        pl_chart_of_accounts_id: r.pl_chart_of_accounts_id,
+      }]),
     );
 
-    const carveOutAmounts = (order.discounts ?? [])
-      .filter((d) => d.name.toLowerCase().includes("carve out"))
-      .map((d) => d.applied_money?.amount ?? 0)
-      .filter((a) => a > 0);
-
-    (order.line_items ?? []).forEach((li, i) => {
-      const qty       = parseFloat(li.quantity ?? "1");
-      const gross     = li.gross_sales_money?.amount ?? 0;
-      const varId     = li.catalog_object_id ?? "";
-      const varName   = li.variation_name ?? "";
-
-      let category: InvoiceLineCategory | null = null;
-
-      const keg = kegIndex.get(varId);
-      if (keg) category = "distribution_keg";
-
-      if (!category && canVariationOz.has(varId)) category = "distribution_can";
-
-      if (!category && li.name.toLowerCase().includes("barrel excise tax")) {
-        const idx = carveOutAmounts.findIndex((a) => Math.abs(a - gross) <= 1);
-        if (idx >= 0) { carveOutAmounts.splice(idx, 1); return; }
-      }
-
-      if (!category) category = classifyLineItem(li.name);
-
-      const varMapping = varId ? variationById.get(varId) : undefined;
-      const coa = resolveLineItemCoa(existingCoaBySort.get(i), {
-        chart_of_accounts_id:    varMapping?.chart_of_accounts_id_invoice ?? null,
-        bs_chart_of_accounts_id: varMapping?.bs_chart_of_accounts_id ?? null,
-        pl_chart_of_accounts_id: varMapping?.pl_chart_of_accounts_id ?? null,
-      });
-      lineItems.push({
-        invoice_id:              invRow.id,
-        sort_order:              i,
-        description:             li.name + (varName ? ` — ${varName}` : ""),
-        category,
-        quantity:                qty,
-        unit_price_cents:        li.base_price_money?.amount ?? 0,
-        total_cents:             li.total_money?.amount ?? 0,
-        variation_name:          varName || null,
-        chart_of_accounts_id:    coa.chart_of_accounts_id,
-        bs_chart_of_accounts_id: coa.bs_chart_of_accounts_id,
-        pl_chart_of_accounts_id: coa.pl_chart_of_accounts_id,
-        raw_data: {
-          uid:       li.uid,
-          name:      li.name,
-          var_name:  varName,
-          gross:     gross,
-          discount:  li.total_discount_money?.amount ?? 0,
-        },
-      });
-    });
-
-    if (lineItems.length) {
-      const { error: liErr } = await supabase
-        .from("invoice_line_items")
-        .upsert(lineItems, { onConflict: "invoice_id,sort_order", ignoreDuplicates: false });
-      if (liErr) errors.push(`Line items for ${inv.invoice_number ?? inv.id}: ${liErr.message}`);
-      if (!liErr && lineItems.length > 0) {
-        await supabase
-          .from("invoice_line_items")
-          .delete()
-          .eq("invoice_id", invRow.id)
-          .gt("sort_order", lineItems.length - 1);
-      }
-    }
+    const rows = buildInvoiceLineItemRows(invRow.id, order, indexes, existingCoaBySort);
+    const { error: liErr } = await persistInvoiceLineItems(supabase, invRow.id, rows);
+    if (liErr) errors.push(`Line items for ${inv.invoice_number ?? inv.id}: ${liErr}`);
   }
 
   return {
