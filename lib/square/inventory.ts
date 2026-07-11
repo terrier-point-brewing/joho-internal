@@ -1,6 +1,4 @@
 import { squarePost, squarePostAll, squareLocationId } from "./client";
-import { dayRangeUtc } from "@/lib/utils/datetime";
-import { getBreweryTimezone } from "@/lib/settings/breweryTimezone.server";
 import { KEG_TRANSFER_DISCOUNT_NAME } from "@/types/reports";
 
 interface InventoryCount {
@@ -75,24 +73,6 @@ export async function setPhysicalCount(
   if (res.errors?.length) {
     throw new Error(res.errors[0].detail ?? "Square inventory write failed");
   }
-}
-
-export interface PhysicalCount {
-  id: string;
-  catalog_object_id: string;
-  catalog_object_type: string;
-  state: string;
-  location_id: string;
-  quantity: string;
-  occurred_at: string;
-  created_at: string;
-  team_member_id?: string;
-}
-
-interface ChangesResponse {
-  changes?: Array<{ type: string; physical_count?: PhysicalCount }>;
-  cursor?: string;
-  errors?: Array<{ detail: string }>;
 }
 
 interface OrderLineItem {
@@ -366,46 +346,3 @@ export async function fetchDraftRestockLineItems(
   return extractRestockLineItems(orders, restockVariationIds);
 }
 
-// Fetch physical count inventory changes for a date range.
-// Pass catalogObjectIds to filter server-side (much faster than fetching all and filtering).
-export async function fetchPhysicalCounts(
-  startDate: string,
-  endDate: string,
-  catalogObjectIds?: string[],
-): Promise<PhysicalCount[]> {
-  const locationId = squareLocationId();
-
-  const tz = await getBreweryTimezone();
-  const { startUtc: updatedAfter, endUtc: updatedBefore } = dayRangeUtc(startDate, endDate, tz);
-
-  const results: PhysicalCount[] = [];
-  let cursor: string | undefined;
-
-  do {
-    const body: Record<string, unknown> = {
-      location_ids:   [locationId],
-      updated_after:  updatedAfter,
-      updated_before: updatedBefore,
-      types:          ["PHYSICAL_COUNT"],
-      limit:          1000,
-    };
-    if (cursor) body.cursor = cursor;
-    if (catalogObjectIds?.length) body.catalog_object_ids = catalogObjectIds;
-
-    const data = await squarePost<ChangesResponse>("/inventory/changes/batch-retrieve", body);
-
-    if (data.errors?.length) {
-      throw new Error(data.errors[0].detail ?? "Inventory API error");
-    }
-
-    for (const change of data.changes ?? []) {
-      if (change.type === "PHYSICAL_COUNT" && change.physical_count) {
-        results.push(change.physical_count);
-      }
-    }
-
-    cursor = data.cursor;
-  } while (cursor);
-
-  return results;
-}
