@@ -11,7 +11,9 @@ const STRICT = process.argv.includes("--strict");
 
 const RULES = [
   { re: /type=["']search["']/, msg: 'raw <input type="search"> — use <SearchInput> from app/components/ui' },
-  { re: /\.toLowerCase\(\)\.includes\(/, msg: "inline .toLowerCase().includes() filter — use useTableControls/applyControls" },
+  // Server-side route handlers legitimately use string matching to classify API
+  // payloads (e.g. Square catalog names) — that's not a UI list filter, so skip app/api.
+  { re: /\.toLowerCase\(\)\.includes\(/, msg: "inline .toLowerCase().includes() filter — use useTableControls/applyControls", skipPath: /^app[/\\]api[/\\]/ },
   { re: /function\s+SortTh\b/, msg: "local SortTh — use <SortableTh> from app/components/ui" },
   { re: /(?:function|const)\s+FilterChips\b/, msg: "local FilterChips — use <FilterChips> from app/components/ui" },
 ];
@@ -29,11 +31,13 @@ function walk(dir, out = []) {
 
 const violations = [];
 for (const file of walk(SCAN_DIR)) {
+  const relFile = relative(ROOT, file);
   const lines = readFileSync(file, "utf8").split("\n");
   lines.forEach((line, i) => {
     for (const rule of RULES) {
+      if (rule.skipPath && rule.skipPath.test(relFile)) continue;
       if (rule.re.test(line)) {
-        violations.push({ file: relative(ROOT, file), line: i + 1, msg: rule.msg });
+        violations.push({ file: relFile, line: i + 1, msg: rule.msg });
       }
     }
   });
@@ -48,5 +52,5 @@ const tag = STRICT ? "ERROR" : "WARN";
 for (const v of violations) {
   console.log(`${tag} ${v.file}:${v.line} — ${v.msg}`);
 }
-console.log(`\n${violations.length} violation(s). ${STRICT ? "Failing (strict)." : "Warn-only during the retrofit sweep (PR 1–4)."}`);
+console.log(`\n${violations.length} violation(s). ${STRICT ? "Failing (strict)." : "Warn-only (CI runs --strict)."}`);
 process.exit(STRICT ? 1 : 0);

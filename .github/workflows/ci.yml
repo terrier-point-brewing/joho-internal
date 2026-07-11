@@ -31,8 +31,8 @@ jobs:
       - name: Test
         run: npm run test
 
-      - name: Search/filter standard (warn-only)
-        run: npm run check:search-filter
+      - name: Search/filter standard
+        run: npm run check:search-filter -- --strict
 
       - name: Build
         run: npm run build

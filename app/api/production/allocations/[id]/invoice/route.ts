@@ -12,6 +12,15 @@ import {
 } from "@/lib/square/square-invoices";
 import { reconcileInvoiceStatus } from "@/lib/finance/reconcileInvoiceStatus";
 import { snapshotDepositBreakdown, type BreakdownInput } from "@/lib/production/depositBreakdown";
+import { fetchOrdersByIds } from "@/lib/square/orders";
+import { fetchCatalogItems } from "@/lib/square/catalog";
+import {
+  buildLineItemIndexes,
+  buildInvoiceLineItemRows,
+  persistInvoiceLineItems,
+  invoiceHeaderTotalsFromOrder,
+} from "@/lib/finance/invoiceLineItems";
+import type { CatalogItem } from "@/types/square";
 import { getNetTermsDays } from "@/lib/production/invoiceTerms";
 import { addDaysStr, todayLocalDate } from "@/lib/utils/datetime";
 
@@ -209,6 +218,40 @@ async function handleInvoiceAction(req: NextRequest, params: RouteParams["params
           { invoice_id: ledgerInvoiceId, batch_id: batch.id },
           { onConflict: "invoice_id,batch_id", ignoreDuplicates: true }
         );
+    }
+
+    // Persist canonical line items + authoritative header totals from Square's order.
+    if (ledgerInvoiceId) {
+      let linesPersisted = false;
+      try {
+        const [orders, catalogItems] = await Promise.all([
+          fetchOrdersByIds([result.orderId]),
+          fetchCatalogItems(),
+        ]);
+        const order = orders[0];
+        if (!order) throw new Error(`order read-back returned no order for ${result.orderId}`);
+        const indexes = await buildLineItemIndexes(adminSupabase, catalogItems as CatalogItem[]);
+        const rows = buildInvoiceLineItemRows(ledgerInvoiceId, order, indexes, new Map());
+        const { error: persistErr } = await persistInvoiceLineItems(adminSupabase, ledgerInvoiceId, rows);
+        if (persistErr) throw new Error(persistErr);
+        linesPersisted = true;
+        const totals = invoiceHeaderTotalsFromOrder(order);
+        const { error: hdrErr } = await adminSupabase.from("invoices").update(totals).eq("id", ledgerInvoiceId);
+        if (hdrErr) console.error("[deposit-invoice] header totals update failed:", hdrErr.message);
+      } catch (err) {
+        console.error("[deposit-invoice] generate read-back failed, using draft deposit line:", err);
+        if (!linesPersisted) {
+          await adminSupabase.from("invoice_line_items").upsert(
+            {
+              invoice_id: ledgerInvoiceId, sort_order: 0, description: "Ingredient Deposit",
+              category: "ingredient_deposit", quantity: 1,
+              unit_price_cents: calculation.deposit_cents, total_cents: calculation.deposit_cents,
+              square_catalog_variation_id: mapping.square_catalog_variation_id,
+            },
+            { onConflict: "invoice_id,sort_order" },
+          );
+        }
+      }
     }
 
     if (ledgerInvoiceId) {
@@ -473,22 +516,6 @@ async function upsertFinanceLedgerInvoice(
     .single();
 
   if (!inv?.id) return null;
-
-  // Add the deposit line item
-  await adminSupabase
-    .from("invoice_line_items")
-    .upsert(
-      {
-        invoice_id:       inv.id,
-        sort_order:       0,
-        description:      "Ingredient Deposit",
-        category:         "ingredient_deposit",
-        quantity:         1,
-        unit_price_cents: p.depositCents,
-        total_cents:      p.depositCents,
-      },
-      { onConflict: "invoice_id,sort_order" }
-    );
 
   return inv.id;
 }

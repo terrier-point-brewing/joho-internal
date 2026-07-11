@@ -67,14 +67,22 @@ export function resolvePosBackfill(
   return updates;
 }
 
-/** Invoice line items: map from a description(lowercased) → CoA index. */
+/**
+ * Invoice line items: map from the line's own catalog variation id first (the
+ * reliable key — a line carries its Square variation even when its description is
+ * a free-text label), falling back to a description(lowercased) → CoA index for
+ * manual/QuickBooks lines that have no variation.
+ */
 export function resolveInvoiceBackfill(
-  allItems: { id: string; description: string | null; chart_of_accounts_id: string | null }[],
+  allItems: { id: string; description: string | null; square_catalog_variation_id?: string | null; chart_of_accounts_id: string | null }[],
   descToCoa: Map<string, string>,
+  coaByVarId?: Map<string, string>,
 ): { id: string; chart_of_accounts_id: string }[] {
   const updates: { id: string; chart_of_accounts_id: string }[] = [];
   for (const item of allItems) {
     if (item.chart_of_accounts_id) continue;
+    const byVar = item.square_catalog_variation_id ? coaByVarId?.get(item.square_catalog_variation_id) : undefined;
+    if (byVar) { updates.push({ id: item.id, chart_of_accounts_id: byVar }); continue; }
     if (!item.description) continue;
     const coaId = descToCoa.get(item.description.trim().toLowerCase());
     if (coaId) updates.push({ id: item.id, chart_of_accounts_id: coaId });
@@ -146,13 +154,16 @@ export async function autoMapInvoiceLineItems(
 ): Promise<{ mapped: number; errors?: string[] }> {
   const { data: allItems, error } = await supabase
     .from("invoice_line_items")
-    .select("id, description, chart_of_accounts_id, invoices!invoice_line_items_invoice_id_fkey!inner(invoice_date)")
+    .select("id, description, square_catalog_variation_id, chart_of_accounts_id, invoices!invoice_line_items_invoice_id_fkey!inner(invoice_date)")
     .gte("invoices.invoice_date", `${opts.year}-01-01`)
     .lte("invoices.invoice_date", `${opts.year}-12-31`);
   if (error) throw new Error(error.message);
   if (!allItems || allItems.length === 0) return { mapped: 0 };
 
   const descToCoa = new Map<string, string>();
+  // Variation-primary index: a line's own catalog variation → CoA (takes priority
+  // over description). Built from the same variation rows the description index uses.
+  const coaByVarId = new Map<string, string>();
   // Source 1: description → CoA from already-mapped siblings.
   for (const item of allItems) {
     if (item.chart_of_accounts_id && item.description) {
@@ -169,17 +180,18 @@ export async function autoMapInvoiceLineItems(
   }
   const { data: variations } = await varQuery;
   for (const v of variations ?? []) {
-    const itemName = (v.square_catalog_items as unknown as { item_name: string } | null)?.item_name;
-    if (!itemName) continue;
     const coaId = (v.chart_of_accounts_id_invoice ?? v.chart_of_accounts_id) as string | null;
     if (!coaId) continue;
+    if (v.square_variation_id) coaByVarId.set(v.square_variation_id as string, coaId);
+    const itemName = (v.square_catalog_items as unknown as { item_name: string } | null)?.item_name;
+    if (!itemName) continue;
     const key = `${itemName} — ${v.variation_name}`.trim().toLowerCase();
     if (!descToCoa.has(key)) descToCoa.set(key, coaId);
     const plainKey = itemName.trim().toLowerCase();
     if (!descToCoa.has(plainKey)) descToCoa.set(plainKey, coaId);
   }
 
-  const updates = resolveInvoiceBackfill(allItems, descToCoa);
+  const updates = resolveInvoiceBackfill(allItems, descToCoa, coaByVarId);
   return applyLineItemUpdates(supabase, "invoice_line_items", updates);
 }
 

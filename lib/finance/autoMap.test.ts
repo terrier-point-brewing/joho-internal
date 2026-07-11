@@ -88,4 +88,33 @@ describe("resolveInvoiceBackfill", () => {
     );
     expect(out).toEqual([]);
   });
+
+  it("maps by catalog variation id (primary) even when the description does not match", () => {
+    const byVar = new Map<string, string>([["VAR1", "coa-var"]]);
+    const out = resolveInvoiceBackfill(
+      [{ id: "il1", description: "Packaging Fee", square_catalog_variation_id: "VAR1", chart_of_accounts_id: null }],
+      byDesc,
+      byVar,
+    );
+    expect(out).toEqual([{ id: "il1", chart_of_accounts_id: "coa-var" }]);
+  });
+
+  it("prefers the variation match over a conflicting description match", () => {
+    const byVar = new Map<string, string>([["VAR1", "coa-var"]]);
+    const out = resolveInvoiceBackfill(
+      [{ id: "il1", description: "Hazy IPA — 1/6 BBL", square_catalog_variation_id: "VAR1", chart_of_accounts_id: null }],
+      byDesc,
+      byVar,
+    );
+    expect(out).toEqual([{ id: "il1", chart_of_accounts_id: "coa-var" }]);
+  });
+
+  it("falls back to description when the line has no variation id", () => {
+    const out = resolveInvoiceBackfill(
+      [{ id: "il1", description: "Hazy IPA — 1/6 BBL", square_catalog_variation_id: null, chart_of_accounts_id: null }],
+      byDesc,
+      new Map(),
+    );
+    expect(out).toEqual([{ id: "il1", chart_of_accounts_id: "coa-dist" }]);
+  });
 });

@@ -1,11 +1,17 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { formatCurrencyCents } from "@/lib/format";
 import { useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import { fetchJson } from "@/app/production/hooks/queries";
 import type { Invoice, InvoiceType } from "@/types/finance";
 import Banner from "@/app/components/ui/Banner";
+import SortableTh from "@/app/components/ui/SortableTh";
+import SearchInput from "@/app/components/ui/SearchInput";
+import FilterSelect from "@/app/components/ui/FilterSelect";
+import FilterBar from "@/app/components/ui/FilterBar";
+import { useTableControls } from "@/app/components/ui/useTableControls";
+import type { ControlsConfig } from "@/lib/table/types";
 import AccountSelect from "../../AccountSelect";
 import SyncPanel from "../components/SyncPanel";
 import MappingFilter from "../components/MappingFilter";
@@ -13,7 +19,7 @@ import MappingStatusPill from "../components/MappingStatusPill";
 import AutoMapButton from "../components/AutoMapButton";
 import YearSelect from "../components/YearSelect";
 import SummaryStatBar from "../components/SummaryStatBar";
-import { LedgerTable, SortableTh, Th, useTableSort } from "../components/LedgerTable";
+import { LedgerTable, Th } from "../components/LedgerTable";
 import { matchesMappingFilter, type MappingFilterValue } from "@/lib/finance/mappingStatus";
 import {
   INVOICE_STATUS_CLS, INVOICE_SOURCE_LABEL, INVOICE_SOURCE_CLS,
@@ -33,6 +39,13 @@ function fmtDollars(cents: number) {
   return <span>{formatCurrencyCents(cents, 0)}</span>;
 }
 
+// Shared 7-column grid template for the expanded-row line-item table (header,
+// each line row, and the invoice-level discount/tax summary rows below it) so
+// columns always line up. Only the grid-template-columns + gap live here —
+// callers append their own padding/typography so utility classes never fight
+// each other in the generated stylesheet.
+const LINE_GRID_COLS = "grid grid-cols-[minmax(0,1.4fr)_minmax(0,1.4fr)_50px_80px_70px_80px_minmax(0,1fr)] gap-3";
+
 const STATUS_CLS = INVOICE_STATUS_CLS;
 const SOURCE_LABEL = INVOICE_SOURCE_LABEL;
 const SOURCE_CLS = INVOICE_SOURCE_CLS;
@@ -48,11 +61,16 @@ interface InvoiceLineItemRow {
   id: string;
   sort_order: number | null;
   description: string;
+  line_item_name: string | null;
+  note: string | null;
   category: string | null;
   quantity: number | null;
   unit_price_cents: number;
+  discount_cents: number | null;
+  net_sales_cents: number | null;
   total_cents: number;
   variation_name: string | null;
+  square_catalog_variation_id: string | null;
   chart_of_accounts_id: string | null;
   bs_chart_of_accounts_id: string | null;
   pl_chart_of_accounts_id: string | null;
@@ -68,6 +86,41 @@ interface InvoiceRow extends Omit<Invoice, "invoice_line_items"> {
   invoice_type: InvoiceType;
   allocation_id: string | null;
 }
+
+// ── Search / filter / sort config (module scope) ──────────────────────────────
+
+/** [mapped line items, total line items] for the GL-mapping filter. */
+function invoiceMapped(inv: InvoiceRow): [number, number] {
+  const items = inv.invoice_line_items ?? [];
+  return [items.filter((li) => li.chart_of_accounts_id || li.bs_chart_of_accounts_id).length, items.length];
+}
+
+const INVOICE_CONTROLS: ControlsConfig<InvoiceRow> = {
+  search: [{ param: "q", accessor: (i) => [i.invoice_number, i.customer_name] }],
+  filters: [
+    { param: "status", accessor: (i) => i.status ?? "" },
+    { param: "type", accessor: (i) => i.invoice_type },
+    {
+      param: "mapping",
+      matches: (i, sel) => {
+        const [m, n] = invoiceMapped(i);
+        return matchesMappingFilter(sel[0] as MappingFilterValue, m, n);
+      },
+    },
+  ],
+  sort: {
+    columns: [
+      { key: "invoice_number", accessor: (i) => i.invoice_number ?? i.square_invoice_id ?? "" },
+      { key: "invoice_date", accessor: (i) => i.invoice_date ?? "" },
+      { key: "customer_name", accessor: (i) => i.customer_name ?? "" },
+      { key: "source", accessor: (i) => i.source ?? "" },
+      { key: "type", accessor: (i) => i.invoice_type },
+      { key: "total_cents", accessor: (i) => i.total_cents },
+      { key: "status", accessor: (i) => i.status ?? "" },
+    ],
+    default: { key: "invoice_date", dir: "desc" },
+  },
+};
 
 // ── Expandable invoice row ────────────────────────────────────────────────────
 
@@ -149,10 +202,12 @@ function InvoiceExpandableRow({
           <td colSpan={10} className="p-0">
             <div className="bg-canvas border-b border-line/60">
               {/* Line item headers */}
-              <div className="grid grid-cols-[minmax(0,2fr)_60px_80px_80px_minmax(0,1fr)] gap-3 px-10 py-1.5 bg-surface/40 text-[10px] text-faint uppercase tracking-wider">
+              <div className={`${LINE_GRID_COLS} px-10 py-1.5 bg-surface/40 text-[10px] text-faint uppercase tracking-wider`}>
+                <span>Line item</span>
                 <span>Description</span>
                 <span className="text-right">Qty</span>
-                <span className="text-right">Unit Price</span>
+                <span className="text-right">Unit</span>
+                <span className="text-right">Disc</span>
                 <span className="text-right">Total</span>
                 <span>GL Account</span>
               </div>
@@ -170,6 +225,20 @@ function InvoiceExpandableRow({
                         onSave={onSaveLineItem}
                       />
                     ))}
+              {(inv.discount_cents ?? 0) > 0 && (
+                <div className={`${LINE_GRID_COLS} px-10 py-1 text-[11px] text-secondary`}>
+                  <span className="col-span-5 text-right">Invoice discount</span>
+                  <span className="text-right font-mono tabular-nums">{formatCurrencyCents(inv.discount_cents!)}</span>
+                  <span />
+                </div>
+              )}
+              {(inv.tax_cents ?? 0) > 0 && (
+                <div className={`${LINE_GRID_COLS} px-10 py-1 text-[11px] text-secondary`}>
+                  <span className="col-span-5 text-right">Tax</span>
+                  <span className="text-right font-mono tabular-nums">{formatCurrencyCents(inv.tax_cents!)}</span>
+                  <span />
+                </div>
+              )}
               <BatchLinkEditor invoiceId={inv.id} batches={batches} onChanged={onBatchChanged} />
             </div>
           </td>
@@ -215,22 +284,31 @@ function InvoiceLineItemRow({
   return (
     <div className="border-t border-line/30 hover:bg-surface/20 transition-colors">
       {/* Main row */}
-      <div className="grid grid-cols-[minmax(0,2fr)_60px_80px_80px_minmax(0,1fr)] gap-3 px-10 py-2 text-xs items-start">
+      <div className={`${LINE_GRID_COLS} px-10 py-2 text-xs items-start`}>
         <div className="min-w-0 pt-0.5">
-          <span className="text-secondary truncate block">{item.description}</span>
-          {item.variation_name && <span className="text-[10px] text-faint">{item.variation_name}</span>}
+          <span className="text-secondary truncate block">
+            {item.line_item_name
+              ? item.line_item_name + (item.variation_name ? ` — ${item.variation_name}` : "")
+              : item.description}
+          </span>
           {isDeposit && (
             <span className={`inline-block mt-0.5 ml-1 px-1 py-0.5 rounded text-[10px] font-medium ${DEPOSIT_CATEGORY_CLS}`}>
               deposit
             </span>
           )}
         </div>
+        <span className={item.note ? "text-body truncate block pt-0.5" : "text-faint truncate block pt-0.5"}>
+          {item.note ?? "—"}
+        </span>
         <span className="text-faint text-right tabular-nums pt-0.5">{item.quantity ?? 1}×</span>
         <span className="text-muted text-right tabular-nums font-mono pt-0.5">
           {item.unit_price_cents ? formatCurrencyCents(item.unit_price_cents) : "—"}
         </span>
+        <span className="text-muted text-right tabular-nums font-mono pt-0.5">
+          {item.discount_cents ? formatCurrencyCents(item.discount_cents) : "—"}
+        </span>
         <span className="text-body text-right tabular-nums font-mono pt-0.5">
-          {formatCurrencyCents(item.total_cents)}
+          {formatCurrencyCents(item.net_sales_cents ?? item.total_cents)}
         </span>
         <div className="flex flex-col gap-1.5">
           {!isDeposit && (
@@ -401,16 +479,10 @@ function BatchLinkEditor({
 
 interface InvoiceSyncResult { synced: number; updated: number; total: number; errors?: string[] }
 
-type SortKey = "invoice_number" | "invoice_date" | "customer_name" | "source" | "type" | "total_cents" | "status";
-
 export default function InvoicesPage() {
   const currentYear = new Date().getFullYear();
   const [year,       setYear]   = useState(currentYear);
   const [source,     setSource] = useState<"all" | "square" | "quickbooks">("all");
-  const [status,     setStatus] = useState<"all" | "open" | "paid" | "partial" | "voided" | "unknown">("all");
-  const [typeFilter,    setTypeFilter]    = useState<"all" | InvoiceType>("all");
-  const [mappingFilter, setMappingFilter] = useState<MappingFilterValue>("all");
-  const sort = useTableSort<SortKey>("invoice_date");
   const [accounts,     setAccounts]     = useState<CoARef[]>([]);
   const [batches,      setBatches]      = useState<BrewBatch[]>([]);
   const [showVoided,   setShowVoided]   = useState(false);
@@ -451,27 +523,17 @@ export default function InvoicesPage() {
     queryFn:  () => fetchJson<InvoiceRow[]>(`/api/finance/ledger/invoices?${params}`),
   });
 
-  // Client-side status + type + mapping filter + sort
-  const invoices = (raw ?? [])
-    .filter((inv) => showVoided || status === "voided" || inv.status !== "voided")
-    .filter((inv) => status === "all" || inv.status === status)
-    .filter((inv) => typeFilter === "all" || (inv as InvoiceRow).invoice_type === typeFilter)
-    .filter((inv) => {
-      const items = (inv as InvoiceRow).invoice_line_items ?? [];
-      const mapped = items.filter((li) => li.chart_of_accounts_id || li.bs_chart_of_accounts_id).length;
-      return matchesMappingFilter(mappingFilter, mapped, items.length);
-    })
-    .sort((a, b) => {
-      let diff = 0;
-      if (sort.key === "invoice_number") diff = (a.invoice_number ?? a.square_invoice_id ?? "").localeCompare(b.invoice_number ?? b.square_invoice_id ?? "");
-      else if (sort.key === "invoice_date") diff = (a.invoice_date ?? "").localeCompare(b.invoice_date ?? "");
-      else if (sort.key === "customer_name") diff = (a.customer_name ?? "").localeCompare(b.customer_name ?? "");
-      else if (sort.key === "source") diff = a.source.localeCompare(b.source);
-      else if (sort.key === "type") diff = ((a as InvoiceRow).invoice_type).localeCompare((b as InvoiceRow).invoice_type);
-      else if (sort.key === "total_cents") diff = a.total_cents - b.total_cents;
-      else if (sort.key === "status") diff = a.status.localeCompare(b.status);
-      return sort.asc ? diff : -diff;
-    });
+  // Client-side status + type + mapping filter + sort (URL-synced hook).
+  // `year`/`source` stay local — they drive the useQuery key/params above.
+  const { rows: hookRows, search, filters, sort, setSearch, setFilter, toggleSort, reset, activeCount } =
+    useTableControls(raw ?? [], INVOICE_CONTROLS);
+
+  // Voided handling stays a local toggle: hide voided rows unless the toggle is
+  // on OR the status filter explicitly selects "voided".
+  const invoices = useMemo(() => {
+    const hideVoided = !showVoided && !(filters.status ?? []).includes("voided");
+    return hideVoided ? hookRows.filter((i) => i.status !== "voided") : hookRows;
+  }, [hookRows, showVoided, filters.status]);
 
   // Summary stats
   const totalValue    = invoices.reduce((s, i) => s + i.total_cents, 0);
@@ -481,36 +543,57 @@ export default function InvoicesPage() {
   return (
     <>
       <div className="shrink-0 px-4 sm:px-6 pt-4 pb-4 border-b border-line">
-        <div className="flex flex-wrap items-center gap-2">
+        <FilterBar activeCount={activeCount} onClear={reset}>
+          <SearchInput
+            value={search.q ?? ""}
+            onChange={(v) => setSearch("q", v)}
+            placeholder="Search invoice # or customer…"
+          />
           <YearSelect year={year} onChange={setYear} />
-          <select value={source} onChange={(e) => setSource(e.target.value as typeof source)}
-            className="inp-sm w-auto">
-            <option value="all">All sources</option>
-            <option value="square">Square</option>
-            <option value="quickbooks">QuickBooks</option>
-          </select>
-          <select value={status} onChange={(e) => setStatus(e.target.value as typeof status)}
-            className="inp-sm w-auto">
-            <option value="all">All statuses</option>
-            <option value="open">Open</option>
-            <option value="paid">Paid</option>
-            <option value="partial">Partial</option>
-            <option value="draft">Draft</option>
-            <option value="voided">Voided</option>
-          </select>
+          {/* source stays a fetch param (drives the useQuery key) */}
+          <FilterSelect
+            label="Source"
+            allLabel="All sources"
+            options={[
+              { value: "square", label: "Square" },
+              { value: "quickbooks", label: "QuickBooks" },
+            ]}
+            value={source === "all" ? [] : [source]}
+            onChange={(v) => setSource((v[0] as typeof source) ?? "all")}
+          />
+          <FilterSelect
+            label="Status"
+            allLabel="All statuses"
+            options={[
+              { value: "open", label: "Open" },
+              { value: "paid", label: "Paid" },
+              { value: "partial", label: "Partial" },
+              { value: "draft", label: "Draft" },
+              { value: "voided", label: "Voided" },
+            ]}
+            value={filters.status ?? []}
+            onChange={(v) => setFilter("status", v)}
+          />
+          <FilterSelect
+            label="Type"
+            allLabel="All types"
+            options={[
+              { value: "standard", label: "Standard" },
+              { value: "allocation_deposit", label: "Deposit" },
+              { value: "export_invoice", label: "Export" },
+            ]}
+            value={filters.type ?? []}
+            onChange={(v) => setFilter("type", v)}
+          />
+          <MappingFilter
+            value={(filters.mapping?.[0] as MappingFilterValue) ?? "all"}
+            onChange={(v) => setFilter("mapping", v === "all" ? [] : [v])}
+          />
           <button
             onClick={() => setShowVoided((v) => !v)}
             className={`btn-secondary whitespace-nowrap ${showVoided ? "text-body" : "text-faint"}`}>
             {showVoided ? "Hide voided" : "Show voided"}
           </button>
-          <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value as typeof typeFilter)}
-            className="inp-sm w-auto">
-            <option value="all">All types</option>
-            <option value="standard">Standard</option>
-            <option value="allocation_deposit">Deposit invoices</option>
-            <option value="export_invoice">Export invoices</option>
-          </select>
-          <MappingFilter value={mappingFilter} onChange={setMappingFilter} />
           <SyncPanel<InvoiceSyncResult>
             year={year}
             storageKey="tpb-invoices-last-sync"
@@ -527,7 +610,7 @@ export default function InvoicesPage() {
             )}
           />
           <AutoMapButton key={year} onRun={handleAutoMap} />
-        </div>
+        </FilterBar>
       </div>
 
       {/* Summary bar */}
@@ -554,14 +637,14 @@ export default function InvoicesPage() {
           head={
             <>
               <Th className="w-6" />
-              <SortableTh label="Invoice #" sortKey="invoice_number" sort={sort} />
-              <SortableTh label="Date" sortKey="invoice_date" sort={sort} />
-              <SortableTh label="Customer" sortKey="customer_name" sort={sort} />
-              <SortableTh label="Source" sortKey="source" sort={sort} />
-              <SortableTh label="Type" sortKey="type" sort={sort} />
-              <SortableTh label="Status" sortKey="status" sort={sort} />
+              <SortableTh label="Invoice #" sortKey="invoice_number" sort={sort} onSort={toggleSort} />
+              <SortableTh label="Date" sortKey="invoice_date" sort={sort} onSort={toggleSort} />
+              <SortableTh label="Customer" sortKey="customer_name" sort={sort} onSort={toggleSort} />
+              <SortableTh label="Source" sortKey="source" sort={sort} onSort={toggleSort} />
+              <SortableTh label="Type" sortKey="type" sort={sort} onSort={toggleSort} />
+              <SortableTh label="Status" sortKey="status" sort={sort} onSort={toggleSort} />
               <Th label="GL / Categories" />
-              <SortableTh label="Total" sortKey="total_cents" sort={sort} align="right" />
+              <SortableTh label="Total" sortKey="total_cents" sort={sort} onSort={toggleSort} align="right" />
               <Th label="Batches" align="center" />
             </>
           }>

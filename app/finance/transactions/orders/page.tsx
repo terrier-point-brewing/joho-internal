@@ -10,7 +10,12 @@ import MappingStatusPill from "../components/MappingStatusPill";
 import AutoMapButton from "../components/AutoMapButton";
 import YearSelect from "../components/YearSelect";
 import SummaryStatBar from "../components/SummaryStatBar";
-import { LedgerTable, SortableTh, Th, CategoryBadges, useTableSort } from "../components/LedgerTable";
+import { LedgerTable, Th, CategoryBadges } from "../components/LedgerTable";
+import SortableTh from "@/app/components/ui/SortableTh";
+import SearchInput from "@/app/components/ui/SearchInput";
+import FilterBar from "@/app/components/ui/FilterBar";
+import { useTableControls } from "@/app/components/ui/useTableControls";
+import type { ControlsConfig } from "@/lib/table/types";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -54,6 +59,36 @@ interface Transaction {
   notes: string | null;
   pos_line_items: LineItem[];
 }
+
+// ── Search/filter/sort config ────────────────────────────────────────────────
+
+function orderMapped(txn: Transaction): [number, number] {
+  const items = txn.pos_line_items ?? [];
+  return [items.filter((li) => li.effective_chart_of_accounts_id).length, items.length];
+}
+
+const ORDER_CONTROLS: ControlsConfig<Transaction> = {
+  search: [{ param: "q", accessor: (t) => [t.square_order_id, t.customer_name] }],
+  filters: [
+    {
+      param: "mapping",
+      matches: (t, sel) => {
+        const [m, n] = orderMapped(t);
+        return matchesMappingFilter(sel[0] as MappingFilterValue, m, n);
+      },
+    },
+  ],
+  sort: {
+    columns: [
+      { key: "date", accessor: (t) => t.transaction_date },
+      { key: "order", accessor: (t) => t.square_order_id },
+      { key: "customer", accessor: (t) => t.customer_name ?? "" },
+      { key: "status", accessor: (t) => t.status ?? "" },
+      { key: "total", accessor: (t) => t.total_cents },
+    ],
+    default: { key: "date", dir: "desc" },
+  },
+};
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -224,8 +259,6 @@ function OrderRow({
 
 interface SyncResult { synced: number; updated: number; total: number; errors?: string[] }
 
-type SortKey = "date" | "order" | "customer" | "status" | "total";
-
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function SquareTransactionsPage() {
@@ -237,8 +270,6 @@ export default function SquareTransactionsPage() {
   const [accounts, setAccounts]       = useState<CoARef[]>([]);
   const [loading, setLoading]         = useState(true);
   const [error, setError]             = useState<string | null>(null);
-  const [mappingFilter, setMappingFilter] = useState<MappingFilterValue>("all");
-  const sort = useTableSort<SortKey>("date");
   const pageSize = 50;
 
   const loadTransactions = useCallback(async (yr: number, pg: number) => {
@@ -306,25 +337,18 @@ export default function SquareTransactionsPage() {
   const unmappedTotal = transactions.flatMap((t) => t.pos_line_items)
     .filter((li) => !li.effective_chart_of_accounts_id).length;
 
-  const visibleTransactions = (mappingFilter === "all" ? transactions : transactions.filter((txn) => {
-    const items = txn.pos_line_items ?? [];
-    const mapped = items.filter((li) => li.effective_chart_of_accounts_id).length;
-    return matchesMappingFilter(mappingFilter, mapped, items.length);
-  })).slice().sort((a, b) => {
-    let diff = 0;
-    if (sort.key === "date")          diff = a.transaction_date.localeCompare(b.transaction_date);
-    else if (sort.key === "order")    diff = a.square_order_id.localeCompare(b.square_order_id);
-    else if (sort.key === "customer") diff = (a.customer_name ?? "").localeCompare(b.customer_name ?? "");
-    else if (sort.key === "status")   diff = (a.status ?? "").localeCompare(b.status ?? "");
-    else if (sort.key === "total")    diff = a.total_cents - b.total_cents;
-    return sort.asc ? diff : -diff;
-  });
+  const { rows: visibleTransactions, search, filters, sort, setSearch, setFilter, toggleSort, reset, activeCount } =
+    useTableControls(transactions, ORDER_CONTROLS);
 
   return (
     <>
       <div className="shrink-0 px-4 sm:px-6 py-3 border-b border-line flex items-center gap-3 flex-wrap">
-        <YearSelect year={year} onChange={handleYearChange} />
-        <MappingFilter value={mappingFilter} onChange={setMappingFilter} />
+        <FilterBar activeCount={activeCount} onClear={reset}>
+          <SearchInput value={search.q ?? ""} onChange={(v) => setSearch("q", v)} placeholder="Search orders…" />
+          <YearSelect year={year} onChange={handleYearChange} />
+          <MappingFilter value={(filters.mapping?.[0] as MappingFilterValue) ?? "all"}
+            onChange={(v) => setFilter("mapping", v === "all" ? [] : [v])} />
+        </FilterBar>
         <AutoMapButton key={year} onRun={handleAutoMap} />
         <SyncPanel<SyncResult>
           year={year}
@@ -369,13 +393,13 @@ export default function SquareTransactionsPage() {
             head={
               <>
                 <Th className="w-6" />
-                <SortableTh label="Date" sortKey="date" sort={sort} />
-                <SortableTh label="Order #" sortKey="order" sort={sort} />
-                <SortableTh label="Customer" sortKey="customer" sort={sort} />
+                <SortableTh sortKey="date" label="Date" sort={sort} onSort={toggleSort} />
+                <SortableTh sortKey="order" label="Order #" sort={sort} onSort={toggleSort} />
+                <SortableTh sortKey="customer" label="Customer" sort={sort} onSort={toggleSort} />
                 <Th label="Categories" />
-                <SortableTh label="Status" sortKey="status" sort={sort} />
+                <SortableTh sortKey="status" label="Status" sort={sort} onSort={toggleSort} />
                 <Th label="Mapping" />
-                <SortableTh label="Total" sortKey="total" sort={sort} align="right" />
+                <SortableTh sortKey="total" label="Total" sort={sort} onSort={toggleSort} align="right" />
               </>
             }>
             {visibleTransactions.map((txn) => (
