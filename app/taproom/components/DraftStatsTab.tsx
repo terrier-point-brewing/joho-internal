@@ -7,6 +7,13 @@ import dynamic from "next/dynamic";
 import ChartSkeleton from "@/app/components/ChartSkeleton";
 import { fetchJson } from "../../production/hooks/queries";
 import type { RecipeSquareLinkRow, AvailableInventoryLine } from "../../production/types";
+import {
+  type DraftUrgency,
+  DRAFT_URGENCY_CARD,
+  DRAFT_URGENCY_BADGE,
+  DRAFT_URGENCY_LABEL,
+  DRAFT_URGENCY_DAYS_TEXT,
+} from "./categoryStyles";
 
 const DraftStatsChart = dynamic(() => import("./DraftStatsChart"), {
   ssr: false,
@@ -456,55 +463,23 @@ export default function DraftStatsTab() {
             const daysLeft = tap?.metrics
               ? daysUntilEmpty(tap.metrics.current_bbl, tap.metrics.daily_bbl)
               : null;
-            // Urgency tiers based on days remaining.
-            // An empty (or over-drawn) tap that still has a beer assigned is the
-            // most urgent state → red "critical". Only retired taps grey out; an
-            // unassigned slot stays neutral "none".
-            type Urgency = "critical" | "low" | "watch" | "soon" | "good" | "retiring" | "retired" | "none";
-            const urgency: Urgency =
-              !tap?.recipe_id                                     ? "none"
-              : isRetired && (daysLeft === null || daysLeft <= 0) ? "retired"
-              : daysLeft === null || daysLeft <= 3                ? "critical"
-              : daysLeft <= 7                                     ? "low"
-              : daysLeft <= 14                                    ? "watch"
-              : daysLeft <= 30                                    ? "soon"
-              : isRetired                                         ? "retiring"
+            // Three-tier urgency by days remaining: good → low → critical.
+            // A retired tap keeps its normal good/low coloring while it still
+            // has beer and only greys out (dashed "retired" style) once it hits
+            // critical (empty / ≤3 days) — a retired keg is meant to blow, not
+            // be reordered. An unassigned slot stays neutral "none".
+            const urgency: DraftUrgency =
+              !tap?.recipe_id                      ? "none"
+              : daysLeft === null || daysLeft <= 3 ? (isRetired ? "retired" : "critical")
+              : daysLeft <= 7                      ? "low"
               : "good";
 
-            // Urgency ramp (critical→good) is a deliberate data-category palette,
-            // exempt from token migration per UI_STANDARD; only the neutral
-            // retiring/retired/none states use surface tokens.
-            const cardCls: Record<Urgency, string> = {
-              critical: "border-red-500     bg-red-950/25",
-              low:      "border-orange-500  bg-orange-950/20",
-              watch:    "border-amber-500   bg-amber-950/15",
-              soon:     "border-yellow-500/70 bg-yellow-950/10",
-              good:     "border-green-700/60 bg-green-950/10",
-              retiring: "border-line-strong border-dashed",
-              retired:  "border-line opacity-55",
-              none:     "border-line",
-            };
-
-            const badgeCls: Partial<Record<Urgency, { wrap: string; text: string }>> = {
-              critical: { wrap: "bg-red-950/60 border-red-500/70",       text: "text-red-400"    },
-              low:      { wrap: "bg-orange-950/50 border-orange-500/60", text: "text-orange-400" },
-              watch:    { wrap: "bg-amber-950/40 border-amber-500/50",   text: "text-amber-400"  },
-              soon:     { wrap: "bg-yellow-950/30 border-yellow-600/50", text: "text-yellow-400" },
-            };
-            const badgeLabel: Partial<Record<Urgency, string>> = {
-              critical: "Critical",
-              low:      "Low",
-              watch:    "Watch",
-              soon:     "Soon",
-            };
-
-            const daysLeftCls =
-              urgency === "critical" ? "text-red-400"
-              : urgency === "low"    ? "text-orange-400"
-              : urgency === "watch"  ? "text-amber-400"
-              : urgency === "soon"   ? "text-yellow-400"
-              : urgency === "good"   ? "text-green-400"
-              : "text-faint";
+            // Shared data-category palette (see categoryStyles.ts) — exempt from
+            // token migration per UI_STANDARD.
+            const cardCls = DRAFT_URGENCY_CARD;
+            const badgeCls = DRAFT_URGENCY_BADGE;
+            const badgeLabel = DRAFT_URGENCY_LABEL;
+            const daysLeftCls = DRAFT_URGENCY_DAYS_TEXT[urgency];
 
             return (
               <div
