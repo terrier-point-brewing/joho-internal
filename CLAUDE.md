@@ -82,3 +82,6 @@ Do this before running any dev commands.
 - Schema changes → read latest files in `supabase/migrations/` and add a new migration, don't hand-edit existing ones
 - Touching `app/production/**`, `app/api/production/**`, or `lib/production/**` → read `docs/production-schema.md` for table layout, equipment-type rules, and known limitations
 - Next.js routing/conventions uncertainty → read `docs/nextjs16-deltas.md` first; fall back to `node_modules/next/dist/docs/` only if it doesn't answer the question
+
+## Worktree Hygiene
+After a worktree's branch is merged, remove the worktree (`git worktree remove <dir>`) and delete its merged branch. Never leave worktrees with node_modules under `.claude/worktrees/` — they pollute search and disk.
