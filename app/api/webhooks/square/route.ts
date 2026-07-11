@@ -4,6 +4,8 @@ import { runTaproomConsumptionSync } from "@/lib/production/taproomConsumptionSy
 import { syncPosOrdersByIds } from "@/lib/finance/syncPosTransactions";
 import { syncRefunds } from "@/lib/finance/syncRefunds";
 import { reconcileInvoiceStatus } from "@/lib/finance/reconcileInvoiceStatus";
+import { syncSquareInvoicesForYear } from "@/lib/finance/syncSquareInvoices";
+import { autoMapInvoiceLineItems } from "@/lib/finance/autoMap";
 import {
   verifySquareSignature,
   isFinanceSyncableEvent,
@@ -104,6 +106,25 @@ export async function POST(req: NextRequest) {
           console.error("[square-webhook] invoice reconcile failed", e);
         }
       }
+
+      // Line items never arrive via webhook — reconcile only covers status. Sync
+      // the current year's invoices (idempotent, fill-nulls-only mapping) so a
+      // brand-new invoice's lines land and auto-map without waiting for a manual
+      // "Sync from Square" click. Prior-year invoice edits self-heal via the cron.
+      try {
+        const year = new Date().getFullYear();
+        const syncResult = await syncSquareInvoicesForYear(supabase, year);
+        const mapResult = await autoMapInvoiceLineItems(supabase, { year });
+        console.log("[square-webhook] invoice line-item sync", {
+          invoiceId,
+          synced: syncResult.synced,
+          updated: syncResult.updated,
+          mapped: mapResult.mapped,
+        });
+      } catch (e) {
+        console.error("[square-webhook] invoice line-item sync failed", e);
+      }
+
       return;
     }
 

@@ -14,6 +14,8 @@ import { runCronJob } from "@/lib/cron/runCronJob";
 import { syncPosTransactionsForRange } from "@/lib/finance/syncPosTransactions";
 import { syncRefundsForRange } from "@/lib/finance/syncRefunds";
 import { reconcileInvoiceStatus } from "@/lib/finance/reconcileInvoiceStatus";
+import { syncSquareInvoicesForYear } from "@/lib/finance/syncSquareInvoices";
+import { autoMapInvoiceLineItems } from "@/lib/finance/autoMap";
 import { apiError } from "@/lib/utils/api";
 
 export const dynamic = "force-dynamic";
@@ -56,7 +58,21 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    return { windowDays: WINDOW_DAYS, orders, refunds, invoicesReconciled };
+    // Safety net for the invoice webhook's per-year line-item sync: re-syncs the
+    // current year's invoices + fill-maps any unmapped lines in case a webhook
+    // delivery was missed.
+    const year = new Date().getFullYear();
+    const invoiceLineSync = await syncSquareInvoicesForYear(supabase, year);
+    const invoiceAutoMap = await autoMapInvoiceLineItems(supabase, { year });
+
+    return {
+      windowDays: WINDOW_DAYS,
+      orders,
+      refunds,
+      invoicesReconciled,
+      invoiceLineSync: { synced: invoiceLineSync.synced, updated: invoiceLineSync.updated },
+      invoiceAutoMapped: invoiceAutoMap.mapped,
+    };
   });
 
   return outcome.ok ? NextResponse.json(outcome.detail) : apiError(outcome.error);
