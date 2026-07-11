@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { autoMapPosLineItems, autoMapInvoiceLineItems } from "@/lib/finance/autoMap";
 
 export const dynamic = "force-dynamic";
 
@@ -42,23 +43,42 @@ export async function POST(req: NextRequest) {
 
   const supabase = createSupabaseAdminClient();
 
-  async function updateVariations(itemIds: string[]) {
-    if (!itemIds.length) return 0;
+  async function updateVariations(itemIds: string[]): Promise<string[]> {
+    if (!itemIds.length) return [];
     let q = supabase
       .from("square_catalog_variations")
       .update(patch)
       .in("catalog_item_id", itemIds);
     if (!overwrite) q = q.is(primaryField, null);
-    const { data, error } = await q.select("id");
+    const { data, error } = await q.select("id, square_variation_id");
     if (error) throw error;
-    return data?.length ?? 0;
+    return (data ?? []).map((r) => r.square_variation_id as string);
+  }
+
+  // Back-fill already-ingested unmapped line items for the affected variations so the
+  // user doesn't have to click "Auto-map all". Current + prior year covers open books.
+  function scheduleCascade(variationIds: string[]) {
+    if (!variationIds.length) return;
+    after(async () => {
+      const currentYear = new Date().getFullYear();
+      const years = [currentYear, currentYear - 1];
+      for (const year of years) {
+        try {
+          await autoMapPosLineItems(supabase, { year, variationIds });
+          await autoMapInvoiceLineItems(supabase, { year, variationIds });
+        } catch (e) {
+          console.error("[account-mappings/bulk] cascade auto-map failed", { count: variationIds.length, year, error: e });
+        }
+      }
+    });
   }
 
   try {
     // ── Item scope ────────────────────────────────────────────────────────────
     if (body.catalog_item_id) {
-      const count = await updateVariations([body.catalog_item_id]);
-      return NextResponse.json({ updated: count });
+      const affectedVariationIds = await updateVariations([body.catalog_item_id]);
+      scheduleCascade(affectedVariationIds);
+      return NextResponse.json({ updated: affectedVariationIds.length });
     }
 
     // ── Parent category scope ─────────────────────────────────────────────────
@@ -75,8 +95,9 @@ export async function POST(req: NextRequest) {
             .is("category_id", null)
             .is("parent_category_id", null);
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-      const count = await updateVariations((items ?? []).map((i) => i.id));
-      return NextResponse.json({ updated: count });
+      const affectedVariationIds = await updateVariations((items ?? []).map((i) => i.id));
+      scheduleCascade(affectedVariationIds);
+      return NextResponse.json({ updated: affectedVariationIds.length });
     }
 
     // ── Subcategory scope (default) ───────────────────────────────────────────
@@ -85,8 +106,9 @@ export async function POST(req: NextRequest) {
       ? await supabase.from("square_catalog_items").select("id").eq("category_id", category_id)
       : await supabase.from("square_catalog_items").select("id").is("category_id", null);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    const count = await updateVariations((items ?? []).map((i) => i.id));
-    return NextResponse.json({ updated: count });
+    const affectedVariationIds = await updateVariations((items ?? []).map((i) => i.id));
+    scheduleCascade(affectedVariationIds);
+    return NextResponse.json({ updated: affectedVariationIds.length });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     return NextResponse.json({ error: msg }, { status: 500 });

@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { autoMapPosLineItems, autoMapInvoiceLineItems } from "@/lib/finance/autoMap";
 
 export const dynamic = "force-dynamic";
 
@@ -111,5 +112,21 @@ export async function PATCH(req: NextRequest) {
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // Back-fill already-ingested unmapped line items for this variation so the user
+  // doesn't have to click "Auto-map all". Current + prior year covers open books.
+  after(async () => {
+    const currentYear = new Date().getFullYear();
+    const years = [currentYear, currentYear - 1];
+    for (const year of years) {
+      try {
+        await autoMapPosLineItems(supabase, { year, variationIds: [body.square_variation_id] });
+        await autoMapInvoiceLineItems(supabase, { year, variationIds: [body.square_variation_id] });
+      } catch (e) {
+        console.error("[account-mappings] cascade auto-map failed", { variationId: body.square_variation_id, year, error: e });
+      }
+    }
+  });
+
   return NextResponse.json(data);
 }

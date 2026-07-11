@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { autoMapBankLedger } from "@/lib/finance/autoMap";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +25,43 @@ export async function PATCH(req: NextRequest) {
   const { data, error } = await supabase
     .from("expense_counterparty_mappings")
     .update({ chart_of_accounts_id: body.chart_of_accounts_id ?? null, auto_matched: false })
-    .eq("id", body.id).select("id, chart_of_accounts_id").single();
+    .eq("id", body.id).select("id, counterparty_key, chart_of_accounts_id").single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json(data);
+
+  const counterpartyKey = data.counterparty_key as string;
+  const coaId = data.chart_of_accounts_id as string | null;
+
+  // Cascade to bank-sourced expenses that follow the rule (leave manual pins + already-mapped rows alone).
+  let expensesUpdated = 0;
+  if (coaId) {
+    const { data: affected, error: expErr } = await supabase
+      .from("expenses")
+      .update({ chart_of_accounts_id: coaId, mapping_source: "rule" })
+      .eq("source", "ramp")
+      .eq("counterparty_key", counterpartyKey)
+      .neq("mapping_source", "manual")
+      .is("chart_of_accounts_id", null)
+      .select("id");
+    if (expErr) return NextResponse.json({ error: expErr.message }, { status: 500 });
+    expensesUpdated = affected?.length ?? 0;
+  }
+
+  // Cascade to bank-ledger rows for this counterparty, current + prior year, in the background.
+  after(async () => {
+    if (!coaId) return;
+    const year = new Date().getFullYear();
+    const ranges = [
+      { from: `${year}-01-01`, to: `${year}-12-31` },
+      { from: `${year - 1}-01-01`, to: `${year - 1}-12-31` },
+    ];
+    for (const r of ranges) {
+      try {
+        await autoMapBankLedger(supabase, { ...r, counterpartyKey });
+      } catch (e) {
+        console.error("[counterparty-mappings] bank-ledger cascade failed", { counterpartyKey, range: r, error: e });
+      }
+    }
+  });
+
+  return NextResponse.json({ ...data, expenses_updated: expensesUpdated });
 }

@@ -85,15 +85,44 @@ describe("partitionBankLines", () => {
     expect(xfer.amount_cents).toBe(-500000);                                     // outflow negative
     expect(xfer.affects_pl).toBe(false);
   });
+
+  it("ledger records carry the normalized counterparty_key for auto-map", () => {
+    // A Deposit from an outside bank is ledger-bound (not an expense) and has a
+    // counterparty; its key must be persisted so counterparty rules can map it.
+    const { ledgerRecords } = partitionBankLines(
+      [line({ description: "Deposit", source_account_name: "STRIPE PAYMENTS", destination_account_name: "Operating Account" })],
+      OWN,
+    );
+    expect(ledgerRecords[0]).toMatchObject({ counterparty_key: normalizeCounterparty("STRIPE PAYMENTS") });
+  });
 });
 
 import { syncBankLedger, type BankLedgerRecord } from "./bankLedger";
 
-function fakeSupabase(existing: Record<string, { mapping_source: string; chart_of_accounts_id: string | null; flow_type?: string; affects_pl?: boolean }> = {}) {
+function fakeSupabase(
+  existing: Record<string, { mapping_source: string; chart_of_accounts_id: string | null; flow_type?: string; affects_pl?: boolean }> = {},
+  counterpartyRules: Record<string, string> = {},
+) {
   const upserts: BankLedgerRecord[] = [];
   return {
     upserts,
-    from() {
+    from(table: string) {
+      if (table === "expense_counterparty_mappings") {
+        return {
+          select() {
+            return {
+              eq() {
+                return {
+                  not: async () => ({
+                    data: Object.entries(counterpartyRules).map(([counterparty_key, chart_of_accounts_id]) => ({ counterparty_key, chart_of_accounts_id })),
+                    error: null,
+                  }),
+                };
+              },
+            };
+          },
+        };
+      }
       return {
         select() { return { eq() { return { in: async () => ({ data: Object.entries(existing).map(([source_transaction_id, v]) => ({ source_transaction_id, ...v })), error: null }) }; } }; },
         upsert: async (rows: BankLedgerRecord[]) => { upserts.push(...rows); return { error: null }; },
@@ -105,7 +134,7 @@ function fakeSupabase(existing: Record<string, { mapping_source: string; chart_o
 describe("syncBankLedger", () => {
   const rec: BankLedgerRecord = {
     source: "ramp", source_transaction_id: "int", amount_cents: 4001, currency_code: "USD",
-    description: "Interest", counterparty_name: "Interest", source_account_name: null,
+    description: "Interest", counterparty_name: "Interest", counterparty_key: "interest", source_account_name: null,
     destination_account_name: "Operating Account", flow_type: "interest_income", affects_pl: true, transaction_date: "2026-07-01",
   };
 
@@ -123,8 +152,20 @@ describe("syncBankLedger", () => {
     expect(sb.upserts[0]).toMatchObject({ mapping_source: "manual", chart_of_accounts_id: "coa-interest" });
   });
 
-  it("resets a non-manual (e.g. rule-derived) prior mapping to unmapped/null on re-sync", async () => {
+  it("preserves a non-manual (e.g. rule-derived) prior chart_of_accounts_id across re-sync (fill-nulls-only)", async () => {
     const sb = fakeSupabase({ int: { mapping_source: "rule", chart_of_accounts_id: "coa-old-rule", flow_type: "interest_income", affects_pl: true } });
+    await syncBankLedger(sb as never, [rec]);
+    expect(sb.upserts[0]).toMatchObject({ mapping_source: "rule", chart_of_accounts_id: "coa-old-rule" });
+  });
+
+  it("resolves chart_of_accounts_id from a counterparty rule for a fresh unmapped row", async () => {
+    const sb = fakeSupabase({}, { interest: "coa-interest-income" });
+    await syncBankLedger(sb as never, [rec]);
+    expect(sb.upserts[0]).toMatchObject({ mapping_source: "rule", chart_of_accounts_id: "coa-interest-income" });
+  });
+
+  it("leaves a row unmapped when no counterparty rule matches", async () => {
+    const sb = fakeSupabase({}, { gusto: "coa-payroll" });
     await syncBankLedger(sb as never, [rec]);
     expect(sb.upserts[0]).toMatchObject({ mapping_source: "unmapped", chart_of_accounts_id: null });
   });
@@ -136,7 +177,7 @@ describe("syncBankLedger", () => {
     });
     const reclassified: BankLedgerRecord = {
       source: "ramp", source_transaction_id: "unc", amount_cents: -500000, currency_code: "USD",
-      description: "Withdrawal", counterparty_name: "Mystery Co", source_account_name: "Operating Account",
+      description: "Withdrawal", counterparty_name: "Mystery Co", counterparty_key: "mystery co", source_account_name: "Operating Account",
       destination_account_name: "Mystery Co", flow_type: "unclassified", affects_pl: false, transaction_date: "2026-07-01",
     };
     await syncBankLedger(sb as never, [reclassified]);
