@@ -1,18 +1,6 @@
 import { fetchCurrentCounts, fetchOrderSales } from "@/lib/square/inventory";
-import { squareGet } from "@/lib/square/client";
 import { BBL_TO_FL_OZ } from "@/lib/constants/production";
-import { volumeFlOzPerUnit } from "@/lib/square/catalogUnits";
-
-type SquareCatalogObjectResp = {
-  object?: {
-    item_data?: {
-      variations?: Array<{
-        id: string;
-        item_variation_data?: { name?: string };
-      }>;
-    };
-  };
-};
+import { fetchDailyPourSellThrough } from "@/lib/taproom/draftPourConsumption";
 
 export const SELL_THROUGH_WINDOW_DAYS = 30;
 
@@ -47,9 +35,10 @@ type DbClient = { from: (table: string) => any };
 /**
  * Fetch per-link sell-through metrics for all (or a single) packaging type.
  *
- * Draft:   keg inventory is tracked in fl oz on the base variation; pour-size
- *          sibling variations (Draft - 5oz, 10oz, 16oz) record actual taproom
- *          sales. Both are aggregated here.
+ * Draft:   keg inventory (current_qty/current_bbl) is tracked in fl oz on the
+ *          base variation via Square live counts. Daily sell-through comes
+ *          from the pour-consumption ledger (lib/taproom/draftPourConsumption)
+ *          instead of summing pour-size sibling sales inline.
  * Keg/Can: inventory and sales are on the single linked variation; volume is
  *          from packaging_items or parsed from the variation name.
  */
@@ -88,71 +77,23 @@ export async function fetchSellThrough(
     volPerUnitByVarId.set(r.square_variation_id as string, (r.volume_fl_oz_per_unit as number | null) ?? null);
   }
 
-  // For draft items, also load all pour-size sibling variations so we can
-  // aggregate sales across every serving size (5oz, 10oz, 16oz, …).
-  const draftItemIds: string[] = [
-    ...new Set(
-      links
-        .filter((l) => l.packaging === "draft" && l.square_item_id)
-        .map((l) => l.square_item_id as string),
-    ),
-  ];
-
-  const draftVarsByItem = new Map<string, { id: string; oz: number | null }[]>();
-  if (draftItemIds.length > 0) {
-    const { data: siblings } = await supabase
-      .from("square_catalog_variations")
-      .select("square_variation_id, square_item_id, variation_name, volume_fl_oz_per_unit")
-      .in("square_item_id", draftItemIds);
-    for (const v of siblings ?? []) {
-      const itemId = v.square_item_id as string;
-      const list = draftVarsByItem.get(itemId) ?? [];
-      // Prefer the DB-stored value; fall back to parsing oz from the variation name
-      // (e.g. "Draft - 5oz" → 5) for catalogs where the sync hasn't run yet.
-      const oz = (v.volume_fl_oz_per_unit as number | null) ?? volumeFlOzPerUnit(v.variation_name as string | null);
-      list.push({ id: v.square_variation_id as string, oz });
-      draftVarsByItem.set(itemId, list);
-    }
-  }
-
-  // For draft items not in the catalog mirror, fetch variation IDs directly from
-  // Square so explicit recipe_square_links mappings work without a catalog sync.
-  const missingFromMirror = draftItemIds.filter((id) => !draftVarsByItem.has(id));
-  if (missingFromMirror.length > 0) {
-    await Promise.all(
-      missingFromMirror.map(async (itemId) => {
-        try {
-          const data = await squareGet<SquareCatalogObjectResp>(`/catalog/object/${itemId}`);
-          const variations = data.object?.item_data?.variations ?? [];
-          draftVarsByItem.set(
-            itemId,
-            variations.map((v) => ({
-              id: v.id,
-              oz: volumeFlOzPerUnit(v.item_variation_data?.name ?? null),
-            }))
-          );
-        } catch {
-          // Square unavailable or item deleted — daily fl oz stays 0 for this beer
-        }
-      })
-    );
-  }
-
-  const allDraftSiblingIds = [...draftVarsByItem.values()].flatMap((vs) => vs.map((v) => v.id));
-  // fetchCurrentCounts only needs base variation IDs (keg fl oz lives there).
-  // fetchOrderSales needs all variation IDs so pour-size sales are captured.
-  const allVarIds = [...new Set([...baseVarIds, ...allDraftSiblingIds])];
-
   const now = new Date();
   const windowStart = new Date(now.getTime() - windowDays * 86400000);
 
-  const [currentCounts, salesTotals] = await Promise.all([
+  // Draft daily sell-through comes from the pour-consumption ledger, not order
+  // sales, so only fetch it when draft links are in scope for this query.
+  const wantsDraft = packaging === undefined || packaging === "draft";
+
+  const [currentCounts, salesTotals, pourDaily] = await Promise.all([
     fetchCurrentCounts(baseVarIds),
     fetchOrderSales(
       windowStart.toISOString().slice(0, 10),
       now.toISOString().slice(0, 10),
-      allVarIds,
+      baseVarIds,
     ),
+    wantsDraft
+      ? fetchDailyPourSellThrough(supabase, windowDays)
+      : Promise.resolve(new Map<string, { dailyFlOz: number; dailyUnits: number }>()),
   ]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -163,16 +104,9 @@ export async function fetchSellThrough(
       // qty = fl oz remaining in keg (Square tracks this directly on the base variation)
       const currentBbl = qty / BBL_TO_FL_OZ;
 
-      // Sum fl oz sold across all pour-size siblings; skip the base variation
-      // (no oz in its name) since its per-pour oz is unknown.
-      const siblings = draftVarsByItem.get(l.square_item_id as string) ?? [];
-      let dailyFlOz = 0;
-      let dailyUnits = 0;
-      for (const sib of siblings) {
-        const sold = salesTotals.get(sib.id) ?? 0;
-        dailyUnits += sold / windowDays;
-        if (sib.oz) dailyFlOz += (sold / windowDays) * sib.oz;
-      }
+      // Daily sell-through comes from the pour-consumption ledger (Task 2/3),
+      // keyed by recipe, not from summing pour-size sibling order sales.
+      const daily = pourDaily.get(l.recipe_id as string) ?? { dailyFlOz: 0, dailyUnits: 0 };
 
       return {
         link_id:                   l.id,
@@ -186,8 +120,8 @@ export async function fetchSellThrough(
         volume_fl_oz:              null,
         current_qty:               qty,
         current_bbl:               Number(currentBbl.toFixed(4)),
-        daily_sell_through_units:  Number(dailyUnits.toFixed(2)),
-        daily_sell_through_bbl:    Number((dailyFlOz / BBL_TO_FL_OZ).toFixed(4)),
+        daily_sell_through_units:  Number(daily.dailyUnits.toFixed(2)),
+        daily_sell_through_bbl:    Number((daily.dailyFlOz / BBL_TO_FL_OZ).toFixed(4)),
         recipe:                    l.recipes ?? null,
       };
     }
