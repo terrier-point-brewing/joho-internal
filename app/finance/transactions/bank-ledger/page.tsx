@@ -3,10 +3,16 @@ import { useState, useEffect, useCallback } from "react";
 import { formatCurrencyCents } from "@/lib/format";
 import YearSelect from "../components/YearSelect";
 import SummaryStatBar from "../components/SummaryStatBar";
-import { LedgerTable, SortableTh, Th, useTableSort } from "../components/LedgerTable";
+import { LedgerTable, Th } from "../components/LedgerTable";
 import Badge from "@/app/components/ui/Badge";
 import AccountSelect, { type CoARef } from "../../AccountSelect";
 import Banner from "@/app/components/ui/Banner";
+import SortableTh from "@/app/components/ui/SortableTh";
+import SearchInput from "@/app/components/ui/SearchInput";
+import FilterBar from "@/app/components/ui/FilterBar";
+import FilterSelect from "@/app/components/ui/FilterSelect";
+import { useTableControls } from "@/app/components/ui/useTableControls";
+import type { ControlsConfig } from "@/lib/table/types";
 
 const FLOW_TYPES = ["interest_income", "internal_transfer", "bill_settlement", "card_settlement", "deposit", "unclassified"] as const;
 type FlowType = typeof FLOW_TYPES[number];
@@ -32,7 +38,24 @@ function fmtDate(s: string | null) {
   return new Date(Number(y), Number(m) - 1, Number(d)).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
-type SortKey = "date" | "amount";
+// ── Search/filter/sort config ────────────────────────────────────────────────
+
+const BANK_CONTROLS: ControlsConfig<BankRow> = {
+  search: [{ param: "q", accessor: (r) => [r.counterparty_name, r.description] }],
+  filters: [
+    { param: "flow", accessor: (r) => r.flow_type },
+  ],
+  sort: {
+    columns: [
+      { key: "date", accessor: (r) => r.transaction_date ?? "" },
+      { key: "amount", accessor: (r) => r.amount_cents },
+    ],
+    default: { key: "date", dir: "desc" },
+  },
+};
+// No dedicated flow-type label map exists in this file; the row Badge already
+// displays flow_type via the same underscore-to-space transform — reuse it.
+const FLOW_OPTIONS = FLOW_TYPES.map((f) => ({ value: f, label: f.replace(/_/g, " ") }));
 
 export default function BankLedgerPage() {
   const currentYear = new Date().getFullYear();
@@ -41,7 +64,6 @@ export default function BankLedgerPage() {
   const [rows, setRows] = useState<BankRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const sort = useTableSort<SortKey>("date");
 
   const loadAll = useCallback(async (y: number) => {
     setLoading(true); setError(null);
@@ -69,15 +91,19 @@ export default function BankLedgerPage() {
 
   const needsReview = rows.filter((r) => r.flow_type === "unclassified").length;
   const plNet = rows.filter((r) => r.affects_pl).reduce((s, r) => s + r.amount_cents, 0);
-  const visible = rows.slice().sort((a, b) => {
-    const diff = sort.key === "amount" ? a.amount_cents - b.amount_cents : (a.transaction_date ?? "").localeCompare(b.transaction_date ?? "");
-    return sort.asc ? diff : -diff;
-  });
+
+  const { rows: visible, search, filters, sort, setSearch, setFilter, toggleSort, reset, activeCount } =
+    useTableControls(rows, BANK_CONTROLS);
 
   return (
     <>
       <div className="shrink-0 px-4 sm:px-6 py-3 border-b border-line flex items-center gap-3 flex-wrap">
-        <YearSelect year={year} onChange={setYear} />
+        <FilterBar activeCount={activeCount} onClear={reset}>
+          <SearchInput value={search.q ?? ""} onChange={(v) => setSearch("q", v)} placeholder="Search counterparty…" />
+          <YearSelect year={year} onChange={setYear} />
+          <FilterSelect label="Flow" options={FLOW_OPTIONS} value={filters.flow ?? []}
+            onChange={(v) => setFilter("flow", v)} />
+        </FilterBar>
       </div>
       {rows.length > 0 && (
         <SummaryStatBar stats={[
@@ -96,9 +122,9 @@ export default function BankLedgerPage() {
       ) : (
         <div className="flex-1 overflow-auto px-4 sm:px-6 py-4">
           <LedgerTable head={<>
-            <SortableTh label="Date" sortKey="date" sort={sort} />
+            <SortableTh label="Date" sortKey="date" sort={sort} onSort={toggleSort} />
             <Th label="Counterparty" /><Th label="Description" /><Th label="Flow" /><Th label="P&L" />
-            <SortableTh label="Amount" sortKey="amount" sort={sort} align="right" />
+            <SortableTh label="Amount" sortKey="amount" sort={sort} onSort={toggleSort} align="right" />
           </>}>
             {visible.map((r) => (
               <tr key={r.id} className="border-t border-line/40">
