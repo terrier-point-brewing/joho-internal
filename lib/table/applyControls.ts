@@ -3,17 +3,19 @@ import type { ControlsConfig, ControlsState } from "./types";
 /**
  * Coerce a value to a comparable primitive (number takes priority).
  *
- * Known limitation: the numeric guess is per-cell, not per-column — a string
- * that `parseFloat`s (e.g. "8 Ball Stout" → 8) sorts as a number while its
- * peers ("Hazy IPA") stay strings, which can misorder a text column that
- * happens to have leading digits. Acceptable for the common numeric/text cases;
- * if a column needs deterministic text ordering, have its `SortSpec.accessor`
- * return a non-numeric-leading string (or add a per-column type later).
+ * A string is treated as numeric only if the WHOLE trimmed string parses as
+ * a number (`Number`, not `parseFloat`) — this is what makes ISO date
+ * strings ("2026-07-09" / "2026-07-09T14:23:11Z") fall through to the string
+ * branch (where `localeCompare` sorts them correctly, since ISO 8601 is
+ * lexicographically chronological) instead of being truncated at the first
+ * "-" into their year. It also keeps numeric-leading text ("8 Ball Stout")
+ * as text rather than misreading it as the number 8.
  */
 function coerce(v: unknown): number | string {
   if (typeof v === "number") return v;
   if (typeof v === "string") {
-    const n = parseFloat(v);
+    const t = v.trim();
+    const n = t === "" ? NaN : Number(t);
     return isNaN(n) ? v.toLowerCase() : n;
   }
   return String(v ?? "").toLowerCase();

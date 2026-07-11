@@ -139,4 +139,65 @@ describe("applyControls", () => {
     };
     expect(applyControls(ROWS, cfg, { ...EMPTY, filters: { vol: [] } })).toHaveLength(3);
   });
+
+  describe("coerce date/alpha sort", () => {
+    interface DateRow {
+      id: string;
+      createdAt: string;
+    }
+
+    const DATE_ROWS: DateRow[] = [
+      { id: "mid", createdAt: "2026-07-09" },
+      { id: "early", createdAt: "2026-01-05" },
+      { id: "late", createdAt: "2026-07-10" },
+      { id: "timestamp", createdAt: "2026-07-09T14:23:11Z" },
+    ];
+
+    const DATE_CONFIG: ControlsConfig<DateRow> = {
+      sort: { columns: [{ key: "createdAt", accessor: (r) => r.createdAt }] },
+    };
+
+    it("sorts ISO date strings (same-year, different days) chronologically ascending", () => {
+      const out = applyControls(DATE_ROWS, DATE_CONFIG, { ...EMPTY, sort: { key: "createdAt", dir: "asc" } });
+      expect(out.map((r) => r.id)).toEqual(["early", "mid", "timestamp", "late"]);
+    });
+
+    it("sorts ISO date strings chronologically descending", () => {
+      const out = applyControls(DATE_ROWS, DATE_CONFIG, { ...EMPTY, sort: { key: "createdAt", dir: "desc" } });
+      expect(out.map((r) => r.id)).toEqual(["late", "timestamp", "mid", "early"]);
+    });
+
+    interface LabelRow {
+      id: string;
+      label: string;
+    }
+
+    const ALPHA_LABEL_ROWS: LabelRow[] = [
+      { id: "amber", label: "Amber" },
+      { id: "eight", label: "8 Ball" },
+      { id: "ten", label: "10 Barrel" },
+    ];
+
+    const ALPHA_CONFIG: ControlsConfig<LabelRow> = {
+      sort: { columns: [{ key: "label", accessor: (r) => r.label }] },
+    };
+
+    it("sorts numeric-leading text alphabetically, not as numbers", () => {
+      const out = applyControls(ALPHA_LABEL_ROWS, ALPHA_CONFIG, { ...EMPTY, sort: { key: "label", dir: "asc" } });
+      // localeCompare, case-insensitive (coerce lowercases): "10 barrel" < "8 ball" < "amber"
+      expect(out.map((r) => r.label)).toEqual(["10 Barrel", "8 Ball", "Amber"]);
+    });
+
+    const NUMERIC_LABEL_ROWS: LabelRow[] = [
+      { id: "b", label: "2" },
+      { id: "c", label: "10" },
+      { id: "a", label: "1" },
+    ];
+
+    it("sorts pure numeric strings numerically, not lexically", () => {
+      const out = applyControls(NUMERIC_LABEL_ROWS, ALPHA_CONFIG, { ...EMPTY, sort: { key: "label", dir: "asc" } });
+      expect(out.map((r) => r.label)).toEqual(["1", "2", "10"]);
+      // NOTE: NUMERIC_LABEL_ROWS reused with ALPHA_CONFIG's "label" key intentionally.
+    });
+  });
 });
