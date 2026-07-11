@@ -244,7 +244,6 @@ export function useInvoicePreview(transactionIds: string[]) {
     queryFn: () => fetchJson<{
       customerId: string; customerName: string; squareCustomerId: string | null;
       lineItems: { id: string; description: string; quantity: number; unitPriceCents: number; squareCatalogVariationId: string | null; discountCatalogId?: string | null }[];
-      dueDays: number;
       channel: string;
       defaultDiscountCatalogId: string | null;
     }>(`/api/production/export/invoice-preview?ids=${transactionIds.join(",")}`),
