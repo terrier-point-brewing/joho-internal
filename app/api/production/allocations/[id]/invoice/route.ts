@@ -21,6 +21,8 @@ import {
   invoiceHeaderTotalsFromOrder,
 } from "@/lib/finance/invoiceLineItems";
 import type { CatalogItem } from "@/types/square";
+import { getNetTermsDays } from "@/lib/production/invoiceTerms";
+import { addDaysStr, todayLocalDate } from "@/lib/utils/datetime";
 
 export const dynamic = "force-dynamic";
 
@@ -95,7 +97,7 @@ async function handleInvoiceAction(req: NextRequest, params: RouteParams["params
   // Fetch allocation with all needed joined data
   const { data: allocation, error: fetchErr } = await supabase
     .from("batch_allocations")
-    .select("*, brew_batches(id, beer_name, volume_bbl, turns, recipe_id, planned_brew_date, expected_delivery_date), contract_brewing_partners(id, company_name, square_customer_id, deposit_net_terms_days), commitments!contract_request_id(volume_bbl)")
+    .select("*, brew_batches(id, beer_name, volume_bbl, turns, recipe_id, expected_delivery_date), contract_brewing_partners(id, company_name, square_customer_id), commitments!contract_request_id(volume_bbl)")
     .eq("id", id)
     .single();
 
@@ -107,12 +109,12 @@ async function handleInvoiceAction(req: NextRequest, params: RouteParams["params
     return NextResponse.json({ error: "Deposit invoices are only available for contract_brewing allocations" }, { status: 400 });
   }
 
-  const partner = allocation.contract_brewing_partners as { id: string; company_name: string; square_customer_id: string | null; deposit_net_terms_days: number | null } | null;
+  const partner = allocation.contract_brewing_partners as { id: string; company_name: string; square_customer_id: string | null } | null;
   if (!partner?.square_customer_id) {
     return NextResponse.json({ error: "Partner has no linked Square customer ID — add it in the Partners tab" }, { status: 400 });
   }
 
-  const batch = allocation.brew_batches as { id: string; beer_name: string; volume_bbl: number; turns: number; recipe_id: string; planned_brew_date: string; expected_delivery_date: string | null } | null;
+  const batch = allocation.brew_batches as { id: string; beer_name: string; volume_bbl: number; turns: number; recipe_id: string; expected_delivery_date: string | null } | null;
   if (!batch) return NextResponse.json({ error: "Batch not found" }, { status: 404 });
 
   // ── generate ──────────────────────────────────────────────────────────────
@@ -139,20 +141,13 @@ async function handleInvoiceAction(req: NextRequest, params: RouteParams["params
       return NextResponse.json({ error: "Ingredient Deposit is not configured in Deposit Settings — set the Square item mapping before generating this invoice" }, { status: 422 });
     }
 
-    // Due date: per-partner override, else global default from system_settings.
-    let dueDays = partner.deposit_net_terms_days;
-    if (dueDays == null) {
-      const { data: setting, error: settingErr } = await supabase
-        .from("system_settings")
-        .select("value")
-        .eq("key", "deposit_invoice_due_days")
-        .single();
-      if (settingErr) console.error("[deposit-invoice] failed to fetch deposit_invoice_due_days setting:", settingErr);
-      dueDays = (setting?.value as number) ?? 30;
-    }
-
-    const serviceDate = batch.planned_brew_date;
-    const dueDate = addDaysIso(serviceDate, dueDays);
+    // Due date = the date this invoice is drafted (today) + the single configured
+    // net-terms value. Service date is the same draft date, so both flows behave
+    // identically and the ledger stays consistent (due_date = invoice_date + terms).
+    const netTerms = await getNetTermsDays(supabase, "deposit");
+    const draftDate = todayLocalDate();
+    const serviceDate = draftDate;
+    const dueDate = addDaysStr(draftDate, netTerms);
     const pct = Number(allocation.percentage);
     const batchBbl = Number(batch.volume_bbl);
     const commitment = allocation.commitments as { volume_bbl: number } | null;
@@ -466,12 +461,6 @@ async function handleInvoiceAction(req: NextRequest, params: RouteParams["params
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-function addDaysIso(isoDate: string, days: number): string {
-  const d = new Date(isoDate);
-  d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
-}
 
 function calcToBreakdownInputs(calc: { breakdown: Array<{ ingredient_id: string; name: string; unit: string; quantity_per_bbl: number; cost_per_unit: number; line_total_usd: number }> }): BreakdownInput[] {
   return calc.breakdown.map((b) => ({

@@ -75,6 +75,7 @@ export interface BankLedgerRecord {
   currency_code:            string;
   description:              string | null;
   counterparty_name:        string | null;
+  counterparty_key:         string | null;
   source_account_name:      string | null;
   destination_account_name: string | null;
   flow_type:                FlowType;
@@ -99,7 +100,9 @@ function bankLineToExpenseRecord(line: RampBankLine, c: BankClassification): Exp
     merchant_name:         c.counterparty_name || null,
     merchant_category:     null,
     sk_category_name:      null,
-    state:                 null,
+    // A bank line only lands here once it has posted to the account, so it is settled
+    // by definition — surface it as "cleared" (green) alongside card/bill statuses.
+    state:                 "cleared",
     card_holder_name:      null,
     department_name:       null,
     transaction_time:      line.date || null,
@@ -120,6 +123,7 @@ function bankLineToLedgerRecord(line: RampBankLine, c: BankClassification): Bank
     currency_code:            line.currency_code || "USD",
     description:              line.description || null,
     counterparty_name:        c.counterparty_name || null,
+    counterparty_key:         c.counterparty_key || null,
     source_account_name:      line.source_account_name,
     destination_account_name: line.destination_account_name,
     flow_type:                c.flow_type,
@@ -167,6 +171,17 @@ export async function syncBankLedger(
     }
   }
 
+  // Counterparty rules — the same table bank-sourced expenses resolve against.
+  const { data: cpRuleRows, error: cpRuleErr } = await supabase
+    .from("expense_counterparty_mappings")
+    .select("counterparty_key, chart_of_accounts_id")
+    .eq("source", "ramp")
+    .not("chart_of_accounts_id", "is", null);
+  if (cpRuleErr) throw new Error(`Load counterparty mappings failed: ${cpRuleErr.message}`);
+  const coaByCounterparty = new Map<string, string>(
+    (cpRuleRows ?? []).map((r) => [r.counterparty_key as string, r.chart_of_accounts_id as string]),
+  );
+
   const syncedAt = new Date().toISOString();
   const by_flow_type: Record<string, number> = {};
   const rows = records.map((rec) => {
@@ -175,14 +190,23 @@ export async function syncBankLedger(
     const flow_type  = manual ? prior!.flow_type  : rec.flow_type;
     const affects_pl = manual ? prior!.affects_pl : rec.affects_pl;
     by_flow_type[flow_type] = (by_flow_type[flow_type] ?? 0) + 1;
-    return {
-      ...rec,
-      flow_type,
-      affects_pl,
-      chart_of_accounts_id: manual ? prior!.chart_of_accounts_id : null,
-      mapping_source:       manual ? "manual" : "unmapped",
-      synced_at:            syncedAt,
-    };
+
+    // Fill-nulls-only: manual pin wins; else a prior rule/manual account survives
+    // re-sync; else resolve fresh from a counterparty rule; else unmapped.
+    let chart_of_accounts_id: string | null;
+    let mapping_source: string;
+    if (manual) {
+      chart_of_accounts_id = prior!.chart_of_accounts_id;
+      mapping_source = "manual";
+    } else if (prior?.chart_of_accounts_id) {
+      chart_of_accounts_id = prior.chart_of_accounts_id;
+      mapping_source = prior.mapping_source;
+    } else {
+      const ruleCoa = rec.counterparty_key ? coaByCounterparty.get(rec.counterparty_key) ?? null : null;
+      chart_of_accounts_id = ruleCoa;
+      mapping_source = ruleCoa ? "rule" : "unmapped";
+    }
+    return { ...rec, flow_type, affects_pl, chart_of_accounts_id, mapping_source, synced_at: syncedAt };
   });
 
   for (const batch of chunk(rows, 500)) {

@@ -89,10 +89,38 @@ export interface PhysicalCount {
   team_member_id?: string;
 }
 
+export interface InventoryAdjustment {
+  id: string;
+  catalog_object_id: string;
+  from_state: string;
+  to_state: string;
+  location_id: string;
+  quantity: string;
+  occurred_at: string;
+}
+
 interface ChangesResponse {
-  changes?: Array<{ type: string; physical_count?: PhysicalCount }>;
+  changes?: Array<{ type: string; physical_count?: PhysicalCount; adjustment?: InventoryAdjustment }>;
   cursor?: string;
   errors?: Array<{ detail: string }>;
+}
+
+/**
+ * A normalized IN_STOCK-relevant inventory ledger entry, unifying Square's
+ * absolute PHYSICAL_COUNT resets and delta ADJUSTMENT changes (e.g. a pour:
+ * IN_STOCK → SOLD) so callers can reconstruct on-hand at a point in time.
+ */
+export interface InventoryChange {
+  type: "PHYSICAL_COUNT" | "ADJUSTMENT";
+  catalog_object_id: string;
+  occurred_at: string;
+  quantity: number;
+  /** Present on PHYSICAL_COUNT — the state this absolute count sets. */
+  state?: string;
+  /** Present on ADJUSTMENT — the state units moved out of. */
+  from_state?: string;
+  /** Present on ADJUSTMENT — the state units moved into. */
+  to_state?: string;
 }
 
 interface OrderLineItem {
@@ -366,19 +394,22 @@ export async function fetchDraftRestockLineItems(
   return extractRestockLineItems(orders, restockVariationIds);
 }
 
-// Fetch physical count inventory changes for a date range.
-// Pass catalogObjectIds to filter server-side (much faster than fetching all and filtering).
-export async function fetchPhysicalCounts(
+// Fetch IN_STOCK-relevant inventory changes (PHYSICAL_COUNT resets + ADJUSTMENT
+// deltas) for a date range, normalized into InventoryChange entries. Pass
+// catalogObjectIds to filter server-side (much faster than fetching all and
+// filtering). Both change types come back in one paged sweep so a caller can
+// reconstruct on-hand at a point in time without a second round-trip.
+export async function fetchInventoryChanges(
   startDate: string,
   endDate: string,
   catalogObjectIds?: string[],
-): Promise<PhysicalCount[]> {
+): Promise<InventoryChange[]> {
   const locationId = squareLocationId();
 
   const tz = await getBreweryTimezone();
   const { startUtc: updatedAfter, endUtc: updatedBefore } = dayRangeUtc(startDate, endDate, tz);
 
-  const results: PhysicalCount[] = [];
+  const results: InventoryChange[] = [];
   let cursor: string | undefined;
 
   do {
@@ -386,7 +417,7 @@ export async function fetchPhysicalCounts(
       location_ids:   [locationId],
       updated_after:  updatedAfter,
       updated_before: updatedBefore,
-      types:          ["PHYSICAL_COUNT"],
+      types:          ["PHYSICAL_COUNT", "ADJUSTMENT"],
       limit:          1000,
     };
     if (cursor) body.cursor = cursor;
@@ -400,7 +431,24 @@ export async function fetchPhysicalCounts(
 
     for (const change of data.changes ?? []) {
       if (change.type === "PHYSICAL_COUNT" && change.physical_count) {
-        results.push(change.physical_count);
+        const pc = change.physical_count;
+        results.push({
+          type: "PHYSICAL_COUNT",
+          catalog_object_id: pc.catalog_object_id,
+          occurred_at: pc.occurred_at,
+          quantity: parseFloat(pc.quantity),
+          state: pc.state,
+        });
+      } else if (change.type === "ADJUSTMENT" && change.adjustment) {
+        const adj = change.adjustment;
+        results.push({
+          type: "ADJUSTMENT",
+          catalog_object_id: adj.catalog_object_id,
+          occurred_at: adj.occurred_at,
+          quantity: parseFloat(adj.quantity),
+          from_state: adj.from_state,
+          to_state: adj.to_state,
+        });
       }
     }
 

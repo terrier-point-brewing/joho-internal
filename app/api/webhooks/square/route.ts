@@ -4,6 +4,8 @@ import { runTaproomConsumptionSync } from "@/lib/production/taproomConsumptionSy
 import { syncPosOrdersByIds } from "@/lib/finance/syncPosTransactions";
 import { syncRefunds } from "@/lib/finance/syncRefunds";
 import { reconcileInvoiceStatus } from "@/lib/finance/reconcileInvoiceStatus";
+import { syncSquareInvoiceById } from "@/lib/finance/syncSquareInvoices";
+import { autoMapInvoiceLineItems } from "@/lib/finance/autoMap";
 import {
   verifySquareSignature,
   isFinanceSyncableEvent,
@@ -31,9 +33,13 @@ export const maxDuration = 60;
  *     uses over a short window, so a Draft Restock's swap shipment + recount +
  *     shrinkage land immediately.
  *
- * Both are idempotent, and the daily crons stay as safety nets for missed
- * deliveries, so overlapping webhook + cron runs are harmless. A public
- * endpoint: the HMAC signature is the only auth.
+ * A single Square action (e.g. a Draft Restock) emits a BURST of order.* events,
+ * so several of these reconciles fire near-simultaneously. The taproom sync's
+ * idempotency is a non-atomic read-then-write, so overlapping runs would each
+ * read "0 already recorded" and write duplicate rows; it now takes a lease lock
+ * and skips if held (see runTaproomConsumptionSync). The daily crons stay as
+ * safety nets for missed deliveries. A public endpoint: the HMAC signature is
+ * the only auth.
  *
  * Env: SQUARE_WEBHOOK_SIGNATURE_KEY (dashboard signature key) and
  * SQUARE_WEBHOOK_URL (the exact notification URL configured in Square — it is
@@ -103,7 +109,27 @@ export async function POST(req: NextRequest) {
         } catch (e) {
           console.error("[square-webhook] invoice reconcile failed", e);
         }
+
+        // Line items never arrive via webhook — reconcile only covers status. Sync
+        // just THIS invoice (idempotent, fill-nulls-only mapping) so its lines land
+        // and auto-map without waiting for a manual "Sync from Square" click — and
+        // without re-pulling every invoice + a year of orders on each delivery. The
+        // description-sibling auto-map pass is Supabase-only (cheap); the daily cron
+        // does the full-year sync as the backstop.
+        try {
+          const syncResult = await syncSquareInvoiceById(supabase, invoiceId);
+          const year = new Date().getFullYear();
+          const mapResult = await autoMapInvoiceLineItems(supabase, { year });
+          console.log("[square-webhook] invoice line-item sync", {
+            invoiceId,
+            outcome: syncResult.outcome,
+            mapped: mapResult.mapped,
+          });
+        } catch (e) {
+          console.error("[square-webhook] invoice line-item sync failed", e);
+        }
       }
+
       return;
     }
 
@@ -164,6 +190,7 @@ export async function POST(req: NextRequest) {
       const result = await runTaproomConsumptionSync(supabase, { days: WINDOW_DAYS });
       console.log("[square-webhook] reconcile", {
         type: event.type,
+        lockSkipped: result.lockSkipped,
         recordedUnits: result.recordedUnits,
         recountsApplied: result.recountsApplied,
         discrepancies: result.discrepancies.length,

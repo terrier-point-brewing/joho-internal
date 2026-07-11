@@ -20,7 +20,6 @@ export interface InvoicePreviewResult {
   customerName: string;
   squareCustomerId: string | null;
   lineItems: InvoiceLineItemDraft[];
-  dueDays: number;
   /** Shared channel of the selected transactions (all must match). */
   channel: string;
   /**
@@ -45,7 +44,22 @@ interface ExportTxRow {
   recipe_id: string | null;
 }
 
-const DEFAULT_DUE_DAYS = 30;
+/**
+ * Keg-cleaning line quantity = the total number of kegs across every keg-type
+ * transaction in the selection, NOT the number of transactions. Kegs are
+ * cleaned per unit, so two transactions of 6 and 4 kegs yield a cleaning qty of
+ * 10. Non-keg (can) transactions are ignored. Exported for unit testing.
+ */
+export function sumKegCleaningQuantity(
+  rows: Pick<ExportTxRow, "packaging_item_id" | "quantity">[],
+  pkgTypeById: Map<string, string>
+): number {
+  let total = 0;
+  for (const tx of rows) {
+    if (pkgTypeById.get(tx.packaging_item_id) === "keg") total += tx.quantity;
+  }
+  return total;
+}
 
 // Exported for unit testing of the amount_usd → cents conversion seam.
 export async function buildExciseTaxLines(
@@ -185,20 +199,10 @@ export async function buildInvoicePreview(
   // ── 2. Load the customer (square_customer_id, net terms) ─────────────────
   const { data: partner, error: partnerErr } = await supabase
     .from("contract_brewing_partners")
-    .select("id, company_name, square_customer_id, export_net_terms_days")
+    .select("id, company_name, square_customer_id")
     .eq("id", customerId)
     .single();
   if (partnerErr || !partner) throw new Error("Customer not found");
-
-  let dueDays = partner.export_net_terms_days as number | null;
-  if (dueDays == null) {
-    const { data: setting } = await supabase
-      .from("system_settings")
-      .select("value")
-      .eq("key", "export_invoice_due_days")
-      .single();
-    dueDays = (setting?.value as number) ?? DEFAULT_DUE_DAYS;
-  }
 
   // ── 3. Load packaging items (for type='keg' detection + error messages) ───
   const packagingItemIds = [...new Set(rows.map((r) => r.packaging_item_id))];
@@ -243,11 +247,11 @@ export async function buildInvoicePreview(
 
   if (channel === "contract_brewing") {
     // ── 5a. Packaging Fee lines ─────────────────────────────────────────────
-    const kegFeeTransactionIds = new Set<string>();
+    // Total keg count across all keg-type transactions — drives keg cleaning qty.
+    const kegCleaningQty = sumKegCleaningQuantity(rows, pkgTypeById);
     for (const tx of rows) {
       const isKeg = pkgTypeById.get(tx.packaging_item_id) === "keg";
       const containerName = pkgNameById.get(tx.packaging_item_id) ?? "unknown container";
-      if (isKeg) kegFeeTransactionIds.add(tx.id);
 
       // Cans carry a case/loose format dimension on the mapping; kegs don't.
       const mapFormat = isKeg ? null : tx.packaging_format ?? "loose";
@@ -308,14 +312,14 @@ export async function buildInvoicePreview(
     // ── 5b. Excise Tax — one line per receiving_party, rolled up ─────────────
     lineItems.push(...await buildExciseTaxLines(supabase, transactionIds, rows));
 
-    // ── 5c. Keg Cleaning — one line, qty = count of keg-type fee transactions ─
-    if (kegFeeTransactionIds.size > 0) {
+    // ── 5c. Keg Cleaning — one line, qty = total kegs across keg-type txns ────
+    if (kegCleaningQty > 0) {
       const mapping = findMapping("keg_cleaning", null);
       if (mapping?.square_catalog_variation_id) {
         lineItems.push({
           id: crypto.randomUUID(),
           description: mapping.display_name,
-          quantity: kegFeeTransactionIds.size,
+          quantity: kegCleaningQty,
           unitPriceCents: priceByVariationId.get(mapping.square_catalog_variation_id) ?? 0,
           squareCatalogVariationId: mapping.square_catalog_variation_id,
         });
@@ -364,7 +368,6 @@ export async function buildInvoicePreview(
     customerName: partner.company_name,
     squareCustomerId: partner.square_customer_id,
     lineItems,
-    dueDays,
     channel,
     defaultDiscountCatalogId,
   };

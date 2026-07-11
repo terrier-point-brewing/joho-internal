@@ -11,13 +11,17 @@ export interface SearchSpec<T> {
   accessor: (row: T) => string | (string | null | undefined)[];
 }
 
-/** One categorical filter dimension. */
+/** One categorical filter dimension. Provide `matches` for group/predicate
+ *  filters that can't be expressed as single-value equality; otherwise the
+ *  engine uses `selected.includes(accessor(row))`. */
 export interface FilterSpec<T> {
   /** URL param key, e.g. "status" or "channel". */
   param: string;
-  accessor: (row: T) => string;
+  accessor?: (row: T) => string;
   /** true = multiple values may be selected (OR within the dimension). */
   multi?: boolean;
+  /** Custom membership test; overrides accessor-equality when present. */
+  matches?: (row: T, selected: string[]) => boolean;
 }
 
 /** One sortable column. */

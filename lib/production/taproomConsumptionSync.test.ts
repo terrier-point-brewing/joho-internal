@@ -4,36 +4,54 @@ vi.mock("@/lib/square/taproomConsumption", () => ({ deriveTaproomConsumption: vi
 vi.mock("@/lib/production/recordTaproomConsumption", () => ({ recordTaproomConsumption: vi.fn() }));
 vi.mock("@/lib/square/inventory", () => ({
   setPhysicalCount: vi.fn(),
-  fetchPhysicalCounts: vi.fn(),
+  fetchInventoryChanges: vi.fn(),
 }));
 vi.mock("@/lib/production/reconcileSquareCanInventory", () => ({
   reconcileSquareCanInventory: vi.fn(async () => ({ writes: [], skips: [], warnings: [], applied: 0 })),
 }));
 
-import { runTaproomConsumptionSync, remainingDelta, remainingAtOrBefore } from "./taproomConsumptionSync";
+import { runTaproomConsumptionSync, remainingDelta, onHandAtOrBefore } from "./taproomConsumptionSync";
 import { deriveTaproomConsumption } from "@/lib/square/taproomConsumption";
 import { recordTaproomConsumption } from "@/lib/production/recordTaproomConsumption";
-import { setPhysicalCount, fetchPhysicalCounts } from "@/lib/square/inventory";
+import { setPhysicalCount, fetchInventoryChanges, type InventoryChange } from "@/lib/square/inventory";
 import { reconcileSquareCanInventory } from "@/lib/production/reconcileSquareCanInventory";
 
 const derive = vi.mocked(deriveTaproomConsumption);
 const record = vi.mocked(recordTaproomConsumption);
 const recount = vi.mocked(setPhysicalCount);
-const fetchCounts = vi.mocked(fetchPhysicalCounts);
+const fetchChanges = vi.mocked(fetchInventoryChanges);
 const reconcile = vi.mocked(reconcileSquareCanInventory);
 
 const RECOUNT = { squareVariationId: "draft-sqvar", quantity: 660, occurredAt: "2026-07-04T20:00:00Z" };
 
-const pc = (id: string, quantity: number, occurredAt: string) => ({
-  id, catalog_object_id: "draft-sqvar", catalog_object_type: "ITEM_VARIATION",
-  state: "IN_STOCK", location_id: "LZ8TH4A632YW0",
-  quantity: String(quantity), occurred_at: occurredAt, created_at: occurredAt,
+// A PHYSICAL_COUNT ledger entry (absolute IN_STOCK reset — e.g. a keg swap to full).
+const pc = (quantity: number, occurredAt: string): InventoryChange => ({
+  type: "PHYSICAL_COUNT", catalog_object_id: "draft-sqvar",
+  state: "IN_STOCK", quantity, occurred_at: occurredAt,
+});
+
+// An ADJUSTMENT ledger entry that pulls `quantity` out of IN_STOCK (a pour: IN_STOCK → SOLD).
+const pour = (quantity: number, occurredAt: string): InventoryChange => ({
+  type: "ADJUSTMENT", catalog_object_id: "draft-sqvar",
+  from_state: "IN_STOCK", to_state: "SOLD", quantity, occurred_at: occurredAt,
 });
 
 // Fake supabase: export_transactions "already recorded" lookup returns `rows`;
-// draft_swap_shrinkage upserts are captured into `sink.shrinkage`.
-function fakeSupabase(rows: { source_ref: string; quantity: number }[], sink?: { shrinkage: unknown[] }) {
+// draft_swap_shrinkage upserts are captured into `sink.shrinkage`. `rpc` backs
+// the lease lock — `lockAcquired` controls whether try_acquire_sync_lock grants
+// it; release_sync_lock calls are captured in `sink.released`.
+function fakeSupabase(
+  rows: { source_ref: string; quantity: number }[],
+  sink?: { shrinkage: unknown[]; released?: number },
+  opts: { lockAcquired?: boolean } = {},
+) {
+  const lockAcquired = opts.lockAcquired ?? true;
   return {
+    rpc: async (fn: string) => {
+      if (fn === "try_acquire_sync_lock") return { data: lockAcquired, error: null };
+      if (fn === "release_sync_lock") { if (sink) sink.released = (sink.released ?? 0) + 1; return { data: null, error: null }; }
+      return { data: null, error: null };
+    },
     from: (table: string) => {
       if (table === "draft_swap_shrinkage") {
         return { upsert: async (row: unknown) => { sink?.shrinkage.push(row); return { error: null }; } };
@@ -64,7 +82,7 @@ const swapUnit = (over: Record<string, unknown> = {}) => ({
 });
 
 beforeEach(() => {
-  derive.mockReset(); record.mockReset(); recount.mockReset(); fetchCounts.mockReset();
+  derive.mockReset(); record.mockReset(); recount.mockReset(); fetchChanges.mockReset();
   reconcile.mockReset();
   reconcile.mockResolvedValue({ writes: [], skips: [], warnings: [], applied: 0 });
 });
@@ -76,17 +94,87 @@ describe("remainingDelta", () => {
   it("returns the full target when nothing recorded", () => { expect(remainingDelta(1, 0)).toBe(1); });
 });
 
-describe("remainingAtOrBefore", () => {
-  it("returns the latest count at or before the timestamp", () => {
-    const counts = [pc("a", 500, "2026-07-01T00:00:00Z"), pc("b", 45, "2026-07-04T18:00:00Z"), pc("c", 660, "2026-07-04T21:00:00Z")];
-    expect(remainingAtOrBefore(counts, "2026-07-04T20:00:00Z")).toBe(45);
+describe("onHandAtOrBefore", () => {
+  it("subtracts pours adjusted out of IN_STOCK since the last full-keg reset", () => {
+    // Keg reset to 660 on 07-02, then 16 + 32 fl oz poured before the swap.
+    const changes = [
+      pc(660, "2026-07-02T15:00:00Z"),
+      pour(16, "2026-07-03T18:00:00Z"),
+      pour(32, "2026-07-04T12:00:00Z"),
+    ];
+    expect(onHandAtOrBefore(changes, "2026-07-04T20:00:00Z")).toBe(660 - 16 - 32);
   });
-  it("returns null when no count precedes the timestamp", () => {
-    expect(remainingAtOrBefore([pc("c", 660, "2026-07-05T00:00:00Z")], "2026-07-04T20:00:00Z")).toBeNull();
+
+  it("ignores pours after the timestamp and before the anchoring reset", () => {
+    const changes = [
+      pour(99, "2026-07-01T00:00:00Z"), // before the reset — already baked into it
+      pc(500, "2026-07-02T00:00:00Z"),
+      pour(20, "2026-07-03T00:00:00Z"),
+      pour(40, "2026-07-05T00:00:00Z"), // after the swap timestamp
+    ];
+    expect(onHandAtOrBefore(changes, "2026-07-04T20:00:00Z")).toBe(500 - 20);
+  });
+
+  it("anchors on the latest reset when kegs were swapped mid-window", () => {
+    const changes = [
+      pc(660, "2026-07-01T00:00:00Z"),
+      pour(600, "2026-07-01T12:00:00Z"),
+      pc(660, "2026-07-03T00:00:00Z"), // fresh keg — supersedes everything prior
+      pour(45, "2026-07-04T10:00:00Z"),
+    ];
+    expect(onHandAtOrBefore(changes, "2026-07-04T20:00:00Z")).toBe(660 - 45);
+  });
+
+  it("credits adjustments back into IN_STOCK (e.g. a returned pour)", () => {
+    const changes = [
+      pc(660, "2026-07-02T00:00:00Z"),
+      pour(50, "2026-07-03T00:00:00Z"),
+      { type: "ADJUSTMENT", catalog_object_id: "draft-sqvar", from_state: "SOLD", to_state: "IN_STOCK", quantity: 10, occurred_at: "2026-07-03T06:00:00Z" } as InventoryChange,
+    ];
+    expect(onHandAtOrBefore(changes, "2026-07-04T20:00:00Z")).toBe(660 - 50 + 10);
+  });
+
+  it("never returns negative when pours exceed the reset (data drift)", () => {
+    const changes = [pc(100, "2026-07-02T00:00:00Z"), pour(140, "2026-07-03T00:00:00Z")];
+    expect(onHandAtOrBefore(changes, "2026-07-04T20:00:00Z")).toBe(0);
+  });
+
+  it("returns null when no physical count precedes the timestamp", () => {
+    expect(onHandAtOrBefore([pc(660, "2026-07-05T00:00:00Z")], "2026-07-04T20:00:00Z")).toBeNull();
   });
 });
 
 describe("runTaproomConsumptionSync", () => {
+  it("skips the whole run when another run holds the lease lock", async () => {
+    // The webhook fires this sync on every order.* event, so a restock burst
+    // spawns overlapping runs. A run that loses the lock must do NOTHING —
+    // never derive, never record — so it can't write duplicate rows.
+    derive.mockResolvedValue({ units: [swapUnit()], discrepancies: [] });
+    const res = await runTaproomConsumptionSync(
+      fakeSupabase([], undefined, { lockAcquired: false }), { days: 2 });
+    expect(res.lockSkipped).toBe(true);
+    expect(derive).not.toHaveBeenCalled();
+    expect(record).not.toHaveBeenCalled();
+    expect(res.recorded).toHaveLength(0);
+  });
+
+  it("acquires the lock, runs, and releases it on a normal run", async () => {
+    const sink = { shrinkage: [] as unknown[], released: 0 };
+    derive.mockResolvedValue({ units: [], discrepancies: [] });
+    const res = await runTaproomConsumptionSync(fakeSupabase([], sink), { days: 2 });
+    expect(res.lockSkipped).toBe(false);
+    expect(sink.released).toBe(1);
+  });
+
+  it("releases the lock even when the run throws", async () => {
+    const sink = { shrinkage: [] as unknown[], released: 0 };
+    derive.mockRejectedValue(new Error("derive boom"));
+    await expect(
+      runTaproomConsumptionSync(fakeSupabase([], sink), { days: 2 }),
+    ).rejects.toThrow("derive boom");
+    expect(sink.released).toBe(1);
+  });
+
   it("skips units already fully recorded and records nothing", async () => {
     derive.mockResolvedValue({ units: [unit()], discrepancies: [] });
     const res = await runTaproomConsumptionSync(
@@ -226,7 +314,11 @@ describe("runTaproomConsumptionSync", () => {
     const sink = { shrinkage: [] as unknown[] };
     derive.mockResolvedValue({ units: [swapUnit()], discrepancies: [] });
     record.mockResolvedValue({ recordedQty: 1, shortfallQty: 0, exportTransactionIds: ["x"], breaks: [], warnings: [] });
-    fetchCounts.mockResolvedValue([pc("b", 45, "2026-07-04T18:00:00Z")]);
+    // Reset to a full 660 keg, then 615 fl oz poured before the swap → 45 remaining.
+    fetchChanges.mockResolvedValue([
+      pc(660, "2026-07-02T15:00:00Z"),
+      pour(615, "2026-07-04T18:00:00Z"),
+    ]);
     const res = await runTaproomConsumptionSync(fakeSupabase([], sink), { days: 2 });
     expect(sink.shrinkage).toHaveLength(1);
     expect(sink.shrinkage[0]).toMatchObject({
@@ -251,7 +343,7 @@ describe("runTaproomConsumptionSync", () => {
     const sink = { shrinkage: [] as unknown[] };
     derive.mockResolvedValue({ units: [swapUnit()], discrepancies: [] });
     record.mockResolvedValue({ recordedQty: 1, shortfallQty: 0, exportTransactionIds: ["x"], breaks: [], warnings: [] });
-    fetchCounts.mockRejectedValue(new Error("square down"));
+    fetchChanges.mockRejectedValue(new Error("square down"));
     const res = await runTaproomConsumptionSync(fakeSupabase([], sink), { days: 2 });
     expect(recount).toHaveBeenCalled();
     expect(res.discrepancies).toContainEqual(

@@ -6,6 +6,11 @@ import { PackagingVariation, PackagingVariationFormat } from "../types";
 import { Modal, Field, ModalActions } from "./shared";
 import { usePackagingQuery, usePackagingVariationsQuery, useContractPartnersQuery, productionKeys } from "../hooks/queries";
 import { CATEGORY_BADGE_CLASS as CC, KEG_TAG_BADGE } from "../lib/categoryColors";
+import { useTableControls } from "@/app/components/ui/useTableControls";
+import SearchInput from "@/app/components/ui/SearchInput";
+import FilterChips from "@/app/components/ui/FilterChips";
+import FilterBar from "@/app/components/ui/FilterBar";
+import type { ControlsConfig } from "@/lib/table/types";
 
 const FORMATS: { value: PackagingVariationFormat; label: string }[] = [
   { value: "loose",   label: "Loose" },
@@ -18,6 +23,21 @@ const FORMAT_ORDER: PackagingVariationFormat[] = ["loose", "4-pack", "6-pack", "
 
 function needsPaktech(format: PackagingVariationFormat) { return format === "4-pack" || format === "6-pack"; }
 function needsTray(format: PackagingVariationFormat)     { return format === "case"; }
+
+const PKGVAR_CONTROLS: ControlsConfig<PackagingVariation> = {
+  search: [{ param: "q", accessor: (v) => v.name }],
+  filters: [
+    { param: "type", accessor: (v) => v.container?.type ?? "" },
+    { param: "format", matches: (v, sel) => sel.includes(v.container?.type === "keg" ? "loose" : v.format) },
+    { param: "partner", matches: (v, sel) => sel.some((s) => (s === "generic" ? v.partner_id === null : v.partner_id === s)) },
+  ],
+};
+
+const TYPE_OPTIONS = [
+  { value: "keg", label: "Keg", className: KEG_TAG_BADGE },
+  { value: "can", label: "Can" },
+];
+const FORMAT_OPTIONS = FORMATS.map((f) => ({ value: f.value, label: f.label }));
 
 const EMPTY_FORM = {
   container_id: "",
@@ -32,35 +52,6 @@ const EMPTY_FORM = {
 };
 
 type FormState = typeof EMPTY_FORM;
-
-function Chips<T extends string>({
-  label, options, value, onChange,
-}: {
-  label: string;
-  options: { value: T; label: string }[];
-  value: T;
-  onChange: (v: T) => void;
-}) {
-  return (
-    <div className="flex items-center gap-1.5 flex-wrap">
-      <span className="text-xs text-muted mr-0.5">{label}:</span>
-      {options.map((o) => (
-        <button
-          key={o.value}
-          type="button"
-          onClick={() => onChange(o.value)}
-          className={`text-xs px-2 py-0.5 rounded border transition-colors ${
-            value === o.value
-              ? "border-accent-border bg-accent-muted/40 text-accent-soft"
-              : "border-line-strong text-secondary hover:border-line-subtle hover:text-body"
-          }`}
-        >
-          {o.label}
-        </button>
-      ))}
-    </div>
-  );
-}
 
 const COMPONENT_COLORS = {
   lid:     "border-line-subtle bg-surface-mid/60 text-body",
@@ -91,10 +82,6 @@ export default function PackagingVariationsPanel() {
   const labels     = packaging.filter((p) => p.type === "label");
 
   // Filter state
-  const [search,        setSearch]        = useState("");
-  const [filterType,    setFilterType]    = useState<"all" | "keg" | "can">("all");
-  const [filterFormat,  setFilterFormat]  = useState<"all" | PackagingVariationFormat>("all");
-  const [filterPartner, setFilterPartner] = useState("all");
   const [showInactive,  setShowInactive]  = useState(false);
 
   // Modal state
@@ -116,48 +103,34 @@ export default function PackagingVariationsPanel() {
       }
     }
     return [
-      { value: "all",     label: "All" },
       { value: "generic", label: "Generic" },
       ...Array.from(seen.entries()).map(([id, name]) => ({ value: id, label: name })),
     ];
   }, [variations]);
 
-  const hasPartnerVariants = partnerChipOptions.length > 2;
+  const hasPartnerVariants = partnerChipOptions.length > 1;
 
+  // showInactive pre-filters the input set; search/type/format/partner run through the shared hook.
+  const base = useMemo(
+    () => (showInactive ? variations : variations.filter((v) => v.is_active)),
+    [variations, showInactive],
+  );
+  const { rows: matched, search, filters, setSearch, setFilter, reset, activeCount } =
+    useTableControls(base, PKGVAR_CONTROLS);
+
+  // Fixed keg-first → format-order → name ordering is intentional — preserved verbatim,
+  // applied after the shared hook's search/filter pass (no SortableTh; not user-configurable).
   const displayed = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return variations
-      .filter((v) => {
-        if (!showInactive && !v.is_active) return false;
-        if (q && !v.name.toLowerCase().includes(q)) return false;
-        if (filterType !== "all" && v.container?.type !== filterType) return false;
-        if (filterFormat !== "all") {
-          const eff = v.container?.type === "keg" ? "loose" : v.format;
-          if (eff !== filterFormat) return false;
-        }
-        if (filterPartner === "generic" && v.partner_id !== null) return false;
-        if (filterPartner !== "all" && filterPartner !== "generic" && v.partner_id !== filterPartner) return false;
-        return true;
-      })
-      .sort((a, b) => {
-        const ta = a.container?.type === "keg" ? 0 : 1;
-        const tb = b.container?.type === "keg" ? 0 : 1;
-        if (ta !== tb) return ta - tb;
-        const fa = FORMAT_ORDER.indexOf(a.container?.type === "keg" ? "loose" : a.format);
-        const fb = FORMAT_ORDER.indexOf(b.container?.type === "keg" ? "loose" : b.format);
-        if (fa !== fb) return fa - fb;
-        return a.name.localeCompare(b.name);
-      });
-  }, [variations, search, filterType, filterFormat, filterPartner, showInactive]);
-
-  const hasActiveFilters = search || filterType !== "all" || filterFormat !== "all" || filterPartner !== "all";
-
-  function clearFilters() {
-    setSearch("");
-    setFilterType("all");
-    setFilterFormat("all");
-    setFilterPartner("all");
-  }
+    return [...matched].sort((a, b) => {
+      const ta = a.container?.type === "keg" ? 0 : 1;
+      const tb = b.container?.type === "keg" ? 0 : 1;
+      if (ta !== tb) return ta - tb;
+      const fa = FORMAT_ORDER.indexOf(a.container?.type === "keg" ? "loose" : a.format);
+      const fb = FORMAT_ORDER.indexOf(b.container?.type === "keg" ? "loose" : b.format);
+      if (fa !== fb) return fa - fb;
+      return a.name.localeCompare(b.name);
+    });
+  }, [matched]);
 
   function openNew() { setForm(EMPTY_FORM); setEditingId(null); setError(null); setShowModal(true); }
 
@@ -248,14 +221,15 @@ export default function PackagingVariationsPanel() {
       {/* Search + filters */}
       <div className="mb-3 space-y-2">
         <div className="flex items-center gap-3">
-          <input
-            type="search"
-            placeholder="Search by name…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="inp flex-1 max-w-xs text-xs py-1"
-          />
-          <label className="flex items-center gap-1.5 text-xs text-muted cursor-pointer select-none">
+          <FilterBar activeCount={activeCount} onClear={reset}>
+            <SearchInput value={search.q ?? ""} onChange={(v) => setSearch("q", v)} placeholder="Search variations…" />
+            <FilterChips label="Type" options={TYPE_OPTIONS} value={filters.type ?? []} onChange={(v) => setFilter("type", v)} />
+            <FilterChips label="Format" options={FORMAT_OPTIONS} value={filters.format ?? []} onChange={(v) => setFilter("format", v)} />
+            {hasPartnerVariants && (
+              <FilterChips label="Partner" options={partnerChipOptions} value={filters.partner ?? []} onChange={(v) => setFilter("partner", v)} />
+            )}
+          </FilterBar>
+          <label className="flex items-center gap-1.5 text-xs text-muted cursor-pointer select-none shrink-0">
             <input
               type="checkbox"
               checked={showInactive}
@@ -265,45 +239,14 @@ export default function PackagingVariationsPanel() {
             Show inactive
           </label>
         </div>
-        <div className="flex flex-wrap gap-x-5 gap-y-1.5">
-          <Chips
-            label="Type"
-            options={[
-              { value: "all", label: "All" },
-              { value: "keg", label: "Keg" },
-              { value: "can", label: "Can" },
-            ] as { value: "all" | "keg" | "can"; label: string }[]}
-            value={filterType}
-            onChange={(v) => { setFilterType(v); if (v === "keg") setFilterFormat("all"); }}
-          />
-          <Chips
-            label="Format"
-            options={[{ value: "all", label: "All" }, ...FORMATS] as { value: "all" | PackagingVariationFormat; label: string }[]}
-            value={filterFormat}
-            onChange={setFilterFormat}
-          />
-          {hasPartnerVariants && (
-            <Chips
-              label="Partner"
-              options={partnerChipOptions}
-              value={filterPartner}
-              onChange={setFilterPartner}
-            />
-          )}
-        </div>
       </div>
 
-      {/* Result count + clear */}
-      {(hasActiveFilters || showInactive) && (
+      {/* Result count */}
+      {(activeCount > 0 || showInactive) && (
         <div className="flex items-center gap-2 mb-2">
           <span className="text-xs text-muted">
             {displayed.length} of {variations.length} variation{variations.length !== 1 ? "s" : ""}
           </span>
-          {hasActiveFilters && (
-            <button onClick={clearFilters} className="text-xs text-faint hover:text-secondary">
-              Clear filters
-            </button>
-          )}
         </div>
       )}
 

@@ -44,20 +44,32 @@ export default function AccountSelect({
 }) {
   const [open, setOpen]   = useState(false);
   const [query, setQuery] = useState("");
-  const [pos, setPos]     = useState<{ top: number; left: number; width: number } | null>(null);
+  const [pos, setPos]     = useState<{ top: number; left: number; width: number; maxHeight: number } | null>(null);
   const wrapRef           = useRef<HTMLDivElement>(null);
   const panelRef          = useRef<HTMLDivElement>(null);
   const inputRef          = useRef<HTMLInputElement>(null);
 
   // The panel renders in a portal (fixed positioning) so it can extend past the
   // table's overflow-clipping wrappers. Position is derived from the trigger's rect.
+  // Flip above the trigger when there isn't room below (near the viewport bottom),
+  // and cap the height to the available space so it never runs off-screen.
   const computePos = useCallback(() => {
     const el = wrapRef.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
     const width = Math.max(r.width, 260);
     const left = Math.max(8, Math.min(r.left, window.innerWidth - width - 8));
-    setPos({ top: r.bottom + 4, left, width });
+
+    const GAP = 4;
+    const MARGIN = 8;
+    const PREFERRED = 256; // matches max-h-64
+    const spaceBelow = window.innerHeight - r.bottom - GAP - MARGIN;
+    const spaceAbove = r.top - GAP - MARGIN;
+    const openUp = spaceBelow < PREFERRED && spaceAbove > spaceBelow;
+
+    const maxHeight = Math.min(PREFERRED, Math.max(openUp ? spaceAbove : spaceBelow, 120));
+    const top = openUp ? r.top - GAP - maxHeight : r.bottom + GAP;
+    setPos({ top, left, width, maxHeight });
   }, []);
 
   const selected = accounts.find((a) => a.id === value) ?? null;
@@ -143,8 +155,8 @@ export default function AccountSelect({
       {open && pos && createPortal(
         <div
           ref={panelRef}
-          className="fixed z-50 bg-surface border border-line-strong rounded-lg shadow-xl flex flex-col max-h-64"
-          style={{ top: pos.top, left: pos.left, width: pos.width }}
+          className="fixed z-50 bg-surface border border-line-strong rounded-lg shadow-xl flex flex-col"
+          style={{ top: pos.top, left: pos.left, width: pos.width, maxHeight: pos.maxHeight }}
         >
           <div className="p-1.5 border-b border-line shrink-0">
             <input

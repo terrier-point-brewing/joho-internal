@@ -14,7 +14,9 @@ export default function TransactionsLayout({ children }: { children: React.React
       <div className="shrink-0 px-4 sm:px-6">
         <PageHeader title="Transactions" />
       </div>
-      <TransactionsNav />
+      <div className="shrink-0 px-4 sm:px-6">
+        <TransactionsNav />
+      </div>
       {children}
     </div>
   );

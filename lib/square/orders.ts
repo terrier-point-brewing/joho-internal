@@ -1,5 +1,5 @@
 import { unstable_cache } from "next/cache";
-import { squarePost, squarePostAll, squareLocationId } from "./client";
+import { squarePost, squarePostAll, squareLocationId, squareGet, isSquareNotFound } from "./client";
 import type { Order, SquareInvoice } from "@/types/square";
 import { dayRangeUtc } from "@/lib/utils/datetime";
 import { getBreweryTimezone } from "@/lib/settings/breweryTimezone.server";
@@ -91,6 +91,17 @@ export async function fetchSquareInvoices(): Promise<SquareInvoice[]> {
     },
     limit: 200,
   });
+}
+
+/** Fetch one Square invoice by id (GET /invoices/{id}); null if not found. */
+export async function fetchSquareInvoiceById(invoiceId: string): Promise<SquareInvoice | null> {
+  try {
+    const res = await squareGet<{ invoice?: SquareInvoice }>(`/invoices/${invoiceId}`);
+    return res.invoice ?? null;
+  } catch (err) {
+    if (isSquareNotFound(err)) return null;
+    throw err;
+  }
 }
 
 // Invoice orders — includes OPEN (unpaid) and COMPLETED so we can show outstanding balances

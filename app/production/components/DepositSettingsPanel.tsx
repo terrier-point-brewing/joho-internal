@@ -102,9 +102,9 @@ function DepositInvoiceTermsSection() {
 
   return (
     <section>
-      <h3 className="text-sm font-medium text-strong mb-2">Default Deposit Net Terms</h3>
+      <h3 className="text-sm font-medium text-strong mb-2">Deposit Invoice Net Terms</h3>
       <p className="text-xs text-faint mb-2">
-        Days until payment is due on a generated deposit invoice, used when a partner has no override set (set per-partner in the Partners tab).
+        Days from the draft date until a deposit invoice is due. Applies to every partner.
       </p>
       <div className="flex items-center gap-2">
         <input

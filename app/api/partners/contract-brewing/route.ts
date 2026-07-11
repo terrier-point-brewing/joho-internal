@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
   const supabase = await createSupabaseServerClient();
 
   const body = await req.json();
-  const { company_name, first_name, last_name, phone, address, email, notes, export_net_terms_days, deposit_net_terms_days } = body;
+  const { company_name, first_name, last_name, phone, address, email, notes } = body;
   if (!company_name) return NextResponse.json({ error: "company_name is required" }, { status: 400 });
 
   const { data, error } = await supabase
@@ -35,8 +35,6 @@ export async function POST(req: NextRequest) {
       address: address || null,
       email: email || null,
       notes: notes || null,
-      export_net_terms_days: export_net_terms_days != null ? Number(export_net_terms_days) : null,
-      deposit_net_terms_days: deposit_net_terms_days != null ? Number(deposit_net_terms_days) : null,
     })
     .select()
     .single();

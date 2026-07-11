@@ -15,6 +15,8 @@ import {
 } from "@/lib/finance/invoiceLineItems";
 import type { InvoiceLineItemDraft } from "@/lib/production/exportInvoicePreview";
 import type { CatalogItem } from "@/types/square";
+import { getNetTermsDays } from "@/lib/production/invoiceTerms";
+import { addDaysStr, todayLocalDate } from "@/lib/utils/datetime";
 
 export const dynamic = "force-dynamic";
 
@@ -78,7 +80,7 @@ export async function POST(req: NextRequest) {
 
     const { data: partner, error: partnerErr } = await supabase
       .from("contract_brewing_partners")
-      .select("company_name, square_customer_id, export_net_terms_days")
+      .select("company_name, square_customer_id")
       .eq("id", customerId)
       .single();
     if (partnerErr) return NextResponse.json({ error: partnerErr.message }, { status: 500 });
@@ -87,16 +89,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "This partner has no linked Square customer — add one in Contract Brewing Partners before invoicing" }, { status: 400 });
     }
 
-    let dueDays = partner.export_net_terms_days as number | null;
-    if (dueDays == null) {
-      const { data: setting, error: settingErr } = await supabase
-        .from("system_settings")
-        .select("value")
-        .eq("key", "export_invoice_due_days")
-        .single();
-      if (settingErr) console.error("[export-invoice] failed to fetch export_invoice_due_days setting:", settingErr);
-      dueDays = (setting?.value as number) ?? 30;
-    }
+    const netTerms = await getNetTermsDays(supabase, "export");
+    const draftDate = todayLocalDate();
+    const dueDate = addDaysStr(draftDate, netTerms);
 
     let result;
     try {
@@ -104,14 +99,13 @@ export async function POST(req: NextRequest) {
         squareCustomerId: partner.square_customer_id,
         title: `Export Invoice — ${partner.company_name}`,
         lineItems,
-        dueDays,
+        dueDate,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Square invoice creation failed";
       return NextResponse.json({ error: message }, { status: 500 });
     }
 
-    const today = new Date().toISOString().slice(0, 10);
     const totalCents = lineItems.reduce((s, li) => s + li.quantity * li.unitPriceCents, 0);
 
     // Upsert a Draft invoices row immediately so invoice_id can be set on txns.
@@ -126,7 +120,8 @@ export async function POST(req: NextRequest) {
           invoice_type: "export_invoice",
           partner_id: customerId,
           customer_name: partner.company_name,
-          invoice_date: today,
+          invoice_date: draftDate,
+          due_date: dueDate,
           status: "draft",
           subtotal_cents: totalCents,
           tax_cents: 0,
