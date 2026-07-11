@@ -11,7 +11,7 @@ ln -sf $(git worktree list --porcelain | awk '/^worktree/{print $2; exit}')/.env
 Do this before running any dev commands.
 
 ## Commands
-`npm run dev` · `npm run build` · `npm run lint` · deploy: `vercel deploy --prod` from repo root
+`npm run dev` · `npm run build` · `npm run verify` (lint + typecheck + tests — the per-task DoD command) · deploy: `vercel deploy --prod` from repo root
 
 ## Env / Infra
 `.env.local` (local) + Vercel project settings (prod): `SQUARE_ACCESS_TOKEN`, `SQUARE_LOCATION_ID=LZ8TH4A632YW0`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`. Supabase project ID: `drlsazatrcrdwaihjmex`. Square API version `2025-04-16`.
@@ -37,15 +37,27 @@ Do this before running any dev commands.
 - New or modified `lib/` business-logic modules ship with co-located `*.test.ts` covering the pure logic paths; CI runs `npm run test` on every PR. Don't drop `lib/` coverage below the `vitest.config.ts` threshold floor.
 - This Next.js version has breaking API/convention changes vs. training data — see `AGENTS.md`
 
-## Model Selection
-- Default to **Sonnet** for all tasks.
-- Use **Opus** for: complex multi-file refactors, architectural decisions with high blast radius, prod DB migrations, irreversible data ops, systematic debugging of non-obvious issues, or when Sonnet output seems insufficient. Otherwise prefer Sonnet.
+## Model Selection (phase-based — pass `model` to the Agent tool on every spawn)
+- Spec / brainstorm / architecture / plan writing → **Opus** (Sonnet if the feature touches ≤3 files).
+- Implementation subagents → **Sonnet** by default.
+- Mechanical tasks (docs/config updates, renames/moves, test scaffolds, any task whose brief fully specifies the code) → **Haiku**.
+- Per-task review → **Sonnet**. Final whole-branch review → **Opus**, once per feature.
+- Escalate a task to Opus only if it: touches `volumeLedger.ts`/`commitments.ts`, is a prod migration or irreversible data op, needs novel algorithmic logic, or failed Sonnet review twice.
+- Implementation plans MUST include a `model` column in the task table; the orchestrator honors it.
 
-## Agent/Subagent Usage
-- Do NOT spawn subagents (Agent tool / Explore) for simple, single-file fixes or small well-scoped edits — read the file and make the change directly.
-- Reserve subagents for genuinely broad, multi-step, or open-ended tasks (cross-codebase exploration, multi-file refactors spanning unclear scope, parallelizable independent work).
-- When in doubt about scope, default to handling it directly first; only escalate to a subagent if direct exploration reveals the task is larger than expected.
-- **Full spec builds require an implementation plan + subagents.** When given a spec or multi-file feature to build, always write a plan first (superpowers:writing-plans), then execute it with parallel subagents (superpowers:subagent-driven-development). Do not attempt full spec builds as a single inline session.
+## Agent/Subagent Usage (tiered by scope)
+- ≤3 files or ~≤300 changed LOC → handle inline. No plan doc, no subagents.
+- 4–6 files → write a plan (superpowers:writing-plans), execute it inline (superpowers:executing-plans). No per-task spawns.
+- Larger multi-group plans only → superpowers:subagent-driven-development.
+- **Group plan tasks by file locality, not just dependency.** Tasks touching the same route/component/module go to ONE agent sequentially. Every extra spawn is a cold context rebuild — parallelism saves wall-clock, not tokens.
+- Subagent briefs are self-contained: include the interfaces and the 10–30 lines of existing code the task touches, and state "do NOT re-read the plan or spec." Subagents read `docs/agent-context.md` for conventions — not UI_STANDARD.md or CLAUDE.md deep-dives (full docs only per Extended Documentation Triggers).
+- Review economy: per-task reviews output findings only (severity + file:line + one-line fix) — no diff quoting, no prose summaries. Skip per-task review for docs-only/config-only tasks. Keep the single final Opus whole-branch review.
+
+## Plans & Task Briefs (token discipline — strict)
+- Plans and briefs specify: file map, interfaces/types, function signatures, acceptance criteria, and test cases — **never full implementation bodies**.
+- Inline code only for genuinely non-obvious logic, capped at ~20 lines per task.
+- A brief must be executable by a competent engineer with only the brief + the repo.
+- Rationale and measurements: `docs/agent-token-efficiency.md`.
 
 ## Architecture Priorities (strict)
 - **Modularity over inline logic, always.** No business logic in `app/api/**` or page components — extract to `lib/`. One responsibility per file/hook/module. If a file is doing two unrelated things, split it.
@@ -69,4 +81,4 @@ Do this before running any dev commands.
 - Adding/changing a Square integration → check `lib/square/client.ts` for the shared request wrapper before adding a new module
 - Schema changes → read latest files in `supabase/migrations/` and add a new migration, don't hand-edit existing ones
 - Touching `app/production/**`, `app/api/production/**`, or `lib/production/**` → read `docs/production-schema.md` for table layout, equipment-type rules, and known limitations
-- Next.js routing/conventions uncertainty → read `node_modules/next/dist/docs/` per `AGENTS.md`
+- Next.js routing/conventions uncertainty → read `docs/nextjs16-deltas.md` first; fall back to `node_modules/next/dist/docs/` only if it doesn't answer the question
