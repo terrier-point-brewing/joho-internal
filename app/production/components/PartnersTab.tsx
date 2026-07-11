@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ContractBrewingPartner, Supplier } from "../types";
 import { Modal, Field, ModalActions } from "./shared";
+import SearchInput from "@/app/components/ui/SearchInput";
 import { useContractPartnersQuery, useSuppliersQuery, productionKeys } from "../hooks/queries";
 import TabBar, { type TabDef } from "@/app/components/TabBar";
 
@@ -57,7 +58,6 @@ function SquareImportModal({ linkingPartner, onClose, onDone }: SquareImportModa
   const [selected, setSelected] = useState<SquareContact | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchContacts = useCallback(async (q: string) => {
     setLoading(true);
@@ -80,14 +80,6 @@ function SquareImportModal({ linkingPartner, onClose, onDone }: SquareImportModa
   // search box, not cached list data — the mount fetch is intentional.
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { fetchContacts(""); }, [fetchContacts]);
-
-  function handleQueryChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const q = e.target.value;
-    setQuery(q);
-    setSelected(null);
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => fetchContacts(q), 350);
-  }
 
   async function handleImport() {
     if (!selected) return;
@@ -130,12 +122,13 @@ function SquareImportModal({ linkingPartner, onClose, onDone }: SquareImportModa
         )}
 
         <Field label="Search Square contacts">
-          <input
-            className="inp"
-            placeholder="Name, company, or email…"
+          <SearchInput
             value={query}
-            onChange={handleQueryChange}
+            onChange={(v) => { setQuery(v); setSelected(null); fetchContacts(v); }}
+            placeholder="Search by name, company, or email…"
+            debounceMs={350}
             autoFocus
+            className="max-w-none"
           />
         </Field>
 

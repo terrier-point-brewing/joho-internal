@@ -13,6 +13,7 @@ export default function SearchInput({
   debounceMs = 200,
   className = "",
   ariaLabel,
+  autoFocus,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -20,6 +21,7 @@ export default function SearchInput({
   debounceMs?: number;
   className?: string;
   ariaLabel?: string;
+  autoFocus?: boolean;
 }) {
   const [text, setText] = useState(value);
   const [prevValue, setPrevValue] = useState(value);
@@ -52,6 +54,7 @@ export default function SearchInput({
       onChange={(e) => setText(e.target.value)}
       placeholder={placeholder}
       aria-label={ariaLabel ?? placeholder}
+      autoFocus={autoFocus}
       className={`inp-sm max-w-xs ${className}`.trim()}
     />
   );
