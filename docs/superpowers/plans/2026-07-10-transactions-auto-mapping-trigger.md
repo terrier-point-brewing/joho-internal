@@ -17,7 +17,7 @@
 - **Schema changes = a new migration file** under `supabase/migrations/`; never hand-edit an applied migration. Migrations to prod are applied MANUALLY by the user after explicit OK + backup — a subagent NEVER applies a migration to the live prod DB. (CLAUDE.md, memory `feedback_prod_db_migration_authorization`)
 - **Auth:** every route keeps its existing `requireRole([...])` gate unchanged.
 - **Idempotency:** all triggers are safe to run repeatedly (overlapping webhook + cron deliveries are expected).
-- Migration timestamp convention in this repo is `YYYYMMDD_name.sql` (latest is `20260725_ramp_bank_ledger.sql`). Use `20260726_bank_ledger_counterparty_key.sql`.
+- Migration timestamp convention in this repo is `YYYYMMDD_name.sql` (latest is `20260725_ramp_bank_ledger.sql`). A `20260726_taproom_sync_lock.sql` already exists+applied to prod, so use `20260727_bank_ledger_counterparty_key.sql` to sort cleanly after it.
 
 ---
 
@@ -42,7 +42,7 @@ Key existing pure functions to reuse:
 ## File Structure
 
 **Create:**
-- `supabase/migrations/20260726_bank_ledger_counterparty_key.sql` — add `counterparty_key` to `ramp_bank_ledger`, backfill from `counterparty_name`.
+- `supabase/migrations/20260727_bank_ledger_counterparty_key.sql` — add `counterparty_key` to `ramp_bank_ledger`, backfill from `counterparty_name`.
 - `lib/finance/autoMap.ts` — pure back-fill resolvers + thin IO wrappers for all four sources. One home for retroactive auto-map, consumed by the manual-button routes AND the rule-mutation routes.
 - `lib/finance/autoMap.test.ts` — unit tests for the pure resolvers.
 
@@ -110,14 +110,14 @@ Where `type AdminClient = ReturnType<typeof import("@/lib/supabase/admin").creat
 Bank-ledger rows store `counterparty_name` but not the normalized `counterparty_key` that `expense_counterparty_mappings` is keyed on. Add the column and backfill it so bank-ledger auto-map can join to the existing counterparty rules table without recomputing the key on every read.
 
 **Files:**
-- Create: `supabase/migrations/20260726_bank_ledger_counterparty_key.sql`
+- Create: `supabase/migrations/20260727_bank_ledger_counterparty_key.sql`
 
 **Interfaces:**
 - Produces: `ramp_bank_ledger.counterparty_key text` (nullable), index `ramp_bank_ledger_counterparty_key_idx`.
 
 - [ ] **Step 1: Write the migration**
 
-Create `supabase/migrations/20260726_bank_ledger_counterparty_key.sql`:
+Create `supabase/migrations/20260727_bank_ledger_counterparty_key.sql`:
 
 ```sql
 -- Bank-ledger rows currently store only counterparty_name. Auto-mapping resolves
@@ -149,7 +149,7 @@ Expected: a definition whose transform the SQL reproduces character-for-characte
 - [ ] **Step 3: Commit**
 
 ```bash
-git add supabase/migrations/20260726_bank_ledger_counterparty_key.sql
+git add supabase/migrations/20260727_bank_ledger_counterparty_key.sql
 git commit -m "feat(finance): add counterparty_key to ramp_bank_ledger for auto-map join"
 ```
 
@@ -1105,7 +1105,7 @@ git commit -m "test(finance): verify auto-mapping trigger suite passes + coverag
 
 ## Post-Plan Hand-Off Checklist
 
-- [ ] **Prod migration:** `supabase/migrations/20260726_bank_ledger_counterparty_key.sql` must be applied to prod MANUALLY by the user after a backup (per `feedback_prod_db_migration_authorization`). Bank-ledger ingest auto-map (Task 2) and `autoMapBankLedger` (Task 3) SELECT/UPSERT `counterparty_key`, so they require the column in prod before the Ramp webhook/cron next runs.
+- [ ] **Prod migration:** `supabase/migrations/20260727_bank_ledger_counterparty_key.sql` must be applied to prod MANUALLY by the user after a backup (per `feedback_prod_db_migration_authorization`). Bank-ledger ingest auto-map (Task 2) and `autoMapBankLedger` (Task 3) SELECT/UPSERT `counterparty_key`, so they require the column in prod before the Ramp webhook/cron next runs.
 - [ ] **Webhook year assumption:** Task 7 syncs the current year on invoice webhook events; prior-year invoice edits self-heal via the daily cron. Note if a per-invoice or event-date-derived sync is wanted later.
 - [ ] The manual "Auto-map all" buttons remain in the UI as a safety net; no UI change is in scope.
 
