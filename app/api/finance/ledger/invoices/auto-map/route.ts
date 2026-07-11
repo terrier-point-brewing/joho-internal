@@ -2,11 +2,14 @@
  * POST /api/finance/ledger/invoices/auto-map?year=YYYY
  *
  * For all invoice line items in the given year that have no chart_of_accounts_id,
- * resolves a mapping from two sources (in priority order):
- *   1. Other already-mapped line items with the same description.
- *   2. Catalog variation mappings: chart_of_accounts_id_invoice (if set),
- *      else chart_of_accounts_id — matched by building "item_name — variation_name"
- *      the same way the sync route builds line item descriptions.
+ * resolves a mapping from three sources (in priority order):
+ *   1. Catalog variation mappings keyed by the line's own square_catalog_variation_id:
+ *      chart_of_accounts_id_invoice (if set), else chart_of_accounts_id.
+ *   2. Other already-mapped line items with the same description.
+ *   3. Catalog variation mappings matched by building "item_name — variation_name"
+ *      the same way the sync route builds line item descriptions (fallback for
+ *      items whose description matches a catalog variation but that lack their
+ *      own variation id, e.g. manual/QuickBooks lines).
  *
  * Returns the count of items mapped.
  */
@@ -25,7 +28,7 @@ export async function POST(req: NextRequest) {
   // ── 1. Fetch all line items for the year ────────────────────────────────────
   const { data: allItems, error } = await supabase
     .from("invoice_line_items")
-    .select("id, description, variation_name, chart_of_accounts_id, invoices!invoice_line_items_invoice_id_fkey!inner(invoice_date)")
+    .select("id, description, variation_name, square_catalog_variation_id, chart_of_accounts_id, invoices!invoice_line_items_invoice_id_fkey!inner(invoice_date)")
     .gte("invoices.invoice_date", `${year}-01-01`)
     .lte("invoices.invoice_date", `${year}-12-31`);
 
@@ -65,22 +68,38 @@ export async function POST(req: NextRequest) {
     if (!coaByDescription.has(plainKey)) coaByDescription.set(plainKey, coaId);
   }
 
-  // ── 4. Apply mappings to unmapped items ─────────────────────────────────────
-  const toUpdate = allItems.filter(
-    (item) =>
-      !item.chart_of_accounts_id &&
-      item.description &&
-      coaByDescription.has(item.description.trim().toLowerCase())
-  );
+  // ── 4. Source 3: catalog variation id → CoA (primary; takes priority over description) ──
+  const coaByVariationId = new Map<string, string>();
+  const { data: varMaps } = await supabase
+    .from("square_catalog_variations")
+    .select("square_variation_id, chart_of_accounts_id, chart_of_accounts_id_invoice")
+    .or("chart_of_accounts_id.not.is.null,chart_of_accounts_id_invoice.not.is.null");
+  for (const v of varMaps ?? []) {
+    const coaId = v.chart_of_accounts_id_invoice ?? v.chart_of_accounts_id;
+    if (coaId) coaByVariationId.set(v.square_variation_id, coaId);
+  }
+
+  function resolveCoa(item: { square_catalog_variation_id: string | null; description: string | null }): string | undefined {
+    if (item.square_catalog_variation_id && coaByVariationId.has(item.square_catalog_variation_id)) {
+      return coaByVariationId.get(item.square_catalog_variation_id);
+    }
+    if (item.description && coaByDescription.has(item.description.trim().toLowerCase())) {
+      return coaByDescription.get(item.description.trim().toLowerCase());
+    }
+    return undefined;
+  }
+
+  // ── 5. Apply mappings to unmapped items ─────────────────────────────────────
+  const toUpdate = allItems
+    .filter((item) => !item.chart_of_accounts_id)
+    .map((item) => ({ item, coaId: resolveCoa(item) }))
+    .filter((x): x is { item: typeof x.item; coaId: string } => !!x.coaId);
 
   if (toUpdate.length === 0) return NextResponse.json({ mapped: 0 });
 
   const results = await Promise.allSettled(
-    toUpdate.map((item) =>
-      supabase
-        .from("invoice_line_items")
-        .update({ chart_of_accounts_id: coaByDescription.get(item.description!.trim().toLowerCase()) })
-        .eq("id", item.id)
+    toUpdate.map(({ item, coaId }) =>
+      supabase.from("invoice_line_items").update({ chart_of_accounts_id: coaId }).eq("id", item.id)
     )
   );
 
