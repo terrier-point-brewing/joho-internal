@@ -5,6 +5,12 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchJson, useContractPartnersQuery, useExportServiceMappingsQuery, useExportSquareCatalogQuery } from "../hooks/queries";
 import { queryKeys } from "@/lib/query-keys";
 import { fmtUsd } from "@/lib/utils/formatting";
+import { useTableControls } from "@/app/components/ui/useTableControls";
+import SearchInput from "@/app/components/ui/SearchInput";
+import FilterSelect from "@/app/components/ui/FilterSelect";
+import FilterBar from "@/app/components/ui/FilterBar";
+import SortableTh from "@/app/components/ui/SortableTh";
+import type { ControlsConfig } from "@/lib/table/types";
 
 interface InvoiceLineItem {
   id: string;
@@ -543,9 +549,6 @@ export default function ExportInvoicesTab({ highlightInvoiceId }: ExportInvoices
   const { data: partners = [] } = useContractPartnersQuery();
 
   const [expandedId, setExpandedId] = useState<string | null>(highlightInvoiceId ?? null);
-  const [customerFilter, setCustomerFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [yearFilter, setYearFilter] = useState<number | "all">("all");
 
   // Sync expanded state when highlightInvoiceId changes from parent.
   // React-recommended pattern: track previous prop in state and call setState
@@ -556,7 +559,7 @@ export default function ExportInvoicesTab({ highlightInvoiceId }: ExportInvoices
     if (highlightInvoiceId) setExpandedId(highlightInvoiceId);
   }
 
-  const partnerNames = useMemo(() => new Map(partners.map((p) => [p.id, p.company_name])), [partners]);
+  const partnerNameById = useMemo(() => new Map(partners.map((p) => [p.id, p.company_name])), [partners]);
 
   const years = useMemo(() => {
     const ys = new Set(
@@ -565,17 +568,31 @@ export default function ExportInvoicesTab({ highlightInvoiceId }: ExportInvoices
     return [...ys].sort().reverse();
   }, [invoices]);
 
-  // partnerNames used in filter dropdown via partners list directly
-  void partnerNames;
+  // Search/filter/sort config — customer sort needs the partner-name map, so this
+  // closes over it and must stay useMemo for a stable dep set.
+  const invoiceControls = useMemo<ControlsConfig<ExportInvoiceListItem>>(() => ({
+    search: [{ param: "q", accessor: (i) => i.invoice_number ?? "" }],
+    filters: [
+      { param: "customer", accessor: (i) => i.partner_id ?? "" },
+      { param: "status", accessor: (i) => i.status },
+      { param: "year", accessor: (i) => i.invoice_date?.slice(0, 4) ?? "" },
+    ],
+    sort: {
+      columns: [
+        { key: "invoice_number", accessor: (i) => i.invoice_number ?? "" },
+        { key: "invoice_date", accessor: (i) => i.invoice_date ?? "" },
+        { key: "customer", accessor: (i) => partnerNameById.get(i.partner_id ?? "") ?? "" },
+        { key: "status", accessor: (i) => i.status },
+        { key: "total", accessor: (i) => i.total_cents },
+      ],
+      default: { key: "invoice_date", dir: "desc" },
+    },
+  }), [partnerNameById]);
 
-  const filtered = useMemo(() => {
-    return invoices.filter((inv) => {
-      if (customerFilter !== "all" && inv.partner_id !== customerFilter) return false;
-      if (statusFilter !== "all" && inv.status !== statusFilter) return false;
-      if (yearFilter !== "all" && inv.invoice_date?.slice(0, 4) !== String(yearFilter)) return false;
-      return true;
-    });
-  }, [invoices, customerFilter, statusFilter, yearFilter]);
+  // prefix the URL params: this tab shares /production/export with sibling tabs
+  // (Export Bay uses "bay_") — avoid param collisions.
+  const { rows: filtered, search, filters, sort, setSearch, setFilter, toggleSort, reset, activeCount } =
+    useTableControls(invoices, invoiceControls, { prefix: "inv_" });
 
   const openTotal = filtered
     .filter((inv) => inv.status === "open" || inv.status === "draft")
@@ -589,46 +606,37 @@ export default function ExportInvoicesTab({ highlightInvoiceId }: ExportInvoices
 
   return (
     <div className="space-y-4">
-      {/* Filter bar */}
-      <div className="flex flex-wrap items-center gap-2">
-        <label htmlFor="inv-customer-filter" className="sr-only">Filter by customer</label>
-        <select
-          id="inv-customer-filter"
-          value={customerFilter}
-          onChange={(e) => setCustomerFilter(e.target.value)}
-          className="bg-surface-mid border border-line-strong rounded px-2 py-1 text-xs text-strong"
-        >
-          <option value="all">All Customers</option>
-          {partners.map((p) => (
-            <option key={p.id} value={p.id}>{p.company_name}</option>
-          ))}
-        </select>
-
-        <label htmlFor="inv-status-filter" className="sr-only">Filter by status</label>
-        <select
-          id="inv-status-filter"
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="bg-surface-mid border border-line-strong rounded px-2 py-1 text-xs text-strong"
-        >
-          <option value="all">All Statuses</option>
-          <option value="draft">Draft</option>
-          <option value="open">Sent / Open</option>
-          <option value="paid">Paid</option>
-          <option value="voided">Voided</option>
-        </select>
-
-        <label htmlFor="inv-year-filter" className="sr-only">Filter by year</label>
-        <select
-          id="inv-year-filter"
-          value={yearFilter === "all" ? "all" : String(yearFilter)}
-          onChange={(e) => setYearFilter(e.target.value === "all" ? "all" : Number(e.target.value))}
-          className="bg-surface-mid border border-line-strong rounded px-2 py-1 text-xs text-strong"
-        >
-          <option value="all">All Years</option>
-          {years.map((y) => <option key={y} value={y}>{y}</option>)}
-        </select>
-      </div>
+      {/* Search + filter bar */}
+      <FilterBar activeCount={activeCount} onClear={reset}>
+        <SearchInput
+          value={search.q ?? ""}
+          onChange={(v) => setSearch("q", v)}
+          placeholder="Search invoice #…"
+        />
+        <FilterSelect
+          label="Customer"
+          options={partners.map((p) => ({ value: p.id, label: p.company_name }))}
+          value={filters.customer ?? []}
+          onChange={(v) => setFilter("customer", v)}
+        />
+        <FilterSelect
+          label="Status"
+          options={[
+            { value: "draft", label: "Draft" },
+            { value: "open", label: "Sent / Open" },
+            { value: "paid", label: "Paid" },
+            { value: "voided", label: "Voided" },
+          ]}
+          value={filters.status ?? []}
+          onChange={(v) => setFilter("status", v)}
+        />
+        <FilterSelect
+          label="Year"
+          options={years.map((y) => ({ value: y, label: y }))}
+          value={filters.year ?? []}
+          onChange={(v) => setFilter("year", v)}
+        />
+      </FilterBar>
 
       {/* Summary strip */}
       <div className="flex items-center gap-6 px-4 py-2 bg-surface/60 border border-line rounded text-xs">
@@ -652,11 +660,11 @@ export default function ExportInvoicesTab({ highlightInvoiceId }: ExportInvoices
             <thead>
               <tr className="border-b border-line bg-surface/50 text-left">
                 <th className="px-4 py-2.5 w-6" aria-label="Expand" />
-                <th className="px-4 py-2.5 text-xs font-medium text-muted">Invoice #</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-muted">Date</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-muted">Customer</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-muted">Status</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-muted text-right">Total</th>
+                <SortableTh label="Invoice #" sortKey="invoice_number" sort={sort} onSort={toggleSort} />
+                <SortableTh label="Date" sortKey="invoice_date" sort={sort} onSort={toggleSort} />
+                <SortableTh label="Customer" sortKey="customer" sort={sort} onSort={toggleSort} />
+                <SortableTh label="Status" sortKey="status" sort={sort} onSort={toggleSort} />
+                <SortableTh label="Total" sortKey="total" sort={sort} onSort={toggleSort} align="right" />
               </tr>
             </thead>
             <tbody>
