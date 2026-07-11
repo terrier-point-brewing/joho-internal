@@ -6,7 +6,8 @@ import { createExportInvoice, publishInvoice, getInvoiceStatus } from "@/lib/squ
 import { syncSquareInvoicesForYear } from "@/lib/finance/syncSquareInvoices";
 import { reconcileInvoiceStatus } from "@/lib/finance/reconcileInvoiceStatus";
 import type { InvoiceLineItemDraft } from "@/lib/production/exportInvoicePreview";
-import { getNetTermsDays, addDaysIso, todayIso } from "@/lib/production/invoiceTerms";
+import { getNetTermsDays } from "@/lib/production/invoiceTerms";
+import { addDaysStr, todayLocalDate } from "@/lib/utils/datetime";
 
 export const dynamic = "force-dynamic";
 
@@ -80,8 +81,8 @@ export async function POST(req: NextRequest) {
     }
 
     const netTerms = await getNetTermsDays(supabase, "export");
-    const draftDate = todayIso();
-    const dueDate = addDaysIso(draftDate, netTerms);
+    const draftDate = todayLocalDate();
+    const dueDate = addDaysStr(draftDate, netTerms);
 
     let result;
     try {

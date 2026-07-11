@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { cancelInvoice, createExportInvoice } from "@/lib/square/square-invoices";
-import { getNetTermsDays, addDaysIso, todayIso } from "@/lib/production/invoiceTerms";
+import { getNetTermsDays } from "@/lib/production/invoiceTerms";
+import { addDaysStr, todayLocalDate } from "@/lib/utils/datetime";
 
 export const dynamic = "force-dynamic";
 
@@ -79,8 +80,8 @@ export async function PATCH(
   // Editing line items recreates the Square draft, so the due date re-derives
   // from today (a redraft resets the clock).
   const netTerms = await getNetTermsDays(supabase, "export");
-  const draftDate = todayIso();
-  const dueDate = addDaysIso(draftDate, netTerms);
+  const draftDate = todayLocalDate();
+  const dueDate = addDaysStr(draftDate, netTerms);
 
   // Load current line items.
   const { data: currentItems, error: itemsErr } = await supabase
