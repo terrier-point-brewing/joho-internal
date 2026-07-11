@@ -44,6 +44,7 @@ export interface Invoice {
   allocation_id: string | null;
   subtotal_cents: number;
   tax_cents: number;
+  discount_cents: number | null;
   total_cents: number;
   notes: string | null;
   raw_data: Record<string, string> | null;

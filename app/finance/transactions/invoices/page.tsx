@@ -33,6 +33,13 @@ function fmtDollars(cents: number) {
   return <span>{formatCurrencyCents(cents, 0)}</span>;
 }
 
+// Shared 7-column grid template for the expanded-row line-item table (header,
+// each line row, and the invoice-level discount/tax summary rows below it) so
+// columns always line up. Only the grid-template-columns + gap live here —
+// callers append their own padding/typography so utility classes never fight
+// each other in the generated stylesheet.
+const LINE_GRID_COLS = "grid grid-cols-[minmax(0,1.4fr)_minmax(0,1.4fr)_50px_80px_70px_80px_minmax(0,1fr)] gap-3";
+
 const STATUS_CLS = INVOICE_STATUS_CLS;
 const SOURCE_LABEL = INVOICE_SOURCE_LABEL;
 const SOURCE_CLS = INVOICE_SOURCE_CLS;
@@ -48,11 +55,16 @@ interface InvoiceLineItemRow {
   id: string;
   sort_order: number | null;
   description: string;
+  line_item_name: string | null;
+  note: string | null;
   category: string | null;
   quantity: number | null;
   unit_price_cents: number;
+  discount_cents: number | null;
+  net_sales_cents: number | null;
   total_cents: number;
   variation_name: string | null;
+  square_catalog_variation_id: string | null;
   chart_of_accounts_id: string | null;
   bs_chart_of_accounts_id: string | null;
   pl_chart_of_accounts_id: string | null;
@@ -149,10 +161,12 @@ function InvoiceExpandableRow({
           <td colSpan={10} className="p-0">
             <div className="bg-canvas border-b border-line/60">
               {/* Line item headers */}
-              <div className="grid grid-cols-[minmax(0,2fr)_60px_80px_80px_minmax(0,1fr)] gap-3 px-10 py-1.5 bg-surface/40 text-[10px] text-faint uppercase tracking-wider">
+              <div className={`${LINE_GRID_COLS} px-10 py-1.5 bg-surface/40 text-[10px] text-faint uppercase tracking-wider`}>
+                <span>Line item</span>
                 <span>Description</span>
                 <span className="text-right">Qty</span>
-                <span className="text-right">Unit Price</span>
+                <span className="text-right">Unit</span>
+                <span className="text-right">Disc</span>
                 <span className="text-right">Total</span>
                 <span>GL Account</span>
               </div>
@@ -170,6 +184,20 @@ function InvoiceExpandableRow({
                         onSave={onSaveLineItem}
                       />
                     ))}
+              {(inv.discount_cents ?? 0) > 0 && (
+                <div className={`${LINE_GRID_COLS} px-10 py-1 text-[11px] text-secondary`}>
+                  <span className="col-span-5 text-right">Invoice discount</span>
+                  <span className="text-right font-mono tabular-nums">{formatCurrencyCents(inv.discount_cents!)}</span>
+                  <span />
+                </div>
+              )}
+              {(inv.tax_cents ?? 0) > 0 && (
+                <div className={`${LINE_GRID_COLS} px-10 py-1 text-[11px] text-secondary`}>
+                  <span className="col-span-5 text-right">Tax</span>
+                  <span className="text-right font-mono tabular-nums">{formatCurrencyCents(inv.tax_cents!)}</span>
+                  <span />
+                </div>
+              )}
               <BatchLinkEditor invoiceId={inv.id} batches={batches} onChanged={onBatchChanged} />
             </div>
           </td>
@@ -215,22 +243,31 @@ function InvoiceLineItemRow({
   return (
     <div className="border-t border-line/30 hover:bg-surface/20 transition-colors">
       {/* Main row */}
-      <div className="grid grid-cols-[minmax(0,2fr)_60px_80px_80px_minmax(0,1fr)] gap-3 px-10 py-2 text-xs items-start">
+      <div className={`${LINE_GRID_COLS} px-10 py-2 text-xs items-start`}>
         <div className="min-w-0 pt-0.5">
-          <span className="text-secondary truncate block">{item.description}</span>
-          {item.variation_name && <span className="text-[10px] text-faint">{item.variation_name}</span>}
+          <span className="text-secondary truncate block">
+            {item.line_item_name
+              ? item.line_item_name + (item.variation_name ? ` — ${item.variation_name}` : "")
+              : item.description}
+          </span>
           {isDeposit && (
             <span className={`inline-block mt-0.5 ml-1 px-1 py-0.5 rounded text-[10px] font-medium ${DEPOSIT_CATEGORY_CLS}`}>
               deposit
             </span>
           )}
         </div>
+        <span className={item.note ? "text-body truncate block pt-0.5" : "text-faint truncate block pt-0.5"}>
+          {item.note ?? "—"}
+        </span>
         <span className="text-faint text-right tabular-nums pt-0.5">{item.quantity ?? 1}×</span>
         <span className="text-muted text-right tabular-nums font-mono pt-0.5">
           {item.unit_price_cents ? formatCurrencyCents(item.unit_price_cents) : "—"}
         </span>
+        <span className="text-muted text-right tabular-nums font-mono pt-0.5">
+          {item.discount_cents ? formatCurrencyCents(item.discount_cents) : "—"}
+        </span>
         <span className="text-body text-right tabular-nums font-mono pt-0.5">
-          {formatCurrencyCents(item.total_cents)}
+          {formatCurrencyCents(item.net_sales_cents ?? item.total_cents)}
         </span>
         <div className="flex flex-col gap-1.5">
           {!isDeposit && (
