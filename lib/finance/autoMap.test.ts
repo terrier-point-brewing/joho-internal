@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { resolveBankBackfill } from "./autoMap";
+import { resolveBankBackfill, resolvePosBackfill, resolveInvoiceBackfill } from "./autoMap";
 
 describe("resolveBankBackfill", () => {
   const rules = new Map<string, string>([["gusto", "coa-payroll"]]);
@@ -40,6 +40,51 @@ describe("resolveBankBackfill", () => {
     const out = resolveBankBackfill(
       [{ id: "r1", counterparty_key: null, mapping_source: "unmapped", chart_of_accounts_id: null }],
       rules,
+    );
+    expect(out).toEqual([]);
+  });
+});
+
+describe("resolvePosBackfill", () => {
+  const coaByVar = new Map<string, string>([["v1", "coa-beer"]]);
+
+  it("maps unmapped line items whose variation has a mapping", () => {
+    const out = resolvePosBackfill([{ id: "li1", square_variation_id: "v1" }], coaByVar);
+    expect(out).toEqual([{ id: "li1", chart_of_accounts_id: "coa-beer" }]);
+  });
+
+  it("skips items with no variation or no mapping", () => {
+    const out = resolvePosBackfill(
+      [{ id: "li1", square_variation_id: null }, { id: "li2", square_variation_id: "vX" }],
+      coaByVar,
+    );
+    expect(out).toEqual([]);
+  });
+});
+
+describe("resolveInvoiceBackfill", () => {
+  const byDesc = new Map<string, string>([["hazy ipa — 1/6 bbl", "coa-dist"]]);
+
+  it("maps an unmapped item by lowercased description", () => {
+    const out = resolveInvoiceBackfill(
+      [{ id: "il1", description: "Hazy IPA — 1/6 BBL", chart_of_accounts_id: null }],
+      byDesc,
+    );
+    expect(out).toEqual([{ id: "il1", chart_of_accounts_id: "coa-dist" }]);
+  });
+
+  it("never overwrites an already-mapped item", () => {
+    const out = resolveInvoiceBackfill(
+      [{ id: "il1", description: "Hazy IPA — 1/6 BBL", chart_of_accounts_id: "coa-x" }],
+      byDesc,
+    );
+    expect(out).toEqual([]);
+  });
+
+  it("skips items whose description has no match", () => {
+    const out = resolveInvoiceBackfill(
+      [{ id: "il1", description: "Mystery", chart_of_accounts_id: null }],
+      byDesc,
     );
     expect(out).toEqual([]);
   });

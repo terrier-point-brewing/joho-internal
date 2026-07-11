@@ -6,6 +6,36 @@
  * Every resolver is fill-nulls-only and never touches a manual pin — the same
  * convention the ingest paths and the (soon thin) manual-button routes follow.
  */
+import type { createSupabaseAdminClient } from "@/lib/supabase/admin";
+
+type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
+
+/** Apply per-row CoA updates in bounded parallel chunks. Returns { mapped, errors? }. */
+async function applyLineItemUpdates(
+  supabase: AdminClient,
+  table: "pos_line_items" | "invoice_line_items" | "ramp_bank_ledger",
+  updates: { id: string; chart_of_accounts_id: string }[],
+  extra?: Record<string, unknown>,
+): Promise<{ mapped: number; errors?: string[] }> {
+  if (updates.length === 0) return { mapped: 0 };
+  const CHUNK = 100;
+  let mapped = 0;
+  const errors: string[] = [];
+  for (let i = 0; i < updates.length; i += CHUNK) {
+    const chunk = updates.slice(i, i + CHUNK);
+    const results = await Promise.allSettled(
+      chunk.map((u) =>
+        supabase.from(table).update({ chart_of_accounts_id: u.chart_of_accounts_id, ...extra }).eq("id", u.id),
+      ),
+    );
+    for (const r of results) {
+      if (r.status === "fulfilled" && !r.value.error) mapped++;
+      else if (r.status === "rejected") errors.push(String(r.reason));
+      else if (r.status === "fulfilled" && r.value.error) errors.push(r.value.error.message);
+    }
+  }
+  return { mapped, errors: errors.length ? errors : undefined };
+}
 
 /** Bank-ledger rows: map from counterparty rules, preserving manual + existing. */
 export function resolveBankBackfill(
@@ -21,4 +51,204 @@ export function resolveBankBackfill(
     if (coaId) updates.push({ id: row.id, chart_of_accounts_id: coaId });
   }
   return updates;
+}
+
+/** POS line items: map from catalog-variation → CoA. */
+export function resolvePosBackfill(
+  lineItems: { id: string; square_variation_id: string | null }[],
+  coaByVarId: Map<string, string>,
+): { id: string; chart_of_accounts_id: string }[] {
+  const updates: { id: string; chart_of_accounts_id: string }[] = [];
+  for (const li of lineItems) {
+    if (!li.square_variation_id) continue;
+    const coaId = coaByVarId.get(li.square_variation_id);
+    if (coaId) updates.push({ id: li.id, chart_of_accounts_id: coaId });
+  }
+  return updates;
+}
+
+/** Invoice line items: map from a description(lowercased) → CoA index. */
+export function resolveInvoiceBackfill(
+  allItems: { id: string; description: string | null; chart_of_accounts_id: string | null }[],
+  descToCoa: Map<string, string>,
+): { id: string; chart_of_accounts_id: string }[] {
+  const updates: { id: string; chart_of_accounts_id: string }[] = [];
+  for (const item of allItems) {
+    if (item.chart_of_accounts_id) continue;
+    if (!item.description) continue;
+    const coaId = descToCoa.get(item.description.trim().toLowerCase());
+    if (coaId) updates.push({ id: item.id, chart_of_accounts_id: coaId });
+  }
+  return updates;
+}
+
+/**
+ * IO wrapper for `POST /api/finance/transactions/auto-map`. Reproduces the
+ * route's query logic exactly, adding an optional `variationIds` narrowing
+ * used by the rule-edit trigger (Tasks 6–7).
+ */
+export async function autoMapPosLineItems(
+  supabase: AdminClient,
+  opts: { year: number; variationIds?: string[] },
+): Promise<{ mapped: number; errors?: string[] }> {
+  const startDate = `${opts.year}-01-01`;
+  const endDate   = `${opts.year + 1}-01-01`;
+
+  const { data: orders, error: ordersErr } = await supabase
+    .from("square_orders")
+    .select("id")
+    .gte("transaction_date", startDate)
+    .lt("transaction_date", endDate)
+    .is("invoice_id", null);
+  if (ordersErr) throw new Error(ordersErr.message);
+  const orderIds = (orders ?? []).map((o) => o.id);
+  if (orderIds.length === 0) return { mapped: 0 };
+
+  let liQuery = supabase
+    .from("pos_line_items")
+    .select("id, square_variation_id")
+    .is("chart_of_accounts_id", null)
+    .not("square_variation_id", "is", null)
+    .in("square_order_id", orderIds);
+  if (opts.variationIds && opts.variationIds.length > 0) {
+    liQuery = liQuery.in("square_variation_id", opts.variationIds);
+  }
+  const { data: lineItems, error: liErr } = await liQuery;
+  if (liErr) throw new Error(liErr.message);
+  if (!lineItems || lineItems.length === 0) return { mapped: 0 };
+
+  const varIds = opts.variationIds && opts.variationIds.length > 0
+    ? opts.variationIds
+    : [...new Set(lineItems.map((li) => li.square_variation_id as string))];
+  const { data: mappings, error: mapErr } = await supabase
+    .from("square_catalog_variations")
+    .select("square_variation_id, chart_of_accounts_id")
+    .in("square_variation_id", varIds)
+    .not("chart_of_accounts_id", "is", null);
+  if (mapErr) throw new Error(mapErr.message);
+
+  const coaByVarId = new Map<string, string>(
+    (mappings ?? []).map((m) => [m.square_variation_id as string, m.chart_of_accounts_id as string]),
+  );
+  const updates = resolvePosBackfill(lineItems, coaByVarId);
+  return applyLineItemUpdates(supabase, "pos_line_items", updates);
+}
+
+/**
+ * IO wrapper for `POST /api/finance/ledger/invoices/auto-map`. Reproduces the
+ * route's two-source description index (mapped siblings + catalog-variation
+ * mappings), adding an optional `variationIds` narrowing that restricts which
+ * variation-derived descriptions are added to the index.
+ */
+export async function autoMapInvoiceLineItems(
+  supabase: AdminClient,
+  opts: { year: number; variationIds?: string[] },
+): Promise<{ mapped: number; errors?: string[] }> {
+  const { data: allItems, error } = await supabase
+    .from("invoice_line_items")
+    .select("id, description, chart_of_accounts_id, invoices!invoice_line_items_invoice_id_fkey!inner(invoice_date)")
+    .gte("invoices.invoice_date", `${opts.year}-01-01`)
+    .lte("invoices.invoice_date", `${opts.year}-12-31`);
+  if (error) throw new Error(error.message);
+  if (!allItems || allItems.length === 0) return { mapped: 0 };
+
+  const descToCoa = new Map<string, string>();
+  // Source 1: description → CoA from already-mapped siblings.
+  for (const item of allItems) {
+    if (item.chart_of_accounts_id && item.description) {
+      descToCoa.set(item.description.trim().toLowerCase(), item.chart_of_accounts_id as string);
+    }
+  }
+  // Source 2: catalog variation mappings, keyed "item_name — variation_name" and plain item_name.
+  let varQuery = supabase
+    .from("square_catalog_variations")
+    .select("square_variation_id, variation_name, chart_of_accounts_id, chart_of_accounts_id_invoice, square_catalog_items ( item_name )")
+    .or("chart_of_accounts_id.not.is.null,chart_of_accounts_id_invoice.not.is.null");
+  if (opts.variationIds && opts.variationIds.length > 0) {
+    varQuery = varQuery.in("square_variation_id", opts.variationIds);
+  }
+  const { data: variations } = await varQuery;
+  for (const v of variations ?? []) {
+    const itemName = (v.square_catalog_items as unknown as { item_name: string } | null)?.item_name;
+    if (!itemName) continue;
+    const coaId = (v.chart_of_accounts_id_invoice ?? v.chart_of_accounts_id) as string | null;
+    if (!coaId) continue;
+    const key = `${itemName} — ${v.variation_name}`.trim().toLowerCase();
+    if (!descToCoa.has(key)) descToCoa.set(key, coaId);
+    const plainKey = itemName.trim().toLowerCase();
+    if (!descToCoa.has(plainKey)) descToCoa.set(plainKey, coaId);
+  }
+
+  const updates = resolveInvoiceBackfill(allItems, descToCoa);
+  return applyLineItemUpdates(supabase, "invoice_line_items", updates);
+}
+
+/**
+ * IO wrapper for `POST /api/finance/expenses/auto-map`. Reproduces the
+ * route's per-rule bulk update, adding an optional `externalAccountId`
+ * narrowing.
+ */
+export async function autoMapExpenses(
+  supabase: AdminClient,
+  opts: { from: string; to: string; externalAccountId?: string },
+): Promise<{ mapped: number }> {
+  let ruleQuery = supabase
+    .from("expense_account_mappings")
+    .select("source, external_account_id, chart_of_accounts_id")
+    .not("chart_of_accounts_id", "is", null);
+  if (opts.externalAccountId) ruleQuery = ruleQuery.eq("external_account_id", opts.externalAccountId);
+  const { data: rules, error: ruleErr } = await ruleQuery;
+  if (ruleErr) throw new Error(ruleErr.message);
+
+  let mapped = 0;
+  for (const rule of rules ?? []) {
+    const { data: affected, error } = await supabase
+      .from("expenses")
+      .update({ chart_of_accounts_id: rule.chart_of_accounts_id, mapping_source: "rule" })
+      .eq("source", rule.source)
+      .eq("external_account_id", rule.external_account_id)
+      .neq("mapping_source", "manual")
+      .is("chart_of_accounts_id", null)
+      .gte("accounting_date", opts.from)
+      .lte("accounting_date", opts.to)
+      .select("id");
+    if (error) throw new Error(error.message);
+    mapped += affected?.length ?? 0;
+  }
+  return { mapped };
+}
+
+/**
+ * Retroactive counterpart to Task 2's ingest-time bank-ledger mapping: fills
+ * `chart_of_accounts_id` on already-ingested, still-unmapped, non-manual rows
+ * from `expense_counterparty_mappings` rules.
+ */
+export async function autoMapBankLedger(
+  supabase: AdminClient,
+  opts: { from: string; to: string; counterpartyKey?: string },
+): Promise<{ mapped: number; errors?: string[] }> {
+  let rowQuery = supabase
+    .from("ramp_bank_ledger")
+    .select("id, counterparty_key, mapping_source, chart_of_accounts_id")
+    .is("chart_of_accounts_id", null)
+    .neq("mapping_source", "manual")
+    .gte("transaction_date", opts.from)
+    .lte("transaction_date", opts.to);
+  if (opts.counterpartyKey) rowQuery = rowQuery.eq("counterparty_key", opts.counterpartyKey);
+  const { data: rows, error } = await rowQuery;
+  if (error) throw new Error(error.message);
+  if (!rows || rows.length === 0) return { mapped: 0 };
+
+  let cpQuery = supabase
+    .from("expense_counterparty_mappings")
+    .select("counterparty_key, chart_of_accounts_id")
+    .eq("source", "ramp")
+    .not("chart_of_accounts_id", "is", null);
+  if (opts.counterpartyKey) cpQuery = cpQuery.eq("counterparty_key", opts.counterpartyKey);
+  const { data: cpRules, error: cpErr } = await cpQuery;
+  if (cpErr) throw new Error(cpErr.message);
+
+  const rules = new Map<string, string>((cpRules ?? []).map((r) => [r.counterparty_key as string, r.chart_of_accounts_id as string]));
+  const updates = resolveBankBackfill(rows, rules);
+  return applyLineItemUpdates(supabase, "ramp_bank_ledger", updates, { mapping_source: "rule" });
 }
