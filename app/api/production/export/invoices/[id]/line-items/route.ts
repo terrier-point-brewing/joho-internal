@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { cancelInvoice, createExportInvoice } from "@/lib/square/square-invoices";
+import { getNetTermsDays, addDaysIso, todayIso } from "@/lib/production/invoiceTerms";
 
 export const dynamic = "force-dynamic";
 
@@ -68,22 +69,18 @@ export async function PATCH(
   // Load partner for Square customer ID + net terms.
   const { data: partner, error: partnerErr } = await supabase
     .from("contract_brewing_partners")
-    .select("company_name, square_customer_id, export_net_terms_days")
+    .select("company_name, square_customer_id")
     .eq("id", inv.partner_id)
     .single();
   if (partnerErr || !partner?.square_customer_id) {
     return NextResponse.json({ error: "Partner not found or missing Square customer" }, { status: 400 });
   }
 
-  let dueDays = partner.export_net_terms_days as number | null;
-  if (dueDays == null) {
-    const { data: setting } = await supabase
-      .from("system_settings")
-      .select("value")
-      .eq("key", "export_invoice_due_days")
-      .single();
-    dueDays = (setting?.value as number) ?? 30;
-  }
+  // Editing line items recreates the Square draft, so the due date re-derives
+  // from today (a redraft resets the clock).
+  const netTerms = await getNetTermsDays(supabase, "export");
+  const draftDate = todayIso();
+  const dueDate = addDaysIso(draftDate, netTerms);
 
   // Load current line items.
   const { data: currentItems, error: itemsErr } = await supabase
@@ -170,7 +167,7 @@ export async function PATCH(
       squareCustomerId: partner.square_customer_id,
       title: `Export Invoice — ${partner.company_name}`,
       lineItems: lineItemsForSquare,
-      dueDays,
+      dueDate,
     });
   } catch (err) {
     // The old Square draft was already cancelled. Clear square_invoice_id so the UI
@@ -195,6 +192,8 @@ export async function PATCH(
       external_id: newSquareResult.invoiceId,
       subtotal_cents: newTotal,
       total_cents: newTotal,
+      invoice_date: draftDate,
+      due_date: dueDate,
     })
     .eq("id", invoiceId);
   if (invUpdateErr) return NextResponse.json({ error: invUpdateErr.message }, { status: 500 });
