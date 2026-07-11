@@ -119,4 +119,24 @@ describe("applyControls", () => {
     // followed by "apple", then "zebra"
     expect(sorted.map((r) => r.id)).toEqual(["b", "d", "c", "a"]);
   });
+
+  it("uses a custom matches predicate when provided", () => {
+    const cfg: ControlsConfig<Row> = {
+      filters: [
+        {
+          param: "vol",
+          matches: (r, sel) => sel.some((s) => (s === "big" ? r.volume >= 10 : r.volume < 10)),
+        },
+      ],
+    };
+    const out = applyControls(ROWS, cfg, { ...EMPTY, filters: { vol: ["big"] } });
+    expect(out.map((r) => r.recipe)).toEqual(["Hazy IPA", "Pilsner"]);
+  });
+
+  it("matches predicate with empty selection does not filter", () => {
+    const cfg: ControlsConfig<Row> = {
+      filters: [{ param: "vol", matches: () => false }],
+    };
+    expect(applyControls(ROWS, cfg, { ...EMPTY, filters: { vol: [] } })).toHaveLength(3);
+  });
 });

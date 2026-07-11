@@ -48,7 +48,8 @@ export function applyControls<T>(
   for (const spec of config.filters ?? []) {
     const selected = state.filters[spec.param] ?? [];
     if (selected.length === 0) continue;
-    out = out.filter((row) => selected.includes(spec.accessor(row)));
+    const pred = spec.matches ?? ((row: T, sel: string[]) => sel.includes(spec.accessor!(row)));
+    out = out.filter((row) => pred(row, selected));
   }
 
   if (state.sort && config.sort) {

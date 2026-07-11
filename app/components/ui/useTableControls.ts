@@ -20,6 +20,8 @@ export interface TableControls<T> {
   setFilter: (param: string, values: string[]) => void;
   /** toggle a column: inactive -> asc, asc -> desc, desc -> asc */
   toggleSort: (key: string) => void;
+  /** set a specific sort column + direction (for non-column / segmented sorts) */
+  setSort: (key: string, dir: SortDir) => void;
   reset: () => void;
   activeCount: number;
 }
@@ -71,6 +73,11 @@ export function useTableControls<T>(
     [push, state],
   );
 
+  const setSort = useCallback(
+    (key: string, dir: SortDir) => push({ ...state, sort: { key, dir } }),
+    [push, state],
+  );
+
   const reset = useCallback(
     () => push({ search: {}, filters: {}, sort: config.sort?.default ?? null }),
     [push, config],
@@ -87,6 +94,7 @@ export function useTableControls<T>(
     setSearch,
     setFilter,
     toggleSort,
+    setSort,
     reset,
     activeCount,
   };
