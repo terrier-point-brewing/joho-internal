@@ -50,6 +50,8 @@ export type SyncDiscrepancy =
 export interface TaproomSyncResult {
   shipmentId: string;
   windowDays: number;
+  /** True when another sync run held the lease lock and this run skipped entirely. */
+  lockSkipped: boolean;
   recorded: RecordedLine[];
   recordedUnits: number;
   skipped: number;
@@ -62,6 +64,14 @@ export interface TaproomSyncResult {
 }
 
 const EPS = 1e-4;
+
+// Serializes concurrent sync runs. The Square webhook fires this sync on every
+// order.* event, so one restock's event burst triggers several overlapping runs;
+// without a lock they each read "0 already recorded" and write duplicate rows.
+// TTL exceeds the longest possible run (cron ≤ Vercel maxDuration) so a live run
+// is never stolen; a hard-killed holder self-clears after it.
+const LOCK_JOB = "taproom_consumption_sync";
+const LOCK_TTL_SECONDS = 300;
 
 /** Remaining units to record for a unit given what's already booked (never negative). */
 export function remainingDelta(targetQty: number, alreadyRecorded: number): number {
@@ -100,12 +110,31 @@ export async function runTaproomConsumptionSync(
   supabase: SupabaseClient,
   { days }: { days: number },
 ): Promise<TaproomSyncResult> {
+  const shipmentId = crypto.randomUUID();
+
+  // Claim the lease before touching any data. If another run holds it, skip
+  // entirely — the trailing window plus the daily cron re-cover anything missed,
+  // matching this sync's existing "self-heals on the next trigger" contract.
+  const { data: acquired, error: lockErr } = await supabase.rpc("try_acquire_sync_lock", {
+    p_job: LOCK_JOB,
+    p_ttl_seconds: LOCK_TTL_SECONDS,
+  });
+  if (lockErr) throw new Error(`taproom sync lock acquire failed: ${lockErr.message}`);
+  if (!acquired) {
+    return {
+      shipmentId, windowDays: days, lockSkipped: true,
+      recorded: [], recordedUnits: 0, skipped: 0, totalRecordedQty: 0,
+      recountsApplied: 0, packsBrokenDown: 0, packagingWarnings: [], discrepancies: [],
+      squareWriteback: { applied: 0, writes: [], warnings: [] },
+    };
+  }
+
+  try {
   const { units, discrepancies: configDiscrepancies } = await deriveTaproomConsumption(supabase, { days });
 
   const refs = [...new Set(units.map((u) => u.sourceRef))];
   const recorded = refs.length ? await recordedByRef(supabase, refs) : new Map<string, number>();
 
-  const shipmentId = crypto.randomUUID();
   const recordedLines: RecordedLine[] = [];
   const shortStock: SyncDiscrepancy[] = [];
   const recountWarnings: SyncDiscrepancy[] = [];
@@ -226,6 +255,7 @@ export async function runTaproomConsumptionSync(
   return {
     shipmentId,
     windowDays: days,
+    lockSkipped: false,
     recorded: recordedLines,
     recordedUnits: recordedLines.length,
     skipped,
@@ -236,4 +266,11 @@ export async function runTaproomConsumptionSync(
     discrepancies: [...configDiscrepancies, ...shortStock, ...recountWarnings, ...shrinkageWarnings],
     squareWriteback,
   };
+  } finally {
+    // Always release, even on throw, so a failed run never wedges the lease for
+    // the full TTL. A release failure is logged, not thrown — the TTL is the
+    // backstop and we don't want to mask the original error.
+    const { error: relErr } = await supabase.rpc("release_sync_lock", { p_job: LOCK_JOB });
+    if (relErr) console.error("[taproom-sync] lock release failed", relErr.message);
+  }
 }

@@ -31,9 +31,21 @@ const pc = (id: string, quantity: number, occurredAt: string) => ({
 });
 
 // Fake supabase: export_transactions "already recorded" lookup returns `rows`;
-// draft_swap_shrinkage upserts are captured into `sink.shrinkage`.
-function fakeSupabase(rows: { source_ref: string; quantity: number }[], sink?: { shrinkage: unknown[] }) {
+// draft_swap_shrinkage upserts are captured into `sink.shrinkage`. `rpc` backs
+// the lease lock — `lockAcquired` controls whether try_acquire_sync_lock grants
+// it; release_sync_lock calls are captured in `sink.released`.
+function fakeSupabase(
+  rows: { source_ref: string; quantity: number }[],
+  sink?: { shrinkage: unknown[]; released?: number },
+  opts: { lockAcquired?: boolean } = {},
+) {
+  const lockAcquired = opts.lockAcquired ?? true;
   return {
+    rpc: async (fn: string) => {
+      if (fn === "try_acquire_sync_lock") return { data: lockAcquired, error: null };
+      if (fn === "release_sync_lock") { if (sink) sink.released = (sink.released ?? 0) + 1; return { data: null, error: null }; }
+      return { data: null, error: null };
+    },
     from: (table: string) => {
       if (table === "draft_swap_shrinkage") {
         return { upsert: async (row: unknown) => { sink?.shrinkage.push(row); return { error: null }; } };
@@ -87,6 +99,36 @@ describe("remainingAtOrBefore", () => {
 });
 
 describe("runTaproomConsumptionSync", () => {
+  it("skips the whole run when another run holds the lease lock", async () => {
+    // The webhook fires this sync on every order.* event, so a restock burst
+    // spawns overlapping runs. A run that loses the lock must do NOTHING —
+    // never derive, never record — so it can't write duplicate rows.
+    derive.mockResolvedValue({ units: [swapUnit()], discrepancies: [] });
+    const res = await runTaproomConsumptionSync(
+      fakeSupabase([], undefined, { lockAcquired: false }), { days: 2 });
+    expect(res.lockSkipped).toBe(true);
+    expect(derive).not.toHaveBeenCalled();
+    expect(record).not.toHaveBeenCalled();
+    expect(res.recorded).toHaveLength(0);
+  });
+
+  it("acquires the lock, runs, and releases it on a normal run", async () => {
+    const sink = { shrinkage: [] as unknown[], released: 0 };
+    derive.mockResolvedValue({ units: [], discrepancies: [] });
+    const res = await runTaproomConsumptionSync(fakeSupabase([], sink), { days: 2 });
+    expect(res.lockSkipped).toBe(false);
+    expect(sink.released).toBe(1);
+  });
+
+  it("releases the lock even when the run throws", async () => {
+    const sink = { shrinkage: [] as unknown[], released: 0 };
+    derive.mockRejectedValue(new Error("derive boom"));
+    await expect(
+      runTaproomConsumptionSync(fakeSupabase([], sink), { days: 2 }),
+    ).rejects.toThrow("derive boom");
+    expect(sink.released).toBe(1);
+  });
+
   it("skips units already fully recorded and records nothing", async () => {
     derive.mockResolvedValue({ units: [unit()], discrepancies: [] });
     const res = await runTaproomConsumptionSync(
