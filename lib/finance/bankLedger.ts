@@ -99,7 +99,9 @@ function bankLineToExpenseRecord(line: RampBankLine, c: BankClassification): Exp
     merchant_name:         c.counterparty_name || null,
     merchant_category:     null,
     sk_category_name:      null,
-    state:                 null,
+    // A bank line only lands here once it has posted to the account, so it is settled
+    // by definition — surface it as "cleared" (green) alongside card/bill statuses.
+    state:                 "cleared",
     card_holder_name:      null,
     department_name:       null,
     transaction_time:      line.date || null,
