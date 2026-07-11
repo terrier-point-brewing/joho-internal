@@ -12,6 +12,15 @@ import {
 } from "@/lib/square/square-invoices";
 import { reconcileInvoiceStatus } from "@/lib/finance/reconcileInvoiceStatus";
 import { snapshotDepositBreakdown, type BreakdownInput } from "@/lib/production/depositBreakdown";
+import { fetchOrdersByIds } from "@/lib/square/orders";
+import { fetchCatalogItems } from "@/lib/square/catalog";
+import {
+  buildLineItemIndexes,
+  buildInvoiceLineItemRows,
+  persistInvoiceLineItems,
+  invoiceHeaderTotalsFromOrder,
+} from "@/lib/finance/invoiceLineItems";
+import type { CatalogItem } from "@/types/square";
 
 export const dynamic = "force-dynamic";
 
@@ -214,6 +223,35 @@ async function handleInvoiceAction(req: NextRequest, params: RouteParams["params
           { invoice_id: ledgerInvoiceId, batch_id: batch.id },
           { onConflict: "invoice_id,batch_id", ignoreDuplicates: true }
         );
+    }
+
+    // Persist canonical line items + authoritative header totals from Square's order.
+    if (ledgerInvoiceId) {
+      try {
+        const [orders, catalogItems] = await Promise.all([
+          fetchOrdersByIds([result.orderId]),
+          fetchCatalogItems(),
+        ]);
+        const order = orders[0];
+        if (order) {
+          const indexes = await buildLineItemIndexes(adminSupabase, catalogItems as CatalogItem[]);
+          const rows = buildInvoiceLineItemRows(ledgerInvoiceId, order, indexes, new Map());
+          await persistInvoiceLineItems(adminSupabase, ledgerInvoiceId, rows);
+          const totals = invoiceHeaderTotalsFromOrder(order);
+          await adminSupabase.from("invoices").update(totals).eq("id", ledgerInvoiceId);
+        }
+      } catch (err) {
+        console.error("[deposit-invoice] generate read-back failed, using draft deposit line:", err);
+        await adminSupabase.from("invoice_line_items").upsert(
+          {
+            invoice_id: ledgerInvoiceId, sort_order: 0, description: "Ingredient Deposit",
+            category: "ingredient_deposit", quantity: 1,
+            unit_price_cents: calculation.deposit_cents, total_cents: calculation.deposit_cents,
+            square_catalog_variation_id: mapping.square_catalog_variation_id,
+          },
+          { onConflict: "invoice_id,sort_order" },
+        );
+      }
     }
 
     if (ledgerInvoiceId) {
@@ -484,22 +522,6 @@ async function upsertFinanceLedgerInvoice(
     .single();
 
   if (!inv?.id) return null;
-
-  // Add the deposit line item
-  await adminSupabase
-    .from("invoice_line_items")
-    .upsert(
-      {
-        invoice_id:       inv.id,
-        sort_order:       0,
-        description:      "Ingredient Deposit",
-        category:         "ingredient_deposit",
-        quantity:         1,
-        unit_price_cents: p.depositCents,
-        total_cents:      p.depositCents,
-      },
-      { onConflict: "invoice_id,sort_order" }
-    );
 
   return inv.id;
 }
