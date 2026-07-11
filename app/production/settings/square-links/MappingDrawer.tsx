@@ -5,6 +5,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import { useSquareMappingGridQuery, fetchJson } from "@/app/production/hooks/queries";
 import type { MappingCellVariation } from "@/app/production/types";
+import { applyControls } from "@/lib/table/applyControls";
+import type { ControlsConfig } from "@/lib/table/types";
 
 interface SquareVariation {
   variation_id: string;
@@ -15,6 +17,10 @@ interface SquareVariation {
 }
 
 const CATEGORY_FOR: Record<string, string> = { draft: "Draft", keg: "Kegs", can: "Cans" };
+
+const COMBOBOX_CONTROLS: ControlsConfig<SquareVariation> = {
+  search: [{ param: "q", accessor: (v) => [v.item_name, v.variation_name] }],
+};
 
 function VariationCombobox({
   value,
@@ -34,11 +40,7 @@ function VariationCombobox({
     ? `${selected.item_name}${selected.variation_name ? ` · ${selected.variation_name}` : ""}`
     : "";
 
-  const filtered = query
-    ? variations.filter((v) =>
-        `${v.item_name} ${v.variation_name ?? ""}`.toLowerCase().includes(query.toLowerCase())
-      )
-    : variations;
+  const filtered = applyControls(variations, COMBOBOX_CONTROLS, { search: { q: query }, filters: {}, sort: null });
 
   useEffect(() => {
     if (!open) return;

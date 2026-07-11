@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import {
@@ -12,10 +12,15 @@ import { fmtDateLong } from "@/lib/utils/formatting";
 import { BBL_TO_FL_OZ } from "@/lib/constants/production";
 import { Modal, Field, ModalActions } from "../shared";
 import { fetchJson, useRecipePackagingVariationsQuery } from "../../hooks/queries";
-import { useSort, SortTh } from "@/app/reports/components/SortControls";
 import { DepositInvoiceModal } from "../DepositInvoiceModal";
 import type { DepositCalculation } from "@/lib/square/square-invoices";
 import { CATEGORY_BADGE_CLASS as CC } from "../../lib/categoryColors";
+import { useTableControls } from "@/app/components/ui/useTableControls";
+import FilterChips from "@/app/components/ui/FilterChips";
+import FilterSelect from "@/app/components/ui/FilterSelect";
+import FilterBar from "@/app/components/ui/FilterBar";
+import SortableTh from "@/app/components/ui/SortableTh";
+import type { ControlsConfig } from "@/lib/table/types";
 
 const STATUS_META: Record<ContractRequestStatus, { label: string; cls: string }> = {
   open:        { label: "Open",        cls: "bg-accent-muted/50 text-accent border-accent-border" },
@@ -28,6 +33,34 @@ const CHANNEL_META: Record<CommitmentChannel, { label: string; cls: string }> = 
   distribution:     { label: "Distribution",     cls: "bg-info-surface/40 text-info border-info-border" },
   contract_brewing: { label: "Contract Brewing", cls: CC.purple },
   wholesale:        { label: "Wholesale",        cls: "bg-accent-muted/40 text-accent-soft border-accent-border" },
+};
+
+const CHANNEL_OPTIONS = [
+  { value: "distribution", label: CHANNEL_META.distribution.label },
+  { value: "contract_brewing", label: CHANNEL_META.contract_brewing.label, className: CC.purple },
+  { value: "wholesale", label: CHANNEL_META.wholesale.label },
+];
+
+const COMMITMENT_CONTROLS: ControlsConfig<SortableRow> = {
+  filters: [
+    { param: "channel", accessor: (r) => r.channel },
+    { param: "style", accessor: (r) => r.beer_style },
+    { param: "partner", accessor: (r) => r.partner_id ?? "" },
+  ],
+  sort: {
+    columns: [
+      { key: "channel", accessor: (r) => r.channel },
+      { key: "status", accessor: (r) => r.status },
+      { key: "beer_style", accessor: (r) => r.beer_style },
+      { key: "partner_name", accessor: (r) => r.partner_name },
+      { key: "volume_bbl", accessor: (r) => r.volume_bbl },
+      { key: "packaging_total_bbl", accessor: (r) => r.packaging_total_bbl },
+      { key: "schedule_sort", accessor: (r) => r.schedule_sort },
+      { key: "received_on", accessor: (r) => r.received_on ?? "" },
+      { key: "locked_on", accessor: (r) => r.locked_on ?? "" },
+      { key: "last_edited_on", accessor: (r) => r.last_edited_on ?? "" },
+    ],
+  },
 };
 
 function StatusBadge({ status }: { status: ContractRequestStatus }) {
@@ -453,9 +486,6 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
   const load = () => qc.invalidateQueries({ queryKey: queryKeys.production.commitments() });
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<ContractBrewingRequest | null>(null);
-  const [channelFilter, setChannelFilter] = useState<CommitmentChannel | "all">("all");
-  const [filterStyle, setFilterStyle] = useState("");
-  const [filterPartner, setFilterPartner] = useState("");
 
   // ── Invoicing actions (shared with Batch Log > Allocations) ──────────────
   const [invoiceModalAlloc, setInvoiceModalAlloc] = useState<CommitmentAllocationSummary | null>(null);
@@ -615,58 +645,34 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
     ).entries()
   ).sort((a, b) => a[1].localeCompare(b[1]));
 
-  const filtered = rows.filter((r) => {
-    if (channelFilter !== "all" && r.channel !== channelFilter) return false;
-    if (filterStyle && r.recipes?.beer_name !== filterStyle) return false;
-    if (filterPartner && r.partner_id !== filterPartner) return false;
-    return true;
-  });
+  const sortableRows: SortableRow[] = useMemo(
+    () => rows.map((q) => ({
+      ...q,
+      partner_name: q.contract_brewing_partners?.company_name ?? "",
+      packaging_total_bbl: packagingTotalBbl(q),
+      schedule_sort: q.cadence === "recurring" ? (q.start_date ?? "") : (q.desired_delivery_date ?? ""),
+      beer_style: q.recipes?.beer_name ?? "",
+    })),
+    [rows],
+  );
 
-  const sortableRows: SortableRow[] = filtered.map((q) => ({
-    ...q,
-    partner_name: q.contract_brewing_partners?.company_name ?? "",
-    packaging_total_bbl: packagingTotalBbl(q),
-    schedule_sort: q.cadence === "recurring" ? (q.start_date ?? "") : (q.desired_delivery_date ?? ""),
-    beer_style: q.recipes?.beer_name ?? "",
-  }));
-  const { sorted, sortKey, sortDir, handleSort } = useSort(sortableRows);
-  const displayRows = sorted ?? [];
+  const { rows: displayRows, filters, sort, setFilter, toggleSort, reset, activeCount } =
+    useTableControls(sortableRows, COMMITMENT_CONTROLS, { prefix: "commit_" });
 
   return (
     <div>
       <p className="text-sm text-muted mb-3">Distribution allocations and contract brewing requests. All are outflows from cold storage.</p>
-      <div className="flex items-center gap-2 mb-4">
-        {(["all", "distribution", "contract_brewing", "wholesale"] as const).map((f) => (
-          <button key={f} onClick={() => setChannelFilter(f)}
-            className={`px-2.5 py-1 rounded text-xs font-medium transition-colors border shrink-0 ${channelFilter === f ? "border-accent-border bg-accent-muted/30 text-accent-soft" : "border-line-strong text-muted hover:text-body"}`}>
-            {f === "all" ? "All" : CHANNEL_META[f].label}
-          </button>
-        ))}
-        <div className="w-px h-4 bg-surface-high shrink-0" />
-        <select
-          className="inp text-sm py-1.5 px-2"
-          value={filterStyle}
-          onChange={(e) => setFilterStyle(e.target.value)}
-        >
-          <option value="">All styles</option>
-          {uniqueStyles.map((s) => <option key={s} value={s}>{s}</option>)}
-        </select>
-        <select
-          className="inp text-sm py-1.5 px-2"
-          value={filterPartner}
-          onChange={(e) => setFilterPartner(e.target.value)}
-        >
-          <option value="">All partners</option>
-          {uniquePartners.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
-        </select>
-        {(filterStyle || filterPartner) && (
-          <button
-            onClick={() => { setFilterStyle(""); setFilterPartner(""); }}
-            className="text-xs text-muted hover:text-body transition-colors shrink-0"
-          >
-            Clear
-          </button>
-        )}
+      <div className="flex items-start gap-3 mb-4">
+        <FilterBar activeCount={activeCount} onClear={reset}>
+          <FilterChips label="Channel" options={CHANNEL_OPTIONS}
+            value={filters.channel ?? []} onChange={(v) => setFilter("channel", v)} />
+          <FilterSelect label="Style"
+            options={uniqueStyles.map((s) => ({ value: s, label: s }))}
+            value={filters.style ?? []} onChange={(v) => setFilter("style", v)} />
+          <FilterSelect label="Partner"
+            options={uniquePartners.map(([id, name]) => ({ value: id, label: name }))}
+            value={filters.partner ?? []} onChange={(v) => setFilter("partner", v)} />
+        </FilterBar>
         <button onClick={() => setShowModal(true)} className="btn-primary ml-auto shrink-0">+ New</button>
       </div>
 
@@ -677,16 +683,16 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-line bg-surface/50 text-left">
-                <SortTh label="Channel" col="channel" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-muted !py-2.5 whitespace-nowrap" />
-                <SortTh label="Status" col="status" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-muted !py-2.5" />
-                <SortTh label="Style" col="beer_style" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-muted !py-2.5" />
-                <SortTh label="Partner" col="partner_name" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-muted !py-2.5" />
-                <SortTh label="Volume (BBL)" col="volume_bbl" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-muted !py-2.5 whitespace-nowrap" />
-                <SortTh label="Packaging" col="packaging_total_bbl" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-muted !py-2.5" />
-                <SortTh label="Delivery" col="schedule_sort" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-muted !py-2.5" />
-                <SortTh label="Received" col="received_on" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-muted !py-2.5" />
-                <SortTh label="Locked" col="locked_on" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-muted !py-2.5" />
-                <SortTh label="Edited" col="last_edited_on" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-xs !text-muted !py-2.5" />
+                <SortableTh label="Channel" sortKey="channel" sort={sort} onSort={toggleSort} className="text-xs !text-muted !py-2.5 whitespace-nowrap" />
+                <SortableTh label="Status" sortKey="status" sort={sort} onSort={toggleSort} className="text-xs !text-muted !py-2.5" />
+                <SortableTh label="Style" sortKey="beer_style" sort={sort} onSort={toggleSort} className="text-xs !text-muted !py-2.5" />
+                <SortableTh label="Partner" sortKey="partner_name" sort={sort} onSort={toggleSort} className="text-xs !text-muted !py-2.5" />
+                <SortableTh label="Volume (BBL)" sortKey="volume_bbl" sort={sort} onSort={toggleSort} className="text-xs !text-muted !py-2.5 whitespace-nowrap" />
+                <SortableTh label="Packaging" sortKey="packaging_total_bbl" sort={sort} onSort={toggleSort} className="text-xs !text-muted !py-2.5" />
+                <SortableTh label="Delivery" sortKey="schedule_sort" sort={sort} onSort={toggleSort} className="text-xs !text-muted !py-2.5" />
+                <SortableTh label="Received" sortKey="received_on" sort={sort} onSort={toggleSort} className="text-xs !text-muted !py-2.5" />
+                <SortableTh label="Locked" sortKey="locked_on" sort={sort} onSort={toggleSort} className="text-xs !text-muted !py-2.5" />
+                <SortableTh label="Edited" sortKey="last_edited_on" sort={sort} onSort={toggleSort} className="text-xs !text-muted !py-2.5" />
                 <th className="px-4 py-2.5 text-xs font-medium text-muted whitespace-nowrap">Invoicing</th>
                 <th className="px-4 py-2.5 text-xs font-medium text-muted">Notes</th>
                 <th className="px-4 py-2.5 text-xs font-medium text-muted" />
