@@ -704,9 +704,9 @@ function InvoiceTermsSection() {
 
   return (
     <section>
-      <h3 className="text-sm font-medium text-strong mb-2">Default Invoice Net Terms</h3>
+      <h3 className="text-sm font-medium text-strong mb-2">Export Invoice Net Terms</h3>
       <p className="text-xs text-faint mb-2">
-        Days until payment is due on a generated export invoice, used when a partner has no override set.
+        Days from the draft date until an export invoice is due. Applies to every partner.
       </p>
       <div className="flex items-center gap-2">
         <input

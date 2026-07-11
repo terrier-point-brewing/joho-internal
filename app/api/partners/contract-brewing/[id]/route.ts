@@ -11,7 +11,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const supabase = await createSupabaseServerClient();
 
   const { id } = await params;
-  const { company_name, first_name, last_name, phone, address, email, notes, square_customer_id, export_net_terms_days, deposit_net_terms_days } = await req.json();
+  const { company_name, first_name, last_name, phone, address, email, notes, square_customer_id } = await req.json();
 
   const { data, error } = await supabase
     .from("contract_brewing_partners")
@@ -25,8 +25,6 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       notes: notes || null,
       // Allow explicitly clearing the square link by passing null
       ...(square_customer_id !== undefined ? { square_customer_id: square_customer_id || null } : {}),
-      ...(export_net_terms_days !== undefined ? { export_net_terms_days: export_net_terms_days != null ? Number(export_net_terms_days) : null } : {}),
-      ...(deposit_net_terms_days !== undefined ? { deposit_net_terms_days: deposit_net_terms_days != null ? Number(deposit_net_terms_days) : null } : {}),
     })
     .eq("id", id)
     .select()

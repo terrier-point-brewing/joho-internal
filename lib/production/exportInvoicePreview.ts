@@ -20,7 +20,6 @@ export interface InvoicePreviewResult {
   customerName: string;
   squareCustomerId: string | null;
   lineItems: InvoiceLineItemDraft[];
-  dueDays: number;
   /** Shared channel of the selected transactions (all must match). */
   channel: string;
   /**
@@ -44,8 +43,6 @@ interface ExportTxRow {
   channel: string;
   recipe_id: string | null;
 }
-
-const DEFAULT_DUE_DAYS = 30;
 
 /**
  * Keg-cleaning line quantity = the total number of kegs across every keg-type
@@ -202,20 +199,10 @@ export async function buildInvoicePreview(
   // ── 2. Load the customer (square_customer_id, net terms) ─────────────────
   const { data: partner, error: partnerErr } = await supabase
     .from("contract_brewing_partners")
-    .select("id, company_name, square_customer_id, export_net_terms_days")
+    .select("id, company_name, square_customer_id")
     .eq("id", customerId)
     .single();
   if (partnerErr || !partner) throw new Error("Customer not found");
-
-  let dueDays = partner.export_net_terms_days as number | null;
-  if (dueDays == null) {
-    const { data: setting } = await supabase
-      .from("system_settings")
-      .select("value")
-      .eq("key", "export_invoice_due_days")
-      .single();
-    dueDays = (setting?.value as number) ?? DEFAULT_DUE_DAYS;
-  }
 
   // ── 3. Load packaging items (for type='keg' detection + error messages) ───
   const packagingItemIds = [...new Set(rows.map((r) => r.packaging_item_id))];
@@ -381,7 +368,6 @@ export async function buildInvoicePreview(
     customerName: partner.company_name,
     squareCustomerId: partner.square_customer_id,
     lineItems,
-    dueDays,
     channel,
     defaultDiscountCatalogId,
   };

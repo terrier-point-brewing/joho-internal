@@ -51,7 +51,7 @@ export interface CreateExportInvoiceParams {
   squareCustomerId: string;
   title: string;
   lineItems: InvoiceLineItemDraft[];
-  dueDays: number;
+  dueDate: string;
 }
 
 export interface ExportInvoiceResult {
@@ -72,12 +72,6 @@ interface SquareOrderTender {
 }
 interface SquareOrderGetResponse {
   order: { id: string; tenders?: SquareOrderTender[] };
-}
-
-function addDays(date: Date, days: number): string {
-  const d = new Date(date);
-  d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
 }
 
 // ── Deposit calculation (pure math, no Square calls) ───────────────────────────
@@ -153,9 +147,8 @@ interface CreateInvoiceCoreParams {
   title: string;
   description?: string;
   lineItems: InvoiceLineItemDraft[];
-  /** Exactly one of dueDays or dueDate must be provided. */
-  dueDays?: number;
-  dueDate?: string;
+  /** Due date for the invoice's BALANCE payment request (YYYY-MM-DD). */
+  dueDate: string;
   /** Defaults to today (YYYY-MM-DD) if omitted. */
   serviceDate?: string;
   acceptedPaymentMethods?: { card: boolean; bank_account: boolean; cash_app_pay: boolean; buy_now_pay_later: boolean };
@@ -167,7 +160,7 @@ interface CreateInvoiceCoreParams {
  * publishing is always a separate, explicit `send` action in both flows).
  */
 async function createInvoice(params: CreateInvoiceCoreParams): Promise<{ orderId: string; invoiceId: string; invoiceUrl: string | null; squareStatus: string; invoiceNumber: string | null }> {
-  const { squareCustomerId, title, description, lineItems, dueDays, dueDate, serviceDate, acceptedPaymentMethods, metadataType } = params;
+  const { squareCustomerId, title, description, lineItems, dueDate, serviceDate, acceptedPaymentMethods, metadataType } = params;
   const loc = squareLocationId();
 
   const discountUidByCatalogId = new Map<string, string>();
@@ -223,7 +216,6 @@ async function createInvoice(params: CreateInvoiceCoreParams): Promise<{ orderId
   const orderId = orderResp.order.id;
 
   const today = new Date().toISOString().slice(0, 10);
-  if (dueDays == null && dueDate == null) throw new Error("createInvoice requires either dueDays or dueDate");
 
   const invoiceResp = await squarePost<SquareInvoiceResponse>("/invoices", {
     idempotency_key: crypto.randomUUID(),
@@ -238,7 +230,7 @@ async function createInvoice(params: CreateInvoiceCoreParams): Promise<{ orderId
       payment_requests: [
         {
           request_type: "BALANCE",
-          due_date: dueDate ?? addDays(new Date(), dueDays!),
+          due_date: dueDate,
           tipping_enabled: false,
         },
       ],
@@ -306,7 +298,7 @@ export async function createExportInvoice(
     squareCustomerId: params.squareCustomerId,
     title: params.title,
     lineItems: params.lineItems,
-    dueDays: params.dueDays,
+    dueDate: params.dueDate,
     // Square requires accepted_payment_methods on any invoice with a payment
     // request. Default to card + bank transfer (ACH), matching the deposit flow.
     acceptedPaymentMethods: { card: true, bank_account: true, cash_app_pay: false, buy_now_pay_later: false },
