@@ -942,7 +942,7 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
                             <button type="button"
                               onClick={() => viewInvoiceInSquare(a)}
                               disabled={invoiceActionLoading === a.id}
-                              className="btn-secondary whitespace-nowrap">
+                              className="btn-secondary btn-xxs whitespace-nowrap">
                               View in Square ↗
                             </button>
                           )}
@@ -953,7 +953,7 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
                                 <button type="button"
                                   onClick={() => openInvoiceModal(a)}
                                   disabled={invoiceActionLoading === a.id}
-                                  className="btn-primary whitespace-nowrap">
+                                  className="btn-primary btn-xxs whitespace-nowrap">
                                   Generate Invoice
                                 </button>
                               )}
@@ -962,13 +962,13 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
                                   <button type="button"
                                     onClick={() => handleSendInvoice(a.id)}
                                     disabled={invoiceActionLoading === a.id}
-                                    className="btn-primary whitespace-nowrap">
+                                    className="btn-primary btn-xxs whitespace-nowrap">
                                     {invoiceActionLoading === a.id ? "Sending…" : "Send Invoice"}
                                   </button>
                                   <button type="button"
                                     onClick={() => handleDeleteInvoice(a.id, false)}
                                     disabled={invoiceActionLoading === a.id}
-                                    className="btn-danger whitespace-nowrap">
+                                    className="btn-danger btn-xxs whitespace-nowrap">
                                     Delete
                                   </button>
                                 </>
@@ -978,13 +978,13 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
                                   <button type="button"
                                     onClick={() => handleSyncInvoice(a.id)}
                                     disabled={invoiceActionLoading === a.id}
-                                    className="btn-secondary whitespace-nowrap">
+                                    className="btn-secondary btn-xxs whitespace-nowrap">
                                     {invoiceActionLoading === a.id ? "Syncing…" : "Sync Status"}
                                   </button>
                                   <button type="button"
                                     onClick={() => handleDeleteInvoice(a.id, true)}
                                     disabled={invoiceActionLoading === a.id}
-                                    className="btn-danger whitespace-nowrap">
+                                    className="btn-danger btn-xxs whitespace-nowrap">
                                     Delete
                                   </button>
                                 </>
@@ -992,7 +992,7 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
                               <button type="button"
                                 onClick={() => { setInvoiceModalMode("mark_paid"); setInvoiceModalAlloc(a); setInvoicePreview(null); }}
                                 disabled={invoiceActionLoading === a.id}
-                                className="btn-secondary whitespace-nowrap">
+                                className="btn-secondary btn-xxs whitespace-nowrap">
                                 Mark Paid (Ext.)
                               </button>
                             </>

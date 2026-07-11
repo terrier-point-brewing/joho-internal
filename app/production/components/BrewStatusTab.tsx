@@ -587,7 +587,7 @@ export default function BrewStatusTab() {
                                   {!editMode && (
                                     <button
                                       onClick={() => { setTransferTankId(tank.id); setTransferBatchId(otherBatch.id); setTransferFromVol(volFor(otherBatch)); setTransferInitialMode(undefined); setTransferInitialDestId(undefined); setTransferInitialConvert(undefined); }}
-                                      className="btn-primary shrink-0"
+                                      className="btn-primary btn-xxs shrink-0"
                                     >
                                       Transfer
                                     </button>
@@ -598,7 +598,7 @@ export default function BrewStatusTab() {
                             {!editMode && (
                               <button
                                 onClick={() => { setTransferTankId(tank.id); setTransferBatchId(batch.id); setTransferFromVol(volFor(batch)); setTransferInitialMode(undefined); setTransferInitialDestId(undefined); setTransferInitialConvert(undefined); }}
-                                className="btn-primary"
+                                className="btn-primary btn-xxs"
                               >
                                 Transfer
                               </button>
@@ -624,7 +624,7 @@ export default function BrewStatusTab() {
                               {!editMode && tank.type === "brewhouse" && unassignedBatches.length > 0 && (
                                 <button
                                   onClick={() => assign.openAssign(tank.id)}
-                                  className="btn-primary shrink-0"
+                                  className="btn-primary btn-xxs shrink-0"
                                 >
                                   Assign
                                 </button>
@@ -884,7 +884,7 @@ export default function BrewStatusTab() {
                             <button
                               onClick={() => { setBatchForm(BATCH_EMPTY); setShowNewBatch(true); }}
                               onMouseDown={(e) => e.stopPropagation()}
-                              className="btn-primary w-full"
+                              className="btn-primary btn-xxs w-full"
                             >
                               + New Batch
                             </button>
@@ -1016,7 +1016,7 @@ export default function BrewStatusTab() {
                                 <button
                                   onClick={() => { setTransferTankId(tank.id); setTransferBatchId(batch.id); setTransferFromVol(volFor(batch)); setTransferInitialMode(undefined); setTransferInitialDestId(undefined); setTransferInitialConvert(undefined); }}
                                   onMouseDown={(e) => e.stopPropagation()}
-                                  className="btn-primary w-full"
+                                  className="btn-primary btn-xxs w-full"
                                 >
                                   Transfer
                                 </button>
@@ -1049,7 +1049,7 @@ export default function BrewStatusTab() {
                                 <button
                                   onClick={() => assign.openAssign(tank.id)}
                                   onMouseDown={(e) => e.stopPropagation()}
-                                  className="btn-primary w-full"
+                                  className="btn-primary btn-xxs w-full"
                                 >
                                   Assign
                                 </button>

@@ -216,7 +216,7 @@ All interactive primitives come from `globals.css` classes or shared components.
 baked in so consumers can't drift.
 
 ### Buttons (`globals.css`)
-One compact size, three hollow tiers. **No solid fills, no size modifier.** Every action
+One compact default size, three hollow tiers. **No solid fills.** Every action
 button is `py-1 px-2.5 text-xs font-medium`, transparent fill, 1px outline.
 
 | Class | Style | Use |
@@ -224,6 +224,12 @@ button is `py-1 px-2.5 text-xs font-medium`, transparent fill, 1px outline.
 | `.btn-primary` | amber outline — `border-accent-border text-accent`, hover amber wash + `text-accent-soft` | the main action (New, Save, Run, Ship, Confirm) |
 | `.btn-secondary` | neutral outline — `border-line-strong text-secondary`, hover `border-line-subtle`/`text-body` | cancel, close, secondary/neutral actions |
 | `.btn-danger` | danger outline — `border-danger-border text-danger`, hover danger wash | destructive (Delete, Remove) |
+
+**Size:** one modifier only — `.btn-xxs` (`py-0.5 px-1.5`, 10px), which composes with any
+tier (`btn-primary btn-xxs`). Use it **only** in dense inline/tile contexts where the compact
+default overflows — table action rows and floorplan/keg tiles (e.g. BatchLog invoice-action
+row, BrewStatus tank tiles). It is not a general small button; do not reach for it to make a
+page/toolbar button smaller.
 
 All share `:disabled → opacity-40`, `:focus-visible → 2px accent outline`. There is **no
 `.btn-amber`/`.btn-ghost`/`.btn-sm`/`.btn-xs` and no md size** — do not hand-roll bordered or
