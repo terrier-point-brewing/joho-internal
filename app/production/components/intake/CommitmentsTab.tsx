@@ -662,17 +662,19 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
   return (
     <div>
       <p className="text-sm text-muted mb-3">Distribution allocations and contract brewing requests. All are outflows from cold storage.</p>
-      <FilterBar activeCount={activeCount} onClear={reset} className="mb-4">
-        <FilterChips label="Channel" options={CHANNEL_OPTIONS}
-          value={filters.channel ?? []} onChange={(v) => setFilter("channel", v)} />
-        <FilterSelect label="Style"
-          options={uniqueStyles.map((s) => ({ value: s, label: s }))}
-          value={filters.style ?? []} onChange={(v) => setFilter("style", v)} />
-        <FilterSelect label="Partner"
-          options={uniquePartners.map(([id, name]) => ({ value: id, label: name }))}
-          value={filters.partner ?? []} onChange={(v) => setFilter("partner", v)} />
+      <div className="flex items-start gap-3 mb-4">
+        <FilterBar activeCount={activeCount} onClear={reset}>
+          <FilterChips label="Channel" options={CHANNEL_OPTIONS}
+            value={filters.channel ?? []} onChange={(v) => setFilter("channel", v)} />
+          <FilterSelect label="Style"
+            options={uniqueStyles.map((s) => ({ value: s, label: s }))}
+            value={filters.style ?? []} onChange={(v) => setFilter("style", v)} />
+          <FilterSelect label="Partner"
+            options={uniquePartners.map(([id, name]) => ({ value: id, label: name }))}
+            value={filters.partner ?? []} onChange={(v) => setFilter("partner", v)} />
+        </FilterBar>
         <button onClick={() => setShowModal(true)} className="btn-primary ml-auto shrink-0">+ New</button>
-      </FilterBar>
+      </div>
 
       {displayRows.length === 0 ? (
         <p className="text-faint text-sm py-10 text-center">No commitments recorded yet.</p>
