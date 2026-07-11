@@ -227,32 +227,35 @@ async function handleInvoiceAction(req: NextRequest, params: RouteParams["params
 
     // Persist canonical line items + authoritative header totals from Square's order.
     if (ledgerInvoiceId) {
+      let linesPersisted = false;
       try {
         const [orders, catalogItems] = await Promise.all([
           fetchOrdersByIds([result.orderId]),
           fetchCatalogItems(),
         ]);
         const order = orders[0];
-        if (order) {
-          const indexes = await buildLineItemIndexes(adminSupabase, catalogItems as CatalogItem[]);
-          const rows = buildInvoiceLineItemRows(ledgerInvoiceId, order, indexes, new Map());
-          const { error: persistErr } = await persistInvoiceLineItems(adminSupabase, ledgerInvoiceId, rows);
-          if (persistErr) throw new Error(persistErr);
-          const totals = invoiceHeaderTotalsFromOrder(order);
-          const { error: hdrErr } = await adminSupabase.from("invoices").update(totals).eq("id", ledgerInvoiceId);
-          if (hdrErr) throw new Error(hdrErr.message);
-        }
+        if (!order) throw new Error(`order read-back returned no order for ${result.orderId}`);
+        const indexes = await buildLineItemIndexes(adminSupabase, catalogItems as CatalogItem[]);
+        const rows = buildInvoiceLineItemRows(ledgerInvoiceId, order, indexes, new Map());
+        const { error: persistErr } = await persistInvoiceLineItems(adminSupabase, ledgerInvoiceId, rows);
+        if (persistErr) throw new Error(persistErr);
+        linesPersisted = true;
+        const totals = invoiceHeaderTotalsFromOrder(order);
+        const { error: hdrErr } = await adminSupabase.from("invoices").update(totals).eq("id", ledgerInvoiceId);
+        if (hdrErr) console.error("[deposit-invoice] header totals update failed:", hdrErr.message);
       } catch (err) {
         console.error("[deposit-invoice] generate read-back failed, using draft deposit line:", err);
-        await adminSupabase.from("invoice_line_items").upsert(
-          {
-            invoice_id: ledgerInvoiceId, sort_order: 0, description: "Ingredient Deposit",
-            category: "ingredient_deposit", quantity: 1,
-            unit_price_cents: calculation.deposit_cents, total_cents: calculation.deposit_cents,
-            square_catalog_variation_id: mapping.square_catalog_variation_id,
-          },
-          { onConflict: "invoice_id,sort_order" },
-        );
+        if (!linesPersisted) {
+          await adminSupabase.from("invoice_line_items").upsert(
+            {
+              invoice_id: ledgerInvoiceId, sort_order: 0, description: "Ingredient Deposit",
+              category: "ingredient_deposit", quantity: 1,
+              unit_price_cents: calculation.deposit_cents, total_cents: calculation.deposit_cents,
+              square_catalog_variation_id: mapping.square_catalog_variation_id,
+            },
+            { onConflict: "invoice_id,sort_order" },
+          );
+        }
       }
     }
 

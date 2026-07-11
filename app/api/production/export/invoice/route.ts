@@ -144,25 +144,26 @@ export async function POST(req: NextRequest) {
     }
 
     // Persist canonical line items + authoritative header totals from Square's order.
+    let linesPersisted = false;
     try {
       const [orders, catalogItems] = await Promise.all([
         fetchOrdersByIds([result.orderId]),
         fetchCatalogItems(),
       ]);
       const order = orders[0];
-      if (order) {
-        const indexes = await buildLineItemIndexes(supabase, catalogItems as CatalogItem[]);
-        const rows = buildInvoiceLineItemRows(inv.id, order, indexes, new Map());
-        const { error: persistErr } = await persistInvoiceLineItems(supabase, inv.id, rows);
-        if (persistErr) throw new Error(persistErr);
-        const totals = invoiceHeaderTotalsFromOrder(order);
-        const { error: hdrErr } = await supabase.from("invoices").update(totals).eq("id", inv.id);
-        if (hdrErr) throw new Error(hdrErr.message);
-      }
+      if (!order) throw new Error(`order read-back returned no order for ${result.orderId}`);
+      const indexes = await buildLineItemIndexes(supabase, catalogItems as CatalogItem[]);
+      const rows = buildInvoiceLineItemRows(inv.id, order, indexes, new Map());
+      const { error: persistErr } = await persistInvoiceLineItems(supabase, inv.id, rows);
+      if (persistErr) throw new Error(persistErr);
+      linesPersisted = true;
+      const totals = invoiceHeaderTotalsFromOrder(order);
+      const { error: hdrErr } = await supabase.from("invoices").update(totals).eq("id", inv.id);
+      if (hdrErr) console.error("[export-invoice] header totals update failed:", hdrErr.message);
     } catch (err) {
       console.error("[export-invoice] generate read-back failed, falling back to draft values:", err);
       // Fallback: persist gross draft values so the row is never empty; a later sync reconciles.
-      if (lineItems.length > 0) {
+      if (!linesPersisted && lineItems.length > 0) {
         await supabase.from("invoice_line_items").upsert(
           lineItems.map((li, i) => ({
             invoice_id: inv.id, sort_order: i, description: li.description,
