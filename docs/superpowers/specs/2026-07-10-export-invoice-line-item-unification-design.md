@@ -180,7 +180,7 @@ So deposits carry the low-severity half of the problem (label drift, missing can
 
 **Change:** route deposit `generate` through the same order read-back + `buildInvoiceLineItemRows` used by export (3.2/3.3), so the deposit line lands with `square_catalog_variation_id`, snapshot `line_item_name`/`variation_name`, GL prefill, and renders identically in the 7-column view. The deposit variation id is already in hand at generate (`mapping.square_catalog_variation_id`); the read-back also picks up Square's catalog names. `upsertFinanceLedgerInvoice`'s header write is retained; only the line-item write is replaced by the shared mapping.
 
-**Priority:** lower than the export money fix — deposits are display-consistency only. Sequence after the export path lands (see 6). Backfill re-sync (3.7) can include `invoice_type = allocation_deposit` in the same pass.
+**Priority:** same batch as the export work. Deposits and export both route their `generate` line-item write through the **one** shared `buildInvoiceLineItemRows` + order read-back — no parallel deposit-specific copy. `upsertFinanceLedgerInvoice`'s bespoke line-item insert is deleted in favor of the shared path. Backfill re-sync (3.7) covers `export_invoice` and `allocation_deposit` in the same pass.
 
 ---
 
@@ -221,10 +221,12 @@ Verification anchor (#031): net 221200 + 2332 + 12807 = **236339** = Square `tot
 2. Shared mapping function + tests.
 3. Wire sync → shared mapping; wire generate read-back.
 4. Auto-map variation-primary.
-5. Finance display 7-col + summary rows + fetch select.
-6. Backfill re-sync of existing export invoices; verify sample vs Square.
-7. Deposit `generate` → shared read-back/mapping (3.10); include deposits in a backfill re-sync pass.
-8. Migration 2 (drop retired catalog-ref columns) once backfill verified.
+4b. Wire **both** export `generate` **and** deposit `generate` onto the shared read-back/mapping in the same step (delete `upsertFinanceLedgerInvoice`'s bespoke line insert).
+5. Finance display 7-col + summary rows + fetch select (covers export + deposit uniformly).
+6. Backfill re-sync of existing `export_invoice` + `allocation_deposit` invoices; verify sample vs Square.
+7. Migration 2 (drop retired catalog-ref columns) once backfill verified.
+
+**Consolidation mandate:** one order→row mapping, one read-back helper, one finance line-item renderer — export, deposit, and sync all ride the same logic. No invoice-type-specific forks of persistence or display. Per project architecture rules, extend the shared module rather than duplicating per invoice type.
 
 Each migration applied to prod one at a time, explicit OK + backup, per project policy.
 
