@@ -1111,8 +1111,105 @@ git commit -m "test(finance): verify auto-mapping trigger suite passes + coverag
 
 ---
 
+## Task 9: Per-invoice webhook sync (final-review fix for Important 1)
+
+The final whole-branch review flagged that the Task 7 invoice webhook calls `syncSquareInvoicesForYear` on **every** `invoice.*` event, which paginates ALL Square invoices + a full year of orders + the catalog each time — unbounded growth, rate-limit/timeout risk during bursts. Fix: add a per-invoice Square sync and call it from the webhook instead of the full-year sync. The `finance-sync` cron keeps `syncSquareInvoicesForYear` (its once-a-day full-year backstop is intended and stays).
+
+**Files:**
+- Modify: `lib/square/orders.ts` — add `fetchSquareInvoiceById`.
+- Modify: `lib/finance/syncSquareInvoices.ts` — extract a shared context builder + per-invoice upsert helper; add `syncSquareInvoiceById`.
+- Modify: `app/api/webhooks/square/route.ts` — invoice branch calls `syncSquareInvoiceById` (not the full-year sync).
+
+**Interfaces:**
+- Produces: `fetchSquareInvoiceById(invoiceId: string): Promise<SquareInvoice | null>`; `syncSquareInvoiceById(supabase, squareInvoiceId: string): Promise<{ found: boolean; outcome: "synced" | "updated" | "skipped" | "not_found"; error?: string }>`.
+- Consumes: existing `fetchOrdersByIds`, `fetchCatalogItems`, `squareGet`, `isSquareNotFound`, `autoMapInvoiceLineItems`.
+
+- [ ] **Step 1: Add `fetchSquareInvoiceById` to `lib/square/orders.ts`**
+
+Import `squareGet` and `isSquareNotFound` from `./client` (currently only `squarePost, squarePostAll, squareLocationId` are imported). Add:
+
+```ts
+/** Fetch one Square invoice by id (GET /invoices/{id}); null if not found. */
+export async function fetchSquareInvoiceById(invoiceId: string): Promise<SquareInvoice | null> {
+  try {
+    const res = await squareGet<{ invoice?: SquareInvoice }>(`/invoices/${invoiceId}`);
+    return res.invoice ?? null;
+  } catch (err) {
+    if (isSquareNotFound(err)) return null;
+    throw err;
+  }
+}
+```
+
+- [ ] **Step 2: Refactor `syncSquareInvoices.ts` — extract the shared context + per-invoice helper**
+
+In `lib/finance/syncSquareInvoices.ts`, extract two internal helpers WITHOUT changing behavior:
+
+`buildInvoiceSyncContext(supabase, catalogItems)` — returns `{ partnerByCustomerId, kegIndex, canVariationOz, variationById }`, containing exactly the four indexes `syncSquareInvoicesForYear` builds today (§1 partners load, §3 kegIndex + canVariationOz from catalog, §4 variation deposit mappings). Type the return as an exported-or-local `InvoiceSyncContext` interface.
+
+`upsertInvoiceWithLines(supabase, inv, order, ctx)` — the body of the current `for (const inv of squareInvoices)` loop (lines building `invoices` upsert + line items + delete-trailing), returning `{ outcome: "synced" | "updated" | "skipped"; error?: string }` (skipped when `!order`; synced/updated from `wasInserted`; error carries the message currently pushed to `errors`).
+
+Then rewrite `syncSquareInvoicesForYear` to: fetch invoices/orders/catalog as today, `ctx = buildInvoiceSyncContext(supabase, catalogItems)`, loop `upsertInvoiceWithLines`, aggregating `synced/updated/skipped/errors` into the SAME `SyncSquareInvoicesResult`. The existing `resolveLineItemCoa` export and its tests must stay unchanged and green.
+
+- [ ] **Step 3: Add `syncSquareInvoiceById`**
+
+```ts
+export async function syncSquareInvoiceById(
+  supabase: SupabaseClient,
+  squareInvoiceId: string,
+): Promise<{ found: boolean; outcome: "synced" | "updated" | "skipped" | "not_found"; error?: string }> {
+  const inv = await fetchSquareInvoiceById(squareInvoiceId);
+  if (!inv) return { found: false, outcome: "not_found" };
+
+  const [orders, catalogItems] = await Promise.all([
+    inv.order_id ? fetchOrdersByIds([inv.order_id]) : Promise.resolve([]),
+    fetchCatalogItems() as Promise<CatalogItem[]>,
+  ]);
+  const order = orders[0];
+  if (!order) return { found: true, outcome: "skipped" };
+
+  const ctx = await buildInvoiceSyncContext(supabase, catalogItems);
+  const res = await upsertInvoiceWithLines(supabase, inv, order, ctx);
+  return { found: true, outcome: res.outcome, error: res.error };
+}
+```
+
+Add `fetchSquareInvoiceById`, `fetchOrdersByIds` to the imports from `@/lib/square/orders` (`fetchCatalogItems` is already imported).
+
+- [ ] **Step 4: Point the webhook at the per-invoice sync**
+
+In `app/api/webhooks/square/route.ts`, inside the `if (invoiceEvent)` block, replace the Task 7 line-item sync body:
+
+```ts
+        try {
+          const syncResult = await syncSquareInvoiceById(supabase, invoiceId);
+          const year = new Date().getFullYear();
+          const mapResult = await autoMapInvoiceLineItems(supabase, { year });
+          console.log("[square-webhook] invoice line-item sync", {
+            invoiceId, outcome: syncResult.outcome, mapped: mapResult.mapped,
+          });
+        } catch (e) {
+          console.error("[square-webhook] invoice line-item sync failed", e);
+        }
+```
+
+Change the import from `syncSquareInvoicesForYear` to `syncSquareInvoiceById` (the cron still imports `syncSquareInvoicesForYear` — do not touch the cron). The year-scoped `autoMapInvoiceLineItems` is a Supabase-only pass (cheap, no Square) and stays for description-sibling coverage.
+
+- [ ] **Step 5: Verify**
+
+Run `npm run test` (842 pass; `resolveLineItemCoa` tests still green), `npm run lint` (0 errors), `npm run build` (Compiled successfully). No new unit test is required (the refactor is behavior-preserving over already-tested pure logic + IO extraction; the codebase does not unit-test the IO sync path).
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add lib/square/orders.ts lib/finance/syncSquareInvoices.ts app/api/webhooks/square/route.ts
+git commit -m "perf(finance): per-invoice webhook sync instead of full-year resync"
+```
+
+---
+
 ## Self-Review
 
-- **Spec coverage:** ✅ Orders (Task 3/4/5), Invoices (Task 3/4/5/7), Expenses (Task 3/4/6 — GL cascade pre-existing), Bank ledger (Task 1/2/3/6). Both triggers covered: ingest (Task 2 bank; Task 7 invoice; POS + expense pre-existing) and rule-mutation (Task 5 variations; Task 6 counterparty; GL pre-existing). Application-layer only, no DB trigger. ✅
+- **Spec coverage:** ✅ Orders (Task 3/4/5), Invoices (Task 3/4/5/7/9), Expenses (Task 3/4/6 — GL cascade pre-existing), Bank ledger (Task 1/2/3/6). Both triggers covered: ingest (Task 2 bank; Task 7 invoice; POS + expense pre-existing) and rule-mutation (Task 5 variations; Task 6 counterparty; GL pre-existing). Application-layer only, no DB trigger. ✅
 - **Placeholders:** none — every code step shows real code; the two "confirm the field name" steps (5.2, 6.1) are verification-of-existing-code steps, not deferred implementation.
 - **Type consistency:** wrapper names (`autoMapPosLineItems`, `autoMapInvoiceLineItems`, `autoMapExpenses`, `autoMapBankLedger`) and resolver names (`resolvePosBackfill`, `resolveInvoiceBackfill`, `resolveBankBackfill`) are used identically across the File Structure interface block and Tasks 3–7. `applyLineItemUpdates` signature matches all call sites. `counterparty_key` added consistently to `BankLedgerRecord`, the migration, and the bank auto-map queries.
