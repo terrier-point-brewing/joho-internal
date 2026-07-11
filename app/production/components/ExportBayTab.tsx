@@ -1,12 +1,17 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRecipesQuery, useContractPartnersQuery, fetchJson } from "../hooks/queries";
 import type { AvailableInventoryLine, BatchAllocation, ExportChannel } from "../types";
 import { assessWriteOff, type ShipmentWarning } from "@/lib/production/allocationReserve";
 import { queryKeys } from "@/lib/query-keys";
 import { CHANNEL_COLOR, KEG_TAG_BADGE } from "../lib/categoryColors";
+import FilterBar from "@/app/components/ui/FilterBar";
+import FilterChips from "@/app/components/ui/FilterChips";
+import SearchInput from "@/app/components/ui/SearchInput";
+import { useTableControls } from "@/app/components/ui/useTableControls";
+import type { ControlsConfig } from "@/lib/table/types";
 
 function formatShipmentWarning(w: ShipmentWarning): string {
   switch (w.type) {
@@ -49,35 +54,6 @@ function ChannelBadge({ channel }: { channel: string }) {
     <span className={`text-[10px] px-1.5 py-0.5 rounded border font-medium shrink-0 ${cfg.cls}`}>
       {cfg.label}
     </span>
-  );
-}
-
-// ── Filter chips ───────────────────────────────────────────────────────────────
-
-function FilterChips({ label, options, value, onChange }: {
-  label: string;
-  options: { value: string; label: string }[];
-  value: string;
-  onChange: (v: string) => void;
-}) {
-  return (
-    <div className="flex items-center gap-1.5 flex-wrap">
-      <span className="text-xs text-muted mr-0.5">{label}:</span>
-      {options.map((o) => (
-        <button
-          key={o.value}
-          type="button"
-          onClick={() => onChange(o.value)}
-          className={`text-[11px] px-2 py-0.5 rounded border transition-colors ${
-            value === o.value
-              ? "border-accent-border bg-accent-muted/40 text-accent-soft"
-              : "border-line-strong text-secondary hover:border-line-subtle hover:text-body"
-          }`}
-        >
-          {o.label}
-        </button>
-      ))}
-    </div>
   );
 }
 
@@ -140,8 +116,10 @@ export default function ExportBayTab() {
   const { data: recipes = [] } = useRecipesQuery();
   const { data: partners = [] } = useContractPartnersQuery();
 
-  const recipeNameById  = new Map(recipes.map((r) => [r.id, r.beer_name]));
-  const partnerNameById = new Map(partners.map((p) => [p.id, p.company_name]));
+  // Memoized so the search/filter/sort config (useMemo below) keeps a stable dep
+  // set — otherwise React Compiler can't preserve its memoization.
+  const recipeNameById  = useMemo(() => new Map(recipes.map((r) => [r.id, r.beer_name])), [recipes]);
+  const partnerNameById = useMemo(() => new Map(partners.map((p) => [p.id, p.company_name])), [partners]);
 
   // ── UI state ──────────────────────────────────────────────────────────────────
   const [shipGroup,         setShipGroup]         = useState<CustomerRecipeGroup | null>(null);
@@ -149,13 +127,6 @@ export default function ExportBayTab() {
   const [showSync,          setShowSync]          = useState(false);
   const [writeOffAlloc,     setWriteOffAlloc]     = useState<BatchAllocation | null>(null);
   const [expandedFulfilled, setExpandedFulfilled] = useState<Set<string>>(new Set());
-
-  // Search / filter / sort
-  const [search,         setSearch]         = useState("");
-  const [filterStatus,   setFilterStatus]   = useState("all");
-  const [filterChannel,  setFilterChannel]  = useState("all");
-  const [filterPartner,  setFilterPartner]  = useState("all");
-  const [sortBy,         setSortBy]         = useState("urgency");
 
   function toggleFulfilled(recipeId: string) {
     setExpandedFulfilled((prev) => {
@@ -166,65 +137,70 @@ export default function ExportBayTab() {
     });
   }
 
-  if (inventoryLoading || allocationsLoading) {
-    return <p className="text-sm text-faint py-8 text-center">Loading…</p>;
-  }
-
   // ── Group allocations by partner+recipe, then nest under recipe ──────────────
 
-  const groups = new Map<string, CustomerRecipeGroup>();
-  for (const a of allocations) {
-    if (a.channel === "taproom") continue;
-    const partnerId = a.partner_id;
-    const recipeId  = a.brew_batches?.recipe_id;
-    if (!partnerId || !recipeId) continue;
-    const key = `${partnerId}|${recipeId}`;
-    const existing = groups.get(key);
-    if (existing) {
-      existing.allocations.push(a);
-    } else {
-      groups.set(key, {
-        partnerId,
-        partnerName: partnerNameById.get(partnerId) ?? "Unknown",
-        recipeId,
-        recipeName: recipeNameById.get(recipeId) ?? "Unknown recipe",
-        allocations: [a],
-      });
+  const recipeGroups = useMemo(() => {
+    const groups = new Map<string, CustomerRecipeGroup>();
+    for (const a of allocations) {
+      if (a.channel === "taproom") continue;
+      const partnerId = a.partner_id;
+      const recipeId  = a.brew_batches?.recipe_id;
+      if (!partnerId || !recipeId) continue;
+      const key = `${partnerId}|${recipeId}`;
+      const existing = groups.get(key);
+      if (existing) {
+        existing.allocations.push(a);
+      } else {
+        groups.set(key, {
+          partnerId,
+          partnerName: partnerNameById.get(partnerId) ?? "Unknown",
+          recipeId,
+          recipeName: recipeNameById.get(recipeId) ?? "Unknown recipe",
+          allocations: [a],
+        });
+      }
     }
-  }
 
-  const recipeGroups = new Map<string, RecipeAllocationGroup>();
-  for (const g of groups.values()) {
-    const existing = recipeGroups.get(g.recipeId);
-    if (existing) {
-      existing.partnerGroups.push(g);
-    } else {
-      recipeGroups.set(g.recipeId, { recipeId: g.recipeId, recipeName: g.recipeName, partnerGroups: [g] });
+    const byRecipe = new Map<string, RecipeAllocationGroup>();
+    for (const g of groups.values()) {
+      const existing = byRecipe.get(g.recipeId);
+      if (existing) {
+        existing.partnerGroups.push(g);
+      } else {
+        byRecipe.set(g.recipeId, { recipeId: g.recipeId, recipeName: g.recipeName, partnerGroups: [g] });
+      }
     }
-  }
+    return byRecipe;
+  }, [allocations, partnerNameById, recipeNameById]);
 
-  const inventoryByRecipe = new Map<string, AvailableInventoryLine[]>();
-  for (const line of inventory) {
-    const list = inventoryByRecipe.get(line.recipe_id) ?? [];
-    list.push(line);
-    inventoryByRecipe.set(line.recipe_id, list);
-  }
+  const inventoryByRecipe = useMemo(() => {
+    const byRecipe = new Map<string, AvailableInventoryLine[]>();
+    for (const line of inventory) {
+      const list = byRecipe.get(line.recipe_id) ?? [];
+      list.push(line);
+      byRecipe.set(line.recipe_id, list);
+    }
+    return byRecipe;
+  }, [inventory]);
 
   // ── Chip option derivation ────────────────────────────────────────────────────
+  // The shared FilterChips auto-renders the "All" chip, so these derived lists omit it.
 
-  // Channels present in loaded allocations (taproom excluded — it has no allocations panel)
+  // Channels present in loaded allocations (taproom excluded — it has no allocations panel).
+  // Each option carries its channel color via `className` (sanctioned raw-color exception).
   const presentChannels = new Set<string>();
   for (const a of allocations) {
     if (a.channel !== "taproom") presentChannels.add(a.channel);
   }
-  const channelChipOptions = [
-    { value: "all", label: "All" },
-    ...["distribution", "contract_brewing", "wholesale", "safety_stock"]
-      .filter((c) => presentChannels.has(c))
-      .map((c) => ({ value: c, label: CHANNEL_CHIP_LABELS[c] ?? c })),
-  ];
+  const channelChipOptions = ["distribution", "contract_brewing", "wholesale", "safety_stock"]
+    .filter((c) => presentChannels.has(c))
+    .map((c) => ({
+      value: c,
+      label: CHANNEL_CHIP_LABELS[c] ?? c,
+      className: `${CHANNEL_COLOR[c]?.bg ?? ""} ${CHANNEL_COLOR[c]?.text ?? ""}`.trim(),
+    }));
 
-  // Partners present in loaded allocations, sorted alphabetically
+  // Partners present in loaded allocations, sorted alphabetically.
   const seenPartners = new Map<string, string>();
   for (const a of allocations) {
     if (a.partner_id && !seenPartners.has(a.partner_id)) {
@@ -234,109 +210,99 @@ export default function ExportBayTab() {
       );
     }
   }
-  const partnerChipOptions = [
-    { value: "all", label: "All" },
-    ...Array.from(seenPartners.entries())
-      .sort((a, b) => a[1].localeCompare(b[1]))
-      .map(([id, name]) => ({ value: id, label: name })),
-  ];
+  const partnerChipOptions = Array.from(seenPartners.entries())
+    .sort((a, b) => a[1].localeCompare(b[1]))
+    .map(([id, name]) => ({ value: id, label: name }));
 
-  const showPartnerChips = partnerChipOptions.length > 2;
+  // Show the channel/partner dimensions only when they add a real choice (>1 option;
+  // the "All" chip is auto-rendered on top of these lists).
+  const showPartnerChips = partnerChipOptions.length > 1;
 
-  // ── Sort helpers ──────────────────────────────────────────────────────────────
-
-  function earliestDueDate(recipeId: string): string | null {
-    const rg = recipeGroups.get(recipeId);
-    if (!rg) return null;
-    let earliest: string | null = null;
-    for (const pg of rg.partnerGroups) {
-      for (const a of pg.allocations) {
-        if (a.fulfilled) continue;
-        const d = a.commitments?.desired_delivery_date ?? null;
-        if (d && (!earliest || d < earliest)) earliest = d;
-      }
-    }
-    return earliest;
-  }
-
-  function urgencySort(a: string, b: string): number {
-    const hasAllocA = recipeGroups.has(a);
-    const hasAllocB = recipeGroups.has(b);
-    if (!hasAllocA && hasAllocB) return 1;
-    if (hasAllocA && !hasAllocB) return -1;
-    const dA = earliestDueDate(a);
-    const dB = earliestDueDate(b);
-    if (dA && dB) return dA < dB ? -1 : dA > dB ? 1 : 0;
-    if (dA) return -1;
-    if (dB) return 1;
-    return 0;
-  }
-
-  // ── Filter + sort ─────────────────────────────────────────────────────────────
-
+  // All recipe ids in view: inventory-bearing ∪ allocation-bearing.
   const allRecipeIds = Array.from(new Set([...inventoryByRecipe.keys(), ...recipeGroups.keys()]));
 
-  const q = search.trim().toLowerCase();
-  const filteredRecipeIds = allRecipeIds
-    .filter((recipeId) => {
-      const recipeName = recipeNameById.get(recipeId) ?? "";
-      const rg         = recipeGroups.get(recipeId);
-      const lines      = inventoryByRecipe.get(recipeId) ?? [];
-
-      // Search
-      if (q && !recipeName.toLowerCase().includes(q)) return false;
-
-      // Status
-      if (filterStatus === "pending") {
-        const hasUnfulfilled = rg?.partnerGroups.some((g) => g.allocations.some((a) => !a.fulfilled)) ?? false;
-        if (!hasUnfulfilled) return false;
+  // ── Search / filter / sort config ───────────────────────────────────────────────
+  // Predicate filters (a recipe matches by whether it HAS an allocation in a given
+  // status/channel/partner — not single-value equality) plus signed sort accessors so
+  // all three domain sorts run ascending. Expressions lifted verbatim from the former
+  // filter().sort() pipeline; accessors close over the recipe maps, hence useMemo.
+  const exportControls = useMemo<ControlsConfig<string>>(() => {
+    // Earliest unfulfilled due date across a recipe's allocations (null = none).
+    const earliestDueDate = (recipeId: string): string | null => {
+      const rg = recipeGroups.get(recipeId);
+      if (!rg) return null;
+      let earliest: string | null = null;
+      for (const pg of rg.partnerGroups) {
+        for (const a of pg.allocations) {
+          if (a.fulfilled) continue;
+          const d = a.commitments?.desired_delivery_date ?? null;
+          if (d && (!earliest || d < earliest)) earliest = d;
+        }
       }
-      if (filterStatus === "fulfilled") {
+      return earliest;
+    };
+    // Signed urgency key (asc = soonest). A real due-date epoch sorts first; recipes
+    // that have allocations but no due date sort after all dated recipes; inventory-only
+    // recipes sort last — preserving the former urgencySort's has-allocation tiebreak.
+    const earliestDueEpoch = (recipeId: string): number => {
+      const iso = earliestDueDate(recipeId);
+      if (iso) {
+        const t = Date.parse(iso);
+        if (!Number.isNaN(t)) return t;
+      }
+      return recipeGroups.has(recipeId) ? 8.64e15 : 8.64e15 + 1;
+    };
+    const stockTotal = (recipeId: string): number =>
+      (inventoryByRecipe.get(recipeId) ?? []).reduce((s, l) => s + l.quantity_on_hand, 0);
+
+    // Status bucket predicate (pending / fulfilled / inventory_only), lifted verbatim.
+    const recipeMatchesStatus = (recipeId: string, s: string): boolean => {
+      const rg    = recipeGroups.get(recipeId);
+      const lines = inventoryByRecipe.get(recipeId) ?? [];
+      if (s === "pending") {
+        return rg?.partnerGroups.some((g) => g.allocations.some((a) => !a.fulfilled)) ?? false;
+      }
+      if (s === "fulfilled") {
         if (!rg) return false;
-        if (!rg.partnerGroups.every((g) => g.allocations.every((a) => a.fulfilled))) return false;
+        return rg.partnerGroups.every((g) => g.allocations.every((a) => a.fulfilled));
       }
-      if (filterStatus === "inventory_only") {
-        if (rg) return false;
-        if (lines.length === 0) return false;
+      if (s === "inventory_only") {
+        return !rg && lines.length > 0;
       }
-
-      // Channel — recipe must have at least one allocation in the selected channel
-      if (filterChannel !== "all") {
-        const hasChannel = rg?.partnerGroups.some((g) =>
-          g.allocations.some((a) => a.channel === filterChannel)
-        ) ?? false;
-        if (!hasChannel) return false;
-      }
-
-      // Partner — recipe must have at least one allocation from the selected partner
-      if (filterPartner !== "all") {
-        const hasPartner = rg?.partnerGroups.some((g) => g.partnerId === filterPartner) ?? false;
-        if (!hasPartner) return false;
-      }
-
       return true;
-    })
-    .sort((a, b) => {
-      if (sortBy === "name") {
-        return (recipeNameById.get(a) ?? "").localeCompare(recipeNameById.get(b) ?? "");
-      }
-      if (sortBy === "stock") {
-        const sA = (inventoryByRecipe.get(a) ?? []).reduce((s, l) => s + l.quantity_on_hand, 0);
-        const sB = (inventoryByRecipe.get(b) ?? []).reduce((s, l) => s + l.quantity_on_hand, 0);
-        return sB - sA; // most stock first
-      }
-      return urgencySort(a, b);
-    });
+    };
+    // Recipe has ≥1 allocation in the selected channel.
+    const recipeHasChannel = (recipeId: string, s: string): boolean =>
+      recipeGroups.get(recipeId)?.partnerGroups.some((g) => g.allocations.some((a) => a.channel === s)) ?? false;
+    // Recipe has ≥1 allocation from the selected partner.
+    const recipeHasPartner = (recipeId: string, s: string): boolean =>
+      recipeGroups.get(recipeId)?.partnerGroups.some((g) => g.partnerId === s) ?? false;
 
-  const anyData     = inventory.length > 0 || recipeGroups.size > 0;
-  const hasFilters  = q || filterStatus !== "all" || filterChannel !== "all" || filterPartner !== "all";
-  const isFiltered  = filteredRecipeIds.length < allRecipeIds.length;
+    return {
+      search: [{ param: "q", accessor: (id) => recipeNameById.get(id) ?? "" }],
+      filters: [
+        { param: "status",  matches: (id, sel) => sel.some((s) => recipeMatchesStatus(id, s)) },
+        { param: "channel", matches: (id, sel) => sel.some((s) => recipeHasChannel(id, s)) },
+        { param: "partner", matches: (id, sel) => sel.some((s) => recipeHasPartner(id, s)) },
+      ],
+      sort: {
+        columns: [
+          { key: "urgency", accessor: (id) => earliestDueEpoch(id) },
+          { key: "name",    accessor: (id) => recipeNameById.get(id) ?? "" },
+          { key: "stock",   accessor: (id) => -stockTotal(id) },
+        ],
+        default: { key: "urgency", dir: "asc" },
+      },
+    };
+  }, [recipeNameById, recipeGroups, inventoryByRecipe]);
 
-  function clearFilters() {
-    setSearch("");
-    setFilterStatus("all");
-    setFilterChannel("all");
-    setFilterPartner("all");
+  const { rows: filteredRecipeIds, search, filters, sort, setSearch, setFilter, setSort, reset, activeCount } =
+    useTableControls(allRecipeIds, exportControls);
+
+  const anyData = inventory.length > 0 || recipeGroups.size > 0;
+
+  if (inventoryLoading || allocationsLoading) {
+    return <p className="text-sm text-faint py-8 text-center">Loading…</p>;
   }
 
   function afterShip() {
@@ -359,63 +325,60 @@ export default function ExportBayTab() {
   return (
     <div className="space-y-3">
 
-      {/* Search + Ad-Hoc Export */}
-      <div className="flex items-center gap-3">
-        <input
-          type="search"
-          placeholder="Search by recipe…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="inp flex-1 max-w-xs text-sm"
-        />
-        <div className="ml-auto flex items-center gap-2 shrink-0">
-          <button
-            onClick={() => setShowSync(true)}
-            title="Reconcile taproom pours from Square into cold-storage draws"
-            className="text-xs px-2.5 py-1 border border-line-strong text-secondary hover:border-line-subtle hover:text-body rounded transition-colors"
-          >
-            ↻ Sync Taproom
-          </button>
-          <button
-            onClick={() => setShowAdHoc(true)}
-            disabled={inventory.length === 0}
-            title={inventory.length === 0 ? "No packaged inventory available" : undefined}
-            className="text-xs px-2.5 py-1 border border-accent-border text-accent hover:bg-accent-muted/30 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
-          >
-            + Ad-Hoc Export
-          </button>
-        </div>
+      {/* Actions */}
+      <div className="flex items-center justify-end gap-2">
+        <button
+          onClick={() => setShowSync(true)}
+          title="Reconcile taproom pours from Square into cold-storage draws"
+          className="text-xs px-2.5 py-1 border border-line-strong text-secondary hover:border-line-subtle hover:text-body rounded transition-colors"
+        >
+          ↻ Sync Taproom
+        </button>
+        <button
+          onClick={() => setShowAdHoc(true)}
+          disabled={inventory.length === 0}
+          title={inventory.length === 0 ? "No packaged inventory available" : undefined}
+          className="text-xs px-2.5 py-1 border border-accent-border text-accent hover:bg-accent-muted/30 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+        >
+          + Ad-Hoc Export
+        </button>
       </div>
 
-      {/* Filter + sort chips */}
-      <div className="flex flex-wrap gap-x-5 gap-y-1.5">
+      {/* Search + filter + sort */}
+      <FilterBar activeCount={activeCount} onClear={reset}>
+        <SearchInput
+          value={search.q ?? ""}
+          onChange={(v) => setSearch("q", v)}
+          placeholder="Search recipes…"
+        />
         <FilterChips
           label="Status"
           options={[
-            { value: "all",            label: "All"       },
-            { value: "pending",        label: "Pending"   },
-            { value: "fulfilled",      label: "Fulfilled" },
+            { value: "pending",        label: "Pending"    },
+            { value: "fulfilled",      label: "Fulfilled"  },
             { value: "inventory_only", label: "Stock only" },
           ]}
-          value={filterStatus}
-          onChange={setFilterStatus}
+          value={filters.status ?? []}
+          onChange={(v) => setFilter("status", v)}
         />
-        {channelChipOptions.length > 2 && (
+        {channelChipOptions.length > 1 && (
           <FilterChips
             label="Channel"
             options={channelChipOptions}
-            value={filterChannel}
-            onChange={setFilterChannel}
+            value={filters.channel ?? []}
+            onChange={(v) => setFilter("channel", v)}
           />
         )}
         {showPartnerChips && (
           <FilterChips
             label="Partner"
             options={partnerChipOptions}
-            value={filterPartner}
-            onChange={setFilterPartner}
+            value={filters.partner ?? []}
+            onChange={(v) => setFilter("partner", v)}
           />
         )}
+        {/* Segmented domain sort — Export Bay renders card groups, not a column
+            table, so the sort is a single-select FilterChips (documented one-off). */}
         <FilterChips
           label="Sort"
           options={[
@@ -423,23 +386,16 @@ export default function ExportBayTab() {
             { value: "name",    label: "A–Z"     },
             { value: "stock",   label: "Stock"   },
           ]}
-          value={sortBy}
-          onChange={setSortBy}
+          value={sort ? [sort.key] : ["urgency"]}
+          onChange={(v) => setSort(v[0] ?? "urgency", "asc")}
         />
-      </div>
+      </FilterBar>
 
-      {/* Result count + clear */}
-      {(isFiltered || hasFilters) && (
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-muted">
-            {filteredRecipeIds.length} of {allRecipeIds.length} recipe{allRecipeIds.length !== 1 ? "s" : ""}
-          </span>
-          {hasFilters && (
-            <button onClick={clearFilters} className="text-xs text-faint hover:text-secondary transition-colors">
-              Clear filters
-            </button>
-          )}
-        </div>
+      {/* Result count */}
+      {activeCount > 0 && (
+        <span className="text-xs text-muted">
+          {filteredRecipeIds.length} of {allRecipeIds.length} recipe{allRecipeIds.length !== 1 ? "s" : ""}
+        </span>
       )}
 
       {/* Sticky column labels */}
