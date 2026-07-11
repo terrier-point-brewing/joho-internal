@@ -6,6 +6,7 @@ import {
   buildOrderPayload,
   buildPosLineItems,
   buildInvoiceLineItems,
+  buildLineItemTaxRows,
   type CatalogCoaMapping,
 } from "./syncPosTransactions";
 import type { Order } from "@/types/square";
@@ -142,6 +143,59 @@ describe("buildPosLineItems", () => {
     const noVar = { ...order, line_items: [{ uid: "LI_2", quantity: "1", name: "Custom" }] };
     const items = buildPosLineItems("DBID_1", noVar, () => "SHOULD_NOT_BE_USED");
     expect(items[0].chart_of_accounts_id).toBeNull();
+  });
+});
+
+describe("buildLineItemTaxRows", () => {
+  const taxOrder: Order = {
+    ...order,
+    taxes: [{ uid: "t1", catalog_object_id: "TAX_GEN", name: "General Sales Tax", percentage: "7.25" }],
+    line_items: [
+      {
+        ...order.line_items![0],
+        uid: "LI_1",
+        applied_taxes: [{ uid: "at1", tax_uid: "t1", applied_money: { amount: 725, currency: "USD" } }],
+      },
+    ],
+  };
+
+  it("maps applied_taxes to catalog tax ids", () => {
+    const rows = buildLineItemTaxRows(taxOrder, new Map([["LI_1", "DBID_LI_1"]]));
+    expect(rows).toEqual([
+      { line_item_id: "DBID_LI_1", square_tax_id: "TAX_GEN", tax_name: "General Sales Tax", tax_pct: 7.25, amount_cents: 725 },
+    ]);
+  });
+
+  it("produces one row per applied tax on a line", () => {
+    const twoTaxOrder: Order = {
+      ...taxOrder,
+      taxes: [
+        { uid: "t1", catalog_object_id: "TAX_GEN", name: "General Sales Tax", percentage: "7.25" },
+        { uid: "t2", catalog_object_id: "TAX_LOCAL", name: "Local Tax", percentage: "1.0" },
+      ],
+      line_items: [
+        {
+          ...order.line_items![0],
+          uid: "LI_1",
+          applied_taxes: [
+            { uid: "at1", tax_uid: "t1", applied_money: { amount: 725, currency: "USD" } },
+            { uid: "at2", tax_uid: "t2", applied_money: { amount: 100, currency: "USD" } },
+          ],
+        },
+      ],
+    };
+    const rows = buildLineItemTaxRows(twoTaxOrder, new Map([["LI_1", "DBID_LI_1"]]));
+    expect(rows).toHaveLength(2);
+    expect(rows).toEqual([
+      { line_item_id: "DBID_LI_1", square_tax_id: "TAX_GEN", tax_name: "General Sales Tax", tax_pct: 7.25, amount_cents: 725 },
+      { line_item_id: "DBID_LI_1", square_tax_id: "TAX_LOCAL", tax_name: "Local Tax", tax_pct: 1, amount_cents: 100 },
+    ]);
+  });
+
+  it("produces zero rows for a line with no applied taxes", () => {
+    const noTaxOrder: Order = { ...taxOrder, line_items: [{ ...order.line_items![0], uid: "LI_1", applied_taxes: undefined }] };
+    const rows = buildLineItemTaxRows(noTaxOrder, new Map([["LI_1", "DBID_LI_1"]]));
+    expect(rows).toEqual([]);
   });
 });
 

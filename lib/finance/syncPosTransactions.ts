@@ -137,6 +137,46 @@ export function buildPosLineItems(
   });
 }
 
+/** Row for the `pos_line_item_taxes` table. */
+export interface PosLineItemTaxRow {
+  line_item_id: string;
+  square_tax_id: string;
+  tax_name: string | null;
+  tax_pct: number | null;
+  amount_cents: number;
+}
+
+/**
+ * `pos_line_item_taxes` rows for one POS order. Pure. Resolves each line's
+ * `applied_taxes[].tax_uid` against the order's `taxes[]` (catalog tax id +
+ * name + rate) and looks up the line's already-inserted db id via
+ * `lineItemDbIdByUid` (keyed by `square_line_item_uid`, scoped to this order —
+ * uids are only unique within a single order's line_items).
+ */
+export function buildLineItemTaxRows(
+  order: Order,
+  lineItemDbIdByUid: Map<string, string>,
+): PosLineItemTaxRow[] {
+  const taxByUid = new Map((order.taxes ?? []).map((t) => [t.uid, t]));
+  const rows: PosLineItemTaxRow[] = [];
+  for (const li of order.line_items ?? []) {
+    const lineItemDbId = li.uid ? lineItemDbIdByUid.get(li.uid) : undefined;
+    if (!lineItemDbId) continue;
+    for (const at of li.applied_taxes ?? []) {
+      const tax = taxByUid.get(at.tax_uid);
+      if (!tax) continue;
+      rows.push({
+        line_item_id: lineItemDbId,
+        square_tax_id: tax.catalog_object_id ?? tax.uid,
+        tax_name: tax.name ?? null,
+        tax_pct: tax.percentage != null ? parseFloat(tax.percentage) : null,
+        amount_cents: at.applied_money?.amount ?? 0,
+      });
+    }
+  }
+  return rows;
+}
+
 /** `invoice_line_items` rows for one invoice-backed order. Pure. */
 export function buildInvoiceLineItems(
   invoiceId: string,
@@ -229,6 +269,7 @@ export async function syncSquareOrders(
   let synced = 0;
   let canceled = 0;
   const posLineItems: object[] = [];
+  const posOrdersByDbId = new Map<string, Order>(); // for tax-row building, after ids are known
   const invoiceLineItemsToInsert: { invoiceId: string; items: object[] }[] = [];
 
   for (const order of orders) {
@@ -255,12 +296,46 @@ export async function syncSquareOrders(
       });
     } else {
       posLineItems.push(...buildPosLineItems(dbId, order, getPosCoA));
+      posOrdersByDbId.set(dbId, order);
     }
   }
 
+  // Insert POS line items and select their new db ids back (`pos_line_items.id`
+  // is server-generated) — needed to key `pos_line_item_taxes.line_item_id`.
+  // Grouped per order (square_line_item_uid is only unique within one order).
+  const lineItemDbIdByUidByOrderDbId = new Map<string, Map<string, string>>();
   for (let i = 0; i < posLineItems.length; i += BATCH_SIZE) {
-    const { error } = await supabase.from("pos_line_items").insert(posLineItems.slice(i, i + BATCH_SIZE));
-    if (error) errors.push(`POS line items batch ${i}: ${error.message}`);
+    const { data, error } = await supabase
+      .from("pos_line_items")
+      .insert(posLineItems.slice(i, i + BATCH_SIZE))
+      .select("id, order_id, square_line_item_uid");
+    if (error) {
+      errors.push(`POS line items batch ${i}: ${error.message}`);
+      continue;
+    }
+    for (const row of data ?? []) {
+      if (!row.square_line_item_uid) continue;
+      let uidMap = lineItemDbIdByUidByOrderDbId.get(row.order_id);
+      if (!uidMap) {
+        uidMap = new Map();
+        lineItemDbIdByUidByOrderDbId.set(row.order_id, uidMap);
+      }
+      uidMap.set(row.square_line_item_uid, row.id);
+    }
+  }
+
+  // pos_line_item_taxes cascades on pos_line_items delete (FK ON DELETE CASCADE),
+  // so re-syncing an order's line items above already dropped its stale tax rows —
+  // no separate delete needed here.
+  const taxRows: PosLineItemTaxRow[] = [];
+  for (const [orderDbId, order] of posOrdersByDbId) {
+    const uidMap = lineItemDbIdByUidByOrderDbId.get(orderDbId);
+    if (!uidMap) continue;
+    taxRows.push(...buildLineItemTaxRows(order, uidMap));
+  }
+  for (let i = 0; i < taxRows.length; i += BATCH_SIZE) {
+    const { error } = await supabase.from("pos_line_item_taxes").insert(taxRows.slice(i, i + BATCH_SIZE));
+    if (error) errors.push(`POS line item taxes batch ${i}: ${error.message}`);
   }
 
   for (const { invoiceId, items } of invoiceLineItemsToInsert) {
