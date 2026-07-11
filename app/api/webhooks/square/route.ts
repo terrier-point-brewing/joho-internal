@@ -31,9 +31,13 @@ export const maxDuration = 60;
  *     uses over a short window, so a Draft Restock's swap shipment + recount +
  *     shrinkage land immediately.
  *
- * Both are idempotent, and the daily crons stay as safety nets for missed
- * deliveries, so overlapping webhook + cron runs are harmless. A public
- * endpoint: the HMAC signature is the only auth.
+ * A single Square action (e.g. a Draft Restock) emits a BURST of order.* events,
+ * so several of these reconciles fire near-simultaneously. The taproom sync's
+ * idempotency is a non-atomic read-then-write, so overlapping runs would each
+ * read "0 already recorded" and write duplicate rows; it now takes a lease lock
+ * and skips if held (see runTaproomConsumptionSync). The daily crons stay as
+ * safety nets for missed deliveries. A public endpoint: the HMAC signature is
+ * the only auth.
  *
  * Env: SQUARE_WEBHOOK_SIGNATURE_KEY (dashboard signature key) and
  * SQUARE_WEBHOOK_URL (the exact notification URL configured in Square — it is
@@ -164,6 +168,7 @@ export async function POST(req: NextRequest) {
       const result = await runTaproomConsumptionSync(supabase, { days: WINDOW_DAYS });
       console.log("[square-webhook] reconcile", {
         type: event.type,
+        lockSkipped: result.lockSkipped,
         recordedUnits: result.recordedUnits,
         recountsApplied: result.recountsApplied,
         discrepancies: result.discrepancies.length,
