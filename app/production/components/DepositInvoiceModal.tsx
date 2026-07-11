@@ -162,15 +162,14 @@ export function DepositInvoiceModal({
                 ← Back
               </button>
               <div className="flex gap-2">
-                <button type="button" onClick={onClose}
-                  className="px-4 py-1.5 text-sm text-muted hover:text-body transition-colors">
+                <button type="button" onClick={onClose} className="btn-secondary">
                   Cancel
                 </button>
                 <button
                   type="button"
                   onClick={handleMarkPaidSubmit}
                   disabled={markingPaid || !mpValid}
-                  className="btn-amber">
+                  className="btn-primary">
                   {markingPaid ? "Saving…" : "Mark Paid"}
                 </button>
               </div>
@@ -267,15 +266,14 @@ export function DepositInvoiceModal({
                 </button>
               ) : <span />}
               <div className="flex gap-2">
-                <button type="button" onClick={onClose}
-                  className="px-4 py-1.5 text-sm text-muted hover:text-body transition-colors">
+                <button type="button" onClick={onClose} className="btn-secondary">
                   Cancel
                 </button>
                 <button
                   type="button"
                   onClick={onGenerate}
                   disabled={generating || loading || !calc || calc.deposit_cents === 0}
-                  className="btn-amber">
+                  className="btn-primary">
                   {generating ? "Generating…" : isRevision ? "Regenerate Invoice" : "Create Draft Invoice"}
                 </button>
               </div>

@@ -142,7 +142,7 @@ export default function UserManagement() {
           <div className="flex justify-end mb-4 mt-4">
             <button
               onClick={() => setShowCreate(true)}
-              className="btn-amber flex items-center gap-1.5"
+              className="btn-primary flex items-center gap-1.5"
             >
               <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
                 <path d="M6 1v10M1 6h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>

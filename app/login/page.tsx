@@ -106,7 +106,7 @@ export default function LoginPage() {
               />
             </div>
 
-            <button type="submit" disabled={loggingIn} className="btn-amber mt-1 w-full">
+            <button type="submit" disabled={loggingIn} className="btn-primary mt-1 w-full">
               {loggingIn ? "Signing in…" : "Sign in"}
             </button>
 
@@ -187,11 +187,11 @@ export default function LoginPage() {
               <button
                 type="button"
                 onClick={() => setView("login")}
-                className="btn-ghost flex-1"
+                className="btn-secondary flex-1"
               >
                 Back
               </button>
-              <button type="submit" disabled={requesting} className="btn-amber flex-1">
+              <button type="submit" disabled={requesting} className="btn-primary flex-1">
                 {requesting ? "Submitting…" : "Submit request"}
               </button>
             </div>

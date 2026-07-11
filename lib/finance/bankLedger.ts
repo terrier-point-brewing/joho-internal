@@ -30,17 +30,6 @@ export interface BankClassification {
   counterparty_key:  string;
 }
 
-/**
- * True when a name looks like a Ramp card account. Card statement settlements are
- * authoritatively ingested from the /transfers endpoint (see transferLedger), so
- * this only guards against a Ramp-card destination ever appearing in the
- * syncable-transactions feed — routing it to a non-P&L bucket so it is never
- * mis-booked as an operating expense (and never a second `card_settlement`).
- */
-function isRampCard(name: string): boolean {
-  return /ramp/i.test(name);
-}
-
 /** Whether a bank-ledger flow_type affects the P&L. In the ledger table only interest is income; transfers/settlements/deposits/unclassified are non-P&L. */
 export function affectsPlForFlowType(flowType: FlowType): boolean {
   return flowType === "interest_income";
@@ -69,9 +58,9 @@ export function classifyBankLine(line: RampBankLine, ownAccounts: Set<string>): 
     const dest = line.destination_account_name ?? "";
     if (destKey === "") return make("unclassified", false, "outflow", "");
     if (destOwn) return make("internal_transfer", false, "outflow", dest);
-    // Card settlements come from /transfers; a Ramp-card destination here is a
-    // non-P&L movement, not an operating expense (and not a second card_settlement).
-    if (isRampCard(dest)) return make("internal_transfer", false, "outflow", dest);
+    // A Withdrawal to an external party is a direct operating-expense debit
+    // (Gusto, Erie, tax). Card statement settlements never appear in this feed —
+    // they are ingested authoritatively from /transfers (see transferLedger).
     return make("operating_expense", true, "outflow", dest);
   }
 
@@ -110,7 +99,9 @@ function bankLineToExpenseRecord(line: RampBankLine, c: BankClassification): Exp
     merchant_name:         c.counterparty_name || null,
     merchant_category:     null,
     sk_category_name:      null,
-    state:                 null,
+    // A bank line only lands here once it has posted to the account, so it is settled
+    // by definition — surface it as "cleared" (green) alongside card/bill statuses.
+    state:                 "cleared",
     card_holder_name:      null,
     department_name:       null,
     transaction_time:      line.date || null,

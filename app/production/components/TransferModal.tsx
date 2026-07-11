@@ -534,7 +534,7 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
                   <button
                     type="button"
                     onClick={() => setShrinkage(Math.max(0, batchVol - drawBbl).toFixed(3))}
-                    className="text-xs text-accent-emphasis hover:text-accent border border-accent-border hover:border-accent-border px-2 py-1 rounded transition-colors"
+                    className="btn-primary"
                   >
                     Auto-fill remaining
                   </button>

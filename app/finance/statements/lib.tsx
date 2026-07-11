@@ -260,8 +260,8 @@ export function StatementHeader({
     <div className="shrink-0 px-4 sm:px-6 flex items-center justify-between gap-4">
       <PageHeader title={title} description={description} />
       <div className="flex items-center gap-2 shrink-0">
-        <button onClick={() => onExpandAll(true)} className="btn-sm">Expand All</button>
-        <button onClick={() => onExpandAll(false)} className="btn-sm">Collapse All</button>
+        <button onClick={() => onExpandAll(true)} className="btn-secondary">Expand All</button>
+        <button onClick={() => onExpandAll(false)} className="btn-secondary">Collapse All</button>
         {children}
       </div>
     </div>

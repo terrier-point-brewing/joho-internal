@@ -3,52 +3,45 @@
 // "days remaining" urgency scale where the hue itself carries meaning. Per
 // UI_STANDARD §2/§6 such category palettes stay as fixed hues but must live in
 // one shared constant instead of being inlined per component.
+//
+// Three tiers only — good → low → critical — kept visually distinct with a
+// green/amber/red traffic-light ramp. `retired` is not a step on that ramp: a
+// retired tap keeps its normal good/low coloring while it still has beer and
+// only renders in the greyed, dashed "retired" style once it reaches critical
+// (empty / ≤3 days), since a retired keg is meant to blow, not be reordered.
 
 export type DraftUrgency =
   | "critical"
   | "low"
-  | "watch"
-  | "soon"
   | "good"
-  | "retiring"
   | "retired"
   | "none";
 
 /** Tap card border + background by urgency tier. */
 export const DRAFT_URGENCY_CARD: Record<DraftUrgency, string> = {
-  critical: "border-red-500     bg-red-950/25",
-  low:      "border-orange-500  bg-orange-950/20",
-  watch:    "border-amber-500   bg-amber-950/15",
-  soon:     "border-yellow-500/70 bg-yellow-950/10",
+  critical: "border-red-500      bg-red-950/25",
+  low:      "border-amber-500    bg-amber-950/20",
   good:     "border-green-700/60 bg-green-950/10",
-  retiring: "border-line-strong border-dashed",
-  retired:  "border-line opacity-55",
+  retired:  "border-line-strong border-dashed opacity-55",
   none:     "border-line",
 };
 
 /** Urgency badge wrap + text colors (only the alerting tiers carry a badge). */
 export const DRAFT_URGENCY_BADGE: Partial<Record<DraftUrgency, { wrap: string; text: string }>> = {
-  critical: { wrap: "bg-red-950/60 border-red-500/70",       text: "text-red-400"    },
-  low:      { wrap: "bg-orange-950/50 border-orange-500/60", text: "text-orange-400" },
-  watch:    { wrap: "bg-amber-950/40 border-amber-500/50",   text: "text-amber-400"  },
-  soon:     { wrap: "bg-yellow-950/30 border-yellow-600/50", text: "text-yellow-400" },
+  critical: { wrap: "bg-red-950/60 border-red-500/70",    text: "text-red-400"   },
+  low:      { wrap: "bg-amber-950/50 border-amber-500/60", text: "text-amber-400" },
 };
 
 export const DRAFT_URGENCY_LABEL: Partial<Record<DraftUrgency, string>> = {
   critical: "Critical",
   low:      "Low",
-  watch:    "Watch",
-  soon:     "Soon",
 };
 
 /** "days left" stat text color by urgency tier. */
 export const DRAFT_URGENCY_DAYS_TEXT: Record<DraftUrgency, string> = {
   critical: "text-red-400",
-  low:      "text-orange-400",
-  watch:    "text-amber-400",
-  soon:     "text-yellow-400",
+  low:      "text-amber-400",
   good:     "text-success",
-  retiring: "text-faint",
   retired:  "text-faint",
   none:     "text-faint",
 };

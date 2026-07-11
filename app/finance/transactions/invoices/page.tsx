@@ -386,7 +386,7 @@ function BatchLinkEditor({
               ))}
             </select>
             <button onClick={handleAdd} disabled={!selectedBatch || adding}
-              className="btn-sm">
+              className="btn-secondary">
               {adding ? "Linking…" : "Link"}
             </button>
             {addError && <span className="text-xs text-danger">{addError}</span>}
@@ -500,7 +500,7 @@ export default function InvoicesPage() {
           </select>
           <button
             onClick={() => setShowVoided((v) => !v)}
-            className={`btn-sm whitespace-nowrap ${showVoided ? "text-body" : "text-faint"}`}>
+            className={`btn-secondary whitespace-nowrap ${showVoided ? "text-body" : "text-faint"}`}>
             {showVoided ? "Hide voided" : "Show voided"}
           </button>
           <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value as typeof typeFilter)}

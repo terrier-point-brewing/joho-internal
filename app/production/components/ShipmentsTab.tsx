@@ -6,6 +6,8 @@ import { fetchJson, useContractPartnersQuery } from "../hooks/queries";
 import { queryKeys } from "@/lib/query-keys";
 import InvoicePreviewModal from "./InvoicePreviewModal";
 import { CHANNEL_COLOR } from "../lib/categoryColors";
+import { fmtDateLong } from "@/lib/utils/formatting";
+import { localDateString } from "@/lib/utils/datetime";
 
 interface ShipmentRow {
   id: string;
@@ -160,10 +162,6 @@ function getPackagingCategory(row: ShipmentRow): { label: string; sortKey: [numb
   return { label: row.variant_label, sortKey: [2, 0, 0] };
 }
 
-function fmt(iso: string) {
-  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-}
-
 function fmtQty(n: number): string {
   return Math.abs(n - Math.round(n)) < 0.0001 ? String(Math.round(n)) : n.toFixed(4);
 }
@@ -175,7 +173,10 @@ function groupByInvoice(rows: ShipmentRow[]): InvoiceGroup[] {
     // Taproom consumption groups by day; invoiced rows share a card; other
     // un-invoiced shipments group by shipment_id.
     const isTaproom = row.channel === "taproom";
-    const day = row.created_at.slice(0, 10);
+    // Bucket taproom consumption by brewery-local business day, not the raw UTC
+    // slice — an evening transaction (e.g. 9pm ET) has a UTC date of the *next*
+    // day, which would otherwise land it in the wrong day-group.
+    const day = localDateString(row.created_at);
     const key = isTaproom ? `taproom:${day}` : (row.invoice_id ?? row.shipment_id);
     const displayStatus = rowDisplayStatus(row);
 
@@ -523,7 +524,7 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
                       <span className={`px-1.5 py-0.5 rounded whitespace-nowrap ${CHANNEL_BADGE.taproom ?? "bg-surface-mid text-secondary"}`}>
                         Taproom
                       </span>
-                      <span className="text-strong font-medium">{group.day ? fmt(group.day) : "—"}</span>
+                      <span className="text-strong font-medium">{group.day ? fmtDateLong(group.day) : "—"}</span>
                     </>
                   ) : (
                     <>
@@ -579,7 +580,7 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
 
                         {/* Date */}
                         <span className="text-xs text-muted whitespace-nowrap">
-                          {fmt(product.created_at)}
+                          {fmtDateLong(product.created_at)}
                         </span>
 
                         {/* Channel badge */}
@@ -681,17 +682,17 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
           )}
           <button
             onClick={() => setShowModal(true)}
-            className="btn-amber"
+            className="btn-primary"
           >
             Generate Invoice
           </button>
           <button
             onClick={openMarkPaid}
-            className="btn-amber"
+            className="btn-primary"
           >
             Mark Paid
           </button>
-          <button onClick={clearSelection} className="px-3 py-1.5 text-secondary hover:text-strong transition-colors">
+          <button onClick={clearSelection} className="btn-secondary">
             Clear
           </button>
         </div>
@@ -776,13 +777,13 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
             </div>
             {mpError && <p className="text-xs text-danger">{mpError}</p>}
             <div className="flex justify-end gap-2 pt-1">
-              <button onClick={() => setShowMarkPaid(false)} className="text-sm text-secondary hover:text-strong">
+              <button onClick={() => setShowMarkPaid(false)} className="btn-secondary">
                 Cancel
               </button>
               <button
                 onClick={submitMarkPaid}
                 disabled={mpLoading || !mpValid}
-                className="btn-amber"
+                className="btn-primary"
               >
                 {mpLoading ? "Saving…" : "Mark Paid"}
               </button>

@@ -261,7 +261,7 @@ export default function BatchLogTab() {
             onChange={(v) => setFilter("status", v)}
           />
         </FilterBar>
-        <button onClick={openNew} className="btn-amber ml-auto shrink-0">+ New Batch</button>
+        <button onClick={openNew} className="btn-primary ml-auto shrink-0">+ New Batch</button>
       </div>
 
       {recipes.length === 0 && (
@@ -938,7 +938,7 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
                             <button type="button"
                               onClick={() => viewInvoiceInSquare(a)}
                               disabled={invoiceActionLoading === a.id}
-                              className="text-[10px] text-muted hover:text-body border border-line-strong rounded px-1.5 py-1 transition-colors disabled:opacity-40 whitespace-nowrap">
+                              className="btn-secondary btn-xxs whitespace-nowrap">
                               View in Square ↗
                             </button>
                           )}
@@ -949,7 +949,7 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
                                 <button type="button"
                                   onClick={() => openInvoiceModal(a)}
                                   disabled={invoiceActionLoading === a.id}
-                                  className="text-[10px] text-accent-emphasis hover:text-accent border border-accent-border/50 hover:border-accent-border rounded px-1.5 py-1 transition-colors disabled:opacity-40 whitespace-nowrap">
+                                  className="btn-primary btn-xxs whitespace-nowrap">
                                   Generate Invoice
                                 </button>
                               )}
@@ -958,13 +958,13 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
                                   <button type="button"
                                     onClick={() => handleSendInvoice(a.id)}
                                     disabled={invoiceActionLoading === a.id}
-                                    className="text-[10px] text-accent-emphasis hover:text-accent border border-accent-border/50 hover:border-accent-border rounded px-1.5 py-1 transition-colors disabled:opacity-40 whitespace-nowrap">
+                                    className="btn-primary btn-xxs whitespace-nowrap">
                                     {invoiceActionLoading === a.id ? "Sending…" : "Send Invoice"}
                                   </button>
                                   <button type="button"
                                     onClick={() => handleDeleteInvoice(a.id, false)}
                                     disabled={invoiceActionLoading === a.id}
-                                    className="text-[10px] text-danger hover:text-danger border border-danger-border/50 hover:border-danger-border rounded px-1.5 py-1 transition-colors disabled:opacity-40 whitespace-nowrap">
+                                    className="btn-danger btn-xxs whitespace-nowrap">
                                     Delete
                                   </button>
                                 </>
@@ -974,13 +974,13 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
                                   <button type="button"
                                     onClick={() => handleSyncInvoice(a.id)}
                                     disabled={invoiceActionLoading === a.id}
-                                    className="text-[10px] text-muted hover:text-body border border-line-strong rounded px-1.5 py-1 transition-colors disabled:opacity-40 whitespace-nowrap">
+                                    className="btn-secondary btn-xxs whitespace-nowrap">
                                     {invoiceActionLoading === a.id ? "Syncing…" : "Sync Status"}
                                   </button>
                                   <button type="button"
                                     onClick={() => handleDeleteInvoice(a.id, true)}
                                     disabled={invoiceActionLoading === a.id}
-                                    className="text-[10px] text-danger hover:text-danger border border-danger-border/50 hover:border-danger-border rounded px-1.5 py-1 transition-colors disabled:opacity-40 whitespace-nowrap">
+                                    className="btn-danger btn-xxs whitespace-nowrap">
                                     Delete
                                   </button>
                                 </>
@@ -988,7 +988,7 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
                               <button type="button"
                                 onClick={() => { setInvoiceModalMode("mark_paid"); setInvoiceModalAlloc(a); setInvoicePreview(null); }}
                                 disabled={invoiceActionLoading === a.id}
-                                className="text-[10px] text-success hover:text-success border border-success-border/50 hover:border-success-border rounded px-1.5 py-1 transition-colors disabled:opacity-40 whitespace-nowrap">
+                                className="btn-secondary btn-xxs whitespace-nowrap">
                                 Mark Paid (Ext.)
                               </button>
                             </>
@@ -1140,11 +1140,11 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
 
           <div className="flex gap-2 pt-1">
             <button type="button" onClick={handleAdd} disabled={saving || !newPct}
-              className="btn-amber btn-xs">
+              className="btn-primary">
               {saving ? "Adding…" : "Add"}
             </button>
             <button type="button" onClick={() => { setShowAddForm(false); setNewPct(""); setNewCommitmentId(""); setNewChannel("taproom"); }}
-              className="px-3 py-1.5 text-xs text-muted hover:text-body transition-colors">
+              className="btn-secondary">
               Cancel
             </button>
           </div>
@@ -1602,7 +1602,7 @@ function BrewActivityLogManager({ batch }: { batch: BrewBatch }) {
             onChange={(e) => setNewRow((r) => ({ ...r, amount: e.target.value }))} />
         </div>
         <button type="button" onClick={addRow} disabled={saving || !newRow.activity.trim()}
-          className="btn-ghost btn-xs shrink-0">
+          className="btn-secondary shrink-0">
           {saving ? "…" : "+ Add"}
         </button>
       </div>
@@ -1819,7 +1819,7 @@ function ReassignTankSection({ batchId, equipment }: { batchId: string; equipmen
           <input className="inp text-sm" placeholder="e.g. entered wrong tank" value={reason} onChange={(e) => { setReason(e.target.value); setDone(false); }} />
         </div>
         <button type="submit" disabled={saving || !tankId}
-          className="px-3 py-1.5 text-sm rounded border border-danger-border bg-danger-surface/40 text-danger hover:bg-danger-surface/40 disabled:opacity-40 transition-colors">
+          className="btn-danger">
           {saving ? "Saving…" : "Reassign"}
         </button>
       </form>

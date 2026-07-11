@@ -192,7 +192,7 @@ function SquareImportModal({ linkingPartner, onClose, onDone }: SquareImportModa
           <button
             type="button"
             onClick={onClose}
-            className="btn-ghost text-sm"
+            className="btn-secondary"
             disabled={submitting}
           >
             Cancel
@@ -201,7 +201,7 @@ function SquareImportModal({ linkingPartner, onClose, onDone }: SquareImportModa
             type="button"
             onClick={handleImport}
             disabled={!selected || submitting}
-            className="btn-amber text-sm disabled:opacity-40 disabled:cursor-not-allowed"
+            className="btn-primary"
           >
             {submitting ? "Importing…" : actionLabel}
           </button>
@@ -343,11 +343,11 @@ export default function PartnersTab() {
       {/* Action buttons */}
       <div className="flex justify-end gap-2 mb-4">
         {kind === "contract" && (
-          <button onClick={openSquareImport} className="btn-amber">
+          <button onClick={openSquareImport} className="btn-primary">
             ↓ Import from Square
           </button>
         )}
-        <button onClick={openNew} className="btn-amber">+ New {kindLabel}</button>
+        <button onClick={openNew} className="btn-primary">+ New {kindLabel}</button>
       </div>
 
       {/* Records table */}

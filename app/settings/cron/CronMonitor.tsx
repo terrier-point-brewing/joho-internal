@@ -112,7 +112,7 @@ export default function CronMonitor() {
           <h2 className="text-sm font-semibold text-strong">Cron Jobs</h2>
           <p className="text-xs text-muted mt-0.5">Scheduled jobs and their recent run history. Schedules run in UTC.</p>
         </div>
-        <button onClick={load} disabled={loading} className="btn-ghost btn-sm">
+        <button onClick={load} disabled={loading} className="btn-secondary">
           {loading ? "Loading…" : "Refresh"}
         </button>
       </div>

@@ -213,7 +213,7 @@ export default function ManualEntriesTab() {
         <button
           type="submit"
           disabled={saving}
-          className="btn-amber"
+          className="btn-primary"
         >
           {saving ? "Saving…" : saved ? "✓ Saved" : "Save Entry"}
         </button>

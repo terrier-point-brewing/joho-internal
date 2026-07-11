@@ -93,7 +93,7 @@ export default function BusinessSettings() {
         <div className="mt-4 flex items-center gap-3">
           <button
             type="button"
-            className="btn-amber"
+            className="btn-primary"
             disabled={!dirty || saving}
             onClick={handleSave}
           >

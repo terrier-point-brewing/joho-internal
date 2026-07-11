@@ -280,13 +280,13 @@ export default function TargetSettingTab() {
       <div className="flex items-center justify-between">
         <p className="text-xs text-faint">Editing {year} · blank cells are skipped on save</p>
         <div className="flex items-center gap-3">
-          <button onClick={handleCancel} className="px-4 py-2 rounded border border-line-strong text-sm text-secondary hover:text-strong transition-colors">
+          <button onClick={handleCancel} className="btn-secondary">
             Cancel
           </button>
           <button
             onClick={handleSave}
             disabled={saving}
-            className="btn-amber"
+            className="btn-primary"
           >
             {saving ? "Saving…" : saved ? "✓ Saved" : "Save Changes"}
           </button>

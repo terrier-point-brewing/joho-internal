@@ -265,7 +265,7 @@ export default function PayrollSettingsPage() {
           <button
             onClick={() => saveSchedule.mutate()}
             disabled={saveSchedule.isPending}
-            className="btn-amber"
+            className="btn-primary"
           >
             {saveSchedule.isPending ? "Saving…" : "Save Pay Schedule"}
           </button>
@@ -335,7 +335,7 @@ export default function PayrollSettingsPage() {
         <button
           onClick={() => saveRates.mutate()}
           disabled={saveRates.isPending}
-          className="btn-amber"
+          className="btn-primary"
         >
           {saveRates.isPending ? "Saving…" : "Save Rates"}
         </button>
@@ -362,13 +362,13 @@ export default function PayrollSettingsPage() {
             <button
               onClick={() => syncSquare.mutate()}
               disabled={syncSquare.isPending}
-              className="btn-ghost btn-sm"
+              className="btn-secondary"
             >
               {syncSquare.isPending ? "Syncing…" : "Sync from Square"}
             </button>
             <button
               onClick={() => setShowAddForm(v => !v)}
-              className="btn-ghost btn-sm"
+              className="btn-secondary"
             >
               {showAddForm ? "Cancel" : "+ Add Employee"}
             </button>
@@ -433,13 +433,13 @@ export default function PayrollSettingsPage() {
               <button
                 onClick={() => addEmployee.mutate()}
                 disabled={addEmployee.isPending || !newFirst || !newLast || !newEmail}
-                className="btn-amber"
+                className="btn-primary"
               >
                 {addEmployee.isPending ? "Adding…" : "Add Employee"}
               </button>
               <button
                 onClick={() => setShowAddForm(false)}
-                className="btn-ghost"
+                className="btn-secondary"
               >
                 Cancel
               </button>
@@ -564,11 +564,11 @@ export default function PayrollSettingsPage() {
                         <button
                           onClick={() => updateEmployee.mutate({ id: emp.id, patch: editDraft })}
                           disabled={updateEmployee.isPending}
-                          className="btn-amber"
+                          className="btn-primary"
                         >
                           {updateEmployee.isPending ? "Saving…" : "Save"}
                         </button>
-                        <button onClick={() => setEditingId(null)} className="btn-ghost btn-sm">
+                        <button onClick={() => setEditingId(null)} className="btn-secondary">
                           Cancel
                         </button>
                       </div>

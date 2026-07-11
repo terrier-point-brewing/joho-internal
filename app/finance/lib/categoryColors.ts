@@ -51,10 +51,17 @@ export const ORDER_STATUS_CLS: Record<string, string> = {
   draft:     "bg-surface-mid text-muted",
 };
 
-/** Ramp expense state pill (keyed by lower-cased state). */
+/**
+ * Ramp expense state pill (keyed by lower-cased state). Spans all three ramp_object
+ * types: card txns (cleared/pending/declined/flagged), bills (paid/open), and bank
+ * lines (cleared — a posted bank debit is settled). `paid`/`open` mirror the
+ * INVOICE_STATUS_CLS tones so a "paid" pill reads the same everywhere in finance.
+ */
 export const EXPENSE_STATE_CLS: Record<string, string> = {
   cleared:  "bg-success-surface/40 text-success",
+  paid:     "bg-success-surface/40 text-success",
   pending:  "bg-accent-muted/40 text-accent",
+  open:     "bg-accent-muted/40 text-accent",
   declined: "bg-danger-surface/20 text-danger",
   flagged:  "bg-info-surface/40 text-info",
 };

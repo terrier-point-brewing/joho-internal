@@ -110,9 +110,9 @@ export default function TransferLogPage() {
               ))}
             </select>
           </div>
-          <button onClick={apply} className="btn-amber">Apply</button>
+          <button onClick={apply} className="btn-primary">Apply</button>
           {(applied.from || applied.to || applied.type || applied.batch_id) && (
-            <button onClick={clear} className="btn-ghost">Clear</button>
+            <button onClick={clear} className="btn-secondary">Clear</button>
           )}
           <span className="ml-auto text-xs text-muted self-end">
             {isLoading ? "Loading…" : `${rows.length} record${rows.length !== 1 ? "s" : ""}`}

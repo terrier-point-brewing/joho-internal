@@ -76,7 +76,7 @@ export default function AccountSettings() {
           />
         </div>
         <div>
-          <button type="submit" disabled={saving} className="btn-amber">
+          <button type="submit" disabled={saving} className="btn-primary">
             {saving ? "Saving…" : "Update password"}
           </button>
         </div>

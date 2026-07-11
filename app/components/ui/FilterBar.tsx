@@ -20,7 +20,7 @@ export default function FilterBar({
     <div className={`flex items-center gap-3 flex-wrap ${className}`.trim()}>
       {children}
       {onClear && activeCount > 0 && (
-        <button type="button" onClick={onClear} className="btn-ghost btn-xs">
+        <button type="button" onClick={onClear} className="btn-secondary">
           Clear ({activeCount})
         </button>
       )}

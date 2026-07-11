@@ -264,7 +264,7 @@ export default function MappingDrawer({ recipeId, colKey, onClose }: Props) {
                           <button
                             onClick={() => handleAccept(v, v.suggestion!.squareVariationId)}
                             disabled={isBusy}
-                            className="btn-amber btn-xs shrink-0"
+                            className="btn-primary shrink-0"
                           >
                             Accept
                           </button>
@@ -281,7 +281,7 @@ export default function MappingDrawer({ recipeId, colKey, onClose }: Props) {
                       <button
                         onClick={() => handleAccept(v, pendingId)}
                         disabled={isBusy}
-                        className="btn-amber text-xs w-full disabled:opacity-30"
+                        className="btn-primary w-full"
                       >
                         {isBusy ? "Saving…" : "Link"}
                       </button>

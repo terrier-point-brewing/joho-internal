@@ -7,7 +7,7 @@
 // and assert the REAL computed unitPriceCents.
 import { describe, it, expect } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { buildExciseTaxLines } from "./exportInvoicePreview";
+import { buildExciseTaxLines, sumKegCleaningQuantity } from "./exportInvoicePreview";
 
 interface TaxRow {
   export_transaction_id: string;
@@ -101,5 +101,48 @@ describe("buildExciseTaxLines", () => {
   it("returns no lines when there are no tax rows", async () => {
     const lines = await buildExciseTaxLines(stub([], []), ["t1"], rows({ t1: 1 }));
     expect(lines).toEqual([]);
+  });
+});
+
+describe("sumKegCleaningQuantity", () => {
+  const pkgTypeById = new Map<string, string>([
+    ["keg-half", "keg"],
+    ["keg-sixtel", "keg"],
+    ["can-12oz", "can"],
+  ]);
+  const txn = (packaging_item_id: string, quantity: number) => ({
+    packaging_item_id,
+    quantity,
+  });
+
+  it("sums the keg counts across keg-type transactions, not the transaction count", () => {
+    // Two keg transactions of 6 and 4 kegs → cleaning qty 10 (not 2).
+    const qty = sumKegCleaningQuantity(
+      [txn("keg-half", 6), txn("keg-sixtel", 4)],
+      pkgTypeById
+    );
+    expect(qty).toBe(10);
+  });
+
+  it("ignores non-keg (can) transactions", () => {
+    const qty = sumKegCleaningQuantity(
+      [txn("keg-half", 5), txn("can-12oz", 100)],
+      pkgTypeById
+    );
+    expect(qty).toBe(5);
+  });
+
+  it("returns 0 when there are no keg transactions", () => {
+    const qty = sumKegCleaningQuantity([txn("can-12oz", 40)], pkgTypeById);
+    expect(qty).toBe(0);
+  });
+
+  it("returns 0 for an empty selection", () => {
+    expect(sumKegCleaningQuantity([], pkgTypeById)).toBe(0);
+  });
+
+  it("treats an unmapped packaging item as non-keg", () => {
+    const qty = sumKegCleaningQuantity([txn("mystery", 3)], pkgTypeById);
+    expect(qty).toBe(0);
   });
 });
