@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { addDays, parseISO } from "date-fns";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -23,6 +23,13 @@ import { computeBranchPackagingStatus } from "./EquipmentSchedule/constants";
 import { DepositInvoiceModal } from "./DepositInvoiceModal";
 import { RefundAdjustmentModal } from "./RefundAdjustmentModal";
 import { CHANNEL_COLOR, TRANSFER_TYPE_TEXT } from "../lib/categoryColors";
+import { useTableControls } from "@/app/components/ui/useTableControls";
+import SearchInput from "@/app/components/ui/SearchInput";
+import FilterChips from "@/app/components/ui/FilterChips";
+import FilterSelect from "@/app/components/ui/FilterSelect";
+import FilterBar from "@/app/components/ui/FilterBar";
+import SortableTh from "@/app/components/ui/SortableTh";
+import type { ControlsConfig, SortState } from "@/lib/table/types";
 
 const EquipmentScheduleSection = dynamic(
   () => import("./EquipmentSchedule").then((m) => m.EquipmentScheduleSection),
@@ -34,8 +41,36 @@ const EquipmentScheduleSection = dynamic(
 
 const fmtDate = fmtDateLong;
 
+const STATUS_SORT_INDEX: Record<string, number> = {
+  planning: 0, brewing: 1, fermenting: 2, conditioning: 3, complete: 4,
+};
 
-type SortCol = "batch_number" | "beer_name" | "planned_brew_date" | "expected_delivery_date" | "volume_bbl" | "status";
+const STATUS_OPTIONS = [
+  { value: "planning", label: "Planning" },
+  { value: "brewing", label: "Brewing" },
+  { value: "fermenting", label: "Fermenting" },
+  { value: "conditioning", label: "Conditioning" },
+  { value: "complete", label: "Complete" },
+];
+
+const BATCH_CONTROLS: ControlsConfig<BrewBatch> = {
+  search: [{ param: "q", accessor: (b) => [b.batch_number, b.beer_name] }],
+  filters: [
+    { param: "beer", accessor: (b) => b.beer_name },
+    { param: "status", accessor: (b) => b.status },
+  ],
+  sort: {
+    columns: [
+      { key: "batch_number", accessor: (b) => b.batch_number ?? "" },
+      { key: "beer_name", accessor: (b) => b.beer_name },
+      { key: "planned_brew_date", accessor: (b) => b.planned_brew_date },
+      { key: "expected_delivery_date", accessor: (b) => b.expected_delivery_date ?? "" },
+      { key: "volume_bbl", accessor: (b) => b.volume_bbl },
+      { key: "status", accessor: (b) => STATUS_SORT_INDEX[b.status] ?? 99 },
+    ],
+    default: { key: "status", dir: "asc" },
+  },
+};
 
 const BATCH_EMPTY = {
   recipe_id: "",
@@ -72,9 +107,6 @@ export default function BatchLogTab() {
   const [submitting, setSubmitting] = useState(false);
   const [isConversionBatch, setIsConversionBatch] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [sort, setSort] = useState<{ col: SortCol; dir: "asc" | "desc" }>({ col: "status", dir: "asc" });
-  const [filterBeer, setFilterBeer] = useState("");
-  const [filterStatus, setFilterStatus] = useState("");
 
   // Derive computed volume from form state
   const selectedRecipe = recipes.find((r) => r.id === form.recipe_id);
@@ -129,36 +161,6 @@ export default function BatchLogTab() {
     setEditingId(b.id);
     setEditingBatch(b);
     setShowModal(true);
-  }
-
-  function toggleSort(col: SortCol) {
-    setSort((s) => s.col === col ? { col, dir: s.dir === "asc" ? "desc" : "asc" } : { col, dir: "asc" });
-  }
-
-  const STATUS_ORDER: Record<string, number> = { planning: 0, fermenting: 1, conditioning: 2, complete: 3 };
-
-  function sortBatches(list: BrewBatch[]): BrewBatch[] {
-    return [...list].sort((a, b) => {
-      if (sort.col === "status") {
-        const ao = STATUS_ORDER[a.status] ?? 99;
-        const bo = STATUS_ORDER[b.status] ?? 99;
-        const statusDiff = sort.dir === "asc" ? ao - bo : bo - ao;
-        if (statusDiff !== 0) return statusDiff;
-        // Tiebreak: newest planned_brew_date first
-        return a.planned_brew_date < b.planned_brew_date ? 1 : a.planned_brew_date > b.planned_brew_date ? -1 : 0;
-      }
-      let av: string | number = "", bv: string | number = "";
-      if (sort.col === "batch_number")          { av = a.batch_number ?? ""; bv = b.batch_number ?? ""; }
-      else if (sort.col === "beer_name")        { av = a.beer_name; bv = b.beer_name; }
-      else if (sort.col === "planned_brew_date"){ av = a.planned_brew_date; bv = b.planned_brew_date; }
-      else if (sort.col === "expected_delivery_date") {
-        av = a.expected_delivery_date ?? ""; bv = b.expected_delivery_date ?? "";
-      }
-      else if (sort.col === "volume_bbl")       { av = Number(a.volume_bbl); bv = Number(b.volume_bbl); }
-      if (av < bv) return sort.dir === "asc" ? -1 : 1;
-      if (av > bv) return sort.dir === "asc" ? 1 : -1;
-      return 0;
-    });
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -223,48 +225,42 @@ export default function BatchLogTab() {
     await refresh();
   }
 
-  const uniqueBeerNames = Array.from(new Set(batches.map((b) => b.beer_name))).sort();
-  const filteredBatches = batches.filter((b) => {
-    if (filterBeer && b.beer_name !== filterBeer) return false;
-    if (filterStatus && b.status !== filterStatus) return false;
-    return true;
-  });
-  const allBatches = sortBatches(filteredBatches);
+  const { rows: allBatches, search, filters, sort, setSearch, setFilter, toggleSort, reset, activeCount } =
+    useTableControls(batches, BATCH_CONTROLS);
+
+  const beerOptions = useMemo(
+    () =>
+      Array.from(new Set(batches.map((b) => b.beer_name)))
+        .sort()
+        .map((n) => ({ value: n, label: n })),
+    [batches],
+  );
+
   const tankTypeById = Object.fromEntries(tanks.map((t) => [t.id, t.type]));
   const assignedBatchIds = new Set(assignments.map((a) => a.batch_id));
 
   return (
     <>
       <div className="flex items-center gap-2 mb-4">
-        <select
-          className="inp text-sm py-1.5 px-2"
-          value={filterBeer}
-          onChange={(e) => setFilterBeer(e.target.value)}
-        >
-          <option value="">All beers</option>
-          {uniqueBeerNames.map((name) => (
-            <option key={name} value={name}>{name}</option>
-          ))}
-        </select>
-        <select
-          className="inp text-sm py-1.5 px-2"
-          value={filterStatus}
-          onChange={(e) => setFilterStatus(e.target.value)}
-        >
-          <option value="">All statuses</option>
-          <option value="planning">Planning</option>
-          <option value="fermenting">Fermenting</option>
-          <option value="conditioning">Conditioning</option>
-          <option value="complete">Complete</option>
-        </select>
-        {(filterBeer || filterStatus) && (
-          <button
-            onClick={() => { setFilterBeer(""); setFilterStatus(""); }}
-            className="text-xs text-muted hover:text-body transition-colors"
-          >
-            Clear
-          </button>
-        )}
+        <FilterBar activeCount={activeCount} onClear={reset}>
+          <SearchInput
+            value={search.q ?? ""}
+            onChange={(v) => setSearch("q", v)}
+            placeholder="Search batches…"
+          />
+          <FilterSelect
+            label="Beer"
+            options={beerOptions}
+            value={filters.beer ?? []}
+            onChange={(v) => setFilter("beer", v)}
+          />
+          <FilterChips
+            label="Status"
+            options={STATUS_OPTIONS}
+            value={filters.status ?? []}
+            onChange={(v) => setFilter("status", v)}
+          />
+        </FilterBar>
         <button onClick={openNew} className="btn-amber ml-auto shrink-0">+ New Batch</button>
       </div>
 
@@ -1188,22 +1184,6 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
 
 // ─── Batch table ─────────────────────────────────────────────────────────────
 
-function SortTh({
-  col, label, sort, onSort, className = "",
-}: {
-  col: SortCol; label: string; sort: { col: SortCol; dir: "asc" | "desc" }; onSort: (c: SortCol) => void; className?: string;
-}) {
-  const active = sort.col === col;
-  return (
-    <th
-      className={`px-4 py-2.5 text-xs font-medium text-muted cursor-pointer select-none hover:text-body transition-colors ${className}`}
-      onClick={() => onSort(col)}
-    >
-      {label}{active ? (sort.dir === "asc" ? " ↑" : " ↓") : ""}
-    </th>
-  );
-}
-
 function BatchTable({
   batches,
   transfers,
@@ -1226,13 +1206,13 @@ function BatchTable({
   scheduleEntries: ScheduleEntry[];
   equipment: import("../types").Equipment[];
   expandedId: string | null;
-  sort: { col: SortCol; dir: "asc" | "desc" };
+  sort: SortState;
   onToggle: (id: string) => void;
   onEdit: (b: BrewBatch) => void;
   onComplete: (id: string, name: string) => void;
   onDelete: (id: string, name: string) => void;
   isAdmin: boolean;
-  onSort: (col: SortCol) => void;
+  onSort: (key: string) => void;
   tankTypeById: Record<string, string>;
   assignedBatchIds: Set<string>;
   recipes: import("../types").Recipe[];
@@ -1245,14 +1225,14 @@ function BatchTable({
         <thead>
           <tr className="border-b border-line text-left bg-surface/50">
             <th className="px-3 py-2.5 text-xs font-medium text-muted w-6"></th>
-            <SortTh col="batch_number"          label="Batch #"           sort={sort} onSort={onSort} className="whitespace-nowrap min-w-[110px]" />
-            <SortTh col="beer_name"             label="Beer"              sort={sort} onSort={onSort} />
-            <SortTh col="planned_brew_date"     label="Planned Brew Date" sort={sort} onSort={onSort} />
-            <SortTh col="expected_delivery_date" label="Expected Delivery" sort={sort} onSort={onSort} />
-            <SortTh col="volume_bbl"            label="Volume"            sort={sort} onSort={onSort} className="text-right" />
+            <SortableTh label="Batch #" sortKey="batch_number" sort={sort} onSort={onSort} className="whitespace-nowrap min-w-[110px]" />
+            <SortableTh label="Beer" sortKey="beer_name" sort={sort} onSort={onSort} />
+            <SortableTh label="Planned Brew Date" sortKey="planned_brew_date" sort={sort} onSort={onSort} />
+            <SortableTh label="Expected Delivery" sortKey="expected_delivery_date" sort={sort} onSort={onSort} />
+            <SortableTh label="Volume" sortKey="volume_bbl" sort={sort} onSort={onSort} align="right" />
             <th className="px-4 py-2.5 text-xs font-medium text-muted text-right">Available</th>
             <th className="px-4 py-2.5 text-xs font-medium text-muted text-right">Turns</th>
-            <SortTh col="status"                label="Status"            sort={sort} onSort={onSort} />
+            <SortableTh label="Status" sortKey="status" sort={sort} onSort={onSort} />
             <th className="px-4 py-2.5 text-xs font-medium text-muted"></th>
           </tr>
         </thead>
