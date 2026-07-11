@@ -3,7 +3,8 @@
 // (invoices `CoASelect`, square-transactions `AccountSelect`, account-mapping `AccountSelect`).
 // Presentation only — each call site keeps its own value/onChange wiring.
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { createPortal } from "react-dom";
 
 export interface CoARef {
   id: string;
@@ -43,8 +44,21 @@ export default function AccountSelect({
 }) {
   const [open, setOpen]   = useState(false);
   const [query, setQuery] = useState("");
+  const [pos, setPos]     = useState<{ top: number; left: number; width: number } | null>(null);
   const wrapRef           = useRef<HTMLDivElement>(null);
+  const panelRef          = useRef<HTMLDivElement>(null);
   const inputRef          = useRef<HTMLInputElement>(null);
+
+  // The panel renders in a portal (fixed positioning) so it can extend past the
+  // table's overflow-clipping wrappers. Position is derived from the trigger's rect.
+  const computePos = useCallback(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const width = Math.max(r.width, 260);
+    const left = Math.max(8, Math.min(r.left, window.innerWidth - width - 8));
+    setPos({ top: r.bottom + 4, left, width });
+  }, []);
 
   const selected = accounts.find((a) => a.id === value) ?? null;
 
@@ -65,16 +79,30 @@ export default function AccountSelect({
   useEffect(() => {
     if (!open) return;
     function onDown(e: MouseEvent) {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
-        setOpen(false);
-        setQuery("");
-      }
+      const target = e.target as Node;
+      if (wrapRef.current?.contains(target) || panelRef.current?.contains(target)) return;
+      setOpen(false);
+      setQuery("");
     }
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
   }, [open]);
 
+  // Keep the portal panel anchored to the trigger while open (scroll/resize).
+  useEffect(() => {
+    if (!open) return;
+    computePos();
+    const onMove = () => computePos();
+    window.addEventListener("scroll", onMove, true);
+    window.addEventListener("resize", onMove);
+    return () => {
+      window.removeEventListener("scroll", onMove, true);
+      window.removeEventListener("resize", onMove);
+    };
+  }, [open, computePos]);
+
   function handleOpen() {
+    computePos();
     setOpen(true);
     setQuery("");
     setTimeout(() => inputRef.current?.focus(), 0);
@@ -112,8 +140,12 @@ export default function AccountSelect({
         <span className="text-faint shrink-0">⌄</span>
       </button>
 
-      {open && (
-        <div className="absolute z-50 left-0 right-0 mt-1 bg-surface border border-line-strong rounded-lg shadow-xl flex flex-col max-h-64 min-w-[260px]">
+      {open && pos && createPortal(
+        <div
+          ref={panelRef}
+          className="fixed z-50 bg-surface border border-line-strong rounded-lg shadow-xl flex flex-col max-h-64"
+          style={{ top: pos.top, left: pos.left, width: pos.width }}
+        >
           <div className="p-1.5 border-b border-line shrink-0">
             <input
               ref={inputRef}
@@ -165,7 +197,8 @@ export default function AccountSelect({
               </div>
             ))}
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
