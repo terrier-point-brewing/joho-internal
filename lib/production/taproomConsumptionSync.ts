@@ -3,6 +3,7 @@ import { deriveTaproomConsumption, type ConsumptionKind, type AssemblyDiscrepanc
 import { setPhysicalCount, fetchInventoryChanges, type InventoryChange } from "@/lib/square/inventory";
 import { recordTaproomConsumption } from "@/lib/production/recordTaproomConsumption";
 import { reconcileSquareCanInventory } from "@/lib/production/reconcileSquareCanInventory";
+import { syncDraftPourConsumption } from "./syncDraftPourConsumption";
 
 /**
  * Reconciling taproom-consumption sync.
@@ -298,6 +299,15 @@ export async function runTaproomConsumptionSync(
     } catch (e) {
       squareWriteback.warnings.push(`reconcile failed: ${e instanceof Error ? e.message : String(e)}`);
     }
+  }
+
+  // Populate the operational pour ledger (sell-through / shrinkage lens) for the
+  // trailing window. Strictly additive to the accounting write path above and
+  // never fatal — a pour-ledger failure is flagged as a warning, not thrown.
+  try {
+    await syncDraftPourConsumption(supabase, { days });
+  } catch (e) {
+    packagingWarnings.add(`draft_pour_consumption sync failed: ${e instanceof Error ? e.message : String(e)}`);
   }
 
   return {

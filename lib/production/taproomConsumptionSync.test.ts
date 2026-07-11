@@ -39,7 +39,10 @@ const pour = (quantity: number, occurredAt: string): InventoryChange => ({
 // Fake supabase: export_transactions "already recorded" lookup returns `rows`;
 // draft_swap_shrinkage upserts are captured into `sink.shrinkage`. `rpc` backs
 // the lease lock — `lockAcquired` controls whether try_acquire_sync_lock grants
-// it; release_sync_lock calls are captured in `sink.released`.
+// it; release_sync_lock calls are captured in `sink.released`. recipe_square_links
+// returns no rows so the best-effort draft_pour_consumption sync (wired in
+// after the accounting write path) no-ops cleanly — its own behavior is
+// covered by syncDraftPourConsumption.test.ts.
 function fakeSupabase(
   rows: { source_ref: string; quantity: number }[],
   sink?: { shrinkage: unknown[]; released?: number },
@@ -55,6 +58,9 @@ function fakeSupabase(
     from: (table: string) => {
       if (table === "draft_swap_shrinkage") {
         return { upsert: async (row: unknown) => { sink?.shrinkage.push(row); return { error: null }; } };
+      }
+      if (table === "recipe_square_links") {
+        return { select: () => ({ eq: async () => ({ data: [], error: null }) }) };
       }
       return { select: () => ({ in: async () => ({ data: rows, error: null }) }) };
     },
