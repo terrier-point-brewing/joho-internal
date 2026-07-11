@@ -75,6 +75,7 @@ export const productionKeys = {
   packagingVariations:       queryKeys.production.packagingVariations(),
   recipePackagingVariations: queryKeys.production.recipePackagingVariations(),
   transfers:         queryKeys.production.transfers(),
+  coldStorage:       queryKeys.production.coldStorage(),
   batchSchedule:     queryKeys.production.batchSchedule(),
   scheduleConflicts: queryKeys.production.scheduleConflicts(),
   batchConversions:  queryKeys.production.batchConversions(),
@@ -164,6 +165,28 @@ export function useTransfersQuery() {
   return useQuery({
     queryKey: productionKeys.transfers,
     queryFn: () => fetchJson<BatchTransfer[]>("/api/production/transfers"),
+  });
+}
+
+// One per-batch finished-goods lot held in cold storage, from
+// cold_storage_inventory (the on-hand source of truth). Used by the floorplan
+// cold-storage tile — raw batch_transfers can't be used because packaging
+// transfers land at the kegging/canning station, not the cold-storage tank.
+export interface ColdStorageLot {
+  id: string;
+  batch_id: string;
+  variation_id: string;
+  quantity_on_hand: number;
+  beer_name: string | null;
+  batch_number: number | null;
+  variation_name: string | null;
+  container_type: string | null;
+}
+
+export function useColdStorageQuery() {
+  return useQuery({
+    queryKey: productionKeys.coldStorage,
+    queryFn: () => fetchJson<ColdStorageLot[]>("/api/production/cold-storage"),
   });
 }
 
