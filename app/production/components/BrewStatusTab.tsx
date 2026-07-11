@@ -15,7 +15,7 @@ import { useEquipmentCrud } from "../hooks/useEquipmentCrud";
 import { useBatchAssign } from "../hooks/useBatchAssign";
 import {
   useRecipePackagingVariationsQuery, usePackagingVariationsQuery, useEquipmentQuery, useAssignmentsQuery, useBatchesQuery,
-  useTransfersQuery, useRecipesQuery, useBatchScheduleQuery, useBatchConversionsQuery,
+  useTransfersQuery, useRecipesQuery, useBatchScheduleQuery, useBatchConversionsQuery, useColdStorageQuery,
   productionKeys, type ScheduleEntry,
 } from "../hooks/queries";
 import { useUserRole } from "@/lib/hooks/useUserRole";
@@ -77,6 +77,7 @@ export default function BrewStatusTab() {
   const { data: assignments = [] } = useAssignmentsQuery();
   const { data: batches = [] } = useBatchesQuery();
   const { data: transfers = [] } = useTransfersQuery();
+  const { data: coldStorageLots = [] } = useColdStorageQuery();
   const { data: recipes = [] } = useRecipesQuery();
   const { data: scheduleEntries = [] } = useBatchScheduleQuery();
   const { data: allBatchConversions = [] } = useBatchConversionsQuery();
@@ -91,6 +92,7 @@ export default function BrewStatusTab() {
     qc.invalidateQueries({ queryKey: productionKeys.assignments }),
     qc.invalidateQueries({ queryKey: productionKeys.batches }),
     qc.invalidateQueries({ queryKey: productionKeys.transfers }),
+    qc.invalidateQueries({ queryKey: productionKeys.coldStorage }),
     qc.invalidateQueries({ queryKey: productionKeys.batchSchedule }),
     qc.invalidateQueries({ queryKey: productionKeys.scheduleConflicts }),
   ]).then(() => undefined), [qc]);
@@ -636,26 +638,18 @@ export default function BrewStatusTab() {
                     ) : isColdStorage ? (
                       <>
                         {(() => {
-                          const coldXfers = transfers.filter(
-                            (tr) => tr.to_tank_id === tank.id && (tr.transfer_type === "kegging" || tr.transfer_type === "canning")
-                          );
-                          return coldXfers.length === 0 ? (
+                          return coldStorageLots.length === 0 ? (
                             <p className="text-sm text-faint">Empty</p>
                           ) : (
                             <div className="space-y-1.5">
-                              {coldXfers.map((tr) => {
-                                const b = batchById[tr.batch_id];
-                                return (
-                                  <div key={tr.id} className="flex items-baseline justify-between gap-2">
-                                    <span className="text-sm text-body truncate">{b?.beer_name ?? "—"}</span>
-                                    <span className="text-xs text-muted shrink-0">
-                                      {tr.quantity != null && tr.packaging_variations
-                                        ? `${tr.quantity}× ${tr.packaging_variations.name}`
-                                        : fmtDate(tr.transferred_at)}
-                                    </span>
-                                  </div>
-                                );
-                              })}
+                              {coldStorageLots.map((lot) => (
+                                <div key={lot.id} className="flex items-baseline justify-between gap-2">
+                                  <span className="text-sm text-body truncate">{lot.beer_name ?? "—"}</span>
+                                  <span className="text-xs text-muted shrink-0">
+                                    {lot.quantity_on_hand}{lot.variation_name ? `× ${lot.variation_name}` : ""}
+                                  </span>
+                                </div>
+                              ))}
                             </div>
                           );
                         })()}
@@ -800,11 +794,6 @@ export default function BrewStatusTab() {
             const isBacklog   = tank.type === "backlog";
             const isUnconstrained = UNCONSTRAINED_EQUIPMENT_TYPES.includes(tank.type);
 
-            // Transfers to this cold storage tank
-            const coldTransfers = isColdStorage
-              ? transfers.filter((tr) => tr.to_tank_id === tank.id && (tr.transfer_type === "kegging" || tr.transfer_type === "canning"))
-              : [];
-
             const style = eqStyle(tank, cell);
             const pixW  = tank.grid_width  * cell - GAP * 2;
             const pixH  = tank.grid_height * cell - GAP * 2;
@@ -896,24 +885,21 @@ export default function BrewStatusTab() {
                     {/* === Cold Storage === */}
                     {isColdStorage && (
                       <div className="flex-1 min-h-0 overflow-y-auto">
-                        {coldTransfers.length === 0 ? (
+                        {coldStorageLots.length === 0 ? (
                           <p className="text-disabled text-center mt-1" style={{ fontSize: 9 }}>Empty</p>
                         ) : (
                           <div className="space-y-1">
-                            {coldTransfers.map((tr) => {
-                              const b = batchById[tr.batch_id];
-                              return (
-                                <div key={tr.id} className="flex flex-col gap-0 leading-tight">
-                                  <div className="flex items-center gap-1 min-w-0">
-                                    <span className="text-body truncate flex-1 min-w-0 font-medium" style={{ fontSize: 9 }} title={b?.beer_name}>{b?.beer_name ?? "—"}</span>
-                                    <span className="text-faint shrink-0" style={{ fontSize: 8 }}>{fmtDate(tr.transferred_at)}</span>
-                                  </div>
-                                  {tr.quantity != null && tr.packaging_variations && (
-                                    <span className="text-muted pl-1" style={{ fontSize: 8 }}>{tr.quantity}× {tr.packaging_variations.name}</span>
-                                  )}
+                            {coldStorageLots.map((lot) => (
+                              <div key={lot.id} className="flex flex-col gap-0 leading-tight">
+                                <div className="flex items-center gap-1 min-w-0">
+                                  <span className="text-body truncate flex-1 min-w-0 font-medium" style={{ fontSize: 9 }} title={lot.beer_name ?? undefined}>{lot.beer_name ?? "—"}</span>
+                                  <span className="text-faint shrink-0" style={{ fontSize: 8 }}>{lot.quantity_on_hand}</span>
                                 </div>
-                              );
-                            })}
+                                {lot.variation_name && (
+                                  <span className="text-muted pl-1" style={{ fontSize: 8 }}>{lot.variation_name}</span>
+                                )}
+                              </div>
+                            ))}
                           </div>
                         )}
                       </div>
