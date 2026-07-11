@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Suspense } from "react";
+import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
 import NavBar from "./components/NavBar";
 import Providers from "./providers";
@@ -41,6 +42,7 @@ export default function RootLayout({
           </div>
         </Providers>
         <SpeedInsights />
+        <Analytics />
       </body>
     </html>
   );
