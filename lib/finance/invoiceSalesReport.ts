@@ -41,6 +41,9 @@ export interface LineItemRow {
   chart_of_accounts_id: string | null;
   variation_name: string | null;
   quantity: number | null;
+  line_item_name: string | null;
+  gross_sales_cents: number | null;
+  discount_cents: number | null;
   raw_data: Record<string, unknown> | null;
 }
 
@@ -151,7 +154,7 @@ export async function buildInvoiceSalesReport(
     .from("invoices")
     .select(`
       id, invoice_date, status, total_cents,
-      invoice_line_items!invoice_line_items_invoice_id_fkey ( category, total_cents, chart_of_accounts_id, variation_name, quantity, raw_data ),
+      invoice_line_items!invoice_line_items_invoice_id_fkey ( category, total_cents, chart_of_accounts_id, variation_name, quantity, line_item_name, gross_sales_cents, discount_cents, raw_data ),
       export_transactions (
         channel, volume_bbl, quantity, variant_label,
         export_transaction_taxes ( tax_name, amount_usd )
@@ -171,7 +174,8 @@ export async function buildInvoiceSalesReport(
  * Pure assembly of the invoice sales report from already-fetched invoice rows.
  *
  * This is the mixed-unit money seam: line-item revenue arrives as INTEGER CENTS
- * (`total_cents`, `raw_data.gross/discount`) and is divided by 100 into dollars,
+ * (`gross_sales_cents`/`discount_cents`, falling back to legacy `raw_data.gross/discount`
+ * for rows not yet re-synced) and is divided by 100 into dollars,
  * while excise arrives as DECIMAL DOLLARS (`amount_usd`) and is summed as-is.
  * Both must land in the same dollar-denominated statement row, so the ÷100 must
  * be applied to revenue and NOT to excise.
@@ -276,11 +280,11 @@ export function assembleInvoiceSalesReport(
 
     for (const li of lineItems) {
       const raw = li.raw_data ?? {};
-      const grossCents = Number((raw as Record<string, unknown>).gross ?? li.total_cents ?? 0);
-      const discCents  = Number((raw as Record<string, unknown>).discount ?? 0);
+      const grossCents = Number(li.gross_sales_cents ?? (raw as Record<string, unknown>).gross ?? li.total_cents ?? 0);
+      const discCents  = Number(li.discount_cents  ?? (raw as Record<string, unknown>).discount ?? 0);
       const gross = grossCents / 100;
       const disc  = discCents / 100;
-      const desc  = String((raw as Record<string, unknown>).name ?? li.category ?? "(unnamed)");
+      const desc  = String(li.line_item_name ?? (raw as Record<string, unknown>).name ?? li.category ?? "(unnamed)");
 
       if (!revChannel) {
         flagUnrecognized({

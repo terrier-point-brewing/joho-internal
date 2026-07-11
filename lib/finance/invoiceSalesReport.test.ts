@@ -17,6 +17,9 @@ const li = (over: Partial<LineItemRow>): LineItemRow => ({
   variation_name: null,
   quantity: null,
   raw_data: null,
+  line_item_name: null,
+  gross_sales_cents: null,
+  discount_cents: null,
   ...over,
 });
 
@@ -191,6 +194,39 @@ describe("assembleInvoiceSalesReport — mixed-unit money seam", () => {
     expect(report.unrecognized.count).toBe(1);
     expect(report.unrecognized.totalDollars).toBe(42); // 4_200 cents → $42
     expect(report.unrecognized.byChannel.unassigned).toBe(42);
+  });
+
+  it("prefers dedicated gross_sales_cents/discount_cents columns over raw_data (post-migration rows)", () => {
+    // After the Square sync refactor, new rows carry dedicated columns and
+    // raw_data is null. The reader must not silently read gross=0/discount=0.
+    const report = assembleInvoiceSalesReport(
+      [
+        invoice({
+          invoice_line_items: [
+            li({
+              category: "distribution_keg",
+              variation_name: "1/2 BBL Keg",
+              total_cents: 60_000,
+              raw_data: null,
+              line_item_name: "Half keg",
+              gross_sales_cents: 60_000,
+              discount_cents: 500,
+            }),
+          ],
+          export_transactions: [
+            txn({ channel: "distribution", volume_bbl: 0.5, quantity: 2, variant_label: "1/2 BBL" }),
+          ],
+        }),
+      ],
+      YEAR,
+      NOW
+    );
+
+    const row = report.distribution["2026-03"];
+    expect(row.rev_half_keg).toBe(600); // 60_000 cents ÷ 100
+    expect(row.gross_revenue).toBe(600);
+    expect(row.discounts).toBe(5); // 500 cents ÷ 100
+    expect(row.net_sales).toBe(595);
   });
 
   it("handles empty input — zeroed months, no excise, no unrecognized", () => {

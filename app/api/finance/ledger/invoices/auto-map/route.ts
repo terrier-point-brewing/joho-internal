@@ -1,7 +1,8 @@
 /**
  * POST /api/finance/ledger/invoices/auto-map?year=YYYY
- * Retroactively map unmapped invoice line items by description + catalog-variation
- * mappings. Logic lives in lib/finance/autoMap. Returns { mapped }.
+ *
+ * Retroactively map unmapped invoice line items by catalog-variation id +
+ * description. Logic lives in lib/finance/autoMap. Returns { mapped }.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth";
