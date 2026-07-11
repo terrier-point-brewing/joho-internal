@@ -15,9 +15,10 @@ create index if not exists draft_pour_consumption_date_idx
 
 alter table draft_pour_consumption enable row level security;
 
--- Service-role only (populated by the sync, read by server routes via service/admin
--- or server client). No public/anon access — matches the RLS posture of the other
--- taproom operational tables.
-create policy draft_pour_consumption_service_all
+-- Operational table: read + write by the app's authenticated server client
+-- (draft-stats + demand-calendar read it; the manual-sync route writes it),
+-- matching the RLS posture of tap_assignments. The cron/webhook sync uses the
+-- service-role client, which bypasses RLS regardless.
+create policy draft_pour_consumption_authenticated_all
   on draft_pour_consumption for all
-  to service_role using (true) with check (true);
+  to authenticated using (true) with check (true);
