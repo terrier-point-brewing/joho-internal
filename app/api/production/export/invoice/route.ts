@@ -153,21 +153,24 @@ export async function POST(req: NextRequest) {
       if (order) {
         const indexes = await buildLineItemIndexes(supabase, catalogItems as CatalogItem[]);
         const rows = buildInvoiceLineItemRows(inv.id, order, indexes, new Map());
-        await persistInvoiceLineItems(supabase, inv.id, rows);
+        const { error: persistErr } = await persistInvoiceLineItems(supabase, inv.id, rows);
+        if (persistErr) throw new Error(persistErr);
         const totals = invoiceHeaderTotalsFromOrder(order);
-        await supabase.from("invoices").update(totals).eq("id", inv.id);
+        const { error: hdrErr } = await supabase.from("invoices").update(totals).eq("id", inv.id);
+        if (hdrErr) throw new Error(hdrErr.message);
       }
     } catch (err) {
       console.error("[export-invoice] generate read-back failed, falling back to draft values:", err);
       // Fallback: persist gross draft values so the row is never empty; a later sync reconciles.
       if (lineItems.length > 0) {
-        await supabase.from("invoice_line_items").insert(
+        await supabase.from("invoice_line_items").upsert(
           lineItems.map((li, i) => ({
             invoice_id: inv.id, sort_order: i, description: li.description,
             category: "other_services", quantity: li.quantity,
             unit_price_cents: li.unitPriceCents, total_cents: li.quantity * li.unitPriceCents,
             square_catalog_variation_id: li.squareCatalogVariationId ?? null,
           })),
+          { onConflict: "invoice_id,sort_order", ignoreDuplicates: false },
         );
       }
     }

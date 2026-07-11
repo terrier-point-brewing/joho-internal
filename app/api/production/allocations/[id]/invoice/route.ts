@@ -236,9 +236,11 @@ async function handleInvoiceAction(req: NextRequest, params: RouteParams["params
         if (order) {
           const indexes = await buildLineItemIndexes(adminSupabase, catalogItems as CatalogItem[]);
           const rows = buildInvoiceLineItemRows(ledgerInvoiceId, order, indexes, new Map());
-          await persistInvoiceLineItems(adminSupabase, ledgerInvoiceId, rows);
+          const { error: persistErr } = await persistInvoiceLineItems(adminSupabase, ledgerInvoiceId, rows);
+          if (persistErr) throw new Error(persistErr);
           const totals = invoiceHeaderTotalsFromOrder(order);
-          await adminSupabase.from("invoices").update(totals).eq("id", ledgerInvoiceId);
+          const { error: hdrErr } = await adminSupabase.from("invoices").update(totals).eq("id", ledgerInvoiceId);
+          if (hdrErr) throw new Error(hdrErr.message);
         }
       } catch (err) {
         console.error("[deposit-invoice] generate read-back failed, using draft deposit line:", err);
