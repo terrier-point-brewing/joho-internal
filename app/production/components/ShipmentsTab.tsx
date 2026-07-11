@@ -8,6 +8,11 @@ import InvoicePreviewModal from "./InvoicePreviewModal";
 import { CHANNEL_COLOR } from "../lib/categoryColors";
 import { fmtDateLong } from "@/lib/utils/formatting";
 import { localDateString } from "@/lib/utils/datetime";
+import { useTableControls } from "@/app/components/ui/useTableControls";
+import FilterChips from "@/app/components/ui/FilterChips";
+import FilterSelect from "@/app/components/ui/FilterSelect";
+import FilterBar from "@/app/components/ui/FilterBar";
+import type { ControlsConfig } from "@/lib/table/types";
 
 interface ShipmentRow {
   id: string;
@@ -94,9 +99,6 @@ interface ShipmentsTabProps {
   onNavigateToInvoice?: (invoiceId: string) => void;
 }
 
-type ChannelFilter = "all" | "taproom" | "distribution" | "contract_brewing" | "wholesale";
-type StatusFilter = "all" | "invoice_required" | "draft" | "unpaid" | "paid";
-
 const CHANNEL_LABELS: Record<string, string> = {
   taproom: "Taproom",
   distribution: "Distribution",
@@ -108,6 +110,25 @@ const CHANNEL_LABELS: Record<string, string> = {
 const CHANNEL_BADGE: Record<string, string> = Object.fromEntries(
   Object.entries(CHANNEL_COLOR).map(([k, v]) => [k, `${v.bg} ${v.text}`])
 );
+
+const CHANNEL_OPTIONS = (["taproom", "distribution", "contract_brewing", "wholesale"] as const).map((c) => ({
+  value: c, label: CHANNEL_LABELS[c], className: CHANNEL_BADGE[c],
+}));
+
+const STATUS_OPTIONS = [
+  { value: "invoice_required", label: "Invoice Required" },
+  { value: "draft", label: "Invoice Drafted" },
+  { value: "unpaid", label: "Unpaid" },
+  { value: "paid", label: "Paid" },
+];
+
+const SHIPMENT_CONTROLS: ControlsConfig<InvoiceGroup> = {
+  filters: [
+    { param: "channel", matches: (g, sel) => g.products.some((p) => sel.includes(p.channel)) },
+    { param: "status", accessor: (g) => g.status },
+    { param: "customer", accessor: (g) => g.recipient_id ?? "" },
+  ],
+};
 
 const STATUS_BADGE: Record<string, string> = {
   paid: "bg-success-surface/40 text-success",
@@ -267,9 +288,6 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
     });
   }
 
-  const [channelFilter, setChannelFilter] = useState<ChannelFilter>("all");
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const [customerFilter, setCustomerFilter] = useState<string>("all");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
 
@@ -288,16 +306,17 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
 
   const invoiceGroups = useMemo(() => groupByInvoice(allRows), [allRows]);
 
-  const filtered = useMemo(() => {
-    return invoiceGroups.filter((g) => {
-      if (channelFilter !== "all" && !g.products.some((p) => p.channel === channelFilter)) return false;
-      if (statusFilter !== "all" && g.status !== statusFilter) return false;
-      if (customerFilter !== "all" && g.recipient_id !== customerFilter) return false;
-      if (dateFrom && !g.products.some((p) => p.created_at.slice(0, 10) >= dateFrom)) return false;
-      if (dateTo && !g.products.some((p) => p.created_at.slice(0, 10) <= dateTo)) return false;
-      return true;
-    });
-  }, [invoiceGroups, channelFilter, statusFilter, customerFilter, dateFrom, dateTo]);
+  const { rows: hookFiltered, filters, setFilter, reset, activeCount } =
+    useTableControls(invoiceGroups, SHIPMENT_CONTROLS, { prefix: "ship_" });
+
+  // Date range stays a local, non-URL-synced control (design non-goal: date-range
+  // selectors are exempt from the shared filter primitives) — applied after the
+  // hook's categorical filtering.
+  const filtered = useMemo(() => hookFiltered.filter((g) => {
+    if (dateFrom && !g.products.some((p) => p.created_at.slice(0, 10) >= dateFrom)) return false;
+    if (dateTo && !g.products.some((p) => p.created_at.slice(0, 10) <= dateTo)) return false;
+    return true;
+  }), [hookFiltered, dateFrom, dateTo]);
 
   const summaryStats = useMemo(() => {
     let totalBbl = 0;
@@ -408,64 +427,48 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
   return (
     <div className="space-y-4">
       {/* Filter bar */}
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="flex gap-1">
-          {(["all", "taproom", "distribution", "contract_brewing", "wholesale"] as ChannelFilter[]).map((ch) => (
-            <button
-              key={ch}
-              onClick={() => setChannelFilter(ch)}
-              className={`px-2.5 py-1 text-xs rounded border transition-colors ${
-                channelFilter === ch
-                  ? "border-accent-emphasis bg-accent-muted/30 text-accent-soft"
-                  : "border-line-strong text-muted hover:text-body"
-              }`}
-            >
-              {ch === "all" ? "All" : CHANNEL_LABELS[ch]}
-            </button>
-          ))}
-        </div>
-
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
-          className="bg-surface-mid border border-line-strong rounded px-2 py-1 text-xs text-strong"
-        >
-          <option value="all">All Statuses</option>
-          <option value="invoice_required">Invoice Required</option>
-          <option value="draft">Invoice Drafted</option>
-          <option value="unpaid">Unpaid</option>
-          <option value="paid">Paid</option>
-        </select>
-
-        <select
-          value={customerFilter}
-          onChange={(e) => setCustomerFilter(e.target.value)}
-          className="bg-surface-mid border border-line-strong rounded px-2 py-1 text-xs text-strong"
-        >
-          <option value="all">All Customers</option>
-          {invoiceablePartners.map((p) => (
-            <option key={p.id} value={p.id}>{p.name}</option>
-          ))}
-        </select>
-
-        <label htmlFor="shipments-date-from" className="sr-only">From date</label>
-        <input
-          id="shipments-date-from"
-          type="date"
-          value={dateFrom}
-          onChange={(e) => setDateFrom(e.target.value)}
-          className="bg-surface-mid border border-line-strong rounded px-2 py-1 text-xs text-strong"
+      <FilterBar
+        activeCount={activeCount}
+        onClear={() => { reset(); setDateFrom(""); setDateTo(""); }}
+      >
+        <FilterChips
+          label="Channel"
+          options={CHANNEL_OPTIONS}
+          value={filters.channel ?? []}
+          onChange={(v) => setFilter("channel", v)}
         />
-        <span className="text-xs text-faint">–</span>
-        <label htmlFor="shipments-date-to" className="sr-only">To date</label>
-        <input
-          id="shipments-date-to"
-          type="date"
-          value={dateTo}
-          onChange={(e) => setDateTo(e.target.value)}
-          className="bg-surface-mid border border-line-strong rounded px-2 py-1 text-xs text-strong"
+        <FilterSelect
+          label="Status"
+          options={STATUS_OPTIONS}
+          value={filters.status ?? []}
+          onChange={(v) => setFilter("status", v)}
         />
-      </div>
+        <FilterSelect
+          label="Customer"
+          options={invoiceablePartners.map((p) => ({ value: p.id, label: p.name }))}
+          value={filters.customer ?? []}
+          onChange={(v) => setFilter("customer", v)}
+        />
+        {/* date range stays a local control (design non-goal: date-range selectors unchanged) */}
+        <label className="inline-flex items-center gap-1.5 text-xs text-muted">
+          From
+          <input
+            type="date"
+            value={dateFrom}
+            onChange={(e) => setDateFrom(e.target.value)}
+            className="inp-sm w-auto"
+          />
+        </label>
+        <label className="inline-flex items-center gap-1.5 text-xs text-muted">
+          To
+          <input
+            type="date"
+            value={dateTo}
+            onChange={(e) => setDateTo(e.target.value)}
+            className="inp-sm w-auto"
+          />
+        </label>
+      </FilterBar>
 
       {/* Summary stats */}
       {filtered.length > 0 && (
