@@ -46,3 +46,8 @@ supabase/.temp/
 
 # Ramp API spike raw dumps (contains live financial data — do not commit)
 ramp-spike-output/
+
+# claude code local artifacts (never commit — may hold secrets; pollute search/disk)
+.claude/settings.local.json
+.claude/worktrees/
+.claire/
