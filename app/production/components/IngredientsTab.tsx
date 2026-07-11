@@ -9,6 +9,11 @@ import { useContractPartnersQuery, useSuppliersQuery, useIngredientsQuery, produ
 import { useUserRole } from "@/lib/hooks/useUserRole";
 import { fmtUsd } from "@/lib/utils/formatting";
 import { CATEGORY_BADGE_CLASS as CC } from "../lib/categoryColors";
+import { useTableControls } from "@/app/components/ui/useTableControls";
+import SearchInput from "@/app/components/ui/SearchInput";
+import FilterChips from "@/app/components/ui/FilterChips";
+import FilterBar from "@/app/components/ui/FilterBar";
+import type { ControlsConfig } from "@/lib/table/types";
 
 const INGREDIENT_CATEGORY_META: Record<IngredientCategory, { color: string }> = {
   "Malts":        { color: "border-accent-border bg-accent-muted/30 text-accent-soft" },
@@ -18,6 +23,17 @@ const INGREDIENT_CATEGORY_META: Record<IngredientCategory, { color: string }> = 
   "Fruit":        { color: CC.rose },
   "Terpenes":     { color: CC.purple },
 };
+
+const INGREDIENT_CONTROLS: ControlsConfig<Ingredient> = {
+  search: [{ param: "q", accessor: (i) => i.name }],
+  filters: [{ param: "category", accessor: (i) => i.category ?? "Uncategorized" }],
+};
+
+const CATEGORY_OPTIONS = INGREDIENT_CATEGORIES.map((c) => ({
+  value: c,
+  label: c,
+  className: INGREDIENT_CATEGORY_META[c]?.color,
+}));
 
 // ─── CSV bulk upload ──────────────────────────────────────────────────────────
 
@@ -360,8 +376,9 @@ export default function IngredientsTab() {
   const [adjSubmitting, setAdjSubmitting] = useState(false);
 
 
-  // Category filter
-  const [filterCat, setFilterCat] = useState<IngredientCategory | "all">("all");
+  // Search + category filter (URL-synced; prefixed since this route hosts sibling tabs)
+  const { rows: visibleIngredients, search, filters, setSearch, setFilter, reset, activeCount } =
+    useTableControls(ingredients, INGREDIENT_CONTROLS, { prefix: "ing_" });
 
   // Bulk edit
   type BulkRow = { id: string; name: string; unit: string; cost_per_unit: string };
@@ -537,26 +554,21 @@ export default function IngredientsTab() {
 
   return (
     <>
-      {/* Category pills + action buttons inline */}
+      {/* Search + category filter + action buttons inline */}
       <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
-        <div className="flex gap-2 flex-wrap">
-          <button
-            onClick={() => setFilterCat("all")}
-            className={`text-xs px-2.5 py-1 rounded border transition-colors ${filterCat === "all" ? "border-line-subtle text-strong bg-surface-mid" : "border-line-strong text-muted hover:text-body"}`}
-          >
-            All
-          </button>
-          {INGREDIENT_CATEGORIES.map((cat) => {
-            const meta = INGREDIENT_CATEGORY_META[cat];
-            return (
-              <button key={cat} onClick={() => setFilterCat(cat)}
-                className={`text-xs px-2.5 py-1 rounded border transition-colors ${filterCat === cat ? meta.color : "border-line-strong text-muted hover:text-body"}`}
-              >
-                {cat}
-              </button>
-            );
-          })}
-        </div>
+        <FilterBar activeCount={activeCount} onClear={reset}>
+          <SearchInput
+            value={search.q ?? ""}
+            onChange={(v) => setSearch("q", v)}
+            placeholder="Search ingredients…"
+          />
+          <FilterChips
+            label="Category"
+            options={CATEGORY_OPTIONS}
+            value={filters.category ?? []}
+            onChange={(v) => setFilter("category", v)}
+          />
+        </FilterBar>
         <div className="flex gap-2 shrink-0">
           {bulkEditMode ? (
             <>
@@ -577,18 +589,19 @@ export default function IngredientsTab() {
 
       {ingredients.length === 0 ? (
         <p className="text-faint text-sm">No ingredients yet.</p>
+      ) : visibleIngredients.length === 0 ? (
+        <p className="text-faint text-sm">No ingredients match the current filters.</p>
       ) : (
         <div className="space-y-6">
           {(() => {
             const allGroups = INGREDIENT_CATEGORIES.map((cat) => ({
               cat,
-              items: ingredients.filter((i) => i.category === cat),
+              items: visibleIngredients.filter((i) => i.category === cat),
             })).filter((g) => g.items.length > 0);
-            const uncategorized = ingredients.filter((i) => !i.category);
+            const uncategorized = visibleIngredients.filter((i) => !i.category);
             const groups = [...allGroups, ...(uncategorized.length ? [{ cat: "Uncategorized" as const, items: uncategorized }] : [])];
-            const visibleGroups = filterCat === "all" ? groups : groups.filter((g) => g.cat === filterCat);
 
-            return visibleGroups.map(({ cat, items }) => {
+            return groups.map(({ cat, items }) => {
               const showAlphaAcid     = cat === "Hops";
               const showColorLovibond = cat === "Malts";
               const catMeta = cat !== "Uncategorized" ? INGREDIENT_CATEGORY_META[cat as IngredientCategory] : null;

@@ -1,10 +1,15 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import { fetchJson } from "@/app/production/hooks/queries";
 import Banner from "@/app/components/ui/Banner";
+import { useTableControls } from "@/app/components/ui/useTableControls";
+import SearchInput from "@/app/components/ui/SearchInput";
+import FilterSelect from "@/app/components/ui/FilterSelect";
+import FilterBar from "@/app/components/ui/FilterBar";
+import type { ControlsConfig } from "@/lib/table/types";
 import type {
   InventoryGrid,
   InventoryRow,
@@ -22,6 +27,11 @@ interface ReconEvent {
   occurred_at: string;
 }
 type TaproomInventoryResponse = InventoryGrid & { reconciliations: ReconEvent[] };
+
+const INVENTORY_CONTROLS: ControlsConfig<InventoryRow> = {
+  search: [{ param: "q", accessor: (r) => r.recipeName }],
+  filters: [{ param: "partner", accessor: (r) => r.recipePartnerName ?? "House" }],
+};
 
 // ── formatting ────────────────────────────────────────────────────────────────
 
@@ -127,8 +137,17 @@ export default function InventoryTab() {
     queryFn: () => fetchJson<TaproomInventoryResponse>("/api/taproom/inventory"),
   });
 
-  const [query, setQuery] = useState("");
-  const q = query.trim().toLowerCase();
+  const source = useMemo(() => data?.rows ?? [], [data?.rows]);
+  const { rows, search, filters, setSearch, setFilter, reset, activeCount } =
+    useTableControls(source, INVENTORY_CONTROLS);
+
+  const partnerOptions = useMemo(
+    () =>
+      Array.from(new Set(source.map((r) => r.recipePartnerName ?? "House")))
+        .sort()
+        .map((p) => ({ value: p, label: p })),
+    [source],
+  );
 
   const lastReconcile = useMemo(() => {
     const events = data?.reconciliations ?? [];
@@ -139,18 +158,10 @@ export default function InventoryTab() {
     return { at: latest, count: inBatch.length };
   }, [data]);
 
-  // Client-side search over recipe + partner name, with column/grand totals
-  // recomputed from the matches so the banner and footer track what's visible.
-  const view = useMemo(() => {
+  // Column/grand totals recomputed from the matches so the banner and footer
+  // track what's visible.
+  const { columnTotals, grandTotalBbl } = useMemo(() => {
     const cols = data?.columns ?? [];
-    const source = data?.rows ?? [];
-    const rows = q
-      ? source.filter(
-          (r) =>
-            r.recipeName.toLowerCase().includes(q) ||
-            (r.recipePartnerName?.toLowerCase().includes(q) ?? false),
-        )
-      : source;
 
     const columnTotals: Record<string, number> = Object.fromEntries(cols.map((c) => [c.key, 0]));
     let grandTotalBbl = 0;
@@ -162,22 +173,21 @@ export default function InventoryTab() {
       }
     }
     for (const k of Object.keys(columnTotals)) columnTotals[k] = Number(columnTotals[k].toFixed(2));
-    return { rows, columnTotals, grandTotalBbl: Number(grandTotalBbl.toFixed(2)) };
-  }, [data, q]);
+    return { columnTotals, grandTotalBbl: Number(grandTotalBbl.toFixed(2)) };
+  }, [rows, data?.columns]);
 
   if (isLoading) return <div className="text-sm text-muted py-8 text-center">Loading inventory…</div>;
   if (error) return <div className="text-sm text-danger py-8 text-center">{(error as Error).message}</div>;
   if (!data) return null;
 
   const { columns } = data;
-  const { rows, columnTotals, grandTotalBbl } = view;
 
   return (
     <div>
       <div className="mb-2 flex items-center justify-between rounded-lg border border-accent-border/30 bg-accent-muted/20 px-3 py-2">
         <span className="text-sm text-body">Cold storage available to the taproom</span>
         <span className="text-sm text-strong font-semibold tabular-nums">
-          {fmtBbl(grandTotalBbl)} bbl{q ? " shown" : " total"}
+          {fmtBbl(grandTotalBbl)} bbl{activeCount > 0 ? " shown" : " total"}
         </span>
       </div>
 
@@ -190,15 +200,20 @@ export default function InventoryTab() {
       )}
 
       <div className="mb-2 flex items-center gap-2">
-        <input
-          type="search"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search recipe or partner…"
-          className="inp-sm w-full max-w-xs"
-          aria-label="Search inventory"
-        />
-        {q && (
+        <FilterBar activeCount={activeCount} onClear={reset}>
+          <SearchInput
+            value={search.q ?? ""}
+            onChange={(v) => setSearch("q", v)}
+            placeholder="Search recipes…"
+          />
+          <FilterSelect
+            label="Partner"
+            options={partnerOptions}
+            value={filters.partner ?? []}
+            onChange={(v) => setFilter("partner", v)}
+          />
+        </FilterBar>
+        {activeCount > 0 && (
           <span className="text-xs text-muted tabular-nums whitespace-nowrap">
             {rows.length} {pluralize(rows.length, "recipe", "recipes")}
           </span>
@@ -236,7 +251,7 @@ export default function InventoryTab() {
             {rows.length === 0 && (
               <tr>
                 <td colSpan={columns.length + 2} className="px-4 py-8 text-center text-muted">
-                  No recipes match “{query.trim()}”.
+                  {search.q ? `No recipes match “${search.q}”.` : "No recipes match the current filters."}
                 </td>
               </tr>
             )}

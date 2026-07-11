@@ -12,9 +12,12 @@ import {
 import {
   useAdjustmentsQuery, useIngredientsQuery, usePackagingQuery, fetchJson,
 } from "../hooks/queries";
-
-type Source = "all" | "ingredients" | "packaging";
-type SortDir = "desc" | "asc";
+import { useTableControls } from "@/app/components/ui/useTableControls";
+import SearchInput from "@/app/components/ui/SearchInput";
+import FilterChips from "@/app/components/ui/FilterChips";
+import FilterBar from "@/app/components/ui/FilterBar";
+import SortableTh from "@/app/components/ui/SortableTh";
+import type { ControlsConfig } from "@/lib/table/types";
 
 const ING_TYPE_LABELS: Record<AdjustmentType, string> = {
   received:        "Received",
@@ -67,6 +70,20 @@ const SOURCE_COLORS: Record<Row["source"], string> = {
   ingredients: "bg-accent-muted/40 text-accent-soft border-accent-border",
   packaging:   "bg-info-surface/40 text-info border-info-border",
 };
+
+const ADJUSTMENT_CONTROLS: ControlsConfig<Row> = {
+  search: [{ param: "q", accessor: (r) => r.itemName }],
+  filters: [{ param: "source", accessor: (r) => r.source }],
+  sort: {
+    columns: [{ key: "date", accessor: (r) => r.createdAt }],
+    default: { key: "date", dir: "desc" },
+  },
+};
+
+const SOURCE_OPTIONS = [
+  { value: "ingredients", label: "Ingredients" },
+  { value: "packaging", label: "Packaging" },
+];
 
 function buildRows(
   ingAdjs: StockAdjustment[],
@@ -128,20 +145,12 @@ export default function StockAdjustmentsTab() {
   });
   const loading = pkgLoading;
 
-  const [source, setSource]         = useState<Source>("all");
-  const [search, setSearch]         = useState("");
-  const [sortDir, setSortDir]       = useState<SortDir>("desc");
   const [groupByDate, setGroupByDate] = useState(false);
 
   const allRows = buildRows(ingAdjustments, pkgAdjs, ingredients, packaging);
 
-  const filtered = allRows
-    .filter((r) => source === "all" || r.source === source)
-    .filter((r) => !search || r.itemName.toLowerCase().includes(search.toLowerCase()))
-    .sort((a, b) => {
-      const diff = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-      return sortDir === "desc" ? -diff : diff;
-    });
+  const { rows: filtered, search, filters, sort, setSearch, setFilter, toggleSort, reset, activeCount } =
+    useTableControls(allRows, ADJUSTMENT_CONTROLS, { prefix: "adj_" });
 
   function fmtDate(iso: string) {
     return new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
@@ -166,7 +175,7 @@ export default function StockAdjustmentsTab() {
   const thead = (
     <thead>
       <tr className="border-b border-line bg-surface/50 text-left">
-        <th className="px-3 py-2.5 text-xs font-medium text-muted whitespace-nowrap">Date</th>
+        <SortableTh label="Date" sortKey="date" sort={sort} onSort={toggleSort} />
         <th className="px-3 py-2.5 text-xs font-medium text-muted whitespace-nowrap">Source</th>
         <th className="px-3 py-2.5 text-xs font-medium text-muted">Item</th>
         <th className="px-3 py-2.5 text-xs font-medium text-muted">Type</th>
@@ -183,38 +192,19 @@ export default function StockAdjustmentsTab() {
     <div>
       {/* Toolbar */}
       <div className="flex items-center gap-3 mb-4 flex-wrap">
-        {/* Source filter */}
-        <div className="flex gap-1 flex-wrap">
-          {(["all", "ingredients", "packaging"] as Source[]).map((s) => (
-            <button
-              key={s}
-              onClick={() => setSource(s)}
-              className={`text-xs px-2.5 py-1 rounded border transition-colors capitalize ${
-                source === s
-                  ? "border-line-subtle text-strong bg-surface-mid"
-                  : "border-line-strong text-muted hover:text-body"
-              }`}
-            >
-              {s === "all" ? "All" : s === "ingredients" ? "Ingredients" : "Packaging"}
-            </button>
-          ))}
-        </div>
-
-        {/* Search */}
-        <input
-          className="inp w-48 text-sm"
-          placeholder="Search item…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-
-        {/* Sort */}
-        <button
-          onClick={() => setSortDir((d) => (d === "desc" ? "asc" : "desc"))}
-          className="text-xs px-2.5 py-1 rounded border border-line-strong text-muted hover:text-body transition-colors"
-        >
-          Date {sortDir === "desc" ? "↓ Newest" : "↑ Oldest"}
-        </button>
+        <FilterBar activeCount={activeCount} onClear={reset}>
+          <SearchInput
+            value={search.q ?? ""}
+            onChange={(v) => setSearch("q", v)}
+            placeholder="Search items…"
+          />
+          <FilterChips
+            label="Source"
+            options={SOURCE_OPTIONS}
+            value={filters.source ?? []}
+            onChange={(v) => setFilter("source", v)}
+          />
+        </FilterBar>
 
         {/* Group */}
         <button
