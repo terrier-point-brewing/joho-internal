@@ -11,7 +11,12 @@ import SummaryStatBar from "../components/SummaryStatBar";
 import MappingFilter from "../components/MappingFilter";
 import MappingStatusPill from "../components/MappingStatusPill";
 import AutoMapButton from "../components/AutoMapButton";
-import { LedgerTable, SortableTh, Th, CategoryBadges, useTableSort } from "../components/LedgerTable";
+import { LedgerTable, Th, CategoryBadges } from "../components/LedgerTable";
+import SortableTh from "@/app/components/ui/SortableTh";
+import SearchInput from "@/app/components/ui/SearchInput";
+import FilterBar from "@/app/components/ui/FilterBar";
+import { useTableControls } from "@/app/components/ui/useTableControls";
+import type { ControlsConfig } from "@/lib/table/types";
 import InventoryAlertBanner from "./InventoryAlertBanner";
 import { selectInventoryAlerts } from "@/lib/finance/inventoryAlerts";
 
@@ -54,6 +59,24 @@ interface SyncResult {
   new_rules: number;
   auto_matched_rules: number;
 }
+
+// ── Search/filter/sort config ────────────────────────────────────────────────
+
+const EXPENSE_CONTROLS: ControlsConfig<ExpenseRow> = {
+  search: [{ param: "q", accessor: (e) => e.merchant_name ?? "" }],
+  filters: [
+    { param: "mapping", matches: (e, sel) => matchesMappingFilter(sel[0] as MappingFilterValue, e.chart_of_accounts_id ? 1 : 0, 1) },
+  ],
+  sort: {
+    columns: [
+      { key: "date", accessor: (e) => e.accounting_date ?? "" },
+      { key: "merchant", accessor: (e) => e.merchant_name ?? "" },
+      { key: "state", accessor: (e) => e.state ?? "" },
+      { key: "amount", accessor: (e) => e.amount_cents },
+    ],
+    default: { key: "date", dir: "desc" },
+  },
+};
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -166,8 +189,6 @@ function ExpenseRowView({
   );
 }
 
-type SortKey = "date" | "merchant" | "state" | "amount";
-
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function ExpensesPage() {
@@ -178,8 +199,6 @@ export default function ExpensesPage() {
   const [expenses, setExpenses] = useState<ExpenseRow[]>([]);
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState<string | null>(null);
-  const [mappingFilter, setMappingFilter] = useState<MappingFilterValue>("all");
-  const sort = useTableSort<SortKey>("date");
 
   const loadAll = useCallback(async (y: number) => {
     setLoading(true); setError(null);
@@ -245,23 +264,18 @@ export default function ExpensesPage() {
   const mappedCount  = expenses.filter((e) => e.chart_of_accounts_id).length;
   const totalSpend   = expenses.reduce((s, e) => s + e.amount_cents, 0);
 
-  const visibleExpenses = expenses
-    .filter((e) => matchesMappingFilter(mappingFilter, e.chart_of_accounts_id ? 1 : 0, 1))
-    .slice()
-    .sort((a, b) => {
-      let diff = 0;
-      if (sort.key === "date")          diff = (a.accounting_date ?? "").localeCompare(b.accounting_date ?? "");
-      else if (sort.key === "merchant") diff = (a.merchant_name ?? "").localeCompare(b.merchant_name ?? "");
-      else if (sort.key === "state")    diff = (a.state ?? "").localeCompare(b.state ?? "");
-      else if (sort.key === "amount")   diff = a.amount_cents - b.amount_cents;
-      return sort.asc ? diff : -diff;
-    });
+  const { rows: visibleExpenses, search, filters, sort, setSearch, setFilter, toggleSort, reset, activeCount } =
+    useTableControls(expenses, EXPENSE_CONTROLS);
 
   return (
     <>
       <div className="shrink-0 px-4 sm:px-6 py-3 border-b border-line flex items-center gap-3 flex-wrap">
-        <YearSelect year={year} onChange={setYear} />
-        <MappingFilter value={mappingFilter} onChange={setMappingFilter} />
+        <FilterBar activeCount={activeCount} onClear={reset}>
+          <SearchInput value={search.q ?? ""} onChange={(v) => setSearch("q", v)} placeholder="Search merchant…" />
+          <YearSelect year={year} onChange={setYear} />
+          <MappingFilter value={(filters.mapping?.[0] as MappingFilterValue) ?? "all"}
+            onChange={(v) => setFilter("mapping", v === "all" ? [] : [v])} />
+        </FilterBar>
         <AutoMapButton key={year} onRun={handleAutoMap} />
         <SyncPanel<SyncResult>
           year={year}
@@ -318,12 +332,12 @@ export default function ExpensesPage() {
             head={
               <>
                 <Th className="w-6" />
-                <SortableTh label="Date" sortKey="date" sort={sort} />
-                <SortableTh label="Merchant" sortKey="merchant" sort={sort} />
+                <SortableTh sortKey="date" label="Date" sort={sort} onSort={toggleSort} />
+                <SortableTh sortKey="merchant" label="Merchant" sort={sort} onSort={toggleSort} />
                 <Th label="GL Account" />
-                <SortableTh label="Status" sortKey="state" sort={sort} />
+                <SortableTh sortKey="state" label="Status" sort={sort} onSort={toggleSort} />
                 <Th label="Mapping" />
-                <SortableTh label="Amount" sortKey="amount" sort={sort} align="right" />
+                <SortableTh sortKey="amount" label="Amount" sort={sort} onSort={toggleSort} align="right" />
               </>
             }>
             {visibleExpenses.map((e) => (
