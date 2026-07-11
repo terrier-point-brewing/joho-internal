@@ -158,7 +158,7 @@ describe("buildInvoiceLineItems", () => {
       total_cents: 1350,
       gross_sales_cents: 1400,
       net_sales_cents: 1350,
-      square_variation_id: "VAR_A",
+      square_catalog_variation_id: "VAR_A",
       chart_of_accounts_id: "COA_INV",
     });
   });

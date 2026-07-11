@@ -69,6 +69,40 @@ describe("buildInvoiceLineItemRows", () => {
     expect(rows[0].square_catalog_variation_id).toBe(rows[1].square_catalog_variation_id);
   });
 
+  it("prefills COA from the variation's default chart_of_accounts_id when no invoice override", () => {
+    const indexes: LineItemIndexes = {
+      ...emptyIndexes,
+      variationById: new Map([["VAR1", {
+        chart_of_accounts_id_invoice: null,
+        chart_of_accounts_id: "COA-DEFAULT",
+        bs_chart_of_accounts_id: null,
+        pl_chart_of_accounts_id: null,
+      }]]),
+    };
+    const order = orderWith([
+      { uid: "u1", catalog_object_id: "VAR1", quantity: "1", name: "Barrel Excise Tax", variation_name: "Regular", gross_sales_money: { amount: 525, currency: "USD" }, total_money: { amount: 525, currency: "USD" } },
+    ]);
+    const [row] = buildInvoiceLineItemRows("INV1", order, indexes, new Map());
+    expect(row.chart_of_accounts_id).toBe("COA-DEFAULT");
+  });
+
+  it("prefers the invoice-specific COA override over the variation default", () => {
+    const indexes: LineItemIndexes = {
+      ...emptyIndexes,
+      variationById: new Map([["VAR1", {
+        chart_of_accounts_id_invoice: "COA-INVOICE",
+        chart_of_accounts_id: "COA-DEFAULT",
+        bs_chart_of_accounts_id: null,
+        pl_chart_of_accounts_id: null,
+      }]]),
+    };
+    const order = orderWith([
+      { uid: "u1", catalog_object_id: "VAR1", quantity: "1", name: "Barrel Excise Tax", variation_name: "Regular", gross_sales_money: { amount: 525, currency: "USD" }, total_money: { amount: 525, currency: "USD" } },
+    ]);
+    const [row] = buildInvoiceLineItemRows("INV1", order, indexes, new Map());
+    expect(row.chart_of_accounts_id).toBe("COA-INVOICE");
+  });
+
   it("preserves an existing non-null COA (fill-nulls-only)", () => {
     const order = orderWith([
       { uid: "u1", catalog_object_id: "VAR1", quantity: "1", name: "Barrel Excise Tax", variation_name: "Regular", gross_sales_money: { amount: 525, currency: "USD" }, total_money: { amount: 525, currency: "USD" } },

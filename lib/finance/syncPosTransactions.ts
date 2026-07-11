@@ -155,8 +155,7 @@ export function buildInvoiceLineItems(
       gross_sales_cents: li.gross_sales_money?.amount ?? 0,
       discount_cents: li.total_discount_money?.amount ?? 0,
       net_sales_cents: li.total_money?.amount ?? 0,
-      square_catalog_object_id: varId,
-      square_variation_id: varId,
+      square_catalog_variation_id: varId,
       square_line_item_uid: li.uid ?? null,
       chart_of_accounts_id: varId ? getInvoiceCoA(varId) : null,
     };
