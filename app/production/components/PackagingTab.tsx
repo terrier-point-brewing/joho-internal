@@ -9,6 +9,11 @@ import { usePackagingQuery, useContractPartnersQuery, useSuppliersQuery, product
 import { useUserRole } from "@/lib/hooks/useUserRole";
 import { fmtUsd } from "@/lib/utils/formatting";
 import { CATEGORY_BADGE_CLASS as CC } from "../lib/categoryColors";
+import { useTableControls } from "@/app/components/ui/useTableControls";
+import SearchInput from "@/app/components/ui/SearchInput";
+import FilterChips from "@/app/components/ui/FilterChips";
+import FilterBar from "@/app/components/ui/FilterBar";
+import type { ControlsConfig } from "@/lib/table/types";
 
 const PKG_ADJ_TYPES: { value: PackagingAdjustmentType; label: string; hint: string; sign: "positive" | "negative" | "count" }[] = [
   { value: "received",        label: "Received",        hint: "Stock received from supplier", sign: "positive" },
@@ -27,6 +32,17 @@ const TYPE_META: Record<PackagingItemType, { label: string; color: string }> = {
 };
 
 const TYPES = Object.keys(TYPE_META) as PackagingItemType[];
+
+const PACKAGING_CONTROLS: ControlsConfig<PackagingItem> = {
+  search: [{ param: "q", accessor: (p) => p.name }],
+  filters: [{ param: "type", accessor: (p) => p.type }],
+};
+
+const TYPE_OPTIONS = TYPES.map((t) => ({
+  value: t,
+  label: TYPE_META[t].label,
+  className: TYPE_META[t].color,
+}));
 
 const EMPTY_FORM = {
   type: "keg" as PackagingItemType,
@@ -64,7 +80,10 @@ export default function PackagingTab() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
-  const [filterType, setFilterType] = useState<PackagingItemType | "all">("all");
+
+  // Search + type filter (URL-synced; prefixed since this route hosts sibling tabs)
+  const { rows: visiblePackaging, search, filters, setSearch, setFilter, reset, activeCount } =
+    useTableControls(packaging, PACKAGING_CONTROLS, { prefix: "pkg_" });
 
   // Adjustment state
   const [adjItem, setAdjItem] = useState<PackagingItem | null>(null);
@@ -177,37 +196,35 @@ export default function PackagingTab() {
     await onRefresh();
   }
 
-  const filtered = filterType === "all" ? packaging : packaging.filter((p) => p.type === filterType);
   const grouped = TYPES.reduce<Record<PackagingItemType, PackagingItem[]>>((acc, t) => {
-    acc[t] = filtered.filter((p) => p.type === t);
+    acc[t] = visiblePackaging.filter((p) => p.type === t);
     return acc;
   }, {} as Record<PackagingItemType, PackagingItem[]>);
 
   return (
     <>
-      {/* Filter pills + Add Item inline */}
+      {/* Search + type filter + Add Item inline */}
       <div className="flex items-center justify-between gap-2 mb-4 flex-wrap">
-        <div className="flex gap-2 flex-wrap">
-          <button
-            onClick={() => setFilterType("all")}
-            className={`text-xs px-2.5 py-1 rounded border transition-colors ${filterType === "all" ? "border-line-subtle text-strong bg-surface-mid" : "border-line-strong text-muted hover:text-body"}`}
-          >
-            All
-          </button>
-          {TYPES.map((t) => (
-            <button key={t}
-              onClick={() => setFilterType(t)}
-              className={`text-xs px-2.5 py-1 rounded border transition-colors ${filterType === t ? `border-current ${TYPE_META[t].color}` : "border-line-strong text-muted hover:text-body"}`}
-            >
-              {TYPE_META[t].label}
-            </button>
-          ))}
-        </div>
+        <FilterBar activeCount={activeCount} onClear={reset}>
+          <SearchInput
+            value={search.q ?? ""}
+            onChange={(v) => setSearch("q", v)}
+            placeholder="Search packaging…"
+          />
+          <FilterChips
+            label="Type"
+            options={TYPE_OPTIONS}
+            value={filters.type ?? []}
+            onChange={(v) => setFilter("type", v)}
+          />
+        </FilterBar>
         <button onClick={openNew} className="btn-amber shrink-0">+ Add Item</button>
       </div>
 
       {packaging.length === 0 ? (
         <p className="text-faint text-sm">No packaging items yet.</p>
+      ) : visiblePackaging.length === 0 ? (
+        <p className="text-faint text-sm">No packaging matches the current filters.</p>
       ) : (
         <div className="space-y-6">
           {TYPES.map((t) => {
