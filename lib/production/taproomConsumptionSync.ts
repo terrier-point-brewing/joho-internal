@@ -1,6 +1,6 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 import { deriveTaproomConsumption, type ConsumptionKind, type AssemblyDiscrepancy } from "@/lib/square/taproomConsumption";
-import { setPhysicalCount, fetchPhysicalCounts, type PhysicalCount } from "@/lib/square/inventory";
+import { setPhysicalCount, fetchInventoryChanges, type InventoryChange } from "@/lib/square/inventory";
 import { recordTaproomConsumption } from "@/lib/production/recordTaproomConsumption";
 import { reconcileSquareCanInventory } from "@/lib/production/reconcileSquareCanInventory";
 
@@ -65,6 +65,11 @@ export interface TaproomSyncResult {
 
 const EPS = 1e-4;
 
+// How far back to sweep the inventory ledger when reconstructing a keg's on-hand
+// at swap time — long enough to always capture the prior full-keg reset that
+// anchors the reconstruction, without pulling the whole history.
+export const SHRINKAGE_LOOKBACK_DAYS = 45;
+
 // Serializes concurrent sync runs. The Square webhook fires this sync on every
 // order.* event, so one restock's event burst triggers several overlapping runs;
 // without a lock they each read "0 already recorded" and write duplicate rows.
@@ -79,13 +84,57 @@ export function remainingDelta(targetQty: number, alreadyRecorded: number): numb
   return d > EPS ? d : 0;
 }
 
-/** Draft SKU on-hand as of a timestamp: the latest PHYSICAL_COUNT at or before it. */
-export function remainingAtOrBefore(counts: PhysicalCount[], occurredAt: string): number | null {
-  const prior = counts
+/**
+ * Draft SKU IN_STOCK on-hand as of a timestamp, reconstructed from Square's
+ * inventory ledger: anchor on the latest PHYSICAL_COUNT (an absolute IN_STOCK
+ * reset) at or before `occurredAt`, then apply the net of every ADJUSTMENT
+ * touching IN_STOCK between that anchor and `occurredAt`.
+ *
+ * Reading only the latest PHYSICAL_COUNT is wrong: pours decrement on-hand via
+ * ADJUSTMENT changes (IN_STOCK → SOLD), never a fresh physical count, so the
+ * last physical count is the *previous* full-keg reset — not the depleted level
+ * at swap time. Returns null when no physical count precedes the timestamp
+ * (nothing to anchor the reconstruction to). Never returns negative.
+ */
+export function onHandAtOrBefore(changes: InventoryChange[], occurredAt: string): number | null {
+  const prior = changes
     .filter((c) => c.occurred_at <= occurredAt)
     .sort((a, b) => a.occurred_at.localeCompare(b.occurred_at));
-  const last = prior.at(-1);
-  return last ? parseFloat(last.quantity) : null;
+
+  let baselineIdx = -1;
+  for (let i = prior.length - 1; i >= 0; i--) {
+    if (prior[i].type === "PHYSICAL_COUNT" && (prior[i].state ?? "IN_STOCK") === "IN_STOCK") {
+      baselineIdx = i;
+      break;
+    }
+  }
+  if (baselineIdx === -1) return null;
+
+  let onHand = prior[baselineIdx].quantity;
+  for (let i = baselineIdx + 1; i < prior.length; i++) {
+    const c = prior[i];
+    if (c.type !== "ADJUSTMENT") continue;
+    if (c.to_state === "IN_STOCK") onHand += c.quantity;
+    if (c.from_state === "IN_STOCK") onHand -= c.quantity;
+  }
+  return onHand < 0 ? 0 : onHand;
+}
+
+/**
+ * Reconstruct a draft SKU's fl-oz on-hand at `occurredAt` from Square's ledger:
+ * fetch the trailing {@link SHRINKAGE_LOOKBACK_DAYS}-day window of inventory
+ * changes for the variation and fold them via {@link onHandAtOrBefore}. Shared
+ * by the live swap capture and the one-off backfill so both derive shrinkage
+ * identically. Returns null when no physical count anchors the window.
+ */
+export async function reconstructRemainingFlOz(
+  squareVariationId: string,
+  occurredAt: string,
+): Promise<number | null> {
+  const day = (s: string) => s.slice(0, 10);
+  const windowStart = new Date(new Date(occurredAt).getTime() - SHRINKAGE_LOOKBACK_DAYS * 86400000).toISOString();
+  const changes = await fetchInventoryChanges(day(windowStart), day(occurredAt), [squareVariationId]);
+  return onHandAtOrBefore(changes, occurredAt);
 }
 
 /** Sum of already-recorded quantity per source_ref (chunked to stay under `in` limits). */
@@ -183,13 +232,12 @@ export async function runTaproomConsumptionSync(
       // skip. Best-effort: a Square failure is flagged, never fatal.
       if (u.recount && alreadyRecorded === 0) {
         // Deterministic shrinkage: the draft SKU's on-hand as of the swap,
-        // captured before the recount overwrites it to full. Best-effort —
-        // never fatal, so a read/write failure never blocks the recount.
+        // reconstructed from the ledger (last full-keg reset minus the pours
+        // adjusted out of IN_STOCK since), captured before the recount
+        // overwrites it to full. Best-effort — never fatal, so a read/write
+        // failure never blocks the recount.
         try {
-          const day = (s: string) => s.slice(0, 10);
-          const windowStart = new Date(new Date(u.recount.occurredAt).getTime() - 45 * 86400000).toISOString();
-          const counts = await fetchPhysicalCounts(day(windowStart), day(u.recount.occurredAt), [u.recount.squareVariationId]);
-          const remaining = remainingAtOrBefore(counts, u.recount.occurredAt);
+          const remaining = await reconstructRemainingFlOz(u.recount.squareVariationId, u.recount.occurredAt);
           if (remaining !== null) {
             const { error } = await supabase.from("draft_swap_shrinkage").upsert({
               source_ref:      u.sourceRef,
