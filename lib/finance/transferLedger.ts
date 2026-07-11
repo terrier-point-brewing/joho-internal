@@ -80,6 +80,7 @@ export function transferToLedgerRecord(t: RampTransfer, flow_type: TransferFlow)
     currency_code:            "USD",
     description:              flow_type === "card_settlement" ? "Card statement payment" : "Transfer",
     counterparty_name:        null,
+    counterparty_key:         null,
     source_account_name:      null,
     destination_account_name: null,
     flow_type,
