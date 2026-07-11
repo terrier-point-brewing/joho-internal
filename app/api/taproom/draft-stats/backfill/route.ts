@@ -7,8 +7,8 @@ import { backfillDraftShrinkage } from "@/lib/production/backfillDraftShrinkage"
 export const dynamic = "force-dynamic";
 
 // POST { apply?: boolean } — recompute remaining_fl_oz for every stored
-// draft_swap_shrinkage row from Square's inventory ledger, correcting rows
-// written before the ledger-reconstruction fix. Admin only. Dry-run unless
+// draft_swap_shrinkage row as last-recount-minus-pours-since, correcting rows
+// written before the pour-ledger reconstruction fix. Admin only. Dry-run unless
 // apply === true.
 export async function POST(req: NextRequest) {
   try { await requireRole([]); } catch (res) { return res as Response; }
