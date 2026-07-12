@@ -100,21 +100,29 @@ describe("computeNcDorFigures", () => {
     expect(n(f.line9_receipts)).toBe(100001);
   });
 
-  it("emits a reconciliation warning when collected deviates beyond tolerance", () => {
+  it("emits a reconciliation warning when collected deviates by a rate-misconfig-sized amount", () => {
     const ws = computeNcDorFigures({
       taxableBaseCents: 100000,
       counties: [{ code: "WAKE", weight: 100 }],
-      collectedGeneralTaxCents: 7300, // computed 7250, diff 50 >> tolerance
+      // computed 7250; collected off by 1000¢ ($10) — tolerance is
+      // max(100, round(6250 * 0.001)) = 100, so this diff (1000 > 100) is a
+      // proportional-sized error consistent with a misconfigured rate/tier,
+      // not ordinary per-transaction rounding drift.
+      collectedGeneralTaxCents: 6250,
     });
     expect(ws.warnings && ws.warnings.length).toBeGreaterThan(0);
     expect(ws.warnings?.[0]).toMatch(/differs from Square-collected/i);
   });
 
-  it("does NOT warn when collected is within the per-line rounding tolerance", () => {
+  it("does NOT warn when collected is within the rounding-drift tolerance", () => {
     const ws = computeNcDorFigures({
-      taxableBaseCents: 100000,
+      taxableBaseCents: 10_000_000, // $100,000 base
       counties: [{ code: "WAKE", weight: 100 }],
-      collectedGeneralTaxCents: 7251, // diff 1 <= tolerance
+      // computed = 475000 (state) + 200000 (local 2%) + 50000 (transit 0.5%)
+      // = 725000¢. collected differs by only 40¢ — ordinary per-transaction
+      // rounding drift on a five-figure+ collected amount. Tolerance here is
+      // max(100, round(725040 * 0.001)) = 725, so 40 <= 725 -> no warning.
+      collectedGeneralTaxCents: 725040,
     });
     expect(ws.warnings ?? []).toEqual([]);
   });

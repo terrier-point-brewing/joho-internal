@@ -178,11 +178,14 @@ export function computeNcDorFigures(args: ComputeNcDorFiguresArgs): WorksheetDat
   fields.line21_total_due = totals.line21_total_due;
 
   // Reconciliation: computed total general tax (L13) vs Square-collected.
-  // Tolerance = 1 cent per active rate line (each independent Math.round can
-  // drift up to ~0.5¢; per-line tolerance covers ordinary rounding noise while
-  // still flagging genuine divergence for human review before filing).
-  const activeLines = RATE_LINES.filter((n) => num(fields[`line${n}_tax`]) !== 0);
-  const tolerance = Math.max(1, activeLines.length);
+  // Square rounds tax per transaction while this engine computes on the
+  // aggregate monthly base, so a normal month drifts by tens of cents with NO
+  // rate misconfiguration — that's expected rounding noise, not a bug. The
+  // warning exists to catch a misconfigured rate/tier, which produces a large
+  // *proportional* error, not a fixed few cents. Tolerance = 0.1% of collected
+  // tax, floored at 100¢, so ordinary rounding drift never fires the warning
+  // while a genuine rate/tier misconfiguration still does.
+  const tolerance = Math.max(100, Math.round(collectedGeneralTaxCents * 0.001));
   const diff = Math.abs(totals.line13_total - collectedGeneralTaxCents);
   if (diff > tolerance) {
     warnings.push(
