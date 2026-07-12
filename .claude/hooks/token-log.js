@@ -60,14 +60,14 @@ const subDir = path.join(path.dirname(transcript), path.basename(transcript, ".j
 const seenFile = path.join(os.tmpdir(), `cc-logged-${shortId}.txt`);
 let seen = new Set();
 try { seen = new Set(fs.readFileSync(seenFile, "utf8").split("\n").filter(Boolean)); } catch {}
-let newSubOut = 0, newSubCW = 0, newSubCount = 0;
+let newSubCW = 0, newSubCount = 0;
 try {
   for (const f of fs.readdirSync(subDir)) {
     if (!f.endsWith(".jsonl") || seen.has(f)) continue;
     const s = summarize(path.join(subDir, f));
     append("subagent", f.replace(/^agent-|\.jsonl$/g, "").slice(0, 12), s);
     seen.add(f);
-    newSubOut += s.out; newSubCW += s.cacheW; newSubCount++;
+    newSubCW += s.cacheW; newSubCount++;
   }
   fs.writeFileSync(seenFile, [...seen].join("\n") + "\n");
 } catch {}
