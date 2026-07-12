@@ -15,6 +15,10 @@
     {
       "path": "/api/cron/finance-sync",
       "schedule": "30 7 * * *"
+    },
+    {
+      "path": "/api/cron/tax-tasks",
+      "schedule": "0 8 * * *"
     }
   ]
 }
