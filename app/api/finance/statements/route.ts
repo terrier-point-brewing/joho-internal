@@ -16,25 +16,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { ACCOUNT_TYPE_SECTION } from "@/lib/finance/accountSections";
 
 export const dynamic = "force-dynamic";
-
-const ACCOUNT_TYPE_SECTION: Record<string, "revenue" | "cogs" | "expenses" | "other_income" | "other_expense" | "bank" | "ar" | "other_current_assets" | "fixed_assets" | "ap" | "credit_card" | "other_current_liabilities" | "long_term_liabilities" | "equity"> = {
-  "Income":                      "revenue",
-  "Other Income":                "other_income",
-  "Cost of Goods Sold":          "cogs",
-  "Expenses":                    "expenses",
-  "Other Expense":               "other_expense",
-  "Bank":                        "bank",
-  "Accounts receivable (A/R)":   "ar",
-  "Other Current Assets":        "other_current_assets",
-  "Fixed Assets":                "fixed_assets",
-  "Accounts payable (A/P)":      "ap",
-  "Credit Card":                 "credit_card",
-  "Other Current Liabilities":   "other_current_liabilities",
-  "Long Term Liabilities":       "long_term_liabilities",
-  "Equity":                      "equity",
-};
 
 export interface AccountBalance {
   id: string;

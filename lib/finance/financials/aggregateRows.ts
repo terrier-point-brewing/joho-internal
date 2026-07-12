@@ -13,6 +13,7 @@ import type { BblCoverage, Channel, FinancialsRow, MappingSource } from "./types
 import { normalizeSignedCents } from "./normalizeSign";
 import { deriveChannel, derivePosCategory, deriveKegSize } from "./dimensions";
 import { rowBbl } from "./volume";
+import { ACCOUNT_TYPE_SECTION } from "../accountSections";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Input record types — minimal, modeled on the real table columns. Fields
@@ -112,29 +113,6 @@ export interface AggregateRowsInput {
   months: string[];
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-// Tiny copy of app/api/finance/statements/route.ts's ACCOUNT_TYPE_SECTION —
-// not exported from that route handler, so mirrored here rather than
-// reimplemented from scratch. Flagged in the task report as duplication;
-// promote to a shared lib/finance module if a third consumer shows up.
-// ─────────────────────────────────────────────────────────────────────────
-const ACCOUNT_TYPE_SECTION: Record<string, string> = {
-  "Income": "revenue",
-  "Other Income": "other_income",
-  "Cost of Goods Sold": "cogs",
-  "Expenses": "expenses",
-  "Other Expense": "other_expense",
-  "Bank": "bank",
-  "Accounts receivable (A/R)": "ar",
-  "Other Current Assets": "other_current_assets",
-  "Fixed Assets": "fixed_assets",
-  "Accounts payable (A/P)": "ap",
-  "Credit Card": "credit_card",
-  "Other Current Liabilities": "other_current_liabilities",
-  "Long Term Liabilities": "long_term_liabilities",
-  "Equity": "equity",
-};
-
 const UNMAPPED_SECTION = "unmapped";
 
 type NormalizeSource = "pos" | "invoice" | "expense" | "bank" | "refund";
@@ -225,6 +203,14 @@ function resolveInvoice(row: InvoiceLineRecord, coaMap: Map<string, CoaRecord>):
   // came from the sync-time mapping prefill ("rule"), and no coaId at all
   // means unmapped. Invoice lines have no separate manual-pin column like
   // POS, so "manual" here specifically tracks the force_bs/force_pl override.
+  //
+  // Limitation: invoice_line_items has no mapping_source column (unlike
+  // expenses/ramp_bank_ledger), and its chart_of_accounts_id is user-editable
+  // via a dropdown (PATCH /api/finance/ledger/invoice-line-items). So a
+  // hand-mapped line and a rule/prefill-mapped line are indistinguishable
+  // here — "rule" below is a best-effort label, not a verified fact. Do NOT
+  // derive a manual-vs-rule signal from an invoice line's mappingSource;
+  // only the mapped(coaId set) vs unmapped(coaId null) distinction is reliable.
   const mappingSource: MappingSource = row.accountMode ? "manual" : coaId ? "rule" : "unmapped";
 
   const section = coaSection(coaId ? coaMap.get(coaId) : undefined);

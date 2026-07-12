@@ -3,6 +3,7 @@ import { useState, useCallback, useEffect } from "react";
 import FinanceNav from "../../FinanceNav";
 import SettingsNav from "../SettingsNav";
 import PageHeader from "@/app/components/PageHeader";
+import { ACCOUNT_TYPE_SECTION } from "@/lib/finance/accountSections";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -48,23 +49,6 @@ const SECTION_LABELS: Record<SectionKey, string> = {
 
 const PL_SECTIONS:  SectionKey[] = ["revenue","other_income","cogs","expenses","other_expense"];
 const BS_SECTIONS:  SectionKey[] = ["bank","ar","other_current_assets","fixed_assets","ap","credit_card","other_current_liabilities","long_term_liabilities","equity"];
-
-const ACCOUNT_TYPE_SECTION: Record<string, SectionKey> = {
-  "Income":                      "revenue",
-  "Other Income":                "other_income",
-  "Cost of Goods Sold":          "cogs",
-  "Expenses":                    "expenses",
-  "Other Expense":               "other_expense",
-  "Bank":                        "bank",
-  "Accounts receivable (A/R)":   "ar",
-  "Other Current Assets":        "other_current_assets",
-  "Fixed Assets":                "fixed_assets",
-  "Accounts payable (A/P)":      "ap",
-  "Credit Card":                 "credit_card",
-  "Other Current Liabilities":   "other_current_liabilities",
-  "Long Term Liabilities":       "long_term_liabilities",
-  "Equity":                      "equity",
-};
 
 // QBO standard export header aliases
 const HEADER_MAP: Record<string, keyof ParsedRow> = {
