@@ -134,6 +134,20 @@ export interface OrderDiscount {
   scope?: string;
 }
 
+export interface OrderAppliedTax {
+  uid: string;
+  tax_uid: string;
+  applied_money?: Money;
+}
+
+export interface OrderTax {
+  uid: string;
+  catalog_object_id?: string;
+  name?: string;
+  percentage?: string;
+  type?: string;
+}
+
 export interface OrderLineItem {
   uid: string;
   catalog_object_id?: string;
@@ -149,6 +163,7 @@ export interface OrderLineItem {
   total_money?: Money;
   item_type?: string;
   applied_discounts?: AppliedDiscount[];
+  applied_taxes?: OrderAppliedTax[];
 }
 
 export interface Order {
@@ -163,6 +178,7 @@ export interface Order {
   net_amount_due_money?: Money;
   line_items?: OrderLineItem[];
   discounts?: OrderDiscount[];
+  taxes?: OrderTax[];
   total_money?: Money;
   total_tax_money?: Money;
   total_discount_money?: Money;
