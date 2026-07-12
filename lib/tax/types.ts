@@ -38,6 +38,11 @@ export interface TaxTask {
   completed_at: string | null; completed_by: string | null;
   created_at: string; updated_at: string;
 }
+export interface TaxTaskFile {
+  id: string; task_id: string; storage_path: string; file_name: string;
+  label: string | null; uploaded_at: string; uploaded_by: string | null;
+}
+
 export type TaxFilingProfileValues = Record<string, string>;
 
 export interface ComputeContext {
