@@ -2,9 +2,9 @@
  * Single confirmation file. GET returns a short-lived signed URL (the
  * bucket is private, so this is the only way to download it); DELETE
  * removes the storage object then the row. Manager+ (same gate as the
- * other task routes). The task `id` in the path is not needed by either
- * operation (files are addressed by their own id), but is kept in the
- * route for REST consistency with the parent collection route.
+ * other task routes). The task `id` in the path IS required by both
+ * operations — it scopes the file lookup so a fileId belonging to a
+ * different task can't be read or deleted through this route.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth";
@@ -20,10 +20,10 @@ export async function GET(
 ) {
   try { await requireRole(["manager"]); } catch (res) { return res as Response; }
 
-  const { fileId } = await params;
+  const { id, fileId } = await params;
   try {
     const sb = createSupabaseAdminClient();
-    const url = await signedUrlForFile(sb, fileId);
+    const url = await signedUrlForFile(sb, id, fileId);
     return NextResponse.json({ url });
   } catch (err) {
     return apiError(err);
@@ -36,10 +36,10 @@ export async function DELETE(
 ) {
   try { await requireRole(["manager"]); } catch (res) { return res as Response; }
 
-  const { fileId } = await params;
+  const { id, fileId } = await params;
   try {
     const sb = createSupabaseAdminClient();
-    await deleteTaskFile(sb, fileId);
+    await deleteTaskFile(sb, id, fileId);
     return NextResponse.json({ ok: true });
   } catch (err) {
     return apiError(err);

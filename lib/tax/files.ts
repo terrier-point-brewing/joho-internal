@@ -5,9 +5,11 @@
  * the service-role admin client (`createSupabaseAdminClient()`); the
  * anon/browser client cannot read or write this bucket at all.
  *
- * Storage object path: `${taskId}/${crypto.randomUUID()}-${fileName}` — the
+ * Storage object path: `${taskId}/${crypto.randomUUID()}-${safeName}` — the
  * random segment avoids collisions when the same file name is uploaded
  * twice for one task, while keeping objects grouped by task for cleanup.
+ * `safeName` strips any path separators from the user-supplied file name so
+ * it can't escape the `${taskId}/` grouping (see uploadTaskFile).
  *
  * DB wrappers take an injected `SupabaseClient` as the first arg, same
  * convention as lib/tax/tasks.ts, so they're testable with a stub (no real
@@ -37,7 +39,13 @@ export async function uploadTaskFile(
   taskId: string,
   input: UploadTaskFileInput,
 ): Promise<TaxTaskFile> {
-  const storagePath = `${taskId}/${crypto.randomUUID()}-${input.fileName}`;
+  // input.fileName is user-supplied (from File.name) — take only the last
+  // path segment and strip any separators so it can't escape the
+  // `${taskId}/` key grouping (or traverse on a local-filesystem Storage
+  // backend). The original name is still stored in the `file_name` column
+  // for display.
+  const safeName = input.fileName.split(/[\\/]/).pop()!.replace(/[\\/]/g, "_") || "file";
+  const storagePath = `${taskId}/${crypto.randomUUID()}-${safeName}`;
 
   const { error: uploadError } = await sb.storage.from(BUCKET).upload(storagePath, input.file);
   if (uploadError) throw new Error(uploadError.message);
@@ -68,8 +76,16 @@ export async function listTaskFiles(sb: SupabaseClient, taskId: string): Promise
   return (data ?? []) as TaxTaskFile[];
 }
 
-async function getFileRow(sb: SupabaseClient, fileId: string): Promise<TaxTaskFile> {
-  const { data, error } = await sb.from("tax_task_files").select("*").eq("id", fileId).maybeSingle();
+/** Looks up a file row scoped to its parent task — a fileId that belongs to
+ * a different task is treated as not found, so callers can't read/delete
+ * another task's file by guessing/reusing an id. */
+async function getFileRow(sb: SupabaseClient, taskId: string, fileId: string): Promise<TaxTaskFile> {
+  const { data, error } = await sb
+    .from("tax_task_files")
+    .select("*")
+    .eq("id", fileId)
+    .eq("task_id", taskId)
+    .maybeSingle();
   if (error) throw new Error(error.message);
   if (!data) throw new Error("File not found");
   return data as TaxTaskFile;
@@ -77,8 +93,8 @@ async function getFileRow(sb: SupabaseClient, fileId: string): Promise<TaxTaskFi
 
 /** Short-lived signed URL (60s) for the file's storage object — the only
  * way to read it back, since the bucket is private. */
-export async function signedUrlForFile(sb: SupabaseClient, fileId: string): Promise<string> {
-  const row = await getFileRow(sb, fileId);
+export async function signedUrlForFile(sb: SupabaseClient, taskId: string, fileId: string): Promise<string> {
+  const row = await getFileRow(sb, taskId, fileId);
 
   const { data, error } = await sb.storage.from(BUCKET).createSignedUrl(row.storage_path, SIGNED_URL_EXPIRY_SECONDS);
   if (error) throw new Error(error.message);
@@ -91,8 +107,8 @@ export async function signedUrlForFile(sb: SupabaseClient, fileId: string): Prom
  * row were deleted first and the storage remove then failed, the object's
  * path would be lost with no way to clean it up later.
  */
-export async function deleteTaskFile(sb: SupabaseClient, fileId: string): Promise<void> {
-  const row = await getFileRow(sb, fileId);
+export async function deleteTaskFile(sb: SupabaseClient, taskId: string, fileId: string): Promise<void> {
+  const row = await getFileRow(sb, taskId, fileId);
 
   const { error: removeError } = await sb.storage.from(BUCKET).remove([row.storage_path]);
   if (removeError) throw new Error(removeError.message);

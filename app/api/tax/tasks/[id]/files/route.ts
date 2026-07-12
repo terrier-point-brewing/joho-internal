@@ -30,7 +30,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (!(file instanceof File)) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
     }
-    const label = (formData.get("label") as string | null) || null;
+    const labelRaw = formData.get("label");
+    const label = typeof labelRaw === "string" ? labelRaw : null;
 
     const session = await getSessionUser();
     const sb = createSupabaseAdminClient();
