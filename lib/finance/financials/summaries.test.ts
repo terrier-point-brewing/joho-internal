@@ -94,6 +94,17 @@ describe("buildKpis", () => {
     const kpis = buildKpis([], MONTHS, { cashOnHandCents: 987654 });
     expect(kpis.cashOnHandCents).toBe(987654);
   });
+
+  it("defaults operatingCashCents to null when not provided", () => {
+    const kpis = buildKpis([], MONTHS);
+    expect(kpis.operatingCashCents).toBeNull();
+  });
+
+  it("passes through operatingCashCents unchanged when provided", () => {
+    const supplied = { "2026-01": 12345, "2026-02": -6789 };
+    const kpis = buildKpis([], MONTHS, { operatingCashCents: supplied });
+    expect(kpis.operatingCashCents).toEqual(supplied);
+  });
 });
 
 describe("buildDataQuality", () => {

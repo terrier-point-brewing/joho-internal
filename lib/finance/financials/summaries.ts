@@ -10,9 +10,10 @@
 // Brief-gap resolution: not everything in KpiSummary/DataQualitySummary is
 // derivable from FinancialsRow[] alone (see lib/finance/financials/types.ts
 // header comment). Row-derivable pieces are computed here; the rest
-// (strandedDeposit, exciseCoverage.shipmentsMissingExcise, cashOnHandCents)
-// is accepted as a parameter and passed through untouched — Task 6 (which
-// does the DB fetch) supplies those.
+// (strandedDeposit, exciseCoverage.shipmentsMissingExcise, cashOnHandCents,
+// operatingCashCents) is accepted as a parameter and passed through
+// untouched — Task 6 (which does the DB fetch / cash-flow statement) supplies
+// those.
 
 import type { DataQualitySummary, FinancialsRow, KpiSummary } from "./types";
 
@@ -48,7 +49,7 @@ function sumSectionByMonth(
 export function buildKpis(
   rows: FinancialsRow[],
   months: string[],
-  opts?: { cashOnHandCents?: number | null },
+  opts?: { cashOnHandCents?: number | null; operatingCashCents?: Record<string, number> | null },
 ): KpiSummary {
   const netIncomeCents = sumSectionByMonth(rows, months, PL_SECTIONS);
   const revenueCents = sumSectionByMonth(rows, months, REVENUE_SECTIONS);
@@ -71,19 +72,16 @@ export function buildKpis(
     }
   });
 
-  // FinancialsRow carries no Balance-Sheet deltas / AR-AP timing, so a true
-  // cash-basis figure isn't derivable here. Per the task brief,
-  // operatingCashCents is derived from the same P&L-section rows as
-  // netIncomeCents -- an accrual-basis proxy until a real cash-flow
-  // computation lands (that needs BS data Task 6's DB fetch will supply).
-  const operatingCashCents = { ...netIncomeCents };
-
   return {
     netIncomeCents,
     grossMarginPct,
     revenueCents,
     revenueMoMPct,
-    operatingCashCents,
+    // Operating cash flow is a cash-flow-statement figure (invoices filtered
+    // to paid, expenses to cleared) -- not derivable from FinancialsRow[]
+    // alone. Supplied by the caller (Task 6) from the cash-flow statement
+    // mode; null = not yet available.
+    operatingCashCents: opts?.operatingCashCents ?? null,
     cashOnHandCents: opts?.cashOnHandCents ?? null,
   };
 }

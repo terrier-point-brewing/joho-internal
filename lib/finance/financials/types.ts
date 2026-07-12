@@ -30,7 +30,8 @@ export interface FinancialsRow {
 // cents. Not every field here is derivable from FinancialsRow[] alone --
 // see summaries.ts's header comment for the row-derivable vs
 // parameter-supplied split (strandedDeposit, exciseCoverage.
-// shipmentsMissingExcise, and cashOnHandCents come from Task 6's DB fetch).
+// shipmentsMissingExcise, cashOnHandCents, and operatingCashCents come from
+// Task 6's DB fetch / cash-flow statement mode).
 export interface DataQualitySummary {
   unmapped: { count: number; cents: number; href: string };
   uncategorized: { count: number; cents: number; href: string };
@@ -44,7 +45,7 @@ export interface KpiSummary {
   grossMarginPct: Record<string, number>;
   revenueCents: Record<string, number>;
   revenueMoMPct: Record<string, number>;
-  operatingCashCents: Record<string, number>;
+  operatingCashCents: Record<string, number> | null;
   cashOnHandCents: number | null;
 }
 
