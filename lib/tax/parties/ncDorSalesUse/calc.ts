@@ -40,8 +40,12 @@ export interface ComputeNcDorFiguresArgs {
   collectedGeneralTaxCents: number;
 }
 
-/** Rate lines that carry a purchases/receipts/tax triple on the worksheet. */
-const RATE_LINES = [4, 5, 6, 7, 8, 9, 10, 11, 12] as const;
+/**
+ * Rate lines that carry a purchases/receipts/tax triple on the worksheet.
+ * Exported so `template.ts` can derive `fieldOwnership` for `lineN_*` keys
+ * from this single source of truth instead of duplicating the line numbers.
+ */
+export const RATE_LINES = [4, 5, 6, 7, 8, 9, 10, 11, 12] as const;
 
 const round = (v: number) => Math.round(v);
 const num = (v: number | string | null | undefined) => Number(v ?? 0);
