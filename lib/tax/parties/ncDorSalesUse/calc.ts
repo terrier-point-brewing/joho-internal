@@ -20,14 +20,14 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { addDaysStr } from "@/lib/utils/datetime";
-import type { ComputeContext, TaxPeriod, WorksheetData } from "@/lib/tax/types";
+import type { ComputeContext, TaxPeriod, WorksheetData, WorksheetFields } from "@/lib/tax/types";
 import {
-  NC_STATE_RATE,
   NC_COUNTY_TIERS,
   RATE_LINES,
   countyRateLine,
   transitRateLine,
 } from "./rates";
+import { allocateByWeights, computeDependentTotals, deriveNcDorFigures } from "./derive";
 
 /** A county entry from schedule.config: which county and its share of receipts. */
 export interface CountyWeight {
@@ -50,65 +50,32 @@ export interface ComputeNcDorFiguresArgs {
  */
 export { RATE_LINES };
 
-const round = (v: number) => Math.round(v);
+/**
+ * Re-exported for backward-compat import sites (`./calc`'s `computeDependentTotals`
+ * remains the historical import path used by `calc.test.ts` and the template).
+ * The definition — along with the full shared figure derivation — now lives in
+ * the pure `./derive` module so it stays client-importable without dragging
+ * calc.ts's Supabase-admin code path into the browser bundle.
+ */
+export { computeDependentTotals };
+
 const num = (v: number | string | null | undefined) => Number(v ?? 0);
 
 /**
- * Apportion `total` cents across `counties` by weight using the largest-
- * remainder (Hamilton) method, so the allocations sum EXACTLY to `total` with
- * no lost or duplicated cent. Dividing by the actual weight sum (not a hardcoded
- * 100) keeps the split exact even if weights are mis-configured — a separate
- * warning flags that case.
- */
-function allocateByWeight(total: number, counties: CountyWeight[]): number[] {
-  const totalWeight = counties.reduce((s, c) => s + c.weight, 0);
-  if (totalWeight <= 0) return counties.map(() => 0);
-  const raw = counties.map((c) => (total * c.weight) / totalWeight);
-  const floors = raw.map((v) => Math.floor(v));
-  let remainder = total - floors.reduce((s, v) => s + v, 0);
-  const alloc = floors.slice();
-  // hand out the leftover cents to the largest fractional parts first
-  const order = raw
-    .map((v, i) => ({ i, frac: v - Math.floor(v) }))
-    .sort((a, b) => b.frac - a.frac);
-  for (let k = 0; remainder > 0 && order.length > 0; k++, remainder--) {
-    alloc[order[k % order.length].i] += 1;
-  }
-  return alloc;
-}
-
-/**
- * Recompute the dependent totals (lines 13/15/21) from a field set. Shared with
- * the party template's `mergeWorksheet` so manual penalty/interest/credit edits
- * flow into line 21 through the same arithmetic used here.
+ * Pure worksheet builder — the initial Square compute (purchases implicitly 0).
  *
- * L13 = Σ tax on rate lines 4–12
- * L15 = L13 + L14 (excess collections)
- * L21 = L15 + penalty + interest − less_prepay + prepay_next − credit
- */
-export function computeDependentTotals(
-  fields: Record<string, number | string | null>,
-): { line13_total: number; line15_total: number; line21_total_due: number } {
-  const line13_total = RATE_LINES.reduce((s, n) => s + num(fields[`line${n}_tax`]), 0);
-  const line15_total = line13_total + num(fields.line14_excess);
-  const line21_total_due =
-    line15_total +
-    num(fields.line16_penalty) +
-    num(fields.line17_interest) -
-    num(fields.line18_less_prepay) +
-    num(fields.line19_prepay_next) -
-    num(fields.line20_credit);
-  return { line13_total, line15_total, line21_total_due };
-}
-
-/**
- * Pure worksheet builder — the heart of the NC DOR calc. See file header.
+ * Splits the taxable base across the configured counties, stamps the per-county
+ * receipts (as computed `county_${code}_receipts` fields so the shared
+ * derivation is self-contained from the worksheet alone), then delegates ALL
+ * tax math — per-line tax, page-2 county rows, dependent totals — to the single
+ * `deriveNcDorFigures` used identically by the server merge and the client
+ * live-recompute. See file header.
  */
 export function computeNcDorFigures(args: ComputeNcDorFiguresArgs): WorksheetData {
   const { taxableBaseCents, counties, collectedGeneralTaxCents } = args;
   const warnings: string[] = [];
 
-  const fields: Record<string, number | string | null> = {
+  const fields: WorksheetFields = {
     line1_gross_receipts: taxableBaseCents,
     line2_sales_for_resale: 0,
     line3_exempt: 0,
@@ -126,9 +93,8 @@ export function computeNcDorFigures(args: ComputeNcDorFiguresArgs): WorksheetDat
     fields[`line${n}_tax`] = 0;
   }
 
-  // Line 4 — state tax on the full base @ 4.75%.
+  // Line 4 — state tax applies to the full base.
   fields.line4_receipts = taxableBaseCents;
-  fields.line4_tax = round(taxableBaseCents * NC_STATE_RATE);
 
   // Validate the configured weights (Hamilton split stays exact regardless).
   const totalWeight = counties.reduce((s, c) => s + c.weight, 0);
@@ -138,7 +104,10 @@ export function computeNcDorFigures(args: ComputeNcDorFiguresArgs): WorksheetDat
     );
   }
 
-  const bases = allocateByWeight(taxableBaseCents, counties);
+  const bases = allocateByWeights(
+    taxableBaseCents,
+    counties.map((c) => c.weight),
+  );
 
   counties.forEach((county, i) => {
     const code = county.code;
@@ -155,34 +124,23 @@ export function computeNcDorFigures(args: ComputeNcDorFiguresArgs): WorksheetDat
       return;
     }
 
-    const localTax = round(countyBase * tier.local);
-    const transitTax = round(countyBase * tier.transit);
+    // Stamp this county's receipts so the shared derivation can split any
+    // manual per-line purchases across counties by the same receipts weights.
+    fields[`county_${code}_receipts`] = countyBase;
 
-    // Page-2 county rows (per county).
-    if (tier.local === 0.0225) {
-      fields[`county_${code}_225pct`] = localTax;
-    } else {
-      fields[`county_${code}_2pct`] = localTax;
-    }
-    fields[`county_${code}_transit`] = transitTax;
-
-    // Page-1 aggregation: line totals are the SUM of per-county rounded taxes.
+    // Page-1 receipts aggregation: line receipts are the SUM of county bases.
     const localLine = countyRateLine(tier); // '9' | '10'
     fields[`line${localLine}_receipts`] = num(fields[`line${localLine}_receipts`]) + countyBase;
-    fields[`line${localLine}_tax`] = num(fields[`line${localLine}_tax`]) + localTax;
 
     const transitLine = transitRateLine(tier); // '11' | '12' | null
     if (transitLine) {
       fields[`line${transitLine}_receipts`] = num(fields[`line${transitLine}_receipts`]) + countyBase;
-      fields[`line${transitLine}_tax`] = num(fields[`line${transitLine}_tax`]) + transitTax;
     }
   });
 
-  // Dependent totals.
-  const totals = computeDependentTotals(fields);
-  fields.line13_total = totals.line13_total;
-  fields.line15_total = totals.line15_total;
-  fields.line21_total_due = totals.line21_total_due;
+  // All tax math (per-line tax, page-2 county rows, dependent totals) via the
+  // single shared derivation — purchases are 0 here, so this is a pure compute.
+  const derived = deriveNcDorFigures(fields);
 
   // Reconciliation: computed total general tax (L13) vs Square-collected.
   // Square rounds tax per transaction while this engine computes on the
@@ -193,15 +151,16 @@ export function computeNcDorFigures(args: ComputeNcDorFiguresArgs): WorksheetDat
   // tax, floored at 100¢, so ordinary rounding drift never fires the warning
   // while a genuine rate/tier misconfiguration still does.
   const tolerance = Math.max(100, Math.round(collectedGeneralTaxCents * 0.001));
-  const diff = Math.abs(totals.line13_total - collectedGeneralTaxCents);
+  const line13Total = num(derived.line13_total);
+  const diff = Math.abs(line13Total - collectedGeneralTaxCents);
   if (diff > tolerance) {
     warnings.push(
-      `Computed general sales tax (${totals.line13_total}¢) differs from Square-collected (${collectedGeneralTaxCents}¢) by ${diff}¢, exceeding the ${tolerance}¢ rounding tolerance. Review before filing.`,
+      `Computed general sales tax (${line13Total}¢) differs from Square-collected (${collectedGeneralTaxCents}¢) by ${diff}¢, exceeding the ${tolerance}¢ rounding tolerance. Review before filing.`,
     );
   }
 
   const result: WorksheetData = {
-    fields,
+    fields: derived,
     meta: { computedAt: new Date().toISOString(), provenance: "square" },
   };
   if (warnings.length > 0) result.warnings = warnings;

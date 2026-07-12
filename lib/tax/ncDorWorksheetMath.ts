@@ -4,12 +4,16 @@
  * framework-free so it's unit-testable in isolation from React.
  *
  * Two concerns:
- *  - `recomputeClientTotals` re-derives the dependent totals (lines 13/15/21)
- *    on every manual-field edit so the worksheet updates instantly, by
- *    calling the SAME `computeDependentTotals` the server uses in
- *    `mergeWorksheet`/`computeNcDorFigures` (`./parties/ncDorSalesUse/calc.ts`)
- *    — never a re-implementation of that formula — so the client can never
- *    drift from what the server will actually save on the next PATCH/recompute.
+ *  - `recomputeClientTotals` re-derives the full figure set (per-line tax, the
+ *    page-2 county rows, and the dependent totals 13/15/21) on every manual-field
+ *    edit so the worksheet updates instantly — including flowing a manual
+ *    `lineN_purchases` into that line's tax and the county schedule — by calling
+ *    the SAME `deriveNcDorFigures` the server uses in `mergeWorksheet` /
+ *    `computeNcDorFigures` (`./parties/ncDorSalesUse/derive.ts`), never a
+ *    re-implementation of that formula, so the client can never drift from what
+ *    the server will actually save on the next PATCH/recompute. The per-county
+ *    receipts the purchases split needs travel in the worksheet as computed
+ *    `county_${code}_receipts` fields, so no Square/schedule fetch is needed.
  *  - `centsToDollarString`/`dollarStringToCents` are the string<->cents
  *    boundary a money `<input>` needs (parsing free text, defensive
  *    null/blank handling); the underlying numeric crossing is delegated to
@@ -17,23 +21,18 @@
  *    cents conversion point for the whole app.
  */
 import { centsToDollars, dollarsToCents } from "@/lib/money";
-import { computeDependentTotals } from "./parties/ncDorSalesUse/calc";
-
-type WorksheetFields = Record<string, number | string | null>;
+import type { WorksheetFields } from "@/lib/tax/types";
+import { deriveNcDorFigures } from "./parties/ncDorSalesUse/derive";
 
 /**
- * Returns a NEW fields object with line13_total/line15_total/line21_total_due
- * refreshed from the rest of `fields`, mirroring `computeDependentTotals`
- * exactly. All other keys pass through unchanged.
+ * Returns a NEW fields object with every `lineN_tax`, the page-2 `county_*`
+ * rows, and lines 13/15/21 re-derived from `fields`, mirroring the server's
+ * `deriveNcDorFigures` exactly (so a manual `lineN_purchases` edit flows into
+ * that line's tax and the county schedule live). All other keys pass through
+ * unchanged.
  */
 export function recomputeClientTotals(fields: WorksheetFields): WorksheetFields {
-  const totals = computeDependentTotals(fields);
-  return {
-    ...fields,
-    line13_total: totals.line13_total,
-    line15_total: totals.line15_total,
-    line21_total_due: totals.line21_total_due,
-  };
+  return deriveNcDorFigures(fields);
 }
 
 /**

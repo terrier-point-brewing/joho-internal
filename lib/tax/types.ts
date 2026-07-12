@@ -16,9 +16,12 @@ export interface FieldSpec {
 export interface ReferenceTable { title: string; columns: string[]; rows: (string | number)[][] }
 export interface ReferenceSpec { tables: ReferenceTable[]; notes?: string[] }
 
+/** A worksheet field map: field key -> value (integer cents, text, or null). */
+export type WorksheetFields = Record<string, number | string | null>;
+
 // Persisted to tax_tasks.worksheet (jsonb).
 export interface WorksheetData {
-  fields: Record<string, number | string | null>;  // field key -> value
+  fields: WorksheetFields;                           // field key -> value
   warnings?: string[];                               // e.g. reconciliation flag
   meta?: Record<string, unknown>;                    // { computedAt, provenance }
 }

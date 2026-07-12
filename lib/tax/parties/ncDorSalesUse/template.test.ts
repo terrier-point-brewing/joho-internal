@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { WorksheetData } from "@/lib/tax/types";
 import { ncDorSalesUseTemplate, resolveFieldOwnership } from "./template";
+import { computeNcDorFigures } from "./calc";
 
 describe("ncDorSalesUseTemplate.computePeriod", () => {
   it("monthly: period = calendar month, due = 20th of the following month", () => {
@@ -63,45 +64,52 @@ describe("resolveFieldOwnership", () => {
 
 describe("ncDorSalesUseTemplate.mergeWorksheet", () => {
   it("preserves a manual line16_penalty while overwriting computed line1_gross_receipts, re-deriving line21", () => {
-    const current: WorksheetData = {
-      fields: {
-        line1_gross_receipts: 999999, // stale computed value
-        line4_tax: 4750,
-        line9_tax: 2000,
-        line11_tax: 500,
-        line16_penalty: 250, // manual edit the user made
-        line14_excess: 0,
-        line17_interest: 0,
-        line18_less_prepay: 0,
-        line19_prepay_next: 0,
-        line20_credit: 0,
-      },
-    };
+    // Fresh Square compute (Wake, 100000 base) → line4 4750, line9 2000, line11 500.
+    const base = computeNcDorFigures({
+      taxableBaseCents: 100000,
+      counties: [{ code: "WAKE", weight: 100 }],
+      collectedGeneralTaxCents: 7250,
+    });
     const recomputed: WorksheetData = {
-      fields: {
-        line1_gross_receipts: 100000, // fresh computed value
-        line4_tax: 4750,
-        line9_tax: 2000,
-        line11_tax: 500,
-        line16_penalty: 0, // a fresh recompute always resets penalty to 0
-        line14_excess: 0,
-        line17_interest: 0,
-        line18_less_prepay: 0,
-        line19_prepay_next: 0,
-        line20_credit: 0,
-      },
+      fields: base.fields,
       warnings: ["reconciliation note"],
       meta: { computedAt: "2026-07-12T00:00:00Z", provenance: "square" },
+    };
+    // What's currently saved: same shape, but a stale computed line1 and a
+    // manual penalty the user entered.
+    const current: WorksheetData = {
+      fields: { ...base.fields, line1_gross_receipts: 999999, line16_penalty: 250 },
     };
 
     const merged = ncDorSalesUseTemplate.mergeWorksheet(current, recomputed);
 
     expect(merged.fields.line1_gross_receipts).toBe(100000); // computed -> overwritten
     expect(merged.fields.line16_penalty).toBe(250); // manual -> preserved
+    expect(merged.fields.line4_tax).toBe(4750); // computed -> re-derived
+    expect(merged.fields.line9_tax).toBe(2000);
     expect(merged.fields.line13_total).toBe(7250);
     expect(merged.fields.line21_total_due).toBe(7500); // 7250 + manual 250 penalty
     expect(merged.warnings).toEqual(["reconciliation note"]);
     expect(merged.meta).toEqual({ computedAt: "2026-07-12T00:00:00Z", provenance: "square" });
+  });
+
+  it("flows a preserved manual lineN_purchases into the re-derived line tax and Total Due", () => {
+    const base = computeNcDorFigures({
+      taxableBaseCents: 100000,
+      counties: [{ code: "WAKE", weight: 100 }],
+      collectedGeneralTaxCents: 7250,
+    });
+    const recomputed: WorksheetData = { fields: base.fields };
+    // The user had entered a Purchases-for-Use on line 9 before recomputing.
+    const current: WorksheetData = { fields: { ...base.fields, line9_purchases: 50000 } };
+
+    const merged = ncDorSalesUseTemplate.mergeWorksheet(current, recomputed);
+
+    expect(merged.fields.line9_purchases).toBe(50000); // manual -> preserved
+    expect(merged.fields.line9_tax).toBe(3000); // round((50000+100000)×0.02)
+    expect(merged.fields.county_WAKE_2pct).toBe(3000); // reconciles
+    expect(merged.fields.line13_total).toBe(8250);
+    expect(merged.fields.line21_total_due).toBe(8250);
   });
 
   it("falls back to the recomputed value for a manual field with no current value yet", () => {

@@ -17,6 +17,42 @@ export const NC_STATE_RATE = 0.0475;
  */
 export const RATE_LINES = [4, 5, 6, 7, 8, 9, 10, 11, 12] as const;
 
+/** The rate-line numbers, as the string keys used across worksheet fields. */
+export type RateLineKey = "4" | "5" | "6" | "7" | "8" | "9" | "10" | "11" | "12";
+
+/**
+ * Statutory tax rate for each Form E-500 rate line (4–12), keyed by line
+ * number. This is the SINGLE source of the per-line rate used to derive
+ * `lineN_tax = round((purchases + receipts) × RATE_BY_LINE[N])` in the shared
+ * figure derivation (`./derive`) — so the same rate drives the initial Square
+ * compute, the server recompute/merge, and the client live-recompute.
+ *
+ *   4  General State Rate            4.75%
+ *   5  3% State Rate                 3%
+ *   6  Modular Homes                 4.75%
+ *   7  Manufactured Homes            4.75%
+ *   8  2% Food Rate                  2%
+ *   9  2% County Rate                2%
+ *  10  2.25% County Rate             2.25%
+ *  11  0.5% Transit County Rate      0.5%
+ *  12  0.25% Transit County Rate     0.25%
+ *
+ * Lines 9–12 mirror the county tiers (`NC_COUNTY_TIERS`); the county schedule
+ * derivation applies each county's own tier rate (numerically identical) so the
+ * page-2 rows reconcile to these page-1 lines by construction.
+ */
+export const RATE_BY_LINE: Record<RateLineKey, number> = {
+  "4": 0.0475,
+  "5": 0.03,
+  "6": 0.0475,
+  "7": 0.0475,
+  "8": 0.02,
+  "9": 0.02,
+  "10": 0.0225,
+  "11": 0.005,
+  "12": 0.0025,
+};
+
 /** Represents local and transit tax rates for a county */
 export interface CountyTier {
   local: number;

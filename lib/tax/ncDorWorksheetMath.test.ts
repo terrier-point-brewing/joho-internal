@@ -1,44 +1,48 @@
 import { describe, it, expect } from "vitest";
 import { recomputeClientTotals, centsToDollarString, dollarStringToCents } from "./ncDorWorksheetMath";
+import { computeNcDorFigures } from "./parties/ncDorSalesUse/calc";
+import { deriveNcDorFigures } from "./parties/ncDorSalesUse/derive";
 
 describe("recomputeClientTotals", () => {
-  it("line13 = sum of tax across rate lines 4-12", () => {
-    const next = recomputeClientTotals({
-      line4_tax: 475,
-      line9_tax: 200,
-      line11_tax: 50,
-    });
-    expect(next.line13_total).toBe(725);
+  // `lineN_tax` is now DERIVED from receipts + purchases (not passed in raw), so
+  // these exercise the real client derivation: line4 @ 4.75%, line5 @ 3%.
+  it("line13 = sum of derived tax across rate lines 4-12", () => {
+    const next = recomputeClientTotals({ line4_receipts: 10000, line5_receipts: 10000 });
+    // line4_tax = round(10000 × 0.0475) = 475; line5_tax = round(10000 × 0.03) = 300
+    expect(next.line4_tax).toBe(475);
+    expect(next.line5_tax).toBe(300);
+    expect(next.line13_total).toBe(775);
   });
 
   it("line15 = line13 + line14 (excess collections)", () => {
-    const next = recomputeClientTotals({ line4_tax: 1000, line14_excess: 250 });
-    expect(next.line13_total).toBe(1000);
-    expect(next.line15_total).toBe(1250);
+    const next = recomputeClientTotals({ line4_receipts: 10000, line14_excess: 250 });
+    expect(next.line13_total).toBe(475);
+    expect(next.line15_total).toBe(725);
   });
 
   it("line21 adds penalty/interest/prepay_next and SUBTRACTS less_prepay/credit", () => {
     const next = recomputeClientTotals({
-      line4_tax: 1000,
+      line4_receipts: 10000, // -> line4_tax 475
       line16_penalty: 50,
       line17_interest: 25,
       line19_prepay_next: 100,
       line18_less_prepay: 300,
       line20_credit: 75,
     });
-    // line13 = 1000, line15 = 1000 (no excess)
-    // line21 = 1000 + 50 + 25 + 100 - 300 - 75 = 800
-    expect(next.line21_total_due).toBe(800);
+    // line13 = 475, line15 = 475 (no excess)
+    // line21 = 475 + 50 + 25 + 100 - 300 - 75 = 275
+    expect(next.line21_total_due).toBe(275);
   });
 
   it("line21 can go negative when prepay/credit exceed the tax due", () => {
-    const next = recomputeClientTotals({ line4_tax: 100, line18_less_prepay: 500 });
-    expect(next.line21_total_due).toBe(-400);
+    const next = recomputeClientTotals({ line4_receipts: 10000, line18_less_prepay: 5000 });
+    // line13 = 475; line21 = 475 - 5000 = -4525
+    expect(next.line21_total_due).toBe(-4525);
   });
 
   it("preserves every other field (manual entries, strings) unchanged", () => {
     const next = recomputeClientTotals({
-      line4_tax: 500,
+      line4_receipts: 10000,
       line20_credit_explanation: "carryover",
       line2_sales_for_resale: 200,
     });
@@ -51,6 +55,44 @@ describe("recomputeClientTotals", () => {
     expect(next.line13_total).toBe(0);
     expect(next.line15_total).toBe(0);
     expect(next.line21_total_due).toBe(0);
+  });
+
+  it("a manual line9_purchases edit flows into line9_tax, the county row, and the totals", () => {
+    const base = computeNcDorFigures({
+      taxableBaseCents: 100000,
+      counties: [{ code: "WAKE", weight: 100 }],
+      collectedGeneralTaxCents: 7250,
+    }).fields;
+    const next = recomputeClientTotals({ ...base, line9_purchases: 50000 });
+    // line9_tax = round((50000 + 100000) × 0.02) = 3000
+    expect(next.line9_tax).toBe(3000);
+    expect(next.county_WAKE_2pct).toBe(3000);
+    // +1000 vs baseline (7250) flows through
+    expect(next.line13_total).toBe(8250);
+    expect(next.line21_total_due).toBe(8250);
+  });
+
+  it("parity: the client recompute equals the engine derivation on a shared fixture", () => {
+    const base = computeNcDorFigures({
+      taxableBaseCents: 137500,
+      counties: [
+        { code: "WAKE", weight: 60 },
+        { code: "DURHAM", weight: 40 },
+      ],
+      collectedGeneralTaxCents: 0,
+    }).fields;
+    // simulate a user typing purchases on both a state line and a county line
+    const edited = { ...base, line4_purchases: 25000, line9_purchases: 15000 };
+    const client = recomputeClientTotals(edited);
+    const engine = deriveNcDorFigures(edited);
+    expect(client).toEqual(engine);
+    // and the county schedule reconciles to the page-1 line taxes, purchases included
+    const n = (v: number | string | null | undefined) => Number(v ?? 0);
+    expect(n(client.county_WAKE_2pct)).toBe(n(client.line9_tax));
+    expect(n(client.county_DURHAM_225pct)).toBe(n(client.line10_tax));
+    expect(n(client.county_WAKE_transit) + n(client.county_DURHAM_transit)).toBe(
+      n(client.line11_tax) + n(client.line12_tax),
+    );
   });
 });
 

@@ -4,6 +4,7 @@ import {
   NC_COUNTY_TIERS,
   NC_COUNTIES,
   RATE_LINES,
+  RATE_BY_LINE,
   countyRateLine,
   transitRateLine,
 } from './rates';
@@ -15,6 +16,35 @@ describe('NC DOR Statutory Rates', () => {
 
   it('should export the rate lines 4-12', () => {
     expect(RATE_LINES).toEqual([4, 5, 6, 7, 8, 9, 10, 11, 12]);
+  });
+
+  describe('RATE_BY_LINE', () => {
+    it('maps each rate line to its statutory rate', () => {
+      expect(RATE_BY_LINE).toEqual({
+        '4': 0.0475,
+        '5': 0.03,
+        '6': 0.0475,
+        '7': 0.0475,
+        '8': 0.02,
+        '9': 0.02,
+        '10': 0.0225,
+        '11': 0.005,
+        '12': 0.0025,
+      });
+    });
+
+    it('has an entry for every rate line', () => {
+      for (const n of RATE_LINES) {
+        expect(RATE_BY_LINE[String(n) as keyof typeof RATE_BY_LINE]).toBeTypeOf('number');
+      }
+    });
+
+    it('line 4 equals the state rate; county lines 9-12 mirror the county tiers', () => {
+      expect(RATE_BY_LINE['4']).toBe(NC_STATE_RATE);
+      expect(RATE_BY_LINE['9']).toBe(NC_COUNTY_TIERS['WAKE'].local);
+      expect(RATE_BY_LINE['10']).toBe(NC_COUNTY_TIERS['DURHAM'].local);
+      expect(RATE_BY_LINE['11']).toBe(NC_COUNTY_TIERS['WAKE'].transit);
+    });
   });
 
   describe('NC_COUNTY_TIERS', () => {

@@ -19,7 +19,8 @@ import type {
 } from "@/lib/tax/types";
 import { lastDayOfFollowingMonth, monthPeriod, quarterPeriod } from "@/lib/tax/period";
 import { registerParty } from "@/lib/tax/registry";
-import { computeDependentTotals, computeNcDorWorksheet } from "./calc";
+import { computeNcDorWorksheet } from "./calc";
+import { deriveNcDorFigures } from "./derive";
 import { resolveFieldOwnership } from "./fieldOwnership";
 import { NC_COUNTIES, NC_COUNTY_TIERS, NC_STATE_RATE } from "./rates";
 
@@ -84,25 +85,24 @@ const fieldOwnership: Record<string, FieldOwnership> = new Proxy(
 // For every key across both worksheets: a "computed" field always takes the
 // freshly recomputed value; a "manual" field keeps whatever the user already
 // entered (`current`), falling back to `recomputed` only if there's nothing
-// there yet. The dependent totals (line13/15/21) are then re-derived from
-// that merged field set via the same `computeDependentTotals` calc.ts uses,
-// so manual penalty/interest/credit edits flow through into line21.
+// there yet. The full figure set (per-line tax, page-2 county rows, and the
+// dependent totals 13/15/21) is then re-derived from that merged field set via
+// the SAME `deriveNcDorFigures` the initial compute and the client use — so a
+// manual `lineN_purchases` edit (preserved from `current`) flows into the line
+// tax, county rows, and Total Due exactly as the client already displays it.
 
 function mergeWorksheet(current: WorksheetData, recomputed: WorksheetData): WorksheetData {
   const keys = new Set([...Object.keys(current.fields), ...Object.keys(recomputed.fields)]);
-  const fields: Record<string, number | string | null> = {};
+  const merged: Record<string, number | string | null> = {};
 
   for (const key of keys) {
-    fields[key] =
+    merged[key] =
       fieldOwnership[key] === "computed"
         ? recomputed.fields[key]
         : (current.fields[key] ?? recomputed.fields[key]);
   }
 
-  const totals = computeDependentTotals(fields);
-  fields.line13_total = totals.line13_total;
-  fields.line15_total = totals.line15_total;
-  fields.line21_total_due = totals.line21_total_due;
+  const fields = deriveNcDorFigures(merged);
 
   return { fields, warnings: recomputed.warnings, meta: recomputed.meta };
 }
