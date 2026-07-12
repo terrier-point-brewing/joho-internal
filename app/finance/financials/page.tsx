@@ -25,6 +25,7 @@ import FilterSelect from "@/app/components/ui/FilterSelect";
 import FilterBar from "@/app/components/ui/FilterBar";
 import FinanceNav from "../FinanceNav";
 import FinancialsTable from "./FinancialsTable";
+import DataQualityPanel from "./DataQualityPanel";
 import { buildTree } from "./buildTree";
 import { buildFinancialsControls, retainAncestors, CHANNEL_OPTIONS, QUALITY_OPTIONS, SECTION_LABEL } from "./controls";
 
@@ -159,6 +160,12 @@ export default function FinancialsPage() {
         <div className="flex items-center justify-between">
           <PageHeader title="Financials" description="Consolidated P&L, Balance Sheet, and Cash Flow — persisted, CoA-mapped data" />
           <div className="flex items-center gap-2">
+            {data && (
+              <DataQualityPanel
+                summary={data.dataQuality}
+                onFilterQuality={(bucket) => setFilter("quality", [bucket])}
+              />
+            )}
             <select
               value={year}
               onChange={(e) => setYear(Number(e.target.value))}
