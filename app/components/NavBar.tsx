@@ -177,7 +177,7 @@ export default function NavBar() {
                 {isAdmin && (
                   <>
                     <Link
-                      href="/finance/model"
+                      href="/finance/financials"
                       className={`px-3 py-2 rounded text-sm font-medium transition-colors mt-2 ${
                         isFinance ? "bg-surface-mid text-primary" : "text-secondary hover:text-strong hover:bg-surface-mid/50"
                       }`}
@@ -226,7 +226,7 @@ export default function NavBar() {
               </Link>
             )}
             {!loading && isAdmin && (
-              <Link href="/finance/model" title="Finance"
+              <Link href="/finance/financials" title="Finance"
                 className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${isFinance ? "bg-surface-mid text-accent" : "text-faint hover:text-body hover:bg-surface-mid/50"}`}>
                 <FinanceIcon />
               </Link>
@@ -287,7 +287,7 @@ export default function NavBar() {
           </MobileNavItem>
         )}
         {!loading && isAdmin && (
-          <MobileNavItem href="/finance/model" active={isFinance} label="Finance">
+          <MobileNavItem href="/finance/financials" active={isFinance} label="Finance">
             <FinanceIcon />
           </MobileNavItem>
         )}

@@ -8,6 +8,7 @@
 // them.
 
 import { useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import { fetchJson } from "@/app/production/hooks/queries";
@@ -45,6 +46,13 @@ const MEASURE_TABS: TabDef<Measure>[] = [
   { key: "bbl",             label: "BBL" },
   { key: "amount_per_bbl", label: "$/BBL" },
 ];
+
+const VALID_STATEMENTS: StatementKind[] = ["pl", "balance_sheet", "cash_flow"];
+
+/** Reads the `?statement=` param the old /finance/statements redirects preserve. */
+function initialStatementFrom(param: string | null): StatementKind {
+  return VALID_STATEMENTS.includes(param as StatementKind) ? (param as StatementKind) : "pl";
+}
 
 // ── KPI health strip ────────────────────────────────────────────────────────
 
@@ -102,8 +110,9 @@ function KpiStrip({ data }: { data: FinancialsResponse | undefined }) {
 
 export default function FinancialsPage() {
   const currentYear = new Date().getFullYear();
+  const searchParams = useSearchParams();
   const [year, setYear] = useState(currentYear);
-  const [statement, setStatement] = useState<StatementKind>("pl");
+  const [statement, setStatement] = useState<StatementKind>(() => initialStatementFrom(searchParams.get("statement")));
   const [measure, setMeasure] = useState<Measure>("amount");
   const years = Array.from({ length: 3 }, (_, i) => currentYear - i);
 

@@ -80,19 +80,12 @@ export const queryKeys = {
   // ─── Finance ──────────────────────────────────────────────────────────────
   finance: {
     all:            () => ["finance"] as const,
-    /** Year-scoped taproom sales (used in model + taproom sales page). */
-    salesTaproom:   (year: number) => ["finance", "sales", "taproom", year] as const,
-    salesEvents:    (year: number) => ["finance", "sales", "events",  year] as const,
-    /** Year-scoped invoice sales (used in model, contract-brewing, distribution). */
-    salesInvoices:  (year: number) => ["finance", "sales", "invoices", year] as const,
     /** Single invoice detail. */
     ledgerInvoice:  (id: string) => ["finance", "ledger", "invoice", id] as const,
     /** Invoice list filtered by year + source. */
     ledgerInvoices: (year: number, source: string) => ["finance", "ledger", "invoices", year, source] as const,
     /** Flat chart-of-accounts list (invoice line-item GL mapping). */
     chartOfAccounts: () => ["finance", "chart-of-accounts"] as const,
-    /** P&L / cash-flow statement aggregation, keyed by year + view. */
-    statements: (year: number, view: string) => ["finance", "statements", year, view] as const,
     /** Consolidated Financials view (Task 7), keyed by statement kind + year. */
     financials: (statement: string, year: number) => ["finance", "financials", statement, year] as const,
   },
