@@ -22,6 +22,9 @@ import { fetchOrdersByIds } from "@/lib/square/orders";
 import { buildLineItemTaxRows } from "@/lib/finance/syncPosTransactions";
 
 const BATCH_SIZE = 100;
+// PostgREST default max rows per response — queries that can exceed it must
+// page via range() or they silently truncate.
+const PAGE_SIZE = 1000;
 
 export interface BackfillLineItemTaxesResult {
   orders: number;
@@ -45,18 +48,33 @@ export async function backfillLineItemTaxesForRange(
   startDate: string,
   endDate: string,
   fetchOrders: (orderIds: string[]) => Promise<Order[]> = fetchOrdersByIds,
+  pageSize: number = PAGE_SIZE,
 ): Promise<BackfillLineItemTaxesResult> {
   // Only POS orders carry pos_line_items — invoice-backed orders use
   // invoice_line_items instead, so restrict to those up front.
-  const { data: orderRows, error: ordersErr } = await supabase
-    .from("square_orders")
-    .select("id, square_order_id")
-    .gte("transaction_date", startDate)
-    .lt("transaction_date", endDate)
-    .is("invoice_id", null);
-  if (ordersErr) throw new Error(ordersErr.message);
+  //
+  // PostgREST caps a single select at ~1000 rows, so both this query and the
+  // pos_line_items query below MUST page via range() — otherwise a busy range
+  // (>1000 orders, or >1000 lines in an order chunk) is silently truncated and
+  // those orders/lines get no tax rows. Order by a stable key so paging is
+  // deterministic.
+  const dbOrders: SquareOrderRow[] = [];
+  for (let page = 0; ; page++) {
+    const from = page * pageSize;
+    const { data, error } = await supabase
+      .from("square_orders")
+      .select("id, square_order_id")
+      .gte("transaction_date", startDate)
+      .lt("transaction_date", endDate)
+      .is("invoice_id", null)
+      .order("id", { ascending: true })
+      .range(from, from + pageSize - 1);
+    if (error) throw new Error(error.message);
+    const rows = (data ?? []) as SquareOrderRow[];
+    dbOrders.push(...rows);
+    if (rows.length < pageSize) break;
+  }
 
-  const dbOrders = (orderRows ?? []) as SquareOrderRow[];
   if (dbOrders.length === 0) return { orders: 0, taxRows: 0 };
 
   const dbIdBySquareOrderId = new Map(dbOrders.map((o) => [o.square_order_id, o.id]));
@@ -64,22 +82,32 @@ export async function backfillLineItemTaxesForRange(
 
   // Stored line items, grouped per order db id and keyed by the Square line
   // uid — uids are only unique within one order, so the map must be scoped
-  // per order (mirrors syncSquareOrders' lineItemDbIdByUidByOrderDbId).
+  // per order (mirrors syncSquareOrders' lineItemDbIdByUidByOrderDbId). The
+  // order-id IN list is chunked to bound URL length; each chunk is then paged
+  // so a chunk with >1000 line items isn't truncated.
   const lineItemDbIdByUidByOrderDbId = new Map<string, Map<string, string>>();
   for (let i = 0; i < dbIds.length; i += BATCH_SIZE) {
-    const { data: lineRows, error: lineErr } = await supabase
-      .from("pos_line_items")
-      .select("id, order_id, square_line_item_uid")
-      .in("order_id", dbIds.slice(i, i + BATCH_SIZE));
-    if (lineErr) throw new Error(lineErr.message);
-    for (const row of (lineRows ?? []) as PosLineItemRow[]) {
-      if (!row.square_line_item_uid) continue;
-      let uidMap = lineItemDbIdByUidByOrderDbId.get(row.order_id);
-      if (!uidMap) {
-        uidMap = new Map();
-        lineItemDbIdByUidByOrderDbId.set(row.order_id, uidMap);
+    const chunk = dbIds.slice(i, i + BATCH_SIZE);
+    for (let page = 0; ; page++) {
+      const from = page * pageSize;
+      const { data: lineRows, error: lineErr } = await supabase
+        .from("pos_line_items")
+        .select("id, order_id, square_line_item_uid")
+        .in("order_id", chunk)
+        .order("id", { ascending: true })
+        .range(from, from + pageSize - 1);
+      if (lineErr) throw new Error(lineErr.message);
+      const rows = (lineRows ?? []) as PosLineItemRow[];
+      for (const row of rows) {
+        if (!row.square_line_item_uid) continue;
+        let uidMap = lineItemDbIdByUidByOrderDbId.get(row.order_id);
+        if (!uidMap) {
+          uidMap = new Map();
+          lineItemDbIdByUidByOrderDbId.set(row.order_id, uidMap);
+        }
+        uidMap.set(row.square_line_item_uid, row.id);
       }
-      uidMap.set(row.square_line_item_uid, row.id);
+      if (rows.length < pageSize) break;
     }
   }
 
