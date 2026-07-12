@@ -11,24 +11,29 @@
 import type { ControlsConfig } from "@/lib/table/types";
 import type { Channel, FinancialsRow } from "@/lib/finance/financials/types";
 import type { StatementSection } from "@/lib/finance/accountSections";
+import { isUncategorized } from "@/lib/finance/financials/summaries";
 import { CHANNEL_LABEL } from "./channelColors";
 
 export type QualityBucket = "unmapped" | "uncategorized" | "unknownVolume" | "ok";
 
 /**
  * Data-quality bucket for a single row, priority-ordered: unmapped (no CoA
- * mapping) beats uncategorized (no channel) beats unknownVolume beats ok.
- * The unknownVolume check is just `bblCoverage !== "full"` -- per
- * lib/finance/financials/volume.ts's rowBbl, non-beer rows are always
- * "full" coverage with 0 bbl, so this is already equivalent to "beer row
- * with incomplete volume coverage" without a separate beer-row flag (same
- * precedent as lib/finance/financials/summaries.ts's buildDataQuality).
+ * mapping) beats uncategorized (missing channel on a channel-bearing row)
+ * beats unknownVolume beats ok. "uncategorized" defers to
+ * lib/finance/financials/summaries.ts's isUncategorized -- channel is only
+ * a meaningful dimension for revenue/other-income rows, so expense/bank/
+ * refund rows (which aggregateRows.ts hardcodes to channel: "unknown")
+ * never get flagged just for lacking a channel. The unknownVolume check is
+ * just `bblCoverage !== "full"` -- per lib/finance/financials/volume.ts's
+ * rowBbl, non-beer rows are always "full" coverage with 0 bbl, so this is
+ * already equivalent to "beer row with incomplete volume coverage" without
+ * a separate beer-row flag (same precedent as buildDataQuality).
  * Deliberately does NOT inspect `mappingSource` -- invoice provenance is
  * unreliable (documented limitation, see spec).
  */
 export function qualityBucket(r: FinancialsRow): QualityBucket {
   if (r.coaId === null) return "unmapped";
-  if (r.channel === "unknown") return "uncategorized";
+  if (isUncategorized(r)) return "uncategorized";
   if (r.bblCoverage !== "full") return "unknownVolume";
   return "ok";
 }

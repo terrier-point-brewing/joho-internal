@@ -123,10 +123,14 @@ describe("buildDataQuality", () => {
     expect(dq.unmapped).toEqual({ count: 1, cents: 7000, href: HREFS.unmapped });
   });
 
-  it("buckets uncategorized rows (channel === 'unknown') by count + summed abs cents", () => {
+  it("buckets uncategorized rows (channel === 'unknown' on a revenue/other_income row) by count + summed abs cents", () => {
     const rows: FinancialsRow[] = [
-      row({ channel: "unknown", amountCentsByMonth: { "2026-01": 3000, "2026-02": 0 } }),
-      row({ channel: "taproom", amountCentsByMonth: { "2026-01": 1000, "2026-02": 0 } }),
+      row({ statementSection: "revenue", channel: "unknown", amountCentsByMonth: { "2026-01": 3000, "2026-02": 0 } }),
+      row({ statementSection: "revenue", channel: "taproom", amountCentsByMonth: { "2026-01": 1000, "2026-02": 0 } }),
+      // Expense/bank/refund rows are hardcoded to channel: "unknown" by
+      // aggregateRows.ts (no sales-channel dimension) -- they must NOT be
+      // flagged uncategorized just for lacking a channel.
+      row({ statementSection: "expenses", channel: "unknown", amountCentsByMonth: { "2026-01": 9000, "2026-02": 0 } }),
     ];
 
     const dq = buildDataQuality(rows, {

@@ -30,6 +30,23 @@ const PL_SECTIONS: ReadonlySet<string> = new Set([
 const REVENUE_SECTIONS: ReadonlySet<string> = new Set(["revenue"]);
 const COGS_SECTIONS: ReadonlySet<string> = new Set(["cogs"]);
 
+// StatementSection values where a sales channel is actually expected.
+// aggregateRows.ts's resolveExpenseLike hardcodes channel: "unknown" for
+// every expense/bank/refund row (they have no sales channel dimension), so
+// channel === "unknown" alone over-reports "uncategorized" for those rows.
+// Only revenue/other-income rows (POS + invoice) are meant to carry a real
+// channel -- gate the "uncategorized" signal on that.
+const CHANNEL_EXPECTED_SECTIONS: ReadonlySet<string> = new Set(["revenue", "other_income"]);
+
+/**
+ * "Uncategorized" = a row where a sales channel is expected but missing.
+ * Shared by buildDataQuality (this file) and controls.ts's qualityBucket so
+ * the KPI-strip count and the table's "quality" filter chip never disagree.
+ */
+export function isUncategorized(row: FinancialsRow): boolean {
+  return row.channel === "unknown" && CHANNEL_EXPECTED_SECTIONS.has(row.statementSection);
+}
+
 /** Sums amountCentsByMonth for rows whose statementSection is in `sections`, per month. Amounts are already sign-normalized (income-like positive, cost-like negative). */
 function sumSectionByMonth(
   rows: FinancialsRow[],
@@ -114,7 +131,7 @@ export function buildDataQuality(
   },
 ): DataQualitySummary {
   const unmappedRows = rows.filter((r) => r.coaId === null);
-  const uncategorizedRows = rows.filter((r) => r.channel === "unknown");
+  const uncategorizedRows = rows.filter(isUncategorized);
   // Only beer/volume-bearing rows ever get a non-"full" bblCoverage (see
   // lib/finance/financials/volume.ts's rowBbl) -- non-beer rows are always
   // "full" with bbl 0, so this check is equivalent to "beer rows with

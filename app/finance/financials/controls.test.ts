@@ -53,15 +53,24 @@ describe("qualityBucket", () => {
     expect(qualityBucket(r)).toBe("unknownVolume");
   });
 
-  it("returns uncategorized (not ok) for a non-beer row whose channel is still the unknown default", () => {
-    // Non-beer rows (rent, etc.) have no real channel dimension and default
-    // to "unknown" -- qualityBucket has no way to distinguish that from a
-    // genuinely uncategorized row, so it flags it. This is the documented
-    // trade-off, not a bug: see the module comment on mappingSource.
+  it("returns ok (not uncategorized) for a non-beer row whose channel is the unknown default", () => {
+    // Non-beer rows (rent, etc.) have no real channel dimension and
+    // aggregateRows.ts hardcodes them to channel: "unknown" -- channel is
+    // only meaningful for revenue/other-income rows, so an expense row is
+    // never flagged just for lacking one.
     const r = row({
       coaId: "opex-1", accountName: "Rent", statementSection: "expenses",
       channel: "unknown", bblCoverage: "full",
       amountCentsByMonth: { "2026-01": -2000 },
+    });
+    expect(qualityBucket(r)).toBe("ok");
+  });
+
+  it("returns uncategorized for a revenue row with an unknown channel", () => {
+    const r = row({
+      coaId: "rev-3", accountName: "Mystery Sales", statementSection: "revenue",
+      channel: "unknown", bblCoverage: "full",
+      amountCentsByMonth: { "2026-01": 250 },
     });
     expect(qualityBucket(r)).toBe("uncategorized");
   });
