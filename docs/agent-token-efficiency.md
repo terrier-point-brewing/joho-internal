@@ -95,3 +95,38 @@ Operationalize it: the plan's task table gets a `model` column, and the orchestr
 | E. Review economy | −10–15% |
 
 Combined: a build that costs 1M+ Opus-High output tokens today should land around 300–400k tokens, mostly on Sonnet.
+
+---
+
+## Enforcement update — 2026-07-12
+
+The fixes above shipped into CLAUDE.md as prose. The very next feature (tax-submission-module) burned **~3M tokens on implementation** anyway, despite a fully compliant plan (model column, contract-style tasks, locality grouping). Post-mortem:
+
+**The artifacts were not the problem.** Spec (325 lines) + plan (644 lines) ≈ 15KB. You cannot spend 3M tokens producing 15KB.
+
+**The cost model is `cost ≈ spawn_count × per-spawn context tax`** — and it's now measured, not estimated. Reading the run's own subagent transcripts (`<session>/subagents/agent-*.jsonl`):
+
+| | subagents | orchestrator | total |
+|---|---|---|---|
+| count | **50** | 1 | — |
+| output tokens | 696k | 452k | **1.15M** |
+| cache-write (context ingested) | **10.9M** | 2.4M | **13.2M** |
+
+Two facts fall out: **(1) context ingestion is ~92% of token volume** (13.2M cache-write vs 1.15M output) — the bill is reading, not writing; **(2) the plan grouped 20 tasks into ~6 locality groups but spawned 50 subagents** (~2.5 per task: implementer + reviewer + extras), because its header said `REQUIRED SUB-SKILL: subagent-driven-development`, biasing the executor toward per-task fan-out. Each subagent averaged ~222k cache-write. Collapsing 50 → ~8 grouped spawns cuts ~10.9M → ~1.8M of subagent context tax — the single biggest lever, confirmed by the numbers.
+
+Of that per-spawn ~222k: a fixed floor (harness prompt + CLAUDE.md + skill/MCP-name lists) ≈ 40–60k; the rest is work-context the subagent reads (plan, spec, source, docs). Closed briefs attack the work-context; the fixed floor is trimmed by the connector/plugin config below.
+
+**Prose alone doesn't bite.** Adding rules to CLAUDE.md was already tried (this doc) and drifted within one feature. Enforcement now has three teeth:
+
+1. **`.claude/hooks/spawn-guard.js`** (`PreToolUse`, matcher `Agent|Task`) — counts spawns per session, injects a consolidation warning past the cap (default 12, `CLAUDE_SPAWN_CAP`). Non-blocking so it can't wedge a legit large run. This is the one deterministic, harness-executed lever against the sole cost driver.
+2. **`.claude/hooks/token-log.js`** (`Stop` + `SubagentStop`) — logs per-subagent + session token spend to `.claude/token-usage.log` (gitignored). Subagent spend lives in separate transcripts, so a top-session-only view (incl. `rtk gain` on the orchestrator) misses exactly the fan-out cost that blows budgets. Per-spawn rows make it visible.
+3. **Plan `Execution Budget` header** (required by CLAUDE.md → Plans & Task Briefs) — puts the spawn cap + mode + token target in the *plan the executor actively follows*, and explicitly overrides the writing-plans "subagent-driven (recommended)" stamp with the tier table. `Spawn cap = (# locality groups) + 2`.
+
+Why not patch the plan generator to stop stamping "subagent-driven"? It's a shared, versioned, cached plugin skill (`~/.claude/plugins/.../writing-plans`) — editing it is fragile and leaks into every project. The repo-level override (rule + header) is the correct layer.
+
+### Reducing the per-spawn tax itself
+
+Spawn count is the dominant lever, but the ~40–60k fixed floor per spawn is partly config, not physics:
+
+4. **Lean `impl` subagent type** (`.claude/agents/impl.md`) — restricted toolset (`Read/Edit/Write/Bash/Grep/Glob`; no ToolSearch, web, or nested Agent). It can't pull deferred MCP/browser schemas into context mid-run, can't fan out, and stays on the brief. Note: a tool allowlist **gates access, it does not remove static schema injection** (verified against Claude Code docs), so this is a focus/containment lever, not a big static-context cut. Route implementation/mechanical tasks here via the Agent tool's `subagent_type`.
+5. **Project connector/plugin scoping** (`.claude/settings.json`) — `disableClaudeAiConnectors: true` (this repo uses none — Square/Supabase via `fetch`/`supabase-js`, GitHub via `gh`, deploy via `vercel` CLI) and `enabledPlugins: { playwright: false, skill-creator: false }`. Caveat: these knobs are confirmed to *gate* access; the docs don't promise they shrink injected context — **verify the actual saving with `/context` before/after**. The ~10k skill-directory tax (156 installed skills) and the app-connector MCP names are the targets.

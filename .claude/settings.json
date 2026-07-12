@@ -1,3 +1,32 @@
 {
-  "availableModels": ["sonnet", "opus", "haiku"]
+  "availableModels": ["sonnet", "opus", "haiku"],
+  "disableClaudeAiConnectors": true,
+  "enabledPlugins": {
+    "playwright@claude-plugins-official": false,
+    "skill-creator@claude-plugins-official": false
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Agent|Task",
+        "hooks": [
+          { "type": "command", "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/spawn-guard.js\"" }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/token-log.js\"" }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/token-log.js\"" }
+        ]
+      }
+    ]
+  }
 }

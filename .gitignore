@@ -50,4 +50,5 @@ ramp-spike-output/
 # claude code local artifacts (contains tokens/permissions; pollute search/disk — never commit)
 .claude/settings.local.json
 .claude/worktrees/
+.claude/token-usage.log
 .claire/
