@@ -50,14 +50,17 @@ Do this before running any dev commands.
 - 4–6 files → write a plan (superpowers:writing-plans), execute it inline (superpowers:executing-plans). No per-task spawns.
 - Larger multi-group plans only → superpowers:subagent-driven-development.
 - **Group plan tasks by file locality, not just dependency.** Tasks touching the same route/component/module go to ONE agent sequentially. Every extra spawn is a cold context rebuild — parallelism saves wall-clock, not tokens.
-- Subagent briefs are self-contained: include the interfaces and the 10–30 lines of existing code the task touches, and state "do NOT re-read the plan or spec." Subagents read `docs/agent-context.md` for conventions — not UI_STANDARD.md or CLAUDE.md deep-dives (full docs only per Extended Documentation Triggers).
+- Subagent briefs are self-contained: include the interfaces and the 10–30 lines of existing code the task touches, and **end with the mandatory footer**: "This brief is authoritative and self-contained — do NOT read the plan, spec, CLAUDE.md, or UI_STANDARD.md unless an Extended Documentation Trigger fires." Subagents read `docs/agent-context.md` for conventions.
+- The writing-plans skill stamps "subagent-driven-development (recommended)" on every plan — **that default is overridden by the tier table above.** Pick the mode by scope, not by the stamp.
+- **Route implementation + mechanical spawns to the lean `impl` agent type** (`.claude/agents/impl.md`) via the Agent tool's `subagent_type`. It excludes ToolSearch/web/nested-Agent, so it can't pull MCP/browser schemas into context or fan out; pass the per-task `model` to override its Sonnet default (Haiku for mechanical). Use full-capability agents only for planning/research/architecture. (Dominant token wins are still spawn count + closed briefs — a lean agent doesn't rescue an over-spawned plan.)
 - Review economy: per-task reviews output findings only (severity + file:line + one-line fix) — no diff quoting, no prose summaries. Skip per-task review for docs-only/config-only tasks. Keep the single final Opus whole-branch review.
 
 ## Plans & Task Briefs (token discipline — strict)
 - Plans and briefs specify: file map, interfaces/types, function signatures, acceptance criteria, and test cases — **never full implementation bodies**.
 - Inline code only for genuinely non-obvious logic, capped at ~20 lines per task.
 - A brief must be executable by a competent engineer with only the brief + the repo.
-- Rationale and measurements: `docs/agent-token-efficiency.md`.
+- **Every plan carries an `Execution Budget` line right after the Goal**: execution mode (from the tier table, not the writing-plans stamp), `Spawn cap = (# locality groups) + 2`, and a token target. The executor STOPS and reports before exceeding the spawn cap. Enforced by hooks: `.claude/hooks/spawn-guard.js` warns past the cap (override via `CLAUDE_SPAWN_CAP`); `.claude/hooks/token-log.js` records per-subagent + session spend to `.claude/token-usage.log`. Cost ≈ spawns × fixed per-spawn context tax, so the spawn cap is the one number that governs the bill.
+- Rationale, measurements, and enforcement design: `docs/agent-token-efficiency.md`.
 
 ## Architecture Priorities (strict)
 - **Modularity over inline logic, always.** No business logic in `app/api/**` or page components — extract to `lib/`. One responsibility per file/hook/module. If a file is doing two unrelated things, split it.
