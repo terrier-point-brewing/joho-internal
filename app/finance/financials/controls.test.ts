@@ -46,11 +46,24 @@ describe("qualityBucket", () => {
 
   it("returns unknownVolume when coaId + channel are set but bblCoverage isn't full", () => {
     const r = row({
-      coaId: "rev-1", accountName: "Draft Sales", statementSection: "revenue",
-      channel: "taproom", bblCoverage: "unknown",
+      coaId: "rev-1", accountName: "Keg Sales", statementSection: "revenue",
+      channel: "taproom", bblCoverage: "unknown", posCategory: "KEGS",
       amountCentsByMonth: { "2026-01": 100 },
     });
     expect(qualityBucket(r)).toBe("unknownVolume");
+  });
+
+  // M2 fix: by-the-glass DRAFT POS rows are always bblCoverage "unknown" by
+  // design (no per-line keg/can BBL for a draft pour) -- they must not be
+  // flagged as a data-quality problem the way a genuinely under-covered
+  // keg/can row would be.
+  it("returns ok (not unknownVolume) for a DRAFT row with bblCoverage 'unknown'", () => {
+    const r = row({
+      coaId: "rev-1", accountName: "Draft Sales", statementSection: "revenue",
+      channel: "taproom", bblCoverage: "unknown", posCategory: "DRAFT_BEER",
+      amountCentsByMonth: { "2026-01": 100 },
+    });
+    expect(qualityBucket(r)).toBe("ok");
   });
 
   it("returns ok (not uncategorized) for a non-beer row whose channel is the unknown default", () => {

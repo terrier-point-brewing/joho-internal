@@ -157,10 +157,14 @@ function buildAccountNode(
   };
 }
 
-/** Builds a top-level section node (Revenue, COGS, Bank & Cash, ...): groups the section's rows into a parent/child account tree, and rolls all root accounts up into the section's own `.row` total. */
-function buildSection(rows: FinancialsRow[], statementSection: string, label: string, months: string[]): TreeNode {
-  const sectionRows = rows.filter((r) => r.statementSection === statementSection);
-
+/**
+ * Builds a section node from an already-filtered row list: groups rows into
+ * a parent/child account tree, and rolls all root accounts up into the
+ * section's own `.row` total. Shared by buildSection (rows matching one
+ * known statementSection) and buildOtherSection (rows matching none of a
+ * statement's known sections).
+ */
+function buildSectionFromRows(sectionRows: FinancialsRow[], statementSection: string, label: string, months: string[]): TreeNode {
   const rowsByAccount = new Map<string, FinancialsRow[]>();
   for (const row of sectionRows) {
     const key = accountKey(row);
@@ -198,6 +202,24 @@ function buildSection(rows: FinancialsRow[], statementSection: string, label: st
   };
 }
 
+/** Builds a top-level section node (Revenue, COGS, Bank & Cash, ...) for the given known statementSection. */
+function buildSection(rows: FinancialsRow[], statementSection: string, label: string, months: string[]): TreeNode {
+  return buildSectionFromRows(rows.filter((r) => r.statementSection === statementSection), statementSection, label, months);
+}
+
+/**
+ * M1 fix: mapped rows whose statementSection isn't one of a statement's
+ * known sections (see aggregateRows.ts's coaSection fallback -- an
+ * unrecognized/missing CoA accountType maps to statementSection "other")
+ * were previously dropped entirely by buildSection's exact-match filter --
+ * silently vanishing from both the rendered statement and Net Income/its
+ * per-statement equivalent. This catch-all renders them under an "Other"
+ * section instead, so mapped money is never invisible.
+ */
+function buildOtherSection(rows: FinancialsRow[], knownSections: ReadonlySet<string>, months: string[]): TreeNode {
+  return buildSectionFromRows(rows.filter((r) => !knownSections.has(r.statementSection)), "other", "Other", months);
+}
+
 /** Builds a top-level subtotal row (Total Income, Gross Profit, Net Income, ...) by summing the given sections' already-rolled `.row` totals. Carries no children -- its constituent sections already render their own detail above it. */
 function subtotal(label: string, sections: TreeNode[], months: string[]): TreeNode {
   return {
@@ -212,6 +234,16 @@ function subtotal(label: string, sections: TreeNode[], months: string[]): TreeNo
 function monthsOf(rows: FinancialsRow[]): string[] {
   return rows.length > 0 ? Object.keys(rows[0].amountCentsByMonth) : [];
 }
+
+// Known statementSection values per statement kind (M1). Any row whose
+// statementSection isn't in the relevant set here falls to buildOtherSection's
+// "Other" catch-all instead of being silently dropped. cash_flow reuses the
+// same 5 P&L sections it derives cash movement from.
+const PL_KNOWN_SECTIONS: ReadonlySet<string> = new Set(["revenue", "other_income", "cogs", "expenses", "other_expense"]);
+const BS_KNOWN_SECTIONS: ReadonlySet<string> = new Set([
+  "bank", "ar", "other_current_assets", "fixed_assets",
+  "ap", "credit_card", "other_current_liabilities", "long_term_liabilities", "equity",
+]);
 
 function buildPl(rows: FinancialsRow[], months: string[]): TreeNode[] {
   const revenue = buildSection(rows, "revenue", "Revenue", months);
@@ -229,9 +261,13 @@ function buildPl(rows: FinancialsRow[], months: string[]): TreeNode[] {
 
   const opEx = buildSection(rows, "expenses", "Operating Expenses", months);
   const otherExp = buildSection(rows, "other_expense", "Other Expenses", months);
-  const netIncome = subtotal("Net Income", [revenue, otherIncome, cogs, opEx, otherExp], months);
+  // M1: rows whose statementSection isn't one of the 5 known P&L sections
+  // (unrecognized/missing CoA accountType) still render, and still count
+  // toward Net Income -- nothing mapped is ever silently invisible.
+  const other = buildOtherSection(rows, PL_KNOWN_SECTIONS, months);
+  const netIncome = subtotal("Net Income", [revenue, otherIncome, cogs, opEx, otherExp, other], months);
 
-  return [revenue, otherIncome, totalIncome, cogs, grossProfit, opEx, otherExp, netIncome];
+  return [revenue, otherIncome, totalIncome, cogs, grossProfit, opEx, otherExp, other, netIncome];
 }
 
 function buildCashFlow(rows: FinancialsRow[], months: string[]): TreeNode[] {
@@ -244,9 +280,14 @@ function buildCashFlow(rows: FinancialsRow[], months: string[]): TreeNode[] {
   const otherExp = buildSection(rows, "other_expense", "Cash Paid — Other Expenses", months);
   const totalCashOut = subtotal("Total Cash Out", [cogs, opEx, otherExp], months);
 
-  const netOperating = subtotal("Net Operating", [revenue, otherIncome, cogs, opEx, otherExp], months);
+  // M1: same catch-all as buildPl -- rows outside the 5 known sections still
+  // render and still count toward the bottom-line Net Operating total. Left
+  // out of Total Cash In/Out since an unrecognized section's cash direction
+  // (in vs. out) isn't knowable.
+  const other = buildOtherSection(rows, PL_KNOWN_SECTIONS, months);
+  const netOperating = subtotal("Net Operating", [revenue, otherIncome, cogs, opEx, otherExp, other], months);
 
-  return [revenue, otherIncome, totalCashIn, cogs, opEx, otherExp, totalCashOut, netOperating];
+  return [revenue, otherIncome, totalCashIn, cogs, opEx, otherExp, totalCashOut, other, netOperating];
 }
 
 function buildBalanceSheet(rows: FinancialsRow[], months: string[]): TreeNode[] {
@@ -265,16 +306,22 @@ function buildBalanceSheet(rows: FinancialsRow[], months: string[]): TreeNode[] 
   const totalLiab = subtotal("Total Liabilities", [ap, creditCard, otherCurrentLiab, longTermLiab], months);
 
   const equity = buildSection(rows, "equity", "Equity", months);
+  // M1: an unrecognized/missing CoA accountType gives no signal for which
+  // side of the balance sheet a row belongs on, so the "Other" catch-all is
+  // folded into the final Total Liabilities + Equity grand total (rather
+  // than guessed into Total Assets) -- it still renders and still counts
+  // toward a grand total, so it's never silently dropped.
+  const other = buildOtherSection(rows, BS_KNOWN_SECTIONS, months);
   const totalLiabEquity = subtotal(
     "Total Liabilities + Equity",
-    [ap, creditCard, otherCurrentLiab, longTermLiab, equity],
+    [ap, creditCard, otherCurrentLiab, longTermLiab, equity, other],
     months,
   );
 
   return [
     bank, ar, otherCurrentAssets, totalCurrentAssets, fixedAssets, totalAssets,
     ap, creditCard, otherCurrentLiab, totalCurrentLiab, longTermLiab, totalLiab,
-    equity, totalLiabEquity,
+    equity, other, totalLiabEquity,
   ];
 }
 

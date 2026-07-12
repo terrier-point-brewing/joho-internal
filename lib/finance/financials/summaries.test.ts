@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildKpis, buildDataQuality } from "./summaries";
+import { buildKpis, buildDataQuality, isUnknownVolume } from "./summaries";
 import type { FinancialsRow } from "./types";
 
 const MONTHS = ["2026-01", "2026-02"];
@@ -158,6 +158,26 @@ describe("buildDataQuality", () => {
     expect(dq.unknownVolume).toEqual({ count: 2, cents: 4000, href: HREFS.unknownVolume });
   });
 
+  // M2 fix: by-the-glass DRAFT POS rows are ALWAYS bblCoverage "unknown" (no
+  // per-line keg/can BBL for draft pours -- see volume.ts's rowBbl), so they
+  // must not flood this bucket with ordinary, non-actionable draft revenue.
+  // Non-draft beer rows (e.g. kegs) with incomplete coverage still count.
+  it("excludes DRAFT rows from unknownVolume even when bblCoverage isn't full", () => {
+    const rows: FinancialsRow[] = [
+      row({ posCategory: "DRAFT_BEER", bblCoverage: "unknown", amountCentsByMonth: { "2026-01": 5000, "2026-02": 0 } }),
+      row({ posCategory: "KEGS", bblCoverage: "unknown", amountCentsByMonth: { "2026-01": 3000, "2026-02": 0 } }),
+    ];
+
+    const dq = buildDataQuality(rows, {
+      hrefs: HREFS,
+      strandedDeposit: { count: 0, cents: 0 },
+      exciseCoverage: { shipmentsMissingExcise: 0 },
+    });
+
+    // Only the non-draft (KEGS) row counts.
+    expect(dq.unknownVolume).toEqual({ count: 1, cents: 3000, href: HREFS.unknownVolume });
+  });
+
   it("passes strandedDeposit and exciseCoverage through unchanged, attaching hrefs", () => {
     const dq = buildDataQuality([], {
       hrefs: HREFS,
@@ -167,5 +187,27 @@ describe("buildDataQuality", () => {
 
     expect(dq.strandedDeposit).toEqual({ count: 3, cents: 42000, href: HREFS.strandedDeposit });
     expect(dq.exciseCoverage).toEqual({ shipmentsMissingExcise: 7, href: HREFS.exciseCoverage });
+  });
+});
+
+describe("isUnknownVolume (M2 fix)", () => {
+  it("returns false for a DRAFT row with bblCoverage 'unknown'", () => {
+    const r = row({ posCategory: "DRAFT_BEER", bblCoverage: "unknown" });
+    expect(isUnknownVolume(r)).toBe(false);
+  });
+
+  it("returns true for a non-draft beer row (e.g. keg) with bblCoverage 'unknown'", () => {
+    const r = row({ posCategory: "KEGS", bblCoverage: "unknown" });
+    expect(isUnknownVolume(r)).toBe(true);
+  });
+
+  it("returns false for any row with bblCoverage 'full', draft or not", () => {
+    expect(isUnknownVolume(row({ posCategory: "DRAFT_BEER", bblCoverage: "full" }))).toBe(false);
+    expect(isUnknownVolume(row({ posCategory: "KEGS", bblCoverage: "full" }))).toBe(false);
+  });
+
+  it("returns true for a DRAFT-adjacent-but-not-draft partial-coverage row", () => {
+    const r = row({ posCategory: "CANS", bblCoverage: "partial" });
+    expect(isUnknownVolume(r)).toBe(true);
   });
 });

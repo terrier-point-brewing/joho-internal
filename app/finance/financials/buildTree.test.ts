@@ -45,14 +45,14 @@ describe("buildTree — pl", () => {
 
   const tree = buildTree(rows, "pl");
 
-  it("builds the 8 pl section/subtotal nodes in order", () => {
+  it("builds the 9 pl section/subtotal nodes in order (incl. the M1 'Other' catch-all)", () => {
     expect(tree.map((n) => n.label)).toEqual([
       "Revenue", "Other Income", "Total Income",
       "Cost of Goods Sold", "Gross Profit",
-      "Operating Expenses", "Other Expenses", "Net Income",
+      "Operating Expenses", "Other Expenses", "Other", "Net Income",
     ]);
     expect(tree.map((n) => n.isSection)).toEqual([
-      true, true, false, true, false, true, true, false,
+      true, true, false, true, false, true, true, true, false,
     ]);
   });
 
@@ -82,14 +82,14 @@ describe("buildTree — pl", () => {
   });
 
   it("computes subtotal rows by summing sign-normalized section totals (straight addition)", () => {
-    const [, , totalIncome, , grossProfit, , , netIncome] = tree;
+    const [, , totalIncome, , grossProfit, , , , netIncome] = tree;
     expect(totalIncome.row?.amountCentsByMonth).toEqual({ "2026-01": 15000, "2026-02": 16000 });
     expect(grossProfit.row?.amountCentsByMonth).toEqual({ "2026-01": 12000, "2026-02": 12500 });
     expect(netIncome.row?.amountCentsByMonth).toEqual({ "2026-01": 10000, "2026-02": 10500 });
   });
 
   it("subtotal nodes carry no children (their sections already rendered the detail)", () => {
-    const [, , totalIncome, , grossProfit, , , netIncome] = tree;
+    const [, , totalIncome, , grossProfit, , , , netIncome] = tree;
     expect(totalIncome.children).toHaveLength(0);
     expect(grossProfit.children).toHaveLength(0);
     expect(netIncome.children).toHaveLength(0);
@@ -126,7 +126,7 @@ describe("buildTree — pl, Gross Profit excludes Other Income (I1)", () => {
   const tree = buildTree(rows, "pl");
 
   it("Gross Profit == revenue - COGS, excluding a non-zero Other Income", () => {
-    const [, , totalIncome, , grossProfit, , , netIncome] = tree;
+    const [, , totalIncome, , grossProfit, , , , netIncome] = tree;
     expect(totalIncome.row?.amountCentsByMonth["2026-01"]).toBe(15500); // includes other_income
     expect(grossProfit.row?.amountCentsByMonth["2026-01"]).toBe(12000); // 15000 - 3000, excludes other_income
     expect(netIncome.row?.amountCentsByMonth["2026-01"]).toBe(12500); // still includes everything
@@ -181,13 +181,13 @@ describe("buildTree — balance_sheet", () => {
 
   const tree = buildTree(rows, "balance_sheet");
 
-  it("builds the 14 balance-sheet section/subtotal nodes in order", () => {
+  it("builds the 15 balance-sheet section/subtotal nodes in order (incl. the M1 'Other' catch-all)", () => {
     expect(tree.map((n) => n.label)).toEqual([
       "Bank & Cash", "Accounts Receivable", "Other Current Assets", "Total Current Assets",
       "Fixed Assets", "Total Assets",
       "Accounts Payable", "Credit Cards", "Other Current Liabilities", "Total Current Liabilities",
       "Long-Term Liabilities", "Total Liabilities",
-      "Equity", "Total Liabilities + Equity",
+      "Equity", "Other", "Total Liabilities + Equity",
     ]);
   });
 
@@ -200,14 +200,14 @@ describe("buildTree — balance_sheet", () => {
 
   it("rolls liability sections + equity into Total Liabilities + Equity", () => {
     const totalLiab = tree[11];
-    const totalLE = tree[13];
+    const totalLE = tree[14];
     expect(totalLiab.row?.amountCentsByMonth["2026-01"]).toBe(-15000);
     expect(totalLE.row?.amountCentsByMonth["2026-01"]).toBe(-170000);
   });
 
   it("balances: Total Assets + Total Liabilities + Equity nets to zero under the signed-cents convention", () => {
     const totalAssets = tree[5];
-    const totalLE = tree[13];
+    const totalLE = tree[14];
     expect((totalAssets.row?.amountCentsByMonth["2026-01"] ?? 0) + (totalLE.row?.amountCentsByMonth["2026-01"] ?? 0)).toBe(0);
   });
 });
@@ -225,12 +225,12 @@ describe("buildTree — cash_flow", () => {
     expect(tree.map((n) => n.label)).toEqual([
       "Cash Collected — Revenue", "Cash Collected — Other Income", "Total Cash In",
       "Cash Paid — Cost of Goods Sold", "Cash Paid — Operating Expenses", "Cash Paid — Other Expenses", "Total Cash Out",
-      "Net Operating",
+      "Other", "Net Operating",
     ]);
   });
 
   it("computes Total Cash In / Total Cash Out / Net Operating", () => {
-    const [, , totalCashIn, , , , totalCashOut, netOperating] = tree;
+    const [, , totalCashIn, , , , totalCashOut, , netOperating] = tree;
     expect(totalCashIn.row?.amountCentsByMonth["2026-01"]).toBe(10000);
     expect(totalCashOut.row?.amountCentsByMonth["2026-01"]).toBe(-5000);
     expect(netOperating.row?.amountCentsByMonth["2026-01"]).toBe(5000);
@@ -239,9 +239,9 @@ describe("buildTree — cash_flow", () => {
 
 describe("buildTree — edge cases", () => {
   it("returns zeroed sections for an empty rows array, per statement kind", () => {
-    expect(buildTree([], "pl")).toHaveLength(8);
-    expect(buildTree([], "cash_flow")).toHaveLength(8);
-    expect(buildTree([], "balance_sheet")).toHaveLength(14);
+    expect(buildTree([], "pl")).toHaveLength(9);
+    expect(buildTree([], "cash_flow")).toHaveLength(9);
+    expect(buildTree([], "balance_sheet")).toHaveLength(15);
   });
 
   it("groups unmapped (coaId null) rows by accountName into separate root accounts", () => {
@@ -253,5 +253,39 @@ describe("buildTree — edge cases", () => {
     const revenue = tree[0];
     expect(revenue.children).toHaveLength(2);
     expect(revenue.children.map((c) => c.label).sort()).toEqual(["Unmapped A", "Unmapped B"]);
+  });
+});
+
+// M1 fix (review finding): a row with a non-null coaId (i.e. it IS mapped to
+// a CoA account) whose statementSection isn't one of buildTree's known
+// sections -- e.g. aggregateRows.ts's coaSection fallback for an
+// unrecognized/missing CoA accountType -- must still render (under "Other")
+// and must still count toward the bottom-line total, instead of being
+// silently dropped from both the statement and Net Income.
+describe("buildTree — M1: unrecognized statementSection renders under 'Other' and counts toward Net Income", () => {
+  it("pl: a mapped row with a bogus statementSection appears under 'Other' and is included in Net Income", () => {
+    const rows: FinancialsRow[] = [
+      row({
+        coaId: "rev-1", accountName: "Draft Sales", statementSection: "revenue", channel: "taproom",
+        amountCentsByMonth: { "2026-01": 10000 },
+      }),
+      row({
+        coaId: "mystery-1", accountName: "Mystery Account", statementSection: "not_a_real_section",
+        amountCentsByMonth: { "2026-01": 4200 },
+      }),
+    ];
+
+    const tree = buildTree(rows, "pl");
+    const other = tree.find((n) => n.label === "Other")!;
+    const netIncome = tree.find((n) => n.label === "Net Income")!;
+
+    // Rendered, not dropped: shows up as an account under "Other".
+    expect(other.children).toHaveLength(1);
+    expect(other.children[0].label).toBe("Mystery Account");
+    expect(other.row?.amountCentsByMonth["2026-01"]).toBe(4200);
+
+    // Counted, not lost: Net Income includes both the recognized revenue row
+    // and the unrecognized-section row.
+    expect(netIncome.row?.amountCentsByMonth["2026-01"]).toBe(14200);
   });
 });
