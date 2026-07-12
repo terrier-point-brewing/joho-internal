@@ -4,10 +4,16 @@
  * Party-agnostic worksheet chrome: page header (party label / period / due
  * date), a read-only masked filing-identity header, `worksheet.warnings` in
  * a banner, a recompute button, a debounced autosave on every field edit,
- * a totals footer, and a "Continue to Complete" stub (Task 18 fills in the
- * actual complete panel at `#complete-panel`). Selects the party's worksheet
- * React module via `app/finance/tax/parties/registry.ts`, keyed by the
- * party's `worksheetComponent`.
+ * a totals footer, and the complete panel at `#complete-panel`. Selects the
+ * party's worksheet React module via `app/finance/tax/parties/registry.ts`,
+ * keyed by the party's `worksheetComponent`.
+ *
+ * Once `task.status === "completed"`, the whole worksheet goes read-only:
+ * the Recompute button doesn't render, `handleFieldsChange`/`handleRecompute`
+ * are no-ops (so no autosave PATCH or recompute POST can fire), and the
+ * party worksheet component is rendered with `readOnly` so its manual
+ * fields render display-only. `CompletePanel` already handles its own
+ * read-only rendering once the task is completed.
  */
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -63,6 +69,9 @@ export default function TaxWorksheetShell({ taskId }: { taskId: string }) {
   const partiesQuery = useTaxPartiesQuery();
   const task = taskQuery.data;
   const party = partiesQuery.data?.find((p) => p.key === task?.party_key);
+  // Once a task is completed/submitted, its figures must be frozen — no
+  // autosave PATCH, no recompute POST, no editable manual fields.
+  const isCompleted = task?.status === "completed";
 
   const profileQuery = useQuery({
     queryKey: queryKeys.tax.profile(task?.party_key ?? ""),
@@ -135,6 +144,7 @@ export default function TaxWorksheetShell({ taskId }: { taskId: string }) {
   }
 
   function handleFieldsChange(nextFields: Record<string, number | string | null>) {
+    if (isCompleted) return;
     setWorksheet((cur) => {
       const next: WorksheetData = { ...cur, fields: nextFields };
       scheduleAutosave(next);
@@ -143,6 +153,7 @@ export default function TaxWorksheetShell({ taskId }: { taskId: string }) {
   }
 
   async function handleRecompute() {
+    if (isCompleted) return;
     setRecomputing(true);
     setRecomputeError(null);
     try {
@@ -216,19 +227,22 @@ export default function TaxWorksheetShell({ taskId }: { taskId: string }) {
         </Banner>
       )}
 
-      <div className="flex items-center justify-between mt-4 mb-2">
-        <SaveStatus state={saveState} />
-        <button className="btn-secondary" onClick={handleRecompute} disabled={recomputing}>
-          {recomputing ? "Recomputing…" : (party?.recomputeLabel ?? "Recompute")}
-        </button>
-      </div>
+      {!isCompleted && (
+        <div className="flex items-center justify-between mt-4 mb-2">
+          <SaveStatus state={saveState} />
+          <button className="btn-secondary" onClick={handleRecompute} disabled={recomputing}>
+            {recomputing ? "Recomputing…" : (party?.recomputeLabel ?? "Recompute")}
+          </button>
+        </div>
+      )}
 
-      <Card>
+      <Card className={isCompleted ? "mt-4" : undefined}>
         {worksheetModule ? (
           <worksheetModule.Worksheet
             fields={worksheet.fields}
             computedAt={computedAt}
             onFieldsChange={handleFieldsChange}
+            readOnly={isCompleted}
           />
         ) : (
           <p className="text-sm text-faint">No worksheet UI registered for &ldquo;{task.party_key}&rdquo;.</p>

@@ -16,6 +16,8 @@ export interface PartyWorksheetProps {
   /** `worksheet.meta.computedAt`, if present — used to key/remount money inputs on a fresh recompute. */
   computedAt?: string;
   onFieldsChange: (nextFields: Record<string, number | string | null>) => void;
+  /** True once the parent tax task is `completed` — every manual field renders display-only and edits must not be emitted. */
+  readOnly?: boolean;
 }
 
 export interface PartyWorksheetModule {

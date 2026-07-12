@@ -8,6 +8,11 @@
  * 13/15/21 client-side via `recomputeClientTotals` (the exact server
  * formula) so the totals update instantly — the server remains the source
  * of truth on the next autosave/recompute.
+ *
+ * `readOnly` (set by `TaxWorksheetShell` once the parent task is
+ * `completed`) forces every manual field to render display-only, the same
+ * as an already-computed field, and makes `updateField` a no-op — a
+ * submitted filing's figures can no longer be edited.
  */
 import { useState } from "react";
 import { fmtCents } from "@/lib/utils/formatting";
@@ -47,7 +52,12 @@ function num(v: number | string | null | undefined): number {
   return Number(v ?? 0);
 }
 
-export default function NcDorSalesUseWorksheet({ fields, computedAt, onFieldsChange }: PartyWorksheetProps) {
+export default function NcDorSalesUseWorksheet({
+  fields,
+  computedAt,
+  onFieldsChange,
+  readOnly = false,
+}: PartyWorksheetProps) {
   // Keyed into every money input so a fresh recompute (which changes
   // computedAt) remounts them and resyncs their displayed text to the new
   // server value — a same-generation keystroke never remounts, so the
@@ -55,6 +65,7 @@ export default function NcDorSalesUseWorksheet({ fields, computedAt, onFieldsCha
   const generation = computedAt ?? "initial";
 
   function updateField(key: string, value: number | string | null) {
+    if (readOnly) return;
     onFieldsChange(recomputeClientTotals({ ...fields, [key]: value }));
   }
 
@@ -69,9 +80,9 @@ export default function NcDorSalesUseWorksheet({ fields, computedAt, onFieldsCha
     <div className="flex flex-col gap-6">
       {/* Lines 1-3 */}
       <section className="flex flex-col gap-2">
-        <LineRow fieldKey="line1_gross_receipts" label="Line 1 — Gross Receipts" fields={fields} generation={generation} onChangeField={updateField} />
-        <LineRow fieldKey="line2_sales_for_resale" label="Line 2 — Deductions: Sales for Resale" fields={fields} generation={generation} onChangeField={updateField} />
-        <LineRow fieldKey="line3_exempt" label="Line 3 — Deductions: Exempt Sales" fields={fields} generation={generation} onChangeField={updateField} />
+        <LineRow fieldKey="line1_gross_receipts" label="Line 1 — Gross Receipts" fields={fields} generation={generation} onChangeField={updateField} readOnly={readOnly} />
+        <LineRow fieldKey="line2_sales_for_resale" label="Line 2 — Deductions: Sales for Resale" fields={fields} generation={generation} onChangeField={updateField} readOnly={readOnly} />
+        <LineRow fieldKey="line3_exempt" label="Line 3 — Deductions: Exempt Sales" fields={fields} generation={generation} onChangeField={updateField} readOnly={readOnly} />
       </section>
 
       {/* Rate-line table — Lines 4-12 */}
@@ -93,14 +104,14 @@ export default function NcDorSalesUseWorksheet({ fields, computedAt, onFieldsCha
                   {n}. {RATE_LINE_LABEL[n]}
                 </td>
                 <td className="py-1.5 px-2 text-right">
-                  <MoneyCell fieldKey={`line${n}_purchases`} fields={fields} generation={generation} onChangeField={updateField} />
+                  <MoneyCell fieldKey={`line${n}_purchases`} fields={fields} generation={generation} onChangeField={updateField} readOnly={readOnly} />
                 </td>
                 <td className="py-1.5 px-2 text-right">
-                  <MoneyCell fieldKey={`line${n}_receipts`} fields={fields} generation={generation} onChangeField={updateField} />
+                  <MoneyCell fieldKey={`line${n}_receipts`} fields={fields} generation={generation} onChangeField={updateField} readOnly={readOnly} />
                 </td>
                 <td className="py-1.5 px-2 text-right text-faint">{RATE_LINE_RATE_DISPLAY[n]}</td>
                 <td className="py-1.5 pl-2 text-right">
-                  <MoneyCell fieldKey={`line${n}_tax`} fields={fields} generation={generation} onChangeField={updateField} />
+                  <MoneyCell fieldKey={`line${n}_tax`} fields={fields} generation={generation} onChangeField={updateField} readOnly={readOnly} />
                 </td>
               </tr>
             ))}
@@ -110,29 +121,37 @@ export default function NcDorSalesUseWorksheet({ fields, computedAt, onFieldsCha
 
       {/* Lines 13-21 */}
       <section className="flex flex-col gap-2 border-t border-line pt-4">
-        <LineRow fieldKey="line13_total" label="Line 13 — Total Tax Due" fields={fields} generation={generation} onChangeField={updateField} emphasis />
-        <LineRow fieldKey="line14_excess" label="Line 14 — Excess Collections" fields={fields} generation={generation} onChangeField={updateField} />
-        <LineRow fieldKey="line15_total" label="Line 15 — Total (13 + 14)" fields={fields} generation={generation} onChangeField={updateField} emphasis />
-        <LineRow fieldKey="line16_penalty" label="Line 16 — Penalty" fields={fields} generation={generation} onChangeField={updateField} />
-        <LineRow fieldKey="line17_interest" label="Line 17 — Interest" fields={fields} generation={generation} onChangeField={updateField} />
-        <LineRow fieldKey="line18_less_prepay" label="Line 18 — Less: Prepayment" fields={fields} generation={generation} onChangeField={updateField} />
-        <LineRow fieldKey="line19_prepay_next" label="Line 19 — Prepayment for Next Period" fields={fields} generation={generation} onChangeField={updateField} />
-        <LineRow fieldKey="line20_credit" label="Line 20 — Credit" fields={fields} generation={generation} onChangeField={updateField} />
+        <LineRow fieldKey="line13_total" label="Line 13 — Total Tax Due" fields={fields} generation={generation} onChangeField={updateField} emphasis readOnly={readOnly} />
+        <LineRow fieldKey="line14_excess" label="Line 14 — Excess Collections" fields={fields} generation={generation} onChangeField={updateField} readOnly={readOnly} />
+        <LineRow fieldKey="line15_total" label="Line 15 — Total (13 + 14)" fields={fields} generation={generation} onChangeField={updateField} emphasis readOnly={readOnly} />
+        <LineRow fieldKey="line16_penalty" label="Line 16 — Penalty" fields={fields} generation={generation} onChangeField={updateField} readOnly={readOnly} />
+        <LineRow fieldKey="line17_interest" label="Line 17 — Interest" fields={fields} generation={generation} onChangeField={updateField} readOnly={readOnly} />
+        <LineRow fieldKey="line18_less_prepay" label="Line 18 — Less: Prepayment" fields={fields} generation={generation} onChangeField={updateField} readOnly={readOnly} />
+        <LineRow fieldKey="line19_prepay_next" label="Line 19 — Prepayment for Next Period" fields={fields} generation={generation} onChangeField={updateField} readOnly={readOnly} />
+        <LineRow fieldKey="line20_credit" label="Line 20 — Credit" fields={fields} generation={generation} onChangeField={updateField} readOnly={readOnly} />
         <div className="flex flex-col gap-1">
           <label className="text-xs text-faint" htmlFor="line20_credit_explanation">
             Line 20 explanation
           </label>
-          <input
-            id="line20_credit_explanation"
-            key={`line20_credit_explanation-${generation}`}
-            type="text"
-            className="inp-sm"
-            defaultValue={typeof fields.line20_credit_explanation === "string" ? fields.line20_credit_explanation : ""}
-            onChange={(e) => updateField("line20_credit_explanation", e.target.value)}
-            placeholder="Explain any credit claimed on Line 20…"
-          />
+          {readOnly ? (
+            <p id="line20_credit_explanation" className="text-sm text-body">
+              {typeof fields.line20_credit_explanation === "string" && fields.line20_credit_explanation
+                ? fields.line20_credit_explanation
+                : "—"}
+            </p>
+          ) : (
+            <input
+              id="line20_credit_explanation"
+              key={`line20_credit_explanation-${generation}`}
+              type="text"
+              className="inp-sm"
+              defaultValue={typeof fields.line20_credit_explanation === "string" ? fields.line20_credit_explanation : ""}
+              onChange={(e) => updateField("line20_credit_explanation", e.target.value)}
+              placeholder="Explain any credit claimed on Line 20…"
+            />
+          )}
         </div>
-        <LineRow fieldKey="line21_total_due" label="Line 21 — Total Due" fields={fields} generation={generation} onChangeField={updateField} emphasis />
+        <LineRow fieldKey="line21_total_due" label="Line 21 — Total Due" fields={fields} generation={generation} onChangeField={updateField} emphasis readOnly={readOnly} />
       </section>
 
       {/* Page 2 — county schedule */}
@@ -169,7 +188,7 @@ export default function NcDorSalesUseWorksheet({ fields, computedAt, onFieldsCha
   );
 }
 
-/** A label + value/input row for a single worksheet line, read-only or editable per `isComputedField`. */
+/** A label + value/input row for a single worksheet line, read-only or editable per `isComputedField` (and always read-only when `readOnly` is set). */
 function LineRow({
   fieldKey,
   label,
@@ -177,6 +196,7 @@ function LineRow({
   generation,
   emphasis,
   onChangeField,
+  readOnly = false,
 }: {
   fieldKey: string;
   label: string;
@@ -184,6 +204,7 @@ function LineRow({
   generation: string;
   emphasis?: boolean;
   onChangeField: (key: string, value: number | string | null) => void;
+  readOnly?: boolean;
 }) {
   const computed = isComputedField(fieldKey);
   return (
@@ -195,27 +216,29 @@ function LineRow({
         </span>
       ) : (
         <div className="w-32">
-          <MoneyCell fieldKey={fieldKey} fields={fields} generation={generation} onChangeField={onChangeField} />
+          <MoneyCell fieldKey={fieldKey} fields={fields} generation={generation} onChangeField={onChangeField} readOnly={readOnly} />
         </div>
       )}
     </div>
   );
 }
 
-/** A single money cell: read-only formatted text for computed fields, an editable money input otherwise. */
+/** A single money cell: read-only formatted text for computed fields (or when `readOnly`), an editable money input otherwise. */
 function MoneyCell({
   fieldKey,
   fields,
   generation,
   onChangeField,
+  readOnly = false,
 }: {
   fieldKey: string;
   fields: Fields;
   generation: string;
   onChangeField: (key: string, value: number | string | null) => void;
+  readOnly?: boolean;
 }) {
   const value = fields[fieldKey];
-  if (isComputedField(fieldKey)) {
+  if (isComputedField(fieldKey) || readOnly) {
     return <span className="tabular-nums text-body">{fmtCents(num(value))}</span>;
   }
   return (
