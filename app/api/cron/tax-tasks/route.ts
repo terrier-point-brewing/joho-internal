@@ -64,11 +64,21 @@ export async function GET(req: NextRequest) {
         continue;
       }
 
-      const party = getParty(task.party_key);
-      const { subject, html } = renderTaxAlertEmail(task, party, schedule);
-      await sendEmail(ADMIN_EMAIL, subject, html);
-      await markAlerted(supabase, task.id);
-      alertsSent++;
+      try {
+        const party = getParty(task.party_key);
+        const { subject, html } = renderTaxAlertEmail(task, party, schedule);
+        await sendEmail(ADMIN_EMAIL, subject, html);
+        await markAlerted(supabase, task.id);
+        alertsSent++;
+      } catch (err) {
+        // Isolate one task's send/mark failure (e.g. a Resend outage) so it
+        // doesn't abort the loop and silently defer every other due task's
+        // alert this run. markAlerted is inside the try, so a failed send
+        // never marks the task alerted — it stays a candidate and retries
+        // next run.
+        console.error("[tax-tasks] failed to send/mark alert for task", { taskId: task.id, scheduleId: task.schedule_id, err });
+        continue;
+      }
     }
 
     return {
