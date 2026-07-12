@@ -1,0 +1,35 @@
+/**
+ * Registry metadata for every registered tax party template — powers the
+ * "add schedule" / worksheet UI (which parties exist, what frequencies they
+ * support, their settings/schedule-config field specs, and their reference
+ * tables). No filing data lives here; read-gated the same as the rest of the
+ * tax module's GETs (manager+).
+ */
+import { NextResponse } from "next/server";
+import { requireRole } from "@/lib/auth";
+import { apiError } from "@/lib/utils/api";
+import { listParties } from "@/lib/tax/registry";
+// Side-effect import: registers every party template before listParties() runs.
+import "@/lib/tax/parties";
+
+export const dynamic = "force-dynamic";
+
+export async function GET() {
+  try { await requireRole(["manager"]); } catch (res) { return res as Response; }
+
+  try {
+    const parties = listParties().map((party) => ({
+      key: party.key,
+      label: party.label,
+      supportedFrequencies: party.supportedFrequencies,
+      settingsSchema: party.settingsSchema,
+      scheduleConfigSchema: party.scheduleConfigSchema,
+      referenceView: party.referenceView,
+      recomputeLabel: party.recomputeLabel,
+      worksheetComponent: party.worksheetComponent,
+    }));
+    return NextResponse.json(parties);
+  } catch (err) {
+    return apiError(err);
+  }
+}

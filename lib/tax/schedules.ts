@@ -12,6 +12,12 @@ export interface ListSchedulesFilter {
   activeOnly?: boolean;
 }
 
+export async function getSchedule(sb: SupabaseClient, id: string): Promise<TaxSchedule | null> {
+  const { data, error } = await sb.from("tax_schedules").select("*").eq("id", id).maybeSingle();
+  if (error) throw new Error(error.message);
+  return (data as TaxSchedule | null) ?? null;
+}
+
 export async function listSchedules(sb: SupabaseClient, filter: ListSchedulesFilter = {}): Promise<TaxSchedule[]> {
   let query = sb.from("tax_schedules").select("*").order("created_at", { ascending: true });
   if (filter.partyKey) query = query.eq("party_key", filter.partyKey);

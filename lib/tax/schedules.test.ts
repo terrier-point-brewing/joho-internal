@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { TaxSchedule } from "./types";
-import { listSchedules, createSchedule, updateSchedule, setScheduleActive } from "./schedules";
+import { listSchedules, createSchedule, updateSchedule, setScheduleActive, getSchedule } from "./schedules";
 
 const sampleSchedule: TaxSchedule = {
   id: "SCHED_1",
@@ -71,6 +71,52 @@ describe("listSchedules", () => {
     } as unknown as SupabaseClient;
 
     await expect(listSchedules(client)).rejects.toThrow(/boom/);
+  });
+});
+
+describe("getSchedule", () => {
+  it("returns the schedule when a row matches the id", async () => {
+    const client = {
+      from: () => {
+        const b: Record<string, unknown> = {};
+        b.select = () => b;
+        b.eq = () => b;
+        b.maybeSingle = () => Promise.resolve({ data: sampleSchedule, error: null });
+        return b;
+      },
+    } as unknown as SupabaseClient;
+
+    const result = await getSchedule(client, "SCHED_1");
+    expect(result).toEqual(sampleSchedule);
+  });
+
+  it("returns null when no schedule matches the id", async () => {
+    const client = {
+      from: () => {
+        const b: Record<string, unknown> = {};
+        b.select = () => b;
+        b.eq = () => b;
+        b.maybeSingle = () => Promise.resolve({ data: null, error: null });
+        return b;
+      },
+    } as unknown as SupabaseClient;
+
+    const result = await getSchedule(client, "MISSING");
+    expect(result).toBeNull();
+  });
+
+  it("throws with the Supabase error message on query failure", async () => {
+    const client = {
+      from: () => {
+        const b: Record<string, unknown> = {};
+        b.select = () => b;
+        b.eq = () => b;
+        b.maybeSingle = () => Promise.resolve({ data: null, error: { message: "boom" } });
+        return b;
+      },
+    } as unknown as SupabaseClient;
+
+    await expect(getSchedule(client, "SCHED_1")).rejects.toThrow(/boom/);
   });
 });
 
