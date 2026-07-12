@@ -3,13 +3,21 @@
 import { useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import { fetchJson } from "@/app/production/hooks/queries";
-import type { TaxSchedule, TaxTask } from "@/lib/tax/types";
+import type { FieldSpec, ReferenceSpec, TaxSchedule, TaxTask } from "@/lib/tax/types";
 
-/** Serialized shape of `GET /api/tax/parties` — registry metadata only, no filing data. */
+/**
+ * Serialized shape of `GET /api/tax/parties` — registry metadata only, no
+ * filing data. Mirrors the field set built in app/api/tax/parties/route.ts
+ * (`settingsSchema`/`scheduleConfigSchema` are needed by the schedule editor
+ * to render party-specific config fields, e.g. NC DOR's county weights).
+ */
 export interface TaxPartyMeta {
   key: string;
   label: string;
   supportedFrequencies: string[];
+  settingsSchema: FieldSpec[];
+  scheduleConfigSchema: FieldSpec[];
+  referenceView: ReferenceSpec;
   recomputeLabel?: string;
   worksheetComponent: string;
 }

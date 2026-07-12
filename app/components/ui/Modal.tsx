@@ -90,17 +90,20 @@ export function ModalActions({
   submitting,
   onCancel,
   label,
+  disabled,
 }: {
   submitting: boolean;
   onCancel: () => void;
   label: string;
+  /** Disable submit for a reason other than in-flight (e.g. a client-side validation error). */
+  disabled?: boolean;
 }) {
   return (
     <div className="flex justify-end gap-2 pt-2 border-t border-line mt-4">
       <button type="button" onClick={onCancel} className="btn-secondary">
         Cancel
       </button>
-      <button type="submit" disabled={submitting} className="btn-primary">
+      <button type="submit" disabled={submitting || disabled} className="btn-primary">
         {submitting ? "Saving…" : label}
       </button>
     </div>
