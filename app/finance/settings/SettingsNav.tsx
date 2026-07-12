@@ -7,6 +7,7 @@ const SUBTABS = [
   { href: "/finance/settings/expense-accounts",  label: "Expense Accounts"  },
   { href: "/finance/settings/counterparty-accounts", label: "Counterparty Accounts" },
   { href: "/finance/settings/excise-tax",        label: "Excise Tax"        },
+  { href: "/finance/settings/tax-filing",        label: "Tax Filing"        },
   { href: "/finance/settings/payroll",           label: "Payroll"           },
 ];
 
