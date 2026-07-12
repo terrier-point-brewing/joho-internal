@@ -24,18 +24,28 @@ export interface FinancialsRow {
   sourceRef: { table: string; ids: string[] };
 }
 
-// Placeholder rollup shapes — full definitions land with the report-building
-// task that consumes them. Kept minimal so FinancialsResponse type-checks.
+// KPI health-strip + data-quality/reconciliation summary shapes, built by
+// lib/finance/financials/summaries.ts. Percentages are plain numbers in
+// "percent" units (e.g. 62.5 means 62.5%). All *Cents fields are integer
+// cents. Not every field here is derivable from FinancialsRow[] alone --
+// see summaries.ts's header comment for the row-derivable vs
+// parameter-supplied split (strandedDeposit, exciseCoverage.
+// shipmentsMissingExcise, and cashOnHandCents come from Task 6's DB fetch).
 export interface DataQualitySummary {
-  unmappedCount: number;
-  partialBblCoverageCount: number;
-  ruleMappedCount: number;
+  unmapped: { count: number; cents: number; href: string };
+  uncategorized: { count: number; cents: number; href: string };
+  unknownVolume: { count: number; cents: number; href: string };
+  strandedDeposit: { count: number; cents: number; href: string };
+  exciseCoverage: { shipmentsMissingExcise: number; href: string };
 }
 
 export interface KpiSummary {
-  revenueCents: number;
-  cogsCents: number;
-  grossMarginCents: number;
+  netIncomeCents: Record<string, number>;
+  grossMarginPct: Record<string, number>;
+  revenueCents: Record<string, number>;
+  revenueMoMPct: Record<string, number>;
+  operatingCashCents: Record<string, number>;
+  cashOnHandCents: number | null;
 }
 
 export interface FinancialsResponse {
