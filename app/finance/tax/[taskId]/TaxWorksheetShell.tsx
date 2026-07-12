@@ -21,6 +21,7 @@ import { fmtCents, fmtDateLong } from "@/lib/utils/formatting";
 import type { FieldSpec, TaxTask, WorksheetData } from "@/lib/tax/types";
 import { useTaxPartiesQuery } from "../hooks/useTaxData";
 import { getWorksheetModule } from "../parties/registry";
+import CompletePanel from "./CompletePanel";
 
 const AUTOSAVE_DEBOUNCE_MS = 800;
 
@@ -234,17 +235,17 @@ export default function TaxWorksheetShell({ taskId }: { taskId: string }) {
         )}
       </Card>
 
-      <div className="flex items-center justify-between mt-4 border-t border-line pt-4">
+      <div className="flex items-center justify-between mt-4 mb-4 border-t border-line pt-4">
         <div>
           <p className="text-xs text-faint uppercase tracking-wide">Total Due</p>
           <p className="text-lg font-semibold text-strong tabular-nums">
             {totalDueCents != null ? fmtCents(totalDueCents) : "—"}
           </p>
         </div>
-        {/* Task 18 fills in the actual complete panel here; this anchor/button is a placeholder slot. */}
-        <a id="complete-panel" href="#complete-panel" className="btn-primary">
-          Continue to Complete
-        </a>
+      </div>
+
+      <div id="complete-panel">
+        <CompletePanel taskId={taskId} task={task} />
       </div>
     </main>
   );
