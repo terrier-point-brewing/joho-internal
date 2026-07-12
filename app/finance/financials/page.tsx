@@ -12,14 +12,26 @@ import { useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import { fetchJson } from "@/app/production/hooks/queries";
 import { formatCurrencyCents, formatPercent, EM_DASH } from "@/lib/format";
-import type { FinancialsResponse, Measure, StatementKind } from "@/lib/finance/financials/types";
+import type { FinancialsResponse, FinancialsRow, Measure, StatementKind } from "@/lib/finance/financials/types";
+import type { StatementSection } from "@/lib/finance/accountSections";
 import PageHeader from "@/app/components/PageHeader";
 import Banner from "@/app/components/ui/Banner";
 import Card from "@/app/components/ui/Card";
 import TabBar, { type TabDef } from "@/app/components/TabBar";
+import { useTableControls } from "@/app/components/ui/useTableControls";
+import SearchInput from "@/app/components/ui/SearchInput";
+import FilterChips from "@/app/components/ui/FilterChips";
+import FilterSelect from "@/app/components/ui/FilterSelect";
+import FilterBar from "@/app/components/ui/FilterBar";
 import FinanceNav from "../FinanceNav";
 import FinancialsTable from "./FinancialsTable";
 import { buildTree } from "./buildTree";
+import { buildFinancialsControls, retainAncestors, CHANNEL_OPTIONS, QUALITY_OPTIONS, SECTION_LABEL } from "./controls";
+
+// Stable empty-array reference so useTableControls/useMemo deps don't churn
+// on every render while `data` is still loading (a fresh `[]` literal would
+// be a new reference each time).
+const EMPTY_ROWS: FinancialsRow[] = [];
 
 const STATEMENT_TABS: TabDef<StatementKind>[] = [
   { key: "pl",            label: "P&L" },
@@ -108,7 +120,37 @@ export default function FinancialsPage() {
     if (next !== "pl") setMeasure("amount");
   }
 
-  const tree = useMemo(() => (data ? buildTree(data.rows, statement) : []), [data, statement]);
+  // Search/filter/sort config is dynamic (Total + one sort column per fetched
+  // month) -- rebuild it whenever the month range changes, matching
+  // ExportInvoicesTab.tsx's dynamic-config precedent for a config that closes
+  // over fetched data.
+  const financialsControls = useMemo(() => buildFinancialsControls(data?.months ?? []), [data?.months]);
+
+  const {
+    rows: survivorRows, search, filters, sort, setSearch, setFilter, toggleSort, reset, activeCount,
+  } = useTableControls(data?.rows ?? EMPTY_ROWS, financialsControls, { prefix: "fin_" });
+
+  const sectionOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const opts: { value: string; label: string }[] = [];
+    for (const r of data?.rows ?? EMPTY_ROWS) {
+      if (seen.has(r.statementSection)) continue;
+      seen.add(r.statementSection);
+      opts.push({ value: r.statementSection, label: SECTION_LABEL[r.statementSection as StatementSection] ?? r.statementSection });
+    }
+    return opts;
+  }, [data]);
+
+  // Flat-engine -> hierarchical-statement adaptation (spec §8): the engine
+  // filters/sorts the flat rows, but buildTree needs a well-formed tree --
+  // retainAncestors adds back any parent account rows a surviving child
+  // needs so it never renders orphaned under nothing.
+  const treeRows = useMemo(
+    () => retainAncestors(survivorRows, data?.rows ?? EMPTY_ROWS),
+    [survivorRows, data],
+  );
+
+  const tree = useMemo(() => (data ? buildTree(treeRows, statement) : []), [data, treeRows, statement]);
 
   return (
     <div className="flex flex-col h-full bg-canvas text-primary">
@@ -147,6 +189,33 @@ export default function FinancialsPage() {
       <div className="flex-1 overflow-auto px-4 sm:px-6 pb-6 pt-4">
         <KpiStrip data={data} />
 
+        <FilterBar activeCount={activeCount} onClear={reset} className="mb-4">
+          <SearchInput
+            value={search.q ?? ""}
+            onChange={(v) => setSearch("q", v)}
+            placeholder="Search accounts…"
+          />
+          <FilterChips
+            label="Channel"
+            options={CHANNEL_OPTIONS}
+            value={filters.channel ?? []}
+            onChange={(v) => setFilter("channel", v)}
+            multiple
+          />
+          <FilterSelect
+            label="Section"
+            options={sectionOptions}
+            value={filters.section ?? []}
+            onChange={(v) => setFilter("section", v)}
+          />
+          <FilterChips
+            label="Quality"
+            options={QUALITY_OPTIONS}
+            value={filters.quality ?? []}
+            onChange={(v) => setFilter("quality", v)}
+          />
+        </FilterBar>
+
         {isFetching && !data && (
           <div className="flex items-center justify-center h-32">
             <p className="text-xs text-faint">Loading…</p>
@@ -155,7 +224,7 @@ export default function FinancialsPage() {
 
         {data && (
           <div className="bg-surface border border-line rounded-lg overflow-hidden">
-            <FinancialsTable tree={tree} months={data.months} measure={measure} />
+            <FinancialsTable tree={tree} months={data.months} measure={measure} sort={sort} onSort={toggleSort} />
           </div>
         )}
       </div>
