@@ -120,6 +120,14 @@ export const queryKeys = {
     shifts:    (id: string) => ["payroll", "shifts", id] as const,
   },
 
+  // ─── Tax ──────────────────────────────────────────────────────────────────
+  tax: {
+    all:       () => ["tax"] as const,
+    tasks:     () => ["tax", "tasks"] as const,
+    schedules: () => ["tax", "schedules"] as const,
+    parties:   () => ["tax", "parties"] as const,
+  },
+
   // ─── Settings (app-wide) ──────────────────────────────────────────────────
   settings: {
     all:             () => ["settings"] as const,
