@@ -176,6 +176,38 @@ describe("buildFinancials", () => {
     expect(sumByChannel).toBe(10000 + 8000 - 4000);
   });
 
+  it("attributes an invoice's export volume ONCE across its lines, not once per volume-bearing line (fetchSources.ts fetchInvoiceLines fix)", async () => {
+    // Fixture models fetchInvoiceLines' post-fix contract: an invoice with a
+    // keg line + a can line gets its total export volume (3 bbl) on ONE
+    // representative line and 0 on the other -- never replicated onto both.
+    const months = ["2026-06"];
+    mockedFetch.mockResolvedValue({
+      ...emptySources(months),
+      invoiceLines: [
+        {
+          id: "inv-line-keg", totalCents: 8000, invoiceDate: "2026-06-10",
+          chartOfAccountsId: "coa-rev", bsChartOfAccountsId: null, plChartOfAccountsId: null,
+          deliveryInvoiceId: null, accountMode: null, deliveryInvoicePaid: false,
+          exportChannel: "distribution", volumeBbl: 3,
+        },
+        {
+          id: "inv-line-can", totalCents: 2000, invoiceDate: "2026-06-10",
+          chartOfAccountsId: "coa-cogs", bsChartOfAccountsId: null, plChartOfAccountsId: null,
+          deliveryInvoiceId: null, accountMode: null, deliveryInvoicePaid: false,
+          exportChannel: "distribution", volumeBbl: 0,
+        },
+      ],
+    });
+
+    const resp = await buildFinancials({ statement: "pl", year: 2026 });
+    const month = "2026-06";
+
+    const totalBbl = resp.rows.reduce((s, row) => s + (row.bblByMonth[month] ?? 0), 0);
+
+    // Not 6 (3 + 3 double-counted) -- exactly the invoice's real 3 bbl.
+    expect(totalBbl).toBe(3);
+  });
+
   it("passes strandedDeposit and exciseCoverage through to dataQuality with hrefs attached", async () => {
     mockedFetch.mockResolvedValue({
       ...emptySources(["2026-06"]),

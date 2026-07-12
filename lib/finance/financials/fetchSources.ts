@@ -214,8 +214,7 @@ async function fetchInvoiceLines(supabase: SupabaseClient, range: DateRange, cas
     .select(`
       id, total_cents, category, chart_of_accounts_id, bs_chart_of_accounts_id, pl_chart_of_accounts_id,
       delivery_invoice_id, account_mode,
-      invoices!invoice_line_items_invoice_id_fkey!inner ( id, invoice_date, status ),
-      export_transactions ( channel, volume_bbl )
+      invoices!invoice_line_items_invoice_id_fkey!inner ( id, invoice_date, status, export_transactions ( channel, volume_bbl ) )
     `)
     .neq("invoices.status", "voided")
     .lte("invoices.invoice_date", range.endDateStr);
@@ -232,8 +231,12 @@ async function fetchInvoiceLines(supabase: SupabaseClient, range: DateRange, cas
     pl_chart_of_accounts_id: string | null;
     delivery_invoice_id: string | null;
     account_mode: "force_bs" | "force_pl" | null;
-    invoices: { id: string; invoice_date: string; status: string };
-    export_transactions: { channel: string; volume_bbl: number | null }[] | null;
+    invoices: {
+      id: string;
+      invoice_date: string;
+      status: string;
+      export_transactions: { channel: string; volume_bbl: number | null }[] | null;
+    };
   }[];
 
   // Deposit recognition: which linked delivery invoices are paid (mirrors
@@ -245,19 +248,38 @@ async function fetchInvoiceLines(supabase: SupabaseClient, range: DateRange, cas
     for (const d of deliveries ?? []) paidDeliveryIds.add(d.id);
   }
 
+  // export_transactions links at the invoice level, not per line item, so an
+  // invoice's total volume must be attributed exactly ONCE across that
+  // invoice's lines -- otherwise a multi-volume-line invoice (e.g. a keg line
+  // + a can line) has its BBL replicated onto every volume-bearing line,
+  // overstating bblByMonth once aggregateRows sums across lines. Volume is
+  // per-shipment, not per-GL-line, so there's no correct way to split it at
+  // the fine account grain; instead we concentrate the invoice's full volume
+  // onto a single representative volume-bearing line (the first one
+  // encountered) and record 0 on the rest. Channel/month BBL totals are
+  // still correct since channel is invoice-level and all of an invoice's
+  // volume shares one channel -- only the per-account-row grain is coarser.
+  const volumeAssignedInvoiceIds = new Set<string>();
+
   return rows.map((r) => {
-    const exports = r.export_transactions ?? [];
-    // export_transactions links at the invoice level, not per line item, so a
-    // line's channel/volume is attributed from its invoice's export txns.
+    const exports = r.invoices.export_transactions ?? [];
     // Known limitation: when an invoice has multiple export_transactions of
-    // different channels ("ambiguous"), or spans multiple volume-bearing
-    // lines, this can't split volume precisely per line -- it sums the
-    // invoice's total volume onto each volume-bearing line's category. Flag
-    // for validation once real data is available (see task report).
+    // different channels ("ambiguous"), this can't resolve a single channel
+    // per line. Flag for validation once real data is available (see task
+    // report).
     const channelSet = new Set(exports.map((e) => e.channel).filter((c) => EXPORT_CHANNELS.has(c)));
     const exportChannel = channelSet.size === 1 ? [...channelSet][0] : null;
     const totalVolumeBbl = exports.reduce((s, e) => s + (e.volume_bbl ?? 0), 0);
-    const volumeBbl = r.category && VOLUME_CATEGORIES.has(r.category) ? totalVolumeBbl : null;
+
+    let volumeBbl: number | null = null;
+    if (r.category && VOLUME_CATEGORIES.has(r.category)) {
+      if (volumeAssignedInvoiceIds.has(r.invoices.id)) {
+        volumeBbl = 0;
+      } else {
+        volumeBbl = totalVolumeBbl;
+        volumeAssignedInvoiceIds.add(r.invoices.id);
+      }
+    }
 
     return {
       id: r.id,
@@ -299,7 +321,6 @@ async function fetchBank(supabase: SupabaseClient, range: DateRange): Promise<Ba
   let q = supabase
     .from("ramp_bank_ledger")
     .select("id, chart_of_accounts_id, amount_cents, transaction_date, mapping_source")
-    .not("chart_of_accounts_id", "is", null)
     .lte("transaction_date", range.endDateStr);
   if (range.startDateStr) q = q.gte("transaction_date", range.startDateStr);
 

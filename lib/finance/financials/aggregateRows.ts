@@ -60,7 +60,14 @@ export interface InvoiceLineRecord {
   deliveryInvoicePaid: boolean;
   /** export_transactions.channel, joined via export_transactions.invoice_id = this line's invoice. */
   exportChannel: string | null;
-  /** export_transactions.volume_bbl for this line, when it represents a beer sale; null for non-volume lines (fees, taxes, materials). */
+  /**
+   * export_transactions.volume_bbl for this line, when it represents a beer
+   * sale; null for non-volume lines (fees, taxes, materials). Volume is
+   * invoice-level, not per-line, so when an invoice has multiple
+   * volume-bearing lines its total volume is concentrated on ONE
+   * representative line (0 on the rest) to avoid double-counting when
+   * bblByMonth sums across lines — see fetchSources.ts's fetchInvoiceLines.
+   */
   volumeBbl: number | null;
 }
 
