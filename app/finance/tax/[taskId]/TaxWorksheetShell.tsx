@@ -116,6 +116,24 @@ export default function TaxWorksheetShell({ taskId }: { taskId: string }) {
     };
   }, []);
 
+  // Warn before the tab closes/reloads while there's an unsaved edit —
+  // otherwise a failed (or still-debouncing) autosave silently loses the
+  // edit on navigation. Active whenever dirtyRef is true (pending or failed
+  // save). Keyed on both `worksheet` (changes synchronously on every field
+  // edit, the same tick dirtyRef flips true) and `saveState` (changes when
+  // the save resolves/fails) so the listener attaches immediately on edit
+  // and detaches immediately once a save succeeds, rather than waiting on
+  // the debounce timer.
+  useEffect(() => {
+    if (!dirtyRef.current) return;
+    function handleBeforeUnload(e: BeforeUnloadEvent) {
+      e.preventDefault();
+      e.returnValue = "";
+    }
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [worksheet, saveState]);
+
   function scheduleAutosave(next: WorksheetData) {
     dirtyRef.current = true;
     setSaveState("idle");
