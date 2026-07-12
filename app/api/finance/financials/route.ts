@@ -11,7 +11,7 @@ import { parseFinancialsParams } from "@/lib/finance/financials/parseParams";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
-  try { await requireRole(["viewer"]); } catch (res) { return res as Response; }
+  try { await requireRole([]); } catch (res) { return res as Response; }
 
   const parsed = parseFinancialsParams(req.nextUrl.searchParams);
   if (!parsed.ok) return apiError(parsed.error, 400);
