@@ -20,13 +20,13 @@
 import type { CatalogItem, Order } from "@/types/square";
 import { CATEGORY_IDS } from "@/lib/constants/categories";
 import { KEG_TRANSFER_DISCOUNT_NAME } from "@/types/reports";
-import { GALLONS_PER_BBL } from "@/lib/constants/production";
+import { GALLONS_PER_BBL, KEG_GALLONS_BY_SIZE } from "@/lib/constants/production";
 import { mapDiscountsByUid } from "@/lib/utils/orders";
 
 const KEG_GALLONS: Record<string, number> = {
-  "1/2 Keg": 15.5,
-  "1/4 Keg": 7.75,
-  "1/6 Keg": 5.167,
+  "1/2 Keg": KEG_GALLONS_BY_SIZE.half,
+  "1/4 Keg": KEG_GALLONS_BY_SIZE.quarter,
+  "1/6 Keg": KEG_GALLONS_BY_SIZE.sixth,
 };
 
 const STATE_EXCISE_PER_GALLON = 0.6171; // NC

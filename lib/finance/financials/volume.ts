@@ -6,19 +6,7 @@
 import type { BblCoverage } from "./types";
 import { CATEGORY_IDS } from "@/lib/constants/categories";
 import { canOzPerUnit } from "@/lib/reports/bbl-tracker";
-import { GALLONS_PER_BBL, BBL_TO_FL_OZ } from "@/lib/constants/production";
-
-// Physical keg-size -> gallons table. Mirrors the private KEG_GALLONS map in
-// lib/reports/bbl-tracker.ts (not exported there, so duplicated here as a
-// constant lookup only). The *parsing* of keg-size tokens from variation
-// names is NOT re-implemented here — callers pass the already-parsed enum
-// produced by lib/reports/kegs.ts's parseKegSizeToken (also used by
-// lib/finance/financials/dimensions.ts's deriveKegSize).
-const KEG_SIZE_GALLONS: Record<"half" | "quarter" | "sixth", number> = {
-  half: 15.5,
-  quarter: 7.75,
-  sixth: 5.167,
-};
+import { GALLONS_PER_BBL, BBL_TO_FL_OZ, KEG_GALLONS_BY_SIZE } from "@/lib/constants/production";
 
 // Beer/volume-bearing Square reporting categories, per the shared
 // CATEGORY_IDS constant (lib/constants/categories.ts) — the single source of
@@ -53,7 +41,7 @@ export function rowBbl(row: BblSourceRow): { bbl: number; coverage: BblCoverage 
   }
 
   if (row.kegSize === "half" || row.kegSize === "quarter" || row.kegSize === "sixth") {
-    const gallons = KEG_SIZE_GALLONS[row.kegSize] * row.quantity;
+    const gallons = KEG_GALLONS_BY_SIZE[row.kegSize] * row.quantity;
     return { bbl: gallons / GALLONS_PER_BBL, coverage: "full" };
   }
 
