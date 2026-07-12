@@ -102,6 +102,37 @@ describe("buildTree — pl", () => {
   });
 });
 
+// I1 fix (Task 15 final review): Gross Profit must exclude Other Income so it
+// never disagrees with the grossMarginPct KPI (lib/finance/financials/
+// summaries.ts's buildKpis, which is (revenue - cogs) / revenue with no
+// other_income term -- spec §7). Total Income still includes other_income;
+// Net Income still includes everything.
+describe("buildTree — pl, Gross Profit excludes Other Income (I1)", () => {
+  const rows: FinancialsRow[] = [
+    row({
+      coaId: "rev-1", accountName: "Draft Sales", statementSection: "revenue",
+      amountCentsByMonth: { "2026-01": 15000 },
+    }),
+    row({
+      coaId: "cogs-1", accountName: "Ingredients", statementSection: "cogs",
+      amountCentsByMonth: { "2026-01": -3000 },
+    }),
+    row({
+      coaId: "oi-1", accountName: "Interest Income", statementSection: "other_income",
+      amountCentsByMonth: { "2026-01": 500 },
+    }),
+  ];
+
+  const tree = buildTree(rows, "pl");
+
+  it("Gross Profit == revenue - COGS, excluding a non-zero Other Income", () => {
+    const [, , totalIncome, , grossProfit, , , netIncome] = tree;
+    expect(totalIncome.row?.amountCentsByMonth["2026-01"]).toBe(15500); // includes other_income
+    expect(grossProfit.row?.amountCentsByMonth["2026-01"]).toBe(12000); // 15000 - 3000, excludes other_income
+    expect(netIncome.row?.amountCentsByMonth["2026-01"]).toBe(12500); // still includes everything
+  });
+});
+
 describe("buildTree — pl parent/child COA accounts", () => {
   const rows: FinancialsRow[] = [
     row({

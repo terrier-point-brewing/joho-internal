@@ -47,7 +47,23 @@ describe("normalizeSignedCents", () => {
     expect(normalizeSignedCents(20000, "ap", "bank")).toBe(-20000);
   });
 
-  it("other_expense normalizes to negative", () => {
-    expect(normalizeSignedCents(900, "other_expense", "expense")).toBe(-900);
+  it("other_expense (already-signed negative input, a spend) normalizes to negative", () => {
+    expect(normalizeSignedCents(-900, "other_expense", "expense")).toBe(-900);
+  });
+
+  // ── C1 fix: expense/bank rows on a P&L section pass through their
+  // cash-direction sign unchanged instead of being re-signed from the
+  // section. A positive (credit/inflow) amount must offset cost / read as
+  // income, not become -magnitude. See lib/finance/financials/normalizeSign.ts
+  // header comment + Task 15 final review, finding C1.
+  it("expense credit (already-signed positive input) mapped to expenses normalizes to positive, offsetting cost", () => {
+    expect(normalizeSignedCents(1500, "expenses", "expense")).toBe(1500);
+  });
+
+  // "bank interest_income (already-signed positive input) normalizes to
+  // positive" above already covers bank/other_income/positive-input.
+
+  it("bank outflow mapped to a Balance Sheet section (fixed_assets) still normalizes to a positive asset (BS path unchanged)", () => {
+    expect(normalizeSignedCents(-75000, "fixed_assets", "bank")).toBe(75000);
   });
 });

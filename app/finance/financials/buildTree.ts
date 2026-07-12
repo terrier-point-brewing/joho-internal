@@ -219,7 +219,13 @@ function buildPl(rows: FinancialsRow[], months: string[]): TreeNode[] {
   const totalIncome = subtotal("Total Income", [revenue, otherIncome], months);
 
   const cogs = buildSection(rows, "cogs", "Cost of Goods Sold", months);
-  const grossProfit = subtotal("Gross Profit", [revenue, otherIncome, cogs], months);
+  // Gross Profit excludes Other Income by convention -- and must match the
+  // grossMarginPct KPI (lib/finance/financials/summaries.ts), which is
+  // (revenue - cogs) / revenue with no other_income term. Total Income above
+  // still includes other_income; Net Income below still includes everything.
+  // See spec §7 (KPI and statement must never disagree) + Task 15 final
+  // review, finding I1.
+  const grossProfit = subtotal("Gross Profit", [revenue, cogs], months);
 
   const opEx = buildSection(rows, "expenses", "Operating Expenses", months);
   const otherExp = buildSection(rows, "other_expense", "Other Expenses", months);

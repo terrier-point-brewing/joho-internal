@@ -315,7 +315,7 @@ async function fetchExpenses(supabase: SupabaseClient, range: DateRange, cashOnl
   }));
 }
 
-async function fetchBank(supabase: SupabaseClient, range: DateRange): Promise<BankLedgerRecord[]> {
+async function fetchBank(supabase: SupabaseClient, range: DateRange, statement: StatementKind): Promise<BankLedgerRecord[]> {
   // ramp_bank_ledger rows are settled bank-account movement by definition --
   // there is no separate "cleared" concept to filter on for cash_flow mode.
   let q = supabase
@@ -323,6 +323,19 @@ async function fetchBank(supabase: SupabaseClient, range: DateRange): Promise<Ba
     .select("id, chart_of_accounts_id, amount_cents, transaction_date, mapping_source")
     .lte("transaction_date", range.endDateStr);
   if (range.startDateStr) q = q.gte("transaction_date", range.startDateStr);
+
+  // ramp_bank_ledger mixes true P&L movement (interest_income) with rows that
+  // never belong on the P&L/cash-flow statement -- internal_transfer,
+  // bill_settlement, card_settlement, deposit, unclassified (20260725
+  // migration's affects_pl flag). Including those in pl/cash_flow
+  // double-counts the expense they settle and pollutes income with
+  // transfers (C2, Task 15 final review). balance_sheet's cumulative cash
+  // balance legitimately needs every row that moved the bank balance,
+  // transfers/settlements included -- deliberately left unfiltered here;
+  // that BS bank treatment is a separate open item, not addressed by this fix.
+  if (statement === "pl" || statement === "cash_flow") {
+    q = q.eq("affects_pl", true);
+  }
 
   const { data } = await q;
   return (data ?? []).map((r) => ({
@@ -395,7 +408,7 @@ export async function fetchFinancialsSources(params: { statement: StatementKind;
     fetchPos(supabase, range),
     fetchInvoiceLines(supabase, range, cashOnly),
     fetchExpenses(supabase, range, cashOnly),
-    fetchBank(supabase, range),
+    fetchBank(supabase, range, statement),
     fetchRefunds(supabase, range),
     fetchStrandedDeposit(supabase),
     fetchExciseCoverage(supabase, year),
