@@ -11,7 +11,8 @@
 import { fetchFinancialsSources } from "./fetchSources";
 import { aggregateRows } from "./aggregateRows";
 import { buildKpis, buildDataQuality } from "./summaries";
-import type { FinancialsResponse, StatementKind } from "./types";
+import { ACCOUNT_TYPE_SECTION } from "../accountSections";
+import type { FinancialsResponse, FinancialsRow, StatementKind } from "./types";
 
 // Deep links into the Transactions subtabs (app/finance/transactions/{orders,invoices,expenses,bank-ledger}).
 // Exact filter-param wiring may be refined by the panel task; these are
@@ -24,6 +25,55 @@ const HREFS = {
   exciseCoverage: "/finance/transactions/invoices?filter=excise-coverage",
 };
 
+/**
+ * BS mode only (C3): ports app/api/finance/statements/route.ts:474-488's
+ * open-invoice A/R derivation onto the consolidated FinancialsRow model.
+ * openInvoiceArCents (sum of open invoices' total_cents as of the BS period
+ * end, computed in fetchSources.ts) is added to the A/R account's existing
+ * cumulative balance if invoice lines are already mapped there; otherwise a
+ * FinancialsRow is synthesized so the BS doesn't silently under-report A/R
+ * for an account with real open-invoice balance but no mapped lines. Guarded
+ * on openInvoiceArCents > 0 like the original.
+ */
+function injectOpenInvoiceAr(
+  rows: FinancialsRow[],
+  arAccount: { id: string; name: string } | null,
+  openInvoiceArCents: number,
+  periodMonth: string,
+): FinancialsRow[] {
+  if (!arAccount || openInvoiceArCents <= 0) return rows;
+
+  const existingIdx = rows.findIndex((r) => r.coaId === arAccount.id);
+  if (existingIdx !== -1) {
+    const existing = rows[existingIdx];
+    const updated: FinancialsRow = {
+      ...existing,
+      amountCentsByMonth: {
+        ...existing.amountCentsByMonth,
+        [periodMonth]: (existing.amountCentsByMonth[periodMonth] ?? 0) + openInvoiceArCents,
+      },
+      sourceRef: { ...existing.sourceRef, ids: [...existing.sourceRef.ids, "open-invoices-ar"] },
+    };
+    return [...rows.slice(0, existingIdx), updated, ...rows.slice(existingIdx + 1)];
+  }
+
+  const synthesized: FinancialsRow = {
+    coaId: arAccount.id,
+    parentId: null,
+    accountName: arAccount.name,
+    statementSection: ACCOUNT_TYPE_SECTION["Accounts receivable (A/R)"],
+    channel: "unknown",
+    posCategory: null,
+    kegSize: null,
+    amountCentsByMonth: { [periodMonth]: openInvoiceArCents },
+    bblByMonth: { [periodMonth]: 0 },
+    bblCoverage: "full",
+    mappingSource: "rule",
+    sourceRef: { table: "invoices", ids: ["open-invoices-ar"] },
+  };
+  return [...rows, synthesized];
+}
+
 export async function buildFinancials(params: { statement: StatementKind; year: number }): Promise<FinancialsResponse> {
   const { statement, year } = params;
 
@@ -32,7 +82,7 @@ export async function buildFinancials(params: { statement: StatementKind; year: 
   // this invariant true regardless of what the fetch layer returns.
   const months = src.months.slice(-12);
 
-  const rows = aggregateRows({
+  let rows = aggregateRows({
     pos: src.pos,
     invoiceLines: src.invoiceLines,
     expenses: src.expenses,
@@ -41,6 +91,10 @@ export async function buildFinancials(params: { statement: StatementKind; year: 
     coa: src.coa,
     months,
   });
+
+  if (statement === "balance_sheet") {
+    rows = injectOpenInvoiceAr(rows, src.arAccount, src.openInvoiceArCents, months[months.length - 1]);
+  }
 
   // Non-row-derivable KPI pieces (see lib/finance/financials/types.ts):
   // operatingCashCents only makes sense for the cash_flow statement (net

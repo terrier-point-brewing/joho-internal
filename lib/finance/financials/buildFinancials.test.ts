@@ -15,6 +15,7 @@ const COA = [
   { id: "coa-cogs", parentId: null, accountName: "COGS", accountType: "Cost of Goods Sold", statementSection: null },
   { id: "coa-exp", parentId: null, accountName: "Rent", accountType: "Expenses", statementSection: null },
   { id: "coa-bank", parentId: null, accountName: "Operating Checking", accountType: "Bank", statementSection: null },
+  { id: "coa-ar", parentId: null, accountName: "Accounts Receivable", accountType: "Accounts receivable (A/R)", statementSection: null },
 ];
 
 function emptySources(months: string[]): FinancialsSourcesResult {
@@ -28,6 +29,8 @@ function emptySources(months: string[]): FinancialsSourcesResult {
     months,
     strandedDeposit: { count: 0, cents: 0 },
     exciseCoverage: { shipmentsMissingExcise: 0 },
+    arAccount: null,
+    openInvoiceArCents: 0,
   };
 }
 
@@ -73,6 +76,8 @@ describe("buildFinancials", () => {
         months: ["2026-12"],
         strandedDeposit: { count: 0, cents: 0 },
         exciseCoverage: { shipmentsMissingExcise: 0 },
+        arAccount: null,
+        openInvoiceArCents: 0,
       };
     });
 
@@ -222,6 +227,85 @@ describe("buildFinancials", () => {
     });
     expect(resp.dataQuality.exciseCoverage).toEqual({
       shipmentsMissingExcise: 3, href: "/finance/transactions/invoices?filter=excise-coverage",
+    });
+  });
+
+  describe("open-invoice A/R (balance_sheet mode, C3)", () => {
+    const AR_ACCOUNT = { id: "coa-ar", name: "Accounts Receivable" };
+
+    it("adds the open-invoice A/R total to an already-mapped A/R account's cumulative balance", async () => {
+      mockedFetch.mockImplementation(async ({ statement }: { statement: StatementKind; year: number }) => {
+        expect(statement).toBe("balance_sheet");
+        return {
+          ...emptySources(["2026-12"]),
+          invoiceLines: [
+            {
+              id: "inv-ar-mapped", totalCents: 20000, invoiceDate: "2026-12",
+              chartOfAccountsId: "coa-ar", bsChartOfAccountsId: null, plChartOfAccountsId: null,
+              deliveryInvoiceId: null, accountMode: null, deliveryInvoicePaid: false,
+              exportChannel: null, volumeBbl: null,
+            },
+          ],
+          arAccount: AR_ACCOUNT,
+          // Two open invoices totaling 50000 cents.
+          openInvoiceArCents: 50000,
+        };
+      });
+
+      const resp = await buildFinancials({ statement: "balance_sheet", year: 2026 });
+
+      const arRow = resp.rows.find((r) => r.coaId === "coa-ar");
+      expect(arRow).toBeDefined();
+      expect(arRow!.statementSection).toBe("ar");
+      // 20000 already-mapped invoice line + 50000 open-invoice A/R = 70000.
+      expect(arRow!.amountCentsByMonth["2026-12"]).toBe(70000);
+    });
+
+    it("synthesizes an A/R row when no invoice lines are mapped to the A/R account", async () => {
+      mockedFetch.mockResolvedValue({
+        ...emptySources(["2026-12"]),
+        arAccount: AR_ACCOUNT,
+        openInvoiceArCents: 50000,
+      });
+
+      const resp = await buildFinancials({ statement: "balance_sheet", year: 2026 });
+
+      const arRow = resp.rows.find((r) => r.coaId === "coa-ar");
+      expect(arRow).toBeDefined();
+      expect(arRow).toMatchObject({
+        coaId: "coa-ar",
+        accountName: "Accounts Receivable",
+        statementSection: "ar",
+        channel: "unknown",
+      });
+      expect(arRow!.amountCentsByMonth["2026-12"]).toBe(50000);
+    });
+
+    it("does not inject A/R for pl or cash_flow modes even when the fetch layer returns arAccount/openInvoiceArCents", async () => {
+      const months = ["2026-06"];
+      mockedFetch.mockResolvedValue({
+        ...emptySources(months),
+        arAccount: AR_ACCOUNT,
+        openInvoiceArCents: 50000,
+      });
+
+      const pl = await buildFinancials({ statement: "pl", year: 2026 });
+      const cashFlow = await buildFinancials({ statement: "cash_flow", year: 2026 });
+
+      expect(pl.rows.find((r) => r.coaId === "coa-ar")).toBeUndefined();
+      expect(cashFlow.rows.find((r) => r.coaId === "coa-ar")).toBeUndefined();
+    });
+
+    it("does not add a row when openInvoiceArCents is 0", async () => {
+      mockedFetch.mockResolvedValue({
+        ...emptySources(["2026-12"]),
+        arAccount: AR_ACCOUNT,
+        openInvoiceArCents: 0,
+      });
+
+      const resp = await buildFinancials({ statement: "balance_sheet", year: 2026 });
+
+      expect(resp.rows.find((r) => r.coaId === "coa-ar")).toBeUndefined();
     });
   });
 });

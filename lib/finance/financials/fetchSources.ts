@@ -42,6 +42,21 @@ export interface FinancialsSourcesResult {
   months: string[];
   strandedDeposit: { count: number; cents: number };
   exciseCoverage: { shipmentsMissingExcise: number };
+  /**
+   * balance_sheet mode only: the first "Accounts receivable (A/R)" account
+   * in the chart of accounts (mirrors app/api/finance/statements/route.ts's
+   * arAccount, which is also a bare `.find()` -- first row in whatever order
+   * Supabase returns, no explicit ORDER BY). Null for pl/cash_flow, and null
+   * if no A/R account is configured.
+   */
+  arAccount: { id: string; name: string } | null;
+  /**
+   * balance_sheet mode only: sum of invoices.total_cents where status='open'
+   * and invoice_date <= the BS period end (mirrors
+   * app/api/finance/statements/route.ts:474-488's arCents). 0 for
+   * pl/cash_flow.
+   */
+  openInvoiceArCents: number;
 }
 
 const VOLUME_CATEGORIES = new Set(["distribution_keg", "distribution_can"]);
@@ -381,6 +396,22 @@ async function fetchExciseCoverage(supabase: SupabaseClient, year: number): Prom
   return { shipmentsMissingExcise: report.exciseCoverage.missingDetailTxns };
 }
 
+/**
+ * Open-invoice A/R total as of the BS period end -- mirrors
+ * app/api/finance/statements/route.ts:474-488's open-invoice sum exactly
+ * (status='open', invoice_date <= period end). Deliberately NOT bounded by
+ * the range's lower bound: like the old route, this is a point-in-time
+ * open-balance snapshot, not a period movement.
+ */
+async function fetchOpenInvoiceAr(supabase: SupabaseClient, endDateStr: string): Promise<number> {
+  const { data } = await supabase
+    .from("invoices")
+    .select("total_cents")
+    .eq("status", "open")
+    .lte("invoice_date", endDateStr);
+  return (data ?? []).reduce((s, inv) => s + (inv.total_cents ?? 0), 0);
+}
+
 // ── entry point ──────────────────────────────────────────────────────────
 
 export async function fetchFinancialsSources(params: { statement: StatementKind; year: number }): Promise<FinancialsSourcesResult> {
@@ -388,6 +419,7 @@ export async function fetchFinancialsSources(params: { statement: StatementKind;
   const now = new Date();
   const supabase = createSupabaseAdminClient();
   const cashOnly = statement === "cash_flow";
+  const isBalanceSheet = statement === "balance_sheet";
 
   let range: DateRange;
   let months: string[];
@@ -403,7 +435,7 @@ export async function fetchFinancialsSources(params: { statement: StatementKind;
     range = rangeFromMonths(months);
   }
 
-  const [coa, pos, invoiceLines, expenses, bank, refunds, strandedDeposit, exciseCoverage] = await Promise.all([
+  const [coa, pos, invoiceLines, expenses, bank, refunds, strandedDeposit, exciseCoverage, openInvoiceArCents] = await Promise.all([
     fetchCoa(supabase),
     fetchPos(supabase, range),
     fetchInvoiceLines(supabase, range, cashOnly),
@@ -412,7 +444,11 @@ export async function fetchFinancialsSources(params: { statement: StatementKind;
     fetchRefunds(supabase, range),
     fetchStrandedDeposit(supabase),
     fetchExciseCoverage(supabase, year),
+    isBalanceSheet ? fetchOpenInvoiceAr(supabase, range.endDateStr) : Promise.resolve(0),
   ]);
+
+  const arAcct = isBalanceSheet ? coa.find((c) => c.accountType === "Accounts receivable (A/R)") : undefined;
+  const arAccount = arAcct ? { id: arAcct.id, name: arAcct.accountName } : null;
 
   if (canonicalMonth) {
     return {
@@ -425,8 +461,10 @@ export async function fetchFinancialsSources(params: { statement: StatementKind;
       months,
       strandedDeposit,
       exciseCoverage,
+      arAccount,
+      openInvoiceArCents,
     };
   }
 
-  return { coa, pos, invoiceLines, expenses, bank, refunds, months, strandedDeposit, exciseCoverage };
+  return { coa, pos, invoiceLines, expenses, bank, refunds, months, strandedDeposit, exciseCoverage, arAccount, openInvoiceArCents };
 }
