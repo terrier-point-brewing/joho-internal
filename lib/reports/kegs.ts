@@ -99,3 +99,14 @@ export function detectKegSales(
 
   return sales.sort((a, b) => b.orderClosedAt.localeCompare(a.orderClosedAt));
 }
+
+// Canonical keg-size token as it appears in variation names ("1/2 Keg",
+// "1/4 Keg", "1/6 Keg") mapped to the half/quarter/sixth enum. Single source
+// of truth for this parse — reused by lib/finance/financials/dimensions.ts;
+// do not re-parse the fraction elsewhere.
+export function parseKegSizeToken(name: string): "half" | "quarter" | "sixth" | null {
+  if (/1\/2/.test(name)) return "half";
+  if (/1\/4/.test(name)) return "quarter";
+  if (/1\/6/.test(name)) return "sixth";
+  return null;
+}
