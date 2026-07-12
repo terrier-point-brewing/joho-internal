@@ -75,6 +75,19 @@ export default function TaxWorksheetShell({ taskId }: { taskId: string }) {
   // task refetch.
   const dirtyRef = useRef(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Autosave/recompute race guard: the debounced PATCH and the recompute
+  // POST can both be in flight at once (e.g. a user edits a manual field,
+  // scheduling a PATCH, then immediately clicks Recompute). If the PATCH's
+  // response lands AFTER the recompute's, its success handler would call
+  // `qc.setQueryData` with the PRE-recompute worksheet, re-firing the
+  // load-sync effect below and silently overwriting the freshly recomputed
+  // figures. `recomputeGenerationRef` is bumped once per completed
+  // recompute; each autosave captures the generation in effect at the
+  // moment its PATCH is issued and, when the response comes back, skips
+  // applying it if a newer recompute has since completed (current
+  // generation > captured generation) — so a recompute's result can never
+  // be clobbered by an older in-flight autosave.
+  const recomputeGenerationRef = useRef(0);
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [recomputing, setRecomputing] = useState(false);
   const [recomputeError, setRecomputeError] = useState<string | null>(null);
@@ -98,13 +111,23 @@ export default function TaxWorksheetShell({ taskId }: { taskId: string }) {
     setSaveState("idle");
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(async () => {
+      // Capture the recompute generation at the moment this PATCH is
+      // actually issued (see recomputeGenerationRef comment above).
+      const issuedGeneration = recomputeGenerationRef.current;
       setSaveState("saving");
       try {
         const saved = await patchJson<TaxTask>(`/api/tax/tasks/${taskId}`, { worksheet: next });
+        if (recomputeGenerationRef.current !== issuedGeneration) {
+          // A recompute completed while this autosave was in flight — its
+          // response reflects the pre-recompute worksheet, which is now
+          // stale. Drop it rather than clobbering the recomputed figures.
+          return;
+        }
         qc.setQueryData(queryKeys.tax.task(taskId), saved);
         dirtyRef.current = false;
         setSaveState("saved");
       } catch {
+        if (recomputeGenerationRef.current !== issuedGeneration) return;
         setSaveState("error");
       }
     }, AUTOSAVE_DEBOUNCE_MS);
@@ -124,6 +147,10 @@ export default function TaxWorksheetShell({ taskId }: { taskId: string }) {
     try {
       const merged = await postJson<WorksheetData>(`/api/tax/tasks/${taskId}/recompute`);
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      // Bump the generation so any autosave PATCH already in flight (issued
+      // before this point) gets recognized as stale and skips applying its
+      // response once it resolves.
+      recomputeGenerationRef.current += 1;
       dirtyRef.current = false;
       setSaveState("idle");
       setWorksheet(merged);

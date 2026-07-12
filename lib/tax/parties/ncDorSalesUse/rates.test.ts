@@ -3,6 +3,7 @@ import {
   NC_STATE_RATE,
   NC_COUNTY_TIERS,
   NC_COUNTIES,
+  RATE_LINES,
   countyRateLine,
   transitRateLine,
 } from './rates';
@@ -10,6 +11,10 @@ import {
 describe('NC DOR Statutory Rates', () => {
   it('should export the correct state rate', () => {
     expect(NC_STATE_RATE).toBe(0.0475);
+  });
+
+  it('should export the rate lines 4-12', () => {
+    expect(RATE_LINES).toEqual([4, 5, 6, 7, 8, 9, 10, 11, 12]);
   });
 
   describe('NC_COUNTY_TIERS', () => {

@@ -24,6 +24,7 @@ import type { ComputeContext, TaxPeriod, WorksheetData } from "@/lib/tax/types";
 import {
   NC_STATE_RATE,
   NC_COUNTY_TIERS,
+  RATE_LINES,
   countyRateLine,
   transitRateLine,
 } from "./rates";
@@ -41,11 +42,13 @@ export interface ComputeNcDorFiguresArgs {
 }
 
 /**
- * Rate lines that carry a purchases/receipts/tax triple on the worksheet.
- * Exported so `template.ts` can derive `fieldOwnership` for `lineN_*` keys
- * from this single source of truth instead of duplicating the line numbers.
+ * Re-exported for backward-compat import sites (`./calc`'s `RATE_LINES` is
+ * still the historical import path for the worksheet UI and tests); the
+ * actual definition now lives in `./rates` so it stays reachable from the
+ * pure `fieldOwnership.ts` module without dragging calc.ts's Supabase-admin
+ * code path into the client bundle.
  */
-export const RATE_LINES = [4, 5, 6, 7, 8, 9, 10, 11, 12] as const;
+export { RATE_LINES };
 
 const round = (v: number) => Math.round(v);
 const num = (v: number | string | null | undefined) => Number(v ?? 0);

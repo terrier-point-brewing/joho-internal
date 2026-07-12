@@ -8,6 +8,15 @@
 /** State sales tax rate for North Carolina */
 export const NC_STATE_RATE = 0.0475;
 
+/**
+ * Rate lines that carry a purchases/receipts/tax triple on the worksheet.
+ * Lives here (not calc.ts) so this stays a zero-server-import pure module —
+ * both `calc.ts` and the pure `fieldOwnership.ts` (shared by the server
+ * template and the client worksheet) derive from this single source instead
+ * of duplicating the line numbers.
+ */
+export const RATE_LINES = [4, 5, 6, 7, 8, 9, 10, 11, 12] as const;
+
 /** Represents local and transit tax rates for a county */
 export interface CountyTier {
   local: number;

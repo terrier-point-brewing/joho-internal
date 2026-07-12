@@ -19,7 +19,8 @@ import type {
 } from "@/lib/tax/types";
 import { lastDayOfFollowingMonth, monthPeriod, quarterPeriod } from "@/lib/tax/period";
 import { registerParty } from "@/lib/tax/registry";
-import { computeDependentTotals, computeNcDorWorksheet, RATE_LINES } from "./calc";
+import { computeDependentTotals, computeNcDorWorksheet } from "./calc";
+import { resolveFieldOwnership } from "./fieldOwnership";
 import { NC_COUNTIES, NC_COUNTY_TIERS, NC_STATE_RATE } from "./rates";
 
 // ── Period / due-date rules ────────────────────────────────────────────────
@@ -60,51 +61,16 @@ function computePeriod(freq: Frequency, ref: Date): TaxPeriod {
 //   - `county_{CODE}_{2pct|225pct|transit}` for whichever counties are
 //     selected on the schedule (a subset of the 100 NC counties)
 // Rather than pre-populating an object with every county x suffix
-// combination, `resolveFieldOwnership` PARSES the key (prefix/suffix) and a
-// `Proxy` exposes that resolver behind the same `Record<string,
-// FieldOwnership>` shape `mergeWorksheet`'s callers (and the type) expect.
+// combination, `resolveFieldOwnership` (imported from the pure
+// `./fieldOwnership` module — the single source of truth shared with the
+// client worksheet) PARSES the key (prefix/suffix) and a `Proxy` exposes
+// that resolver behind the same `Record<string, FieldOwnership>` shape
+// `mergeWorksheet`'s callers (and the type) expect.
 
-const STATIC_COMPUTED_KEYS = new Set([
-  "line1_gross_receipts",
-  "line13_total",
-  "line15_total",
-  "line21_total_due",
-]);
-
-const STATIC_MANUAL_KEYS = new Set([
-  "line2_sales_for_resale",
-  "line3_exempt",
-  "line14_excess",
-  "line16_penalty",
-  "line17_interest",
-  "line18_less_prepay",
-  "line19_prepay_next",
-  "line20_credit",
-  "line20_credit_explanation",
-]);
-
-const RATE_LINE_NUMBERS: ReadonlySet<number> = new Set(RATE_LINES);
-const RATE_LINE_KEY_RE = /^line(\d+)_(purchases|receipts|tax)$/;
-
-/**
- * Resolve ownership for any worksheet field key by parsing its
- * prefix/suffix, rather than enumerating every county x suffix combination.
- * Falls back to "manual" for anything unrecognized — the safe default, since
- * a manual edit is preserved by `mergeWorksheet` while a missing "computed"
- * classification would just mean the recompute never overwrote it.
- */
-export function resolveFieldOwnership(key: string): FieldOwnership {
-  if (STATIC_COMPUTED_KEYS.has(key)) return "computed";
-  if (STATIC_MANUAL_KEYS.has(key)) return "manual";
-  if (key.startsWith("county_")) return "computed";
-
-  const match = RATE_LINE_KEY_RE.exec(key);
-  if (match && RATE_LINE_NUMBERS.has(Number(match[1]))) {
-    return match[2] === "purchases" ? "manual" : "computed";
-  }
-
-  return "manual";
-}
+// Re-exported for the existing test import path (`./template`'s
+// `resolveFieldOwnership`) and any other server-side caller that wants the
+// resolver directly rather than through the Proxy.
+export { resolveFieldOwnership } from "./fieldOwnership";
 
 const fieldOwnership: Record<string, FieldOwnership> = new Proxy(
   {} as Record<string, FieldOwnership>,
