@@ -115,9 +115,18 @@ route re-derives history for past periods.
 
 ### 3.2 `tax_filing_profiles` (party-level settings)
 One row per receiving party, reused by every task/schedule for that party. Holds
-identity + user-controllable party-wide settings. **SSN/FEIN are sensitive** —
-service-role-only, never sent to the browser anon client. FEIN-first; SSN
-optional.
+identity + user-controllable party-wide settings. The table is
+**service-role-only**, never sent to the browser anon client, and only readable
+by authenticated manager+ users. FEIN-first; SSN optional.
+
+**Sensitivity decision (2026-07-12, user-approved):** `ssn` is marked `sensitive`
+— masked on read (`present`/`absent`), write-only in the settings form. `fein` is
+deliberately **left visible** (an explicit waiver of the earlier "SSN/FEIN are
+sensitive" wording): FEIN is a business identifier, not personal PII, and the
+user's requirement is that filing identity be *visualized in the payment flow* so
+it can be read off to enter into NC DOR's portal. It stays service-role-only and
+manager+-gated — simply displayed to the logged-in user rather than masked.
+Revisit if a stricter posture is later wanted (e.g. show a last-4 partial).
 
 | column     | type      | notes                                             |
 |------------|-----------|---------------------------------------------------|
