@@ -1,0 +1,57 @@
+// Shared types for the consolidated financials view. Every source row (POS,
+// invoices, expenses, bank ledger, refunds) normalizes onto FinancialsRow so
+// downstream code (P&L, balance sheet, cash flow) never re-derives sign or
+// shape per source.
+
+export type StatementKind = "pl" | "balance_sheet" | "cash_flow";
+export type Measure = "amount" | "bbl" | "amount_per_bbl";
+export type Channel = "taproom" | "events" | "contract_brewing" | "distribution" | "wholesale" | "unknown";
+export type BblCoverage = "full" | "partial" | "unknown";
+export type MappingSource = "manual" | "rule" | "unmapped";
+
+export interface FinancialsRow {
+  coaId: string | null;
+  parentId: string | null;
+  accountName: string;
+  statementSection: string;
+  channel: Channel;
+  posCategory: string | null;
+  kegSize: "half" | "quarter" | "sixth" | "can" | null;
+  amountCentsByMonth: Record<string, number>; // sign-normalized cents, key "YYYY-MM"
+  bblByMonth: Record<string, number>;
+  bblCoverage: BblCoverage;
+  mappingSource: MappingSource;
+  sourceRef: { table: string; ids: string[] };
+}
+
+// KPI health-strip + data-quality/reconciliation summary shapes, built by
+// lib/finance/financials/summaries.ts. Percentages are plain numbers in
+// "percent" units (e.g. 62.5 means 62.5%). All *Cents fields are integer
+// cents. Not every field here is derivable from FinancialsRow[] alone --
+// see summaries.ts's header comment for the row-derivable vs
+// parameter-supplied split (strandedDeposit, exciseCoverage.
+// shipmentsMissingExcise, cashOnHandCents, and operatingCashCents come from
+// Task 6's DB fetch / cash-flow statement mode).
+export interface DataQualitySummary {
+  unmapped: { count: number; cents: number; href: string };
+  uncategorized: { count: number; cents: number; href: string };
+  unknownVolume: { count: number; cents: number; href: string };
+  strandedDeposit: { count: number; cents: number; href: string };
+  exciseCoverage: { shipmentsMissingExcise: number; href: string };
+}
+
+export interface KpiSummary {
+  netIncomeCents: Record<string, number>;
+  grossMarginPct: Record<string, number>;
+  revenueCents: Record<string, number>;
+  revenueMoMPct: Record<string, number>;
+  operatingCashCents: Record<string, number> | null;
+  cashOnHandCents: number | null;
+}
+
+export interface FinancialsResponse {
+  months: string[];
+  rows: FinancialsRow[];
+  dataQuality: DataQualitySummary;
+  kpis: KpiSummary;
+}

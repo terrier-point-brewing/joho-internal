@@ -6,7 +6,11 @@ export default defineConfig({
     alias: { "@": resolve(__dirname, ".") },
   },
   test: {
-    include: ["lib/**/*.test.ts"],
+    // app/finance/financials/buildTree.test.ts covers the pure buildTree()
+    // helper, which is co-located with FinancialsTable.tsx under app/ (not
+    // lib/) per its task brief -- widen include so it actually runs. Coverage
+    // scope below stays lib/-only; the app/ addition doesn't affect the ratchet.
+    include: ["lib/**/*.test.ts", "app/**/*.test.ts"],
     environment: "node",
     coverage: {
       provider: "v8",

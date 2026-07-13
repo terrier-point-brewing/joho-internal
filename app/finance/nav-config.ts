@@ -1,9 +1,7 @@
 export type NavEntry = { href: string; match?: string; label: string; also?: string };
 
 export const FINANCE_NAV: NavEntry[] = [
-  { href: "/finance/model",                                                        label: "Model"        },
-  { href: "/finance/sales/taproom",        match: "/finance/sales",                label: "Sales"        },
-  { href: "/finance/statements/pl",        match: "/finance/statements",           label: "Statements"   },
+  { href: "/finance/financials",           match: "/finance/financials",           label: "Financials"   },
   { href: "/finance/transactions/orders",  match: "/finance/transactions",         label: "Transactions" },
   { href: "/finance/tax",                  match: "/finance/tax",                  label: "Tax"          },
   { href: "/finance/payroll",              match: "/finance/payroll",              label: "Payroll"      },
