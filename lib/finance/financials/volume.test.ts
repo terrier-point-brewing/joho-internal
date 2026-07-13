@@ -4,6 +4,7 @@ import { CATEGORY_IDS } from "@/lib/constants/categories";
 
 const KEG_CAT = [...CATEGORY_IDS.KEGS][0];
 const CAN_CAT = [...CATEGORY_IDS.CANS][0];
+const DRAFT_CAT = [...CATEGORY_IDS.DRAFT][0];
 const MERCH_CAT = [...CATEGORY_IDS.MERCHANDISE][0];
 
 describe("rowBbl", () => {
@@ -50,6 +51,53 @@ describe("rowBbl", () => {
       kind: "taproom",
       categoryId: CAN_CAT,
       kegSize: "can",
+      variationName: "16oz 4-Pack",
+      quantity: 1,
+    });
+    expect(result.coverage).toBe("full");
+    expect(result.bbl).toBeCloseTo((16 * 4) / 3968, 10);
+  });
+
+  it("by-the-glass DRAFT row derives real BBL from parseFlOz, even with no kegSize token", () => {
+    const result = rowBbl({
+      kind: "taproom",
+      categoryId: DRAFT_CAT,
+      kegSize: null,
+      variationName: "Draft - 16oz",
+      quantity: 3,
+    });
+    expect(result.coverage).toBe("full");
+    expect(result.bbl).toBeCloseTo((16 * 3) / 3968, 10);
+  });
+
+  it("DRAFT row with bare '16oz' variation name still parses fl oz correctly", () => {
+    const result = rowBbl({
+      kind: "taproom",
+      categoryId: DRAFT_CAT,
+      kegSize: null,
+      variationName: "16oz",
+      quantity: 2,
+    });
+    expect(result.coverage).toBe("full");
+    expect(result.bbl).toBeCloseTo((16 * 2) / 3968, 10);
+  });
+
+  it("DRAFT row with no variationName stays unknown (genuine gap, still flagged)", () => {
+    const result = rowBbl({
+      kind: "taproom",
+      categoryId: DRAFT_CAT,
+      kegSize: null,
+      variationName: null,
+      quantity: 1,
+    });
+    expect(result).toEqual({ bbl: 0, coverage: "unknown" });
+  });
+
+  it("CANS-category row derives real BBL by category even when kegSize is null (name lacks the literal word 'can')", () => {
+    const result = rowBbl({
+      kind: "taproom",
+      categoryId: CAN_CAT,
+      kegSize: null,
       variationName: "16oz 4-Pack",
       quantity: 1,
     });

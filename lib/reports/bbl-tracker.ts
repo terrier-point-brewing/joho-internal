@@ -50,6 +50,19 @@ export function canOzPerUnit(variationName: string): number {
   return ozPerCan; // single can
 }
 
+/**
+ * Returns fl oz for one sold unit of a by-the-glass draft-pour variation
+ * (e.g. "Draft - 16oz" -> 16; "16oz" -> 16; default 16 when unparseable).
+ * Shared with lib/finance/financials/volume.ts's rowBbl -- single source of
+ * truth for draft-pour fl-oz parsing (mirrors the deleted taproom route's
+ * parseFlOz, which this restores after a Square-parity volume-derivation
+ * bug: draft pours never derived a BBL).
+ */
+export function parseFlOz(variationName: string): number {
+  const m = variationName.match(/(\d+)\s*oz/i);
+  return m ? parseInt(m[1], 10) : 16;
+}
+
 function ozToGallons(oz: number)   { return oz / 128; }
 function gallonsToBBL(gal: number) { return gal / GALLONS_PER_BBL; }
 function calcExciseTax(gallons: number) {

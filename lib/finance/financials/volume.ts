@@ -5,7 +5,7 @@
 
 import type { BblCoverage } from "./types";
 import { CATEGORY_IDS } from "@/lib/constants/categories";
-import { canOzPerUnit } from "@/lib/reports/bbl-tracker";
+import { canOzPerUnit, parseFlOz } from "@/lib/reports/bbl-tracker";
 import { GALLONS_PER_BBL, BBL_TO_FL_OZ, KEG_GALLONS_BY_SIZE } from "@/lib/constants/production";
 
 // Beer/volume-bearing Square reporting categories, per the shared
@@ -40,12 +40,27 @@ export function rowBbl(row: BblSourceRow): { bbl: number; coverage: BblCoverage 
     return { bbl: 0, coverage: "full" };
   }
 
+  // By-the-glass draft pours (dominant taproom volume): identified by Square
+  // reporting category, not kegSize — a draft pour has no keg-fraction/can
+  // token, so it fell through to "unknown" pre-fix. Mirrors the deleted
+  // taproom route's parseFlOz(variationName) * quantity / BBL_TO_FL_OZ.
+  const isDraft = row.categoryId !== null && CATEGORY_IDS.DRAFT.has(row.categoryId);
+  if (isDraft && row.variationName) {
+    const totalOz = parseFlOz(row.variationName) * row.quantity;
+    return { bbl: totalOz / BBL_TO_FL_OZ, coverage: "full" };
+  }
+
   if (row.kegSize === "half" || row.kegSize === "quarter" || row.kegSize === "sixth") {
     const gallons = KEG_GALLONS_BY_SIZE[row.kegSize] * row.quantity;
     return { bbl: gallons / GALLONS_PER_BBL, coverage: "full" };
   }
 
-  if (row.kegSize === "can" && row.variationName) {
+  // Cans, identified by Square reporting category rather than kegSize ===
+  // "can" — deriveKegSize's "can" token only matches variation names
+  // containing the literal word "can" (e.g. "Single Can"), missing names
+  // like "16oz 4-Pack" that are unambiguously cans by category.
+  const isCans = row.categoryId !== null && CATEGORY_IDS.CANS.has(row.categoryId);
+  if (isCans && row.variationName) {
     const totalOz = canOzPerUnit(row.variationName) * row.quantity;
     return { bbl: totalOz / BBL_TO_FL_OZ, coverage: "full" };
   }

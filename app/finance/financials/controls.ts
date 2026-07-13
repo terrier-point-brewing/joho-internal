@@ -24,10 +24,10 @@ export type QualityBucket = "unmapped" | "uncategorized" | "unknownVolume" | "ok
  * a meaningful dimension for revenue/other-income rows, so expense/bank/
  * refund rows (which aggregateRows.ts hardcodes to channel: "unknown")
  * never get flagged just for lacking a channel. "unknownVolume" defers to
- * that same file's isUnknownVolume (M2 fix) -- by-the-glass DRAFT POS rows
- * are always bblCoverage "unknown" by design, so they're excluded there to
- * keep this bucket actionable instead of flooded with ordinary draft
- * revenue; the $/BBL withholding for draft is unaffected.
+ * that same file's isUnknownVolume -- any beer row (draft, keg, or can)
+ * whose BBL coverage isn't "full", full stop; draft pours resolve a real
+ * BBL from the sold variation's fl-oz the same as kegs/cans, so ordinary
+ * draft revenue no longer needs a special exclusion here.
  * Deliberately does NOT inspect `mappingSource` -- invoice provenance is
  * unreliable (documented limitation, see spec).
  */

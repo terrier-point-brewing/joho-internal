@@ -16,7 +16,6 @@
 // those.
 
 import type { DataQualitySummary, FinancialsRow, KpiSummary } from "./types";
-import type { TaproomCategoryId } from "@/lib/constants/categories";
 
 // StatementSection values that belong to the P&L (income statement), as
 // opposed to Balance Sheet sections (bank, ar, ap, equity, ...). Mirrors
@@ -48,28 +47,23 @@ export function isUncategorized(row: FinancialsRow): boolean {
   return row.channel === "unknown" && CHANNEL_EXPECTED_SECTIONS.has(row.statementSection);
 }
 
-// lib/finance/financials/dimensions.ts's derivePosCategory maps every
-// draft-category Square variation onto this TAPROOM_MODEL_CATEGORIES id
-// (see its test: derivePosCategory({ categoryId: <a DRAFT category id> })
-// === "DRAFT_BEER"). Typed against TaproomCategoryId so a rename of the
-// shared id would be a compile error here, not a silent drift.
-const DRAFT_POS_CATEGORY: TaproomCategoryId = "DRAFT_BEER";
-
 /**
- * "Unknown volume" = a beer row whose BBL coverage isn't "full" -- EXCEPT
- * by-the-glass DRAFT POS rows, which are *always* bblCoverage "unknown"
- * (draft has no per-line keg/can BBL -- see lib/finance/financials/
- * volume.ts's rowBbl: taproom rows only resolve a keg/can BBL when kegSize
- * is a keg fraction or "can"; draft-poured rows have neither). Counting
- * every draft POS row here would flood the bucket with ordinary,
- * non-actionable revenue -- the $/BBL withholding for draft (amountPerBbl)
- * is correct and untouched; only this data-quality signal excludes it.
+ * "Unknown volume" = a beer row whose BBL coverage isn't "full".
+ *
+ * Previously excluded by-the-glass DRAFT POS rows on the assumption they
+ * could *never* resolve a real BBL. That's no longer true: lib/finance/
+ * financials/volume.ts's rowBbl now derives draft-pour BBL from the sold
+ * variation's fl-oz (parseFlOz), same as kegs/cans, so an ordinary draft row
+ * resolves bblCoverage "full" and never reaches this predicate. A DRAFT row
+ * that still lands here (bblCoverage !== "full") means variationName was
+ * missing -- a genuine data gap, not routine draft revenue -- so it's
+ * correctly flagged like any other under-covered beer row.
  * Shared by buildDataQuality (this file) and controls.ts's qualityBucket so
  * the KPI-strip count and the table's "quality" filter chip never disagree
  * (same precedent as isUncategorized above).
  */
 export function isUnknownVolume(row: FinancialsRow): boolean {
-  return row.bblCoverage !== "full" && row.posCategory !== DRAFT_POS_CATEGORY;
+  return row.bblCoverage !== "full";
 }
 
 /** Sums amountCentsByMonth for rows whose statementSection is in `sections`, per month. Amounts are already sign-normalized (income-like positive, cost-like negative). */

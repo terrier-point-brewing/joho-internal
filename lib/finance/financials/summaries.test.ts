@@ -158,11 +158,12 @@ describe("buildDataQuality", () => {
     expect(dq.unknownVolume).toEqual({ count: 2, cents: 4000, href: HREFS.unknownVolume });
   });
 
-  // M2 fix: by-the-glass DRAFT POS rows are ALWAYS bblCoverage "unknown" (no
-  // per-line keg/can BBL for draft pours -- see volume.ts's rowBbl), so they
-  // must not flood this bucket with ordinary, non-actionable draft revenue.
-  // Non-draft beer rows (e.g. kegs) with incomplete coverage still count.
-  it("excludes DRAFT rows from unknownVolume even when bblCoverage isn't full", () => {
+  // Post-fix, an ordinary draft row resolves bblCoverage "full" (rowBbl now
+  // derives BBL from the variation's fl-oz), so it never reaches this
+  // bucket. A DRAFT row that IS bblCoverage "unknown" means variationName
+  // was missing -- a genuine gap -- and should count same as any other
+  // under-covered beer row (e.g. kegs).
+  it("counts DRAFT rows in unknownVolume when bblCoverage isn't full (genuine gap, not routine draft revenue)", () => {
     const rows: FinancialsRow[] = [
       row({ posCategory: "DRAFT_BEER", bblCoverage: "unknown", amountCentsByMonth: { "2026-01": 5000, "2026-02": 0 } }),
       row({ posCategory: "KEGS", bblCoverage: "unknown", amountCentsByMonth: { "2026-01": 3000, "2026-02": 0 } }),
@@ -174,8 +175,8 @@ describe("buildDataQuality", () => {
       exciseCoverage: { shipmentsMissingExcise: 0 },
     });
 
-    // Only the non-draft (KEGS) row counts.
-    expect(dq.unknownVolume).toEqual({ count: 1, cents: 3000, href: HREFS.unknownVolume });
+    // Both rows count now that DRAFT is no longer special-cased.
+    expect(dq.unknownVolume).toEqual({ count: 2, cents: 8000, href: HREFS.unknownVolume });
   });
 
   it("passes strandedDeposit and exciseCoverage through unchanged, attaching hrefs", () => {
@@ -190,10 +191,10 @@ describe("buildDataQuality", () => {
   });
 });
 
-describe("isUnknownVolume (M2 fix)", () => {
-  it("returns false for a DRAFT row with bblCoverage 'unknown'", () => {
+describe("isUnknownVolume (simplified post Square-parity fix A)", () => {
+  it("returns true for a DRAFT row with bblCoverage 'unknown' (genuine gap, no longer special-cased)", () => {
     const r = row({ posCategory: "DRAFT_BEER", bblCoverage: "unknown" });
-    expect(isUnknownVolume(r)).toBe(false);
+    expect(isUnknownVolume(r)).toBe(true);
   });
 
   it("returns true for a non-draft beer row (e.g. keg) with bblCoverage 'unknown'", () => {
