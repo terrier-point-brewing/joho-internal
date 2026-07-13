@@ -10,6 +10,8 @@
 import type { ComponentType } from "react";
 import NcDorSalesUseWorksheet from "./NcDorSalesUse/Worksheet";
 import { getTotalDueCents as ncDorTotalDueCents } from "./NcDorSalesUse/fieldOwnership";
+import NcDorBeerExciseWorksheet from "./NcDorBeerExcise/Worksheet";
+import { getTotalDueCents as ncDorBeerExciseTotalDueCents } from "./NcDorBeerExcise/fieldOwnership";
 
 export interface PartyWorksheetProps {
   fields: Record<string, number | string | null>;
@@ -30,6 +32,10 @@ const WORKSHEET_MODULES: Record<string, PartyWorksheetModule> = {
   nc_dor_sales_use: {
     Worksheet: NcDorSalesUseWorksheet,
     getTotalDueCents: ncDorTotalDueCents,
+  },
+  nc_dor_beer_excise: {
+    Worksheet: NcDorBeerExciseWorksheet,
+    getTotalDueCents: ncDorBeerExciseTotalDueCents,
   },
 };
 
