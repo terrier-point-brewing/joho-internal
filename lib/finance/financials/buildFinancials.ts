@@ -11,6 +11,7 @@
 import { fetchFinancialsSources } from "./fetchSources";
 import { aggregateRows } from "./aggregateRows";
 import { buildKpis, buildDataQuality } from "./summaries";
+import { injectManualNetSales } from "./manualNetSales";
 import { ACCOUNT_TYPE_SECTION } from "../accountSections";
 import type { FinancialsResponse, FinancialsRow, StatementKind } from "./types";
 
@@ -94,6 +95,11 @@ export async function buildFinancials(params: { statement: StatementKind; year: 
 
   if (statement === "balance_sheet") {
     rows = injectOpenInvoiceAr(rows, src.arAccount, src.openInvoiceArCents, months[months.length - 1]);
+  } else {
+    // pl/cash_flow only (Square parity fix B) -- src.manualNetSalesEntries is
+    // always [] for balance_sheet anyway (fetchSources.ts), so this branch is
+    // belt-and-suspenders explicit about the statement-mode scoping.
+    rows = injectManualNetSales(rows, src.manualNetSalesEntries, months);
   }
 
   // Non-row-derivable KPI pieces (see lib/finance/financials/types.ts):

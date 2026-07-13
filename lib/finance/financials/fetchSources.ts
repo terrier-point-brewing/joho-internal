@@ -21,6 +21,7 @@ import type {
   RefundRecord,
   CoaRecord,
 } from "./aggregateRows";
+import type { ManualNetSalesEntryRecord } from "./manualNetSales";
 
 export interface FinancialsSourcesResult {
   pos: PosLineRecord[];
@@ -29,6 +30,14 @@ export interface FinancialsSourcesResult {
   refunds: RefundRecord[];
   bank: BankLedgerRecord[];
   coa: CoaRecord[];
+  /**
+   * manual_net_sales_entries rows, unbounded by date range (proration happens
+   * per-month in buildFinancials.ts's injectManualNetSales, mirroring the
+   * deleted app/api/finance/sales/taproom/route.ts). pl/cash_flow modes only
+   * -- always [] for balance_sheet (Square parity fix B: this is a P&L
+   * revenue adjustment, it has no balance-sheet analog).
+   */
+  manualNetSalesEntries: ManualNetSalesEntryRecord[];
   /**
    * Month keys the fetched records are bounded to, ascending.
    *  - pl / cash_flow: the trailing (up to) 12 real calendar months, "YYYY-MM".
@@ -458,6 +467,32 @@ async function fetchRefunds(supabase: SupabaseClient, range: DateRange): Promise
   }));
 }
 
+/**
+ * manual_net_sales_entries, unbounded (proration against the window happens
+ * downstream, per-month, in buildFinancials.ts's injectManualNetSales -- same
+ * reason fetchStrandedDeposit below isn't year-bounded either: this is a
+ * small, hand-maintained table, not worth a range filter).
+ */
+async function fetchManualNetSalesEntries(supabase: SupabaseClient): Promise<ManualNetSalesEntryRecord[]> {
+  const rows = await fetchAllRows<{
+    id: string;
+    start_date: string;
+    end_date: string;
+    amount_cents: number | null;
+  }>(() =>
+    supabase
+      .from("manual_net_sales_entries")
+      .select("id, start_date, end_date, amount_cents")
+      .order("id", { ascending: true }),
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    startDate: r.start_date,
+    endDate: r.end_date,
+    amountCents: r.amount_cents ?? 0,
+  }));
+}
+
 /** Invoice deposit lines stranded with no linked delivery invoice (app/finance/transactions/invoices/page.tsx's "deposit missing delivery" flag). Not year-bounded -- a data-quality indicator of current state, not a period figure. */
 async function fetchStrandedDeposit(supabase: SupabaseClient): Promise<{ count: number; cents: number }> {
   const rows = await fetchAllRows<{ total_cents: number | null }>(() =>
@@ -519,7 +554,7 @@ export async function fetchFinancialsSources(params: { statement: StatementKind;
     range = rangeFromMonths(months);
   }
 
-  const [coa, pos, invoiceLines, expenses, bank, refunds, strandedDeposit, exciseCoverage, openInvoiceArCents] = await Promise.all([
+  const [coa, pos, invoiceLines, expenses, bank, refunds, strandedDeposit, exciseCoverage, openInvoiceArCents, manualNetSalesEntries] = await Promise.all([
     fetchCoa(supabase),
     fetchPos(supabase, range),
     fetchInvoiceLines(supabase, range, cashOnly),
@@ -529,6 +564,9 @@ export async function fetchFinancialsSources(params: { statement: StatementKind;
     fetchStrandedDeposit(supabase),
     fetchExciseCoverage(supabase, year),
     isBalanceSheet ? fetchOpenInvoiceAr(supabase, range.endDateStr) : Promise.resolve(0),
+    // pl/cash_flow only -- balance_sheet has no analog for this P&L revenue
+    // adjustment (Square parity fix B).
+    isBalanceSheet ? Promise.resolve<ManualNetSalesEntryRecord[]>([]) : fetchManualNetSalesEntries(supabase),
   ]);
 
   const arAcct = isBalanceSheet ? coa.find((c) => c.accountType === "Accounts receivable (A/R)") : undefined;
@@ -547,8 +585,22 @@ export async function fetchFinancialsSources(params: { statement: StatementKind;
       exciseCoverage,
       arAccount,
       openInvoiceArCents,
+      manualNetSalesEntries,
     };
   }
 
-  return { coa, pos, invoiceLines, expenses, bank, refunds, months, strandedDeposit, exciseCoverage, arAccount, openInvoiceArCents };
+  return {
+    coa,
+    pos,
+    invoiceLines,
+    expenses,
+    bank,
+    refunds,
+    months,
+    strandedDeposit,
+    exciseCoverage,
+    arAccount,
+    openInvoiceArCents,
+    manualNetSalesEntries,
+  };
 }

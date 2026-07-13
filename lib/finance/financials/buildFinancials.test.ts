@@ -31,6 +31,7 @@ function emptySources(months: string[]): FinancialsSourcesResult {
     exciseCoverage: { shipmentsMissingExcise: 0 },
     arAccount: null,
     openInvoiceArCents: 0,
+    manualNetSalesEntries: [],
   };
 }
 
@@ -78,6 +79,7 @@ describe("buildFinancials", () => {
         exciseCoverage: { shipmentsMissingExcise: 0 },
         arAccount: null,
         openInvoiceArCents: 0,
+        manualNetSalesEntries: [],
       };
     });
 
@@ -306,6 +308,90 @@ describe("buildFinancials", () => {
       const resp = await buildFinancials({ statement: "balance_sheet", year: 2026 });
 
       expect(resp.rows.find((r) => r.coaId === "coa-ar")).toBeUndefined();
+    });
+  });
+
+  describe("manual_net_sales_entries proration (Square parity fix B)", () => {
+    it("attributes the full amount_cents to a month an entry spans entirely, into taproom revenue and Net Income", async () => {
+      const months = ["2026-05"];
+      mockedFetch.mockResolvedValue({
+        ...emptySources(months),
+        manualNetSalesEntries: [
+          { id: "m-1", startDate: "2026-05-01", endDate: "2026-05-31", amountCents: 891300 },
+        ],
+      });
+
+      const resp = await buildFinancials({ statement: "pl", year: 2026 });
+      const month = "2026-05";
+
+      const manualRow = resp.rows.find((r) => r.sourceRef.table === "manual_net_sales_entries");
+      expect(manualRow).toBeDefined();
+      expect(manualRow!.channel).toBe("taproom");
+      expect(manualRow!.statementSection).toBe("revenue");
+      expect(manualRow!.coaId).toBeNull();
+      expect(manualRow!.amountCentsByMonth[month]).toBe(891300);
+
+      expect(resp.kpis.revenueCents[month]).toBe(891300);
+      expect(resp.kpis.netIncomeCents[month]).toBe(891300);
+    });
+
+    it("day-weights an entry spanning only half a month into the exact fractional cents", async () => {
+      // Entry spans Apr 16 - May 15 (30 inclusive days). Overlap with May
+      // (2026-05, 31 days) is May 1-15 (15 inclusive days).
+      // round(100000 * 15 / 30) = 50000.
+      const months = ["2026-04", "2026-05"];
+      mockedFetch.mockResolvedValue({
+        ...emptySources(months),
+        manualNetSalesEntries: [
+          { id: "m-2", startDate: "2026-04-16", endDate: "2026-05-15", amountCents: 100000 },
+        ],
+      });
+
+      const resp = await buildFinancials({ statement: "pl", year: 2026 });
+
+      const manualRow = resp.rows.find((r) => r.sourceRef.table === "manual_net_sales_entries");
+      expect(manualRow).toBeDefined();
+      // Apr 16-30 overlap (15 inclusive days of a 30-day entry) -> 50000.
+      expect(manualRow!.amountCentsByMonth["2026-04"]).toBe(50000);
+      // May 1-15 overlap (15 inclusive days) -> 50000.
+      expect(manualRow!.amountCentsByMonth["2026-05"]).toBe(50000);
+
+      expect(resp.kpis.revenueCents["2026-04"]).toBe(50000);
+      expect(resp.kpis.revenueCents["2026-05"]).toBe(50000);
+    });
+
+    it("excludes the synthesized manual row from the unmapped data-quality bucket despite coaId:null", async () => {
+      const months = ["2026-05"];
+      mockedFetch.mockResolvedValue({
+        ...emptySources(months),
+        manualNetSalesEntries: [
+          { id: "m-3", startDate: "2026-05-01", endDate: "2026-05-31", amountCents: 891300 },
+        ],
+      });
+
+      const resp = await buildFinancials({ statement: "pl", year: 2026 });
+
+      const manualRow = resp.rows.find((r) => r.sourceRef.table === "manual_net_sales_entries");
+      expect(manualRow).toBeDefined();
+      expect(manualRow!.coaId).toBeNull();
+
+      // The row is coaId:null (would otherwise count as unmapped), but the
+      // deliberate top-line adjustment carve-out keeps it out of the bucket.
+      expect(resp.dataQuality.unmapped.count).toBe(0);
+      expect(resp.dataQuality.unmapped.cents).toBe(0);
+    });
+
+    it("does not inject a manual net-sales row for balance_sheet mode even when entries are present", async () => {
+      mockedFetch.mockResolvedValue({
+        ...emptySources(["2026-12"]),
+        manualNetSalesEntries: [
+          { id: "m-4", startDate: "2026-01-01", endDate: "2026-12-31", amountCents: 500000 },
+        ],
+      });
+
+      const resp = await buildFinancials({ statement: "balance_sheet", year: 2026 });
+
+      expect(resp.rows.find((r) => r.sourceRef.table === "manual_net_sales_entries")).toBeUndefined();
     });
   });
 });
