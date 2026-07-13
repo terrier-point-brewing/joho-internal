@@ -126,6 +126,8 @@ export const queryKeys = {
     parties:   () => ["tax", "parties"] as const,
     profile:   (party: string) => ["tax", "profile", party] as const,
     squareTaxes: () => ["tax", "square-taxes"] as const,
+    entityProfile: () => ["tax", "entityProfile"] as const,
+    authorities:   () => ["tax", "authorities"] as const,
   },
 
   // ─── Settings (app-wide) ──────────────────────────────────────────────────
