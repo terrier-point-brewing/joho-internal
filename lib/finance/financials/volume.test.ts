@@ -12,13 +12,14 @@ describe("rowBbl", () => {
     expect(rowBbl({ kind: "invoice", volumeBbl: 1.5 })).toEqual({ bbl: 1.5, coverage: "full" });
   });
 
-  it("taproom beer row with unparseable BBL (no kegSize, no variationName) -> unknown", () => {
+  it("taproom beer row with unparseable BBL (no kegSize, no variationName, real sale) -> unknown", () => {
     const result = rowBbl({
       kind: "taproom",
       categoryId: KEG_CAT,
       kegSize: null,
       variationName: null,
       quantity: 1,
+      netSalesCents: 5000,
     });
     expect(result).toEqual({ bbl: 0, coverage: "unknown" });
   });
@@ -30,17 +31,44 @@ describe("rowBbl", () => {
       kegSize: null,
       variationName: "T-Shirt",
       quantity: 1,
+      netSalesCents: 2000,
     });
     expect(result).toEqual({ bbl: 0, coverage: "full" });
   });
 
-  it("full-coverage keg row (half keg) derives real BBL", () => {
+  it("full-coverage keg row (half keg, real sale) derives real BBL", () => {
     const result = rowBbl({
       kind: "taproom",
       categoryId: KEG_CAT,
       kegSize: "half",
       variationName: "1/2 Keg",
       quantity: 1,
+      netSalesCents: 15000,
+    });
+    expect(result.coverage).toBe("full");
+    expect(result.bbl).toBeCloseTo(15.5 / 31, 10);
+  });
+
+  it("KEGS-category row with net_sales_cents === 0 is a keg-transfer (internal move to tap, not a sale) -> 0 BBL, full coverage", () => {
+    const result = rowBbl({
+      kind: "taproom",
+      categoryId: KEG_CAT,
+      kegSize: "half",
+      variationName: "1/2 Keg",
+      quantity: 1,
+      netSalesCents: 0,
+    });
+    expect(result).toEqual({ bbl: 0, coverage: "full" });
+  });
+
+  it("same KEGS row with a positive net_sales_cents is a real keg sale -> unchanged real BBL", () => {
+    const result = rowBbl({
+      kind: "taproom",
+      categoryId: KEG_CAT,
+      kegSize: "half",
+      variationName: "1/2 Keg",
+      quantity: 1,
+      netSalesCents: 15000,
     });
     expect(result.coverage).toBe("full");
     expect(result.bbl).toBeCloseTo(15.5 / 31, 10);
@@ -53,6 +81,7 @@ describe("rowBbl", () => {
       kegSize: "can",
       variationName: "16oz 4-Pack",
       quantity: 1,
+      netSalesCents: 1600,
     });
     expect(result.coverage).toBe("full");
     expect(result.bbl).toBeCloseTo((16 * 4) / 3968, 10);
@@ -65,6 +94,7 @@ describe("rowBbl", () => {
       kegSize: null,
       variationName: "Draft - 16oz",
       quantity: 3,
+      netSalesCents: 2100,
     });
     expect(result.coverage).toBe("full");
     expect(result.bbl).toBeCloseTo((16 * 3) / 3968, 10);
@@ -77,20 +107,23 @@ describe("rowBbl", () => {
       kegSize: null,
       variationName: "16oz",
       quantity: 2,
+      netSalesCents: 1400,
     });
     expect(result.coverage).toBe("full");
     expect(result.bbl).toBeCloseTo((16 * 2) / 3968, 10);
   });
 
-  it("DRAFT row with no variationName stays unknown (genuine gap, still flagged)", () => {
+  it("DRAFT row with null variationName defaults to 16oz (known draft pour, unknown exact size) -> full coverage", () => {
     const result = rowBbl({
       kind: "taproom",
       categoryId: DRAFT_CAT,
       kegSize: null,
       variationName: null,
       quantity: 1,
+      netSalesCents: 700,
     });
-    expect(result).toEqual({ bbl: 0, coverage: "unknown" });
+    expect(result.coverage).toBe("full");
+    expect(result.bbl).toBeCloseTo(16 / 3968, 10);
   });
 
   it("CANS-category row derives real BBL by category even when kegSize is null (name lacks the literal word 'can')", () => {
@@ -100,6 +133,7 @@ describe("rowBbl", () => {
       kegSize: null,
       variationName: "16oz 4-Pack",
       quantity: 1,
+      netSalesCents: 1600,
     });
     expect(result.coverage).toBe("full");
     expect(result.bbl).toBeCloseTo((16 * 4) / 3968, 10);

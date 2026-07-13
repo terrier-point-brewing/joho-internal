@@ -168,6 +168,7 @@ function resolvePos(row: PosLineRecord, coaMap: Map<string, CoaRecord>): Resolve
     kegSize,
     variationName: row.variationName,
     quantity: row.quantity,
+    netSalesCents: row.netSalesCents,
   });
 
   return {

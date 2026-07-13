@@ -200,6 +200,73 @@ describe("aggregateRows", () => {
     expect(rows[0].bblByMonth["2026-02"]).toBe(0);
   });
 
+  it("KEGS row with net_sales_cents 0 (keg-transfer onto tap, not a sale) contributes 0 BBL with full coverage", () => {
+    const rows = aggregateRows(
+      emptyInput({
+        pos: [
+          {
+            id: "pos-transfer",
+            netSalesCents: 0,
+            transactionDate: "2026-01-05",
+            chartOfAccountsId: "coa-beer",
+            prefillChartOfAccountsId: null,
+            invoiceId: null,
+            isEventPour: false,
+            exportChannel: null,
+            categoryId: KEG_CAT,
+            variationName: "1/2 Keg",
+            quantity: 1,
+          },
+        ],
+      }),
+    );
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].bblByMonth["2026-01"]).toBe(0);
+    expect(rows[0].bblCoverage).toBe("full");
+    expect(rows[0].amountCentsByMonth["2026-01"]).toBe(0);
+  });
+
+  it("real keg sale (net_sales_cents > 0) alongside a keg-transfer in the same group only counts the real sale's BBL", () => {
+    const rows = aggregateRows(
+      emptyInput({
+        pos: [
+          {
+            id: "pos-transfer-2",
+            netSalesCents: 0,
+            transactionDate: "2026-01-05",
+            chartOfAccountsId: "coa-beer",
+            prefillChartOfAccountsId: null,
+            invoiceId: null,
+            isEventPour: false,
+            exportChannel: null,
+            categoryId: KEG_CAT,
+            variationName: "1/2 Keg",
+            quantity: 1,
+          },
+          {
+            id: "pos-real-sale",
+            netSalesCents: 15000,
+            transactionDate: "2026-01-06",
+            chartOfAccountsId: "coa-beer",
+            prefillChartOfAccountsId: null,
+            invoiceId: null,
+            isEventPour: false,
+            exportChannel: null,
+            categoryId: KEG_CAT,
+            variationName: "1/2 Keg",
+            quantity: 1,
+          },
+        ],
+      }),
+    );
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].bblByMonth["2026-01"]).toBeCloseTo(15.5 / 31, 10);
+    expect(rows[0].bblCoverage).toBe("full");
+    expect(rows[0].amountCentsByMonth["2026-01"]).toBe(15000);
+  });
+
   it("filters out rows whose month falls outside the requested `months` window", () => {
     const rows = aggregateRows(
       emptyInput({
