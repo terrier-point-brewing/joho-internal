@@ -411,14 +411,22 @@ async function main() {
     const coverageBreakdown = taproomBblCoverageBreakdown(newRes.rows, ym);
     const unknownRows = coverageBreakdown.filter((c) => c.coverage === "unknown");
     if (unknownRows.length > 0) {
-      console.log("  [diagnostic] taproom rows with bblCoverage=unknown (bbl forced to 0) by posCategory:");
+      console.log(
+        "  [diagnostic] taproom rows with bblCoverage=unknown by posCategory (post fix-A: draft-pour and\n" +
+          "      category-based can BBL now derive correctly in the common case -- \"unknown\" here is the\n" +
+          "      residual: any pos_line_items row with a null/unparseable variationName, or a keg-fraction line\n" +
+          "      whose variation name doesn't match a known size. Note bblCoverage is a per-*group* flag\n" +
+          "      (lib/finance/financials/aggregateRows.ts's groupKey has no month/row grain) -- one unknown row\n" +
+          "      taints the whole aggregate's coverage label even when most of that group's bbl is legitimately\n" +
+          "      summed from full-coverage rows, so \"unknown\" does NOT always mean this group's bbl is 0):",
+      );
       for (const c of unknownRows) {
         console.log(`      posCategory=${c.posCategory ?? "(null)"}  count=${c.count}  revenue=${fmtUsd(c.revenueCents)}`);
       }
     }
 
     console.log(
-      `  [diagnostic] manual_net_sales_entries prorated adj: ${fmtUsd(old.manualAdjCents)} (old net INCLUDES this; new pipeline reads this table nowhere)`,
+      `  [diagnostic] manual_net_sales_entries prorated adj: ${fmtUsd(old.manualAdjCents)} (post fix-B: new pipeline now also reads + prorates this table via injectManualNetSales -- both sides should include it; a delta here would flag a proration-formula mismatch, not a missing-table gap)`,
     );
     console.log(
       `  [diagnostic] event-pour gross-less-discounts within old's posOrders universe: ${fmtUsd(old.eventPourGrossLessDiscountsCents)} (old counts these under whichever category they map to; new routes them to channel="events", not "taproom" — new events-channel mapped revenue this month: ${fmtUsd(newEventsRevenueMapped)})`,
@@ -435,24 +443,23 @@ async function main() {
     for (const d of materialDeltas) console.log(`  - ${d}`);
     console.log("\nDiagnosed root causes (see per-month [diagnostic] lines above):");
     console.log(
-      "  1. BUG (lib/finance/financials/dimensions.ts deriveKegSize + volume.ts rowBbl): draft-pour (DRAFT_BEER\n" +
-        "     category, sold by the glass) line items are NEVER assigned a kegSize (deriveKegSize only recognizes\n" +
-        "     keg-fraction and literal-\"can\" variation names, not by-the-glass pour sizes) and so ALWAYS resolve to\n" +
-        "     bblCoverage=\"unknown\"/bbl=0. Present in every month checked, ~$3.2k-4.7k/mo of DRAFT_BEER revenue\n" +
-        "     with zero BBL attributed. A secondary, smaller instance: some CANS-category rows also fall to\n" +
-        "     \"unknown\" because deriveKegSize's can heuristic (/\\bcan\\b/i on the variation name) is narrower than\n" +
-        "     lib/reports/bbl-tracker.ts's canOzPerUnit detection (case/12-pack/6-pack/4-pack, no literal \"can\"\n" +
-        "     required). This is the dominant cause of the BBL Volume deltas above, NOT a methodology difference.\n" +
+      "  1. FIXED (Square parity fix A, lib/finance/financials/volume.ts rowBbl): draft-pour (DRAFT_BEER category,\n" +
+        "     sold by the glass) BBL now derives via parseFlOz(variationName) keyed off Square reporting category,\n" +
+        "     not kegSize -- and CANS-category BBL derives via canOzPerUnit the same way, matching this script's\n" +
+        "     own category-based OLD reconstruction above. bblCoverage=\"unknown\" is now the residual case (a\n" +
+        "     pos_line_items row with a null/unparseable variationName), not the default -- see the per-month\n" +
+        "     [diagnostic] line for any remaining unknown-coverage rows and their revenue.\n" +
         "  2. DATA GAP (persisted pos_line_items / square_orders), NOT a buildFinancials bug: 2026-06 specifically\n" +
         "     is missing ~50% of live-Square POS orders from the persisted store (see \"Sync completeness\" line\n" +
         "     above: 371 persisted vs 744 live). May and July persisted order counts track live Square closely\n" +
         "     (446/446, 405/400), so this reads as a June-specific sync incident, not a systemic parity bug --\n" +
         "     buildFinancials correctly aggregates whatever pos_line_items has; pos_line_items itself is\n" +
         "     incomplete for June.\n" +
-        "  3. Legitimate, already-known methodology differences (not bugs): manual_net_sales_entries prorated\n" +
-        "     adjustments (old net includes them; new pipeline reads that table nowhere) and event-pour channel\n" +
-        "     splitting (old counts event pours under whatever category they fall into; new routes them to\n" +
-        "     channel=\"events\"). Both are broken out in the [diagnostic] lines per month.\n" +
+        "  3. Legitimate, already-known methodology difference (not a bug): event-pour channel splitting (old\n" +
+        "     counts event pours under whatever category they fall into; new routes them to channel=\"events\").\n" +
+        "     Broken out in the [diagnostic] lines per month. (manual_net_sales_entries used to be a second\n" +
+        "     methodology-difference item here too, but Square parity fix B made the new pipeline read + prorate\n" +
+        "     that table as well -- see the [diagnostic] line above.)\n" +
         "  4. Residual (smaller, unexplained beyond the above): after removing manual-adj and event-pour, new\n" +
         "     still runs slightly ABOVE live-Square net in May (+$1,323, +16.4%) and July (+$678.71, +11.7%).\n" +
         "     Likely cause: the OLD buildTaproomModelReport silently DROPS line items whose Square reporting\n" +
