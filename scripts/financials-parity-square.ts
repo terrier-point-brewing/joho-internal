@@ -449,12 +449,15 @@ async function main() {
         "     own category-based OLD reconstruction above. bblCoverage=\"unknown\" is now the residual case (a\n" +
         "     pos_line_items row with a null/unparseable variationName), not the default -- see the per-month\n" +
         "     [diagnostic] line for any remaining unknown-coverage rows and their revenue.\n" +
-        "  2. DATA GAP (persisted pos_line_items / square_orders), NOT a buildFinancials bug: 2026-06 specifically\n" +
-        "     is missing ~50% of live-Square POS orders from the persisted store (see \"Sync completeness\" line\n" +
-        "     above: 371 persisted vs 744 live). May and July persisted order counts track live Square closely\n" +
-        "     (446/446, 405/400), so this reads as a June-specific sync incident, not a systemic parity bug --\n" +
-        "     buildFinancials correctly aggregates whatever pos_line_items has; pos_line_items itself is\n" +
-        "     incomplete for June.\n" +
+        "  2. DATA GAP (persisted pos_line_items / square_orders) — ROOT-CAUSED & BACKFILLED 2026-07-12, now\n" +
+        "     RESOLVED: 2026-06 had been missing ~50% of live-Square POS orders (was 371 persisted vs 744 live).\n" +
+        "     Root cause: the near-real-time Square webhook stopped landing orders from 2026-06-14 onward, and\n" +
+        "     the finance-sync safety-net cron did not exist during June (earliest cron_runs entry is 2026-07-08);\n" +
+        "     its 3-day trailing window never reached back to mid-June, so those days were permanently stranded.\n" +
+        "     Fix: scripts/backfill-june-2026-pos.ts re-ran the idempotent month sync (759 persisted now vs 744\n" +
+        "     live — the small persisted-over-live margin is the normal closed_at-vs-created_at boundary plus\n" +
+        "     retained CANCELED rows, same -2.0% artifact July shows). This was never a buildFinancials bug --\n" +
+        "     buildFinancials correctly aggregates whatever pos_line_items has; the table itself was incomplete.\n" +
         "  3. Legitimate, already-known methodology difference (not a bug): event-pour channel splitting (old\n" +
         "     counts event pours under whatever category they fall into; new routes them to channel=\"events\").\n" +
         "     Broken out in the [diagnostic] lines per month. (manual_net_sales_entries used to be a second\n" +

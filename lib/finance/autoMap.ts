@@ -112,18 +112,26 @@ export async function autoMapPosLineItems(
   const orderIds = (orders ?? []).map((o) => o.id);
   if (orderIds.length === 0) return { mapped: 0 };
 
-  let liQuery = supabase
-    .from("pos_line_items")
-    .select("id, square_variation_id")
-    .is("chart_of_accounts_id", null)
-    .not("square_variation_id", "is", null)
-    .in("square_order_id", orderIds);
-  if (opts.variationIds && opts.variationIds.length > 0) {
-    liQuery = liQuery.in("square_variation_id", opts.variationIds);
+  // Chunk the order-id filter: a full year can have thousands of orders, and a
+  // single .in() with that many UUIDs overflows PostgREST's request-URI length
+  // (400 Bad Request). Accumulate unmapped line items across bounded batches.
+  const ORDER_ID_CHUNK = 200;
+  const lineItems: { id: string; square_variation_id: string | null }[] = [];
+  for (let i = 0; i < orderIds.length; i += ORDER_ID_CHUNK) {
+    let liQuery = supabase
+      .from("pos_line_items")
+      .select("id, square_variation_id")
+      .is("chart_of_accounts_id", null)
+      .not("square_variation_id", "is", null)
+      .in("order_id", orderIds.slice(i, i + ORDER_ID_CHUNK));
+    if (opts.variationIds && opts.variationIds.length > 0) {
+      liQuery = liQuery.in("square_variation_id", opts.variationIds);
+    }
+    const { data, error: liErr } = await liQuery;
+    if (liErr) throw new Error(liErr.message);
+    if (data) lineItems.push(...data);
   }
-  const { data: lineItems, error: liErr } = await liQuery;
-  if (liErr) throw new Error(liErr.message);
-  if (!lineItems || lineItems.length === 0) return { mapped: 0 };
+  if (lineItems.length === 0) return { mapped: 0 };
 
   const varIds = opts.variationIds && opts.variationIds.length > 0
     ? opts.variationIds
