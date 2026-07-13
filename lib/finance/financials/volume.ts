@@ -52,8 +52,9 @@ export function rowBbl(row: BblSourceRow): { bbl: number; coverage: BblCoverage 
     // size" — default to 16oz (the same default parseFlOz uses internally
     // for a named-but-oz-less variation) rather than falling through to
     // "unknown". The whole DRAFT group shares one aggregation key, so an
-    // "unknown" here would propagate via mergeCoverage and withhold $/BBL
-    // for the ~99%-known draft aggregate over one ambiguous row.
+    // "unknown" here would add to the draft group's unknown-coverage share
+    // (see aggregateRows' COVERAGE_UNKNOWN_THRESHOLD); defaulting also lets the
+    // row's volume count toward the total instead of dropping to 0.
     const flOz = row.variationName ? parseFlOz(row.variationName) : 16;
     const totalOz = flOz * row.quantity;
     return { bbl: totalOz / BBL_TO_FL_OZ, coverage: "full" };
