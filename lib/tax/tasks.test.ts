@@ -35,7 +35,7 @@ const stubParty: TaxPartyTemplate = {
     const due = lastDayOfFollowingMonth(end);
     return { start, end, due };
   },
-  defaultDueRule: () => ({ monthOffset: 1, day: "last" }),
+  defaultDueRule: (freq) => (freq === "monthly" ? { monthOffset: 1, day: 20 } : { monthOffset: 1, day: "last" }),
   computeWorksheet: async () => ({ fields: {} }),
   fieldOwnership: {},
   mergeWorksheet: (current) => current,
@@ -151,22 +151,64 @@ describe("ensureTasksForSchedule", () => {
     expect(recorded).toHaveLength(1);
     expect(recorded[0].table).toBe("tax_tasks");
     expect(recorded[0].args?.[0]).toMatchObject({ onConflict: "schedule_id,period_end" });
+    // due_date is now resolved via resolveDueDate(period.end, rule) — rule
+    // falls back to stubParty.defaultDueRule("monthly") since schedule.config
+    // has no dueRule, which resolves to the 20th of the following month
+    // (period.end/computePeriod's own `.due` is no longer read here).
     expect(recorded[0].payload).toEqual([
       {
         schedule_id: "SCHED_1",
         party_key: "stub-party",
         period_start: "2026-05-01",
         period_end: "2026-05-31",
-        due_date: "2026-06-30",
+        due_date: "2026-06-20",
       },
       {
         schedule_id: "SCHED_1",
         party_key: "stub-party",
         period_start: "2026-06-01",
         period_end: "2026-06-30",
-        due_date: "2026-07-31",
+        due_date: "2026-07-20",
       },
     ]);
+  });
+
+  it("uses the schedule's config.dueRule to compute due_date when present", async () => {
+    registerParty(stubParty);
+    const recorded: Recorded[] = [];
+    const client = {
+      from: (table: string) => ({
+        upsert: (payload: unknown, opts: unknown) => {
+          recorded.push({ table, op: "upsert", payload, args: [opts] });
+          return { select: () => Promise.resolve({ data: [], error: null }) };
+        },
+      }),
+    } as unknown as SupabaseClient;
+
+    const schedule = makeSchedule({ config: { dueRule: { monthOffset: 1, day: 25 } } });
+    await ensureTasksForSchedule(client, schedule, refDate("2026-07-05"), 45);
+
+    const payload = recorded[0].payload as { due_date: string }[];
+    expect(payload.every((row) => row.due_date.endsWith("-25"))).toBe(true);
+  });
+
+  it("falls back to the party's defaultDueRule when config has no dueRule", async () => {
+    registerParty(stubParty);
+    const recorded: Recorded[] = [];
+    const client = {
+      from: (table: string) => ({
+        upsert: (payload: unknown, opts: unknown) => {
+          recorded.push({ table, op: "upsert", payload, args: [opts] });
+          return { select: () => Promise.resolve({ data: [], error: null }) };
+        },
+      }),
+    } as unknown as SupabaseClient;
+
+    const schedule = makeSchedule({ config: {} });
+    await ensureTasksForSchedule(client, schedule, refDate("2026-07-05"), 45);
+
+    const payload = recorded[0].payload as { due_date: string }[];
+    expect(payload.every((row) => row.due_date.endsWith("-20"))).toBe(true);
   });
 
   it("skips the DB round-trip entirely when there are no periods needing tasks (lookback=0)", async () => {
