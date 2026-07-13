@@ -78,6 +78,22 @@ describe("fetchExciseData", () => {
     expect(res.gallonsByChannel.wholesale).toBe(155);
     expect(res.missingDetailTxns).toBe(0);
   });
+
+  it("excludes a 'Franchise Fee' detail row (word-boundary match) but counts 'NC Excise Tax'", async () => {
+    const rows: ExportRow[] = [
+      {
+        channel: "taproom",
+        volume_bbl: 10,
+        export_transaction_taxes: [
+          { tax_name: "Franchise Fee", amount_usd: 50 },
+          { tax_name: "NC Excise Tax", amount_usd: 191.9 },
+        ],
+      },
+    ];
+    const res = await fetchExciseData(stubSb(rows), period);
+    expect(res.storedNcCents).toBe(Math.round(191.9 * 100));
+    expect(res.missingDetailTxns).toBe(0);
+  });
 });
 
 // ── fetchNcRateMicros (stubbed sb) ────────────────────────────────────────
@@ -88,6 +104,7 @@ function stubRatesSb(data: unknown, error?: string): SupabaseClient {
     const b: Record<string, unknown> = { data: error ? null : data, error: error ? { message: error } : null };
     b.select = () => b;
     b.eq = () => b;
+    b.order = () => b;
     return b;
   };
   return { from } as unknown as SupabaseClient;
@@ -103,11 +120,26 @@ describe("fetchNcRateMicros", () => {
     const micros = await fetchNcRateMicros(stubRatesSb([]));
     expect(micros).toBeNull();
   });
+
+  it("returns null (not 0) when the matched row's rate_usd is 0", async () => {
+    const micros = await fetchNcRateMicros(stubRatesSb([{ name: "NC Excise", unit: "gallon", rate_usd: 0, is_active: true }]));
+    expect(micros).toBeNull();
+  });
+
+  it("returns null when the matched row's rate_usd is null", async () => {
+    const micros = await fetchNcRateMicros(stubRatesSb([{ name: "NC Excise", unit: "gallon", rate_usd: null, is_active: true }]));
+    expect(micros).toBeNull();
+  });
+
+  it("does not match unrelated names containing the 'nc' substring (e.g. Franchise)", async () => {
+    const micros = await fetchNcRateMicros(stubRatesSb([{ name: "Franchise Fee", unit: "gallon", rate_usd: 0.6171, is_active: true }]));
+    expect(micros).toBeNull();
+  });
 });
 
 // ── computeBeerExciseWorksheet fallback (stubbed sb) ──────────────────────
 
-function stubWorksheetSb(): SupabaseClient {
+function stubWorksheetSb(rateRows: unknown[] = []): SupabaseClient {
   const from = (table: string) => {
     if (table === "export_transactions") {
       const b: Record<string, unknown> = {};
@@ -117,9 +149,10 @@ function stubWorksheetSb(): SupabaseClient {
       return b;
     }
     if (table === "excise_tax_rates") {
-      const b: Record<string, unknown> = { data: [], error: null };
+      const b: Record<string, unknown> = { data: rateRows, error: null };
       b.select = () => b;
       b.eq = () => b;
+      b.order = () => b;
       return b;
     }
     throw new Error(`unexpected table: ${table}`);
@@ -144,6 +177,29 @@ describe("computeBeerExciseWorksheet fallback", () => {
       period,
     };
     const ws = await computeBeerExciseWorksheet(ctx, stubWorksheetSb());
+    expect(ws.fields.nc_excise_rate_micros).toBe(NC_EXCISE_RATE_MICROS_FALLBACK);
+    expect(ws.warnings?.some((s) => /statutory fallback/i.test(s))).toBe(true);
+  });
+
+  it("falls back to the statutory rate when the active NC rate row has rate_usd: 0", async () => {
+    const ctx: ComputeContext = {
+      schedule: {
+        id: "s1",
+        party_key: "nc_dor_beer_excise",
+        frequency: "monthly",
+        lead_days: 10,
+        active: true,
+        config: {},
+        created_at: "",
+        updated_at: "",
+      },
+      profile: {},
+      period,
+    };
+    const ws = await computeBeerExciseWorksheet(
+      ctx,
+      stubWorksheetSb([{ name: "NC Excise", unit: "gallon", rate_usd: 0, is_active: true }]),
+    );
     expect(ws.fields.nc_excise_rate_micros).toBe(NC_EXCISE_RATE_MICROS_FALLBACK);
     expect(ws.warnings?.some((s) => /statutory fallback/i.test(s))).toBe(true);
   });

@@ -77,7 +77,7 @@ export async function fetchExciseData(sb: SupabaseClient, period: TaxPeriod): Pr
 
     const detailRaw = row.export_transaction_taxes;
     const details = Array.isArray(detailRaw) ? detailRaw : detailRaw ? [detailRaw] : [];
-    const ncDetails = details.filter((d) => d.tax_name?.toLowerCase().includes("nc"));
+    const ncDetails = details.filter((d) => d.tax_name != null && /\bnc\b/i.test(d.tax_name));
 
     if (ncDetails.length > 0) {
       for (const d of ncDetails) storedNcDollars += num(d.amount_usd);
@@ -98,22 +98,26 @@ export async function fetchExciseData(sb: SupabaseClient, period: TaxPeriod): Pr
 }
 
 /**
- * Read the active `excise_tax_rates` gallon row whose `name` contains "nc".
- * Returns `null` (never throws) when absent, so the caller can fall back to
- * the statutory constant.
+ * Read the active `excise_tax_rates` gallon row whose `name` matches "nc" as
+ * a whole word. Returns `null` (never throws) when absent, or when the
+ * matched row's `rate_usd` is not a finite positive number, so the caller can
+ * fall back to the statutory constant.
  */
 export async function fetchNcRateMicros(sb: SupabaseClient): Promise<number | null> {
   const { data, error } = await sb
     .from("excise_tax_rates")
     .select("name, unit, rate_usd, is_active")
     .eq("unit", "gallon")
-    .eq("is_active", true);
+    .eq("is_active", true)
+    .order("id", { ascending: true });
 
   if (error) throw new Error(error.message);
 
-  const row = (data ?? []).find((r: { name: string }) => r.name?.toLowerCase().includes("nc"));
+  const row = (data ?? []).find((r: { name: string }) => r.name != null && /\bnc\b/i.test(r.name));
   if (!row) return null;
-  return usdToMicros(Number(row.rate_usd));
+  const rateUsd = Number(row.rate_usd);
+  if (!Number.isFinite(rateUsd) || rateUsd <= 0) return null;
+  return usdToMicros(rateUsd);
 }
 
 export interface ComputeBeerExciseFiguresArgs {
