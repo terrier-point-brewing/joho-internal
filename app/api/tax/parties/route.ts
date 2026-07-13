@@ -27,6 +27,9 @@ export async function GET() {
       referenceView: party.referenceView,
       recomputeLabel: party.recomputeLabel,
       worksheetComponent: party.worksheetComponent,
+      defaultDueRules: Object.fromEntries(
+        party.supportedFrequencies.map((f) => [f, party.defaultDueRule(f)]),
+      ),
     }));
     return NextResponse.json(parties);
   } catch (err) {

@@ -1,3 +1,5 @@
+import type { DueRule } from "./dueDate";
+
 export type Frequency = "monthly" | "quarterly" | "annual";
 export type TaxTaskStatus = "open" | "completed" | "skipped";
 export type FieldOwnership = "computed" | "manual";
@@ -58,6 +60,7 @@ export interface TaxPartyTemplate {
   label: string;
   supportedFrequencies: Frequency[];
   computePeriod(freq: Frequency, ref: Date): TaxPeriod;
+  defaultDueRule(freq: Frequency): DueRule;
   computeWorksheet(ctx: ComputeContext): Promise<WorksheetData>;
   fieldOwnership: Record<string, FieldOwnership>;
   mergeWorksheet(current: WorksheetData, recomputed: WorksheetData): WorksheetData;

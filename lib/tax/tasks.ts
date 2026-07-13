@@ -13,6 +13,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Frequency, TaxPartyTemplate, TaxPeriod, TaxSchedule, TaxTask, TaxTaskStatus, WorksheetData } from "./types";
 import { addDaysIso } from "./period";
+import { readDueRule, resolveDueDate } from "./dueDate";
 import { getParty } from "./registry";
 
 // Default catch-up window for `ensureTasksForSchedule` when the caller (a
@@ -105,12 +106,14 @@ export async function ensureTasksForSchedule(
   const periods = periodsNeedingTasks(schedule.frequency, today, lookbackDays, party);
   if (periods.length === 0) return { created: 0 };
 
+  const rule = readDueRule(schedule.config) ?? party.defaultDueRule(schedule.frequency);
+
   const rows = periods.map((p) => ({
     schedule_id: schedule.id,
     party_key: schedule.party_key,
     period_start: p.start,
     period_end: p.end,
-    due_date: p.due,
+    due_date: resolveDueDate(p.end, rule),
   }));
 
   const { data, error } = await sb

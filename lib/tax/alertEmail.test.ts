@@ -7,6 +7,7 @@ const sampleParty: TaxPartyTemplate = {
   label: "NC DOR — Sales & Use Tax",
   supportedFrequencies: ["monthly", "quarterly"],
   computePeriod: () => ({ start: "2026-06-01", end: "2026-06-30", due: "2026-07-20" }),
+  defaultDueRule: () => ({ monthOffset: 1, day: 20 }),
   computeWorksheet: async () => ({ fields: {} }),
   fieldOwnership: {},
   mergeWorksheet: (current) => current,

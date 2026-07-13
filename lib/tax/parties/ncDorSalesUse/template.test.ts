@@ -29,6 +29,20 @@ describe("ncDorSalesUseTemplate.computePeriod", () => {
   });
 });
 
+describe("ncDorSalesUseTemplate.defaultDueRule", () => {
+  it("monthly: due the 20th of the following month", () => {
+    expect(ncDorSalesUseTemplate.defaultDueRule("monthly")).toEqual({ monthOffset: 1, day: 20 });
+  });
+
+  it("quarterly: due the last day of the following month", () => {
+    expect(ncDorSalesUseTemplate.defaultDueRule("quarterly")).toEqual({ monthOffset: 1, day: "last" });
+  });
+
+  it("throws for an unsupported frequency", () => {
+    expect(() => ncDorSalesUseTemplate.defaultDueRule("annual")).toThrow(/nc_dor_sales_use/);
+  });
+});
+
 describe("resolveFieldOwnership", () => {
   it.each<[string, "computed" | "manual"]>([
     ["line1_gross_receipts", "computed"],
@@ -130,12 +144,8 @@ describe("template shape", () => {
     expect(ncDorSalesUseTemplate.worksheetComponent).toBe("nc_dor_sales_use");
   });
 
-  it("settingsSchema requires fein and marks ssn sensitive/optional", () => {
-    const fein = ncDorSalesUseTemplate.settingsSchema.find((f) => f.key === "fein");
-    const ssn = ncDorSalesUseTemplate.settingsSchema.find((f) => f.key === "ssn");
-    expect(fein?.required).toBe(true);
-    expect(ssn?.sensitive).toBe(true);
-    expect(ssn?.required).toBeFalsy();
+  it("settingsSchema is trimmed to only the party-specific Square tax mapping field", () => {
+    expect(ncDorSalesUseTemplate.settingsSchema.map((f) => f.key)).toEqual(["general_sales_tax_id"]);
   });
 
   it("scheduleConfigSchema exposes a counties field with NC county options", () => {

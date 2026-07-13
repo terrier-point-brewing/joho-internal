@@ -5,6 +5,7 @@ import { Modal, Field, ModalActions } from "@/app/components/ui/Modal";
 import Banner from "@/app/components/ui/Banner";
 import type { FieldSpec, Frequency, TaxSchedule } from "@/lib/tax/types";
 import { validateCountyWeights, type CountyWeight } from "@/lib/tax/scheduleConfig";
+import { readDueRule, resolveDueDate, validateDueRule, type DueRule } from "@/lib/tax/dueDate";
 import type { TaxPartyMeta } from "./hooks/useTaxData";
 
 interface ScheduleEditorProps {
@@ -29,6 +30,10 @@ function countiesFromConfig(config: Record<string, unknown> | undefined): County
     .map((c) => ({ code: String(c.code), weight: Number(c.weight) || 0 }));
 }
 
+function seedRule(sched: TaxSchedule | null, party: TaxPartyMeta | undefined, freq: Frequency): DueRule {
+  return readDueRule(sched?.config) ?? party?.defaultDueRules?.[freq] ?? { monthOffset: 1, day: "last" };
+}
+
 export default function ScheduleEditor({ schedule, parties, onClose, onSaved }: ScheduleEditorProps) {
   const [partyKey, setPartyKey] = useState(schedule?.party_key ?? parties[0]?.key ?? "");
   const selectedParty = parties.find((p) => p.key === partyKey);
@@ -39,12 +44,30 @@ export default function ScheduleEditor({ schedule, parties, onClose, onSaved }: 
   const [leadDays, setLeadDays] = useState(String(schedule?.lead_days ?? 7));
   const [active, setActive] = useState(schedule?.active ?? true);
   const [counties, setCounties] = useState<CountyWeight[]>(countiesFromConfig(schedule?.config));
+  const [dueRule, setDueRule] = useState<DueRule>(() => seedRule(schedule, selectedParty, frequency));
+  const [dueRuleTouched, setDueRuleTouched] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const scheduleConfigSchema: FieldSpec[] = selectedParty?.scheduleConfigSchema ?? [];
   const countiesField = scheduleConfigSchema.find((f) => f.key === "counties");
   const countyError = countiesField ? validateCountyWeights(counties) : null;
+
+  const sampleEnd = frequency === "monthly" ? "2026-06-30" : frequency === "quarterly" ? "2026-06-30" : "2026-12-31";
+  const dueRuleError = validateDueRule(dueRule);
+  const dueDatePreview = dueRuleError
+    ? dueRuleError
+    : `A period ending ${sampleEnd} would be due ${resolveDueDate(sampleEnd, dueRule)}.`;
+
+  // Re-seed the due rule whenever party/frequency change (until the user
+  // edits it directly) — adjusted during render rather than in an effect, per
+  // https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes
+  const [seededFor, setSeededFor] = useState(`${partyKey}:${frequency}`);
+  const seedKey = `${partyKey}:${frequency}`;
+  if (seedKey !== seededFor) {
+    setSeededFor(seedKey);
+    if (!dueRuleTouched) setDueRule(seedRule(schedule, selectedParty, frequency));
+  }
 
   function handlePartyChange(key: string) {
     setPartyKey(key);
@@ -55,6 +78,7 @@ export default function ScheduleEditor({ schedule, parties, onClose, onSaved }: 
     // A different party has an unrelated county set (or none) — start fresh
     // rather than carrying over weights that no longer correspond to options.
     setCounties([]);
+    setDueRuleTouched(false);
   }
 
   function toggleCounty(code: string, checked: boolean) {
@@ -74,6 +98,7 @@ export default function ScheduleEditor({ schedule, parties, onClose, onSaved }: 
     try {
       const config: Record<string, unknown> = { ...(schedule?.config ?? {}) };
       if (countiesField) config.counties = counties;
+      config.dueRule = dueRule;
 
       const body = schedule
         ? { frequency, lead_days: Number(leadDays) || 0, config, active }
@@ -121,11 +146,9 @@ export default function ScheduleEditor({ schedule, parties, onClose, onSaved }: 
             ))}
           </select>
           {schedule && <p className="text-xs text-faint mt-1">The party can&apos;t change after a schedule is created.</p>}
-          {selectedParty?.settingsSchema && selectedParty.settingsSchema.length > 0 && (
-            <p className="text-xs text-faint mt-1">
-              Filing identity (FEIN, contact, account ID) is set on the party&apos;s settings, not here.
-            </p>
-          )}
+          <p className="text-xs text-faint mt-1">
+            Filing identity (FEIN, contact, account ID) is configured under Settings → Tax Filing, not here.
+          </p>
         </Field>
 
         <div className="grid grid-cols-2 gap-3">
@@ -148,6 +171,47 @@ export default function ScheduleEditor({ schedule, parties, onClose, onSaved }: 
             />
           </Field>
         </div>
+
+        <Field label="Due date" hint="When the filing is due, relative to each period's end.">
+          <div className="flex flex-wrap items-center gap-2 text-sm text-body">
+            <input
+              type="number"
+              min="0"
+              max="12"
+              className="inp-sm w-16"
+              value={dueRule.monthOffset}
+              onChange={(e) => {
+                setDueRuleTouched(true);
+                setDueRule((r) => ({ ...r, monthOffset: Number(e.target.value) || 0 }));
+              }}
+            />
+            <span className="text-muted">month(s) after period end, on</span>
+            <input
+              type="number"
+              min="1"
+              max="31"
+              className="inp-sm w-16"
+              disabled={dueRule.day === "last"}
+              value={dueRule.day === "last" ? "" : dueRule.day}
+              onChange={(e) => {
+                setDueRuleTouched(true);
+                setDueRule((r) => ({ ...r, day: Number(e.target.value) || 1 }));
+              }}
+            />
+            <label className="flex items-center gap-1.5">
+              <input
+                type="checkbox"
+                checked={dueRule.day === "last"}
+                onChange={(e) => {
+                  setDueRuleTouched(true);
+                  setDueRule((r) => ({ ...r, day: e.target.checked ? "last" : 20 }));
+                }}
+              />
+              Last day of month
+            </label>
+          </div>
+          <p className="text-xs text-faint mt-1">{dueDatePreview}</p>
+        </Field>
 
         {schedule && (
           <Field label="Status">
@@ -202,12 +266,13 @@ export default function ScheduleEditor({ schedule, parties, onClose, onSaved }: 
         )}
 
         {countyError && <Banner tone="danger">{countyError}</Banner>}
+        {dueRuleError && <Banner tone="danger">{dueRuleError}</Banner>}
 
         <ModalActions
           submitting={submitting}
           onCancel={onClose}
           label={schedule ? "Save Changes" : "Create Schedule"}
-          disabled={!!countyError || !partyKey}
+          disabled={!!countyError || !!dueRuleError || !partyKey}
         />
       </form>
     </Modal>
