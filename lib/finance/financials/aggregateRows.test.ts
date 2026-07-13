@@ -267,6 +267,88 @@ describe("aggregateRows", () => {
     expect(rows[0].amountCentsByMonth["2026-01"]).toBe(15000);
   });
 
+  it("group with an immaterial slice of unknown-coverage revenue (< 5%) stays 'full' so $/BBL isn't withheld", () => {
+    const CAN_CAT = [...CATEGORY_IDS.CANS][0];
+    const rows = aggregateRows(
+      emptyInput({
+        months: ["2026-01"],
+        pos: [
+          // Known-volume cans: $1,000.00 of revenue with derivable BBL.
+          {
+            id: "can-full",
+            netSalesCents: 100000,
+            transactionDate: "2026-01-10",
+            chartOfAccountsId: null,
+            prefillChartOfAccountsId: "coa-beer",
+            invoiceId: null,
+            isEventPour: false,
+            exportChannel: null,
+            categoryId: CAN_CAT,
+            variationName: "16oz 4-Pack",
+            quantity: 4,
+          },
+          // One can with no variation name -> unknown coverage, only $10.00 (~1% of the group).
+          {
+            id: "can-unknown",
+            netSalesCents: 1000,
+            transactionDate: "2026-01-12",
+            chartOfAccountsId: null,
+            prefillChartOfAccountsId: "coa-beer",
+            invoiceId: null,
+            isEventPour: false,
+            exportChannel: null,
+            categoryId: CAN_CAT,
+            variationName: null,
+            quantity: 1,
+          },
+        ],
+      }),
+    );
+    expect(rows).toHaveLength(1);
+    // One immaterial unknown row must NOT blank the whole group's $/BBL.
+    expect(rows[0].bblCoverage).toBe("full");
+  });
+
+  it("group with a material slice of unknown-coverage revenue (> 5%) is flagged 'unknown'", () => {
+    const CAN_CAT = [...CATEGORY_IDS.CANS][0];
+    const rows = aggregateRows(
+      emptyInput({
+        months: ["2026-01"],
+        pos: [
+          {
+            id: "can-full",
+            netSalesCents: 100000,
+            transactionDate: "2026-01-10",
+            chartOfAccountsId: null,
+            prefillChartOfAccountsId: "coa-beer",
+            invoiceId: null,
+            isEventPour: false,
+            exportChannel: null,
+            categoryId: CAN_CAT,
+            variationName: "16oz 4-Pack",
+            quantity: 4,
+          },
+          // $200.00 of unknown-coverage revenue = ~17% of the group -> genuinely material.
+          {
+            id: "can-unknown",
+            netSalesCents: 20000,
+            transactionDate: "2026-01-12",
+            chartOfAccountsId: null,
+            prefillChartOfAccountsId: "coa-beer",
+            invoiceId: null,
+            isEventPour: false,
+            exportChannel: null,
+            categoryId: CAN_CAT,
+            variationName: null,
+            quantity: 1,
+          },
+        ],
+      }),
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0].bblCoverage).toBe("unknown");
+  });
+
   it("filters out rows whose month falls outside the requested `months` window", () => {
     const rows = aggregateRows(
       emptyInput({

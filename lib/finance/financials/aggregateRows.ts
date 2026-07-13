@@ -280,11 +280,14 @@ function groupKey(r: ResolvedRow): string {
   return [r.table, r.coaId ?? "\0null", r.channel, r.posCategory ?? "\0null", r.kegSize ?? "\0null", r.mappingSource].join("::");
 }
 
-const COVERAGE_RANK: Record<BblCoverage, number> = { full: 0, partial: 1, unknown: 2 };
-
-function mergeCoverage(a: BblCoverage, b: BblCoverage): BblCoverage {
-  return COVERAGE_RANK[b] > COVERAGE_RANK[a] ? b : a;
-}
+// A group's $/BBL is withheld only when a MATERIAL share of its revenue comes
+// from rows whose volume couldn't be measured (bblCoverage !== "full"). Rows
+// collapse into one FinancialsRow per (table, coaId, channel, posCategory,
+// kegSize, mappingSource), so a single stray unparseable row out of hundreds
+// used to poison the whole group's coverage (worst-case-wins) and blank an
+// otherwise-solid $/BBL. Instead we compare the unknown-coverage revenue
+// against this threshold — one immaterial row no longer withholds the ratio.
+const COVERAGE_UNKNOWN_THRESHOLD = 0.05; // > 5% of the group's absolute revenue → "unknown"
 
 export function aggregateRows(input: AggregateRowsInput): FinancialsRow[] {
   const coaMap = new Map(input.coa.map((c) => [c.id, c]));
@@ -344,6 +347,8 @@ export function aggregateRows(input: AggregateRowsInput): FinancialsRow[] {
   }
 
   const groups = new Map<string, FinancialsRow>();
+  // Per-group coverage materiality (decided after the loop, see COVERAGE_UNKNOWN_THRESHOLD).
+  const coverageAcc = new Map<string, { total: number; unknown: number }>();
 
   for (const r of resolved) {
     const key = groupKey(r);
@@ -369,8 +374,21 @@ export function aggregateRows(input: AggregateRowsInput): FinancialsRow[] {
 
     out.amountCentsByMonth[r.monthKey] = (out.amountCentsByMonth[r.monthKey] ?? 0) + r.amountCents;
     out.bblByMonth[r.monthKey] = (out.bblByMonth[r.monthKey] ?? 0) + r.bbl;
-    out.bblCoverage = mergeCoverage(out.bblCoverage, r.bblCoverage);
     out.sourceRef.ids.push(r.id);
+
+    const acc = coverageAcc.get(key) ?? { total: 0, unknown: 0 };
+    const mag = Math.abs(r.amountCents);
+    acc.total += mag;
+    if (r.bblCoverage !== "full") acc.unknown += mag;
+    coverageAcc.set(key, acc);
+  }
+
+  // A group is "unknown" only when a MATERIAL share of its revenue has unmeasured
+  // volume — one immaterial unparseable row no longer withholds the group's $/BBL.
+  for (const [key, out] of groups) {
+    const acc = coverageAcc.get(key);
+    out.bblCoverage =
+      acc && acc.total > 0 && acc.unknown / acc.total > COVERAGE_UNKNOWN_THRESHOLD ? "unknown" : "full";
   }
 
   return [...groups.values()];
