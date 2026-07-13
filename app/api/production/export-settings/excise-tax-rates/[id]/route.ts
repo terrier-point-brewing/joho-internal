@@ -16,10 +16,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     is_active: boolean;
     square_catalog_item_id: string | null;
     square_catalog_variation_id: string | null;
+    party_key: string | null;
   }>;
 
   const patch: Record<string, unknown> = {};
-  for (const key of ["name", "receiving_party", "unit", "rate_usd", "is_active", "square_catalog_item_id", "square_catalog_variation_id"] as const) {
+  for (const key of ["name", "receiving_party", "unit", "rate_usd", "is_active", "square_catalog_item_id", "square_catalog_variation_id", "party_key"] as const) {
     if (key in body) patch[key] = body[key];
   }
   if (Object.keys(patch).length === 0) {
@@ -32,7 +33,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     .from("excise_tax_rates")
     .update(patch)
     .eq("id", id)
-    .select("id, name, receiving_party, unit, rate_usd, is_active, square_catalog_item_id, square_catalog_variation_id, created_at, updated_at")
+    .select("id, name, receiving_party, unit, rate_usd, is_active, square_catalog_item_id, square_catalog_variation_id, party_key, created_at, updated_at")
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

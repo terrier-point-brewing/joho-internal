@@ -62,7 +62,7 @@ export const queryKeys = {
     taproomRecipeSettings: () => ["production", "taproom-recipe-settings"] as const,
     ingredientShortfalls:  (batchId: string) => ["production", "ingredient-shortfalls", batchId] as const,
     batchConversions:      () => ["production", "batch-conversions"] as const,
-    exciseTaxRates:        () => ["production", "excise-tax-rates"] as const,
+    exciseTaxRates:        (party?: string) => (party ? ["production", "excise-tax-rates", party] as const : ["production", "excise-tax-rates"] as const),
     exportServiceMappings: () => ["production", "export-service-mappings"] as const,
     exportSquareCatalog:   () => ["production", "export-square-catalog"] as const,
     exportInvoiceDueDays:  () => ["production", "export-invoice-due-days"] as const,
@@ -126,6 +126,8 @@ export const queryKeys = {
     parties:   () => ["tax", "parties"] as const,
     profile:   (party: string) => ["tax", "profile", party] as const,
     squareTaxes: () => ["tax", "square-taxes"] as const,
+    entityProfile: () => ["tax", "entityProfile"] as const,
+    authorities:   () => ["tax", "authorities"] as const,
   },
 
   // ─── Settings (app-wide) ──────────────────────────────────────────────────

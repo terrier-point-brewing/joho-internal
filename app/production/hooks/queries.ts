@@ -226,10 +226,15 @@ export function useSuppliersQuery() {
   });
 }
 
-export function useExciseTaxRatesQuery() {
+export function useExciseTaxRatesQuery(party?: string) {
   return useQuery({
-    queryKey: queryKeys.production.exciseTaxRates(),
-    queryFn: () => fetchJson<ExciseTaxRate[]>("/api/production/export-settings/excise-tax-rates"),
+    queryKey: queryKeys.production.exciseTaxRates(party),
+    queryFn: () =>
+      fetchJson<ExciseTaxRate[]>(
+        party
+          ? `/api/production/export-settings/excise-tax-rates?party=${encodeURIComponent(party)}`
+          : "/api/production/export-settings/excise-tax-rates"
+      ),
   });
 }
 
