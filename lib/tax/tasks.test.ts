@@ -35,6 +35,7 @@ const stubParty: TaxPartyTemplate = {
     const due = lastDayOfFollowingMonth(end);
     return { start, end, due };
   },
+  defaultDueRule: () => ({ monthOffset: 1, day: "last" }),
   computeWorksheet: async () => ({ fields: {} }),
   fieldOwnership: {},
   mergeWorksheet: (current) => current,

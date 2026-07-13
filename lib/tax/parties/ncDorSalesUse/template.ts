@@ -17,7 +17,8 @@ import type {
   TaxPeriod,
   WorksheetData,
 } from "@/lib/tax/types";
-import { lastDayOfFollowingMonth, monthPeriod, quarterPeriod } from "@/lib/tax/period";
+import { monthPeriod, quarterPeriod } from "@/lib/tax/period";
+import { resolveDueDate, type DueRule } from "@/lib/tax/dueDate";
 import { registerParty } from "@/lib/tax/registry";
 import { computeNcDorWorksheet } from "./calc";
 import { deriveNcDorFigures } from "./derive";
@@ -30,27 +31,22 @@ import { NC_COUNTIES, NC_COUNTY_TIERS, NC_STATE_RATE } from "./rates";
 // Quarterly: period = calendar quarter; due = the LAST DAY of the month
 //            following the quarter's end (NC DOR's standard quarterly rule).
 
-function monthlyDue(periodEnd: string): string {
-  const [y, m] = periodEnd.split("-").map(Number);
-  let followingYear = y;
-  let followingMonth = m + 1;
-  if (followingMonth > 12) {
-    followingMonth = 1;
-    followingYear += 1;
-  }
-  return `${followingYear}-${String(followingMonth).padStart(2, "0")}-20`;
+function defaultDueRule(freq: Frequency): DueRule {
+  if (freq === "monthly") return { monthOffset: 1, day: 20 };
+  if (freq === "quarterly") return { monthOffset: 1, day: "last" };
+  throw new Error(`nc_dor_sales_use does not support frequency: ${freq}`);
 }
 
 function computePeriod(freq: Frequency, ref: Date): TaxPeriod {
-  if (freq === "monthly") {
-    const { start, end } = monthPeriod(ref);
-    return { start, end, due: monthlyDue(end) };
-  }
-  if (freq === "quarterly") {
-    const { start, end } = quarterPeriod(ref);
-    return { start, end, due: lastDayOfFollowingMonth(end) };
-  }
-  throw new Error(`nc_dor_sales_use does not support frequency: ${freq}`);
+  const { start, end } =
+    freq === "monthly"
+      ? monthPeriod(ref)
+      : freq === "quarterly"
+        ? quarterPeriod(ref)
+        : (() => {
+            throw new Error(`nc_dor_sales_use does not support frequency: ${freq}`);
+          })();
+  return { start, end, due: resolveDueDate(end, defaultDueRule(freq)) };
 }
 
 // ── fieldOwnership ──────────────────────────────────────────────────────────
@@ -110,12 +106,6 @@ function mergeWorksheet(current: WorksheetData, recomputed: WorksheetData): Work
 // ── settingsSchema / scheduleConfigSchema ───────────────────────────────────
 
 const settingsSchema: FieldSpec[] = [
-  { key: "contact_name", label: "Contact name", type: "text" },
-  { key: "contact_email", label: "Contact email", type: "email" },
-  { key: "contact_phone", label: "Contact phone", type: "tel" },
-  { key: "account_id", label: "NC DOR account ID", type: "text" },
-  { key: "fein", label: "Federal EIN", type: "text", required: true },
-  { key: "ssn", label: "SSN (only if no FEIN)", type: "text", sensitive: true },
   {
     key: "general_sales_tax_id",
     label: "Square General Sales Tax",
@@ -170,6 +160,7 @@ export const ncDorSalesUseTemplate: TaxPartyTemplate = {
   label: "NC DOR — Sales & Use Tax",
   supportedFrequencies: ["monthly", "quarterly"],
   computePeriod,
+  defaultDueRule,
   computeWorksheet: (ctx: ComputeContext) => computeNcDorWorksheet(ctx),
   fieldOwnership,
   mergeWorksheet,
