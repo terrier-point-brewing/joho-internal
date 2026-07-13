@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { formatCurrencyCents, formatPercent } from "@/lib/format";
 import { todayLocalDate, addDaysStr, weekdayOf, dayStartUtc } from "@/lib/utils/datetime";
+import { coveredSalesDays } from "@/lib/taproom/achievementPace";
 import { useBreweryTimezone } from "@/app/hooks/useBreweryTimezone";
 import TimezoneLabel from "@/app/components/TimezoneLabel";
 import { useQuery } from "@tanstack/react-query";
@@ -234,8 +235,15 @@ export default function AchievementTab() {
   // Whole-day counts + per-period day spans, for the day-based run rate. Handles
   // DST-length days via rounding. dailyRateDollars ($/day so far) drives both the
   // projection and the chart forecast, so the two never diverge in shape.
+  //
+  // elapsedDays must span the SAME days as actualCents (the summed net-sales of
+  // started periods), not the calendar gap from scope-start to start-of-today:
+  // a week whose end is today counts as complete and contributes a full 7 days
+  // of revenue, so today has to be counted here too. Using elapsedMs (which
+  // stops at 00:00 today) left the numerator a day longer than the denominator
+  // and inflated the projected run rate — worst on a week-ending day.
   const MS_PER_DAY = 86_400_000;
-  const elapsedDays   = Math.round(elapsedMs / MS_PER_DAY);
+  const elapsedDays   = coveredSalesDays(periods, todayStr, tz);
   const periodDaysArr = periods.map((p) =>
     Math.round((new Date(dayStartUtc(addDaysStr(p.end, 1), tz)).getTime()
               - new Date(dayStartUtc(p.start, tz)).getTime()) / MS_PER_DAY));
