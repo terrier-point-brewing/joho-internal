@@ -5,7 +5,9 @@
 -- spine (tax_authorities). Adds excise_tax_rates.party_key (FK) superseding the
 -- free-text receiving_party, and migrates filer identity out of
 -- tax_filing_profiles so those rows hold only party-operational settings.
--- Idempotent throughout; human-gated (do not auto-apply).
+-- Table/column/backfill steps are idempotent; the create-policy statements
+-- follow the house run-once pattern (no CREATE POLICY IF NOT EXISTS in
+-- Postgres). Human-gated (do not auto-apply).
 
 -- ── (a) tax_authorities (receiving-party spine) + seed ────────────────────────
 
