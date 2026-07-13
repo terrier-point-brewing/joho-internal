@@ -5,6 +5,7 @@ import FinanceNav from "../../FinanceNav";
 import PageHeader from "@/app/components/PageHeader";
 import SettingsNav from "../SettingsNav";
 import Banner from "@/app/components/ui/Banner";
+import { queryKeys } from "@/lib/query-keys";
 import { useTaxPartiesQuery } from "@/app/finance/tax/hooks/useTaxData";
 import { IDENTITY_SCHEMA } from "@/lib/tax/identity";
 import IdentityForm from "./IdentityForm";
@@ -66,13 +67,23 @@ export default function TaxFilingSettingsPage() {
 
             <section className="flex flex-col gap-2">
               <h3 className="text-sm font-semibold text-primary">Filing Identity</h3>
-              <IdentityForm partyKey={party.key} schema={IDENTITY_SCHEMA} />
+              <IdentityForm
+                schema={IDENTITY_SCHEMA}
+                endpoint={`/api/tax/profiles/${party.key}`}
+                queryKey={queryKeys.tax.profile(party.key)}
+                savedLabel="Filing identity saved."
+              />
             </section>
 
             {party.settingsSchema.length > 0 && (
               <section className="flex flex-col gap-2">
                 <h3 className="text-sm font-semibold text-primary">Party Settings</h3>
-                <IdentityForm partyKey={party.key} schema={party.settingsSchema} />
+                <IdentityForm
+                  schema={party.settingsSchema}
+                  endpoint={`/api/tax/profiles/${party.key}`}
+                  queryKey={queryKeys.tax.profile(party.key)}
+                  savedLabel="Party settings saved."
+                />
               </section>
             )}
 
