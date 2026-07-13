@@ -6,6 +6,7 @@ import PageHeader from "@/app/components/PageHeader";
 import SettingsNav from "../SettingsNav";
 import Banner from "@/app/components/ui/Banner";
 import { useTaxPartiesQuery } from "@/app/finance/tax/hooks/useTaxData";
+import { IDENTITY_SCHEMA } from "@/lib/tax/identity";
 import IdentityForm from "./IdentityForm";
 import ReferenceDisclosure from "./ReferenceDisclosure";
 
@@ -65,8 +66,15 @@ export default function TaxFilingSettingsPage() {
 
             <section className="flex flex-col gap-2">
               <h3 className="text-sm font-semibold text-primary">Filing Identity</h3>
-              <IdentityForm partyKey={party.key} schema={party.settingsSchema} />
+              <IdentityForm partyKey={party.key} schema={IDENTITY_SCHEMA} />
             </section>
+
+            {party.settingsSchema.length > 0 && (
+              <section className="flex flex-col gap-2">
+                <h3 className="text-sm font-semibold text-primary">Party Settings</h3>
+                <IdentityForm partyKey={party.key} schema={party.settingsSchema} />
+              </section>
+            )}
 
             <section className="flex flex-col gap-2">
               <h3 className="text-sm font-semibold text-primary">Reference Data</h3>
