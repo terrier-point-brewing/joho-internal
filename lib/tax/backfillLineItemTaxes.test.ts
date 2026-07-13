@@ -29,13 +29,19 @@ function stub(opts: {
       b.select = () => b;
       b.gte = () => b;
       b.lt = () => b;
-      b.is = () => Promise.resolve({ data: opts.orderRows, error: null });
+      b.is = () => b;
+      b.order = () => b;
+      b.range = (from: number, to: number) =>
+        Promise.resolve({ data: opts.orderRows.slice(from, to + 1), error: null });
       return b;
     }
     if (table === "pos_line_items") {
       const b: Record<string, unknown> = {};
       b.select = () => b;
-      b.in = () => Promise.resolve({ data: opts.lineRows, error: null });
+      b.in = () => b;
+      b.order = () => b;
+      b.range = (from: number, to: number) =>
+        Promise.resolve({ data: opts.lineRows.slice(from, to + 1), error: null });
       return b;
     }
     if (table === "pos_line_item_taxes") {
@@ -109,6 +115,32 @@ describe("backfillLineItemTaxesForRange", () => {
     expect(ops.indexOf("delete")).toBeGreaterThanOrEqual(0);
     expect(ops.indexOf("delete")).toBeLessThan(ops.indexOf("insert"));
     expect(recorded.find((r) => r.op === "delete")?.filterIn).toEqual(["LI_DB_1"]);
+  });
+
+  it("pages through square_orders and pos_line_items beyond a single page (no 1000-row-cap truncation)", async () => {
+    // 3 orders + 3 lines with pageSize=2 forces a second page for BOTH selects.
+    const orderRows = [
+      { id: "ODB_1", square_order_id: "SQ_1" },
+      { id: "ODB_2", square_order_id: "SQ_2" },
+      { id: "ODB_3", square_order_id: "SQ_3" },
+    ];
+    const lineRows = [
+      { id: "LI_DB_1", order_id: "ODB_1", square_line_item_uid: "LI_1" },
+      { id: "LI_DB_2", order_id: "ODB_2", square_line_item_uid: "LI_1" },
+      { id: "LI_DB_3", order_id: "ODB_3", square_line_item_uid: "LI_1" },
+    ];
+    const { client } = stub({ orderRows, lineRows });
+    const fetchedIds: string[] = [];
+    const fetchOrders = async (ids: string[]) => {
+      fetchedIds.push(...ids);
+      return ids.map((id) => ({ ...taxOrder, id }));
+    };
+
+    const result = await backfillLineItemTaxesForRange(client, "2026-07-01", "2026-07-02", fetchOrders, 2);
+
+    // All 3 orders were read across the two pages — not just the first page.
+    expect([...fetchedIds].sort()).toEqual(["SQ_1", "SQ_2", "SQ_3"]);
+    expect(result).toEqual({ orders: 3, taxRows: 3 });
   });
 
   it("returns zero orders/taxRows and never calls Square when no POS orders exist in range", async () => {
