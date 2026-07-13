@@ -13,6 +13,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { apiError } from "@/lib/utils/api";
 import { getSchedule, updateSchedule, setScheduleActive, type UpdateScheduleInput } from "@/lib/tax/schedules";
 import { getParty } from "@/lib/tax/registry";
+import { validateDueRule } from "@/lib/tax/dueDate";
 // Side-effect import: registers every party template before getParty() runs.
 import "@/lib/tax/parties";
 
@@ -36,6 +37,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
           400,
         );
       }
+    }
+
+    const dueRule = (patch.config as Record<string, unknown> | undefined)?.dueRule;
+    if (dueRule !== undefined) {
+      const msg = validateDueRule(dueRule);
+      if (msg) return apiError(msg, 400);
     }
 
     const schedule = await updateSchedule(sb, id, patch);

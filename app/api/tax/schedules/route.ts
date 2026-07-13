@@ -11,6 +11,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { apiError } from "@/lib/utils/api";
 import { listSchedules, createSchedule, type CreateScheduleInput } from "@/lib/tax/schedules";
 import { getParty } from "@/lib/tax/registry";
+import { validateDueRule } from "@/lib/tax/dueDate";
 // Side-effect import: registers every party template before getParty() runs.
 import "@/lib/tax/parties";
 
@@ -43,6 +44,12 @@ export async function POST(req: NextRequest) {
         `${template.label} does not support frequency "${body.frequency}" (supported: ${template.supportedFrequencies.join(", ")})`,
         400,
       );
+    }
+
+    const dueRule = (body.config as Record<string, unknown> | undefined)?.dueRule;
+    if (dueRule !== undefined) {
+      const msg = validateDueRule(dueRule);
+      if (msg) return apiError(msg, 400);
     }
 
     const sb = createSupabaseAdminClient();
