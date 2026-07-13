@@ -3,7 +3,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import { fetchJson } from "@/app/production/hooks/queries";
-import type { FieldSpec, ReferenceSpec, TaxSchedule, TaxTask } from "@/lib/tax/types";
+import type { FieldSpec, Frequency, ReferenceSpec, TaxSchedule, TaxTask } from "@/lib/tax/types";
+import type { DueRule } from "@/lib/tax/dueDate";
 
 /**
  * Serialized shape of `GET /api/tax/parties` — registry metadata only, no
@@ -20,6 +21,7 @@ export interface TaxPartyMeta {
   referenceView: ReferenceSpec;
   recomputeLabel?: string;
   worksheetComponent: string;
+  defaultDueRules: Partial<Record<Frequency, DueRule>>;
 }
 
 export function useTaxTasksQuery() {
