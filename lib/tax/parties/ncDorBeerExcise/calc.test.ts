@@ -1,6 +1,13 @@
 import { describe, it, expect } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { computeBeerExciseFigures, fetchExciseData } from "./calc";
+import type { ComputeContext } from "@/lib/tax/types";
+import { NC_EXCISE_RATE_MICROS_FALLBACK } from "./rates";
+import {
+  computeBeerExciseFigures,
+  fetchExciseData,
+  fetchNcRateMicros,
+  computeBeerExciseWorksheet,
+} from "./calc";
 
 describe("computeBeerExciseFigures", () => {
   const g = { distribution: 1000, contract_brewing: 200, taproom: 300, wholesale: 500 };
@@ -70,5 +77,74 @@ describe("fetchExciseData", () => {
     const res = await fetchExciseData(stubSb(rows), period);
     expect(res.gallonsByChannel.wholesale).toBe(155);
     expect(res.missingDetailTxns).toBe(0);
+  });
+});
+
+// ── fetchNcRateMicros (stubbed sb) ────────────────────────────────────────
+
+function stubRatesSb(data: unknown, error?: string): SupabaseClient {
+  const from = (table: string) => {
+    if (table !== "excise_tax_rates") throw new Error(`unexpected table: ${table}`);
+    const b: Record<string, unknown> = { data: error ? null : data, error: error ? { message: error } : null };
+    b.select = () => b;
+    b.eq = () => b;
+    return b;
+  };
+  return { from } as unknown as SupabaseClient;
+}
+
+describe("fetchNcRateMicros", () => {
+  it("converts the active NC gallon row's rate_usd to micros", async () => {
+    const micros = await fetchNcRateMicros(stubRatesSb([{ name: "NC Excise", unit: "gallon", rate_usd: 0.6171, is_active: true }]));
+    expect(micros).toBe(617100);
+  });
+
+  it("returns null when no active NC row is found", async () => {
+    const micros = await fetchNcRateMicros(stubRatesSb([]));
+    expect(micros).toBeNull();
+  });
+});
+
+// ── computeBeerExciseWorksheet fallback (stubbed sb) ──────────────────────
+
+function stubWorksheetSb(): SupabaseClient {
+  const from = (table: string) => {
+    if (table === "export_transactions") {
+      const b: Record<string, unknown> = {};
+      b.select = () => b;
+      b.gte = () => b;
+      b.lt = () => Promise.resolve({ data: [], error: null });
+      return b;
+    }
+    if (table === "excise_tax_rates") {
+      const b: Record<string, unknown> = { data: [], error: null };
+      b.select = () => b;
+      b.eq = () => b;
+      return b;
+    }
+    throw new Error(`unexpected table: ${table}`);
+  };
+  return { from } as unknown as SupabaseClient;
+}
+
+describe("computeBeerExciseWorksheet fallback", () => {
+  it("falls back to the statutory rate and warns when no active NC rate row / no transactions exist", async () => {
+    const ctx: ComputeContext = {
+      schedule: {
+        id: "s1",
+        party_key: "nc_dor_beer_excise",
+        frequency: "monthly",
+        lead_days: 10,
+        active: true,
+        config: {},
+        created_at: "",
+        updated_at: "",
+      },
+      profile: {},
+      period,
+    };
+    const ws = await computeBeerExciseWorksheet(ctx, stubWorksheetSb());
+    expect(ws.fields.nc_excise_rate_micros).toBe(NC_EXCISE_RATE_MICROS_FALLBACK);
+    expect(ws.warnings?.some((s) => /statutory fallback/i.test(s))).toBe(true);
   });
 });

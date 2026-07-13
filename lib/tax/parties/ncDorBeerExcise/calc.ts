@@ -21,7 +21,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { addDaysStr } from "@/lib/utils/datetime";
 import { GALLONS_PER_BBL } from "@/lib/constants/production";
 import type { ComputeContext, TaxPeriod, WorksheetData, WorksheetFields } from "@/lib/tax/types";
-import { NC_EXCISE_RATE_MICROS_FALLBACK, TAXABLE_CHANNELS, usdToMicros } from "./rates";
+import { NC_EXCISE_RATE_MICROS_FALLBACK, TAXABLE_CHANNELS, WHOLESALE_CHANNEL, usdToMicros } from "./rates";
 import { deriveBeerExciseFigures } from "./derive";
 
 const num = (v: number | string | null | undefined) => Number(v ?? 0);
@@ -127,8 +127,8 @@ export interface ComputeBeerExciseFiguresArgs {
  * Pure worksheet builder. Maps channel gallons onto the Line 2–11 waterfall
  * via the shared `deriveBeerExciseFigures`, then flags:
  *  - rate drift: computed L6 vs. what was actually stored/invoiced
- *    (tolerance = max(100¢, 0.1% of storedNcCents) — legacy rows stored at
- *    the pre-update $0.62 rate, or missing detail, can trigger this).
+ *    (tolerance = max(100¢, 0.1% of storedNcCents) — can indicate a stale
+ *    configured rate or missing excise detail; review before filing).
  *  - coverage: taxable rows missing NC excise detail, which should be
  *    backfilled before filing.
  */
@@ -140,7 +140,7 @@ export function computeBeerExciseFigures(args: ComputeBeerExciseFiguresArgs): Wo
     gal_distribution: gallonsByChannel.distribution ?? 0,
     gal_contract: gallonsByChannel.contract_brewing ?? 0,
     gal_taproom: gallonsByChannel.taproom ?? 0,
-    gal_wholesale: gallonsByChannel.wholesale ?? 0,
+    gal_wholesale: gallonsByChannel[WHOLESALE_CHANNEL] ?? 0,
     gal_beginning_inventory: 0,
     gal_deduction_other: 0,
     gal_adjustments_part3: 0,
@@ -162,7 +162,7 @@ export function computeBeerExciseFigures(args: ComputeBeerExciseFiguresArgs): Wo
   const diff = Math.abs(centsExciseDue - storedNcCents);
   if (diff > tolerance) {
     warnings.push(
-      `Computed excise due (${centsExciseDue}¢) differs from stored/invoiced NC excise (${storedNcCents}¢) by ${diff}¢, exceeding the ${tolerance}¢ tolerance. Review before filing (legacy rows stored at $0.62/gal or missing detail can trigger this).`,
+      `Computed excise due (${centsExciseDue}¢) differs from stored/invoiced NC excise (${storedNcCents}¢) by ${diff}¢, exceeding the ${tolerance}¢ tolerance, which can indicate a stale configured rate or missing excise detail — review before filing.`,
     );
   }
 

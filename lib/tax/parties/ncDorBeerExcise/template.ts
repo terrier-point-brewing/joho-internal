@@ -19,7 +19,6 @@ import type {
 import { monthPeriod } from "@/lib/tax/period";
 import { resolveDueDate, type DueRule } from "@/lib/tax/dueDate";
 import { registerParty } from "@/lib/tax/registry";
-import { IDENTITY_SCHEMA } from "@/lib/tax/identity";
 import { US_STATES } from "@/lib/tax/usStates";
 import { computeBeerExciseWorksheet } from "./calc";
 import { deriveBeerExciseFigures } from "./derive";
@@ -83,7 +82,6 @@ function mergeWorksheet(current: WorksheetData, recomputed: WorksheetData): Work
 // ── settingsSchema / scheduleConfigSchema ───────────────────────────────────
 
 const settingsSchema: FieldSpec[] = [
-  ...IDENTITY_SCHEMA,
   { key: "abc_permit_number", label: "ABC Permit Number", type: "text" },
   { key: "state_of_domicile", label: "State of Domicile", type: "select", options: US_STATES },
   { key: "fax_number", label: "Fax", type: "tel" },
