@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchSquareInvoices, fetchInvoiceOrders, fetchSquareInvoiceById, fetchOrdersByIds } from "@/lib/square/orders";
 import { fetchCatalogItems } from "@/lib/square/catalog";
 import { mapSquareInvoiceStatus } from "@/lib/finance/invoiceStatus";
+import { cascadeExportTransactionsStatus } from "@/lib/finance/reconcileInvoiceStatus";
 import type { CatalogItem, Order, SquareInvoice } from "@/types/square";
 import {
   buildLineItemIndexes,
@@ -130,6 +131,15 @@ async function upsertInvoiceWithLines(
 
   const wasInserted = invRow.created_at === invRow.updated_at;
   const errors: string[] = [];
+
+  // This upsert is the other invoice-status writer besides reconcileInvoiceStatus
+  // (webhook/cron/manual-sync) — cascade here too, or an invoice that reaches
+  // "paid" only through this path leaves its export_transactions rows stuck.
+  try {
+    await cascadeExportTransactionsStatus(supabase, invRow.id, status);
+  } catch (err) {
+    errors.push(`Export transaction cascade for ${inv.invoice_number ?? inv.id}: ${err instanceof Error ? err.message : String(err)}`);
+  }
 
   // Load existing CoA mappings so a re-sync never wipes a manual/auto-mapped
   // account — the upsert below would otherwise overwrite these columns.
