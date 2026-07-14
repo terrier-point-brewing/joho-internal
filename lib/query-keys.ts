@@ -128,6 +128,7 @@ export const queryKeys = {
     squareTaxes: () => ["tax", "square-taxes"] as const,
     entityProfile: () => ["tax", "entityProfile"] as const,
     authorities:   () => ["tax", "authorities"] as const,
+    registrations: () => ["tax", "registrations"] as const,
   },
 
   // ─── Settings (app-wide) ──────────────────────────────────────────────────
