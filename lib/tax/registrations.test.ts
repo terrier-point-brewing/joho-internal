@@ -95,7 +95,10 @@ describe("listRegistrations", () => {
 
 type Recorded = { table: string; op: string; payload?: unknown };
 
-function makeSaveClient(existingIds: string[], opts: { deleteError?: string; upsertError?: string } = {}) {
+function makeSaveClient(
+  existingIds: string[],
+  opts: { deleteError?: string; insertError?: string; upsertError?: string } = {},
+) {
   const recorded: Recorded[] = [];
   const client = {
     from: (table: string) => {
@@ -106,8 +109,12 @@ function makeSaveClient(existingIds: string[], opts: { deleteError?: string; ups
         recorded.push({ table, op: "delete", payload: ids });
         return Promise.resolve({ error: opts.deleteError ? { message: opts.deleteError } : null });
       };
-      b.upsert = (payload: unknown) => {
-        recorded.push({ table, op: "upsert", payload });
+      b.insert = (payload: unknown) => {
+        recorded.push({ table, op: "insert", payload });
+        return Promise.resolve({ error: opts.insertError ? { message: opts.insertError } : null });
+      };
+      b.upsert = (payload: unknown, upsertOpts?: unknown) => {
+        recorded.push({ table, op: "upsert", payload: { rows: payload, opts: upsertOpts } });
         return Promise.resolve({ error: opts.upsertError ? { message: opts.upsertError } : null });
       };
       return b;
@@ -117,7 +124,7 @@ function makeSaveClient(existingIds: string[], opts: { deleteError?: string; ups
 }
 
 describe("saveRegistrations", () => {
-  it("deletes rows missing from the incoming payload and upserts the rest", async () => {
+  it("deletes rows missing from the incoming payload, inserts id-less rows, and upserts id-bearing rows separately", async () => {
     const { client, recorded } = makeSaveClient(["r1", "r2"]);
     const rows: TaxRegistrationInput[] = [
       { id: "r1", authority_key: "irs", label: "Federal EIN (FEIN)", number: "12-3456789", display_order: 0 },
@@ -128,11 +135,21 @@ describe("saveRegistrations", () => {
     const deleteCall = recorded.find((r) => r.op === "delete");
     expect(deleteCall?.payload).toEqual(["r2"]);
 
+    // Regression guard: the old implementation batched id-less and id-bearing
+    // rows into a single .upsert(...), which PostgREST rejects (id=NULL
+    // violates the NOT NULL PK). Each write must go to the right endpoint,
+    // and the id-less row must never carry a null/undefined `id` key.
+    const insertCall = recorded.find((r) => r.op === "insert");
+    const insertPayload = insertCall?.payload as Array<Record<string, unknown>>;
+    expect(insertPayload).toHaveLength(1);
+    expect(insertPayload[0]).toMatchObject({ authority_key: "nc_abc", updated_at: expect.any(String) });
+    expect(insertPayload[0]).not.toHaveProperty("id");
+
     const upsertCall = recorded.find((r) => r.op === "upsert");
-    const payload = upsertCall?.payload as Array<Record<string, unknown>>;
-    expect(payload).toHaveLength(2);
-    expect(payload[0]).toMatchObject({ id: "r1", authority_key: "irs", updated_at: expect.any(String) });
-    expect(payload[1]).toMatchObject({ authority_key: "nc_abc", updated_at: expect.any(String) });
+    const upsertPayload = upsertCall?.payload as { rows: Array<Record<string, unknown>>; opts: unknown };
+    expect(upsertPayload.rows).toHaveLength(1);
+    expect(upsertPayload.rows[0]).toMatchObject({ id: "r1", authority_key: "irs", updated_at: expect.any(String) });
+    expect(upsertPayload.opts).toMatchObject({ onConflict: "id" });
   });
 
   it("skips the delete call when nothing needs deleting", async () => {
@@ -143,11 +160,30 @@ describe("saveRegistrations", () => {
     expect(recorded.some((r) => r.op === "delete")).toBe(false);
   });
 
-  it("skips the upsert call when rows is empty", async () => {
+  it("skips both insert and upsert calls when rows is empty", async () => {
     const { client, recorded } = makeSaveClient(["r1"]);
     await saveRegistrations(client, []);
+    expect(recorded.some((r) => r.op === "insert")).toBe(false);
     expect(recorded.some((r) => r.op === "upsert")).toBe(false);
     expect(recorded.find((r) => r.op === "delete")?.payload).toEqual(["r1"]);
+  });
+
+  it("skips the insert call when all rows have an id", async () => {
+    const { client, recorded } = makeSaveClient(["r1"]);
+    await saveRegistrations(client, [
+      { id: "r1", authority_key: "irs", label: "FEIN", number: null, display_order: 0 },
+    ]);
+    expect(recorded.some((r) => r.op === "insert")).toBe(false);
+    expect(recorded.some((r) => r.op === "upsert")).toBe(true);
+  });
+
+  it("skips the upsert call when all rows are id-less", async () => {
+    const { client, recorded } = makeSaveClient([]);
+    await saveRegistrations(client, [
+      { authority_key: "nc_abc", label: "Permit #", number: "ABC-1", display_order: 0 },
+    ]);
+    expect(recorded.some((r) => r.op === "upsert")).toBe(false);
+    expect(recorded.some((r) => r.op === "insert")).toBe(true);
   });
 
   it("throws with the Supabase error message on delete failure", async () => {
@@ -157,6 +193,15 @@ describe("saveRegistrations", () => {
         { id: "r1", authority_key: "irs", label: "FEIN", number: null, display_order: 0 },
       ]),
     ).rejects.toThrow(/delete boom/);
+  });
+
+  it("throws with the Supabase error message on insert failure", async () => {
+    const { client } = makeSaveClient([], { insertError: "insert boom" });
+    await expect(
+      saveRegistrations(client, [
+        { authority_key: "nc_abc", label: "Permit #", number: "ABC-1", display_order: 0 },
+      ]),
+    ).rejects.toThrow(/insert boom/);
   });
 
   it("throws with the Supabase error message on upsert failure", async () => {

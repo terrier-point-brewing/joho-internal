@@ -30,6 +30,7 @@ export async function PUT(req: NextRequest) {
   try {
     const body = (await req.json()) as TaxRegistrationInput[] | { rows: TaxRegistrationInput[] };
     const rows = Array.isArray(body) ? body : body.rows;
+    if (!Array.isArray(rows)) return apiError(new Error("rows is required"), 400);
     const sb = createSupabaseAdminClient();
     await saveRegistrations(sb, rows);
     return NextResponse.json({ ok: true });

@@ -60,10 +60,21 @@ export async function saveRegistrations(sb: SupabaseClient, rows: TaxRegistratio
     if (deleteError) throw new Error(deleteError.message);
   }
 
-  if (rows.length > 0) {
-    const { error: upsertError } = await sb
-      .from("tax_registrations")
-      .upsert(rows.map((row) => ({ ...row, updated_at: new Date().toISOString() })));
+  const now = new Date().toISOString();
+  const inserts = rows.filter((row) => !row.id).map((row) => ({ ...row, updated_at: now }));
+  const upserts = rows.filter((row) => row.id).map((row) => ({ ...row, updated_at: now }));
+
+  // PostgREST rejects a heterogeneous batch (mixing id-less and id-bearing
+  // rows) in a single upsert — it sends id=NULL for the id-less rows, which
+  // violates the NOT NULL PK and fails the whole batch. Split into a plain
+  // insert (DB default fills id via gen_random_uuid()) and an upsert.
+  if (inserts.length > 0) {
+    const { error: insertError } = await sb.from("tax_registrations").insert(inserts);
+    if (insertError) throw new Error(insertError.message);
+  }
+
+  if (upserts.length > 0) {
+    const { error: upsertError } = await sb.from("tax_registrations").upsert(upserts, { onConflict: "id" });
     if (upsertError) throw new Error(upsertError.message);
   }
 }
