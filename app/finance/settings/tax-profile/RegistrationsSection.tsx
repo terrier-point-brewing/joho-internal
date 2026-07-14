@@ -127,12 +127,14 @@ export default function RegistrationsSection() {
         const authorityRows = drafts[authorityKey] ?? [];
         let order = 0;
         for (const row of authorityRows) {
-          if (!row.label.trim() && !row.number.trim()) continue;
+          // A registration needs a label; skip blank rows (incl. a number typed
+          // with no label — meaningless without one).
+          if (!row.label.trim()) continue;
           rows.push({
             id: row.id,
             authority_key: authorityKey,
-            label: row.label,
-            number: row.number || null,
+            label: row.label.trim(),
+            number: row.number.trim() || null,
             display_order: order,
           });
           order += 1;

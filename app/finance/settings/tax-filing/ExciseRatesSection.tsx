@@ -11,7 +11,7 @@ const BASIS_LABEL: Record<ExciseTaxRate["basis"], string> = {
 };
 
 function formatRate(rate: ExciseTaxRate): string {
-  if (rate.basis === "percent") return `${rate.rate}%`;
+  if (rate.basis === "percent") return `${(rate.rate * 100).toFixed(2)}%`;
   return `$${rate.rate.toFixed(4)}`;
 }
 
