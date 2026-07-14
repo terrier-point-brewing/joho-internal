@@ -25,7 +25,7 @@ export default function TaxFilingSettingsPage() {
   const parties = partiesQuery.data ?? [];
 
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
-  const module = parties.find((p) => p.key === selectedKey) ?? parties[0];
+  const activeModule = parties.find((p) => p.key === selectedKey) ?? parties[0];
 
   return (
     <div className="flex flex-col h-full bg-canvas text-primary">
@@ -44,18 +44,18 @@ export default function TaxFilingSettingsPage() {
             {partiesQuery.error instanceof Error ? partiesQuery.error.message : "Failed to load tax modules."}
           </Banner>
         )}
-        {!partiesQuery.isLoading && !partiesQuery.isError && !module && (
+        {!partiesQuery.isLoading && !partiesQuery.isError && !activeModule && (
           <p className="text-sm text-faint">No tax filing modules registered.</p>
         )}
 
-        {module && (
+        {activeModule && (
           <>
             {parties.length >= 1 && (
               <label className="flex items-center gap-2 text-sm text-body">
                 Module
                 <select
                   className="inp-sm w-auto"
-                  value={module.key}
+                  value={activeModule.key}
                   onChange={(e) => setSelectedKey(e.target.value)}
                 >
                   {parties.map((p) => (
@@ -67,13 +67,13 @@ export default function TaxFilingSettingsPage() {
               </label>
             )}
 
-            {module.settingsSchema.length > 0 && (
+            {activeModule.settingsSchema.length > 0 && (
               <section className="flex flex-col gap-2">
                 <h3 className="text-sm font-semibold text-primary">Square Mappings</h3>
                 <IdentityForm
-                  schema={module.settingsSchema}
-                  endpoint={`/api/tax/profiles/${module.key}`}
-                  queryKey={queryKeys.tax.profile(module.key)}
+                  schema={activeModule.settingsSchema}
+                  endpoint={`/api/tax/profiles/${activeModule.key}`}
+                  queryKey={queryKeys.tax.profile(activeModule.key)}
                   savedLabel="Square mappings saved."
                 />
               </section>
@@ -81,7 +81,7 @@ export default function TaxFilingSettingsPage() {
 
             <section className="flex flex-col gap-2">
               <h3 className="text-sm font-semibold text-primary">Reference Data</h3>
-              <ReferenceDisclosure referenceView={module.referenceView} />
+              <ReferenceDisclosure referenceView={activeModule.referenceView} />
             </section>
 
             <section className="flex flex-col gap-2">
