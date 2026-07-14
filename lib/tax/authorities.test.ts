@@ -1,10 +1,10 @@
 import { describe, it, expect } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { listAuthorities, updateRegistration, type TaxAuthority } from "./authorities";
+import { listAuthorities, type TaxAuthority } from "./authorities";
 
 const sampleAuthorities: TaxAuthority[] = [
-  { key: "nc_dor", label: "NC DOR", kind: "filing", registration_number: "123", display_order: 1 },
-  { key: "ttb", label: "TTB", kind: "excise", registration_number: null, display_order: 2 },
+  { key: "nc_dor", label: "NC DOR", display_order: 1 },
+  { key: "ttb", label: "TTB", display_order: 2 },
 ];
 
 describe("listAuthorities", () => {
@@ -52,55 +52,5 @@ describe("listAuthorities", () => {
     } as unknown as SupabaseClient;
 
     await expect(listAuthorities(client)).rejects.toThrow(/boom/);
-  });
-});
-
-describe("updateRegistration", () => {
-  it("normalizes an empty string to null", async () => {
-    const recorded: { table: string; payload: unknown; eqArgs: unknown[] }[] = [];
-    const client = {
-      from: (table: string) => ({
-        update: (payload: unknown) => ({
-          eq: (col: string, val: string) => {
-            recorded.push({ table, payload, eqArgs: [col, val] });
-            return Promise.resolve({ error: null });
-          },
-        }),
-      }),
-    } as unknown as SupabaseClient;
-
-    await updateRegistration(client, "nc_dor", "");
-    expect(recorded[0].table).toBe("tax_authorities");
-    expect(recorded[0].payload).toMatchObject({ registration_number: null, updated_at: expect.any(String) });
-    expect(recorded[0].eqArgs).toEqual(["key", "nc_dor"]);
-  });
-
-  it("passes through a non-empty registration number", async () => {
-    const recorded: { payload: unknown }[] = [];
-    const client = {
-      from: () => ({
-        update: (payload: unknown) => ({
-          eq: () => {
-            recorded.push({ payload });
-            return Promise.resolve({ error: null });
-          },
-        }),
-      }),
-    } as unknown as SupabaseClient;
-
-    await updateRegistration(client, "nc_dor", "123");
-    expect(recorded[0].payload).toMatchObject({ registration_number: "123" });
-  });
-
-  it("throws with the Supabase error message on update failure", async () => {
-    const client = {
-      from: () => ({
-        update: () => ({
-          eq: () => Promise.resolve({ error: { message: "boom" } }),
-        }),
-      }),
-    } as unknown as SupabaseClient;
-
-    await expect(updateRegistration(client, "nc_dor", "123")).rejects.toThrow(/boom/);
   });
 });
