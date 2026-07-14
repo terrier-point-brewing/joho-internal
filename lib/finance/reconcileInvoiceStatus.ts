@@ -24,6 +24,45 @@ export function exportStatusForLedger(ledger: InvoiceStatus): "paid" | "unpaid" 
   return null;
 }
 
+/**
+ * Push a ledger status onto `export_transactions.status` for one invoice.
+ * Shared by `reconcileInvoiceStatus` (webhook/cron/manual-sync path) and the
+ * Square invoice sync (`syncSquareInvoicesForYear`/`syncSquareInvoiceById` via
+ * `upsertInvoiceWithLines`) so BOTH invoice-status writers cascade to exports —
+ * previously only the reconcile path did, so an invoice that flipped to paid
+ * via a plain Square sync (no reconcile in between) left its shipments stuck
+ * on Unpaid even though the invoice ledger correctly showed Paid.
+ * draft/voided/unknown never touch export_transactions; paid/open/partial do.
+ */
+export async function cascadeExportTransactionsStatus(
+  supabase: SupabaseClient,
+  invoiceId: string,
+  ledgerStatus: InvoiceStatus,
+): Promise<number> {
+  const exportTarget = exportStatusForLedger(ledgerStatus);
+  if (exportTarget === "paid") {
+    const { data, error } = await supabase
+      .from("export_transactions")
+      .update({ status: "paid" })
+      .eq("invoice_id", invoiceId)
+      .neq("status", "paid")
+      .select("id");
+    if (error) throw new Error(`export_transactions paid update failed: ${error.message}`);
+    return data?.length ?? 0;
+  }
+  if (exportTarget === "unpaid") {
+    const { data, error } = await supabase
+      .from("export_transactions")
+      .update({ status: "unpaid" })
+      .eq("invoice_id", invoiceId)
+      .eq("status", "invoice_required")
+      .select("id");
+    if (error) throw new Error(`export_transactions unpaid update failed: ${error.message}`);
+    return data?.length ?? 0;
+  }
+  return 0;
+}
+
 export interface AllocationInvoiceState {
   invoice_sent_at: string | null;
   invoice_paid_at: string | null;
@@ -159,27 +198,7 @@ export async function reconcileInvoiceStatus(
   // intentionally leave already-`paid` export_transactions rows as paid on a
   // full refund (refunded dollars are tracked separately by the refund sync)
   // and never regress a paid row. Only paid/open/partial produce a target.
-  const exportTarget = exportStatusForLedger(ledgerStatus);
-  if (exportTarget === "paid") {
-    const { data, error: exPaidErr } = await supabase
-      .from("export_transactions")
-      .update({ status: "paid" })
-      .eq("invoice_id", inv.id)
-      .neq("status", "paid")
-      .select("id");
-    if (exPaidErr) throw new Error(`export_transactions paid update failed: ${exPaidErr.message}`);
-    base.updatedExportTransactions = data?.length ?? 0;
-  } else if (exportTarget === "unpaid") {
-    // Advance invoice_required → unpaid on publish; never regress a paid row.
-    const { data, error: exUnpaidErr } = await supabase
-      .from("export_transactions")
-      .update({ status: "unpaid" })
-      .eq("invoice_id", inv.id)
-      .eq("status", "invoice_required")
-      .select("id");
-    if (exUnpaidErr) throw new Error(`export_transactions unpaid update failed: ${exUnpaidErr.message}`);
-    base.updatedExportTransactions = data?.length ?? 0;
-  }
+  base.updatedExportTransactions = await cascadeExportTransactionsStatus(supabase, inv.id, ledgerStatus);
 
   // ── Deposit allocation (square_deposit_invoice_id) ───────────────────────────
   const { data: alloc } = await supabase

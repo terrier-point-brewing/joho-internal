@@ -12,6 +12,7 @@ vi.mock("@/lib/square/square-invoices", () => ({
 import {
   exportStatusForLedger,
   buildAllocationInvoiceTimestamps,
+  cascadeExportTransactionsStatus,
   reconcileInvoiceStatus,
   MISSING_SQUARE_STATUS,
   type AllocationInvoiceState,
@@ -33,6 +34,68 @@ describe("exportStatusForLedger", () => {
     expect(exportStatusForLedger("draft")).toBeNull();
     expect(exportStatusForLedger("voided")).toBeNull();
     expect(exportStatusForLedger("unknown")).toBeNull();
+  });
+});
+
+/**
+ * Minimal Supabase stub for `export_transactions.update().eq(...).eq/neq(...).select()`
+ * chains. Records the filter calls so tests can assert which rows the update
+ * would target without a real client.
+ */
+function exportTransactionsUpdateStub(opts: { returned: Array<{ id: string }> }) {
+  const calls: { payload: Record<string, unknown>; filters: Array<{ method: string; args: unknown[] }> } = {
+    payload: {},
+    filters: [],
+  };
+  const client = {
+    from: (table: string) => {
+      if (table !== "export_transactions") throw new Error(`unexpected table ${table}`);
+      return {
+        update: (payload: Record<string, unknown>) => {
+          calls.payload = payload;
+          const chain = {
+            eq: (...args: unknown[]) => { calls.filters.push({ method: "eq", args }); return chain; },
+            neq: (...args: unknown[]) => { calls.filters.push({ method: "neq", args }); return chain; },
+            select: () => Promise.resolve({ data: opts.returned, error: null }),
+          };
+          return chain;
+        },
+      };
+    },
+  };
+  return { client: client as unknown as SupabaseClient, calls };
+}
+
+describe("cascadeExportTransactionsStatus", () => {
+  it("flips unpaid/invoice_required rows to paid, scoped to this invoice and not already paid", async () => {
+    const { client, calls } = exportTransactionsUpdateStub({ returned: [{ id: "tx-1" }, { id: "tx-2" }] });
+
+    const updated = await cascadeExportTransactionsStatus(client, "inv-1", "paid");
+
+    expect(updated).toBe(2);
+    expect(calls.payload).toEqual({ status: "paid" });
+    expect(calls.filters).toContainEqual({ method: "eq", args: ["invoice_id", "inv-1"] });
+    expect(calls.filters).toContainEqual({ method: "neq", args: ["status", "paid"] });
+  });
+
+  it("advances invoice_required rows to unpaid when the ledger is open/partial", async () => {
+    const { client, calls } = exportTransactionsUpdateStub({ returned: [{ id: "tx-1" }] });
+
+    const updated = await cascadeExportTransactionsStatus(client, "inv-2", "open");
+
+    expect(updated).toBe(1);
+    expect(calls.payload).toEqual({ status: "unpaid" });
+    expect(calls.filters).toContainEqual({ method: "eq", args: ["invoice_id", "inv-2"] });
+    expect(calls.filters).toContainEqual({ method: "eq", args: ["status", "invoice_required"] });
+  });
+
+  it("touches nothing for draft/voided/unknown ledger statuses", async () => {
+    const { client, calls } = exportTransactionsUpdateStub({ returned: [] });
+
+    const updated = await cascadeExportTransactionsStatus(client, "inv-3", "draft");
+
+    expect(updated).toBe(0);
+    expect(calls.filters).toEqual([]);
   });
 });
 
