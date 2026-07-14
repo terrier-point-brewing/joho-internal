@@ -38,7 +38,7 @@ const baseConfig: PayrollConfig = {
   effective_from: "2026-01-01",
   base_rate_cents: 1000, // $10/hr
   guaranteed_rate_cents: 1500, // $15/hr
-  cash_tips_rate: 0.01,
+  reported_cash_tips_divisor: 10,
   tip_distribution_model: "proportional_hours",
   tip_pool_frequency: "biweekly",
   guaranteed_min_frequency: "biweekly",
@@ -75,16 +75,16 @@ function mkEmployee(over: Partial<Employee> & { id: string }): Employee {
   };
 }
 
-const shift = (team_member_id: string, date: string, hours: number): DailyShift => ({
+const shift = (team_member_id: string, date: string, hours: number, cash_tips_cents = 0): DailyShift => ({
   team_member_id,
   date,
   hours,
+  cash_tips_cents,
 });
 
-const tips = (date: string, tipsPooledCents: number, cashTakeCents: number): DailyTips => ({
+const tips = (date: string, tipsPooledCents: number): DailyTips => ({
   date,
   tipsPooledCents,
-  cashTakeCents,
 });
 
 beforeEach(() => {
@@ -158,7 +158,7 @@ describe("buildPayrollPreview — tip attribution (biweekly pool & guarantee)", 
       shift("sq-e1", "2026-01-05", 30),
       shift("sq-e2", "2026-01-05", 10),
     ]);
-    mockFetchTips.mockResolvedValue([tips("2026-01-05", 10000, 0)]);
+    mockFetchTips.mockResolvedValue([tips("2026-01-05", 10000)]);
 
     const preview = await buildPayrollPreview(period, employees, baseConfig, []);
     const e1 = preview.entries.find((e) => e.employee_id === "e1")!;
@@ -169,24 +169,33 @@ describe("buildPayrollPreview — tip attribution (biweekly pool & guarantee)", 
     expect(preview.total_pooled_tips_cents).toBe(10000);
   });
 
-  it("applies cash_tips_rate to cash take before attribution", async () => {
-    const employees = [mkEmployee({ id: "e1" })];
-    mockFetchShiftsByDay.mockResolvedValue([shift("sq-e1", "2026-01-05", 10)]);
-    // cashTake 100000 × rate 0.01 = 1000, all to the single employee.
-    mockFetchTips.mockResolvedValue([tips("2026-01-05", 0, 100000)]);
+  it("uses per-employee declared cash tips straight from shifts (no rate, no pool)", async () => {
+    const employees = [mkEmployee({ id: "e1" }), mkEmployee({ id: "e2" })];
+    // Declared cash is intrinsic to each employee's shift — not pooled by hours.
+    mockFetchShiftsByDay.mockResolvedValue([
+      shift("sq-e1", "2026-01-05", 10, 8415),
+      shift("sq-e2", "2026-01-05", 30, 500),
+    ]);
+    mockFetchTips.mockResolvedValue([tips("2026-01-05", 0)]);
 
     const preview = await buildPayrollPreview(period, employees, baseConfig, []);
+    const e1 = preview.entries.find((e) => e.employee_id === "e1")!;
+    const e2 = preview.entries.find((e) => e.employee_id === "e2")!;
 
-    expect(preview.entries[0].cash_tips_cents).toBe(1000);
-    // total_cash_take is the raw (pre-rate) take.
-    expect(preview.total_cash_take_cents).toBe(100000);
+    // Each keeps their own declared cash despite e2 working more hours.
+    expect(e1.cash_tips_cents).toBe(8415);
+    expect(e2.cash_tips_cents).toBe(500);
+    // Reported cash = round(actual / divisor 10).
+    expect(e1.reported_cash_tips_cents).toBe(842);
+    expect(e1.effective_reported_cash_tips_cents).toBe(842);
+    expect(e2.reported_cash_tips_cents).toBe(50);
   });
 
   it("computes guarantee bonus when tips fall short of guaranteed rate", async () => {
     const employees = [mkEmployee({ id: "e1" })];
     mockFetchShiftsByDay.mockResolvedValue([shift("sq-e1", "2026-01-05", 10)]);
     // No tips. base = 10*1000=10000, guaranteed = 10*1500=15000 → bonus 5000.
-    mockFetchTips.mockResolvedValue([tips("2026-01-05", 0, 0)]);
+    mockFetchTips.mockResolvedValue([tips("2026-01-05", 0)]);
 
     const preview = await buildPayrollPreview(period, employees, baseConfig, []);
 
@@ -199,7 +208,7 @@ describe("buildPayrollPreview — tip attribution (biweekly pool & guarantee)", 
     const employees = [mkEmployee({ id: "e1" })];
     mockFetchShiftsByDay.mockResolvedValue([shift("sq-e1", "2026-01-05", 10)]);
     // tips 10000 + base 10000 = 20000 > guaranteed 15000 → bonus 0.
-    mockFetchTips.mockResolvedValue([tips("2026-01-05", 10000, 0)]);
+    mockFetchTips.mockResolvedValue([tips("2026-01-05", 10000)]);
 
     const preview = await buildPayrollPreview(period, employees, baseConfig, []);
 
@@ -215,21 +224,20 @@ describe("buildPayrollPreview — boundaries & fallbacks", () => {
     expect(preview.employees).toEqual([]);
     expect(preview.salaried_employees).toEqual([]);
     expect(preview.total_pooled_tips_cents).toBe(0);
-    expect(preview.total_cash_take_cents).toBe(0);
   });
 
-  it("no shifts but tips present → tips go unattributed (zero share), totals still summed", async () => {
+  it("no shifts but card tips present → tips go unattributed (zero share), pool total still summed", async () => {
     const employees = [mkEmployee({ id: "e1" })];
-    // tips exist but nobody clocked in → totalGroupHours 0 → share 0.
-    mockFetchTips.mockResolvedValue([tips("2026-01-05", 5000, 5000)]);
+    // card tips exist but nobody clocked in → totalGroupHours 0 → share 0.
+    mockFetchTips.mockResolvedValue([tips("2026-01-05", 5000)]);
 
     const preview = await buildPayrollPreview(period, employees, baseConfig, []);
 
     expect(preview.entries[0].paycheck_tips_cents).toBe(0);
+    // No shifts → no declared cash.
     expect(preview.entries[0].cash_tips_cents).toBe(0);
-    // Pool/cash totals are summed regardless of attribution.
+    // Pool total is summed regardless of attribution.
     expect(preview.total_pooled_tips_cents).toBe(5000);
-    expect(preview.total_cash_take_cents).toBe(5000);
   });
 
   it("ignores zero/negative-hour shift rows when attributing (dayHrs <= 0 skipped)", async () => {
@@ -238,7 +246,7 @@ describe("buildPayrollPreview — boundaries & fallbacks", () => {
       shift("sq-e1", "2026-01-05", 0), // skipped in attribution
       shift("sq-e2", "2026-01-05", 10),
     ]);
-    mockFetchTips.mockResolvedValue([tips("2026-01-05", 10000, 0)]);
+    mockFetchTips.mockResolvedValue([tips("2026-01-05", 10000)]);
 
     const preview = await buildPayrollPreview(period, employees, baseConfig, []);
     const e1 = preview.entries.find((e) => e.employee_id === "e1")!;
@@ -260,7 +268,7 @@ describe("buildPayrollPreview — boundaries & fallbacks", () => {
       shift("sq-e2", "2026-01-05", 10),
       shift("sq-e3", "2026-01-05", 10),
     ]);
-    mockFetchTips.mockResolvedValue([tips("2026-01-05", 100, 0)]);
+    mockFetchTips.mockResolvedValue([tips("2026-01-05", 100)]);
 
     const preview = await buildPayrollPreview(period, employees, baseConfig, []);
     const shares = preview.entries.map((e) => e.paycheck_tips_cents).sort();
@@ -280,7 +288,7 @@ describe("buildPayrollPreview — frequency granularity", () => {
     } as unknown as PayrollConfig;
     const employees = [mkEmployee({ id: "e1" })];
     mockFetchShiftsByDay.mockResolvedValue([shift("sq-e1", "2026-01-05", 10)]);
-    mockFetchTips.mockResolvedValue([tips("2026-01-05", 5000, 0)]);
+    mockFetchTips.mockResolvedValue([tips("2026-01-05", 5000)]);
 
     const preview = await buildPayrollPreview(period, employees, cfg, []);
 
@@ -297,8 +305,8 @@ describe("buildPayrollPreview — frequency granularity", () => {
       shift("sq-e1", "2026-01-13", 5), // week 2
     ]);
     mockFetchTips.mockResolvedValue([
-      tips("2026-01-05", 3000, 0),
-      tips("2026-01-13", 7000, 0),
+      tips("2026-01-05", 3000),
+      tips("2026-01-13", 7000),
     ]);
 
     const preview = await buildPayrollPreview(period, employees, cfg, []);
@@ -328,7 +336,7 @@ describe("buildPayrollPreview — adjustment merge from stored entries", () => {
   it("overrides computed values with stored adjustments", async () => {
     const employees = [mkEmployee({ id: "e1" })];
     mockFetchShiftsByDay.mockResolvedValue([shift("sq-e1", "2026-01-05", 10)]);
-    mockFetchTips.mockResolvedValue([tips("2026-01-05", 0, 0)]);
+    mockFetchTips.mockResolvedValue([tips("2026-01-05", 0)]);
 
     const stored: PayrollEntry[] = [
       {
@@ -338,10 +346,12 @@ describe("buildPayrollPreview — adjustment merge from stored entries", () => {
         hours_worked: null,
         paycheck_tips_cents: null,
         cash_tips_cents: null,
+        reported_cash_tips_cents: null,
         bonus_cents: null,
         adj_hours_worked: 20,
         adj_paycheck_tips_cents: 4000,
         adj_cash_tips_cents: 100,
+        adj_reported_cash_tips_cents: null,
         adj_bonus_cents: 999,
         admin_notes: "manual override",
         created_at: "2026-01-01T00:00:00Z",
@@ -355,6 +365,8 @@ describe("buildPayrollPreview — adjustment merge from stored entries", () => {
     expect(e1.effective_hours).toBe(20);
     expect(e1.effective_paycheck_tips_cents).toBe(4000);
     expect(e1.effective_cash_tips_cents).toBe(100);
+    // reported not overridden → re-derives from effective actual cash (100/10).
+    expect(e1.effective_reported_cash_tips_cents).toBe(10);
     expect(e1.effective_bonus_cents).toBe(999);
     expect(e1.admin_notes).toBe("manual override");
     // effective total = base_pay (computed 10000) + effective tips/cash/bonus
@@ -364,7 +376,7 @@ describe("buildPayrollPreview — adjustment merge from stored entries", () => {
   it("falls back to computed values when stored entry has no adjustments", async () => {
     const employees = [mkEmployee({ id: "e1" })];
     mockFetchShiftsByDay.mockResolvedValue([shift("sq-e1", "2026-01-05", 10)]);
-    mockFetchTips.mockResolvedValue([tips("2026-01-05", 0, 0)]);
+    mockFetchTips.mockResolvedValue([tips("2026-01-05", 0)]);
 
     const preview = await buildPayrollPreview(period, employees, baseConfig, []);
     const e1 = preview.entries[0];

@@ -7,6 +7,7 @@ interface SquareShift {
   start_at: string;
   end_at: string | null;
   status: "OPEN" | "CLOSED";
+  declared_cash_tip_money?: { amount: number; currency: string };
 }
 
 /**
@@ -56,6 +57,41 @@ export interface DailyShift {
   team_member_id: string;
   date: string; // YYYY-MM-DD local date
   hours: number;
+  cash_tips_cents: number; // sum of declared_cash_tip_money for this member on this day
+}
+
+/**
+ * Pure aggregation of raw shifts into per-member-per-day hours + declared cash tips.
+ * Open shifts (no end_at) are skipped. Date is the local portion of start_at.
+ * Extracted for unit testing; fetchShiftsByDay wraps the Square call around it.
+ */
+export function aggregateDailyShifts(
+  shifts: Array<{
+    employee_id: string;
+    start_at: string;
+    end_at: string | null;
+    declared_cash_tip_money?: { amount: number };
+  }>
+): DailyShift[] {
+  const acc = new Map<string, Map<string, { hours: number; cash: number }>>();
+  for (const shift of shifts) {
+    if (!shift.end_at) continue;
+    const date = shift.start_at.split("T")[0];
+    const ms = new Date(shift.end_at).getTime() - new Date(shift.start_at).getTime();
+    const hours = ms / (1000 * 60 * 60);
+    const cash = shift.declared_cash_tip_money?.amount ?? 0;
+    if (!acc.has(shift.employee_id)) acc.set(shift.employee_id, new Map());
+    const dayMap = acc.get(shift.employee_id)!;
+    const cur = dayMap.get(date) ?? { hours: 0, cash: 0 };
+    cur.hours += hours;
+    cur.cash += cash;
+    dayMap.set(date, cur);
+  }
+  const result: DailyShift[] = [];
+  for (const [tid, dayMap] of acc)
+    for (const [date, { hours, cash }] of dayMap)
+      result.push({ team_member_id: tid, date, hours, cash_tips_cents: cash });
+  return result;
 }
 
 /**
@@ -83,23 +119,5 @@ export async function fetchShiftsByDay(
     }
   );
 
-  const acc = new Map<string, Map<string, number>>();
-  for (const shift of shifts) {
-    if (!shift.end_at) continue;
-    // ISO start_at embeds local time (e.g. "2026-06-15T11:00:00-04:00"); slice gives local date
-    const date = shift.start_at.split("T")[0];
-    const ms = new Date(shift.end_at).getTime() - new Date(shift.start_at).getTime();
-    const hours = ms / (1000 * 60 * 60);
-    if (!acc.has(shift.employee_id)) acc.set(shift.employee_id, new Map());
-    const dayMap = acc.get(shift.employee_id)!;
-    dayMap.set(date, (dayMap.get(date) ?? 0) + hours);
-  }
-
-  const result: DailyShift[] = [];
-  for (const [teamMemberId, dayMap] of acc) {
-    for (const [date, hours] of dayMap) {
-      result.push({ team_member_id: teamMemberId, date, hours });
-    }
-  }
-  return result;
+  return aggregateDailyShifts(shifts);
 }

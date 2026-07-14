@@ -15,7 +15,8 @@ export function GustoSummaryPanel({ entries, employees, salariedEmployees }: Pro
       <p className="text-xs text-muted mb-4">
         Copy these values into Gusto when running payroll. Hourly staff are listed with the
         figures to enter; salaried employees are included below as a reminder to run them —
-        they require no manual entry.
+        they require no manual entry. Cash tips are the payroll-reported figure (reduced ratio);
+        paycheck tips and bonus are actuals.
       </p>
       <table className="w-full text-sm">
         <thead>
@@ -23,7 +24,7 @@ export function GustoSummaryPanel({ entries, employees, salariedEmployees }: Pro
             <th className="text-left py-2 px-3 text-muted font-medium">Employee</th>
             <th className="text-right py-2 px-3 text-muted font-medium">Hours</th>
             <th className="text-right py-2 px-3 text-muted font-medium">Paycheck Tips</th>
-            <th className="text-right py-2 px-3 text-muted font-medium">Cash Tips</th>
+            <th className="text-right py-2 px-3 text-muted font-medium">Cash Tips (reported)</th>
             <th className="text-right py-2 px-3 text-muted font-medium">Bonus</th>
             <th className="text-right py-2 px-3 text-muted font-medium">Commissions</th>
           </tr>
@@ -43,7 +44,7 @@ export function GustoSummaryPanel({ entries, employees, salariedEmployees }: Pro
                   {fmtCents(entry.effective_paycheck_tips_cents)}
                 </td>
                 <td className="py-2 px-3 text-right text-body">
-                  {fmtCents(entry.effective_cash_tips_cents)}
+                  {fmtCents(entry.effective_reported_cash_tips_cents)}
                 </td>
                 <td className="py-2 px-3 text-right text-body">
                   {fmtCents(entry.effective_bonus_cents)}

@@ -45,6 +45,7 @@ export function computePayrollEntries(
     }
   }
 
+  const divisor = config.reported_cash_tips_divisor;
   return tippedEmployees.map((emp) => {
     const a = accum.get(emp.id)!;
     return {
@@ -52,6 +53,9 @@ export function computePayrollEntries(
       hours_worked: a.hours,
       paycheck_tips_cents: a.paycheckTips,
       cash_tips_cents: a.cashTips,
+      // Gusto-reported cash: actual declared cash reduced by the configured ratio.
+      // Never feeds the bonus above — that uses actual a.cashTips.
+      reported_cash_tips_cents: Math.round(a.cashTips / divisor),
       bonus_cents: a.bonus,
       base_pay_cents: a.basePay,
       total_compensation_cents: a.basePay + a.paycheckTips + a.cashTips + a.bonus,
@@ -63,18 +67,26 @@ type AdjustmentSource = {
   adj_hours_worked: number | null;
   adj_paycheck_tips_cents: number | null;
   adj_cash_tips_cents: number | null;
+  adj_reported_cash_tips_cents: number | null;
   adj_bonus_cents: number | null;
   admin_notes: string | null;
 };
 
 export function mergeAdjustments(
   computed: PayrollEntryComputed,
-  adjustments: AdjustmentSource
+  adjustments: AdjustmentSource,
+  divisor: number
 ): PayrollEntryMerged {
   const effectiveHours = adjustments.adj_hours_worked ?? computed.hours_worked;
   const effectivePaycheckTips = adjustments.adj_paycheck_tips_cents ?? computed.paycheck_tips_cents;
   const effectiveCashTips = adjustments.adj_cash_tips_cents ?? computed.cash_tips_cents;
+  // Reported cash: explicit override wins; otherwise re-derive from the effective
+  // actual cash so overriding actual cash also updates the reported default.
+  const effectiveReportedCashTips =
+    adjustments.adj_reported_cash_tips_cents ?? Math.round(effectiveCashTips / divisor);
   const effectiveBonus = adjustments.adj_bonus_cents ?? computed.bonus_cents;
+  // Total comp uses actual cash (the real dollars); the reported figure is a
+  // payroll-reporting construct surfaced separately in the UI/Gusto view.
   const effectiveTotal = computed.base_pay_cents + effectivePaycheckTips + effectiveCashTips + effectiveBonus;
 
   return {
@@ -83,6 +95,7 @@ export function mergeAdjustments(
     effective_hours: effectiveHours,
     effective_paycheck_tips_cents: effectivePaycheckTips,
     effective_cash_tips_cents: effectiveCashTips,
+    effective_reported_cash_tips_cents: effectiveReportedCashTips,
     effective_bonus_cents: effectiveBonus,
     effective_total_compensation_cents: effectiveTotal,
   };

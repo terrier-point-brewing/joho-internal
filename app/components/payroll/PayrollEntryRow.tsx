@@ -12,6 +12,7 @@ interface Props {
   periodId: string;
   editable: boolean;
   overrideMode: boolean;
+  cashView: "actual" | "reported";
 }
 
 const fmt = fmtCents;
@@ -61,7 +62,7 @@ function ValueCell({
   return <span className="text-body">{effectiveVal}</span>;
 }
 
-export function PayrollEntryRow({ entry, employee, periodId, editable, overrideMode }: Props) {
+export function PayrollEntryRow({ entry, employee, periodId, editable, overrideMode, cashView }: Props) {
   const qc = useQueryClient();
   const [saving, setSaving] = useState(false);
 
@@ -73,6 +74,9 @@ export function PayrollEntryRow({ entry, employee, periodId, editable, overrideM
   );
   const [adjCashTips, setAdjCashTips] = useState<string>(
     entry.adj_cash_tips_cents != null ? String(entry.adj_cash_tips_cents / 100) : ""
+  );
+  const [adjReportedCashTips, setAdjReportedCashTips] = useState<string>(
+    entry.adj_reported_cash_tips_cents != null ? String(entry.adj_reported_cash_tips_cents / 100) : ""
   );
   const [adjBonus, setAdjBonus] = useState<string>(
     entry.adj_bonus_cents != null ? String(entry.adj_bonus_cents / 100) : ""
@@ -87,6 +91,7 @@ export function PayrollEntryRow({ entry, employee, periodId, editable, overrideM
     entry.adj_hours_worked != null ||
     entry.adj_paycheck_tips_cents != null ||
     entry.adj_cash_tips_cents != null ||
+    entry.adj_reported_cash_tips_cents != null ||
     entry.adj_bonus_cents != null;
 
   async function save() {
@@ -99,6 +104,7 @@ export function PayrollEntryRow({ entry, employee, periodId, editable, overrideM
         adj_hours_worked: adjHours !== "" ? parseFloat(adjHours) : null,
         adj_paycheck_tips_cents: adjPaycheckTips !== "" ? Math.round(parseFloat(adjPaycheckTips) * 100) : null,
         adj_cash_tips_cents: adjCashTips !== "" ? Math.round(parseFloat(adjCashTips) * 100) : null,
+        adj_reported_cash_tips_cents: adjReportedCashTips !== "" ? Math.round(parseFloat(adjReportedCashTips) * 100) : null,
         adj_bonus_cents: adjBonus !== "" ? Math.round(parseFloat(adjBonus) * 100) : null,
       }),
     });
@@ -107,6 +113,12 @@ export function PayrollEntryRow({ entry, employee, periodId, editable, overrideM
   }
 
   const vcProps = { editable, overrideMode };
+
+  // Cash column follows the active basis; reported cash is edited only in the Gusto view.
+  const rowCash = cashView === "actual"
+    ? entry.effective_cash_tips_cents
+    : entry.effective_reported_cash_tips_cents;
+  const rowTotal = entry.base_pay_cents + entry.effective_paycheck_tips_cents + rowCash + entry.effective_bonus_cents;
 
   return (
     <tr className={`border-b border-line ${entry.effective_hours === 0 ? "opacity-40" : ""}`}>
@@ -141,14 +153,25 @@ export function PayrollEntryRow({ entry, employee, periodId, editable, overrideM
         />
       </td>
       <td className="py-2 px-3 text-sm text-right">
-        <ValueCell
-          {...vcProps}
-          effectiveVal={fmt(entry.effective_cash_tips_cents)}
-          computedVal={fmt(entry.cash_tips_cents)}
-          adjIsSet={entry.adj_cash_tips_cents != null}
-          adjState={adjCashTips}
-          setAdj={setAdjCashTips}
-        />
+        {cashView === "actual" ? (
+          <ValueCell
+            {...vcProps}
+            effectiveVal={fmt(entry.effective_cash_tips_cents)}
+            computedVal={fmt(entry.cash_tips_cents)}
+            adjIsSet={entry.adj_cash_tips_cents != null}
+            adjState={adjCashTips}
+            setAdj={setAdjCashTips}
+          />
+        ) : (
+          <ValueCell
+            {...vcProps}
+            effectiveVal={fmt(entry.effective_reported_cash_tips_cents)}
+            computedVal={fmt(entry.reported_cash_tips_cents)}
+            adjIsSet={entry.adj_reported_cash_tips_cents != null}
+            adjState={adjReportedCashTips}
+            setAdj={setAdjReportedCashTips}
+          />
+        )}
       </td>
       <td className="py-2 px-3 text-sm text-right">
         <ValueCell
@@ -161,11 +184,11 @@ export function PayrollEntryRow({ entry, employee, periodId, editable, overrideM
         />
       </td>
       <td className="py-2 px-3 text-accent text-sm text-right font-medium">
-        {fmt(entry.effective_total_compensation_cents)}
+        {fmt(rowTotal)}
       </td>
       <td className="py-2 px-3 text-secondary text-sm text-right">
         {entry.effective_hours > 0
-          ? `${fmtUsd(entry.effective_total_compensation_cents / entry.effective_hours / 100)}/hr`
+          ? `${fmtUsd(rowTotal / entry.effective_hours / 100)}/hr`
           : "—"}
       </td>
       {editable && overrideMode && (

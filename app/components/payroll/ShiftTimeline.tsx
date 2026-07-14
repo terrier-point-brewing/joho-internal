@@ -271,7 +271,7 @@ export function ShiftTimeline({ periodId }: { periodId: string }) {
           <span className="text-emerald-900">Card tips from {FREQ_LABELS[tip_pool_frequency]} pool</span>
         )}
         {hasCashTipRows && (
-          <span className="text-amber-900">Cash tips from {FREQ_LABELS[tip_pool_frequency]} pool</span>
+          <span className="text-amber-900">Declared cash tips (Square)</span>
         )}
       </div>
     </div>
