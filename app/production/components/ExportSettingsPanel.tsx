@@ -554,12 +554,12 @@ function InvoiceTermsSection() {
   );
 }
 
-export default function ExportSettingsPanel({ scope }: { scope: "full" | "excise-only" }) {
+export default function ExportSettingsPanel() {
   return (
     <div className="flex flex-col gap-8">
-      {scope === "full" && <InvoiceTermsSection />}
+      <InvoiceTermsSection />
       <ExciseRatesSection />
-      {scope === "full" && <ServiceMappingGrid />}
+      <ServiceMappingGrid />
     </div>
   );
 }

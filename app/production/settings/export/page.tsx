@@ -10,7 +10,7 @@ export default function ProductionExportSettingsPage() {
       <SubNav entries={PRODUCTION_NAV} mobile sticky />
       <PageHeader title="Settings" description="Deposits, export configuration, and Square integrations" />
       <SubNav entries={SETTINGS_NAV} sticky />
-      <div className="mt-4"><ExportSettingsPanel scope="full" /></div>
+      <div className="mt-4"><ExportSettingsPanel /></div>
     </main>
   );
 }
