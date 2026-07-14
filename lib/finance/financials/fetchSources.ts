@@ -11,6 +11,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { fetchAllRows } from "@/lib/supabase/paginate";
 import { buildInvoiceSalesReport } from "@/lib/finance/invoiceSalesReport";
 import type { StatementKind } from "./types";
 import type {
@@ -73,39 +74,11 @@ const EXPORT_CHANNELS = new Set(["distribution", "contract_brewing", "wholesale"
 
 // ── pagination helper ───────────────────────────────────────────────────────
 
-const PAGE_SIZE = 1000;
-
-/**
- * Pages through a Supabase select in chunks of PAGE_SIZE (PostgREST's default
- * row cap -- an unpaginated select silently truncates at 1000 rows with no
- * error). Loops `.range()` until a page returns fewer rows than PAGE_SIZE.
- *
- * `build` must return a FRESH query builder (filters + a stable `.order()`
- * already applied, no `.range()` yet) on every call -- Supabase builders are
- * single-use, so the same instance can't be re-ranged across pages. A stable
- * order is required for `.range()` to page correctly (unordered pages can
- * overlap or skip rows); call sites are responsible for adding it.
- *
- * `pageSize` defaults to PAGE_SIZE; overridable for tests only (a fake pager
- * driven by a smaller page size exercises the same multi-page loop without
- * needing 1000+ fixture rows).
- */
-export async function fetchAllRows<T>(
-  build: () => { range: (from: number, to: number) => PromiseLike<{ data: unknown; error: { message: string } | null }> },
-  pageSize: number = PAGE_SIZE,
-): Promise<T[]> {
-  const out: T[] = [];
-  let from = 0;
-  for (;;) {
-    const { data, error } = await build().range(from, from + pageSize - 1);
-    if (error) throw new Error(error.message);
-    const rows = (data ?? []) as T[];
-    out.push(...rows);
-    if (rows.length < pageSize) break;
-    from += pageSize;
-  }
-  return out;
-}
+// `fetchAllRows` now lives in the shared `lib/supabase/paginate` module so any
+// feature (not just financials) can page past PostgREST's silent row cap. It's
+// imported above for the per-source fetches here; re-exported for the existing
+// `./fetchSources` import sites + parity tests.
+export { fetchAllRows };
 
 // ── date range helpers ──────────────────────────────────────────────────────
 

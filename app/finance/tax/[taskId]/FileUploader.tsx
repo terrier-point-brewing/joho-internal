@@ -36,9 +36,8 @@ export default function FileUploader({ taskId, readOnly = false }: { taskId: str
   const [busyFileId, setBusyFileId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function handleUpload(e: React.FormEvent) {
-    e.preventDefault();
-    if (!selectedFile) return;
+  async function handleUpload() {
+    if (!selectedFile || uploading) return;
 
     setUploading(true);
     setError(null);
@@ -96,7 +95,7 @@ export default function FileUploader({ taskId, readOnly = false }: { taskId: str
   return (
     <div className="space-y-3">
       {!readOnly && (
-        <form onSubmit={handleUpload} className="flex flex-wrap items-end gap-2">
+        <div className="flex flex-wrap items-end gap-2">
           <div className="flex items-center gap-2 shrink-0">
             <label className="btn-secondary btn-xxs cursor-pointer">
               Choose File
@@ -117,12 +116,23 @@ export default function FileUploader({ taskId, readOnly = false }: { taskId: str
               placeholder="e.g. Payment confirmation"
               value={label}
               onChange={(e) => setLabel(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  handleUpload();
+                }
+              }}
             />
           </div>
-          <button type="submit" className="btn-secondary btn-xxs" disabled={!selectedFile || uploading}>
+          <button
+            type="button"
+            className="btn-secondary btn-xxs"
+            onClick={handleUpload}
+            disabled={!selectedFile || uploading}
+          >
             {uploading ? "Uploading…" : "Upload"}
           </button>
-        </form>
+        </div>
       )}
 
       {error && <Banner tone="danger">{error}</Banner>}

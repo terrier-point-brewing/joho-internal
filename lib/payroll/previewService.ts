@@ -57,7 +57,6 @@ async function buildGuaranteeBuckets(
   buckets: GuaranteeBucket[];
   tip_buckets: TipBucketSummary[];
   totalPooledTipsCents: number;
-  totalCashTakeCents: number;
 }> {
   const days = getDays(period.start_date, period.end_date);
   const tipFrequency: TipPoolFrequency = config.tip_pool_frequency ?? "biweekly";
@@ -68,39 +67,36 @@ async function buildGuaranteeBuckets(
     fetchTipsAndCashTakeByDay(period.start_date, period.end_date),
   ]);
 
-  // Index shifts: date → teamMemberId → hours
+  // Index shifts: date → teamMemberId → hours, and date → teamMemberId → declared cash
   const shiftsByDate = new Map<string, Map<string, number>>();
+  const cashByDate = new Map<string, Map<string, number>>();
   for (const s of dailyShifts) {
     if (!shiftsByDate.has(s.date)) shiftsByDate.set(s.date, new Map());
-    const m = shiftsByDate.get(s.date)!;
-    m.set(s.team_member_id, (m.get(s.team_member_id) ?? 0) + s.hours);
+    shiftsByDate.get(s.date)!.set(s.team_member_id, (shiftsByDate.get(s.date)!.get(s.team_member_id) ?? 0) + s.hours);
+    if (!cashByDate.has(s.date)) cashByDate.set(s.date, new Map());
+    cashByDate.get(s.date)!.set(s.team_member_id, (cashByDate.get(s.date)!.get(s.team_member_id) ?? 0) + s.cash_tips_cents);
   }
 
-  // Index tips: date → amounts
+  // Index pooled (card) tips: date → cents
   const tipsMap = new Map(dailyTipsArr.map(t => [t.date, t]));
 
-  // ── Step 1: attribute tips to individual days ──────────────────────────────
+  // ── Step 1: attribute pooled CARD tips to individual days (cash is declared, not pooled) ──
   const tipGroups = dayGroups(days, tipFrequency);
   const tipLabels = bucketLabels(tipFrequency, period.start_date, period.end_date);
 
   const dailyPaycheckTips = new Map<string, Map<string, number>>(); // date → sqId → cents
-  const dailyCashTips = new Map<string, Map<string, number>>();
 
   const tip_buckets: TipBucketSummary[] = [];
   let totalPooledTipsCents = 0;
-  let totalCashTakeCents = 0;
 
   for (let gi = 0; gi < tipGroups.length; gi++) {
     const group = tipGroups[gi];
     let groupTips = 0;
-    let groupCash = 0;
     for (const day of group) {
       groupTips += tipsMap.get(day)?.tipsPooledCents ?? 0;
-      groupCash += tipsMap.get(day)?.cashTakeCents ?? 0;
     }
     totalPooledTipsCents += groupTips;
-    totalCashTakeCents += groupCash;
-    tip_buckets.push({ label: tipLabels[gi] ?? `Bucket ${gi + 1}`, tipsPooledCents: groupTips, cashTakeCents: groupCash });
+    tip_buckets.push({ label: tipLabels[gi] ?? `Bucket ${gi + 1}`, tipsPooledCents: groupTips });
 
     // Total tipped-employee hours in this tip pool group (the denominator)
     let totalGroupHours = 0;
@@ -110,17 +106,14 @@ async function buildGuaranteeBuckets(
       }
     }
 
-    // Attribute group tips to each employee-day proportional to hours
+    // Attribute group card tips to each employee-day proportional to hours
     for (const day of group) {
       if (!dailyPaycheckTips.has(day)) dailyPaycheckTips.set(day, new Map());
-      if (!dailyCashTips.has(day)) dailyCashTips.set(day, new Map());
       const ptMap = dailyPaycheckTips.get(day)!;
-      const ctMap = dailyCashTips.get(day)!;
       for (const [id, dayHrs] of shiftsByDate.get(day) ?? []) {
         if (!tippedTeamIds.has(id) || dayHrs <= 0) continue;
         const share = totalGroupHours > 0 ? dayHrs / totalGroupHours : 0;
         ptMap.set(id, Math.round(share * groupTips));
-        ctMap.set(id, Math.round(share * config.cash_tips_rate * groupCash));
       }
     }
   }
@@ -139,14 +132,16 @@ async function buildGuaranteeBuckets(
       for (const [id, pt] of dailyPaycheckTips.get(day) ?? []) {
         paycheckTipsCents.set(id, (paycheckTipsCents.get(id) ?? 0) + pt);
       }
-      for (const [id, ct] of dailyCashTips.get(day) ?? []) {
+      // Actual declared cash, straight from the shift record (no pool, no rate).
+      for (const [id, ct] of cashByDate.get(day) ?? []) {
+        if (!tippedTeamIds.has(id)) continue;
         cashTipsCents.set(id, (cashTipsCents.get(id) ?? 0) + ct);
       }
     }
     return { shifts, paycheckTipsCents, cashTipsCents };
   });
 
-  return { buckets, tip_buckets, totalPooledTipsCents, totalCashTakeCents };
+  return { buckets, tip_buckets, totalPooledTipsCents };
 }
 
 export async function buildPayrollPreview(
@@ -166,7 +161,7 @@ export async function buildPayrollPreview(
     hourlyTipped.filter(e => e.square_team_member_id).map(e => e.square_team_member_id!)
   );
 
-  const { buckets, tip_buckets, totalPooledTipsCents, totalCashTakeCents } =
+  const { buckets, tip_buckets, totalPooledTipsCents } =
     await buildGuaranteeBuckets(period, tippedTeamIds, config);
 
   const computed = computePayrollEntries(hourlyTipped, buckets, config);
@@ -178,9 +173,10 @@ export async function buildPayrollPreview(
       adj_hours_worked: stored?.adj_hours_worked ?? null,
       adj_paycheck_tips_cents: stored?.adj_paycheck_tips_cents ?? null,
       adj_cash_tips_cents: stored?.adj_cash_tips_cents ?? null,
+      adj_reported_cash_tips_cents: stored?.adj_reported_cash_tips_cents ?? null,
       adj_bonus_cents: stored?.adj_bonus_cents ?? null,
       admin_notes: stored?.admin_notes ?? null,
-    });
+    }, config.reported_cash_tips_divisor);
   });
 
   const entryIds = new Set(entries.map((e) => e.employee_id));
@@ -193,7 +189,6 @@ export async function buildPayrollPreview(
     employees,
     salaried_employees: salariedEmployees,
     total_pooled_tips_cents: totalPooledTipsCents,
-    total_cash_take_cents: totalCashTakeCents,
     tip_buckets,
   };
 }

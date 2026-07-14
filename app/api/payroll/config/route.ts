@@ -31,7 +31,7 @@ export async function PATCH(req: NextRequest) {
     effective_from,
     base_rate_cents,
     guaranteed_rate_cents,
-    cash_tips_rate,
+    reported_cash_tips_divisor,
     tip_distribution_model,
     pay_period_frequency,
     tip_pool_frequency,
@@ -41,6 +41,13 @@ export async function PATCH(req: NextRequest) {
 
   if (!effective_from || !base_rate_cents || !guaranteed_rate_cents) {
     return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+  }
+
+  if (
+    reported_cash_tips_divisor != null &&
+    (!Number.isInteger(reported_cash_tips_divisor) || reported_cash_tips_divisor < 1)
+  ) {
+    return NextResponse.json({ error: "Invalid reported_cash_tips_divisor" }, { status: 400 });
   }
 
   if (pay_period_frequency && !["weekly", "biweekly"].includes(pay_period_frequency)) {
@@ -65,7 +72,7 @@ export async function PATCH(req: NextRequest) {
         effective_from,
         base_rate_cents,
         guaranteed_rate_cents,
-        cash_tips_rate: cash_tips_rate ?? 0.01,
+        reported_cash_tips_divisor: reported_cash_tips_divisor ?? 10,
         tip_distribution_model: tip_distribution_model ?? "proportional_hours",
         pay_period_frequency: frequency,
         tip_pool_frequency: tip_pool_frequency ?? "biweekly",

@@ -25,6 +25,7 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { addDaysStr } from "@/lib/utils/datetime";
+import { fetchAllRows } from "@/lib/supabase/paginate";
 import type { ComputeContext, TaxPeriod, WorksheetData, WorksheetFields } from "@/lib/tax/types";
 import { buildRateMap, listTaxRates, ncLocalKey, ncTransitKey } from "@/lib/tax/rates";
 import {
@@ -204,30 +205,40 @@ interface TaxJoinRow {
  *
  * `transaction_date` is a timestamp: the range is `[start 00:00Z, dayAfter(end)
  * 00:00Z)` so the whole final calendar day is included.
+ *
+ * The select is paged via `fetchAllRows` (ordered by `line_item_id` for stable
+ * paging): a busy month has well over 1000 taxed lines, and an unpaginated
+ * select silently truncates at PostgREST's 1000-row cap — which understates the
+ * base (and the collected tax, so the reconciliation warning is scaled down in
+ * lockstep and never fires). `pageSize` is injectable for tests only.
  */
 export async function fetchTaxableBase(
   sb: SupabaseClient,
   generalSalesTaxId: string,
   period: TaxPeriod,
+  pageSize?: number,
 ): Promise<{ baseCents: number; collectedCents: number }> {
   const startTs = `${period.start}T00:00:00Z`;
   const endExclusiveTs = `${addDaysStr(period.end, 1)}T00:00:00Z`;
 
-  const { data, error } = await sb
-    .from("pos_line_item_taxes")
-    .select(
-      "line_item_id, amount_cents, pos_line_items!inner ( net_sales_cents, tax_cents, square_orders!inner ( transaction_date ) )",
-    )
-    .eq("square_tax_id", generalSalesTaxId)
-    .gte("pos_line_items.square_orders.transaction_date", startTs)
-    .lt("pos_line_items.square_orders.transaction_date", endExclusiveTs);
-
-  if (error) throw new Error(error.message);
+  const data = await fetchAllRows<TaxJoinRow>(
+    () =>
+      sb
+        .from("pos_line_item_taxes")
+        .select(
+          "line_item_id, amount_cents, pos_line_items!inner ( net_sales_cents, tax_cents, square_orders!inner ( transaction_date ) )",
+        )
+        .eq("square_tax_id", generalSalesTaxId)
+        .gte("pos_line_items.square_orders.transaction_date", startTs)
+        .lt("pos_line_items.square_orders.transaction_date", endExclusiveTs)
+        .order("line_item_id", { ascending: true }),
+    pageSize,
+  );
 
   const seen = new Set<string>();
   let baseCents = 0;
   let collectedCents = 0;
-  for (const row of (data ?? []) as TaxJoinRow[]) {
+  for (const row of data) {
     if (seen.has(row.line_item_id)) continue;
     seen.add(row.line_item_id);
     const pliRaw = row.pos_line_items;
