@@ -41,10 +41,13 @@ export async function GET(req: NextRequest) {
 
     const today = new Date().toISOString().slice(0, 10);
 
-    // The latest period is still in the future — next period already exists ahead of us.
-    if (today < latestPeriod.start_date) return { created: false, reason: "next period already ahead" };
+    // The latest period hasn't ended yet — it's still the current (or a future)
+    // period, so there's nothing to roll forward. We intentionally do NOT create
+    // the next period until the current one is over, to avoid running the
+    // schedule a full period ahead of today.
+    if (today <= latestPeriod.end_date) return { created: false, reason: "current period still active" };
 
-    // We're inside (or past) the current period — create the next one proactively.
+    // The latest period has ended — create the next one.
     const frequency = (config.pay_period_frequency ?? "biweekly") as PayPeriodFrequency;
     const dueDays: number = config.due_date_days_after_end ?? 3;
     const dates = computeNextPeriodDates(latestPeriod.end_date, frequency);
