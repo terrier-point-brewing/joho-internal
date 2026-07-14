@@ -10,7 +10,7 @@ import type { ReferenceSpec } from "@/lib/tax/types";
 /** Statutory NC malt-beverage excise rate, in dollars per gallon (form Line 6). */
 export const NC_EXCISE_RATE_USD_PER_GALLON = 0.6171;
 
-/** `usdToMicros(0.6171)` — the fallback used when the live `excise_tax_rates` row is missing. */
+/** `usdToMicros(0.6171)` — the fallback used when the canonical `tax_rates` row (key `nc_dor_beer_excise`) is missing. */
 export const NC_EXCISE_RATE_MICROS_FALLBACK = 617100;
 
 /** Timely-filing discount applied to Line 6 (2%). */
@@ -49,6 +49,6 @@ export const BEER_EXCISE_REFERENCE: ReferenceSpec = {
     "Filed monthly; due the 15th of the following month.",
     "Taxable channels: distribution, contract brewing, and taproom sales.",
     "Wholesale sold to other NC wholesalers is a Line 4a deduction, never taxed.",
-    "The rate is read live from the excise-tax settings row; the statutory $0.6171/gal is used as a fallback only if that row is missing.",
+    "The rate is read from the canonical tax_rates row (key nc_dor_beer_excise); the statutory $0.6171/gal is used as a fallback only if that row is missing.",
   ],
 };

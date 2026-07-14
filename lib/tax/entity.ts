@@ -1,6 +1,6 @@
 /**
  * Singleton tax entity profile storage (`tax_entity_profile`) — the brewery's
- * own legal/contact identity (legal name, FEIN/SSN, contact info, mailing
+ * own legal/contact identity (legal name, SSN, contact info, mailing
  * address) used to prefill filings across every receiving party. Unlike
  * `tax_filing_profiles` (per-party, `lib/tax/profiles.ts`), this is a single
  * row identified by `id = true`, with schema keys mapped 1:1 onto columns.
@@ -14,7 +14,6 @@ import type { FieldSpec } from "./types";
 
 export const ENTITY_PROFILE_SCHEMA: FieldSpec[] = [
   { key: "legal_name", label: "Legal entity name", type: "text", required: true },
-  { key: "fein", label: "Federal EIN", type: "text" },
   { key: "ssn", label: "SSN (only if sole proprietor / no FEIN)", type: "text", sensitive: true },
   { key: "contact_name", label: "Primary contact name", type: "text" },
   { key: "contact_email", label: "Primary contact email", type: "email" },

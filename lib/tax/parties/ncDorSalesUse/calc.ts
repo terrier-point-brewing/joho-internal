@@ -17,18 +17,29 @@
  * exactly once, and page-1 line totals are the SUM of the per-county rounded
  * taxes (never an independent rounding of the line's aggregate receipts) — so
  * the page-2 county rows always reconcile to the page-1 lines by construction.
+ *
+ * Every rate VALUE is read from a `rateMap` (built via
+ * `buildRateMap(await listTaxRates(sb))`, see `@/lib/tax/rates`) rather than
+ * a code constant — `computeNcDorWorksheet` fetches it once per call and
+ * threads it through `computeNcDorFigures` → `deriveNcDorFigures`.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { addDaysStr } from "@/lib/utils/datetime";
 import { fetchAllRows } from "@/lib/supabase/paginate";
 import type { ComputeContext, TaxPeriod, WorksheetData, WorksheetFields } from "@/lib/tax/types";
+import { buildRateMap, listTaxRates, ncLocalKey, ncTransitKey } from "@/lib/tax/rates";
 import {
-  NC_COUNTY_TIERS,
+  NC_COUNTIES,
   RATE_LINES,
   countyRateLine,
   transitRateLine,
 } from "./rates";
 import { allocateByWeights, computeDependentTotals, deriveNcDorFigures } from "./derive";
+
+/** Structural county-code allowlist — a county configured with an unknown
+ * code (not one of the 100 NC DOR counties) is flagged, not silently taxed
+ * at a 0 rate. */
+const KNOWN_COUNTY_CODES = new Set(NC_COUNTIES.map((c) => c.code));
 
 /** A county entry from schedule.config: which county and its share of receipts. */
 export interface CountyWeight {
@@ -72,7 +83,10 @@ const num = (v: number | string | null | undefined) => Number(v ?? 0);
  * `deriveNcDorFigures` used identically by the server merge and the client
  * live-recompute. See file header.
  */
-export function computeNcDorFigures(args: ComputeNcDorFiguresArgs): WorksheetData {
+export function computeNcDorFigures(
+  args: ComputeNcDorFiguresArgs,
+  rateMap: Record<string, number>,
+): WorksheetData {
   const { taxableBaseCents, counties, collectedGeneralTaxCents } = args;
   const warnings: string[] = [];
 
@@ -113,27 +127,27 @@ export function computeNcDorFigures(args: ComputeNcDorFiguresArgs): WorksheetDat
   counties.forEach((county, i) => {
     const code = county.code;
     const countyBase = bases[i];
-    const tier = NC_COUNTY_TIERS[code];
 
     // Always initialise the page-2 rows for a selected county.
     fields[`county_${code}_2pct`] = 0;
     fields[`county_${code}_225pct`] = 0;
     fields[`county_${code}_transit`] = 0;
 
-    if (!tier) {
+    if (!KNOWN_COUNTY_CODES.has(code)) {
       warnings.push(`Unknown county code "${code}" — its receipts were not taxed. Check the county configuration.`);
       return;
     }
+    const tier = { local: rateMap[ncLocalKey(code)] ?? 0, transit: rateMap[ncTransitKey(code)] ?? 0 };
 
     // Stamp this county's receipts so the shared derivation can split any
     // manual per-line purchases across counties by the same receipts weights.
     fields[`county_${code}_receipts`] = countyBase;
 
     // Page-1 receipts aggregation: line receipts are the SUM of county bases.
-    const localLine = countyRateLine(tier); // '9' | '10'
+    const localLine = countyRateLine(tier.local); // '9' | '10'
     fields[`line${localLine}_receipts`] = num(fields[`line${localLine}_receipts`]) + countyBase;
 
-    const transitLine = transitRateLine(tier); // '11' | '12' | null
+    const transitLine = transitRateLine(tier.transit); // '11' | '12' | null
     if (transitLine) {
       fields[`line${transitLine}_receipts`] = num(fields[`line${transitLine}_receipts`]) + countyBase;
     }
@@ -141,7 +155,7 @@ export function computeNcDorFigures(args: ComputeNcDorFiguresArgs): WorksheetDat
 
   // All tax math (per-line tax, page-2 county rows, dependent totals) via the
   // single shared derivation — purchases are 0 here, so this is a pure compute.
-  const derived = deriveNcDorFigures(fields);
+  const derived = deriveNcDorFigures(fields, rateMap);
 
   // Reconciliation: computed total general tax (L13) vs Square-collected.
   // Square rounds tax per transaction while this engine computes on the
@@ -264,11 +278,17 @@ export async function computeNcDorWorksheet(
   }
 
   const client = sb ?? (await import("@/lib/supabase/admin")).createSupabaseAdminClient();
-  const { baseCents, collectedCents } = await fetchTaxableBase(client, generalSalesTaxId, ctx.period);
+  const [{ baseCents, collectedCents }, rateMap] = await Promise.all([
+    fetchTaxableBase(client, generalSalesTaxId, ctx.period),
+    listTaxRates(client).then(buildRateMap),
+  ]);
 
-  return computeNcDorFigures({
-    taxableBaseCents: baseCents,
-    counties,
-    collectedGeneralTaxCents: collectedCents,
-  });
+  return computeNcDorFigures(
+    {
+      taxableBaseCents: baseCents,
+      counties,
+      collectedGeneralTaxCents: collectedCents,
+    },
+    rateMap,
+  );
 }

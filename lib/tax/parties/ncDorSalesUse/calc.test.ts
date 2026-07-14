@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ComputeContext } from "@/lib/tax/types";
+import type { TaxRate } from "@/lib/tax/rates";
 import {
   computeNcDorFigures,
   computeDependentTotals,
@@ -10,13 +11,50 @@ import {
 
 const n = (v: number | string | null | undefined) => Number(v ?? 0);
 
+// Seeded to mirror the OLD hardcoded constants (NC_STATE_RATE / RATE_BY_LINE /
+// NC_COUNTY_TIERS) so parity assertions below are unchanged from before the
+// rateMap refactor.
+const RATE_MAP: Record<string, number> = {
+  nc_sales_state: 0.0475,
+  nc_sales_line_4: 0.0475,
+  nc_sales_line_5: 0.03,
+  nc_sales_line_6: 0.0475,
+  nc_sales_line_7: 0.0475,
+  nc_sales_line_8: 0.02,
+  nc_sales_line_9: 0.02,
+  nc_sales_line_10: 0.0225,
+  nc_sales_line_11: 0.005,
+  nc_sales_line_12: 0.0025,
+  nc_local_WAKE: 0.02,
+  nc_transit_WAKE: 0.005,
+  nc_local_MECKLENBURG: 0.02,
+  nc_transit_MECKLENBURG: 0.005,
+  nc_local_DURHAM: 0.0225,
+  nc_transit_DURHAM: 0.005,
+};
+
+/** `RATE_MAP` shaped as the `tax_rates` rows `listTaxRates` returns. */
+const SEEDED_RATE_ROWS: TaxRate[] = Object.entries(RATE_MAP).map(([key, rate], i) => ({
+  id: `rate-${i}`,
+  key,
+  name: key,
+  category: key.startsWith("nc_local") ? "local" : key.startsWith("nc_transit") ? "transit" : "sales",
+  party_key: "nc_dor",
+  basis: "percent",
+  rate,
+  is_active: true,
+}));
+
 describe("computeNcDorFigures", () => {
   it("single county (Wake, 100%) — full page-1 lines + page-2 county rows, no warning", () => {
-    const ws = computeNcDorFigures({
-      taxableBaseCents: 100000,
-      counties: [{ code: "WAKE", weight: 100 }],
-      collectedGeneralTaxCents: 7250,
-    });
+    const ws = computeNcDorFigures(
+      {
+        taxableBaseCents: 100000,
+        counties: [{ code: "WAKE", weight: 100 }],
+        collectedGeneralTaxCents: 7250,
+      },
+      RATE_MAP,
+    );
     const f = ws.fields;
     expect(f.line1_gross_receipts).toBe(100000);
     // State line 4 @ 4.75%
@@ -45,14 +83,17 @@ describe("computeNcDorFigures", () => {
   });
 
   it("two counties (Wake 50 / Durham 50) — routes to distinct local lines, transit lines add", () => {
-    const ws = computeNcDorFigures({
-      taxableBaseCents: 100000,
-      counties: [
-        { code: "WAKE", weight: 50 },
-        { code: "DURHAM", weight: 50 },
-      ],
-      collectedGeneralTaxCents: 7375,
-    });
+    const ws = computeNcDorFigures(
+      {
+        taxableBaseCents: 100000,
+        counties: [
+          { code: "WAKE", weight: 50 },
+          { code: "DURHAM", weight: 50 },
+        ],
+        collectedGeneralTaxCents: 7375,
+      },
+      RATE_MAP,
+    );
     const f = ws.fields;
     // Wake 2% on 50000 -> line 9
     expect(f.line9_receipts).toBe(50000);
@@ -85,14 +126,17 @@ describe("computeNcDorFigures", () => {
 
   it("allocates the residual cent so county bases sum exactly to the total base (odd split)", () => {
     // 100001 ¢ across two even weights -> 50000 + 50001 (largest-remainder)
-    const ws = computeNcDorFigures({
-      taxableBaseCents: 100001,
-      counties: [
-        { code: "WAKE", weight: 50 },
-        { code: "MECKLENBURG", weight: 50 },
-      ],
-      collectedGeneralTaxCents: 0,
-    });
+    const ws = computeNcDorFigures(
+      {
+        taxableBaseCents: 100001,
+        counties: [
+          { code: "WAKE", weight: 50 },
+          { code: "MECKLENBURG", weight: 50 },
+        ],
+        collectedGeneralTaxCents: 0,
+      },
+      RATE_MAP,
+    );
     const f = ws.fields;
     // both are 2% local -> both land on line 9, receipts must sum to full base
     expect(f.line9_receipts).toBe(100001);
@@ -101,39 +145,61 @@ describe("computeNcDorFigures", () => {
   });
 
   it("emits a reconciliation warning when collected deviates by a rate-misconfig-sized amount", () => {
-    const ws = computeNcDorFigures({
-      taxableBaseCents: 100000,
-      counties: [{ code: "WAKE", weight: 100 }],
-      // computed 7250; collected off by 1000¢ ($10) — tolerance is
-      // max(100, round(6250 * 0.001)) = 100, so this diff (1000 > 100) is a
-      // proportional-sized error consistent with a misconfigured rate/tier,
-      // not ordinary per-transaction rounding drift.
-      collectedGeneralTaxCents: 6250,
-    });
+    const ws = computeNcDorFigures(
+      {
+        taxableBaseCents: 100000,
+        counties: [{ code: "WAKE", weight: 100 }],
+        // computed 7250; collected off by 1000¢ ($10) — tolerance is
+        // max(100, round(6250 * 0.001)) = 100, so this diff (1000 > 100) is a
+        // proportional-sized error consistent with a misconfigured rate/tier,
+        // not ordinary per-transaction rounding drift.
+        collectedGeneralTaxCents: 6250,
+      },
+      RATE_MAP,
+    );
     expect(ws.warnings && ws.warnings.length).toBeGreaterThan(0);
     expect(ws.warnings?.[0]).toMatch(/differs from Square-collected/i);
   });
 
   it("does NOT warn when collected is within the rounding-drift tolerance", () => {
-    const ws = computeNcDorFigures({
-      taxableBaseCents: 10_000_000, // $100,000 base
-      counties: [{ code: "WAKE", weight: 100 }],
-      // computed = 475000 (state) + 200000 (local 2%) + 50000 (transit 0.5%)
-      // = 725000¢. collected differs by only 40¢ — ordinary per-transaction
-      // rounding drift on a five-figure+ collected amount. Tolerance here is
-      // max(100, round(725040 * 0.001)) = 725, so 40 <= 725 -> no warning.
-      collectedGeneralTaxCents: 725040,
-    });
+    const ws = computeNcDorFigures(
+      {
+        taxableBaseCents: 10_000_000, // $100,000 base
+        counties: [{ code: "WAKE", weight: 100 }],
+        // computed = 475000 (state) + 200000 (local 2%) + 50000 (transit 0.5%)
+        // = 725000¢. collected differs by only 40¢ — ordinary per-transaction
+        // rounding drift on a five-figure+ collected amount. Tolerance here is
+        // max(100, round(725040 * 0.001)) = 725, so 40 <= 725 -> no warning.
+        collectedGeneralTaxCents: 725040,
+      },
+      RATE_MAP,
+    );
     expect(ws.warnings ?? []).toEqual([]);
   });
 
   it("warns when configured county weights do not sum to 100", () => {
-    const ws = computeNcDorFigures({
-      taxableBaseCents: 100000,
-      counties: [{ code: "WAKE", weight: 60 }],
-      collectedGeneralTaxCents: 7250,
-    });
+    const ws = computeNcDorFigures(
+      {
+        taxableBaseCents: 100000,
+        counties: [{ code: "WAKE", weight: 60 }],
+        collectedGeneralTaxCents: 7250,
+      },
+      RATE_MAP,
+    );
     expect(ws.warnings?.some((w) => /weights/i.test(w))).toBe(true);
+  });
+
+  it("warns and does not tax an unknown county code", () => {
+    const ws = computeNcDorFigures(
+      {
+        taxableBaseCents: 100000,
+        counties: [{ code: "NOT_A_COUNTY", weight: 100 }],
+        collectedGeneralTaxCents: 0,
+      },
+      RATE_MAP,
+    );
+    expect(ws.warnings?.some((w) => /unknown county/i.test(w))).toBe(true);
+    expect(ws.fields.county_NOT_A_COUNTY_receipts).toBeUndefined();
   });
 });
 
@@ -165,12 +231,17 @@ interface TaxRow {
   pos_line_items: { net_sales_cents: number; tax_cents: number };
 }
 
-// Stub mirrors the paged query fetchTaxableBase now issues:
-// `.select().eq().gte().lt().order().range(from,to)`, where `.range()` slices
-// the fixed row set (Supabase's inclusive-range semantics) so the fetchAllRows
-// paging loop is exercised end-to-end.
-function stubSb(rows: TaxRow[], error?: string): SupabaseClient {
+/** Stub Supabase client routing `pos_line_item_taxes` (the Square base/tax
+ * join, paged via `.select().eq().gte().lt().order().range(from,to)` — `.range()`
+ * slices the fixed row set so the `fetchAllRows` paging loop is exercised
+ * end-to-end) and `tax_rates` (the rate map `listTaxRates` reads). */
+function stubSb(rows: TaxRow[], rateRows: TaxRate[] = SEEDED_RATE_ROWS, error?: string): SupabaseClient {
   const from = (table: string) => {
+    if (table === "tax_rates") {
+      const b: Record<string, unknown> = {};
+      b.select = () => Promise.resolve({ data: rateRows, error: null });
+      return b;
+    }
     if (table !== "pos_line_item_taxes") throw new Error(`unexpected table: ${table}`);
     const b: Record<string, unknown> = {};
     b.select = () => b;
@@ -225,12 +296,12 @@ describe("fetchTaxableBase", () => {
   });
 
   it("throws on query error", async () => {
-    await expect(fetchTaxableBase(stubSb([], "boom"), "TAX_GEN", period)).rejects.toThrow(/boom/);
+    await expect(fetchTaxableBase(stubSb([], SEEDED_RATE_ROWS, "boom"), "TAX_GEN", period)).rejects.toThrow(/boom/);
   });
 });
 
 describe("computeNcDorWorksheet", () => {
-  it("reads config counties + general_sales_tax_id, pulls base, computes figures", async () => {
+  it("reads config counties + general_sales_tax_id, pulls base, computes figures via the fetched rateMap", async () => {
     // one line: net 107250, tax 7250 -> base 100000, collected 7250
     const rows: TaxRow[] = [
       { line_item_id: "A", amount_cents: 7250, pos_line_items: { net_sales_cents: 107250, tax_cents: 7250 } },

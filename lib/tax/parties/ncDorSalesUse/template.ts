@@ -20,10 +20,11 @@ import type {
 import { monthPeriod, quarterPeriod } from "@/lib/tax/period";
 import { resolveDueDate, type DueRule } from "@/lib/tax/dueDate";
 import { registerParty } from "@/lib/tax/registry";
+import { TAX_RATE_KEYS, ncLocalKey, ncTransitKey } from "@/lib/tax/rates";
 import { computeNcDorWorksheet } from "./calc";
 import { deriveNcDorFigures } from "./derive";
 import { resolveFieldOwnership } from "./fieldOwnership";
-import { NC_COUNTIES, NC_COUNTY_TIERS, NC_STATE_RATE } from "./rates";
+import { NC_COUNTIES } from "./rates";
 
 // ── Period / due-date rules ────────────────────────────────────────────────
 //
@@ -87,7 +88,11 @@ const fieldOwnership: Record<string, FieldOwnership> = new Proxy(
 // manual `lineN_purchases` edit (preserved from `current`) flows into the line
 // tax, county rows, and Total Due exactly as the client already displays it.
 
-function mergeWorksheet(current: WorksheetData, recomputed: WorksheetData): WorksheetData {
+function mergeWorksheet(
+  current: WorksheetData,
+  recomputed: WorksheetData,
+  rateMap: Record<string, number>,
+): WorksheetData {
   const keys = new Set([...Object.keys(current.fields), ...Object.keys(recomputed.fields)]);
   const merged: Record<string, number | string | null> = {};
 
@@ -98,7 +103,7 @@ function mergeWorksheet(current: WorksheetData, recomputed: WorksheetData): Work
         : (current.fields[key] ?? recomputed.fields[key]);
   }
 
-  const fields = deriveNcDorFigures(merged);
+  const fields = deriveNcDorFigures(merged, rateMap);
 
   return { fields, warnings: recomputed.warnings, meta: recomputed.meta };
 }
@@ -124,34 +129,43 @@ const scheduleConfigSchema: FieldSpec[] = [
   },
 ];
 
-// ── referenceView ────────────────────────────────────────────────────────────
+// ── buildReferenceView ──────────────────────────────────────────────────────
+//
+// Builds the SAME reference tables the old static `referenceView` did, but
+// from the canonical `rateMap` (`buildRateMap(await listTaxRates(sb))`)
+// instead of the deleted `NC_STATE_RATE`/`NC_COUNTY_TIERS` constants — so a
+// rate change in `tax_rates` is reflected here without a deploy.
 
 function formatPct(rate: number): string {
   return `${(rate * 100).toFixed(2)}%`;
 }
 
-const referenceView: ReferenceSpec = {
-  tables: [
-    {
-      title: "State rate",
-      columns: ["Rate", "Applies to"],
-      rows: [[formatPct(NC_STATE_RATE), "All taxable receipts (Form E-500, Line 4)"]],
-    },
-    {
-      title: "County local/transit tax tiers",
-      columns: ["County", "Local rate", "Transit rate", "Combined rate"],
-      rows: NC_COUNTIES.map((c) => {
-        const tier = NC_COUNTY_TIERS[c.code];
-        return [c.name, formatPct(tier.local), formatPct(tier.transit), formatPct(tier.local + tier.transit)];
-      }),
-    },
-  ],
-  notes: [
-    "Monthly filers: period = calendar month; due the 20th of the following month.",
-    "Quarterly filers: period = calendar quarter; due the last day of the month following the quarter's end.",
-    "State rate and county tiers above are statutory (NC DOR) and read-only — not editable filing data.",
-  ],
-};
+function buildReferenceView(rateMap: Record<string, number>): ReferenceSpec {
+  const stateRate = rateMap[TAX_RATE_KEYS.NC_SALES_STATE] ?? 0;
+  return {
+    tables: [
+      {
+        title: "State rate",
+        columns: ["Rate", "Applies to"],
+        rows: [[formatPct(stateRate), "All taxable receipts (Form E-500, Line 4)"]],
+      },
+      {
+        title: "County local/transit tax tiers",
+        columns: ["County", "Local rate", "Transit rate", "Combined rate"],
+        rows: NC_COUNTIES.map((c) => {
+          const local = rateMap[ncLocalKey(c.code)] ?? 0;
+          const transit = rateMap[ncTransitKey(c.code)] ?? 0;
+          return [c.name, formatPct(local), formatPct(transit), formatPct(local + transit)];
+        }),
+      },
+    ],
+    notes: [
+      "Monthly filers: period = calendar month; due the 20th of the following month.",
+      "Quarterly filers: period = calendar quarter; due the last day of the month following the quarter's end.",
+      "State rate and county tiers above are statutory (NC DOR) and read-only — not editable filing data.",
+    ],
+  };
+}
 
 // ── Assembled template ──────────────────────────────────────────────────────
 
@@ -166,7 +180,7 @@ export const ncDorSalesUseTemplate: TaxPartyTemplate = {
   mergeWorksheet,
   settingsSchema,
   scheduleConfigSchema,
-  referenceView,
+  buildReferenceView,
   recomputeLabel: "Recompute from Square",
   worksheetComponent: "nc_dor_sales_use",
 };

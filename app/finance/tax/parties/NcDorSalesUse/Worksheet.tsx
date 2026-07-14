@@ -15,10 +15,14 @@
  * submitted filing's figures can no longer be edited.
  */
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { fmtCents } from "@/lib/utils/formatting";
 import { NC_COUNTIES } from "@/lib/tax/parties/ncDorSalesUse/rates";
 import { RATE_LINES } from "@/lib/tax/parties/ncDorSalesUse/calc";
 import { recomputeClientTotals, centsToDollarString, dollarStringToCents } from "@/lib/tax/ncDorWorksheetMath";
+import { buildRateMap, type TaxRate } from "@/lib/tax/rates";
+import { queryKeys } from "@/lib/query-keys";
+import { fetchJson } from "@/app/production/hooks/queries";
 import { isComputedField } from "./fieldOwnership";
 import type { PartyWorksheetProps } from "../registry";
 
@@ -64,9 +68,25 @@ export default function NcDorSalesUseWorksheet({
   // user's in-progress typing is never clobbered by its own recompute.
   const generation = computedAt ?? "initial";
 
+  // Canonical rate map (tax_rates) — every recompute must read rate values
+  // from here, never a code constant.
+  const ratesQuery = useQuery({
+    queryKey: queryKeys.tax.rates(),
+    queryFn: () => fetchJson<TaxRate[]>("/api/tax/rates"),
+  });
+  const rateMap = buildRateMap(ratesQuery.data ?? []);
+
   function updateField(key: string, value: number | string | null) {
     if (readOnly) return;
-    onFieldsChange(recomputeClientTotals({ ...fields, [key]: value }));
+    const next = { ...fields, [key]: value };
+    if (!ratesQuery.data) {
+      // Rates haven't loaded yet — never recompute with an empty rateMap
+      // (would zero every derived tax). Apply the raw edit and fall back to
+      // the already-persisted computed fields until the rates fetch resolves.
+      onFieldsChange(next);
+      return;
+    }
+    onFieldsChange(recomputeClientTotals(next, rateMap));
   }
 
   const countyRows = NC_COUNTIES.filter(

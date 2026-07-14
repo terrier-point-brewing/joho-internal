@@ -1,12 +1,14 @@
 /**
- * NC DOR Sales & Use Tax - Statutory Rates
+ * NC DOR Sales & Use Tax — structural rate-schedule constants.
  *
- * Authoritative constants for NC state and local tax rates, including 100 counties
- * with their respective local and transit tax tiers.
+ * Rate VALUES live in the canonical `tax_rates` table (see
+ * `@/lib/tax/rates`) — this module only keeps the STRUCTURE: which rate
+ * lines exist (4–12), the 100 NC counties and their DOR schedule codes, and
+ * the pure mapping from a county's RESOLVED local/transit rate to its
+ * Form E-500 line number. Callers read rate VALUES through a `rateMap`
+ * (built via `buildRateMap(await listTaxRates(sb))`) keyed by
+ * `ncSalesLineKey`/`ncLocalKey`/`ncTransitKey` — never from a constant here.
  */
-
-/** State sales tax rate for North Carolina */
-export const NC_STATE_RATE = 0.0475;
 
 /**
  * Rate lines that carry a purchases/receipts/tax triple on the worksheet.
@@ -21,39 +23,9 @@ export const RATE_LINES = [4, 5, 6, 7, 8, 9, 10, 11, 12] as const;
 export type RateLineKey = "4" | "5" | "6" | "7" | "8" | "9" | "10" | "11" | "12";
 
 /**
- * Statutory tax rate for each Form E-500 rate line (4–12), keyed by line
- * number. This is the SINGLE source of the per-line rate used to derive
- * `lineN_tax = round((purchases + receipts) × RATE_BY_LINE[N])` in the shared
- * figure derivation (`./derive`) — so the same rate drives the initial Square
- * compute, the server recompute/merge, and the client live-recompute.
- *
- *   4  General State Rate            4.75%
- *   5  3% State Rate                 3%
- *   6  Modular Homes                 4.75%
- *   7  Manufactured Homes            4.75%
- *   8  2% Food Rate                  2%
- *   9  2% County Rate                2%
- *  10  2.25% County Rate             2.25%
- *  11  0.5% Transit County Rate      0.5%
- *  12  0.25% Transit County Rate     0.25%
- *
- * Lines 9–12 mirror the county tiers (`NC_COUNTY_TIERS`); the county schedule
- * derivation applies each county's own tier rate (numerically identical) so the
- * page-2 rows reconcile to these page-1 lines by construction.
+ * Represents a county's RESOLVED local/transit tax rates (read from the
+ * rate map — never a hardcoded constant).
  */
-export const RATE_BY_LINE: Record<RateLineKey, number> = {
-  "4": 0.0475,
-  "5": 0.03,
-  "6": 0.0475,
-  "7": 0.0475,
-  "8": 0.02,
-  "9": 0.02,
-  "10": 0.0225,
-  "11": 0.005,
-  "12": 0.0025,
-};
-
-/** Represents local and transit tax rates for a county */
 export interface CountyTier {
   local: number;
   transit: number;
@@ -163,79 +135,6 @@ const COUNTY_DATA = [
   { ncCode: 100, name: 'Yancey' },
 ] as const;
 
-/** County names with 2.25% local tax (no transit) - tier precedence: 3 */
-const TIER_225_LOCAL_ONLY = new Set([
-  'Alexander',
-  'Alleghany',
-  'Anson',
-  'Ashe',
-  'Bertie',
-  'Buncombe',
-  'Cabarrus',
-  'Catawba',
-  'Chatham',
-  'Cherokee',
-  'Clay',
-  'Cumberland',
-  'Davidson',
-  'Duplin',
-  'Edgecombe',
-  'Forsyth',
-  'Gaston',
-  'Graham',
-  'Greene',
-  'Halifax',
-  'Harnett',
-  'Haywood',
-  'Hertford',
-  'Jackson',
-  'Jones',
-  'Lee',
-  'Lincoln',
-  'Madison',
-  'Martin',
-  'Montgomery',
-  'Moore',
-  'New Hanover',
-  'Onslow',
-  'Pasquotank',
-  'Pitt',
-  'Randolph',
-  'Robeson',
-  'Rockingham',
-  'Rowan',
-  'Rutherford',
-  'Sampson',
-  'Stanly',
-  'Surry',
-  'Swain',
-  'Washington',
-  'Wilkes',
-]);
-
-/** County names with 2.25% local + 0.5% transit - tier precedence: 2 */
-const TIER_225_LOCAL_WITH_TRANSIT = new Set(['Durham', 'Orange']);
-
-/** County names with 2% local + 0.5% transit - tier precedence: 1 (highest) */
-const TIER_200_LOCAL_WITH_TRANSIT = new Set(['Wake', 'Mecklenburg']);
-
-/**
- * Build the county tier for a given county name, applying precedence rules.
- */
-function getCountyTier(name: string): CountyTier {
-  if (TIER_200_LOCAL_WITH_TRANSIT.has(name)) {
-    return { local: 0.02, transit: 0.005 };
-  }
-  if (TIER_225_LOCAL_WITH_TRANSIT.has(name)) {
-    return { local: 0.0225, transit: 0.005 };
-  }
-  if (TIER_225_LOCAL_ONLY.has(name)) {
-    return { local: 0.0225, transit: 0 };
-  }
-  // Default: 2% local, no transit
-  return { local: 0.02, transit: 0 };
-}
-
 /** Ordered array of NC counties (by NC DOR schedule code) */
 export const NC_COUNTIES: { code: string; name: string; ncCode: number }[] = COUNTY_DATA.map(
   ({ ncCode, name }) => ({
@@ -245,33 +144,25 @@ export const NC_COUNTIES: { code: string; name: string; ncCode: number }[] = COU
   })
 );
 
-/** Map of county codes to their tax tiers */
-export const NC_COUNTY_TIERS: Record<string, CountyTier> = Object.fromEntries(
-  COUNTY_DATA.map(({ name }) => [
-    name.toUpperCase().replace(/ /g, '_'),
-    getCountyTier(name),
-  ])
-);
-
 /**
- * Map a county's local tax rate to its NC DOR form line number.
- * @param tier County tier
+ * Map a county's RESOLVED local tax rate to its NC DOR form line number.
+ * @param localRate The county's local rate (read from the rate map)
  * @returns '9' for 2% local, '10' for 2.25% local
  */
-export function countyRateLine(tier: CountyTier): '9' | '10' {
-  return tier.local === 0.0225 ? '10' : '9';
+export function countyRateLine(localRate: number): '9' | '10' {
+  return localRate === 0.0225 ? '10' : '9';
 }
 
 /**
- * Map a county's transit tax rate to its NC DOR form line number.
- * @param tier County tier
+ * Map a county's RESOLVED transit tax rate to its NC DOR form line number.
+ * @param transitRate The county's transit rate (read from the rate map)
  * @returns '11' for 0.5% transit, '12' for 0.25% transit, null for no transit
  */
-export function transitRateLine(tier: CountyTier): '11' | '12' | null {
-  if (tier.transit === 0.005) {
+export function transitRateLine(transitRate: number): '11' | '12' | null {
+  if (transitRate === 0.005) {
     return '11';
   }
-  if (tier.transit === 0.0025) {
+  if (transitRate === 0.0025) {
     return '12';
   }
   return null;

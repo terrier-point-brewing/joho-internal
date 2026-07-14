@@ -549,15 +549,16 @@ export type ServiceType = "packaging_fee" | "keg_cleaning" | "forklift" | "ingre
 
 export interface ExciseTaxRate {
   id: string;
+  key: string;
   name: string;
+  category: string;
+  party_key: string | null;
   receiving_party: string | null;
-  unit: "bbl" | "gallon";
-  rate_usd: number;
+  basis: "per_bbl" | "per_gallon" | "percent";
+  rate: number;
   is_active: boolean;
   square_catalog_item_id: string | null;
   square_catalog_variation_id: string | null;
-  created_at: string;
-  updated_at: string;
 }
 
 export interface ExportServiceMapping {

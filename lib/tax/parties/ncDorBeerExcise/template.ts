@@ -12,6 +12,7 @@ import type {
   FieldOwnership,
   FieldSpec,
   Frequency,
+  ReferenceSpec,
   TaxPartyTemplate,
   TaxPeriod,
   WorksheetData,
@@ -20,6 +21,7 @@ import { monthPeriod } from "@/lib/tax/period";
 import { resolveDueDate, type DueRule } from "@/lib/tax/dueDate";
 import { registerParty } from "@/lib/tax/registry";
 import { US_STATES } from "@/lib/tax/usStates";
+import { TAX_RATE_KEYS } from "@/lib/tax/rates";
 import { computeBeerExciseWorksheet } from "./calc";
 import { deriveBeerExciseFigures } from "./derive";
 import { resolveBeerFieldOwnership } from "./fieldOwnership";
@@ -63,7 +65,14 @@ const fieldOwnership: Record<string, FieldOwnership> = new Proxy(
 // client use — so a manual `cents_penalty` edit (preserved from `current`)
 // flows into L11 exactly as the client already displays it.
 
-function mergeWorksheet(current: WorksheetData, recomputed: WorksheetData): WorksheetData {
+// `rateMap` is accepted for interface parity with `TaxPartyTemplate.mergeWorksheet`
+// (the sales-use party needs it) but unused here — the beer excise rate is
+// fetched directly in `./calc.ts`/`./derive.ts`, not threaded through merge.
+function mergeWorksheet(
+  current: WorksheetData,
+  recomputed: WorksheetData,
+  _rateMap: Record<string, number>,
+): WorksheetData {
   const keys = new Set([...Object.keys(current.fields), ...Object.keys(recomputed.fields)]);
   const merged: Record<string, number | string | null> = {};
 
@@ -77,6 +86,31 @@ function mergeWorksheet(current: WorksheetData, recomputed: WorksheetData): Work
   const fields = deriveBeerExciseFigures(merged);
 
   return { fields, warnings: recomputed.warnings, meta: recomputed.meta };
+}
+
+// ── buildReferenceView ──────────────────────────────────────────────────────
+//
+// Reads the excise rate line from the canonical rateMap (key
+// `nc_dor_beer_excise`) when present; falls back to the static
+// `BEER_EXCISE_REFERENCE` text (statutory $0.6171/gal) if that row is absent.
+
+function buildReferenceView(rateMap: Record<string, number>): ReferenceSpec {
+  const rate = rateMap[TAX_RATE_KEYS.NC_DOR_BEER_EXCISE];
+  if (rate == null) return BEER_EXCISE_REFERENCE;
+
+  return {
+    ...BEER_EXCISE_REFERENCE,
+    tables: [
+      {
+        ...BEER_EXCISE_REFERENCE.tables[0],
+        rows: [
+          [`${(rate * 100).toFixed(2)}¢ per gallon`, "Taxable malt beverage gallons (Form B-C-710, Line 6)"],
+          ...BEER_EXCISE_REFERENCE.tables[0].rows.slice(1),
+        ],
+      },
+      ...BEER_EXCISE_REFERENCE.tables.slice(1),
+    ],
+  };
 }
 
 // ── settingsSchema / scheduleConfigSchema ───────────────────────────────────
@@ -103,7 +137,7 @@ export const ncDorBeerExciseTemplate: TaxPartyTemplate = {
   mergeWorksheet,
   settingsSchema,
   scheduleConfigSchema,
-  referenceView: BEER_EXCISE_REFERENCE,
+  buildReferenceView,
   recomputeLabel: "Recompute from shipments",
   worksheetComponent: "nc_dor_beer_excise",
 };

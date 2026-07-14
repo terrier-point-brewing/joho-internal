@@ -3,11 +3,31 @@ import { recomputeClientTotals, centsToDollarString, dollarStringToCents } from 
 import { computeNcDorFigures } from "./parties/ncDorSalesUse/calc";
 import { deriveNcDorFigures } from "./parties/ncDorSalesUse/derive";
 
+// Seeded to mirror the OLD hardcoded constants (NC_STATE_RATE / RATE_BY_LINE /
+// NC_COUNTY_TIERS) so parity assertions below are unchanged from before the
+// rateMap refactor.
+const RATE_MAP: Record<string, number> = {
+  nc_sales_state: 0.0475,
+  nc_sales_line_4: 0.0475,
+  nc_sales_line_5: 0.03,
+  nc_sales_line_6: 0.0475,
+  nc_sales_line_7: 0.0475,
+  nc_sales_line_8: 0.02,
+  nc_sales_line_9: 0.02,
+  nc_sales_line_10: 0.0225,
+  nc_sales_line_11: 0.005,
+  nc_sales_line_12: 0.0025,
+  nc_local_WAKE: 0.02,
+  nc_transit_WAKE: 0.005,
+  nc_local_DURHAM: 0.0225,
+  nc_transit_DURHAM: 0.005,
+};
+
 describe("recomputeClientTotals", () => {
   // `lineN_tax` is now DERIVED from receipts + purchases (not passed in raw), so
   // these exercise the real client derivation: line4 @ 4.75%, line5 @ 3%.
   it("line13 = sum of derived tax across rate lines 4-12", () => {
-    const next = recomputeClientTotals({ line4_receipts: 10000, line5_receipts: 10000 });
+    const next = recomputeClientTotals({ line4_receipts: 10000, line5_receipts: 10000 }, RATE_MAP);
     // line4_tax = round(10000 × 0.0475) = 475; line5_tax = round(10000 × 0.03) = 300
     expect(next.line4_tax).toBe(475);
     expect(next.line5_tax).toBe(300);
@@ -15,55 +35,70 @@ describe("recomputeClientTotals", () => {
   });
 
   it("line15 = line13 + line14 (excess collections)", () => {
-    const next = recomputeClientTotals({ line4_receipts: 10000, line14_excess: 250 });
+    const next = recomputeClientTotals({ line4_receipts: 10000, line14_excess: 250 }, RATE_MAP);
     expect(next.line13_total).toBe(475);
     expect(next.line15_total).toBe(725);
   });
 
   it("line21 adds penalty/interest/prepay_next and SUBTRACTS less_prepay/credit", () => {
-    const next = recomputeClientTotals({
-      line4_receipts: 10000, // -> line4_tax 475
-      line16_penalty: 50,
-      line17_interest: 25,
-      line19_prepay_next: 100,
-      line18_less_prepay: 300,
-      line20_credit: 75,
-    });
+    const next = recomputeClientTotals(
+      {
+        line4_receipts: 10000, // -> line4_tax 475
+        line16_penalty: 50,
+        line17_interest: 25,
+        line19_prepay_next: 100,
+        line18_less_prepay: 300,
+        line20_credit: 75,
+      },
+      RATE_MAP,
+    );
     // line13 = 475, line15 = 475 (no excess)
     // line21 = 475 + 50 + 25 + 100 - 300 - 75 = 275
     expect(next.line21_total_due).toBe(275);
   });
 
   it("line21 can go negative when prepay/credit exceed the tax due", () => {
-    const next = recomputeClientTotals({ line4_receipts: 10000, line18_less_prepay: 5000 });
+    const next = recomputeClientTotals({ line4_receipts: 10000, line18_less_prepay: 5000 }, RATE_MAP);
     // line13 = 475; line21 = 475 - 5000 = -4525
     expect(next.line21_total_due).toBe(-4525);
   });
 
   it("preserves every other field (manual entries, strings) unchanged", () => {
-    const next = recomputeClientTotals({
-      line4_receipts: 10000,
-      line20_credit_explanation: "carryover",
-      line2_sales_for_resale: 200,
-    });
+    const next = recomputeClientTotals(
+      {
+        line4_receipts: 10000,
+        line20_credit_explanation: "carryover",
+        line2_sales_for_resale: 200,
+      },
+      RATE_MAP,
+    );
     expect(next.line20_credit_explanation).toBe("carryover");
     expect(next.line2_sales_for_resale).toBe(200);
   });
 
   it("treats missing rate-line/adjustment fields as 0, not NaN", () => {
-    const next = recomputeClientTotals({});
+    const next = recomputeClientTotals({}, RATE_MAP);
     expect(next.line13_total).toBe(0);
     expect(next.line15_total).toBe(0);
     expect(next.line21_total_due).toBe(0);
   });
 
+  it("an empty rateMap zeroes every derived tax (regression guard against ignoring the map — the loading guard must never call this with {})", () => {
+    const next = recomputeClientTotals({ line4_receipts: 10000 }, {});
+    expect(next.line4_tax).toBe(0);
+    expect(next.line13_total).toBe(0);
+  });
+
   it("a manual line9_purchases edit flows into line9_tax, the county row, and the totals", () => {
-    const base = computeNcDorFigures({
-      taxableBaseCents: 100000,
-      counties: [{ code: "WAKE", weight: 100 }],
-      collectedGeneralTaxCents: 7250,
-    }).fields;
-    const next = recomputeClientTotals({ ...base, line9_purchases: 50000 });
+    const base = computeNcDorFigures(
+      {
+        taxableBaseCents: 100000,
+        counties: [{ code: "WAKE", weight: 100 }],
+        collectedGeneralTaxCents: 7250,
+      },
+      RATE_MAP,
+    ).fields;
+    const next = recomputeClientTotals({ ...base, line9_purchases: 50000 }, RATE_MAP);
     // line9_tax = round((50000 + 100000) × 0.02) = 3000
     expect(next.line9_tax).toBe(3000);
     expect(next.county_WAKE_2pct).toBe(3000);
@@ -73,18 +108,21 @@ describe("recomputeClientTotals", () => {
   });
 
   it("parity: the client recompute equals the engine derivation on a shared fixture", () => {
-    const base = computeNcDorFigures({
-      taxableBaseCents: 137500,
-      counties: [
-        { code: "WAKE", weight: 60 },
-        { code: "DURHAM", weight: 40 },
-      ],
-      collectedGeneralTaxCents: 0,
-    }).fields;
+    const base = computeNcDorFigures(
+      {
+        taxableBaseCents: 137500,
+        counties: [
+          { code: "WAKE", weight: 60 },
+          { code: "DURHAM", weight: 40 },
+        ],
+        collectedGeneralTaxCents: 0,
+      },
+      RATE_MAP,
+    ).fields;
     // simulate a user typing purchases on both a state line and a county line
     const edited = { ...base, line4_purchases: 25000, line9_purchases: 15000 };
-    const client = recomputeClientTotals(edited);
-    const engine = deriveNcDorFigures(edited);
+    const client = recomputeClientTotals(edited, RATE_MAP);
+    const engine = deriveNcDorFigures(edited, RATE_MAP);
     expect(client).toEqual(engine);
     // and the county schedule reconciles to the page-1 line taxes, purchases included
     const n = (v: number | string | null | undefined) => Number(v ?? 0);

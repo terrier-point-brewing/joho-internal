@@ -47,7 +47,10 @@ describe("getEntityProfile", () => {
       updated_at: "2026-01-01T00:00:00Z",
     });
     const result = await getEntityProfile(client);
-    expect(result).toEqual({ legal_name: "TPB LLC", fein: "12-345" });
+    // fein is not part of ENTITY_PROFILE_SCHEMA even though the row column
+    // still exists in the DB (legacy column, not yet dropped) — it must not
+    // be surfaced.
+    expect(result).toEqual({ legal_name: "TPB LLC" });
   });
 
   it("throws with the Supabase error message on query failure", async () => {
@@ -87,7 +90,7 @@ describe("putEntityProfile", () => {
 });
 
 describe("maskSensitive on ENTITY_PROFILE_SCHEMA", () => {
-  it("masks ssn as present/absent but leaves fein visible", () => {
+  it("masks ssn as present/absent and passes through non-schema fields unchanged", () => {
     const values: EntityProfileValues = { fein: "12-345", ssn: "999", legal_name: "X" };
     const result = maskSensitive(values, ENTITY_PROFILE_SCHEMA);
     expect(result.ssn).toBe("present");

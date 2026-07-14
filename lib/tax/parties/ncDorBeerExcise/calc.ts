@@ -6,8 +6,9 @@
  *    detail already stored on `export_transactions`/`export_transaction_taxes`
  *    for the period, plus a count of taxable rows missing that detail.
  *    Injectable `sb` so it's testable with a stub.
- *  - `fetchNcRateMicros`       — reads the live `excise_tax_rates` NC gallon
- *    row; `null` when absent (caller falls back to the statutory constant).
+ *  - `fetchNcRateMicros`       — reads the active NC rate from the canonical
+ *    `tax_rates` row (key `nc_dor_beer_excise`) via the shared accessor;
+ *    `null` when absent/invalid (caller falls back to the statutory constant).
  *  - `computeBeerExciseFigures`— pure worksheet builder: maps channel gallons
  *    onto the Line 2–11 waterfall (via the shared `deriveBeerExciseFigures`)
  *    and flags rate-drift / missing-detail-coverage warnings.
@@ -23,6 +24,7 @@ import { GALLONS_PER_BBL } from "@/lib/constants/production";
 import type { ComputeContext, TaxPeriod, WorksheetData, WorksheetFields } from "@/lib/tax/types";
 import { NC_EXCISE_RATE_MICROS_FALLBACK, TAXABLE_CHANNELS, WHOLESALE_CHANNEL, usdToMicros } from "./rates";
 import { deriveBeerExciseFigures } from "./derive";
+import { getTaxRate, TAX_RATE_KEYS } from "@/lib/tax/rates";
 
 const num = (v: number | string | null | undefined) => Number(v ?? 0);
 
@@ -98,24 +100,15 @@ export async function fetchExciseData(sb: SupabaseClient, period: TaxPeriod): Pr
 }
 
 /**
- * Read the active `excise_tax_rates` gallon row whose `name` matches "nc" as
- * a whole word. Returns `null` (never throws) when absent, or when the
- * matched row's `rate_usd` is not a finite positive number, so the caller can
- * fall back to the statutory constant.
+ * Read the active NC beer-excise rate from the canonical `tax_rates` row
+ * (key `nc_dor_beer_excise`) via the shared `getTaxRate` accessor. Returns
+ * `null` (never throws) when no active row exists, or when its `rate` is not
+ * a finite positive number, so the caller can fall back to the statutory
+ * constant.
  */
 export async function fetchNcRateMicros(sb: SupabaseClient): Promise<number | null> {
-  const { data, error } = await sb
-    .from("excise_tax_rates")
-    .select("name, unit, rate_usd, is_active")
-    .eq("unit", "gallon")
-    .eq("is_active", true)
-    .order("id", { ascending: true });
-
-  if (error) throw new Error(error.message);
-
-  const row = (data ?? []).find((r: { name: string }) => r.name != null && /\bnc\b/i.test(r.name));
-  if (!row) return null;
-  const rateUsd = Number(row.rate_usd);
+  const rateUsd = await getTaxRate(sb, TAX_RATE_KEYS.NC_DOR_BEER_EXCISE);
+  if (rateUsd == null) return null;
   if (!Number.isFinite(rateUsd) || rateUsd <= 0) return null;
   return usdToMicros(rateUsd);
 }
@@ -186,9 +179,9 @@ export function computeBeerExciseFigures(args: ComputeBeerExciseFiguresArgs): Wo
 
 /**
  * Compute the beer excise worksheet for a filing period. Reads shipments
- * gallons from `export_transactions` and the live NC rate from
- * `excise_tax_rates`, falling back to the statutory constant if that row is
- * missing.
+ * gallons from `export_transactions` and the live NC rate from the canonical
+ * `tax_rates` row (key `nc_dor_beer_excise`), falling back to the statutory
+ * constant if that row is missing.
  *
  * `sb` defaults to the service-role admin client; it's injectable so this is
  * testable without a live DB.

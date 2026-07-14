@@ -25,7 +25,7 @@ describe("nc_dor_beer_excise template", () => {
   it("mergeWorksheet preserves manual penalty across recompute and re-derives L11", () => {
     const current: WorksheetData = { fields: { cents_penalty: 500, gal_distribution: 1000, gal_contract:0, gal_taproom:0, gal_wholesale:0, flag_timely:1, nc_excise_rate_micros:617100 } };
     const recomputed: WorksheetData = { fields: { cents_penalty: 0, gal_distribution: 2000, gal_contract:0, gal_taproom:0, gal_wholesale:0, flag_timely:1, nc_excise_rate_micros:617100 }, meta:{} };
-    const m = p.mergeWorksheet(current, recomputed);
+    const m = p.mergeWorksheet(current, recomputed, {});
     expect(m.fields.gal_taxable).toBe(2000);          // computed taken from recomputed
     expect(m.fields.cents_penalty).toBe(500);          // manual preserved from current
     expect(m.fields.cents_total_payment_due).toBe((m.fields.cents_net_tax_due as number) + 500);

@@ -63,10 +63,11 @@ export interface TaxPartyTemplate {
   defaultDueRule(freq: Frequency): DueRule;
   computeWorksheet(ctx: ComputeContext): Promise<WorksheetData>;
   fieldOwnership: Record<string, FieldOwnership>;
-  mergeWorksheet(current: WorksheetData, recomputed: WorksheetData): WorksheetData;
+  mergeWorksheet(current: WorksheetData, recomputed: WorksheetData, rateMap: Record<string, number>): WorksheetData;
   settingsSchema: FieldSpec[];         // profile-level editable fields
   scheduleConfigSchema: FieldSpec[];   // schedule.config editable fields (counties)
-  referenceView: ReferenceSpec;
+  /** Builds the read-only rate/reference tables from the canonical rateMap (`buildRateMap(await listTaxRates(sb))`). */
+  buildReferenceView(rateMap: Record<string, number>): ReferenceSpec;
   recomputeLabel?: string;
   worksheetComponent: string;          // registry key for the React worksheet
 }

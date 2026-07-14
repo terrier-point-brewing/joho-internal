@@ -29,10 +29,16 @@ import { deriveNcDorFigures } from "./parties/ncDorSalesUse/derive";
  * rows, and lines 13/15/21 re-derived from `fields`, mirroring the server's
  * `deriveNcDorFigures` exactly (so a manual `lineN_purchases` edit flows into
  * that line's tax and the county schedule live). All other keys pass through
- * unchanged.
+ * unchanged. `rateMap` (built via `buildRateMap(rates)` from the
+ * `/api/tax/rates` fetch) supplies every rate value — the caller must not
+ * invoke this with an empty/loading rateMap, which would derive all-zero
+ * taxes.
  */
-export function recomputeClientTotals(fields: WorksheetFields): WorksheetFields {
-  return deriveNcDorFigures(fields);
+export function recomputeClientTotals(
+  fields: WorksheetFields,
+  rateMap: Record<string, number>,
+): WorksheetFields {
+  return deriveNcDorFigures(fields, rateMap);
 }
 
 /**

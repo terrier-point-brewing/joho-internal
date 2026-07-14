@@ -41,7 +41,7 @@ const stubParty: TaxPartyTemplate = {
   mergeWorksheet: (current) => current,
   settingsSchema: [],
   scheduleConfigSchema: [],
-  referenceView: { tables: [] },
+  buildReferenceView: () => ({ tables: [] }),
   worksheetComponent: "Stub",
 };
 

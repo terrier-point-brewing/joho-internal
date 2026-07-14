@@ -25,7 +25,7 @@ describe("tax registry", () => {
       mergeWorksheet: (current) => current,
       settingsSchema: [],
       scheduleConfigSchema: [],
-      referenceView: { tables: [] },
+      buildReferenceView: () => ({ tables: [] }),
       worksheetComponent: "NCDORWorksheet",
     };
 
@@ -59,7 +59,7 @@ describe("tax registry", () => {
       mergeWorksheet: (current) => current,
       settingsSchema: [],
       scheduleConfigSchema: [],
-      referenceView: { tables: [] },
+      buildReferenceView: () => ({ tables: [] }),
       worksheetComponent: "Component1",
     };
 
@@ -78,7 +78,7 @@ describe("tax registry", () => {
       mergeWorksheet: (current) => current,
       settingsSchema: [],
       scheduleConfigSchema: [],
-      referenceView: { tables: [] },
+      buildReferenceView: () => ({ tables: [] }),
       worksheetComponent: "Component2",
     };
 
@@ -108,7 +108,7 @@ describe("tax registry", () => {
       mergeWorksheet: (current) => current,
       settingsSchema: [],
       scheduleConfigSchema: [],
-      referenceView: { tables: [] },
+      buildReferenceView: () => ({ tables: [] }),
       worksheetComponent: "A",
     };
 
@@ -127,7 +127,7 @@ describe("tax registry", () => {
       mergeWorksheet: (current) => current,
       settingsSchema: [],
       scheduleConfigSchema: [],
-      referenceView: { tables: [] },
+      buildReferenceView: () => ({ tables: [] }),
       worksheetComponent: "B",
     };
 
