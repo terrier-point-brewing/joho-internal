@@ -1,13 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Card from "@/app/components/ui/Card";
 import Banner from "@/app/components/ui/Banner";
 import { queryKeys } from "@/lib/query-keys";
 import { fetchJson } from "@/app/production/hooks/queries";
 import type { TaxAuthority } from "@/lib/tax/authorities";
-import type { TaxRegistration } from "@/lib/tax/registrations";
+import type { TaxRegistration, TaxRegistrationInput } from "@/lib/tax/registrations";
 
 async function putJson<T>(url: string, body: unknown): Promise<T> {
   const res = await fetch(url, {
@@ -22,12 +22,33 @@ async function putJson<T>(url: string, body: unknown): Promise<T> {
   return res.json();
 }
 
+interface Row {
+  id?: string;
+  label: string;
+  number: string;
+}
+
+type Drafts = Record<string, Row[]>;
+
+function groupByAuthority(authorities: TaxAuthority[], registrations: TaxRegistration[]): Drafts {
+  const drafts: Drafts = {};
+  for (const authority of authorities) {
+    drafts[authority.key] = [];
+  }
+  for (const reg of registrations) {
+    if (!drafts[reg.authority_key]) drafts[reg.authority_key] = [];
+    drafts[reg.authority_key].push({ id: reg.id, label: reg.label, number: reg.number ?? "" });
+  }
+  return drafts;
+}
+
 /**
- * Lists per-authority account/license registrations
- * (`GET /api/tax/registrations`, see lib/tax/registrations.ts) grouped by
- * their `tax_authorities` label. Commits on input blur — the whole row set
- * (with the edited row's `number` applied) is sent to
- * `PUT /api/tax/registrations`, which fully replaces the table.
+ * Per-authority registration/license numbers (`tax_registrations`, one
+ * authority → many free-text-labeled registrations — see
+ * lib/tax/registrations.ts). Local draft state grouped by authority key;
+ * explicit Save flattens every group's rows into
+ * `PUT /api/tax/registrations`, which fully reconciles the table (rows
+ * without an id are inserted, rows omitted from the payload are deleted).
  */
 export default function RegistrationsSection() {
   const qc = useQueryClient();
@@ -40,30 +61,18 @@ export default function RegistrationsSection() {
     queryFn: () => fetchJson<TaxRegistration[]>("/api/tax/registrations"),
   });
 
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
-  const [savingId, setSavingId] = useState<string | null>(null);
-  const [savedId, setSavedId] = useState<string | null>(null);
+  const [drafts, setDrafts] = useState<Drafts>({});
+  const initializedRef = useRef(false);
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
 
-  const registrations = registrationsQuery.data ?? [];
-  const authorityLabel = new Map((authoritiesQuery.data ?? []).map((a) => [a.key, a.label]));
-
-  async function commit(registration: TaxRegistration, value: string) {
-    if (value === (registration.number ?? "")) return;
-    setSavingId(registration.id);
-    setSavedId(null);
-    setError(null);
-    try {
-      const rows = registrations.map((r) => (r.id === registration.id ? { ...r, number: value || null } : r));
-      await putJson("/api/tax/registrations", rows);
-      await qc.invalidateQueries({ queryKey: queryKeys.tax.registrations() });
-      setSavedId(registration.id);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save registration number.");
-    } finally {
-      setSavingId(null);
+  useEffect(() => {
+    if (authoritiesQuery.data && registrationsQuery.data && !initializedRef.current) {
+      setDrafts(groupByAuthority(authoritiesQuery.data, registrationsQuery.data));
+      initializedRef.current = true;
     }
-  }
+  }, [authoritiesQuery.data, registrationsQuery.data]);
 
   const isLoading = authoritiesQuery.isLoading || registrationsQuery.isLoading;
   const isError = authoritiesQuery.isError || registrationsQuery.isError;
@@ -81,49 +90,123 @@ export default function RegistrationsSection() {
     );
   }
 
+  const authorities = authoritiesQuery.data ?? [];
+
+  function updateRow(authorityKey: string, index: number, patch: Partial<Row>) {
+    setDrafts((cur) => {
+      const rows = cur[authorityKey] ?? [];
+      const nextRows = rows.map((row, i) => (i === index ? { ...row, ...patch } : row));
+      return { ...cur, [authorityKey]: nextRows };
+    });
+    setSaved(false);
+  }
+
+  function addRow(authorityKey: string) {
+    setDrafts((cur) => ({
+      ...cur,
+      [authorityKey]: [...(cur[authorityKey] ?? []), { label: "", number: "" }],
+    }));
+    setSaved(false);
+  }
+
+  function removeRow(authorityKey: string, index: number) {
+    setDrafts((cur) => ({
+      ...cur,
+      [authorityKey]: (cur[authorityKey] ?? []).filter((_, i) => i !== index),
+    }));
+    setSaved(false);
+  }
+
+  async function handleSave() {
+    setSubmitting(true);
+    setError(null);
+    setSaved(false);
+    try {
+      const rows: TaxRegistrationInput[] = [];
+      for (const authorityKey of Object.keys(drafts)) {
+        const authorityRows = drafts[authorityKey] ?? [];
+        let order = 0;
+        for (const row of authorityRows) {
+          if (!row.label.trim() && !row.number.trim()) continue;
+          rows.push({
+            id: row.id,
+            authority_key: authorityKey,
+            label: row.label,
+            number: row.number || null,
+            display_order: order,
+          });
+          order += 1;
+        }
+      }
+      await putJson("/api/tax/registrations", { rows });
+      initializedRef.current = false;
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: queryKeys.tax.registrations() }),
+        qc.invalidateQueries({ queryKey: queryKeys.tax.authorities() }),
+      ]);
+      setSaved(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save registrations.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   return (
-    <Card padding="">
-      <div className="p-4 space-y-3">
+    <Card>
+      <div className="space-y-4">
         {error && <Banner tone="danger">{error}</Banner>}
-        {registrations.length === 0 && <p className="text-sm text-faint">No registrations configured.</p>}
+        {saved && <Banner tone="success">Registrations saved.</Banner>}
+
+        {authorities.length === 0 && <p className="text-sm text-faint">No tax authorities configured.</p>}
+
+        {authorities.map((authority) => (
+          <div key={authority.key} className="space-y-2 pb-4 border-b border-line last:border-0 last:pb-0">
+            <h4 className="text-sm font-medium text-primary">{authority.label}</h4>
+            <div className="space-y-2">
+              {(drafts[authority.key] ?? []).map((row, index) => (
+                <div key={row.id ?? `new-${index}`} className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    className="inp-sm flex-1"
+                    placeholder="Label (e.g. FEIN, Permit #)"
+                    value={row.label}
+                    onChange={(e) => updateRow(authority.key, index, { label: e.target.value })}
+                  />
+                  <input
+                    type="text"
+                    className="inp-sm flex-1"
+                    placeholder="Number"
+                    value={row.number}
+                    onChange={(e) => updateRow(authority.key, index, { number: e.target.value })}
+                  />
+                  <button
+                    type="button"
+                    className="btn-secondary btn-xxs"
+                    onClick={() => removeRow(authority.key, index)}
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+              {(drafts[authority.key] ?? []).length === 0 && (
+                <p className="text-xs text-faint">No registrations for this authority.</p>
+              )}
+            </div>
+            <button type="button" className="btn-secondary btn-xxs" onClick={() => addRow(authority.key)}>
+              + Add registration
+            </button>
+          </div>
+        ))}
+
+        {authorities.length > 0 && (
+          <div className="flex justify-end pt-2 border-t border-line">
+            <button type="button" className="btn-primary" onClick={handleSave} disabled={submitting}>
+              {submitting ? "Saving…" : "Save"}
+            </button>
+          </div>
+        )}
       </div>
-      {registrations.length > 0 && (
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-line text-left text-xs text-muted">
-              <th className="px-4 py-2 font-medium">Authority</th>
-              <th className="px-4 py-2 font-medium">Registration</th>
-              <th className="px-4 py-2 font-medium">Number</th>
-            </tr>
-          </thead>
-          <tbody>
-            {registrations.map((registration) => (
-              <tr key={registration.id} className="border-b border-line last:border-0">
-                <td className="px-4 py-2 text-body">
-                  {authorityLabel.get(registration.authority_key) ?? registration.authority_key}
-                </td>
-                <td className="px-4 py-2 text-body">{registration.label}</td>
-                <td className="px-4 py-2">
-                  <div className="flex items-center gap-2">
-                    <input
-                      key={`${registration.id}-${registration.number ?? ""}`}
-                      type="text"
-                      className="inp-sm"
-                      defaultValue={registration.number ?? ""}
-                      onChange={(e) => setDrafts((cur) => ({ ...cur, [registration.id]: e.target.value }))}
-                      onBlur={(e) => commit(registration, drafts[registration.id] ?? e.target.value)}
-                    />
-                    {savingId === registration.id && <span className="text-xs text-faint">Saving…</span>}
-                    {savedId === registration.id && savingId !== registration.id && (
-                      <span className="text-xs text-success">Saved</span>
-                    )}
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
     </Card>
   );
 }
