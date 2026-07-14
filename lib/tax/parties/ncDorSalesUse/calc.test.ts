@@ -165,6 +165,10 @@ interface TaxRow {
   pos_line_items: { net_sales_cents: number; tax_cents: number };
 }
 
+// Stub mirrors the paged query fetchTaxableBase now issues:
+// `.select().eq().gte().lt().order().range(from,to)`, where `.range()` slices
+// the fixed row set (Supabase's inclusive-range semantics) so the fetchAllRows
+// paging loop is exercised end-to-end.
 function stubSb(rows: TaxRow[], error?: string): SupabaseClient {
   const from = (table: string) => {
     if (table !== "pos_line_item_taxes") throw new Error(`unexpected table: ${table}`);
@@ -172,7 +176,14 @@ function stubSb(rows: TaxRow[], error?: string): SupabaseClient {
     b.select = () => b;
     b.eq = () => b;
     b.gte = () => b;
-    b.lt = () => Promise.resolve({ data: error ? null : rows, error: error ? { message: error } : null });
+    b.lt = () => b;
+    b.order = () => b;
+    b.range = (fromIdx: number, toIdx: number) =>
+      Promise.resolve(
+        error
+          ? { data: null, error: { message: error } }
+          : { data: rows.slice(fromIdx, toIdx + 1), error: null },
+      );
     return b;
   };
   return { from } as unknown as SupabaseClient;
@@ -191,6 +202,21 @@ describe("fetchTaxableBase", () => {
     const res = await fetchTaxableBase(stubSb(rows), "TAX_GEN", period);
     expect(res.baseCents).toBe(10000 - 725 + (5000 - 363)); // 13912
     expect(res.collectedCents).toBe(725 + 363); // 1088
+  });
+
+  it("pages through the whole result set — no PostgREST 1000-row truncation", async () => {
+    // Three lines with a page size of 2 forces a page boundary: an
+    // un-paginated fetch (the original bug) would stop after the first page
+    // and silently drop line C, understating both base and collected — which
+    // is exactly how June's gross receipts came back at ~half the real figure.
+    const rows: TaxRow[] = [
+      { line_item_id: "A", amount_cents: 100, pos_line_items: { net_sales_cents: 1000, tax_cents: 100 } },
+      { line_item_id: "B", amount_cents: 200, pos_line_items: { net_sales_cents: 2000, tax_cents: 200 } },
+      { line_item_id: "C", amount_cents: 300, pos_line_items: { net_sales_cents: 3000, tax_cents: 300 } },
+    ];
+    const res = await fetchTaxableBase(stubSb(rows), "TAX_GEN", period, 2);
+    expect(res.baseCents).toBe(1000 - 100 + (2000 - 200) + (3000 - 300)); // 5400 — all three lines
+    expect(res.collectedCents).toBe(100 + 200 + 300); // 600
   });
 
   it("returns zeros when no rows match", async () => {

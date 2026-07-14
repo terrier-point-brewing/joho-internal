@@ -1,11 +1,9 @@
-// Covers fetchAllRows -- the pagination helper fetchSources.ts's per-source
-// fetches (fetchPos/fetchInvoiceLines/fetchExpenses/fetchRefunds/fetchBank/
-// fetchCoa/fetchOpenInvoiceAr/etc.) all route through to avoid PostgREST's
-// silent 1000-row cap (parity-harness Critical bug, see task-8-report.md).
-// The rest of fetchSources.ts requires a live Supabase client and is
-// exercised by scripts/financials-parity.ts instead.
+// Covers fetchAllRows -- the shared pagination helper that callers (financials
+// per-source fetches, the NC DOR taxable-base query, etc.) route through to
+// avoid PostgREST's silent 1000-row cap (first caught by the financials parity
+// harness, see task-8-report.md).
 import { describe, it, expect } from "vitest";
-import { fetchAllRows } from "./fetchSources";
+import { fetchAllRows } from "./paginate";
 
 /** Fake query builder: `.range(from, to)` slices a fixed in-memory row set, mirroring Supabase's inclusive-range semantics. */
 function fakeBuilder<T>(allRows: T[], onCall?: (from: number, to: number) => void) {
