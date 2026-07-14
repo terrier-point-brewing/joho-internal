@@ -12,7 +12,7 @@ export interface PayrollConfig {
   effective_from: string;
   base_rate_cents: number;
   guaranteed_rate_cents: number;
-  cash_tips_rate: number;
+  reported_cash_tips_divisor: number;
   tip_distribution_model: TipDistributionModel;
   tip_pool_frequency: TipPoolFrequency;
   guaranteed_min_frequency: TipPoolFrequency;
@@ -54,10 +54,12 @@ export interface PayrollEntry {
   hours_worked: number | null;
   paycheck_tips_cents: number | null;
   cash_tips_cents: number | null;
+  reported_cash_tips_cents: number | null;
   bonus_cents: number | null;
   adj_hours_worked: number | null;
   adj_paycheck_tips_cents: number | null;
   adj_cash_tips_cents: number | null;
+  adj_reported_cash_tips_cents: number | null;
   adj_bonus_cents: number | null;
   admin_notes: string | null;
   created_at: string;
@@ -70,6 +72,7 @@ export interface PayrollEntryComputed {
   hours_worked: number;
   paycheck_tips_cents: number;
   cash_tips_cents: number;
+  reported_cash_tips_cents: number;
   bonus_cents: number;
   base_pay_cents: number;
   total_compensation_cents: number;
@@ -80,11 +83,13 @@ export interface PayrollEntryMerged extends PayrollEntryComputed {
   adj_hours_worked: number | null;
   adj_paycheck_tips_cents: number | null;
   adj_cash_tips_cents: number | null;
+  adj_reported_cash_tips_cents: number | null;
   adj_bonus_cents: number | null;
   admin_notes: string | null;
   effective_hours: number;
   effective_paycheck_tips_cents: number;
   effective_cash_tips_cents: number;
+  effective_reported_cash_tips_cents: number;
   effective_bonus_cents: number;
   effective_total_compensation_cents: number;
 }
@@ -92,7 +97,6 @@ export interface PayrollEntryMerged extends PayrollEntryComputed {
 export interface TipBucketSummary {
   label: string;
   tipsPooledCents: number;
-  cashTakeCents: number;
 }
 
 /** Full preview response from /api/payroll/periods/[id]/preview */
@@ -104,7 +108,6 @@ export interface PayrollPreview {
   employees: Employee[];
   salaried_employees: Employee[];
   total_pooled_tips_cents: number;
-  total_cash_take_cents: number;
   /** Per-bucket tip totals (1 for biweekly, 2 for weekly, N for daily). */
   tip_buckets: TipBucketSummary[];
 }
