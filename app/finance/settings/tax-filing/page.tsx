@@ -19,6 +19,12 @@ import ExciseRatesSection from "./ExciseRatesSection";
  *  (`lib/tax/parties/*`) that owns its Square mappings + reference data. */
 const TEMPLATE_BY_AUTHORITY: Record<string, string> = { nc_dor: "nc_dor_sales_use" };
 
+/** Authority keys that levy excise tax (`tax_authorities` no longer carries
+ *  a `kind` column — see lib/tax/authorities.ts — so this mirrors the seed
+ *  `kind: 'excise' | 'both'` rows until excise-rate lookups move to the
+ *  canonical `tax_rates` registry). */
+const EXCISE_AUTHORITIES = new Set(["nc_dor", "federal_ttb"]);
+
 /**
  * Finance → Settings → Tax Filing: per-authority Square mappings, excise
  * rates, and the statutory reference tables the worksheet calc relies on.
@@ -100,7 +106,7 @@ export default function TaxFilingSettingsPage() {
               </section>
             )}
 
-            {(authority.kind === "excise" || authority.kind === "both") && (
+            {EXCISE_AUTHORITIES.has(authority.key) && (
               <section className="flex flex-col gap-2">
                 <h3 className="text-sm font-semibold text-primary">Excise Rates</h3>
                 <ExciseRatesSection partyKey={authority.key} />
