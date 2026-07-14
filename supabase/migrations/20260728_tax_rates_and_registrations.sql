@@ -42,9 +42,12 @@ alter table public.tax_rates rename column rate_usd to rate;
 alter table public.tax_rates add column if not exists key text;
 alter table public.tax_rates add column if not exists category text;
 
-alter table public.tax_rates drop column if exists receiving_party;
-alter table public.tax_rates drop column if exists square_catalog_item_id;
-alter table public.tax_rates drop column if exists square_catalog_variation_id;
+-- NOTE: receiving_party, square_catalog_item_id, and square_catalog_variation_id
+-- are intentionally KEPT. They are operational invoice-mapping data, NOT vestigial:
+-- lib/production/exportInvoicePreview.ts::buildExciseTaxLines reads receiving_party
+-- (invoice line label + per-party grouping) and square_catalog_variation_id
+-- (attaches the excise line to a Square catalog variation). Dropping them would
+-- regress export-invoice generation.
 
 -- ── 2. Backfill the 2 existing excise rows + lock down key/category ──────────
 -- Matched by the legacy seed `name` (not a blanket basis/key-is-null match) so
