@@ -14,11 +14,14 @@
 -- (generated from lib/tax/parties/ncDorSalesUse/rates.ts via a throwaway
 -- scratchpad script — not hand-typed).
 --
--- Table/column/backfill steps are idempotent; the create-policy statement
--- follows the house run-once pattern (no CREATE POLICY IF NOT EXISTS in
--- Postgres). Ordering is deliberate: backfill (steps 5/6) reads
+-- Table/column steps use IF (NOT) EXISTS guards and are safe to re-run;
+-- `rename column` has no such guard, so those statements are one-shot, not
+-- re-runnable. The create-policy statement follows the house run-once
+-- pattern (no CREATE POLICY IF NOT EXISTS in Postgres). Ordering is
+-- deliberate: tax_authorities.kind is dropped early (step 6, before it's
+-- seeded further) since no later step reads it; backfill (step 7) reads
 -- tax_authorities.registration_number and tax_entity_profile.fein, which are
--- only dropped afterward (step 7).
+-- only dropped afterward (step 8).
 --
 -- Human-gated (do not auto-apply).
 
@@ -44,6 +47,11 @@ alter table public.tax_rates drop column if exists square_catalog_item_id;
 alter table public.tax_rates drop column if exists square_catalog_variation_id;
 
 -- ── 2. Backfill the 2 existing excise rows + lock down key/category ──────────
+-- Matched by the legacy seed `name` (not a blanket basis/key-is-null match) so
+-- this can't collapse/duplicate-key if extra excise_tax_rates rows exist. If
+-- any additional excise rows exist, they must be given a `key` manually here
+-- or the `key set not null` below will (intentionally, loudly) fail rather
+-- than silently collapse.
 
 update public.tax_rates
 set key = 'federal_beer_excise',
@@ -52,7 +60,7 @@ set key = 'federal_beer_excise',
     name = 'Federal Beer Excise Tax',
     basis = 'per_bbl',
     rate = 3.50
-where basis = 'per_bbl' and key is null;
+where name = 'Federal Excise Tax';
 
 update public.tax_rates
 set key = 'nc_dor_beer_excise',
@@ -61,7 +69,7 @@ set key = 'nc_dor_beer_excise',
     name = 'NC Beer Excise Tax',
     basis = 'per_gallon',
     rate = 0.6171 -- corrected; legacy seed had the stale 0.62
-where basis = 'per_gallon' and key is null;
+where name = 'NC Excise Tax';
 
 alter table public.tax_rates alter column key set not null;
 alter table public.tax_rates drop constraint if exists tax_rates_key_unique;
@@ -219,7 +227,11 @@ create policy "finance readers" on public.tax_registrations
   with check ( public.get_my_role() = any (public.finance_reader_roles()) );
 
 -- ── 6. Seed additional authorities (irs, nc_abc) ──────────────────────────────
--- 'kind' omitted from the insert list — the column is dropped in step 8.
+-- 'kind' is dropped here (before the insert), not in step 8 — no later step
+-- reads tax_authorities.kind, so the drop can move up and the insert below
+-- doesn't need to supply a value for a NOT NULL column with no default.
+
+alter table public.tax_authorities drop column if exists kind;
 
 insert into public.tax_authorities (key, label, display_order)
 values
@@ -241,7 +253,6 @@ where e.id = true and e.fein is not null;
 
 -- ── 8. Drop columns superseded by tax_registrations / tax_rates ──────────────
 
-alter table public.tax_authorities drop column if exists kind;
 alter table public.tax_authorities drop column if exists registration_number;
 alter table public.tax_entity_profile drop column if exists fein;
 
