@@ -26,7 +26,7 @@ export async function PATCH(
   }
 
   const body = await req.json();
-  const allowed = ["adj_hours_worked", "adj_paycheck_tips_cents", "adj_cash_tips_cents", "adj_bonus_cents", "admin_notes"];
+  const allowed = ["adj_hours_worked", "adj_paycheck_tips_cents", "adj_cash_tips_cents", "adj_reported_cash_tips_cents", "adj_bonus_cents", "admin_notes"];
   const update = Object.fromEntries(Object.entries(body).filter(([k]) => allowed.includes(k)));
 
   const { data, error } = await supabase

@@ -60,10 +60,12 @@ export async function POST(
     hours_worked: entry.effective_hours,
     paycheck_tips_cents: entry.effective_paycheck_tips_cents,
     cash_tips_cents: entry.effective_cash_tips_cents,
+    reported_cash_tips_cents: entry.effective_reported_cash_tips_cents,
     bonus_cents: entry.effective_bonus_cents,
     adj_hours_worked: entry.adj_hours_worked,
     adj_paycheck_tips_cents: entry.adj_paycheck_tips_cents,
     adj_cash_tips_cents: entry.adj_cash_tips_cents,
+    adj_reported_cash_tips_cents: entry.adj_reported_cash_tips_cents,
     adj_bonus_cents: entry.adj_bonus_cents,
     admin_notes: entry.admin_notes,
   }));
