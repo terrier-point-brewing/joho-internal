@@ -34,12 +34,22 @@ async function putJson<T>(url: string, body: unknown): Promise<T> {
  * (type "select" with no static `options`) is populated from Square's live
  * catalog taxes via `/api/tax/square-taxes`.
  */
-export default function IdentityForm({ partyKey, schema }: { partyKey: string; schema: FieldSpec[] }) {
+export default function IdentityForm({
+  schema,
+  endpoint,
+  queryKey,
+  savedLabel,
+}: {
+  schema: FieldSpec[];
+  endpoint: string;
+  queryKey: readonly unknown[];
+  savedLabel?: string;
+}) {
   const qc = useQueryClient();
 
   const profileQuery = useQuery({
-    queryKey: queryKeys.tax.profile(partyKey),
-    queryFn: () => fetchJson<Record<string, string>>(`/api/tax/profiles/${partyKey}`),
+    queryKey: queryKey as unknown[],
+    queryFn: () => fetchJson<Record<string, string>>(endpoint),
   });
 
   const needsSquareTaxes = schema.some((f) => f.type === "select" && (!f.options || f.options.length === 0));
@@ -78,9 +88,9 @@ export default function IdentityForm({ partyKey, schema }: { partyKey: string; s
     setError(null);
     setSaved(false);
     try {
-      await putJson(`/api/tax/profiles/${partyKey}`, buildPutPayload(schema, values));
+      await putJson(endpoint, buildPutPayload(schema, values));
       initializedRef.current = false;
-      await qc.invalidateQueries({ queryKey: queryKeys.tax.profile(partyKey) });
+      await qc.invalidateQueries({ queryKey });
       setSaved(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save filing identity.");
@@ -102,7 +112,7 @@ export default function IdentityForm({ partyKey, schema }: { partyKey: string; s
     <Card>
       <form onSubmit={handleSubmit} className="space-y-4">
         {error && <Banner tone="danger">{error}</Banner>}
-        {saved && <Banner tone="success">Filing identity saved.</Banner>}
+        {saved && <Banner tone="success">{savedLabel ?? "Saved."}</Banner>}
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {schema.map((field) => (

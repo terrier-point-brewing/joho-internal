@@ -1,7 +1,6 @@
 // Shared US-states option list (50 states + DC + PR), values as 2-letter
 // codes. Used by any party's `select`-type FieldSpec that needs a state
-// dropdown (e.g. the shared IDENTITY_SCHEMA's `state` field, and party-specific
-// fields like NC DOR Beer Excise's `state_of_domicile`).
+// dropdown (e.g. NC DOR Beer Excise's `state_of_domicile`).
 export const US_STATES: { value: string; label: string }[] = [
   { value: "AL", label: "Alabama" },
   { value: "AK", label: "Alaska" },
