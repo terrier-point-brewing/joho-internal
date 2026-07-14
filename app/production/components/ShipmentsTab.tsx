@@ -55,6 +55,7 @@ interface AllocationCredit {
   quantity: number;
   volume_bbl: number;
   status: DisplayStatus;
+  created_at: string;
 }
 
 interface GroupProductRow {
@@ -254,6 +255,7 @@ function groupByInvoice(rows: ShipmentRow[]): InvoiceGroup[] {
       quantity: Number(row.quantity),
       volume_bbl: Number(row.volume_bbl),
       status: displayStatus,
+      created_at: row.created_at,
     });
   }
 
@@ -313,9 +315,13 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
   // selectors are exempt from the shared filter primitives) — applied after the
   // hook's categorical filtering.
   const filtered = useMemo(() => hookFiltered.filter((g) => {
-    if (dateFrom && !g.products.some((p) => p.created_at.slice(0, 10) >= dateFrom)) return false;
-    if (dateTo && !g.products.some((p) => p.created_at.slice(0, 10) <= dateTo)) return false;
-    return true;
+    if (!dateFrom && !dateTo) return true;
+    return g.products.some((p) => p.allocations.some((a) => {
+      const day = a.created_at.slice(0, 10);
+      if (dateFrom && day < dateFrom) return false;
+      if (dateTo && day > dateTo) return false;
+      return true;
+    }));
   }), [hookFiltered, dateFrom, dateTo]);
 
   const summaryStats = useMemo(() => {
