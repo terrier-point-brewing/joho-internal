@@ -3,6 +3,24 @@ import type { WorksheetData } from "@/lib/tax/types";
 import { ncDorSalesUseTemplate, resolveFieldOwnership } from "./template";
 import { computeNcDorFigures } from "./calc";
 
+// Seeded to mirror the OLD hardcoded constants (NC_STATE_RATE / RATE_BY_LINE /
+// NC_COUNTY_TIERS) so parity assertions below are unchanged from before the
+// rateMap refactor.
+const RATE_MAP: Record<string, number> = {
+  nc_sales_state: 0.0475,
+  nc_sales_line_4: 0.0475,
+  nc_sales_line_5: 0.03,
+  nc_sales_line_6: 0.0475,
+  nc_sales_line_7: 0.0475,
+  nc_sales_line_8: 0.02,
+  nc_sales_line_9: 0.02,
+  nc_sales_line_10: 0.0225,
+  nc_sales_line_11: 0.005,
+  nc_sales_line_12: 0.0025,
+  nc_local_WAKE: 0.02,
+  nc_transit_WAKE: 0.005,
+};
+
 describe("ncDorSalesUseTemplate.computePeriod", () => {
   it("monthly: period = calendar month, due = 20th of the following month", () => {
     const ref = new Date(Date.UTC(2026, 5, 15, 12)); // June 15, 2026
@@ -79,11 +97,14 @@ describe("resolveFieldOwnership", () => {
 describe("ncDorSalesUseTemplate.mergeWorksheet", () => {
   it("preserves a manual line16_penalty while overwriting computed line1_gross_receipts, re-deriving line21", () => {
     // Fresh Square compute (Wake, 100000 base) → line4 4750, line9 2000, line11 500.
-    const base = computeNcDorFigures({
-      taxableBaseCents: 100000,
-      counties: [{ code: "WAKE", weight: 100 }],
-      collectedGeneralTaxCents: 7250,
-    });
+    const base = computeNcDorFigures(
+      {
+        taxableBaseCents: 100000,
+        counties: [{ code: "WAKE", weight: 100 }],
+        collectedGeneralTaxCents: 7250,
+      },
+      RATE_MAP,
+    );
     const recomputed: WorksheetData = {
       fields: base.fields,
       warnings: ["reconciliation note"],
@@ -95,7 +116,7 @@ describe("ncDorSalesUseTemplate.mergeWorksheet", () => {
       fields: { ...base.fields, line1_gross_receipts: 999999, line16_penalty: 250 },
     };
 
-    const merged = ncDorSalesUseTemplate.mergeWorksheet(current, recomputed);
+    const merged = ncDorSalesUseTemplate.mergeWorksheet(current, recomputed, RATE_MAP);
 
     expect(merged.fields.line1_gross_receipts).toBe(100000); // computed -> overwritten
     expect(merged.fields.line16_penalty).toBe(250); // manual -> preserved
@@ -108,16 +129,19 @@ describe("ncDorSalesUseTemplate.mergeWorksheet", () => {
   });
 
   it("flows a preserved manual lineN_purchases into the re-derived line tax and Total Due", () => {
-    const base = computeNcDorFigures({
-      taxableBaseCents: 100000,
-      counties: [{ code: "WAKE", weight: 100 }],
-      collectedGeneralTaxCents: 7250,
-    });
+    const base = computeNcDorFigures(
+      {
+        taxableBaseCents: 100000,
+        counties: [{ code: "WAKE", weight: 100 }],
+        collectedGeneralTaxCents: 7250,
+      },
+      RATE_MAP,
+    );
     const recomputed: WorksheetData = { fields: base.fields };
     // The user had entered a Purchases-for-Use on line 9 before recomputing.
     const current: WorksheetData = { fields: { ...base.fields, line9_purchases: 50000 } };
 
-    const merged = ncDorSalesUseTemplate.mergeWorksheet(current, recomputed);
+    const merged = ncDorSalesUseTemplate.mergeWorksheet(current, recomputed, RATE_MAP);
 
     expect(merged.fields.line9_purchases).toBe(50000); // manual -> preserved
     expect(merged.fields.line9_tax).toBe(3000); // round((50000+100000)×0.02)
@@ -129,9 +153,23 @@ describe("ncDorSalesUseTemplate.mergeWorksheet", () => {
   it("falls back to the recomputed value for a manual field with no current value yet", () => {
     const current: WorksheetData = { fields: {} };
     const recomputed: WorksheetData = { fields: { line1_gross_receipts: 5000, line16_penalty: 0 } };
-    const merged = ncDorSalesUseTemplate.mergeWorksheet(current, recomputed);
+    const merged = ncDorSalesUseTemplate.mergeWorksheet(current, recomputed, RATE_MAP);
     expect(merged.fields.line16_penalty).toBe(0);
     expect(merged.fields.line1_gross_receipts).toBe(5000);
+  });
+
+  it("an empty rateMap zeroes every re-derived tax (regression guard against ignoring the map)", () => {
+    const base = computeNcDorFigures(
+      {
+        taxableBaseCents: 100000,
+        counties: [{ code: "WAKE", weight: 100 }],
+        collectedGeneralTaxCents: 7250,
+      },
+      RATE_MAP,
+    );
+    const merged = ncDorSalesUseTemplate.mergeWorksheet({ fields: base.fields }, { fields: base.fields }, {});
+    expect(merged.fields.line4_tax).toBe(0);
+    expect(merged.fields.line13_total).toBe(0);
   });
 });
 
@@ -154,11 +192,15 @@ describe("template shape", () => {
     expect(counties?.options?.some((o) => o.label === "Wake")).toBe(true);
   });
 
-  it("referenceView includes state rate, county tier chart, and period/due notes", () => {
-    const { tables, notes } = ncDorSalesUseTemplate.referenceView;
+  it("buildReferenceView(rateMap) includes state rate, county tier chart, and period/due notes", () => {
+    const { tables, notes } = ncDorSalesUseTemplate.buildReferenceView(RATE_MAP);
     expect(tables.some((t) => /state rate/i.test(t.title))).toBe(true);
+    const stateTable = tables.find((t) => /state rate/i.test(t.title));
+    expect(stateTable?.rows[0][0]).toBe("4.75%");
     const countyTable = tables.find((t) => /county/i.test(t.title));
     expect(countyTable?.rows.length).toBe(100);
+    const wakeRow = countyTable?.rows.find((r) => r[0] === "Wake");
+    expect(wakeRow).toEqual(["Wake", "2.00%", "0.50%", "2.50%"]);
     expect(notes?.some((n) => /20th/.test(n))).toBe(true);
   });
 });

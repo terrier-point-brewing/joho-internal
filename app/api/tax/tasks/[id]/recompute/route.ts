@@ -15,6 +15,7 @@ import { getTask, saveWorksheet } from "@/lib/tax/tasks";
 import { getSchedule } from "@/lib/tax/schedules";
 import { getProfile } from "@/lib/tax/profiles";
 import { getParty } from "@/lib/tax/registry";
+import { buildRateMap, listTaxRates } from "@/lib/tax/rates";
 import type { ComputeContext } from "@/lib/tax/types";
 // Side-effect import: registers every party template before getParty() runs.
 import "@/lib/tax/parties";
@@ -44,7 +45,8 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
     };
 
     const recomputed = await party.computeWorksheet(ctx);
-    const merged = party.mergeWorksheet(task.worksheet ?? { fields: {} }, recomputed);
+    const rateMap = buildRateMap(await listTaxRates(sb));
+    const merged = party.mergeWorksheet(task.worksheet ?? { fields: {} }, recomputed, rateMap);
 
     const saved = await saveWorksheet(sb, id, merged);
     return NextResponse.json(saved.worksheet);
