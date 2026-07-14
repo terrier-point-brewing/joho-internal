@@ -76,8 +76,8 @@ export async function buildExciseTaxLines(
 
   const rateIds = [...new Set(taxRows.map((t) => t.excise_tax_rate_id).filter((id): id is string => !!id))];
   const { data: rates } = await supabase
-    .from("excise_tax_rates")
-    .select("id, receiving_party, unit, square_catalog_variation_id")
+    .from("tax_rates")
+    .select("id, receiving_party, basis, square_catalog_variation_id")
     .in("id", rateIds);
   const rateById = new Map((rates ?? []).map((r) => [r.id, r]));
   const volumeByTx = new Map(rows.map((r) => [r.id, r.volume_bbl]));
@@ -87,7 +87,7 @@ export async function buildExciseTaxLines(
     const rate = t.excise_tax_rate_id ? rateById.get(t.excise_tax_rate_id) : undefined;
     const party = rate?.receiving_party ?? "Unknown";
     const volumeBbl = volumeByTx.get(t.export_transaction_id) ?? 0;
-    const unit = (rate?.unit ?? "bbl") as "bbl" | "gallon";
+    const unit = rate?.basis === "per_gallon" ? "gallon" : "bbl";
     const units = unit === "bbl" ? volumeBbl : volumeBbl * GALLONS_PER_BBL;
     const entry = byParty.get(party) ?? { amountCents: 0, units: 0, unit, variationId: rate?.square_catalog_variation_id ?? null };
     // UNIT CROSSING: export_transaction_taxes.amount_usd is decimal USD dollars;

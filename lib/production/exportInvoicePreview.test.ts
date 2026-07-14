@@ -17,11 +17,11 @@ interface TaxRow {
 interface RateRow {
   id: string;
   receiving_party: string;
-  unit: string;
+  basis: string;
   square_catalog_variation_id: string | null;
 }
 
-/** Stub dispatching by table: export_transaction_taxes → taxRows, excise_tax_rates → rates. */
+/** Stub dispatching by table: export_transaction_taxes → taxRows, tax_rates → rates. */
 function stub(taxRows: TaxRow[], rates: RateRow[]): SupabaseClient {
   const client = {
     from(table: string) {
@@ -46,7 +46,7 @@ describe("buildExciseTaxLines", () => {
     const lines = await buildExciseTaxLines(
       stub(
         [{ export_transaction_id: "t1", amount_usd: 0.6171, excise_tax_rate_id: "fed" }],
-        [{ id: "fed", receiving_party: "Federal", unit: "bbl", square_catalog_variation_id: "var-fed" }]
+        [{ id: "fed", receiving_party: "Federal", basis: "per_bbl", square_catalog_variation_id: "var-fed" }]
       ),
       ["t1"],
       rows({ t1: 5 })
@@ -66,7 +66,7 @@ describe("buildExciseTaxLines", () => {
           { export_transaction_id: "t1", amount_usd: 12.34, excise_tax_rate_id: "fed" },
           { export_transaction_id: "t2", amount_usd: 0.6171, excise_tax_rate_id: "fed" },
         ],
-        [{ id: "fed", receiving_party: "Federal", unit: "bbl", square_catalog_variation_id: "var-fed" }]
+        [{ id: "fed", receiving_party: "Federal", basis: "per_bbl", square_catalog_variation_id: "var-fed" }]
       ),
       ["t1", "t2"],
       rows({ t1: 5, t2: 3 })
@@ -84,8 +84,8 @@ describe("buildExciseTaxLines", () => {
           { export_transaction_id: "t1", amount_usd: 2.5, excise_tax_rate_id: "nc" },
         ],
         [
-          { id: "fed", receiving_party: "Federal", unit: "bbl", square_catalog_variation_id: "var-fed" },
-          { id: "nc", receiving_party: "NC", unit: "gallon", square_catalog_variation_id: "var-nc" },
+          { id: "fed", receiving_party: "Federal", basis: "per_bbl", square_catalog_variation_id: "var-fed" },
+          { id: "nc", receiving_party: "NC", basis: "per_gallon", square_catalog_variation_id: "var-nc" },
         ]
       ),
       ["t1"],
