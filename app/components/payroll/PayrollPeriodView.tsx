@@ -34,6 +34,7 @@ export function PayrollPeriodView({ periodId, editable, tabs = ["summary", "shif
   const [showLockConfirm, setShowLockConfirm] = useState(false);
   const [activeTab, setActiveTab] = useState<PayrollTab>(tabs[0]);
   const [overrideMode, setOverrideMode] = useState(false);
+  const [cashView, setCashView] = useState<"actual" | "reported">("actual");
 
   async function handleLock() {
     setLocking(true);
@@ -66,9 +67,12 @@ export function PayrollPeriodView({ periodId, editable, tabs = ["summary", "shif
   const totBase     = entries.reduce((s, e) => s + e.base_pay_cents, 0);
   const totPTips    = entries.reduce((s, e) => s + e.effective_paycheck_tips_cents, 0);
   const totCTips    = entries.reduce((s, e) => s + e.effective_cash_tips_cents, 0);
+  const totRCTips   = entries.reduce((s, e) => s + e.effective_reported_cash_tips_cents, 0);
   const totBonus    = entries.reduce((s, e) => s + e.effective_bonus_cents, 0);
-  const totComp     = entries.reduce((s, e) => s + e.effective_total_compensation_cents, 0);
-  const totHrlyRate = totHours > 0 ? totComp / totHours / 100 : null;
+  // Toggle-driven basis: actuals drive the bonus/true comp; reported (÷ratio) is the Gusto figure.
+  const viewCTips   = cashView === "actual" ? totCTips : totRCTips;
+  const viewComp    = totBase + totPTips + viewCTips + totBonus;
+  const viewHrlyRate = totHours > 0 ? viewComp / totHours / 100 : null;
   const empName = (id: string) => {
     const e = empById.get(id);
     return e ? `${e.first_name} ${e.last_name}` : `${id.slice(0, 8)}…`;
@@ -163,6 +167,28 @@ export function PayrollPeriodView({ periodId, editable, tabs = ["summary", "shif
         />
       ) : (
         <>
+          {/* Cash-tips basis toggle: actual (drives bonus) vs Gusto-reported (÷ ratio) */}
+          <div className="mb-4 flex items-center gap-2">
+            <span className="text-muted text-xs font-medium">Cash tips basis:</span>
+            <button
+              onClick={() => setCashView("actual")}
+              className={cashView === "actual" ? "btn-primary btn-xxs" : "btn-secondary btn-xxs"}
+            >
+              Actuals
+            </button>
+            <button
+              onClick={() => setCashView("reported")}
+              className={cashView === "reported" ? "btn-primary btn-xxs" : "btn-secondary btn-xxs"}
+            >
+              Gusto-reported
+            </button>
+            <span className="text-faint text-xs">
+              {cashView === "actual"
+                ? "Actual declared cash (drives bonus)"
+                : "Reported to Gusto at the configured ratio (bonus unchanged)"}
+            </span>
+          </div>
+
           {/* Tip pool summary */}
           {tip_buckets.length > 0 && (
             <div className="mb-4 flex flex-wrap items-baseline gap-x-5 gap-y-1 text-xs">
@@ -200,7 +226,9 @@ export function PayrollPeriodView({ periodId, editable, tabs = ["summary", "shif
                 <th className="text-right py-2 px-3 text-muted font-medium">Hours</th>
                 <th className="text-right py-2 px-3 text-muted font-medium">Base Pay</th>
                 <th className="text-right py-2 px-3 text-muted font-medium">Paycheck Tips</th>
-                <th className="text-right py-2 px-3 text-muted font-medium">Cash Tips</th>
+                <th className="text-right py-2 px-3 text-muted font-medium">
+                  {cashView === "reported" ? "Cash Tips (reported)" : "Cash Tips"}
+                </th>
                 <th className="text-right py-2 px-3 text-muted font-medium">Bonus</th>
                 <th className="text-right py-2 px-3 text-muted font-medium">Total</th>
                 <th className="text-right py-2 px-3 text-muted font-medium">$/hr</th>
@@ -218,6 +246,7 @@ export function PayrollPeriodView({ periodId, editable, tabs = ["summary", "shif
                   periodId={periodId}
                   editable={editable && isOpen}
                   overrideMode={overrideMode}
+                  cashView={cashView}
                 />
               ))}
               {entries.length === 0 && (
@@ -238,11 +267,11 @@ export function PayrollPeriodView({ periodId, editable, tabs = ["summary", "shif
                   <td className="text-right py-2 px-3 text-body font-mono font-medium">{totHours.toFixed(1)}h</td>
                   <td className="text-right py-2 px-3 text-body font-mono font-medium">{fmtCents(totBase)}</td>
                   <td className="text-right py-2 px-3 text-body font-mono font-medium">{fmtCents(totPTips)}</td>
-                  <td className="text-right py-2 px-3 text-body font-mono font-medium">{fmtCents(totCTips)}</td>
+                  <td className="text-right py-2 px-3 text-body font-mono font-medium">{fmtCents(viewCTips)}</td>
                   <td className="text-right py-2 px-3 text-body font-mono font-medium">{fmtCents(totBonus)}</td>
-                  <td className="text-right py-2 px-3 text-strong font-mono font-semibold">{fmtCents(totComp)}</td>
+                  <td className="text-right py-2 px-3 text-strong font-mono font-semibold">{fmtCents(viewComp)}</td>
                   <td className="text-right py-2 px-3 text-muted font-mono text-xs">
-                    {totHrlyRate != null ? `${fmtUsd(totHrlyRate)}/hr` : "—"}
+                    {viewHrlyRate != null ? `${fmtUsd(viewHrlyRate)}/hr` : "—"}
                   </td>
                   {editable && overrideMode && <td />}
                 </tr>

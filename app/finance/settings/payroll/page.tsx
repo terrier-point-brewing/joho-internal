@@ -44,7 +44,7 @@ export default function PayrollSettingsPage() {
   // ── Rate Configuration state ──────────────────────────────────────────────
   const [baseRate, setBaseRate] = useState("");
   const [guaranteedRate, setGuaranteedRate] = useState("");
-  const [cashTipsRate, setCashTipsRate] = useState("");
+  const [reportedDivisor, setReportedDivisor] = useState("");
   const [tipPoolFrequency, setTipPoolFrequency] = useState<TipPoolFrequency>("biweekly");
   const [guaranteedMinFrequency, setGuaranteedMinFrequency] = useState<TipPoolFrequency>("biweekly");
 
@@ -89,7 +89,7 @@ export default function PayrollSettingsPage() {
     setDueDays(String(config.due_date_days_after_end ?? 3));
     setBaseRate(toDollars(config.base_rate_cents));
     setGuaranteedRate(toDollars(config.guaranteed_rate_cents));
-    setCashTipsRate(String(config.cash_tips_rate));
+    setReportedDivisor(String(config.reported_cash_tips_divisor ?? 10));
     setTipPoolFrequency((config.tip_pool_frequency ?? "biweekly") as TipPoolFrequency);
     setGuaranteedMinFrequency((config.guaranteed_min_frequency ?? "biweekly") as TipPoolFrequency);
   }, [config]);
@@ -100,7 +100,7 @@ export default function PayrollSettingsPage() {
     due_date_days_after_end: number;
     base_rate_cents: number;
     guaranteed_rate_cents: number;
-    cash_tips_rate: number;
+    reported_cash_tips_divisor: number;
     tip_pool_frequency: TipPoolFrequency;
     guaranteed_min_frequency: TipPoolFrequency;
   }>) => ({
@@ -109,7 +109,7 @@ export default function PayrollSettingsPage() {
     due_date_days_after_end: overrides?.due_date_days_after_end ?? parseInt(dueDays, 10),
     base_rate_cents: overrides?.base_rate_cents ?? Math.round(parseFloat(baseRate) * 100),
     guaranteed_rate_cents: overrides?.guaranteed_rate_cents ?? Math.round(parseFloat(guaranteedRate) * 100),
-    cash_tips_rate: overrides?.cash_tips_rate ?? parseFloat(cashTipsRate),
+    reported_cash_tips_divisor: overrides?.reported_cash_tips_divisor ?? parseInt(reportedDivisor, 10),
     tip_pool_frequency: overrides?.tip_pool_frequency ?? tipPoolFrequency,
     guaranteed_min_frequency: overrides?.guaranteed_min_frequency ?? guaranteedMinFrequency,
   });
@@ -296,11 +296,11 @@ export default function PayrollSettingsPage() {
             />
           </label>
           <label className="block">
-            <span className={labelCls}>Cash Tips Rate (e.g. 0.01)</span>
+            <span className={labelCls}>Reported cash tips ratio (N:1)</span>
             <input
-              type="number" step="0.001" min="0" max="1"
-              value={cashTipsRate}
-              onChange={e => setCashTipsRate(e.target.value)}
+              type="number" step="1" min="1"
+              value={reportedDivisor}
+              onChange={e => setReportedDivisor(e.target.value)}
               className={inputCls}
             />
           </label>
@@ -343,10 +343,11 @@ export default function PayrollSettingsPage() {
         <div className="mt-6 bg-surface border border-line rounded-lg p-4 text-xs text-secondary space-y-2 font-mono">
           <p><span className="text-strong">hour_share</span> = employee_hours / total_tipped_hours</p>
           <p><span className="text-strong">paycheck_tips</span> = hour_share × total_pooled_tips <span className="text-faint">(from Square)</span></p>
-          <p><span className="text-strong">cash_tips</span> = hour_share × <span className="text-accent">{cashTipsRate || "0.01"}</span> × total_cash_take</p>
+          <p><span className="text-strong">cash_tips</span> = Σ declared cash per shift <span className="text-faint">(from Square)</span></p>
+          <p><span className="text-strong">reported_cash</span> = round(cash_tips ÷ <span className="text-accent">{reportedDivisor || "10"}</span>) <span className="text-faint">(to Gusto)</span></p>
           <p><span className="text-strong">base_pay</span> = hours × <span className="text-accent">${baseRate || "?"}/hr</span></p>
           <p><span className="text-strong">guaranteed_min</span> = hours × <span className="text-accent">${guaranteedRate || "?"}/hr</span></p>
-          <p><span className="text-strong">bonus</span> = max(0, guaranteed_min − base_pay − paycheck_tips − cash_tips)</p>
+          <p><span className="text-strong">bonus</span> = max(0, guaranteed_min − base_pay − paycheck_tips − cash_tips) <span className="text-faint">(uses actual cash)</span></p>
         </div>
         <p className="text-xs text-faint mt-2">
           Tip model: <span className="text-secondary">Proportional Hours</span>
