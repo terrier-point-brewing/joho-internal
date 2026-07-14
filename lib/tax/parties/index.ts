@@ -11,3 +11,4 @@
  * template is added under `lib/tax/parties/`.
  */
 import "./ncDorSalesUse/template";
+import "./ncDorBeerExcise/template";
