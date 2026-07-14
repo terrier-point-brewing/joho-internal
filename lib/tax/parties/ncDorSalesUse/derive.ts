@@ -15,18 +15,23 @@
  *   - `./template.ts` → `mergeWorksheet` (server recompute + manual-edit merge)
  *   - `../../ncDorWorksheetMath.ts` → `recomputeClientTotals` (client live edit)
  *
- * Deliberately zero server imports — only `./rates` (statutory constants). The
- * per-county receipts the split needs are read from computed
- * `county_${code}_receipts` fields stamped at compute time, so the client
- * derivation is self-contained from the worksheet fields alone (no schedule or
- * Square fetch). All money is integer cents; every per-line/per-county tax is
- * rounded with `Math.round` exactly once.
+ * Every rate VALUE (state/line/local/transit) is read from the `rateMap`
+ * parameter (built via `buildRateMap(await listTaxRates(sb))`, see
+ * `@/lib/tax/rates`) — this module holds no rate constants of its own, only
+ * the pure key builders it imports. Deliberately zero server imports —
+ * `@/lib/tax/rates` is side-effect-free (only a TYPE import of
+ * `SupabaseClient`) and `./rates` is structural-only, so this stays a
+ * client-importable pure module. The per-county receipts the split needs are
+ * read from computed `county_${code}_receipts` fields stamped at compute
+ * time, so the client derivation is self-contained from the worksheet fields
+ * + rateMap alone (no schedule or Square fetch). All money is integer cents;
+ * every per-line/per-county tax is rounded with `Math.round` exactly once.
  */
 import type { WorksheetFields } from "@/lib/tax/types";
+import { ncSalesLineKey, ncLocalKey, ncTransitKey } from "@/lib/tax/rates";
 import {
   RATE_LINES,
-  RATE_BY_LINE,
-  NC_COUNTY_TIERS,
+  NC_COUNTIES,
   countyRateLine,
   transitRateLine,
   type CountyTier,
@@ -38,6 +43,15 @@ const num = (v: number | string | null | undefined) => Number(v ?? 0);
 
 /** Rate lines whose tax is built up from the per-county page-2 schedule. */
 const COUNTY_LINE_KEYS = new Set<RateLineKey>(["9", "10", "11", "12"]);
+
+/** Structural county-code allowlist — guards `readCountyReceipts` against a
+ * stray field matching the `county_*_receipts` pattern for a non-county key. */
+const KNOWN_COUNTY_CODES = new Set(NC_COUNTIES.map((c) => c.code));
+
+/** A county's resolved local/transit tier, read from the rate map. */
+function countyTierFromRateMap(code: string, rateMap: Record<string, number>): CountyTier {
+  return { local: rateMap[ncLocalKey(code)] ?? 0, transit: rateMap[ncTransitKey(code)] ?? 0 };
+}
 
 /**
  * Largest-remainder (Hamilton) split of `total` cents across `weights`, so the
@@ -100,17 +114,17 @@ interface CountyReceipt {
 
 /**
  * Read the per-county receipts stamped as computed `county_${code}_receipts`
- * fields by the initial compute. The tier comes from the statutory table by
- * code, so the client needs no schedule access to split purchases.
+ * fields by the initial compute. The tier is read from the rateMap by code,
+ * so the client needs no schedule access to split purchases.
  */
-function readCountyReceipts(fields: WorksheetFields): CountyReceipt[] {
+function readCountyReceipts(fields: WorksheetFields, rateMap: Record<string, number>): CountyReceipt[] {
   const out: CountyReceipt[] = [];
   for (const key of Object.keys(fields)) {
     const m = /^county_(.+)_receipts$/.exec(key);
     if (!m) continue;
-    const tier = NC_COUNTY_TIERS[m[1]];
-    if (!tier) continue;
-    out.push({ code: m[1], receipts: num(fields[key]), tier });
+    const code = m[1];
+    if (!KNOWN_COUNTY_CODES.has(code)) continue;
+    out.push({ code, receipts: num(fields[key]), tier: countyTierFromRateMap(code, rateMap) });
   }
   return out;
 }
@@ -126,14 +140,15 @@ function deriveCountyLine(
   counties: CountyReceipt[],
   kind: "local" | "transit",
   lineKey: RateLineKey,
+  rateMap: Record<string, number>,
 ): void {
   const members = counties.filter((c) =>
-    kind === "local" ? countyRateLine(c.tier) === lineKey : transitRateLine(c.tier) === lineKey,
+    kind === "local" ? countyRateLine(c.tier.local) === lineKey : transitRateLine(c.tier.transit) === lineKey,
   );
   fields[`line${lineKey}_tax`] = 0;
   if (members.length === 0) return;
 
-  const rate = RATE_BY_LINE[lineKey];
+  const rate = rateMap[ncSalesLineKey(Number(lineKey))] ?? 0;
   const purchases = num(fields[`line${lineKey}_purchases`]);
   const alloc = allocateByWeights(
     purchases,
@@ -160,9 +175,12 @@ function deriveCountyLine(
  * receipts + (manual) purchases + adjustment lines. All other keys pass through
  * unchanged. Runs identically server-side and client-side.
  */
-export function deriveNcDorFigures(fields: WorksheetFields): WorksheetFields {
+export function deriveNcDorFigures(
+  fields: WorksheetFields,
+  rateMap: Record<string, number>,
+): WorksheetFields {
   const f: WorksheetFields = { ...fields };
-  const counties = readCountyReceipts(f);
+  const counties = readCountyReceipts(f, rateMap);
 
   // Non-county rate lines (4–8): tax = round((purchases + receipts) × rate).
   for (const n of RATE_LINES) {
@@ -170,14 +188,15 @@ export function deriveNcDorFigures(fields: WorksheetFields): WorksheetFields {
     if (COUNTY_LINE_KEYS.has(key)) continue; // rebuilt from the county split below
     const receipts = num(f[`line${key}_receipts`]);
     const purchases = num(f[`line${key}_purchases`]);
-    f[`line${key}_tax`] = round((receipts + purchases) * RATE_BY_LINE[key]);
+    const rate = rateMap[ncSalesLineKey(n)] ?? 0;
+    f[`line${key}_tax`] = round((receipts + purchases) * rate);
   }
 
   // County rate lines (9–12): built from the per-county page-2 schedule.
-  deriveCountyLine(f, counties, "local", "9");
-  deriveCountyLine(f, counties, "local", "10");
-  deriveCountyLine(f, counties, "transit", "11");
-  deriveCountyLine(f, counties, "transit", "12");
+  deriveCountyLine(f, counties, "local", "9", rateMap);
+  deriveCountyLine(f, counties, "local", "10", rateMap);
+  deriveCountyLine(f, counties, "transit", "11", rateMap);
+  deriveCountyLine(f, counties, "transit", "12", rateMap);
 
   const totals = computeDependentTotals(f);
   f.line13_total = totals.line13_total;
