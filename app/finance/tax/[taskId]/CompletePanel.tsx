@@ -27,22 +27,49 @@ import type { TaxTask } from "@/lib/tax/types";
 import { canSubmitComplete, type CompleteFormState } from "@/lib/tax/completeForm";
 import FileUploader from "./FileUploader";
 
-export default function CompletePanel({ taskId, task }: { taskId: string; task: TaxTask }) {
-  const qc = useQueryClient();
-
-  const [form, setForm] = useState<CompleteFormState>({
+function formStateForTask(task: TaxTask): CompleteFormState {
+  return {
     confirmationNumber: task.confirmation_number ?? "",
     amountPaidInput: centsToDollarString(task.amount_paid_cents),
     submittedOn: task.submitted_on ?? new Date().toISOString().slice(0, 10),
     notes: task.notes ?? "",
-  });
+  };
+}
+
+export default function CompletePanel({ taskId, task }: { taskId: string; task: TaxTask }) {
+  const qc = useQueryClient();
+  const isCompleted = task.status === "completed";
+
+  const [form, setForm] = useState<CompleteFormState>(() => formStateForTask(task));
+  const [editing, setEditing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  if (task.status === "completed") {
+  function startEditing() {
+    setForm(formStateForTask(task));
+    setError(null);
+    setEditing(true);
+  }
+
+  function cancelEditing() {
+    setForm(formStateForTask(task));
+    setError(null);
+    setEditing(false);
+  }
+
+  // Completed tasks show a read-only summary by default; a manager can click
+  // Edit to correct the recorded confirmation values or add/replace files. The
+  // /complete endpoint is a plain update, so re-submitting an edit keeps the
+  // task completed (re-stamping completed_at/completed_by to the last editor).
+  if (isCompleted && !editing) {
     return (
       <Card>
-        <p className="text-xs font-semibold uppercase tracking-wide text-faint mb-3">Submission Confirmed</p>
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-faint">Submission Confirmed</p>
+          <button type="button" className="btn-secondary btn-xxs" onClick={startEditing}>
+            Edit
+          </button>
+        </div>
         <dl className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-2 text-sm mb-4">
           <div>
             <dt className="text-xs text-faint">Confirmation #</dt>
@@ -93,8 +120,9 @@ export default function CompletePanel({ taskId, task }: { taskId: string; task: 
       const updated = await res.json();
       qc.setQueryData(queryKeys.tax.task(taskId), updated);
       await qc.invalidateQueries({ queryKey: queryKeys.tax.task(taskId) });
+      setEditing(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't mark this task submitted.");
+      setError(err instanceof Error ? err.message : "Couldn't save this filing.");
     } finally {
       setSubmitting(false);
     }
@@ -102,7 +130,9 @@ export default function CompletePanel({ taskId, task }: { taskId: string; task: 
 
   return (
     <Card>
-      <p className="text-xs font-semibold uppercase tracking-wide text-faint mb-3">Complete Filing</p>
+      <p className="text-xs font-semibold uppercase tracking-wide text-faint mb-3">
+        {isCompleted ? "Edit Submission" : "Complete Filing"}
+      </p>
       <form onSubmit={handleSubmit} className="space-y-4">
         {error && <Banner tone="danger">{error}</Banner>}
 
@@ -148,9 +178,14 @@ export default function CompletePanel({ taskId, task }: { taskId: string; task: 
           <FileUploader taskId={taskId} />
         </div>
 
-        <div className="flex justify-end pt-2 border-t border-line">
+        <div className="flex justify-end gap-2 pt-2 border-t border-line">
+          {isCompleted && (
+            <button type="button" className="btn-secondary" onClick={cancelEditing} disabled={submitting}>
+              Cancel
+            </button>
+          )}
           <button type="submit" className="btn-primary" disabled={submitting || !canSubmitComplete(form)}>
-            {submitting ? "Submitting…" : "Mark Submitted"}
+            {submitting ? "Saving…" : isCompleted ? "Save Changes" : "Mark Submitted"}
           </button>
         </div>
       </form>
