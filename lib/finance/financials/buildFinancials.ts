@@ -9,7 +9,7 @@
 // aggregation/normalization/volume/KPI math all live in Tasks 2-5's modules.
 
 import { fetchFinancialsSources } from "./fetchSources";
-import { aggregateRows } from "./aggregateRows";
+import { aggregateRows, coaSection } from "./aggregateRows";
 import { buildKpis, buildDataQuality } from "./summaries";
 import { injectManualNetSales } from "./manualNetSales";
 import { ACCOUNT_TYPE_SECTION } from "../accountSections";
@@ -128,13 +128,18 @@ export async function buildFinancials(params: { statement: StatementKind; year: 
 
   // Full CoA reference table (not filtered to accounts with postings) --
   // buildTree needs every account's parent_id/name to nest a leaf under a
-  // grouping ancestor that carries no direct transactions of its own, and the
-  // UI's "Show GL #" toggle needs each account's account_number.
+  // grouping ancestor that carries no direct transactions of its own, and to
+  // seed a real-but-currently-unused root account (e.g. "Interest Earned")
+  // as a $0 line instead of a whole section reading as empty. `statementSection`
+  // reuses aggregateRows.ts's own coaSection() so an unposted account is
+  // bucketed identically to how it WOULD be the moment it got a posting.
+  // The UI's "Show GL #" toggle needs each account's account_number.
   const coaAccounts = src.coa.map((c) => ({
     id: c.id,
     parentId: c.parentId,
     accountName: c.accountName,
     accountNumber: c.accountNumber,
+    statementSection: coaSection(c),
   }));
 
   return { months, rows, coaAccounts, dataQuality, kpis };
