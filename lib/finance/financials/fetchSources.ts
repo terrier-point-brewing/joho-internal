@@ -351,7 +351,40 @@ async function fetchInvoiceLines(supabase: SupabaseClient, range: DateRange, cas
   });
 }
 
-async function fetchExpenses(supabase: SupabaseClient, range: DateRange, cashOnly: boolean): Promise<ExpenseRecord[]> {
+/**
+ * Batch-fetches expense_gl_splits for a set of expense ids (one .in() query,
+ * not one per expense) and groups them by expense_id for attachment onto
+ * ExpenseRecord.splitLines. Empty map -- no query at all -- when ids is empty.
+ */
+async function fetchExpenseGlSplitsByExpenseId(
+  supabase: SupabaseClient,
+  expenseIds: string[],
+): Promise<Map<string, NonNullable<ExpenseRecord["splitLines"]>>> {
+  const byExpenseId = new Map<string, NonNullable<ExpenseRecord["splitLines"]>>();
+  if (expenseIds.length === 0) return byExpenseId;
+
+  const rows = await fetchAllRows<{
+    expense_id: string;
+    chart_of_accounts_id: string;
+    amount_cents: number;
+    split_source: "payroll_auto" | "manual";
+  }>(() =>
+    supabase
+      .from("expense_gl_splits")
+      .select("expense_id, chart_of_accounts_id, amount_cents, split_source")
+      .in("expense_id", expenseIds)
+      .order("id", { ascending: true }),
+  );
+
+  for (const r of rows) {
+    const list = byExpenseId.get(r.expense_id) ?? [];
+    list.push({ chartOfAccountsId: r.chart_of_accounts_id, amountCents: r.amount_cents, splitSource: r.split_source });
+    byExpenseId.set(r.expense_id, list);
+  }
+  return byExpenseId;
+}
+
+export async function fetchExpenses(supabase: SupabaseClient, range: DateRange, cashOnly: boolean): Promise<ExpenseRecord[]> {
   const data = await fetchAllRows<{
     id: string;
     chart_of_accounts_id: string | null;
@@ -369,12 +402,16 @@ async function fetchExpenses(supabase: SupabaseClient, range: DateRange, cashOnl
     q = cashOnly ? q.eq("state", "CLEARED") : q.or("state.is.null,state.neq.DECLINED");
     return q;
   });
+
+  const splitsByExpenseId = await fetchExpenseGlSplitsByExpenseId(supabase, data.map((r) => r.id));
+
   return data.map((r) => ({
     id: r.id,
     chartOfAccountsId: r.chart_of_accounts_id,
     amountCents: r.amount_cents ?? 0,
     accountingDate: r.accounting_date,
     mappingSource: (r.mapping_source ?? "unmapped") as ExpenseRecord["mappingSource"],
+    splitLines: splitsByExpenseId.get(r.id),
   }));
 }
 

@@ -420,4 +420,86 @@ describe("aggregateRows", () => {
     expect(refund.mappingSource).toBe("manual");
     expect(refund.amountCentsByMonth["2026-01"]).toBe(-750);
   });
+
+  it("regression: an expense with no split lines produces the exact same ResolvedRow whether splitLines is omitted or an empty array", () => {
+    const baseExpense = {
+      id: "exp-nosplit",
+      chartOfAccountsId: "coa-expense",
+      amountCents: -42500,
+      accountingDate: "2026-01-05",
+      mappingSource: "rule" as const,
+    };
+
+    const withoutField = aggregateRows(emptyInput({ expenses: [{ ...baseExpense }] }));
+    const withEmptyArray = aggregateRows(emptyInput({ expenses: [{ ...baseExpense, splitLines: [] }] }));
+
+    expect(withoutField).toHaveLength(1);
+    expect(withEmptyArray).toEqual(withoutField);
+
+    const row = withoutField[0];
+    expect(row.coaId).toBe("coa-expense");
+    expect(row.amountCentsByMonth["2026-01"]).toBe(-42500);
+    expect(row.mappingSource).toBe("rule");
+    expect(row.sourceRef).toEqual({ table: "expenses", ids: ["exp-nosplit"] });
+  });
+
+  it("an expense with split lines produces one row per line, each with the line's own coaId/amountCents, summing to the original amount, with mappingSource mapped from splitSource", () => {
+    const rows = aggregateRows(
+      emptyInput({
+        expenses: [
+          {
+            id: "exp-split",
+            chartOfAccountsId: "coa-expense", // should be ignored in favor of splitLines
+            amountCents: -68205, // -( -60000 + -8205 ), see splitLines below (signed outflow)
+            accountingDate: "2026-01-15",
+            mappingSource: "unmapped",
+            splitLines: [
+              { chartOfAccountsId: "coa-beer", amountCents: -60000, splitSource: "payroll_auto" },
+              { chartOfAccountsId: "coa-expense", amountCents: -8205, splitSource: "manual" },
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(rows).toHaveLength(2);
+
+    const autoRow = rows.find((r) => r.coaId === "coa-beer")!;
+    expect(autoRow.mappingSource).toBe("rule");
+    expect(autoRow.amountCentsByMonth["2026-01"]).toBe(-60000);
+    expect(autoRow.sourceRef).toEqual({ table: "expenses", ids: ["exp-split"] });
+
+    const manualRow = rows.find((r) => r.coaId === "coa-expense")!;
+    expect(manualRow.mappingSource).toBe("manual");
+    expect(manualRow.amountCentsByMonth["2026-01"]).toBe(-8205);
+
+    const sum = autoRow.amountCentsByMonth["2026-01"] + manualRow.amountCentsByMonth["2026-01"];
+    expect(sum).toBe(-68205);
+  });
+
+  it("a split expense with 3 lines across the same account still groups into 2 rows split by mappingSource, sum equals the original amount", () => {
+    const rows = aggregateRows(
+      emptyInput({
+        expenses: [
+          {
+            id: "exp-split-3",
+            chartOfAccountsId: null,
+            amountCents: -100000,
+            accountingDate: "2026-02-01",
+            mappingSource: "unmapped",
+            splitLines: [
+              { chartOfAccountsId: "coa-beer", amountCents: -40000, splitSource: "payroll_auto" },
+              { chartOfAccountsId: "coa-bs-deposit", amountCents: -35000, splitSource: "payroll_auto" },
+              { chartOfAccountsId: "coa-pl-deposit", amountCents: -25000, splitSource: "payroll_auto" },
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(rows).toHaveLength(3);
+    const total = rows.reduce((s, r) => s + r.amountCentsByMonth["2026-02"], 0);
+    expect(total).toBe(-100000);
+    for (const r of rows) expect(r.mappingSource).toBe("rule");
+  });
 });

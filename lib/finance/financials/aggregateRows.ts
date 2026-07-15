@@ -79,6 +79,8 @@ export interface ExpenseRecord {
   amountCents: number;
   accountingDate: string | null;
   mappingSource: MappingSource;
+  /** Populated by fetchExpenses via a join to expense_gl_splits; undefined/[] when the expense has no split. */
+  splitLines?: { chartOfAccountsId: string; amountCents: number; splitSource: "payroll_auto" | "manual" }[];
 }
 
 /** ramp_bank_ledger row — same resolved-upstream shape as expenses. */
@@ -306,17 +308,17 @@ export function aggregateRows(input: AggregateRowsInput): FinancialsRow[] {
     if (r && monthSet.has(r.monthKey)) resolved.push(r);
   }
   for (const row of input.expenses) {
-    const r = resolveExpenseLike(
-      "expenses",
-      row.id,
-      row.chartOfAccountsId,
-      row.mappingSource,
-      row.amountCents,
-      row.accountingDate,
-      coaMap,
-      "expense",
-    );
-    if (r && monthSet.has(r.monthKey)) resolved.push(r);
+    const lines = row.splitLines?.length
+      ? row.splitLines.map((l) => ({
+          coaId: l.chartOfAccountsId,
+          amountCents: l.amountCents,
+          mappingSource: (l.splitSource === "manual" ? "manual" : "rule") as MappingSource,
+        }))
+      : [{ coaId: row.chartOfAccountsId, amountCents: row.amountCents, mappingSource: row.mappingSource }];
+    for (const line of lines) {
+      const r = resolveExpenseLike("expenses", row.id, line.coaId, line.mappingSource, line.amountCents, row.accountingDate, coaMap, "expense");
+      if (r && monthSet.has(r.monthKey)) resolved.push(r);
+    }
   }
   for (const row of input.bank) {
     const r = resolveExpenseLike(
