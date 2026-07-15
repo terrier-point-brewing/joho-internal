@@ -83,8 +83,8 @@ export const queryKeys = {
     all:            () => ["finance"] as const,
     /** Single invoice detail. */
     ledgerInvoice:  (id: string) => ["finance", "ledger", "invoice", id] as const,
-    /** Invoice list filtered by year + source. */
-    ledgerInvoices: (year: number, source: string) => ["finance", "ledger", "invoices", year, source] as const,
+    /** Invoice list filtered by date range + source. */
+    ledgerInvoices: (range: string, source: string) => ["finance", "ledger", "invoices", range, source] as const,
     /** Flat chart-of-accounts list (invoice line-item GL mapping). */
     chartOfAccounts: () => ["finance", "chart-of-accounts"] as const,
     /** Consolidated Financials view (Task 7), keyed by statement kind + year. */

@@ -31,8 +31,28 @@ export async function GET(req: NextRequest) {
     const y = params.get("year")!;
     query = query.gte("invoice_date", `${y}-01-01`).lte("invoice_date", `${y}-12-31`);
   }
+  if (params.get("from")) query = query.gte("invoice_date", params.get("from")!);
+  if (params.get("to"))   query = query.lte("invoice_date", params.get("to")!);
 
   const { data, error } = await query;
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json(data);
+}
+
+// ── PATCH /api/finance/ledger/invoices ────────────────────────────────────────
+// Toggles the "accept unmapped as reviewed" dismissal flag on one invoice.
+// Body: { id: string; unmapped_accepted: boolean }
+export async function PATCH(req: NextRequest) {
+  try { await requireRole([]); } catch (res) { return res as Response; }
+  const body = await req.json() as { id: string; unmapped_accepted: boolean };
+  if (!body.id) return NextResponse.json({ error: "id required" }, { status: 400 });
+  const supabase = createSupabaseAdminClient();
+  const { data, error } = await supabase
+    .from("invoices")
+    .update({ unmapped_accepted: body.unmapped_accepted })
+    .eq("id", body.id)
+    .select("id, unmapped_accepted")
+    .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data);
 }

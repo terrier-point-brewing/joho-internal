@@ -17,10 +17,12 @@ import SyncPanel from "../components/SyncPanel";
 import MappingFilter from "../components/MappingFilter";
 import MappingStatusPill from "../components/MappingStatusPill";
 import AutoMapButton from "../components/AutoMapButton";
-import YearSelect from "../components/YearSelect";
+import DateRangeFilter from "../components/DateRangeFilter";
+import AcceptUnmappedButton from "../components/AcceptUnmappedButton";
 import SummaryStatBar from "../components/SummaryStatBar";
 import { LedgerTable, Th } from "../components/LedgerTable";
-import { matchesMappingFilter, type MappingFilterValue } from "@/lib/finance/mappingStatus";
+import { mappingState, matchesMappingFilter, type MappingFilterValue } from "@/lib/finance/mappingStatus";
+import { defaultYearRange } from "@/lib/finance/dateRange";
 import {
   INVOICE_STATUS_CLS, INVOICE_SOURCE_LABEL, INVOICE_SOURCE_CLS,
   INVOICE_TYPE_LABEL, INVOICE_TYPE_CLS, DEPOSIT_CATEGORY_CLS,
@@ -85,6 +87,7 @@ interface InvoiceRow extends Omit<Invoice, "invoice_line_items"> {
   contract_brewing_partners: { company_name: string } | null;
   invoice_type: InvoiceType;
   allocation_id: string | null;
+  unmapped_accepted: boolean;
 }
 
 // ── Search / filter / sort config (module scope) ──────────────────────────────
@@ -104,7 +107,7 @@ const INVOICE_CONTROLS: ControlsConfig<InvoiceRow> = {
       param: "mapping",
       matches: (i, sel) => {
         const [m, n] = invoiceMapped(i);
-        return matchesMappingFilter(sel[0] as MappingFilterValue, m, n);
+        return matchesMappingFilter(sel[0] as MappingFilterValue, m, n, i.unmapped_accepted);
       },
     },
   ],
@@ -133,6 +136,7 @@ function InvoiceExpandableRow({
   allInvoices,
   onSaveLineItem,
   onBatchChanged,
+  onToggleAccept,
 }: {
   inv: InvoiceRow;
   accounts: CoARef[];
@@ -140,6 +144,7 @@ function InvoiceExpandableRow({
   allInvoices: InvoiceSummary[];
   onSaveLineItem: (id: string, patch: Record<string, string | null>) => Promise<void>;
   onBatchChanged: () => void;
+  onToggleAccept: (id: string, accepted: boolean) => Promise<void>;
 }) {
   const [expanded, setExpanded] = useState(false);
   const linkCount = (inv.invoice_batch_links as unknown as { count: number }[])[0]?.count ?? 0;
@@ -181,7 +186,13 @@ function InvoiceExpandableRow({
           <div className="flex flex-col gap-1">
             {lineItems.length === 0
               ? <span className="text-disabled">—</span>
-              : <MappingStatusPill mapped={mappedCount} total={lineItems.length} />}
+              : <MappingStatusPill mapped={mappedCount} total={lineItems.length} accepted={inv.unmapped_accepted} />}
+            {lineItems.length > 0 && mappingState(mappedCount, lineItems.length, inv.unmapped_accepted) !== "mapped" && (
+              <AcceptUnmappedButton
+                accepted={inv.unmapped_accepted}
+                onToggle={() => onToggleAccept(inv.id, !inv.unmapped_accepted)}
+              />
+            )}
             {missingDelivery && (
               <span className="text-[10px] text-accent">⚠ deposit missing delivery</span>
             )}
@@ -480,8 +491,7 @@ function BatchLinkEditor({
 interface InvoiceSyncResult { synced: number; updated: number; total: number; errors?: string[] }
 
 export default function InvoicesPage() {
-  const currentYear = new Date().getFullYear();
-  const [year,       setYear]   = useState(currentYear);
+  const [{ from, to }, setRange] = useState(() => defaultYearRange());
   const [source,     setSource] = useState<"all" | "square" | "quickbooks">("all");
   const [accounts,     setAccounts]     = useState<CoARef[]>([]);
   const [batches,      setBatches]      = useState<BrewBatch[]>([]);
@@ -500,7 +510,7 @@ export default function InvoicesPage() {
   }, []);
 
   async function handleAutoMap(): Promise<{ mapped: number }> {
-    const res = await fetch(`/api/finance/ledger/invoices/auto-map?year=${year}`, { method: "POST" });
+    const res = await fetch(`/api/finance/ledger/invoices/auto-map?year=${new Date(to).getFullYear()}`, { method: "POST" });
     const json = await res.json();
     if (json.mapped > 0) refetch();
     return json;
@@ -515,16 +525,25 @@ export default function InvoicesPage() {
     refetch();
   }
 
-  const params = new URLSearchParams({ year: String(year) });
+  async function handleToggleAccept(id: string, accepted: boolean) {
+    await fetch("/api/finance/ledger/invoices", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, unmapped_accepted: accepted }),
+    });
+    refetch();
+  }
+
+  const params = new URLSearchParams({ from, to });
   if (source !== "all") params.set("source", source);
 
   const { data: raw, isFetching, error, refetch } = useQuery({
-    queryKey: queryKeys.finance.ledgerInvoices(year, source),
+    queryKey: queryKeys.finance.ledgerInvoices(`${from}_${to}`, source),
     queryFn:  () => fetchJson<InvoiceRow[]>(`/api/finance/ledger/invoices?${params}`),
   });
 
   // Client-side status + type + mapping filter + sort (URL-synced hook).
-  // `year`/`source` stay local — they drive the useQuery key/params above.
+  // `from`/`to`/`source` stay local — they drive the useQuery key/params above.
   const { rows: hookRows, search, filters, sort, setSearch, setFilter, toggleSort, reset, activeCount } =
     useTableControls(raw ?? [], INVOICE_CONTROLS);
 
@@ -549,7 +568,7 @@ export default function InvoicesPage() {
             onChange={(v) => setSearch("q", v)}
             placeholder="Search invoice # or customer…"
           />
-          <YearSelect year={year} onChange={setYear} />
+          <DateRangeFilter from={from} to={to} onChange={(f, t) => setRange({ from: f, to: t })} />
           {/* source stays a fetch param (drives the useQuery key) */}
           <FilterSelect
             label="Source"
@@ -595,7 +614,7 @@ export default function InvoicesPage() {
             {showVoided ? "Hide voided" : "Show voided"}
           </button>
           <SyncPanel<InvoiceSyncResult>
-            year={year}
+            year={new Date(to).getFullYear()}
             storageKey="tpb-invoices-last-sync"
             label="from Square"
             buildEndpoint={({ year }) => `/api/finance/ledger/sync-square?year=${year}`}
@@ -609,7 +628,7 @@ export default function InvoicesPage() {
               </>
             )}
           />
-          <AutoMapButton key={year} onRun={handleAutoMap} />
+          <AutoMapButton key={`${from}_${to}`} onRun={handleAutoMap} />
         </FilterBar>
       </div>
 
@@ -664,6 +683,7 @@ export default function InvoicesPage() {
                 allInvoices={(raw ?? []).map((i) => ({ id: i.id, invoice_number: i.invoice_number ?? null, square_invoice_id: i.square_invoice_id ?? null, invoice_date: i.invoice_date ?? null, customer_name: i.customer_name ?? null, status: i.status }))}
                 onSaveLineItem={handleSaveLineItem}
                 onBatchChanged={() => refetch()}
+                onToggleAccept={handleToggleAccept}
               />
             ))
           )}
