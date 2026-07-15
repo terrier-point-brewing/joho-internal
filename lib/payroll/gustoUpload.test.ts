@@ -398,6 +398,57 @@ describe("uploadGustoReport", () => {
       false
     );
   });
+
+  it("surfaces both the insert error and the cleanup-delete error when the report delete fails after employees insert fails", async () => {
+    const { sb } = makeSb({
+      mappingRows: fullDepartmentMappingRows(),
+      employeesInsertError: { message: "employees insert boom" },
+      reportDeleteError: { message: "report delete boom" },
+    });
+
+    await expect(
+      uploadGustoReport(sb, { payPeriodId: "P1", file: new Blob([MINIMAL_CSV]), fileName: "payroll.csv", userId: "USER_1" })
+    ).rejects.toThrow(/Failed to insert employees.*employees insert boom.*cleanup delete of report.*report delete boom.*orphaned report row may exist/);
+  });
+
+  it("surfaces both the insert error and the cleanup-delete error when the employees delete fails after totals insert fails", async () => {
+    const { sb } = makeSb({
+      mappingRows: fullDepartmentMappingRows(),
+      totalsInsertResult: { data: null, error: { message: "totals insert boom" } },
+      employeesDeleteError: { message: "employees delete boom" },
+    });
+
+    await expect(
+      uploadGustoReport(sb, { payPeriodId: "P1", file: new Blob([MINIMAL_CSV]), fileName: "payroll.csv", userId: "USER_1" })
+    ).rejects.toThrow(/Failed to insert totals.*totals insert boom.*cleanup delete of employees.*employees delete boom.*orphaned report\/employee rows may exist/);
+  });
+
+  it("surfaces both the insert error and the cleanup-delete error when the report delete fails after totals insert fails", async () => {
+    const { sb } = makeSb({
+      mappingRows: fullDepartmentMappingRows(),
+      totalsInsertResult: { data: null, error: { message: "totals insert boom" } },
+      reportDeleteError: { message: "report delete boom" },
+    });
+
+    await expect(
+      uploadGustoReport(sb, { payPeriodId: "P1", file: new Blob([MINIMAL_CSV]), fileName: "payroll.csv", userId: "USER_1" })
+    ).rejects.toThrow(/Failed to insert totals.*totals insert boom.*cleanup delete of report.*report delete boom.*orphaned report\/employee rows may exist/);
+  });
+
+  it("surfaces all three errors when both deletes fail after totals insert fails", async () => {
+    const { sb } = makeSb({
+      mappingRows: fullDepartmentMappingRows(),
+      totalsInsertResult: { data: null, error: { message: "totals insert boom" } },
+      employeesDeleteError: { message: "employees delete boom" },
+      reportDeleteError: { message: "report delete boom" },
+    });
+
+    await expect(
+      uploadGustoReport(sb, { payPeriodId: "P1", file: new Blob([MINIMAL_CSV]), fileName: "payroll.csv", userId: "USER_1" })
+    ).rejects.toThrow(
+      /Failed to insert totals.*totals insert boom.*cleanup delete of employees.*employees delete boom.*cleanup delete of report.*report delete boom.*orphaned report\/employee rows may exist/
+    );
+  });
 });
 
 describe("getActiveGustoReport", () => {

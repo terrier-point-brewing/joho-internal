@@ -125,8 +125,15 @@ export async function uploadGustoReport(sb: SupabaseClient, input: UploadGustoRe
     );
     if (employeesError) {
       // Compensating cleanup: nothing but the report row has been written
-      // yet, so deleting it fully reverts this call.
-      await sb.from("payroll_gl_reports").delete().eq("id", report.id);
+      // yet, so deleting it fully reverts this call. If the cleanup delete
+      // itself fails, report both errors so the caller knows an orphaned row
+      // may exist.
+      const { error: deleteError } = await sb.from("payroll_gl_reports").delete().eq("id", report.id);
+      if (deleteError) {
+        throw new Error(
+          `Failed to insert employees (${employeesError.message}); cleanup delete of report ${report.id} also failed (${deleteError.message}) — orphaned report row may exist`
+        );
+      }
       throw new Error(employeesError.message);
     }
   }
@@ -145,9 +152,22 @@ export async function uploadGustoReport(sb: SupabaseClient, input: UploadGustoRe
       .select();
     if (totalsError) {
       // Compensating cleanup: unwind both the employee rows and the report
-      // row so no partial report is left behind.
-      await sb.from("payroll_gl_report_employees").delete().eq("report_id", report.id);
-      await sb.from("payroll_gl_reports").delete().eq("id", report.id);
+      // row so no partial report is left behind. If either delete fails,
+      // report all errors so the caller knows an orphaned row may exist.
+      const { error: employeesDeleteError } = await sb
+        .from("payroll_gl_report_employees")
+        .delete()
+        .eq("report_id", report.id);
+      const { error: reportDeleteError } = await sb.from("payroll_gl_reports").delete().eq("id", report.id);
+
+      if (employeesDeleteError || reportDeleteError) {
+        const errorParts = [
+          `Failed to insert totals (${totalsError.message})`,
+          employeesDeleteError && `cleanup delete of employees also failed (${employeesDeleteError.message})`,
+          reportDeleteError && `cleanup delete of report also failed (${reportDeleteError.message})`,
+        ].filter((p) => p);
+        throw new Error(`${errorParts.join("; ")} — orphaned report/employee rows may exist`);
+      }
       throw new Error(totalsError.message);
     }
     totals = (totalRows ?? []) as PayrollGlReportTotal[];
