@@ -98,12 +98,17 @@ export interface RuleRef {
 export interface CounterpartyRuleRef {
   counterparty_key:     string;
   chart_of_accounts_id: string | null;
+  // 'payroll_split' counterparties (e.g. Gusto) never auto-map through this
+  // resolver -- their expenses stay unmapped here so they surface for payroll
+  // period matching (lib/finance/payrollMatching.ts) instead.
+  routing:              "single_account" | "payroll_split";
 }
 
 /**
  * Resolve the effective CoA + source for an expense. Priority: a manual pin wins;
  * else a GL-account rule (card/bill coding); else a counterparty rule (bank
- * lines, which carry no GL); else unmapped.
+ * lines, which carry no GL) -- unless that counterparty rule is routed to
+ * payroll_split, in which case it's deliberately left unmapped; else unmapped.
  */
 export function resolveExpenseMapping(
   expense: { external_account_id: string | null; counterparty_key: string | null; mapping_source: MappingSource; chart_of_accounts_id: string | null },
@@ -119,6 +124,7 @@ export function resolveExpenseMapping(
   }
   if (expense.counterparty_key) {
     const rule = counterpartyRules.get(expense.counterparty_key);
+    if (rule?.routing === "payroll_split") return { chart_of_accounts_id: null, mapping_source: "unmapped" };
     if (rule?.chart_of_accounts_id) return { chart_of_accounts_id: rule.chart_of_accounts_id, mapping_source: "rule" };
   }
   return { chart_of_accounts_id: null, mapping_source: "unmapped" };

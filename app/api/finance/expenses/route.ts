@@ -9,7 +9,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { resolveExpenseMapping, type MappingSource } from "@/lib/finance/expenses";
+import { resolveExpenseMapping, type CounterpartyRuleRef, type MappingSource } from "@/lib/finance/expenses";
 
 export const dynamic = "force-dynamic";
 
@@ -108,11 +108,11 @@ export async function PATCH(req: NextRequest) {
         .eq("source", expense.source).eq("external_account_id", expense.external_account_id).single();
       if (rule) glRules.set(rule.external_account_id, rule);
     }
-    const cpRules = new Map<string, { counterparty_key: string; chart_of_accounts_id: string | null }>();
+    const cpRules = new Map<string, CounterpartyRuleRef>();
     if (expense?.counterparty_key) {
       const { data: rule } = await supabase
         .from("expense_counterparty_mappings")
-        .select("counterparty_key, chart_of_accounts_id")
+        .select("counterparty_key, chart_of_accounts_id, routing")
         .eq("source", expense.source).eq("counterparty_key", expense.counterparty_key).single();
       if (rule) cpRules.set(rule.counterparty_key, rule);
     }

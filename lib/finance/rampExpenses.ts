@@ -185,13 +185,13 @@ export async function syncExpenseRecords(
   // Counterparty rules (for bank-sourced rows with no GL coding).
   const { data: cpRows, error: cpErr } = await supabase
     .from("expense_counterparty_mappings")
-    .select("counterparty_key, chart_of_accounts_id")
+    .select("counterparty_key, chart_of_accounts_id, routing")
     .eq("source", SOURCE);
   if (cpErr) throw new Error(`Load counterparty mappings failed: ${cpErr.message}`);
 
   const ruleByCounterparty = new Map<string, CounterpartyRuleRef>();
   for (const r of cpRows ?? []) {
-    ruleByCounterparty.set(r.counterparty_key, { counterparty_key: r.counterparty_key, chart_of_accounts_id: r.chart_of_accounts_id });
+    ruleByCounterparty.set(r.counterparty_key, { counterparty_key: r.counterparty_key, chart_of_accounts_id: r.chart_of_accounts_id, routing: r.routing });
   }
 
   // Ensure a rule row exists for every counterparty in this batch (unmapped —
@@ -199,7 +199,7 @@ export async function syncExpenseRecords(
   const newCpRules: { source: string; counterparty_key: string; counterparty_label: string; chart_of_accounts_id: null; auto_matched: boolean }[] = [];
   for (const rec of records) {
     if (rec.counterparty_key && !ruleByCounterparty.has(rec.counterparty_key)) {
-      ruleByCounterparty.set(rec.counterparty_key, { counterparty_key: rec.counterparty_key, chart_of_accounts_id: null });
+      ruleByCounterparty.set(rec.counterparty_key, { counterparty_key: rec.counterparty_key, chart_of_accounts_id: null, routing: "single_account" });
       newCpRules.push({ source: SOURCE, counterparty_key: rec.counterparty_key, counterparty_label: rec.counterparty_label ?? rec.counterparty_key, chart_of_accounts_id: null, auto_matched: false });
     }
   }
