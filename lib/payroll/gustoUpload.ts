@@ -10,10 +10,22 @@
  * — same random-segment-avoids-collisions, grouped-by-parent-id shape as
  * lib/tax/files.ts.
  *
- * `uploadGustoReport` supersedes (not deletes) any prior active report for
- * the period, then uploads -> parses -> persists report/employees/totals in
- * that order, so the DB never references a Storage object that doesn't
- * exist and a failed insert never leaves a half-written report visible.
+ * `uploadGustoReport` uploads the file to Storage FIRST, before touching the
+ * DB at all: if the upload fails, nothing else has changed, so any prior
+ * active report for the period is left untouched. Only after the upload
+ * succeeds does it parse -> insert the new payroll_gl_reports row -> insert
+ * payroll_gl_report_employees -> insert payroll_gl_report_totals. If the
+ * employees or totals insert fails, it compensates by deleting whatever of
+ * the new report's rows it already wrote (report row, and employee rows if
+ * present) before rethrowing, so a failed insert never leaves a
+ * half-written report visible. The prior active report is only marked
+ * superseded_at as the last step, once the new report is fully persisted —
+ * so between the new report's insert and this final step there can briefly
+ * be two non-superseded rows for the same pay_period_id; see
+ * getActiveGustoReport's order-by-uploaded_at-desc for why that's safe to
+ * read concurrently. If that final supersede UPDATE itself fails, the error
+ * is surfaced but the new report is left in place (already valid) rather
+ * than rolled back.
  *
  * `uploadGustoReport` deliberately does NOT recompute already-matched
  * expenses' GL splits — see Task 8/Task 11 in the implementation plan.
@@ -43,26 +55,23 @@ async function fileToText(file: File | Blob | Buffer): Promise<string> {
 }
 
 /**
- * Marks any existing active report for payPeriodId as superseded (sets
- * superseded_at), uploads the file to the "payroll-gl-reports" Storage
- * bucket, parses it, persists payroll_gl_reports +
- * payroll_gl_report_employees + payroll_gl_report_totals, and returns the
- * new report row plus computed totals.
+ * Uploads the file to the "payroll-gl-reports" Storage bucket, parses it,
+ * persists payroll_gl_reports + payroll_gl_report_employees +
+ * payroll_gl_report_totals, marks any existing active report for
+ * payPeriodId as superseded (sets superseded_at), and returns the new
+ * report row plus computed totals. See the file-level doc comment above for
+ * the ordering/rollback guarantees.
  */
 export async function uploadGustoReport(sb: SupabaseClient, input: UploadGustoReportInput): Promise<GustoReportResult> {
-  const { error: supersedeError } = await sb
-    .from("payroll_gl_reports")
-    .update({ superseded_at: new Date().toISOString() })
-    .eq("pay_period_id", input.payPeriodId)
-    .is("superseded_at", null);
-  if (supersedeError) throw new Error(supersedeError.message);
-
   // input.fileName is user-supplied (from File.name) — strip any path
   // separators so it can't escape the `${payPeriodId}/` key grouping. Same
   // sanitization as lib/tax/files.ts's uploadTaskFile.
   const safeName = input.fileName.split(/[\\/]/).pop()!.replace(/[\\/]/g, "_") || "file";
   const storagePath = `${input.payPeriodId}/${crypto.randomUUID()}-${safeName}`;
 
+  // Upload FIRST, before touching the DB at all: if this fails, nothing
+  // else has changed, so any prior active report for the period stays
+  // untouched and active.
   const { error: uploadError } = await sb.storage.from(BUCKET).upload(storagePath, input.file);
   if (uploadError) throw new Error(uploadError.message);
 
@@ -114,7 +123,12 @@ export async function uploadGustoReport(sb: SupabaseClient, input: UploadGustoRe
         employer_tax_cents: employee.employerTaxCents,
       })),
     );
-    if (employeesError) throw new Error(employeesError.message);
+    if (employeesError) {
+      // Compensating cleanup: nothing but the report row has been written
+      // yet, so deleting it fully reverts this call.
+      await sb.from("payroll_gl_reports").delete().eq("id", report.id);
+      throw new Error(employeesError.message);
+    }
   }
 
   let totals: PayrollGlReportTotal[] = [];
@@ -129,9 +143,27 @@ export async function uploadGustoReport(sb: SupabaseClient, input: UploadGustoRe
         })),
       )
       .select();
-    if (totalsError) throw new Error(totalsError.message);
+    if (totalsError) {
+      // Compensating cleanup: unwind both the employee rows and the report
+      // row so no partial report is left behind.
+      await sb.from("payroll_gl_report_employees").delete().eq("report_id", report.id);
+      await sb.from("payroll_gl_reports").delete().eq("id", report.id);
+      throw new Error(totalsError.message);
+    }
     totals = (totalRows ?? []) as PayrollGlReportTotal[];
   }
+
+  // Only now, after report + employees + totals have all been successfully
+  // persisted, supersede the prior active report for this period (if any).
+  // Excludes the row we just inserted (also superseded_at is null at this
+  // point) so it doesn't supersede itself.
+  const { error: supersedeError } = await sb
+    .from("payroll_gl_reports")
+    .update({ superseded_at: new Date().toISOString() })
+    .eq("pay_period_id", input.payPeriodId)
+    .is("superseded_at", null)
+    .neq("id", report.id);
+  if (supersedeError) throw new Error(supersedeError.message);
 
   return { report, totals, unmappedDepartments: parsed.unmappedDepartments };
 }
@@ -139,7 +171,14 @@ export async function uploadGustoReport(sb: SupabaseClient, input: UploadGustoRe
 /** The active (non-superseded) report for a period, its totals, and any
  * departments its employee rows carry that are no longer (or never were)
  * in payroll_department_gl_mappings — recomputed against the *current*
- * mapping so a mapping added/removed after upload is reflected live. */
+ * mapping so a mapping added/removed after upload is reflected live.
+ *
+ * uploadGustoReport briefly leaves two non-superseded rows for the same
+ * pay_period_id (the new one just inserted, the old one not yet
+ * superseded) while its employees/totals inserts run. Ordering by
+ * uploaded_at desc and taking the first row means a concurrent read that
+ * lands in that window still returns the newest report, never an ambiguous
+ * or wrong one. */
 export async function getActiveGustoReport(
   sb: SupabaseClient,
   payPeriodId: string,
@@ -149,6 +188,8 @@ export async function getActiveGustoReport(
     .select("*")
     .eq("pay_period_id", payPeriodId)
     .is("superseded_at", null)
+    .order("uploaded_at", { ascending: false })
+    .limit(1)
     .maybeSingle();
   if (reportError) throw new Error(reportError.message);
   if (!reportRow) return null;

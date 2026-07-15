@@ -47,6 +47,8 @@ function makeSb(opts: {
   activeReportResult?: { data: unknown; error: unknown };
   totalsSelectResult?: { data: unknown; error: unknown };
   employeeDepartmentsResult?: { data: unknown; error: unknown };
+  reportDeleteError?: { message: string } | null;
+  employeesDeleteError?: { message: string } | null;
 } = {}) {
   const calls: { kind: string; args: unknown[] }[] = [];
 
@@ -75,6 +77,10 @@ function makeSb(opts: {
             },
             is: (col: string, val: unknown) => {
               calls.push({ kind: "is", args: [col, val] });
+              return builder;
+            },
+            neq: (col: string, val: unknown) => {
+              calls.push({ kind: "neq", args: [col, val] });
               return Promise.resolve(
                 opts.supersedeError ? { data: null, error: opts.supersedeError } : { data: null, error: null }
               );
@@ -101,7 +107,25 @@ function makeSb(opts: {
               calls.push({ kind: "is", args: [col, val] });
               return builder;
             },
+            order: (col: string, orderOpts: unknown) => {
+              calls.push({ kind: "order", args: [col, orderOpts] });
+              return builder;
+            },
+            limit: (n: number) => {
+              calls.push({ kind: "limit", args: [n] });
+              return builder;
+            },
             maybeSingle: async () => opts.activeReportResult ?? { data: sampleReport, error: null },
+          };
+          return builder;
+        },
+        delete: () => {
+          calls.push({ kind: "delete", args: [] });
+          const builder = {
+            eq: async (col: string, val: unknown) => {
+              calls.push({ kind: "eq", args: [col, val] });
+              return opts.reportDeleteError ? { data: null, error: opts.reportDeleteError } : { data: null, error: null };
+            },
           };
           return builder;
         },
@@ -122,6 +146,18 @@ function makeSb(opts: {
             eq: (col: string, val: unknown) => {
               calls.push({ kind: "eq", args: [col, val] });
               return Promise.resolve(opts.employeeDepartmentsResult ?? { data: [], error: null });
+            },
+          };
+          return builder;
+        },
+        delete: () => {
+          calls.push({ kind: "delete", args: [] });
+          const builder = {
+            eq: async (col: string, val: unknown) => {
+              calls.push({ kind: "eq", args: [col, val] });
+              return opts.employeesDeleteError
+                ? { data: null, error: opts.employeesDeleteError }
+                : { data: null, error: null };
             },
           };
           return builder;
@@ -238,7 +274,7 @@ describe("uploadGustoReport", () => {
     vi.restoreAllMocks();
   });
 
-  it("marks the prior active report superseded before inserting the new one", async () => {
+  it("marks the prior active report superseded only after report -> employees -> totals all succeed", async () => {
     const { sb, calls } = makeSb({ mappingRows: fullDepartmentMappingRows() });
 
     await uploadGustoReport(sb, {
@@ -248,19 +284,89 @@ describe("uploadGustoReport", () => {
       userId: "USER_1",
     });
 
-    const supersedeIdx = calls.findIndex((c) => c.kind === "update");
     const reportInsertIdx = calls.findIndex(
       (c) => c.kind === "insert" && (c.args[0] as { pay_period_id?: string }).pay_period_id === "P1"
     );
+    const employeesInsertIdx = calls.findIndex(
+      (c) =>
+        c.kind === "insert" &&
+        Array.isArray(c.args[0]) &&
+        (c.args[0] as Record<string, unknown>[]).length > 0 &&
+        "last_name" in (c.args[0] as Record<string, unknown>[])[0]
+    );
+    const totalsInsertIdx = calls.findIndex(
+      (c) =>
+        c.kind === "insert" &&
+        Array.isArray(c.args[0]) &&
+        (c.args[0] as Record<string, unknown>[]).length > 0 &&
+        "chart_of_accounts_id" in (c.args[0] as Record<string, unknown>[])[0]
+    );
+    const supersedeIdx = calls.findIndex((c) => c.kind === "update");
 
-    expect(supersedeIdx).toBeGreaterThanOrEqual(0);
-    expect(reportInsertIdx).toBeGreaterThan(supersedeIdx);
+    expect(reportInsertIdx).toBeGreaterThanOrEqual(0);
+    expect(employeesInsertIdx).toBeGreaterThan(reportInsertIdx);
+    expect(totalsInsertIdx).toBeGreaterThan(employeesInsertIdx);
+    expect(supersedeIdx).toBeGreaterThan(totalsInsertIdx);
 
-    // Supersede filters to only the still-active row for this period.
+    // Supersede filters to only the still-active row for this period,
+    // excluding the row it just inserted.
     const eqCall = calls.find((c) => c.kind === "eq" && c.args[0] === "pay_period_id");
     const isCall = calls.find((c) => c.kind === "is" && c.args[0] === "superseded_at");
+    const neqCall = calls.find((c) => c.kind === "neq" && c.args[0] === "id");
     expect(eqCall?.args[1]).toBe("P1");
     expect(isCall?.args[1]).toBe(null);
+    expect(neqCall?.args[1]).toBe(sampleReport.id);
+  });
+
+  it("does not touch the previous active report's superseded_at when the storage upload fails", async () => {
+    const { sb, calls } = makeSb({ uploadError: { message: "storage boom" } });
+
+    await expect(
+      uploadGustoReport(sb, { payPeriodId: "P1", file: new Blob([MINIMAL_CSV]), fileName: "payroll.csv", userId: "USER_1" })
+    ).rejects.toThrow(/storage boom/);
+
+    expect(calls.some((c) => c.kind === "update")).toBe(false);
+  });
+
+  it("deletes the just-inserted report row and leaves the prior active report untouched when the employees insert fails", async () => {
+    const { sb, calls } = makeSb({
+      mappingRows: fullDepartmentMappingRows(),
+      employeesInsertError: { message: "employees boom" },
+    });
+
+    await expect(
+      uploadGustoReport(sb, { payPeriodId: "P1", file: new Blob([MINIMAL_CSV]), fileName: "payroll.csv", userId: "USER_1" })
+    ).rejects.toThrow(/employees boom/);
+
+    const reportDeleteEq = calls.find(
+      (c, i) => c.kind === "eq" && c.args[0] === "id" && c.args[1] === sampleReport.id && calls[i - 1]?.kind === "delete"
+    );
+    expect(reportDeleteEq).toBeTruthy();
+    expect(calls.some((c) => c.kind === "update")).toBe(false);
+  });
+
+  it("deletes both the employee rows and the report row, and leaves the prior active report untouched, when the totals insert fails", async () => {
+    const { sb, calls } = makeSb({
+      mappingRows: fullDepartmentMappingRows(),
+      totalsInsertResult: { data: null, error: { message: "totals boom" } },
+    });
+
+    await expect(
+      uploadGustoReport(sb, { payPeriodId: "P1", file: new Blob([MINIMAL_CSV]), fileName: "payroll.csv", userId: "USER_1" })
+    ).rejects.toThrow(/totals boom/);
+
+    const employeesDeleteEq = calls.find(
+      (c, i) =>
+        c.kind === "eq" && c.args[0] === "report_id" && c.args[1] === sampleReport.id && calls[i - 1]?.kind === "delete"
+    );
+    const reportDeleteEq = calls.find(
+      (c, i) => c.kind === "eq" && c.args[0] === "id" && c.args[1] === sampleReport.id && calls[i - 1]?.kind === "delete"
+    );
+    expect(employeesDeleteEq).toBeTruthy();
+    expect(reportDeleteEq).toBeTruthy();
+    // Employees deleted before the report row (dependent rows first).
+    expect(calls.indexOf(employeesDeleteEq!)).toBeLessThan(calls.indexOf(reportDeleteEq!));
+    expect(calls.some((c) => c.kind === "update")).toBe(false);
   });
 
   it("surfaces an unmapped department in the result without throwing", async () => {
