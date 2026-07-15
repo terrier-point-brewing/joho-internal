@@ -242,21 +242,30 @@ export function computeGlBucketTotals(
 ): GlBucketTotal[];
 ```
 
-**Parsing rules (from design doc §3 — implement exactly):**
-- An employee block starts at a CSV row with non-empty `Last Name`. Take that row's `Department`, the `Regular`/`Bonus`/`Salary`-type `Amount` column value as gross wage, and the `Employer Taxes` column (the pre-summed total — columns 18-21 in the header, i.e. `Social Security (Employer)`/`Medicare (Employer)`/`FUTA (Employer)`/`NC Unemployment Tax (Employer)`, are sub-detail and NOT separately summed).
-- **Exclude** `Cash Tips` / `Paycheck Tips` sub-rows (rows where the `Job` column position instead holds a pay-type label like `"Cash Tips"`/`"Paycheck Tips"`/`"Bonus"`/`"Gross"` and `Last Name` is blank) from `grossAmountCents` — these are pass-through, not wage expense. Only sum the `Regular`/initial `Amount` value from the employee's own row.
-- **Exclude** grand-total rows: any row where `Last Name` is `"Payroll Totals"`, or a blank-`Last Name` row that is not one of the tip/bonus sub-rows being excluded above (i.e. the bottom summary block spanning multiple rows after the last real employee).
+**Parsing rules (from design doc §3, corrected/verified against the real sample export — implement exactly):**
+- An employee block starts at a CSV row with non-empty `Last Name`. Take that row's `Department`, its own `Amount` column value (the `Regular`/`Salary` pay-type amount), and its `Employer Taxes` column (the pre-summed total — the individual `Social Security (Employer)`/`Medicare (Employer)`/`FUTA (Employer)`/`NC Unemployment Tax (Employer)` sub-columns are detail and NOT separately summed).
+- The employee block continues over any immediately-following blank-`Last Name` sub-rows until the next non-blank-`Last Name` row (or the grand-total section). Each sub-row's `Job` column position instead holds a pay-type label (`"Bonus"`, `"Cash Tips"`, `"Paycheck Tips"`, `"Gross"`, etc.) with an amount in the `Amount` column position:
+  - **Include** a `"Bonus"` sub-row's amount in `grossAmountCents` — a bonus is real wage expense, not pass-through, and Gusto reports it as a separate sub-row rather than folding it into the employee's own `Regular` row.
+  - **Exclude** `"Cash Tips"` and `"Paycheck Tips"` sub-rows — pass-through, already tracked elsewhere, not wage expense.
+  - **Exclude** the `"Gross"` sub-row — it's the sum of the employee's own Regular+Bonus+tip sub-rows and would double-count if added.
+- **Exclude** grand-total rows: any row where `Last Name` is `"Payroll Totals"`, and the entire trailing summary block after it (rows with blank `Last Name` and a `Job`-position value of `"Totals"` or similar — these summarize by job title, not by employee, and are structurally after the last real employee block).
 - A department is "unmapped" if it has zero, empty, or whitespace-only value, or isn't a key in `departmentMap` — push to `unmappedDepartments`, and that employee's gross dollars are excluded from `computeGlBucketTotals`'s returned buckets (never silently defaulted into an existing account).
-- Use the sample CSV structure from the design doc §3 / the design doc's quoted raw CSV as your test fixture basis (Casey Ashford/Riley Bennett = Production; Morgan Bradford through Aria/Drew Winters = Front of House; totals section at the bottom must be excluded).
+- **Test fixture: use `.superpowers/sdd/task-2-sample-gusto-payroll-journal.csv`** (a sample Gusto export with the same real structure/numbers the design was based on, employee names replaced with fictional ones — read it directly; it is not reproduced in the design doc). It has 9 employees: Casey Ashford, Riley Bennett, Val Sawyer = `Production`; Morgan Bradford, Coral Carver, Cody Hastings, Camille Mercer, Aaron Osei, Kai Vance, Aria Winters, Drew Winters = `Front of House` (10 Front of House rows total — recount directly from the file, don't trust this list over the actual file). For the unmapped-department test case, take a copy of this fixture and change one employee's `Department` value to something not in your test's `departmentMap`.
+
+**Verified ground-truth totals for the fixture above (hand-computed and cross-checked against the file's own `"Payroll Totals"` row — use these as your test assertions):**
+- Production: `grossAmountCents` = `2384.62 + 1600.00 + 1730.77 = 5715.39` → `571539` cents; `employerTaxCents` = `227.74 + 162.40 + 170.92 = 561.06` → `56106` cents.
+- Front of House: `grossAmountCents` = `0 (Bradford) + 64.23 (Carver: 56.56 Regular + 7.67 Bonus) + 253.54 (Hastings) + 76.30 (Mercer) + 301.91 (Osei) + 0 (Vance) + 720.00 (Aria Winters) + 0 (Drew Winters) = 1415.98` → `141598` cents; `employerTaxCents` = `12.30 + 65.70 + 23.23 + 72.12 + 73.08 = 246.43` → `24643` cents.
+- Grand total employer tax across both departments = `561.06 + 246.43 = 807.49` → `80749` cents — this matches the file's own `"Payroll Totals"` row `Employer Taxes` value exactly (`80749`), confirming the Bonus-included/Tips-excluded rule above is correct.
+- Grand total gross (Regular + Bonus, excluding tips) = `5715.39 + 1415.98 = 7131.37` — this matches the file's own `"Totals" "Regular"` row Amount (`7123.70`) plus its `"Bonus"` row Amount (`7.67`) = `7131.37` exactly, independently confirming the same rule from the file's own subtotal rows.
 
 **Test cases:**
-- Parses employee gross wages, correctly excluding tips and grand-total rows (assert against hand-computed totals from the sample CSV: Production gross = 2384.62 + 1600.00 + 1730.77 = 5715.39 cents-equivalent; employer taxes sum for Production = 227.74 + 162.40 + 170.92).
+- Parses employee gross wages using the real fixture, asserting the exact Production and Front of House totals above (both gross and employer tax), including the Carver Bonus-inclusion case specifically.
 - Front of House employees with $0 (Morgan Bradford, Kai Vance, Drew Winters — no shifts that period) are parsed but contribute $0, not excluded from the employee list.
-- Unmapped department produces a `unmappedDepartments` entry and its dollars are absent from `computeGlBucketTotals`'s output.
-- Employer tax total sums correctly across all departments combined into the one `payrollTaxesAccountId` bucket.
+- Unmapped department (fixture copy with one employee's `Department` changed) produces a `unmappedDepartments` entry and its dollars are absent from `computeGlBucketTotals`'s output.
+- Employer tax total sums correctly across all departments combined into the one `payrollTaxesAccountId` bucket (assert the `80749`-cent grand total).
 - Malformed/empty CSV input throws a clear error (don't silently return empty).
 
-- [ ] **Step 1: Write failing tests** covering the cases above, using a CSV fixture string modeled on the design doc's sample (trim to ~4-5 employees across both departments plus one unmapped department for the warning-path test).
+- [ ] **Step 1: Write failing tests** covering the cases above, using `.superpowers/sdd/task-2-sample-gusto-payroll-journal.csv` as the fixture (read it as a file in the test, or inline its contents as a template string — implementer's choice).
 - [ ] **Step 2: Run tests, confirm they fail** (`npx vitest run lib/payroll/gustoParser.test.ts`).
 - [ ] **Step 3: Implement `gustoParser.ts`** per the interfaces and rules above.
 - [ ] **Step 4: Run tests, confirm they pass.**
