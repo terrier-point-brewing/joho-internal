@@ -6,6 +6,7 @@ import {
   recomputePeriodExpenseSplits,
   type MatchedExpenseAmount,
 } from "./payrollMatching";
+import { aggregateRows, type CoaRecord, type ExpenseRecord } from "./financials/aggregateRows";
 
 describe("suggestPayPeriod", () => {
   it("picks the closest endDate within the 10-day window", () => {
@@ -334,8 +335,10 @@ describe("recomputePeriodExpenseSplits", () => {
 
     const exp1Lines = state.splits.filter((s) => s.expense_id === "exp-1");
     const exp2Lines = state.splits.filter((s) => s.expense_id === "exp-2");
-    expect(exp1Lines.reduce((s, l) => s + l.amount_cents, 0)).toBe(60000);
-    expect(exp2Lines.reduce((s, l) => s + l.amount_cents, 0)).toBe(40000);
+    // Both source expenses are stored negative (outflow) -- split lines must
+    // preserve that sign, not the magnitude computeProportionalSplits works in.
+    expect(exp1Lines.reduce((s, l) => s + l.amount_cents, 0)).toBe(-60000);
+    expect(exp2Lines.reduce((s, l) => s + l.amount_cents, 0)).toBe(-40000);
     expect(state.splits.every((s) => s.split_source === "payroll_auto")).toBe(true);
   });
 
@@ -364,7 +367,61 @@ describe("recomputePeriodExpenseSplits", () => {
     ]);
 
     const autoLines = state.splits.filter((s) => s.expense_id === "exp-auto");
-    expect(autoLines.reduce((s, l) => s + l.amount_cents, 0)).toBe(50000);
+    expect(autoLines.reduce((s, l) => s + l.amount_cents, 0)).toBe(-50000);
     expect(autoLines.every((l) => l.split_source === "payroll_auto")).toBe(true);
+  });
+
+  it("write→read round trip: a negative-amount expense's recomputed splits stay negative through aggregateRows on a P&L expenses-section account (regression for the sign-loss bug)", async () => {
+    const state: FakeState = {
+      reports: [{ id: "report-1", pay_period_id: "period-1", superseded_at: null }],
+      totals: [
+        { report_id: "report-1", chart_of_accounts_id: "coa-wages", amount_cents: 60000 },
+        { report_id: "report-1", chart_of_accounts_id: "coa-taxes", amount_cents: 20000 },
+      ],
+      matches: [{ pay_period_id: "period-1", expense_id: "exp-net-pay" }],
+      expenses: [{ id: "exp-net-pay", amount_cents: -80000 }], // $800 outflow
+      splits: [],
+    };
+    const client = makeClient(state);
+    await recomputePeriodExpenseSplits(client, "period-1");
+
+    const splitLines = state.splits
+      .filter((s) => s.expense_id === "exp-net-pay")
+      .map((s) => ({
+        chartOfAccountsId: s.chart_of_accounts_id,
+        amountCents: s.amount_cents,
+        splitSource: s.split_source as "payroll_auto" | "manual",
+      }));
+
+    // Every written line must itself be negative (cost), not just the sum.
+    for (const l of splitLines) expect(l.amountCents).toBeLessThan(0);
+
+    const coa: CoaRecord[] = [
+      { id: "coa-wages", parentId: null, accountName: "Wages", accountNumber: "6110", accountType: "Expense", statementSection: "expenses" },
+      { id: "coa-taxes", parentId: null, accountName: "Payroll Taxes", accountNumber: "6130", accountType: "Expense", statementSection: "expenses" },
+    ];
+    const expenseRecord: ExpenseRecord = {
+      id: "exp-net-pay",
+      chartOfAccountsId: null,
+      amountCents: -80000,
+      accountingDate: "2026-07-15",
+      mappingSource: "unmapped",
+      splitLines,
+    };
+
+    const rows = aggregateRows({
+      pos: [],
+      invoiceLines: [],
+      expenses: [expenseRecord],
+      refunds: [],
+      bank: [],
+      coa,
+      months: ["2026-07"],
+    });
+
+    expect(rows.length).toBe(splitLines.length);
+    const total = rows.reduce((s, r) => s + r.amountCentsByMonth["2026-07"], 0);
+    expect(total).toBe(-80000);
+    for (const r of rows) expect(r.amountCentsByMonth["2026-07"]).toBeLessThan(0);
   });
 });

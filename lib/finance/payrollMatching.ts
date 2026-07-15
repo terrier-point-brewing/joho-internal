@@ -143,6 +143,16 @@ export async function recomputePeriodExpenseSplits(sb: SupabaseClient, payPeriod
   const amountByExpenseId = new Map(
     ((expenseRows ?? []) as { id: string; amount_cents: number | null }[]).map((r) => [r.id, Math.abs(r.amount_cents ?? 0)]),
   );
+  // Raw (signed) amount_cents per expense, used to re-apply each expense's
+  // own cash-direction sign to its computed split lines below -- expenses is
+  // stored negative for outflows (see rampExpenses.ts), and
+  // computeProportionalSplits works purely in magnitudes, so its output must
+  // be re-signed before it's written to expense_gl_splits or Financials'
+  // pass-through sign handling (normalizeSign.ts's "C1 fix") will read every
+  // payroll split as a positive credit instead of a cost.
+  const signByExpenseId = new Map(
+    ((expenseRows ?? []) as { id: string; amount_cents: number | null }[]).map((r) => [r.id, r.amount_cents ?? 0]),
+  );
 
   const { data: splitRows, error: splitErr } = await sb
     .from("expense_gl_splits")
@@ -178,11 +188,19 @@ export async function recomputePeriodExpenseSplits(sb: SupabaseClient, payPeriod
 
     if (lines.length === 0) continue;
 
+    // Re-apply the parent expense's cash-direction sign: computeProportionalSplits
+    // only ever produces magnitudes derived from matchedExpenses' abs'd
+    // amountCents, so a negative (outflow) expense's split lines must be
+    // negated before insert. amount_cents === 0 has no direction to preserve
+    // -- treat it as a no-op sign (Math.sign(0) === 0 would zero every line).
+    const rawAmount = signByExpenseId.get(expenseId) ?? 0;
+    const sign = rawAmount < 0 ? -1 : 1;
+
     const { error: insErr } = await sb.from("expense_gl_splits").insert(
       lines.map((l) => ({
         expense_id: expenseId,
         chart_of_accounts_id: l.chartOfAccountsId,
-        amount_cents: l.amountCents,
+        amount_cents: l.amountCents * sign,
         split_source: l.splitSource,
       })),
     );

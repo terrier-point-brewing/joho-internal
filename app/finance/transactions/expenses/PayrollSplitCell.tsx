@@ -138,7 +138,7 @@ export function PayrollSplitCell({ expenseId, payrollMatch, glLines, accounts, o
                 {accountLabel(accounts, l.chartOfAccountsId)}
                 {l.splitSource === "manual" && <span className="text-info ml-1" title="Manually overridden">pin</span>}
               </span>
-              <span className="font-mono text-body shrink-0">{fmtCents(l.amountCents)}</span>
+              <span className="font-mono text-body shrink-0">{fmtCents(Math.abs(l.amountCents))}</span>
             </li>
           ))}
         </ul>

@@ -97,6 +97,13 @@ export function GustoUploadPanel({ periodId }: Props) {
   }
 
   if (loading) return <p className="text-muted text-sm p-6">Loading…</p>;
+  if (error && !state) {
+    return (
+      <div className="p-6">
+        <Banner>{error}</Banner>
+      </div>
+    );
+  }
   if (!state) return null;
 
   const { report, totals, unmappedDepartments, employees, matchedExpenses } = state;
