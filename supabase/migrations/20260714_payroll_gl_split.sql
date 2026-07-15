@@ -72,6 +72,18 @@ create table if not exists public.expense_gl_splits (
   updated_at timestamptz not null default now()
 );
 
+-- ── Updated_at triggers ──────────────────────────────────────────────────
+
+drop trigger if exists payroll_department_gl_mappings_updated_at on public.payroll_department_gl_mappings;
+create trigger payroll_department_gl_mappings_updated_at
+  before update on public.payroll_department_gl_mappings
+  for each row execute function update_updated_at();
+
+drop trigger if exists expense_gl_splits_updated_at on public.expense_gl_splits;
+create trigger expense_gl_splits_updated_at
+  before update on public.expense_gl_splits
+  for each row execute function update_updated_at();
+
 -- ── RLS ───────────────────────────────────────────────────────────────────
 
 alter table public.payroll_department_gl_mappings enable row level security;
