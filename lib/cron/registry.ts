@@ -39,4 +39,20 @@ export const CRON_JOBS: CronJobMeta[] = [
     description:   "Reconciles taproom pours (keg/can sales + draft keg-swaps) from Square into taproom shipments that drain cold storage.",
     maxAgeHours:   25,
   },
+  {
+    job:           "finance-sync",
+    path:          "/api/cron/finance-sync",
+    schedule:      "30 7 * * *",
+    scheduleLabel: "Daily · 07:30 UTC",
+    description:   "Safety net for the Square webhook: re-syncs a trailing window of orders, refunds, and invoices into the finance transactions grid.",
+    maxAgeHours:   25,
+  },
+  {
+    job:           "tax-tasks",
+    path:          "/api/cron/tax-tasks",
+    schedule:      "0 8 * * *",
+    scheduleLabel: "Daily · 08:00 UTC",
+    description:   "Keeps tax_tasks in sync with active tax schedules and fires lead-time alert emails for tasks approaching their due date.",
+    maxAgeHours:   25,
+  },
 ];
