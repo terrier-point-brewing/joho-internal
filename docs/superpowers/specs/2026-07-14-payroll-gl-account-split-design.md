@@ -142,8 +142,13 @@ create table expense_gl_splits (
 );
 ```
 
-RLS follows the existing finance pattern (`finance_reader_roles()` for read, manager/admin for
-write) already used by `expenses` and `payroll_config`.
+RLS follows the existing **payroll** pattern, not the finance one — `finance_reader_roles()`
+currently returns an empty array (service-role-only), whereas `payroll_reader_roles()` returns
+`['manager', 'admin']` and is the semantically correct fit for these payroll-adjacent tables. Use
+the same `"payroll readers"` policy shape already applied to `payroll_config`, `pay_periods`, and
+`employees` (`supabase/migrations/20260709_rls_phase3_tighten_sensitive.sql:64-79`). The one
+exception is `expense_gl_splits` and `payroll_period_expense_matches`, which reference `expenses`
+(a finance table) — give those the same policy as `expenses` itself for consistency.
 
 ## CSV parsing rules (`lib/payroll/gustoParser.ts`)
 
@@ -215,8 +220,12 @@ report exists, flagged (not blocked) when the variance exceeds a small tolerance
   Returns `expense_gl_splits` rows if present, else a single synthesized line from the expense's
   own `chart_of_accounts_id`/`amount_cents`. Every Financials aggregation path that currently
   reads an expense's account directly switches to this resolver.
-- `autoMap.ts` — `expense_counterparty_mappings` consumers must skip auto-mapping when
-  `routing = 'payroll_split'` (route to the matching flow instead of writing a single account).
+- `expenses.ts` — `resolveExpenseMapping()` (the actual counterparty-mapping resolver for
+  `expenses` rows; NOT `autoMap.ts`, which only covers `ramp_bank_ledger` and GL-rule backfill)
+  must skip its counterparty-rule branch when the matched rule's `routing = 'payroll_split'`,
+  at both call sites (`rampExpenses.ts`'s ingest sync and `app/api/finance/expenses/route.ts`'s
+  PATCH clear-override path) — route those expenses to the payroll-matching flow instead of
+  writing a single `chart_of_accounts_id`.
 
 ### API routes — `app/api/`
 - `payroll/periods/[id]/gusto-report/route.ts` (new) — upload + parse endpoint, mirrors
@@ -246,7 +255,11 @@ report exists, flagged (not blocked) when the variance exceeds a small tolerance
 
 ### Schema — new migration(s) under `supabase/migrations/`
 One migration, `20260714_payroll_gl_split.sql`, containing all tables/columns above plus RLS
-policies following the existing `finance_reader_roles()` pattern.
+policies per the corrected pattern described above (`payroll_reader_roles()` for
+payroll-owned tables, the `expenses`-matching policy for `expense_gl_splits` /
+`payroll_period_expense_matches`), plus the `payroll-gl-reports` Storage bucket insert
+(`insert into storage.buckets (id, name, public) values ('payroll-gl-reports', 'payroll-gl-reports', false) on conflict (id) do nothing;`,
+mirroring `20260711_tax_module.sql:116-118`).
 
 ## Testing
 
