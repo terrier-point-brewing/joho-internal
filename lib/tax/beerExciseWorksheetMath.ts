@@ -51,3 +51,17 @@ export function stringToGallons(value: string): number {
   if (!Number.isFinite(n)) return 0;
   return Math.max(0, Math.round(n));
 }
+
+/**
+ * Floor a cents value to its containing whole dollar (e.g. `281099` ->
+ * `281000`) so a 2-decimal money formatter always renders a trailing
+ * `.00` — matching Form B-C-710, which pre-prints ".00" after every money
+ * line (no cents are ever reported on this form). Display-only: the
+ * underlying stored/computed cents value is never altered. Never throws;
+ * non-finite/null/undefined input floors to `0`.
+ */
+export function floorCentsToWholeDollar(value: number | string | null | undefined): number {
+  const n = Number(value ?? 0);
+  const safe = Number.isFinite(n) ? n : 0;
+  return Math.floor(safe / 100) * 100;
+}
