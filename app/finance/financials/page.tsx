@@ -160,7 +160,10 @@ export default function FinancialsPage() {
     [survivorRows, data],
   );
 
-  const tree = useMemo(() => (data ? buildTree(treeRows, statement) : []), [data, treeRows, statement]);
+  const tree = useMemo(
+    () => (data ? buildTree(treeRows, statement, data.coaAccounts) : []),
+    [data, treeRows, statement],
+  );
 
   return (
     <div className="flex flex-col h-full bg-canvas text-primary">

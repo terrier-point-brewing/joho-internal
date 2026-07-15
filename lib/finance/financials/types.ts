@@ -49,9 +49,17 @@ export interface KpiSummary {
   cashOnHandCents: number | null;
 }
 
+/** Minimal chart_of_accounts reference row -- every account (not just ones with postings of their own), so buildTree (app/finance/financials/buildTree.ts) can nest a leaf under an ancestor that carries no direct transactions. */
+export interface CoaAccountRef {
+  id: string;
+  parentId: string | null;
+  accountName: string;
+}
+
 export interface FinancialsResponse {
   months: string[];
   rows: FinancialsRow[];
+  coaAccounts: CoaAccountRef[];
   dataQuality: DataQualitySummary;
   kpis: KpiSummary;
 }
