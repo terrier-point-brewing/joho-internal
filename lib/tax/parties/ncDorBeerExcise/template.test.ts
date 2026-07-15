@@ -16,11 +16,8 @@ describe("nc_dor_beer_excise template", () => {
     expect(per.due).toBe("2026-04-15");
   });
   it("quarterly is unsupported", () => expect(() => p.computePeriod("quarterly", new Date())).toThrow());
-  it("settings schema is beer-only fields, identity is rendered separately by the settings page", () => {
-    const keys = p.settingsSchema.map((f) => f.key);
-    expect(keys).toEqual(expect.arrayContaining(["abc_permit_number","state_of_domicile","fax_number","signer_title"]));
-    expect(keys).not.toContain("legal_name");
-    expect(keys).not.toContain("fein");
+  it("settings schema is empty — filer identity now lives in Tax Profile (tax_entity_profile / tax_registrations), not a per-party settings form", () => {
+    expect(p.settingsSchema).toEqual([]);
   });
   it("mergeWorksheet preserves manual penalty across recompute and re-derives L11", () => {
     const current: WorksheetData = { fields: { cents_penalty: 500, gal_distribution: 1000, gal_contract:0, gal_taproom:0, gal_wholesale:0, flag_timely:1, nc_excise_rate_micros:617100 } };

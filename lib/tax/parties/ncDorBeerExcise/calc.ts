@@ -19,7 +19,7 @@
  * `Math.round` exactly once at its point of definition.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { addDaysStr } from "@/lib/utils/datetime";
+import { addDaysStr, dayEndUtc } from "@/lib/utils/datetime";
 import { GALLONS_PER_BBL } from "@/lib/constants/production";
 import type { ComputeContext, TaxPeriod, WorksheetData, WorksheetFields } from "@/lib/tax/types";
 import { NC_EXCISE_RATE_MICROS_FALLBACK, TAXABLE_CHANNELS, WHOLESALE_CHANNEL, usdToMicros } from "./rates";
@@ -27,6 +27,17 @@ import { deriveBeerExciseFigures } from "./derive";
 import { getTaxRate, TAX_RATE_KEYS } from "@/lib/tax/rates";
 
 const num = (v: number | string | null | undefined) => Number(v ?? 0);
+
+/**
+ * True when `now` is at or before the brewery-local end of `dueDate` — the
+ * "return + full payment filed timely" condition Form B-C-710 Line 7's 2%
+ * discount depends on. No longer a manual checkbox: it's decided
+ * automatically from the current date vs. the filing period's due date
+ * every time the worksheet is (re)computed. `now` is injectable for tests.
+ */
+export function isFiledTimely(dueDate: string, now: Date = new Date()): boolean {
+  return now.getTime() <= new Date(dayEndUtc(dueDate)).getTime();
+}
 
 export interface ExciseDataResult {
   gallonsByChannel: Record<string, number>;
@@ -118,6 +129,7 @@ export interface ComputeBeerExciseFiguresArgs {
   ncRateMicros: number;
   storedNcCents: number;
   missingDetailTxns: number;
+  filedTimely: boolean;
 }
 
 /**
@@ -130,7 +142,7 @@ export interface ComputeBeerExciseFiguresArgs {
  *    backfilled before filing.
  */
 export function computeBeerExciseFigures(args: ComputeBeerExciseFiguresArgs): WorksheetData {
-  const { gallonsByChannel, ncRateMicros, storedNcCents, missingDetailTxns } = args;
+  const { gallonsByChannel, ncRateMicros, storedNcCents, missingDetailTxns, filedTimely } = args;
   const warnings: string[] = [];
 
   const fields: WorksheetFields = {
@@ -144,9 +156,7 @@ export function computeBeerExciseFigures(args: ComputeBeerExciseFiguresArgs): Wo
     gal_military_part4: 0,
     gal_ending_inventory: 0,
     nc_excise_rate_micros: ncRateMicros,
-    flag_timely: 1,
-    flag_amended: 0,
-    flag_no_transactions: 0,
+    flag_timely: filedTimely ? 1 : 0,
     signer_date: "",
     cents_penalty: 0,
     cents_interest: 0,
@@ -189,6 +199,7 @@ export function computeBeerExciseFigures(args: ComputeBeerExciseFiguresArgs): Wo
 export async function computeBeerExciseWorksheet(
   ctx: ComputeContext,
   sb?: SupabaseClient,
+  now: Date = new Date(),
 ): Promise<WorksheetData> {
   const client = sb ?? (await import("@/lib/supabase/admin")).createSupabaseAdminClient();
 
@@ -210,6 +221,7 @@ export async function computeBeerExciseWorksheet(
     ncRateMicros: micros,
     storedNcCents: data.storedNcCents,
     missingDetailTxns: data.missingDetailTxns,
+    filedTimely: isFiledTimely(ctx.period.due, now),
   });
 
   const allWarnings = [...warnings, ...(computed.warnings ?? [])];

@@ -25,11 +25,36 @@ import { queryKeys } from "@/lib/query-keys";
 import { fetchJson } from "@/app/production/hooks/queries";
 import { fmtCents, fmtDateLong } from "@/lib/utils/formatting";
 import type { FieldSpec, TaxTask, WorksheetData } from "@/lib/tax/types";
-import { useTaxPartiesQuery } from "../hooks/useTaxData";
+import type { TaxRegistration } from "@/lib/tax/registrations";
+import { useTaxPartiesQuery, useEntityProfileQuery, useRegistrationsQuery } from "../hooks/useTaxData";
 import { getWorksheetModule } from "../parties/registry";
 import CompletePanel from "./CompletePanel";
 
 const AUTOSAVE_DEBOUNCE_MS = 800;
+
+// Which tax_registrations authorities are relevant to each party's Filing
+// Identity header. FEIN (irs) and the NC DOR account/license # apply to
+// every party filed with NC DOR today; the ABC permit is alcohol-specific
+// (beer excise only).
+const HEADER_REGISTRATION_AUTHORITIES: Record<string, { authorityKey: string; label: string }[]> = {
+  nc_dor_beer_excise: [
+    { authorityKey: "irs", label: "FEIN" },
+    { authorityKey: "nc_dor", label: "NCDOR ID / Account Number" },
+    { authorityKey: "nc_abc", label: "ABC Permit Number" },
+  ],
+  nc_dor_sales_use: [
+    { authorityKey: "irs", label: "FEIN" },
+    { authorityKey: "nc_dor", label: "NCDOR ID / Account Number" },
+  ],
+};
+
+function formatEntityAddress(entity: Record<string, string>): string {
+  const street = [entity.address_line1, entity.address_line2].filter(Boolean).join(", ");
+  const cityStateZip = [[entity.city, entity.state].filter(Boolean).join(", "), entity.postal_code]
+    .filter(Boolean)
+    .join(" ");
+  return [street, cityStateZip].filter(Boolean).join(" · ") || "—";
+}
 
 type SaveState = "idle" | "saving" | "saved" | "error";
 
@@ -78,6 +103,8 @@ export default function TaxWorksheetShell({ taskId }: { taskId: string }) {
     queryFn: () => fetchJson<Record<string, string>>(`/api/tax/profiles/${task!.party_key}`),
     enabled: !!task?.party_key,
   });
+  const entityProfileQuery = useEntityProfileQuery();
+  const registrationsQuery = useRegistrationsQuery();
 
   const [worksheet, setWorksheet] = useState<WorksheetData>({ fields: {} });
   // True while a local edit hasn't been confirmed saved yet — guards the
@@ -227,7 +254,10 @@ export default function TaxWorksheetShell({ taskId }: { taskId: string }) {
       <IdentityHeader
         schema={party?.settingsSchema ?? []}
         values={profileQuery.data}
-        isLoading={profileQuery.isLoading}
+        entity={entityProfileQuery.data}
+        registrations={registrationsQuery.data}
+        registrationAuthorities={HEADER_REGISTRATION_AUTHORITIES[task.party_key] ?? []}
+        isLoading={profileQuery.isLoading || entityProfileQuery.isLoading || registrationsQuery.isLoading}
       />
 
       {worksheet.warnings && worksheet.warnings.length > 0 && (
@@ -283,25 +313,65 @@ export default function TaxWorksheetShell({ taskId }: { taskId: string }) {
   );
 }
 
+/**
+ * Party-agnostic "who is filing" header shown above every party's
+ * worksheet. Three sources, in display order:
+ *  1. `registrations` (tax_registrations) filtered to `registrationAuthorities`
+ *     — FEIN / NCDOR ID / ABC permit, whichever this party's authorities are.
+ *  2. `entity` (tax_entity_profile) — legal name, trade name, address,
+ *     contact, state of domicile, phone, fax. Shared across every party.
+ *  3. `schema`/`values` (the party's own `settingsSchema` /
+ *     `tax_filing_profiles`) — whatever extra identity-ish fields a party
+ *     still declares for itself (e.g. NC DOR Sales & Use's Square mapping
+ *     fields). Empty for beer excise since Task 2 emptied its schema.
+ */
 function IdentityHeader({
   schema,
   values,
+  entity,
+  registrations,
+  registrationAuthorities,
   isLoading,
 }: {
   schema: FieldSpec[];
   values?: Record<string, string>;
+  entity?: Record<string, string>;
+  registrations?: TaxRegistration[];
+  registrationAuthorities: { authorityKey: string; label: string }[];
   isLoading: boolean;
 }) {
   if (isLoading) return <p className="text-xs text-faint mt-2">Loading filing identity…</p>;
-  if (schema.length === 0) return null;
+
+  const registrationRows = registrationAuthorities.map(({ authorityKey, label }) => ({
+    label,
+    value: registrations?.find((r) => r.authority_key === authorityKey)?.number || "—",
+  }));
+
+  const entityRows = entity
+    ? [
+        { label: "Legal Entity Name", value: entity.legal_name || "—" },
+        { label: "Trade Name", value: entity.trade_name || "—" },
+        { label: "Address", value: formatEntityAddress(entity) },
+        { label: "Name of Contact Person", value: entity.contact_name || "—" },
+        { label: "State of Domicile", value: entity.state_of_domicile || "—" },
+        { label: "Phone Number", value: entity.contact_phone || "—" },
+        { label: "Fax Number", value: entity.fax_number || "—" },
+      ]
+    : [];
+
+  const schemaRows = schema.map((field) => ({ label: field.label, value: values?.[field.key] || "—" }));
+
+  const rows = [...registrationRows, ...entityRows, ...schemaRows];
+  if (rows.length === 0) return null;
+
   return (
     <Card className="mt-2" padding="p-3">
       <p className="text-xs font-semibold uppercase tracking-wide text-faint mb-2">Filing Identity</p>
       <dl className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1.5 text-sm">
-        {schema.map((field) => (
-          <div key={field.key} className="min-w-0">
-            <dt className="text-xs text-faint">{field.label}</dt>
-            <dd className="text-body truncate">{values?.[field.key] || "—"}</dd>
+        {rows.map((row) => (
+          <div key={row.label} className="min-w-0">
+            <dt className="text-xs text-faint">{row.label}</dt>
+            <dd className="text-body truncate">{row.value}</dd>
           </div>
         ))}
       </dl>

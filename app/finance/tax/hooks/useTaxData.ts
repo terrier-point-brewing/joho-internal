@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import { fetchJson } from "@/app/production/hooks/queries";
 import type { FieldSpec, Frequency, ReferenceSpec, TaxSchedule, TaxTask } from "@/lib/tax/types";
+import type { TaxRegistration } from "@/lib/tax/registrations";
 import type { DueRule } from "@/lib/tax/dueDate";
 
 /**
@@ -42,6 +43,20 @@ export function useTaxPartiesQuery() {
   return useQuery({
     queryKey: queryKeys.tax.parties(),
     queryFn: () => fetchJson<TaxPartyMeta[]>("/api/tax/parties"),
+  });
+}
+
+export function useEntityProfileQuery() {
+  return useQuery({
+    queryKey: queryKeys.tax.entityProfile(),
+    queryFn: () => fetchJson<Record<string, string>>("/api/tax/entity-profile"),
+  });
+}
+
+export function useRegistrationsQuery() {
+  return useQuery({
+    queryKey: queryKeys.tax.registrations(),
+    queryFn: () => fetchJson<TaxRegistration[]>("/api/tax/registrations"),
   });
 }
 

@@ -28,6 +28,7 @@ const COMPUTED_KEYS = new Set([
   "gal_allowable_deductions",
   "gal_taxable",
   "nc_excise_rate_micros",
+  "flag_timely",
   "cents_excise_due",
   "cents_discount",
   "cents_net_tax_due",
