@@ -67,3 +67,9 @@ export async function updateSchedule(sb: SupabaseClient, id: string, patch: Upda
 export async function setScheduleActive(sb: SupabaseClient, id: string, active: boolean): Promise<TaxSchedule> {
   return updateSchedule(sb, id, { active });
 }
+
+/** Distinct `party_key` values across every currently-active schedule — thin wrapper over `listSchedules`, not a new query. */
+export async function listActivePartyKeys(sb: SupabaseClient): Promise<string[]> {
+  const schedules = await listSchedules(sb, { activeOnly: true });
+  return [...new Set(schedules.map((s) => s.party_key))];
+}
