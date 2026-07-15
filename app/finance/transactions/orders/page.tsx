@@ -1,14 +1,16 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
 import { formatCurrencyCents } from "@/lib/format";
-import { matchesMappingFilter, type MappingFilterValue } from "@/lib/finance/mappingStatus";
+import { mappingState, matchesMappingFilter, type MappingFilterValue } from "@/lib/finance/mappingStatus";
+import { defaultYearRange } from "@/lib/finance/dateRange";
 import { ORDER_STATUS_CLS } from "../../lib/categoryColors";
 import AccountSelect from "../../AccountSelect";
 import SyncPanel from "../components/SyncPanel";
 import MappingFilter from "../components/MappingFilter";
 import MappingStatusPill from "../components/MappingStatusPill";
 import AutoMapButton from "../components/AutoMapButton";
-import YearSelect from "../components/YearSelect";
+import DateRangeFilter from "../components/DateRangeFilter";
+import AcceptUnmappedButton from "../components/AcceptUnmappedButton";
 import SummaryStatBar from "../components/SummaryStatBar";
 import { LedgerTable, Th, CategoryBadges } from "../components/LedgerTable";
 import SortableTh from "@/app/components/ui/SortableTh";
@@ -57,6 +59,7 @@ interface Transaction {
   discount_cents: number;
   status: string;
   notes: string | null;
+  unmapped_accepted: boolean;
   pos_line_items: LineItem[];
 }
 
@@ -74,7 +77,7 @@ const ORDER_CONTROLS: ControlsConfig<Transaction> = {
       param: "mapping",
       matches: (t, sel) => {
         const [m, n] = orderMapped(t);
-        return matchesMappingFilter(sel[0] as MappingFilterValue, m, n);
+        return matchesMappingFilter(sel[0] as MappingFilterValue, m, n, t.unmapped_accepted);
       },
     },
   ],
@@ -178,10 +181,12 @@ function OrderRow({
   txn,
   accounts,
   onSaveLineItem,
+  onToggleAccept,
 }: {
   txn: Transaction;
   accounts: CoARef[];
   onSaveLineItem: (id: string, patch: { chart_of_accounts_id: string | null }) => Promise<void>;
+  onToggleAccept: (id: string, accepted: boolean) => Promise<void>;
 }) {
   const [expanded, setExpanded] = useState(false);
   const lineItems = txn.pos_line_items ?? [];
@@ -206,7 +211,14 @@ function OrderRow({
             </span>
           )}
         </td>
-        <td className="px-4 py-2"><MappingStatusPill mapped={mappedCount} total={lineItems.length} /></td>
+        <td className="px-4 py-2">
+          <div className="flex flex-col gap-0.5 items-start">
+            <MappingStatusPill mapped={mappedCount} total={lineItems.length} accepted={txn.unmapped_accepted} />
+            {mappingState(mappedCount, lineItems.length, txn.unmapped_accepted) !== "mapped" && (
+              <AcceptUnmappedButton accepted={txn.unmapped_accepted} onToggle={() => onToggleAccept(txn.id, !txn.unmapped_accepted)} />
+            )}
+          </div>
+        </td>
         <td className="px-4 py-2 text-right font-mono text-strong tabular-nums">{fmtMoney(txn.total_cents)}</td>
       </tr>
 
@@ -262,8 +274,7 @@ interface SyncResult { synced: number; updated: number; total: number; errors?: 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function SquareTransactionsPage() {
-  const currentYear = new Date().getFullYear();
-  const [year, setYear]               = useState(currentYear);
+  const [{ from, to }, setRange]      = useState(() => defaultYearRange());
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [total, setTotal]             = useState(0);
   const [page, setPage]               = useState(1);
@@ -272,10 +283,10 @@ export default function SquareTransactionsPage() {
   const [error, setError]             = useState<string | null>(null);
   const pageSize = 50;
 
-  const loadTransactions = useCallback(async (yr: number, pg: number) => {
+  const loadTransactions = useCallback(async (rangeFrom: string, rangeTo: string, pg: number) => {
     setLoading(true); setError(null);
     try {
-      const res  = await fetch(`/api/finance/transactions?year=${yr}&page=${pg}&pageSize=${pageSize}`);
+      const res  = await fetch(`/api/finance/transactions?from=${rangeFrom}&to=${rangeTo}&page=${pg}&pageSize=${pageSize}`);
       const json = await res.json();
       if (!res.ok) { setError(json.error ?? "Load failed"); return; }
       setTransactions(json.transactions ?? []);
@@ -296,15 +307,24 @@ export default function SquareTransactionsPage() {
   }, []);
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { loadTransactions(year, page); }, [year, page, loadTransactions]);
+  useEffect(() => { loadTransactions(from, to, page); }, [from, to, page, loadTransactions]);
 
-  function handleYearChange(y: number) { setYear(y); setPage(1); }
+  function handleRangeChange(f: string, t: string) { setRange({ from: f, to: t }); setPage(1); }
 
   async function handleAutoMap(): Promise<{ mapped: number }> {
-    const res = await fetch(`/api/finance/transactions/auto-map?year=${year}`, { method: "POST" });
+    const res = await fetch(`/api/finance/transactions/auto-map?year=${new Date(to).getFullYear()}`, { method: "POST" });
     const json = await res.json();
-    if (json.mapped > 0) loadTransactions(year, page);
+    if (json.mapped > 0) loadTransactions(from, to, page);
     return json;
+  }
+
+  async function handleToggleAccept(id: string, accepted: boolean) {
+    await fetch("/api/finance/transactions", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, unmapped_accepted: accepted }),
+    });
+    setTransactions((txns) => txns.map((t) => (t.id === id ? { ...t, unmapped_accepted: accepted } : t)));
   }
 
   async function handleSaveLineItem(id: string, patch: { chart_of_accounts_id: string | null }) {
@@ -334,7 +354,9 @@ export default function SquareTransactionsPage() {
   }
 
   const totalPages = Math.ceil(total / pageSize);
-  const unmappedTotal = transactions.flatMap((t) => t.pos_line_items)
+  const unmappedTotal = transactions
+    .filter((t) => !t.unmapped_accepted)
+    .flatMap((t) => t.pos_line_items)
     .filter((li) => !li.effective_chart_of_accounts_id).length;
 
   const { rows: visibleTransactions, search, filters, sort, setSearch, setFilter, toggleSort, reset, activeCount } =
@@ -345,26 +367,26 @@ export default function SquareTransactionsPage() {
       <div className="shrink-0 px-4 sm:px-6 py-3 border-b border-line flex items-center gap-3 flex-wrap">
         <FilterBar activeCount={activeCount} onClear={reset}>
           <SearchInput value={search.q ?? ""} onChange={(v) => setSearch("q", v)} placeholder="Search orders…" />
-          <YearSelect year={year} onChange={handleYearChange} />
+          <DateRangeFilter from={from} to={to} onChange={handleRangeChange} />
           <MappingFilter value={(filters.mapping?.[0] as MappingFilterValue) ?? "all"}
             onChange={(v) => setFilter("mapping", v === "all" ? [] : [v])} />
+          <AutoMapButton key={`${from}_${to}`} onRun={handleAutoMap} />
+          <SyncPanel<SyncResult>
+            year={new Date(to).getFullYear()}
+            storageKey="tpb-pos-last-sync"
+            label="from Square"
+            showMonthPicker
+            buildEndpoint={({ year, month }) => `/api/finance/transactions/sync?year=${year}&month=${month}`}
+            onSynced={() => loadTransactions(from, to, 1)}
+            renderResult={(r) => (
+              <>
+                {r.synced > 0 && <span className="text-success mr-2">{r.synced} orders</span>}
+                {r.total === 0 && <span className="text-faint">No orders found</span>}
+                {r.errors?.length ? <span className="text-danger ml-2">{r.errors.length} errors</span> : null}
+              </>
+            )}
+          />
         </FilterBar>
-        <AutoMapButton key={year} onRun={handleAutoMap} />
-        <SyncPanel<SyncResult>
-          year={year}
-          storageKey="tpb-pos-last-sync"
-          label="from Square"
-          showMonthPicker
-          buildEndpoint={({ year, month }) => `/api/finance/transactions/sync?year=${year}&month=${month}`}
-          onSynced={() => loadTransactions(year, 1)}
-          renderResult={(r) => (
-            <>
-              {r.synced > 0 && <span className="text-success mr-2">{r.synced} orders</span>}
-              {r.total === 0 && <span className="text-faint">No orders found</span>}
-              {r.errors?.length ? <span className="text-danger ml-2">{r.errors.length} errors</span> : null}
-            </>
-          )}
-        />
       </div>
 
       {total > 0 && (
@@ -384,7 +406,7 @@ export default function SquareTransactionsPage() {
         {error && <p className="text-xs text-danger px-2 py-4">{error}</p>}
         {!loading && !error && transactions.length === 0 && (
           <div className="flex flex-col items-center justify-center h-40 gap-2 text-center">
-            <p className="text-sm text-secondary">No orders for {year}.</p>
+            <p className="text-sm text-secondary">No orders for {from} – {to}.</p>
             <p className="text-xs text-faint">Click &ldquo;Sync from Square&rdquo; to pull POS orders.</p>
           </div>
         )}
@@ -403,7 +425,7 @@ export default function SquareTransactionsPage() {
               </>
             }>
             {visibleTransactions.map((txn) => (
-              <OrderRow key={txn.id} txn={txn} accounts={accounts} onSaveLineItem={handleSaveLineItem} />
+              <OrderRow key={txn.id} txn={txn} accounts={accounts} onSaveLineItem={handleSaveLineItem} onToggleAccept={handleToggleAccept} />
             ))}
           </LedgerTable>
         )}
