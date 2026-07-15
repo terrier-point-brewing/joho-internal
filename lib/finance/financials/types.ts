@@ -49,12 +49,13 @@ export interface KpiSummary {
   cashOnHandCents: number | null;
 }
 
-/** Minimal chart_of_accounts reference row -- every account (not just ones with postings of their own), so buildTree (app/finance/financials/buildTree.ts) can nest a leaf under an ancestor that carries no direct transactions, and FinancialsTable can look up a row's GL account number for the optional "Show GL #" toggle. */
+/** Minimal chart_of_accounts reference row -- every account (not just ones with postings of their own), so buildTree (app/finance/financials/buildTree.ts) can nest a leaf under an ancestor that carries no direct transactions, seed a real-but-currently-unused root account as a $0 line, and FinancialsTable can look up a row's GL account number for the optional "Show GL #" toggle. `statementSection` is the same derived value aggregateRows.ts's coaSection() would assign this account if it ever got a posting. */
 export interface CoaAccountRef {
   id: string;
   parentId: string | null;
   accountName: string;
   accountNumber: string | null;
+  statementSection: string;
 }
 
 export interface FinancialsResponse {
