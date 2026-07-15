@@ -5,6 +5,7 @@ import { formatCurrency } from "@/lib/format";
 import { useQueryClient } from "@tanstack/react-query";
 import { Ingredient, AdjustmentType, IngredientCategory, INGREDIENT_CATEGORIES } from "../types";
 import { Modal, Field, ModalActions } from "./shared";
+import BulkReceiveModal from "./BulkReceiveModal";
 import { useContractPartnersQuery, useSuppliersQuery, useIngredientsQuery, productionKeys } from "../hooks/queries";
 import { useUserRole } from "@/lib/hooks/useUserRole";
 import { fmtUsd } from "@/lib/utils/formatting";
@@ -361,6 +362,7 @@ export default function IngredientsTab() {
   const onAdjustmentsRefresh = () => qc.invalidateQueries({ queryKey: productionKeys.adjustments });
 
   const [showBulkModal, setShowBulkModal] = useState(false);
+  const [showBulkReceive, setShowBulkReceive] = useState(false);
   const [showIngModal, setShowIngModal] = useState(false);
   const [ingForm, setIngForm] = useState(ING_EMPTY);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -580,6 +582,7 @@ export default function IngredientsTab() {
           ) : (
             <>
               <button onClick={enterBulkEdit} className="btn-secondary" disabled={ingredients.length === 0}>Bulk Edit</button>
+              <button onClick={() => setShowBulkReceive(true)} className="btn-secondary" disabled={ingredients.length === 0}>Bulk Receive</button>
               <button onClick={() => setShowBulkModal(true)} className="btn-primary">↑ Bulk Upload</button>
               <button onClick={openNew} className="btn-primary">+ New Ingredient</button>
             </>
@@ -726,6 +729,18 @@ export default function IngredientsTab() {
         <BulkUploadModal
           onClose={() => setShowBulkModal(false)}
           onDone={async () => { setShowBulkModal(false); await onRefresh(); }}
+        />
+      )}
+
+      {showBulkReceive && (
+        <BulkReceiveModal
+          itemType="ingredient"
+          items={ingredients.map((ing) => ({ id: ing.id, name: ing.name, unit: ing.unit }))}
+          onClose={() => setShowBulkReceive(false)}
+          onDone={async () => {
+            setShowBulkReceive(false);
+            await Promise.all([onRefresh(), onAdjustmentsRefresh()]);
+          }}
         />
       )}
 
