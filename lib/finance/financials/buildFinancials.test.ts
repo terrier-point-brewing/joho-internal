@@ -11,11 +11,11 @@ vi.mock("./fetchSources", () => ({
 const mockedFetch = vi.mocked(fetchFinancialsSources);
 
 const COA = [
-  { id: "coa-rev", parentId: null, accountName: "Taproom Sales", accountType: "Income", statementSection: null },
-  { id: "coa-cogs", parentId: null, accountName: "COGS", accountType: "Cost of Goods Sold", statementSection: null },
-  { id: "coa-exp", parentId: null, accountName: "Rent", accountType: "Expenses", statementSection: null },
-  { id: "coa-bank", parentId: null, accountName: "Operating Checking", accountType: "Bank", statementSection: null },
-  { id: "coa-ar", parentId: null, accountName: "Accounts Receivable", accountType: "Accounts receivable (A/R)", statementSection: null },
+  { id: "coa-rev", parentId: null, accountName: "Taproom Sales", accountNumber: "4000", accountType: "Income", statementSection: null },
+  { id: "coa-cogs", parentId: null, accountName: "COGS", accountNumber: "5000", accountType: "Cost of Goods Sold", statementSection: null },
+  { id: "coa-exp", parentId: null, accountName: "Rent", accountNumber: "6000", accountType: "Expenses", statementSection: null },
+  { id: "coa-bank", parentId: null, accountName: "Operating Checking", accountNumber: "1000", accountType: "Bank", statementSection: null },
+  { id: "coa-ar", parentId: null, accountName: "Accounts Receivable", accountNumber: "1100", accountType: "Accounts receivable (A/R)", statementSection: null },
 ];
 
 function emptySources(months: string[]): FinancialsSourcesResult {

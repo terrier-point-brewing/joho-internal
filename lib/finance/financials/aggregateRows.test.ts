@@ -5,10 +5,10 @@ import { CATEGORY_IDS } from "@/lib/constants/categories";
 const KEG_CAT = [...CATEGORY_IDS.KEGS][0];
 
 const COA: CoaRecord[] = [
-  { id: "coa-beer", parentId: null, accountName: "Beer Sales", accountType: "Income", statementSection: null },
-  { id: "coa-bs-deposit", parentId: null, accountName: "Customer Deposits", accountType: "Other Current Liabilities", statementSection: null },
-  { id: "coa-pl-deposit", parentId: null, accountName: "Distribution Revenue", accountType: "Income", statementSection: null },
-  { id: "coa-expense", parentId: null, accountName: "Supplies", accountType: "Expenses", statementSection: null },
+  { id: "coa-beer", parentId: null, accountName: "Beer Sales", accountNumber: "4000", accountType: "Income", statementSection: null },
+  { id: "coa-bs-deposit", parentId: null, accountName: "Customer Deposits", accountNumber: "2100", accountType: "Other Current Liabilities", statementSection: null },
+  { id: "coa-pl-deposit", parentId: null, accountName: "Distribution Revenue", accountNumber: "4100", accountType: "Income", statementSection: null },
+  { id: "coa-expense", parentId: null, accountName: "Supplies", accountNumber: "6100", accountType: "Expenses", statementSection: null },
 ];
 
 function emptyInput(overrides: Partial<AggregateRowsInput> = {}): AggregateRowsInput {

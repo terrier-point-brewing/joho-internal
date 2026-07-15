@@ -49,11 +49,12 @@ export interface KpiSummary {
   cashOnHandCents: number | null;
 }
 
-/** Minimal chart_of_accounts reference row -- every account (not just ones with postings of their own), so buildTree (app/finance/financials/buildTree.ts) can nest a leaf under an ancestor that carries no direct transactions. */
+/** Minimal chart_of_accounts reference row -- every account (not just ones with postings of their own), so buildTree (app/finance/financials/buildTree.ts) can nest a leaf under an ancestor that carries no direct transactions, and FinancialsTable can look up a row's GL account number for the optional "Show GL #" toggle. */
 export interface CoaAccountRef {
   id: string;
   parentId: string | null;
   accountName: string;
+  accountNumber: string | null;
 }
 
 export interface FinancialsResponse {

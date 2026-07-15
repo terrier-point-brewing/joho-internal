@@ -271,8 +271,15 @@ function buildSectionFromRows(
     }
   }
 
+  // A root account's own name sometimes literally repeats the section's
+  // (hardcoded) title as a prefix -- e.g. real CoA root "COST OF GOODS SOLD
+  // (COGS)" under the "Cost of Goods Sold" section -- which reads as a
+  // duplicate line stacked directly under the section header. Passing `label`
+  // as the root's parentLabel shortens that case exactly like a real
+  // parent/child pair; a root whose name doesn't share that prefix (e.g.
+  // "BREWERY REVENUE" under "Revenue", "Sales Returns & Refunds") is untouched.
   const accountNodes = rootKeys.map((key) =>
-    buildAccountNode(key, rowsByAccount, coaMap, childKeysByParent, months, 1, statementSection),
+    buildAccountNode(key, rowsByAccount, coaMap, childKeysByParent, months, 1, statementSection, label),
   );
 
   return {

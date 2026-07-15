@@ -128,8 +128,14 @@ export async function buildFinancials(params: { statement: StatementKind; year: 
 
   // Full CoA reference table (not filtered to accounts with postings) --
   // buildTree needs every account's parent_id/name to nest a leaf under a
-  // grouping ancestor that carries no direct transactions of its own.
-  const coaAccounts = src.coa.map((c) => ({ id: c.id, parentId: c.parentId, accountName: c.accountName }));
+  // grouping ancestor that carries no direct transactions of its own, and the
+  // UI's "Show GL #" toggle needs each account's account_number.
+  const coaAccounts = src.coa.map((c) => ({
+    id: c.id,
+    parentId: c.parentId,
+    accountName: c.accountName,
+    accountNumber: c.accountNumber,
+  }));
 
   return { months, rows, coaAccounts, dataQuality, kpis };
 }
