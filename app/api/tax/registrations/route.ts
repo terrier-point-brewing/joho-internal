@@ -9,7 +9,17 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { apiError } from "@/lib/utils/api";
-import { listRegistrations, saveRegistrations, type TaxRegistrationInput } from "@/lib/tax/registrations";
+import {
+  listRegistrations,
+  saveRegistrations,
+  resolveRequiredRegistrations,
+  BASE_REQUIRED_REGISTRATIONS,
+  type TaxRegistrationInput,
+} from "@/lib/tax/registrations";
+import { listActivePartyKeys } from "@/lib/tax/schedules";
+import { getParty } from "@/lib/tax/registry";
+// Side-effect import: registers every party template before getParty() runs.
+import "@/lib/tax/parties";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +28,16 @@ export async function GET() {
 
   try {
     const sb = createSupabaseAdminClient();
-    return NextResponse.json(await listRegistrations(sb));
+    const [registrations, activePartyKeys] = await Promise.all([
+      listRegistrations(sb),
+      listActivePartyKeys(sb),
+    ]);
+    const requirements = [
+      ...BASE_REQUIRED_REGISTRATIONS,
+      ...activePartyKeys.flatMap((key) => getParty(key).requiredRegistrations),
+    ];
+    const required = resolveRequiredRegistrations(requirements, registrations);
+    return NextResponse.json({ registrations, required });
   } catch (err) {
     return apiError(err);
   }

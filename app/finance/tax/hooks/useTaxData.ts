@@ -4,14 +4,16 @@ import { useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import { fetchJson } from "@/app/production/hooks/queries";
 import type { FieldSpec, Frequency, ReferenceSpec, TaxSchedule, TaxTask } from "@/lib/tax/types";
-import type { TaxRegistration } from "@/lib/tax/registrations";
+import type { TaxRegistration, ResolvedRequiredRegistration } from "@/lib/tax/registrations";
 import type { DueRule } from "@/lib/tax/dueDate";
 
 /**
  * Serialized shape of `GET /api/tax/parties` — registry metadata only, no
  * filing data. Mirrors the field set built in app/api/tax/parties/route.ts
  * (`settingsSchema`/`scheduleConfigSchema` are needed by the schedule editor
- * to render party-specific config fields, e.g. NC DOR's county weights).
+ * to render party-specific config fields, e.g. NC DOR's county weights;
+ * `requiredRegistrations` is already fully resolved server-side — base +
+ * this party's own requirements, matched against live tax_registrations).
  */
 export interface TaxPartyMeta {
   key: string;
@@ -19,10 +21,17 @@ export interface TaxPartyMeta {
   supportedFrequencies: string[];
   settingsSchema: FieldSpec[];
   scheduleConfigSchema: FieldSpec[];
+  requiredRegistrations: ResolvedRequiredRegistration[];
   referenceView: ReferenceSpec;
   recomputeLabel?: string;
   worksheetComponent: string;
   defaultDueRules: Partial<Record<Frequency, DueRule>>;
+}
+
+/** Serialized shape of `GET /api/tax/registrations`. */
+export interface RegistrationsResponse {
+  registrations: TaxRegistration[];
+  required: ResolvedRequiredRegistration[];
 }
 
 export function useTaxTasksQuery() {
@@ -56,7 +65,14 @@ export function useEntityProfileQuery() {
 export function useRegistrationsQuery() {
   return useQuery({
     queryKey: queryKeys.tax.registrations(),
-    queryFn: () => fetchJson<TaxRegistration[]>("/api/tax/registrations"),
+    queryFn: () => fetchJson<RegistrationsResponse>("/api/tax/registrations"),
+  });
+}
+
+export function useLegalRepresentativeQuery() {
+  return useQuery({
+    queryKey: queryKeys.tax.legalRepresentative(),
+    queryFn: () => fetchJson<Record<string, string>>("/api/tax/legal-representative"),
   });
 }
 
