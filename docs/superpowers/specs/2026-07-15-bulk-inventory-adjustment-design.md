@@ -81,6 +81,14 @@ export function allocateFreightByWeight(
 ): number[]; // shipping_cost dollars per line, same length/order as `lines`, sums to freightTotalDollars (to the cent)
 ```
 
+**Packaging note:** `packaging_items` has no `unit` column at all (only `ingredients` does — confirmed against the
+baseline schema). The packaging bulk route therefore always passes an unmatchable sentinel (e.g. `unit: ""`) for
+every line, which the algorithm's Step 2 already handles: with zero matched lines in the batch, every line falls
+back to `factor = 1`, i.e. freight is split by raw received quantity. No special-casing needed in
+`allocateFreightByWeight` itself — this is the existing fallback branch, just always taken for packaging. This is
+a known simplification (a 500-lid line and a 10-keg line split freight by count, not true weight) accepted per
+"no schema changes" and "simplest solution" — flagged here rather than left implicit.
+
 ## Component changes
 
 ### New — `lib/production/freightAllocation.ts`
