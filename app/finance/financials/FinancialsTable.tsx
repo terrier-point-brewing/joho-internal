@@ -33,10 +33,23 @@ function nodeKey(node: TreeNode, parentPath: string): string {
 // Tailwind spacing-scale-only indent steps (docs/UI_STANDARD.md §3 bans
 // arbitrary `pl-[Npx]` / inline style padding for tree indents) — clamps
 // deeper nesting (channel slices under a sub-account) at the widest allowed step.
-const INDENT_STEPS = ["pl-2", "pl-4", "pl-6", "pl-8"] as const;
+// Applied as a MARGIN on top of every row's shared `pl-4` base (see
+// ACCOUNT_CELL_BASE) rather than as the label cell's only padding: a fixed
+// base means a depth-1 account is always indented further than the
+// (non-interactive) section header above it, and every deeper level is
+// further still — previously depth-1's own `pl-2` (8px) was LESS than the
+// section header's fixed `px-4` (16px), so top-level accounts rendered to
+// the left of their own section, and depth-2 (`pl-4`, 16px) coincided
+// exactly with the section header's inset.
+const INDENT_STEPS = ["ml-2", "ml-4", "ml-6", "ml-8"] as const;
 function indentClass(depth: number): string {
   return INDENT_STEPS[Math.min(Math.max(depth - 1, 0), INDENT_STEPS.length - 1)];
 }
+
+// Shared left inset for every row type's label cell (section headers,
+// account rows, subtotal/total rows) — the one fixed reference point
+// INDENT_STEPS' margins stack on top of for account rows.
+const ACCOUNT_CELL_BASE = "pl-4";
 
 // ── Measure-aware cell content ──────────────────────────────────────────────
 
@@ -135,12 +148,12 @@ function AccountRow({ node, path, ...rest }: RowCommonProps & { node: TreeNode; 
   return (
     <>
       <tr className="border-t border-line/40 hover:bg-surface/20">
-        <td className={`py-1.5 pr-3 text-xs bg-surface ${STICKY_LABEL_CELL} ${indentClass(node.depth)}`}>
+        <td className={`py-1.5 pr-3 text-xs bg-surface ${STICKY_LABEL_CELL} ${ACCOUNT_CELL_BASE}`}>
           {hasChildren ? (
             <button
               type="button"
               onClick={() => toggle(key)}
-              className="w-full flex items-center gap-1.5 min-w-0 text-left hover:text-primary"
+              className={`w-full flex items-center gap-1.5 min-w-0 text-left hover:text-primary ${indentClass(node.depth)}`}
             >
               <span className={`${EXPAND_SLOT} text-faint text-xs`}>{expanded ? "▾" : "▸"}</span>
               <GlNumberBadge coaId={node.row?.coaId ?? null} glNumberByCoaId={glNumberByCoaId} />
@@ -148,7 +161,7 @@ function AccountRow({ node, path, ...rest }: RowCommonProps & { node: TreeNode; 
               {showChannelChip && node.row && <ChannelChip channel={node.row.channel} />}
             </button>
           ) : (
-            <div className="flex items-center gap-1.5 min-w-0">
+            <div className={`flex items-center gap-1.5 min-w-0 ${indentClass(node.depth)}`}>
               <span className={EXPAND_SLOT} />
               <GlNumberBadge coaId={node.row?.coaId ?? null} glNumberByCoaId={glNumberByCoaId} />
               <span className="truncate text-secondary">{node.label}</span>
@@ -172,36 +185,29 @@ function AccountRow({ node, path, ...rest }: RowCommonProps & { node: TreeNode; 
   );
 }
 
-/** Top-level section band (Revenue, COGS, Bank & Cash, ...): collapsible header + its account rows + a "Total {label}" footer computed from the section's own rolled-up row. Expanded by default (unlike individual accounts) so the statement's top-level shape (which sections exist, their accounts) is visible on first load. */
+/** Top-level section band (Revenue, COGS, Bank & Cash, ...): a static, non-interactive header (never a dropdown -- a section is a presentation grouping, not a real account, so it has nothing of its own to expand/collapse) + its account rows (each individually still collapsible via AccountRow) + a "Total {label}" footer computed from the section's own rolled-up row. */
 function SectionBlock({ node, ...rest }: RowCommonProps & { node: TreeNode }) {
-  const { months, measure, isExpanded, toggle } = rest;
+  const { months, measure } = rest;
   const key = nodeKey(node, "root");
-  const expanded = isExpanded(key, true);
   const hasChildren = node.children.length > 0;
 
   return (
     <>
       <tr className="border-t border-line-strong/60 bg-surface/60">
-        <td colSpan={months.length + 2} className={`py-0 bg-surface/60 ${STICKY_LABEL_CELL}`}>
-          <button
-            type="button"
-            onClick={() => toggle(key)}
-            disabled={!hasChildren}
-            className="w-full flex items-center gap-2 px-4 py-2 text-left hover:bg-surface-mid/40 transition-colors disabled:cursor-default"
-          >
-            <span className={`${EXPAND_SLOT} text-muted text-xs`}>{hasChildren ? (expanded ? "▾" : "▸") : ""}</span>
+        <td colSpan={months.length + 2} className={`py-2 bg-surface/60 ${STICKY_LABEL_CELL} ${ACCOUNT_CELL_BASE}`}>
+          <div className="flex items-center gap-2">
             <span className="text-xs font-semibold text-secondary uppercase tracking-wide">{node.label}</span>
             {!hasChildren && <span className="text-xs text-faint italic">no mapped transactions</span>}
-          </button>
+          </div>
         </td>
       </tr>
 
-      {expanded && node.children.map((child, i) => (
+      {node.children.map((child, i) => (
         <AccountRow key={nodeKey(child, key) + i} node={child} path={key} {...rest} />
       ))}
 
       <tr className="border-t border-line-strong/60 bg-surface/40">
-        <td className={`py-1.5 px-4 text-xs text-secondary font-medium bg-surface/40 ${STICKY_LABEL_CELL}`}>Total {node.label}</td>
+        <td className={`py-1.5 pr-3 text-xs text-secondary font-medium bg-surface/40 ${STICKY_LABEL_CELL} ${ACCOUNT_CELL_BASE}`}>Total {node.label}</td>
         {months.map((m) => (
           <td key={m} className="py-1.5 px-2 text-right text-sm font-mono tabular-nums font-semibold">
             <MeasureCell measure={measure} row={node.row} month={m} />

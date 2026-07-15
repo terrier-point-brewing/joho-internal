@@ -181,11 +181,11 @@ describe("buildTree — pl parent/child COA accounts", () => {
 // flattening every leaf into a false section-root.
 describe("buildTree — pl nesting through ancestor accounts with no direct postings", () => {
   const coaAccounts = [
-    { id: "root", parentId: null, accountName: "BREWERY REVENUE" },
-    { id: "taproom-rev", parentId: "root", accountName: "BREWERY REVENUE:Taproom Revenue" },
-    { id: "taproom-liquor", parentId: "taproom-rev", accountName: "BREWERY REVENUE:Taproom Revenue:Taproom Liquor Sales" },
-    { id: "wine", parentId: "taproom-liquor", accountName: "BREWERY REVENUE:Taproom Revenue:Taproom Liquor Sales:Taproom Wine Sales" },
-    { id: "keg", parentId: "taproom-rev", accountName: "BREWERY REVENUE:Taproom Revenue:Taproom Keg Sales" },
+    { id: "root", parentId: null, accountName: "BREWERY REVENUE", accountNumber: "4000" },
+    { id: "taproom-rev", parentId: "root", accountName: "BREWERY REVENUE:Taproom Revenue", accountNumber: "4100" },
+    { id: "taproom-liquor", parentId: "taproom-rev", accountName: "BREWERY REVENUE:Taproom Revenue:Taproom Liquor Sales", accountNumber: "4110" },
+    { id: "wine", parentId: "taproom-liquor", accountName: "BREWERY REVENUE:Taproom Revenue:Taproom Liquor Sales:Taproom Wine Sales", accountNumber: "4111" },
+    { id: "keg", parentId: "taproom-rev", accountName: "BREWERY REVENUE:Taproom Revenue:Taproom Keg Sales", accountNumber: "4120" },
   ];
 
   const rows: FinancialsRow[] = [
@@ -297,12 +297,16 @@ describe("buildTree — pl child label shortening", () => {
 // Real CoA shape (verified live): a section's top/root account is often the
 // literal "type root" QuickBooks imported alongside the type itself -- e.g.
 // real root account "COST OF GOODS SOLD (COGS)" sits directly under the
-// (hardcoded) "Cost of Goods Sold" section label. Shown as-is, that reads as
-// a duplicate line stacked right under the section header. buildSectionFromRows
-// passes the section's own label down as a root account's parentLabel (same
-// shortening rule used for real parent/child pairs) so this collapses too.
-describe("buildTree — pl root account name duplicating its section title", () => {
-  it("shortens a root account whose name repeats the section label as a literal prefix", () => {
+// (hardcoded) "Cost of Goods Sold" section label. An earlier attempt shortened
+// a root account against the section's own title (same rule used for real
+// parent/child pairs) -- but that caused a regression: an EXACT-match root
+// like "OPERATING EXPENSES" under "Operating Expenses" correctly fell back to
+// its full name (nothing left to strip), while a suffixed one like this COGS
+// root got reduced to the bare fragment "(COGS)". Root accounts now always
+// show their full name; the section/account visual distinction is handled by
+// FinancialsTable's static (non-dropdown) SectionBlock styling instead.
+describe("buildTree — pl root account name vs. its section title", () => {
+  it("shows a root account's full name even when it repeats the section label as a prefix", () => {
     const rows: FinancialsRow[] = [
       row({
         coaId: "cogs-root", accountName: "COST OF GOODS SOLD (COGS)", statementSection: "cogs",
@@ -312,7 +316,7 @@ describe("buildTree — pl root account name duplicating its section title", () 
     const tree = buildTree(rows, "pl");
     const cogs = tree.find((n) => n.label === "Cost of Goods Sold")!;
     expect(cogs.children).toHaveLength(1);
-    expect(cogs.children[0].label).toBe("(COGS)");
+    expect(cogs.children[0].label).toBe("COST OF GOODS SOLD (COGS)");
   });
 
   it("leaves a root account's name alone when it doesn't share the section's title as a prefix", () => {
@@ -325,6 +329,50 @@ describe("buildTree — pl root account name duplicating its section title", () 
     expect(revenue.children.map((c) => c.label).sort()).toEqual(["BREWERY REVENUE", "Sales Returns & Refunds"]);
     // Both real CoA roots, same depth -- neither a false child of the other.
     expect(revenue.children.every((c) => c.depth === 1)).toBe(true);
+  });
+});
+
+describe("buildTree — pl orders siblings by GL account number", () => {
+  const coaAccounts = [
+    { id: "returns", parentId: null, accountName: "Sales Returns & Refunds", accountNumber: "4999" },
+    { id: "brewery", parentId: null, accountName: "BREWERY REVENUE", accountNumber: "4000" },
+  ];
+
+  it("sorts root accounts ascending by GL number regardless of insertion order", () => {
+    const rows: FinancialsRow[] = [
+      row({ coaId: "returns", accountName: "Sales Returns & Refunds", statementSection: "revenue", amountCentsByMonth: { "2026-01": -10 } }),
+      row({ coaId: "brewery", accountName: "BREWERY REVENUE", statementSection: "revenue", amountCentsByMonth: { "2026-01": 100 } }),
+    ];
+    const tree = buildTree(rows, "pl", coaAccounts);
+    const revenue = tree.find((n) => n.label === "Revenue")!;
+    expect(revenue.children.map((c) => c.label)).toEqual(["BREWERY REVENUE", "Sales Returns & Refunds"]);
+  });
+
+  it("sorts an account with no GL number (e.g. a synthesized top-line adjustment) after every numbered account", () => {
+    const rows: FinancialsRow[] = [
+      row({ coaId: null, accountName: "Manual Net-Sales Adjustment", statementSection: "revenue", amountCentsByMonth: { "2026-01": 5 } }),
+      row({ coaId: "returns", accountName: "Sales Returns & Refunds", statementSection: "revenue", amountCentsByMonth: { "2026-01": -10 } }),
+      row({ coaId: "brewery", accountName: "BREWERY REVENUE", statementSection: "revenue", amountCentsByMonth: { "2026-01": 100 } }),
+    ];
+    const tree = buildTree(rows, "pl", coaAccounts);
+    const revenue = tree.find((n) => n.label === "Revenue")!;
+    expect(revenue.children.map((c) => c.label)).toEqual(["BREWERY REVENUE", "Sales Returns & Refunds", "Manual Net-Sales Adjustment"]);
+  });
+
+  it("sorts nested children by GL number too, independent of their parent's ordering", () => {
+    const nestedCoa = [
+      { id: "parent", parentId: null, accountName: "Parent", accountNumber: "5000" },
+      { id: "child-b", parentId: "parent", accountName: "Child B", accountNumber: "5200" },
+      { id: "child-a", parentId: "parent", accountName: "Child A", accountNumber: "5100" },
+    ];
+    const rows: FinancialsRow[] = [
+      row({ coaId: "child-b", parentId: "parent", accountName: "Child B", statementSection: "cogs", amountCentsByMonth: { "2026-01": -20 } }),
+      row({ coaId: "child-a", parentId: "parent", accountName: "Child A", statementSection: "cogs", amountCentsByMonth: { "2026-01": -10 } }),
+    ];
+    const tree = buildTree(rows, "pl", nestedCoa);
+    const cogs = tree.find((n) => n.label === "Cost of Goods Sold")!;
+    const parent = cogs.children[0];
+    expect(parent.children.map((c) => c.label)).toEqual(["Child A", "Child B"]);
   });
 });
 

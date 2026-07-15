@@ -41,10 +41,16 @@ const STATEMENT_TABS: TabDef<StatementKind>[] = [
   { key: "cash_flow",     label: "Cash Flow" },
 ];
 
-const MEASURE_TABS: TabDef<Measure>[] = [
-  { key: "amount",         label: "$" },
-  { key: "bbl",             label: "BBL" },
-  { key: "amount_per_bbl", label: "$/BBL" },
+// Measure is a required, always-exactly-one-selected view mode (never "none"),
+// unlike every other FilterBar control (Channel/Section/Quality/GL #), which
+// are optional and support an implicit "All"/off state -- so it's rendered
+// with a small dedicated exclusive-chip group (MeasureChips below) instead of
+// the shared FilterChips/FilterSelect primitives, which always render an
+// "All" option that has no valid meaning here.
+const MEASURE_OPTIONS: { value: Measure; label: string }[] = [
+  { value: "amount",          label: "$" },
+  { value: "bbl",             label: "BBL" },
+  { value: "amount_per_bbl", label: "$/BBL" },
 ];
 
 const VALID_STATEMENTS: StatementKind[] = ["pl", "balance_sheet", "cash_flow"];
@@ -106,6 +112,26 @@ function KpiStrip({ data }: { data: FinancialsResponse | undefined }) {
   );
 }
 
+/** Exclusive-choice chip group for Measure -- same visual language as FilterChips (app/components/ui/FilterChips.tsx) but with no "All"/off state, since exactly one measure is always active. */
+function MeasureChips({ value, onChange }: { value: Measure; onChange: (v: Measure) => void }) {
+  const chip = (selected: boolean) =>
+    `text-xs px-2 py-0.5 rounded border transition-colors ${
+      selected
+        ? "border-accent-border bg-accent-muted/40 text-accent-soft"
+        : "border-line-strong text-secondary hover:border-line-subtle hover:text-body"
+    }`;
+  return (
+    <div className="flex items-center gap-1.5 flex-wrap">
+      <span className="text-xs text-muted mr-0.5">Measure:</span>
+      {MEASURE_OPTIONS.map((o) => (
+        <button key={o.value} type="button" onClick={() => onChange(o.value)} className={chip(value === o.value)}>
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function FinancialsPage() {
@@ -114,7 +140,7 @@ export default function FinancialsPage() {
   const [year, setYear] = useState(currentYear);
   const [statement, setStatement] = useState<StatementKind>(() => initialStatementFrom(searchParams.get("statement")));
   const [measure, setMeasure] = useState<Measure>("amount");
-  const [showGlNumbers, setShowGlNumbers] = useState(false);
+  const [showGlNumbers, setShowGlNumbers] = useState(true);
   const years = Array.from({ length: 3 }, (_, i) => currentYear - i);
 
   const { data, isFetching, error, refetch } = useQuery({
@@ -192,21 +218,6 @@ export default function FinancialsPage() {
 
         <div className="flex items-center justify-between flex-wrap gap-2 mt-2">
           <TabBar tabs={STATEMENT_TABS} activeKey={statement} onSelect={handleStatementSelect} className="mb-0" />
-          <div className="flex items-center gap-2 pb-2">
-            <button
-              type="button"
-              onClick={() => setShowGlNumbers((v) => !v)}
-              aria-pressed={showGlNumbers}
-              className={showGlNumbers ? "btn-primary btn-xxs" : "btn-secondary btn-xxs"}
-            >
-              GL #
-            </button>
-            {statement === "pl" ? (
-              <TabBar tabs={MEASURE_TABS} activeKey={measure} onSelect={setMeasure} className="mb-0" />
-            ) : (
-              <span className="text-xs text-faint">$ only</span>
-            )}
-          </div>
         </div>
       </div>
 
@@ -244,6 +255,14 @@ export default function FinancialsPage() {
             value={filters.quality ?? []}
             onChange={(v) => setFilter("quality", v)}
           />
+          <FilterChips
+            label="GL #"
+            options={[{ value: "show", label: "Show" }]}
+            value={showGlNumbers ? ["show"] : []}
+            onChange={(v) => setShowGlNumbers(v.includes("show"))}
+            allLabel="Hide"
+          />
+          {statement === "pl" && <MeasureChips value={measure} onChange={setMeasure} />}
         </FilterBar>
 
         {isFetching && !data && (

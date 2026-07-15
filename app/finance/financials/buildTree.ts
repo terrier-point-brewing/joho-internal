@@ -35,11 +35,12 @@ export interface TreeNode {
   isSection: boolean;
 }
 
-/** Minimal chart_of_accounts reference shape buildTree needs to nest an account under an ancestor that itself carries no direct postings (see CoaLookup below). */
+/** Minimal chart_of_accounts reference shape buildTree needs to nest an account under an ancestor that itself carries no direct postings (see CoaLookup below), and to sort siblings by GL number. */
 export interface CoaAccountRef {
   id: string;
   parentId: string | null;
   accountName: string;
+  accountNumber: string | null;
 }
 
 /**
@@ -48,15 +49,38 @@ export interface CoaAccountRef {
  * -- every transaction lands on a deeper leaf account. FinancialsRow[] alone
  * only contains accounts that DO have postings, so nesting purely off rows
  * silently flattens every such grouping account's descendants into false
- * roots. CoaLookup carries the full chart_of_accounts parent_id/name data
- * (fetched once, independent of which accounts happen to have transactions)
- * so the tree can synthesize a zero-postings node for a grouping account and
- * still nest its real descendants underneath it.
+ * roots. CoaLookup carries the full chart_of_accounts parent_id/name/number
+ * data (fetched once, independent of which accounts happen to have
+ * transactions) so the tree can synthesize a zero-postings node for a
+ * grouping account and still nest its real descendants underneath it, and
+ * order siblings by GL number.
  */
-type CoaLookup = Map<string, { parentId: string | null; accountName: string }>;
+type CoaLookup = Map<string, { parentId: string | null; accountName: string; accountNumber: string | null }>;
 
 function buildCoaLookup(coaAccounts: CoaAccountRef[]): CoaLookup {
-  return new Map(coaAccounts.map((c) => [c.id, { parentId: c.parentId, accountName: c.accountName }]));
+  return new Map(coaAccounts.map((c) => [c.id, { parentId: c.parentId, accountName: c.accountName, accountNumber: c.accountNumber }]));
+}
+
+/** A node's GL account number as a sortable number, or null when it has none (unmapped bucket, or a synthesized top-line adjustment like Manual Net-Sales Adjustment with no coaId at all). */
+function accountNumberOf(node: TreeNode, coaMap: CoaLookup): number | null {
+  const coaId = node.row?.coaId ?? null;
+  if (!coaId) return null;
+  const raw = coaMap.get(coaId)?.accountNumber;
+  if (!raw) return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** Orders sibling account nodes by ascending GL account number, mirroring the Chart of Accounts' own numbering ("P&L order should generally follow CoA numbering"). Accounts with no GL number (unmapped, or synthesized entries like Manual Net-Sales Adjustment) sort last, after every numbered account, in their original relative order. */
+function sortByAccountNumber(nodes: TreeNode[], coaMap: CoaLookup): TreeNode[] {
+  return [...nodes].sort((a, b) => {
+    const an = accountNumberOf(a, coaMap);
+    const bn = accountNumberOf(b, coaMap);
+    if (an === null && bn === null) return 0;
+    if (an === null) return 1;
+    if (bn === null) return -1;
+    return an - bn;
+  });
 }
 
 const COVERAGE_RANK: Record<BblCoverage, number> = { full: 0, partial: 1, unknown: 2 };
@@ -156,8 +180,11 @@ function buildAccountNode(
   const parentId = resolveParentId(key, rowsByAccount, coaMap);
 
   const childKeys = childKeysByParent.get(key) ?? [];
-  const childAccountNodes = childKeys.map((childKey) =>
-    buildAccountNode(childKey, rowsByAccount, coaMap, childKeysByParent, months, depth + 1, statementSection, rawAccountName),
+  const childAccountNodes = sortByAccountNumber(
+    childKeys.map((childKey) =>
+      buildAccountNode(childKey, rowsByAccount, coaMap, childKeysByParent, months, depth + 1, statementSection, rawAccountName),
+    ),
+    coaMap,
   );
 
   const distinctChannels = [...new Set(ownRows.map((r) => r.channel))];
@@ -271,15 +298,18 @@ function buildSectionFromRows(
     }
   }
 
-  // A root account's own name sometimes literally repeats the section's
-  // (hardcoded) title as a prefix -- e.g. real CoA root "COST OF GOODS SOLD
-  // (COGS)" under the "Cost of Goods Sold" section -- which reads as a
-  // duplicate line stacked directly under the section header. Passing `label`
-  // as the root's parentLabel shortens that case exactly like a real
-  // parent/child pair; a root whose name doesn't share that prefix (e.g.
-  // "BREWERY REVENUE" under "Revenue", "Sales Returns & Refunds") is untouched.
-  const accountNodes = rootKeys.map((key) =>
-    buildAccountNode(key, rowsByAccount, coaMap, childKeysByParent, months, 1, statementSection, label),
+  // Root accounts always show their own full name (no parentLabel passed).
+  // An earlier attempt shortened a root account against the section's own
+  // (hardcoded) title, which caused a real regression: an exact-name-match
+  // root like "OPERATING EXPENSES" under "Operating Expenses" correctly fell
+  // back to its full name (nothing left to strip), but a suffixed one like
+  // "COST OF GOODS SOLD (COGS)" got reduced to the bare fragment "(COGS)".
+  // The section header and its root account are visually distinguished by
+  // styling (SectionBlock is a static divider, never a real account row),
+  // not by text truncation, so this doesn't need the shortening treatment.
+  const accountNodes = sortByAccountNumber(
+    rootKeys.map((key) => buildAccountNode(key, rowsByAccount, coaMap, childKeysByParent, months, 1, statementSection)),
+    coaMap,
   );
 
   return {
