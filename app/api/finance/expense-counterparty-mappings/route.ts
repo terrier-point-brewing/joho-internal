@@ -10,7 +10,7 @@ export async function GET() {
   const supabase = createSupabaseAdminClient();
   const { data, error } = await supabase
     .from("expense_counterparty_mappings")
-    .select(`id, counterparty_key, counterparty_label, chart_of_accounts_id, auto_matched, chart_of_accounts!expense_counterparty_mappings_chart_of_accounts_id_fkey ( account_name, account_number )`)
+    .select(`id, counterparty_key, counterparty_label, chart_of_accounts_id, auto_matched, routing, chart_of_accounts!expense_counterparty_mappings_chart_of_accounts_id_fkey ( account_name, account_number )`)
     .order("counterparty_label", { ascending: true });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data);
@@ -18,15 +18,33 @@ export async function GET() {
 
 export async function PATCH(req: NextRequest) {
   try { await requireRole([]); } catch (res) { return res as Response; }
-  const body = await req.json() as { id: string; chart_of_accounts_id: string | null };
+  const body = await req.json() as {
+    id: string;
+    chart_of_accounts_id?: string | null;
+    routing?: "single_account" | "payroll_split";
+  };
   if (!body.id) return NextResponse.json({ error: "id required" }, { status: 400 });
 
   const supabase = createSupabaseAdminClient();
+
+  // A routing-only update (from the settings toggle) touches only `routing`
+  // -- it must not clobber the rule's existing chart_of_accounts_id/auto_matched
+  // or trigger the account-mapping cascade below.
+  const update: { chart_of_accounts_id?: string | null; auto_matched?: boolean; routing?: "single_account" | "payroll_split" } = {};
+  const isAccountUpdate = "chart_of_accounts_id" in body;
+  if (isAccountUpdate) {
+    update.chart_of_accounts_id = body.chart_of_accounts_id ?? null;
+    update.auto_matched = false;
+  }
+  if (body.routing) update.routing = body.routing;
+
   const { data, error } = await supabase
     .from("expense_counterparty_mappings")
-    .update({ chart_of_accounts_id: body.chart_of_accounts_id ?? null, auto_matched: false })
-    .eq("id", body.id).select("id, counterparty_key, chart_of_accounts_id").single();
+    .update(update)
+    .eq("id", body.id).select("id, counterparty_key, chart_of_accounts_id, routing").single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  if (!isAccountUpdate) return NextResponse.json(data);
 
   const counterpartyKey = data.counterparty_key as string;
   const coaId = data.chart_of_accounts_id as string | null;

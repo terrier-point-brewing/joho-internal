@@ -5,10 +5,13 @@ import SettingsNav from "../SettingsNav";
 import AccountSelect, { type CoARef } from "../../AccountSelect";
 import PageHeader from "@/app/components/PageHeader";
 import Banner from "@/app/components/ui/Banner";
+import Badge from "@/app/components/ui/Badge";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface CoaJoin { account_name: string; account_number: string | null }
+
+type CounterpartyRouting = "single_account" | "payroll_split";
 
 interface RuleRow {
   id: string;
@@ -17,6 +20,7 @@ interface RuleRow {
   chart_of_accounts_id: string | null;
   auto_matched: boolean;
   chart_of_accounts: CoaJoin | null;
+  routing: CounterpartyRouting;
 }
 
 // Counterparty rules (uncoded bank-line senders/payees, e.g. Gusto, Erie) → Chart of
@@ -61,6 +65,19 @@ export default function CounterpartyAccountsPage() {
       : r));
   }
 
+  // Routing controls whether this counterparty auto-maps to a single account
+  // (default) or is routed to payroll period matching (Finance > Payroll)
+  // instead -- see lib/finance/expenses.ts's resolveExpenseMapping.
+  async function handleSetRouting(rule: RuleRow, routing: CounterpartyRouting) {
+    const res = await fetch("/api/finance/expense-counterparty-mappings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: rule.id, routing }),
+    });
+    if (!res.ok) return;
+    setRules((rs) => rs.map((r) => (r.id === rule.id ? { ...r, routing } : r)));
+  }
+
   const mappedCount = rules.filter((r) => r.chart_of_accounts_id).length;
 
   return (
@@ -102,6 +119,7 @@ export default function CounterpartyAccountsPage() {
               <thead>
                 <tr className="border-b border-line">
                   <th className="px-4 py-2 text-left text-muted font-medium">Counterparty</th>
+                  <th className="px-4 py-2 text-left text-muted font-medium">Routing</th>
                   <th className="px-4 py-2 text-left text-muted font-medium">Chart of Accounts</th>
                 </tr>
               </thead>
@@ -117,14 +135,33 @@ export default function CounterpartyAccountsPage() {
                       </div>
                     </td>
                     <td className="px-4 py-2">
-                      <AccountSelect
-                        value={rule.chart_of_accounts_id}
-                        onChange={(id) => handleSetRule(rule, id)}
-                        accounts={accounts}
-                        placeholder="— map this counterparty —"
-                        shortLabel
-                        className="w-full max-w-[360px]"
-                      />
+                      <select
+                        className="inp-sm"
+                        value={rule.routing}
+                        onChange={(e) => handleSetRouting(rule, e.target.value as CounterpartyRouting)}
+                      >
+                        <option value="single_account">Single account</option>
+                        <option value="payroll_split">Payroll split</option>
+                      </select>
+                    </td>
+                    <td className="px-4 py-2">
+                      {rule.routing === "payroll_split" ? (
+                        <div className="flex items-center gap-2">
+                          <Badge tone="accent">Split by GL account — matched per pay period</Badge>
+                          <a href="/finance/settings/payroll-department-mappings" className="text-[10px] text-accent hover:underline shrink-0">
+                            Manage →
+                          </a>
+                        </div>
+                      ) : (
+                        <AccountSelect
+                          value={rule.chart_of_accounts_id}
+                          onChange={(id) => handleSetRule(rule, id)}
+                          accounts={accounts}
+                          placeholder="— map this counterparty —"
+                          shortLabel
+                          className="w-full max-w-[360px]"
+                        />
+                      )}
                     </td>
                   </tr>
                 ))}
