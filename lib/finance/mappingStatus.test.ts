@@ -16,6 +16,16 @@ describe("mappingState", () => {
   it("returns 'unmapped' when no child is mapped", () => {
     expect(mappingState(0, 3)).toBe("unmapped");
   });
+  it("returns 'accepted' when accepted and not fully mapped", () => {
+    expect(mappingState(1, 3, true)).toBe("accepted");
+    expect(mappingState(0, 3, true)).toBe("accepted");
+  });
+  it("returns 'mapped' when fully mapped, even if accepted is stale-true", () => {
+    expect(mappingState(3, 3, true)).toBe("mapped");
+  });
+  it("returns 'empty' when there are no children, regardless of accepted", () => {
+    expect(mappingState(0, 0, true)).toBe("empty");
+  });
 });
 
 describe("matchesMappingFilter", () => {
@@ -33,5 +43,11 @@ describe("matchesMappingFilter", () => {
     expect(matchesMappingFilter("partial", 1, 3)).toBe(true);
     expect(matchesMappingFilter("unmapped", 0, 3)).toBe(true);
     expect(matchesMappingFilter("mapped", 1, 3)).toBe(false);
+  });
+  it("matches the 'accepted' bucket, and excludes accepted rows from 'unmapped'", () => {
+    expect(matchesMappingFilter("accepted", 1, 3, true)).toBe(true);
+    expect(matchesMappingFilter("unmapped", 1, 3, true)).toBe(false);
+    // Fully-mapped-but-stale-accepted-flag row reads as "mapped", not "accepted".
+    expect(matchesMappingFilter("accepted", 3, 3, true)).toBe(false);
   });
 });

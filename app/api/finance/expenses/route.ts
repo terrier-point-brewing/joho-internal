@@ -47,6 +47,7 @@ export async function GET(req: NextRequest) {
       chart_of_accounts_id,
       mapping_source,
       inventory_alert_dismissed,
+      unmapped_accepted,
       chart_of_accounts!expenses_chart_of_accounts_id_fkey ( account_name, account_number, account_type )
     `)
     .order("accounting_date", { ascending: false, nullsFirst: false })
@@ -68,6 +69,7 @@ export async function PATCH(req: NextRequest) {
     id: string;
     chart_of_accounts_id?: string | null;
     inventory_alert_dismissed?: boolean;
+    unmapped_accepted?: boolean;
   };
 
   if (!body.id) {
@@ -84,6 +86,19 @@ export async function PATCH(req: NextRequest) {
       .update({ inventory_alert_dismissed: body.inventory_alert_dismissed })
       .eq("id", body.id)
       .select("id, inventory_alert_dismissed")
+      .single();
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json(data);
+  }
+
+  // Manually accept an unmapped expense as not needing a real GL mapping —
+  // independent of CoA mapping, so return early before the mapping logic below.
+  if (typeof body.unmapped_accepted === "boolean") {
+    const { data, error } = await supabase
+      .from("expenses")
+      .update({ unmapped_accepted: body.unmapped_accepted })
+      .eq("id", body.id)
+      .select("id, unmapped_accepted")
       .single();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json(data);

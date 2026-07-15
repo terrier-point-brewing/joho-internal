@@ -1,11 +1,12 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
 import { formatCurrencyCents } from "@/lib/format";
-import { matchesMappingFilter, type MappingFilterValue } from "@/lib/finance/mappingStatus";
+import { mappingState, matchesMappingFilter, type MappingFilterValue } from "@/lib/finance/mappingStatus";
 import { EXPENSE_STATE_CLS } from "../../lib/categoryColors";
 import AccountSelect, { type CoARef } from "../../AccountSelect";
 import Banner from "@/app/components/ui/Banner";
-import YearSelect from "../components/YearSelect";
+import DateRangeFilter from "../components/DateRangeFilter";
+import AcceptUnmappedButton from "../components/AcceptUnmappedButton";
 import SyncPanel from "../components/SyncPanel";
 import SummaryStatBar from "../components/SummaryStatBar";
 import MappingFilter from "../components/MappingFilter";
@@ -19,6 +20,7 @@ import { useTableControls } from "@/app/components/ui/useTableControls";
 import type { ControlsConfig } from "@/lib/table/types";
 import InventoryAlertBanner from "./InventoryAlertBanner";
 import { selectInventoryAlerts } from "@/lib/finance/inventoryAlerts";
+import { defaultYearRange } from "@/lib/finance/dateRange";
 
 // ── Types (mirror the API responses) ──────────────────────────────────────────
 interface CoaJoin {
@@ -49,6 +51,7 @@ interface ExpenseRow {
   chart_of_accounts_id: string | null;
   mapping_source: "unmapped" | "rule" | "manual";
   inventory_alert_dismissed: boolean;
+  unmapped_accepted: boolean;
   chart_of_accounts: CoaJoin | null;
 }
 
@@ -65,7 +68,7 @@ interface SyncResult {
 const EXPENSE_CONTROLS: ControlsConfig<ExpenseRow> = {
   search: [{ param: "q", accessor: (e) => e.merchant_name ?? "" }],
   filters: [
-    { param: "mapping", matches: (e, sel) => matchesMappingFilter(sel[0] as MappingFilterValue, e.chart_of_accounts_id ? 1 : 0, 1) },
+    { param: "mapping", matches: (e, sel) => matchesMappingFilter(sel[0] as MappingFilterValue, e.chart_of_accounts_id ? 1 : 0, 1, e.unmapped_accepted) },
   ],
   sort: {
     columns: [
@@ -92,10 +95,12 @@ function ExpenseRowView({
   e,
   accounts,
   onSetExpense,
+  onToggleAccept,
 }: {
   e: ExpenseRow;
   accounts: CoARef[];
   onSetExpense: (id: string, coaId: string | null) => Promise<void>;
+  onToggleAccept: (id: string, accepted: boolean) => Promise<void>;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -137,7 +142,17 @@ function ExpenseRowView({
             </span>
           )}
         </td>
-        <td className="px-4 py-2"><MappingStatusPill mapped={mapped} total={1} /></td>
+        <td className="px-4 py-2">
+          <div className="flex flex-col gap-1">
+            <MappingStatusPill mapped={mapped} total={1} accepted={e.unmapped_accepted} />
+            {mappingState(mapped, 1, e.unmapped_accepted) !== "mapped" && (
+              <AcceptUnmappedButton
+                accepted={e.unmapped_accepted}
+                onToggle={() => onToggleAccept(e.id, !e.unmapped_accepted)}
+              />
+            )}
+          </div>
+        </td>
         <td className="px-4 py-2 text-right font-mono tabular-nums text-strong">
           {formatCurrencyCents(e.amount_cents)}
         </td>
@@ -192,19 +207,15 @@ function ExpenseRowView({
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function ExpensesPage() {
-  const currentYear = new Date().getFullYear();
-
-  const [year, setYear] = useState(currentYear);
+  const [{ from, to }, setRange] = useState(() => defaultYearRange());
   const [accounts, setAccounts] = useState<CoARef[]>([]);
   const [expenses, setExpenses] = useState<ExpenseRow[]>([]);
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState<string | null>(null);
 
-  const loadAll = useCallback(async (y: number) => {
+  const loadAll = useCallback(async (from: string, to: string) => {
     setLoading(true); setError(null);
     try {
-      const from = `${y}-01-01`;
-      const to   = `${y}-12-31`;
       const [coaRes, expRes] = await Promise.all([
         fetch("/api/finance/chart-of-accounts"),
         fetch(`/api/finance/expenses?from=${from}&to=${to}`),
@@ -220,7 +231,7 @@ export default function ExpensesPage() {
   }, []);
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { loadAll(year); }, [loadAll, year]);
+  useEffect(() => { loadAll(from, to); }, [loadAll, from, to]);
 
   const acctById = (id: string | null): CoaJoin | null => {
     if (!id) return null;
@@ -253,15 +264,26 @@ export default function ExpensesPage() {
     setExpenses((es) => es.map((e) => (e.id === id ? { ...e, inventory_alert_dismissed: true } : e)));
   }
 
+  // Manually accept an unmapped expense as not needing a real GL mapping (optimistic local update).
+  async function handleToggleAccept(id: string, accepted: boolean) {
+    const res = await fetch("/api/finance/expenses", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, unmapped_accepted: accepted }),
+    });
+    if (!res.ok) return;
+    setExpenses((es) => es.map((e) => (e.id === id ? { ...e, unmapped_accepted: accepted } : e)));
+  }
+
   async function handleAutoMap(): Promise<{ mapped: number }> {
-    const res = await fetch(`/api/finance/expenses/auto-map?from=${year}-01-01&to=${year}-12-31`, { method: "POST" });
+    const res = await fetch(`/api/finance/expenses/auto-map?from=${from}&to=${to}`, { method: "POST" });
     const json = await res.json();
-    if (json.mapped > 0) loadAll(year);
+    if (json.mapped > 0) loadAll(from, to);
     return json;
   }
 
   const totalCount   = expenses.length;
-  const mappedCount  = expenses.filter((e) => e.chart_of_accounts_id).length;
+  const mappedCount  = expenses.filter((e) => e.chart_of_accounts_id || e.unmapped_accepted).length;
   const totalSpend   = expenses.reduce((s, e) => s + e.amount_cents, 0);
 
   const { rows: visibleExpenses, search, filters, sort, setSearch, setFilter, toggleSort, reset, activeCount } =
@@ -269,28 +291,28 @@ export default function ExpensesPage() {
 
   return (
     <>
-      <div className="shrink-0 px-4 sm:px-6 py-3 border-b border-line flex items-center gap-3 flex-wrap">
+      <div className="shrink-0 px-4 sm:px-6 py-3 border-b border-line">
         <FilterBar activeCount={activeCount} onClear={reset}>
           <SearchInput value={search.q ?? ""} onChange={(v) => setSearch("q", v)} placeholder="Search merchant…" />
-          <YearSelect year={year} onChange={setYear} />
+          <DateRangeFilter from={from} to={to} onChange={(f, t) => setRange({ from: f, to: t })} />
           <MappingFilter value={(filters.mapping?.[0] as MappingFilterValue) ?? "all"}
             onChange={(v) => setFilter("mapping", v === "all" ? [] : [v])} />
+          <AutoMapButton key={`${from}_${to}`} onRun={handleAutoMap} />
+          <SyncPanel<SyncResult>
+            year={new Date(to).getFullYear()}
+            storageKey="tpb-expenses-last-sync"
+            label="Ramp"
+            buildEndpoint={() => `/api/finance/expenses/sync?from=${from}&to=${to}`}
+            onSynced={() => loadAll(from, to)}
+            renderResult={(r) => (
+              <span title={`${r.imported} imported · ${r.mapped} mapped · ${r.new_rules} new accounts (${r.auto_matched_rules} auto-matched)`}>
+                <span className="text-success mr-1">{r.imported} imported</span>
+                <span className="text-secondary mr-1">{r.mapped} mapped</span>
+                {r.new_rules > 0 && <span className="text-secondary">{r.new_rules} new accounts</span>}
+              </span>
+            )}
+          />
         </FilterBar>
-        <AutoMapButton key={year} onRun={handleAutoMap} />
-        <SyncPanel<SyncResult>
-          year={year}
-          storageKey="tpb-expenses-last-sync"
-          label="Ramp"
-          buildEndpoint={({ year }) => `/api/finance/expenses/sync?from=${year}-01-01&to=${year}-12-31`}
-          onSynced={() => loadAll(year)}
-          renderResult={(r) => (
-            <span title={`${r.imported} imported · ${r.mapped} mapped · ${r.new_rules} new accounts (${r.auto_matched_rules} auto-matched)`}>
-              <span className="text-success mr-1">{r.imported} imported</span>
-              <span className="text-secondary mr-1">{r.mapped} mapped</span>
-              {r.new_rules > 0 && <span className="text-secondary">{r.new_rules} new accounts</span>}
-            </span>
-          )}
-        />
       </div>
 
       {totalCount > 0 && (
@@ -322,7 +344,7 @@ export default function ExpensesPage() {
       ) : expenses.length === 0 ? (
         <div className="flex-1 flex items-center justify-center text-center px-6">
           <div>
-            <p className="text-sm text-secondary">No expenses for {year}.</p>
+            <p className="text-sm text-secondary">No expenses for {from} – {to}.</p>
             <p className="text-xs text-faint mt-1">Click &ldquo;Sync Ramp&rdquo; to import transactions and bills.</p>
           </div>
         </div>
@@ -341,7 +363,7 @@ export default function ExpensesPage() {
               </>
             }>
             {visibleExpenses.map((e) => (
-              <ExpenseRowView key={e.id} e={e} accounts={accounts} onSetExpense={handleSetExpense} />
+              <ExpenseRowView key={e.id} e={e} accounts={accounts} onSetExpense={handleSetExpense} onToggleAccept={handleToggleAccept} />
             ))}
           </LedgerTable>
           <p className="py-3 text-[10px] text-faint">
