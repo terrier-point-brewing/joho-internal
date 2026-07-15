@@ -27,12 +27,13 @@ export async function GET(req: NextRequest) {
 
   if (params.get("source"))     query = query.eq("source", params.get("source")!);
   if (params.get("partner_id")) query = query.eq("partner_id", params.get("partner_id")!);
-  if (params.get("year")) {
+  if (params.get("from") || params.get("to")) {
+    if (params.get("from")) query = query.gte("invoice_date", params.get("from")!);
+    if (params.get("to"))   query = query.lte("invoice_date", params.get("to")!);
+  } else if (params.get("year")) {
     const y = params.get("year")!;
     query = query.gte("invoice_date", `${y}-01-01`).lte("invoice_date", `${y}-12-31`);
   }
-  if (params.get("from")) query = query.gte("invoice_date", params.get("from")!);
-  if (params.get("to"))   query = query.lte("invoice_date", params.get("to")!);
 
   const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

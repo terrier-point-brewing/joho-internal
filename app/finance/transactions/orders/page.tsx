@@ -319,11 +319,12 @@ export default function SquareTransactionsPage() {
   }
 
   async function handleToggleAccept(id: string, accepted: boolean) {
-    await fetch("/api/finance/transactions", {
+    const res = await fetch("/api/finance/transactions", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id, unmapped_accepted: accepted }),
     });
+    if (!res.ok) return;
     setTransactions((txns) => txns.map((t) => (t.id === id ? { ...t, unmapped_accepted: accepted } : t)));
   }
 
@@ -364,7 +365,7 @@ export default function SquareTransactionsPage() {
 
   return (
     <>
-      <div className="shrink-0 px-4 sm:px-6 py-3 border-b border-line flex items-center gap-3 flex-wrap">
+      <div className="shrink-0 px-4 sm:px-6 py-3 border-b border-line">
         <FilterBar activeCount={activeCount} onClear={reset}>
           <SearchInput value={search.q ?? ""} onChange={(v) => setSearch("q", v)} placeholder="Search orders…" />
           <DateRangeFilter from={from} to={to} onChange={handleRangeChange} />

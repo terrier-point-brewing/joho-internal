@@ -291,7 +291,7 @@ export default function ExpensesPage() {
 
   return (
     <>
-      <div className="shrink-0 px-4 sm:px-6 py-3 border-b border-line flex items-center gap-3 flex-wrap">
+      <div className="shrink-0 px-4 sm:px-6 py-3 border-b border-line">
         <FilterBar activeCount={activeCount} onClear={reset}>
           <SearchInput value={search.q ?? ""} onChange={(v) => setSearch("q", v)} placeholder="Search merchant…" />
           <DateRangeFilter from={from} to={to} onChange={(f, t) => setRange({ from: f, to: t })} />
