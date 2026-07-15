@@ -35,6 +35,30 @@ export interface TreeNode {
   isSection: boolean;
 }
 
+/** Minimal chart_of_accounts reference shape buildTree needs to nest an account under an ancestor that itself carries no direct postings (see CoaLookup below). */
+export interface CoaAccountRef {
+  id: string;
+  parentId: string | null;
+  accountName: string;
+}
+
+/**
+ * Most CoA accounts that exist purely to group their children (e.g. "Taproom
+ * Revenue", "Taproom Liquor Sales") never receive a direct posting themselves
+ * -- every transaction lands on a deeper leaf account. FinancialsRow[] alone
+ * only contains accounts that DO have postings, so nesting purely off rows
+ * silently flattens every such grouping account's descendants into false
+ * roots. CoaLookup carries the full chart_of_accounts parent_id/name data
+ * (fetched once, independent of which accounts happen to have transactions)
+ * so the tree can synthesize a zero-postings node for a grouping account and
+ * still nest its real descendants underneath it.
+ */
+type CoaLookup = Map<string, { parentId: string | null; accountName: string }>;
+
+function buildCoaLookup(coaAccounts: CoaAccountRef[]): CoaLookup {
+  return new Map(coaAccounts.map((c) => [c.id, { parentId: c.parentId, accountName: c.accountName }]));
+}
+
 const COVERAGE_RANK: Record<BblCoverage, number> = { full: 0, partial: 1, unknown: 2 };
 
 function worstCoverage(a: BblCoverage, b: BblCoverage): BblCoverage {
@@ -107,22 +131,33 @@ function shortenChildLabel(childName: string, parentName: string): string {
   return rest.length > 0 ? rest : child;
 }
 
-/** Builds one account node (and its channel-slice + child-account descendants) for a single coaId (or unmapped bucket) within a section. `parentLabel` is the immediate parent account's raw (unshortened) name, used to strip a duplicative prefix from this node's own label -- omitted for root accounts, which always show their full name. */
+/** An account's parent coaId, preferring its own row data (always present when it has postings, and requires no CoaLookup) and falling back to the CoA reference table only for a synthesized grouping account that has none. */
+function resolveParentId(key: string, rowsByAccount: Map<string, FinancialsRow[]>, coaMap: CoaLookup): string | null {
+  const ownRows = rowsByAccount.get(key);
+  if (ownRows && ownRows.length > 0) return ownRows[0].parentId;
+  return coaMap.get(key)?.parentId ?? null;
+}
+
+/** Builds one account node (and its channel-slice + child-account descendants) for a single coaId (or unmapped bucket) within a section. A grouping account with no direct postings of its own (ownRows empty) still gets a node here -- purely so its real descendants have somewhere to nest -- with its own row rolling up to just the sum of its children. `parentLabel` is the immediate parent account's raw (unshortened) name, used to strip a duplicative prefix from this node's own label -- omitted for root accounts, which always show their full name. */
 function buildAccountNode(
   key: string,
   rowsByAccount: Map<string, FinancialsRow[]>,
+  coaMap: CoaLookup,
   childKeysByParent: Map<string, string[]>,
   months: string[],
   depth: number,
+  statementSection: string,
   parentLabel?: string,
 ): TreeNode {
-  const ownRows = rowsByAccount.get(key)!;
-  const first = ownRows[0];
-  const label = parentLabel ? shortenChildLabel(first.accountName, parentLabel) : first.accountName;
+  const ownRows = rowsByAccount.get(key) ?? [];
+  const rawAccountName = ownRows[0]?.accountName ?? coaMap.get(key)?.accountName ?? key;
+  const label = parentLabel ? shortenChildLabel(rawAccountName, parentLabel) : rawAccountName;
+  const coaId = ownRows[0]?.coaId ?? key;
+  const parentId = resolveParentId(key, rowsByAccount, coaMap);
 
   const childKeys = childKeysByParent.get(key) ?? [];
   const childAccountNodes = childKeys.map((childKey) =>
-    buildAccountNode(childKey, rowsByAccount, childKeysByParent, months, depth + 1, first.accountName),
+    buildAccountNode(childKey, rowsByAccount, coaMap, childKeysByParent, months, depth + 1, statementSection, rawAccountName),
   );
 
   const distinctChannels = [...new Set(ownRows.map((r) => r.channel))];
@@ -133,10 +168,10 @@ function buildAccountNode(
           .map((channel) => {
             const channelRows = ownRows.filter((r) => r.channel === channel);
             const sliceRow = sumRows(channelRows, months, {
-              coaId: first.coaId,
-              parentId: first.parentId,
-              accountName: first.accountName,
-              statementSection: first.statementSection,
+              coaId,
+              parentId,
+              accountName: rawAccountName,
+              statementSection,
               channel,
             });
             return {
@@ -149,21 +184,24 @@ function buildAccountNode(
           })
       : [];
 
+  // ownRows may be [] for a synthesized grouping account -- sumRows([], ...)
+  // correctly yields a zeroed row, so its own contribution to rolledRow is
+  // just "nothing", leaving the children's totals as the whole of it.
   const ownTotalRow = sumRows(ownRows, months, {
-    coaId: first.coaId,
-    parentId: first.parentId,
-    accountName: first.accountName,
-    statementSection: first.statementSection,
+    coaId,
+    parentId,
+    accountName: rawAccountName,
+    statementSection,
     channel: distinctChannels.length === 1 ? distinctChannels[0] : "unknown",
   });
 
   const rolledRow =
     childAccountNodes.length > 0
       ? sumRows([ownTotalRow, ...childAccountNodes.map((n) => n.row).filter((r): r is FinancialsRow => r !== null)], months, {
-          coaId: first.coaId,
-          parentId: first.parentId,
-          accountName: first.accountName,
-          statementSection: first.statementSection,
+          coaId,
+          parentId,
+          accountName: rawAccountName,
+          statementSection,
           channel: ownTotalRow.channel,
         })
       : ownTotalRow;
@@ -183,8 +221,19 @@ function buildAccountNode(
  * section's own `.row` total. Shared by buildSection (rows matching one
  * known statementSection) and buildOtherSection (rows matching none of a
  * statement's known sections).
+ *
+ * Nesting walks the FULL ancestor chain via `coaMap` (not just accounts that
+ * happen to have their own postings) so a leaf whose parent/grandparent
+ * account carries no direct transactions still nests under it instead of
+ * rendering as a false root -- see CoaLookup's header comment.
  */
-function buildSectionFromRows(sectionRows: FinancialsRow[], statementSection: string, label: string, months: string[]): TreeNode {
+function buildSectionFromRows(
+  sectionRows: FinancialsRow[],
+  statementSection: string,
+  label: string,
+  months: string[],
+  coaMap: CoaLookup,
+): TreeNode {
   const rowsByAccount = new Map<string, FinancialsRow[]>();
   for (const row of sectionRows) {
     const key = accountKey(row);
@@ -193,25 +242,38 @@ function buildSectionFromRows(sectionRows: FinancialsRow[], statementSection: st
     else rowsByAccount.set(key, [row]);
   }
 
-  const parentKeyOf = (key: string): string | null => {
-    const parentId = rowsByAccount.get(key)![0].parentId;
-    return parentId && rowsByAccount.has(parentId) ? parentId : null;
-  };
-
-  const childKeysByParent = new Map<string, string[]>();
-  const rootKeys: string[] = [];
-  for (const key of rowsByAccount.keys()) {
-    const parentKey = parentKeyOf(key);
-    if (parentKey === null) {
-      rootKeys.push(key);
-    } else {
-      const bucket = childKeysByParent.get(parentKey);
-      if (bucket) bucket.push(key);
-      else childKeysByParent.set(parentKey, [key]);
+  // Every posted-to account starts "needed"; climb each one's ancestor chain
+  // (own row's parentId first, then the CoA reference table for accounts with
+  // no rows of their own) adding any ancestor we can actually describe (has a
+  // row OR a CoA entry) until we hit one we can't describe, or one already known.
+  const neededIds = new Set(rowsByAccount.keys());
+  for (const startKey of rowsByAccount.keys()) {
+    let current = startKey;
+    for (;;) {
+      const parentId = resolveParentId(current, rowsByAccount, coaMap);
+      if (!parentId || neededIds.has(parentId)) break;
+      if (!rowsByAccount.has(parentId) && !coaMap.has(parentId)) break;
+      neededIds.add(parentId);
+      current = parentId;
     }
   }
 
-  const accountNodes = rootKeys.map((key) => buildAccountNode(key, rowsByAccount, childKeysByParent, months, 1));
+  const childKeysByParent = new Map<string, string[]>();
+  const rootKeys: string[] = [];
+  for (const key of neededIds) {
+    const parentKey = resolveParentId(key, rowsByAccount, coaMap);
+    if (parentKey !== null && neededIds.has(parentKey)) {
+      const bucket = childKeysByParent.get(parentKey);
+      if (bucket) bucket.push(key);
+      else childKeysByParent.set(parentKey, [key]);
+    } else {
+      rootKeys.push(key);
+    }
+  }
+
+  const accountNodes = rootKeys.map((key) =>
+    buildAccountNode(key, rowsByAccount, coaMap, childKeysByParent, months, 1, statementSection),
+  );
 
   return {
     row: sumNodeRows(accountNodes, months, label, statementSection),
@@ -223,8 +285,8 @@ function buildSectionFromRows(sectionRows: FinancialsRow[], statementSection: st
 }
 
 /** Builds a top-level section node (Revenue, COGS, Bank & Cash, ...) for the given known statementSection. */
-function buildSection(rows: FinancialsRow[], statementSection: string, label: string, months: string[]): TreeNode {
-  return buildSectionFromRows(rows.filter((r) => r.statementSection === statementSection), statementSection, label, months);
+function buildSection(rows: FinancialsRow[], statementSection: string, label: string, months: string[], coaMap: CoaLookup): TreeNode {
+  return buildSectionFromRows(rows.filter((r) => r.statementSection === statementSection), statementSection, label, months, coaMap);
 }
 
 /**
@@ -236,8 +298,8 @@ function buildSection(rows: FinancialsRow[], statementSection: string, label: st
  * per-statement equivalent. This catch-all renders them under an "Other"
  * section instead, so mapped money is never invisible.
  */
-function buildOtherSection(rows: FinancialsRow[], knownSections: ReadonlySet<string>, months: string[]): TreeNode {
-  return buildSectionFromRows(rows.filter((r) => !knownSections.has(r.statementSection)), "other", "Other", months);
+function buildOtherSection(rows: FinancialsRow[], knownSections: ReadonlySet<string>, months: string[], coaMap: CoaLookup): TreeNode {
+  return buildSectionFromRows(rows.filter((r) => !knownSections.has(r.statementSection)), "other", "Other", months, coaMap);
 }
 
 /** Builds a top-level subtotal row (Total Income, Gross Profit, Net Income, ...) by summing the given sections' already-rolled `.row` totals. Carries no children -- its constituent sections already render their own detail above it. */
@@ -265,12 +327,12 @@ const BS_KNOWN_SECTIONS: ReadonlySet<string> = new Set([
   "ap", "credit_card", "other_current_liabilities", "long_term_liabilities", "equity",
 ]);
 
-function buildPl(rows: FinancialsRow[], months: string[]): TreeNode[] {
-  const revenue = buildSection(rows, "revenue", "Revenue", months);
-  const otherIncome = buildSection(rows, "other_income", "Other Income", months);
+function buildPl(rows: FinancialsRow[], months: string[], coaMap: CoaLookup): TreeNode[] {
+  const revenue = buildSection(rows, "revenue", "Revenue", months, coaMap);
+  const otherIncome = buildSection(rows, "other_income", "Other Income", months, coaMap);
   const totalIncome = subtotal("Total Income", [revenue, otherIncome], months);
 
-  const cogs = buildSection(rows, "cogs", "Cost of Goods Sold", months);
+  const cogs = buildSection(rows, "cogs", "Cost of Goods Sold", months, coaMap);
   // Gross Profit excludes Other Income by convention -- and must match the
   // grossMarginPct KPI (lib/finance/financials/summaries.ts), which is
   // (revenue - cogs) / revenue with no other_income term. Total Income above
@@ -279,59 +341,59 @@ function buildPl(rows: FinancialsRow[], months: string[]): TreeNode[] {
   // review, finding I1.
   const grossProfit = subtotal("Gross Profit", [revenue, cogs], months);
 
-  const opEx = buildSection(rows, "expenses", "Operating Expenses", months);
-  const otherExp = buildSection(rows, "other_expense", "Other Expenses", months);
+  const opEx = buildSection(rows, "expenses", "Operating Expenses", months, coaMap);
+  const otherExp = buildSection(rows, "other_expense", "Other Expenses", months, coaMap);
   // M1: rows whose statementSection isn't one of the 5 known P&L sections
   // (unrecognized/missing CoA accountType) still render, and still count
   // toward Net Income -- nothing mapped is ever silently invisible.
-  const other = buildOtherSection(rows, PL_KNOWN_SECTIONS, months);
+  const other = buildOtherSection(rows, PL_KNOWN_SECTIONS, months, coaMap);
   const netIncome = subtotal("Net Income", [revenue, otherIncome, cogs, opEx, otherExp, other], months);
 
   return [revenue, otherIncome, totalIncome, cogs, grossProfit, opEx, otherExp, other, netIncome];
 }
 
-function buildCashFlow(rows: FinancialsRow[], months: string[]): TreeNode[] {
-  const revenue = buildSection(rows, "revenue", "Cash Collected — Revenue", months);
-  const otherIncome = buildSection(rows, "other_income", "Cash Collected — Other Income", months);
+function buildCashFlow(rows: FinancialsRow[], months: string[], coaMap: CoaLookup): TreeNode[] {
+  const revenue = buildSection(rows, "revenue", "Cash Collected — Revenue", months, coaMap);
+  const otherIncome = buildSection(rows, "other_income", "Cash Collected — Other Income", months, coaMap);
   const totalCashIn = subtotal("Total Cash In", [revenue, otherIncome], months);
 
-  const cogs = buildSection(rows, "cogs", "Cash Paid — Cost of Goods Sold", months);
-  const opEx = buildSection(rows, "expenses", "Cash Paid — Operating Expenses", months);
-  const otherExp = buildSection(rows, "other_expense", "Cash Paid — Other Expenses", months);
+  const cogs = buildSection(rows, "cogs", "Cash Paid — Cost of Goods Sold", months, coaMap);
+  const opEx = buildSection(rows, "expenses", "Cash Paid — Operating Expenses", months, coaMap);
+  const otherExp = buildSection(rows, "other_expense", "Cash Paid — Other Expenses", months, coaMap);
   const totalCashOut = subtotal("Total Cash Out", [cogs, opEx, otherExp], months);
 
   // M1: same catch-all as buildPl -- rows outside the 5 known sections still
   // render and still count toward the bottom-line Net Operating total. Left
   // out of Total Cash In/Out since an unrecognized section's cash direction
   // (in vs. out) isn't knowable.
-  const other = buildOtherSection(rows, PL_KNOWN_SECTIONS, months);
+  const other = buildOtherSection(rows, PL_KNOWN_SECTIONS, months, coaMap);
   const netOperating = subtotal("Net Operating", [revenue, otherIncome, cogs, opEx, otherExp, other], months);
 
   return [revenue, otherIncome, totalCashIn, cogs, opEx, otherExp, totalCashOut, other, netOperating];
 }
 
-function buildBalanceSheet(rows: FinancialsRow[], months: string[]): TreeNode[] {
-  const bank = buildSection(rows, "bank", "Bank & Cash", months);
-  const ar = buildSection(rows, "ar", "Accounts Receivable", months);
-  const otherCurrentAssets = buildSection(rows, "other_current_assets", "Other Current Assets", months);
+function buildBalanceSheet(rows: FinancialsRow[], months: string[], coaMap: CoaLookup): TreeNode[] {
+  const bank = buildSection(rows, "bank", "Bank & Cash", months, coaMap);
+  const ar = buildSection(rows, "ar", "Accounts Receivable", months, coaMap);
+  const otherCurrentAssets = buildSection(rows, "other_current_assets", "Other Current Assets", months, coaMap);
   const totalCurrentAssets = subtotal("Total Current Assets", [bank, ar, otherCurrentAssets], months);
-  const fixedAssets = buildSection(rows, "fixed_assets", "Fixed Assets", months);
+  const fixedAssets = buildSection(rows, "fixed_assets", "Fixed Assets", months, coaMap);
   const totalAssets = subtotal("Total Assets", [bank, ar, otherCurrentAssets, fixedAssets], months);
 
-  const ap = buildSection(rows, "ap", "Accounts Payable", months);
-  const creditCard = buildSection(rows, "credit_card", "Credit Cards", months);
-  const otherCurrentLiab = buildSection(rows, "other_current_liabilities", "Other Current Liabilities", months);
+  const ap = buildSection(rows, "ap", "Accounts Payable", months, coaMap);
+  const creditCard = buildSection(rows, "credit_card", "Credit Cards", months, coaMap);
+  const otherCurrentLiab = buildSection(rows, "other_current_liabilities", "Other Current Liabilities", months, coaMap);
   const totalCurrentLiab = subtotal("Total Current Liabilities", [ap, creditCard, otherCurrentLiab], months);
-  const longTermLiab = buildSection(rows, "long_term_liabilities", "Long-Term Liabilities", months);
+  const longTermLiab = buildSection(rows, "long_term_liabilities", "Long-Term Liabilities", months, coaMap);
   const totalLiab = subtotal("Total Liabilities", [ap, creditCard, otherCurrentLiab, longTermLiab], months);
 
-  const equity = buildSection(rows, "equity", "Equity", months);
+  const equity = buildSection(rows, "equity", "Equity", months, coaMap);
   // M1: an unrecognized/missing CoA accountType gives no signal for which
   // side of the balance sheet a row belongs on, so the "Other" catch-all is
   // folded into the final Total Liabilities + Equity grand total (rather
   // than guessed into Total Assets) -- it still renders and still counts
   // toward a grand total, so it's never silently dropped.
-  const other = buildOtherSection(rows, BS_KNOWN_SECTIONS, months);
+  const other = buildOtherSection(rows, BS_KNOWN_SECTIONS, months, coaMap);
   const totalLiabEquity = subtotal(
     "Total Liabilities + Equity",
     [ap, creditCard, otherCurrentLiab, longTermLiab, equity, other],
@@ -345,9 +407,10 @@ function buildBalanceSheet(rows: FinancialsRow[], months: string[]): TreeNode[] 
   ];
 }
 
-export function buildTree(rows: FinancialsRow[], statement: StatementKind): TreeNode[] {
+export function buildTree(rows: FinancialsRow[], statement: StatementKind, coaAccounts: CoaAccountRef[] = []): TreeNode[] {
   const months = monthsOf(rows);
-  if (statement === "balance_sheet") return buildBalanceSheet(rows, months);
-  if (statement === "cash_flow") return buildCashFlow(rows, months);
-  return buildPl(rows, months);
+  const coaMap = buildCoaLookup(coaAccounts);
+  if (statement === "balance_sheet") return buildBalanceSheet(rows, months, coaMap);
+  if (statement === "cash_flow") return buildCashFlow(rows, months, coaMap);
+  return buildPl(rows, months, coaMap);
 }

@@ -172,6 +172,83 @@ describe("buildTree — pl parent/child COA accounts", () => {
   });
 });
 
+// Reproduces the real-world CoA shape: grouping accounts like "Taproom
+// Revenue" or "Taproom Liquor Sales" exist in chart_of_accounts purely to
+// organize their children -- every actual transaction posts to a deeper leaf
+// (e.g. "Taproom Wine Sales"). Those grouping accounts never appear in
+// FinancialsRow[] (no postings of their own), so buildTree must consult the
+// CoaAccountRef[] reference table to still nest a leaf under them instead of
+// flattening every leaf into a false section-root.
+describe("buildTree — pl nesting through ancestor accounts with no direct postings", () => {
+  const coaAccounts = [
+    { id: "root", parentId: null, accountName: "BREWERY REVENUE" },
+    { id: "taproom-rev", parentId: "root", accountName: "BREWERY REVENUE:Taproom Revenue" },
+    { id: "taproom-liquor", parentId: "taproom-rev", accountName: "BREWERY REVENUE:Taproom Revenue:Taproom Liquor Sales" },
+    { id: "wine", parentId: "taproom-liquor", accountName: "BREWERY REVENUE:Taproom Revenue:Taproom Liquor Sales:Taproom Wine Sales" },
+    { id: "keg", parentId: "taproom-rev", accountName: "BREWERY REVENUE:Taproom Revenue:Taproom Keg Sales" },
+  ];
+
+  const rows: FinancialsRow[] = [
+    row({
+      coaId: "wine", parentId: "taproom-liquor",
+      accountName: "BREWERY REVENUE:Taproom Revenue:Taproom Liquor Sales:Taproom Wine Sales",
+      statementSection: "revenue", amountCentsByMonth: { "2026-01": 1000 },
+    }),
+    row({
+      coaId: "keg", parentId: "taproom-rev",
+      accountName: "BREWERY REVENUE:Taproom Revenue:Taproom Keg Sales",
+      statementSection: "revenue", amountCentsByMonth: { "2026-01": 400 },
+    }),
+  ];
+
+  const tree = buildTree(rows, "pl", coaAccounts);
+  const revenue = tree.find((n) => n.label === "Revenue")!;
+
+  it("synthesizes zero-posting ancestor nodes so leaves nest under their true parent, not as flat roots", () => {
+    // Only ONE root: "BREWERY REVENUE" (root's own parent_id is null) --
+    // both leaves collapse under it instead of appearing as 2 section roots.
+    expect(revenue.children).toHaveLength(1);
+    const brewery = revenue.children[0];
+    expect(brewery.label).toBe("BREWERY REVENUE");
+    expect(brewery.depth).toBe(1);
+
+    expect(brewery.children).toHaveLength(1);
+    const taproomRev = brewery.children[0];
+    expect(taproomRev.label).toBe("Taproom Revenue"); // parent prefix "BREWERY REVENUE:" stripped
+    expect(taproomRev.depth).toBe(2);
+
+    // Two children at this level: the "Taproom Liquor Sales" grouping node, and the "Taproom Keg Sales" leaf.
+    expect(taproomRev.children.map((c) => c.label).sort()).toEqual(["Taproom Keg Sales", "Taproom Liquor Sales"]);
+    const liquor = taproomRev.children.find((c) => c.label === "Taproom Liquor Sales")!;
+    expect(liquor.depth).toBe(3);
+
+    expect(liquor.children).toHaveLength(1);
+    const wine = liquor.children[0];
+    expect(wine.label).toBe("Taproom Wine Sales"); // "Taproom Liquor Sales:" prefix stripped, relative to ITS immediate parent
+    expect(wine.depth).toBe(4);
+  });
+
+  it("rolls zero-posting ancestor nodes' totals up from their descendants (no amount of their own)", () => {
+    const brewery = revenue.children[0];
+    const taproomRev = brewery.children[0];
+    const liquor = taproomRev.children.find((c) => c.label === "Taproom Liquor Sales")!;
+
+    expect(liquor.row?.amountCentsByMonth).toEqual({ "2026-01": 1000 }); // == wine's own amount, liquor itself has none
+    expect(taproomRev.row?.amountCentsByMonth).toEqual({ "2026-01": 1400 }); // wine + keg
+    expect(brewery.row?.amountCentsByMonth).toEqual({ "2026-01": 1400 });
+    expect(revenue.row?.amountCentsByMonth).toEqual({ "2026-01": 1400 }); // no double count at the section level
+  });
+
+  it("falls back to the leaf's own row data (not the CoA table) when no coaAccounts are supplied", () => {
+    // Without the CoaAccountRef[] table, only rows' own parentId chains are
+    // usable -- "taproom-rev"/"taproom-liquor" have no rows of their own, so
+    // they can't be described/synthesized, and both leaves become roots.
+    const noRefTree = buildTree(rows, "pl");
+    const noRefRevenue = noRefTree.find((n) => n.label === "Revenue")!;
+    expect(noRefRevenue.children).toHaveLength(2);
+  });
+});
+
 describe("buildTree — pl child label shortening", () => {
   function treeWithChild(parentName: string, childName: string) {
     const rows: FinancialsRow[] = [
