@@ -284,13 +284,47 @@ describe("buildTree — pl child label shortening", () => {
     expect(treeWithChild("Utilities", "Utilities")).toBe("Utilities");
   });
 
-  it("does not shorten a root account's own label (no parent to strip)", () => {
+  it("does not shorten a root account's own label when it doesn't overlap the section title", () => {
     const rows: FinancialsRow[] = [
       row({ coaId: "root-1", accountName: "Utilities:Electric", statementSection: "expenses", amountCentsByMonth: { "2026-01": -100 } }),
     ];
     const tree = buildTree(rows, "pl");
     const opEx = tree.find((n) => n.label === "Operating Expenses")!;
     expect(opEx.children[0].label).toBe("Utilities:Electric");
+  });
+});
+
+// Real CoA shape (verified live): a section's top/root account is often the
+// literal "type root" QuickBooks imported alongside the type itself -- e.g.
+// real root account "COST OF GOODS SOLD (COGS)" sits directly under the
+// (hardcoded) "Cost of Goods Sold" section label. Shown as-is, that reads as
+// a duplicate line stacked right under the section header. buildSectionFromRows
+// passes the section's own label down as a root account's parentLabel (same
+// shortening rule used for real parent/child pairs) so this collapses too.
+describe("buildTree — pl root account name duplicating its section title", () => {
+  it("shortens a root account whose name repeats the section label as a literal prefix", () => {
+    const rows: FinancialsRow[] = [
+      row({
+        coaId: "cogs-root", accountName: "COST OF GOODS SOLD (COGS)", statementSection: "cogs",
+        amountCentsByMonth: { "2026-01": -100 },
+      }),
+    ];
+    const tree = buildTree(rows, "pl");
+    const cogs = tree.find((n) => n.label === "Cost of Goods Sold")!;
+    expect(cogs.children).toHaveLength(1);
+    expect(cogs.children[0].label).toBe("(COGS)");
+  });
+
+  it("leaves a root account's name alone when it doesn't share the section's title as a prefix", () => {
+    const rows: FinancialsRow[] = [
+      row({ coaId: "brewery-rev", accountName: "BREWERY REVENUE", statementSection: "revenue", amountCentsByMonth: { "2026-01": 100 } }),
+      row({ coaId: "returns", accountName: "Sales Returns & Refunds", statementSection: "revenue", amountCentsByMonth: { "2026-01": -10 } }),
+    ];
+    const tree = buildTree(rows, "pl");
+    const revenue = tree.find((n) => n.label === "Revenue")!;
+    expect(revenue.children.map((c) => c.label).sort()).toEqual(["BREWERY REVENUE", "Sales Returns & Refunds"]);
+    // Both real CoA roots, same depth -- neither a false child of the other.
+    expect(revenue.children.every((c) => c.depth === 1)).toBe(true);
   });
 });
 

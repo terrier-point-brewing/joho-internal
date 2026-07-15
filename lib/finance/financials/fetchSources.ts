@@ -154,18 +154,20 @@ async function fetchCoa(supabase: SupabaseClient): Promise<CoaRecord[]> {
     id: string;
     parent_id: string | null;
     account_name: string;
+    account_number: string | null;
     account_type: string;
     statement_section: string | null;
   }>(() =>
     supabase
       .from("chart_of_accounts")
-      .select("id, parent_id, account_name, account_type, statement_section")
+      .select("id, parent_id, account_name, account_number, account_type, statement_section")
       .order("id", { ascending: true }),
   );
   return data.map((r) => ({
     id: r.id,
     parentId: r.parent_id,
     accountName: r.account_name,
+    accountNumber: r.account_number,
     accountType: r.account_type,
     statementSection: r.statement_section ?? null,
   }));

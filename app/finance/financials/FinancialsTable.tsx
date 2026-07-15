@@ -7,12 +7,12 @@
 // buildTree.ts's TreeNode[]. Presentation only — all totals/rollups are
 // precomputed by buildTree; this component just formats and toggles.
 
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { formatCurrencyCents, EM_DASH } from "@/lib/format";
 import Badge from "@/app/components/ui/Badge";
 import SortableTh from "@/app/components/ui/SortableTh";
 import { amountPerBbl } from "@/lib/finance/financials/volume";
-import type { BblCoverage, Channel, FinancialsRow, Measure } from "@/lib/finance/financials/types";
+import type { BblCoverage, Channel, CoaAccountRef, FinancialsRow, Measure } from "@/lib/finance/financials/types";
 import type { SortState } from "@/lib/table/types";
 import { CHANNEL_COLOR, CHANNEL_LABEL } from "./channelColors";
 import type { TreeNode } from "./buildTree";
@@ -100,15 +100,33 @@ interface RowCommonProps {
   measure: Measure;
   isExpanded: (key: string, defaultExpanded: boolean) => boolean;
   toggle: (key: string) => void;
+  /** coaId -> GL account number lookup; null (not just absent) when the "Show GL #" toggle is off, so account rows can skip reserving the column's width entirely. */
+  glNumberByCoaId: Map<string, string | null> | null;
+}
+
+/** Fixed-width GL account number badge for an account row -- only rendered when the "Show GL #" toggle is on (see FinancialsTable's `glNumberByCoaId` prop). Blank (not omitted) when a row's coaId has no match (section/subtotal rows never have one; a real account always should), so every account label in the column still starts at the same x-offset. */
+function GlNumberBadge({ coaId, glNumberByCoaId }: { coaId: string | null; glNumberByCoaId: Map<string, string | null> | null }) {
+  if (!glNumberByCoaId) return null;
+  const num = coaId ? glNumberByCoaId.get(coaId) : null;
+  return <span className="w-10 shrink-0 text-right font-mono text-xs text-faint tabular-nums">{num ?? ""}</span>;
 }
 
 // Frozen label column: shared by the header th and every row's first td so the
 // account name stays put while month/total columns scroll horizontally.
 const STICKY_LABEL_CELL = "sticky left-0 z-10";
 
+// Fixed-size, non-growing, centered expand/collapse slot -- shared by every
+// row type (caret-bearing or not) so a row's own label always starts at the
+// exact same x-offset as a sibling at the same depth, regardless of whether
+// IT happens to have children (a caret glyph) or not (empty). Without a fixed
+// box, a present vs. absent glyph can nudge one sibling's label a few px off
+// from another's, reading as a depth mismatch even though both are correctly
+// at the same tree depth.
+const EXPAND_SLOT = "inline-flex w-3 shrink-0 items-center justify-center overflow-hidden leading-none";
+
 /** A single account/sub-account/channel-slice row, recursing into its children when expanded. Depth >= 1 (top-level sections/subtotals are rendered separately). Collapsed by default (unlike sections) so opening a statement doesn't dump the entire CoA depth at once -- drilling into an account's sub-accounts/channel slices is opt-in per row. */
 function AccountRow({ node, path, ...rest }: RowCommonProps & { node: TreeNode; path: string }) {
-  const { months, measure, isExpanded, toggle } = rest;
+  const { months, measure, isExpanded, toggle, glNumberByCoaId } = rest;
   const key = nodeKey(node, path);
   const expanded = isExpanded(key, false);
   const hasChildren = node.children.length > 0;
@@ -124,13 +142,15 @@ function AccountRow({ node, path, ...rest }: RowCommonProps & { node: TreeNode; 
               onClick={() => toggle(key)}
               className="w-full flex items-center gap-1.5 min-w-0 text-left hover:text-primary"
             >
-              <span className="text-faint w-3 shrink-0 text-xs">{expanded ? "▾" : "▸"}</span>
+              <span className={`${EXPAND_SLOT} text-faint text-xs`}>{expanded ? "▾" : "▸"}</span>
+              <GlNumberBadge coaId={node.row?.coaId ?? null} glNumberByCoaId={glNumberByCoaId} />
               <span className="truncate font-medium text-strong">{node.label}</span>
               {showChannelChip && node.row && <ChannelChip channel={node.row.channel} />}
             </button>
           ) : (
             <div className="flex items-center gap-1.5 min-w-0">
-              <span className="w-3 shrink-0" />
+              <span className={EXPAND_SLOT} />
+              <GlNumberBadge coaId={node.row?.coaId ?? null} glNumberByCoaId={glNumberByCoaId} />
               <span className="truncate text-secondary">{node.label}</span>
               {showChannelChip && node.row && <ChannelChip channel={node.row.channel} />}
             </div>
@@ -169,7 +189,7 @@ function SectionBlock({ node, ...rest }: RowCommonProps & { node: TreeNode }) {
             disabled={!hasChildren}
             className="w-full flex items-center gap-2 px-4 py-2 text-left hover:bg-surface-mid/40 transition-colors disabled:cursor-default"
           >
-            <span className="text-muted text-xs w-3">{hasChildren ? (expanded ? "▾" : "▸") : ""}</span>
+            <span className={`${EXPAND_SLOT} text-muted text-xs`}>{hasChildren ? (expanded ? "▾" : "▸") : ""}</span>
             <span className="text-xs font-semibold text-secondary uppercase tracking-wide">{node.label}</span>
             {!hasChildren && <span className="text-xs text-faint italic">no mapped transactions</span>}
           </button>
@@ -266,9 +286,19 @@ interface FinancialsTableProps {
    * Both optional — omitting either falls back to plain, unsortable headers. */
   sort?: SortState;
   onSort?: (key: string) => void;
+  /** coaId -> GL account number, for the "Show GL #" toggle. Omit (or pass []) when the toggle is off -- account rows then skip the GL# column entirely rather than rendering an all-blank one. */
+  coaAccounts?: CoaAccountRef[];
+  showGlNumbers?: boolean;
 }
 
-export default function FinancialsTable({ tree, months, measure, onToggleExpand, expandedKeys, sort, onSort }: FinancialsTableProps) {
+export default function FinancialsTable({
+  tree, months, measure, onToggleExpand, expandedKeys, sort, onSort, coaAccounts, showGlNumbers,
+}: FinancialsTableProps) {
+  const glNumberByCoaId = useMemo(
+    () => (showGlNumbers ? new Map((coaAccounts ?? []).map((c) => [c.id, c.accountNumber])) : null),
+    [showGlNumbers, coaAccounts],
+  );
+
   // Uncontrolled fallback: track which keys have been clicked away from their
   // default state (sections default open, accounts default closed -- see
   // SectionBlock/AccountRow) when the caller doesn't pass expandedKeys/onToggleExpand.
@@ -302,7 +332,7 @@ export default function FinancialsTable({ tree, months, measure, onToggleExpand,
         <TableHead months={months} sort={sort} onSort={onSort} />
         <tbody>
           {tree.map((node, i) => {
-            const rowProps = { months, measure, isExpanded, toggle };
+            const rowProps = { months, measure, isExpanded, toggle, glNumberByCoaId };
             return node.isSection ? (
               <SectionBlock key={nodeKey(node, "root") + i} node={node} {...rowProps} />
             ) : (

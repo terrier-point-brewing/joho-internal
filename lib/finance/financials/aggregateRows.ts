@@ -105,6 +105,8 @@ export interface CoaRecord {
   id: string;
   parentId: string | null;
   accountName: string;
+  /** GL account number (e.g. "4000") -- display-only, not used in any aggregation/join logic here. */
+  accountNumber: string | null;
   accountType: string;
   /** Explicit override; null = infer from accountType via ACCOUNT_TYPE_SECTION. */
   statementSection: string | null;

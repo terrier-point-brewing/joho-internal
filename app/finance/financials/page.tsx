@@ -114,6 +114,7 @@ export default function FinancialsPage() {
   const [year, setYear] = useState(currentYear);
   const [statement, setStatement] = useState<StatementKind>(() => initialStatementFrom(searchParams.get("statement")));
   const [measure, setMeasure] = useState<Measure>("amount");
+  const [showGlNumbers, setShowGlNumbers] = useState(false);
   const years = Array.from({ length: 3 }, (_, i) => currentYear - i);
 
   const { data, isFetching, error, refetch } = useQuery({
@@ -191,11 +192,21 @@ export default function FinancialsPage() {
 
         <div className="flex items-center justify-between flex-wrap gap-2 mt-2">
           <TabBar tabs={STATEMENT_TABS} activeKey={statement} onSelect={handleStatementSelect} className="mb-0" />
-          {statement === "pl" ? (
-            <TabBar tabs={MEASURE_TABS} activeKey={measure} onSelect={setMeasure} className="mb-0" />
-          ) : (
-            <span className="text-xs text-faint pb-2">$ only</span>
-          )}
+          <div className="flex items-center gap-2 pb-2">
+            <button
+              type="button"
+              onClick={() => setShowGlNumbers((v) => !v)}
+              aria-pressed={showGlNumbers}
+              className={showGlNumbers ? "btn-primary btn-xxs" : "btn-secondary btn-xxs"}
+            >
+              GL #
+            </button>
+            {statement === "pl" ? (
+              <TabBar tabs={MEASURE_TABS} activeKey={measure} onSelect={setMeasure} className="mb-0" />
+            ) : (
+              <span className="text-xs text-faint">$ only</span>
+            )}
+          </div>
         </div>
       </div>
 
@@ -243,7 +254,15 @@ export default function FinancialsPage() {
 
         {data && (
           <div className="bg-surface border border-line rounded-lg overflow-hidden">
-            <FinancialsTable tree={tree} months={data.months} measure={measure} sort={sort} onSort={toggleSort} />
+            <FinancialsTable
+              tree={tree}
+              months={data.months}
+              measure={measure}
+              sort={sort}
+              onSort={toggleSort}
+              coaAccounts={data.coaAccounts}
+              showGlNumbers={showGlNumbers}
+            />
           </div>
         )}
       </div>
