@@ -89,20 +89,40 @@ function accountKey(row: FinancialsRow): string {
   return row.coaId ?? `unmapped:${row.accountName}`;
 }
 
-/** Builds one account node (and its channel-slice + child-account descendants) for a single coaId (or unmapped bucket) within a section. */
+/**
+ * CoA sub-accounts conventionally repeat their parent's full name as a
+ * prefix (e.g. "Utilities:Electric", "Utilities - Electric") so the QuickBooks
+ * "By Type" flat view stays self-describing. In this tree, the parent is
+ * already visible one row up, so repeating its name on every child is pure
+ * duplication -- strip a literal, separator-bounded parent prefix and show
+ * only the remainder. Falls back to the full name whenever the child doesn't
+ * actually start with the parent's name (nothing to safely strip) or stripping
+ * would leave nothing (child name === parent name).
+ */
+function shortenChildLabel(childName: string, parentName: string): string {
+  const child = childName.trim();
+  const parent = parentName.trim();
+  if (!parent || !child.toLowerCase().startsWith(parent.toLowerCase())) return child;
+  const rest = child.slice(parent.length).replace(/^[\s:\-–—/]+/, "");
+  return rest.length > 0 ? rest : child;
+}
+
+/** Builds one account node (and its channel-slice + child-account descendants) for a single coaId (or unmapped bucket) within a section. `parentLabel` is the immediate parent account's raw (unshortened) name, used to strip a duplicative prefix from this node's own label -- omitted for root accounts, which always show their full name. */
 function buildAccountNode(
   key: string,
   rowsByAccount: Map<string, FinancialsRow[]>,
   childKeysByParent: Map<string, string[]>,
   months: string[],
   depth: number,
+  parentLabel?: string,
 ): TreeNode {
   const ownRows = rowsByAccount.get(key)!;
   const first = ownRows[0];
+  const label = parentLabel ? shortenChildLabel(first.accountName, parentLabel) : first.accountName;
 
   const childKeys = childKeysByParent.get(key) ?? [];
   const childAccountNodes = childKeys.map((childKey) =>
-    buildAccountNode(childKey, rowsByAccount, childKeysByParent, months, depth + 1),
+    buildAccountNode(childKey, rowsByAccount, childKeysByParent, months, depth + 1, first.accountName),
   );
 
   const distinctChannels = [...new Set(ownRows.map((r) => r.channel))];
@@ -150,7 +170,7 @@ function buildAccountNode(
 
   return {
     row: rolledRow,
-    label: first.accountName,
+    label,
     children: [...childAccountNodes, ...sliceNodes],
     depth,
     isSection: false,

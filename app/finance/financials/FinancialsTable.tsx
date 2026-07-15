@@ -98,33 +98,43 @@ function ChannelChip({ channel }: { channel: Channel }) {
 interface RowCommonProps {
   months: string[];
   measure: Measure;
-  isExpanded: (key: string) => boolean;
+  isExpanded: (key: string, defaultExpanded: boolean) => boolean;
   toggle: (key: string) => void;
 }
 
-/** A single account/sub-account/channel-slice row, recursing into its children when expanded. Depth >= 1 (top-level sections/subtotals are rendered separately). */
+// Frozen label column: shared by the header th and every row's first td so the
+// account name stays put while month/total columns scroll horizontally.
+const STICKY_LABEL_CELL = "sticky left-0 z-10";
+
+/** A single account/sub-account/channel-slice row, recursing into its children when expanded. Depth >= 1 (top-level sections/subtotals are rendered separately). Collapsed by default (unlike sections) so opening a statement doesn't dump the entire CoA depth at once -- drilling into an account's sub-accounts/channel slices is opt-in per row. */
 function AccountRow({ node, path, ...rest }: RowCommonProps & { node: TreeNode; path: string }) {
   const { months, measure, isExpanded, toggle } = rest;
   const key = nodeKey(node, path);
-  const expanded = isExpanded(key);
+  const expanded = isExpanded(key, false);
   const hasChildren = node.children.length > 0;
   const showChannelChip = !hasChildren && node.row !== null && node.row.channel !== "unknown";
 
   return (
     <>
       <tr className="border-t border-line/40 hover:bg-surface/20">
-        <td className={`py-1.5 pr-3 text-xs ${indentClass(node.depth)}`}>
-          <div className="flex items-center gap-1.5 min-w-0">
-            {hasChildren ? (
-              <button type="button" onClick={() => toggle(key)} className="text-faint hover:text-secondary w-3 shrink-0 text-xs">
-                {expanded ? "▾" : "▸"}
-              </button>
-            ) : (
+        <td className={`py-1.5 pr-3 text-xs bg-surface ${STICKY_LABEL_CELL} ${indentClass(node.depth)}`}>
+          {hasChildren ? (
+            <button
+              type="button"
+              onClick={() => toggle(key)}
+              className="w-full flex items-center gap-1.5 min-w-0 text-left hover:text-primary"
+            >
+              <span className="text-faint w-3 shrink-0 text-xs">{expanded ? "▾" : "▸"}</span>
+              <span className="truncate font-medium text-strong">{node.label}</span>
+              {showChannelChip && node.row && <ChannelChip channel={node.row.channel} />}
+            </button>
+          ) : (
+            <div className="flex items-center gap-1.5 min-w-0">
               <span className="w-3 shrink-0" />
-            )}
-            <span className={`truncate ${hasChildren ? "font-medium text-strong" : "text-secondary"}`}>{node.label}</span>
-            {showChannelChip && node.row && <ChannelChip channel={node.row.channel} />}
-          </div>
+              <span className="truncate text-secondary">{node.label}</span>
+              {showChannelChip && node.row && <ChannelChip channel={node.row.channel} />}
+            </div>
+          )}
         </td>
         {months.map((m) => (
           <td key={m} className="py-1.5 px-2 text-right text-sm font-mono tabular-nums">
@@ -142,17 +152,17 @@ function AccountRow({ node, path, ...rest }: RowCommonProps & { node: TreeNode; 
   );
 }
 
-/** Top-level section band (Revenue, COGS, Bank & Cash, ...): collapsible header + its account rows + a "Total {label}" footer computed from the section's own rolled-up row. */
+/** Top-level section band (Revenue, COGS, Bank & Cash, ...): collapsible header + its account rows + a "Total {label}" footer computed from the section's own rolled-up row. Expanded by default (unlike individual accounts) so the statement's top-level shape (which sections exist, their accounts) is visible on first load. */
 function SectionBlock({ node, ...rest }: RowCommonProps & { node: TreeNode }) {
   const { months, measure, isExpanded, toggle } = rest;
   const key = nodeKey(node, "root");
-  const expanded = isExpanded(key);
+  const expanded = isExpanded(key, true);
   const hasChildren = node.children.length > 0;
 
   return (
     <>
       <tr className="border-t border-line-strong/60 bg-surface/60">
-        <td colSpan={months.length + 2} className="py-0">
+        <td colSpan={months.length + 2} className={`py-0 bg-surface/60 ${STICKY_LABEL_CELL}`}>
           <button
             type="button"
             onClick={() => toggle(key)}
@@ -171,7 +181,7 @@ function SectionBlock({ node, ...rest }: RowCommonProps & { node: TreeNode }) {
       ))}
 
       <tr className="border-t border-line-strong/60 bg-surface/40">
-        <td className="py-1.5 px-4 text-xs text-secondary font-medium">Total {node.label}</td>
+        <td className={`py-1.5 px-4 text-xs text-secondary font-medium bg-surface/40 ${STICKY_LABEL_CELL}`}>Total {node.label}</td>
         {months.map((m) => (
           <td key={m} className="py-1.5 px-2 text-right text-sm font-mono tabular-nums font-semibold">
             <MeasureCell measure={measure} row={node.row} month={m} />
@@ -189,7 +199,7 @@ function SectionBlock({ node, ...rest }: RowCommonProps & { node: TreeNode }) {
 function SubtotalBar({ node, months, measure }: { node: TreeNode; months: string[]; measure: Measure }) {
   return (
     <tr className="border-t-2 border-line-subtle bg-surface-mid/50">
-      <td className="py-2 px-4 text-xs font-semibold text-primary">{node.label}</td>
+      <td className={`py-2 px-4 text-xs font-semibold text-primary bg-surface-mid/50 ${STICKY_LABEL_CELL}`}>{node.label}</td>
       {months.map((m) => (
         <td key={m} className="py-2 px-2 text-right text-sm font-mono tabular-nums font-semibold">
           <MeasureCell measure={measure} row={node.row} month={m} />
@@ -209,7 +219,7 @@ function TableHead({ months, sort, onSort }: { months: string[]; sort?: SortStat
   return (
     <thead>
       <tr className="bg-surface border-b border-line sticky top-0 z-10">
-        <th className="py-2 px-4 text-left text-xs text-muted uppercase tracking-wide font-semibold w-64">Account</th>
+        <th className="py-2 px-4 text-left text-xs text-muted uppercase tracking-wide font-semibold w-64 sticky left-0 z-20 bg-surface">Account</th>
         {months.map((m) =>
           onSort ? (
             <SortableTh
@@ -259,13 +269,15 @@ interface FinancialsTableProps {
 }
 
 export default function FinancialsTable({ tree, months, measure, onToggleExpand, expandedKeys, sort, onSort }: FinancialsTableProps) {
-  // Uncontrolled fallback: track collapsed keys locally (default = everything
-  // expanded) when the caller doesn't pass expandedKeys/onToggleExpand.
-  const [localCollapsed, setLocalCollapsed] = useState<Set<string>>(new Set());
+  // Uncontrolled fallback: track which keys have been clicked away from their
+  // default state (sections default open, accounts default closed -- see
+  // SectionBlock/AccountRow) when the caller doesn't pass expandedKeys/onToggleExpand.
+  const [toggledKeys, setToggledKeys] = useState<Set<string>>(new Set());
 
   const isExpanded = useCallback(
-    (key: string) => (expandedKeys ? expandedKeys.has(key) : !localCollapsed.has(key)),
-    [expandedKeys, localCollapsed],
+    (key: string, defaultExpanded: boolean) =>
+      expandedKeys ? expandedKeys.has(key) : defaultExpanded !== toggledKeys.has(key),
+    [expandedKeys, toggledKeys],
   );
 
   const toggle = useCallback(
@@ -274,7 +286,7 @@ export default function FinancialsTable({ tree, months, measure, onToggleExpand,
         onToggleExpand(key);
         return;
       }
-      setLocalCollapsed((prev) => {
+      setToggledKeys((prev) => {
         const next = new Set(prev);
         if (next.has(key)) next.delete(key);
         else next.add(key);

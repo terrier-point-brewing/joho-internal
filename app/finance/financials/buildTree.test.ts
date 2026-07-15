@@ -155,7 +155,9 @@ describe("buildTree — pl parent/child COA accounts", () => {
     expect(parent.depth).toBe(1);
     expect(parent.children).toHaveLength(1);
     const child = parent.children[0];
-    expect(child.label).toBe("Kegs:Half");
+    // Child repeats the parent's name as a QuickBooks-style prefix -- shown
+    // shortened since the parent is already visible one row up.
+    expect(child.label).toBe("Half");
     expect(child.depth).toBe(2);
   });
 
@@ -167,6 +169,51 @@ describe("buildTree — pl parent/child COA accounts", () => {
     // Section total = sum of ROOT accounts only -- the child's amount is
     // already folded into parent.row, so no double count at the section level.
     expect(revenue.row?.amountCentsByMonth).toEqual({ "2026-01": 1500 });
+  });
+});
+
+describe("buildTree — pl child label shortening", () => {
+  function treeWithChild(parentName: string, childName: string) {
+    const rows: FinancialsRow[] = [
+      row({ coaId: "p", accountName: parentName, statementSection: "expenses", amountCentsByMonth: { "2026-01": -100 } }),
+      row({ coaId: "c", parentId: "p", accountName: childName, statementSection: "expenses", amountCentsByMonth: { "2026-01": -50 } }),
+    ];
+    const tree = buildTree(rows, "pl");
+    const opEx = tree.find((n) => n.label === "Operating Expenses")!;
+    return opEx.children[0].children[0].label;
+  }
+
+  it("strips a colon-separated parent prefix", () => {
+    expect(treeWithChild("Utilities", "Utilities:Electric")).toBe("Electric");
+  });
+
+  it("strips a dash-separated parent prefix (with surrounding spaces)", () => {
+    expect(treeWithChild("Utilities", "Utilities - Electric")).toBe("Electric");
+  });
+
+  it("strips a bare-space-separated parent prefix", () => {
+    expect(treeWithChild("Utilities", "Utilities Electric")).toBe("Electric");
+  });
+
+  it("is case-insensitive when matching the prefix", () => {
+    expect(treeWithChild("Utilities", "utilities:Electric")).toBe("Electric");
+  });
+
+  it("falls back to the full name when the child doesn't start with the parent's name", () => {
+    expect(treeWithChild("Utilities", "Electric Bill")).toBe("Electric Bill");
+  });
+
+  it("falls back to the full name when stripping would leave nothing (identical names)", () => {
+    expect(treeWithChild("Utilities", "Utilities")).toBe("Utilities");
+  });
+
+  it("does not shorten a root account's own label (no parent to strip)", () => {
+    const rows: FinancialsRow[] = [
+      row({ coaId: "root-1", accountName: "Utilities:Electric", statementSection: "expenses", amountCentsByMonth: { "2026-01": -100 } }),
+    ];
+    const tree = buildTree(rows, "pl");
+    const opEx = tree.find((n) => n.label === "Operating Expenses")!;
+    expect(opEx.children[0].label).toBe("Utilities:Electric");
   });
 });
 
