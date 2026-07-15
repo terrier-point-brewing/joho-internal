@@ -18,8 +18,11 @@ export default function AcceptUnmappedButton({
   async function handleClick(e: React.MouseEvent) {
     e.stopPropagation();
     setSaving(true);
-    await onToggle();
-    setSaving(false);
+    try {
+      await onToggle();
+    } finally {
+      setSaving(false);
+    }
   }
 
   if (accepted) {
