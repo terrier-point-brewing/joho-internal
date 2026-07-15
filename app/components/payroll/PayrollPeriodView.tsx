@@ -6,18 +6,20 @@ import { usePayrollPeriod } from "@/lib/hooks/usePayrollPeriod";
 import { fmtCents, fmtUsd } from "@/lib/utils/formatting";
 import { PayrollEntryRow } from "./PayrollEntryRow";
 import { GustoSummaryPanel } from "./GustoSummaryPanel";
+import { GustoUploadPanel } from "./GustoUploadPanel";
 import { ShiftTimeline } from "./ShiftTimeline";
 import { queryKeys } from "@/lib/query-keys";
 import TabBar from "@/app/components/TabBar";
 import Badge from "@/app/components/ui/Badge";
 import { Modal } from "@/app/components/ui/Modal";
 
-export type PayrollTab = "summary" | "shifts" | "gusto";
+export type PayrollTab = "summary" | "shifts" | "gusto" | "gustoUpload";
 
 const TAB_LABELS: Record<PayrollTab, string> = {
   summary: "Summary",
   shifts: "Shifts",
   gusto: "Gusto Summary",
+  gustoUpload: "Gusto Upload",
 };
 
 interface Props {
@@ -165,6 +167,8 @@ export function PayrollPeriodView({ periodId, editable, tabs = ["summary", "shif
           employees={employees}
           salariedEmployees={salaried_employees}
         />
+      ) : activeTab === "gustoUpload" ? (
+        <GustoUploadPanel periodId={periodId} />
       ) : (
         <>
           {/* Cash-tips basis toggle: actual (drives bonus) vs Gusto-reported (÷ ratio) */}
