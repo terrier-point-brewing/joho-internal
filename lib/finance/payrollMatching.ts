@@ -49,24 +49,26 @@ interface ProportionalLine {
 }
 
 /**
- * Proportionally allocates periodTotals across matchedExpenses by each
- * expense's share of the combined matched total. Rounds down per line, then
- * distributes leftover cents (from rounding) one at a time to the largest
- * lines first, so every expense's lines sum exactly to that expense's own
- * amountCents.
+ * Splits each matchedExpense across periodTotals' buckets using the period's
+ * own wage/tax mix (each bucket's share of sum(periodTotals)), scaled to that
+ * expense's own amountCents -- independent of every other matched expense and
+ * independent of how sum(matchedExpenses) relates to sum(periodTotals). Rounds
+ * down per line, then distributes leftover cents (from rounding) one at a
+ * time to the largest remainders first, so every expense's lines sum exactly
+ * to that expense's own amountCents by construction, for ANY reconciliation
+ * variance between the matched total and the period total.
  */
 export function computeProportionalSplits(
   matchedExpenses: MatchedExpenseAmount[],
   periodTotals: { chartOfAccountsId: string; amountCents: number }[],
 ): Map<string, ProportionalLine[]> {
-  const totalMatched = matchedExpenses.reduce((s, e) => s + e.amountCents, 0);
+  const periodTotal = periodTotals.reduce((s, b) => s + b.amountCents, 0);
+  const ratios = periodTotals.map((b) => (periodTotal > 0 ? b.amountCents / periodTotal : 0));
   const result = new Map<string, ProportionalLine[]>();
 
   for (const e of matchedExpenses) {
-    const weight = totalMatched > 0 ? e.amountCents / totalMatched : 0;
-
-    const lines = periodTotals.map((b) => {
-      const raw = weight * b.amountCents;
+    const lines = periodTotals.map((b, i) => {
+      const raw = e.amountCents * ratios[i];
       const floored = Math.floor(raw);
       return { chartOfAccountsId: b.chartOfAccountsId, amountCents: floored, remainder: raw - floored };
     });

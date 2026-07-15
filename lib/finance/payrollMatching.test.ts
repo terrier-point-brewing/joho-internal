@@ -50,7 +50,7 @@ describe("computeProportionalSplits", () => {
     }
   }
 
-  it("two matched expenses (net pay $6852.05, tax debit $807.49) split proportionally across period buckets; per-expense sums exact and combined totals equal period totals", () => {
+  it("two matched expenses (net pay $6852.05, tax debit $807.49) that exactly reconcile with period totals: per-expense sums exact, combined totals equal period totals, and every expense reflects the SAME bucket ratio (the period's own mix)", () => {
     const matched: MatchedExpenseAmount[] = [
       { expenseId: "exp-net-pay", amountCents: 685205 },
       { expenseId: "exp-tax-debit", amountCents: 80749 },
@@ -71,7 +71,8 @@ describe("computeProportionalSplits", () => {
       for (const l of lines) expect(l.splitSource).toBe("payroll_auto");
     }
 
-    // Combined totals across both expenses equal the period totals per bucket.
+    // Combined totals across both expenses equal the period totals per bucket
+    // (holds here because matched total == period total, i.e. exact reconciliation).
     const combinedByBucket = new Map<string, number>();
     for (const lines of result.values()) {
       for (const l of lines) {
@@ -80,6 +81,20 @@ describe("computeProportionalSplits", () => {
     }
     for (const b of periodTotals) {
       expect(combinedByBucket.get(b.chartOfAccountsId)).toBe(b.amountCents);
+    }
+
+    // Every expense's own lines reflect the SAME bucket ratios as the period
+    // itself (coa-6110 is 500000/765954 ~= 65.3% of the period; each expense's
+    // coa-6110 line should be that same ~65.3% of its own amountCents).
+    const periodTotal = periodTotals.reduce((s, b) => s + b.amountCents, 0);
+    for (const e of matched) {
+      const lines = result.get(e.expenseId)!;
+      for (const b of periodTotals) {
+        const expectedRatio = b.amountCents / periodTotal;
+        const line = lines.find((l) => l.chartOfAccountsId === b.chartOfAccountsId)!;
+        const actualRatio = line.amountCents / e.amountCents;
+        expect(Math.abs(actualRatio - expectedRatio)).toBeLessThan(0.001);
+      }
     }
   });
 
@@ -124,6 +139,67 @@ describe("computeProportionalSplits", () => {
     ];
     const result = computeProportionalSplits(matched, periodTotals);
     sumsToExpectedPerExpense(result, matched);
+  });
+
+  it("bug-reproduction case, now fixed: a single matched expense's amountCents does NOT equal sum(periodTotals) -- its lines must still sum to its OWN amount, not the period total", () => {
+    const matched: MatchedExpenseAmount[] = [{ expenseId: "exp-underpaid", amountCents: 1000 }]; // $10.00
+    const periodTotals = [
+      { chartOfAccountsId: "coa-wages", amountCents: 3500 }, // $35.00
+      { chartOfAccountsId: "coa-taxes", amountCents: 1500 }, // $15.00
+    ]; // period total = $50.00, far from the matched expense's $10.00
+
+    const result = computeProportionalSplits(matched, periodTotals);
+    const lines = result.get("exp-underpaid")!;
+    const sum = lines.reduce((s, l) => s + l.amountCents, 0);
+
+    expect(sum).toBe(1000); // must equal the expense's own amount, NOT 5000
+  });
+
+  it("general invariant (property-style): for a variety of matched/period-total combinations -- including matched-total higher than period-total and matched-total lower than period-total -- every expense's lines sum exactly to that expense's own amountCents", () => {
+    const cases: { matched: MatchedExpenseAmount[]; periodTotals: { chartOfAccountsId: string; amountCents: number }[] }[] = [
+      // matched total ($150.00) higher than period total ($50.00)
+      {
+        matched: [
+          { expenseId: "e1", amountCents: 10000 },
+          { expenseId: "e2", amountCents: 5000 },
+        ],
+        periodTotals: [
+          { chartOfAccountsId: "coa-a", amountCents: 3000 },
+          { chartOfAccountsId: "coa-b", amountCents: 2000 },
+        ],
+      },
+      // matched total ($10.00) lower than period total ($500.00)
+      {
+        matched: [{ expenseId: "e3", amountCents: 1000 }],
+        periodTotals: [
+          { chartOfAccountsId: "coa-a", amountCents: 30000 },
+          { chartOfAccountsId: "coa-b", amountCents: 15000 },
+          { chartOfAccountsId: "coa-c", amountCents: 5000 },
+        ],
+      },
+      // several expenses, odd cent amounts, matched total lower than period total
+      {
+        matched: [
+          { expenseId: "e4", amountCents: 733 },
+          { expenseId: "e5", amountCents: 291 },
+          { expenseId: "e6", amountCents: 1 },
+        ],
+        periodTotals: [
+          { chartOfAccountsId: "coa-a", amountCents: 12345 },
+          { chartOfAccountsId: "coa-b", amountCents: 6789 },
+        ],
+      },
+      // single bucket, matched total much higher than period total
+      {
+        matched: [{ expenseId: "e7", amountCents: 999999 }],
+        periodTotals: [{ chartOfAccountsId: "coa-only", amountCents: 100 }],
+      },
+    ];
+
+    for (const { matched, periodTotals } of cases) {
+      const result = computeProportionalSplits(matched, periodTotals);
+      sumsToExpectedPerExpense(result, matched);
+    }
   });
 });
 
