@@ -1,7 +1,9 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
 import { formatCurrencyCents } from "@/lib/format";
-import YearSelect from "../components/YearSelect";
+import DateRangeFilter from "../components/DateRangeFilter";
+import AcceptUnmappedButton from "../components/AcceptUnmappedButton";
+import { defaultYearRange } from "@/lib/finance/dateRange";
 import SummaryStatBar from "../components/SummaryStatBar";
 import { LedgerTable, Th } from "../components/LedgerTable";
 import Badge from "@/app/components/ui/Badge";
@@ -22,6 +24,7 @@ interface BankRow {
   source_account_name: string | null; destination_account_name: string | null; flow_type: FlowType;
   affects_pl: boolean; transaction_date: string | null; chart_of_accounts_id: string | null;
   mapping_source: "unmapped" | "rule" | "manual";
+  unmapped_accepted: boolean;
 }
 
 // No dedicated "warning" tone exists in app/components/ui/tone.ts (Tone = neutral | accent |
@@ -58,19 +61,18 @@ const BANK_CONTROLS: ControlsConfig<BankRow> = {
 const FLOW_OPTIONS = FLOW_TYPES.map((f) => ({ value: f, label: f.replace(/_/g, " ") }));
 
 export default function BankLedgerPage() {
-  const currentYear = new Date().getFullYear();
-  const [year, setYear] = useState(currentYear);
+  const [{ from, to }, setRange] = useState(() => defaultYearRange());
   const [accounts, setAccounts] = useState<CoARef[]>([]);
   const [rows, setRows] = useState<BankRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const loadAll = useCallback(async (y: number) => {
+  const loadAll = useCallback(async (from: string, to: string) => {
     setLoading(true); setError(null);
     try {
       const [coaRes, res] = await Promise.all([
         fetch("/api/finance/chart-of-accounts"),
-        fetch(`/api/finance/bank-ledger?from=${y}-01-01&to=${y}-12-31`),
+        fetch(`/api/finance/bank-ledger?from=${from}&to=${to}`),
       ]);
       const [coa, data] = await Promise.all([coaRes.json(), res.json()]);
       setAccounts(Array.isArray(coa) ? coa : []);
@@ -80,16 +82,20 @@ export default function BankLedgerPage() {
   }, []);
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { loadAll(year); }, [loadAll, year]);
+  useEffect(() => { loadAll(from, to); }, [loadAll, from, to]);
 
-  async function patchRow(id: string, patch: { flow_type?: FlowType; chart_of_accounts_id?: string | null }) {
+  async function patchRow(id: string, patch: { flow_type?: FlowType; chart_of_accounts_id?: string | null; unmapped_accepted?: boolean }) {
     const res = await fetch("/api/finance/bank-ledger", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, ...patch }) });
     if (!res.ok) return;
     const upd = await res.json();
-    setRows((rs) => rs.map((r) => r.id === id ? { ...r, flow_type: upd.flow_type ?? r.flow_type, affects_pl: upd.affects_pl ?? r.affects_pl, chart_of_accounts_id: upd.chart_of_accounts_id ?? null, mapping_source: upd.mapping_source ?? r.mapping_source } : r));
+    setRows((rs) => rs.map((r) => r.id === id ? { ...r, flow_type: upd.flow_type ?? r.flow_type, affects_pl: upd.affects_pl ?? r.affects_pl, chart_of_accounts_id: upd.chart_of_accounts_id ?? null, mapping_source: upd.mapping_source ?? r.mapping_source, unmapped_accepted: upd.unmapped_accepted ?? r.unmapped_accepted } : r));
   }
 
-  const needsReview = rows.filter((r) => r.flow_type === "unclassified").length;
+  async function handleToggleAccept(id: string, accepted: boolean) {
+    await patchRow(id, { unmapped_accepted: accepted });
+  }
+
+  const needsReview = rows.filter((r) => r.flow_type === "unclassified" && !r.unmapped_accepted).length;
   const plNet = rows.filter((r) => r.affects_pl).reduce((s, r) => s + r.amount_cents, 0);
 
   const { rows: visible, search, filters, sort, setSearch, setFilter, toggleSort, reset, activeCount } =
@@ -100,7 +106,7 @@ export default function BankLedgerPage() {
       <div className="shrink-0 px-4 sm:px-6 py-3 border-b border-line flex items-center gap-3 flex-wrap">
         <FilterBar activeCount={activeCount} onClear={reset}>
           <SearchInput value={search.q ?? ""} onChange={(v) => setSearch("q", v)} placeholder="Search counterparty…" />
-          <YearSelect year={year} onChange={setYear} />
+          <DateRangeFilter from={from} to={to} onChange={(f, t) => setRange({ from: f, to: t })} />
           <FilterSelect label="Flow" options={FLOW_OPTIONS} value={filters.flow ?? []}
             onChange={(v) => setFilter("flow", v)} />
         </FilterBar>
@@ -117,7 +123,7 @@ export default function BankLedgerPage() {
         <div className="flex-1 flex items-center justify-center"><p className="text-xs text-muted">Loading…</p></div>
       ) : rows.length === 0 ? (
         <div className="flex-1 flex items-center justify-center text-center px-6">
-          <p className="text-sm text-secondary">No bank-account activity for {year}. Click &ldquo;Sync Ramp&rdquo; on the Expenses tab to import.</p>
+          <p className="text-sm text-secondary">No bank-account activity for {from} – {to}. Click &ldquo;Sync Ramp&rdquo; on the Expenses tab to import.</p>
         </div>
       ) : (
         <div className="flex-1 overflow-auto px-4 sm:px-6 py-4">
@@ -145,6 +151,7 @@ export default function BankLedgerPage() {
                         shortLabel
                         className="w-full"
                       />
+                      <AcceptUnmappedButton accepted={r.unmapped_accepted} onToggle={() => handleToggleAccept(r.id, !r.unmapped_accepted)} />
                     </div>
                   ) : <Badge tone={flowTone(r.flow_type)}>{r.flow_type.replace(/_/g, " ")}</Badge>}
                 </td>
