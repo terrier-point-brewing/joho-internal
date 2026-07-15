@@ -11,18 +11,22 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { FieldSpec } from "./types";
+import { US_STATES } from "./usStates";
 
 export const ENTITY_PROFILE_SCHEMA: FieldSpec[] = [
   { key: "legal_name", label: "Legal entity name", type: "text", required: true },
+  { key: "trade_name", label: "Trade name (DBA)", type: "text" },
   { key: "ssn", label: "SSN (only if sole proprietor / no FEIN)", type: "text", sensitive: true },
   { key: "contact_name", label: "Primary contact name", type: "text" },
   { key: "contact_email", label: "Primary contact email", type: "email" },
   { key: "contact_phone", label: "Primary contact phone", type: "tel" },
+  { key: "fax_number", label: "Fax number", type: "tel" },
   { key: "address_line1", label: "Address line 1", type: "text" },
   { key: "address_line2", label: "Address line 2", type: "text" },
   { key: "city", label: "City", type: "text" },
   { key: "state", label: "State", type: "text" },
   { key: "postal_code", label: "Postal code", type: "text" },
+  { key: "state_of_domicile", label: "State of domicile", type: "select", options: US_STATES },
 ];
 
 export type EntityProfileValues = Record<string, string>;
