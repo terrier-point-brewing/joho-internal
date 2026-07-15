@@ -163,6 +163,10 @@ export default function RegistrationsSection() {
 
       for (const req of required) {
         const number = requiredDrafts[dedupeKey(req.authorityKey, req.registrationKey)] ?? "";
+        // Skip a requirement that's both never been saved (no id yet) and
+        // still blank — don't create an empty keyed row just because it's
+        // listed as required; wait until the user actually enters a number.
+        if (!req.id && !number.trim()) continue;
         rows.push({
           id: req.id,
           authority_key: req.authorityKey,
@@ -183,6 +187,7 @@ export default function RegistrationsSection() {
           rows.push({
             id: row.id,
             authority_key: authorityKey,
+            key: null, // explicit: freeform "Other" rows are never keyed, unlike the required rows above
             label: row.label.trim(),
             number: row.number.trim() || null,
             display_order: order,

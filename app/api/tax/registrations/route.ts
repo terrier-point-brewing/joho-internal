@@ -17,7 +17,7 @@ import {
   type TaxRegistrationInput,
 } from "@/lib/tax/registrations";
 import { listActivePartyKeys } from "@/lib/tax/schedules";
-import { getParty } from "@/lib/tax/registry";
+import { getParty, listParties } from "@/lib/tax/registry";
 // Side-effect import: registers every party template before getParty() runs.
 import "@/lib/tax/parties";
 
@@ -32,9 +32,13 @@ export async function GET() {
       listRegistrations(sb),
       listActivePartyKeys(sb),
     ]);
+    // Defensive: an active tax_schedules row can outlive the party template
+    // it references (e.g. a party removed from code) — skip unregistered
+    // keys rather than let getParty() throw and 500 the whole settings page.
+    const registeredKeys = new Set(listParties().map((p) => p.key));
     const requirements = [
       ...BASE_REQUIRED_REGISTRATIONS,
-      ...activePartyKeys.flatMap((key) => getParty(key).requiredRegistrations),
+      ...activePartyKeys.filter((key) => registeredKeys.has(key)).flatMap((key) => getParty(key).requiredRegistrations),
     ];
     const required = resolveRequiredRegistrations(requirements, registrations);
     return NextResponse.json({ registrations, required });

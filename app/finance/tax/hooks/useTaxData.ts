@@ -62,13 +62,6 @@ export function useEntityProfileQuery() {
   });
 }
 
-export function useRegistrationsQuery() {
-  return useQuery({
-    queryKey: queryKeys.tax.registrations(),
-    queryFn: () => fetchJson<RegistrationsResponse>("/api/tax/registrations"),
-  });
-}
-
 export function useLegalRepresentativeQuery() {
   return useQuery({
     queryKey: queryKeys.tax.legalRepresentative(),
