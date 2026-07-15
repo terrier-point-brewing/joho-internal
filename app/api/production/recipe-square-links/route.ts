@@ -81,7 +81,7 @@ export async function POST(req: NextRequest) {
       .from("recipe_square_links")
       .delete()
       .eq("recipe_id", recipe_id)
-      .eq("variation_id", variation_id);
+      .eq("square_variation_id", square_variation_id);
   }
 
   // When a variation_id is supplied, derive the container from it so the
