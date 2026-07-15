@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { resolveExpenseMapping, type CounterpartyRuleRef, type MappingSource } from "@/lib/finance/expenses";
+import { resolveExpenseGlLines } from "@/lib/finance/expenseGlLines";
 
 export const dynamic = "force-dynamic";
 
@@ -58,7 +59,66 @@ export async function GET(req: NextRequest) {
 
   const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json(data);
+
+  const rows = (data ?? []) as { id: string; chart_of_accounts_id: string | null; amount_cents: number }[];
+  if (rows.length === 0) return NextResponse.json(rows);
+
+  // Payroll-match state + resolved GL line(s) per expense, batched (not
+  // per-row) so the Transactions UI can render match/split state without a
+  // second round-trip per row.
+  const ids = rows.map((r) => r.id);
+  const [matchesResult, splitsResult] = await Promise.all([
+    supabase.from("payroll_period_expense_matches").select("expense_id, pay_period_id").in("expense_id", ids),
+    supabase
+      .from("expense_gl_splits")
+      .select("expense_id, chart_of_accounts_id, amount_cents, split_source")
+      .in("expense_id", ids),
+  ]);
+  if (matchesResult.error) return NextResponse.json({ error: matchesResult.error.message }, { status: 500 });
+  if (splitsResult.error) return NextResponse.json({ error: splitsResult.error.message }, { status: 500 });
+
+  const matchByExpense = new Map<string, string>(
+    (matchesResult.data as { expense_id: string; pay_period_id: string }[]).map((r) => [r.expense_id, r.pay_period_id]),
+  );
+  const matchedPeriodIds = Array.from(new Set(matchByExpense.values()));
+
+  let activePeriodIds = new Set<string>();
+  if (matchedPeriodIds.length > 0) {
+    const { data: reportRows, error: reportErr } = await supabase
+      .from("payroll_gl_reports")
+      .select("pay_period_id")
+      .in("pay_period_id", matchedPeriodIds)
+      .is("superseded_at", null);
+    if (reportErr) return NextResponse.json({ error: reportErr.message }, { status: 500 });
+    activePeriodIds = new Set((reportRows as { pay_period_id: string }[]).map((r) => r.pay_period_id));
+  }
+
+  const splitsByExpense = new Map<
+    string,
+    { chartOfAccountsId: string; amountCents: number; splitSource: "payroll_auto" | "manual" }[]
+  >();
+  for (const r of splitsResult.data as {
+    expense_id: string;
+    chart_of_accounts_id: string;
+    amount_cents: number;
+    split_source: "payroll_auto" | "manual";
+  }[]) {
+    const list = splitsByExpense.get(r.expense_id) ?? [];
+    list.push({ chartOfAccountsId: r.chart_of_accounts_id, amountCents: r.amount_cents, splitSource: r.split_source });
+    splitsByExpense.set(r.expense_id, list);
+  }
+
+  const enriched = rows.map((row) => {
+    const payPeriodId = matchByExpense.get(row.id);
+    const payrollMatch = payPeriodId ? { payPeriodId, hasReport: activePeriodIds.has(payPeriodId) } : null;
+    const glLines = resolveExpenseGlLines(splitsByExpense.get(row.id) ?? [], {
+      chartOfAccountsId: row.chart_of_accounts_id,
+      amountCents: row.amount_cents,
+    });
+    return { ...row, payrollMatch, glLines };
+  });
+
+  return NextResponse.json(enriched);
 }
 
 export async function PATCH(req: NextRequest) {
