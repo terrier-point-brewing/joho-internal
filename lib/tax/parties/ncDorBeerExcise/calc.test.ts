@@ -7,24 +7,56 @@ import {
   fetchExciseData,
   fetchNcRateMicros,
   computeBeerExciseWorksheet,
+  isFiledTimely,
 } from "./calc";
 
+const g = { distribution: 1000, contract_brewing: 200, taproom: 300, wholesale: 500 };
+
+describe("isFiledTimely", () => {
+  it("is timely at exactly the due date (brewery-local end of day)", () => {
+    expect(isFiledTimely("2026-08-15", new Date("2026-08-15T22:00:00Z"))).toBe(true); // 6pm ET, still the 15th
+  });
+  it("is timely before the due date", () => {
+    expect(isFiledTimely("2026-08-15", new Date("2026-08-01T12:00:00Z"))).toBe(true);
+  });
+  it("is not timely after the due date", () => {
+    expect(isFiledTimely("2026-08-15", new Date("2026-08-16T12:00:00Z"))).toBe(false);
+  });
+});
+
 describe("computeBeerExciseFigures", () => {
-  const g = { distribution: 1000, contract_brewing: 200, taproom: 300, wholesale: 500 };
   it("maps channel gallons onto the waterfall and taxes only liable channels", () => {
-    const w = computeBeerExciseFigures({ gallonsByChannel: g, ncRateMicros: 617100, storedNcCents: 92565, missingDetailTxns: 0 });
+    const w = computeBeerExciseFigures({ gallonsByChannel: g, ncRateMicros: 617100, storedNcCents: 92565, missingDetailTxns: 0, filedTimely: true });
     expect(w.fields.gal_taxable).toBe(1500);
     expect(w.fields.gal_allowable_deductions).toBe(500);
     expect(w.fields.cents_excise_due).toBe(Math.round(1500 * 61.71));
     expect(w.warnings ?? []).toHaveLength(0);
   });
   it("warns on rate drift beyond tolerance", () => {
-    const w = computeBeerExciseFigures({ gallonsByChannel: g, ncRateMicros: 617100, storedNcCents: 80000, missingDetailTxns: 0 });
+    const w = computeBeerExciseFigures({ gallonsByChannel: g, ncRateMicros: 617100, storedNcCents: 80000, missingDetailTxns: 0, filedTimely: true });
     expect(w.warnings?.some((s) => /differs|drift|Review/i.test(s))).toBe(true);
   });
   it("warns when taxable rows are missing NC excise detail", () => {
-    const w = computeBeerExciseFigures({ gallonsByChannel: g, ncRateMicros: 617100, storedNcCents: 92565, missingDetailTxns: 3 });
+    const w = computeBeerExciseFigures({ gallonsByChannel: g, ncRateMicros: 617100, storedNcCents: 92565, missingDetailTxns: 3, filedTimely: true });
     expect(w.warnings?.some((s) => /detail|coverage|backfill/i.test(s))).toBe(true);
+  });
+});
+
+describe("computeBeerExciseFigures — flag_timely driven by filedTimely arg", () => {
+  it("sets flag_timely=1 and applies the discount when filedTimely is true", () => {
+    const w = computeBeerExciseFigures({ gallonsByChannel: g, ncRateMicros: 617100, storedNcCents: 92565, missingDetailTxns: 0, filedTimely: true });
+    expect(w.fields.flag_timely).toBe(1);
+    expect(w.fields.cents_discount).toBe(Math.round((w.fields.cents_excise_due as number) * 0.02));
+  });
+  it("sets flag_timely=0 and no discount when filedTimely is false", () => {
+    const w = computeBeerExciseFigures({ gallonsByChannel: g, ncRateMicros: 617100, storedNcCents: 92565, missingDetailTxns: 0, filedTimely: false });
+    expect(w.fields.flag_timely).toBe(0);
+    expect(w.fields.cents_discount).toBe(0);
+  });
+  it("never produces flag_amended or flag_no_transactions fields", () => {
+    const w = computeBeerExciseFigures({ gallonsByChannel: g, ncRateMicros: 617100, storedNcCents: 92565, missingDetailTxns: 0, filedTimely: true });
+    expect(w.fields.flag_amended).toBeUndefined();
+    expect(w.fields.flag_no_transactions).toBeUndefined();
   });
 });
 
@@ -224,5 +256,25 @@ describe("computeBeerExciseWorksheet fallback", () => {
     const ws = await computeBeerExciseWorksheet(ctx, stubWorksheetSb(0.6171));
     expect(ws.fields.nc_excise_rate_micros).toBe(617100);
     expect((ws.warnings ?? []).some((s) => /statutory fallback/i.test(s))).toBe(false);
+  });
+
+  it("flag_timely is 1 when computed before the period's due date", async () => {
+    const ctx: ComputeContext = {
+      schedule: { id: "s1", party_key: "nc_dor_beer_excise", frequency: "monthly", lead_days: 10, active: true, config: {}, created_at: "", updated_at: "" },
+      profile: {},
+      period,
+    };
+    const ws = await computeBeerExciseWorksheet(ctx, stubWorksheetSb(), new Date("2026-08-01T12:00:00Z"));
+    expect(ws.fields.flag_timely).toBe(1);
+  });
+
+  it("flag_timely is 0 when computed after the period's due date", async () => {
+    const ctx: ComputeContext = {
+      schedule: { id: "s1", party_key: "nc_dor_beer_excise", frequency: "monthly", lead_days: 10, active: true, config: {}, created_at: "", updated_at: "" },
+      profile: {},
+      period,
+    };
+    const ws = await computeBeerExciseWorksheet(ctx, stubWorksheetSb(), new Date("2026-08-20T12:00:00Z"));
+    expect(ws.fields.flag_timely).toBe(0);
   });
 });
