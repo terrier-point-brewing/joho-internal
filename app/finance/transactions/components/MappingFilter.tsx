@@ -18,6 +18,7 @@ export default function MappingFilter({
       <option value="mapped">Fully mapped</option>
       <option value="partial">Partially mapped</option>
       <option value="unmapped">Unmapped</option>
+      <option value="accepted">Accepted</option>
     </select>
   );
 }
