@@ -17,7 +17,7 @@ function fullLabel(a: CoARef) {
   return a.account_number ? `${a.account_number} · ${a.account_name}` : a.account_name;
 }
 
-function shortAccountName(name: string) {
+export function shortAccountName(name: string) {
   const parts = name.split(":");
   return parts[parts.length - 1].trim();
 }
