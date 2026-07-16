@@ -5,6 +5,7 @@ import { SupabaseClient } from "@supabase/supabase-js";
 import { BBL_TO_FL_OZ } from "@/lib/constants/production";
 import { checkAndCompleteBatch } from "@/lib/production/batchCompletion";
 import { finalizeConversion, createConversionTargetBatch } from "@/lib/production/conversionFinalizer";
+import { computeTankVolumes } from "@/lib/production/volumeLedger";
 
 export const dynamic = "force-dynamic";
 
@@ -353,6 +354,25 @@ async function reconcileSchedule(
     }
   }
 
+  // Shared remaining-volume-per-tank snapshot for from_tank_id, reused by both
+  // the departure-close check below and the partial-transfer reassignment
+  // further down (previously each ran its own ad hoc ledger reducer, which
+  // diverged from the client's math). Delegates to the same computeTankVolumes
+  // used client-side — including its seed for a batch whose current tank was
+  // never recorded via an inbound transfer (e.g. a direct tank assignment) —
+  // so a partial draw from such a tank doesn't compute a false "fully drained"
+  // and silently drop the floorplan tile (the RPC always releases the from_tank
+  // assignment; see the reassignment block below).
+  let tankVolsForSrc: Record<string, number> = {};
+  if (from_tank_id) {
+    const { data: batchVolRow } = await supabase.from("brew_batches").select("volume_bbl").eq("id", batch_id).single();
+    const { data: allBatchLedger } = await supabase
+      .from("batch_transfers")
+      .select("batch_id, from_tank_id, to_tank_id, to_batch_id, volume_bbl, shrinkage_bbl, transferred_at")
+      .or(`batch_id.eq.${batch_id},to_batch_id.eq.${batch_id}`);
+    tankVolsForSrc = computeTankVolumes(batch_id, Number(batchVolRow?.volume_bbl ?? 0), allBatchLedger ?? []);
+  }
+
   // 2. Handle departure (from_tank drains to zero — close out its schedule entry).
   // Only applies to tanks with ongoing occupancy (brewhouse/fermenter/brite);
   // kegging/canning entries are already closed at arrival time.
@@ -364,18 +384,7 @@ async function reconcileSchedule(
       .single();
 
     if (srcTankInfo && RECONCILE_TYPES.has(srcTankInfo.type) && !PACKAGING_STAGES.has(srcTankInfo.type)) {
-      // We'll compute remaining volume AFTER this transfer using the full ledger
-      const { data: allLedger } = await supabase
-        .from("batch_transfers")
-        .select("from_tank_id, to_tank_id, volume_bbl, shrinkage_bbl")
-        .eq("batch_id", batch_id)
-        .or(`from_tank_id.eq.${from_tank_id},to_tank_id.eq.${from_tank_id}`);
-
-      const netInSrc = (allLedger ?? []).reduce((sum, row) => {
-        if (row.to_tank_id === from_tank_id && row.from_tank_id !== from_tank_id) return sum + Number(row.volume_bbl);
-        if (row.from_tank_id === from_tank_id && row.to_tank_id !== from_tank_id) return sum - Number(row.volume_bbl) - Number(row.shrinkage_bbl ?? 0);
-        return sum; // self-transfers net to zero
-      }, 0);
+      const netInSrc = tankVolsForSrc[from_tank_id] ?? 0;
 
       if (netInSrc <= 0.001) {
         // Tank is drained — close out the active schedule entry. Resolve the
@@ -435,20 +444,12 @@ async function reconcileSchedule(
   // volume remains in the source tank we need to re-insert the assignment so the
   // floorplan tile keeps showing the batch there.
   //
-  // Compute remaining volume from the ledger rather than brew_batches.volume_bbl
-  // so that chains of prior partial draws are accounted for correctly.
+  // Reuses the tankVolsForSrc snapshot computed above (same computeTankVolumes
+  // math as the client) rather than a from-scratch ledger reducer, so chains of
+  // prior partial draws — and batches whose current tank was never recorded via
+  // an inbound transfer — are accounted for correctly.
   if (from_tank_id) {
-    const { data: ledgerRows } = await supabase
-      .from("batch_transfers")
-      .select("from_tank_id, to_tank_id, volume_bbl, shrinkage_bbl")
-      .eq("batch_id", batch_id)
-      .or(`from_tank_id.eq.${from_tank_id},to_tank_id.eq.${from_tank_id}`);
-
-    const netInTank = (ledgerRows ?? []).reduce((sum, row) => {
-      if (row.to_tank_id   === from_tank_id && row.from_tank_id !== from_tank_id) return sum + Number(row.volume_bbl);
-      if (row.from_tank_id === from_tank_id && row.to_tank_id   !== from_tank_id) return sum - Number(row.volume_bbl) - Number(row.shrinkage_bbl ?? 0);
-      return sum; // self-transfers net to zero
-    }, 0);
+    const netInTank = tankVolsForSrc[from_tank_id] ?? 0;
 
     if (netInTank > 0.001) {
       const { error: reassignErr } = await supabase
