@@ -67,7 +67,6 @@ export interface PackagingVariation {
   paktech?: { id: string; name: string } | null;
   tray?: { id: string; name: string } | null;
   label?: { id: string; name: string } | null;
-  breaks_into?: { id: string; name: string; format: PackagingVariationFormat } | null;
   contract_brewing_partners?: { company_name: string } | null;
 }
 
