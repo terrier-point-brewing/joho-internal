@@ -111,65 +111,78 @@ export default function BulkReceiveModal({ itemType, items, onClose, onDone }: B
               <tr className="border-b border-line bg-surface/50 text-left">
                 <th className="px-3 py-2 text-xs font-medium text-muted">Item</th>
                 <th className="px-3 py-2 text-xs font-medium text-muted text-right">Quantity</th>
-                <th className="px-3 py-2 text-xs font-medium text-muted text-right">Total Cost ($)</th>
-                <th className="px-3 py-2 text-xs font-medium text-muted text-right">Allocated Freight</th>
+                <th className="px-3 py-2 text-xs font-medium text-muted text-right whitespace-nowrap">Total Cost ($)</th>
+                <th className="px-3 py-2 text-xs font-medium text-muted text-right whitespace-nowrap">Allocated Freight</th>
+                <th className="px-3 py-2 text-xs font-medium text-muted text-right whitespace-nowrap">Purchase $/Unit</th>
+                <th className="px-3 py-2 text-xs font-medium text-muted text-right whitespace-nowrap">Freight $/Unit</th>
+                <th className="px-3 py-2 text-xs font-medium text-muted text-right whitespace-nowrap">Total $/Unit</th>
                 <th className="px-3 py-2 text-xs font-medium text-muted"></th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((row, idx) => (
-                <tr key={idx} className="border-b border-line/60 last:border-0">
-                  <td className="px-2 py-1.5">
-                    <select
-                      className="inp text-sm w-full"
-                      value={row.itemId}
-                      onChange={(e) => updateRow(idx, { itemId: e.target.value })}
-                    >
-                      <option value="">— select —</option>
-                      {items
-                        .filter((it) => it.id === row.itemId || !chosenIds.has(it.id))
-                        .map((it) => (
-                          <option key={it.id} value={it.id}>{it.name}</option>
-                        ))}
-                    </select>
-                  </td>
-                  <td className="px-2 py-1.5">
-                    <input
-                      type="number" step="0.001" min="0" className="inp text-sm w-full text-right tabular-nums"
-                      placeholder="0" value={row.quantity}
-                      onChange={(e) => updateRow(idx, { quantity: e.target.value })}
-                    />
-                  </td>
-                  <td className="px-2 py-1.5">
-                    <input
-                      type="number" step="0.01" min="0" className="inp text-sm w-full text-right tabular-nums"
-                      placeholder="0.00" value={row.totalCost}
-                      onChange={(e) => updateRow(idx, { totalCost: e.target.value })}
-                    />
-                    {(() => {
-                      const qty = parseFloat(row.quantity);
-                      const total = parseFloat(row.totalCost);
-                      if (!(qty > 0) || !(total > 0)) return null;
-                      return (
-                        <p className="text-xs mt-0.5 text-faint text-right">
-                          = {fmtUsd(total / qty)}/unit
-                        </p>
-                      );
-                    })()}
-                  </td>
-                  <td className="px-3 py-1.5 text-right tabular-nums text-secondary">
-                    {fmtUsd(previewShipping[idx] ?? 0)}
-                  </td>
-                  <td className="px-2 py-1.5 text-right">
-                    <button
-                      type="button" onClick={() => removeRow(idx)} disabled={rows.length === 1}
-                      className="text-xs text-faint hover:text-danger transition-colors disabled:opacity-30"
-                    >
-                      Remove
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {rows.map((row, idx) => {
+                const qty = parseFloat(row.quantity) || 0;
+                const totalCost = parseFloat(row.totalCost) || 0;
+                const allocatedFreight = previewShipping[idx] ?? 0;
+                const purchaseCostPerUnit = qty > 0 ? totalCost / qty : null;
+                const freightCostPerUnit = qty > 0 ? allocatedFreight / qty : null;
+                const totalCostPerUnit =
+                  purchaseCostPerUnit != null && freightCostPerUnit != null
+                    ? purchaseCostPerUnit + freightCostPerUnit
+                    : null;
+                return (
+                  <tr key={idx} className="border-b border-line/60 last:border-0">
+                    <td className="px-2 py-1.5">
+                      <select
+                        className="inp text-sm w-full"
+                        value={row.itemId}
+                        onChange={(e) => updateRow(idx, { itemId: e.target.value })}
+                      >
+                        <option value="">— select —</option>
+                        {items
+                          .filter((it) => it.id === row.itemId || !chosenIds.has(it.id))
+                          .map((it) => (
+                            <option key={it.id} value={it.id}>{it.name}</option>
+                          ))}
+                      </select>
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <input
+                        type="number" step="0.001" min="0" className="inp text-sm w-full text-right tabular-nums"
+                        placeholder="0" value={row.quantity}
+                        onChange={(e) => updateRow(idx, { quantity: e.target.value })}
+                      />
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <input
+                        type="number" step="0.01" min="0" className="inp text-sm w-full text-right tabular-nums"
+                        placeholder="0.00" value={row.totalCost}
+                        onChange={(e) => updateRow(idx, { totalCost: e.target.value })}
+                      />
+                    </td>
+                    <td className="px-3 py-1.5 text-right tabular-nums text-secondary whitespace-nowrap">
+                      {fmtUsd(allocatedFreight)}
+                    </td>
+                    <td className="px-3 py-1.5 text-right tabular-nums text-secondary whitespace-nowrap">
+                      {purchaseCostPerUnit != null ? fmtUsd(purchaseCostPerUnit) : "—"}
+                    </td>
+                    <td className="px-3 py-1.5 text-right tabular-nums text-secondary whitespace-nowrap">
+                      {freightCostPerUnit != null ? fmtUsd(freightCostPerUnit) : "—"}
+                    </td>
+                    <td className="px-3 py-1.5 text-right tabular-nums text-strong font-medium whitespace-nowrap">
+                      {totalCostPerUnit != null ? fmtUsd(totalCostPerUnit) : "—"}
+                    </td>
+                    <td className="px-2 py-1.5 text-right">
+                      <button
+                        type="button" onClick={() => removeRow(idx)} disabled={rows.length === 1}
+                        className="text-xs text-faint hover:text-danger transition-colors disabled:opacity-30"
+                      >
+                        Remove
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -188,6 +201,8 @@ export default function BulkReceiveModal({ itemType, items, onClose, onDone }: B
           />
           <p className="text-xs mt-1 text-muted">
             Split across the items above proportional to weight (derived from each item&apos;s unit where possible).
+            Each row&apos;s <span className="text-secondary">Total $/Unit</span> (purchase + freight) is blended
+            with existing stock as a weighted average to produce the new Cost/Unit shown on the {itemType === "ingredient" ? "Ingredients" : "Packaging"} table.
           </p>
         </Field>
 
