@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getEntityProfile, putEntityProfile, ENTITY_PROFILE_SCHEMA, type EntityProfileValues } from "./entity";
-import { maskSensitive } from "./profiles";
 
 type Recorded = { table: string; op: string; payload?: unknown; opts?: unknown };
 
@@ -23,6 +22,16 @@ function makeClient(row: Record<string, unknown> | null, upsertError?: string) {
   return { client, recorded };
 }
 
+describe("ENTITY_PROFILE_SCHEMA", () => {
+  it("no longer declares the fields that moved to tax_legal_representative, or the dropped state_of_domicile", () => {
+    const keys = ENTITY_PROFILE_SCHEMA.map((f) => f.key);
+    expect(keys).not.toContain("ssn");
+    expect(keys).not.toContain("contact_name");
+    expect(keys).not.toContain("contact_email");
+    expect(keys).not.toContain("state_of_domicile");
+  });
+});
+
 describe("getEntityProfile", () => {
   it("returns an empty object when no row exists yet", async () => {
     const { client } = makeClient(null);
@@ -30,15 +39,16 @@ describe("getEntityProfile", () => {
     expect(result).toEqual({});
   });
 
-  it("returns only non-null schema-key columns coerced to string", async () => {
+  it("returns only non-null schema-key columns coerced to string, ignoring legacy/removed columns still present on the row", async () => {
     const { client } = makeClient({
       id: true,
       legal_name: "TPB LLC",
-      fein: "12-345",
-      ssn: null,
-      contact_name: null,
-      contact_email: null,
+      fein: "12-345", // legacy column, never part of ENTITY_PROFILE_SCHEMA
+      ssn: "999", // removed from schema (moved to tax_legal_representative) — must not be surfaced even if the column briefly still has data
+      contact_name: "Old Contact",
+      contact_email: "old@example.com",
       contact_phone: null,
+      fax_number: null,
       address_line1: null,
       address_line2: null,
       city: null,
@@ -47,9 +57,6 @@ describe("getEntityProfile", () => {
       updated_at: "2026-01-01T00:00:00Z",
     });
     const result = await getEntityProfile(client);
-    // fein is not part of ENTITY_PROFILE_SCHEMA even though the row column
-    // still exists in the DB (legacy column, not yet dropped) — it must not
-    // be surfaced.
     expect(result).toEqual({ legal_name: "TPB LLC" });
   });
 
@@ -68,33 +75,28 @@ describe("getEntityProfile", () => {
 });
 
 describe("putEntityProfile", () => {
-  it("preserves an existing sensitive value when the submitted value is blank, and upserts on id", async () => {
-    const { client, recorded } = makeClient({ id: true, ssn: "999", updated_at: "2026-01-01T00:00:00Z" });
-    await putEntityProfile(client, { ssn: "", legal_name: "New" });
+  it("merges submitted values onto the existing row and upserts on id", async () => {
+    const { client, recorded } = makeClient({ id: true, legal_name: "Old", updated_at: "2026-01-01T00:00:00Z" });
+    await putEntityProfile(client, { legal_name: "New" });
 
     expect(recorded).toHaveLength(1);
     expect(recorded[0].table).toBe("tax_entity_profile");
     expect(recorded[0].opts).toEqual({ onConflict: "id" });
     expect(recorded[0].payload).toMatchObject({
       id: true,
-      ssn: "999",
       legal_name: "New",
       updated_at: expect.any(String),
     });
   });
 
+  it("treats a blank submitted value as leave-unchanged", async () => {
+    const { client, recorded } = makeClient({ id: true, trade_name: "Existing DBA", updated_at: "2026-01-01T00:00:00Z" });
+    await putEntityProfile(client, { trade_name: "", legal_name: "New" });
+    expect((recorded[0].payload as EntityProfileValues).trade_name).toBe("Existing DBA");
+  });
+
   it("throws with the Supabase error message on upsert failure", async () => {
     const { client } = makeClient(null, "constraint violation");
     await expect(putEntityProfile(client, { legal_name: "New" })).rejects.toThrow(/constraint violation/);
-  });
-});
-
-describe("maskSensitive on ENTITY_PROFILE_SCHEMA", () => {
-  it("masks ssn as present/absent and passes through non-schema fields unchanged", () => {
-    const values: EntityProfileValues = { fein: "12-345", ssn: "999", legal_name: "X" };
-    const result = maskSensitive(values, ENTITY_PROFILE_SCHEMA);
-    expect(result.ssn).toBe("present");
-    expect(result.fein).toBe("12-345");
-    expect(result.legal_name).toBe("X");
   });
 });

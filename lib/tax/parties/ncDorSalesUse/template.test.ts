@@ -214,3 +214,11 @@ describe("registry wiring", () => {
     expect(party).toBe(ncDorSalesUseTemplate);
   });
 });
+
+describe("ncDorSalesUseTemplate.requiredRegistrations", () => {
+  it("requires the NC DOR account # (shared with beer excise, not its own separate registration)", () => {
+    expect(ncDorSalesUseTemplate.requiredRegistrations).toEqual([
+      { authorityKey: "nc_dor", registrationKey: "nc_dor_account_id", label: "NC DOR Account / License Number" },
+    ]);
+  });
+});

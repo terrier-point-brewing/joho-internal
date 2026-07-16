@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { TaxSchedule } from "./types";
-import { listSchedules, createSchedule, updateSchedule, setScheduleActive, getSchedule } from "./schedules";
+import { listSchedules, createSchedule, updateSchedule, setScheduleActive, getSchedule, listActivePartyKeys } from "./schedules";
 
 const sampleSchedule: TaxSchedule = {
   id: "SCHED_1",
@@ -214,5 +214,31 @@ describe("setScheduleActive", () => {
 
     expect(result.active).toBe(false);
     expect(recorded[0].payload).toMatchObject({ active: false });
+  });
+});
+
+describe("listActivePartyKeys", () => {
+  it("returns distinct party_key values from active schedules only", async () => {
+    // listActivePartyKeys calls listSchedules(sb, { activeOnly: true }), which
+    // issues .eq("active", true) — the stub simulates the DB already having
+    // applied that filter, matching the existing stub convention in this file
+    // (see "applies partyKey and activeOnly filters when provided" above).
+    const activeRows: TaxSchedule[] = [
+      { ...sampleSchedule, id: "s1", party_key: "nc_dor_beer_excise", active: true },
+      { ...sampleSchedule, id: "s2", party_key: "nc_dor_beer_excise", active: true },
+    ];
+    const client = {
+      from: () => {
+        const b: Record<string, unknown> = {};
+        b.select = () => b;
+        b.order = () => b;
+        b.eq = () => b;
+        b.then = (resolve: (v: unknown) => void) => resolve({ data: activeRows, error: null });
+        return b;
+      },
+    } as unknown as SupabaseClient;
+
+    const result = await listActivePartyKeys(client);
+    expect(result).toEqual(["nc_dor_beer_excise"]);
   });
 });

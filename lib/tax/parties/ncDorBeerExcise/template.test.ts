@@ -19,6 +19,12 @@ describe("nc_dor_beer_excise template", () => {
   it("settings schema is empty — filer identity now lives in Tax Profile (tax_entity_profile / tax_registrations), not a per-party settings form", () => {
     expect(p.settingsSchema).toEqual([]);
   });
+  it("required registrations are NC DOR account # and the ABC permit", () => {
+    expect(p.requiredRegistrations).toEqual([
+      { authorityKey: "nc_dor", registrationKey: "nc_dor_account_id", label: "NC DOR Account / License Number" },
+      { authorityKey: "nc_abc", registrationKey: "abc_permit_number", label: "NC ABC Permit Number" },
+    ]);
+  });
   it("mergeWorksheet preserves manual penalty across recompute and re-derives L11", () => {
     const current: WorksheetData = { fields: { cents_penalty: 500, gal_distribution: 1000, gal_contract:0, gal_taproom:0, gal_wholesale:0, flag_timely:1, nc_excise_rate_micros:617100 } };
     const recomputed: WorksheetData = { fields: { cents_penalty: 0, gal_distribution: 2000, gal_contract:0, gal_taproom:0, gal_wholesale:0, flag_timely:1, nc_excise_rate_micros:617100 }, meta:{} };
