@@ -11,19 +11,8 @@ import SearchInput from "@/app/components/ui/SearchInput";
 import FilterChips from "@/app/components/ui/FilterChips";
 import FilterBar from "@/app/components/ui/FilterBar";
 import type { ControlsConfig } from "@/lib/table/types";
-
-const FORMATS: { value: PackagingVariationFormat; label: string }[] = [
-  { value: "loose",   label: "Loose" },
-  { value: "4-pack",  label: "4-Pack" },
-  { value: "6-pack",  label: "6-Pack" },
-  { value: "case",    label: "Case" },
-];
-
-const FORMAT_ORDER: PackagingVariationFormat[] = ["loose", "4-pack", "6-pack", "case"];
-
-function needsPaktech(format: PackagingVariationFormat)     { return format === "4-pack" || format === "6-pack" || format === "case"; }
-function needsTray(format: PackagingVariationFormat)         { return format === "case"; }
-function needsBreaksInto(format: PackagingVariationFormat)   { return format === "case"; }
+import { FORMATS, FORMAT_ORDER, needsPaktech, needsTray, needsBreaksInto } from "@/lib/production/packagingVariations";
+import BulkCanVariationModal from "./BulkCanVariationModal";
 
 const PKGVAR_CONTROLS: ControlsConfig<PackagingVariation> = {
   search: [{ param: "q", accessor: (v) => v.name }],
@@ -88,7 +77,8 @@ export default function PackagingVariationsPanel() {
   const [showInactive,  setShowInactive]  = useState(false);
 
   // Modal state
-  const [showModal,   setShowModal]   = useState(false);
+  const [showModal,     setShowModal]     = useState(false);
+  const [showBulkModal, setShowBulkModal] = useState(false);
   const [editingId,   setEditingId]   = useState<string | null>(null);
   const [form,        setForm]        = useState<FormState>(EMPTY_FORM);
   const [submitting,  setSubmitting]  = useState(false);
@@ -241,7 +231,10 @@ export default function PackagingVariationsPanel() {
         <p className="text-xs text-muted">
           Strictly-defined packaging combinations — container + format + specific components. Used by Recipes to declare which variations they&apos;re packaged as.
         </p>
-        <button onClick={openNew} className="btn-primary shrink-0">+ Add Variation</button>
+        <div className="flex gap-2 shrink-0">
+          <button onClick={() => setShowBulkModal(true)} className="btn-secondary">Bulk Create</button>
+          <button onClick={openNew} className="btn-primary">+ Add Variation</button>
+        </div>
       </div>
 
       {/* Search + filters */}
@@ -446,6 +439,16 @@ export default function PackagingVariationsPanel() {
             <ModalActions submitting={submitting} onCancel={() => setShowModal(false)} label={editingId ? "Save" : "Create"} />
           </form>
         </Modal>
+      )}
+
+      {showBulkModal && (
+        <BulkCanVariationModal
+          packaging={packaging}
+          partners={partners}
+          variations={variations}
+          onClose={() => setShowBulkModal(false)}
+          onCreated={onRefresh}
+        />
       )}
     </>
   );
