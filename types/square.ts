@@ -175,6 +175,10 @@ export interface Order {
   closed_at?: string;
   customer_id?: string;
   source?: { name?: string };
+  // App-stamped metadata. Orders created by our invoice flow (Orders API, then
+  // an attached Square invoice) carry `{ source: "tpb-brewing", type: <invoice
+  // kind> }`; native Square POS orders have none. See `isInvoiceOrder`.
+  metadata?: Record<string, string>;
   net_amount_due_money?: Money;
   line_items?: OrderLineItem[];
   discounts?: OrderDiscount[];

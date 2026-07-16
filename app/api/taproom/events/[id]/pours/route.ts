@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { fetchCompletedOrders } from "@/lib/square/orders";
 import { fetchCatalogItems } from "@/lib/square/catalog";
+import { isInvoiceOrder } from "@/lib/square/invoiceOrders";
 import type { CatalogItem } from "@/types/square";
 
 export const dynamic = "force-dynamic";
@@ -53,7 +54,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   for (const order of orders) {
     const closedAt = order.closed_at ? new Date(order.closed_at).getTime() : null;
     if (!closedAt || closedAt < eventStart || closedAt > eventEnd) continue;
-    if ((order.source?.name ?? "") === "Invoices") continue;
+    if (isInvoiceOrder(order)) continue;
 
     let orderHasEventPour = false;
 

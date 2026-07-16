@@ -1,5 +1,6 @@
 import { unstable_cache } from "next/cache";
 import { squarePost, squarePostAll, squareLocationId, squareGet, isSquareNotFound } from "./client";
+import { isInvoiceOrder } from "./invoiceOrders";
 import type { Order, SquareInvoice } from "@/types/square";
 import { dayRangeUtc } from "@/lib/utils/datetime";
 import { getBreweryTimezone } from "@/lib/settings/breweryTimezone.server";
@@ -118,5 +119,5 @@ export async function fetchInvoiceOrders(startDate: string, endDate: string): Pr
     return_entries: false,
     limit: 500,
   });
-  return all.filter((o) => o.source?.name === "Invoices");
+  return all.filter((o) => isInvoiceOrder(o));
 }

@@ -1,4 +1,5 @@
 import { squarePost, squarePostAll, squareLocationId } from "./client";
+import { isInvoiceOrder } from "./invoiceOrders";
 import { KEG_TRANSFER_DISCOUNT_NAME } from "@/types/reports";
 
 interface InventoryCount {
@@ -135,8 +136,8 @@ export async function fetchOrderSales(
     if (data.errors?.length) throw new Error(data.errors[0].detail);
 
     for (const order of data.orders ?? []) {
-      // Skip invoice-sourced orders — those are wholesale/contract, not taproom.
-      if (order.source?.name === "Invoices") continue;
+      // Skip invoice orders — those are wholesale/contract, not taproom.
+      if (isInvoiceOrder(order)) continue;
 
       for (const item of order.line_items ?? []) {
         const varId = item.catalog_object_id;
@@ -178,8 +179,8 @@ export function bucketOrderLinesByDay(
   const map = new Map<string, number>();
 
   for (const order of orders) {
-    // Skip invoice-sourced orders — those are wholesale/contract, not taproom.
-    if (order.source?.name === "Invoices") continue;
+    // Skip invoice orders — those are wholesale/contract, not taproom.
+    if (isInvoiceOrder(order)) continue;
 
     const day = (order.closed_at ?? order.created_at)?.slice(0, 10);
     if (!day) continue;
@@ -282,7 +283,7 @@ export function extractRestockLineItems(
 
   const events: RestockLineEvent[] = [];
   for (const order of orders) {
-    if (order.source?.name === "Invoices") continue;
+    if (isInvoiceOrder(order)) continue;
     const occurredAt = order.closed_at ?? order.created_at;
     if (!occurredAt) continue;
 
