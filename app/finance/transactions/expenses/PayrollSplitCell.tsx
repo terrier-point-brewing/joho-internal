@@ -3,10 +3,23 @@ import { useState } from "react";
 import Badge from "@/app/components/ui/Badge";
 import type { CoARef } from "../../AccountSelect";
 
-interface GlLine {
+export interface GlLine {
   chartOfAccountsId: string;
   amountCents: number;
   splitSource: "payroll_auto" | "manual" | null;
+}
+
+export interface PayrollMatchInfo {
+  payPeriodId: string;
+  periodStart: string; // YYYY-MM-DD
+  periodEnd: string;   // YYYY-MM-DD
+  hasReport: boolean;
+}
+
+/** The fresh payroll state a mutation returns for its one expense — used to patch that row in place. */
+export interface PayrollState {
+  payrollMatch: PayrollMatchInfo | null;
+  glLines: GlLine[];
 }
 
 interface PayrollSplitCellProps {
@@ -16,10 +29,11 @@ interface PayrollSplitCellProps {
   // payroll_split skip). Kept as a prop rather than re-derived here so the
   // cell stays presentation-only.
   routing: "single_account" | "payroll_split";
-  payrollMatch: { payPeriodId: string; hasReport: boolean } | null;
+  payrollMatch: PayrollMatchInfo | null;
   glLines: GlLine[];
   accounts: CoARef[];
-  onChanged: () => void;
+  // Patches just this expense's payroll state in the parent (no full reload).
+  onUpdated: (next: PayrollState) => void;
 }
 
 function accountLabel(accounts: CoARef[], id: string) {
@@ -32,6 +46,19 @@ function fmtCents(n: number) {
   return (n / 100).toLocaleString("en-US", { style: "currency", currency: "USD" });
 }
 
+/** Compact pay-period label, e.g. "Jul 1–15" (same month) or "Jun 28 – Jul 11". */
+function fmtPeriod(start: string, end: string): string | null {
+  if (!start || !end) return null;
+  const parse = (s: string) => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
+  const s = parse(start);
+  const e = parse(end);
+  const mon = (dt: Date) => dt.toLocaleDateString("en-US", { month: "short" });
+  if (s.getMonth() === e.getMonth() && s.getFullYear() === e.getFullYear()) {
+    return `${mon(s)} ${s.getDate()}–${e.getDate()}`;
+  }
+  return `${mon(s)} ${s.getDate()} – ${mon(e)} ${e.getDate()}`;
+}
+
 async function postAction(expenseId: string, body: Record<string, unknown>) {
   const res = await fetch(`/api/finance/expenses/${expenseId}/payroll-match`, {
     method: "POST",
@@ -42,7 +69,7 @@ async function postAction(expenseId: string, body: Record<string, unknown>) {
   return { ok: res.ok, status: res.status, json };
 }
 
-export function PayrollSplitCell({ expenseId, payrollMatch, glLines, accounts, onChanged }: PayrollSplitCellProps) {
+export function PayrollSplitCell({ expenseId, payrollMatch, glLines, accounts, onUpdated }: PayrollSplitCellProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
@@ -60,7 +87,7 @@ export function PayrollSplitCell({ expenseId, payrollMatch, glLines, accounts, o
       }
       const match = await postAction(expenseId, { action: "match", payPeriodId: suggestedPeriodId });
       if (!match.ok) throw new Error(match.json?.error ?? "Match failed.");
-      onChanged();
+      onUpdated(match.json as PayrollState);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Match failed.");
     } finally {
@@ -80,7 +107,7 @@ export function PayrollSplitCell({ expenseId, payrollMatch, glLines, accounts, o
         return;
       }
       if (!res.ok) throw new Error(res.json?.error ?? "Recompute failed.");
-      onChanged();
+      onUpdated(res.json as PayrollState);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Recompute failed.");
     } finally {
@@ -100,11 +127,16 @@ export function PayrollSplitCell({ expenseId, payrollMatch, glLines, accounts, o
   }
 
   const hasSplits = payrollMatch.hasReport && glLines.length > 0;
+  const periodLabel = fmtPeriod(payrollMatch.periodStart, payrollMatch.periodEnd);
 
   if (!hasSplits) {
     return (
       <div className="flex flex-col gap-0.5">
-        <Badge tone="info">Payroll — awaiting Gusto upload</Badge>
+        <span title={periodLabel ? `Matched to pay period ${payrollMatch.periodStart} – ${payrollMatch.periodEnd}` : undefined}>
+          <Badge tone="info">
+            {periodLabel ? `Payroll ${periodLabel} — awaiting Gusto upload` : "Payroll — awaiting Gusto upload"}
+          </Badge>
+        </span>
         {error && <span className="text-[10px] text-danger">{error}</span>}
       </div>
     );
@@ -116,9 +148,10 @@ export function PayrollSplitCell({ expenseId, payrollMatch, glLines, accounts, o
         <button
           type="button"
           className="text-xs text-accent hover:underline"
+          title={periodLabel ? `Pay period ${payrollMatch.periodStart} – ${payrollMatch.periodEnd}` : undefined}
           onClick={(ev) => { ev.stopPropagation(); setExpanded((v) => !v); }}
         >
-          <Badge tone="accent">{expanded ? "▾" : "▸"} Split ({glLines.length})</Badge>
+          <Badge tone="accent">{expanded ? "▾" : "▸"} {periodLabel ? `${periodLabel} split` : "Split"} ({glLines.length})</Badge>
         </button>
         <button
           type="button"

@@ -18,6 +18,7 @@ import { getSessionUser, requireRole } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { apiError } from "@/lib/utils/api";
 import { suggestPayPeriod, recomputePeriodExpenseSplits } from "@/lib/finance/payrollMatching";
+import { getExpensePayrollState } from "@/lib/finance/expensePayrollState";
 
 export const dynamic = "force-dynamic";
 
@@ -82,7 +83,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         // Recompute the whole period, not just this expense -- matching a
         // new expense changes every other matched expense's proportional weight.
         await recomputePeriodExpenseSplits(sb, body.payPeriodId);
-        return NextResponse.json({ ok: true }, { status: 201 });
+        // Return this expense's fresh payroll state so the client can patch the
+        // single row instead of reloading the whole ledger.
+        return NextResponse.json(await getExpensePayrollState(sb, id), { status: 201 });
       }
 
       case "unmatch": {
@@ -110,7 +113,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
         // Rebalance the remaining matched expenses' proportional weights.
         await recomputePeriodExpenseSplits(sb, match.pay_period_id);
-        return NextResponse.json({ ok: true });
+        return NextResponse.json(await getExpensePayrollState(sb, id));
       }
 
       case "recompute": {
@@ -134,7 +137,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         if (!match) return apiError("Expense is not matched to a pay period", 404);
 
         await recomputePeriodExpenseSplits(sb, match.pay_period_id);
-        return NextResponse.json({ ok: true });
+        return NextResponse.json(await getExpensePayrollState(sb, id));
       }
 
       default:

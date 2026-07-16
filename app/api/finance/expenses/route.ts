@@ -84,14 +84,22 @@ export async function GET(req: NextRequest) {
   const matchedPeriodIds = Array.from(new Set(matchByExpense.values()));
 
   let activePeriodIds = new Set<string>();
+  const periodDatesById = new Map<string, { start: string; end: string }>();
   if (matchedPeriodIds.length > 0) {
-    const { data: reportRows, error: reportErr } = await supabase
-      .from("payroll_gl_reports")
-      .select("pay_period_id")
-      .in("pay_period_id", matchedPeriodIds)
-      .is("superseded_at", null);
-    if (reportErr) return NextResponse.json({ error: reportErr.message }, { status: 500 });
-    activePeriodIds = new Set((reportRows as { pay_period_id: string }[]).map((r) => r.pay_period_id));
+    const [reportsResult, periodsResult] = await Promise.all([
+      supabase
+        .from("payroll_gl_reports")
+        .select("pay_period_id")
+        .in("pay_period_id", matchedPeriodIds)
+        .is("superseded_at", null),
+      supabase.from("pay_periods").select("id, start_date, end_date").in("id", matchedPeriodIds),
+    ]);
+    if (reportsResult.error) return NextResponse.json({ error: reportsResult.error.message }, { status: 500 });
+    if (periodsResult.error) return NextResponse.json({ error: periodsResult.error.message }, { status: 500 });
+    activePeriodIds = new Set((reportsResult.data as { pay_period_id: string }[]).map((r) => r.pay_period_id));
+    for (const p of periodsResult.data as { id: string; start_date: string; end_date: string }[]) {
+      periodDatesById.set(p.id, { start: p.start_date, end: p.end_date });
+    }
   }
 
   const splitsByExpense = new Map<
@@ -111,7 +119,15 @@ export async function GET(req: NextRequest) {
 
   const enriched = rows.map((row) => {
     const payPeriodId = matchByExpense.get(row.id);
-    const payrollMatch = payPeriodId ? { payPeriodId, hasReport: activePeriodIds.has(payPeriodId) } : null;
+    const dates = payPeriodId ? periodDatesById.get(payPeriodId) : undefined;
+    const payrollMatch = payPeriodId
+      ? {
+          payPeriodId,
+          periodStart: dates?.start ?? "",
+          periodEnd: dates?.end ?? "",
+          hasReport: activePeriodIds.has(payPeriodId),
+        }
+      : null;
     const glLines = resolveExpenseGlLines(splitsByExpense.get(row.id) ?? [], {
       chartOfAccountsId: row.chart_of_accounts_id,
       amountCents: row.amount_cents,

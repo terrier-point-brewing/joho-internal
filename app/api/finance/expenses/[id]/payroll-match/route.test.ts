@@ -37,6 +37,7 @@ interface SbConfig {
   insertMatchResult?: Result;
   existingMatch?: Result;
   splitRows?: Result;
+  reportRow?: Result;
 }
 
 function makeSb(config: SbConfig = {}) {
@@ -86,6 +87,14 @@ function makeSb(config: SbConfig = {}) {
         delete: vi.fn(() => {
           calls.push({ table, op: "delete", args: [] });
           return makeChain({ data: null, error: null });
+        }),
+      };
+    }
+    if (table === "payroll_gl_reports") {
+      return {
+        select: vi.fn((cols: string) => {
+          calls.push({ table, op: "select", args: [cols] });
+          return makeChain(config.reportRow ?? { data: null, error: null });
         }),
       };
     }
@@ -204,9 +213,8 @@ describe("POST /api/finance/expenses/[id]/payroll-match", () => {
 
     const { POST } = await import("./route");
     const res = await POST(postRequest({ action: "unmatch" }), { params: Promise.resolve({ id: "E1" }) });
-    const json = await res.json();
 
-    expect(json).toEqual({ ok: true });
+    expect(res.status).toBe(200);
     expect(lastCalls.some((c) => c.table === "payroll_period_expense_matches" && c.op === "delete")).toBe(true);
     expect(lastCalls.some((c) => c.table === "expense_gl_splits" && c.op === "delete")).toBe(true);
     expect(mockRecompute).toHaveBeenCalledWith(expect.anything(), "P9");
@@ -244,9 +252,8 @@ describe("POST /api/finance/expenses/[id]/payroll-match", () => {
     const res = await POST(postRequest({ action: "recompute", confirmOverwriteManual: true }), {
       params: Promise.resolve({ id: "E1" }),
     });
-    const json = await res.json();
 
-    expect(json).toEqual({ ok: true });
+    expect(res.status).toBe(200);
     expect(mockRecompute).toHaveBeenCalledWith(expect.anything(), "P5");
   });
 
