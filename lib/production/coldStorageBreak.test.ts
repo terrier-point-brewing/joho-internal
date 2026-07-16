@@ -1,11 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { planBreakDown, type Tier, deriveCansEach } from "./coldStorageBreak";
 
-// 16oz family: single=1 can, 4-pack=4, case=24.
+// 16oz family: single=1 can, 4-pack=4, case=24. Child edges: case->pack->single.
 const fam = (single: number, pack: number, kase: number): Tier[] => [
-  { variationId: "single", format: "loose", cansEach: 1, onHand: single },
-  { variationId: "pack", format: "4-pack", cansEach: 4, onHand: pack },
-  { variationId: "case", format: "case", cansEach: 24, onHand: kase },
+  { variationId: "single", format: "loose", cansEach: 1, onHand: single, childVariationId: null },
+  { variationId: "pack", format: "4-pack", cansEach: 4, onHand: pack, childVariationId: "single" },
+  { variationId: "case", format: "case", cansEach: 24, onHand: kase, childVariationId: "pack" },
 ];
 
 describe("planBreakDown", () => {
@@ -56,9 +56,9 @@ describe("planBreakDown", () => {
 
   it("handles a 6-pack family (case=24 -> 4 six-packs, six-pack -> 6 singles)", () => {
     const sixFam: Tier[] = [
-      { variationId: "s", format: "loose", cansEach: 1, onHand: 0 },
-      { variationId: "p", format: "6-pack", cansEach: 6, onHand: 0 },
-      { variationId: "c", format: "case", cansEach: 24, onHand: 1 },
+      { variationId: "s", format: "loose", cansEach: 1, onHand: 0, childVariationId: null },
+      { variationId: "p", format: "6-pack", cansEach: 6, onHand: 0, childVariationId: "s" },
+      { variationId: "c", format: "case", cansEach: 24, onHand: 1, childVariationId: "p" },
     ];
     const p = planBreakDown({ tiers: sixFam, targetVariationId: "s", needed: 5 });
     expect(p.ops).toEqual([
@@ -72,6 +72,56 @@ describe("planBreakDown", () => {
   it("throws when the target variation is not among the tiers", () => {
     expect(() => planBreakDown({ tiers: fam(0, 0, 0), targetVariationId: "ghost", needed: 1 }))
       .toThrow(/not in tiers/);
+  });
+});
+
+describe("planBreakDown — disambiguates a case's break target via childVariationId", () => {
+  // A family that (unusually) sells BOTH a 4-pack and a 6-pack of the same
+  // can. The case was physically built with 6-Pack PakTechs, so its
+  // childVariationId points at "pack6" only — the 4-pack sibling is NOT a
+  // valid crack target even though it's also a can-family member.
+  const ambiguousFam = (opts: { single: number; pack4: number; pack6: number; kase: number }): Tier[] => [
+    { variationId: "single", format: "loose", cansEach: 1, onHand: opts.single, childVariationId: null },
+    { variationId: "pack4", format: "4-pack", cansEach: 4, onHand: opts.pack4, childVariationId: "single" },
+    { variationId: "pack6", format: "6-pack", cansEach: 6, onHand: opts.pack6, childVariationId: "single" },
+    { variationId: "case", format: "case", cansEach: 24, onHand: opts.kase, childVariationId: "pack6" },
+  ];
+
+  it("cracks the case into its declared pack (6-pack), never the unrelated 4-pack sibling", () => {
+    const p = planBreakDown({
+      tiers: ambiguousFam({ single: 0, pack4: 0, pack6: 0, kase: 1 }),
+      targetVariationId: "pack6",
+      needed: 2,
+    });
+    expect(p.ops).toEqual([{ fromVariationId: "case", toVariationId: "pack6", fromUnits: 1, toUnits: 4 }]);
+    expect(p.resultingOnHand.pack6).toBe(4);
+    expect(p.resultingOnHand.pack4).toBe(0);
+    expect(p.shortfall).toBe(0);
+  });
+
+  it("reports a shortfall for the 4-pack target instead of wrongly cracking the case for it", () => {
+    const p = planBreakDown({
+      tiers: ambiguousFam({ single: 0, pack4: 0, pack6: 0, kase: 1 }),
+      targetVariationId: "pack4",
+      needed: 2,
+    });
+    expect(p.ops).toEqual([]);
+    expect(p.resultingOnHand.case).toBe(1); // untouched — the case can't produce 4-packs
+    expect(p.shortfall).toBe(2);
+  });
+
+  it("still cascades case->pack6->single for the loose target, leaving the 4-pack tier untouched", () => {
+    const p = planBreakDown({
+      tiers: ambiguousFam({ single: 0, pack4: 0, pack6: 0, kase: 1 }),
+      targetVariationId: "single",
+      needed: 3,
+    });
+    expect(p.ops).toEqual([
+      { fromVariationId: "case", toVariationId: "pack6", fromUnits: 1, toUnits: 4 },
+      { fromVariationId: "pack6", toVariationId: "single", fromUnits: 1, toUnits: 6 },
+    ]);
+    expect(p.resultingOnHand.pack4).toBe(0);
+    expect(p.shortfall).toBe(0);
   });
 });
 

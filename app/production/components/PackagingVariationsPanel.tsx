@@ -11,7 +11,7 @@ import SearchInput from "@/app/components/ui/SearchInput";
 import FilterChips from "@/app/components/ui/FilterChips";
 import FilterBar from "@/app/components/ui/FilterBar";
 import type { ControlsConfig } from "@/lib/table/types";
-import { FORMATS, FORMAT_ORDER, needsPaktech, needsTray } from "@/lib/production/packagingVariations";
+import { FORMATS, FORMAT_ORDER, needsPaktech, needsTray, needsBreaksInto } from "@/lib/production/packagingVariations";
 import BulkCanVariationModal from "./BulkCanVariationModal";
 
 const PKGVAR_CONTROLS: ControlsConfig<PackagingVariation> = {
@@ -37,6 +37,7 @@ const EMPTY_FORM = {
   tray_id: "",
   label_id: "",
   partner_id: "",
+  breaks_into_variation_id: "",
   name: "",
   is_labeled: false,
 };
@@ -44,10 +45,11 @@ const EMPTY_FORM = {
 type FormState = typeof EMPTY_FORM;
 
 const COMPONENT_COLORS = {
-  lid:     "border-line-subtle bg-surface-mid/60 text-body",
-  paktech: CC.purple,
-  tray:    "border-accent-border bg-accent-muted/30 text-accent-soft",
-  label:   "border-info-border bg-info-surface/30 text-info",
+  lid:        "border-line-subtle bg-surface-mid/60 text-body",
+  paktech:    CC.purple,
+  tray:       "border-accent-border bg-accent-muted/30 text-accent-soft",
+  label:      "border-info-border bg-info-surface/30 text-info",
+  breaksInto: CC.amber,
 } as const;
 
 function ComponentPill({ name, type }: { name: string; type: keyof typeof COMPONENT_COLORS }) {
@@ -101,6 +103,20 @@ export default function PackagingVariationsPanel() {
 
   const hasPartnerVariants = partnerChipOptions.length > 1;
 
+  // A case's "breaks into" target must be a 4-pack/6-pack sibling sharing its
+  // can-identity (container + lid + label + partner) — mirrors validateBreaksInto.
+  const caseBreakOptions = useMemo(() => {
+    if (form.format !== "case") return [];
+    const wantLabelId = form.is_labeled ? (form.label_id || null) : null;
+    return variations.filter((v) =>
+      (v.format === "4-pack" || v.format === "6-pack") &&
+      v.container_id === form.container_id &&
+      (v.lid_id ?? null) === (form.lid_id || null) &&
+      (v.label_id ?? null) === wantLabelId &&
+      (v.partner_id ?? null) === (form.partner_id || null)
+    );
+  }, [variations, form.format, form.container_id, form.lid_id, form.label_id, form.is_labeled, form.partner_id]);
+
   // showInactive pre-filters the input set; search/type/format/partner run through the shared hook.
   const base = useMemo(
     () => (showInactive ? variations : variations.filter((v) => v.is_active)),
@@ -134,6 +150,7 @@ export default function PackagingVariationsPanel() {
       tray_id: v.tray_id ?? "",
       label_id: v.label_id ?? "",
       partner_id: v.partner_id ?? "",
+      breaks_into_variation_id: v.breaks_into_variation_id ?? "",
       name: v.name,
       is_labeled: !!v.label_id,
     });
@@ -148,6 +165,7 @@ export default function PackagingVariationsPanel() {
       if (patch.format) {
         if (!needsPaktech(patch.format)) next.paktech_id = "";
         if (!needsTray(patch.format)) next.tray_id = "";
+        if (!needsBreaksInto(patch.format)) next.breaks_into_variation_id = "";
       }
       if (patch.container_id !== undefined) {
         const type = containers.find((c) => c.id === patch.container_id)?.type;
@@ -159,8 +177,14 @@ export default function PackagingVariationsPanel() {
           next.label_id = "";
           next.is_labeled = false;
         }
+        next.breaks_into_variation_id = "";
       }
       if (patch.is_labeled === false) next.label_id = "";
+      // Any change to the can-identity (label/partner) invalidates a previously
+      // picked sibling — the case-break-into pool is keyed on that identity.
+      if (patch.label_id !== undefined || patch.is_labeled !== undefined || patch.partner_id !== undefined) {
+        next.breaks_into_variation_id = "";
+      }
       return next;
     });
   }
@@ -178,6 +202,7 @@ export default function PackagingVariationsPanel() {
         tray_id: form.tray_id || null,
         label_id: form.is_labeled ? (form.label_id || null) : null,
         partner_id: form.partner_id || null,
+        breaks_into_variation_id: form.breaks_into_variation_id || null,
         name: form.name,
       };
       const res = editingId
@@ -266,7 +291,7 @@ export default function PackagingVariationsPanel() {
               {displayed.map((v, i) => {
                 const vIsKeg = v.container?.type === "keg";
                 const formatLabel = vIsKeg ? "Keg" : (FORMATS.find((f) => f.value === v.format)?.label ?? v.format);
-                const hasComponents = v.lid || v.paktech || v.tray || v.label;
+                const hasComponents = v.lid || v.paktech || v.tray || v.label || v.breaks_into;
                 return (
                   <tr
                     key={v.id}
@@ -289,10 +314,11 @@ export default function PackagingVariationsPanel() {
                     <td className="px-3 py-2.5">
                       {hasComponents ? (
                         <div className="flex flex-wrap gap-1">
-                          {v.lid     && <ComponentPill name={v.lid.name}     type="lid" />}
-                          {v.paktech && <ComponentPill name={v.paktech.name} type="paktech" />}
-                          {v.tray    && <ComponentPill name={v.tray.name}    type="tray" />}
-                          {v.label   && <ComponentPill name={v.label.name}   type="label" />}
+                          {v.lid        && <ComponentPill name={v.lid.name}                       type="lid" />}
+                          {v.paktech    && <ComponentPill name={v.paktech.name}                   type="paktech" />}
+                          {v.tray       && <ComponentPill name={v.tray.name}                      type="tray" />}
+                          {v.label      && <ComponentPill name={v.label.name}                     type="label" />}
+                          {v.breaks_into && <ComponentPill name={`→ ${v.breaks_into.name}`}        type="breaksInto" />}
                         </div>
                       ) : (
                         <span className="text-faint">—</span>
@@ -354,6 +380,23 @@ export default function PackagingVariationsPanel() {
                       <option value="">Select…</option>
                       {trays.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
                     </select>
+                  </Field>
+                )}
+                {needsBreaksInto(form.format) && (
+                  <Field
+                    label="Breaks Into"
+                    required
+                    hint="Which pack size this case is assembled from — set the lid/label/partner above first so the matching 4-pack/6-pack siblings show up here."
+                  >
+                    <select className="inp w-full" value={form.breaks_into_variation_id} onChange={(e) => updateForm({ breaks_into_variation_id: e.target.value })} required>
+                      <option value="">Select…</option>
+                      {caseBreakOptions.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+                    </select>
+                    {caseBreakOptions.length === 0 && (
+                      <p className="text-xs text-muted mt-1">
+                        No matching 4-pack/6-pack variation yet for this container/lid/label/partner combination — create that variation first.
+                      </p>
+                    )}
                   </Field>
                 )}
                 <Field label="Can Type" required>

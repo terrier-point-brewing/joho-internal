@@ -6,6 +6,7 @@ import { BBL_TO_FL_OZ } from "@/lib/constants/production";
 import { checkAndCompleteBatch } from "@/lib/production/batchCompletion";
 import { finalizeConversion, createConversionTargetBatch } from "@/lib/production/conversionFinalizer";
 import { computeTankVolumes } from "@/lib/production/volumeLedger";
+import { getPaktechUnitsPerPackage } from "@/lib/production/packagingVariations";
 
 export const dynamic = "force-dynamic";
 
@@ -66,7 +67,7 @@ async function processTransferLine(
     try {
       const { data: variation } = await supabase
         .from("packaging_variations")
-        .select("id, container_id, lid_id, paktech_id, tray_id, label_id, total_volume_fl_oz, container:packaging_items!packaging_variations_container_id_fkey(volume_fl_oz)")
+        .select("id, format, container_id, lid_id, paktech_id, tray_id, label_id, total_volume_fl_oz, container:packaging_items!packaging_variations_container_id_fkey(volume_fl_oz)")
         .eq("id", variation_id)
         .single();
 
@@ -74,13 +75,19 @@ async function processTransferLine(
         const containerVolume = (variation.container as unknown as { volume_fl_oz: number | null })?.volume_fl_oz ?? 0;
         const unitsPerPackage = containerVolume > 0 ? variation.total_volume_fl_oz / containerVolume : 1;
         const totalUnits = quantity * unitsPerPackage;
+        // A case packs several paktech'd bundles into one tray, so paktechs
+        // consumed per case outnumber trays consumed per case (unlike a bare
+        // 4-pack/6-pack, where the package IS the paktech'd bundle).
+        const paktechUnitsPerPackage = await getPaktechUnitsPerPackage(supabase, {
+          format: variation.format, tray_id: variation.tray_id, paktech_id: variation.paktech_id,
+        });
 
         const deductions: { id: string | null; qty: number; label: string }[] = [
           { id: variation.container_id, qty: totalUnits, label: "container" },
           { id: variation.lid_id,       qty: totalUnits, label: "lids" },
           { id: variation.label_id,     qty: totalUnits, label: "labels" },
           { id: variation.tray_id,      qty: quantity,    label: "trays" },
-          { id: variation.paktech_id,   qty: quantity,    label: "paktechs" },
+          { id: variation.paktech_id,   qty: quantity * paktechUnitsPerPackage, label: "paktechs" },
         ];
 
         for (const d of deductions) {
@@ -676,18 +683,23 @@ export async function POST(req: NextRequest) {
     const declaredIds = new Set((declaredRows ?? []).map((r) => r.variation_id));
 
     // Generic variations (no partner_id) are auto-available to every recipe
-    // without an explicit recipe_packaging_variations link.
-    const { data: genericRows } = await supabase
-      .from("packaging_variations")
-      .select("id")
-      .is("partner_id", null)
-      .eq("is_active", true);
-    const genericIds = new Set((genericRows ?? []).map((r) => r.id));
+    // without an explicit recipe_packaging_variations link — but only for
+    // kegging. Canning has no such fallback: every can variation must be
+    // explicitly declared via recipe_packaging_variations.
+    let genericIds = new Set<string>();
+    if (transfer_type === "kegging") {
+      const { data: genericRows } = await supabase
+        .from("packaging_variations")
+        .select("id")
+        .is("partner_id", null)
+        .eq("is_active", true);
+      genericIds = new Set((genericRows ?? []).map((r) => r.id));
+    }
 
     const acceptedIds = new Set([...declaredIds, ...genericIds]);
     if (acceptedIds.size === 0) {
       return NextResponse.json(
-        { error: "This recipe has no packaging variations declared — add one in Recipes → Packaging Variations before kegging/canning." },
+        { error: `This recipe has no packaging variations declared — add one in Recipes → Packaging Variations before ${transfer_type}.` },
         { status: 422 }
       );
     }
@@ -695,7 +707,11 @@ export async function POST(req: NextRequest) {
     const undeclared = variationIds.filter((id) => !acceptedIds.has(id));
     if (undeclared.length > 0) {
       return NextResponse.json(
-        { error: `Variation ${undeclared[0]} is not declared for this recipe and is not a generic variation.` },
+        {
+          error: transfer_type === "kegging"
+            ? `Variation ${undeclared[0]} is not declared for this recipe and is not a generic variation.`
+            : `Variation ${undeclared[0]} is not declared for this recipe. Canning requires an explicit recipe_packaging_variations link.`,
+        },
         { status: 422 }
       );
     }

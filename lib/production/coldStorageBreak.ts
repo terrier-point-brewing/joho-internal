@@ -1,17 +1,22 @@
 // lib/production/coldStorageBreak.ts
 //
 // Pure planner for cold-storage pack break-downs. Given the can-identity family's
-// tiers (single < pack < case) with current on-hand and cans-per-tier, decide the
-// minimal sequence of ONE-LEVEL breaks needed to raise the target tier's on-hand
-// to `needed`. Greedy + smallest-first: always crack the LOWEST higher tier that
-// has stock, so sealed cases survive for wholesale, and a case only breaks into
-// packs (never straight to singles). No IO — callers supply the loaded state.
+// tiers (single < pack < case) with current on-hand and an EXPLICIT one-level-down
+// edge per tier (childVariationId — what it cracks into), decide the minimal
+// sequence of ONE-LEVEL breaks needed to raise the target tier's on-hand to
+// `needed`. Greedy + smallest-first: always crack the smallest ANCESTOR of the
+// target that has stock, so sealed cases survive for wholesale, and a tier only
+// ever cracks into its own declared child (never guessed from volume/format
+// adjacency — a family can have both a 4-pack and a 6-pack sibling, and only one
+// of them is what a given case was actually built from). No IO — callers supply
+// the loaded state including each tier's childVariationId.
 
 export interface Tier {
   variationId: string;
   format: string;   // 'loose' | '4-pack' | '6-pack' | 'case'
   cansEach: number; // cans in one unit of this tier (single=1, pack=4|6, case=24)
   onHand: number;   // current cold-storage units of this tier
+  childVariationId: string | null; // tier this one cracks into, one level down; null = base tier (nothing to crack into)
 }
 
 export interface BreakOp {
@@ -32,28 +37,49 @@ const MAX_ITERS = 100_000;
 
 export function planBreakDown(input: { tiers: Tier[]; targetVariationId: string; needed: number }): BreakPlan {
   const { targetVariationId, needed } = input;
-  const sorted = [...input.tiers].sort((a, b) => a.cansEach - b.cansEach);
+  const byId = new Map(input.tiers.map((t) => [t.variationId, t]));
+  if (!byId.has(targetVariationId)) throw new Error(`planBreakDown: target variation ${targetVariationId} not in tiers`);
 
   const onHand: Record<string, number> = {};
-  for (const t of sorted) onHand[t.variationId] = t.onHand;
+  for (const t of input.tiers) onHand[t.variationId] = t.onHand;
 
-  const targetIndex = sorted.findIndex((t) => t.variationId === targetVariationId);
-  if (targetIndex === -1) throw new Error(`planBreakDown: target variation ${targetVariationId} not in tiers`);
+  // childId -> [parentIds whose declared child is childId]
+  const parentsOf = new Map<string, string[]>();
+  for (const t of input.tiers) {
+    if (!t.childVariationId) continue;
+    const list = parentsOf.get(t.childVariationId) ?? [];
+    list.push(t.variationId);
+    parentsOf.set(t.childVariationId, list);
+  }
+
+  // Every tier that transitively cracks down into the target, via declared
+  // child edges only (not positional/volume adjacency).
+  function ancestorsOf(id: string, seen: Set<string>): string[] {
+    const direct = parentsOf.get(id) ?? [];
+    const all: string[] = [];
+    for (const p of direct) {
+      if (seen.has(p)) continue; // guard a malformed cyclic edge, defensively
+      seen.add(p);
+      all.push(p, ...ancestorsOf(p, seen));
+    }
+    return all;
+  }
+  const ancestorIds = new Set(ancestorsOf(targetVariationId, new Set()));
 
   const ops: BreakOp[] = [];
   let guard = 0;
   while (onHand[targetVariationId] < needed - EPS) {
     if (++guard > MAX_ITERS) throw new Error("planBreakDown: did not converge");
 
-    // Lowest tier strictly above the target that has at least one unit on hand.
-    let src = -1;
-    for (let i = targetIndex + 1; i < sorted.length; i++) {
-      if (onHand[sorted[i].variationId] >= 1 - EPS) { src = i; break; }
-    }
-    if (src === -1) break; // nothing left to crack -> shortfall
+    // Smallest (by cansEach) ancestor of the target that has stock — crack the
+    // nearest sealed unit first so bigger units survive as long as possible.
+    const parent = [...ancestorIds]
+      .map((id) => byId.get(id)!)
+      .filter((t) => onHand[t.variationId] >= 1 - EPS)
+      .sort((a, b) => a.cansEach - b.cansEach)[0];
+    if (!parent) break; // nothing left to crack -> shortfall
 
-    const parent = sorted[src];
-    const child = sorted[src - 1]; // exactly one level down
+    const child = byId.get(parent.childVariationId!)!;
     const toUnits = parent.cansEach / child.cansEach;
     onHand[parent.variationId] -= 1;
     onHand[child.variationId] += toUnits;
