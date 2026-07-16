@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { PackagingVariationFormat } from "@/app/production/types";
 
 export const PACKAGING_VARIATION_SELECT = `
   *,
@@ -48,4 +49,38 @@ export async function computeTotalVolumeFlOz(
   const containerVolume = container?.volume_fl_oz ?? 0;
   const unitsPerPackage = await getUnitsPerPackage(supabase, { format, tray_id, paktech_id });
   return containerVolume * unitsPerPackage;
+}
+
+export const FORMATS: { value: PackagingVariationFormat; label: string }[] = [
+  { value: "loose",   label: "Loose" },
+  { value: "4-pack",  label: "4-Pack" },
+  { value: "6-pack",  label: "6-Pack" },
+  { value: "case",    label: "Case" },
+];
+
+export const FORMAT_ORDER: PackagingVariationFormat[] = ["loose", "4-pack", "6-pack", "case"];
+
+export function needsPaktech(format: PackagingVariationFormat) { return format === "4-pack" || format === "6-pack"; }
+export function needsTray(format: PackagingVariationFormat)     { return format === "case"; }
+
+export interface VariationCombo {
+  container_id: string;
+  format: string;
+  lid_id: string | null;
+  paktech_id: string | null;
+  tray_id: string | null;
+  label_id: string | null;
+  partner_id: string | null;
+}
+
+export function isDuplicateCombo(candidate: VariationCombo, existing: VariationCombo[]): boolean {
+  return existing.some((e) =>
+    e.container_id === candidate.container_id &&
+    e.format === candidate.format &&
+    e.lid_id === candidate.lid_id &&
+    e.paktech_id === candidate.paktech_id &&
+    e.tray_id === candidate.tray_id &&
+    e.label_id === candidate.label_id &&
+    e.partner_id === candidate.partner_id
+  );
 }

@@ -1,6 +1,6 @@
 // lib/production/packagingVariations.test.ts
 import { describe, it, expect } from "vitest";
-import { validateFormat } from "./packagingVariations";
+import { validateFormat, needsPaktech, needsTray, isDuplicateCombo, type VariationCombo } from "./packagingVariations";
 
 // ── validateFormat ──────────────────────────────────────────────────────────
 // Pure validator for the (format × paktech_id × tray_id) packaging matrix.
@@ -105,5 +105,87 @@ describe("validateFormat — unknown / fallback formats", () => {
   it("returns null for an empty-string format", () => {
     expect(validateFormat("", null, null)).toBeNull();
     expect(validateFormat("", "paktech-1", "tray-1")).toBeNull();
+  });
+});
+
+describe("needsPaktech / needsTray", () => {
+  it("needsPaktech is true only for 4-pack and 6-pack", () => {
+    expect(needsPaktech("4-pack")).toBe(true);
+    expect(needsPaktech("6-pack")).toBe(true);
+    expect(needsPaktech("loose")).toBe(false);
+    expect(needsPaktech("case")).toBe(false);
+  });
+
+  it("needsTray is true only for case", () => {
+    expect(needsTray("case")).toBe(true);
+    expect(needsTray("loose")).toBe(false);
+    expect(needsTray("4-pack")).toBe(false);
+    expect(needsTray("6-pack")).toBe(false);
+  });
+});
+
+describe("isDuplicateCombo", () => {
+  const base: VariationCombo = {
+    container_id: "c1",
+    format: "4-pack",
+    lid_id: "lid1",
+    paktech_id: "pak1",
+    tray_id: null,
+    label_id: "lab1",
+    partner_id: "p1",
+  };
+
+  it("matches an identical combo", () => {
+    expect(isDuplicateCombo(base, [{ ...base }])).toBe(true);
+  });
+
+  it("does not match when container_id differs", () => {
+    expect(isDuplicateCombo(base, [{ ...base, container_id: "c2" }])).toBe(false);
+  });
+
+  it("does not match when format differs", () => {
+    expect(isDuplicateCombo(base, [{ ...base, format: "6-pack" }])).toBe(false);
+  });
+
+  it("does not match when lid_id differs", () => {
+    expect(isDuplicateCombo(base, [{ ...base, lid_id: "lid2" }])).toBe(false);
+  });
+
+  it("does not match when paktech_id differs (including null vs set)", () => {
+    expect(isDuplicateCombo(base, [{ ...base, paktech_id: null }])).toBe(false);
+  });
+
+  it("does not match when tray_id differs (including null vs set)", () => {
+    expect(isDuplicateCombo(base, [{ ...base, tray_id: "tray1" }])).toBe(false);
+  });
+
+  it("does not match when label_id differs (including null vs set)", () => {
+    expect(isDuplicateCombo(base, [{ ...base, label_id: null }])).toBe(false);
+  });
+
+  it("does not match when partner_id differs (including null vs set)", () => {
+    expect(isDuplicateCombo(base, [{ ...base, partner_id: null }])).toBe(false);
+  });
+
+  it("matches when both candidate and an existing row have null optional fields", () => {
+    const loose: VariationCombo = {
+      container_id: "c1",
+      format: "loose",
+      lid_id: "lid1",
+      paktech_id: null,
+      tray_id: null,
+      label_id: null,
+      partner_id: null,
+    };
+    expect(isDuplicateCombo(loose, [{ ...loose }])).toBe(true);
+  });
+
+  it("returns false against an empty existing list", () => {
+    expect(isDuplicateCombo(base, [])).toBe(false);
+  });
+
+  it("returns true when any one of several existing rows matches", () => {
+    const other: VariationCombo = { ...base, container_id: "c2" };
+    expect(isDuplicateCombo(base, [other, { ...base }])).toBe(true);
   });
 });

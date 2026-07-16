@@ -11,18 +11,7 @@ import SearchInput from "@/app/components/ui/SearchInput";
 import FilterChips from "@/app/components/ui/FilterChips";
 import FilterBar from "@/app/components/ui/FilterBar";
 import type { ControlsConfig } from "@/lib/table/types";
-
-const FORMATS: { value: PackagingVariationFormat; label: string }[] = [
-  { value: "loose",   label: "Loose" },
-  { value: "4-pack",  label: "4-Pack" },
-  { value: "6-pack",  label: "6-Pack" },
-  { value: "case",    label: "Case" },
-];
-
-const FORMAT_ORDER: PackagingVariationFormat[] = ["loose", "4-pack", "6-pack", "case"];
-
-function needsPaktech(format: PackagingVariationFormat) { return format === "4-pack" || format === "6-pack"; }
-function needsTray(format: PackagingVariationFormat)     { return format === "case"; }
+import { FORMATS, FORMAT_ORDER, needsPaktech, needsTray } from "@/lib/production/packagingVariations";
 
 const PKGVAR_CONTROLS: ControlsConfig<PackagingVariation> = {
   search: [{ param: "q", accessor: (v) => v.name }],
