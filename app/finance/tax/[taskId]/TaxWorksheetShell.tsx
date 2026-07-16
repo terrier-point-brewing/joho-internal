@@ -25,28 +25,12 @@ import { queryKeys } from "@/lib/query-keys";
 import { fetchJson } from "@/app/production/hooks/queries";
 import { fmtCents, fmtDateLong } from "@/lib/utils/formatting";
 import type { FieldSpec, TaxTask, WorksheetData } from "@/lib/tax/types";
-import type { TaxRegistration } from "@/lib/tax/registrations";
-import { useTaxPartiesQuery, useEntityProfileQuery, useRegistrationsQuery } from "../hooks/useTaxData";
+import type { ResolvedRequiredRegistration } from "@/lib/tax/registrations";
+import { useTaxPartiesQuery, useEntityProfileQuery, useLegalRepresentativeQuery } from "../hooks/useTaxData";
 import { getWorksheetModule } from "../parties/registry";
 import CompletePanel from "./CompletePanel";
 
 const AUTOSAVE_DEBOUNCE_MS = 800;
-
-// Which tax_registrations authorities are relevant to each party's Filing
-// Identity header. FEIN (irs) and the NC DOR account/license # apply to
-// every party filed with NC DOR today; the ABC permit is alcohol-specific
-// (beer excise only).
-const HEADER_REGISTRATION_AUTHORITIES: Record<string, { authorityKey: string; label: string }[]> = {
-  nc_dor_beer_excise: [
-    { authorityKey: "irs", label: "FEIN" },
-    { authorityKey: "nc_dor", label: "NCDOR ID / Account Number" },
-    { authorityKey: "nc_abc", label: "ABC Permit Number" },
-  ],
-  nc_dor_sales_use: [
-    { authorityKey: "irs", label: "FEIN" },
-    { authorityKey: "nc_dor", label: "NCDOR ID / Account Number" },
-  ],
-};
 
 function formatEntityAddress(entity: Record<string, string>): string {
   const street = [entity.address_line1, entity.address_line2].filter(Boolean).join(", ");
@@ -104,7 +88,7 @@ export default function TaxWorksheetShell({ taskId }: { taskId: string }) {
     enabled: !!task?.party_key,
   });
   const entityProfileQuery = useEntityProfileQuery();
-  const registrationsQuery = useRegistrationsQuery();
+  const representativeQuery = useLegalRepresentativeQuery();
 
   const [worksheet, setWorksheet] = useState<WorksheetData>({ fields: {} });
   // True while a local edit hasn't been confirmed saved yet — guards the
@@ -255,9 +239,9 @@ export default function TaxWorksheetShell({ taskId }: { taskId: string }) {
         schema={party?.settingsSchema ?? []}
         values={profileQuery.data}
         entity={entityProfileQuery.data}
-        registrations={registrationsQuery.data}
-        registrationAuthorities={HEADER_REGISTRATION_AUTHORITIES[task.party_key] ?? []}
-        isLoading={profileQuery.isLoading || entityProfileQuery.isLoading || registrationsQuery.isLoading}
+        representative={representativeQuery.data}
+        requiredRegistrations={party?.requiredRegistrations ?? []}
+        isLoading={profileQuery.isLoading || entityProfileQuery.isLoading || representativeQuery.isLoading}
       />
 
       {worksheet.warnings && worksheet.warnings.length > 0 && (
@@ -315,36 +299,45 @@ export default function TaxWorksheetShell({ taskId }: { taskId: string }) {
 
 /**
  * Party-agnostic "who is filing" header shown above every party's
- * worksheet. Three sources, in display order:
- *  1. `registrations` (tax_registrations) filtered to `registrationAuthorities`
- *     — FEIN / NCDOR ID / ABC permit, whichever this party's authorities are.
- *  2. `entity` (tax_entity_profile) — legal name, trade name, address,
- *     contact, state of domicile, phone, fax. Shared across every party.
- *  3. `schema`/`values` (the party's own `settingsSchema` /
+ * worksheet, in display order:
+ *  1. `requiredRegistrations` — already fully resolved server-side by
+ *     `GET /api/tax/parties` (base + this party's own requirements, matched
+ *     by (authority_key, key) — never "first row for this authority").
+ *  2. `entity` (tax_entity_profile) — legal name, trade name, address.
+ *     Business-level, shared across every party.
+ *  3. `representative` (tax_legal_representative) — Name of Contact Person
+ *     and State of Domicile (this person's `state`, read directly — never a
+ *     separate stored field).
+ *  4. `entity` again — Phone Number, Fax Number. Business-level, per an
+ *     explicit product decision (NOT the representative's own phone/fax).
+ *  5. `schema`/`values` (the party's own `settingsSchema` /
  *     `tax_filing_profiles`) — whatever extra identity-ish fields a party
  *     still declares for itself (e.g. NC DOR Sales & Use's Square mapping
- *     fields). Empty for beer excise since Task 2 emptied its schema.
+ *     fields). Empty for beer excise.
+ * The representative's `title`, `ssn`, and street address are captured in
+ * Tax Profile but intentionally NOT rendered here — the worksheet header
+ * only shows what the paper form actually asks for.
  */
 function IdentityHeader({
   schema,
   values,
   entity,
-  registrations,
-  registrationAuthorities,
+  representative,
+  requiredRegistrations,
   isLoading,
 }: {
   schema: FieldSpec[];
   values?: Record<string, string>;
   entity?: Record<string, string>;
-  registrations?: TaxRegistration[];
-  registrationAuthorities: { authorityKey: string; label: string }[];
+  representative?: Record<string, string>;
+  requiredRegistrations: ResolvedRequiredRegistration[];
   isLoading: boolean;
 }) {
   if (isLoading) return <p className="text-xs text-faint mt-2">Loading filing identity…</p>;
 
-  const registrationRows = registrationAuthorities.map(({ authorityKey, label }) => ({
-    label,
-    value: registrations?.find((r) => r.authority_key === authorityKey)?.number || "—",
+  const registrationRows = requiredRegistrations.map((req) => ({
+    label: req.label,
+    value: req.number || "—",
   }));
 
   const entityRows = entity
@@ -352,8 +345,18 @@ function IdentityHeader({
         { label: "Legal Entity Name", value: entity.legal_name || "—" },
         { label: "Trade Name", value: entity.trade_name || "—" },
         { label: "Address", value: formatEntityAddress(entity) },
-        { label: "Name of Contact Person", value: entity.contact_name || "—" },
-        { label: "State of Domicile", value: entity.state_of_domicile || "—" },
+      ]
+    : [];
+
+  const representativeRows = representative
+    ? [
+        { label: "Name of Contact Person", value: representative.name || "—" },
+        { label: "State of Domicile", value: representative.state || "—" },
+      ]
+    : [];
+
+  const entityContactRows = entity
+    ? [
         { label: "Phone Number", value: entity.contact_phone || "—" },
         { label: "Fax Number", value: entity.fax_number || "—" },
       ]
@@ -361,7 +364,7 @@ function IdentityHeader({
 
   const schemaRows = schema.map((field) => ({ label: field.label, value: values?.[field.key] || "—" }));
 
-  const rows = [...registrationRows, ...entityRows, ...schemaRows];
+  const rows = [...registrationRows, ...entityRows, ...representativeRows, ...entityContactRows, ...schemaRows];
   if (rows.length === 0) return null;
 
   return (

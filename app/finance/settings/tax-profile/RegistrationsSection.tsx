@@ -7,7 +7,8 @@ import Banner from "@/app/components/ui/Banner";
 import { queryKeys } from "@/lib/query-keys";
 import { fetchJson } from "@/app/production/hooks/queries";
 import type { TaxAuthority } from "@/lib/tax/authorities";
-import type { TaxRegistration, TaxRegistrationInput } from "@/lib/tax/registrations";
+import type { TaxRegistrationInput } from "@/lib/tax/registrations";
+import type { RegistrationsResponse } from "../../tax/hooks/useTaxData";
 
 async function putJson<T>(url: string, body: unknown): Promise<T> {
   const res = await fetch(url, {
@@ -29,26 +30,54 @@ interface Row {
 }
 
 type Drafts = Record<string, Row[]>;
+type RequiredDrafts = Record<string, string>; // "authorityKey:registrationKey" -> number
 
-function groupByAuthority(authorities: TaxAuthority[], registrations: TaxRegistration[]): Drafts {
+function dedupeKey(authorityKey: string, registrationKey: string): string {
+  return `${authorityKey}:${registrationKey}`;
+}
+
+/**
+ * Groups the FREEFORM ("Other") rows by authority, excluding any row whose
+ * (authority_key, key) is already covered by a resolved requirement — those
+ * are edited in the "Required for active filings" block instead, never both.
+ */
+function groupOtherRegistrations(
+  authorities: TaxAuthority[],
+  data: RegistrationsResponse,
+): Drafts {
+  const requiredIds = new Set(data.required.map((r) => r.id).filter((id): id is string => Boolean(id)));
   const drafts: Drafts = {};
   for (const authority of authorities) {
     drafts[authority.key] = [];
   }
-  for (const reg of registrations) {
+  for (const reg of data.registrations) {
+    if (requiredIds.has(reg.id)) continue;
     if (!drafts[reg.authority_key]) drafts[reg.authority_key] = [];
     drafts[reg.authority_key].push({ id: reg.id, label: reg.label, number: reg.number ?? "" });
   }
   return drafts;
 }
 
+function initialRequiredDrafts(data: RegistrationsResponse): RequiredDrafts {
+  const drafts: RequiredDrafts = {};
+  for (const req of data.required) {
+    drafts[dedupeKey(req.authorityKey, req.registrationKey)] = req.number ?? "";
+  }
+  return drafts;
+}
+
 /**
- * Per-authority registration/license numbers (`tax_registrations`, one
- * authority → many free-text-labeled registrations — see
- * lib/tax/registrations.ts). Local draft state grouped by authority key;
- * explicit Save flattens every group's rows into
- * `PUT /api/tax/registrations`, which fully reconciles the table (rows
- * without an id are inserted, rows omitted from the payload are deleted).
+ * Per-authority registration/license numbers (`tax_registrations`). Two
+ * blocks:
+ *  - Required for active filings: one row per resolved requirement
+ *    (`GET /api/tax/registrations`'s `required` field) — label locked, only
+ *    the number is editable, matched by (authority_key, key), never "first
+ *    row for this authority".
+ *  - Other registrations: today's freeform per-authority editor, minus
+ *    whatever's already covered above.
+ * Both flatten into ONE `PUT /api/tax/registrations` call on Save — the
+ * full-reconcile-on-save contract (lib/tax/registrations.ts's
+ * `saveRegistrations`) is unchanged.
  */
 export default function RegistrationsSection() {
   const qc = useQueryClient();
@@ -58,10 +87,11 @@ export default function RegistrationsSection() {
   });
   const registrationsQuery = useQuery({
     queryKey: queryKeys.tax.registrations(),
-    queryFn: () => fetchJson<TaxRegistration[]>("/api/tax/registrations"),
+    queryFn: () => fetchJson<RegistrationsResponse>("/api/tax/registrations"),
   });
 
-  const [drafts, setDrafts] = useState<Drafts>({});
+  const [requiredDrafts, setRequiredDrafts] = useState<RequiredDrafts>({});
+  const [otherDrafts, setOtherDrafts] = useState<Drafts>({});
   const initializedRef = useRef(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -69,7 +99,8 @@ export default function RegistrationsSection() {
 
   useEffect(() => {
     if (authoritiesQuery.data && registrationsQuery.data && !initializedRef.current) {
-      setDrafts(groupByAuthority(authoritiesQuery.data, registrationsQuery.data));
+      setRequiredDrafts(initialRequiredDrafts(registrationsQuery.data));
+      setOtherDrafts(groupOtherRegistrations(authoritiesQuery.data, registrationsQuery.data));
       initializedRef.current = true;
     }
   }, [authoritiesQuery.data, registrationsQuery.data]);
@@ -91,9 +122,15 @@ export default function RegistrationsSection() {
   }
 
   const authorities = authoritiesQuery.data ?? [];
+  const required = registrationsQuery.data?.required ?? [];
 
-  function updateRow(authorityKey: string, index: number, patch: Partial<Row>) {
-    setDrafts((cur) => {
+  function updateRequired(authorityKey: string, registrationKey: string, number: string) {
+    setRequiredDrafts((cur) => ({ ...cur, [dedupeKey(authorityKey, registrationKey)]: number }));
+    setSaved(false);
+  }
+
+  function updateOtherRow(authorityKey: string, index: number, patch: Partial<Row>) {
+    setOtherDrafts((cur) => {
       const rows = cur[authorityKey] ?? [];
       const nextRows = rows.map((row, i) => (i === index ? { ...row, ...patch } : row));
       return { ...cur, [authorityKey]: nextRows };
@@ -101,16 +138,16 @@ export default function RegistrationsSection() {
     setSaved(false);
   }
 
-  function addRow(authorityKey: string) {
-    setDrafts((cur) => ({
+  function addOtherRow(authorityKey: string) {
+    setOtherDrafts((cur) => ({
       ...cur,
       [authorityKey]: [...(cur[authorityKey] ?? []), { label: "", number: "" }],
     }));
     setSaved(false);
   }
 
-  function removeRow(authorityKey: string, index: number) {
-    setDrafts((cur) => ({
+  function removeOtherRow(authorityKey: string, index: number) {
+    setOtherDrafts((cur) => ({
       ...cur,
       [authorityKey]: (cur[authorityKey] ?? []).filter((_, i) => i !== index),
     }));
@@ -123,8 +160,25 @@ export default function RegistrationsSection() {
     setSaved(false);
     try {
       const rows: TaxRegistrationInput[] = [];
-      for (const authorityKey of Object.keys(drafts)) {
-        const authorityRows = drafts[authorityKey] ?? [];
+
+      for (const req of required) {
+        const number = requiredDrafts[dedupeKey(req.authorityKey, req.registrationKey)] ?? "";
+        // Skip a requirement that's both never been saved (no id yet) and
+        // still blank — don't create an empty keyed row just because it's
+        // listed as required; wait until the user actually enters a number.
+        if (!req.id && !number.trim()) continue;
+        rows.push({
+          id: req.id,
+          authority_key: req.authorityKey,
+          key: req.registrationKey,
+          label: req.label,
+          number: number.trim() || null,
+          display_order: 0,
+        });
+      }
+
+      for (const authorityKey of Object.keys(otherDrafts)) {
+        const authorityRows = otherDrafts[authorityKey] ?? [];
         let order = 0;
         for (const row of authorityRows) {
           // A registration needs a label; skip blank rows (incl. a number typed
@@ -133,6 +187,7 @@ export default function RegistrationsSection() {
           rows.push({
             id: row.id,
             authority_key: authorityKey,
+            key: null, // explicit: freeform "Other" rows are never keyed, unlike the required rows above
             label: row.label.trim(),
             number: row.number.trim() || null,
             display_order: order,
@@ -140,11 +195,13 @@ export default function RegistrationsSection() {
           order += 1;
         }
       }
+
       await putJson("/api/tax/registrations", { rows });
       initializedRef.current = false;
       await Promise.all([
         qc.invalidateQueries({ queryKey: queryKeys.tax.registrations() }),
         qc.invalidateQueries({ queryKey: queryKeys.tax.authorities() }),
+        qc.invalidateQueries({ queryKey: queryKeys.tax.parties() }),
       ]);
       setSaved(true);
     } catch (err) {
@@ -160,48 +217,71 @@ export default function RegistrationsSection() {
         {error && <Banner tone="danger">{error}</Banner>}
         {saved && <Banner tone="success">Registrations saved.</Banner>}
 
-        {authorities.length === 0 && <p className="text-sm text-faint">No tax authorities configured.</p>}
-
-        {authorities.map((authority) => (
-          <div key={authority.key} className="space-y-2 pb-4 border-b border-line last:border-0 last:pb-0">
-            <h4 className="text-sm font-medium text-primary">{authority.label}</h4>
+        {required.length > 0 && (
+          <div className="space-y-2 pb-4 border-b border-line">
+            <h4 className="text-sm font-medium text-primary">Required for active filings</h4>
             <div className="space-y-2">
-              {(drafts[authority.key] ?? []).map((row, index) => (
-                <div key={row.id ?? `new-${index}`} className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    className="inp-sm flex-1"
-                    placeholder="Label (e.g. FEIN, Permit #)"
-                    value={row.label}
-                    onChange={(e) => updateRow(authority.key, index, { label: e.target.value })}
-                  />
+              {required.map((req) => (
+                <div key={dedupeKey(req.authorityKey, req.registrationKey)} className="flex items-center gap-2">
+                  <span className="flex-1 text-sm text-body">{req.label}</span>
                   <input
                     type="text"
                     className="inp-sm flex-1"
                     placeholder="Number"
-                    value={row.number}
-                    onChange={(e) => updateRow(authority.key, index, { number: e.target.value })}
+                    value={requiredDrafts[dedupeKey(req.authorityKey, req.registrationKey)] ?? ""}
+                    onChange={(e) => updateRequired(req.authorityKey, req.registrationKey, e.target.value)}
                   />
-                  <button
-                    type="button"
-                    className="btn-secondary btn-xxs"
-                    onClick={() => removeRow(authority.key, index)}
-                  >
-                    Remove
-                  </button>
                 </div>
               ))}
-              {(drafts[authority.key] ?? []).length === 0 && (
-                <p className="text-xs text-faint">No registrations for this authority.</p>
-              )}
             </div>
-            <button type="button" className="btn-secondary btn-xxs" onClick={() => addRow(authority.key)}>
-              + Add registration
-            </button>
           </div>
-        ))}
+        )}
 
-        {authorities.length > 0 && (
+        <div className="space-y-2">
+          <h4 className="text-sm font-medium text-primary">Other registrations</h4>
+          {authorities.length === 0 && <p className="text-sm text-faint">No tax authorities configured.</p>}
+
+          {authorities.map((authority) => (
+            <div key={authority.key} className="space-y-2 pb-4 border-b border-line last:border-0 last:pb-0">
+              <h5 className="text-xs font-medium text-faint uppercase tracking-wide">{authority.label}</h5>
+              <div className="space-y-2">
+                {(otherDrafts[authority.key] ?? []).map((row, index) => (
+                  <div key={row.id ?? `new-${index}`} className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      className="inp-sm flex-1"
+                      placeholder="Label (e.g. Permit #)"
+                      value={row.label}
+                      onChange={(e) => updateOtherRow(authority.key, index, { label: e.target.value })}
+                    />
+                    <input
+                      type="text"
+                      className="inp-sm flex-1"
+                      placeholder="Number"
+                      value={row.number}
+                      onChange={(e) => updateOtherRow(authority.key, index, { number: e.target.value })}
+                    />
+                    <button
+                      type="button"
+                      className="btn-secondary btn-xxs"
+                      onClick={() => removeOtherRow(authority.key, index)}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+                {(otherDrafts[authority.key] ?? []).length === 0 && (
+                  <p className="text-xs text-faint">No other registrations for this authority.</p>
+                )}
+              </div>
+              <button type="button" className="btn-secondary btn-xxs" onClick={() => addOtherRow(authority.key)}>
+                + Add registration
+              </button>
+            </div>
+          ))}
+        </div>
+
+        {(authorities.length > 0 || required.length > 0) && (
           <div className="flex justify-end pt-2 border-t border-line">
             <button type="button" className="btn-primary" onClick={handleSave} disabled={submitting}>
               {submitting ? "Saving…" : "Save"}

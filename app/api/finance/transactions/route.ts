@@ -1,12 +1,16 @@
 /**
- * GET /api/finance/transactions?year=YYYY&page=N&pageSize=N
+ * GET /api/finance/transactions?from=YYYY-MM-DD&to=YYYY-MM-DD&page=N&pageSize=N
  *
  * Returns paginated square_orders (POS only) joined with their pos_line_items
  * (including prefilled CoA from account mapping when no manual override exists).
+ *
+ * PATCH /api/finance/transactions — { id, unmapped_accepted } to mark an
+ * order's unmapped line items as reviewed/dismissed without mapping them.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { defaultYearRange } from "@/lib/finance/dateRange";
 
 export const dynamic = "force-dynamic";
 
@@ -14,12 +18,12 @@ export async function GET(req: NextRequest) {
   try { await requireRole(["viewer"]); } catch (res) { return res as Response; }
 
   const { searchParams } = req.nextUrl;
-  const year     = searchParams.get("year") ? Number(searchParams.get("year")) : new Date().getFullYear();
+  const { from: defYearFrom, to: defYearTo } = defaultYearRange();
+  const startDate = searchParams.get("from") ?? defYearFrom;
+  const endDate   = searchParams.get("to")   ?? defYearTo;
   const page     = Math.max(1, Number(searchParams.get("page") ?? 1));
   const pageSize = Math.min(200, Math.max(10, Number(searchParams.get("pageSize") ?? 50)));
 
-  const startDate = `${year}-01-01`;
-  const endDate   = `${year + 1}-01-01`;
   const from      = (page - 1) * pageSize;
   const to        = from + pageSize - 1;
 
@@ -39,6 +43,7 @@ export async function GET(req: NextRequest) {
       discount_cents,
       status,
       notes,
+      unmapped_accepted,
       pos_line_items (
         id,
         square_line_item_uid,
@@ -58,7 +63,7 @@ export async function GET(req: NextRequest) {
     `, { count: "exact" })
     .is("invoice_id", null)
     .gte("transaction_date", startDate)
-    .lt("transaction_date", endDate)
+    .lte("transaction_date", endDate)
     .order("transaction_date", { ascending: false })
     .range(from, to);
 
@@ -102,4 +107,19 @@ export async function GET(req: NextRequest) {
   }));
 
   return NextResponse.json({ transactions: enriched, total: count ?? 0, page, pageSize });
+}
+
+export async function PATCH(req: NextRequest) {
+  try { await requireRole([]); } catch (res) { return res as Response; }
+  const body = await req.json() as { id: string; unmapped_accepted: boolean };
+  if (!body.id) return NextResponse.json({ error: "id required" }, { status: 400 });
+  const supabase = createSupabaseAdminClient();
+  const { data, error } = await supabase
+    .from("square_orders")
+    .update({ unmapped_accepted: body.unmapped_accepted })
+    .eq("id", body.id)
+    .select("id, unmapped_accepted")
+    .single();
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json(data);
 }

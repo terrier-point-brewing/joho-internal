@@ -11,6 +11,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { apiError } from "@/lib/utils/api";
 import { listParties } from "@/lib/tax/registry";
 import { buildRateMap, listTaxRates } from "@/lib/tax/rates";
+import { listRegistrations, resolveRequiredRegistrations, BASE_REQUIRED_REGISTRATIONS } from "@/lib/tax/registrations";
 // Side-effect import: registers every party template before listParties() runs.
 import "@/lib/tax/parties";
 
@@ -21,13 +22,20 @@ export async function GET() {
 
   try {
     const sb = createSupabaseAdminClient();
-    const rateMap = buildRateMap(await listTaxRates(sb));
+    const [rateMap, registrations] = await Promise.all([
+      listTaxRates(sb).then(buildRateMap),
+      listRegistrations(sb),
+    ]);
     const parties = listParties().map((party) => ({
       key: party.key,
       label: party.label,
       supportedFrequencies: party.supportedFrequencies,
       settingsSchema: party.settingsSchema,
       scheduleConfigSchema: party.scheduleConfigSchema,
+      requiredRegistrations: resolveRequiredRegistrations(
+        [...BASE_REQUIRED_REGISTRATIONS, ...party.requiredRegistrations],
+        registrations,
+      ),
       referenceView: party.buildReferenceView(rateMap),
       recomputeLabel: party.recomputeLabel,
       worksheetComponent: party.worksheetComponent,

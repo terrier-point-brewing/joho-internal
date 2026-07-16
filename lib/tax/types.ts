@@ -1,4 +1,5 @@
 import type { DueRule } from "./dueDate";
+import type { RequiredRegistration } from "./registrations";
 
 export type Frequency = "monthly" | "quarterly" | "annual";
 export type TaxTaskStatus = "open" | "completed" | "skipped";
@@ -70,4 +71,6 @@ export interface TaxPartyTemplate {
   buildReferenceView(rateMap: Record<string, number>): ReferenceSpec;
   recomputeLabel?: string;
   worksheetComponent: string;          // registry key for the React worksheet
+  /** This party's own required tax_registrations (beyond BASE_REQUIRED_REGISTRATIONS, which every party gets automatically). */
+  requiredRegistrations: RequiredRegistration[];
 }

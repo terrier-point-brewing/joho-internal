@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { computeReceivedAdjustment } from "@/lib/production/receivedAdjustment";
 
 export const dynamic = "force-dynamic";
 
@@ -55,12 +56,15 @@ export async function POST(req: NextRequest) {
     adjCostPerUnit = Number(purchase_cost);
     // Landed cost per unit: bake shipping into WAC so deposit calculations see full cost.
     const shippingAmt = shipping_cost != null ? Number(shipping_cost) : 0;
-    const landedPerUnit = (adjCostPerUnit * delta + shippingAmt) / delta;
-    totalValueChange = delta * landedPerUnit;
-    const totalQty = currentQty + delta;
-    newCostPerUnit = totalQty > 0
-      ? ((currentQty * (currentCost ?? 0)) + (delta * landedPerUnit)) / totalQty
-      : landedPerUnit;
+    const { landedCostPerUnit, newCostPerUnit: computedCost } = computeReceivedAdjustment({
+      currentStock: currentQty,
+      currentCostPerUnit: currentCost,
+      quantity: delta,
+      purchaseCost: adjCostPerUnit,
+      shippingCost: shippingAmt,
+    });
+    totalValueChange = delta * landedCostPerUnit;
+    newCostPerUnit = computedCost;
   }
 
   const { data: adj, error: adjErr } = await supabase

@@ -21,6 +21,7 @@ import { monthPeriod, quarterPeriod } from "@/lib/tax/period";
 import { resolveDueDate, type DueRule } from "@/lib/tax/dueDate";
 import { registerParty } from "@/lib/tax/registry";
 import { TAX_RATE_KEYS, ncLocalKey, ncTransitKey } from "@/lib/tax/rates";
+import type { RequiredRegistration } from "@/lib/tax/registrations";
 import { computeNcDorWorksheet } from "./calc";
 import { deriveNcDorFigures } from "./derive";
 import { resolveFieldOwnership } from "./fieldOwnership";
@@ -167,6 +168,10 @@ function buildReferenceView(rateMap: Record<string, number>): ReferenceSpec {
   };
 }
 
+const requiredRegistrations: RequiredRegistration[] = [
+  { authorityKey: "nc_dor", registrationKey: "nc_dor_account_id", label: "NC DOR Account / License Number" },
+];
+
 // ── Assembled template ──────────────────────────────────────────────────────
 
 export const ncDorSalesUseTemplate: TaxPartyTemplate = {
@@ -180,6 +185,7 @@ export const ncDorSalesUseTemplate: TaxPartyTemplate = {
   mergeWorksheet,
   settingsSchema,
   scheduleConfigSchema,
+  requiredRegistrations,
   buildReferenceView,
   recomputeLabel: "Recompute from Square",
   worksheetComponent: "nc_dor_sales_use",

@@ -5,6 +5,7 @@ import PageHeader from "@/app/components/PageHeader";
 import SettingsNav from "../SettingsNav";
 import { queryKeys } from "@/lib/query-keys";
 import { ENTITY_PROFILE_SCHEMA } from "@/lib/tax/entity";
+import { LEGAL_REPRESENTATIVE_SCHEMA } from "@/lib/tax/legalRepresentative";
 import IdentityForm from "../tax-filing/IdentityForm";
 import RegistrationsSection from "./RegistrationsSection";
 
@@ -21,7 +22,7 @@ export default function TaxProfileSettingsPage() {
       <div className="shrink-0 px-4 sm:px-6">
         <PageHeader
           title="Tax Profile"
-          description="Filer identity and the account/license numbers registered with each tax authority."
+          description="Business identity, the legal representative who signs filings, and the account/license numbers registered with each tax authority."
         />
       </div>
       <SettingsNav />
@@ -33,6 +34,16 @@ export default function TaxProfileSettingsPage() {
             endpoint="/api/tax/entity-profile"
             queryKey={queryKeys.tax.entityProfile()}
             savedLabel="Tax profile saved."
+          />
+        </section>
+
+        <section className="flex flex-col gap-2">
+          <h3 className="text-sm font-semibold text-primary">Legal Representative</h3>
+          <IdentityForm
+            schema={LEGAL_REPRESENTATIVE_SCHEMA}
+            endpoint="/api/tax/legal-representative"
+            queryKey={queryKeys.tax.legalRepresentative()}
+            savedLabel="Legal representative saved."
           />
         </section>
 

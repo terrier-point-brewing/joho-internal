@@ -14,6 +14,7 @@ export interface TaxRegistration {
   label: string;
   number: string | null;
   display_order: number;
+  key: string | null;
 }
 
 export interface TaxRegistrationInput {
@@ -22,6 +23,7 @@ export interface TaxRegistrationInput {
   label: string;
   number: string | null;
   display_order: number;
+  key?: string | null;
 }
 
 /**
@@ -42,7 +44,7 @@ export function reconcileRegistrations(
 export async function listRegistrations(sb: SupabaseClient): Promise<TaxRegistration[]> {
   const { data, error } = await sb
     .from("tax_registrations")
-    .select("id, authority_key, label, number, display_order")
+    .select("id, authority_key, label, number, display_order, key")
     .order("authority_key")
     .order("display_order");
   if (error) throw new Error(error.message);
@@ -77,4 +79,53 @@ export async function saveRegistrations(sb: SupabaseClient, rows: TaxRegistratio
     const { error: upsertError } = await sb.from("tax_registrations").upsert(upserts, { onConflict: "id" });
     if (upsertError) throw new Error(upsertError.message);
   }
+}
+
+/**
+ * A registration a party template needs on its worksheet header/settings —
+ * resolved by (authority_key, key), never "first row for this authority".
+ */
+export interface RequiredRegistration {
+  authorityKey: string;
+  registrationKey: string;
+  label: string;
+}
+
+/** A `RequiredRegistration` resolved against the live `tax_registrations` rows. */
+export interface ResolvedRequiredRegistration extends RequiredRegistration {
+  id?: string;
+  number: string | null;
+}
+
+/** Universal requirement every party gets without declaring it itself. */
+export const BASE_REQUIRED_REGISTRATIONS: RequiredRegistration[] = [
+  { authorityKey: "irs", registrationKey: "fein", label: "Federal EIN (FEIN)" },
+];
+
+/**
+ * Resolves a list of requirements (already merged from `BASE_REQUIRED_REGISTRATIONS`
+ * + a party's own `requiredRegistrations`, or from several parties' combined
+ * lists) against the live `tax_registrations` rows. Dedupes by
+ * `authorityKey:registrationKey` (first occurrence's label wins) so callers
+ * can pass overlapping lists without pre-filtering.
+ */
+export function resolveRequiredRegistrations(
+  requirements: RequiredRegistration[],
+  registrations: TaxRegistration[],
+): ResolvedRequiredRegistration[] {
+  const seen = new Set<string>();
+  const deduped: RequiredRegistration[] = [];
+  for (const req of requirements) {
+    const dedupeKey = `${req.authorityKey}:${req.registrationKey}`;
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+    deduped.push(req);
+  }
+
+  return deduped.map((req) => {
+    const match = registrations.find(
+      (r) => r.authority_key === req.authorityKey && r.key === req.registrationKey,
+    );
+    return { ...req, id: match?.id, number: match?.number ?? null };
+  });
 }

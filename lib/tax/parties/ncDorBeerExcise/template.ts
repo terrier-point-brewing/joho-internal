@@ -21,6 +21,7 @@ import { monthPeriod } from "@/lib/tax/period";
 import { resolveDueDate, type DueRule } from "@/lib/tax/dueDate";
 import { registerParty } from "@/lib/tax/registry";
 import { TAX_RATE_KEYS } from "@/lib/tax/rates";
+import type { RequiredRegistration } from "@/lib/tax/registrations";
 import { computeBeerExciseWorksheet } from "./calc";
 import { deriveBeerExciseFigures } from "./derive";
 import { resolveBeerFieldOwnership } from "./fieldOwnership";
@@ -123,6 +124,11 @@ const settingsSchema: FieldSpec[] = [];
 
 const scheduleConfigSchema: FieldSpec[] = [];
 
+const requiredRegistrations: RequiredRegistration[] = [
+  { authorityKey: "nc_dor", registrationKey: "nc_dor_account_id", label: "NC DOR Account / License Number" },
+  { authorityKey: "nc_abc", registrationKey: "abc_permit_number", label: "NC ABC Permit Number" },
+];
+
 // ── Assembled template ──────────────────────────────────────────────────────
 
 export const ncDorBeerExciseTemplate: TaxPartyTemplate = {
@@ -136,6 +142,7 @@ export const ncDorBeerExciseTemplate: TaxPartyTemplate = {
   mergeWorksheet,
   settingsSchema,
   scheduleConfigSchema,
+  requiredRegistrations,
   buildReferenceView,
   recomputeLabel: "Recompute from shipments",
   worksheetComponent: "nc_dor_beer_excise",

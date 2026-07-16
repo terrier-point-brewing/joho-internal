@@ -35,12 +35,13 @@ export interface TreeNode {
   isSection: boolean;
 }
 
-/** Minimal chart_of_accounts reference shape buildTree needs to nest an account under an ancestor that itself carries no direct postings (see CoaLookup below), and to sort siblings by GL number. */
+/** Minimal chart_of_accounts reference shape buildTree needs to nest an account under an ancestor that itself carries no direct postings (see CoaLookup below), to sort siblings by GL number, and to seed a real-but-currently-unused root account as a $0 line (see seedEmptyRootAccounts). `statementSection` is the SAME derived value aggregateRows.ts's coaSection() would assign this account if it ever got a posting -- computed once server-side (buildFinancials.ts) for every CoA account, not just posted-to ones. */
 export interface CoaAccountRef {
   id: string;
   parentId: string | null;
   accountName: string;
   accountNumber: string | null;
+  statementSection: string;
 }
 
 /**
@@ -49,16 +50,21 @@ export interface CoaAccountRef {
  * -- every transaction lands on a deeper leaf account. FinancialsRow[] alone
  * only contains accounts that DO have postings, so nesting purely off rows
  * silently flattens every such grouping account's descendants into false
- * roots. CoaLookup carries the full chart_of_accounts parent_id/name/number
- * data (fetched once, independent of which accounts happen to have
+ * roots. CoaLookup carries the full chart_of_accounts parent_id/name/number/
+ * section data (fetched once, independent of which accounts happen to have
  * transactions) so the tree can synthesize a zero-postings node for a
- * grouping account and still nest its real descendants underneath it, and
- * order siblings by GL number.
+ * grouping account and still nest its real descendants underneath it, order
+ * siblings by GL number, and seed a real but currently-unused root account.
  */
-type CoaLookup = Map<string, { parentId: string | null; accountName: string; accountNumber: string | null }>;
+type CoaLookup = Map<string, { parentId: string | null; accountName: string; accountNumber: string | null; statementSection: string }>;
 
 function buildCoaLookup(coaAccounts: CoaAccountRef[]): CoaLookup {
-  return new Map(coaAccounts.map((c) => [c.id, { parentId: c.parentId, accountName: c.accountName, accountNumber: c.accountNumber }]));
+  return new Map(
+    coaAccounts.map((c) => [
+      c.id,
+      { parentId: c.parentId, accountName: c.accountName, accountNumber: c.accountNumber, statementSection: c.statementSection },
+    ]),
+  );
 }
 
 /** A node's GL account number as a sortable number, or null when it has none (unmapped bucket, or a synthesized top-line adjustment like Manual Net-Sales Adjustment with no coaId at all). */
@@ -298,6 +304,21 @@ function buildSectionFromRows(
     }
   }
 
+  // A real root-level CoA account for this section that's simply never had a
+  // posting (e.g. "Interest Earned" under Other Income) would otherwise be
+  // entirely invisible -- the section would read as "no mapped transactions"
+  // even though the account genuinely exists and is just currently unused.
+  // Seed it in as a $0 line instead, same as any other root account (its own
+  // real children, if it somehow already has posted ones, are already in
+  // neededIds/rootKeys via the ancestor walk above; this only adds ROOTS with
+  // literally zero postings anywhere in their own subtree, so it can't ever
+  // double up with an account already found above).
+  for (const [id, entry] of coaMap) {
+    if (entry.statementSection === statementSection && entry.parentId === null && !neededIds.has(id)) {
+      rootKeys.push(id);
+    }
+  }
+
   // Root accounts always show their own full name (no parentLabel passed).
   // An earlier attempt shortened a root account against the section's own
   // (hardcoded) title, which caused a real regression: an exact-name-match
@@ -334,9 +355,39 @@ function buildSection(rows: FinancialsRow[], statementSection: string, label: st
  * silently vanishing from both the rendered statement and Net Income/its
  * per-statement equivalent. This catch-all renders them under an "Other"
  * section instead, so mapped money is never invisible.
+ *
+ * Two categories are explicitly EXCLUDED from this catch-all (and so from
+ * Net Income/Total Assets), not just left out of the 5/9 known sections:
+ *   - `otherStatementSections`: a row genuinely mapped to the OTHER
+ *     statement's account (e.g. a capex purchase or customer deposit posted
+ *     to a real Balance Sheet account, surfacing inside the P&L). It already
+ *     renders correctly under its own real section in that other statement
+ *     -- conflating it into THIS statement's Net Income/Total would double
+ *     up a real balance-sheet movement as if it were income-statement
+ *     activity.
+ *   - Genuinely unmapped rows (`coaId === null`): their revenue/expense
+ *     nature is unknown, and they're already tracked (once) by the Data
+ *     Quality panel -- folding them into Net Income here would silently
+ *     count an unclassified dollar amount as if it were a known category,
+ *     AND double up the "this needs attention" signal in two places.
+ * What's left after both exclusions is the rare case the M1 fix actually
+ * targets: a REAL, mapped CoA account whose accountType isn't recognized by
+ * ACCOUNT_TYPE_SECTION at all (a code/config gap, not a user miscoding).
  */
-function buildOtherSection(rows: FinancialsRow[], knownSections: ReadonlySet<string>, months: string[], coaMap: CoaLookup): TreeNode {
-  return buildSectionFromRows(rows.filter((r) => !knownSections.has(r.statementSection)), "other", "Other", months, coaMap);
+function buildOtherSection(
+  rows: FinancialsRow[],
+  knownSections: ReadonlySet<string>,
+  otherStatementSections: ReadonlySet<string>,
+  months: string[],
+  coaMap: CoaLookup,
+): TreeNode {
+  return buildSectionFromRows(
+    rows.filter((r) => r.coaId !== null && !knownSections.has(r.statementSection) && !otherStatementSections.has(r.statementSection)),
+    "other",
+    "Other",
+    months,
+    coaMap,
+  );
 }
 
 /** Builds a top-level subtotal row (Total Income, Gross Profit, Net Income, ...) by summing the given sections' already-rolled `.row` totals. Carries no children -- its constituent sections already render their own detail above it. */
@@ -382,8 +433,11 @@ function buildPl(rows: FinancialsRow[], months: string[], coaMap: CoaLookup): Tr
   const otherExp = buildSection(rows, "other_expense", "Other Expenses", months, coaMap);
   // M1: rows whose statementSection isn't one of the 5 known P&L sections
   // (unrecognized/missing CoA accountType) still render, and still count
-  // toward Net Income -- nothing mapped is ever silently invisible.
-  const other = buildOtherSection(rows, PL_KNOWN_SECTIONS, months, coaMap);
+  // toward Net Income -- nothing mapped is ever silently invisible. Rows
+  // mapped to a genuine Balance Sheet account, or entirely unmapped, are
+  // excluded here (see buildOtherSection's header comment) -- they never
+  // belonged in Net Income to begin with.
+  const other = buildOtherSection(rows, PL_KNOWN_SECTIONS, BS_KNOWN_SECTIONS, months, coaMap);
   const netIncome = subtotal("Net Income", [revenue, otherIncome, cogs, opEx, otherExp, other], months);
 
   return [revenue, otherIncome, totalIncome, cogs, grossProfit, opEx, otherExp, other, netIncome];
@@ -402,8 +456,8 @@ function buildCashFlow(rows: FinancialsRow[], months: string[], coaMap: CoaLooku
   // M1: same catch-all as buildPl -- rows outside the 5 known sections still
   // render and still count toward the bottom-line Net Operating total. Left
   // out of Total Cash In/Out since an unrecognized section's cash direction
-  // (in vs. out) isn't knowable.
-  const other = buildOtherSection(rows, PL_KNOWN_SECTIONS, months, coaMap);
+  // (in vs. out) isn't knowable. Same BS/unmapped exclusion as buildPl.
+  const other = buildOtherSection(rows, PL_KNOWN_SECTIONS, BS_KNOWN_SECTIONS, months, coaMap);
   const netOperating = subtotal("Net Operating", [revenue, otherIncome, cogs, opEx, otherExp, other], months);
 
   return [revenue, otherIncome, totalCashIn, cogs, opEx, otherExp, totalCashOut, other, netOperating];
@@ -429,8 +483,10 @@ function buildBalanceSheet(rows: FinancialsRow[], months: string[], coaMap: CoaL
   // side of the balance sheet a row belongs on, so the "Other" catch-all is
   // folded into the final Total Liabilities + Equity grand total (rather
   // than guessed into Total Assets) -- it still renders and still counts
-  // toward a grand total, so it's never silently dropped.
-  const other = buildOtherSection(rows, BS_KNOWN_SECTIONS, months, coaMap);
+  // toward a grand total, so it's never silently dropped. Rows mapped to a
+  // genuine P&L account, or entirely unmapped, are excluded (symmetric with
+  // buildPl) -- a P&L account's balance never belonged on the Balance Sheet.
+  const other = buildOtherSection(rows, BS_KNOWN_SECTIONS, PL_KNOWN_SECTIONS, months, coaMap);
   const totalLiabEquity = subtotal(
     "Total Liabilities + Equity",
     [ap, creditCard, otherCurrentLiab, longTermLiab, equity, other],

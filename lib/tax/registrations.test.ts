@@ -4,13 +4,16 @@ import {
   reconcileRegistrations,
   listRegistrations,
   saveRegistrations,
+  resolveRequiredRegistrations,
+  BASE_REQUIRED_REGISTRATIONS,
   type TaxRegistration,
   type TaxRegistrationInput,
+  type RequiredRegistration,
 } from "./registrations";
 
 const sampleRegistrations: TaxRegistration[] = [
-  { id: "r1", authority_key: "irs", label: "Federal EIN (FEIN)", number: "12-3456789", display_order: 0 },
-  { id: "r2", authority_key: "nc_dor", label: "Account / License #", number: "NC-999", display_order: 0 },
+  { id: "r1", authority_key: "irs", label: "Federal EIN (FEIN)", number: "12-3456789", display_order: 0, key: "fein" },
+  { id: "r2", authority_key: "nc_dor", label: "Account / License #", number: "NC-999", display_order: 0, key: "nc_dor_account_id" },
 ];
 
 describe("reconcileRegistrations", () => {
@@ -211,5 +214,54 @@ describe("saveRegistrations", () => {
         { id: "r1", authority_key: "irs", label: "FEIN", number: null, display_order: 0 },
       ]),
     ).rejects.toThrow(/upsert boom/);
+  });
+});
+
+describe("BASE_REQUIRED_REGISTRATIONS", () => {
+  it("is exactly the universal FEIN requirement", () => {
+    expect(BASE_REQUIRED_REGISTRATIONS).toEqual([
+      { authorityKey: "irs", registrationKey: "fein", label: "Federal EIN (FEIN)" },
+    ]);
+  });
+});
+
+describe("resolveRequiredRegistrations", () => {
+  it("resolves a requirement to its matching (authority_key, key) row, including its id and number", () => {
+    const requirements: RequiredRegistration[] = [
+      { authorityKey: "irs", registrationKey: "fein", label: "Federal EIN (FEIN)" },
+    ];
+    const result = resolveRequiredRegistrations(requirements, sampleRegistrations);
+    expect(result).toEqual([
+      { authorityKey: "irs", registrationKey: "fein", label: "Federal EIN (FEIN)", id: "r1", number: "12-3456789" },
+    ]);
+  });
+
+  it("resolves to number: null and no id when no matching row exists yet", () => {
+    const requirements: RequiredRegistration[] = [
+      { authorityKey: "nc_abc", registrationKey: "abc_permit_number", label: "NC ABC Permit Number" },
+    ];
+    const result = resolveRequiredRegistrations(requirements, sampleRegistrations);
+    expect(result).toEqual([
+      { authorityKey: "nc_abc", registrationKey: "abc_permit_number", label: "NC ABC Permit Number", id: undefined, number: null },
+    ]);
+  });
+
+  it("matches by BOTH authority_key and key — a same-authority row with a different key must not match", () => {
+    const requirements: RequiredRegistration[] = [
+      { authorityKey: "nc_dor", registrationKey: "some_other_key", label: "Something Else" },
+    ];
+    const result = resolveRequiredRegistrations(requirements, sampleRegistrations);
+    expect(result[0].number).toBeNull();
+    expect(result[0].id).toBeUndefined();
+  });
+
+  it("dedupes requirements sharing the same (authorityKey, registrationKey), keeping the first occurrence's label", () => {
+    const requirements: RequiredRegistration[] = [
+      { authorityKey: "irs", registrationKey: "fein", label: "Federal EIN (FEIN)" },
+      { authorityKey: "irs", registrationKey: "fein", label: "Duplicate Label" },
+    ];
+    const result = resolveRequiredRegistrations(requirements, sampleRegistrations);
+    expect(result).toHaveLength(1);
+    expect(result[0].label).toBe("Federal EIN (FEIN)");
   });
 });

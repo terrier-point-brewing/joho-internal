@@ -181,11 +181,11 @@ describe("buildTree — pl parent/child COA accounts", () => {
 // flattening every leaf into a false section-root.
 describe("buildTree — pl nesting through ancestor accounts with no direct postings", () => {
   const coaAccounts = [
-    { id: "root", parentId: null, accountName: "BREWERY REVENUE", accountNumber: "4000" },
-    { id: "taproom-rev", parentId: "root", accountName: "BREWERY REVENUE:Taproom Revenue", accountNumber: "4100" },
-    { id: "taproom-liquor", parentId: "taproom-rev", accountName: "BREWERY REVENUE:Taproom Revenue:Taproom Liquor Sales", accountNumber: "4110" },
-    { id: "wine", parentId: "taproom-liquor", accountName: "BREWERY REVENUE:Taproom Revenue:Taproom Liquor Sales:Taproom Wine Sales", accountNumber: "4111" },
-    { id: "keg", parentId: "taproom-rev", accountName: "BREWERY REVENUE:Taproom Revenue:Taproom Keg Sales", accountNumber: "4120" },
+    { id: "root", parentId: null, accountName: "BREWERY REVENUE", accountNumber: "4000", statementSection: "revenue" },
+    { id: "taproom-rev", parentId: "root", accountName: "BREWERY REVENUE:Taproom Revenue", accountNumber: "4100", statementSection: "revenue" },
+    { id: "taproom-liquor", parentId: "taproom-rev", accountName: "BREWERY REVENUE:Taproom Revenue:Taproom Liquor Sales", accountNumber: "4110", statementSection: "revenue" },
+    { id: "wine", parentId: "taproom-liquor", accountName: "BREWERY REVENUE:Taproom Revenue:Taproom Liquor Sales:Taproom Wine Sales", accountNumber: "4111", statementSection: "revenue" },
+    { id: "keg", parentId: "taproom-rev", accountName: "BREWERY REVENUE:Taproom Revenue:Taproom Keg Sales", accountNumber: "4120", statementSection: "revenue" },
   ];
 
   const rows: FinancialsRow[] = [
@@ -334,8 +334,8 @@ describe("buildTree — pl root account name vs. its section title", () => {
 
 describe("buildTree — pl orders siblings by GL account number", () => {
   const coaAccounts = [
-    { id: "returns", parentId: null, accountName: "Sales Returns & Refunds", accountNumber: "4999" },
-    { id: "brewery", parentId: null, accountName: "BREWERY REVENUE", accountNumber: "4000" },
+    { id: "returns", parentId: null, accountName: "Sales Returns & Refunds", accountNumber: "4999", statementSection: "revenue" },
+    { id: "brewery", parentId: null, accountName: "BREWERY REVENUE", accountNumber: "4000", statementSection: "revenue" },
   ];
 
   it("sorts root accounts ascending by GL number regardless of insertion order", () => {
@@ -361,9 +361,9 @@ describe("buildTree — pl orders siblings by GL account number", () => {
 
   it("sorts nested children by GL number too, independent of their parent's ordering", () => {
     const nestedCoa = [
-      { id: "parent", parentId: null, accountName: "Parent", accountNumber: "5000" },
-      { id: "child-b", parentId: "parent", accountName: "Child B", accountNumber: "5200" },
-      { id: "child-a", parentId: "parent", accountName: "Child A", accountNumber: "5100" },
+      { id: "parent", parentId: null, accountName: "Parent", accountNumber: "5000", statementSection: "cogs" },
+      { id: "child-b", parentId: "parent", accountName: "Child B", accountNumber: "5200", statementSection: "cogs" },
+      { id: "child-a", parentId: "parent", accountName: "Child A", accountNumber: "5100", statementSection: "cogs" },
     ];
     const rows: FinancialsRow[] = [
       row({ coaId: "child-b", parentId: "parent", accountName: "Child B", statementSection: "cogs", amountCentsByMonth: { "2026-01": -20 } }),
@@ -493,5 +493,71 @@ describe("buildTree — M1: unrecognized statementSection renders under 'Other' 
     // Counted, not lost: Net Income includes both the recognized revenue row
     // and the unrecognized-section row.
     expect(netIncome.row?.amountCentsByMonth["2026-01"]).toBe(14200);
+  });
+});
+
+describe("buildTree — pl seeds a real root account with zero postings as a $0 line", () => {
+  it("renders a currently-unused real CoA account (e.g. Interest Earned) instead of the section reading as empty", () => {
+    const coaAccounts = [
+      { id: "interest", parentId: null, accountName: "Interest Earned", accountNumber: "7010", statementSection: "other_income" },
+    ];
+    const tree = buildTree([], "pl", coaAccounts);
+    const otherIncome = tree.find((n) => n.label === "Other Income")!;
+
+    expect(otherIncome.children).toHaveLength(1);
+    expect(otherIncome.children[0].label).toBe("Interest Earned");
+    expect(otherIncome.children[0].row?.amountCentsByMonth).toEqual({}); // zero-postings node -- no months since rows was []
+  });
+
+  it("does not duplicate a real root account that already has postings", () => {
+    const coaAccounts = [
+      { id: "interest", parentId: null, accountName: "Interest Earned", accountNumber: "7010", statementSection: "other_income" },
+    ];
+    const rows: FinancialsRow[] = [
+      row({ coaId: "interest", accountName: "Interest Earned", statementSection: "other_income", amountCentsByMonth: { "2026-01": 500 } }),
+    ];
+    const tree = buildTree(rows, "pl", coaAccounts);
+    const otherIncome = tree.find((n) => n.label === "Other Income")!;
+    expect(otherIncome.children).toHaveLength(1);
+    expect(otherIncome.children[0].row?.amountCentsByMonth).toEqual({ "2026-01": 500 });
+  });
+});
+
+describe("buildTree — excludes cross-statement and unmapped rows from Net Income / Total (no double-counting)", () => {
+  it("excludes a row mapped to a genuine Balance Sheet account from the P&L's Net Income", () => {
+    const rows: FinancialsRow[] = [
+      row({ coaId: "rev-1", accountName: "Draft Sales", statementSection: "revenue", amountCentsByMonth: { "2026-01": 10000 } }),
+      // A capex purchase miscoded to a real Fixed Assets account -- shows up in expenses' source table, but its statementSection is a Balance Sheet section, not a P&L one.
+      row({ coaId: "equip-1", accountName: "Brewery Machinery & Equipment", statementSection: "fixed_assets", amountCentsByMonth: { "2026-01": -50000 } }),
+    ];
+
+    const plTree = buildTree(rows, "pl");
+    const other = plTree.find((n) => n.label === "Other")!;
+    const netIncome = plTree.find((n) => n.label === "Net Income")!;
+    expect(other.children).toHaveLength(0); // not surfaced under P&L's "Other" at all
+    expect(netIncome.row?.amountCentsByMonth["2026-01"]).toBe(10000); // only the real revenue row -- the BS posting never counted
+
+    // It DOES still render correctly under its own real Balance Sheet section.
+    const bsTree = buildTree(rows, "balance_sheet");
+    const fixedAssets = bsTree.find((n) => n.label === "Fixed Assets")!;
+    expect(fixedAssets.children).toHaveLength(1);
+    expect(fixedAssets.children[0].label).toBe("Brewery Machinery & Equipment");
+  });
+
+  it("excludes a genuinely unmapped row (no coaId at all) from both P&L Net Income and Balance Sheet totals", () => {
+    const rows: FinancialsRow[] = [
+      row({ coaId: "rev-1", accountName: "Draft Sales", statementSection: "revenue", amountCentsByMonth: { "2026-01": 10000 } }),
+      row({ coaId: null, accountName: "Unclassified", statementSection: "unmapped", amountCentsByMonth: { "2026-01": 99999 } }),
+    ];
+
+    const plTree = buildTree(rows, "pl");
+    const other = plTree.find((n) => n.label === "Other")!;
+    const netIncome = plTree.find((n) => n.label === "Net Income")!;
+    expect(other.children).toHaveLength(0);
+    expect(netIncome.row?.amountCentsByMonth["2026-01"]).toBe(10000);
+
+    const bsTree = buildTree(rows, "balance_sheet");
+    const bsOther = bsTree.find((n) => n.label === "Other")!;
+    expect(bsOther.children).toHaveLength(0);
   });
 });

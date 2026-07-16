@@ -13,6 +13,7 @@ const sampleParty: TaxPartyTemplate = {
   mergeWorksheet: (current) => current,
   settingsSchema: [],
   scheduleConfigSchema: [],
+  requiredRegistrations: [],
   buildReferenceView: () => ({ tables: [] }),
   worksheetComponent: "NcDorSalesUseWorksheet",
 };

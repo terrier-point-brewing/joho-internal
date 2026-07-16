@@ -143,7 +143,7 @@ interface ResolvedRow {
   monthKey: string;
 }
 
-function coaSection(coa: CoaRecord | undefined): string {
+export function coaSection(coa: CoaRecord | undefined): string {
   if (!coa) return UNMAPPED_SECTION;
   return coa.statementSection ?? ACCOUNT_TYPE_SECTION[coa.accountType] ?? "other";
 }
