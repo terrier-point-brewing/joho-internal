@@ -24,7 +24,7 @@ const PKGVAR_CONTROLS: ControlsConfig<PackagingVariation> = {
 };
 
 const TYPE_OPTIONS = [
-  { value: "keg", label: "Keg", className: KEG_TAG_BADGE },
+  { value: "keg", label: "Keg" },
   { value: "can", label: "Can" },
 ];
 const FORMAT_OPTIONS = FORMATS.map((f) => ({ value: f.value, label: f.label }));
