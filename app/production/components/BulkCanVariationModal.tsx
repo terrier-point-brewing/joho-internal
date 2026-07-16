@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState } from "react";
 import { Modal, Field } from "./shared";
-import { FORMATS, needsPaktech, needsTray, isDuplicateCombo, type VariationCombo } from "@/lib/production/packagingVariations";
+import { FORMATS, needsPaktech, needsTray, needsBreaksInto, isDuplicateCombo, type VariationCombo } from "@/lib/production/packagingVariations";
 import { buildCanVariationName } from "@/lib/production/bulkCanVariationNaming";
 import type { PackagingItem, PackagingVariation, PackagingVariationFormat, ContractBrewingPartner } from "../types";
 
@@ -30,6 +30,10 @@ interface FormatRow {
   name: string;
   paktech_id: string;
   tray_id: string;
+  // Real packaging_variations id, or a "batch:4-pack"/"batch:6-pack" sentinel
+  // referencing another row in this same batch (resolved server-side after
+  // that sibling is actually inserted — it has no real id yet client-side).
+  breaksInto: string;
 }
 
 function buildRows(base: BaseForm, containerName: string): FormatRow[] {
@@ -44,6 +48,7 @@ function buildRows(base: BaseForm, containerName: string): FormatRow[] {
     }),
     paktech_id: "",
     tray_id: "",
+    breaksInto: "",
   }));
 }
 
@@ -59,10 +64,37 @@ function rowCombo(row: FormatRow, base: BaseForm): VariationCombo {
   };
 }
 
+// A case's "breaks into" target must be a 4-pack/6-pack sibling sharing its
+// can-identity (container + lid + label + partner) — mirrors validateBreaksInto.
+// Offers siblings already checked in THIS batch first (the primary use case —
+// building a brand-new SKU's formats together), then existing DB variations.
+function breaksIntoOptions(base: BaseForm, rows: FormatRow[], variations: PackagingVariation[]): { value: string; label: string }[] {
+  const wantLabelId = base.is_labeled ? (base.label_id || null) : null;
+  const batchOptions = rows
+    .filter((r) => r.checked && (r.format === "4-pack" || r.format === "6-pack"))
+    .map((r) => ({ value: `batch:${r.format}`, label: `${r.name} (this batch)` }));
+  const existingOptions = variations
+    .filter((v) =>
+      (v.format === "4-pack" || v.format === "6-pack") &&
+      v.container_id === base.container_id &&
+      (v.lid_id ?? null) === (base.lid_id || null) &&
+      (v.label_id ?? null) === wantLabelId &&
+      (v.partner_id ?? null) === (base.partner_id || null)
+    )
+    .map((v) => ({ value: v.id, label: v.name }));
+  return [...batchOptions, ...existingOptions];
+}
+
+function missingFields(row: FormatRow): string[] {
+  const missing: string[] = [];
+  if (needsPaktech(row.format) && !row.paktech_id) missing.push("PakTech");
+  if (needsTray(row.format) && !row.tray_id) missing.push("Tray");
+  if (needsBreaksInto(row.format) && !row.breaksInto) missing.push("Breaks Into");
+  return missing;
+}
+
 function rowIsReady(row: FormatRow): boolean {
-  if (needsPaktech(row.format)) return !!row.paktech_id;
-  if (needsTray(row.format)) return !!row.tray_id;
-  return true;
+  return missingFields(row).length === 0;
 }
 
 export default function BulkCanVariationModal({
@@ -140,6 +172,7 @@ export default function BulkCanVariationModal({
         tray_id: needsTray(row.format) ? (row.tray_id || null) : null,
         label_id: base.is_labeled ? (base.label_id || null) : null,
         partner_id: base.partner_id || null,
+        breaks_into_variation_id: needsBreaksInto(row.format) ? (row.breaksInto || null) : null,
         name: row.name,
       }));
       const res = await fetch("/api/production/packaging-variations/bulk", {
@@ -226,7 +259,9 @@ export default function BulkCanVariationModal({
               <tbody>
                 {rows.map((row) => {
                   const duplicate = isDuplicateCombo(rowCombo(row, base), existingCombos);
-                  const ready = rowIsReady(row);
+                  const missing = missingFields(row);
+                  const ready = missing.length === 0;
+                  const breaksIntoOpts = needsBreaksInto(row.format) ? breaksIntoOptions(base, rows, variations) : [];
                   return (
                     <tr key={row.format} className="border-b border-line/60">
                       <td className="px-3 py-2.5 align-top">
@@ -240,23 +275,43 @@ export default function BulkCanVariationModal({
                           )}
                           {row.checked && !ready && (
                             <span className="text-xs text-danger">
-                              Select a {needsPaktech(row.format) ? "PakTech" : "Tray"} to include this format
+                              Select a {missing.join(" and ")} to include this format
                             </span>
                           )}
                         </div>
                       </td>
-                      <td className="px-3 py-2.5 align-top">
+                      <td className="px-3 py-2.5 align-top space-y-1.5">
                         {needsPaktech(row.format) && (
-                          <select className="inp w-full" value={row.paktech_id} onChange={(e) => updateRow(row.format, { paktech_id: e.target.value })}>
-                            <option value="">Select PakTech…</option>
-                            {paktechs.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                          </select>
+                          <div>
+                            <label className="block text-xs text-faint mb-0.5">PakTech</label>
+                            <select className="inp w-full" value={row.paktech_id} onChange={(e) => updateRow(row.format, { paktech_id: e.target.value })}>
+                              <option value="">Select PakTech…</option>
+                              {paktechs.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                            </select>
+                          </div>
                         )}
                         {needsTray(row.format) && (
-                          <select className="inp w-full" value={row.tray_id} onChange={(e) => updateRow(row.format, { tray_id: e.target.value })}>
-                            <option value="">Select Tray…</option>
-                            {trays.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-                          </select>
+                          <div>
+                            <label className="block text-xs text-faint mb-0.5">Tray</label>
+                            <select className="inp w-full" value={row.tray_id} onChange={(e) => updateRow(row.format, { tray_id: e.target.value })}>
+                              <option value="">Select Tray…</option>
+                              {trays.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                            </select>
+                          </div>
+                        )}
+                        {needsBreaksInto(row.format) && (
+                          <div>
+                            <label className="block text-xs text-faint mb-0.5">Breaks Into</label>
+                            <select className="inp w-full" value={row.breaksInto} onChange={(e) => updateRow(row.format, { breaksInto: e.target.value })}>
+                              <option value="">Select sibling…</option>
+                              {breaksIntoOpts.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                            </select>
+                            {breaksIntoOpts.length === 0 && (
+                              <p className="text-xs text-muted mt-1">
+                                Check the 4-Pack or 6-Pack row above, or pick an existing sibling once one exists.
+                              </p>
+                            )}
+                          </div>
                         )}
                       </td>
                     </tr>
