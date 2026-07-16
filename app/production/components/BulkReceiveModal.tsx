@@ -21,10 +21,10 @@ export interface BulkReceiveModalProps {
 interface Row {
   itemId: string;
   quantity: string;
-  purchaseCost: string;
+  totalCost: string;
 }
 
-const EMPTY_ROW: Row = { itemId: "", quantity: "", purchaseCost: "" };
+const EMPTY_ROW: Row = { itemId: "", quantity: "", totalCost: "" };
 
 export default function BulkReceiveModal({ itemType, items, onClose, onDone }: BulkReceiveModalProps) {
   const [rows, setRows] = useState<Row[]>([{ ...EMPTY_ROW }]);
@@ -57,7 +57,7 @@ export default function BulkReceiveModal({ itemType, items, onClose, onDone }: B
   const rowsValid =
     rows.length > 0 &&
     chosenIds.size === rows.length &&
-    rows.every((r) => r.itemId && parseFloat(r.quantity) > 0 && parseFloat(r.purchaseCost) > 0);
+    rows.every((r) => r.itemId && parseFloat(r.quantity) > 0 && parseFloat(r.totalCost) > 0);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -74,11 +74,14 @@ export default function BulkReceiveModal({ itemType, items, onClose, onDone }: B
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          lines: rows.map((r) => ({
-            [idKey]: r.itemId,
-            quantity: parseFloat(r.quantity),
-            purchase_cost: parseFloat(r.purchaseCost),
-          })),
+          lines: rows.map((r) => {
+            const quantity = parseFloat(r.quantity);
+            return {
+              [idKey]: r.itemId,
+              quantity,
+              purchase_cost: parseFloat(r.totalCost) / quantity,
+            };
+          }),
           freight_total: freightNum,
         }),
       });
@@ -108,7 +111,7 @@ export default function BulkReceiveModal({ itemType, items, onClose, onDone }: B
               <tr className="border-b border-line bg-surface/50 text-left">
                 <th className="px-3 py-2 text-xs font-medium text-muted">Item</th>
                 <th className="px-3 py-2 text-xs font-medium text-muted text-right">Quantity</th>
-                <th className="px-3 py-2 text-xs font-medium text-muted text-right">Purchase Cost ($/unit)</th>
+                <th className="px-3 py-2 text-xs font-medium text-muted text-right">Total Cost ($)</th>
                 <th className="px-3 py-2 text-xs font-medium text-muted text-right">Allocated Freight</th>
                 <th className="px-3 py-2 text-xs font-medium text-muted"></th>
               </tr>
@@ -140,9 +143,19 @@ export default function BulkReceiveModal({ itemType, items, onClose, onDone }: B
                   <td className="px-2 py-1.5">
                     <input
                       type="number" step="0.01" min="0" className="inp text-sm w-full text-right tabular-nums"
-                      placeholder="0.00" value={row.purchaseCost}
-                      onChange={(e) => updateRow(idx, { purchaseCost: e.target.value })}
+                      placeholder="0.00" value={row.totalCost}
+                      onChange={(e) => updateRow(idx, { totalCost: e.target.value })}
                     />
+                    {(() => {
+                      const qty = parseFloat(row.quantity);
+                      const total = parseFloat(row.totalCost);
+                      if (!(qty > 0) || !(total > 0)) return null;
+                      return (
+                        <p className="text-xs mt-0.5 text-faint text-right">
+                          = {fmtUsd(total / qty)}/unit
+                        </p>
+                      );
+                    })()}
                   </td>
                   <td className="px-3 py-1.5 text-right tabular-nums text-secondary">
                     {fmtUsd(previewShipping[idx] ?? 0)}
