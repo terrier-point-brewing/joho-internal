@@ -56,6 +56,7 @@ export interface PackagingVariation {
   tray_id: string | null;
   label_id: string | null;
   partner_id: string | null;
+  breaks_into_variation_id: string | null;
   name: string;
   total_volume_fl_oz: number;
   is_active: boolean;
@@ -66,6 +67,7 @@ export interface PackagingVariation {
   paktech?: { id: string; name: string } | null;
   tray?: { id: string; name: string } | null;
   label?: { id: string; name: string } | null;
+  breaks_into?: { id: string; name: string; format: PackagingVariationFormat } | null;
   contract_brewing_partners?: { company_name: string } | null;
 }
 

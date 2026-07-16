@@ -6,6 +6,7 @@ import { BBL_TO_FL_OZ } from "@/lib/constants/production";
 import { checkAndCompleteBatch } from "@/lib/production/batchCompletion";
 import { finalizeConversion, createConversionTargetBatch } from "@/lib/production/conversionFinalizer";
 import { computeTankVolumes } from "@/lib/production/volumeLedger";
+import { getPaktechUnitsPerPackage } from "@/lib/production/packagingVariations";
 
 export const dynamic = "force-dynamic";
 
@@ -66,7 +67,7 @@ async function processTransferLine(
     try {
       const { data: variation } = await supabase
         .from("packaging_variations")
-        .select("id, container_id, lid_id, paktech_id, tray_id, label_id, total_volume_fl_oz, container:packaging_items!packaging_variations_container_id_fkey(volume_fl_oz)")
+        .select("id, format, container_id, lid_id, paktech_id, tray_id, label_id, total_volume_fl_oz, container:packaging_items!packaging_variations_container_id_fkey(volume_fl_oz)")
         .eq("id", variation_id)
         .single();
 
@@ -74,13 +75,19 @@ async function processTransferLine(
         const containerVolume = (variation.container as unknown as { volume_fl_oz: number | null })?.volume_fl_oz ?? 0;
         const unitsPerPackage = containerVolume > 0 ? variation.total_volume_fl_oz / containerVolume : 1;
         const totalUnits = quantity * unitsPerPackage;
+        // A case packs several paktech'd bundles into one tray, so paktechs
+        // consumed per case outnumber trays consumed per case (unlike a bare
+        // 4-pack/6-pack, where the package IS the paktech'd bundle).
+        const paktechUnitsPerPackage = await getPaktechUnitsPerPackage(supabase, {
+          format: variation.format, tray_id: variation.tray_id, paktech_id: variation.paktech_id,
+        });
 
         const deductions: { id: string | null; qty: number; label: string }[] = [
           { id: variation.container_id, qty: totalUnits, label: "container" },
           { id: variation.lid_id,       qty: totalUnits, label: "lids" },
           { id: variation.label_id,     qty: totalUnits, label: "labels" },
           { id: variation.tray_id,      qty: quantity,    label: "trays" },
-          { id: variation.paktech_id,   qty: quantity,    label: "paktechs" },
+          { id: variation.paktech_id,   qty: quantity * paktechUnitsPerPackage, label: "paktechs" },
         ];
 
         for (const d of deductions) {
