@@ -8,7 +8,7 @@ export const PACKAGING_VARIATION_SELECT = `
   paktech:packaging_items!packaging_variations_paktech_id_fkey(id, name),
   tray:packaging_items!packaging_variations_tray_id_fkey(id, name),
   label:packaging_items!packaging_variations_label_id_fkey(id, name),
-  breaks_into:packaging_variations!packaging_variations_breaks_into_variation_id_fkey(id, name, format),
+  breaks_into:packaging_variations!breaks_into_variation_id(id, name, format),
   contract_brewing_partners(company_name)
 `;
 
