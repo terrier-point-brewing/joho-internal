@@ -54,7 +54,7 @@ export async function applyBreakDown(
   // 2. Candidate siblings by (indexed) container_id, then full null-safe identity in JS.
   const { data: candidates, error: cErr } = await supabase
     .from("packaging_variations")
-    .select("id, format, total_volume_fl_oz, container_id, lid_id, label_id, partner_id")
+    .select("id, format, total_volume_fl_oz, container_id, lid_id, label_id, partner_id, breaks_into_variation_id")
     .eq("container_id", target.container_id);
   if (cErr) throw new Error(cErr.message);
 
@@ -96,7 +96,27 @@ export async function applyBreakDown(
   const onHandByVar = new Map<string, number>();
   for (const r of onHandRows ?? []) onHandByVar.set(r.variation_id, (onHandByVar.get(r.variation_id) ?? 0) + Number(r.quantity_on_hand));
 
-  const tiers: Tier[] = derived.map((t) => ({ ...t, onHand: onHandByVar.get(t.variationId) ?? 0 }));
+  // 5b. One-level-down edges: a pack (4-pack/6-pack) always cracks into the
+  // family's loose base can (unambiguous — there's only ever one). A case
+  // cracks into whichever pack it was explicitly built from
+  // (breaks_into_variation_id) — never guessed from volume/format adjacency,
+  // since a family can carry BOTH a 4-pack and a 6-pack sibling.
+  const looseId = family.find((f) => f.format === "loose")?.id ?? null;
+  const rowById = new Map(family.map((f) => [f.id, f]));
+  const hasPackSibling = family.some((f) => f.format === "4-pack" || f.format === "6-pack");
+  const tiers: Tier[] = derived.map((t) => {
+    const row = rowById.get(t.variationId);
+    let childVariationId: string | null = null;
+    if (t.format === "4-pack" || t.format === "6-pack") {
+      childVariationId = looseId;
+    } else if (t.format === "case") {
+      childVariationId = row?.breaks_into_variation_id ?? null;
+      if (!childVariationId && hasPackSibling) {
+        warnings.push(`case variation ${t.variationId} has no breaks_into_variation_id set — cannot be cracked into packs`);
+      }
+    }
+    return { ...t, onHand: onHandByVar.get(t.variationId) ?? 0, childVariationId };
+  });
 
   // 6. Plan.
   const plan = planBreakDown({ tiers, targetVariationId: variationId, needed });

@@ -18,7 +18,7 @@ interface CsiRow { id: string; batch_id: string; recipe_id: string; variation_id
 
 function makeClient(opts: {
   target: { id: string; container_id: string; lid_id: string | null; label_id: string | null; partner_id: string | null };
-  family: Array<{ id: string; format: string; total_volume_fl_oz: number; container_id: string; lid_id: string | null; label_id: string | null; partner_id: string | null }>;
+  family: Array<{ id: string; format: string; total_volume_fl_oz: number; container_id: string; lid_id: string | null; label_id: string | null; partner_id: string | null; breaks_into_variation_id?: string | null }>;
   csi: CsiRow[];
 }) {
   const csi = opts.csi.map((r) => ({ ...r }));
@@ -103,11 +103,11 @@ function makeClient(opts: {
   return { client: { from } as unknown as SupabaseClient, effects, csi };
 }
 
-const ID = { single: "v-single", pack: "v-pack", case: "v-case" };
+const ID = { single: "v-single", pack: "v-pack", pack6: "v-pack6", case: "v-case" };
 const family16 = [
-  { id: ID.single, format: "loose", total_volume_fl_oz: 16, container_id: "can16", lid_id: "lid", label_id: "lbl", partner_id: "cbc" },
-  { id: ID.pack, format: "4-pack", total_volume_fl_oz: 64, container_id: "can16", lid_id: "lid", label_id: "lbl", partner_id: "cbc" },
-  { id: ID.case, format: "case", total_volume_fl_oz: 384, container_id: "can16", lid_id: "lid", label_id: "lbl", partner_id: "cbc" },
+  { id: ID.single, format: "loose", total_volume_fl_oz: 16, container_id: "can16", lid_id: "lid", label_id: "lbl", partner_id: "cbc", breaks_into_variation_id: null },
+  { id: ID.pack, format: "4-pack", total_volume_fl_oz: 64, container_id: "can16", lid_id: "lid", label_id: "lbl", partner_id: "cbc", breaks_into_variation_id: null },
+  { id: ID.case, format: "case", total_volume_fl_oz: 384, container_id: "can16", lid_id: "lid", label_id: "lbl", partner_id: "cbc", breaks_into_variation_id: ID.pack },
 ];
 const target = { id: ID.single, container_id: "can16", lid_id: "lid", label_id: "lbl", partner_id: "cbc" };
 
@@ -198,5 +198,26 @@ describe("applyBreakDown", () => {
 
     expect(res).toEqual({ applied: [], shortfall: 0, warnings: [] });
     expect(effects).toEqual([]);
+  });
+
+  it("cracks a case into its declared pack sibling, not an unrelated pack size in the same family", async () => {
+    // This family (unusually) sells both a 4-pack and a 6-pack of the same
+    // can. The case's breaks_into_variation_id points at the 4-pack only --
+    // proving applyBreakDown wires that link through end-to-end rather than
+    // guessing from volume/format adjacency (which would have picked the
+    // numerically-closer 6-pack here and silently produced the wrong stock).
+    const ambiguousFamily = [
+      ...family16,
+      { id: ID.pack6, format: "6-pack", total_volume_fl_oz: 96, container_id: "can16", lid_id: "lid", label_id: "lbl", partner_id: "cbc", breaks_into_variation_id: null },
+    ];
+    const { client, effects } = makeClient({
+      target, family: ambiguousFamily,
+      csi: [{ id: "row-case", batch_id: "B-050", recipe_id: "r1", variation_id: ID.case, quantity_on_hand: 1, created_at: "2026-01-01" }],
+    });
+    const res = await applyBreakDown(client, { recipeId: "r1", variationId: ID.pack, needed: 2, sourceRef: null });
+
+    expect(res.applied).toEqual([{ batchId: "B-050", fromVariationId: ID.case, toVariationId: ID.pack, toUnits: 6 }]);
+    expect(res.shortfall).toBe(0);
+    expect(effects).not.toContainEqual(expect.objectContaining({ table: "cold_storage_inventory", payload: expect.objectContaining({ variation_id: ID.pack6 }) }));
   });
 });
