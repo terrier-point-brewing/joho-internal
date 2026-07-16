@@ -5,6 +5,7 @@ import { formatCurrency, formatNumber } from "@/lib/format";
 import { useQueryClient } from "@tanstack/react-query";
 import { PackagingItem, PackagingItemType, PackagingAdjustmentType } from "../types";
 import { Modal, Field, ModalActions } from "./shared";
+import BulkReceiveModal from "./BulkReceiveModal";
 import { usePackagingQuery, useContractPartnersQuery, useSuppliersQuery, productionKeys } from "../hooks/queries";
 import { useUserRole } from "@/lib/hooks/useUserRole";
 import { fmtUsd } from "@/lib/utils/formatting";
@@ -77,6 +78,7 @@ export default function PackagingTab() {
   const onRefresh = () => qc.invalidateQueries({ queryKey: productionKeys.packaging });
 
   const [showModal, setShowModal] = useState(false);
+  const [showBulkReceive, setShowBulkReceive] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
@@ -218,7 +220,10 @@ export default function PackagingTab() {
             onChange={(v) => setFilter("type", v)}
           />
         </FilterBar>
-        <button onClick={openNew} className="btn-primary shrink-0">+ Add Item</button>
+        <div className="flex gap-2 shrink-0">
+          <button onClick={() => setShowBulkReceive(true)} className="btn-secondary" disabled={packaging.length === 0}>Bulk Receive</button>
+          <button onClick={openNew} className="btn-primary">+ Add Item</button>
+        </div>
       </div>
 
       {packaging.length === 0 ? (
@@ -473,6 +478,18 @@ export default function PackagingTab() {
             <ModalActions submitting={adjSubmitting} onCancel={() => setAdjItem(null)} label="Record Adjustment" />
           </form>
         </Modal>
+      )}
+
+      {showBulkReceive && (
+        <BulkReceiveModal
+          itemType="packaging"
+          items={packaging.map((p) => ({ id: p.id, name: p.name, unit: null }))}
+          onClose={() => setShowBulkReceive(false)}
+          onDone={async () => {
+            setShowBulkReceive(false);
+            await onRefresh();
+          }}
+        />
       )}
     </>
   );
