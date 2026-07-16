@@ -676,18 +676,23 @@ export async function POST(req: NextRequest) {
     const declaredIds = new Set((declaredRows ?? []).map((r) => r.variation_id));
 
     // Generic variations (no partner_id) are auto-available to every recipe
-    // without an explicit recipe_packaging_variations link.
-    const { data: genericRows } = await supabase
-      .from("packaging_variations")
-      .select("id")
-      .is("partner_id", null)
-      .eq("is_active", true);
-    const genericIds = new Set((genericRows ?? []).map((r) => r.id));
+    // without an explicit recipe_packaging_variations link — but only for
+    // kegging. Canning has no such fallback: every can variation must be
+    // explicitly declared via recipe_packaging_variations.
+    let genericIds = new Set<string>();
+    if (transfer_type === "kegging") {
+      const { data: genericRows } = await supabase
+        .from("packaging_variations")
+        .select("id")
+        .is("partner_id", null)
+        .eq("is_active", true);
+      genericIds = new Set((genericRows ?? []).map((r) => r.id));
+    }
 
     const acceptedIds = new Set([...declaredIds, ...genericIds]);
     if (acceptedIds.size === 0) {
       return NextResponse.json(
-        { error: "This recipe has no packaging variations declared — add one in Recipes → Packaging Variations before kegging/canning." },
+        { error: `This recipe has no packaging variations declared — add one in Recipes → Packaging Variations before ${transfer_type}.` },
         { status: 422 }
       );
     }
@@ -695,7 +700,11 @@ export async function POST(req: NextRequest) {
     const undeclared = variationIds.filter((id) => !acceptedIds.has(id));
     if (undeclared.length > 0) {
       return NextResponse.json(
-        { error: `Variation ${undeclared[0]} is not declared for this recipe and is not a generic variation.` },
+        {
+          error: transfer_type === "kegging"
+            ? `Variation ${undeclared[0]} is not declared for this recipe and is not a generic variation.`
+            : `Variation ${undeclared[0]} is not declared for this recipe. Canning requires an explicit recipe_packaging_variations link.`,
+        },
         { status: 422 }
       );
     }
