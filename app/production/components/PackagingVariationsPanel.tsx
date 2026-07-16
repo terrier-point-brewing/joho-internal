@@ -103,6 +103,13 @@ export default function PackagingVariationsPanel() {
 
   const hasPartnerVariants = partnerChipOptions.length > 1;
 
+  // The break-down target (breaks_into_variation_id) points at another variation
+  // in this same fully-loaded list. Resolve its name locally rather than embedding
+  // the self-referential relationship in the API select — PostgREST resolves that
+  // embed to the reverse to-many direction, which surfaced as a "→ undefined" pill
+  // on every row.
+  const nameById = useMemo(() => new Map(variations.map((x) => [x.id, x.name])), [variations]);
+
   // A case's "breaks into" target must be a 4-pack/6-pack sibling sharing its
   // can-identity (container + lid + label + partner) — mirrors validateBreaksInto.
   const caseBreakOptions = useMemo(() => {
@@ -291,7 +298,8 @@ export default function PackagingVariationsPanel() {
               {displayed.map((v, i) => {
                 const vIsKeg = v.container?.type === "keg";
                 const formatLabel = vIsKeg ? "Keg" : (FORMATS.find((f) => f.value === v.format)?.label ?? v.format);
-                const hasComponents = v.lid || v.paktech || v.tray || v.label || v.breaks_into;
+                const breaksIntoName = v.breaks_into_variation_id ? nameById.get(v.breaks_into_variation_id) ?? null : null;
+                const hasComponents = v.lid || v.paktech || v.tray || v.label || breaksIntoName;
                 return (
                   <tr
                     key={v.id}
@@ -318,7 +326,7 @@ export default function PackagingVariationsPanel() {
                           {v.paktech    && <ComponentPill name={v.paktech.name}                   type="paktech" />}
                           {v.tray       && <ComponentPill name={v.tray.name}                      type="tray" />}
                           {v.label      && <ComponentPill name={v.label.name}                     type="label" />}
-                          {v.breaks_into && <ComponentPill name={`→ ${v.breaks_into.name}`}        type="breaksInto" />}
+                          {breaksIntoName && <ComponentPill name={`→ ${breaksIntoName}`}            type="breaksInto" />}
                         </div>
                       ) : (
                         <span className="text-faint">—</span>
