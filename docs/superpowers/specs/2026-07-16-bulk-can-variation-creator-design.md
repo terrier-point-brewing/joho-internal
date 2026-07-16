@@ -2,7 +2,25 @@
 
 **Date:** 2026-07-16
 **Branch:** `claude/bulk-can-variation-creator-2bf679`
-**Status:** Approved (design), pending implementation plan
+**Status:** Implemented; reconciled with PR #202 (see Addendum)
+
+## Addendum: reconciliation with PR #202 (2026-07-16)
+
+PR #202 ("case packaging correctly deducts paktechs + disambiguates break-down"), merged to `main`
+after this branch forked, changed the `packaging_variations` domain model this feature builds on:
+a `case` row now requires **both** `paktech_id` (a case is modeled as paktech'd packs boxed into a
+tray, not a bare tray) **and** `breaks_into_variation_id` — an explicit FK to the specific 4-pack/6-pack
+sibling the case was built from (ambiguous from format/volume alone whenever a recipe sells both pack
+sizes of the same can).
+
+This invalidates Decision 6 ("single Postgres insert statement") for batches that include a case row:
+the case's `breaks_into_variation_id` may need to point at a 4-pack/6-pack row created in the *same*
+bulk batch, which doesn't have a real id until its own insert completes. The bulk route now does a
+two-phase insert — every non-case row first, then case rows (resolving a `"batch:4-pack"`/`"batch:6-pack"`
+sentinel to the real id from phase one, or an existing DB variation's id) — so a brand-new SKU's four
+formats can still be created in one user-facing submit, just not literally one SQL statement. The UI's
+case row gained PakTech and "Breaks Into" selectors accordingly. See
+`app/api/production/packaging-variations/bulk/route.ts` and `BulkCanVariationModal.tsx`.
 
 ## Problem
 
