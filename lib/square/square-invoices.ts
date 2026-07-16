@@ -267,7 +267,8 @@ export async function createDepositInvoice(
     lineItems,
     dueDate: params.dueDate,
     serviceDate: params.serviceDate,
-    acceptedPaymentMethods: { card: true, bank_account: true, cash_app_pay: false, buy_now_pay_later: false },
+    // ACH-only: TPB does not accept card payments on generated invoices.
+    acceptedPaymentMethods: { card: false, bank_account: true, cash_app_pay: false, buy_now_pay_later: false },
     metadataType: "allocation-deposit",
   });
 }
@@ -299,9 +300,8 @@ export async function createExportInvoice(
     title: params.title,
     lineItems: params.lineItems,
     dueDate: params.dueDate,
-    // Square requires accepted_payment_methods on any invoice with a payment
-    // request. Default to card + bank transfer (ACH), matching the deposit flow.
-    acceptedPaymentMethods: { card: true, bank_account: true, cash_app_pay: false, buy_now_pay_later: false },
+    // ACH-only: TPB does not accept card payments on generated invoices.
+    acceptedPaymentMethods: { card: false, bank_account: true, cash_app_pay: false, buy_now_pay_later: false },
     metadataType: "export-invoice",
   });
 }
