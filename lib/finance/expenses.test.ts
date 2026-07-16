@@ -79,7 +79,9 @@ describe("resolveExpenseMapping", () => {
 
 describe("resolveExpenseMapping with counterparty rules", () => {
   const gl = new Map<string, RuleRef>([["ext-1", { external_account_id: "ext-1", chart_of_accounts_id: "coa-gl" }]]);
-  const cp = new Map<string, CounterpartyRuleRef>([["gusto", { counterparty_key: "gusto", chart_of_accounts_id: "coa-payroll" }]]);
+  const cp = new Map<string, CounterpartyRuleRef>([
+    ["gusto", { counterparty_key: "gusto", chart_of_accounts_id: "coa-payroll", routing: "single_account" }],
+  ]);
 
   it("resolves via counterparty rule when there is no GL account", () => {
     const r = resolveExpenseMapping(
@@ -103,5 +105,42 @@ describe("resolveExpenseMapping with counterparty rules", () => {
     const r = resolveExpenseMapping(
       { external_account_id: null, counterparty_key: "unknown", mapping_source: "unmapped", chart_of_accounts_id: null }, gl, cp);
     expect(r).toEqual({ chart_of_accounts_id: null, mapping_source: "unmapped" });
+  });
+});
+
+describe("resolveExpenseMapping with a payroll_split-routed counterparty rule", () => {
+  const emptyGl = new Map<string, RuleRef>();
+  const payrollCp = new Map<string, CounterpartyRuleRef>([
+    ["gusto", { counterparty_key: "gusto", chart_of_accounts_id: "coa-payroll", routing: "payroll_split" }],
+  ]);
+
+  it("never applies a payroll_split rule -- expense comes back unmapped instead of coded to the rule's account", () => {
+    const r = resolveExpenseMapping(
+      { external_account_id: null, counterparty_key: "gusto", mapping_source: "unmapped", chart_of_accounts_id: null },
+      emptyGl,
+      payrollCp,
+    );
+    expect(r).toEqual({ chart_of_accounts_id: null, mapping_source: "unmapped" });
+  });
+
+  it("still preserves a manual pin even when the counterparty rule is payroll_split", () => {
+    const r = resolveExpenseMapping(
+      { external_account_id: null, counterparty_key: "gusto", mapping_source: "manual", chart_of_accounts_id: "coa-pinned" },
+      emptyGl,
+      payrollCp,
+    );
+    expect(r).toEqual({ chart_of_accounts_id: "coa-pinned", mapping_source: "manual" });
+  });
+
+  it("a single_account rule (the default) behaves exactly as before -- pure addition, not a behavior change", () => {
+    const singleAccountCp = new Map<string, CounterpartyRuleRef>([
+      ["gusto", { counterparty_key: "gusto", chart_of_accounts_id: "coa-payroll", routing: "single_account" }],
+    ]);
+    const r = resolveExpenseMapping(
+      { external_account_id: null, counterparty_key: "gusto", mapping_source: "unmapped", chart_of_accounts_id: null },
+      emptyGl,
+      singleAccountCp,
+    );
+    expect(r).toEqual({ chart_of_accounts_id: "coa-payroll", mapping_source: "rule" });
   });
 });

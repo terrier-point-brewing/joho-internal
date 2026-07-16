@@ -94,6 +94,37 @@ export interface PayrollEntryMerged extends PayrollEntryComputed {
   effective_total_compensation_cents: number;
 }
 
+// ── Gusto GL-split upload (payroll_gl_reports / _employees / _totals) ──────
+
+export interface PayrollGlReport {
+  id: string;
+  pay_period_id: string;
+  storage_path: string;
+  original_filename: string;
+  uploaded_at: string;
+  uploaded_by: string;
+  superseded_at: string | null;
+}
+
+export interface PayrollGlReportEmployee {
+  id: string;
+  report_id: string;
+  last_name: string;
+  first_name: string;
+  department: string;
+  job: string | null;
+  pay_type: string | null;
+  gross_amount_cents: number;
+  employer_tax_cents: number;
+}
+
+export interface PayrollGlReportTotal {
+  id: string;
+  report_id: string;
+  chart_of_accounts_id: string;
+  amount_cents: number;
+}
+
 export interface TipBucketSummary {
   label: string;
   tipsPooledCents: number;

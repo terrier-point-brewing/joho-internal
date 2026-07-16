@@ -20,6 +20,7 @@ import { useTableControls } from "@/app/components/ui/useTableControls";
 import type { ControlsConfig } from "@/lib/table/types";
 import InventoryAlertBanner from "./InventoryAlertBanner";
 import { selectInventoryAlerts } from "@/lib/finance/inventoryAlerts";
+import { PayrollSplitCell } from "./PayrollSplitCell";
 import { defaultYearRange } from "@/lib/finance/dateRange";
 
 // ── Types (mirror the API responses) ──────────────────────────────────────────
@@ -48,11 +49,16 @@ interface ExpenseRow {
   external_account_id: string | null;
   external_account_name: string | null;
   external_account_code: string | null;
+  counterparty_key: string | null;
   chart_of_accounts_id: string | null;
   mapping_source: "unmapped" | "rule" | "manual";
   inventory_alert_dismissed: boolean;
   unmapped_accepted: boolean;
   chart_of_accounts: CoaJoin | null;
+  // Payroll GL split state (Task 8's enriched GET) -- populated for every
+  // row; only rendered when the counterparty's routing is 'payroll_split'.
+  payrollMatch: { payPeriodId: string; hasReport: boolean } | null;
+  glLines: { chartOfAccountsId: string; amountCents: number; splitSource: "payroll_auto" | "manual" | null }[];
 }
 
 interface SyncResult {
@@ -96,11 +102,17 @@ function ExpenseRowView({
   accounts,
   onSetExpense,
   onToggleAccept,
+  isPayrollSplit,
+  onPayrollChanged,
 }: {
   e: ExpenseRow;
   accounts: CoARef[];
   onSetExpense: (id: string, coaId: string | null) => Promise<void>;
   onToggleAccept: (id: string, accepted: boolean) => Promise<void>;
+  // Combines ramp_object === "bank" with the expense's counterparty
+  // routing === "payroll_split" -- see PayrollSplitCell's routing prop doc.
+  isPayrollSplit: boolean;
+  onPayrollChanged: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -134,7 +146,20 @@ function ExpenseRowView({
             </div>
           )}
         </td>
-        <td className="px-4 py-2"><CategoryBadges items={glName ? [glName] : []} /></td>
+        <td className="px-4 py-2">
+          {isPayrollSplit ? (
+            <PayrollSplitCell
+              expenseId={e.id}
+              routing="payroll_split"
+              payrollMatch={e.payrollMatch}
+              glLines={e.glLines}
+              accounts={accounts}
+              onChanged={onPayrollChanged}
+            />
+          ) : (
+            <CategoryBadges items={glName ? [glName] : []} />
+          )}
+        </td>
         <td className="px-4 py-2">
           {state && (
             <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${EXPENSE_STATE_CLS[state] ?? "bg-surface-mid text-muted"}`}>
@@ -210,19 +235,31 @@ export default function ExpensesPage() {
   const [{ from, to }, setRange] = useState(() => defaultYearRange());
   const [accounts, setAccounts] = useState<CoARef[]>([]);
   const [expenses, setExpenses] = useState<ExpenseRow[]>([]);
+  // counterparty_key -> routing, so the table can gate PayrollSplitCell
+  // without a per-row join (Task 6's routing lives on
+  // expense_counterparty_mappings, not on expenses itself).
+  const [routingByCounterpartyKey, setRoutingByCounterpartyKey] = useState<Map<string, "single_account" | "payroll_split">>(new Map());
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState<string | null>(null);
 
   const loadAll = useCallback(async (from: string, to: string) => {
     setLoading(true); setError(null);
     try {
-      const [coaRes, expRes] = await Promise.all([
+      const [coaRes, expRes, cpRes] = await Promise.all([
         fetch("/api/finance/chart-of-accounts"),
         fetch(`/api/finance/expenses?from=${from}&to=${to}`),
+        fetch("/api/finance/expense-counterparty-mappings"),
       ]);
-      const [coa, exp] = await Promise.all([coaRes.json(), expRes.json()]);
+      const [coa, exp, cp] = await Promise.all([coaRes.json(), expRes.json(), cpRes.json()]);
       setAccounts(Array.isArray(coa) ? coa : []);
       setExpenses(Array.isArray(exp) ? exp : []);
+      setRoutingByCounterpartyKey(
+        new Map(
+          Array.isArray(cp)
+            ? cp.map((r: { counterparty_key: string; routing: "single_account" | "payroll_split" }) => [r.counterparty_key, r.routing])
+            : [],
+        ),
+      );
     } catch {
       setError("Failed to load expenses.");
     } finally {
@@ -363,7 +400,15 @@ export default function ExpensesPage() {
               </>
             }>
             {visibleExpenses.map((e) => (
-              <ExpenseRowView key={e.id} e={e} accounts={accounts} onSetExpense={handleSetExpense} onToggleAccept={handleToggleAccept} />
+              <ExpenseRowView
+                key={e.id}
+                e={e}
+                accounts={accounts}
+                onSetExpense={handleSetExpense}
+                onToggleAccept={handleToggleAccept}
+                isPayrollSplit={e.ramp_object === "bank" && routingByCounterpartyKey.get(e.counterparty_key ?? "") === "payroll_split"}
+                onPayrollChanged={() => loadAll(from, to)}
+              />
             ))}
           </LedgerTable>
           <p className="py-3 text-[10px] text-faint">
