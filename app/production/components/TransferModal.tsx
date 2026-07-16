@@ -98,20 +98,21 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
   interface PackagingLine { variation_id: string; quantity: string }
 
   // Generic variations (no partner_id) are available to every recipe without
-  // an explicit recipe_packaging_variations link; partner-scoped variations
-  // still require one.
+  // an explicit recipe_packaging_variations link — but only for kegging.
+  // Canning has no such fallback: every can variation must be explicitly
+  // declared for the recipe via recipe_packaging_variations.
   const linkedVariations = recipePackagingVariations
     .filter((rv) => rv.recipe_id === batch.recipe_id)
     .map((rv) => rv.packaging_variations)
     .filter((v): v is PackagingVariation => v != null && v.is_active);
   const genericVariations = allPackagingVariations.filter((v) => v.partner_id == null && v.is_active);
-  const recipeVariations = [
+  const kegRecipeVariations = [
     ...linkedVariations,
     ...genericVariations.filter((v) => !linkedVariations.some((lv) => lv.id === v.id)),
   ];
 
-  const kegVariations = recipeVariations.filter((v) => v.container?.type === "keg");
-  const canVariations = recipeVariations.filter((v) => v.container?.type === "can");
+  const kegVariations = kegRecipeVariations.filter((v) => v.container?.type === "keg");
+  const canVariations = linkedVariations.filter((v) => v.container?.type === "can");
 
   const [packagingLines, setPackagingLines] = useState<PackagingLine[]>([{ variation_id: "", quantity: "" }]);
 
@@ -168,8 +169,9 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
   if (mode === "convert") {
     drawBbl = parseFloat(convertBbl) || 0;
   } else if (isPackagingForm) {
+    const activeVariations = showKegDetail ? kegVariations : canVariations;
     drawBbl = packagingLines.reduce((sum, l) => {
-      const variation = recipeVariations.find((v) => v.id === l.variation_id);
+      const variation = activeVariations.find((v) => v.id === l.variation_id);
       const qty = parseInt(l.quantity) || 0;
       if (!variation) return sum;
       return sum + (qty * variation.total_volume_fl_oz) / BBL_TO_FL_OZ;
