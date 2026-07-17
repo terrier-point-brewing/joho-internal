@@ -12,8 +12,8 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
   return (
     <div className="flex flex-col h-full bg-canvas text-primary">
       <FinanceNav mobile />
-      <div className="shrink-0 px-4 sm:px-6">
-        <PageHeader title="Settings" />
+      <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-8">
+        <PageHeader title="Settings" description="Chart of accounts, GL mappings, tax, and payroll configuration." />
       </div>
       <div className="shrink-0 px-4 sm:px-6">
         <SettingsNav />
