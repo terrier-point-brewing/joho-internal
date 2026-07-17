@@ -15,10 +15,19 @@ export async function GET() {
     // has five FKs to packaging_items, so a bare `container_id` column target is
     // ambiguous and leaves `container` unpopulated — which silently dropped
     // recipe-linked keg/can variations from the kegging/canning dropdowns.
+    //
+    // `!inner` + the is_active filter drops links that point at a deactivated
+    // variation. Superseded variations get soft-deleted (is_active=false) rather
+    // than hard-removed, but their recipe links can linger — surfacing as a
+    // "ghost duplicate" next to the active replacement (e.g. an inactive
+    // "Fortnight 1/2 Keg" showing alongside the active "Fortnight - 1/2 Keg").
+    // No consumer (Recipes tab, kegging/canning dropdowns, brew status,
+    // commitments) should offer or display an inactive variation.
     .select(`
       id, recipe_id, variation_id, created_at,
-      packaging_variations(${PACKAGING_VARIATION_SELECT})
+      packaging_variations!inner(${PACKAGING_VARIATION_SELECT})
     `)
+    .eq("packaging_variations.is_active", true)
     .order("created_at");
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data);
