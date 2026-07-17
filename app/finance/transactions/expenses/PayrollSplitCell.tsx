@@ -3,6 +3,7 @@ import { useState } from "react";
 import Badge from "@/app/components/ui/Badge";
 import ConfirmDialog from "@/app/components/ui/ConfirmDialog";
 import type { CoARef } from "../../AccountSelect";
+import { prorateAcrossMonths } from "@/lib/finance/payrollPeriodProration";
 
 export interface GlLine {
   chartOfAccountsId: string;
@@ -31,6 +32,19 @@ function accountLabel(accounts: CoARef[], id: string) {
 
 function fmtCents(n: number) {
   return (n / 100).toLocaleString("en-US", { style: "currency", currency: "USD" });
+}
+
+/** "May $210.00 · Jun $210.00" breakdown when a line's pay period spans multiple months; null for a single-month period. */
+function fmtMonthBreakdown(amountCents: number, periodStart: string, periodEnd: string): string | null {
+  const allocations = prorateAcrossMonths(amountCents, periodStart, periodEnd);
+  if (allocations.length <= 1) return null;
+  return allocations
+    .map(({ monthKey, amountCents: cents }) => {
+      const [y, m] = monthKey.split("-").map(Number);
+      const label = new Date(y, m - 1, 1).toLocaleDateString("en-US", { month: "short" });
+      return `${label} ${fmtCents(Math.abs(cents))}`;
+    })
+    .join(" · ");
 }
 
 /** Compact pay-period label, e.g. "Jul 1–15" (same month) or "Jun 28 – Jul 11". */
@@ -186,19 +200,25 @@ export function PayrollSplitPanel({ expenseId, payrollMatch, glLines, accounts, 
         ) : (
           <>
             <ul className="text-xs text-secondary space-y-0.5 max-w-[420px]">
-              {glLines.map((l, i) => (
-                <li key={i} className="flex items-center justify-between gap-3">
-                  <span className="truncate">
-                    {accountLabel(accounts, l.chartOfAccountsId)}
-                    {l.splitSource === "manual" && (
-                      <span title="Manually overridden">
-                        <Badge tone="info" className="ml-1">manual</Badge>
+              {glLines.map((l, i) => {
+                const breakdown = payrollMatch ? fmtMonthBreakdown(l.amountCents, payrollMatch.periodStart, payrollMatch.periodEnd) : null;
+                return (
+                  <li key={i} className="flex flex-col gap-0.5">
+                    <span className="flex items-center justify-between gap-3">
+                      <span className="truncate">
+                        {accountLabel(accounts, l.chartOfAccountsId)}
+                        {l.splitSource === "manual" && (
+                          <span title="Manually overridden">
+                            <Badge tone="info" className="ml-1">manual</Badge>
+                          </span>
+                        )}
                       </span>
-                    )}
-                  </span>
-                  <span className="font-mono text-body shrink-0">{fmtCents(Math.abs(l.amountCents))}</span>
-                </li>
-              ))}
+                      <span className="font-mono text-body shrink-0">{fmtCents(Math.abs(l.amountCents))}</span>
+                    </span>
+                    {breakdown && <span className="text-2xs text-faint">→ {breakdown}</span>}
+                  </li>
+                );
+              })}
               <li className="flex items-center justify-between gap-3 border-t border-line/40 pt-0.5 mt-0.5 text-body">
                 <span className="truncate font-medium">Total</span>
                 <span className="font-mono shrink-0">{fmtCents(splitTotal)}</span>

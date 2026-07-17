@@ -375,6 +375,47 @@ async function fetchExpenseGlSplitsByExpenseId(
   return byExpenseId;
 }
 
+/**
+ * Batch-fetches each expense's matched pay period date range (via
+ * payroll_period_expense_matches -> pay_periods), for attachment onto
+ * ExpenseRecord.payrollPeriod. Two flat batched .in() queries joined in JS
+ * (not a nested embed -- this codebase has been bitten before by FK-embed
+ * joins breaking on non-canonical constraint names). Empty map when
+ * expenseIds is empty or no expense in the set has a match.
+ */
+async function fetchPayrollPeriodsByExpenseId(
+  supabase: SupabaseClient,
+  expenseIds: string[],
+): Promise<Map<string, { start: string; end: string }>> {
+  const byExpenseId = new Map<string, { start: string; end: string }>();
+  if (expenseIds.length === 0) return byExpenseId;
+
+  const matchRows = await fetchAllRows<{ expense_id: string; pay_period_id: string }>(() =>
+    supabase
+      .from("payroll_period_expense_matches")
+      .select("expense_id, pay_period_id")
+      .in("expense_id", expenseIds)
+      .order("expense_id", { ascending: true }),
+  );
+  if (matchRows.length === 0) return byExpenseId;
+
+  const payPeriodIds = Array.from(new Set(matchRows.map((r) => r.pay_period_id)));
+  const periodRows = await fetchAllRows<{ id: string; start_date: string; end_date: string }>(() =>
+    supabase
+      .from("pay_periods")
+      .select("id, start_date, end_date")
+      .in("id", payPeriodIds)
+      .order("id", { ascending: true }),
+  );
+  const periodById = new Map(periodRows.map((p) => [p.id, { start: p.start_date, end: p.end_date }]));
+
+  for (const m of matchRows) {
+    const period = periodById.get(m.pay_period_id);
+    if (period) byExpenseId.set(m.expense_id, period);
+  }
+  return byExpenseId;
+}
+
 export async function fetchExpenses(supabase: SupabaseClient, range: DateRange, cashOnly: boolean): Promise<ExpenseRecord[]> {
   const data = await fetchAllRows<{
     id: string;
@@ -399,7 +440,11 @@ export async function fetchExpenses(supabase: SupabaseClient, range: DateRange, 
     return q;
   });
 
-  const splitsByExpenseId = await fetchExpenseGlSplitsByExpenseId(supabase, data.map((r) => r.id));
+  const expenseIds = data.map((r) => r.id);
+  const [splitsByExpenseId, payrollPeriodByExpenseId] = await Promise.all([
+    fetchExpenseGlSplitsByExpenseId(supabase, expenseIds),
+    fetchPayrollPeriodsByExpenseId(supabase, expenseIds),
+  ]);
 
   return data.map((r) => ({
     id: r.id,
@@ -408,6 +453,7 @@ export async function fetchExpenses(supabase: SupabaseClient, range: DateRange, 
     accountingDate: r.accounting_date,
     mappingSource: (r.mapping_source ?? "unmapped") as ExpenseRecord["mappingSource"],
     splitLines: splitsByExpenseId.get(r.id),
+    payrollPeriod: payrollPeriodByExpenseId.get(r.id) ?? null,
   }));
 }
 

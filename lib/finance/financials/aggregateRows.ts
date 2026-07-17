@@ -14,6 +14,7 @@ import { normalizeSignedCents } from "./normalizeSign";
 import { deriveChannel, derivePosCategory, deriveKegSize } from "./dimensions";
 import { rowBbl } from "./volume";
 import { ACCOUNT_TYPE_SECTION } from "../accountSections";
+import { prorateAcrossMonths } from "../payrollPeriodProration";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Input record types — minimal, modeled on the real table columns. Fields
@@ -75,6 +76,14 @@ export interface ExpenseRecord {
   mappingSource: MappingSource;
   /** Populated by fetchExpenses via a join to expense_gl_splits; undefined/[] when the expense has no split. */
   splitLines?: { chartOfAccountsId: string; amountCents: number; splitSource: "payroll_auto" | "manual" }[];
+  /**
+   * Matched pay period's date range (payroll_period_expense_matches ->
+   * pay_periods.start_date/end_date), populated by fetchExpenses. When
+   * present, this — not accountingDate — is the month-attribution basis for
+   * splitLines; see prorateAcrossMonths in ../payrollPeriodProration.ts.
+   * null/undefined when the expense has no payroll match.
+   */
+  payrollPeriod?: { start: string; end: string } | null;
 }
 
 /** ramp_bank_ledger row — same resolved-upstream shape as expenses. */
@@ -302,8 +311,20 @@ export function aggregateRows(input: AggregateRowsInput): FinancialsRow[] {
         }))
       : [{ coaId: row.chartOfAccountsId, amountCents: row.amountCents, mappingSource: row.mappingSource }];
     for (const line of lines) {
-      const r = resolveExpenseLike("expenses", row.id, line.coaId, line.mappingSource, line.amountCents, row.accountingDate, coaMap, "expense");
-      if (r && monthSet.has(r.monthKey)) resolved.push(r);
+      if (row.payrollPeriod) {
+        // Once matched, the pay period's own day range is the attribution
+        // basis -- not accountingDate (when the withdrawal happened to
+        // post) -- so a period spanning a month boundary splits correctly.
+        // See docs/superpowers/specs/2026-07-17-payroll-gl-split-month-proration-design.md.
+        const allocations = prorateAcrossMonths(line.amountCents, row.payrollPeriod.start, row.payrollPeriod.end);
+        for (const alloc of allocations) {
+          const r = resolveExpenseLike("expenses", row.id, line.coaId, line.mappingSource, alloc.amountCents, `${alloc.monthKey}-01`, coaMap, "expense");
+          if (r && monthSet.has(r.monthKey)) resolved.push(r);
+        }
+      } else {
+        const r = resolveExpenseLike("expenses", row.id, line.coaId, line.mappingSource, line.amountCents, row.accountingDate, coaMap, "expense");
+        if (r && monthSet.has(r.monthKey)) resolved.push(r);
+      }
     }
   }
   for (const row of input.bank) {

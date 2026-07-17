@@ -487,4 +487,80 @@ describe("aggregateRows", () => {
     expect(total).toBe(-100000);
     for (const r of rows) expect(r.mappingSource).toBe("rule");
   });
+
+  it("a payroll-matched expense's split line prorates across the months its pay period spans (50/50 for a 7+7 day period), regardless of when the transaction posted", () => {
+    const rows = aggregateRows(
+      emptyInput({
+        months: ["2026-05", "2026-06"],
+        expenses: [
+          {
+            id: "exp-payroll",
+            chartOfAccountsId: null,
+            amountCents: -42000,
+            accountingDate: "2026-06-03", // posts in June -- attribution should still split May/June by pay period days
+            mappingSource: "unmapped",
+            payrollPeriod: { start: "2026-05-25", end: "2026-06-07" }, // 7 days May + 7 days June = 14
+            splitLines: [{ chartOfAccountsId: "coa-expense", amountCents: -42000, splitSource: "payroll_auto" }],
+          },
+        ],
+      }),
+    );
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].amountCentsByMonth["2026-05"]).toBe(-21000);
+    expect(rows[0].amountCentsByMonth["2026-06"]).toBe(-21000);
+  });
+
+  it("a payroll-matched expense whose pay period sits entirely within one month attributes to that month even when accountingDate posts in a later month", () => {
+    const rows = aggregateRows(
+      emptyInput({
+        months: ["2026-05", "2026-06"],
+        expenses: [
+          {
+            id: "exp-payroll-delay",
+            chartOfAccountsId: "coa-expense",
+            amountCents: -10000,
+            accountingDate: "2026-06-02", // posted days after the period ended
+            mappingSource: "rule",
+            payrollPeriod: { start: "2026-05-01", end: "2026-05-14" }, // entirely May
+          },
+        ],
+      }),
+    );
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].amountCentsByMonth["2026-05"]).toBe(-10000);
+    expect(rows[0].amountCentsByMonth["2026-06"] ?? 0).toBe(0);
+  });
+
+  it("multiple split lines on the same matched expense are each prorated independently, per-month sums equal each line's own amount", () => {
+    const rows = aggregateRows(
+      emptyInput({
+        months: ["2026-05", "2026-06"],
+        expenses: [
+          {
+            id: "exp-payroll-multi",
+            chartOfAccountsId: null,
+            amountCents: -68000,
+            accountingDate: "2026-06-01",
+            mappingSource: "unmapped",
+            payrollPeriod: { start: "2026-05-25", end: "2026-06-07" }, // 7+7 days
+            splitLines: [
+              { chartOfAccountsId: "coa-beer", amountCents: -60000, splitSource: "payroll_auto" },
+              { chartOfAccountsId: "coa-expense", amountCents: -8000, splitSource: "manual" },
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(rows).toHaveLength(2);
+    const autoRow = rows.find((r) => r.coaId === "coa-beer")!;
+    const manualRow = rows.find((r) => r.coaId === "coa-expense")!;
+
+    expect(autoRow.amountCentsByMonth["2026-05"]).toBe(-30000);
+    expect(autoRow.amountCentsByMonth["2026-06"]).toBe(-30000);
+    expect(manualRow.amountCentsByMonth["2026-05"]).toBe(-4000);
+    expect(manualRow.amountCentsByMonth["2026-06"]).toBe(-4000);
+  });
 });
