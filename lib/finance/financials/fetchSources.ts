@@ -258,7 +258,7 @@ async function fetchPos(supabase: SupabaseClient, range: DateRange): Promise<Pos
   });
 }
 
-async function fetchInvoiceLines(supabase: SupabaseClient, range: DateRange, cashOnly: boolean): Promise<InvoiceLineRecord[]> {
+export async function fetchInvoiceLines(supabase: SupabaseClient, range: DateRange, cashOnly: boolean): Promise<InvoiceLineRecord[]> {
   const rows = await fetchAllRows<{
     id: string;
     total_cents: number | null;
@@ -269,13 +269,15 @@ async function fetchInvoiceLines(supabase: SupabaseClient, range: DateRange, cas
       invoice_date: string;
       status: string;
       export_transactions: { channel: string; volume_bbl: number | null }[] | null;
+      allocation_id: string | null;
+      batch_allocations: { channel: string } | null;
     };
   }>(() => {
     let q = supabase
       .from("invoice_line_items")
       .select(`
         id, total_cents, category, chart_of_accounts_id,
-        invoices!invoice_line_items_invoice_id_fkey!inner ( id, invoice_date, status, export_transactions ( channel, volume_bbl ) )
+        invoices!invoice_line_items_invoice_id_fkey!inner ( id, invoice_date, status, export_transactions ( channel, volume_bbl ), allocation_id, batch_allocations!invoices_allocation_id_fkey ( channel ) )
       `)
       .neq("invoices.status", "voided")
       .lte("invoices.invoice_date", range.endDateStr)
@@ -305,7 +307,18 @@ async function fetchInvoiceLines(supabase: SupabaseClient, range: DateRange, cas
     // per line. Flag for validation once real data is available (see task
     // report).
     const channelSet = new Set(exports.map((e) => e.channel).filter((c) => EXPORT_CHANNELS.has(c)));
-    const exportChannel = channelSet.size === 1 ? [...channelSet][0] : null;
+    let exportChannel = channelSet.size === 1 ? [...channelSet][0] : null;
+    // Deposit invoices (and any other allocation-linked invoice with no
+    // shipment record yet) have zero export_transactions rows -- fall back to
+    // the channel of the invoice's linked batch_allocations, since that's the
+    // only channel signal available for them. Gated on exports.length === 0
+    // (not just exportChannel === null) so a genuinely ambiguous multi-channel
+    // export invoice still surfaces as "unknown" rather than being silently
+    // overwritten by the allocation's channel.
+    if (exports.length === 0) {
+      const allocationChannel = r.invoices.batch_allocations?.channel ?? null;
+      if (allocationChannel && EXPORT_CHANNELS.has(allocationChannel)) exportChannel = allocationChannel;
+    }
     const totalVolumeBbl = exports.reduce((s, e) => s + (e.volume_bbl ?? 0), 0);
 
     let volumeBbl: number | null = null;
