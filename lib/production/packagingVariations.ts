@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { PackagingVariationFormat } from "@/app/production/types";
+import type { PackagingVariationFormat, PackagingVariation } from "@/app/production/types";
+import type { ControlsConfig } from "@/lib/table/types";
 
 export const PACKAGING_VARIATION_SELECT = `
   *,
@@ -109,6 +110,58 @@ export const FORMATS: { value: PackagingVariationFormat; label: string }[] = [
 ];
 
 export const FORMAT_ORDER: PackagingVariationFormat[] = ["loose", "4-pack", "6-pack", "case"];
+
+// ─── Shared search/filter config ─────────────────────────────────────────────
+// Consumed by both PackagingVariationsPanel (URL-synced via useTableControls)
+// and the recipe-linking picker (local state via applyControls). Keeping the
+// accessors/matchers here is the single source of truth for how the catalog is
+// searched and filtered — kegs collapse to the "loose" format bucket; the
+// "generic" partner token means partner_id === null.
+export const PACKAGING_VARIATION_CONTROLS: ControlsConfig<PackagingVariation> = {
+  search: [{ param: "q", accessor: (v) => v.name }],
+  filters: [
+    { param: "type", accessor: (v) => v.container?.type ?? "" },
+    { param: "format", matches: (v, sel) => sel.includes(v.container?.type === "keg" ? "loose" : v.format) },
+    { param: "partner", matches: (v, sel) => sel.some((s) => (s === "generic" ? v.partner_id === null : v.partner_id === s)) },
+  ],
+};
+
+export const PKGVAR_TYPE_OPTIONS = [
+  { value: "keg", label: "Keg" },
+  { value: "can", label: "Can" },
+];
+export const PKGVAR_FORMAT_OPTIONS = FORMATS.map((f) => ({ value: f.value, label: f.label }));
+
+/** Partner filter chip options, derived from the loaded variations so partners
+ *  with no records never appear. Always leads with the "generic" bucket. */
+export function buildVariationPartnerOptions(
+  variations: PackagingVariation[],
+): { value: string; label: string }[] {
+  const seen = new Map<string, string>();
+  for (const v of variations) {
+    if (v.partner_id && v.contract_brewing_partners?.company_name) {
+      seen.set(v.partner_id, v.contract_brewing_partners.company_name);
+    }
+  }
+  return [
+    { value: "generic", label: "Generic" },
+    ...Array.from(seen.entries()).map(([id, name]) => ({ value: id, label: name })),
+  ];
+}
+
+/** Catalog display order: kegs first, then by format order, then by name.
+ *  Shared so the Panel table and the picker checklist order identically. */
+export function sortVariationsForDisplay(rows: PackagingVariation[]): PackagingVariation[] {
+  return [...rows].sort((a, b) => {
+    const ta = a.container?.type === "keg" ? 0 : 1;
+    const tb = b.container?.type === "keg" ? 0 : 1;
+    if (ta !== tb) return ta - tb;
+    const fa = FORMAT_ORDER.indexOf(a.container?.type === "keg" ? "loose" : a.format);
+    const fb = FORMAT_ORDER.indexOf(b.container?.type === "keg" ? "loose" : b.format);
+    if (fa !== fb) return fa - fb;
+    return a.name.localeCompare(b.name);
+  });
+}
 
 export function needsPaktech(format: PackagingVariationFormat)   { return format === "4-pack" || format === "6-pack" || format === "case"; }
 export function needsTray(format: PackagingVariationFormat)       { return format === "case"; }

@@ -1,14 +1,26 @@
 "use client";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
 /**
- * Shared "Auto-map all" action + result readout. The caller supplies the run
- * (a POST that returns `{ mapped }`); this owns the busy/result UI so every
- * Transactions subtab reports auto-mapping identically.
+ * Shared auto-map action + result readout. The caller supplies the run and,
+ * optionally, a label/busy-label and a custom result formatter; this owns the
+ * busy/result UI so every Transactions auto-map button (source-account mapping,
+ * payroll split matching, …) reports identically. Defaults render the
+ * `{ mapped }` shape the source-account auto-map returns.
  */
-export default function AutoMapButton({ onRun }: { onRun: () => Promise<{ mapped: number }> }) {
+export default function AutoMapButton<T = { mapped: number }>({
+  onRun,
+  label = "Auto-map all",
+  busyLabel = "Mapping…",
+  renderResult,
+}: {
+  onRun: () => Promise<T>;
+  label?: string;
+  busyLabel?: string;
+  renderResult?: (r: T) => ReactNode;
+}) {
   const [running, setRunning] = useState(false);
-  const [result, setResult] = useState<{ mapped: number } | null>(null);
+  const [result, setResult] = useState<T | null>(null);
 
   async function handle() {
     setRunning(true);
@@ -18,16 +30,21 @@ export default function AutoMapButton({ onRun }: { onRun: () => Promise<{ mapped
     setRunning(false);
   }
 
+  const defaultRender = (r: T) => {
+    const mapped = (r as { mapped?: number }).mapped ?? 0;
+    return mapped > 0
+      ? <span className="text-success">{mapped} mapped</span>
+      : <span className="text-faint">Nothing to map</span>;
+  };
+
   return (
     <div className="flex items-center gap-2">
       <button onClick={handle} disabled={running} className="btn-secondary whitespace-nowrap">
-        {running ? "Mapping…" : "Auto-map all"}
+        {running ? busyLabel : label}
       </button>
       {result && (
         <span className="text-xs text-secondary">
-          {result.mapped > 0
-            ? <span className="text-success">{result.mapped} mapped</span>
-            : <span className="text-faint">Nothing to map</span>}
+          {(renderResult ?? defaultRender)(result)}
         </span>
       )}
     </div>

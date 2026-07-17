@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, Fragment } from "react";
+import { useState, useMemo, Fragment } from "react";
 import { formatCurrency } from "@/lib/format";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
@@ -8,6 +8,12 @@ import { Recipe, RecipeBrewActivityTemplate, INGREDIENT_CATEGORIES, IngredientCa
 import { Modal, Field, ModalActions } from "./shared";
 import { EQ } from "../equipmentMeta";
 import { useRecipesQuery, useIngredientsQuery, useContractPartnersQuery, productionKeys, fetchJson, usePackagingVariationsQuery, useRecipePackagingVariationsQuery } from "../hooks/queries";
+import { useTableControls } from "@/app/components/ui/useTableControls";
+import SearchInput from "@/app/components/ui/SearchInput";
+import FilterChips from "@/app/components/ui/FilterChips";
+import FilterBar from "@/app/components/ui/FilterBar";
+import RecipeVariationPicker from "./RecipeVariationPicker";
+import type { ControlsConfig } from "@/lib/table/types";
 
 interface BrewStepTemplateData {
   id: string;
@@ -45,6 +51,31 @@ const STAGE_BADGES: Record<"brewhouse" | "fermenter" | "brite", { label: string;
   brite:      { label: "Brite Tank",        badge: EQ.brite.badge },
 };
 
+/** Total ingredient cost for one brew turn at the recipe's expected yield. Pure. */
+function recipeCostPerTurn(r: Recipe): number {
+  const bbl = r.expected_yield_bbl ?? 1;
+  return r.recipe_ingredients.reduce(
+    (sum, ri) => sum + ri.quantity_per_bbl * bbl * (ri.ingredients.cost_per_unit ?? 0),
+    0,
+  );
+}
+
+const PARTNER_HOUSE = "House brew";
+
+const RECIPE_CONTROLS: ControlsConfig<Recipe> = {
+  search: [{ param: "q", accessor: (r) => [r.beer_name, r.partner?.company_name] }],
+  filters: [{ param: "partner", accessor: (r) => r.partner?.company_name ?? PARTNER_HOUSE }],
+  sort: {
+    columns: [
+      { key: "name",        accessor: (r) => r.beer_name },
+      { key: "cost",        accessor: (r) => recipeCostPerTurn(r) },
+      { key: "lead",        accessor: (r) => leadTimeDays(r) },
+      { key: "ingredients", accessor: (r) => r.recipe_ingredients.length },
+    ],
+    default: { key: "name", dir: "asc" },
+  },
+};
+
 function templateToFormLine(t: RecipeBrewActivityTemplate): ActivityFormLine {
   return {
     id: t.id,
@@ -65,19 +96,10 @@ export default function RecipesTab() {
   const { data: partners = [] } = useContractPartnersQuery();
   const { data: variations = [] } = usePackagingVariationsQuery();
   const { data: recipeLinks = [] } = useRecipePackagingVariationsQuery();
-  const [linkingFor, setLinkingFor] = useState<string | null>(null);
+  const [managingFor, setManagingFor] = useState<string | null>(null);
 
   function variationsFor(recipeId: string): RecipePackagingVariation[] {
     return recipeLinks.filter((l) => l.recipe_id === recipeId);
-  }
-
-  async function linkVariation(recipeId: string, variationId: string) {
-    if (!variationId) return;
-    await fetch("/api/production/recipe-packaging-variations", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ recipe_id: recipeId, variation_id: variationId }),
-    });
-    await qc.invalidateQueries({ queryKey: productionKeys.recipePackagingVariations });
   }
 
   async function unlinkVariation(linkId: string) {
@@ -242,12 +264,22 @@ export default function RecipesTab() {
     await refresh();
   }
 
-  function recipeCostPerTurn(r: Recipe): number {
-    const bbl = r.expected_yield_bbl ?? 1;
-    return r.recipe_ingredients.reduce((sum, ri) => {
-      return sum + ri.quantity_per_bbl * bbl * (ri.ingredients.cost_per_unit ?? 0);
-    }, 0);
-  }
+  // Search + partner filter + sort (URL-synced). Card list → sort is a
+  // single-select chip group, mirroring Export Bay's documented one-off.
+  const { rows: visibleRecipes, search, filters, sort, setSearch, setFilter, setSort, reset, activeCount } =
+    useTableControls(recipes, RECIPE_CONTROLS, { prefix: "rec_" });
+
+  const partnerOptions = useMemo(() => {
+    const names = new Set<string>();
+    let hasHouse = false;
+    for (const r of recipes) {
+      if (r.partner?.company_name) names.add(r.partner.company_name);
+      else hasHouse = true;
+    }
+    const opts = [...names].sort((a, b) => a.localeCompare(b)).map((n) => ({ value: n, label: n }));
+    if (hasHouse) opts.push({ value: PARTNER_HOUSE, label: PARTNER_HOUSE });
+    return opts;
+  }, [recipes]);
 
   return (
     <>
@@ -256,11 +288,43 @@ export default function RecipesTab() {
         <button onClick={openNew} className="btn-primary">+ New Recipe</button>
       </div>
 
+      {recipes.length > 0 && (
+        <FilterBar activeCount={activeCount} onClear={reset} className="mb-4">
+          <SearchInput
+            value={search.q ?? ""}
+            onChange={(v) => setSearch("q", v)}
+            placeholder="Search recipes…"
+          />
+          {partnerOptions.length > 1 && (
+            <FilterChips
+              label="Partner"
+              options={partnerOptions}
+              value={filters.partner ?? []}
+              onChange={(v) => setFilter("partner", v)}
+            />
+          )}
+          {/* Card list, not a column table → sort is a single-select chip group. */}
+          <FilterChips
+            label="Sort"
+            options={[
+              { value: "name",        label: "A–Z"         },
+              { value: "cost",        label: "Cost"        },
+              { value: "lead",        label: "Lead time"   },
+              { value: "ingredients", label: "Ingredients" },
+            ]}
+            value={sort ? [sort.key] : ["name"]}
+            onChange={(v) => setSort(v[0] ?? "name", "asc")}
+          />
+        </FilterBar>
+      )}
+
       {recipes.length === 0 ? (
         <p className="text-faint text-sm">No recipes yet.</p>
+      ) : visibleRecipes.length === 0 ? (
+        <p className="text-faint text-sm">No recipes match the current filters.</p>
       ) : (
         <div className="space-y-2">
-          {recipes.map((r) => {
+          {visibleRecipes.map((r) => {
             const isOpen = expanded === r.id;
             const costPerTurn = recipeCostPerTurn(r);
             const costPerBblYield = r.expected_yield_bbl ? costPerTurn / r.expected_yield_bbl : null;
@@ -473,24 +537,9 @@ export default function RecipesTab() {
                       ) : (
                         <p className="text-xs text-faint mb-2">No packaging variations linked yet.</p>
                       )}
-                      {linkingFor === r.id ? (
-                        <select
-                          className="inp text-xs"
-                          autoFocus
-                          defaultValue=""
-                          onChange={(e) => { linkVariation(r.id, e.target.value); setLinkingFor(null); }}
-                          onBlur={() => setLinkingFor(null)}
-                        >
-                          <option value="">Select a variation…</option>
-                          {variations
-                            .filter((v) => !variationsFor(r.id).some((l) => l.variation_id === v.id))
-                            .map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-                        </select>
-                      ) : (
-                        <button onClick={() => setLinkingFor(r.id)} className="text-xs text-accent hover:text-accent-soft">
-                          + Link variation
-                        </button>
-                      )}
+                      <button onClick={() => setManagingFor(r.id)} className="text-xs text-accent hover:text-accent-soft">
+                        {variationsFor(r.id).length > 0 ? "Manage variations" : "+ Link variations"}
+                      </button>
                     </div>
 
                     {/* Notes */}
@@ -522,6 +571,21 @@ export default function RecipesTab() {
           })}
         </div>
       )}
+
+      {managingFor && (() => {
+        const r = recipes.find((rec) => rec.id === managingFor);
+        if (!r) return null;
+        return (
+          <RecipeVariationPicker
+            recipeName={r.beer_name}
+            recipeId={r.id}
+            variations={variations}
+            currentLinks={variationsFor(r.id)}
+            onClose={() => setManagingFor(null)}
+            onSaved={() => qc.invalidateQueries({ queryKey: productionKeys.recipePackagingVariations })}
+          />
+        );
+      })()}
 
       {showModal && (
         <Modal

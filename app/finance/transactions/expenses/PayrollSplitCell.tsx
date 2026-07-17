@@ -23,20 +23,6 @@ export interface PayrollState {
   glLines: GlLine[];
 }
 
-interface PayrollSplitCellProps {
-  expenseId: string;
-  // Gate on this in the parent -- render this cell only when routing ===
-  // "payroll_split" (see lib/finance/expenses.ts's resolveExpenseMapping
-  // payroll_split skip). Kept as a prop rather than re-derived here so the
-  // cell stays presentation-only.
-  routing: "single_account" | "payroll_split";
-  payrollMatch: PayrollMatchInfo | null;
-  glLines: GlLine[];
-  accounts: CoARef[];
-  // Patches just this expense's payroll state in the parent (no full reload).
-  onUpdated: (next: PayrollState) => void;
-}
-
 function accountLabel(accounts: CoARef[], id: string) {
   const a = accounts.find((acc) => acc.id === id);
   if (!a) return id.slice(0, 8) + "…";
@@ -60,6 +46,35 @@ function fmtPeriod(start: string, end: string): string | null {
   return `${mon(s)} ${s.getDate()} – ${mon(e)} ${e.getDate()}`;
 }
 
+// ── GL-Account-column summary (compact, non-interactive) ───────────────────────
+//
+// Shows payroll match/split status at a glance in the GL Account column. The
+// full line breakdown + match/recompute/unmatch actions live in the row's
+// transaction dropdown (PayrollSplitPanel), NOT in a nested dropdown here.
+
+export function PayrollSplitSummary({ payrollMatch, glLines }: { payrollMatch: PayrollMatchInfo | null; glLines: GlLine[] }) {
+  if (!payrollMatch) return <Badge tone="accent">Payroll · unmatched</Badge>;
+
+  const periodLabel = fmtPeriod(payrollMatch.periodStart, payrollMatch.periodEnd);
+  const hasSplits = payrollMatch.hasReport && glLines.length > 0;
+  const title = periodLabel ? `Pay period ${payrollMatch.periodStart} – ${payrollMatch.periodEnd}` : undefined;
+
+  if (!hasSplits) {
+    return (
+      <span title={title}>
+        <Badge tone="info">{periodLabel ? `Payroll ${periodLabel} · awaiting Gusto` : "Payroll · awaiting Gusto"}</Badge>
+      </span>
+    );
+  }
+  return (
+    <span title={title}>
+      <Badge tone="accent">{periodLabel ? `Payroll ${periodLabel} · split (${glLines.length})` : `Payroll split (${glLines.length})`}</Badge>
+    </span>
+  );
+}
+
+// ── Transaction-dropdown panel (breakdown + actions) ──────────────────────────
+
 async function postAction(expenseId: string, body: Record<string, unknown>) {
   const res = await fetch(`/api/finance/expenses/${expenseId}/payroll-match`, {
     method: "POST",
@@ -70,10 +85,18 @@ async function postAction(expenseId: string, body: Record<string, unknown>) {
   return { ok: res.ok, status: res.status, json };
 }
 
-export function PayrollSplitCell({ expenseId, payrollMatch, glLines, accounts, onUpdated }: PayrollSplitCellProps) {
+interface PayrollSplitPanelProps {
+  expenseId: string;
+  payrollMatch: PayrollMatchInfo | null;
+  glLines: GlLine[];
+  accounts: CoARef[];
+  // Patches just this expense's payroll state in the parent (no full reload).
+  onUpdated: (next: PayrollState) => void;
+}
+
+export function PayrollSplitPanel({ expenseId, payrollMatch, glLines, accounts, onUpdated }: PayrollSplitPanelProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState(false);
   const [confirmOverwrite, setConfirmOverwrite] = useState(false);
 
   async function handleMatch() {
@@ -115,72 +138,89 @@ export function PayrollSplitCell({ expenseId, payrollMatch, glLines, accounts, o
     }
   }
 
-  if (!payrollMatch) {
-    return (
-      <div className="flex flex-col gap-0.5">
-        <button type="button" className="btn-primary btn-xxs" disabled={busy} onClick={(ev) => { ev.stopPropagation(); handleMatch(); }}>
-          {busy ? "Matching…" : "Match payroll period"}
-        </button>
-        {error && <span className="text-2xs text-danger">{error}</span>}
-      </div>
-    );
+  async function handleUnmatch() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await postAction(expenseId, { action: "unmatch" });
+      if (!res.ok) throw new Error(res.json?.error ?? "Unmatch failed.");
+      onUpdated(res.json as PayrollState);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Unmatch failed.");
+    } finally {
+      setBusy(false);
+    }
   }
 
-  const hasSplits = payrollMatch.hasReport && glLines.length > 0;
-  const periodLabel = fmtPeriod(payrollMatch.periodStart, payrollMatch.periodEnd);
-
-  if (!hasSplits) {
-    return (
-      <div className="flex flex-col gap-0.5">
-        <span title={periodLabel ? `Matched to pay period ${payrollMatch.periodStart} – ${payrollMatch.periodEnd}` : undefined}>
-          <Badge tone="info">
-            {periodLabel ? `Payroll ${periodLabel} — awaiting Gusto upload` : "Payroll — awaiting Gusto upload"}
-          </Badge>
-        </span>
-        {error && <span className="text-2xs text-danger">{error}</span>}
-      </div>
-    );
-  }
+  const periodLabel = payrollMatch ? fmtPeriod(payrollMatch.periodStart, payrollMatch.periodEnd) : null;
+  const hasSplits = !!payrollMatch?.hasReport && glLines.length > 0;
+  const splitTotal = glLines.reduce((s, l) => s + Math.abs(l.amountCents), 0);
 
   return (
     <>
-      <div className="flex flex-col gap-0.5">
-        <div className="flex items-center gap-1.5">
-          <button
-            type="button"
-            className="text-xs text-accent hover:underline"
-            title={periodLabel ? `Pay period ${payrollMatch.periodStart} – ${payrollMatch.periodEnd}` : undefined}
-            onClick={(ev) => { ev.stopPropagation(); setExpanded((v) => !v); }}
-          >
-            <Badge tone="accent">{expanded ? "▾" : "▸"} {periodLabel ? `${periodLabel} split` : "Split"} ({glLines.length})</Badge>
-          </button>
-          <button
-            type="button"
-            className="btn-secondary btn-xxs"
-            disabled={busy}
-            title="Recompute this expense's payroll split from the period's Gusto totals"
-            onClick={(ev) => { ev.stopPropagation(); handleRecompute(); }}
-          >
-            ↻
-          </button>
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center gap-2">
+          <span className="text-2xs text-faint uppercase tracking-wider shrink-0">Payroll split</span>
+          {payrollMatch ? (
+            <span className="text-xs text-body" title={`Pay period ${payrollMatch.periodStart} – ${payrollMatch.periodEnd}`}>
+              Pay period {periodLabel ?? `${payrollMatch.periodStart} – ${payrollMatch.periodEnd}`}
+            </span>
+          ) : (
+            <span className="text-xs text-secondary">Not yet matched to a pay period.</span>
+          )}
         </div>
-        {expanded && (
-          <ul className="text-2xs text-secondary space-y-0.5" onClick={(ev) => ev.stopPropagation()}>
-            {glLines.map((l, i) => (
-              <li key={i} className="flex items-center justify-between gap-2">
-                <span className="truncate">
-                  {accountLabel(accounts, l.chartOfAccountsId)}
-                  {l.splitSource === "manual" && (
-                    <span title="Manually overridden">
-                      <Badge tone="info" className="ml-1">manual</Badge>
-                    </span>
-                  )}
-                </span>
-                <span className="font-mono text-body shrink-0">{fmtCents(Math.abs(l.amountCents))}</span>
+
+        {!payrollMatch ? (
+          <div>
+            <button type="button" className="btn-primary btn-xxs" disabled={busy} onClick={handleMatch}>
+              {busy ? "Matching…" : "Match payroll period"}
+            </button>
+          </div>
+        ) : !hasSplits ? (
+          <div className="flex items-center gap-2">
+            <Badge tone="info">Awaiting Gusto upload</Badge>
+            <button type="button" className="btn-secondary btn-xxs" disabled={busy} onClick={handleUnmatch}>
+              {busy ? "…" : "Unmatch"}
+            </button>
+          </div>
+        ) : (
+          <>
+            <ul className="text-xs text-secondary space-y-0.5 max-w-[420px]">
+              {glLines.map((l, i) => (
+                <li key={i} className="flex items-center justify-between gap-3">
+                  <span className="truncate">
+                    {accountLabel(accounts, l.chartOfAccountsId)}
+                    {l.splitSource === "manual" && (
+                      <span title="Manually overridden">
+                        <Badge tone="info" className="ml-1">manual</Badge>
+                      </span>
+                    )}
+                  </span>
+                  <span className="font-mono text-body shrink-0">{fmtCents(Math.abs(l.amountCents))}</span>
+                </li>
+              ))}
+              <li className="flex items-center justify-between gap-3 border-t border-line/40 pt-0.5 mt-0.5 text-body">
+                <span className="truncate font-medium">Total</span>
+                <span className="font-mono shrink-0">{fmtCents(splitTotal)}</span>
               </li>
-            ))}
-          </ul>
+            </ul>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="btn-secondary btn-xxs"
+                disabled={busy}
+                title="Recompute this expense's payroll split from the period's Gusto totals"
+                onClick={() => handleRecompute()}
+              >
+                {busy ? "…" : "↻ Recompute"}
+              </button>
+              <button type="button" className="btn-secondary btn-xxs" disabled={busy} onClick={handleUnmatch}>
+                Unmatch
+              </button>
+            </div>
+          </>
         )}
+
         {error && <span className="text-2xs text-danger">{error}</span>}
       </div>
       {confirmOverwrite && (

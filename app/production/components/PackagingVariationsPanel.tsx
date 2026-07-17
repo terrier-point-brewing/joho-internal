@@ -10,24 +10,16 @@ import { useTableControls } from "@/app/components/ui/useTableControls";
 import SearchInput from "@/app/components/ui/SearchInput";
 import FilterChips from "@/app/components/ui/FilterChips";
 import FilterBar from "@/app/components/ui/FilterBar";
-import type { ControlsConfig } from "@/lib/table/types";
-import { FORMATS, FORMAT_ORDER, needsPaktech, needsTray, needsBreaksInto } from "@/lib/production/packagingVariations";
+import {
+  FORMATS,
+  needsPaktech, needsTray, needsBreaksInto,
+  PACKAGING_VARIATION_CONTROLS as PKGVAR_CONTROLS,
+  PKGVAR_TYPE_OPTIONS as TYPE_OPTIONS,
+  PKGVAR_FORMAT_OPTIONS as FORMAT_OPTIONS,
+  buildVariationPartnerOptions,
+  sortVariationsForDisplay,
+} from "@/lib/production/packagingVariations";
 import BulkCanVariationModal from "./BulkCanVariationModal";
-
-const PKGVAR_CONTROLS: ControlsConfig<PackagingVariation> = {
-  search: [{ param: "q", accessor: (v) => v.name }],
-  filters: [
-    { param: "type", accessor: (v) => v.container?.type ?? "" },
-    { param: "format", matches: (v, sel) => sel.includes(v.container?.type === "keg" ? "loose" : v.format) },
-    { param: "partner", matches: (v, sel) => sel.some((s) => (s === "generic" ? v.partner_id === null : v.partner_id === s)) },
-  ],
-};
-
-const TYPE_OPTIONS = [
-  { value: "keg", label: "Keg" },
-  { value: "can", label: "Can" },
-];
-const FORMAT_OPTIONS = FORMATS.map((f) => ({ value: f.value, label: f.label }));
 
 const EMPTY_FORM = {
   container_id: "",
@@ -88,18 +80,7 @@ export default function PackagingVariationsPanel() {
   const isKeg = containerType === "keg";
 
   // Partner options derived from the loaded variations (avoids showing partners with no records)
-  const partnerChipOptions = useMemo<{ value: string; label: string }[]>(() => {
-    const seen = new Map<string, string>();
-    for (const v of variations) {
-      if (v.partner_id && v.contract_brewing_partners?.company_name) {
-        seen.set(v.partner_id, v.contract_brewing_partners.company_name);
-      }
-    }
-    return [
-      { value: "generic", label: "Generic" },
-      ...Array.from(seen.entries()).map(([id, name]) => ({ value: id, label: name })),
-    ];
-  }, [variations]);
+  const partnerChipOptions = useMemo(() => buildVariationPartnerOptions(variations), [variations]);
 
   const hasPartnerVariants = partnerChipOptions.length > 1;
 
@@ -132,19 +113,9 @@ export default function PackagingVariationsPanel() {
   const { rows: matched, search, filters, setSearch, setFilter, reset, activeCount } =
     useTableControls(base, PKGVAR_CONTROLS);
 
-  // Fixed keg-first → format-order → name ordering is intentional — preserved verbatim,
-  // applied after the shared hook's search/filter pass (no SortableTh; not user-configurable).
-  const displayed = useMemo(() => {
-    return [...matched].sort((a, b) => {
-      const ta = a.container?.type === "keg" ? 0 : 1;
-      const tb = b.container?.type === "keg" ? 0 : 1;
-      if (ta !== tb) return ta - tb;
-      const fa = FORMAT_ORDER.indexOf(a.container?.type === "keg" ? "loose" : a.format);
-      const fb = FORMAT_ORDER.indexOf(b.container?.type === "keg" ? "loose" : b.format);
-      if (fa !== fb) return fa - fb;
-      return a.name.localeCompare(b.name);
-    });
-  }, [matched]);
+  // Fixed keg-first → format-order → name ordering is intentional — applied after
+  // the shared hook's search/filter pass (no SortableTh; not user-configurable).
+  const displayed = useMemo(() => sortVariationsForDisplay(matched), [matched]);
 
   function openNew() { setForm(EMPTY_FORM); setEditingId(null); setError(null); setShowModal(true); }
 

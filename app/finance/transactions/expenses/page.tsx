@@ -21,7 +21,7 @@ import { useTableControls } from "@/app/components/ui/useTableControls";
 import type { ControlsConfig } from "@/lib/table/types";
 import InventoryAlertBanner from "./InventoryAlertBanner";
 import { selectInventoryAlerts } from "@/lib/finance/inventoryAlerts";
-import { PayrollSplitCell, type PayrollState, type PayrollMatchInfo, type GlLine } from "./PayrollSplitCell";
+import { PayrollSplitSummary, PayrollSplitPanel, type PayrollState, type PayrollMatchInfo, type GlLine } from "./PayrollSplitCell";
 import { defaultYearRange } from "@/lib/finance/dateRange";
 
 // ── Types (mirror the API responses) ──────────────────────────────────────────
@@ -72,10 +72,19 @@ interface SyncResult {
 
 // ── Search/filter/sort config ────────────────────────────────────────────────
 
+// An expense is "mapped" when it resolves to at least one GL line. glLines
+// already unifies the two coding paths: a normal expense synthesizes a single
+// line from its own chart_of_accounts_id, while a payroll_split expense (whose
+// own chart_of_accounts_id stays null) carries its expense_gl_splits lines. So
+// this one signal drives the pill, the filter, and the summary counter for both.
+function isExpenseMapped(e: { glLines: GlLine[] }): boolean {
+  return (e.glLines?.length ?? 0) > 0;
+}
+
 const EXPENSE_CONTROLS: ControlsConfig<ExpenseRow> = {
   search: [{ param: "q", accessor: (e) => e.merchant_name ?? "" }],
   filters: [
-    { param: "mapping", matches: (e, sel) => matchesMappingFilter(sel[0] as MappingFilterValue, e.chart_of_accounts_id ? 1 : 0, 1, e.unmapped_accepted) },
+    { param: "mapping", matches: (e, sel) => matchesMappingFilter(sel[0] as MappingFilterValue, isExpenseMapped(e) ? 1 : 0, 1, e.unmapped_accepted) },
   ],
   sort: {
     columns: [
@@ -111,13 +120,14 @@ function ExpenseRowView({
   onSetExpense: (id: string, coaId: string | null) => Promise<void>;
   onToggleAccept: (id: string, accepted: boolean) => Promise<void>;
   // Combines ramp_object === "bank" with the expense's counterparty
-  // routing === "payroll_split" -- see PayrollSplitCell's routing prop doc.
+  // routing === "payroll_split" (resolveExpenseMapping's payroll_split skip):
+  // such rows code via their pay-period split, not the single-account select.
   isPayrollSplit: boolean;
   onPayrollUpdated: (next: PayrollState) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [saving, setSaving] = useState(false);
-  const mapped = e.chart_of_accounts_id ? 1 : 0;
+  const mapped = isExpenseMapped(e) ? 1 : 0;
   const state = e.state?.toLowerCase() ?? "";
   const glName = e.chart_of_accounts?.account_name ?? null;
 
@@ -149,14 +159,7 @@ function ExpenseRowView({
         </td>
         <td className="px-4 py-2">
           {isPayrollSplit ? (
-            <PayrollSplitCell
-              expenseId={e.id}
-              routing="payroll_split"
-              payrollMatch={e.payrollMatch}
-              glLines={e.glLines}
-              accounts={accounts}
-              onUpdated={onPayrollUpdated}
-            />
+            <PayrollSplitSummary payrollMatch={e.payrollMatch} glLines={e.glLines} />
           ) : (
             <CategoryBadges items={glName ? [glName] : []} />
           )}
@@ -203,25 +206,36 @@ function ExpenseRowView({
                 ))}
               </div>
 
-              {/* GL account mapping */}
-              <div className="flex items-center gap-2">
-                <span className="text-2xs text-faint uppercase tracking-wider shrink-0">GL account</span>
-                <AccountSelect
-                  value={e.chart_of_accounts_id}
-                  onChange={handleChange}
+              {/* GL account mapping — payroll_split expenses code via their pay-period
+                  split (the panel below), so they don't get the single-account select. */}
+              {isPayrollSplit ? (
+                <PayrollSplitPanel
+                  expenseId={e.id}
+                  payrollMatch={e.payrollMatch}
+                  glLines={e.glLines}
                   accounts={accounts}
-                  placeholder={e.mapping_source === "unmapped" ? "— unmapped —" : "— follow account rule —"}
-                  shortLabel
-                  className="w-full max-w-[360px]"
+                  onUpdated={onPayrollUpdated}
                 />
-                {e.mapping_source === "manual" && (
-                  <span className="text-2xs text-info shrink-0" title="Manually pinned — sync and auto-map leave it alone">pin</span>
-                )}
-                {e.mapping_source === "rule" && (
-                  <span className="text-2xs text-faint shrink-0" title="Coded from the source-account rule (Settings → Expense Accounts)">rule</span>
-                )}
-                <SaveHint saving={saving} />
-              </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <span className="text-2xs text-faint uppercase tracking-wider shrink-0">GL account</span>
+                  <AccountSelect
+                    value={e.chart_of_accounts_id}
+                    onChange={handleChange}
+                    accounts={accounts}
+                    placeholder={e.mapping_source === "unmapped" ? "— unmapped —" : "— follow account rule —"}
+                    shortLabel
+                    className="w-full max-w-[360px]"
+                  />
+                  {e.mapping_source === "manual" && (
+                    <span className="text-2xs text-info shrink-0" title="Manually pinned — sync and auto-map leave it alone">pin</span>
+                  )}
+                  {e.mapping_source === "rule" && (
+                    <span className="text-2xs text-faint shrink-0" title="Coded from the source-account rule (Settings → Expense Accounts)">rule</span>
+                  )}
+                  <SaveHint saving={saving} />
+                </div>
+              )}
             </div>
           </td>
         </tr>
@@ -332,8 +346,17 @@ export default function ExpensesPage() {
     return json;
   }
 
+  // Bulk-match every unmatched payroll_split bank expense in range to its pay
+  // period and regenerate its GL splits (server-side; see auto-map-payroll route).
+  async function handleAutoMapPayroll(): Promise<{ matched: number; periodsRecomputed: number }> {
+    const res = await fetch(`/api/finance/expenses/auto-map-payroll?from=${from}&to=${to}`, { method: "POST" });
+    const json = await res.json();
+    if (json.matched > 0) loadAll(from, to);
+    return json;
+  }
+
   const totalCount   = expenses.length;
-  const mappedCount  = expenses.filter((e) => e.chart_of_accounts_id || e.unmapped_accepted).length;
+  const mappedCount  = expenses.filter((e) => isExpenseMapped(e) || e.unmapped_accepted).length;
   const totalSpend   = expenses.reduce((s, e) => s + e.amount_cents, 0);
 
   const { rows: visibleExpenses, search, filters, sort, setSearch, setFilter, toggleSort, reset, activeCount } =
@@ -348,6 +371,15 @@ export default function ExpensesPage() {
           <MappingFilter value={(filters.mapping?.[0] as MappingFilterValue) ?? "all"}
             onChange={(v) => setFilter("mapping", v === "all" ? [] : [v])} />
           <AutoMapButton key={`${from}_${to}`} onRun={handleAutoMap} />
+          <AutoMapButton
+            key={`payroll_${from}_${to}`}
+            onRun={handleAutoMapPayroll}
+            label="Auto-map payroll"
+            busyLabel="Matching…"
+            renderResult={(r) => r.matched > 0
+              ? <span className="text-success">{r.matched} matched</span>
+              : <span className="text-faint">Nothing to match</span>}
+          />
           <SyncPanel<SyncResult>
             year={new Date(to).getFullYear()}
             storageKey="tpb-expenses-last-sync"

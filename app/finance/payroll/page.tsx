@@ -2,7 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { PayrollNav } from "./PayrollNav";
+import FinanceNav from "../FinanceNav";
 import PeriodsTable from "./PeriodsTable";
 import PageHeader from "@/app/components/PageHeader";
 import Banner from "@/app/components/ui/Banner";
@@ -64,7 +64,8 @@ export default function FinancePayrollPage() {
 
   return (
     <main className="px-4 sm:px-6 py-4 sm:py-8">
-      <div className="flex items-center justify-between">
+      <FinanceNav mobile />
+      <div className="flex items-center justify-between gap-4 mb-4">
         <PageHeader title="Payroll" description="Pay periods, payroll basis, and Gusto reconciliation." />
         {!showForm && (
           <button onClick={() => setShowForm(true)} className="btn-secondary">
@@ -72,7 +73,6 @@ export default function FinancePayrollPage() {
           </button>
         )}
       </div>
-      <PayrollNav />
 
       {showForm && (
         <div className="mt-4 mb-6 p-4 bg-surface border border-line-strong rounded-lg flex flex-wrap items-end gap-3">
