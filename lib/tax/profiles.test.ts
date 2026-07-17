@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { FieldSpec, TaxFilingProfileValues } from "./types";
-import { getProfile, putProfile, maskSensitive } from "./profiles";
+import { getProfile, putProfile, maskSensitive, pickSensitiveValues } from "./profiles";
 
 const sensitiveSchema: FieldSpec[] = [
   { key: "contact_name", label: "Contact name", type: "text" },
@@ -119,5 +119,25 @@ describe("maskSensitive", () => {
     const result = maskSensitive({ contact_name: "Jamie", fein: "12-3456789", ssn: "123-45-6789" }, sensitiveSchema);
     expect(result.contact_name).toBe("Jamie");
     expect(result.fein).toBe("12-3456789");
+  });
+});
+
+describe("pickSensitiveValues", () => {
+  it("returns the real value for a non-empty sensitive field", () => {
+    const result = pickSensitiveValues({ ssn: "123-45-6789", contact_name: "Jamie" }, sensitiveSchema);
+    expect(result).toEqual({ ssn: "123-45-6789" });
+  });
+
+  it("omits a sensitive field with no stored value", () => {
+    expect(pickSensitiveValues({ contact_name: "Jamie" }, sensitiveSchema)).toEqual({});
+    expect(pickSensitiveValues({ ssn: "", contact_name: "Jamie" }, sensitiveSchema)).toEqual({});
+  });
+
+  it("never includes non-sensitive fields, even though they're already visible via the masked GET", () => {
+    const result = pickSensitiveValues(
+      { contact_name: "Jamie", fein: "12-3456789", ssn: "123-45-6789" },
+      sensitiveSchema,
+    );
+    expect(result).toEqual({ ssn: "123-45-6789" });
   });
 });
