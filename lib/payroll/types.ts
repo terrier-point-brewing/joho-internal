@@ -47,6 +47,33 @@ export interface PayPeriod {
   created_at: string;
 }
 
+/** A pay period enriched with the per-period rollups shown in the Finance →
+ *  Payroll periods table (computed in lib/payroll/periodSummary.ts, no Square).
+ *  Nullable money fields are `null` (not 0) when the underlying source is
+ *  absent: app basis is null until the period is locked; Gusto/drift/recon are
+ *  null until a Gusto report is uploaded and expenses are matched. */
+export interface PayPeriodSummary extends PayPeriod {
+  entryCount: number;
+  /** Total comp basis (wages + cash tips) from the lock-time snapshot; null if not locked. */
+  appBasisCents: number | null;
+  /** Wage-only basis (excludes cash tips) — the figure comparable to Gusto wage buckets. */
+  appWagesCents: number | null;
+  /** Σ of the active Gusto report's GL totals (wages + employer taxes); null if no report. */
+  gustoTotalCents: number | null;
+  /** Gusto GL totals excluding the payroll-taxes account — comparable to appWagesCents. */
+  gustoWagesCents: number | null;
+  reportUploadedAt: string | null;
+  reportFilename: string | null;
+  /** appWagesCents − gustoWagesCents; null if either side is missing. */
+  driftCents: number | null;
+  matchedCount: number;
+  /** Σ|amount| of matched bank withdrawals. */
+  matchedSumCents: number;
+  /** matchedSumCents − gustoTotalCents; null if no report or no matches. */
+  reconciliationCents: number | null;
+  splitStatus: "split" | "awaiting" | "none";
+}
+
 export interface PayrollEntry {
   id: string;
   pay_period_id: string;
