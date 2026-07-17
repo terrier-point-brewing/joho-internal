@@ -2,7 +2,8 @@
 
 import { useParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { PayrollNav } from "../PayrollNav";
+import FinanceNav from "../../FinanceNav";
+import PageHeader from "@/app/components/PageHeader";
 import { PayrollPeriodView } from "@/app/components/payroll/PayrollPeriodView";
 import { PeriodSelector } from "@/app/components/payroll/PeriodSelector";
 import { queryKeys } from "@/lib/query-keys";
@@ -18,18 +19,18 @@ export default function FinancePayrollPeriodPage() {
 
   return (
     <main className="px-4 sm:px-6 py-4 sm:py-8">
-      <div className="flex items-center justify-between mb-4">
-        <h1 className="text-base font-semibold text-primary">Payroll</h1>
+      <FinanceNav mobile />
+      <div className="flex items-center justify-between gap-4 mb-4">
+        <PageHeader title="Payroll" description="Hours, tips, and Gusto reporting by pay period" />
         {periods && (
-          <PeriodSelector
-            periods={periods}
-            currentId={periodId}
-            basePath="/finance/payroll"
-          />
+          <PeriodSelector periods={periods} currentId={periodId} basePath="/finance/payroll" />
         )}
       </div>
-      <PayrollNav />
-      <PayrollPeriodView periodId={periodId} editable={false} tabs={["gusto", "gustoUpload"]} />
+      <PayrollPeriodView
+        periodId={periodId}
+        editable
+        tabs={["summary", "shifts", "gusto", "gustoUpload"]}
+      />
     </main>
   );
 }
