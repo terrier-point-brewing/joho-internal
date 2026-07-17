@@ -67,12 +67,13 @@ function initialRequiredDrafts(data: RegistrationsResponse): RequiredDrafts {
 }
 
 /**
- * Per-authority registration/license numbers (`tax_registrations`). Two
- * blocks:
- *  - Required for active filings: one row per resolved requirement
- *    (`GET /api/tax/registrations`'s `required` field) — label locked, only
- *    the number is editable, matched by (authority_key, key), never "first
- *    row for this authority".
+ * Per-authority registration/license numbers (`tax_registrations`), grouped
+ * by receiving party (`tax_authorities`). Each authority's block has two
+ * subsections:
+ *  - Required for active filings: one row per resolved requirement for THIS
+ *    authority (`GET /api/tax/registrations`'s `required` field, filtered by
+ *    `authorityKey`) — label locked, only the number is editable, matched by
+ *    (authority_key, key), never "first row for this authority".
  *  - Other registrations: today's freeform per-authority editor, minus
  *    whatever's already covered above.
  * Both flatten into ONE `PUT /api/tax/registrations` call on Save — the
@@ -217,68 +218,75 @@ export default function RegistrationsSection() {
         {error && <Banner tone="danger">{error}</Banner>}
         {saved && <Banner tone="success">Registrations saved.</Banner>}
 
-        {required.length > 0 && (
-          <div className="space-y-2 pb-4 border-b border-line">
-            <h4 className="text-sm font-medium text-primary">Required for active filings</h4>
-            <div className="space-y-2">
-              {required.map((req) => (
-                <div key={dedupeKey(req.authorityKey, req.registrationKey)} className="flex items-center gap-2">
-                  <span className="flex-1 text-sm text-body">{req.label}</span>
-                  <input
-                    type="text"
-                    className="inp-sm flex-1"
-                    placeholder="Number"
-                    value={requiredDrafts[dedupeKey(req.authorityKey, req.registrationKey)] ?? ""}
-                    onChange={(e) => updateRequired(req.authorityKey, req.registrationKey, e.target.value)}
-                  />
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
         <div className="space-y-2">
-          <h4 className="text-sm font-medium text-primary">Other registrations</h4>
           {authorities.length === 0 && <p className="text-sm text-faint">No tax authorities configured.</p>}
 
-          {authorities.map((authority) => (
-            <div key={authority.key} className="space-y-2 pb-4 border-b border-line last:border-0 last:pb-0">
-              <h5 className="text-xs font-medium text-faint uppercase tracking-wide">{authority.label}</h5>
-              <div className="space-y-2">
-                {(otherDrafts[authority.key] ?? []).map((row, index) => (
-                  <div key={row.id ?? `new-${index}`} className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      className="inp-sm flex-1"
-                      placeholder="Label (e.g. Permit #)"
-                      value={row.label}
-                      onChange={(e) => updateOtherRow(authority.key, index, { label: e.target.value })}
-                    />
-                    <input
-                      type="text"
-                      className="inp-sm flex-1"
-                      placeholder="Number"
-                      value={row.number}
-                      onChange={(e) => updateOtherRow(authority.key, index, { number: e.target.value })}
-                    />
-                    <button
-                      type="button"
-                      className="btn-secondary btn-xxs"
-                      onClick={() => removeOtherRow(authority.key, index)}
-                    >
-                      Remove
-                    </button>
+          {authorities.map((authority) => {
+            const authorityRequired = required.filter((req) => req.authorityKey === authority.key);
+            const otherRows = otherDrafts[authority.key] ?? [];
+            return (
+              <div key={authority.key} className="space-y-3 pb-4 border-b border-line last:border-0 last:pb-0">
+                <h5 className="text-xs font-medium text-faint uppercase tracking-wide">{authority.label}</h5>
+
+                {authorityRequired.length > 0 && (
+                  <div className="space-y-2">
+                    <h6 className="text-xs font-medium text-secondary">Required for active filings</h6>
+                    <div className="space-y-2">
+                      {authorityRequired.map((req) => (
+                        <div key={dedupeKey(req.authorityKey, req.registrationKey)} className="flex items-center gap-2">
+                          <span className="flex-1 text-sm text-body">{req.label}</span>
+                          <input
+                            type="text"
+                            className="inp-sm flex-1"
+                            placeholder="Number"
+                            value={requiredDrafts[dedupeKey(req.authorityKey, req.registrationKey)] ?? ""}
+                            onChange={(e) => updateRequired(req.authorityKey, req.registrationKey, e.target.value)}
+                          />
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                ))}
-                {(otherDrafts[authority.key] ?? []).length === 0 && (
-                  <p className="text-xs text-faint">No other registrations for this authority.</p>
                 )}
+
+                <div className="space-y-2">
+                  <h6 className="text-xs font-medium text-secondary">Other registrations</h6>
+                  <div className="space-y-2">
+                    {otherRows.map((row, index) => (
+                      <div key={row.id ?? `new-${index}`} className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          className="inp-sm flex-1"
+                          placeholder="Label (e.g. Permit #)"
+                          value={row.label}
+                          onChange={(e) => updateOtherRow(authority.key, index, { label: e.target.value })}
+                        />
+                        <input
+                          type="text"
+                          className="inp-sm flex-1"
+                          placeholder="Number"
+                          value={row.number}
+                          onChange={(e) => updateOtherRow(authority.key, index, { number: e.target.value })}
+                        />
+                        <button
+                          type="button"
+                          className="btn-secondary btn-xxs"
+                          onClick={() => removeOtherRow(authority.key, index)}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ))}
+                    {otherRows.length === 0 && (
+                      <p className="text-xs text-faint">No other registrations for this authority.</p>
+                    )}
+                  </div>
+                  <button type="button" className="btn-secondary btn-xxs" onClick={() => addOtherRow(authority.key)}>
+                    + Add registration
+                  </button>
+                </div>
               </div>
-              <button type="button" className="btn-secondary btn-xxs" onClick={() => addOtherRow(authority.key)}>
-                + Add registration
-              </button>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         {(authorities.length > 0 || required.length > 0) && (
