@@ -8,8 +8,6 @@ import { classifyLineItem } from "@/lib/finance/classify";
 
 export interface LineItemCoa {
   chart_of_accounts_id: string | null;
-  bs_chart_of_accounts_id: string | null;
-  pl_chart_of_accounts_id: string | null;
 }
 
 /**
@@ -18,9 +16,7 @@ export interface LineItemCoa {
  */
 export function resolveLineItemCoa(existing: LineItemCoa | undefined, prefill: LineItemCoa): LineItemCoa {
   return {
-    chart_of_accounts_id:    existing?.chart_of_accounts_id    ?? prefill.chart_of_accounts_id,
-    bs_chart_of_accounts_id: existing?.bs_chart_of_accounts_id ?? prefill.bs_chart_of_accounts_id,
-    pl_chart_of_accounts_id: existing?.pl_chart_of_accounts_id ?? prefill.pl_chart_of_accounts_id,
+    chart_of_accounts_id: existing?.chart_of_accounts_id ?? prefill.chart_of_accounts_id,
   };
 }
 
@@ -30,8 +26,6 @@ export interface LineItemIndexes {
   variationById: Map<string, {
     chart_of_accounts_id_invoice: string | null;
     chart_of_accounts_id: string | null;
-    bs_chart_of_accounts_id: string | null;
-    pl_chart_of_accounts_id: string | null;
   }>;
   itemNameByVariationId: Map<string, string>;
 }
@@ -53,8 +47,6 @@ export interface CanonicalLineItemRow {
   total_cents: number;
   square_catalog_variation_id: string | null;
   chart_of_accounts_id: string | null;
-  bs_chart_of_accounts_id: string | null;
-  pl_chart_of_accounts_id: string | null;
 }
 
 export async function buildLineItemIndexes(
@@ -75,15 +67,13 @@ export async function buildLineItemIndexes(
 
   const { data: variationMappings } = await supabase
     .from("square_catalog_variations")
-    .select("square_variation_id, chart_of_accounts_id_invoice, chart_of_accounts_id, bs_chart_of_accounts_id, pl_chart_of_accounts_id")
-    .or("bs_chart_of_accounts_id.not.is.null,pl_chart_of_accounts_id.not.is.null,chart_of_accounts_id_invoice.not.is.null,chart_of_accounts_id.not.is.null");
+    .select("square_variation_id, chart_of_accounts_id_invoice, chart_of_accounts_id")
+    .or("chart_of_accounts_id_invoice.not.is.null,chart_of_accounts_id.not.is.null");
 
   const variationById = new Map(
     (variationMappings ?? []).map((v) => [v.square_variation_id, {
       chart_of_accounts_id_invoice: v.chart_of_accounts_id_invoice,
       chart_of_accounts_id: v.chart_of_accounts_id,
-      bs_chart_of_accounts_id: v.bs_chart_of_accounts_id,
-      pl_chart_of_accounts_id: v.pl_chart_of_accounts_id,
     }]),
   );
 
@@ -125,9 +115,7 @@ export function buildInvoiceLineItemRows(
     const coa = resolveLineItemCoa(existingCoaBySort.get(i), {
       // Invoice-specific override wins; else the variation's default GL. Matches
       // the invoice auto-map priority so a re-sync fully maps in one pass.
-      chart_of_accounts_id:    varMapping?.chart_of_accounts_id_invoice ?? varMapping?.chart_of_accounts_id ?? null,
-      bs_chart_of_accounts_id: varMapping?.bs_chart_of_accounts_id ?? null,
-      pl_chart_of_accounts_id: varMapping?.pl_chart_of_accounts_id ?? null,
+      chart_of_accounts_id: varMapping?.chart_of_accounts_id_invoice ?? varMapping?.chart_of_accounts_id ?? null,
     });
 
     const lineName = varId ? (itemNameByVariationId.get(varId) ?? li.name) : li.name;
@@ -150,8 +138,6 @@ export function buildInvoiceLineItemRows(
       total_cents: net,
       square_catalog_variation_id: varId || null,
       chart_of_accounts_id: coa.chart_of_accounts_id,
-      bs_chart_of_accounts_id: coa.bs_chart_of_accounts_id,
-      pl_chart_of_accounts_id: coa.pl_chart_of_accounts_id,
     });
   });
 

@@ -52,12 +52,6 @@ export interface InvoiceLineRecord {
   /** invoices.invoice_date, "YYYY-MM-DD". */
   invoiceDate: string;
   chartOfAccountsId: string | null;
-  bsChartOfAccountsId: string | null;
-  plChartOfAccountsId: string | null;
-  deliveryInvoiceId: string | null;
-  accountMode: "force_bs" | "force_pl" | null;
-  /** Whether the linked delivery invoice (by deliveryInvoiceId) has status 'paid'. False/irrelevant when deliveryInvoiceId is null. */
-  deliveryInvoicePaid: boolean;
   /** export_transactions.channel, joined via export_transactions.invoice_id = this line's invoice. */
   exportChannel: string | null;
   /**
@@ -194,27 +188,19 @@ function resolvePos(row: PosLineRecord, coaMap: Map<string, CoaRecord>): Resolve
   };
 }
 
-/** Mirrors app/api/finance/statements/route.ts's resolveCoaId deposit-recognition logic. */
-function resolveInvoiceCoaId(row: InvoiceLineRecord): string | null {
-  if (row.accountMode === "force_bs" && row.bsChartOfAccountsId) return row.bsChartOfAccountsId;
-  if (row.accountMode === "force_pl" && row.plChartOfAccountsId) return row.plChartOfAccountsId;
-
-  if (row.bsChartOfAccountsId && row.plChartOfAccountsId) {
-    return row.deliveryInvoicePaid ? row.plChartOfAccountsId : row.bsChartOfAccountsId;
-  }
-
-  return row.chartOfAccountsId;
-}
-
 function resolveInvoice(row: InvoiceLineRecord, coaMap: Map<string, CoaRecord>): ResolvedRow | null {
   const monthKey = monthKeyOf(row.invoiceDate);
   if (!monthKey) return null;
 
-  const coaId = resolveInvoiceCoaId(row);
-  // account_mode is an explicit manual override; otherwise a resolved coaId
-  // came from the sync-time mapping prefill ("rule"), and no coaId at all
-  // means unmapped. Invoice lines have no separate manual-pin column like
-  // POS, so "manual" here specifically tracks the force_bs/force_pl override.
+  // Invoice lines recognize revenue immediately on the invoice date via their
+  // chart_of_accounts_id, contract-brewing "Ingredient Deposit" lines included
+  // (they map straight to the 4320 revenue account). This superseded a former
+  // deferred-revenue split that parked deposits on a balance-sheet liability
+  // until a linked delivery invoice was paid — a trigger that never fired, so
+  // deposit revenue was permanently stranded off the P&L.
+  const coaId = row.chartOfAccountsId;
+  // A resolved coaId came from the sync-time mapping prefill ("rule"); no coaId
+  // means unmapped.
   //
   // Limitation: invoice_line_items has no mapping_source column (unlike
   // expenses/ramp_bank_ledger), and its chart_of_accounts_id is user-editable
@@ -223,7 +209,7 @@ function resolveInvoice(row: InvoiceLineRecord, coaMap: Map<string, CoaRecord>):
   // here — "rule" below is a best-effort label, not a verified fact. Do NOT
   // derive a manual-vs-rule signal from an invoice line's mappingSource;
   // only the mapped(coaId set) vs unmapped(coaId null) distinction is reliable.
-  const mappingSource: MappingSource = row.accountMode ? "manual" : coaId ? "rule" : "unmapped";
+  const mappingSource: MappingSource = coaId ? "rule" : "unmapped";
 
   const section = coaSection(coaId ? coaMap.get(coaId) : undefined);
   const { bbl, coverage } =

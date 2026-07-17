@@ -10,10 +10,9 @@
 // Brief-gap resolution: not everything in KpiSummary/DataQualitySummary is
 // derivable from FinancialsRow[] alone (see lib/finance/financials/types.ts
 // header comment). Row-derivable pieces are computed here; the rest
-// (strandedDeposit, exciseCoverage.shipmentsMissingExcise, cashOnHandCents,
-// operatingCashCents) is accepted as a parameter and passed through
-// untouched — Task 6 (which does the DB fetch / cash-flow statement) supplies
-// those.
+// (exciseCoverage.shipmentsMissingExcise, cashOnHandCents, operatingCashCents)
+// is accepted as a parameter and passed through untouched — Task 6 (which does
+// the DB fetch / cash-flow statement) supplies those.
 
 import type { DataQualitySummary, FinancialsRow, KpiSummary } from "./types";
 
@@ -142,10 +141,8 @@ export function buildDataQuality(
       unmapped: string;
       uncategorized: string;
       unknownVolume: string;
-      strandedDeposit: string;
       exciseCoverage: string;
     };
-    strandedDeposit: { count: number; cents: number };
     exciseCoverage: { shipmentsMissingExcise: number };
   },
 ): DataQualitySummary {
@@ -162,7 +159,6 @@ export function buildDataQuality(
     unmapped: bucket(unmappedRows, opts.hrefs.unmapped),
     uncategorized: bucket(uncategorizedRows, opts.hrefs.uncategorized),
     unknownVolume: bucket(unknownVolumeRows, opts.hrefs.unknownVolume),
-    strandedDeposit: { ...opts.strandedDeposit, href: opts.hrefs.strandedDeposit },
     exciseCoverage: { ...opts.exciseCoverage, href: opts.hrefs.exciseCoverage },
   };
 }

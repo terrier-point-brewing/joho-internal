@@ -49,11 +49,6 @@ describe("aggregateRows", () => {
             totalCents: 20000,
             invoiceDate: "2026-02-10",
             chartOfAccountsId: "coa-beer",
-            bsChartOfAccountsId: null,
-            plChartOfAccountsId: null,
-            deliveryInvoiceId: null,
-            accountMode: null,
-            deliveryInvoicePaid: false,
             exportChannel: "distribution",
             volumeBbl: null,
           },
@@ -75,7 +70,7 @@ describe("aggregateRows", () => {
     expect(distributionRow!.amountCentsByMonth).toEqual({ "2026-01": 0, "2026-02": 20000 });
   });
 
-  it("deposit line with bs_chart_of_accounts_id set, no delivery_invoice_id -> stays on BS (stranded), row retained with mappingSource intact", () => {
+  it("contract-brewing deposit line recognizes revenue immediately via its chart_of_accounts_id (4320), no delivery-invoice link", () => {
     const rows = aggregateRows(
       emptyInput({
         invoiceLines: [
@@ -83,12 +78,8 @@ describe("aggregateRows", () => {
             id: "inv-line-deposit",
             totalCents: 50000,
             invoiceDate: "2026-01-05",
-            chartOfAccountsId: null,
-            bsChartOfAccountsId: "coa-bs-deposit",
-            plChartOfAccountsId: "coa-pl-deposit",
-            deliveryInvoiceId: null,
-            accountMode: null,
-            deliveryInvoicePaid: false,
+            // deposit lines map straight to the 4320 revenue account like any other line
+            chartOfAccountsId: "coa-pl-deposit",
             exportChannel: "contract_brewing",
             volumeBbl: null,
           },
@@ -97,27 +88,21 @@ describe("aggregateRows", () => {
     );
 
     expect(rows).toHaveLength(1);
-    expect(rows[0].coaId).toBe("coa-bs-deposit");
-    expect(rows[0].accountName).toBe("Customer Deposits");
-    expect(rows[0].statementSection).toBe("other_current_liabilities");
+    expect(rows[0].coaId).toBe("coa-pl-deposit");
+    expect(rows[0].statementSection).toBe("revenue");
     expect(rows[0].mappingSource).toBe("rule");
     expect(rows[0].sourceRef).toEqual({ table: "invoice_line_items", ids: ["inv-line-deposit"] });
   });
 
-  it("deposit line recognizes to PL once its delivery invoice is paid", () => {
+  it("ordinary invoice line books to its chart_of_accounts_id", () => {
     const rows = aggregateRows(
       emptyInput({
         invoiceLines: [
           {
-            id: "inv-line-deposit-2",
+            id: "inv-line-plain",
             totalCents: 30000,
             invoiceDate: "2026-01-05",
-            chartOfAccountsId: null,
-            bsChartOfAccountsId: "coa-bs-deposit",
-            plChartOfAccountsId: "coa-pl-deposit",
-            deliveryInvoiceId: "delivery-1",
-            accountMode: null,
-            deliveryInvoicePaid: true,
+            chartOfAccountsId: "coa-pl-deposit",
             exportChannel: "distribution",
             volumeBbl: null,
           },

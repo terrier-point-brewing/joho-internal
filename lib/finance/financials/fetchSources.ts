@@ -50,7 +50,6 @@ export interface FinancialsSourcesResult {
    *    (app/api/finance/statements/route.ts's cumulative=true mode).
    */
   months: string[];
-  strandedDeposit: { count: number; cents: number };
   exciseCoverage: { shipmentsMissingExcise: number };
   /**
    * balance_sheet mode only: the first "Accounts receivable (A/R)" account
@@ -265,10 +264,6 @@ async function fetchInvoiceLines(supabase: SupabaseClient, range: DateRange, cas
     total_cents: number | null;
     category: string | null;
     chart_of_accounts_id: string | null;
-    bs_chart_of_accounts_id: string | null;
-    pl_chart_of_accounts_id: string | null;
-    delivery_invoice_id: string | null;
-    account_mode: "force_bs" | "force_pl" | null;
     invoices: {
       id: string;
       invoice_date: string;
@@ -279,8 +274,7 @@ async function fetchInvoiceLines(supabase: SupabaseClient, range: DateRange, cas
     let q = supabase
       .from("invoice_line_items")
       .select(`
-        id, total_cents, category, chart_of_accounts_id, bs_chart_of_accounts_id, pl_chart_of_accounts_id,
-        delivery_invoice_id, account_mode,
+        id, total_cents, category, chart_of_accounts_id,
         invoices!invoice_line_items_invoice_id_fkey!inner ( id, invoice_date, status, export_transactions ( channel, volume_bbl ) )
       `)
       .neq("invoices.status", "voided")
@@ -290,17 +284,6 @@ async function fetchInvoiceLines(supabase: SupabaseClient, range: DateRange, cas
     if (cashOnly) q = q.eq("invoices.status", "paid");
     return q;
   });
-
-  // Deposit recognition: which linked delivery invoices are paid (mirrors
-  // app/api/finance/statements/route.ts's resolveCoaId).
-  const deliveryIds = [...new Set(rows.map((r) => r.delivery_invoice_id).filter((v): v is string => !!v))];
-  const paidDeliveryIds = new Set<string>();
-  if (deliveryIds.length > 0) {
-    const deliveries = await fetchAllRows<{ id: string; status: string }>(() =>
-      supabase.from("invoices").select("id, status").in("id", deliveryIds).eq("status", "paid").order("id", { ascending: true }),
-    );
-    for (const d of deliveries) paidDeliveryIds.add(d.id);
-  }
 
   // export_transactions links at the invoice level, not per line item, so an
   // invoice's total volume must be attributed exactly ONCE across that
@@ -340,11 +323,6 @@ async function fetchInvoiceLines(supabase: SupabaseClient, range: DateRange, cas
       totalCents: r.total_cents ?? 0,
       invoiceDate: r.invoices.invoice_date,
       chartOfAccountsId: r.chart_of_accounts_id,
-      bsChartOfAccountsId: r.bs_chart_of_accounts_id,
-      plChartOfAccountsId: r.pl_chart_of_accounts_id,
-      deliveryInvoiceId: r.delivery_invoice_id,
-      accountMode: r.account_mode,
-      deliveryInvoicePaid: !!(r.delivery_invoice_id && paidDeliveryIds.has(r.delivery_invoice_id)),
       exportChannel,
       volumeBbl,
     };
@@ -486,9 +464,8 @@ async function fetchRefunds(supabase: SupabaseClient, range: DateRange): Promise
 
 /**
  * manual_net_sales_entries, unbounded (proration against the window happens
- * downstream, per-month, in buildFinancials.ts's injectManualNetSales -- same
- * reason fetchStrandedDeposit below isn't year-bounded either: this is a
- * small, hand-maintained table, not worth a range filter).
+ * downstream, per-month, in buildFinancials.ts's injectManualNetSales -- this
+ * is a small, hand-maintained table, not worth a range filter).
  */
 async function fetchManualNetSalesEntries(supabase: SupabaseClient): Promise<ManualNetSalesEntryRecord[]> {
   const rows = await fetchAllRows<{
@@ -508,19 +485,6 @@ async function fetchManualNetSalesEntries(supabase: SupabaseClient): Promise<Man
     endDate: r.end_date,
     amountCents: r.amount_cents ?? 0,
   }));
-}
-
-/** Invoice deposit lines stranded with no linked delivery invoice (app/finance/transactions/invoices/page.tsx's "deposit missing delivery" flag). Not year-bounded -- a data-quality indicator of current state, not a period figure. */
-async function fetchStrandedDeposit(supabase: SupabaseClient): Promise<{ count: number; cents: number }> {
-  const rows = await fetchAllRows<{ total_cents: number | null }>(() =>
-    supabase
-      .from("invoice_line_items")
-      .select("total_cents")
-      .not("bs_chart_of_accounts_id", "is", null)
-      .is("delivery_invoice_id", null)
-      .order("id", { ascending: true }),
-  );
-  return { count: rows.length, cents: rows.reduce((s, r) => s + Math.abs(r.total_cents ?? 0), 0) };
 }
 
 /** Reuses lib/finance/invoiceSalesReport.ts's exciseCoverage rather than reinventing the TPB-liable-shipments-missing-excise computation. */
@@ -571,14 +535,13 @@ export async function fetchFinancialsSources(params: { statement: StatementKind;
     range = rangeFromMonths(months);
   }
 
-  const [coa, pos, invoiceLines, expenses, bank, refunds, strandedDeposit, exciseCoverage, openInvoiceArCents, manualNetSalesEntries] = await Promise.all([
+  const [coa, pos, invoiceLines, expenses, bank, refunds, exciseCoverage, openInvoiceArCents, manualNetSalesEntries] = await Promise.all([
     fetchCoa(supabase),
     fetchPos(supabase, range),
     fetchInvoiceLines(supabase, range, cashOnly),
     fetchExpenses(supabase, range, cashOnly),
     fetchBank(supabase, range, statement),
     fetchRefunds(supabase, range),
-    fetchStrandedDeposit(supabase),
     fetchExciseCoverage(supabase, year),
     isBalanceSheet ? fetchOpenInvoiceAr(supabase, range.endDateStr) : Promise.resolve(0),
     // pl/cash_flow only -- balance_sheet has no analog for this P&L revenue
@@ -598,7 +561,6 @@ export async function fetchFinancialsSources(params: { statement: StatementKind;
       bank: collapseDates(bank, "transactionDate", canonicalMonth),
       refunds: collapseDates(refunds, "refundedAt", canonicalMonth),
       months,
-      strandedDeposit,
       exciseCoverage,
       arAccount,
       openInvoiceArCents,
@@ -614,7 +576,6 @@ export async function fetchFinancialsSources(params: { statement: StatementKind;
     bank,
     refunds,
     months,
-    strandedDeposit,
     exciseCoverage,
     arAccount,
     openInvoiceArCents,

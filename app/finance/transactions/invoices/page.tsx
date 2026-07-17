@@ -25,7 +25,7 @@ import { mappingState, matchesMappingFilter, type MappingFilterValue } from "@/l
 import { defaultYearRange } from "@/lib/finance/dateRange";
 import {
   INVOICE_STATUS_CLS, INVOICE_SOURCE_LABEL, INVOICE_SOURCE_CLS,
-  INVOICE_TYPE_LABEL, INVOICE_TYPE_CLS, DEPOSIT_CATEGORY_CLS,
+  INVOICE_TYPE_LABEL, INVOICE_TYPE_CLS,
 } from "../../lib/categoryColors";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -74,10 +74,6 @@ interface InvoiceLineItemRow {
   variation_name: string | null;
   square_catalog_variation_id: string | null;
   chart_of_accounts_id: string | null;
-  bs_chart_of_accounts_id: string | null;
-  pl_chart_of_accounts_id: string | null;
-  delivery_invoice_id: string | null;
-  account_mode: "force_bs" | "force_pl" | null;
   chart_of_accounts: CoARef | null;
 }
 
@@ -95,7 +91,7 @@ interface InvoiceRow extends Omit<Invoice, "invoice_line_items"> {
 /** [mapped line items, total line items] for the GL-mapping filter. */
 function invoiceMapped(inv: InvoiceRow): [number, number] {
   const items = inv.invoice_line_items ?? [];
-  return [items.filter((li) => li.chart_of_accounts_id || li.bs_chart_of_accounts_id).length, items.length];
+  return [items.filter((li) => li.chart_of_accounts_id).length, items.length];
 }
 
 const INVOICE_CONTROLS: ControlsConfig<InvoiceRow> = {
@@ -127,13 +123,10 @@ const INVOICE_CONTROLS: ControlsConfig<InvoiceRow> = {
 
 // ── Expandable invoice row ────────────────────────────────────────────────────
 
-interface InvoiceSummary { id: string; invoice_number: string | null; square_invoice_id: string | null; invoice_date: string | null; customer_name: string | null; status: string }
-
 function InvoiceExpandableRow({
   inv,
   accounts,
   batches,
-  allInvoices,
   onSaveLineItem,
   onBatchChanged,
   onToggleAccept,
@@ -141,7 +134,6 @@ function InvoiceExpandableRow({
   inv: InvoiceRow;
   accounts: CoARef[];
   batches: BrewBatch[];
-  allInvoices: InvoiceSummary[];
   onSaveLineItem: (id: string, patch: Record<string, string | null>) => Promise<void>;
   onBatchChanged: () => void;
   onToggleAccept: (id: string, accepted: boolean) => Promise<void>;
@@ -149,8 +141,7 @@ function InvoiceExpandableRow({
   const [expanded, setExpanded] = useState(false);
   const linkCount = (inv.invoice_batch_links as unknown as { count: number }[])[0]?.count ?? 0;
   const lineItems = inv.invoice_line_items ?? [];
-  const mappedCount = lineItems.filter((li) => li.chart_of_accounts_id || li.bs_chart_of_accounts_id).length;
-  const missingDelivery = lineItems.some((li) => li.bs_chart_of_accounts_id && !li.delivery_invoice_id);
+  const mappedCount = lineItems.filter((li) => li.chart_of_accounts_id).length;
 
   return (
     <>
@@ -193,9 +184,6 @@ function InvoiceExpandableRow({
                 onToggle={() => onToggleAccept(inv.id, !inv.unmapped_accepted)}
               />
             )}
-            {missingDelivery && (
-              <span className="text-[10px] text-accent">⚠ deposit missing delivery</span>
-            )}
           </div>
         </td>
         <td className="px-4 py-2 text-right font-mono text-strong tabular-nums">
@@ -232,7 +220,6 @@ function InvoiceExpandableRow({
                         key={li.id}
                         item={li}
                         accounts={accounts}
-                        allInvoices={allInvoices.filter((i) => i.id !== inv.id)}
                         onSave={onSaveLineItem}
                       />
                     ))}
@@ -262,20 +249,14 @@ function InvoiceExpandableRow({
 function InvoiceLineItemRow({
   item,
   accounts,
-  allInvoices,
   onSave,
 }: {
   item: InvoiceLineItemRow;
   accounts: CoARef[];
-  allInvoices: InvoiceSummary[];
   onSave: (id: string, patch: Record<string, string | null>) => Promise<void>;
 }) {
-  const [coaId,   setCoaId]   = useState<string | null>(item.chart_of_accounts_id);
-  const [bsId,    setBsId]    = useState<string | null>(item.bs_chart_of_accounts_id);
-  const [plId,    setPlId]    = useState<string | null>(item.pl_chart_of_accounts_id);
-  const [delivId, setDelivId] = useState<string | null>(item.delivery_invoice_id);
-  const [saving,  setSaving]  = useState(false);
-  const isDeposit = !!(bsId || plId);
+  const [coaId,  setCoaId]  = useState<string | null>(item.chart_of_accounts_id);
+  const [saving, setSaving] = useState(false);
 
   async function save(patch: Record<string, string | null>) {
     setSaving(true);
@@ -284,13 +265,6 @@ function InvoiceLineItemRow({
   }
 
   async function handleCoaChange(id: string | null) { setCoaId(id); await save({ chart_of_accounts_id: id }); }
-  async function handleBsChange(id: string | null)  { setBsId(id);  await save({ bs_chart_of_accounts_id: id }); }
-  async function handlePlChange(id: string | null)  { setPlId(id);  await save({ pl_chart_of_accounts_id: id }); }
-  async function handleDelivChange(id: string | null) { setDelivId(id); await save({ delivery_invoice_id: id }); }
-
-  // Determine effective account for display hint
-  const deliveryInv = allInvoices.find((i) => i.id === delivId);
-  const deliveryPaid = deliveryInv?.status === "paid";
 
   return (
     <div className="border-t border-line/30 hover:bg-surface/20 transition-colors">
@@ -302,11 +276,6 @@ function InvoiceLineItemRow({
               ? item.line_item_name + (item.variation_name ? ` — ${item.variation_name}` : "")
               : item.description}
           </span>
-          {isDeposit && (
-            <span className={`inline-block mt-0.5 ml-1 px-1 py-0.5 rounded text-[10px] font-medium ${DEPOSIT_CATEGORY_CLS}`}>
-              deposit
-            </span>
-          )}
         </div>
         <span className={item.note ? "text-body truncate block pt-0.5" : "text-faint truncate block pt-0.5"}>
           {item.note ?? "—"}
@@ -321,50 +290,9 @@ function InvoiceLineItemRow({
         <span className="text-body text-right tabular-nums font-mono pt-0.5">
           {formatCurrencyCents(item.net_sales_cents ?? item.total_cents)}
         </span>
-        <div className="flex flex-col gap-1.5">
-          {!isDeposit && (
-            <div className="flex items-center gap-2">
-              <AccountSelect value={coaId} accounts={accounts} onChange={handleCoaChange} className="w-full max-w-[300px]" />
-              {saving && <span className="text-[10px] text-faint animate-pulse shrink-0">…</span>}
-            </div>
-          )}
-          {isDeposit && (
-            <div className="flex flex-col gap-1.5">
-              {/* BS account — violet = balance-sheet recognition (data category, no token) */}
-              <div className="flex items-center gap-1.5">
-                <span className={`text-[10px] font-medium px-1 py-0.5 rounded shrink-0 ${!deliveryPaid ? "bg-violet-900/60 text-violet-300" : "bg-surface-mid text-muted"}`}>BS</span>
-                <AccountSelect value={bsId} accounts={accounts} onChange={handleBsChange} className="w-full max-w-[300px]" />
-              </div>
-              {/* PL account — green = P&L recognition (success token) */}
-              <div className="flex items-center gap-1.5">
-                <span className={`text-[10px] font-medium px-1 py-0.5 rounded shrink-0 ${deliveryPaid ? "bg-success-surface/60 text-success" : "bg-surface-mid text-muted"}`}>P&L</span>
-                <AccountSelect value={plId} accounts={accounts} onChange={handlePlChange} className="w-full max-w-[300px]" />
-              </div>
-              {/* Delivery invoice */}
-              <div className="flex items-center gap-1.5">
-                <span className="text-[10px] text-faint shrink-0">delivery</span>
-                <select
-                  value={delivId ?? ""}
-                  onChange={(e) => handleDelivChange(e.target.value || null)}
-                  className="inp-sm flex-1">
-                  <option value="">— no delivery invoice —</option>
-                  {allInvoices.map((inv) => (
-                    <option key={inv.id} value={inv.id}>
-                      {inv.invoice_number ?? inv.square_invoice_id ?? inv.id.slice(0, 8)}
-                      {inv.invoice_date ? ` · ${inv.invoice_date.slice(0, 7)}` : ""}
-                      {inv.customer_name ? ` · ${inv.customer_name}` : ""}
-                      {inv.status === "paid" ? " ✓" : ""}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              {/* Warning */}
-              {!delivId && (
-                <p className="text-[10px] text-accent-emphasis/80">No delivery invoice linked — showing as Balance Sheet</p>
-              )}
-              {saving && <span className="text-[10px] text-faint animate-pulse">…</span>}
-            </div>
-          )}
+        <div className="flex items-center gap-2">
+          <AccountSelect value={coaId} accounts={accounts} onChange={handleCoaChange} className="w-full max-w-[300px]" />
+          {saving && <span className="text-[10px] text-faint animate-pulse shrink-0">…</span>}
         </div>
       </div>
     </div>
@@ -680,7 +608,6 @@ export default function InvoicesPage() {
                 inv={inv}
                 accounts={accounts}
                 batches={batches}
-                allInvoices={(raw ?? []).map((i) => ({ id: i.id, invoice_number: i.invoice_number ?? null, square_invoice_id: i.square_invoice_id ?? null, invoice_date: i.invoice_date ?? null, customer_name: i.customer_name ?? null, status: i.status }))}
                 onSaveLineItem={handleSaveLineItem}
                 onBatchChanged={() => refetch()}
                 onToggleAccept={handleToggleAccept}

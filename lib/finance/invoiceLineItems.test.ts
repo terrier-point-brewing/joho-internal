@@ -75,8 +75,6 @@ describe("buildInvoiceLineItemRows", () => {
       variationById: new Map([["VAR1", {
         chart_of_accounts_id_invoice: null,
         chart_of_accounts_id: "COA-DEFAULT",
-        bs_chart_of_accounts_id: null,
-        pl_chart_of_accounts_id: null,
       }]]),
     };
     const order = orderWith([
@@ -92,8 +90,6 @@ describe("buildInvoiceLineItemRows", () => {
       variationById: new Map([["VAR1", {
         chart_of_accounts_id_invoice: "COA-INVOICE",
         chart_of_accounts_id: "COA-DEFAULT",
-        bs_chart_of_accounts_id: null,
-        pl_chart_of_accounts_id: null,
       }]]),
     };
     const order = orderWith([
@@ -107,7 +103,7 @@ describe("buildInvoiceLineItemRows", () => {
     const order = orderWith([
       { uid: "u1", catalog_object_id: "VAR1", quantity: "1", name: "Barrel Excise Tax", variation_name: "Regular", gross_sales_money: { amount: 525, currency: "USD" }, total_money: { amount: 525, currency: "USD" } },
     ]);
-    const existing = new Map([[0, { chart_of_accounts_id: "USER-SET", bs_chart_of_accounts_id: null, pl_chart_of_accounts_id: null }]]);
+    const existing = new Map([[0, { chart_of_accounts_id: "USER-SET" }]]);
     const [row] = buildInvoiceLineItemRows("INV1", order, emptyIndexes, existing);
     expect(row.chart_of_accounts_id).toBe("USER-SET");
   });

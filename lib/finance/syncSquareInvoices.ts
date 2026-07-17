@@ -145,16 +145,12 @@ async function upsertInvoiceWithLines(
   // account — the upsert below would otherwise overwrite these columns.
   const { data: existingLines } = await supabase
     .from("invoice_line_items")
-    .select("sort_order, chart_of_accounts_id, bs_chart_of_accounts_id, pl_chart_of_accounts_id")
+    .select("sort_order, chart_of_accounts_id")
     .eq("invoice_id", invRow.id);
   const existingCoaBySort = new Map<number, LineItemCoa>(
     (existingLines ?? []).map((r) => [
       r.sort_order as number,
-      {
-        chart_of_accounts_id:    r.chart_of_accounts_id,
-        bs_chart_of_accounts_id: r.bs_chart_of_accounts_id,
-        pl_chart_of_accounts_id: r.pl_chart_of_accounts_id,
-      },
+      { chart_of_accounts_id: r.chart_of_accounts_id },
     ]),
   );
 

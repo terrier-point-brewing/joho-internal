@@ -26,7 +26,6 @@ const HREFS = {
   unmapped: "/finance/transactions?filter=unmapped",
   uncategorized: "/finance/transactions?filter=uncategorized",
   unknownVolume: "/finance/transactions?filter=unknownVolume",
-  strandedDeposit: "/finance/transactions?filter=strandedDeposit",
   exciseCoverage: "/finance/transactions?filter=exciseCoverage",
 };
 
@@ -116,8 +115,7 @@ describe("buildDataQuality", () => {
 
     const dq = buildDataQuality(rows, {
       hrefs: HREFS,
-      strandedDeposit: { count: 0, cents: 0 },
-      exciseCoverage: { shipmentsMissingExcise: 0 },
+        exciseCoverage: { shipmentsMissingExcise: 0 },
     });
 
     expect(dq.unmapped).toEqual({ count: 1, cents: 7000, href: HREFS.unmapped });
@@ -135,8 +133,7 @@ describe("buildDataQuality", () => {
 
     const dq = buildDataQuality(rows, {
       hrefs: HREFS,
-      strandedDeposit: { count: 0, cents: 0 },
-      exciseCoverage: { shipmentsMissingExcise: 0 },
+        exciseCoverage: { shipmentsMissingExcise: 0 },
     });
 
     expect(dq.uncategorized).toEqual({ count: 1, cents: 3000, href: HREFS.uncategorized });
@@ -151,8 +148,7 @@ describe("buildDataQuality", () => {
 
     const dq = buildDataQuality(rows, {
       hrefs: HREFS,
-      strandedDeposit: { count: 0, cents: 0 },
-      exciseCoverage: { shipmentsMissingExcise: 0 },
+        exciseCoverage: { shipmentsMissingExcise: 0 },
     });
 
     expect(dq.unknownVolume).toEqual({ count: 2, cents: 4000, href: HREFS.unknownVolume });
@@ -171,22 +167,19 @@ describe("buildDataQuality", () => {
 
     const dq = buildDataQuality(rows, {
       hrefs: HREFS,
-      strandedDeposit: { count: 0, cents: 0 },
-      exciseCoverage: { shipmentsMissingExcise: 0 },
+        exciseCoverage: { shipmentsMissingExcise: 0 },
     });
 
     // Both rows count now that DRAFT is no longer special-cased.
     expect(dq.unknownVolume).toEqual({ count: 2, cents: 8000, href: HREFS.unknownVolume });
   });
 
-  it("passes strandedDeposit and exciseCoverage through unchanged, attaching hrefs", () => {
+  it("passes exciseCoverage through unchanged, attaching hrefs", () => {
     const dq = buildDataQuality([], {
       hrefs: HREFS,
-      strandedDeposit: { count: 3, cents: 42000 },
       exciseCoverage: { shipmentsMissingExcise: 7 },
     });
 
-    expect(dq.strandedDeposit).toEqual({ count: 3, cents: 42000, href: HREFS.strandedDeposit });
     expect(dq.exciseCoverage).toEqual({ shipmentsMissingExcise: 7, href: HREFS.exciseCoverage });
   });
 });

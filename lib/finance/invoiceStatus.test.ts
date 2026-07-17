@@ -6,6 +6,7 @@ describe("mapSquareInvoiceStatus", () => {
     expect(mapSquareInvoiceStatus("DRAFT")).toBe("draft");
     expect(mapSquareInvoiceStatus("UNPAID")).toBe("open");
     expect(mapSquareInvoiceStatus("SCHEDULED")).toBe("open");
+    expect(mapSquareInvoiceStatus("PAYMENT_PENDING")).toBe("open");
     expect(mapSquareInvoiceStatus("PARTIALLY_PAID")).toBe("partial");
     expect(mapSquareInvoiceStatus("PAID")).toBe("paid");
     expect(mapSquareInvoiceStatus("PARTIALLY_REFUNDED")).toBe("paid");
