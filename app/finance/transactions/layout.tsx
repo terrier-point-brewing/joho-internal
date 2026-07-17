@@ -11,8 +11,8 @@ export default function TransactionsLayout({ children }: { children: React.React
   return (
     <div className="flex flex-col h-full bg-canvas text-primary">
       <FinanceNav mobile />
-      <div className="shrink-0 px-4 sm:px-6">
-        <PageHeader title="Transactions" />
+      <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-8">
+        <PageHeader title="Transactions" description="Orders, invoices, expenses, and bank lines — coded to the chart of accounts." />
       </div>
       <div className="shrink-0 px-4 sm:px-6">
         <TransactionsNav />

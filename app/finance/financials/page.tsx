@@ -195,7 +195,7 @@ export default function FinancialsPage() {
   return (
     <div className="flex flex-col h-full bg-canvas text-primary">
       <FinanceNav mobile />
-      <div className="shrink-0 px-4 sm:px-6">
+      <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-8">
         <div className="flex items-center justify-between">
           <PageHeader title="Financials" description="Consolidated P&L, Balance Sheet, and Cash Flow — persisted, CoA-mapped data" />
           <div className="flex items-center gap-2">
