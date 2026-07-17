@@ -108,3 +108,31 @@ export async function PATCH(req: NextRequest) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
 }
+
+// DELETE /api/finance/chart-of-accounts?id=… — delete a single account, but only
+// when nothing references it. Unlike the CSV bulk-replace (POST) — which relies on
+// ON DELETE SET NULL — the per-row delete refuses to orphan mappings/ledger rows
+// and returns 409 with the blocking references so the UI can explain why.
+export async function DELETE(req: NextRequest) {
+  try { await requireRole([]); } catch (res) { return res as Response; }
+
+  const id = new URL(req.url).searchParams.get("id");
+  if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+
+  const supabase = createSupabaseAdminClient();
+
+  const { data: refs, error: refErr } = await supabase.rpc("coa_reference_count", { p_account_id: id });
+  if (refErr) return NextResponse.json({ error: refErr.message }, { status: 500 });
+
+  const references = ((refs ?? []) as { source: string; n: number }[])
+    .filter((r) => Number(r.n) > 0)
+    .map((r) => ({ source: r.source, count: Number(r.n) }));
+
+  if (references.length > 0) {
+    return NextResponse.json({ error: "in_use", references }, { status: 409 });
+  }
+
+  const { error } = await supabase.from("chart_of_accounts").delete().eq("id", id);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ ok: true });
+}

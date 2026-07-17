@@ -82,7 +82,7 @@ function KpiTile({ label, cents, pct, percentDenominated, subLabel }: {
   return (
     <Card padding="p-3" className="flex flex-col gap-1 min-w-0">
       <span className="text-xs text-muted uppercase tracking-wide truncate">{label}</span>
-      <span className={`text-lg font-semibold font-mono tabular-nums ${primaryMissing ? "text-faint" : "text-primary"}`}>
+      <span className={`text-base sm:text-xl font-semibold font-mono tabular-nums ${primaryMissing ? "text-faint" : "text-primary"}`}>
         {primaryText}
       </span>
       {subText && <span className="text-xs text-muted truncate">{subText}</span>}

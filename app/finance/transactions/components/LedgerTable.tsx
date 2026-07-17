@@ -43,7 +43,7 @@ export function LedgerTable({ head, children }: { head: React.ReactNode; childre
  */
 export function CategoryBadge({ children, title }: { children: React.ReactNode; title?: string }) {
   return (
-    <span title={title} className="inline-block max-w-[200px] truncate align-middle px-1.5 py-0.5 rounded text-[10px] font-medium bg-surface-mid text-secondary">
+    <span title={title} className="inline-block max-w-[200px] truncate align-middle px-1.5 py-0.5 rounded text-2xs font-medium bg-surface-mid text-secondary">
       {children}
     </span>
   );
@@ -61,7 +61,7 @@ export function CategoryBadges({ items, max = 2 }: { items: string[]; max?: numb
   return (
     <div className="flex flex-wrap items-center gap-1">
       {shown.map((c) => <CategoryBadge key={c} title={c}>{shortAccountName(c)}</CategoryBadge>)}
-      {rest > 0 && <span className="text-[10px] text-faint" title={items.join(", ")}>+{rest}</span>}
+      {rest > 0 && <span className="text-2xs text-faint" title={items.join(", ")}>+{rest}</span>}
     </div>
   );
 }

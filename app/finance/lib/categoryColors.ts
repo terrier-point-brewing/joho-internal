@@ -70,3 +70,14 @@ export const EXPENSE_STATE_CLS: Record<string, string> = {
 export const SPLIT_CATEGORY_CLS = "text-info bg-info-surface/30";
 /** "Deposit / QuickBooks" data category (violet — no token equivalent). */
 export const DEPOSIT_CATEGORY_CLS = "text-violet-400 bg-violet-900/30";
+
+// Deposit (BS→P&L) recognition surfaces. Violet is the deliberate no-token data
+// category — these live here so no finance file re-inlines a raw violet class.
+/** Deposit-recognition toggle button, active state. */
+export const DEPOSIT_BS_TOGGLE_CLS = "bg-violet-900/40 border-violet-700 text-violet-300 hover:bg-violet-900/60";
+/** Deposit-recognition expandable panel surface (bg + border color). */
+export const DEPOSIT_SURFACE_CLS = "bg-violet-950/10 border-violet-900/20";
+/** Deposit-recognition inline emphasized text. */
+export const DEPOSIT_TEXT_CLS = "text-violet-300";
+/** Deposit BS pill, active (unpaid → recognized on the balance sheet). */
+export const DEPOSIT_BS_PILL_CLS = "bg-violet-900/60 text-violet-300";

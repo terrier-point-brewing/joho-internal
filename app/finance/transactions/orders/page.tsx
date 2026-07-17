@@ -4,6 +4,7 @@ import { formatCurrencyCents } from "@/lib/format";
 import { mappingState, matchesMappingFilter, type MappingFilterValue } from "@/lib/finance/mappingStatus";
 import { defaultYearRange } from "@/lib/finance/dateRange";
 import { ORDER_STATUS_CLS } from "../../lib/categoryColors";
+import SaveHint from "@/app/components/ui/SaveHint";
 import AccountSelect from "../../AccountSelect";
 import SyncPanel from "../components/SyncPanel";
 import MappingFilter from "../components/MappingFilter";
@@ -12,6 +13,7 @@ import AutoMapButton from "../components/AutoMapButton";
 import DateRangeFilter from "../components/DateRangeFilter";
 import AcceptUnmappedButton from "../components/AcceptUnmappedButton";
 import SummaryStatBar from "../components/SummaryStatBar";
+import Pagination from "../components/Pagination";
 import { LedgerTable, Th, CategoryBadges } from "../components/LedgerTable";
 import SortableTh from "@/app/components/ui/SortableTh";
 import SearchInput from "@/app/components/ui/SearchInput";
@@ -145,7 +147,7 @@ function LineItemRow({
           <span className="truncate">{item.name}</span>
         </div>
         {item.variation_name && (
-          <span className="pl-4 text-[10px] text-faint truncate">{item.variation_name}</span>
+          <span className="pl-4 text-2xs text-faint truncate">{item.variation_name}</span>
         )}
       </div>
       <div className="text-faint text-right tabular-nums">{item.quantity}×</div>
@@ -164,12 +166,12 @@ function LineItemRow({
           prefilled={isPrefilled}
         />
       </div>
-      <div className="text-[10px] text-faint truncate">
+      <div className="text-2xs text-faint truncate">
         {isManualOverride && <span className="text-accent-emphasis/70">override</span>}
         {isPrefilled && effectiveCoa && <span className="text-faint">prefilled</span>}
       </div>
       <div className="w-4 flex items-center justify-center">
-        {saving && <span className="text-[10px] text-faint animate-pulse">…</span>}
+        <SaveHint saving={saving} />
       </div>
     </div>
   );
@@ -196,17 +198,17 @@ function OrderRow({
   return (
     <>
       <tr className="border-t border-line/40 hover:bg-surface-mid/20 cursor-pointer" onClick={() => setExpanded((e) => !e)}>
-        <td className="px-4 py-2 w-6"><span className="text-faint text-[10px]">{expanded ? "▾" : "▸"}</span></td>
+        <td className="px-4 py-2 w-6"><span className="text-faint text-2xs">{expanded ? "▾" : "▸"}</span></td>
         <td className="px-4 py-2 text-secondary whitespace-nowrap">
           {fmtDate(txn.transaction_date)}
-          <span className="text-[10px] text-faint ml-1.5">{fmtTime(txn.transaction_date)}</span>
+          <span className="text-2xs text-faint ml-1.5">{fmtTime(txn.transaction_date)}</span>
         </td>
         <td className="px-4 py-2 font-mono text-accent">{txn.square_order_id.slice(-8)}</td>
         <td className="px-4 py-2 text-body">{txn.customer_name ?? "—"}</td>
         <td className="px-4 py-2"><CategoryBadges items={orderCategories(lineItems)} /></td>
         <td className="px-4 py-2">
           {status && (
-            <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${ORDER_STATUS_CLS[status] ?? "bg-surface-mid text-muted"}`}>
+            <span className={`px-1.5 py-0.5 rounded text-2xs font-medium ${ORDER_STATUS_CLS[status] ?? "bg-surface-mid text-muted"}`}>
               {status}
             </span>
           )}
@@ -235,7 +237,7 @@ function OrderRow({
                   { label: "Tips",        cents: txn.tip_cents },
                 ].map(({ label, cents }) => (
                   <div key={label} className="bg-surface px-2 py-2">
-                    <div className="text-[10px] text-faint mb-0.5">{label}</div>
+                    <div className="text-2xs text-faint mb-0.5">{label}</div>
                     <div className={`text-xs font-mono tabular-nums font-medium ${cents < 0 ? "text-danger" : cents > 0 ? "text-strong" : "text-faint"}`}>
                       {cents === 0 ? "—" : fmtMoney(cents)}
                     </div>
@@ -245,12 +247,12 @@ function OrderRow({
 
               {/* Line item column headers */}
               <div className="grid grid-cols-[minmax(0,2fr)_50px_80px_60px_60px_90px_minmax(0,1fr)_18px] gap-2 px-4 py-1.5 bg-surface/40">
-                <span className="text-[10px] text-faint uppercase tracking-wider pl-4">Item</span>
-                <span className="text-[10px] text-faint uppercase tracking-wider text-right">Qty</span>
-                <span className="text-[10px] text-faint uppercase tracking-wider text-right">Gross</span>
-                <span className="text-[10px] text-faint uppercase tracking-wider text-right">Disc</span>
-                <span className="text-[10px] text-faint uppercase tracking-wider text-right">Tax</span>
-                <span className="text-[10px] text-faint uppercase tracking-wider">GL Account</span>
+                <span className="text-2xs text-faint uppercase tracking-wider pl-4">Item</span>
+                <span className="text-2xs text-faint uppercase tracking-wider text-right">Qty</span>
+                <span className="text-2xs text-faint uppercase tracking-wider text-right">Gross</span>
+                <span className="text-2xs text-faint uppercase tracking-wider text-right">Disc</span>
+                <span className="text-2xs text-faint uppercase tracking-wider text-right">Tax</span>
+                <span className="text-2xs text-faint uppercase tracking-wider">GL Account</span>
                 <span></span>
                 <span></span>
               </div>
@@ -432,24 +434,7 @@ export default function SquareTransactionsPage() {
         )}
       </div>
 
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="shrink-0 border-t border-line px-4 sm:px-6 py-3 flex items-center justify-between">
-          <span className="text-xs text-faint">
-            Page {page} of {totalPages} · {total} orders
-          </span>
-          <div className="flex gap-2">
-            <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}
-              className="btn-secondary">
-              ← Prev
-            </button>
-            <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages}
-              className="btn-secondary">
-              Next →
-            </button>
-          </div>
-        </div>
-      )}
+      {totalPages > 1 && <Pagination page={page} totalPages={totalPages} total={total} unit="orders" onPageChange={setPage} />}
     </>
   );
 }

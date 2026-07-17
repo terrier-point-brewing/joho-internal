@@ -1,9 +1,8 @@
 "use client";
 import { useState, useCallback, useEffect } from "react";
-import FinanceNav from "../../FinanceNav";
-import SettingsNav from "../SettingsNav";
-import PageHeader from "@/app/components/PageHeader";
+import TabBar, { type TabDef } from "@/app/components/TabBar";
 import { ACCOUNT_TYPE_SECTION } from "@/lib/finance/accountSections";
+import ConfirmDialog from "@/app/components/ui/ConfirmDialog";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -152,11 +151,13 @@ function EditPanel({
   accounts,
   onSave,
   onClose,
+  onDeleted,
 }: {
   account: CoAAccount;
   accounts: CoAAccount[];
   onSave: (updated: CoAAccount) => void;
   onClose: () => void;
+  onDeleted: (id: string) => void;
 }) {
   const [form, setForm] = useState({
     account_name:      account.account_name,
@@ -170,6 +171,35 @@ function EditPanel({
   });
   const [saving, setSaving] = useState(false);
   const [error, setError]   = useState<string | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  async function handleDelete() {
+    setDeleting(true); setError(null);
+    try {
+      const res = await fetch(`/api/finance/chart-of-accounts?id=${account.id}`, { method: "DELETE" });
+      const json = await res.json();
+      if (res.ok) {
+        setConfirmingDelete(false);
+        onDeleted(account.id);
+        return;
+      }
+      if (res.status === 409 && Array.isArray(json.references)) {
+        const parts = (json.references as { source: string; count: number }[])
+          .map((r) => `${r.count} ${r.source}`)
+          .join(", ");
+        setError(`Can't delete — still used by: ${parts}. Reassign or clear those first.`);
+      } else {
+        setError(json.error ?? "Failed to delete");
+      }
+      setConfirmingDelete(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Network error");
+      setConfirmingDelete(false);
+    } finally {
+      setDeleting(false);
+    }
+  }
 
   // Collect all descendant ids to prevent creating cycles
   function getDescendants(id: string): Set<string> {
@@ -225,25 +255,25 @@ function EditPanel({
     <form onSubmit={handleSave} className="bg-surface/80 border-t border-line-strong px-4 py-4 space-y-3">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="space-y-1">
-          <label className="text-[10px] uppercase tracking-wider text-muted">Account Name <span className="text-danger">*</span></label>
+          <label className="text-2xs uppercase tracking-wider text-muted">Account Name <span className="text-danger">*</span></label>
           <input required value={form.account_name} onChange={(e) => setForm((f) => ({ ...f, account_name: e.target.value }))}
             className="inp inp-sm w-full" />
         </div>
         <div className="space-y-1">
-          <label className="text-[10px] uppercase tracking-wider text-muted">Account Number</label>
+          <label className="text-2xs uppercase tracking-wider text-muted">Account Number</label>
           <input value={form.account_number} onChange={(e) => setForm((f) => ({ ...f, account_number: e.target.value }))}
             placeholder="e.g. 4100"
             className="inp inp-sm w-full" />
         </div>
         <div className="space-y-1">
-          <label className="text-[10px] uppercase tracking-wider text-muted">Account Type <span className="text-danger">*</span></label>
+          <label className="text-2xs uppercase tracking-wider text-muted">Account Type <span className="text-danger">*</span></label>
           <select required value={form.account_type} onChange={(e) => setForm((f) => ({ ...f, account_type: e.target.value }))}
             className="inp inp-sm w-full">
             {ACCOUNT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
         </div>
         <div className="space-y-1">
-          <label className="text-[10px] uppercase tracking-wider text-muted">Parent Account</label>
+          <label className="text-2xs uppercase tracking-wider text-muted">Parent Account</label>
           <select value={form.parent_id} onChange={(e) => setForm((f) => ({ ...f, parent_id: e.target.value }))}
             className="inp inp-sm w-full">
             <option value="">— none (top-level) —</option>
@@ -256,7 +286,7 @@ function EditPanel({
           </select>
         </div>
         <div className="space-y-1">
-          <label className="text-[10px] uppercase tracking-wider text-muted">
+          <label className="text-2xs uppercase tracking-wider text-muted">
             Statement Section Override
             <span className="ml-1 text-faint normal-case">(auto if blank)</span>
           </label>
@@ -272,24 +302,30 @@ function EditPanel({
           </select>
         </div>
         <div className="space-y-1">
-          <label className="text-[10px] uppercase tracking-wider text-muted">Detail Type</label>
+          <label className="text-2xs uppercase tracking-wider text-muted">Detail Type</label>
           <input value={form.detail_type} onChange={(e) => setForm((f) => ({ ...f, detail_type: e.target.value }))}
             placeholder="e.g. Sales of Product Income"
             className="inp inp-sm w-full" />
         </div>
         <div className="space-y-1 sm:col-span-2">
-          <label className="text-[10px] uppercase tracking-wider text-muted">Description</label>
+          <label className="text-2xs uppercase tracking-wider text-muted">Description</label>
           <input value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
             placeholder="Optional description"
             className="inp inp-sm w-full" />
         </div>
       </div>
       <div className="flex items-center justify-between">
-        <label className="flex items-center gap-2 cursor-pointer">
-          <input type="checkbox" checked={form.is_active} onChange={(e) => setForm((f) => ({ ...f, is_active: e.target.checked }))}
-            className="accent-amber-500" />
-          <span className="text-xs text-secondary">Active</span>
-        </label>
+        <div className="flex items-center gap-4">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={form.is_active} onChange={(e) => setForm((f) => ({ ...f, is_active: e.target.checked }))}
+              className="accent-[var(--color-accent-emphasis)]" />
+            <span className="text-xs text-secondary">Active</span>
+          </label>
+          <button type="button" onClick={() => setConfirmingDelete(true)}
+            className="btn-danger">
+            Delete
+          </button>
+        </div>
         <div className="flex gap-2">
           {error && <span className="text-xs text-danger self-center">{error}</span>}
           <button type="button" onClick={onClose}
@@ -302,6 +338,17 @@ function EditPanel({
           </button>
         </div>
       </div>
+      {confirmingDelete && (
+        <ConfirmDialog
+          title="Delete account?"
+          message={`Delete "${account.account_name}"? This can't be undone.`}
+          confirmLabel="Delete"
+          tone="danger"
+          busy={deleting}
+          onConfirm={handleDelete}
+          onCancel={() => setConfirmingDelete(false)}
+        />
+      )}
     </form>
   );
 }
@@ -317,6 +364,7 @@ function renderAccountTree(
   onEdit: (id: string) => void,
   onSave: (updated: CoAAccount) => void,
   onCloseEdit: () => void,
+  onDeleted: (id: string) => void,
 ): React.ReactNode {
   const sectionIds = new Set(sectionAccounts.map((a) => a.id));
   const children = sectionAccounts.filter((a) => {
@@ -337,8 +385,9 @@ function renderAccountTree(
         onEdit={() => onEdit(acct.id)}
         onSave={onSave}
         onCloseEdit={onCloseEdit}
+        onDeleted={onDeleted}
       />
-      {renderAccountTree(sectionAccounts, allAccounts, acct.id, indent + 1, editingId, onEdit, onSave, onCloseEdit)}
+      {renderAccountTree(sectionAccounts, allAccounts, acct.id, indent + 1, editingId, onEdit, onSave, onCloseEdit, onDeleted)}
     </div>
   ));
 }
@@ -351,6 +400,7 @@ function StatementSection({
   onEdit,
   onSave,
   onCloseEdit,
+  onDeleted,
 }: {
   sectionKey: SectionKey;
   accounts: CoAAccount[];
@@ -359,6 +409,7 @@ function StatementSection({
   onEdit: (id: string) => void;
   onSave: (updated: CoAAccount) => void;
   onCloseEdit: () => void;
+  onDeleted: (id: string) => void;
 }) {
   const [expanded, setExpanded] = useState(true);
 
@@ -368,14 +419,14 @@ function StatementSection({
     <div className="border-b border-line/60">
       <button onClick={() => setExpanded((e) => !e)}
         className="w-full flex items-center gap-2 px-4 sm:px-6 py-2.5 hover:bg-surface/40 text-left transition-colors">
-        <span className="text-faint text-[10px] w-3">{expanded ? "▾" : "▸"}</span>
+        <span className="text-faint text-2xs w-3">{expanded ? "▾" : "▸"}</span>
         <span className="text-xs font-semibold text-body uppercase tracking-wider">{SECTION_LABELS[sectionKey]}</span>
-        <span className="ml-auto text-[10px] text-faint">{accounts.length} account{accounts.length !== 1 ? "s" : ""}</span>
+        <span className="ml-auto text-2xs text-faint">{accounts.length} account{accounts.length !== 1 ? "s" : ""}</span>
       </button>
 
       {expanded && (
         <div className="pb-1">
-          {renderAccountTree(accounts, allAccounts, null, 0, editingId, onEdit, onSave, onCloseEdit)}
+          {renderAccountTree(accounts, allAccounts, null, 0, editingId, onEdit, onSave, onCloseEdit, onDeleted)}
         </div>
       )}
     </div>
@@ -390,6 +441,7 @@ function AccountRow({
   onEdit,
   onSave,
   onCloseEdit,
+  onDeleted,
 }: {
   account: CoAAccount;
   allAccounts: CoAAccount[];
@@ -398,6 +450,7 @@ function AccountRow({
   onEdit: () => void;
   onSave: (updated: CoAAccount) => void;
   onCloseEdit: () => void;
+  onDeleted: (id: string) => void;
 }) {
   const hasOverride = !!account.statement_section;
 
@@ -409,19 +462,19 @@ function AccountRow({
         style={{ paddingLeft: `${(indent + 1) * 1.25 + 0.75}rem`, paddingRight: "1rem", paddingTop: "0.375rem", paddingBottom: "0.375rem" }}
       >
         <div className="flex items-center gap-2 min-w-0">
-          {indent > 0 && <span className="text-disabled shrink-0 font-mono text-[10px]">{"·".repeat(indent)}└</span>}
+          {indent > 0 && <span className="text-disabled shrink-0 font-mono text-2xs">{"·".repeat(indent)}└</span>}
           {account.account_number && (
             <span className="text-faint font-mono text-xs shrink-0">{account.account_number}</span>
           )}
           <span className="text-xs text-strong truncate">{account.account_name}</span>
           {hasOverride && (
-            <span className="text-[9px] px-1 py-0.5 rounded bg-accent-muted/40 text-accent border border-accent-border/40 shrink-0">override</span>
+            <span className="text-2xs px-1 py-0.5 rounded bg-accent-muted/40 text-accent border border-accent-border/40 shrink-0">override</span>
           )}
-          {!account.is_active && <span className="text-[9px] text-faint shrink-0">inactive</span>}
+          {!account.is_active && <span className="text-2xs text-faint shrink-0">inactive</span>}
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {account.detail_type && (
-            <span className="text-[10px] text-faint hidden sm:block truncate max-w-[120px]">{account.detail_type}</span>
+            <span className="text-2xs text-faint hidden sm:block truncate max-w-[120px]">{account.detail_type}</span>
           )}
           <span className="text-faint text-xs">✎</span>
         </div>
@@ -432,6 +485,7 @@ function AccountRow({
           accounts={allAccounts}
           onSave={onSave}
           onClose={onCloseEdit}
+          onDeleted={onDeleted}
         />
       )}
     </>
@@ -440,13 +494,14 @@ function AccountRow({
 
 // ── Type View (existing grouped-by-type) ─────────────────────────────────────
 
-function TypeViewTable({ accounts, allAccounts, editingId, onEdit, onSave, onCloseEdit }: {
+function TypeViewTable({ accounts, allAccounts, editingId, onEdit, onSave, onCloseEdit, onDeleted }: {
   accounts: CoAAccount[];
   allAccounts: CoAAccount[];
   editingId: string | null;
   onEdit: (id: string) => void;
   onSave: (updated: CoAAccount) => void;
   onCloseEdit: () => void;
+  onDeleted: (id: string) => void;
 }) {
   const typeGroups = accounts.reduce<Record<string, CoAAccount[]>>((acc, a) => {
     (acc[a.account_type] ??= []).push(a);
@@ -484,7 +539,7 @@ function TypeViewTable({ accounts, allAccounts, editingId, onEdit, onSave, onClo
                         <td className="px-3 py-1.5 font-mono text-muted">{a.account_number ?? "—"}</td>
                         <td className="px-3 py-1.5 text-strong">{a.account_name}</td>
                         <td className="px-3 py-1.5 hidden sm:table-cell">
-                          <span className={`text-[10px] ${hasOverride ? "text-accent" : "text-faint"}`}>
+                          <span className={`text-2xs ${hasOverride ? "text-accent" : "text-faint"}`}>
                             {SECTION_LABELS[sec] ?? sec}
                             {hasOverride && " ✎"}
                           </span>
@@ -499,6 +554,7 @@ function TypeViewTable({ accounts, allAccounts, editingId, onEdit, onSave, onClo
                               accounts={allAccounts}
                               onSave={onSave}
                               onClose={onCloseEdit}
+                              onDeleted={onDeleted}
                             />
                           </td>
                         </tr>
@@ -518,6 +574,11 @@ function TypeViewTable({ accounts, allAccounts, editingId, onEdit, onSave, onClo
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 const BLANK_FORM = { account_name: "", account_number: "", account_type: "", detail_type: "", description: "", is_active: true, parent_id: "", statement_section: "" };
+
+const CoA_VIEW_TABS: TabDef<"statement" | "type">[] = [
+  { key: "statement", label: "Statement View" },
+  { key: "type", label: "By Type" },
+];
 
 export default function ChartOfAccountsPage() {
   const [accounts, setAccounts]   = useState<CoAAccount[]>([]);
@@ -620,6 +681,11 @@ export default function ChartOfAccountsPage() {
     setEditingId(null);
   }
 
+  function handleDeleted(id: string) {
+    setAccounts((prev) => prev.filter((a) => a.id !== id));
+    setEditingId(null);
+  }
+
   function handleEdit(id: string) {
     setEditingId((cur) => cur === id ? null : id);
   }
@@ -632,28 +698,27 @@ export default function ChartOfAccountsPage() {
   const uncategorized   = accounts.filter((a) => !allSections.includes(effectiveSection(a)));
 
   return (
-    <div className="flex flex-col h-full bg-canvas text-primary">
-      <FinanceNav mobile />
-      <div className="shrink-0 px-4 sm:px-6 flex items-start justify-between gap-4">
-        <PageHeader
-          title="Chart of Accounts"
-          description={uploadedAt && !loading ? `${accounts.length} accounts · last uploaded ${fmt(uploadedAt)}` : undefined}
-        />
-        {step === "idle" && (
-          <div className="flex items-center gap-2 shrink-0 mt-4">
-            <button
-              onClick={() => { setShowAddForm((v) => !v); setAddError(null); setEditingId(null); }}
-              className="btn-secondary">
-              {showAddForm ? "Cancel" : "Add Account"}
-            </button>
-            <label className="btn-primary cursor-pointer">
-              Upload CSV
-              <input type="file" accept=".csv,text/csv" className="sr-only" onChange={handleFile} />
-            </label>
-          </div>
-        )}
+    <>
+      <div className="shrink-0 px-4 sm:px-6 pt-4 pb-2 flex items-start justify-between gap-4">
+        <p className="text-sm text-muted">
+          {uploadedAt && !loading ? `${accounts.length} accounts · last uploaded ${fmt(uploadedAt)}` : ""}
+        </p>
+        <div className="flex items-center gap-2 shrink-0">
+          {step === "idle" && (
+            <>
+              <button
+                onClick={() => { setShowAddForm((v) => !v); setAddError(null); setEditingId(null); }}
+                className="btn-secondary">
+                {showAddForm ? "Cancel" : "Add Account"}
+              </button>
+              <label className="btn-primary cursor-pointer">
+                Upload CSV
+                <input type="file" accept=".csv,text/csv" className="sr-only" onChange={handleFile} />
+              </label>
+            </>
+          )}
+        </div>
       </div>
-      <SettingsNav />
 
       <div className="flex-1 overflow-auto px-4 sm:px-6 py-4 sm:py-6 max-w-4xl space-y-6">
 
@@ -663,21 +728,21 @@ export default function ChartOfAccountsPage() {
             <h2 className="text-sm font-semibold text-strong">Add Account</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
-                <label className="text-[10px] uppercase tracking-wider text-muted">Account Name <span className="text-danger">*</span></label>
+                <label className="text-2xs uppercase tracking-wider text-muted">Account Name <span className="text-danger">*</span></label>
                 <input required value={addForm.account_name}
                   onChange={(e) => setAddForm((f) => ({ ...f, account_name: e.target.value }))}
                   placeholder="e.g. Merchandise Sales"
                   className="inp inp-sm w-full" />
               </div>
               <div className="space-y-1">
-                <label className="text-[10px] uppercase tracking-wider text-muted">Account Number</label>
+                <label className="text-2xs uppercase tracking-wider text-muted">Account Number</label>
                 <input value={addForm.account_number}
                   onChange={(e) => setAddForm((f) => ({ ...f, account_number: e.target.value }))}
                   placeholder="e.g. 4100"
                   className="inp inp-sm w-full" />
               </div>
               <div className="space-y-1">
-                <label className="text-[10px] uppercase tracking-wider text-muted">Account Type <span className="text-danger">*</span></label>
+                <label className="text-2xs uppercase tracking-wider text-muted">Account Type <span className="text-danger">*</span></label>
                 <select required value={addForm.account_type}
                   onChange={(e) => setAddForm((f) => ({ ...f, account_type: e.target.value }))}
                   className="inp inp-sm w-full">
@@ -686,7 +751,7 @@ export default function ChartOfAccountsPage() {
                 </select>
               </div>
               <div className="space-y-1">
-                <label className="text-[10px] uppercase tracking-wider text-muted">Parent Account</label>
+                <label className="text-2xs uppercase tracking-wider text-muted">Parent Account</label>
                 <select value={addForm.parent_id}
                   onChange={(e) => setAddForm((f) => ({ ...f, parent_id: e.target.value }))}
                   className="inp inp-sm w-full">
@@ -701,7 +766,7 @@ export default function ChartOfAccountsPage() {
                 </select>
               </div>
               <div className="space-y-1">
-                <label className="text-[10px] uppercase tracking-wider text-muted">
+                <label className="text-2xs uppercase tracking-wider text-muted">
                   Statement Section Override
                   <span className="ml-1 text-faint normal-case">(auto if blank)</span>
                 </label>
@@ -718,14 +783,14 @@ export default function ChartOfAccountsPage() {
                 </select>
               </div>
               <div className="space-y-1">
-                <label className="text-[10px] uppercase tracking-wider text-muted">Detail Type</label>
+                <label className="text-2xs uppercase tracking-wider text-muted">Detail Type</label>
                 <input value={addForm.detail_type}
                   onChange={(e) => setAddForm((f) => ({ ...f, detail_type: e.target.value }))}
                   placeholder="e.g. Sales of Product Income"
                   className="inp inp-sm w-full" />
               </div>
               <div className="space-y-1 sm:col-span-2">
-                <label className="text-[10px] uppercase tracking-wider text-muted">Description</label>
+                <label className="text-2xs uppercase tracking-wider text-muted">Description</label>
                 <input value={addForm.description}
                   onChange={(e) => setAddForm((f) => ({ ...f, description: e.target.value }))}
                   placeholder="Optional description"
@@ -736,7 +801,7 @@ export default function ChartOfAccountsPage() {
               <label className="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox" checked={addForm.is_active}
                   onChange={(e) => setAddForm((f) => ({ ...f, is_active: e.target.checked }))}
-                  className="accent-amber-500" />
+                  className="accent-[var(--color-accent-emphasis)]" />
                 <span className="text-xs text-secondary">Active</span>
               </label>
             </div>
@@ -884,46 +949,39 @@ export default function ChartOfAccountsPage() {
         ) : step === "idle" ? (
           <>
             {/* View toggle */}
-            <div className="flex items-center gap-1 bg-surface border border-line rounded p-0.5 w-fit">
-              <button onClick={() => setViewMode("statement")}
-                className={`px-3 py-1 text-xs rounded transition-colors ${viewMode === "statement" ? "bg-surface-high text-primary" : "text-muted hover:text-body"}`}>
-                Statement View
-              </button>
-              <button onClick={() => setViewMode("type")}
-                className={`px-3 py-1 text-xs rounded transition-colors ${viewMode === "type" ? "bg-surface-high text-primary" : "text-muted hover:text-body"}`}>
-                By Type
-              </button>
-            </div>
+            <TabBar tabs={CoA_VIEW_TABS} activeKey={viewMode} onSelect={setViewMode} />
 
             {viewMode === "statement" ? (
               <div className="bg-surface border border-line rounded-lg overflow-hidden">
                 {/* P&L */}
                 <div className="px-4 sm:px-6 py-2 bg-surface border-b border-line">
-                  <span className="text-[11px] font-bold text-secondary uppercase tracking-widest">Profit & Loss</span>
+                  <span className="text-xs font-bold text-secondary uppercase tracking-widest">Profit & Loss</span>
                 </div>
                 {PL_SECTIONS.map((key) => (
                   <StatementSection key={key} sectionKey={key}
                     accounts={sectionAccounts(key)} allAccounts={accounts}
                     editingId={editingId} onEdit={handleEdit}
-                    onSave={handleSaveEdit} onCloseEdit={() => setEditingId(null)} />
+                    onSave={handleSaveEdit} onCloseEdit={() => setEditingId(null)}
+                    onDeleted={handleDeleted} />
                 ))}
 
                 {/* Balance Sheet */}
                 <div className="px-4 sm:px-6 py-2 bg-surface border-t border-line border-b border-line mt-2">
-                  <span className="text-[11px] font-bold text-secondary uppercase tracking-widest">Balance Sheet</span>
+                  <span className="text-xs font-bold text-secondary uppercase tracking-widest">Balance Sheet</span>
                 </div>
                 {BS_SECTIONS.map((key) => (
                   <StatementSection key={key} sectionKey={key}
                     accounts={sectionAccounts(key)} allAccounts={accounts}
                     editingId={editingId} onEdit={handleEdit}
-                    onSave={handleSaveEdit} onCloseEdit={() => setEditingId(null)} />
+                    onSave={handleSaveEdit} onCloseEdit={() => setEditingId(null)}
+                    onDeleted={handleDeleted} />
                 ))}
 
                 {/* Uncategorized */}
                 {uncategorized.length > 0 && (
                   <>
                     <div className="px-4 sm:px-6 py-2 bg-surface border-t border-line mt-2">
-                      <span className="text-[11px] font-bold text-faint uppercase tracking-widest">Uncategorized</span>
+                      <span className="text-xs font-bold text-faint uppercase tracking-widest">Uncategorized</span>
                     </div>
                     {uncategorized.map((acct) => (
                       <AccountRow key={acct.id} account={acct} allAccounts={accounts}
@@ -931,13 +989,14 @@ export default function ChartOfAccountsPage() {
                         isEditing={editingId === acct.id}
                         onEdit={() => handleEdit(acct.id)}
                         onSave={handleSaveEdit}
-                        onCloseEdit={() => setEditingId(null)} />
+                        onCloseEdit={() => setEditingId(null)}
+                        onDeleted={handleDeleted} />
                     ))}
                   </>
                 )}
 
                 <div className="px-4 sm:px-6 py-2.5 border-t border-line bg-surface/40">
-                  <p className="text-[10px] text-faint">Click any account to edit. Statement Section Override remaps an account to a different P&L or Balance Sheet section regardless of its Account Type.</p>
+                  <p className="text-2xs text-faint">Click any account to edit. Statement Section Override remaps an account to a different P&L or Balance Sheet section regardless of its Account Type.</p>
                 </div>
               </div>
             ) : (
@@ -948,11 +1007,12 @@ export default function ChartOfAccountsPage() {
                 onEdit={handleEdit}
                 onSave={handleSaveEdit}
                 onCloseEdit={() => setEditingId(null)}
+                onDeleted={handleDeleted}
               />
             )}
           </>
         ) : null}
       </div>
-    </div>
+    </>
   );
 }
