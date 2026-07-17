@@ -270,6 +270,32 @@ export default function BatchLogTab() {
         </div>
       )}
 
+      {allBatches.length > 0 && (
+        <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-faint">
+          <span className="text-muted">Warnings:</span>
+          <span className="flex items-center gap-1">
+            <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-accent-emphasis text-canvas text-[10px] font-bold leading-none">!</span>
+            Schedule incomplete
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-info-emphasis text-canvas text-[10px] font-bold leading-none">!</span>
+            Allocation plan incomplete
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-orange-500 text-canvas text-[10px] font-bold leading-none">$</span>
+            Deposit invoice not sent
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-danger-emphasis text-canvas text-[10px] font-bold leading-none">$</span>
+            Deposit invoice sent, unpaid
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="text-danger">⚠</span>
+            Ingredient shortfall
+          </span>
+        </div>
+      )}
+
       {allBatches.length === 0 ? (
         <p className="text-faint text-sm">No batches yet.</p>
       ) : (
