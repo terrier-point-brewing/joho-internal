@@ -193,9 +193,15 @@ function SectionBlock({ node, ...rest }: RowCommonProps & { node: TreeNode }) {
 
   return (
     <>
-      <tr className="border-t border-line-strong/60 bg-surface/60">
-        <td colSpan={months.length + 2} className={`py-2 bg-surface/60 ${STICKY_LABEL_CELL} ${ACCOUNT_CELL_BASE}`}>
-          <div className="flex items-center gap-2">
+      <tr className="border-t border-line-strong/60 bg-surface">
+        <td colSpan={months.length + 2} className="py-2 bg-surface">
+          {/* This cell spans the full table width, so `sticky left-0` on the td
+              itself can't pin anything (it already fills its own row). Instead
+              pin a content-width (`w-fit`) inner div so the section title stays
+              frozen on horizontal scroll, matching the data rows' frozen label
+              column. The pl-4 inset lives here (not on the td) so the pinned
+              title lines up with ACCOUNT_CELL_BASE. */}
+          <div className={`flex items-center gap-2 w-fit sticky left-0 z-10 ${ACCOUNT_CELL_BASE}`}>
             <span className="text-xs font-semibold text-secondary uppercase tracking-wide">{node.label}</span>
             {!hasChildren && <span className="text-xs text-faint italic">no mapped transactions</span>}
           </div>
@@ -206,8 +212,8 @@ function SectionBlock({ node, ...rest }: RowCommonProps & { node: TreeNode }) {
         <AccountRow key={nodeKey(child, key) + i} node={child} path={key} {...rest} />
       ))}
 
-      <tr className="border-t border-line-strong/60 bg-surface/40">
-        <td className={`py-1.5 pr-3 text-xs text-secondary font-medium bg-surface/40 ${STICKY_LABEL_CELL} ${ACCOUNT_CELL_BASE}`}>Total {node.label}</td>
+      <tr className="border-t border-line-strong/60 bg-surface">
+        <td className={`py-1.5 pr-3 text-xs text-secondary font-medium bg-surface ${STICKY_LABEL_CELL} ${ACCOUNT_CELL_BASE}`}>Total {node.label}</td>
         {months.map((m) => (
           <td key={m} className="py-1.5 px-2 text-right text-sm font-mono tabular-nums font-semibold">
             <MeasureCell measure={measure} row={node.row} month={m} />
@@ -224,8 +230,8 @@ function SectionBlock({ node, ...rest }: RowCommonProps & { node: TreeNode }) {
 /** Top-level subtotal (Total Income, Gross Profit, Net Income, Total Cash In/Out, Net Operating, Total Assets/Liabilities/L+E, ...) — a single bold rollup line, no drill-down (its constituent sections already rendered their own detail above it). */
 function SubtotalBar({ node, months, measure }: { node: TreeNode; months: string[]; measure: Measure }) {
   return (
-    <tr className="border-t-2 border-line-subtle bg-surface-mid/50">
-      <td className={`py-2 px-4 text-xs font-semibold text-primary bg-surface-mid/50 ${STICKY_LABEL_CELL}`}>{node.label}</td>
+    <tr className="border-t-2 border-line-subtle bg-surface-mid">
+      <td className={`py-2 px-4 text-xs font-semibold text-primary bg-surface-mid ${STICKY_LABEL_CELL}`}>{node.label}</td>
       {months.map((m) => (
         <td key={m} className="py-2 px-2 text-right text-sm font-mono tabular-nums font-semibold">
           <MeasureCell measure={measure} row={node.row} month={m} />

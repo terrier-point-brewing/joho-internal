@@ -4,6 +4,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { apiError } from "@/lib/utils/api";
 import { computeNextPeriodDates, addDays } from "@/lib/payroll/periodUtils";
 import type { PayPeriodFrequency } from "@/lib/payroll/periodUtils";
+import { getPeriodSummaries } from "@/lib/payroll/periodSummary";
 
 export const dynamic = "force-dynamic";
 
@@ -11,13 +12,12 @@ export async function GET() {
   try { await requireRole(["manager"]); } catch (res) { return res as Response; }
 
   const supabase = await createSupabaseServerClient();
-  const { data, error } = await supabase
-    .from("pay_periods")
-    .select("*")
-    .order("start_date", { ascending: false });
-
-  if (error) return apiError(error.message);
-  return NextResponse.json(data);
+  try {
+    const summaries = await getPeriodSummaries(supabase);
+    return NextResponse.json(summaries);
+  } catch (err) {
+    return apiError(err instanceof Error ? err.message : String(err));
+  }
 }
 
 export async function POST(req: NextRequest) {
