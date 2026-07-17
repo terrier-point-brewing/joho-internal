@@ -2,9 +2,6 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import FinanceNav from "../../FinanceNav";
-import PageHeader from "@/app/components/PageHeader";
-import SettingsNav from "../SettingsNav";
 import Banner from "@/app/components/ui/Banner";
 import { queryKeys } from "@/lib/query-keys";
 import { useTaxPartiesQuery } from "@/app/finance/tax/hooks/useTaxData";
@@ -28,15 +25,12 @@ export default function TaxFilingSettingsPage() {
   const activeModule = parties.find((p) => p.key === selectedKey) ?? parties[0];
 
   return (
-    <div className="flex flex-col h-full bg-canvas text-primary">
-      <FinanceNav mobile />
-      <div className="shrink-0 px-4 sm:px-6">
-        <PageHeader
-          title="Tax Filing"
-          description="Per-module Square mappings and the statutory rate tables each filing worksheet relies on."
-        />
+    <>
+      <div className="shrink-0 px-4 sm:px-6 pt-4 pb-2">
+        <p className="text-sm text-muted">
+          Per-module Square mappings and the statutory rate tables each filing worksheet relies on.
+        </p>
       </div>
-      <SettingsNav />
       <div className="flex-1 overflow-auto px-4 sm:px-6 py-4 flex flex-col gap-6">
         {partiesQuery.isLoading && <p className="text-sm text-faint">Loading…</p>}
         {partiesQuery.isError && (
@@ -97,6 +91,6 @@ export default function TaxFilingSettingsPage() {
           </>
         )}
       </div>
-    </div>
+    </>
   );
 }

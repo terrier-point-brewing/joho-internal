@@ -1,9 +1,6 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
-import FinanceNav from "../../FinanceNav";
-import SettingsNav from "../SettingsNav";
 import AccountSelect, { type CoARef } from "../../AccountSelect";
-import PageHeader from "@/app/components/PageHeader";
 import Card from "@/app/components/ui/Card";
 import Banner from "@/app/components/ui/Banner";
 
@@ -115,16 +112,12 @@ export default function PayrollDepartmentMappingsPage() {
   }
 
   return (
-    <div className="flex flex-col h-full bg-canvas text-primary">
-      <FinanceNav mobile />
-
-      <div className="shrink-0 px-4 sm:px-6">
-        <PageHeader
-          title="Payroll Department Mappings"
-          description="Maps each Gusto payroll journal department to a wage GL account, plus the single account that receives all employer payroll taxes. Used when a Gusto report is uploaded on a pay period."
-        />
+    <>
+      <div className="shrink-0 px-4 sm:px-6 pt-4 pb-2">
+        <p className="text-sm text-muted">
+          Maps each Gusto payroll journal department to a wage GL account, plus the single account that receives all employer payroll taxes. Used when a Gusto report is uploaded on a pay period.
+        </p>
       </div>
-      <SettingsNav />
 
       {error && <Banner className="mx-4 sm:mx-6 my-2">{error}</Banner>}
       {saved && !error && <Banner tone="success" className="mx-4 sm:mx-6 my-2">Saved.</Banner>}
@@ -227,6 +220,6 @@ export default function PayrollDepartmentMappingsPage() {
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }

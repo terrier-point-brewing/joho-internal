@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import Badge from "@/app/components/ui/Badge";
+import ConfirmDialog from "@/app/components/ui/ConfirmDialog";
 import type { CoARef } from "../../AccountSelect";
 
 export interface GlLine {
@@ -73,6 +74,7 @@ export function PayrollSplitCell({ expenseId, payrollMatch, glLines, accounts, o
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
+  const [confirmOverwrite, setConfirmOverwrite] = useState(false);
 
   async function handleMatch() {
     setBusy(true);
@@ -101,9 +103,7 @@ export function PayrollSplitCell({ expenseId, payrollMatch, glLines, accounts, o
     try {
       const res = await postAction(expenseId, { action: "recompute", confirmOverwriteManual });
       if (res.status === 409) {
-        if (window.confirm("This expense has a manually-edited split. Overwrite it with the recomputed payroll split?")) {
-          await handleRecompute(true);
-        }
+        setConfirmOverwrite(true);
         return;
       }
       if (!res.ok) throw new Error(res.json?.error ?? "Recompute failed.");
@@ -121,7 +121,7 @@ export function PayrollSplitCell({ expenseId, payrollMatch, glLines, accounts, o
         <button type="button" className="btn-primary btn-xxs" disabled={busy} onClick={(ev) => { ev.stopPropagation(); handleMatch(); }}>
           {busy ? "Matching…" : "Match payroll period"}
         </button>
-        {error && <span className="text-[10px] text-danger">{error}</span>}
+        {error && <span className="text-2xs text-danger">{error}</span>}
       </div>
     );
   }
@@ -137,46 +137,63 @@ export function PayrollSplitCell({ expenseId, payrollMatch, glLines, accounts, o
             {periodLabel ? `Payroll ${periodLabel} — awaiting Gusto upload` : "Payroll — awaiting Gusto upload"}
           </Badge>
         </span>
-        {error && <span className="text-[10px] text-danger">{error}</span>}
+        {error && <span className="text-2xs text-danger">{error}</span>}
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col gap-0.5">
-      <div className="flex items-center gap-1.5">
-        <button
-          type="button"
-          className="text-xs text-accent hover:underline"
-          title={periodLabel ? `Pay period ${payrollMatch.periodStart} – ${payrollMatch.periodEnd}` : undefined}
-          onClick={(ev) => { ev.stopPropagation(); setExpanded((v) => !v); }}
-        >
-          <Badge tone="accent">{expanded ? "▾" : "▸"} {periodLabel ? `${periodLabel} split` : "Split"} ({glLines.length})</Badge>
-        </button>
-        <button
-          type="button"
-          className="btn-secondary btn-xxs"
-          disabled={busy}
-          title="Recompute this expense's payroll split from the period's Gusto totals"
-          onClick={(ev) => { ev.stopPropagation(); handleRecompute(); }}
-        >
-          ↻
-        </button>
+    <>
+      <div className="flex flex-col gap-0.5">
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            className="text-xs text-accent hover:underline"
+            title={periodLabel ? `Pay period ${payrollMatch.periodStart} – ${payrollMatch.periodEnd}` : undefined}
+            onClick={(ev) => { ev.stopPropagation(); setExpanded((v) => !v); }}
+          >
+            <Badge tone="accent">{expanded ? "▾" : "▸"} {periodLabel ? `${periodLabel} split` : "Split"} ({glLines.length})</Badge>
+          </button>
+          <button
+            type="button"
+            className="btn-secondary btn-xxs"
+            disabled={busy}
+            title="Recompute this expense's payroll split from the period's Gusto totals"
+            onClick={(ev) => { ev.stopPropagation(); handleRecompute(); }}
+          >
+            ↻
+          </button>
+        </div>
+        {expanded && (
+          <ul className="text-2xs text-secondary space-y-0.5" onClick={(ev) => ev.stopPropagation()}>
+            {glLines.map((l, i) => (
+              <li key={i} className="flex items-center justify-between gap-2">
+                <span className="truncate">
+                  {accountLabel(accounts, l.chartOfAccountsId)}
+                  {l.splitSource === "manual" && (
+                    <span title="Manually overridden">
+                      <Badge tone="info" className="ml-1">manual</Badge>
+                    </span>
+                  )}
+                </span>
+                <span className="font-mono text-body shrink-0">{fmtCents(Math.abs(l.amountCents))}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+        {error && <span className="text-2xs text-danger">{error}</span>}
       </div>
-      {expanded && (
-        <ul className="text-[10px] text-secondary space-y-0.5" onClick={(ev) => ev.stopPropagation()}>
-          {glLines.map((l, i) => (
-            <li key={i} className="flex items-center justify-between gap-2">
-              <span className="truncate">
-                {accountLabel(accounts, l.chartOfAccountsId)}
-                {l.splitSource === "manual" && <span className="text-info ml-1" title="Manually overridden">pin</span>}
-              </span>
-              <span className="font-mono text-body shrink-0">{fmtCents(Math.abs(l.amountCents))}</span>
-            </li>
-          ))}
-        </ul>
+      {confirmOverwrite && (
+        <ConfirmDialog
+          title="Overwrite manual split?"
+          message="This expense has a manually-edited payroll split. Overwrite it with the recomputed split from the period's Gusto totals?"
+          confirmLabel="Overwrite"
+          tone="danger"
+          busy={busy}
+          onConfirm={() => { setConfirmOverwrite(false); handleRecompute(true); }}
+          onCancel={() => setConfirmOverwrite(false)}
+        />
       )}
-      {error && <span className="text-[10px] text-danger">{error}</span>}
-    </div>
+    </>
   );
 }

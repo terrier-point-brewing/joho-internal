@@ -5,6 +5,7 @@ import { mappingState, matchesMappingFilter, type MappingFilterValue } from "@/l
 import { EXPENSE_STATE_CLS } from "../../lib/categoryColors";
 import AccountSelect, { type CoARef } from "../../AccountSelect";
 import Banner from "@/app/components/ui/Banner";
+import SaveHint from "@/app/components/ui/SaveHint";
 import DateRangeFilter from "../components/DateRangeFilter";
 import AcceptUnmappedButton from "../components/AcceptUnmappedButton";
 import SyncPanel from "../components/SyncPanel";
@@ -129,19 +130,19 @@ function ExpenseRowView({
   return (
     <>
       <tr className="border-t border-line/40 hover:bg-surface-mid/20 cursor-pointer" onClick={() => setExpanded((v) => !v)}>
-        <td className="px-4 py-2 w-6"><span className="text-faint text-[10px]">{expanded ? "▾" : "▸"}</span></td>
+        <td className="px-4 py-2 w-6"><span className="text-faint text-2xs">{expanded ? "▾" : "▸"}</span></td>
         <td className="px-4 py-2 text-secondary whitespace-nowrap">{fmtDate(e.accounting_date)}</td>
         <td className="px-4 py-2 text-body">
           <div className="flex items-center gap-1.5">
             <span className="truncate max-w-[240px]">{e.merchant_name ?? "—"}</span>
             {e.ramp_object !== "card" && (
-              <span className="shrink-0 px-1 py-0.5 rounded text-[9px] font-medium bg-surface-mid text-muted uppercase tracking-wide">
+              <span className="shrink-0 px-1 py-0.5 rounded text-2xs font-medium bg-surface-mid text-muted uppercase tracking-wide">
                 {e.ramp_object === "bill" ? "Bill" : "Bank"}
               </span>
             )}
           </div>
           {(e.memo || e.card_holder_name) && (
-            <div className="text-[10px] text-faint truncate max-w-[240px]">
+            <div className="text-2xs text-faint truncate max-w-[240px]">
               {[e.memo, e.card_holder_name].filter(Boolean).join(" · ")}
             </div>
           )}
@@ -162,7 +163,7 @@ function ExpenseRowView({
         </td>
         <td className="px-4 py-2">
           {state && (
-            <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${EXPENSE_STATE_CLS[state] ?? "bg-surface-mid text-muted"}`}>
+            <span className={`px-1.5 py-0.5 rounded text-2xs font-medium ${EXPENSE_STATE_CLS[state] ?? "bg-surface-mid text-muted"}`}>
               {state}
             </span>
           )}
@@ -188,7 +189,7 @@ function ExpenseRowView({
           <td colSpan={7} className="p-0">
             <div className="bg-canvas border-b border-line/60 px-10 py-3 flex flex-col gap-3">
               {/* Details */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-1.5 text-[11px]">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-1.5 text-xs">
                 {[
                   ["Source account", e.external_account_name ?? "—"],
                   ["Merchant category", e.merchant_category ?? e.sk_category_name ?? "—"],
@@ -196,7 +197,7 @@ function ExpenseRowView({
                   ["Memo", e.memo ?? "—"],
                 ].map(([label, value]) => (
                   <div key={label} className="min-w-0">
-                    <div className="text-[10px] text-faint uppercase tracking-wider">{label}</div>
+                    <div className="text-2xs text-faint uppercase tracking-wider">{label}</div>
                     <div className="text-body truncate" title={value}>{value}</div>
                   </div>
                 ))}
@@ -204,7 +205,7 @@ function ExpenseRowView({
 
               {/* GL account mapping */}
               <div className="flex items-center gap-2">
-                <span className="text-[10px] text-faint uppercase tracking-wider shrink-0">GL account</span>
+                <span className="text-2xs text-faint uppercase tracking-wider shrink-0">GL account</span>
                 <AccountSelect
                   value={e.chart_of_accounts_id}
                   onChange={handleChange}
@@ -214,12 +215,12 @@ function ExpenseRowView({
                   className="w-full max-w-[360px]"
                 />
                 {e.mapping_source === "manual" && (
-                  <span className="text-[9px] text-info shrink-0" title="Manually pinned — sync and auto-map leave it alone">pin</span>
+                  <span className="text-2xs text-info shrink-0" title="Manually pinned — sync and auto-map leave it alone">pin</span>
                 )}
                 {e.mapping_source === "rule" && (
-                  <span className="text-[9px] text-faint shrink-0" title="Coded from the source-account rule (Settings → Expense Accounts)">rule</span>
+                  <span className="text-2xs text-faint shrink-0" title="Coded from the source-account rule (Settings → Expense Accounts)">rule</span>
                 )}
-                {saving && <span className="text-[10px] text-faint animate-pulse shrink-0">…</span>}
+                <SaveHint saving={saving} />
               </div>
             </div>
           </td>
@@ -423,7 +424,7 @@ export default function ExpensesPage() {
               />
             ))}
           </LedgerTable>
-          <p className="py-3 text-[10px] text-faint">
+          <p className="py-3 text-2xs text-faint">
             Expenses auto-map to the chart of accounts by their source account (rules live in
             Settings → Expense Accounts). Override an individual expense in its row — pinned rows show
             <span className="text-info"> pin</span> and are left untouched by sync and auto-map.

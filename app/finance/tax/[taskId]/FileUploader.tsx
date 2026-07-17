@@ -17,6 +17,7 @@
 import { useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Banner from "@/app/components/ui/Banner";
+import ConfirmDialog from "@/app/components/ui/ConfirmDialog";
 import { queryKeys } from "@/lib/query-keys";
 import { fetchJson } from "@/app/production/hooks/queries";
 import type { TaxTaskFile } from "@/lib/tax/types";
@@ -35,6 +36,7 @@ export default function FileUploader({ taskId, readOnly = false }: { taskId: str
   const [uploading, setUploading] = useState(false);
   const [busyFileId, setBusyFileId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<TaxTaskFile | null>(null);
 
   async function handleUpload() {
     if (!selectedFile || uploading) return;
@@ -74,8 +76,7 @@ export default function FileUploader({ taskId, readOnly = false }: { taskId: str
     }
   }
 
-  async function handleDelete(file: TaxTaskFile) {
-    if (!window.confirm(`Delete "${file.file_name}"? This can't be undone.`)) return;
+  async function runDelete(file: TaxTaskFile) {
     setBusyFileId(file.id);
     setError(null);
     try {
@@ -85,6 +86,7 @@ export default function FileUploader({ taskId, readOnly = false }: { taskId: str
         throw new Error(body?.error ?? `Delete failed (${res.status})`);
       }
       await qc.invalidateQueries({ queryKey: queryKeys.tax.taskFiles(taskId) });
+      setDeleting(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Delete failed.");
     } finally {
@@ -162,7 +164,7 @@ export default function FileUploader({ taskId, readOnly = false }: { taskId: str
                   <button
                     type="button"
                     className="btn-danger btn-xxs"
-                    onClick={() => handleDelete(file)}
+                    onClick={() => setDeleting(file)}
                     disabled={busyFileId === file.id}
                   >
                     Delete
@@ -172,6 +174,18 @@ export default function FileUploader({ taskId, readOnly = false }: { taskId: str
             </li>
           ))}
         </ul>
+      )}
+
+      {deleting && (
+        <ConfirmDialog
+          title="Delete file?"
+          message={`Delete "${deleting.file_name}"? This can't be undone.`}
+          confirmLabel="Delete"
+          tone="danger"
+          busy={busyFileId === deleting.id}
+          onConfirm={() => runDelete(deleting)}
+          onCancel={() => setDeleting(null)}
+        />
       )}
     </div>
   );

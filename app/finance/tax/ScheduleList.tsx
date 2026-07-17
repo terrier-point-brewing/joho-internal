@@ -4,6 +4,8 @@ import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import Card from "@/app/components/ui/Card";
 import Badge from "@/app/components/ui/Badge";
+import Banner from "@/app/components/ui/Banner";
+import ConfirmDialog from "@/app/components/ui/ConfirmDialog";
 import { queryKeys } from "@/lib/query-keys";
 import type { Frequency, TaxSchedule } from "@/lib/tax/types";
 import type { TaxPartyMeta } from "./hooks/useTaxData";
@@ -40,6 +42,8 @@ export default function ScheduleList({ schedules, parties }: ScheduleListProps) 
   const qc = useQueryClient();
   const [editingSchedule, setEditingSchedule] = useState<TaxSchedule | null | undefined>(undefined);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [deactivating, setDeactivating] = useState<TaxSchedule | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const partyLabel = new Map(parties.map((p) => [p.key, p.label]));
 
@@ -47,17 +51,16 @@ export default function ScheduleList({ schedules, parties }: ScheduleListProps) 
     await qc.invalidateQueries({ queryKey: queryKeys.tax.schedules() });
   }
 
-  async function handleDeactivate(schedule: TaxSchedule) {
-    const label = partyLabel.get(schedule.party_key) ?? schedule.party_key;
-    if (!confirm(`Deactivate the ${label} ${schedule.frequency} schedule? Existing tasks are unaffected.`)) return;
-
+  async function runDeactivate(schedule: TaxSchedule) {
     setBusyId(schedule.id);
+    setError(null);
     try {
       const res = await fetch(`/api/tax/schedules/${schedule.id}`, { method: "DELETE" });
       if (!res.ok) throw new Error((await res.json()).error ?? "Failed to deactivate schedule.");
       await refresh();
+      setDeactivating(null);
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Error");
+      setError(err instanceof Error ? err.message : "Error");
     } finally {
       setBusyId(null);
     }
@@ -105,7 +108,7 @@ export default function ScheduleList({ schedules, parties }: ScheduleListProps) 
                     <button
                       className="text-xs text-faint hover:text-danger transition-colors disabled:opacity-50"
                       disabled={busyId === schedule.id}
-                      onClick={() => handleDeactivate(schedule)}
+                      onClick={() => setDeactivating(schedule)}
                     >
                       Deactivate
                     </button>
@@ -115,6 +118,20 @@ export default function ScheduleList({ schedules, parties }: ScheduleListProps) 
             ))}
           </ul>
         </Card>
+      )}
+
+      {error && <Banner className="mt-2">{error}</Banner>}
+
+      {deactivating && (
+        <ConfirmDialog
+          title="Deactivate schedule?"
+          message={`Deactivate the ${partyLabel.get(deactivating.party_key) ?? deactivating.party_key} ${deactivating.frequency} schedule? Existing tasks are unaffected.`}
+          confirmLabel="Deactivate"
+          tone="danger"
+          busy={busyId === deactivating.id}
+          onConfirm={() => runDeactivate(deactivating)}
+          onCancel={() => setDeactivating(null)}
+        />
       )}
 
       {editingSchedule !== undefined && (
