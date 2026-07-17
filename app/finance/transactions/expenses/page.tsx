@@ -20,7 +20,7 @@ import { useTableControls } from "@/app/components/ui/useTableControls";
 import type { ControlsConfig } from "@/lib/table/types";
 import InventoryAlertBanner from "./InventoryAlertBanner";
 import { selectInventoryAlerts } from "@/lib/finance/inventoryAlerts";
-import { PayrollSplitCell } from "./PayrollSplitCell";
+import { PayrollSplitCell, type PayrollState, type PayrollMatchInfo, type GlLine } from "./PayrollSplitCell";
 import { defaultYearRange } from "@/lib/finance/dateRange";
 
 // ── Types (mirror the API responses) ──────────────────────────────────────────
@@ -57,8 +57,8 @@ interface ExpenseRow {
   chart_of_accounts: CoaJoin | null;
   // Payroll GL split state (Task 8's enriched GET) -- populated for every
   // row; only rendered when the counterparty's routing is 'payroll_split'.
-  payrollMatch: { payPeriodId: string; hasReport: boolean } | null;
-  glLines: { chartOfAccountsId: string; amountCents: number; splitSource: "payroll_auto" | "manual" | null }[];
+  payrollMatch: PayrollMatchInfo | null;
+  glLines: GlLine[];
 }
 
 interface SyncResult {
@@ -103,7 +103,7 @@ function ExpenseRowView({
   onSetExpense,
   onToggleAccept,
   isPayrollSplit,
-  onPayrollChanged,
+  onPayrollUpdated,
 }: {
   e: ExpenseRow;
   accounts: CoARef[];
@@ -112,7 +112,7 @@ function ExpenseRowView({
   // Combines ramp_object === "bank" with the expense's counterparty
   // routing === "payroll_split" -- see PayrollSplitCell's routing prop doc.
   isPayrollSplit: boolean;
-  onPayrollChanged: () => void;
+  onPayrollUpdated: (next: PayrollState) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -154,7 +154,7 @@ function ExpenseRowView({
               payrollMatch={e.payrollMatch}
               glLines={e.glLines}
               accounts={accounts}
-              onChanged={onPayrollChanged}
+              onUpdated={onPayrollUpdated}
             />
           ) : (
             <CategoryBadges items={glName ? [glName] : []} />
@@ -301,6 +301,18 @@ export default function ExpensesPage() {
     setExpenses((es) => es.map((e) => (e.id === id ? { ...e, inventory_alert_dismissed: true } : e)));
   }
 
+  // Patch one expense's payroll state in place from a payroll-match mutation's
+  // response, so pressing "Match payroll period" (or recompute/unmatch) updates
+  // just that row instead of reloading the whole ledger. Note: matching an
+  // expense to a period with an existing Gusto report reweights every matched
+  // expense in that period; only the acted-on row refreshes here, so any sibling
+  // rows in the same period reconcile on the next natural load (date change /
+  // re-sync / refresh). The common flow (awaiting-upload, no splits yet) has no
+  // siblings to reweight, so this is exact.
+  function handlePayrollUpdated(id: string, next: PayrollState) {
+    setExpenses((es) => es.map((e) => (e.id === id ? { ...e, payrollMatch: next.payrollMatch, glLines: next.glLines } : e)));
+  }
+
   // Manually accept an unmapped expense as not needing a real GL mapping (optimistic local update).
   async function handleToggleAccept(id: string, accepted: boolean) {
     const res = await fetch("/api/finance/expenses", {
@@ -407,7 +419,7 @@ export default function ExpensesPage() {
                 onSetExpense={handleSetExpense}
                 onToggleAccept={handleToggleAccept}
                 isPayrollSplit={e.ramp_object === "bank" && routingByCounterpartyKey.get(e.counterparty_key ?? "") === "payroll_split"}
-                onPayrollChanged={() => loadAll(from, to)}
+                onPayrollUpdated={(next) => handlePayrollUpdated(e.id, next)}
               />
             ))}
           </LedgerTable>
