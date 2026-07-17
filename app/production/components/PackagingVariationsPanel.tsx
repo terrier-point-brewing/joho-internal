@@ -289,7 +289,11 @@ export default function PackagingVariationsPanel() {
                 <th className="px-3 py-2.5 text-xs font-medium text-muted">Container</th>
                 <th className="px-3 py-2.5 text-xs font-medium text-muted">Name</th>
                 <th className="px-3 py-2.5 text-xs font-medium text-muted">Format</th>
-                <th className="px-3 py-2.5 text-xs font-medium text-muted">Components</th>
+                <th className="px-3 py-2.5 text-xs font-medium text-muted">Lid</th>
+                <th className="px-3 py-2.5 text-xs font-medium text-muted">PakTech</th>
+                <th className="px-3 py-2.5 text-xs font-medium text-muted">Tray</th>
+                <th className="px-3 py-2.5 text-xs font-medium text-muted">Label</th>
+                <th className="px-3 py-2.5 text-xs font-medium text-muted">Breaks Into</th>
                 <th className="px-3 py-2.5 text-xs font-medium text-muted">Partner</th>
                 <th className="px-3 py-2.5 text-xs font-medium text-muted"></th>
               </tr>
@@ -299,7 +303,6 @@ export default function PackagingVariationsPanel() {
                 const vIsKeg = v.container?.type === "keg";
                 const formatLabel = vIsKeg ? "Keg" : (FORMATS.find((f) => f.value === v.format)?.label ?? v.format);
                 const breaksIntoName = v.breaks_into_variation_id ? nameById.get(v.breaks_into_variation_id) ?? null : null;
-                const hasComponents = v.lid || v.paktech || v.tray || v.label || breaksIntoName;
                 return (
                   <tr
                     key={v.id}
@@ -319,19 +322,11 @@ export default function PackagingVariationsPanel() {
                     </td>
                     <td className="px-3 py-2.5 text-strong font-medium text-xs">{v.name}</td>
                     <td className="px-3 py-2.5 text-secondary text-xs">{formatLabel}</td>
-                    <td className="px-3 py-2.5">
-                      {hasComponents ? (
-                        <div className="flex flex-wrap gap-1">
-                          {v.lid        && <ComponentPill name={v.lid.name}                       type="lid" />}
-                          {v.paktech    && <ComponentPill name={v.paktech.name}                   type="paktech" />}
-                          {v.tray       && <ComponentPill name={v.tray.name}                      type="tray" />}
-                          {v.label      && <ComponentPill name={v.label.name}                     type="label" />}
-                          {breaksIntoName && <ComponentPill name={`→ ${breaksIntoName}`}            type="breaksInto" />}
-                        </div>
-                      ) : (
-                        <span className="text-faint">—</span>
-                      )}
-                    </td>
+                    <td className="px-3 py-2.5">{v.lid     ? <ComponentPill name={v.lid.name}     type="lid" />        : <span className="text-faint">—</span>}</td>
+                    <td className="px-3 py-2.5">{v.paktech ? <ComponentPill name={v.paktech.name} type="paktech" />    : <span className="text-faint">—</span>}</td>
+                    <td className="px-3 py-2.5">{v.tray    ? <ComponentPill name={v.tray.name}    type="tray" />       : <span className="text-faint">—</span>}</td>
+                    <td className="px-3 py-2.5">{v.label   ? <ComponentPill name={v.label.name}   type="label" />      : <span className="text-faint">—</span>}</td>
+                    <td className="px-3 py-2.5">{breaksIntoName ? <ComponentPill name={`→ ${breaksIntoName}`} type="breaksInto" /> : <span className="text-faint">—</span>}</td>
                     <td className="px-3 py-2.5 text-secondary text-xs">{v.contract_brewing_partners?.company_name ?? "Generic"}</td>
                     <td className="px-3 py-2.5 text-right whitespace-nowrap">
                       <button onClick={() => openEdit(v)} className="text-xs text-secondary hover:text-strong mr-3">Edit</button>

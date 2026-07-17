@@ -248,7 +248,12 @@ export default function BulkCanVariationModal({
       ) : (
         <form onSubmit={handleSubmit} className="space-y-3">
           <div className="overflow-x-auto rounded-lg border border-line">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm table-fixed">
+              <colgroup>
+                <col className="w-12" />
+                <col />
+                <col className="w-80" />
+              </colgroup>
               <thead>
                 <tr className="border-b border-line bg-surface/50 text-left">
                   <th className="px-3 py-2.5 text-xs font-medium text-muted"></th>
