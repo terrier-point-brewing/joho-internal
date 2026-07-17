@@ -4,6 +4,7 @@ import {
   suggestPayPeriod,
   computeProportionalSplits,
   recomputePeriodExpenseSplits,
+  planPayrollMatches,
   type MatchedExpenseAmount,
 } from "./payrollMatching";
 import { aggregateRows, type CoaRecord, type ExpenseRecord } from "./financials/aggregateRows";
@@ -201,6 +202,43 @@ describe("computeProportionalSplits", () => {
       const result = computeProportionalSplits(matched, periodTotals);
       sumsToExpectedPerExpense(result, matched);
     }
+  });
+});
+
+describe("planPayrollMatches", () => {
+  const periods = [
+    { id: "p-jun", endDate: "2026-06-14" },
+    { id: "p-jul", endDate: "2026-06-28" },
+  ];
+
+  it("assigns each expense to its nearest in-window pay period", () => {
+    const plans = planPayrollMatches(
+      [
+        { id: "e1", expenseDate: "2026-06-15" }, // 1d from p-jun
+        { id: "e2", expenseDate: "2026-06-30" }, // 2d from p-jul
+      ],
+      periods,
+    );
+    expect(plans).toEqual([
+      { expenseId: "e1", payPeriodId: "p-jun" },
+      { expenseId: "e2", payPeriodId: "p-jul" },
+    ]);
+  });
+
+  it("skips expenses with no pay period within the 10-day window", () => {
+    const plans = planPayrollMatches(
+      [
+        { id: "e1", expenseDate: "2026-06-15" }, // matches p-jun
+        { id: "e2", expenseDate: "2026-09-01" }, // nothing within 10 days
+      ],
+      periods,
+    );
+    expect(plans).toEqual([{ expenseId: "e1", payPeriodId: "p-jun" }]);
+  });
+
+  it("returns [] when there are no candidate periods or no expenses", () => {
+    expect(planPayrollMatches([{ id: "e1", expenseDate: "2026-06-15" }], [])).toEqual([]);
+    expect(planPayrollMatches([], periods)).toEqual([]);
   });
 });
 
