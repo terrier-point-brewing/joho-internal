@@ -12,3 +12,4 @@
  */
 import "./ncDorSalesUse/template";
 import "./ncDorBeerExcise/template";
+import "./wakeCountyFoodBeverage/template";
