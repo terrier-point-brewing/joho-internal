@@ -1,11 +1,17 @@
 "use client";
 
+import { useMemo } from "react";
 import Link from "next/link";
 import Card from "@/app/components/ui/Card";
 import Badge from "@/app/components/ui/Badge";
+import FilterBar from "@/app/components/ui/FilterBar";
+import SearchInput from "@/app/components/ui/SearchInput";
+import FilterChips from "@/app/components/ui/FilterChips";
+import { useTableControls } from "@/app/components/ui/useTableControls";
 import type { Tone } from "@/app/components/ui/tone";
 import { taskDueStatus, type TaskUrgency } from "@/lib/tax/taskDueStatus";
 import { todayLocalDate } from "@/lib/utils/datetime";
+import type { ControlsConfig } from "@/lib/table/types";
 import type { TaxSchedule, TaxTask } from "@/lib/tax/types";
 import type { TaxPartyMeta } from "./hooks/useTaxData";
 
@@ -25,6 +31,23 @@ function formatIsoDate(iso: string): string {
 }
 
 export default function TaskList({ tasks, schedules, parties }: TaskListProps) {
+  const partyLabel = useMemo(() => new Map(parties.map((p) => [p.key, p.label])), [parties]);
+  const scheduleById = useMemo(() => new Map(schedules.map((s) => [s.id, s])), [schedules]);
+
+  const controlsConfig = useMemo<ControlsConfig<TaxTask>>(
+    () => ({
+      search: [{ param: "q", accessor: (t) => [partyLabel.get(t.party_key), t.notes, t.confirmation_number] }],
+      filters: [{ param: "party", accessor: (t) => t.party_key }],
+    }),
+    [partyLabel],
+  );
+  const { rows, search, filters, setSearch, setFilter, reset, activeCount } = useTableControls(tasks, controlsConfig);
+
+  const partyOptions = useMemo(
+    () => parties.map((p) => ({ value: p.key, label: p.label })),
+    [parties],
+  );
+
   if (tasks.length === 0) {
     return (
       <Card className="text-center py-8">
@@ -35,24 +58,36 @@ export default function TaskList({ tasks, schedules, parties }: TaskListProps) {
   }
 
   const today = todayLocalDate();
-  const partyLabel = new Map(parties.map((p) => [p.key, p.label]));
-  const scheduleById = new Map(schedules.map((s) => [s.id, s]));
 
-  const openRows = tasks
+  const openRows = rows
     .filter((t) => t.status === "open")
     .map((task) => ({ task, urgency: taskDueStatus(task, scheduleById.get(task.schedule_id), today) }))
     .sort((a, b) => URGENCY_RANK[a.urgency] - URGENCY_RANK[b.urgency] || a.task.due_date.localeCompare(b.task.due_date));
 
-  const doneRows = tasks
+  const doneRows = rows
     .filter((t) => t.status !== "open")
     .sort((a, b) => b.due_date.localeCompare(a.due_date));
 
   return (
     <div className="flex flex-col gap-6">
+      <FilterBar activeCount={activeCount} onClear={reset}>
+        <SearchInput value={search.q ?? ""} onChange={(v) => setSearch("q", v)} placeholder="Search tax tasks…" />
+        {partyOptions.length > 1 && (
+          <FilterChips
+            label="Party"
+            options={partyOptions}
+            value={filters.party ?? []}
+            onChange={(v) => setFilter("party", v)}
+          />
+        )}
+      </FilterBar>
+
       <section>
         <h3 className="text-xs font-semibold uppercase tracking-wider text-faint mb-2">Open</h3>
         {openRows.length === 0 ? (
-          <p className="text-sm text-faint px-1">Nothing open — all caught up.</p>
+          <p className="text-sm text-faint px-1">
+            {activeCount > 0 ? "No open tasks match your filters." : "Nothing open — all caught up."}
+          </p>
         ) : (
           <Card padding="">
             <ul className="divide-y divide-line/60">

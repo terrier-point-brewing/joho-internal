@@ -19,6 +19,7 @@ import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import FinanceNav from "../../FinanceNav";
 import PageHeader from "@/app/components/PageHeader";
+import BackLink from "@/app/components/ui/BackLink";
 import Card from "@/app/components/ui/Card";
 import Banner from "@/app/components/ui/Banner";
 import { queryKeys } from "@/lib/query-keys";
@@ -209,6 +210,7 @@ export default function TaxWorksheetShell({ taskId }: { taskId: string }) {
     return (
       <main className="px-4 sm:px-6 py-4 sm:py-8">
         <FinanceNav mobile />
+        <BackLink href="/finance/tax" label="Tax" />
         <p className="text-sm text-faint mt-4">Loading…</p>
       </main>
     );
@@ -218,6 +220,7 @@ export default function TaxWorksheetShell({ taskId }: { taskId: string }) {
     return (
       <main className="px-4 sm:px-6 py-4 sm:py-8">
         <FinanceNav mobile />
+        <BackLink href="/finance/tax" label="Tax" />
         <Banner tone="danger" className="mt-4">
           {taskQuery.error instanceof Error ? taskQuery.error.message : "Task not found."}
         </Banner>
@@ -232,6 +235,7 @@ export default function TaxWorksheetShell({ taskId }: { taskId: string }) {
   return (
     <main className="px-4 sm:px-6 py-4 sm:py-8">
       <FinanceNav mobile />
+      <BackLink href="/finance/tax" label="Tax" />
       <PageHeader
         title={party?.label ?? task.party_key}
         description={`Period ${fmtDateLong(task.period_start)} – ${fmtDateLong(task.period_end)} · Due ${fmtDateLong(task.due_date)}`}
