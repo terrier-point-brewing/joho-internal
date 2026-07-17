@@ -27,7 +27,6 @@ function emptySources(months: string[]): FinancialsSourcesResult {
     bank: [],
     coa: COA,
     months,
-    strandedDeposit: { count: 0, cents: 0 },
     exciseCoverage: { shipmentsMissingExcise: 0 },
     arAccount: null,
     openInvoiceArCents: 0,
@@ -75,8 +74,7 @@ describe("buildFinancials", () => {
         ],
         coa: COA,
         months: ["2026-12"],
-        strandedDeposit: { count: 0, cents: 0 },
-        exciseCoverage: { shipmentsMissingExcise: 0 },
+            exciseCoverage: { shipmentsMissingExcise: 0 },
         arAccount: null,
         openInvoiceArCents: 0,
         manualNetSalesEntries: [],
@@ -101,8 +99,7 @@ describe("buildFinancials", () => {
       // exclude the unpaid/uncleared ones before they ever reach aggregateRows.
       const paidInvoiceLine = {
         id: "inv-paid", totalCents: 5000, invoiceDate: "2026-06-10",
-        chartOfAccountsId: "coa-rev", bsChartOfAccountsId: null, plChartOfAccountsId: null,
-        deliveryInvoiceId: null, accountMode: null, deliveryInvoicePaid: false,
+        chartOfAccountsId: "coa-rev",
         exportChannel: null, volumeBbl: null,
       };
       const unpaidInvoiceLine = {
@@ -153,8 +150,7 @@ describe("buildFinancials", () => {
       invoiceLines: [
         {
           id: "inv-1", totalCents: 8000, invoiceDate: "2026-06-10",
-          chartOfAccountsId: "coa-rev", bsChartOfAccountsId: null, plChartOfAccountsId: null,
-          deliveryInvoiceId: null, accountMode: null, deliveryInvoicePaid: false,
+          chartOfAccountsId: "coa-rev",
           exportChannel: "distribution", volumeBbl: null,
         },
       ],
@@ -193,14 +189,12 @@ describe("buildFinancials", () => {
       invoiceLines: [
         {
           id: "inv-line-keg", totalCents: 8000, invoiceDate: "2026-06-10",
-          chartOfAccountsId: "coa-rev", bsChartOfAccountsId: null, plChartOfAccountsId: null,
-          deliveryInvoiceId: null, accountMode: null, deliveryInvoicePaid: false,
+          chartOfAccountsId: "coa-rev",
           exportChannel: "distribution", volumeBbl: 3,
         },
         {
           id: "inv-line-can", totalCents: 2000, invoiceDate: "2026-06-10",
-          chartOfAccountsId: "coa-cogs", bsChartOfAccountsId: null, plChartOfAccountsId: null,
-          deliveryInvoiceId: null, accountMode: null, deliveryInvoicePaid: false,
+          chartOfAccountsId: "coa-cogs",
           exportChannel: "distribution", volumeBbl: 0,
         },
       ],
@@ -215,18 +209,14 @@ describe("buildFinancials", () => {
     expect(totalBbl).toBe(3);
   });
 
-  it("passes strandedDeposit and exciseCoverage through to dataQuality with hrefs attached", async () => {
+  it("passes exciseCoverage through to dataQuality with hrefs attached", async () => {
     mockedFetch.mockResolvedValue({
       ...emptySources(["2026-06"]),
-      strandedDeposit: { count: 2, cents: 15000 },
       exciseCoverage: { shipmentsMissingExcise: 3 },
     });
 
     const resp = await buildFinancials({ statement: "pl", year: 2026 });
 
-    expect(resp.dataQuality.strandedDeposit).toEqual({
-      count: 2, cents: 15000, href: "/finance/transactions/invoices?filter=deposit-missing-delivery",
-    });
     expect(resp.dataQuality.exciseCoverage).toEqual({
       shipmentsMissingExcise: 3, href: "/finance/transactions/invoices?filter=excise-coverage",
     });
@@ -243,8 +233,7 @@ describe("buildFinancials", () => {
           invoiceLines: [
             {
               id: "inv-ar-mapped", totalCents: 20000, invoiceDate: "2026-12",
-              chartOfAccountsId: "coa-ar", bsChartOfAccountsId: null, plChartOfAccountsId: null,
-              deliveryInvoiceId: null, accountMode: null, deliveryInvoicePaid: false,
+              chartOfAccountsId: "coa-ar",
               exportChannel: null, volumeBbl: null,
             },
           ],

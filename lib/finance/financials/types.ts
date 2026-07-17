@@ -29,14 +29,13 @@ export interface FinancialsRow {
 // "percent" units (e.g. 62.5 means 62.5%). All *Cents fields are integer
 // cents. Not every field here is derivable from FinancialsRow[] alone --
 // see summaries.ts's header comment for the row-derivable vs
-// parameter-supplied split (strandedDeposit, exciseCoverage.
-// shipmentsMissingExcise, cashOnHandCents, and operatingCashCents come from
-// Task 6's DB fetch / cash-flow statement mode).
+// parameter-supplied split (exciseCoverage.shipmentsMissingExcise,
+// cashOnHandCents, and operatingCashCents come from Task 6's DB fetch /
+// cash-flow statement mode).
 export interface DataQualitySummary {
   unmapped: { count: number; cents: number; href: string };
   uncategorized: { count: number; cents: number; href: string };
   unknownVolume: { count: number; cents: number; href: string };
-  strandedDeposit: { count: number; cents: number; href: string };
   exciseCoverage: { shipmentsMissingExcise: number; href: string };
 }
 

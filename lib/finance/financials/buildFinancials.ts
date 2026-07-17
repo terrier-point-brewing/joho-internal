@@ -22,7 +22,6 @@ const HREFS = {
   unmapped: "/finance/transactions/orders?mapping=unmapped",
   uncategorized: "/finance/transactions/orders?filter=uncategorized",
   unknownVolume: "/finance/transactions/orders?filter=unknown-volume",
-  strandedDeposit: "/finance/transactions/invoices?filter=deposit-missing-delivery",
   exciseCoverage: "/finance/transactions/invoices?filter=excise-coverage",
 };
 
@@ -122,7 +121,6 @@ export async function buildFinancials(params: { statement: StatementKind; year: 
   const kpis = buildKpis(rows, months, { operatingCashCents, cashOnHandCents });
   const dataQuality = buildDataQuality(rows, {
     hrefs: HREFS,
-    strandedDeposit: src.strandedDeposit,
     exciseCoverage: src.exciseCoverage,
   });
 

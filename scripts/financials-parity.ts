@@ -166,22 +166,19 @@ async function computeGroundTruth(supabase: SupabaseClient, months: string[]) {
     addToBucket(buckets, month, section, signed);
   }
 
-  // ── Invoice lines: total_cents, unsigned-positive input, sign from section, ──
-  // ── deposit-recognition coaId resolution (force_bs/force_pl/paid-delivery) ──
+  // ── Invoice lines: total_cents, unsigned-positive input, sign from section. ──
+  // Immediate revenue recognition: every line books to its chart_of_accounts_id
+  // (mirrors aggregateRows.ts's resolveInvoice). ──
   const invoiceRows = await fetchAllRows<{
     id: string;
     total_cents: number | null;
     chart_of_accounts_id: string | null;
-    bs_chart_of_accounts_id: string | null;
-    pl_chart_of_accounts_id: string | null;
-    delivery_invoice_id: string | null;
-    account_mode: "force_bs" | "force_pl" | null;
     invoices: { invoice_date: string; status: string } | { invoice_date: string; status: string }[];
   }>(supabase, (from, to) =>
     supabase
       .from("invoice_line_items")
       .select(
-        "id, total_cents, chart_of_accounts_id, bs_chart_of_accounts_id, pl_chart_of_accounts_id, delivery_invoice_id, account_mode, invoices!invoice_line_items_invoice_id_fkey!inner ( invoice_date, status )",
+        "id, total_cents, chart_of_accounts_id, invoices!invoice_line_items_invoice_id_fkey!inner ( invoice_date, status )",
       )
       .neq("invoices.status", "voided")
       .gte("invoices.invoice_date", startDate)
@@ -189,25 +186,12 @@ async function computeGroundTruth(supabase: SupabaseClient, months: string[]) {
       .range(from, to) as unknown as Promise<{ data: never[] | null; error: { message: string } | null }>,
   );
 
-  const deliveryIds = [...new Set(invoiceRows.map((r) => r.delivery_invoice_id).filter((v): v is string => !!v))];
-  const paidDeliveryIds = new Set<string>();
-  if (deliveryIds.length > 0) {
-    const { data, error } = await supabase.from("invoices").select("id, status").in("id", deliveryIds).eq("status", "paid");
-    if (error) throw new Error(`invoices (delivery lookup): ${error.message}`);
-    for (const d of data ?? []) paidDeliveryIds.add(d.id);
-  }
-
   for (const r of invoiceRows) {
     const inv = Array.isArray(r.invoices) ? r.invoices[0] : r.invoices;
     const month = inv?.invoice_date?.slice(0, 7);
     if (!month || !months.includes(month)) continue;
 
-    let coaId: string | null;
-    const deliveryPaid = !!(r.delivery_invoice_id && paidDeliveryIds.has(r.delivery_invoice_id));
-    if (r.account_mode === "force_bs" && r.bs_chart_of_accounts_id) coaId = r.bs_chart_of_accounts_id;
-    else if (r.account_mode === "force_pl" && r.pl_chart_of_accounts_id) coaId = r.pl_chart_of_accounts_id;
-    else if (r.bs_chart_of_accounts_id && r.pl_chart_of_accounts_id) coaId = deliveryPaid ? r.pl_chart_of_accounts_id : r.bs_chart_of_accounts_id;
-    else coaId = r.chart_of_accounts_id;
+    const coaId: string | null = r.chart_of_accounts_id;
 
     const section = sectionOf(coaId, coaTypeById);
     const magnitude = Math.abs(r.total_cents ?? 0);
@@ -471,7 +455,6 @@ async function main() {
   console.log(`  unmapped:        count=${dq.unmapped.count.toString().padStart(4)}  cents=${fmtUsd(dq.unmapped.cents)}`);
   console.log(`  uncategorized:   count=${dq.uncategorized.count.toString().padStart(4)}  cents=${fmtUsd(dq.uncategorized.cents)}`);
   console.log(`  unknownVolume:   count=${dq.unknownVolume.count.toString().padStart(4)}  cents=${fmtUsd(dq.unknownVolume.cents)}`);
-  console.log(`  strandedDeposit: count=${dq.strandedDeposit.count.toString().padStart(4)}  cents=${fmtUsd(dq.strandedDeposit.cents)}`);
   console.log(`  exciseCoverage:  shipmentsMissingExcise=${dq.exciseCoverage.shipmentsMissingExcise}`);
 
   console.log("\n=== VERDICT ===");

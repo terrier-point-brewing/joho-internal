@@ -5,9 +5,7 @@
 // ⚑ indicator that opens a Modal listing each bucket -- pure presentation,
 // no business logic. Row-derivable buckets (unmapped/uncategorized/
 // unknownVolume) also offer a "show in table" action that applies the
-// `quality` filter (Task 11's controls.ts) to the page's current view;
-// strandedDeposit has no qualityBucket() equivalent (see controls.ts), so it
-// gets the deep-link only.
+// `quality` filter (Task 11's controls.ts) to the page's current view.
 //
 // Count caveat: every bucket's `count` is a count of FinancialsRow groups
 // (post-aggregation), not raw transactions -- rows below deliberately lead
@@ -41,7 +39,6 @@ function BucketRow({
   count: number;
   cents: number;
   href: string;
-  /** Omitted for buckets with no `quality` filter equivalent (strandedDeposit). */
   onShowInTable?: () => void;
 }) {
   if (count === 0) return null;
@@ -79,7 +76,6 @@ export default function DataQualityPanel({
     (summary.unmapped.count > 0 ? 1 : 0) +
     (summary.uncategorized.count > 0 ? 1 : 0) +
     (summary.unknownVolume.count > 0 ? 1 : 0) +
-    (summary.strandedDeposit.count > 0 ? 1 : 0) +
     (summary.exciseCoverage.shipmentsMissingExcise > 0 ? 1 : 0);
 
   if (issueBucketCount === 0) {
@@ -107,13 +103,6 @@ export default function DataQualityPanel({
                 }}
               />
             ))}
-
-            <BucketRow
-              label="Stranded Deposits"
-              count={summary.strandedDeposit.count}
-              cents={summary.strandedDeposit.cents}
-              href={summary.strandedDeposit.href}
-            />
 
             {summary.exciseCoverage.shipmentsMissingExcise > 0 && (
               <Card padding="p-3" className="flex items-center justify-between gap-3">
