@@ -376,7 +376,7 @@ export default function SquareTransactionsPage() {
           <AutoMapButton key={`${from}_${to}`} onRun={handleAutoMap} />
           <SyncPanel<SyncResult>
             year={new Date(to).getFullYear()}
-            storageKey="tpb-pos-last-sync"
+            cronJob="finance-sync"
             label="from Square"
             showMonthPicker
             buildEndpoint={({ year, month }) => `/api/finance/transactions/sync?year=${year}&month=${month}`}
