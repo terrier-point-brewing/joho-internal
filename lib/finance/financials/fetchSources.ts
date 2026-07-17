@@ -399,7 +399,12 @@ export async function fetchExpenses(supabase: SupabaseClient, range: DateRange, 
       .lte("accounting_date", range.endDateStr)
       .order("id", { ascending: true });
     if (range.startDateStr) q = q.gte("accounting_date", range.startDateStr);
-    q = cashOnly ? q.eq("state", "CLEARED") : q.or("state.is.null,state.neq.DECLINED");
+    // Cash basis = settled rows only. Card rows settle as "CLEARED" (Square,
+    // uppercase); bank rows — every Gusto payroll withdrawal among them — settle
+    // as "cleared" (bankLedger.ts, lowercase). A case-sensitive .eq("CLEARED")
+    // silently dropped every bank/payroll expense (and its GL splits) from the
+    // cash-flow statement, so match case-insensitively via ilike.
+    q = cashOnly ? q.ilike("state", "cleared") : q.or("state.is.null,state.neq.DECLINED");
     return q;
   });
 

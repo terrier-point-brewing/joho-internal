@@ -37,6 +37,30 @@ export function suggestPayPeriod(input: SuggestPeriodInput): string | null {
   return best?.id ?? null;
 }
 
+export interface UnmatchedPayrollExpense {
+  id: string;
+  expenseDate: string; // "YYYY-MM-DD"
+}
+
+/**
+ * Bulk counterpart to suggestPayPeriod: for each unmatched payroll expense,
+ * pick its nearest in-window pay period (same 10-day rule) and emit an
+ * (expenseId → payPeriodId) match. Expenses with no qualifying period are
+ * dropped (never force-matched). Pure — the DB read/write orchestration lives
+ * in autoMapPayrollExpenses.
+ */
+export function planPayrollMatches(
+  expenses: UnmatchedPayrollExpense[],
+  candidatePeriods: { id: string; endDate: string }[],
+): { expenseId: string; payPeriodId: string }[] {
+  const plans: { expenseId: string; payPeriodId: string }[] = [];
+  for (const e of expenses) {
+    const payPeriodId = suggestPayPeriod({ expenseDate: e.expenseDate, candidatePeriods });
+    if (payPeriodId) plans.push({ expenseId: e.id, payPeriodId });
+  }
+  return plans;
+}
+
 export interface MatchedExpenseAmount {
   expenseId: string;
   amountCents: number; // absolute value of the expense's signed amount_cents
@@ -206,4 +230,72 @@ export async function recomputePeriodExpenseSplits(sb: SupabaseClient, payPeriod
     );
     if (insErr) throw new Error(`Insert payroll_auto splits failed: ${insErr.message}`);
   }
+}
+
+/**
+ * Bulk "auto-map payroll split" for a date range: matches every unmatched
+ * payroll_split-routed bank expense in [from, to] to its nearest pay period
+ * (planPayrollMatches), inserts the matches, then recomputes every touched
+ * period so its proportional GL splits regenerate (recomputePeriodExpenseSplits
+ * no-ops on periods without an active Gusto report). Only ever ADDS matches for
+ * currently-unmatched expenses, so it's safe to re-run. Mirrors the per-row
+ * "Match payroll period" action in app/api/finance/expenses/[id]/payroll-match.
+ */
+export async function autoMapPayrollExpenses(
+  sb: SupabaseClient,
+  opts: { from: string; to: string; matchedBy: string },
+): Promise<{ matched: number; periodsRecomputed: number }> {
+  // Counterparties routed to payroll splitting (e.g. Gusto).
+  const { data: cpRows, error: cpErr } = await sb
+    .from("expense_counterparty_mappings")
+    .select("counterparty_key")
+    .eq("routing", "payroll_split");
+  if (cpErr) throw new Error(`Load payroll_split counterparties failed: ${cpErr.message}`);
+  const keys = ((cpRows ?? []) as { counterparty_key: string }[]).map((r) => r.counterparty_key);
+  if (keys.length === 0) return { matched: 0, periodsRecomputed: 0 };
+
+  // Bank expenses in range for those counterparties.
+  const { data: expRows, error: expErr } = await sb
+    .from("expenses")
+    .select("id, accounting_date, transaction_time")
+    .eq("ramp_object", "bank")
+    .in("counterparty_key", keys)
+    .gte("accounting_date", opts.from)
+    .lte("accounting_date", opts.to);
+  if (expErr) throw new Error(`Load payroll expenses failed: ${expErr.message}`);
+  const candidates = ((expRows ?? []) as { id: string; accounting_date: string | null; transaction_time: string | null }[])
+    .map((r) => ({ id: r.id, expenseDate: r.accounting_date ?? r.transaction_time?.slice(0, 10) ?? null }))
+    .filter((r): r is UnmatchedPayrollExpense => r.expenseDate != null);
+  if (candidates.length === 0) return { matched: 0, periodsRecomputed: 0 };
+
+  // Drop the ones already matched to any period.
+  const { data: matchRows, error: matchErr } = await sb
+    .from("payroll_period_expense_matches")
+    .select("expense_id")
+    .in("expense_id", candidates.map((c) => c.id));
+  if (matchErr) throw new Error(`Load existing payroll matches failed: ${matchErr.message}`);
+  const alreadyMatched = new Set(((matchRows ?? []) as { expense_id: string }[]).map((r) => r.expense_id));
+  const unmatched = candidates.filter((c) => !alreadyMatched.has(c.id));
+  if (unmatched.length === 0) return { matched: 0, periodsRecomputed: 0 };
+
+  const { data: periodRows, error: periodErr } = await sb.from("pay_periods").select("id, end_date");
+  if (periodErr) throw new Error(`Load pay periods failed: ${periodErr.message}`);
+  const periods = ((periodRows ?? []) as { id: string; end_date: string }[]).map((p) => ({ id: p.id, endDate: p.end_date }));
+
+  const plans = planPayrollMatches(unmatched, periods);
+  if (plans.length === 0) return { matched: 0, periodsRecomputed: 0 };
+
+  const { error: insErr } = await sb.from("payroll_period_expense_matches").insert(
+    plans.map((p) => ({ pay_period_id: p.payPeriodId, expense_id: p.expenseId, matched_by: opts.matchedBy })),
+  );
+  if (insErr) throw new Error(`Insert payroll matches failed: ${insErr.message}`);
+
+  // Recompute each touched period once (a period matching a new expense
+  // reweights every already-matched expense in it).
+  const touchedPeriods = Array.from(new Set(plans.map((p) => p.payPeriodId)));
+  for (const periodId of touchedPeriods) {
+    await recomputePeriodExpenseSplits(sb, periodId);
+  }
+
+  return { matched: plans.length, periodsRecomputed: touchedPeriods.length };
 }
