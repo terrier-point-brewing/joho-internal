@@ -26,7 +26,8 @@ import { fetchJson } from "@/app/production/hooks/queries";
 import { fmtCents, fmtDateLong } from "@/lib/utils/formatting";
 import type { FieldSpec, TaxTask, WorksheetData } from "@/lib/tax/types";
 import type { ResolvedRequiredRegistration } from "@/lib/tax/registrations";
-import { useTaxPartiesQuery, useEntityProfileQuery, useLegalRepresentativeQuery } from "../hooks/useTaxData";
+import { useTaxPartiesQuery, useEntityProfileQuery, useLegalRepresentativeQuery, useBankAccountQuery } from "../hooks/useTaxData";
+import { bankAccountTypeLabel } from "@/lib/tax/bankAccount";
 import { getWorksheetModule } from "../parties/registry";
 import CompletePanel from "./CompletePanel";
 
@@ -89,6 +90,7 @@ export default function TaxWorksheetShell({ taskId }: { taskId: string }) {
   });
   const entityProfileQuery = useEntityProfileQuery();
   const representativeQuery = useLegalRepresentativeQuery();
+  const bankAccountQuery = useBankAccountQuery();
 
   const [worksheet, setWorksheet] = useState<WorksheetData>({ fields: {} });
   // True while a local edit hasn't been confirmed saved yet — guards the
@@ -240,8 +242,11 @@ export default function TaxWorksheetShell({ taskId }: { taskId: string }) {
         values={profileQuery.data}
         entity={entityProfileQuery.data}
         representative={representativeQuery.data}
+        bankAccount={bankAccountQuery.data}
         requiredRegistrations={party?.requiredRegistrations ?? []}
-        isLoading={profileQuery.isLoading || entityProfileQuery.isLoading || representativeQuery.isLoading}
+        isLoading={
+          profileQuery.isLoading || entityProfileQuery.isLoading || representativeQuery.isLoading || bankAccountQuery.isLoading
+        }
       />
 
       {worksheet.warnings && worksheet.warnings.length > 0 && (
@@ -310,7 +315,11 @@ export default function TaxWorksheetShell({ taskId }: { taskId: string }) {
  *     separate stored field).
  *  4. `entity` again — Phone Number, Fax Number. Business-level, per an
  *     explicit product decision (NOT the representative's own phone/fax).
- *  5. `schema`/`values` (the party's own `settingsSchema` /
+ *  5. `bankAccount` (tax_bank_account) — Name of Account, Account Type,
+ *     Account Holder, plus a single on-file/not-on-file status row for the
+ *     `sensitive` routing/account numbers (never the real digits — same as
+ *     the representative's SSN, those are Tax Profile-only).
+ *  6. `schema`/`values` (the party's own `settingsSchema` /
  *     `tax_filing_profiles`) — whatever extra identity-ish fields a party
  *     still declares for itself (e.g. NC DOR Sales & Use's Square mapping
  *     fields). Empty for beer excise.
@@ -323,6 +332,7 @@ function IdentityHeader({
   values,
   entity,
   representative,
+  bankAccount,
   requiredRegistrations,
   isLoading,
 }: {
@@ -330,6 +340,7 @@ function IdentityHeader({
   values?: Record<string, string>;
   entity?: Record<string, string>;
   representative?: Record<string, string>;
+  bankAccount?: Record<string, string>;
   requiredRegistrations: ResolvedRequiredRegistration[];
   isLoading: boolean;
 }) {
@@ -362,9 +373,35 @@ function IdentityHeader({
       ]
     : [];
 
+  // Routing/account numbers are `sensitive` — this masked query never carries
+  // the real digits, only "present"/"absent" — so the header can only ever
+  // confirm one's on file, never show it. See Tax Profile's Unmask control
+  // for the real value.
+  const bankAccountRows = bankAccount
+    ? [
+        { label: "Name of Account", value: bankAccount.account_name || "—" },
+        { label: "Account Type", value: bankAccountTypeLabel(bankAccount.account_type) },
+        { label: "Account Holder", value: bankAccount.account_holder || "—" },
+        {
+          label: "Routing/Account Number",
+          value:
+            bankAccount.routing_number === "present" && bankAccount.account_number === "present"
+              ? "On file"
+              : "Not on file",
+        },
+      ]
+    : [];
+
   const schemaRows = schema.map((field) => ({ label: field.label, value: values?.[field.key] || "—" }));
 
-  const rows = [...registrationRows, ...entityRows, ...representativeRows, ...entityContactRows, ...schemaRows];
+  const rows = [
+    ...registrationRows,
+    ...entityRows,
+    ...representativeRows,
+    ...entityContactRows,
+    ...bankAccountRows,
+    ...schemaRows,
+  ];
   if (rows.length === 0) return null;
 
   return (
