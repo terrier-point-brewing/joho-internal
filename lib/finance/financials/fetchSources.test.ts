@@ -1,6 +1,7 @@
-// Covers fetchExpenses's expense_gl_splits batch-join in isolation (the rest
-// of fetchFinancialsSources's per-source fetches are exercised indirectly via
-// buildFinancials.test.ts, which mocks fetchFinancialsSources wholesale).
+// Covers fetchExpenses's expense_gl_splits + payroll-period batch-joins in
+// isolation (the rest of fetchFinancialsSources's per-source fetches are
+// exercised indirectly via buildFinancials.test.ts, which mocks
+// fetchFinancialsSources wholesale).
 import { describe, it, expect } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchExpenses } from "./fetchSources";
@@ -21,15 +22,29 @@ interface SplitRow {
   split_source: string;
 }
 
+interface MatchRow {
+  expense_id: string;
+  pay_period_id: string;
+}
+
+interface PeriodRow {
+  id: string;
+  start_date: string;
+  end_date: string;
+}
+
 /**
- * Fake Supabase client for `expenses` + `expense_gl_splits`. Query-builder
- * chain methods are no-ops that return `this`; `.range()` on the `expenses`
- * table paginates via fetchAllRows the same way lib/supabase/paginate.test.ts
- * does; `.in()` on `expense_gl_splits` records its call count/args so tests
- * can assert the join is a single batched query, not one per expense.
+ * Fake Supabase client for `expenses` + `expense_gl_splits` +
+ * `payroll_period_expense_matches` + `pay_periods`. Query-builder chain
+ * methods are no-ops that return `this`; `.range()` on the `expenses` table
+ * paginates via fetchAllRows the same way lib/supabase/paginate.test.ts
+ * does; `.in()` on the joined tables records its call count/args so tests
+ * can assert each join is a single batched query, not one per expense.
  */
-function fakeClient(opts: { expenses: ExpensesRow[]; splits: SplitRow[] }) {
+function fakeClient(opts: { expenses: ExpensesRow[]; splits: SplitRow[]; matches?: MatchRow[]; periods?: PeriodRow[] }) {
   const splitsQueryCalls: { table: string; inArgs?: [string, unknown[]] }[] = [];
+  const matchesQueryCalls: { table: string; inArgs?: [string, unknown[]] }[] = [];
+  const periodsQueryCalls: { table: string; inArgs?: [string, unknown[]] }[] = [];
 
   const client = {
     from(table: string) {
@@ -63,11 +78,47 @@ function fakeClient(opts: { expenses: ExpensesRow[]; splits: SplitRow[] }) {
         };
         return chain;
       }
+      if (table === "payroll_period_expense_matches") {
+        const call: { table: string; inArgs?: [string, unknown[]] } = { table };
+        matchesQueryCalls.push(call);
+        const chain: Record<string, unknown> = {
+          select: () => chain,
+          in: (col: string, vals: unknown[]) => {
+            call.inArgs = [col, vals];
+            return chain;
+          },
+          order: () => chain,
+          range: async (from: number, to: number) => {
+            const ids = new Set(call.inArgs?.[1] ?? []);
+            const filtered = (opts.matches ?? []).filter((m) => ids.has(m.expense_id));
+            return { data: filtered.slice(from, to + 1), error: null };
+          },
+        };
+        return chain;
+      }
+      if (table === "pay_periods") {
+        const call: { table: string; inArgs?: [string, unknown[]] } = { table };
+        periodsQueryCalls.push(call);
+        const chain: Record<string, unknown> = {
+          select: () => chain,
+          in: (col: string, vals: unknown[]) => {
+            call.inArgs = [col, vals];
+            return chain;
+          },
+          order: () => chain,
+          range: async (from: number, to: number) => {
+            const ids = new Set(call.inArgs?.[1] ?? []);
+            const filtered = (opts.periods ?? []).filter((p) => ids.has(p.id));
+            return { data: filtered.slice(from, to + 1), error: null };
+          },
+        };
+        return chain;
+      }
       throw new Error(`unexpected table ${table}`);
     },
   };
 
-  return { client: client as unknown as SupabaseClient, splitsQueryCalls };
+  return { client: client as unknown as SupabaseClient, splitsQueryCalls, matchesQueryCalls, periodsQueryCalls };
 }
 
 const RANGE = { startDateStr: "2026-01-01", start: "2026-01-01T00:00:00Z", endDateStr: "2026-01-31", end: "2026-02-01T00:00:00Z" };
@@ -106,10 +157,51 @@ describe("fetchExpenses", () => {
     expect(splitsQueryCalls[0].inArgs?.[1]).toEqual(["exp-1", "exp-2", "exp-3"]);
   });
 
-  it("does not query expense_gl_splits at all when there are no expenses in range", async () => {
-    const { client, splitsQueryCalls } = fakeClient({ expenses: [], splits: [] });
+  it("does not query expense_gl_splits, payroll_period_expense_matches, or pay_periods at all when there are no expenses in range", async () => {
+    const { client, splitsQueryCalls, matchesQueryCalls, periodsQueryCalls } = fakeClient({ expenses: [], splits: [] });
     const result = await fetchExpenses(client, RANGE, false);
     expect(result).toEqual([]);
     expect(splitsQueryCalls).toHaveLength(0);
+    expect(matchesQueryCalls).toHaveLength(0);
+    expect(periodsQueryCalls).toHaveLength(0);
+  });
+
+  it("attaches payrollPeriod (start/end) only to expenses matched to a pay period, via two batched joins", async () => {
+    const { client, matchesQueryCalls, periodsQueryCalls } = fakeClient({
+      expenses: [
+        { id: "exp-1", chart_of_accounts_id: "coa-a", amount_cents: -42000, accounting_date: "2026-01-05", mapping_source: "rule", state: null },
+        { id: "exp-2", chart_of_accounts_id: "coa-b", amount_cents: -1000, accounting_date: "2026-01-10", mapping_source: "rule", state: null },
+      ],
+      splits: [],
+      matches: [{ expense_id: "exp-1", pay_period_id: "period-1" }],
+      periods: [{ id: "period-1", start_date: "2026-05-25", end_date: "2026-06-07" }],
+    });
+
+    const result = await fetchExpenses(client, RANGE, false);
+
+    const exp1 = result.find((r) => r.id === "exp-1")!;
+    const exp2 = result.find((r) => r.id === "exp-2")!;
+    expect(exp1.payrollPeriod).toEqual({ start: "2026-05-25", end: "2026-06-07" });
+    expect(exp2.payrollPeriod ?? null).toBeNull();
+
+    // One batched query per join, not one per expense.
+    expect(matchesQueryCalls).toHaveLength(1);
+    expect(matchesQueryCalls[0].inArgs?.[1]).toEqual(["exp-1", "exp-2"]);
+    expect(periodsQueryCalls).toHaveLength(1);
+    expect(periodsQueryCalls[0].inArgs?.[1]).toEqual(["period-1"]);
+  });
+
+  it("does not query pay_periods when no expense in range has a payroll match", async () => {
+    const { client, matchesQueryCalls, periodsQueryCalls } = fakeClient({
+      expenses: [{ id: "exp-1", chart_of_accounts_id: "coa-a", amount_cents: -1000, accounting_date: "2026-01-05", mapping_source: "rule", state: null }],
+      splits: [],
+      matches: [],
+      periods: [],
+    });
+
+    const result = await fetchExpenses(client, RANGE, false);
+    expect(result[0].payrollPeriod ?? null).toBeNull();
+    expect(matchesQueryCalls).toHaveLength(1);
+    expect(periodsQueryCalls).toHaveLength(0);
   });
 });

@@ -75,6 +75,14 @@ export interface ExpenseRecord {
   mappingSource: MappingSource;
   /** Populated by fetchExpenses via a join to expense_gl_splits; undefined/[] when the expense has no split. */
   splitLines?: { chartOfAccountsId: string; amountCents: number; splitSource: "payroll_auto" | "manual" }[];
+  /**
+   * Matched pay period's date range (payroll_period_expense_matches ->
+   * pay_periods.start_date/end_date), populated by fetchExpenses. When
+   * present, this — not accountingDate — is the month-attribution basis for
+   * splitLines; see prorateAcrossMonths in ../payrollPeriodProration.ts.
+   * null/undefined when the expense has no payroll match.
+   */
+  payrollPeriod?: { start: string; end: string } | null;
 }
 
 /** ramp_bank_ledger row — same resolved-upstream shape as expenses. */
