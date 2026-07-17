@@ -3,6 +3,7 @@ import { fetchCatalogItems } from "@/lib/square/catalog";
 import { fetchCompletedOrders } from "@/lib/square/orders";
 import { fetchRefunds } from "@/lib/square/refunds";
 import { buildTaproomModelReport } from "@/lib/reports/taproom-model";
+import { isInvoiceOrder } from "@/lib/square/invoiceOrders";
 import { TAPROOM_MODEL_CATEGORIES } from "@/lib/constants/categories";
 import { requireDateRange, apiError } from "@/lib/utils/api";
 import { localDateString, eachDateString } from "@/lib/utils/datetime";
@@ -25,7 +26,7 @@ export async function GET(req: NextRequest) {
       fetchRefunds(start, end),
     ]);
 
-    const orders = allOrders.filter((o) => (o.source?.name ?? "") !== "Invoices");
+    const orders = allOrders.filter((o) => !isInvoiceOrder(o));
     const result = buildTaproomModelReport(orders, catalogItems, refunds);
 
     // Totals

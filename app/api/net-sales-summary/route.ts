@@ -8,6 +8,7 @@ import { buildTaproomModelReport } from "@/lib/reports/taproom-model";
 import { TAPROOM_MODEL_CATEGORIES } from "@/lib/constants/categories";
 import { requireDateRange, apiError } from "@/lib/utils/api";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { isInvoiceOrder } from "@/lib/square/invoiceOrders";
 
 const EXCLUDED_CATEGORY_IDS = new Set(["CO2", "OTHER"]);
 
@@ -28,9 +29,7 @@ export async function GET(req: NextRequest) {
       fetchRefunds(start, end),
     ]);
 
-    const posOrders = allOrders.filter(
-      (o) => (o.source?.name ?? "") !== "Invoices"
-    );
+    const posOrders = allOrders.filter((o) => !isInvoiceOrder(o));
 
     const result = buildTaproomModelReport(posOrders, catalogItems, refunds);
     let netSalesCents = TAPROOM_MODEL_CATEGORIES.reduce((sum, cat) => {

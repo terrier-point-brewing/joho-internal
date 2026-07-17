@@ -10,6 +10,7 @@ import { TAPROOM_MODEL_CATEGORIES } from "@/lib/constants/categories";
 import { apiError } from "@/lib/utils/api";
 import { sumAdjustmentCost } from "@/lib/finance/cogs";
 import { computePlSummary, proratedManualRevenue } from "@/lib/finance/pl";
+import { isInvoiceOrder } from "@/lib/square/invoiceOrders";
 
 export const dynamic = "force-dynamic";
 
@@ -59,8 +60,8 @@ export async function GET(req: NextRequest) {
   if (pkgResult.error) throw new Error(`COGS packaging query failed: ${pkgResult.error.message}`);
 
   // ── Revenue ────────────────────────────────────────────────────────────────
-  const posOrders = allOrders.filter((o) => (o.source?.name ?? "") !== "Invoices");
-  const invoiceOrders = allOrders.filter((o) => o.source?.name === "Invoices");
+  const posOrders = allOrders.filter((o) => !isInvoiceOrder(o));
+  const invoiceOrders = allOrders.filter((o) => isInvoiceOrder(o));
 
   const taproomReport = buildTaproomModelReport(posOrders, catalogItems, refunds);
   // Taproom net sales stay in INTEGER CENTS here; the cents→dollars conversion
