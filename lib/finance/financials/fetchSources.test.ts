@@ -1,10 +1,10 @@
-// Covers fetchExpenses's expense_gl_splits + payroll-period batch-joins in
-// isolation (the rest of fetchFinancialsSources's per-source fetches are
-// exercised indirectly via buildFinancials.test.ts, which mocks
-// fetchFinancialsSources wholesale).
+// Covers fetchExpenses's expense_gl_splits + payroll-period batch-joins and
+// fetchInvoiceLines's channel-derivation fallback in isolation (the rest of
+// fetchFinancialsSources's per-source fetches are exercised indirectly via
+// buildFinancials.test.ts, which mocks fetchFinancialsSources wholesale).
 import { describe, it, expect } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { fetchExpenses } from "./fetchSources";
+import { fetchExpenses, fetchInvoiceLines } from "./fetchSources";
 
 interface ExpensesRow {
   id: string;
@@ -203,5 +203,119 @@ describe("fetchExpenses", () => {
     expect(result[0].payrollPeriod ?? null).toBeNull();
     expect(matchesQueryCalls).toHaveLength(1);
     expect(periodsQueryCalls).toHaveLength(0);
+  });
+});
+
+// ── fetchInvoiceLines channel-derivation fallback ───────────────────────────
+
+interface InvoiceLineRow {
+  id: string;
+  total_cents: number | null;
+  category: string | null;
+  chart_of_accounts_id: string | null;
+  invoices: {
+    id: string;
+    invoice_date: string;
+    status: string;
+    export_transactions: { channel: string; volume_bbl: number | null }[];
+    allocation_id: string | null;
+    batch_allocations: { channel: string } | null;
+  };
+}
+
+function fakeInvoiceLinesClient(rows: InvoiceLineRow[]) {
+  const chain: Record<string, unknown> = {
+    select: () => chain,
+    neq: () => chain,
+    lte: () => chain,
+    gte: () => chain,
+    eq: () => chain,
+    order: () => chain,
+    range: async (from: number, to: number) => ({ data: rows.slice(from, to + 1), error: null }),
+  };
+  const client = { from: () => chain };
+  return client as unknown as SupabaseClient;
+}
+
+describe("fetchInvoiceLines", () => {
+  it("uses export_transactions.channel when present, ignoring the invoice's allocation channel", async () => {
+    const client = fakeInvoiceLinesClient([
+      {
+        id: "line-1", total_cents: 1000, category: null, chart_of_accounts_id: "coa-a",
+        invoices: {
+          id: "inv-1", invoice_date: "2026-06-01", status: "paid",
+          export_transactions: [{ channel: "contract_brewing", volume_bbl: null }],
+          allocation_id: "alloc-1", batch_allocations: { channel: "distribution" },
+        },
+      },
+    ]);
+
+    const [row] = await fetchInvoiceLines(client, RANGE, false);
+    expect(row.exportChannel).toBe("contract_brewing");
+  });
+
+  it("falls back to the linked allocation's channel when the invoice has no export_transactions (e.g. a deposit invoice)", async () => {
+    const client = fakeInvoiceLinesClient([
+      {
+        id: "line-deposit", total_cents: 50000, category: null, chart_of_accounts_id: "coa-4320",
+        invoices: {
+          id: "inv-deposit", invoice_date: "2026-06-01", status: "paid",
+          export_transactions: [],
+          allocation_id: "alloc-2", batch_allocations: { channel: "distribution" },
+        },
+      },
+    ]);
+
+    const [row] = await fetchInvoiceLines(client, RANGE, false);
+    expect(row.exportChannel).toBe("distribution");
+  });
+
+  it("resolves null (unknown) when there's no export_transactions and no linked allocation", async () => {
+    const client = fakeInvoiceLinesClient([
+      {
+        id: "line-standard", total_cents: 2000, category: null, chart_of_accounts_id: "coa-b",
+        invoices: {
+          id: "inv-standard", invoice_date: "2026-06-01", status: "paid",
+          export_transactions: [], allocation_id: null, batch_allocations: null,
+        },
+      },
+    ]);
+
+    const [row] = await fetchInvoiceLines(client, RANGE, false);
+    expect(row.exportChannel).toBeNull();
+  });
+
+  it("does not fall back to an allocation channel outside the Channel union (e.g. safety_stock)", async () => {
+    const client = fakeInvoiceLinesClient([
+      {
+        id: "line-safety", total_cents: 3000, category: null, chart_of_accounts_id: "coa-c",
+        invoices: {
+          id: "inv-safety", invoice_date: "2026-06-01", status: "paid",
+          export_transactions: [], allocation_id: "alloc-3", batch_allocations: { channel: "safety_stock" },
+        },
+      },
+    ]);
+
+    const [row] = await fetchInvoiceLines(client, RANGE, false);
+    expect(row.exportChannel).toBeNull();
+  });
+
+  it("does not use the allocation fallback when export_transactions exist but are ambiguous (2+ distinct channels)", async () => {
+    const client = fakeInvoiceLinesClient([
+      {
+        id: "line-ambiguous", total_cents: 4000, category: null, chart_of_accounts_id: "coa-d",
+        invoices: {
+          id: "inv-ambiguous", invoice_date: "2026-06-01", status: "paid",
+          export_transactions: [
+            { channel: "contract_brewing", volume_bbl: null },
+            { channel: "distribution", volume_bbl: null },
+          ],
+          allocation_id: "alloc-4", batch_allocations: { channel: "wholesale" },
+        },
+      },
+    ]);
+
+    const [row] = await fetchInvoiceLines(client, RANGE, false);
+    expect(row.exportChannel).toBeNull();
   });
 });

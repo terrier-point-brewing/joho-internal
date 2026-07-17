@@ -558,7 +558,7 @@ export default function InvoicesPage() {
           </button>
           <SyncPanel<InvoiceSyncResult>
             year={new Date(to).getFullYear()}
-            storageKey="tpb-invoices-last-sync"
+            cronJob="finance-sync"
             label="from Square"
             buildEndpoint={({ year }) => `/api/finance/ledger/sync-square?year=${year}`}
             onSynced={() => refetch()}

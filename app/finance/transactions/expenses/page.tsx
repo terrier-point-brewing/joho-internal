@@ -382,7 +382,7 @@ export default function ExpensesPage() {
           />
           <SyncPanel<SyncResult>
             year={new Date(to).getFullYear()}
-            storageKey="tpb-expenses-last-sync"
+            cronJob="ramp-expenses-sync"
             label="Ramp"
             buildEndpoint={() => `/api/finance/expenses/sync?from=${from}&to=${to}`}
             onSynced={() => loadAll(from, to)}
