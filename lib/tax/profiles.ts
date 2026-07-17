@@ -64,3 +64,22 @@ export function maskSensitive(values: TaxFilingProfileValues, schema: FieldSpec[
   }
   return masked;
 }
+
+/**
+ * The deliberate escape hatch from the write-only `sensitive` contract above:
+ * returns the REAL stored value for each `sensitive` schema field (omitting
+ * ones with no stored value), for an explicit user-initiated "unmask" action.
+ * Non-sensitive fields are never included — callers already have those from
+ * the regular masked GET, so this only ever carries the one thing that GET
+ * withholds. Route handlers must gate this behind a stricter role check than
+ * the masked GET (see the reveal routes under app/api/tax/).
+ */
+export function pickSensitiveValues(values: TaxFilingProfileValues, schema: FieldSpec[]): Record<string, string> {
+  const revealed: Record<string, string> = {};
+  for (const field of schema) {
+    if (!field.sensitive) continue;
+    const value = values[field.key];
+    if (value && value.length > 0) revealed[field.key] = value;
+  }
+  return revealed;
+}

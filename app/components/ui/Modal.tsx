@@ -71,7 +71,7 @@ export function Field({
   label: ReactNode;
   required?: boolean;
   children: ReactNode;
-  hint?: string;
+  hint?: ReactNode;
 }) {
   return (
     <div>

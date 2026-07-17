@@ -30,9 +30,12 @@ async function putJson<T>(url: string, body: unknown): Promise<T> {
  * `"present"`/`"absent"` — this form never seeds a real value into a
  * sensitive input (see `lib/tax/identityForm.initialFormValues`); those
  * inputs start blank and a blank submit means "leave unchanged" (the PUT
- * route merges, per lib/tax/profiles.ts). The `general_sales_tax_id` select
- * (type "select" with no static `options`) is populated from Square's live
- * catalog taxes via `/api/tax/square-taxes`.
+ * route merges, per lib/tax/profiles.ts). A sensitive field's real value is
+ * only ever fetched on an explicit "Unmask" click, from `GET
+ * {endpoint}/reveal` (admin-only, lib/tax/profiles.pickSensitiveValues) —
+ * never as part of the regular masked GET above. The `general_sales_tax_id`
+ * select (type "select" with no static `options`) is populated from
+ * Square's live catalog taxes via `/api/tax/square-taxes`.
  */
 export default function IdentityForm({
   schema,
@@ -70,9 +73,23 @@ export default function IdentityForm({
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
+  // Per-field "unmask" state for `sensitive` fields — `fetched` tracks whether
+  // this field's real value has been pulled from `{endpoint}/reveal` at least
+  // once (so toggling visibility again doesn't re-fetch); `visible` tracks
+  // whether it's currently shown in the clear vs. masked as a password input.
+  const [fetched, setFetched] = useState<Record<string, boolean>>({});
+  const [visible, setVisible] = useState<Record<string, boolean>>({});
+  const [revealingKey, setRevealingKey] = useState<string | null>(null);
+  const [revealErrors, setRevealErrors] = useState<Record<string, string>>({});
+
   useEffect(() => {
     if (profileQuery.data && !initializedRef.current) {
       setValues(initialFormValues(schema, profileQuery.data));
+      // A fresh masked payload means any previously revealed value is stale
+      // (re-blanked by initialFormValues) — drop the reveal state with it.
+      setFetched({});
+      setVisible({});
+      setRevealErrors({});
       initializedRef.current = true;
     }
   }, [profileQuery.data, schema]);
@@ -80,6 +97,28 @@ export default function IdentityForm({
   function setField(key: string, value: string) {
     setValues((cur) => ({ ...cur, [key]: value }));
     setSaved(false);
+  }
+
+  async function handleToggleReveal(fieldKey: string) {
+    if (fetched[fieldKey]) {
+      setVisible((cur) => ({ ...cur, [fieldKey]: !cur[fieldKey] }));
+      return;
+    }
+    setRevealingKey(fieldKey);
+    setRevealErrors((cur) => ({ ...cur, [fieldKey]: "" }));
+    try {
+      const revealed = await fetchJson<Record<string, string>>(`${endpoint}/reveal`);
+      setValues((cur) => ({ ...cur, [fieldKey]: revealed[fieldKey] ?? "" }));
+      setFetched((cur) => ({ ...cur, [fieldKey]: true }));
+      setVisible((cur) => ({ ...cur, [fieldKey]: true }));
+    } catch (err) {
+      setRevealErrors((cur) => ({
+        ...cur,
+        [fieldKey]: err instanceof Error ? err.message : "Failed to reveal value.",
+      }));
+    } finally {
+      setRevealingKey(null);
+    }
   }
 
   async function handleSubmit(e: FormEvent) {
@@ -115,17 +154,31 @@ export default function IdentityForm({
         {saved && <Banner tone="success">{savedLabel ?? "Saved."}</Banner>}
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {schema.map((field) => (
-            <Field key={field.key} label={field.label} required={field.required} hint={field.help}>
-              <IdentityFieldInput
-                field={field}
-                value={values[field.key] ?? ""}
-                onChange={(v) => setField(field.key, v)}
-                masked={profileQuery.data}
-                squareTaxes={squareTaxesQuery.data}
-              />
-            </Field>
-          ))}
+          {schema.map((field) => {
+            const present = isSensitivePresent(field, profileQuery.data);
+            const hint = field.sensitive ? (
+              <>
+                {field.help ? `${field.help} — ` : null}
+                Currently: <span className={present ? "text-success" : "text-muted"}>{present ? "set" : "not set"}</span>
+              </>
+            ) : (
+              field.help
+            );
+            return (
+              <Field key={field.key} label={field.label} required={field.required} hint={hint}>
+                <IdentityFieldInput
+                  field={field}
+                  value={values[field.key] ?? ""}
+                  onChange={(v) => setField(field.key, v)}
+                  squareTaxes={squareTaxesQuery.data}
+                  visible={!!visible[field.key]}
+                  revealing={revealingKey === field.key}
+                  revealError={revealErrors[field.key]}
+                  onToggleReveal={() => handleToggleReveal(field.key)}
+                />
+              </Field>
+            );
+          })}
           {schema.length === 0 && <p className="text-sm text-faint">This party has no identity fields to configure.</p>}
         </div>
 
@@ -145,33 +198,43 @@ function IdentityFieldInput({
   field,
   value,
   onChange,
-  masked,
   squareTaxes,
+  visible,
+  revealing,
+  revealError,
+  onToggleReveal,
 }: {
   field: FieldSpec;
   value: string;
   onChange: (v: string) => void;
-  masked?: Record<string, string>;
   squareTaxes?: SquareTaxOption[];
+  visible?: boolean;
+  revealing?: boolean;
+  revealError?: string;
+  onToggleReveal?: () => void;
 }) {
-  // Sensitive fields are write-only: the GET payload only ever tells us
-  // "present"/"absent" (never the real value), so the input always starts
-  // blank and we surface the stored status as text alongside it.
+  // Sensitive fields are write-only by default: the GET payload only ever
+  // tells us "present"/"absent" (never the real value), so the input starts
+  // blank/masked. "Unmask" fetches the real value on demand from
+  // `{endpoint}/reveal` (admin-only) — see handleToggleReveal — and toggles
+  // this input to type="text" so the retrieved value is actually readable.
   if (field.sensitive) {
-    const present = isSensitivePresent(field, masked);
     return (
       <div className="space-y-1">
-        <p className="text-xs text-faint">
-          Currently: <span className={present ? "text-success" : "text-muted"}>{present ? "set" : "not set"}</span>
-        </p>
-        <input
-          type="password"
-          className="inp"
-          autoComplete="off"
-          placeholder="Leave blank to keep unchanged"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-        />
+        <div className="flex items-center gap-2">
+          <input
+            type={visible ? "text" : "password"}
+            className="inp flex-1"
+            autoComplete="off"
+            placeholder="Leave blank to keep unchanged"
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+          />
+          <button type="button" className="btn-secondary btn-xxs shrink-0" onClick={onToggleReveal} disabled={revealing}>
+            {revealing ? "Loading…" : visible ? "Hide" : "Unmask"}
+          </button>
+        </div>
+        {revealError && <p className="text-xs text-danger">{revealError}</p>}
       </div>
     );
   }

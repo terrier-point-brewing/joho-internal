@@ -69,6 +69,13 @@ export function useLegalRepresentativeQuery() {
   });
 }
 
+export function useBankAccountQuery() {
+  return useQuery({
+    queryKey: queryKeys.tax.bankAccount(),
+    queryFn: () => fetchJson<Record<string, string>>("/api/tax/bank-account"),
+  });
+}
+
 /**
  * Aggregates the three read-only tax queries the landing page needs. Kept as
  * one hook so `TaskList` gets a single loading/error surface instead of
