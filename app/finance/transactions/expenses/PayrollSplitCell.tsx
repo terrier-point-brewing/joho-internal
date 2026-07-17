@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import Badge from "@/app/components/ui/Badge";
+import ConfirmDialog from "@/app/components/ui/ConfirmDialog";
 import type { CoARef } from "../../AccountSelect";
 
 export interface GlLine {
@@ -96,6 +97,7 @@ interface PayrollSplitPanelProps {
 export function PayrollSplitPanel({ expenseId, payrollMatch, glLines, accounts, onUpdated }: PayrollSplitPanelProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmOverwrite, setConfirmOverwrite] = useState(false);
 
   async function handleMatch() {
     setBusy(true);
@@ -124,9 +126,7 @@ export function PayrollSplitPanel({ expenseId, payrollMatch, glLines, accounts, 
     try {
       const res = await postAction(expenseId, { action: "recompute", confirmOverwriteManual });
       if (res.status === 409) {
-        if (window.confirm("This expense has a manually-edited split. Overwrite it with the recomputed payroll split?")) {
-          await handleRecompute(true);
-        }
+        setConfirmOverwrite(true);
         return;
       }
       if (!res.ok) throw new Error(res.json?.error ?? "Recompute failed.");
@@ -157,66 +157,83 @@ export function PayrollSplitPanel({ expenseId, payrollMatch, glLines, accounts, 
   const splitTotal = glLines.reduce((s, l) => s + Math.abs(l.amountCents), 0);
 
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-center gap-2">
-        <span className="text-[10px] text-faint uppercase tracking-wider shrink-0">Payroll split</span>
-        {payrollMatch ? (
-          <span className="text-[11px] text-body" title={`Pay period ${payrollMatch.periodStart} – ${payrollMatch.periodEnd}`}>
-            Pay period {periodLabel ?? `${payrollMatch.periodStart} – ${payrollMatch.periodEnd}`}
-          </span>
-        ) : (
-          <span className="text-[11px] text-secondary">Not yet matched to a pay period.</span>
-        )}
-      </div>
-
-      {!payrollMatch ? (
-        <div>
-          <button type="button" className="btn-primary btn-xxs" disabled={busy} onClick={handleMatch}>
-            {busy ? "Matching…" : "Match payroll period"}
-          </button>
-        </div>
-      ) : !hasSplits ? (
+    <>
+      <div className="flex flex-col gap-2">
         <div className="flex items-center gap-2">
-          <Badge tone="info">Awaiting Gusto upload</Badge>
-          <button type="button" className="btn-secondary btn-xxs" disabled={busy} onClick={handleUnmatch}>
-            {busy ? "…" : "Unmatch"}
-          </button>
+          <span className="text-2xs text-faint uppercase tracking-wider shrink-0">Payroll split</span>
+          {payrollMatch ? (
+            <span className="text-xs text-body" title={`Pay period ${payrollMatch.periodStart} – ${payrollMatch.periodEnd}`}>
+              Pay period {periodLabel ?? `${payrollMatch.periodStart} – ${payrollMatch.periodEnd}`}
+            </span>
+          ) : (
+            <span className="text-xs text-secondary">Not yet matched to a pay period.</span>
+          )}
         </div>
-      ) : (
-        <>
-          <ul className="text-[11px] text-secondary space-y-0.5 max-w-[420px]">
-            {glLines.map((l, i) => (
-              <li key={i} className="flex items-center justify-between gap-3">
-                <span className="truncate">
-                  {accountLabel(accounts, l.chartOfAccountsId)}
-                  {l.splitSource === "manual" && <span className="text-info ml-1" title="Manually overridden">pin</span>}
-                </span>
-                <span className="font-mono text-body shrink-0">{fmtCents(Math.abs(l.amountCents))}</span>
-              </li>
-            ))}
-            <li className="flex items-center justify-between gap-3 border-t border-line/40 pt-0.5 mt-0.5 text-body">
-              <span className="truncate font-medium">Total</span>
-              <span className="font-mono shrink-0">{fmtCents(splitTotal)}</span>
-            </li>
-          </ul>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              className="btn-secondary btn-xxs"
-              disabled={busy}
-              title="Recompute this expense's payroll split from the period's Gusto totals"
-              onClick={() => handleRecompute()}
-            >
-              {busy ? "…" : "↻ Recompute"}
-            </button>
-            <button type="button" className="btn-secondary btn-xxs" disabled={busy} onClick={handleUnmatch}>
-              Unmatch
+
+        {!payrollMatch ? (
+          <div>
+            <button type="button" className="btn-primary btn-xxs" disabled={busy} onClick={handleMatch}>
+              {busy ? "Matching…" : "Match payroll period"}
             </button>
           </div>
-        </>
-      )}
+        ) : !hasSplits ? (
+          <div className="flex items-center gap-2">
+            <Badge tone="info">Awaiting Gusto upload</Badge>
+            <button type="button" className="btn-secondary btn-xxs" disabled={busy} onClick={handleUnmatch}>
+              {busy ? "…" : "Unmatch"}
+            </button>
+          </div>
+        ) : (
+          <>
+            <ul className="text-xs text-secondary space-y-0.5 max-w-[420px]">
+              {glLines.map((l, i) => (
+                <li key={i} className="flex items-center justify-between gap-3">
+                  <span className="truncate">
+                    {accountLabel(accounts, l.chartOfAccountsId)}
+                    {l.splitSource === "manual" && (
+                      <span title="Manually overridden">
+                        <Badge tone="info" className="ml-1">manual</Badge>
+                      </span>
+                    )}
+                  </span>
+                  <span className="font-mono text-body shrink-0">{fmtCents(Math.abs(l.amountCents))}</span>
+                </li>
+              ))}
+              <li className="flex items-center justify-between gap-3 border-t border-line/40 pt-0.5 mt-0.5 text-body">
+                <span className="truncate font-medium">Total</span>
+                <span className="font-mono shrink-0">{fmtCents(splitTotal)}</span>
+              </li>
+            </ul>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="btn-secondary btn-xxs"
+                disabled={busy}
+                title="Recompute this expense's payroll split from the period's Gusto totals"
+                onClick={() => handleRecompute()}
+              >
+                {busy ? "…" : "↻ Recompute"}
+              </button>
+              <button type="button" className="btn-secondary btn-xxs" disabled={busy} onClick={handleUnmatch}>
+                Unmatch
+              </button>
+            </div>
+          </>
+        )}
 
-      {error && <span className="text-[10px] text-danger">{error}</span>}
-    </div>
+        {error && <span className="text-2xs text-danger">{error}</span>}
+      </div>
+      {confirmOverwrite && (
+        <ConfirmDialog
+          title="Overwrite manual split?"
+          message="This expense has a manually-edited payroll split. Overwrite it with the recomputed split from the period's Gusto totals?"
+          confirmLabel="Overwrite"
+          tone="danger"
+          busy={busy}
+          onConfirm={() => { setConfirmOverwrite(false); handleRecompute(true); }}
+          onCancel={() => setConfirmOverwrite(false)}
+        />
+      )}
+    </>
   );
 }

@@ -1,8 +1,5 @@
 "use client";
 
-import FinanceNav from "../../FinanceNav";
-import PageHeader from "@/app/components/PageHeader";
-import SettingsNav from "../SettingsNav";
 import { queryKeys } from "@/lib/query-keys";
 import { ENTITY_PROFILE_SCHEMA } from "@/lib/tax/entity";
 import { LEGAL_REPRESENTATIVE_SCHEMA } from "@/lib/tax/legalRepresentative";
@@ -17,15 +14,12 @@ import RegistrationsSection from "./RegistrationsSection";
  */
 export default function TaxProfileSettingsPage() {
   return (
-    <div className="flex flex-col h-full bg-canvas text-primary">
-      <FinanceNav mobile />
-      <div className="shrink-0 px-4 sm:px-6">
-        <PageHeader
-          title="Tax Profile"
-          description="Business identity, the legal representative who signs filings, and the account/license numbers registered with each tax authority."
-        />
+    <>
+      <div className="shrink-0 px-4 sm:px-6 pt-4 pb-2">
+        <p className="text-sm text-muted">
+          Business identity, the legal representative who signs filings, and the account/license numbers registered with each tax authority.
+        </p>
       </div>
-      <SettingsNav />
       <div className="flex-1 overflow-auto px-4 sm:px-6 py-4 flex flex-col gap-6">
         <section className="flex flex-col gap-2">
           <h3 className="text-sm font-semibold text-primary">Filer Identity</h3>
@@ -52,6 +46,6 @@ export default function TaxProfileSettingsPage() {
           <RegistrationsSection />
         </section>
       </div>
-    </div>
+    </>
   );
 }

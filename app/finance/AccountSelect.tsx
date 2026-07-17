@@ -186,7 +186,7 @@ export default function AccountSelect({
 
             {groupEntries.map(([type, accs]) => (
               <div key={type}>
-                <div className="px-3 py-1 text-[10px] text-faint uppercase tracking-wider bg-surface/80 sticky top-0">
+                <div className="px-3 py-1 text-2xs text-faint uppercase tracking-wider bg-surface/80 sticky top-0">
                   {type}
                 </div>
                 {accs

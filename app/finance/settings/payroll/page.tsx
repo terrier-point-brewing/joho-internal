@@ -2,10 +2,8 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, useEffect } from "react";
-import PageHeader from "@/app/components/PageHeader";
 import Banner from "@/app/components/ui/Banner";
-import FinanceNav from "../../FinanceNav";
-import SettingsNav from "../SettingsNav";
+import ConfirmDialog from "@/app/components/ui/ConfirmDialog";
 import { queryKeys } from "@/lib/query-keys";
 import type { Employee, PayrollConfig } from "@/lib/payroll/types";
 
@@ -66,6 +64,7 @@ export default function PayrollSettingsPage() {
   // ── Employee edit state ───────────────────────────────────────────────────
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<Partial<Employee>>({});
+  const [deactivating, setDeactivating] = useState<Employee | null>(null);
 
   function startEdit(emp: Employee) {
     setEditingId(emp.id);
@@ -114,33 +113,19 @@ export default function PayrollSettingsPage() {
     guaranteed_min_frequency: overrides?.guaranteed_min_frequency ?? guaranteedMinFrequency,
   });
 
-  const saveSchedule = useMutation({
-    mutationFn: () =>
-      fetch("/api/payroll/config", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(buildConfigBody({
-          pay_period_frequency: frequency,
-          due_date_days_after_end: parseInt(dueDays, 10),
-        })),
-      }).then(r => r.json()),
-    onSuccess: (data: { periodCreated?: boolean }) => {
-      qc.invalidateQueries({ queryKey: queryKeys.payroll.config() });
-      qc.invalidateQueries({ queryKey: queryKeys.payroll.periods() });
-      const note = data.periodCreated ? " Current period created." : "";
-      setScheduleMsg(`Saved.${note}`);
-      setTimeout(() => setScheduleMsg(null), 4000);
-    },
-  });
-
-  const saveRates = useMutation({
+  const saveConfig = useMutation({
     mutationFn: () =>
       fetch("/api/payroll/config", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(buildConfigBody()),
       }).then(r => r.json()),
-    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.payroll.config() }),
+    onSuccess: (data: { periodCreated?: boolean }) => {
+      qc.invalidateQueries({ queryKey: queryKeys.payroll.config() });
+      qc.invalidateQueries({ queryKey: queryKeys.payroll.periods() });
+      setScheduleMsg(`Saved.${data.periodCreated ? " Current period created." : ""}`);
+      setTimeout(() => setScheduleMsg(null), 4000);
+    },
   });
 
   const addEmployee = useMutation({
@@ -207,17 +192,8 @@ export default function PayrollSettingsPage() {
     },
   });
 
-  const inputCls = "inp mt-1 w-full";
-  const labelCls = "block text-xs text-secondary";
-
   return (
-    <div className="flex flex-col h-full bg-canvas text-primary">
-      <FinanceNav mobile />
-      <div className="shrink-0 px-4 sm:px-6">
-        <PageHeader title="Payroll" />
-      </div>
-      <SettingsNav />
-
+    <>
       <div className="flex-1 overflow-auto px-4 sm:px-6 py-4 sm:py-6 max-w-3xl">
       {/* ── Pay Schedule ─────────────────────────────────────────────────── */}
       <section className="mt-6 mb-10">
@@ -235,18 +211,18 @@ export default function PayrollSettingsPage() {
         </div>
         <div className="grid grid-cols-2 gap-4 mb-4">
           <label className="block">
-            <span className={labelCls}>Pay Frequency</span>
+            <span className="block text-xs text-secondary">Pay Frequency</span>
             <select
               value={frequency}
               onChange={e => setFrequency(e.target.value as PayPeriodFrequency)}
-              className={inputCls}
+              className="inp mt-1 w-full"
             >
               <option value="weekly">Weekly (7 days)</option>
               <option value="biweekly">Biweekly (14 days)</option>
             </select>
           </label>
           <label className="block">
-            <span className={labelCls}>Payroll Due (days after period end)</span>
+            <span className="block text-xs text-secondary">Payroll Due (days after period end)</span>
             <input
               type="number"
               min="0"
@@ -254,23 +230,13 @@ export default function PayrollSettingsPage() {
               step="1"
               value={dueDays}
               onChange={e => setDueDays(e.target.value)}
-              className={inputCls}
+              className="inp mt-1 w-full"
             />
           </label>
         </div>
         <p className="text-xs text-faint mb-4">
           Saving creates the current period if it does not exist yet. The daily cron creates the next period as soon as the current one starts.
         </p>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => saveSchedule.mutate()}
-            disabled={saveSchedule.isPending}
-            className="btn-primary"
-          >
-            {saveSchedule.isPending ? "Saving…" : "Save Pay Schedule"}
-          </button>
-          {scheduleMsg && <span className="text-xs text-success">{scheduleMsg}</span>}
-        </div>
       </section>
 
       {/* ── Rate Configuration ────────────────────────────────────────────── */}
@@ -278,38 +244,38 @@ export default function PayrollSettingsPage() {
         <h3 className="text-sm font-semibold text-strong mb-4">Rate Configuration</h3>
         <div className="grid grid-cols-2 gap-4 mb-4">
           <label className="block">
-            <span className={labelCls}>Base Rate ($/hr)</span>
+            <span className="block text-xs text-secondary">Base Rate ($/hr)</span>
             <input
               type="number" step="0.01" min="0"
               value={baseRate}
               onChange={e => setBaseRate(e.target.value)}
-              className={inputCls}
+              className="inp mt-1 w-full"
             />
           </label>
           <label className="block">
-            <span className={labelCls}>Guaranteed Rate ($/hr)</span>
+            <span className="block text-xs text-secondary">Guaranteed Rate ($/hr)</span>
             <input
               type="number" step="0.01" min="0"
               value={guaranteedRate}
               onChange={e => setGuaranteedRate(e.target.value)}
-              className={inputCls}
+              className="inp mt-1 w-full"
             />
           </label>
           <label className="block">
-            <span className={labelCls}>Reported cash tips ratio (N:1)</span>
+            <span className="block text-xs text-secondary">Reported cash tips ratio (N:1)</span>
             <input
               type="number" step="1" min="1"
               value={reportedDivisor}
               onChange={e => setReportedDivisor(e.target.value)}
-              className={inputCls}
+              className="inp mt-1 w-full"
             />
           </label>
           <label className="block">
-            <span className={labelCls}>Tip Pool Frequency</span>
+            <span className="block text-xs text-secondary">Tip Pool Frequency</span>
             <select
               value={tipPoolFrequency}
               onChange={e => setTipPoolFrequency(e.target.value as TipPoolFrequency)}
-              className={inputCls}
+              className="inp mt-1 w-full"
             >
               <option value="biweekly">Biweekly (whole period)</option>
               <option value="weekly">Weekly (per 7-day week)</option>
@@ -317,11 +283,11 @@ export default function PayrollSettingsPage() {
             </select>
           </label>
           <label className="block">
-            <span className={labelCls}>Guaranteed Min Frequency</span>
+            <span className="block text-xs text-secondary">Guaranteed Min Frequency</span>
             <select
               value={guaranteedMinFrequency}
               onChange={e => setGuaranteedMinFrequency(e.target.value as TipPoolFrequency)}
-              className={inputCls}
+              className="inp mt-1 w-full"
             >
               <option value="biweekly">Biweekly (whole period)</option>
               <option value="weekly">Weekly (per 7-day week)</option>
@@ -332,13 +298,16 @@ export default function PayrollSettingsPage() {
         <p className="text-xs text-faint mb-3">
           Controls at what granularity tips and guaranteed-rate bonuses are calculated. Daily and weekly ensure the minimum guarantee applies within each sub-period.
         </p>
-        <button
-          onClick={() => saveRates.mutate()}
-          disabled={saveRates.isPending}
-          className="btn-primary"
-        >
-          {saveRates.isPending ? "Saving…" : "Save Rates"}
-        </button>
+        <div className="flex items-center gap-3 mb-2">
+          <button
+            onClick={() => saveConfig.mutate()}
+            disabled={saveConfig.isPending}
+            className="btn-primary"
+          >
+            {saveConfig.isPending ? "Saving…" : "Save Settings"}
+          </button>
+          {scheduleMsg && <span className="text-xs text-success">{scheduleMsg}</span>}
+        </div>
 
         <div className="mt-6 bg-surface border border-line rounded-lg p-4 text-xs text-secondary space-y-2 font-mono">
           <p><span className="text-strong">hour_share</span> = employee_hours / total_tipped_hours</p>
@@ -381,44 +350,44 @@ export default function PayrollSettingsPage() {
           <div className="mb-4 p-4 bg-surface border border-line-strong rounded-lg">
             <div className="grid grid-cols-2 gap-3 mb-3">
               <label className="block">
-                <span className={labelCls}>First Name *</span>
-                <input value={newFirst} onChange={e => setNewFirst(e.target.value)} className={inputCls} />
+                <span className="block text-xs text-secondary">First Name *</span>
+                <input value={newFirst} onChange={e => setNewFirst(e.target.value)} className="inp mt-1 w-full" />
               </label>
               <label className="block">
-                <span className={labelCls}>Last Name *</span>
-                <input value={newLast} onChange={e => setNewLast(e.target.value)} className={inputCls} />
+                <span className="block text-xs text-secondary">Last Name *</span>
+                <input value={newLast} onChange={e => setNewLast(e.target.value)} className="inp mt-1 w-full" />
               </label>
               <label className="block">
-                <span className={labelCls}>Email *</span>
-                <input type="email" value={newEmail} onChange={e => setNewEmail(e.target.value)} className={inputCls} />
+                <span className="block text-xs text-secondary">Email *</span>
+                <input type="email" value={newEmail} onChange={e => setNewEmail(e.target.value)} className="inp mt-1 w-full" />
               </label>
               <label className="block">
-                <span className={labelCls}>Phone</span>
-                <input type="tel" value={newPhone} onChange={e => setNewPhone(e.target.value)} className={inputCls} />
+                <span className="block text-xs text-secondary">Phone</span>
+                <input type="tel" value={newPhone} onChange={e => setNewPhone(e.target.value)} className="inp mt-1 w-full" />
               </label>
               <label className="block">
-                <span className={labelCls}>Job Title *</span>
-                <select value={newTitle} onChange={e => setNewTitle(e.target.value as JobTitle)} className={inputCls}>
+                <span className="block text-xs text-secondary">Job Title *</span>
+                <select value={newTitle} onChange={e => setNewTitle(e.target.value as JobTitle)} className="inp mt-1 w-full">
                   <option>Bartender</option>
                   <option>Brewer</option>
                   <option>Taproom Manager</option>
                 </select>
               </label>
               <label className="block">
-                <span className={labelCls}>Employment Type *</span>
-                <select value={newEmpType} onChange={e => setNewEmpType(e.target.value as EmploymentType)} className={inputCls}>
+                <span className="block text-xs text-secondary">Employment Type *</span>
+                <select value={newEmpType} onChange={e => setNewEmpType(e.target.value as EmploymentType)} className="inp mt-1 w-full">
                   <option value="hourly">Hourly</option>
                   <option value="salary_no_overtime">Salary (no OT)</option>
                   <option value="salary_overtime_eligible">Salary (OT eligible)</option>
                 </select>
               </label>
               <label className="block">
-                <span className={labelCls}>Square Team Member ID</span>
-                <input value={newSquareId} onChange={e => setNewSquareId(e.target.value)} className={inputCls} placeholder="optional" />
+                <span className="block text-xs text-secondary">Square Team Member ID</span>
+                <input value={newSquareId} onChange={e => setNewSquareId(e.target.value)} className="inp mt-1 w-full" placeholder="optional" />
               </label>
               <label className="block">
-                <span className={labelCls}>Gusto Employee ID</span>
-                <input value={newGustoId} onChange={e => setNewGustoId(e.target.value)} className={inputCls} placeholder="optional" />
+                <span className="block text-xs text-secondary">Gusto Employee ID</span>
+                <input value={newGustoId} onChange={e => setNewGustoId(e.target.value)} className="inp mt-1 w-full" placeholder="optional" />
               </label>
             </div>
             <label className="flex items-center gap-2 mb-4 cursor-pointer">
@@ -426,7 +395,7 @@ export default function PayrollSettingsPage() {
                 type="checkbox"
                 checked={newTips}
                 onChange={e => setNewTips(e.target.checked)}
-                className="accent-amber-500"
+                className="accent-[var(--color-accent-emphasis)]"
               />
               <span className="text-secondary text-sm">Receives tips</span>
             </label>
@@ -485,7 +454,7 @@ export default function PayrollSettingsPage() {
                   </td>
                   <td className="py-2 px-3 text-center">
                     <button
-                      onClick={() => toggleEmployee.mutate({ id: emp.id, active: !emp.active })}
+                      onClick={() => emp.active ? setDeactivating(emp) : toggleEmployee.mutate({ id: emp.id, active: true })}
                       className={`text-xs px-2 py-0.5 rounded ${
                         emp.active
                           ? "bg-success-surface/40 text-success hover:bg-danger-surface/40 hover:text-danger"
@@ -509,49 +478,49 @@ export default function PayrollSettingsPage() {
                     <td colSpan={7} className="px-3 py-4">
                       <div className="grid grid-cols-2 gap-3 mb-3">
                         <label className="block">
-                          <span className={labelCls}>First Name</span>
-                          <input value={editDraft.first_name ?? ""} onChange={e => setEditDraft(d => ({ ...d, first_name: e.target.value }))} className={inputCls} />
+                          <span className="block text-xs text-secondary">First Name</span>
+                          <input value={editDraft.first_name ?? ""} onChange={e => setEditDraft(d => ({ ...d, first_name: e.target.value }))} className="inp mt-1 w-full" />
                         </label>
                         <label className="block">
-                          <span className={labelCls}>Last Name</span>
-                          <input value={editDraft.last_name ?? ""} onChange={e => setEditDraft(d => ({ ...d, last_name: e.target.value }))} className={inputCls} />
+                          <span className="block text-xs text-secondary">Last Name</span>
+                          <input value={editDraft.last_name ?? ""} onChange={e => setEditDraft(d => ({ ...d, last_name: e.target.value }))} className="inp mt-1 w-full" />
                         </label>
                         <label className="block">
-                          <span className={labelCls}>Email</span>
-                          <input type="email" value={editDraft.email ?? ""} onChange={e => setEditDraft(d => ({ ...d, email: e.target.value }))} className={inputCls} />
+                          <span className="block text-xs text-secondary">Email</span>
+                          <input type="email" value={editDraft.email ?? ""} onChange={e => setEditDraft(d => ({ ...d, email: e.target.value }))} className="inp mt-1 w-full" />
                         </label>
                         <label className="block">
-                          <span className={labelCls}>Phone</span>
-                          <input type="tel" value={editDraft.phone_number ?? ""} onChange={e => setEditDraft(d => ({ ...d, phone_number: e.target.value }))} className={inputCls} />
+                          <span className="block text-xs text-secondary">Phone</span>
+                          <input type="tel" value={editDraft.phone_number ?? ""} onChange={e => setEditDraft(d => ({ ...d, phone_number: e.target.value }))} className="inp mt-1 w-full" />
                         </label>
                         <label className="block">
-                          <span className={labelCls}>Job Title</span>
-                          <select value={editDraft.job_title ?? "Bartender"} onChange={e => setEditDraft(d => ({ ...d, job_title: e.target.value as JobTitle }))} className={inputCls}>
+                          <span className="block text-xs text-secondary">Job Title</span>
+                          <select value={editDraft.job_title ?? "Bartender"} onChange={e => setEditDraft(d => ({ ...d, job_title: e.target.value as JobTitle }))} className="inp mt-1 w-full">
                             <option>Bartender</option>
                             <option>Brewer</option>
                             <option>Taproom Manager</option>
                           </select>
                         </label>
                         <label className="block">
-                          <span className={labelCls}>Employment Type</span>
-                          <select value={editDraft.employment_type ?? "hourly"} onChange={e => setEditDraft(d => ({ ...d, employment_type: e.target.value as EmploymentType }))} className={inputCls}>
+                          <span className="block text-xs text-secondary">Employment Type</span>
+                          <select value={editDraft.employment_type ?? "hourly"} onChange={e => setEditDraft(d => ({ ...d, employment_type: e.target.value as EmploymentType }))} className="inp mt-1 w-full">
                             <option value="hourly">Hourly</option>
                             <option value="salary_no_overtime">Salary (no OT)</option>
                             <option value="salary_overtime_eligible">Salary (OT eligible)</option>
                           </select>
                         </label>
                         <label className="block">
-                          <span className={labelCls}>Square Team Member ID</span>
-                          <input value={editDraft.square_team_member_id ?? ""} onChange={e => setEditDraft(d => ({ ...d, square_team_member_id: e.target.value }))} className={inputCls} placeholder="optional" />
+                          <span className="block text-xs text-secondary">Square Team Member ID</span>
+                          <input value={editDraft.square_team_member_id ?? ""} onChange={e => setEditDraft(d => ({ ...d, square_team_member_id: e.target.value }))} className="inp mt-1 w-full" placeholder="optional" />
                         </label>
                         <label className="block">
-                          <span className={labelCls}>Gusto Employee ID</span>
-                          <input value={editDraft.gusto_employee_id ?? ""} onChange={e => setEditDraft(d => ({ ...d, gusto_employee_id: e.target.value }))} className={inputCls} placeholder="optional" />
+                          <span className="block text-xs text-secondary">Gusto Employee ID</span>
+                          <input value={editDraft.gusto_employee_id ?? ""} onChange={e => setEditDraft(d => ({ ...d, gusto_employee_id: e.target.value }))} className="inp mt-1 w-full" placeholder="optional" />
                         </label>
                       </div>
                       <div className="mb-3">
                         <label className="flex items-center gap-2 cursor-pointer">
-                          <input type="checkbox" checked={editDraft.receives_tips ?? false} onChange={e => setEditDraft(d => ({ ...d, receives_tips: e.target.checked }))} className="accent-amber-500" />
+                          <input type="checkbox" checked={editDraft.receives_tips ?? false} onChange={e => setEditDraft(d => ({ ...d, receives_tips: e.target.checked }))} className="accent-[var(--color-accent-emphasis)]" />
                           <span className="text-secondary text-sm">Receives tips</span>
                         </label>
                         {editDraft.square_team_member_id && !editDraft.receives_tips && (
@@ -589,6 +558,17 @@ export default function PayrollSettingsPage() {
         </table>
       </section>
       </div>
-    </div>
+      {deactivating && (
+        <ConfirmDialog
+          title="Deactivate employee?"
+          message={`Deactivate ${deactivating.first_name} ${deactivating.last_name}? They stay in payroll history but won't appear in new periods.`}
+          confirmLabel="Deactivate"
+          tone="danger"
+          busy={toggleEmployee.isPending}
+          onConfirm={() => { toggleEmployee.mutate({ id: deactivating.id, active: false }); setDeactivating(null); }}
+          onCancel={() => setDeactivating(null)}
+        />
+      )}
+    </>
   );
 }

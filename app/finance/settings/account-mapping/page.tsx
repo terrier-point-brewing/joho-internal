@@ -1,10 +1,9 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
-import FinanceNav from "../../FinanceNav";
-import SettingsNav from "../SettingsNav";
 import AccountSelect from "../../AccountSelect";
-import PageHeader from "@/app/components/PageHeader";
 import Banner from "@/app/components/ui/Banner";
+import SaveHint from "@/app/components/ui/SaveHint";
+import ConfirmDialog from "@/app/components/ui/ConfirmDialog";
 import { SPLIT_CATEGORY_CLS } from "../../lib/categoryColors";
 
 interface CoAAccount {
@@ -112,11 +111,11 @@ function VariationMappingRow({
         {/* Left: variation name + price */}
         <div className="w-44 shrink-0 min-w-0">
           <div className="text-xs text-body truncate">{variation.variation_name}</div>
-          <div className="text-[10px] text-faint tabular-nums mt-0.5">{price}</div>
+          <div className="text-2xs text-faint tabular-nums mt-0.5">{price}</div>
         </div>
         {/* Middle: default GL account */}
         <div className="flex-1 min-w-0 flex items-center gap-2">
-          {saving && <span className="text-[10px] text-faint shrink-0">Saving…</span>}
+          <SaveHint saving={saving} />
           <AccountSelect
             value={variation.chart_of_accounts_id}
             onChange={handleChange}
@@ -132,7 +131,7 @@ function VariationMappingRow({
             type="button"
             onClick={() => setSplitOpen((o) => !o)}
             title={splitOpen ? "Hide POS/Invoice overrides" : "Split by POS / Invoice source"}
-            className={`px-2 py-1.5 text-[10px] rounded border transition-colors ${
+            className={`px-2 py-1.5 text-2xs rounded border transition-colors ${
               hasSplit
                 ? "bg-info-surface/40 border-info-border text-info hover:bg-info-surface/60"
                 : "bg-surface border-line-strong text-muted hover:text-body hover:border-line-subtle"
@@ -147,7 +146,7 @@ function VariationMappingRow({
       {splitOpen && (
         <div className="pl-6 pr-4 pb-3 pt-2 flex flex-col gap-2 bg-info-surface/10 border-t border-info-border/20">
           <div className="flex items-center gap-3">
-            <span className="text-[10px] text-muted w-16 shrink-0 text-right">POS</span>
+            <span className="text-2xs text-muted w-16 shrink-0 text-right">POS</span>
             <AccountSelect
               value={variation.chart_of_accounts_id_pos}
               onChange={(id) => handleSourceChange("chart_of_accounts_id_pos", id)}
@@ -158,7 +157,7 @@ function VariationMappingRow({
           />
           </div>
           <div className="flex items-center gap-3">
-            <span className="text-[10px] text-muted w-16 shrink-0 text-right">Invoice</span>
+            <span className="text-2xs text-muted w-16 shrink-0 text-right">Invoice</span>
             <AccountSelect
               value={variation.chart_of_accounts_id_invoice}
               onChange={(id) => handleSourceChange("chart_of_accounts_id_invoice", id)}
@@ -169,7 +168,7 @@ function VariationMappingRow({
           />
           </div>
           {hasSplit && (
-            <button type="button" onClick={handleClearSplit} className="self-end text-[10px] text-faint hover:text-danger transition-colors">
+            <button type="button" onClick={handleClearSplit} className="self-end text-2xs text-faint hover:text-danger transition-colors">
               Clear overrides
             </button>
           )}
@@ -190,6 +189,7 @@ function BulkMapper({
 }) {
   const [draft, setDraft]       = useState<string | null>(null);
   const [applying, setApplying] = useState(false);
+  const [confirmOverwrite, setConfirmOverwrite] = useState(false);
 
   async function apply(ow: boolean) {
     if (!draft) return;
@@ -215,13 +215,24 @@ function BulkMapper({
             {applying ? "…" : `Fill ${unmappedCount}`}
           </button>
           <button
-            onClick={() => apply(true)}
+            onClick={() => setConfirmOverwrite(true)}
             disabled={applying}
             title="Overwrite all"
-            className="btn-secondary whitespace-nowrap">
-            All
+            className="btn-secondary whitespace-nowrap ml-1">
+            Overwrite all
           </button>
         </>
+      )}
+      {confirmOverwrite && (
+        <ConfirmDialog
+          title="Overwrite all mappings?"
+          message="This replaces every existing GL mapping in this group, not just the unmapped ones. This can't be undone."
+          confirmLabel="Overwrite all"
+          tone="danger"
+          busy={applying}
+          onConfirm={() => { apply(true); setConfirmOverwrite(false); }}
+          onCancel={() => setConfirmOverwrite(false)}
+        />
       )}
     </div>
   );
@@ -254,7 +265,7 @@ function BulkSourceMapper({
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className={`shrink-0 px-1.5 py-1 text-[10px] rounded border transition-colors ${
+        className={`shrink-0 px-1.5 py-1 text-2xs rounded border transition-colors ${
           open
             ? "bg-info-surface/60 border-info-emphasis text-info"
             : hasSplits
@@ -270,8 +281,8 @@ function BulkSourceMapper({
       {open && (
         <div className="absolute top-full left-0 right-0 z-20 border-t border-info-border/40 bg-canvas px-4 py-2.5 flex flex-col gap-2 shadow-lg">
           <div className="flex items-center justify-between mb-0.5">
-            <span className="text-[10px] text-info font-medium uppercase tracking-wider">Source overrides</span>
-            <button type="button" onClick={() => setOpen(false)} className="text-[10px] text-faint hover:text-body px-1">✕ close</button>
+            <span className="text-2xs text-info font-medium uppercase tracking-wider">Source overrides</span>
+            <button type="button" onClick={() => setOpen(false)} className="text-2xs text-faint hover:text-body px-1">✕ close</button>
           </div>
           {/* POS row */}
           <div className="flex items-center gap-3">
@@ -584,24 +595,18 @@ export default function AccountMappingPage() {
   }
 
   if (loading) return (
-    <div className="flex flex-col h-full bg-canvas text-primary">
-      <FinanceNav mobile /><SettingsNav />
-      <div className="flex-1 flex items-center justify-center"><p className="text-xs text-muted">Loading…</p></div>
-    </div>
+    <div className="flex-1 flex items-center justify-center"><p className="text-xs text-muted">Loading…</p></div>
   );
 
   return (
-    <div className="flex flex-col h-full bg-canvas text-primary">
-      <FinanceNav mobile />
-
-      <div className="shrink-0 px-4 sm:px-6 flex items-start justify-between gap-4">
-        <PageHeader
-          title="Account Mapping"
-          description={totalVariations > 0
+    <>
+      <div className="shrink-0 px-4 sm:px-6 pt-4 pb-2 flex items-start justify-between gap-4">
+        <p className="text-sm text-muted">
+          {totalVariations > 0
             ? `${mappedVariations} of ${totalVariations} variations mapped`
             : "Sync the catalog first to load variations."}
-        />
-        <div className="flex items-center gap-2 shrink-0 mt-4">
+        </p>
+        <div className="flex items-center gap-2 shrink-0">
           {syncResult && (
             <span className="text-xs text-success">{syncResult.items} items · {syncResult.variations} variations synced</span>
           )}
@@ -610,7 +615,6 @@ export default function AccountMappingPage() {
           </button>
         </div>
       </div>
-      <SettingsNav />
 
       {error && <Banner className="mx-4 sm:mx-6 my-2">{error}</Banner>}
 
@@ -647,15 +651,15 @@ export default function AccountMappingPage() {
                       <button onClick={() => toggleCategory(parentKey)} className="flex items-center gap-2 flex-1 min-w-0 text-left">
                         <span className="text-muted text-xs w-3 shrink-0">{isParentExpanded ? "▾" : "▸"}</span>
                         <span className="text-sm font-semibold text-primary truncate">{parent.parent_name}</span>
-                        <span className="text-[10px] text-faint shrink-0">{parentTotal} var.</span>
+                        <span className="text-2xs text-faint shrink-0">{parentTotal} var.</span>
                         {parentMapped > 0 && parentMapped < parentTotal && (
-                          <span className="text-[10px] text-accent-emphasis shrink-0">{parentMapped}/{parentTotal}</span>
+                          <span className="text-2xs text-accent-emphasis shrink-0">{parentMapped}/{parentTotal}</span>
                         )}
                         {parentMapped === parentTotal && parentTotal > 0 && (
-                          <span className="text-[10px] text-success shrink-0">✓ all</span>
+                          <span className="text-2xs text-success shrink-0">✓ all</span>
                         )}
                         {parentHasSplit && (
-                          <span className={`text-[10px] shrink-0 px-1 rounded ${SPLIT_CATEGORY_CLS}`}>split</span>
+                          <span className={`text-2xs shrink-0 px-1 rounded ${SPLIT_CATEGORY_CLS}`}>split</span>
                         )}
                       </button>
                       <div className="flex items-center gap-2 shrink-0">
@@ -695,15 +699,15 @@ export default function AccountMappingPage() {
                                 <button onClick={() => toggleCategory(catKey)} className="flex items-center gap-2 flex-1 min-w-0 text-left">
                                   <span className="text-faint text-xs w-3 shrink-0">{isCatExpanded ? "▾" : "▸"}</span>
                                   <span className="text-xs font-semibold text-body truncate">{cat.category_name}</span>
-                                  <span className="text-[10px] text-faint shrink-0">{catTotal} var.</span>
+                                  <span className="text-2xs text-faint shrink-0">{catTotal} var.</span>
                                   {catMapped > 0 && catMapped < catTotal && (
-                                    <span className="text-[10px] text-accent-emphasis shrink-0">{catMapped}/{catTotal}</span>
+                                    <span className="text-2xs text-accent-emphasis shrink-0">{catMapped}/{catTotal}</span>
                                   )}
                                   {catMapped === catTotal && catTotal > 0 && (
-                                    <span className="text-[10px] text-success shrink-0">✓ all</span>
+                                    <span className="text-2xs text-success shrink-0">✓ all</span>
                                   )}
                                   {catHasSplit && (
-                                    <span className={`text-[10px] shrink-0 px-1 rounded ${SPLIT_CATEGORY_CLS}`}>split</span>
+                                    <span className={`text-2xs shrink-0 px-1 rounded ${SPLIT_CATEGORY_CLS}`}>split</span>
                                   )}
                                 </button>
                                 <div className="flex items-center gap-2 shrink-0">
@@ -745,15 +749,15 @@ export default function AccountMappingPage() {
                                   <span className={`text-xs font-medium flex-1 truncate ${item.is_archived ? "text-faint line-through" : "text-strong"}`}>
                                     {item.item_name}
                                   </span>
-                                  <span className="text-[10px] text-faint shrink-0">{item.variations.length} var.</span>
+                                  <span className="text-2xs text-faint shrink-0">{item.variations.length} var.</span>
                                   {itemMapped > 0 && itemMapped < item.variations.length && (
-                                    <span className="text-[10px] text-accent-border shrink-0">{itemMapped}/{item.variations.length}</span>
+                                    <span className="text-2xs text-accent-border shrink-0">{itemMapped}/{item.variations.length}</span>
                                   )}
                                   {itemMapped === item.variations.length && item.variations.length > 0 && (
-                                    <span className="text-[10px] text-success shrink-0">✓</span>
+                                    <span className="text-2xs text-success shrink-0">✓</span>
                                   )}
                                   {itemHasSplit && (
-                                    <span className={`text-[10px] shrink-0 px-1 rounded ${SPLIT_CATEGORY_CLS}`}>split</span>
+                                    <span className={`text-2xs shrink-0 px-1 rounded ${SPLIT_CATEGORY_CLS}`}>split</span>
                                   )}
                                 </button>
                                 {catalogItemId && (
@@ -779,9 +783,9 @@ export default function AccountMappingPage() {
                         {isItemExpanded && (
                           <>
                             <div className="flex items-center gap-3 pl-6 pr-4 py-1 bg-surface/60 border-t border-line/40">
-                              <span className="text-[10px] text-faint uppercase tracking-wider w-44 shrink-0">Variation · Price</span>
-                              <span className="text-[10px] text-faint uppercase tracking-wider flex-1">Default GL Account</span>
-                              <span className="text-[10px] text-faint uppercase tracking-wider w-14 text-right">Split</span>
+                              <span className="text-2xs text-faint uppercase tracking-wider w-44 shrink-0">Variation · Price</span>
+                              <span className="text-2xs text-faint uppercase tracking-wider flex-1">Default GL Account</span>
+                              <span className="text-2xs text-faint uppercase tracking-wider w-14 text-right">Split</span>
                             </div>
                             {item.variations.map((v) => (
                               <VariationMappingRow
@@ -806,6 +810,6 @@ export default function AccountMappingPage() {
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }

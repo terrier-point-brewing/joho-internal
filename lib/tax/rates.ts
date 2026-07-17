@@ -13,7 +13,7 @@ export interface TaxRate {
   id: string;
   key: string;
   name: string;
-  category: "excise" | "sales" | "local" | "transit";
+  category: "excise" | "sales" | "local" | "transit" | "prepared_food";
   party_key: string | null;
   basis: "per_bbl" | "per_gallon" | "percent";
   rate: number;

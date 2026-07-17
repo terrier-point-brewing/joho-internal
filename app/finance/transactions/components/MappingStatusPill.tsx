@@ -16,8 +16,8 @@ export default function MappingStatusPill({
 }) {
   const state = mappingState(mapped, total, accepted);
   if (state === "empty") return null;
-  if (state === "mapped") return <span className="text-[10px] text-success">✓ mapped</span>;
-  if (state === "partial") return <span className="text-[10px] text-accent-emphasis">{mapped}/{total}</span>;
-  if (state === "accepted") return <span className="text-[10px] text-info">✓ accepted</span>;
-  return <span className="text-[10px] text-faint">unmapped</span>;
+  if (state === "mapped") return <span className="text-2xs text-success">✓ mapped</span>;
+  if (state === "partial") return <span className="text-2xs text-accent-emphasis">{mapped}/{total}</span>;
+  if (state === "accepted") return <span className="text-2xs text-info">✓ accepted</span>;
+  return <span className="text-2xs text-faint">unmapped</span>;
 }

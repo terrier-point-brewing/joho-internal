@@ -82,7 +82,7 @@ function KpiTile({ label, cents, pct, percentDenominated, subLabel }: {
   return (
     <Card padding="p-3" className="flex flex-col gap-1 min-w-0">
       <span className="text-xs text-muted uppercase tracking-wide truncate">{label}</span>
-      <span className={`text-lg font-semibold font-mono tabular-nums ${primaryMissing ? "text-faint" : "text-primary"}`}>
+      <span className={`text-base sm:text-xl font-semibold font-mono tabular-nums ${primaryMissing ? "text-faint" : "text-primary"}`}>
         {primaryText}
       </span>
       {subText && <span className="text-xs text-muted truncate">{subText}</span>}
@@ -195,7 +195,7 @@ export default function FinancialsPage() {
   return (
     <div className="flex flex-col h-full bg-canvas text-primary">
       <FinanceNav mobile />
-      <div className="shrink-0 px-4 sm:px-6">
+      <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-8">
         <div className="flex items-center justify-between">
           <PageHeader title="Financials" description="Consolidated P&L, Balance Sheet, and Cash Flow — persisted, CoA-mapped data" />
           <div className="flex items-center gap-2">

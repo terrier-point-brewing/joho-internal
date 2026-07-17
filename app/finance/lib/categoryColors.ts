@@ -3,7 +3,7 @@
 // Most states map onto the semantic design tokens (success/info/accent/danger/neutral).
 // Two finance-specific categories have NO token equivalent and stay as deliberate category
 // palettes — but they live ONLY here, never re-inlined per file:
-//   • violet = QuickBooks source / deposit (BS→P&L) recognition
+//   • violet = QuickBooks source
 //   • teal   = export invoice type
 //
 // See docs/UI_STANDARD.md §2 (off-palette data-category colors must be centralized).
@@ -68,5 +68,3 @@ export const EXPENSE_STATE_CLS: Record<string, string> = {
 
 /** "Split by source" data category (info). */
 export const SPLIT_CATEGORY_CLS = "text-info bg-info-surface/30";
-/** "Deposit / QuickBooks" data category (violet — no token equivalent). */
-export const DEPOSIT_CATEGORY_CLS = "text-violet-400 bg-violet-900/30";

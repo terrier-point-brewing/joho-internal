@@ -86,7 +86,8 @@ cover every shade actually in use so the rewrite is color-faithful.
 ## 1. Typography
 
 Use the type scale below. **No arbitrary sizes** (`text-[10px]`, `text-[9px]`,
-`text-[11px]`) outside chart/canvas-exempt code.
+`text-[11px]`) outside chart/canvas-exempt code — for genuinely dense table meta,
+use the sanctioned `text-2xs` tier (below), never an arbitrary `text-[Npx]`.
 
 | Role | Classes | Notes |
 |---|---|---|
@@ -99,6 +100,7 @@ Use the type scale below. **No arbitrary sizes** (`text-[10px]`, `text-[9px]`,
 | Body emphasis | `text-sm text-body` / values `text-strong` | |
 | Caption / muted | `text-xs text-muted` | one caption style — no zinc-600 captions |
 | Placeholder / faint | `text-xs text-faint` | |
+| Dense caption (10px) | `text-2xs text-faint` / `-muted` | **only** for dense table meta rows, pill labels, and inline status glyphs where `text-xs` is too tall (finance ledgers/mappings). The single sanctioned sub-`xs` size; defined once in `globals.css`. Not for body copy. |
 | Numeric cells | `text-sm font-mono tabular-nums` | applies to **all** money/number columns incl. reports |
 
 Weights: `font-medium` and `font-semibold` only (plus `font-bold` for the TPB wordmark).

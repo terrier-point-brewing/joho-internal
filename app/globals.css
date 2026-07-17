@@ -147,6 +147,15 @@ body {
 .inp-sm:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
 .inp-sm option { background: var(--color-surface-mid); }
 
+/* ── Dense caption type ─────────────────────────────────────────────────────
+   The single sanctioned sub-`xs` size (10px), for dense table meta rows, pills,
+   and inline status glyphs where `text-xs` (12px) is too tall. See
+   docs/UI_STANDARD.md §1. Composes with color/weight utilities; not for body copy. */
+.text-2xs {
+  font-size: 0.625rem;   /* 10px */
+  line-height: 0.875rem; /* 14px */
+}
+
 } /* end @layer components */
 
 /* Markdown brew steps rendering */

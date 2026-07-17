@@ -6,6 +6,7 @@ import { queryKeys } from "@/lib/query-keys";
 import { fetchJson } from "@/app/production/hooks/queries";
 import type { Invoice, InvoiceType } from "@/types/finance";
 import Banner from "@/app/components/ui/Banner";
+import SaveHint from "@/app/components/ui/SaveHint";
 import SortableTh from "@/app/components/ui/SortableTh";
 import SearchInput from "@/app/components/ui/SearchInput";
 import FilterSelect from "@/app/components/ui/FilterSelect";
@@ -20,6 +21,7 @@ import AutoMapButton from "../components/AutoMapButton";
 import DateRangeFilter from "../components/DateRangeFilter";
 import AcceptUnmappedButton from "../components/AcceptUnmappedButton";
 import SummaryStatBar from "../components/SummaryStatBar";
+import Pagination from "../components/Pagination";
 import { LedgerTable, Th } from "../components/LedgerTable";
 import { mappingState, matchesMappingFilter, type MappingFilterValue } from "@/lib/finance/mappingStatus";
 import { defaultYearRange } from "@/lib/finance/dateRange";
@@ -149,7 +151,7 @@ function InvoiceExpandableRow({
         className="border-t border-line/40 hover:bg-surface-mid/20 cursor-pointer"
         onClick={() => setExpanded((e) => !e)}>
         <td className="px-4 py-2 w-6">
-          <span className="text-faint text-[10px]">{expanded ? "▾" : "▸"}</span>
+          <span className="text-faint text-2xs">{expanded ? "▾" : "▸"}</span>
         </td>
         <td className="px-4 py-2 font-mono text-accent">
           {inv.invoice_number ?? inv.square_invoice_id}
@@ -159,17 +161,17 @@ function InvoiceExpandableRow({
           {inv.contract_brewing_partners?.company_name ?? inv.customer_name ?? "—"}
         </td>
         <td className="px-4 py-2">
-          <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${SOURCE_CLS[inv.source] ?? SOURCE_CLS.other}`}>
+          <span className={`px-1.5 py-0.5 rounded text-2xs font-medium ${SOURCE_CLS[inv.source] ?? SOURCE_CLS.other}`}>
             {SOURCE_LABEL[inv.source] ?? inv.source}
           </span>
         </td>
         <td className="px-4 py-2">
-          <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${TYPE_CLS[(inv as InvoiceRow).invoice_type] ?? TYPE_CLS.standard}`}>
+          <span className={`px-1.5 py-0.5 rounded text-2xs font-medium ${TYPE_CLS[(inv as InvoiceRow).invoice_type] ?? TYPE_CLS.standard}`}>
             {TYPE_LABEL[(inv as InvoiceRow).invoice_type] ?? (inv as InvoiceRow).invoice_type}
           </span>
         </td>
         <td className="px-4 py-2">
-          <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${STATUS_CLS[inv.status] ?? STATUS_CLS.unknown}`}>
+          <span className={`px-1.5 py-0.5 rounded text-2xs font-medium ${STATUS_CLS[inv.status] ?? STATUS_CLS.unknown}`}>
             {inv.status}
           </span>
         </td>
@@ -201,7 +203,7 @@ function InvoiceExpandableRow({
           <td colSpan={10} className="p-0">
             <div className="bg-canvas border-b border-line/60">
               {/* Line item headers */}
-              <div className={`${LINE_GRID_COLS} px-10 py-1.5 bg-surface/40 text-[10px] text-faint uppercase tracking-wider`}>
+              <div className={`${LINE_GRID_COLS} px-10 py-1.5 bg-surface/40 text-2xs text-faint uppercase tracking-wider`}>
                 <span>Line item</span>
                 <span>Description</span>
                 <span className="text-right">Qty</span>
@@ -224,14 +226,14 @@ function InvoiceExpandableRow({
                       />
                     ))}
               {(inv.discount_cents ?? 0) > 0 && (
-                <div className={`${LINE_GRID_COLS} px-10 py-1 text-[11px] text-secondary`}>
+                <div className={`${LINE_GRID_COLS} px-10 py-1 text-xs text-secondary`}>
                   <span className="col-span-5 text-right">Invoice discount</span>
                   <span className="text-right font-mono tabular-nums">{formatCurrencyCents(inv.discount_cents!)}</span>
                   <span />
                 </div>
               )}
               {(inv.tax_cents ?? 0) > 0 && (
-                <div className={`${LINE_GRID_COLS} px-10 py-1 text-[11px] text-secondary`}>
+                <div className={`${LINE_GRID_COLS} px-10 py-1 text-xs text-secondary`}>
                   <span className="col-span-5 text-right">Tax</span>
                   <span className="text-right font-mono tabular-nums">{formatCurrencyCents(inv.tax_cents!)}</span>
                   <span />
@@ -292,7 +294,7 @@ function InvoiceLineItemRow({
         </span>
         <div className="flex items-center gap-2">
           <AccountSelect value={coaId} accounts={accounts} onChange={handleCoaChange} className="w-full max-w-[300px]" />
-          {saving && <span className="text-[10px] text-faint animate-pulse shrink-0">…</span>}
+          <SaveHint saving={saving} />
         </div>
       </div>
     </div>
@@ -372,7 +374,7 @@ function BatchLinkEditor({
 
   return (
     <div className="px-10 py-3 border-t border-line/40 bg-canvas/40">
-      <div className="text-[10px] text-muted uppercase tracking-wider mb-2">Batch Links</div>
+      <div className="text-2xs text-muted uppercase tracking-wider mb-2">Batch Links</div>
       {loadingLinks ? (
         <p className="text-xs text-faint">Loading…</p>
       ) : (
@@ -418,12 +420,15 @@ function BatchLinkEditor({
 
 interface InvoiceSyncResult { synced: number; updated: number; total: number; errors?: string[] }
 
+const PAGE_SIZE = 50;
+
 export default function InvoicesPage() {
   const [{ from, to }, setRange] = useState(() => defaultYearRange());
   const [source,     setSource] = useState<"all" | "square" | "quickbooks">("all");
   const [accounts,     setAccounts]     = useState<CoARef[]>([]);
   const [batches,      setBatches]      = useState<BrewBatch[]>([]);
   const [showVoided,   setShowVoided]   = useState(false);
+  const [page,         setPage]         = useState(1);
   useEffect(() => {
     fetch("/api/finance/chart-of-accounts")
       .then((r) => r.json())
@@ -482,10 +487,20 @@ export default function InvoicesPage() {
     return hideVoided ? hookRows.filter((i) => i.status !== "voided") : hookRows;
   }, [hookRows, showVoided, filters.status]);
 
-  // Summary stats
+  // Summary stats — always computed over the full filtered `invoices` array,
+  // never the page slice below.
   const totalValue    = invoices.reduce((s, i) => s + i.total_cents, 0);
   const openValue     = invoices.filter((i) => i.status === "open").reduce((s, i) => s + i.total_cents, 0);
   const unlinkedCount = invoices.filter((i) => (i.invoice_batch_links as unknown as { count: number }[])[0]?.count === 0).length;
+
+  // Display pagination over the already-filtered `invoices` array (client-side
+  // slice — fetch/search/filter/sort/summary all stay on the full set).
+  const totalPages     = Math.max(1, Math.ceil(invoices.length / PAGE_SIZE));
+  const safePage       = Math.min(page, totalPages);
+  const pagedInvoices  = invoices.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { setPage(1); }, [from, to, source, search.q, JSON.stringify(filters), showVoided]);
 
   return (
     <>
@@ -602,7 +617,7 @@ export default function InvoicesPage() {
               No invoices found.
             </td></tr>
           ) : (
-            invoices.map((inv) => (
+            pagedInvoices.map((inv) => (
               <InvoiceExpandableRow
                 key={inv.id}
                 inv={inv}
@@ -616,6 +631,7 @@ export default function InvoicesPage() {
           )}
         </LedgerTable>
       </div>
+      <Pagination page={safePage} totalPages={totalPages} total={invoices.length} unit="invoices" onPageChange={setPage} />
     </>
   );
 }

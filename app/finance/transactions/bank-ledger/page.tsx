@@ -5,10 +5,12 @@ import DateRangeFilter from "../components/DateRangeFilter";
 import AcceptUnmappedButton from "../components/AcceptUnmappedButton";
 import { defaultYearRange } from "@/lib/finance/dateRange";
 import SummaryStatBar from "../components/SummaryStatBar";
+import Pagination from "../components/Pagination";
 import { LedgerTable, Th } from "../components/LedgerTable";
 import Badge from "@/app/components/ui/Badge";
 import AccountSelect, { type CoARef } from "../../AccountSelect";
 import Banner from "@/app/components/ui/Banner";
+import SaveHint from "@/app/components/ui/SaveHint";
 import SortableTh from "@/app/components/ui/SortableTh";
 import SearchInput from "@/app/components/ui/SearchInput";
 import FilterBar from "@/app/components/ui/FilterBar";
@@ -60,12 +62,16 @@ const BANK_CONTROLS: ControlsConfig<BankRow> = {
 // displays flow_type via the same underscore-to-space transform — reuse it.
 const FLOW_OPTIONS = FLOW_TYPES.map((f) => ({ value: f, label: f.replace(/_/g, " ") }));
 
+const PAGE_SIZE = 50;
+
 export default function BankLedgerPage() {
   const [{ from, to }, setRange] = useState(() => defaultYearRange());
   const [accounts, setAccounts] = useState<CoARef[]>([]);
   const [rows, setRows] = useState<BankRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
 
   const loadAll = useCallback(async (from: string, to: string) => {
     setLoading(true); setError(null);
@@ -85,21 +91,36 @@ export default function BankLedgerPage() {
   useEffect(() => { loadAll(from, to); }, [loadAll, from, to]);
 
   async function patchRow(id: string, patch: { flow_type?: FlowType; chart_of_accounts_id?: string | null; unmapped_accepted?: boolean }) {
-    const res = await fetch("/api/finance/bank-ledger", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, ...patch }) });
-    if (!res.ok) return;
-    const upd = await res.json();
-    setRows((rs) => rs.map((r) => r.id === id ? { ...r, flow_type: upd.flow_type ?? r.flow_type, affects_pl: upd.affects_pl ?? r.affects_pl, chart_of_accounts_id: upd.chart_of_accounts_id ?? null, mapping_source: upd.mapping_source ?? r.mapping_source, unmapped_accepted: upd.unmapped_accepted ?? r.unmapped_accepted } : r));
+    setSavingId(id);
+    try {
+      const res = await fetch("/api/finance/bank-ledger", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, ...patch }) });
+      if (!res.ok) return;
+      const upd = await res.json();
+      setRows((rs) => rs.map((r) => r.id === id ? { ...r, flow_type: upd.flow_type ?? r.flow_type, affects_pl: upd.affects_pl ?? r.affects_pl, chart_of_accounts_id: upd.chart_of_accounts_id ?? null, mapping_source: upd.mapping_source ?? r.mapping_source, unmapped_accepted: upd.unmapped_accepted ?? r.unmapped_accepted } : r));
+    } finally {
+      setSavingId((cur) => (cur === id ? null : cur));
+    }
   }
 
   async function handleToggleAccept(id: string, accepted: boolean) {
     await patchRow(id, { unmapped_accepted: accepted });
   }
 
+  // Summary stats — always computed over the full `rows` array, never the page slice below.
   const needsReview = rows.filter((r) => r.flow_type === "unclassified" && !r.unmapped_accepted).length;
   const plNet = rows.filter((r) => r.affects_pl).reduce((s, r) => s + r.amount_cents, 0);
 
   const { rows: visible, search, filters, sort, setSearch, setFilter, toggleSort, reset, activeCount } =
     useTableControls(rows, BANK_CONTROLS);
+
+  // Display pagination over the already-filtered `visible` array (client-side
+  // slice — fetch/search/filter/sort/summary all stay on the full set).
+  const totalPages = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
+  const safePage    = Math.min(page, totalPages);
+  const pagedVisible = visible.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { setPage(1); }, [from, to, search.q, JSON.stringify(filters)]);
 
   return (
     <>
@@ -126,13 +147,14 @@ export default function BankLedgerPage() {
           <p className="text-sm text-secondary">No bank-account activity for {from} – {to}. Click &ldquo;Sync Ramp&rdquo; on the Expenses tab to import.</p>
         </div>
       ) : (
+        <>
         <div className="flex-1 overflow-auto px-4 sm:px-6 py-4">
           <LedgerTable head={<>
             <SortableTh label="Date" sortKey="date" sort={sort} onSort={toggleSort} />
             <Th label="Counterparty" /><Th label="Description" /><Th label="Flow" /><Th label="P&L" />
             <SortableTh label="Amount" sortKey="amount" sort={sort} onSort={toggleSort} align="right" />
           </>}>
-            {visible.map((r) => (
+            {pagedVisible.map((r) => (
               <tr key={r.id} className="border-t border-line/40">
                 <td className="px-4 py-2 text-secondary whitespace-nowrap">{fmtDate(r.transaction_date)}</td>
                 <td className="px-4 py-2 text-body">{r.counterparty_name ?? "—"}</td>
@@ -143,25 +165,30 @@ export default function BankLedgerPage() {
                       <select className="inp-sm" value={r.flow_type} onChange={(e) => patchRow(r.id, { flow_type: e.target.value as FlowType })}>
                         {FLOW_TYPES.map((f) => <option key={f} value={f}>{f}</option>)}
                       </select>
-                      <AccountSelect
-                        value={r.chart_of_accounts_id}
-                        onChange={(coaId) => patchRow(r.id, { chart_of_accounts_id: coaId })}
-                        accounts={accounts}
-                        placeholder="— GL account —"
-                        shortLabel
-                        className="w-full"
-                      />
+                      <div className="flex items-center gap-1.5">
+                        <AccountSelect
+                          value={r.chart_of_accounts_id}
+                          onChange={(coaId) => patchRow(r.id, { chart_of_accounts_id: coaId })}
+                          accounts={accounts}
+                          placeholder="— GL account —"
+                          shortLabel
+                          className="w-full"
+                        />
+                        <SaveHint saving={savingId === r.id} />
+                      </div>
                       <AcceptUnmappedButton accepted={r.unmapped_accepted} onToggle={() => handleToggleAccept(r.id, !r.unmapped_accepted)} />
                     </div>
                   ) : <Badge tone={flowTone(r.flow_type)}>{r.flow_type.replace(/_/g, " ")}</Badge>}
                 </td>
-                <td className="px-4 py-2 text-[10px] text-faint">{r.affects_pl ? "yes" : "—"}</td>
+                <td className="px-4 py-2 text-2xs text-faint">{r.affects_pl ? "yes" : "—"}</td>
                 <td className="px-4 py-2 text-right font-mono tabular-nums text-strong">{formatCurrencyCents(r.amount_cents)}</td>
               </tr>
             ))}
           </LedgerTable>
-          <p className="py-3 text-[10px] text-faint">Bank lines are classified on sync. Settlements and internal transfers are excluded from P&amp;L to avoid double-counting card and bill records. Recode an <span className="text-accent">unclassified</span> line above.</p>
+          <p className="py-3 text-2xs text-faint">Bank lines are classified on sync. Settlements and internal transfers are excluded from P&amp;L to avoid double-counting card and bill records. Recode an <span className="text-accent">unclassified</span> line above.</p>
         </div>
+        <Pagination page={safePage} totalPages={totalPages} total={visible.length} unit="bank lines" onPageChange={setPage} />
+        </>
       )}
     </>
   );

@@ -1,11 +1,9 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
-import FinanceNav from "../../FinanceNav";
-import SettingsNav from "../SettingsNav";
 import AccountSelect, { type CoARef } from "../../AccountSelect";
-import PageHeader from "@/app/components/PageHeader";
 import Banner from "@/app/components/ui/Banner";
 import Badge from "@/app/components/ui/Badge";
+import SaveHint from "@/app/components/ui/SaveHint";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -31,6 +29,7 @@ export default function CounterpartyAccountsPage() {
   const [rules, setRules]       = useState<RuleRow[]>([]);
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState<string | null>(null);
+  const [savingId, setSavingId] = useState<string | null>(null);
 
   const loadAll = useCallback(async () => {
     try {
@@ -52,11 +51,13 @@ export default function CounterpartyAccountsPage() {
   useEffect(() => { loadAll(); }, [loadAll]);
 
   async function handleSetRule(rule: RuleRow, coaId: string | null) {
+    setSavingId(rule.id);
     const res = await fetch("/api/finance/expense-counterparty-mappings", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: rule.id, chart_of_accounts_id: coaId }),
     });
+    setSavingId(null);
     if (!res.ok) return;
     const coa = accounts.find((a) => a.id === coaId);
     const join = coa ? { account_name: coa.account_name, account_number: coa.account_number } : null;
@@ -69,11 +70,13 @@ export default function CounterpartyAccountsPage() {
   // (default) or is routed to payroll period matching (Finance > Payroll)
   // instead -- see lib/finance/expenses.ts's resolveExpenseMapping.
   async function handleSetRouting(rule: RuleRow, routing: CounterpartyRouting) {
+    setSavingId(rule.id);
     const res = await fetch("/api/finance/expense-counterparty-mappings", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: rule.id, routing }),
     });
+    setSavingId(null);
     if (!res.ok) return;
     setRules((rs) => rs.map((r) => (r.id === rule.id ? { ...r, routing } : r)));
   }
@@ -81,18 +84,14 @@ export default function CounterpartyAccountsPage() {
   const mappedCount = rules.filter((r) => r.chart_of_accounts_id).length;
 
   return (
-    <div className="flex flex-col h-full bg-canvas text-primary">
-      <FinanceNav mobile />
-
-      <div className="shrink-0 px-4 sm:px-6">
-        <PageHeader
-          title="Counterparty Accounts"
-          description={rules.length > 0
+    <>
+      <div className="shrink-0 px-4 sm:px-6 pt-4 pb-2">
+        <p className="text-sm text-muted">
+          {rules.length > 0
             ? `${mappedCount} of ${rules.length} counterparties mapped to the chart of accounts`
             : "Counterparties appear here after syncing bank-account lines on the Transactions → Bank Ledger tab."}
-        />
+        </p>
       </div>
-      <SettingsNav />
 
       {error && <Banner className="mx-4 sm:mx-6 my-2">{error}</Banner>}
 
@@ -130,7 +129,7 @@ export default function CounterpartyAccountsPage() {
                       <div className="flex items-center gap-2 min-w-0">
                         <span className="text-body truncate">{rule.counterparty_label}</span>
                         {rule.auto_matched && rule.chart_of_accounts_id && (
-                          <span className="text-[10px] text-info shrink-0" title="Auto-matched from the counterparty name">auto</span>
+                          <span className="text-2xs text-info shrink-0" title="Auto-matched from the counterparty name">auto</span>
                         )}
                       </div>
                     </td>
@@ -148,19 +147,22 @@ export default function CounterpartyAccountsPage() {
                       {rule.routing === "payroll_split" ? (
                         <div className="flex items-center gap-2">
                           <Badge tone="accent">Split by GL account — matched per pay period</Badge>
-                          <a href="/finance/settings/payroll-department-mappings" className="text-[10px] text-accent hover:underline shrink-0">
+                          <a href="/finance/settings/payroll-department-mappings" className="text-2xs text-accent hover:underline shrink-0">
                             Manage →
                           </a>
                         </div>
                       ) : (
-                        <AccountSelect
-                          value={rule.chart_of_accounts_id}
-                          onChange={(id) => handleSetRule(rule, id)}
-                          accounts={accounts}
-                          placeholder="— map this counterparty —"
-                          shortLabel
-                          className="w-full max-w-[360px]"
-                        />
+                        <div className="flex items-center gap-2">
+                          <AccountSelect
+                            value={rule.chart_of_accounts_id}
+                            onChange={(id) => handleSetRule(rule, id)}
+                            accounts={accounts}
+                            placeholder="— map this counterparty —"
+                            shortLabel
+                            className="w-full max-w-[360px]"
+                          />
+                          <SaveHint saving={savingId === rule.id} />
+                        </div>
                       )}
                     </td>
                   </tr>
@@ -168,12 +170,12 @@ export default function CounterpartyAccountsPage() {
               </tbody>
             </table>
           </div>
-          <p className="py-3 text-[10px] text-faint">
+          <p className="py-3 text-2xs text-faint">
             Mapping a counterparty here codes every uncoded bank-line expense from it (e.g. Gusto payroll,
             Erie insurance). Rows are seeded automatically the first time that counterparty appears in a sync.
           </p>
         </div>
       )}
-    </div>
+    </>
   );
 }

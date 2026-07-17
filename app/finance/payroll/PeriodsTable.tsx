@@ -90,7 +90,7 @@ export default function PeriodsTable({
               <div className="flex flex-col items-end leading-tight">
                 <Money cents={p.gustoTotalCents} />
                 {p.reportUploadedAt && (
-                  <span className="text-[10px] text-faint">{fmtDate(p.reportUploadedAt)}</span>
+                  <span className="text-2xs text-faint">{fmtDate(p.reportUploadedAt)}</span>
                 )}
               </div>
             </td>
