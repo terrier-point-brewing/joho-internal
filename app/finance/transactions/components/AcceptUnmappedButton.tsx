@@ -2,9 +2,11 @@
 import { useState } from "react";
 
 /**
- * Inline "Accept" / "✓ accepted (undo)" toggle for dismissing an unmapped
- * record without giving it a real GL mapping. Sits inside a table row whose
- * `<tr>` has its own row-expand onClick, so the click must not bubble.
+ * Inline "Accept" / "Undo" toggle for dismissing an unmapped record without
+ * giving it a real GL mapping. Sits alongside `MappingStatusPill`, which
+ * already renders the "✓ accepted" label — this only renders the action,
+ * never repeats that text. Sits inside a table row whose `<tr>` has its own
+ * row-expand onClick, so the click must not bubble.
  */
 export default function AcceptUnmappedButton({
   accepted,
@@ -27,8 +29,8 @@ export default function AcceptUnmappedButton({
 
   if (accepted) {
     return (
-      <button onClick={handleClick} className="text-2xs text-info hover:underline disabled:opacity-50" disabled={saving}>
-        ✓ accepted (undo)
+      <button onClick={handleClick} className="text-2xs text-faint hover:text-info hover:underline disabled:opacity-50" disabled={saving}>
+        undo
       </button>
     );
   }
