@@ -1,9 +1,10 @@
 /**
  * Bank-account ledger: classify each Ramp bank line into a flow_type that decides
  * (a) which table it lands in and (b) how statements treat it. This is the anti-
- * drift core — settlements (Vendor Payment, card payment) are excluded so the
- * underlying bill/card records aren't double-counted, and only direct external
- * debits become expenses. Anything unrecognized is `unclassified` for review.
+ * drift core — settlements (Vendor Payment, card payment, bill-matched Withdrawal)
+ * are excluded so the underlying bill/card records aren't double-counted, and only
+ * direct external debits become expenses. Anything unrecognized is `unclassified`
+ * for review.
  */
 import type { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { normalizeCounterparty, type RampBankLine } from "@/lib/ramp";
@@ -30,12 +31,51 @@ export interface BankClassification {
   counterparty_key:  string;
 }
 
+/**
+ * Bill totals (in cents) by fuzzy vendor key, for matching a plain "Withdrawal"
+ * bank line against an already-recorded Ramp bill it pays off — e.g. a utility
+ * paid by direct ACH autopay rather than Ramp's own Bill Pay ("Vendor Payment")
+ * rail, which would otherwise double-count: once as the bill accrual, again as
+ * the bank debit. A vendor can have several bills, hence a Set of totals.
+ */
+export type BillTotals = Map<string, Set<number>>;
+
+/**
+ * Alnum-only vendor key for bill-vs-bank matching: bank ACH descriptors mash
+ * names together with no separators (e.g. "DUKEENERGY"), while Ramp's Bill
+ * `vendor_name` is human-readable ("Duke Energy") — normalizeCounterparty's
+ * whitespace-collapse alone leaves these unequal, so this strips punctuation
+ * and spaces entirely. Combined with an exact-cents amount match, the risk of
+ * an unrelated vendor colliding on both name and total-to-the-penny is low.
+ */
+export function billMatchKey(name: string | null | undefined): string {
+  return (name ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+/** Group bill line-item expense rows by their bill id (the part before the ":N" suffix) and sum, keyed by fuzzy vendor. */
+export function buildBillTotals(billLineItems: { source_transaction_id: string; amount_cents: number; merchant_name: string | null }[]): BillTotals {
+  const totalsByBillId = new Map<string, { cents: number; vendorKey: string }>();
+  for (const row of billLineItems) {
+    const billId = row.source_transaction_id.split(":")[0];
+    const vendorKey = billMatchKey(row.merchant_name);
+    const prior = totalsByBillId.get(billId);
+    totalsByBillId.set(billId, { cents: (prior?.cents ?? 0) + Math.abs(row.amount_cents), vendorKey });
+  }
+  const result: BillTotals = new Map();
+  for (const { cents, vendorKey } of totalsByBillId.values()) {
+    if (!vendorKey) continue;
+    if (!result.has(vendorKey)) result.set(vendorKey, new Set());
+    result.get(vendorKey)!.add(cents);
+  }
+  return result;
+}
+
 /** Whether a bank-ledger flow_type affects the P&L. In the ledger table only interest is income; transfers/settlements/deposits/unclassified are non-P&L. */
 export function affectsPlForFlowType(flowType: FlowType): boolean {
   return flowType === "interest_income";
 }
 
-export function classifyBankLine(line: RampBankLine, ownAccounts: Set<string>): BankClassification {
+export function classifyBankLine(line: RampBankLine, ownAccounts: Set<string>, billTotals: BillTotals = new Map()): BankClassification {
   const desc    = line.description.trim();
   const destKey = normalizeCounterparty(line.destination_account_name);
   const srcKey  = normalizeCounterparty(line.source_account_name);
@@ -58,9 +98,16 @@ export function classifyBankLine(line: RampBankLine, ownAccounts: Set<string>): 
     const dest = line.destination_account_name ?? "";
     if (destKey === "") return make("unclassified", false, "outflow", "");
     if (destOwn) return make("internal_transfer", false, "outflow", dest);
-    // A Withdrawal to an external party is a direct operating-expense debit
-    // (Gusto, Erie, tax). Card statement settlements never appear in this feed —
-    // they are ingested authoritatively from /transfers (see transferLedger).
+    // A vendor paid by direct ACH autopay (not routed through Ramp Bill Pay)
+    // shows up here as a plain Withdrawal, not "Vendor Payment" — match it
+    // against a recorded bill's total so it's excluded like any other
+    // settlement instead of double-booked as a second, separate expense.
+    if (billTotals.get(billMatchKey(dest))?.has(dollarsToCents(line.amount))) {
+      return make("bill_settlement", false, "outflow", dest);
+    }
+    // Otherwise a Withdrawal to an external party is a direct operating-expense
+    // debit (Gusto, Erie, tax). Card statement settlements never appear in this
+    // feed — they are ingested authoritatively from /transfers (see transferLedger).
     return make("operating_expense", true, "outflow", dest);
   }
 
@@ -136,11 +183,12 @@ function bankLineToLedgerRecord(line: RampBankLine, c: BankClassification): Bank
 export function partitionBankLines(
   lines: RampBankLine[],
   ownAccounts: Set<string>,
+  billTotals: BillTotals = new Map(),
 ): { expenseRecords: ExpenseRecord[]; ledgerRecords: BankLedgerRecord[] } {
   const expenseRecords: ExpenseRecord[] = [];
   const ledgerRecords:  BankLedgerRecord[] = [];
   for (const line of lines) {
-    const c = classifyBankLine(line, ownAccounts);
+    const c = classifyBankLine(line, ownAccounts, billTotals);
     if (c.is_expense) expenseRecords.push(bankLineToExpenseRecord(line, c));
     else              ledgerRecords.push(bankLineToLedgerRecord(line, c));
   }
