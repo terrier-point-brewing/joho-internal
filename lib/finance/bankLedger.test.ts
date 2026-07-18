@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { classifyBankLine, partitionBankLines } from "./bankLedger";
+import { classifyBankLine, partitionBankLines, buildBillTotals } from "./bankLedger";
 import { normalizeCounterparty, type RampBankLine } from "@/lib/ramp";
 
 const OWN = new Set(["operating account", "investment account"].map(normalizeCounterparty));
@@ -58,6 +58,45 @@ describe("classifyBankLine", () => {
     const c = classifyBankLine(line({ destination_account_name: "Ramp Reserve" }), ownWithRamp);
     expect(c).toMatchObject({ flow_type: "internal_transfer", is_expense: false, affects_pl: false });
   });
+
+  it("a Withdrawal whose amount+counterparty matches a recorded bill's total is a bill settlement, not a second expense", () => {
+    const billTotals = buildBillTotals([
+      { source_transaction_id: "bill-1:0", amount_cents: -400000, merchant_name: "Duke Energy" },
+      { source_transaction_id: "bill-1:1", amount_cents: -83355, merchant_name: "Duke Energy" },
+    ]);
+    const c = classifyBankLine(
+      line({ destination_account_name: "DUKEENERGY", amount: 4833.55 }),
+      OWN,
+      billTotals,
+    );
+    expect(c).toMatchObject({ flow_type: "bill_settlement", is_expense: false, affects_pl: false, direction: "outflow", counterparty_key: "dukeenergy" });
+  });
+
+  it("a Withdrawal that doesn't match any recorded bill total is still a plain operating expense", () => {
+    const billTotals = buildBillTotals([{ source_transaction_id: "bill-1:0", amount_cents: -400000, merchant_name: "Duke Energy" }]);
+    const c = classifyBankLine(line({ destination_account_name: "DUKEENERGY", amount: 999.99 }), OWN, billTotals);
+    expect(c).toMatchObject({ flow_type: "operating_expense", is_expense: true, affects_pl: true });
+  });
+});
+
+describe("buildBillTotals", () => {
+  it("sums a bill's line items (stripping the :N suffix) keyed by normalized vendor", () => {
+    const totals = buildBillTotals([
+      { source_transaction_id: "b1:0", amount_cents: -10412, merchant_name: "Duke Energy" },
+      { source_transaction_id: "b1:1", amount_cents: -472943, merchant_name: "Duke Energy" },
+      { source_transaction_id: "b2:0", amount_cents: -50000, merchant_name: "Erie Insurance" },
+    ]);
+    expect(totals.get("dukeenergy")).toEqual(new Set([483355]));
+    expect(totals.get("erieinsurance")).toEqual(new Set([50000]));
+  });
+
+  it("keeps multiple distinct totals for a vendor with more than one bill", () => {
+    const totals = buildBillTotals([
+      { source_transaction_id: "b1:0", amount_cents: -100000, merchant_name: "Duke Energy" },
+      { source_transaction_id: "b2:0", amount_cents: -200000, merchant_name: "Duke Energy" },
+    ]);
+    expect(totals.get("dukeenergy")).toEqual(new Set([100000, 200000]));
+  });
 });
 
 describe("partitionBankLines", () => {
@@ -94,6 +133,20 @@ describe("partitionBankLines", () => {
       OWN,
     );
     expect(ledgerRecords[0]).toMatchObject({ counterparty_key: normalizeCounterparty("STRIPE PAYMENTS") });
+  });
+
+  it("routes a Withdrawal that settles a recorded bill to the ledger (bill_settlement), not to expenses (Duke Energy regression)", () => {
+    const billTotals = buildBillTotals([
+      { source_transaction_id: "duke-bill:0", amount_cents: -400000, merchant_name: "Duke Energy" },
+      { source_transaction_id: "duke-bill:1", amount_cents: -83355, merchant_name: "Duke Energy" },
+    ]);
+    const { expenseRecords, ledgerRecords } = partitionBankLines(
+      [line({ id: "duke-payment", destination_account_name: "DUKEENERGY", amount: 4833.55 })],
+      OWN,
+      billTotals,
+    );
+    expect(expenseRecords).toHaveLength(0);
+    expect(ledgerRecords).toMatchObject([{ source_transaction_id: "duke-payment", flow_type: "bill_settlement", affects_pl: false, amount_cents: -483355 }]);
   });
 });
 
