@@ -62,6 +62,9 @@ export function rampTxnToExpenseRecord(txn: RampTransaction): ExpenseRecord {
     external_account_code: txn.gl_account?.external_id ?? null,
     counterparty_key:      null,
     counterparty_label:    null,
+    qb_sync_status:        txn.sync_status,
+    qb_synced_at:          txn.qb_synced_at,
+    qb_remote_id:          null,
   };
 }
 
@@ -89,6 +92,10 @@ export function rampBillToExpenseRecords(bill: RampBill): ExpenseRecord[] {
     accounting_date:    day,
     counterparty_key:   null,
     counterparty_label: null,
+    // Every line item of a bill shares the bill's QB sync state + remote id.
+    qb_sync_status:     bill.sync_status,
+    qb_synced_at:       null,
+    qb_remote_id:       bill.remote_id,
   };
 
   if (bill.line_items.length === 0) {

@@ -68,3 +68,18 @@ export const EXPENSE_STATE_CLS: Record<string, string> = {
 
 /** "Split by source" data category (info). */
 export const SPLIT_CATEGORY_CLS = "text-info bg-info-surface/30";
+
+/**
+ * QuickBooks sync-status pill, keyed by the normalized QbSyncState
+ * (lib/finance/qbSyncStatus.ts). Tones mirror the finance conventions: synced =
+ * success (like a "paid" pill), partial/ready = info (attention / staged),
+ * not-synced = muted neutral. `unknown` renders no badge, but is mapped for
+ * completeness.
+ */
+export const QB_SYNC_CLS: Record<string, string> = {
+  synced:    "bg-success-surface/40 text-success",
+  partial:   "bg-info-surface/40 text-info",
+  ready:     "bg-surface-mid text-info",
+  not_ready: "bg-surface-mid text-muted",
+  unknown:   "bg-surface-mid text-faint",
+};

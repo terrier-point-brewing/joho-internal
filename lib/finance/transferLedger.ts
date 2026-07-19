@@ -86,5 +86,9 @@ export function transferToLedgerRecord(t: RampTransfer, flow_type: TransferFlow)
     flow_type,
     affects_pl:               false,
     transaction_date:         t.created_at ? t.created_at.slice(0, 10) : null,
+    // The /transfers endpoint is sparse and carries no QB sync state.
+    qb_sync_status:           null,
+    qb_synced_at:             null,
+    qb_remote_id:             null,
   };
 }

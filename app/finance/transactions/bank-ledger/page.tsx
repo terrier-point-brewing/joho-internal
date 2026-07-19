@@ -15,6 +15,8 @@ import SortableTh from "@/app/components/ui/SortableTh";
 import SearchInput from "@/app/components/ui/SearchInput";
 import FilterBar from "@/app/components/ui/FilterBar";
 import FilterSelect from "@/app/components/ui/FilterSelect";
+import QbSyncBadge, { qbSyncFilterValue, QB_SYNC_FILTER_OPTIONS } from "../components/QbSyncBadge";
+import { normalizeQbSyncStatus } from "@/lib/finance/qbSyncStatus";
 import { useTableControls } from "@/app/components/ui/useTableControls";
 import type { ControlsConfig } from "@/lib/table/types";
 
@@ -27,6 +29,7 @@ interface BankRow {
   affects_pl: boolean; transaction_date: string | null; chart_of_accounts_id: string | null;
   mapping_source: "unmapped" | "rule" | "manual";
   unmapped_accepted: boolean;
+  qb_sync_status: string | null; qb_synced_at: string | null; qb_remote_id: string | null;
 }
 
 // No dedicated "warning" tone exists in app/components/ui/tone.ts (Tone = neutral | accent |
@@ -49,6 +52,7 @@ const BANK_CONTROLS: ControlsConfig<BankRow> = {
   search: [{ param: "q", accessor: (r) => [r.counterparty_name, r.description] }],
   filters: [
     { param: "flow", accessor: (r) => r.flow_type },
+    { param: "qbsync", accessor: (r) => qbSyncFilterValue(r.qb_sync_status) },
   ],
   sort: {
     columns: [
@@ -109,6 +113,7 @@ export default function BankLedgerPage() {
   // Summary stats — always computed over the full `rows` array, never the page slice below.
   const needsReview = rows.filter((r) => r.flow_type === "unclassified" && !r.unmapped_accepted).length;
   const plNet = rows.filter((r) => r.affects_pl).reduce((s, r) => s + r.amount_cents, 0);
+  const inQbCount = rows.filter((r) => normalizeQbSyncStatus(r.qb_sync_status) === "synced").length;
 
   const { rows: visible, search, filters, sort, setSearch, setFilter, toggleSort, reset, activeCount } =
     useTableControls(rows, BANK_CONTROLS);
@@ -130,12 +135,15 @@ export default function BankLedgerPage() {
           <DateRangeFilter from={from} to={to} onChange={(f, t) => setRange({ from: f, to: t })} />
           <FilterSelect label="Flow" options={FLOW_OPTIONS} value={filters.flow ?? []}
             onChange={(v) => setFilter("flow", v)} />
+          <FilterSelect label="QB Sync" options={QB_SYNC_FILTER_OPTIONS} value={filters.qbsync ?? []}
+            onChange={(v) => setFilter("qbsync", v)} />
         </FilterBar>
       </div>
       {rows.length > 0 && (
         <SummaryStatBar stats={[
           { label: "Lines", value: rows.length },
           { label: "Needs review", value: needsReview, tone: needsReview > 0 ? "accent" : "secondary" },
+          { label: "In QuickBooks", value: `${inQbCount} / ${rows.length}` },
           { label: "P&L impact", value: formatCurrencyCents(plNet) },
         ]} />
       )}
@@ -151,7 +159,7 @@ export default function BankLedgerPage() {
         <div className="flex-1 overflow-auto px-4 sm:px-6 py-4">
           <LedgerTable head={<>
             <SortableTh label="Date" sortKey="date" sort={sort} onSort={toggleSort} />
-            <Th label="Counterparty" /><Th label="Description" /><Th label="Flow" /><Th label="P&L" />
+            <Th label="Counterparty" /><Th label="Description" /><Th label="Flow" /><Th label="P&L" /><Th label="QB Sync" />
             <SortableTh label="Amount" sortKey="amount" sort={sort} onSort={toggleSort} align="right" />
           </>}>
             {pagedVisible.map((r) => (
@@ -181,6 +189,7 @@ export default function BankLedgerPage() {
                   ) : <Badge tone={flowTone(r.flow_type)}>{r.flow_type.replace(/_/g, " ")}</Badge>}
                 </td>
                 <td className="px-4 py-2 text-2xs text-faint">{r.affects_pl ? "yes" : "—"}</td>
+                <td className="px-4 py-2"><QbSyncBadge status={r.qb_sync_status} rampObject="bank" /></td>
                 <td className="px-4 py-2 text-right font-mono tabular-nums text-strong">{formatCurrencyCents(r.amount_cents)}</td>
               </tr>
             ))}

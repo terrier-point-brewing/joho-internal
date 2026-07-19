@@ -53,6 +53,8 @@ export interface RampTransaction {
   state:                            string;
   user_transaction_time:            string;   // ISO
   accounting_date:                  string;   // ISO
+  sync_status:                      string | null;  // raw Ramp QB sync_status: NOT_SYNC_READY | SYNC_READY | SYNCED
+  qb_synced_at:                     string | null;  // ISO; when Ramp pushed it to QuickBooks (from the API's synced_at)
   gl_account:                       RampGlAccount | null;
   card_holder: {
     first_name:      string;
@@ -89,6 +91,8 @@ export interface RampBill {
   due_at:          string | null;
   memo:            string | null;
   invoice_number:  string | null;
+  sync_status:     string | null;  // raw Ramp QB sync_status: NOT_SYNCED | BILL_SYNCED | BILL_AND_PAYMENT_SYNCED
+  remote_id:       string | null;  // the QuickBooks object id Ramp created for this bill
   line_items:      RampBillLineItem[];
 }
 
@@ -185,6 +189,8 @@ export async function getRampTransactions(from?: string, to?: string): Promise<R
         state:                            t.state ?? "",
         user_transaction_time:            t.user_transaction_time ?? "",
         accounting_date:                  t.accounting_date ?? "",
+        sync_status:                      t.sync_status ?? null,
+        qb_synced_at:                     t.synced_at ?? null,
         gl_account:                       extractGlAccount(t),
         card_holder: {
           first_name:      t.card_holder?.first_name      ?? "",
@@ -236,6 +242,8 @@ export async function getRampBills(from?: string, to?: string): Promise<RampBill
         due_at:          b.due_at ?? null,
         memo:            b.memo ?? b.vendor_memo ?? null,
         invoice_number:  b.invoice_number ?? null,
+        sync_status:     b.sync_status ?? null,
+        remote_id:       b.remote_id ?? null,
         line_items: (b.line_items ?? []).map((li: Record<string, unknown>) => ({
           amount:                      parseAmount(li.amount),
           memo:                        (li.memo as string | null) ?? null,
@@ -326,6 +334,7 @@ export interface RampBankLine {
   description:              string;  // Withdrawal | Deposit | Interest | Vendor Payment | …
   source_account_name:      string | null;
   destination_account_name: string | null;
+  sync_status:              string | null;  // raw Ramp QB sync_status for the bank line
 }
 
 /** Normalize a counterparty/account name into a stable key (lowercase, single-spaced). */
@@ -375,6 +384,7 @@ export async function getRampBankTransactions(from?: string, to?: string): Promi
         description:              t.description ?? "",
         source_account_name:      t.source_account_name ?? null,
         destination_account_name: t.destination_account_name ?? null,
+        sync_status:              t.sync_status ?? null,
       });
     }
     url = data.page?.next ?? null;
