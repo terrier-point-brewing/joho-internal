@@ -34,18 +34,27 @@ export async function getAvailableColdStorageQuantity(
  *
  * Caller must have already verified `quantity` does not exceed the total
  * available (via getAvailableColdStorageQuantity) — this function does not
- * re-check and will simply deplete everything it finds if asked for more.
+ * re-check and will simply deplete everything it finds if asked for more,
+ * unless `batchId` is given (see below).
+ *
+ * When `batchId` is passed, depletion is restricted to that batch's own
+ * cold-storage lot(s) for this recipe/variation instead of the oldest-first
+ * cross-batch sweep — used when a specific batch must absorb the movement
+ * (e.g. targeting a chosen batch's on-hand for a restock). It never depletes
+ * past that batch's own on-hand: if the batch's lot(s) total less than
+ * `quantity`, only what's there is taken (other batches are left untouched).
  */
 export async function depleteColdStorageInventory(
   supabase: SupabaseClient,
-  { recipeId, variationId, quantity }: ColdStorageKey & { quantity: number }
+  { recipeId, variationId, quantity, batchId }: ColdStorageKey & { quantity: number; batchId?: string }
 ): Promise<{ batchId: string; depletedQty: number }[]> {
-  const { data: rows, error } = await supabase
+  let query = supabase
     .from("cold_storage_inventory")
     .select("id, batch_id, quantity_on_hand, created_at")
     .eq("recipe_id", recipeId)
-    .eq("variation_id", variationId)
-    .order("created_at", { ascending: true });
+    .eq("variation_id", variationId);
+  if (batchId) query = query.eq("batch_id", batchId);
+  const { data: rows, error } = await query.order("created_at", { ascending: true });
   if (error) throw new Error(error.message);
 
   const depleted: { batchId: string; depletedQty: number }[] = [];
