@@ -168,17 +168,27 @@ export async function runTaproomConsumptionSync(
       });
       totalRecordedQty += res.recordedQty;
 
-      // Restock-driven swaps carry a recount. Fire it once — on the first run
-      // that durably records this swap (alreadyRecorded === 0) — so the mapped
-      // draft SKU is reset to full in Square. Tying it to a persisted shipment
-      // row guarantees fire-once: subsequent runs see alreadyRecorded > 0 and
-      // skip. Best-effort: a Square failure is flagged, never fatal.
-      if (u.recount && alreadyRecorded === 0) {
-        // Live shrinkage: Square's CALCULATED on-hand (IN_STOCK) for the draft
-        // base variation nets pour depletion already, so the value read here —
-        // before the recount below overwrites it to full — equals the true fl
-        // oz left in the keg at swap time. Best-effort — never fatal, so a
-        // read/write failure never blocks the recount.
+    } else {
+      skipped++;
+    }
+
+    // Restock-driven swaps carry a recount. Fire it once — on the first run
+    // that durably records this swap (alreadyRecorded === 0), whether that
+    // record was physical, phantom, or both — so the mapped draft SKU is
+    // reset to full in Square even when cold storage had nothing to
+    // physically deplete. Tying it to a persisted shipment row guarantees
+    // fire-once: subsequent runs see alreadyRecorded > 0 and skip.
+    // Best-effort: a Square failure is flagged, never fatal.
+    if (u.recount && alreadyRecorded === 0 && res.recordedQty + res.shortfallQty > EPS) {
+      // Live shrinkage: Square's CALCULATED on-hand (IN_STOCK) for the draft
+      // base variation nets pour depletion already, so the value read here —
+      // before the recount below overwrites it to full — equals the true fl
+      // oz left in the keg at swap time. Only meaningful when physical
+      // inventory actually moved this run — a phantom-only swap (no cold
+      // storage on hand) never touched the keg, so there's nothing to
+      // capture. Best-effort — never fatal, so a read/write failure never
+      // blocks the recount.
+      if (res.recordedQty > EPS) {
         try {
           const counts = await fetchCurrentCounts([u.recount.squareVariationId]);
           const remaining = counts.get(u.recount.squareVariationId);
@@ -200,21 +210,19 @@ export async function runTaproomConsumptionSync(
             detail: e instanceof Error ? e.message : String(e),
           });
         }
-
-        try {
-          await setPhysicalCount(u.recount.squareVariationId, u.recount.quantity, u.recount.occurredAt);
-          recountsApplied++;
-        } catch (e) {
-          recountWarnings.push({
-            kind: "recount_failed",
-            sourceRef: u.sourceRef,
-            label: u.label,
-            detail: e instanceof Error ? e.message : String(e),
-          });
-        }
       }
-    } else {
-      skipped++;
+
+      try {
+        await setPhysicalCount(u.recount.squareVariationId, u.recount.quantity, u.recount.occurredAt);
+        recountsApplied++;
+      } catch (e) {
+        recountWarnings.push({
+          kind: "recount_failed",
+          sourceRef: u.sourceRef,
+          label: u.label,
+          detail: e instanceof Error ? e.message : String(e),
+        });
+      }
     }
 
     if (res.shortfallQty > EPS) {
