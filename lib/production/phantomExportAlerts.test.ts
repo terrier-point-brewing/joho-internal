@@ -1,0 +1,188 @@
+// lib/production/phantomExportAlerts.test.ts
+//
+// export_transactions does NOT store variation_id (see exportInvoicePreview.ts's
+// buildProductLines for the established precedent) — an alert's variationId is
+// resolved the same way: recipe_packaging_variations joined to packaging_variations
+// on (recipe_id, container_id = packaging_item_id, format = packaging_format).
+// tapNumber is resolved via tap_assignments on (recipe_id, swap_variation_id).
+// variationName rides directly on export_transactions.variant_label — no extra
+// join needed for that field.
+import { describe, it, expect } from "vitest";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  fetchOpenPhantomAlerts,
+  fetchUnemailedPhantomAlerts,
+  fetchEligibleBatches,
+  markPhantomAlertsEmailed,
+  type PhantomAlert,
+} from "./phantomExportAlerts";
+
+type Call = { method: string; args: unknown[] };
+
+/** Routes `.from(table)` to fixed per-table data; records every chained call. */
+function makeSupabase(tables: Record<string, { rows: unknown[] | null; error?: string | null }>) {
+  const calls: Record<string, Call[]> = {};
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const from = (table: string): any => {
+    const cfg = tables[table] ?? { rows: [] };
+    calls[table] = calls[table] ?? [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const builder: Record<string, any> = {};
+    const chain = (method: string) => (...args: unknown[]) => { calls[table].push({ method, args }); return builder; };
+    builder.select = chain("select");
+    builder.eq = chain("eq");
+    builder.is = chain("is");
+    builder.in = chain("in");
+    builder.order = chain("order");
+    builder.update = chain("update");
+    builder.then = (resolve: (v: { data: unknown; error: unknown }) => unknown) =>
+      Promise.resolve({ data: cfg.rows, error: cfg.error ? { message: cfg.error } : null }).then(resolve);
+    return builder;
+  };
+  return { client: { from } as unknown as SupabaseClient, calls };
+}
+
+const phantomTxRow = {
+  id: "et-1",
+  recipe_id: "r1",
+  packaging_item_id: "container-1",
+  packaging_format: "loose",
+  variant_label: "1/2 Keg",
+  quantity: 1,
+  volume_bbl: 0.4032,
+  total_excise_tax_usd: 2.48,
+  created_at: "2026-07-18T20:00:00Z",
+  recipes: { beer_name: "Vienna Lager" },
+};
+
+const recipePackagingVariationRow = {
+  variation_id: "pv-1",
+  packaging_variations: { id: "pv-1", container_id: "container-1", format: "loose" },
+};
+
+const tapAssignmentRow = { tap_number: 3 };
+
+function baseTables() {
+  return {
+    export_transactions: { rows: [phantomTxRow] },
+    recipe_packaging_variations: { rows: [recipePackagingVariationRow] },
+    tap_assignments: { rows: [tapAssignmentRow] },
+  };
+}
+
+describe("fetchOpenPhantomAlerts", () => {
+  it("returns alerts joined to beer/tap/variation names", async () => {
+    const { client, calls } = makeSupabase(baseTables());
+    const alerts = await fetchOpenPhantomAlerts(client);
+    expect(alerts).toEqual([
+      {
+        exportTransactionId: "et-1",
+        recipeId: "r1",
+        beerName: "Vienna Lager",
+        tapNumber: 3,
+        variationId: "pv-1",
+        variationName: "1/2 Keg",
+        quantityKegs: 1,
+        volumeBbl: 0.4032,
+        exciseUsd: 2.48,
+        occurredAt: "2026-07-18T20:00:00Z",
+      },
+    ] satisfies PhantomAlert[]);
+
+    // Filters on is_phantom / alert_acknowledged_at, never alert_emailed_at.
+    const etCalls = calls.export_transactions;
+    expect(etCalls.some((c) => c.method === "eq" && c.args[0] === "is_phantom" && c.args[1] === true)).toBe(true);
+    expect(etCalls.some((c) => c.method === "is" && c.args[0] === "alert_acknowledged_at" && c.args[1] === null)).toBe(true);
+    expect(etCalls.some((c) => c.method === "is" && c.args[0] === "alert_emailed_at")).toBe(false);
+  });
+
+  it("resolves tapNumber to null when no tap_assignments row matches", async () => {
+    const { client } = makeSupabase({ ...baseTables(), tap_assignments: { rows: [] } });
+    const alerts = await fetchOpenPhantomAlerts(client);
+    expect(alerts[0].tapNumber).toBeNull();
+  });
+
+  it("returns an empty list when there are no open phantom rows", async () => {
+    const { client } = makeSupabase({ ...baseTables(), export_transactions: { rows: [] } });
+    expect(await fetchOpenPhantomAlerts(client)).toEqual([]);
+  });
+
+  it("throws when the export_transactions query errors", async () => {
+    const { client } = makeSupabase({ ...baseTables(), export_transactions: { rows: null, error: "boom" } });
+    await expect(fetchOpenPhantomAlerts(client)).rejects.toThrow("boom");
+  });
+});
+
+describe("fetchUnemailedPhantomAlerts", () => {
+  it("additionally filters on alert_emailed_at IS NULL", async () => {
+    const { client, calls } = makeSupabase(baseTables());
+    const alerts = await fetchUnemailedPhantomAlerts(client);
+    expect(alerts).toHaveLength(1);
+    const etCalls = calls.export_transactions;
+    expect(etCalls.some((c) => c.method === "eq" && c.args[0] === "is_phantom" && c.args[1] === true)).toBe(true);
+    expect(etCalls.some((c) => c.method === "is" && c.args[0] === "alert_acknowledged_at" && c.args[1] === null)).toBe(true);
+    expect(etCalls.some((c) => c.method === "is" && c.args[0] === "alert_emailed_at" && c.args[1] === null)).toBe(true);
+  });
+});
+
+describe("fetchEligibleBatches", () => {
+  const alert: PhantomAlert = {
+    exportTransactionId: "et-1",
+    recipeId: "r1",
+    beerName: "Vienna Lager",
+    tapNumber: 3,
+    variationId: "pv-1",
+    variationName: "1/2 Keg",
+    quantityKegs: 1,
+    volumeBbl: 0.4032,
+    exciseUsd: 2.48,
+    occurredAt: "2026-07-18T20:00:00Z",
+  };
+
+  it("returns only same-recipe/variation batches with on-hand >= quantityKegs", async () => {
+    const { client, calls } = makeSupabase({
+      cold_storage_inventory: {
+        rows: [
+          { batch_id: "b1", quantity_on_hand: 2, brew_batches: { batch_number: "B-050" } },
+          { batch_id: "b2", quantity_on_hand: 0.5, brew_batches: { batch_number: "B-051" } },
+        ],
+      },
+    });
+    const batches = await fetchEligibleBatches(client, alert);
+    expect(batches).toEqual([{ batchId: "b1", batchCode: "B-050", onHand: 2 }]);
+    const csiCalls = calls.cold_storage_inventory;
+    expect(csiCalls.some((c) => c.method === "eq" && c.args[0] === "recipe_id" && c.args[1] === "r1")).toBe(true);
+    expect(csiCalls.some((c) => c.method === "eq" && c.args[0] === "variation_id" && c.args[1] === "pv-1")).toBe(true);
+  });
+
+  it("returns an empty list when no batch has enough on hand", async () => {
+    const { client } = makeSupabase({
+      cold_storage_inventory: { rows: [{ batch_id: "b2", quantity_on_hand: 0.5, brew_batches: { batch_number: "B-051" } }] },
+    });
+    expect(await fetchEligibleBatches(client, alert)).toEqual([]);
+  });
+
+  it("throws when the query errors", async () => {
+    const { client } = makeSupabase({ cold_storage_inventory: { rows: null, error: "boom" } });
+    await expect(fetchEligibleBatches(client, alert)).rejects.toThrow("boom");
+  });
+});
+
+describe("markPhantomAlertsEmailed", () => {
+  it("stamps alert_emailed_at on the given export_transactions ids", async () => {
+    const { client, calls } = makeSupabase({ export_transactions: { rows: [] } });
+    await markPhantomAlertsEmailed(client, ["et-1", "et-2"]);
+    const etCalls = calls.export_transactions;
+    const update = etCalls.find((c) => c.method === "update");
+    expect(update).toBeTruthy();
+    expect(update?.args[0]).toMatchObject({ alert_emailed_at: expect.any(String) });
+    const inCall = etCalls.find((c) => c.method === "in");
+    expect(inCall?.args).toEqual(["id", ["et-1", "et-2"]]);
+  });
+
+  it("is a no-op for an empty id list", async () => {
+    const { client, calls } = makeSupabase({ export_transactions: { rows: [] } });
+    await markPhantomAlertsEmailed(client, []);
+    expect(calls.export_transactions ?? []).toEqual([]);
+  });
+});
