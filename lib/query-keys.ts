@@ -69,6 +69,7 @@ export const queryKeys = {
     depositInvoiceDueDays: () => ["production", "deposit-invoice-due-days"] as const,
     exportInvoices:        () => ["production", "export-invoices"] as const,
     depositInvoices:       () => ["production", "deposit-invoices"] as const,
+    phantomAlerts:         () => ["production", "phantom-alerts"] as const,
   },
 
   // ─── Partners ─────────────────────────────────────────────────────────────

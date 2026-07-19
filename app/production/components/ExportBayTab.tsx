@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { useRecipesQuery, useContractPartnersQuery, fetchJson } from "../hooks/queries";
 import type { AvailableInventoryLine, BatchAllocation, ExportChannel } from "../types";
 import { assessWriteOff, type ShipmentWarning } from "@/lib/production/allocationReserve";
@@ -12,6 +12,8 @@ import FilterChips from "@/app/components/ui/FilterChips";
 import SearchInput from "@/app/components/ui/SearchInput";
 import { useTableControls } from "@/app/components/ui/useTableControls";
 import type { ControlsConfig } from "@/lib/table/types";
+import Card from "@/app/components/ui/Card";
+import { Modal } from "@/app/components/ui/Modal";
 
 function formatShipmentWarning(w: ShipmentWarning): string {
   switch (w.type) {
@@ -86,6 +88,30 @@ function sortAllocations(list: BatchAllocation[]): BatchAllocation[] {
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
+/** A cold-storage batch still eligible to retroactively cover a phantom export. */
+interface PhantomEligibleBatch {
+  batchId: string;
+  batchCode: string;
+  onHand: number;
+}
+
+/** An open taproom draft-swap alert — barrel excise was booked with no
+ *  cold-storage stock to deduct (`export_transactions.is_phantom = true`,
+ *  unacknowledged). See GET /api/production/taproom-consumption/phantom-alerts. */
+interface PhantomAlert {
+  exportTransactionId: string;
+  recipeId: string;
+  beerName: string;
+  tapNumber: number | null;
+  variationId: string;
+  variationName: string;
+  quantityKegs: number;
+  volumeBbl: number;
+  exciseUsd: number;
+  occurredAt: string;
+  eligibleBatches: PhantomEligibleBatch[];
+}
+
 interface CustomerRecipeGroup {
   partnerId: string;
   partnerName: string;
@@ -98,6 +124,170 @@ interface RecipeAllocationGroup {
   recipeId: string;
   recipeName: string;
   partnerGroups: CustomerRecipeGroup[];
+}
+
+// ── Phantom-export alerts ────────────────────────────────────────────────────
+// Taproom draft-restock swaps that booked barrel excise with no cold-storage
+// stock to deduct. Mirrors Finance's DataQualityPanel "⚑ N to review" idiom:
+// hidden behind a compact indicator, "all reconciled" when nothing's open.
+
+function usePhantomAlertMutations() {
+  const qc = useQueryClient();
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: queryKeys.production.phantomAlerts() });
+    qc.invalidateQueries({ queryKey: queryKeys.production.exportBayInventory() });
+  };
+
+  const reconcile = useMutation({
+    mutationFn: async (vars: { exportTransactionId: string; batchId: string }) => {
+      const res = await fetch("/api/production/taproom-consumption/reconcile-phantom", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(vars),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Error");
+    },
+    onSuccess: invalidate,
+  });
+
+  const dismiss = useMutation({
+    mutationFn: async (vars: { exportTransactionId: string }) => {
+      const res = await fetch("/api/production/taproom-consumption/dismiss-phantom", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(vars),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Error");
+    },
+    onSuccess: invalidate,
+  });
+
+  return { reconcile, dismiss };
+}
+
+function PhantomAlertRow({
+  alert,
+  selectedBatchId,
+  onSelectBatch,
+  onReconcile,
+  onDismiss,
+  reconciling,
+  dismissing,
+}: {
+  alert: PhantomAlert;
+  selectedBatchId: string;
+  onSelectBatch: (batchId: string) => void;
+  onReconcile: () => void;
+  onDismiss: () => void;
+  reconciling: boolean;
+  dismissing: boolean;
+}) {
+  const hasEligibleBatches = alert.eligibleBatches.length > 0;
+  return (
+    <Card padding="p-3" className="flex items-center justify-between gap-3">
+      <div className="flex flex-col gap-1 min-w-0">
+        <span className="text-sm font-medium text-primary">
+          {alert.beerName}
+          {alert.tapNumber != null && <span className="text-muted font-normal"> · Tap {alert.tapNumber}</span>}
+        </span>
+        <span className="text-xs text-muted">
+          {fmtDate(alert.occurredAt)} · {alert.quantityKegs} keg{alert.quantityKegs !== 1 ? "s" : ""} · {alert.volumeBbl.toFixed(2)} BBL
+        </span>
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        {hasEligibleBatches && (
+          <select
+            className="inp-sm"
+            value={selectedBatchId}
+            onChange={(e) => onSelectBatch(e.target.value)}
+          >
+            <option value="">— pick batch —</option>
+            {alert.eligibleBatches.map((b) => (
+              <option key={b.batchId} value={b.batchId}>{b.batchCode} ({b.onHand} on hand)</option>
+            ))}
+          </select>
+        )}
+        {hasEligibleBatches && (
+          <button
+            type="button"
+            onClick={onReconcile}
+            disabled={!selectedBatchId || reconciling}
+            className="btn-primary btn-xxs"
+          >
+            {reconciling ? "…" : "Reconcile"}
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={onDismiss}
+          disabled={dismissing}
+          className="btn-secondary btn-xxs"
+        >
+          {dismissing ? "…" : "Dismiss"}
+        </button>
+      </div>
+    </Card>
+  );
+}
+
+function PhantomAlertsPanel({ alerts }: { alerts: PhantomAlert[] }) {
+  const [open, setOpen] = useState(false);
+  const [selectedBatchByAlert, setSelectedBatchByAlert] = useState<Record<string, string>>({});
+  const [error, setError] = useState<string | null>(null);
+  const { reconcile, dismiss } = usePhantomAlertMutations();
+
+  if (alerts.length === 0) {
+    return <span className="text-xs text-faint whitespace-nowrap">⚑ All reconciled</span>;
+  }
+
+  async function handleReconcile(alert: PhantomAlert) {
+    const batchId = selectedBatchByAlert[alert.exportTransactionId];
+    if (!batchId) return;
+    setError(null);
+    try {
+      await reconcile.mutateAsync({ exportTransactionId: alert.exportTransactionId, batchId });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Error");
+    }
+  }
+
+  async function handleDismiss(alert: PhantomAlert) {
+    setError(null);
+    try {
+      await dismiss.mutateAsync({ exportTransactionId: alert.exportTransactionId });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Error");
+    }
+  }
+
+  return (
+    <>
+      <button type="button" onClick={() => setOpen(true)} className="btn-secondary btn-xxs whitespace-nowrap">
+        ⚑ {alerts.length} draft swap{alerts.length !== 1 ? "s" : ""} recorded without cold-storage stock
+      </button>
+      {open && (
+        <Modal title="Draft swaps recorded without cold-storage stock" onClose={() => setOpen(false)} wide>
+          <div className="flex flex-col gap-2">
+            {error && <p className="text-xs text-danger">{error}</p>}
+            {alerts.map((alert) => (
+              <PhantomAlertRow
+                key={alert.exportTransactionId}
+                alert={alert}
+                selectedBatchId={selectedBatchByAlert[alert.exportTransactionId] ?? ""}
+                onSelectBatch={(batchId) =>
+                  setSelectedBatchByAlert((prev) => ({ ...prev, [alert.exportTransactionId]: batchId }))
+                }
+                onReconcile={() => handleReconcile(alert)}
+                onDismiss={() => handleDismiss(alert)}
+                reconciling={reconcile.isPending}
+                dismissing={dismiss.isPending}
+              />
+            ))}
+          </div>
+        </Modal>
+      )}
+    </>
+  );
 }
 
 // ── Main component ─────────────────────────────────────────────────────────────
@@ -115,6 +305,11 @@ export default function ExportBayTab() {
   });
   const { data: recipes = [] } = useRecipesQuery();
   const { data: partners = [] } = useContractPartnersQuery();
+  const { data: phantomAlertsData } = useQuery({
+    queryKey: queryKeys.production.phantomAlerts(),
+    queryFn: () => fetchJson<{ alerts: PhantomAlert[] }>("/api/production/taproom-consumption/phantom-alerts"),
+  });
+  const phantomAlerts = phantomAlertsData?.alerts ?? [];
 
   // Memoized so the search/filter/sort config (useMemo below) keeps a stable dep
   // set — otherwise React Compiler can't preserve its memoization.
@@ -328,22 +523,25 @@ export default function ExportBayTab() {
     <div className="space-y-3">
 
       {/* Actions */}
-      <div className="flex items-center justify-end gap-2">
-        <button
-          onClick={() => setShowSync(true)}
-          title="Reconcile taproom pours from Square into cold-storage draws"
-          className="btn-secondary"
-        >
-          ↻ Sync Taproom
-        </button>
-        <button
-          onClick={() => setShowAdHoc(true)}
-          disabled={inventory.length === 0}
-          title={inventory.length === 0 ? "No packaged inventory available" : undefined}
-          className="btn-primary"
-        >
-          + Ad-Hoc Export
-        </button>
+      <div className="flex items-center justify-between gap-2">
+        <PhantomAlertsPanel alerts={phantomAlerts} />
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowSync(true)}
+            title="Reconcile taproom pours from Square into cold-storage draws"
+            className="btn-secondary"
+          >
+            ↻ Sync Taproom
+          </button>
+          <button
+            onClick={() => setShowAdHoc(true)}
+            disabled={inventory.length === 0}
+            title={inventory.length === 0 ? "No packaged inventory available" : undefined}
+            className="btn-primary"
+          >
+            + Ad-Hoc Export
+          </button>
+        </div>
       </div>
 
       {/* Search + filter + sort */}
