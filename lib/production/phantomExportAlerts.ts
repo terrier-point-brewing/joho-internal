@@ -79,7 +79,11 @@ async function fetchPhantomAlerts(
   const rows = (data ?? []) as unknown as PhantomTxRow[];
   const alerts: PhantomAlert[] = [];
   for (const row of rows) {
-    const variationId = await resolveVariationId(supabase, row);
+    const variationId = await resolveSwapVariationId(supabase, {
+      recipeId: row.recipe_id,
+      containerId: row.packaging_item_id,
+      format: row.packaging_format,
+    });
     const tapNumber = await resolveTapNumber(supabase, row.recipe_id, variationId);
     alerts.push({
       exportTransactionId: row.id,
@@ -97,18 +101,24 @@ async function fetchPhantomAlerts(
   return alerts;
 }
 
-/** Resolve the swap packaging variation for a phantom row via its container + format. */
-async function resolveVariationId(supabase: SupabaseClient, row: PhantomTxRow): Promise<string> {
+/**
+ * Resolve the swap packaging variation for a phantom row via its container +
+ * format. `export_transactions` stores no `variation_id`, so it is derived
+ * from `recipe_packaging_variations` on (recipe_id, container_id, format).
+ * Shared by the alert list and the reconcile path. Returns "" when unresolved.
+ */
+export async function resolveSwapVariationId(
+  supabase: SupabaseClient,
+  { recipeId, containerId, format }: { recipeId: string; containerId: string; format: string | null },
+): Promise<string> {
   const { data, error } = await supabase
     .from("recipe_packaging_variations")
     .select("variation_id, packaging_variations(id, container_id, format)")
-    .eq("recipe_id", row.recipe_id);
+    .eq("recipe_id", recipeId);
   if (error) throw new Error(error.message);
   const rows = (data ?? []) as unknown as RecipeVariationRow[];
   const match = rows.find(
-    (rv) =>
-      rv.packaging_variations?.container_id === row.packaging_item_id &&
-      rv.packaging_variations?.format === row.packaging_format,
+    (rv) => rv.packaging_variations?.container_id === containerId && rv.packaging_variations?.format === format,
   );
   return match?.variation_id ?? "";
 }
