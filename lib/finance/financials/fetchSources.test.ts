@@ -217,7 +217,7 @@ interface InvoiceLineRow {
     id: string;
     invoice_date: string;
     status: string;
-    export_transactions: { channel: string; volume_bbl: number | null }[];
+    export_transactions: { channel: string; volume_bbl: number | null; batch_id?: string | null; is_phantom?: boolean }[];
     allocation_id: string | null;
     batch_allocations: { channel: string } | null;
   };
@@ -317,5 +317,30 @@ describe("fetchInvoiceLines", () => {
 
     const [row] = await fetchInvoiceLines(client, RANGE, false);
     expect(row.exportChannel).toBeNull();
+  });
+
+  // export_transactions.batch_id is nullable (phantom taproom keg-swap rows —
+  // is_phantom=true, batch_id=null — represent booked barrel excise with no
+  // cold-storage batch to deduct from). The embed here is a plain
+  // `export_transactions ( channel, volume_bbl )` (LEFT-join equivalent), so a
+  // phantom row must still resolve its channel/volume like any other row.
+  it("includes a phantom (null batch_id, is_phantom=true) export row's channel and volume", async () => {
+    const client = fakeInvoiceLinesClient([
+      {
+        id: "line-phantom", total_cents: 1500, category: "distribution_keg", chart_of_accounts_id: "coa-e",
+        invoices: {
+          id: "inv-phantom", invoice_date: "2026-06-01", status: "paid",
+          export_transactions: [{ channel: "taproom", volume_bbl: 0.5, batch_id: null, is_phantom: true }],
+          allocation_id: null, batch_allocations: null,
+        },
+      },
+    ]);
+
+    const [row] = await fetchInvoiceLines(client, RANGE, false);
+    // "taproom" isn't in EXPORT_CHANNELS (distribution/contract_brewing/wholesale),
+    // so exportChannel resolves null here — the point of this test is that the
+    // phantom row is read at all (not dropped) and its volume flows through.
+    expect(row.exportChannel).toBeNull();
+    expect(row.volumeBbl).toBe(0.5);
   });
 });

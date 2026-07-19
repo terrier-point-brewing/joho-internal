@@ -66,6 +66,8 @@ interface ExportRow {
   channel: string;
   volume_bbl: number;
   export_transaction_taxes: { tax_name: string; amount_usd: number }[];
+  batch_id?: string | null;
+  is_phantom?: boolean;
 }
 
 function stubSb(rows: ExportRow[], error?: string): SupabaseClient {
@@ -108,6 +110,27 @@ describe("fetchExciseData", () => {
     ];
     const res = await fetchExciseData(stubSb(rows), period);
     expect(res.gallonsByChannel.wholesale).toBe(155);
+    expect(res.missingDetailTxns).toBe(0);
+  });
+
+  // export_transactions.batch_id is nullable — phantom taproom keg-swap rows
+  // (is_phantom=true, batch_id=null) booked barrel excise with no cold-storage
+  // batch to deduct from, and MUST still be counted here. fetchExciseData's
+  // query never selects batch_id or joins brew_batches, so this only needs to
+  // prove the row isn't dropped.
+  it("includes a phantom (null batch_id, is_phantom=true) row in gallons and stored excise", async () => {
+    const rows: ExportRow[] = [
+      {
+        channel: "taproom",
+        volume_bbl: 10,
+        export_transaction_taxes: [{ tax_name: "NC Excise Tax", amount_usd: 191.9 }],
+        batch_id: null,
+        is_phantom: true,
+      },
+    ];
+    const res = await fetchExciseData(stubSb(rows), period);
+    expect(res.gallonsByChannel.taproom).toBe(310);
+    expect(res.storedNcCents).toBe(Math.round(191.9 * 100));
     expect(res.missingDetailTxns).toBe(0);
   });
 
