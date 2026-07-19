@@ -14,6 +14,8 @@ function txn(over: Partial<RampTransaction> = {}): RampTransaction {
     state: "CLEARED",
     user_transaction_time: "2026-06-15T14:00:00Z",
     accounting_date: "2026-06-15T00:00:00Z",
+    sync_status: "SYNCED",
+    qb_synced_at: "2026-06-16T02:00:00Z",
     gl_account: { id: "gl-1", external_id: "6000", name: "Meals & Entertainment" },
     card_holder: { first_name: "Sam", last_name: "Doe", department_name: "Ops", user_id: "u1" },
     ...over,
@@ -29,6 +31,7 @@ function bill(over: Partial<RampBill> = {}): RampBill {
     id: "b1", amount: 130.44, currency_code: "USD", vendor_name: "RahrBSG",
     status: "PAID", issued_at: "2026-05-19T00:00:00Z", accounting_date: "2026-05-19T00:00:00Z",
     due_at: "2026-06-18T00:00:00Z", memo: "malt", invoice_number: "INV-1",
+    sync_status: "BILL_SYNCED", remote_id: "qb-bill-9",
     line_items: [
       { amount: 100.00, memo: "malt", accounting_field_selections: [glSelection("COGS:Raw Materials", "5110")] },
       { amount: 30.44,  memo: "freight", accounting_field_selections: [glSelection("COGS:Freight", "5120")] },
@@ -50,6 +53,9 @@ describe("rampBillToExpenseRecords", () => {
     expect(recs[1]).toMatchObject({ source_transaction_id: "b1:1", amount_cents: -3044, external_account_code: "5120" });
     expect(recs[0].card_holder_name).toBeNull();
     expect(recs[0].department_name).toBeNull();
+    // Every line item inherits the bill's QB sync state + remote id; synced_at is bill-null.
+    expect(recs[0]).toMatchObject({ qb_sync_status: "BILL_SYNCED", qb_remote_id: "qb-bill-9", qb_synced_at: null });
+    expect(recs[1]).toMatchObject({ qb_sync_status: "BILL_SYNCED", qb_remote_id: "qb-bill-9" });
   });
 
   it("falls back to a single uncoded record when a bill has no line items", () => {
@@ -77,6 +83,9 @@ describe("rampTxnToExpenseRecord", () => {
       external_account_id: "gl-1",
       external_account_name: "Meals & Entertainment",
       external_account_code: "6000",
+      qb_sync_status: "SYNCED",
+      qb_synced_at: "2026-06-16T02:00:00Z",
+      qb_remote_id: null,
     });
   });
 

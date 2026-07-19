@@ -42,6 +42,11 @@ export interface ExpenseRecord {
   // used to resolve an account from the counterparty rule table.
   counterparty_key:      string | null;
   counterparty_label:    string | null;
+  // Ramp → QuickBooks sync state (Ramp's native DIRECT QB integration). Raw
+  // per-object-type enum; normalized for display in lib/finance/qbSyncStatus.ts.
+  qb_sync_status:        string | null;
+  qb_synced_at:          string | null;   // when Ramp pushed it to QB (card txns only)
+  qb_remote_id:          string | null;   // QB object id (bills only)
 }
 
 export type MappingSource = "unmapped" | "rule" | "manual";

@@ -128,6 +128,9 @@ export interface BankLedgerRecord {
   flow_type:                FlowType;
   affects_pl:               boolean;
   transaction_date:         string | null;
+  qb_sync_status:           string | null;   // raw Ramp QB sync_status for the bank line
+  qb_synced_at:             string | null;   // always null for bank lines (Ramp exposes no per-line synced_at)
+  qb_remote_id:             string | null;   // always null for bank lines
 }
 
 /** Signed cents from an unsigned magnitude + direction. */
@@ -159,6 +162,9 @@ function bankLineToExpenseRecord(line: RampBankLine, c: BankClassification): Exp
     external_account_code: null,
     counterparty_key:      c.counterparty_key || null,
     counterparty_label:    c.counterparty_name || null,
+    qb_sync_status:        line.sync_status,
+    qb_synced_at:          null,
+    qb_remote_id:          null,
   };
 }
 
@@ -176,6 +182,9 @@ function bankLineToLedgerRecord(line: RampBankLine, c: BankClassification): Bank
     flow_type:                c.flow_type,
     affects_pl:               c.affects_pl,
     transaction_date:         line.date ? line.date.slice(0, 10) : null,
+    qb_sync_status:           line.sync_status,
+    qb_synced_at:             null,
+    qb_remote_id:             null,
   };
 }
 

@@ -8,6 +8,7 @@ function line(over: Partial<RampBankLine> = {}): RampBankLine {
   return {
     id: "k1", amount: 150.39, currency_code: "USD", date: "2026-07-07T00:00:00Z",
     description: "Withdrawal", source_account_name: "Operating Account", destination_account_name: "GUSTO",
+    sync_status: "NOT_SYNC_READY",
     ...over,
   };
 }
@@ -112,14 +113,14 @@ describe("partitionBankLines", () => {
     expect(expenseRecords[0]).toMatchObject({
       source: "ramp", ramp_object: "bank", source_transaction_id: "exp",
       amount_cents: -27105, merchant_name: "ERIE INSURANCE", counterparty_key: "erie insurance",
-      external_account_id: null,
+      external_account_id: null, qb_sync_status: "NOT_SYNC_READY", qb_synced_at: null, qb_remote_id: null,
     });
   });
 
   it("routes interest + transfer to ledger records with flow_type + affects_pl and correct sign", () => {
     expect(ledgerRecords.map((r) => r.flow_type).sort()).toEqual(["interest_income", "internal_transfer"]);
     const interest = ledgerRecords.find((r) => r.flow_type === "interest_income")!;
-    expect(interest).toMatchObject({ amount_cents: 4001, affects_pl: true });   // inflow positive
+    expect(interest).toMatchObject({ amount_cents: 4001, affects_pl: true, qb_sync_status: "NOT_SYNC_READY" });   // inflow positive
     const xfer = ledgerRecords.find((r) => r.flow_type === "internal_transfer")!;
     expect(xfer.amount_cents).toBe(-500000);                                     // outflow negative
     expect(xfer.affects_pl).toBe(false);
@@ -189,6 +190,7 @@ describe("syncBankLedger", () => {
     source: "ramp", source_transaction_id: "int", amount_cents: 4001, currency_code: "USD",
     description: "Interest", counterparty_name: "Interest", counterparty_key: "interest", source_account_name: null,
     destination_account_name: "Operating Account", flow_type: "interest_income", affects_pl: true, transaction_date: "2026-07-01",
+    qb_sync_status: null, qb_synced_at: null, qb_remote_id: null,
   };
 
   it("upserts ledger rows and reports counts by flow_type", async () => {
@@ -232,6 +234,7 @@ describe("syncBankLedger", () => {
       source: "ramp", source_transaction_id: "unc", amount_cents: -500000, currency_code: "USD",
       description: "Withdrawal", counterparty_name: "Mystery Co", counterparty_key: "mystery co", source_account_name: "Operating Account",
       destination_account_name: "Mystery Co", flow_type: "unclassified", affects_pl: false, transaction_date: "2026-07-01",
+      qb_sync_status: null, qb_synced_at: null, qb_remote_id: null,
     };
     await syncBankLedger(sb as never, [reclassified]);
     expect(sb.upserts[0]).toMatchObject({ flow_type: "internal_transfer", affects_pl: false, mapping_source: "manual" });
