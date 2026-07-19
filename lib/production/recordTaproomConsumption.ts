@@ -1,6 +1,7 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 import { getAvailableColdStorageQuantity } from "@/lib/production/coldStorageDepletion";
 import { writeColdStorageShipment } from "@/lib/production/shipmentWriter";
+import { writePhantomExport } from "@/lib/production/writePhantomExport";
 import { applyBreakDown, type AppliedBreak } from "@/lib/production/applyBreakDown";
 
 export interface RecordTaproomConsumptionParams {
@@ -16,10 +17,11 @@ const EPS = 1e-4;
 
 /**
  * Tolerant taproom-channel recorder used by the Square sync. Records as much of
- * the requested `quantity` as cold storage can currently cover and flags the
- * rest as a shortfall — never depleting below zero. When nothing is available,
- * it writes nothing at all (not even an empty shipment), leaving the sourceRef
- * unstamped so a later sync retries once stock exists.
+ * the requested `quantity` as cold storage can currently cover via a physical
+ * shipment, and books any remaining shortfall as a batch-less phantom export
+ * so barrel excise is never silently dropped — cold storage is never depleted
+ * below zero. The physical and phantom rows (when both are written) share one
+ * `shipment_id` grouping UUID.
  *
  * `available` (and therefore `recordedQty`/`shortfallQty`) can be fractional —
  * they stay numeric with no forced integer rounding.
@@ -49,22 +51,37 @@ export async function recordTaproomConsumption(
   const recordable = Math.min(quantity, available);
   const shortfall = quantity - recordable;
 
-  if (recordable <= 0) {
-    return { recordedQty: 0, shortfallQty: shortfall, exportTransactionIds: [], breaks, warnings };
+  const exportTransactionIds: string[] = [];
+  let shipmentId = params.shipmentId;
+
+  if (recordable > 0) {
+    const result = await writeColdStorageShipment(supabase, {
+      shipmentId,
+      channel: "taproom",
+      recipeId,
+      variationId,
+      quantity: recordable,
+      recipientId: null,
+      recipientName: null,
+      allocationId: null,
+      sourceRef: params.sourceRef,
+      notes: params.notes ?? null,
+    });
+    shipmentId = result.shipmentId;
+    exportTransactionIds.push(...result.exportTransactionIds);
   }
 
-  const result = await writeColdStorageShipment(supabase, {
-    shipmentId: params.shipmentId,
-    channel: "taproom",
-    recipeId,
-    variationId,
-    quantity: recordable,
-    recipientId: null,
-    recipientName: null,
-    allocationId: null,
-    sourceRef: params.sourceRef,
-    notes: params.notes ?? null,
-  });
+  if (shortfall > EPS) {
+    const phantom = await writePhantomExport(supabase, {
+      shipmentId,
+      recipeId,
+      variationId,
+      quantityKegs: shortfall,
+      sourceRef: params.sourceRef,
+      notes: params.notes ?? null,
+    });
+    exportTransactionIds.push(phantom.exportTransactionId);
+  }
 
-  return { recordedQty: recordable, shortfallQty: shortfall, exportTransactionIds: result.exportTransactionIds, breaks, warnings };
+  return { recordedQty: recordable, shortfallQty: shortfall, exportTransactionIds, breaks, warnings };
 }
