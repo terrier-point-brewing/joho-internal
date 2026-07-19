@@ -31,7 +31,7 @@ export async function writeExportTransaction(
   supabase: SupabaseClient,
   params: {
     shipmentId: string;
-    batchId: string;
+    batchId: string | null;
     recipeId: string;
     packagingItemId: string;
     variantLabel: string;
@@ -46,6 +46,7 @@ export async function writeExportTransaction(
     unitsPerPackage: number;
     overAllocation?: boolean;
     sourceRef?: string | null;
+    isPhantom?: boolean;
   }
 ): Promise<string> {
   const taxBreakdown = await computeExciseTaxBreakdown(supabase, params.volumeBbl);
@@ -73,6 +74,7 @@ export async function writeExportTransaction(
       source_ref: params.sourceRef ?? null,
       notes: params.notes ?? null,
       over_allocation: params.overAllocation ?? false,
+      is_phantom: params.isPhantom ?? false,
     })
     .select("id")
     .single();
