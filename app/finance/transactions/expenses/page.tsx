@@ -13,10 +13,13 @@ import SummaryStatBar from "../components/SummaryStatBar";
 import MappingFilter from "../components/MappingFilter";
 import MappingStatusPill from "../components/MappingStatusPill";
 import AutoMapButton from "../components/AutoMapButton";
+import QbSyncBadge, { qbSyncFilterValue, QB_SYNC_FILTER_OPTIONS } from "../components/QbSyncBadge";
+import { normalizeQbSyncStatus } from "@/lib/finance/qbSyncStatus";
 import { LedgerTable, Th, CategoryBadges } from "../components/LedgerTable";
 import SortableTh from "@/app/components/ui/SortableTh";
 import SearchInput from "@/app/components/ui/SearchInput";
 import FilterBar from "@/app/components/ui/FilterBar";
+import FilterSelect from "@/app/components/ui/FilterSelect";
 import { useTableControls } from "@/app/components/ui/useTableControls";
 import type { ControlsConfig } from "@/lib/table/types";
 import InventoryAlertBanner from "./InventoryAlertBanner";
@@ -51,6 +54,9 @@ interface ExpenseRow {
   external_account_name: string | null;
   external_account_code: string | null;
   counterparty_key: string | null;
+  qb_sync_status: string | null;
+  qb_synced_at: string | null;
+  qb_remote_id: string | null;
   chart_of_accounts_id: string | null;
   mapping_source: "unmapped" | "rule" | "manual";
   inventory_alert_dismissed: boolean;
@@ -85,6 +91,7 @@ const EXPENSE_CONTROLS: ControlsConfig<ExpenseRow> = {
   search: [{ param: "q", accessor: (e) => e.merchant_name ?? "" }],
   filters: [
     { param: "mapping", matches: (e, sel) => matchesMappingFilter(sel[0] as MappingFilterValue, isExpenseMapped(e) ? 1 : 0, 1, e.unmapped_accepted) },
+    { param: "qbsync", accessor: (e) => qbSyncFilterValue(e.qb_sync_status) },
   ],
   sort: {
     columns: [
@@ -103,6 +110,12 @@ function fmtDate(s: string | null) {
   if (!s) return "—";
   const [y, m, d] = s.split("-");
   return new Date(Number(y), Number(m) - 1, Number(d)).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+// Ramp's qb_synced_at is a full ISO timestamp (unlike accounting_date). Show date + time.
+function fmtDateTime(s: string) {
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? s : d.toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
 // ── Expandable expense row ─────────────────────────────────────────────────────
@@ -182,6 +195,9 @@ function ExpenseRowView({
             )}
           </div>
         </td>
+        <td className="px-4 py-2">
+          <QbSyncBadge status={e.qb_sync_status} rampObject={e.ramp_object} />
+        </td>
         <td className="px-4 py-2 text-right font-mono tabular-nums text-strong">
           {formatCurrencyCents(e.amount_cents)}
         </td>
@@ -189,7 +205,7 @@ function ExpenseRowView({
 
       {expanded && (
         <tr className="border-t border-line/20">
-          <td colSpan={7} className="p-0">
+          <td colSpan={8} className="p-0">
             <div className="bg-canvas border-b border-line/60 px-10 py-3 flex flex-col gap-3">
               {/* Details */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-1.5 text-xs">
@@ -198,6 +214,8 @@ function ExpenseRowView({
                   ["Merchant category", e.merchant_category ?? e.sk_category_name ?? "—"],
                   ["Department", e.department_name ?? "—"],
                   ["Memo", e.memo ?? "—"],
+                  ["Synced to QB", e.qb_synced_at ? fmtDateTime(e.qb_synced_at) : "—"],
+                  ["QB ref", e.qb_remote_id ?? "—"],
                 ].map(([label, value]) => (
                   <div key={label} className="min-w-0">
                     <div className="text-2xs text-faint uppercase tracking-wider">{label}</div>
@@ -358,6 +376,7 @@ export default function ExpensesPage() {
   const totalCount   = expenses.length;
   const mappedCount  = expenses.filter((e) => isExpenseMapped(e) || e.unmapped_accepted).length;
   const totalSpend   = expenses.reduce((s, e) => s + e.amount_cents, 0);
+  const inQbCount    = expenses.filter((e) => normalizeQbSyncStatus(e.qb_sync_status) === "synced").length;
 
   const { rows: visibleExpenses, search, filters, sort, setSearch, setFilter, toggleSort, reset, activeCount } =
     useTableControls(expenses, EXPENSE_CONTROLS);
@@ -370,6 +389,8 @@ export default function ExpensesPage() {
           <DateRangeFilter from={from} to={to} onChange={(f, t) => setRange({ from: f, to: t })} />
           <MappingFilter value={(filters.mapping?.[0] as MappingFilterValue) ?? "all"}
             onChange={(v) => setFilter("mapping", v === "all" ? [] : [v])} />
+          <FilterSelect label="QB Sync" options={QB_SYNC_FILTER_OPTIONS} value={filters.qbsync ?? []}
+            onChange={(v) => setFilter("qbsync", v)} />
           <AutoMapButton key={`${from}_${to}`} onRun={handleAutoMap} />
           <AutoMapButton
             key={`payroll_${from}_${to}`}
@@ -402,6 +423,7 @@ export default function ExpensesPage() {
           stats={[
             { label: "Expenses", value: totalCount },
             { label: "Mapped", value: `${mappedCount} / ${totalCount}`, tone: mappedCount < totalCount ? "accent" : "secondary" },
+            { label: "In QuickBooks", value: `${inQbCount} / ${totalCount}` },
             { label: "Total spend", value: formatCurrencyCents(totalSpend) },
           ]}
         />
@@ -441,6 +463,7 @@ export default function ExpensesPage() {
                 <Th label="GL Account" />
                 <SortableTh sortKey="state" label="Status" sort={sort} onSort={toggleSort} />
                 <Th label="Mapping" />
+                <Th label="QB Sync" />
                 <SortableTh sortKey="amount" label="Amount" sort={sort} onSort={toggleSort} align="right" />
               </>
             }>
