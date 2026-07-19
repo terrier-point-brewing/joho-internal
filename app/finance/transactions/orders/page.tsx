@@ -50,6 +50,17 @@ interface LineItem {
   prefilled_from_mapping: boolean;
 }
 
+/** Read-only line item reconstructed from a canceled order's raw_data (never GL-mapped). */
+interface VoidedLineItem {
+  uid: string | null;
+  name: string;
+  variation_name: string | null;
+  quantity: number;
+  gross_sales_cents: number;
+  discount_cents: number;
+  tax_cents: number;
+}
+
 interface Transaction {
   id: string;
   square_order_id: string;
@@ -63,6 +74,7 @@ interface Transaction {
   notes: string | null;
   unmapped_accepted: boolean;
   pos_line_items: LineItem[];
+  voided_line_items?: VoidedLineItem[];
 }
 
 // ── Search/filter/sort config ────────────────────────────────────────────────
@@ -177,6 +189,35 @@ function LineItemRow({
   );
 }
 
+// ── Voided line item row (read-only) ──────────────────────────────────────────
+// Canceled orders keep no pos_line_items (so they stay out of the P&L / tax base);
+// these are reconstructed from raw_data purely as a record of what was voided.
+
+function VoidedLineItemRow({ item }: { item: VoidedLineItem }) {
+  return (
+    <div className="grid grid-cols-[minmax(0,2fr)_50px_80px_60px_60px_90px_minmax(0,1fr)_18px] gap-2 items-center px-4 py-2 border-t border-line/40 text-xs opacity-70">
+      <div className="min-w-0 flex flex-col gap-0.5">
+        <div className="truncate text-secondary flex items-center gap-1.5">
+          <span className="text-faint">└</span>
+          <span className="truncate line-through decoration-danger/50">{item.name}</span>
+        </div>
+        {item.variation_name && (
+          <span className="pl-4 text-2xs text-faint truncate line-through decoration-danger/40">{item.variation_name}</span>
+        )}
+      </div>
+      <div className="text-faint text-right tabular-nums">{item.quantity}×</div>
+      <div className="text-muted text-right tabular-nums font-mono">{fmtMoney(item.gross_sales_cents)}</div>
+      <div className={`text-right tabular-nums font-mono ${item.discount_cents > 0 ? "text-danger/70" : "text-disabled"}`}>
+        {item.discount_cents > 0 ? fmtMoney(-item.discount_cents) : "—"}
+      </div>
+      <div className="text-faint text-right tabular-nums font-mono">
+        {item.tax_cents > 0 ? fmtMoney(item.tax_cents) : "—"}
+      </div>
+      <div className="col-span-3 text-2xs text-danger/70 italic">voided — excluded from financials</div>
+    </div>
+  );
+}
+
 // ── Order row (expandable) ────────────────────────────────────────────────────
 
 function OrderRow({
@@ -192,8 +233,14 @@ function OrderRow({
 }) {
   const [expanded, setExpanded] = useState(false);
   const lineItems = txn.pos_line_items ?? [];
+  const voidedItems = txn.voided_line_items ?? [];
   const mappedCount = lineItems.filter((li) => li.effective_chart_of_accounts_id).length;
   const status = txn.status?.toLowerCase() ?? "";
+  // Canceled orders carry no pos_line_items; source the breakdown gross from the
+  // voided (raw_data) items so it reflects what was actually rung up, not $0.
+  const grossCents = lineItems.length > 0
+    ? lineItems.reduce((s, li) => s + li.gross_sales_cents, 0)
+    : voidedItems.reduce((s, li) => s + li.gross_sales_cents, 0);
 
   return (
     <>
@@ -231,7 +278,7 @@ function OrderRow({
               {/* Order breakdown summary */}
               <div className="grid grid-cols-4 gap-px mx-4 my-2 bg-surface-mid rounded overflow-hidden text-center">
                 {[
-                  { label: "Gross Sales", cents: lineItems.reduce((s, li) => s + li.gross_sales_cents, 0) },
+                  { label: "Gross Sales", cents: grossCents },
                   { label: "Discounts",   cents: -txn.discount_cents },
                   { label: "Tax",         cents: txn.tax_cents },
                   { label: "Tips",        cents: txn.tip_cents },
@@ -256,11 +303,13 @@ function OrderRow({
                 <span></span>
                 <span></span>
               </div>
-              {lineItems.length === 0
-                ? <p className="px-8 py-3 text-xs text-faint italic">No line items</p>
-                : lineItems.map((li) => (
+              {lineItems.length > 0
+                ? lineItems.map((li) => (
                     <LineItemRow key={li.id} item={li} accounts={accounts} onSave={onSaveLineItem} />
-                  ))}
+                  ))
+                : voidedItems.length > 0
+                  ? voidedItems.map((li, i) => <VoidedLineItemRow key={li.uid ?? i} item={li} />)
+                  : <p className="px-8 py-3 text-xs text-faint italic">No line items</p>}
             </div>
           </td>
         </tr>
