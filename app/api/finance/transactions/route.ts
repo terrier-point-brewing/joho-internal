@@ -11,6 +11,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { defaultYearRange } from "@/lib/finance/dateRange";
+import { extractVoidedLineItems, type VoidedLineItem } from "@/lib/finance/voidedLineItems";
 
 export const dynamic = "force-dynamic";
 
@@ -94,6 +95,7 @@ export async function GET(req: NextRequest) {
 
   const enriched = (data ?? []).map((txn) => ({
     ...txn,
+    voided_line_items: [] as VoidedLineItem[],
     pos_line_items: (txn.pos_line_items ?? []).map((li) => {
       const prefill = li.square_variation_id ? mappingLookup[li.square_variation_id] : null;
       return {
@@ -105,6 +107,24 @@ export async function GET(req: NextRequest) {
       };
     }),
   }));
+
+  // Canceled orders are stored without pos_line_items (so they stay out of the
+  // P&L / tax base — see lib/finance/voidedLineItems.ts). Reconstruct their voided
+  // line items read-only from raw_data purely for the ledger record. Targeted
+  // second query so the common (completed-order) path stays lean.
+  const canceledEmpty = enriched.filter(
+    (t) => t.status === "CANCELED" && t.pos_line_items.length === 0,
+  );
+  if (canceledEmpty.length > 0) {
+    const { data: rawRows } = await supabase
+      .from("square_orders")
+      .select("id, raw_data")
+      .in("id", canceledEmpty.map((t) => t.id));
+    const rawById = new Map((rawRows ?? []).map((r) => [r.id, r.raw_data]));
+    for (const txn of canceledEmpty) {
+      txn.voided_line_items = extractVoidedLineItems(rawById.get(txn.id));
+    }
+  }
 
   return NextResponse.json({ transactions: enriched, total: count ?? 0, page, pageSize });
 }
