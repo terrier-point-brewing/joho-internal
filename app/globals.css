@@ -51,6 +51,30 @@
   --color-info-emphasis:   #2563eb; /* blue-600  solid info */
   --color-info-border:     #1e3a8a; /* blue-900  info box border */
   --color-info-surface:    #172554; /* blue-950  info box background */
+
+  /* Brand tokens (Joho).
+     Runtime-overridden by BrandStyle (light + dark); these are light
+     seeds so bg-brand, text-brand, and border-brand utilities exist and
+     there is no flash before BrandStyle renders. Never referenced by the
+     ops chrome, never mixed with --color-*. */
+  --color-brand-canvas:          #f5f0e6;
+  --color-brand-surface:         #efe8da;
+  --color-brand-surface-raised:  #ded5c1;
+  --color-brand-primary:         #26355d;
+  --color-brand-on-primary:      #f5f0e6;
+  --color-brand-secondary:       #b3a585;
+  --color-brand-accent:          #ad1a2d;
+  --color-brand-on-accent:       #f5f0e6;
+  --color-brand-high-contrast:   #26355d;
+  --color-brand-content:         #3a4256;
+  --color-brand-content-muted:   #6b6f7d;
+  --color-brand-line:            #ded5c1;
+  --color-brand-line-strong:     #b3a585;
+
+  --font-brand-display:  var(--font-marcellus), "Marcellus", serif;
+  --font-brand-body:     var(--font-lato), "Lato", sans-serif;
+  --font-brand-wordmark: var(--font-jost), "Jost", sans-serif;
+  --font-brand-script:   var(--font-noto-serif-sc), "Noto Serif SC", serif;
 }
 
 :root {
@@ -154,6 +178,16 @@ body {
 .text-2xs {
   font-size: 0.625rem;   /* 10px */
   line-height: 0.875rem; /* 14px */
+}
+
+/* ── Brand surface scope ──────────────────────────────────────────────────
+   Opt-in scope for brand-facing surfaces (e.g. /brand/preview). Consumes
+   only --color-brand-* and --font-brand-* tokens — never mixed with ops
+   --color-*. */
+.brand-surface {
+  background: var(--color-brand-canvas);
+  color: var(--color-brand-content);
+  font-family: var(--font-brand-body);
 }
 
 } /* end @layer components */
