@@ -67,7 +67,7 @@ export const seedCanon: BrandCanon = {
       "Readable and speakable on first pass, no forced puns",
       "Plain style subtitle names the style without jargon",
       "Never leans on the neverWords list",
-      "Passes the 'would Joho say this out loud' test",
+      "Passes the would-Joho-say-this-out-loud test",
     ],
     passingExamples: [
       { name: "Holly Springs — Plain Pilsner", why: "Grounded in place, plain subtitle, no jargon" },
