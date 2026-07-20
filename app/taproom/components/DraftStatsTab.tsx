@@ -6,7 +6,7 @@ import { queryKeys } from "@/lib/query-keys";
 import dynamic from "next/dynamic";
 import ChartSkeleton from "@/app/components/ChartSkeleton";
 import { fetchJson } from "../../production/hooks/queries";
-import type { RecipeSquareLinkRow, AvailableInventoryLine } from "../../production/types";
+import type { RecipeSquareLinkRow, AvailableInventoryLine, RecipePackagingVariation } from "../../production/types";
 import {
   type DraftUrgency,
   DRAFT_URGENCY_CARD,
@@ -85,6 +85,15 @@ interface RecipeOption {
   beer_name: string;
 }
 
+/** A recipe's configured keg variation, with an optional on-hand hint —
+ *  present for every active keg variation regardless of cold-storage stock. */
+interface SwapKegOption {
+  variation_id: string;
+  variation_name: string;
+  total_volume_fl_oz: number | null;
+  quantity_on_hand: number | null;
+}
+
 const RECIPE_COLORS = [
   "#f59e0b", "#60a5fa", "#34d399", "#f87171", "#a78bfa",
   "#fb923c", "#38bdf8", "#4ade80", "#e879f9", "#facc15",
@@ -128,25 +137,50 @@ export default function DraftStatsTab() {
     staleTime: 5 * 60_000,
   });
 
-  // Cold-storage on-hand kegs, for the per-tap "keg to drain" dropdown.
+  // Cold-storage on-hand kegs, used solely for the "(N on hand)" hint below —
+  // the swap dropdown itself lists every configured keg variation regardless
+  // of stock (a phantom export is booked when cold storage is short).
   const { data: coldStorage = [] } = useQuery({
     queryKey: queryKeys.production.exportBayInventory(),
     queryFn:  () => fetchJson<AvailableInventoryLine[]>("/api/production/export-bay/inventory"),
     staleTime: 60_000,
   });
 
-  // Per-recipe keg lots actually on hand (container = keg, qty > 0).
-  const kegOptionsByRecipe = new Map<string, AvailableInventoryLine[]>();
+  // Every recipe's active keg variations, regardless of stock — the source of
+  // truth for the "keg to drain" dropdown (fetched once, unfiltered, and
+  // grouped client-side since many taps/recipes render at once).
+  const { data: recipePackagingVariations = [] } = useQuery({
+    queryKey: queryKeys.production.recipePackagingVariations(),
+    queryFn:  () => fetchJson<RecipePackagingVariation[]>("/api/production/recipe-packaging-variations"),
+    staleTime: 5 * 60_000,
+  });
+
+  const onHandByVariation = new Map<string, number>();
   for (const line of coldStorage) {
     if (line.container_type !== "keg" || line.quantity_on_hand <= 0) continue;
-    const list = kegOptionsByRecipe.get(line.recipe_id) ?? [];
-    list.push(line);
-    kegOptionsByRecipe.set(line.recipe_id, list);
+    onHandByVariation.set(line.variation_id, line.quantity_on_hand);
+  }
+
+  // Per-recipe keg variations configured (container = keg), with an on-hand
+  // hint cross-referenced from cold storage — present whether or not there's
+  // any stock.
+  const kegOptionsByRecipe = new Map<string, SwapKegOption[]>();
+  for (const link of recipePackagingVariations) {
+    const variation = link.packaging_variations;
+    if (!variation || variation.container?.type !== "keg") continue;
+    const list = kegOptionsByRecipe.get(link.recipe_id) ?? [];
+    list.push({
+      variation_id: link.variation_id,
+      variation_name: variation.name,
+      total_volume_fl_oz: variation.total_volume_fl_oz,
+      quantity_on_hand: onHandByVariation.get(link.variation_id) ?? null,
+    });
+    kegOptionsByRecipe.set(link.recipe_id, list);
   }
 
   // Full-keg volume is the packaging variation's coded fl oz — never hand-entered.
-  const codedVolumeFor = (line: AvailableInventoryLine): number | null => line.total_volume_fl_oz;
-  const isSixthKeg = (line: AvailableInventoryLine): boolean => /\b1\/6\b/.test(line.variation_name);
+  const codedVolumeFor = (line: SwapKegOption): number | null => line.total_volume_fl_oz;
+  const isSixthKeg = (line: SwapKegOption): boolean => /\b1\/6\b/.test(line.variation_name);
 
   // Recipes with at least one draft link
   const draftRecipeIds = new Set(links.filter((l) => l.packaging === "draft").map((l) => l.recipe_id));
@@ -555,16 +589,19 @@ export default function DraftStatsTab() {
                     </div>
                     {(() => {
                       const kegs = kegOptionsByRecipe.get(edit.recipe_id) ?? [];
-                      const needsKeg = edit.recipe_id && !edit.swap_variation_id;
+                      // "Needs a swap keg" means no keg variation is configured for
+                      // this recipe at all — not that cold storage is out of stock
+                      // (a short swap still books via a phantom export).
+                      const needsKeg = !!edit.recipe_id && kegs.length === 0;
                       return (
                         <>
                           <div className="space-y-1">
-                            <label className="block text-xs text-secondary">Cold-storage keg to drain on swap</label>
+                            <label className="block text-xs text-secondary">Keg to drain on swap</label>
                             <select
                               className="inp text-xs w-full disabled:opacity-40"
                               value={edit.swap_variation_id}
                               disabled={!edit.recipe_id}
-                              title="Cold-storage keg drained when this tap is swapped"
+                              title="Keg variation drained when this tap is swapped"
                               onChange={(e) => {
                                 const opt = kegs.find((k) => k.variation_id === e.target.value);
                                 setTapEdit(tapNum, "swap_variation_id", e.target.value);
@@ -576,7 +613,8 @@ export default function DraftStatsTab() {
                               <option value="">— keg to drain —</option>
                               {kegs.map((k) => (
                                 <option key={k.variation_id} value={k.variation_id}>
-                                  {k.variation_name} ({k.quantity_on_hand} on hand)
+                                  {k.variation_name}
+                                  {k.quantity_on_hand != null ? ` (${k.quantity_on_hand} on hand)` : ""}
                                 </option>
                               ))}
                             </select>

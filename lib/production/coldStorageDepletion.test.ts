@@ -146,3 +146,81 @@ describe("depleteColdStorageInventory", () => {
     await expect(depleteColdStorageInventory(client, { ...baseKey, quantity: 1 })).rejects.toThrow("read failed");
   });
 });
+
+// ── depleteColdStorageInventory with a targeted batchId ──────────────────────
+/**
+ * Targeted-batch stub: rows represent the full cross-batch lot set, but the
+ * client only "returns" the subset matching an .eq("batch_id", ...) filter if
+ * one was applied — letting us assert the query actually scopes to the batch
+ * (not just that the depletion math happens to only touch one row).
+ */
+function deplStubByBatch(rows: Row[], error: string | null = null): { client: SupabaseClient; effects: Effect[]; filters: Record<string, unknown>[] } {
+  const effects: Effect[] = [];
+  const filters: Record<string, unknown>[] = [];
+  const from = () => {
+    let mode: "delete" | "update" | "read" = "read";
+    let newQty: number | undefined;
+    let currentFilters: Record<string, unknown> = {};
+    const b: Record<string, unknown> = {};
+    b.select = () => b;
+    b.delete = () => { mode = "delete"; return b; };
+    b.update = (payload: { quantity_on_hand: number }) => { mode = "update"; newQty = payload.quantity_on_hand; return b; };
+    b.eq = (col: string, val: unknown) => {
+      if (mode === "delete") { effects.push({ op: "delete", id: String(val) }); return Promise.resolve({ error: null }); }
+      if (mode === "update") { effects.push({ op: "update", id: String(val), newQty }); return Promise.resolve({ error: null }); }
+      currentFilters = { ...currentFilters, [col]: val };
+      return b;
+    };
+    b.order = () => {
+      filters.push(currentFilters);
+      const scoped = rows.filter((r) =>
+        Object.entries(currentFilters).every(([col, val]) => {
+          if (col === "batch_id") return r.batch_id === val;
+          return true; // recipe_id / variation_id are outside the Row shape here
+        }));
+      return Promise.resolve({ data: scoped, error: error ? { message: error } : null });
+    };
+    return b;
+  };
+  return { client: { from } as unknown as SupabaseClient, effects, filters };
+}
+
+describe("depleteColdStorageInventory with a targeted batchId", () => {
+  it("decrements only the targeted batch's lot, leaving other batches untouched", async () => {
+    const { client, effects, filters } = deplStubByBatch(rowsFixture);
+    const result = await depleteColdStorageInventory(client, { ...baseKey, quantity: 3, batchId: "b2" });
+    expect(result).toEqual([{ batchId: "b2", depletedQty: 3 }]);
+    expect(effects).toEqual([{ op: "update", id: "row-mid", newQty: 3 }]);
+    expect(filters[0]).toMatchObject({ batch_id: "b2" });
+  });
+
+  it("never exceeds the targeted batch's on-hand, even when other batches have more stock", async () => {
+    // b2 only has 6 on hand; request 20 -> caps at 6, other batches (b1=4, b3=5) untouched.
+    const { client, effects } = deplStubByBatch(rowsFixture);
+    const result = await depleteColdStorageInventory(client, { ...baseKey, quantity: 20, batchId: "b2" });
+    expect(result).toEqual([{ batchId: "b2", depletedQty: 6 }]);
+    expect(effects).toEqual([{ op: "delete", id: "row-mid" }]);
+  });
+
+  it("returns empty when the targeted batch has no lot for this recipe/variation", async () => {
+    const { client, effects } = deplStubByBatch(rowsFixture);
+    const result = await depleteColdStorageInventory(client, { ...baseKey, quantity: 5, batchId: "b-missing" });
+    expect(result).toEqual([]);
+    expect(effects).toEqual([]);
+  });
+
+  it("without batchId, behaves exactly as the oldest-first default (byte-for-byte)", async () => {
+    const { client, effects } = deplStub(rowsFixture);
+    const result = await depleteColdStorageInventory(client, { ...baseKey, quantity: 11 });
+    expect(result).toEqual([
+      { batchId: "b1", depletedQty: 4 },
+      { batchId: "b2", depletedQty: 6 },
+      { batchId: "b3", depletedQty: 1 },
+    ]);
+    expect(effects).toEqual([
+      { op: "delete", id: "row-old" },
+      { op: "delete", id: "row-mid" },
+      { op: "update", id: "row-new", newQty: 4 },
+    ]);
+  });
+});

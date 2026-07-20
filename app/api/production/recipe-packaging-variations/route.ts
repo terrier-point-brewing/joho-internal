@@ -5,10 +5,11 @@ import { PACKAGING_VARIATION_SELECT } from "@/lib/production/packagingVariations
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const supabase = await createSupabaseServerClient();
+  const recipeId = req.nextUrl.searchParams.get("recipe_id");
 
-  const { data, error } = await supabase
+  let query = supabase
     .from("recipe_packaging_variations")
     // Reuse the shared variation select so the embedded container (and its
     // type) resolves via the explicit FK-constraint hint. packaging_variations
@@ -27,8 +28,12 @@ export async function GET() {
       id, recipe_id, variation_id, created_at,
       packaging_variations!inner(${PACKAGING_VARIATION_SELECT})
     `)
-    .eq("packaging_variations.is_active", true)
-    .order("created_at");
+    .eq("packaging_variations.is_active", true);
+  // Optional per-recipe filter — used by the Draft Stats swap-keg selector,
+  // which lists every keg variation of a tap's recipe regardless of stock.
+  if (recipeId) query = query.eq("recipe_id", recipeId);
+
+  const { data, error } = await query.order("created_at");
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data);
 }

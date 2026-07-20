@@ -319,4 +319,52 @@ describe("runTaproomConsumptionSync", () => {
     expect(res.squareWriteback.warnings).toEqual(["reconcile failed: Square down"]);
     expect(res.recorded).toHaveLength(1); // sync itself still completes
   });
+
+  it("still recounts the draft SKU when a restock swap is phantom-only (no cold storage on hand)", async () => {
+    // recordedQty 0, shortfallQty > 0: no physical stock moved, but the phantom
+    // excise row still means the swap was newly and durably recorded this run,
+    // so the mapped draft SKU must still be reset to full in Square.
+    derive.mockResolvedValue({ units: [swapUnit()], discrepancies: [] });
+    record.mockResolvedValue({ recordedQty: 0, shortfallQty: 1, exportTransactionIds: ["x"], breaks: [], warnings: [] });
+    recount.mockResolvedValue(undefined);
+
+    const res = await runTaproomConsumptionSync(fakeSupabase([]), { days: 2 });
+    expect(recount).toHaveBeenCalledTimes(1);
+    expect(recount).toHaveBeenCalledWith("draft-sqvar", 660, "2026-07-04T20:00:00Z");
+    expect(res.recountsApplied).toBe(1);
+  });
+
+  it("does NOT capture shrinkage for a phantom-only swap (no physical inventory moved)", async () => {
+    const sink = { shrinkage: [] as unknown[] };
+    derive.mockResolvedValue({ units: [swapUnit()], discrepancies: [] });
+    record.mockResolvedValue({ recordedQty: 0, shortfallQty: 1, exportTransactionIds: ["x"], breaks: [], warnings: [] });
+    fetchCounts.mockResolvedValue(new Map([["draft-sqvar", 45]]));
+    const res = await runTaproomConsumptionSync(fakeSupabase([], sink), { days: 2 });
+    expect(sink.shrinkage).toHaveLength(0);
+    expect(fetchCounts).not.toHaveBeenCalled();
+    expect(recount).toHaveBeenCalledWith("draft-sqvar", 660, "2026-07-04T20:00:00Z");
+    expect(res.recountsApplied).toBe(1);
+  });
+
+  it("skips a restock swap already fully recorded (physical + phantom) on a prior run", async () => {
+    derive.mockResolvedValue({
+      units: [swapUnit({ quantity: 1 })],
+      discrepancies: [],
+    });
+    // alreadyRecorded 1 covers the full target (whether physical or phantom) -> delta 0
+    const res = await runTaproomConsumptionSync(
+      fakeSupabase([{ source_ref: "sqtransfer:ord-1:line-1", quantity: 1 }]), { days: 2 });
+    expect(record).not.toHaveBeenCalled();
+    expect(recount).not.toHaveBeenCalled();
+    expect(res.recountsApplied).toBe(0);
+    expect(res.skipped).toBe(1);
+  });
+
+  it("still flags short_stock for a phantom-only swap", async () => {
+    derive.mockResolvedValue({ units: [swapUnit()], discrepancies: [] });
+    record.mockResolvedValue({ recordedQty: 0, shortfallQty: 1, exportTransactionIds: ["x"], breaks: [], warnings: [] });
+    const res = await runTaproomConsumptionSync(fakeSupabase([]), { days: 2 });
+    const short = res.discrepancies.find((d) => d.kind === "short_stock");
+    expect(short).toMatchObject({ kind: "short_stock", requestedQty: 1, recordedQty: 0, shortfallQty: 1 });
+  });
 });
