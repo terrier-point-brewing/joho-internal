@@ -1,7 +1,24 @@
+import { createClient } from "@supabase/supabase-js";
 import type { FontRole, RoleName } from "@/lib/brand/canon.types";
 import { getCanon } from "@/lib/brand/getCanon";
+import { resolveAsset, type SupabaseLikeClient } from "@/lib/brand/assets";
 import ThemeToggle from "@/app/components/brand/ThemeToggle";
 import ColorSwatch from "./ColorSwatch";
+
+// Cookieless anon client for reading the approved wordmark asset — same
+// approach as lib/brand/getCanon.ts's createCookielessClient (not exported
+// there, so duplicated here): approved assets are readable by anon (RLS
+// allows SELECT where status='approved'), so this touches no cookies()/
+// headers() and keeps the page statically renderable when possible.
+function createCookielessAssetClient(): SupabaseLikeClient | null {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !anonKey) return null;
+  const client = createClient(url, anonKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+  return client as unknown as SupabaseLikeClient;
+}
 
 // Explicit literal classNames (not template-string interpolation) so
 // Tailwind's content scanner picks up every bg-brand-<role> utility. Order
@@ -34,6 +51,8 @@ const FONT_CLASS: Record<FontRole, string> = {
 // leaf is ColorSwatch (click-to-copy needs onClick).
 export default async function BrandGuidePage() {
   const canon = await getCanon();
+  const assetClient = createCookielessAssetClient();
+  const wordmarkUrl = assetClient ? await resolveAsset(assetClient, { kind: "wordmark" }) : null;
 
   const paletteByKey = new Map(canon.palette.map((c) => [c.key, c]));
   const ratioByRole = new Map(canon.usageRatios.map((r) => [r.role, r]));
@@ -43,9 +62,14 @@ export default async function BrandGuidePage() {
       {/* Hero */}
       <div className="flex items-start justify-between gap-4 mb-10">
         <div>
-          <span className="font-brand-wordmark text-3xl tracking-wide text-brand-primary">
-            {canon.brandName}
-          </span>
+          {wordmarkUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element -- approved brand asset from Storage, not a static import
+            <img src={wordmarkUrl} alt={canon.brandName} className="h-9 w-auto" />
+          ) : (
+            <span className="font-brand-wordmark text-3xl tracking-wide text-brand-primary">
+              {canon.brandName}
+            </span>
+          )}
           <p className="font-brand-body text-xs text-brand-content-muted mt-1">
             Brand guide · v{canon.version}
           </p>
