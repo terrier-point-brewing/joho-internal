@@ -127,12 +127,22 @@ describe("getDraft", () => {
 });
 
 describe("saveDraft", () => {
-  it("upserts a valid document", async () => {
+  it("updates the existing draft in place without creating a second draft", async () => {
     const client = fakeClient([{ id: "d1", version_label: "1.0", status: "draft", document: seedCanon }]);
     const updated: BrandCanon = { ...seedCanon, brandName: "Updated" };
     await saveDraft(client as never, updated);
-    const draftRow = client.rows.find((r) => r.status === "draft");
-    expect((draftRow?.document as BrandCanon).brandName).toBe("Updated");
+    const draftRows = client.rows.filter((r) => r.status === "draft");
+    expect(draftRows).toHaveLength(1);
+    expect((draftRows[0]?.document as BrandCanon).brandName).toBe("Updated");
+  });
+
+  it("inserts a draft when none exists yet", async () => {
+    const client = fakeClient([]);
+    const updated: BrandCanon = { ...seedCanon, brandName: "Fresh" };
+    await saveDraft(client as never, updated);
+    const draftRows = client.rows.filter((r) => r.status === "draft");
+    expect(draftRows).toHaveLength(1);
+    expect((draftRows[0]?.document as BrandCanon).brandName).toBe("Fresh");
   });
 
   it("rejects an invalid document", async () => {

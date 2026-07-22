@@ -32,7 +32,6 @@ export interface SupabaseLikeClient {
         ): Promise<{ data: CanonRow[] | null; error: unknown }>;
       };
     };
-    upsert(row: Record<string, unknown>): Promise<{ error: unknown }>;
     insert(row: Record<string, unknown>): Promise<{ error: unknown }>;
     update(patch: Record<string, unknown>): {
       eq(column: string, value: string): Promise<{ error: unknown }>;
@@ -81,14 +80,28 @@ export async function getDraft(client: SupabaseLikeClient): Promise<BrandCanon> 
   return seedDocument;
 }
 
-// Validates and upserts the single draft row.
+// Validates, then updates the single existing draft row (or inserts one if
+// none exists yet). NOT an upsert on (status): the `brand_canon_one_draft`
+// partial unique index means a blind upsert without an id conflict target
+// would insert a *second* draft and violate the index — so we update the
+// existing draft explicitly by id, matching how getDraft() ensures one exists.
 export async function saveDraft(client: SupabaseLikeClient, document: unknown): Promise<void> {
   const parsed = canonSchema.parse(document);
-  await client.from(TABLE).upsert({
-    status: "draft",
-    document: parsed,
-    updated_at: new Date().toISOString(),
-  });
+  const { data } = await client.from(TABLE).select("*").eq("status", "draft").limit(1);
+  if (data && data.length > 0) {
+    await client
+      .from(TABLE)
+      .update({ document: parsed, updated_at: new Date().toISOString() })
+      .eq("id", data[0].id);
+  } else {
+    await client.from(TABLE).insert({
+      version_label: "",
+      status: "draft",
+      document: parsed,
+      changelog: null,
+      published_at: null,
+    });
+  }
 }
 
 // Snapshots the current draft as a new published row, archives the prior
