@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import type { FontRole, RoleName } from "@/lib/brand/canon.types";
 import { getCanon } from "@/lib/brand/getCanon";
 import { resolveAsset, type SupabaseLikeClient } from "@/lib/brand/assets";
+import { resolveApprovedLabels, type SupabaseLikeClient as LabelsClient } from "@/lib/brand/labels";
 import ThemeToggle from "@/app/components/brand/ThemeToggle";
 import ColorSwatch from "./ColorSwatch";
 
@@ -53,6 +54,9 @@ export default async function BrandGuidePage() {
   const canon = await getCanon();
   const assetClient = createCookielessAssetClient();
   const wordmarkUrl = assetClient ? await resolveAsset(assetClient, { kind: "wordmark" }) : null;
+  const labels = assetClient
+    ? await resolveApprovedLabels(assetClient as unknown as LabelsClient)
+    : [];
 
   const paletteByKey = new Map(canon.palette.map((c) => [c.key, c]));
   const ratioByRole = new Map(canon.usageRatios.map((r) => [r.role, r]));
@@ -190,6 +194,30 @@ export default async function BrandGuidePage() {
           </div>
         )}
       </section>
+
+      {/* Tap list — approved labels */}
+      {labels.length > 0 && (
+        <section className="mb-12 max-w-4xl">
+          <h2 className="font-brand-body text-xs font-semibold uppercase tracking-wide text-brand-content-muted mb-4">
+            Tap list
+          </h2>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {labels.map((label) => (
+              <div key={label.id} className="rounded-lg border border-brand-line p-4">
+                <p className="font-brand-display text-lg text-brand-high-contrast">{label.name}</p>
+                {label.subtitle && (
+                  <p className="font-brand-body text-sm text-brand-content mt-0.5">{label.subtitle}</p>
+                )}
+                {label.motif_family && (
+                  <p className="font-brand-body text-2xs uppercase tracking-wide text-brand-content-muted mt-2">
+                    {label.motif_family}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Precedence + agent rules */}
       <section className="grid gap-8 sm:grid-cols-2 max-w-4xl">
