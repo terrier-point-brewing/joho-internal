@@ -10,4 +10,5 @@ export const BRAND_TABS: BrandNavEntry[] = [
   { href: "/brand/canon", label: "Canon", adminOnly: true },
   { href: "/brand/canon/history", label: "History", adminOnly: true },
   { href: "/brand/assets", label: "Assets", adminOnly: true },
+  { href: "/brand/labels", label: "Labels", adminOnly: true },
 ];
