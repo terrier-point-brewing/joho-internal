@@ -147,4 +147,8 @@ export const queryKeys = {
     draft:    () => ["brand", "canon", "draft"] as const,
     versions: () => ["brand", "canon", "versions"] as const,
   },
+  brandAssets: {
+    all:  () => ["brand", "assets"] as const,
+    list: (kind?: string) => ["brand", "assets", "list", kind ?? "all"] as const,
+  },
 } as const;
