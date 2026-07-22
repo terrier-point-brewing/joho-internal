@@ -121,9 +121,39 @@ export function buildTaproomModelReport(
     }
   }
 
-  // ── 4. Returns — attribute refunds proportionally to order categories ────
+  // ── 4. Returns ───────────────────────────────────────────────────────────
   // Build a map of orderId → order for quick lookup
   const orderById = new Map(orders.map((o) => [o.id, o]));
+
+  // Resolve a line to its model category, honouring the cocktail/keg claims
+  // established above (those two categories are detected, not looked up).
+  const categoryForLine = (
+    orderId: string,
+    lineUid: string | undefined,
+    varId: string
+  ): TaproomCategoryId | undefined => {
+    const key = `${orderId}:${lineUid ?? ""}`;
+    if (comboClaimedKeys.has(key) || nonComboCocktailIds.has(varId)) return "COCKTAILS";
+    if (kegClaimedKeys.has(key)) return "KEGS";
+    return varIdToCategoryId.get(varId);
+  };
+
+  const addReturn = (catId: TaproomCategoryId, cents: number) => {
+    const t = byCategory[catId];
+    if (!t) return;
+    t.returnsCents  += cents;
+    t.netSalesCents  = t.grossSalesCents - t.discountsCents - t.returnsCents;
+  };
+
+  // A refund's `order_id` points at the *return order* Square creates for it —
+  // a separate, negative-total order that carries no `line_items` at all. Its
+  // `returns[].return_line_items` are the actual goods, and they repeat the
+  // catalog id and money, so each returned line is attributed to its own
+  // category exactly rather than pro-rated across the sale.
+  //
+  // Guard against two refunds resolving to the same return order, which would
+  // otherwise book its lines twice.
+  const countedReturnOrderIds = new Set<string>();
 
   for (const refund of refunds) {
     const refundAmt = refund.amount_money.amount;
@@ -135,6 +165,38 @@ export function buildTaproomModelReport(
       continue;
     }
 
+    const returnLines = (order.returns ?? []).flatMap((r) =>
+      (r.return_line_items ?? []).map((li) => ({ ...li, sourceOrderId: r.source_order_id ?? "" }))
+    );
+
+    if (returnLines.length > 0) {
+      if (countedReturnOrderIds.has(order.id)) continue;
+      countedReturnOrderIds.add(order.id);
+
+      for (const rli of returnLines) {
+        const varId = rli.catalog_object_id ?? "";
+        const catId = categoryForLine(rli.sourceOrderId, rli.source_line_item_uid, varId);
+        if (!catId) continue;
+
+        // Book the return net of any discount the original line carried, so it
+        // reverses exactly what the sale contributed (gross − discounts). Tax is
+        // excluded: `returnsCents` is compared against ex-tax gross.
+        const gross    = rli.gross_return_money?.amount   ?? 0;
+        const discount = rli.total_discount_money?.amount ?? 0;
+        addReturn(catId, gross - discount);
+      }
+      continue;
+    }
+
+    // A return order with no returned lines is a tip-only refund (Square puts
+    // these in `returns[].return_tips`). Tips were never in gross sales, so
+    // there is nothing to reverse.
+    if ((order.returns ?? []).length > 0) continue;
+
+    // Fallback for refunds that point directly at the sale order rather than a
+    // return order: no per-line detail, so pro-rate across the order's
+    // categories by gross.
+    //
     // Compute total sales value of this order (excluding transfers) to use as denominator
     const orderLines = (order.line_items ?? []).filter((line) => {
       const discountNames = (line.applied_discounts ?? []).map(
@@ -155,24 +217,10 @@ export function buildTaproomModelReport(
       const lineAmt = line.gross_sales_money?.amount ?? 0;
       if (lineAmt === 0) continue;
 
-      const lineKey = `${order.id}:${line.uid}`;
-      let modelCatId: TaproomCategoryId | undefined;
-
-      if (comboClaimedKeys.has(lineKey) || nonComboCocktailIds.has(varId)) {
-        modelCatId = "COCKTAILS";
-      } else if (kegClaimedKeys.has(lineKey)) {
-        modelCatId = "KEGS";
-      } else {
-        modelCatId = varIdToCategoryId.get(varId);
-      }
-
+      const modelCatId = categoryForLine(order.id, line.uid, varId);
       if (!modelCatId) continue;
 
-      const proportionalReturn = Math.round((lineAmt / orderTotal) * refundAmt);
-      const t = byCategory[modelCatId];
-      if (!t) continue;
-      t.returnsCents  += proportionalReturn;
-      t.netSalesCents  = t.grossSalesCents - t.discountsCents - t.returnsCents;
+      addReturn(modelCatId, Math.round((lineAmt / orderTotal) * refundAmt));
     }
   }
 
