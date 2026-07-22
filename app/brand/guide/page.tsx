@@ -103,13 +103,17 @@ export default async function BrandGuidePage() {
           {ROLE_SWATCHES.map(({ role, className }) => {
             const key = canon.roleMap.light[role];
             const color = paletteByKey.get(key);
+            // Same resolution as lib/brand/tokens.ts's resolveLight: the role
+            // value is either a palette key (resolve to its hex) or itself a
+            // raw hex.
+            const hex = color?.hex ?? key;
             const ratio = ratioByRole.get(role);
             return (
               <ColorSwatch
                 key={role}
                 label={role}
                 swatchName={color?.name ?? key}
-                hex={color?.hex ?? "#000000"}
+                hex={hex}
                 swatchClassName={className}
                 pct={ratio?.pct}
               />

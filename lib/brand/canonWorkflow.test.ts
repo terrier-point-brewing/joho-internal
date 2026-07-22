@@ -18,8 +18,11 @@ describe("nextVersionLabel", () => {
 });
 
 // A minimal fake Supabase-like client covering the query shapes canonWorkflow
-// needs: from().select().eq().limit() (read), from().upsert() (saveDraft),
-// from().insert() / .update().eq() / .delete().eq() (publishDraft), and
+// needs: from().select().eq().limit() (read; also used by saveDraft to check
+// for an existing draft), from().insert() (saveDraft's insert path,
+// publishDraft's new published/archived rows), from().update().eq()
+// (saveDraft's update path, publishDraft's archive step),
+// from().delete().eq() (publishDraft removing the draft row), and
 // from().select().in().order() (listVersions). Configurable per test via
 // `rows` (the current table contents) so each function can be driven
 // end-to-end against fake state.
@@ -62,15 +65,6 @@ function fakeClient(initialRows: Row[]) {
               };
             },
           };
-        },
-        upsert(row: Partial<Row>) {
-          const idx = rows.findIndex((r) => r.status === "draft");
-          if (idx >= 0) {
-            rows[idx] = { ...rows[idx], ...row } as Row;
-          } else {
-            rows.push({ id: `id-${idCounter++}`, status: "draft", version_label: "", document: {}, ...row } as Row);
-          }
-          return Promise.resolve({ error: null });
         },
         insert(row: Partial<Row>) {
           // Enforce the brand_canon_one_published partial unique index so a

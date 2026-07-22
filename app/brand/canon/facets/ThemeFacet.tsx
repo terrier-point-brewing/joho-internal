@@ -121,7 +121,14 @@ export default function ThemeFacet({
                 <input
                   className="inp-sm w-24"
                   value={override ?? ""}
-                  onChange={(e) => setDarkOverride(role, e.target.value)}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    if (next.trim() === "") {
+                      resetDarkOverride(role);
+                    } else {
+                      setDarkOverride(role, next);
+                    }
+                  }}
                   placeholder={derived}
                 />
                 {override !== undefined && (

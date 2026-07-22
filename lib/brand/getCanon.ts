@@ -42,7 +42,7 @@ export async function getCanonFrom(client: SupabaseLikeClient): Promise<BrandCan
 // existing empty-data branch falls back to seedCanon. Used when the env vars
 // required to build a real Supabase client aren't present (e.g. build-time
 // contexts without env configured) so we never throw constructing the client.
-const seedFallbackClient: SupabaseLikeClient = {
+export const seedFallbackClient: SupabaseLikeClient = {
   from() {
     return {
       select() {

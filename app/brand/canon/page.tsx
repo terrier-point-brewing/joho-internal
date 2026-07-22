@@ -46,12 +46,15 @@ export default function CanonEditorPage() {
   const [changelog, setChangelog] = useState("");
   const [confirming, setConfirming] = useState(false);
 
-  if (serverDraft && serverDraft !== seededFrom) {
+  const dirty = !!draft && JSON.stringify(draft) !== JSON.stringify(serverDraft);
+
+  // Re-seed `draft` from a fresh server value, but never while a save is
+  // in flight or edits are pending — a post-save refetch landing mid-edit
+  // would otherwise clobber unsaved changes made after Save was clicked.
+  if (serverDraft && serverDraft !== seededFrom && !saveDraft.isPending && !dirty) {
     setSeededFrom(serverDraft);
     setDraft(serverDraft);
   }
-
-  const dirty = !!draft && JSON.stringify(draft) !== JSON.stringify(serverDraft);
 
   async function handlePublish() {
     if (!draft) return;
