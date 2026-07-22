@@ -11,7 +11,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { apiError } from "@/lib/utils/api";
-import { listAssets, createAsset, type BrandAssetKind, type SupabaseLikeClient } from "@/lib/brand/assets";
+import {
+  listAssets,
+  createAsset,
+  BRAND_ASSET_KINDS,
+  type BrandAssetKind,
+  type SupabaseLikeClient,
+} from "@/lib/brand/assets";
 
 export const dynamic = "force-dynamic";
 
@@ -54,8 +60,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
     }
     const kind = formData.get("kind");
-    if (typeof kind !== "string" || !kind) {
-      return NextResponse.json({ error: "kind required" }, { status: 400 });
+    if (typeof kind !== "string" || !(BRAND_ASSET_KINDS as readonly string[]).includes(kind)) {
+      return NextResponse.json(
+        { error: `kind must be one of: ${BRAND_ASSET_KINDS.join(", ")}` },
+        { status: 400 },
+      );
     }
     const variantRaw = formData.get("variant");
     const variant = typeof variantRaw === "string" && variantRaw ? variantRaw : "default";

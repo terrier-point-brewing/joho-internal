@@ -1,4 +1,14 @@
-export type BrandAssetKind = "logo" | "wordmark" | "chop_glyph" | "texture" | "icon" | "photo";
+// Single source of truth for the asset kinds — mirrors the brand_assets.kind
+// check constraint (migration 20260810). The API validates uploads against this.
+export const BRAND_ASSET_KINDS = [
+  "logo",
+  "wordmark",
+  "chop_glyph",
+  "texture",
+  "icon",
+  "photo",
+] as const;
+export type BrandAssetKind = (typeof BRAND_ASSET_KINDS)[number];
 
 export interface BrandAsset {
   id: string;
