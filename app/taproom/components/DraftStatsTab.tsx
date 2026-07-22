@@ -6,7 +6,7 @@ import { queryKeys } from "@/lib/query-keys";
 import dynamic from "next/dynamic";
 import ChartSkeleton from "@/app/components/ChartSkeleton";
 import { fetchJson } from "../../production/hooks/queries";
-import type { RecipeSquareLinkRow, AvailableInventoryLine, RecipePackagingVariation } from "../../production/types";
+import type { RecipeSquareLinkRow, AvailableInventoryLine, RecipePackagingVariation, PackagingVariation } from "../../production/types";
 import {
   type DraftUrgency,
   DRAFT_URGENCY_CARD,
@@ -155,6 +155,15 @@ export default function DraftStatsTab() {
     staleTime: 5 * 60_000,
   });
 
+  // All packaging variations — used only to surface the generic house kegs
+  // (no contract partner), which have no recipe link but are the keg every
+  // in-house draft beer actually drains.
+  const { data: packagingVariations = [] } = useQuery({
+    queryKey: queryKeys.production.packagingVariations(),
+    queryFn:  () => fetchJson<PackagingVariation[]>("/api/production/packaging-variations"),
+    staleTime: 5 * 60_000,
+  });
+
   const onHandByVariation = new Map<string, number>();
   for (const line of coldStorage) {
     if (line.container_type !== "keg" || line.quantity_on_hand <= 0) continue;
@@ -176,6 +185,30 @@ export default function DraftStatsTab() {
       quantity_on_hand: onHandByVariation.get(link.variation_id) ?? null,
     });
     kegOptionsByRecipe.set(link.recipe_id, list);
+  }
+
+  // Generic house kegs (active, keg container, no contract partner). These have
+  // no recipe_packaging_variations link, so they never appear in the per-recipe
+  // map above — yet they're the keg every in-house draft beer drains. Offer them
+  // on every tap alongside the recipe's own (partner) linked kegs.
+  const genericKegOptions: SwapKegOption[] = [];
+  for (const v of packagingVariations) {
+    if (!v.is_active || v.partner_id !== null || v.container?.type !== "keg") continue;
+    genericKegOptions.push({
+      variation_id: v.id,
+      variation_name: v.name,
+      total_volume_fl_oz: v.total_volume_fl_oz,
+      quantity_on_hand: onHandByVariation.get(v.id) ?? null,
+    });
+  }
+
+  // Swap-keg options for a tap: its recipe's linked kegs first, then the generic
+  // house kegs, deduped by variation.
+  function kegsForRecipe(recipeId: string): SwapKegOption[] {
+    if (!recipeId) return [];
+    const linked = kegOptionsByRecipe.get(recipeId) ?? [];
+    const seen = new Set(linked.map((k) => k.variation_id));
+    return [...linked, ...genericKegOptions.filter((k) => !seen.has(k.variation_id))];
   }
 
   // Full-keg volume is the packaging variation's coded fl oz — never hand-entered.
@@ -286,7 +319,7 @@ export default function DraftStatsTab() {
       for (let n = 1; n <= (tapsToRender.length || 0); n++) {
         const cur = next[n] ?? { recipe_id: "", label: "", restock_variation_id: "", swap_variation_id: "", swap_volume_fl_oz: "" };
         if (!cur.recipe_id || cur.swap_variation_id) continue;
-        const kegs = kegOptionsByRecipe.get(cur.recipe_id) ?? [];
+        const kegs = kegsForRecipe(cur.recipe_id);
         if (kegs.length === 0) continue;
         // Bias toward 1/6 kegs whenever one is on hand; else sole SKU, else largest.
         const sixths = kegs.filter(isSixthKeg);
@@ -588,7 +621,7 @@ export default function DraftStatsTab() {
                       </select>
                     </div>
                     {(() => {
-                      const kegs = kegOptionsByRecipe.get(edit.recipe_id) ?? [];
+                      const kegs = kegsForRecipe(edit.recipe_id);
                       // "Needs a swap keg" means no keg variation is configured for
                       // this recipe at all — not that cold storage is out of stock
                       // (a short swap still books via a phantom export).
