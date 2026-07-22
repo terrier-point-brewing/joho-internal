@@ -151,4 +151,9 @@ export const queryKeys = {
     all:  () => ["brand", "assets"] as const,
     list: (kind?: string) => ["brand", "assets", "list", kind ?? "all"] as const,
   },
+  brandLabels: {
+    all:  () => ["brand", "labels"] as const,
+    list: (status?: string) => ["brand", "labels", "list", status ?? "all"] as const,
+    one:  (id: string) => ["brand", "labels", id] as const,
+  },
 } as const;
