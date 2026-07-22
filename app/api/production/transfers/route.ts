@@ -4,7 +4,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { BBL_TO_FL_OZ } from "@/lib/constants/production";
 import { checkAndCompleteBatch } from "@/lib/production/batchCompletion";
-import { finalizeConversion, createConversionTargetBatch } from "@/lib/production/conversionFinalizer";
+import { finalizeConversion, createConversionTargetBatch, reconcileConvertedBatchVolume } from "@/lib/production/conversionFinalizer";
 import { computeTankVolumes } from "@/lib/production/volumeLedger";
 import { getPaktechUnitsPerPackage } from "@/lib/production/packagingVariations";
 
@@ -820,6 +820,17 @@ export async function POST(req: NextRequest) {
         .eq("source_batch_id", batch_id)
         .eq("target_batch_id", targetBatchId)
         .is("converted_at", null);
+
+      // Reconcile the target's headline volume to what the conversion actually
+      // delivered (planned − shrinkage), so its Volume Breakdown balances instead
+      // of showing a permanent shrinkage-sized phantom. No-op for the inline
+      // new_batch path (already born at the delivered volume) and for blended
+      // targets. Never rolls back the committed transfer on failure.
+      try {
+        await reconcileConvertedBatchVolume(supabase, targetBatchId);
+      } catch (reconcileErr) {
+        console.error("[transfers] Converted-batch volume reconcile failed (transfer committed):", reconcileErr);
+      }
 
       // Hand the destination tank to the target batch and complete the exhausted
       // source — record_batch_transfer + reconcileSchedule attribute the dest

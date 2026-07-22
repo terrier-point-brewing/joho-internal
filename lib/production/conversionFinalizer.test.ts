@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { conversionTargetStatus, isForward, createConversionTargetBatch, finalizeConversion } from "./conversionFinalizer";
+import { conversionTargetStatus, isForward, createConversionTargetBatch, finalizeConversion, reconcileConvertedBatchVolume } from "./conversionFinalizer";
 
 describe("conversionTargetStatus", () => {
   it("maps brite → conditioning and fermenter → fermenting", () => {
@@ -151,5 +151,91 @@ describe("finalizeConversion", () => {
     await finalizeConversion(client, base);
     const srcUpd = recorded.find(r => r.table === "brew_batches" && r.op === "update" && r.match["id"] === "S");
     expect(srcUpd?.payload).toEqual({ status: "conditioning" });
+  });
+});
+
+function reconcileStub(cfg: {
+  batch: { volume_bbl: number | null; converted_volume_bbl: number | null; recipe_id: string | null } | null;
+  inflows: { volume_bbl: number }[];
+  commitmentCount?: number;
+  recipeIngredients?: { ingredient_id: string; quantity_per_bbl: number }[];
+}) {
+  const recorded: { table: string; op: string; payload?: unknown; match: Record<string, unknown> }[] = [];
+  const from = (table: string) => {
+    const match: Record<string, unknown> = {};
+    let headCount = false;
+    const b: Record<string, unknown> = {};
+    b.select = (_cols: string, opts?: { count?: string; head?: boolean }) => { if (opts?.head) headCount = true; return b; };
+    b.eq = (k: string, v: unknown) => { match[k] = v; return b; };
+    b.update = (payload: unknown) => { recorded.push({ table, op: "update", payload, match }); return b; };
+    b.upsert = (payload: unknown) => { recorded.push({ table, op: "upsert", payload, match: { ...match } }); return Promise.resolve({ data: null, error: null }); };
+    b.single = () => Promise.resolve({ data: table === "brew_batches" ? cfg.batch : null, error: null });
+    // Awaited list/void chains resolve here: batch_transfers → inflows, the count
+    // query → { count }, recipe_ingredients → rows, brew_batches update → null.
+    b.then = (resolve: (v: unknown) => void) => {
+      if (table === "batch_transfers") return resolve({ data: cfg.inflows, error: null });
+      if (table === "batch_ingredient_commitments" && headCount) return resolve({ count: cfg.commitmentCount ?? 0, data: null, error: null });
+      if (table === "recipe_ingredients") return resolve({ data: cfg.recipeIngredients ?? [], error: null });
+      return resolve({ data: null, error: null });
+    };
+    return b;
+  };
+  return { client: { from } as unknown as SupabaseClient, recorded };
+}
+
+describe("reconcileConvertedBatchVolume", () => {
+  it("reconciles a pre-planned target down to the delivered volume (planned − shrinkage)", async () => {
+    const { client, recorded } = reconcileStub({
+      batch: { volume_bbl: 25, converted_volume_bbl: 25, recipe_id: "r1" },
+      inflows: [{ volume_bbl: 24.5 }],
+      commitmentCount: 0,
+    });
+    await reconcileConvertedBatchVolume(client, "T");
+    const upd = recorded.find(r => r.table === "brew_batches" && r.op === "update");
+    expect(upd?.payload).toEqual({ volume_bbl: 24.5, converted_volume_bbl: 24.5 });
+    // No commitments on the batch → never fabricate them.
+    expect(recorded.find(r => r.table === "batch_ingredient_commitments" && r.op === "upsert")).toBeUndefined();
+  });
+
+  it("no-ops for the inline path already born at the delivered volume", async () => {
+    const { client, recorded } = reconcileStub({
+      batch: { volume_bbl: 24.5, converted_volume_bbl: 24.5, recipe_id: "r1" },
+      inflows: [{ volume_bbl: 24.5 }],
+    });
+    await reconcileConvertedBatchVolume(client, "T");
+    expect(recorded.find(r => r.table === "brew_batches" && r.op === "update")).toBeUndefined();
+  });
+
+  it("leaves a blended-into-existing target untouched (volume_bbl ≠ converted_volume_bbl)", async () => {
+    const { client, recorded } = reconcileStub({
+      batch: { volume_bbl: 30, converted_volume_bbl: 5, recipe_id: "r1" },
+      inflows: [{ volume_bbl: 5 }],
+    });
+    await reconcileConvertedBatchVolume(client, "T");
+    expect(recorded.find(r => r.table === "brew_batches" && r.op === "update")).toBeUndefined();
+  });
+
+  it("sums multiple conversion inflows for a multi-source target", async () => {
+    const { client, recorded } = reconcileStub({
+      batch: { volume_bbl: 25, converted_volume_bbl: 25, recipe_id: "r1" },
+      inflows: [{ volume_bbl: 15 }, { volume_bbl: 9.5 }],
+      commitmentCount: 0,
+    });
+    await reconcileConvertedBatchVolume(client, "T");
+    const upd = recorded.find(r => r.table === "brew_batches" && r.op === "update");
+    expect(upd?.payload).toEqual({ volume_bbl: 24.5, converted_volume_bbl: 24.5 });
+  });
+
+  it("refreshes absolute commitments to the new volume only when the batch already has them", async () => {
+    const { client, recorded } = reconcileStub({
+      batch: { volume_bbl: 25, converted_volume_bbl: 25, recipe_id: "r1" },
+      inflows: [{ volume_bbl: 24.5 }],
+      commitmentCount: 3,
+      recipeIngredients: [{ ingredient_id: "i1", quantity_per_bbl: 2 }],
+    });
+    await reconcileConvertedBatchVolume(client, "T");
+    const ups = recorded.find(r => r.table === "batch_ingredient_commitments" && r.op === "upsert");
+    expect(ups).toBeTruthy();
+    expect((ups?.payload as { committed_qty: number }[])[0]).toMatchObject({ batch_id: "T", ingredient_id: "i1", committed_qty: 49 });
   });
 });
