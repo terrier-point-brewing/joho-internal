@@ -4,6 +4,7 @@ import { fetchCompletedOrders } from "@/lib/square/orders";
 import { fetchRefunds } from "@/lib/square/refunds";
 import { buildTaproomModelReport } from "@/lib/reports/taproom-model";
 import { isInvoiceOrder } from "@/lib/square/invoiceOrders";
+import { isReturnOrder } from "@/lib/square/returnOrders";
 import { TAPROOM_MODEL_CATEGORIES } from "@/lib/constants/categories";
 import { requireDateRange, apiError } from "@/lib/utils/api";
 import { localDateString, eachDateString } from "@/lib/utils/datetime";
@@ -41,7 +42,11 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const orderCount = orders.length;
+    // Guest count counts real sales only. Return orders come back from the
+    // COMPLETED search too, but they're the refund's paperwork, not a visit —
+    // counting them inflates guests and dilutes average ticket. They stay in
+    // `orders` regardless, because the report resolves refunds against them.
+    const orderCount = orders.filter((o) => !isReturnOrder(o)).length;
     const avgTicketCents = orderCount > 0 ? Math.round(netSalesCents / orderCount) : 0;
 
     // Category breakdown
@@ -110,7 +115,7 @@ export async function GET(req: NextRequest) {
         }
       }
 
-      const count = dayOrders.length;
+      const count = dayOrders.filter((o) => !isReturnOrder(o)).length;
       daily.push({
         date:              dateStr,
         net_sales_cents:   dayNet,

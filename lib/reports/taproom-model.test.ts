@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { buildTaproomModelReport } from "./taproom-model";
 import { KEG_TRANSFER_DISCOUNT_NAME } from "@/types/reports";
 import type { SquareRefund } from "@/lib/square/refunds";
-import type { CatalogItem, Order, OrderLineItem } from "@/types/square";
+import type { CatalogItem, Order, OrderLineItem, OrderReturn, OrderReturnLineItem } from "@/types/square";
 
 const KEGS_CAT = "FXHTXXAICGRPMGJAHGJZ34MY";
 const DRAFT_CAT = "567KQPEBRBZHG7ATHQFRCRWZ";
@@ -191,5 +191,92 @@ describe("buildTaproomModelReport — refund attribution", () => {
     const { byCategory } = buildTaproomModelReport([o], kegItems, [refund("o1", 100)]);
     expect(byCategory.DRAFT_BEER.returnsCents).toBe(100); // denominator excluded the transfer
     expect(byCategory.KEGS.returnsCents).toBe(0);
+  });
+});
+
+describe("buildTaproomModelReport — returns via return orders", () => {
+  const items = [
+    makeItem({ id: "d1", name: "Citra Haze", categoryId: DRAFT_CAT, variations: [{ id: "draftv", name: "Pint" }] }),
+    makeItem({ id: "m1", name: "Tee Shirt", categoryId: MERCH_CAT, variations: [{ id: "merchv", name: "L" }] }),
+    makeItem({ id: "k1", name: "Pale Ale (Keg)", categoryId: KEGS_CAT, variations: [{ id: "half", name: "1/2 Keg" }] }),
+  ];
+
+  // The shape Square actually returns: a refund's `order_id` resolves to a
+  // separate return order with NO line_items, goods under returns[].
+  function returnOrder(
+    id: string,
+    sourceOrderId: string,
+    returnLines: OrderReturnLineItem[],
+    extra: Partial<OrderReturn> = {}
+  ): Order {
+    return order(id, [], {
+      returns: [{ uid: `ret-${id}`, source_order_id: sourceOrderId, return_line_items: returnLines, ...extra }],
+    });
+  }
+
+  const sale = order("sale1", [
+    line({ uid: "a", catalog_object_id: "draftv", gross_sales_money: { amount: 700, currency: "USD" } }),
+    line({ uid: "b", catalog_object_id: "merchv", gross_sales_money: { amount: 3000, currency: "USD" } }),
+  ]);
+
+  it("attributes each returned line to its own category, not pro-rated", () => {
+    // Only the merch came back. Pro-rating would have leaked ~19% onto draft.
+    const ro = returnOrder("ro1", "sale1", [
+      { uid: "r1", source_line_item_uid: "b", catalog_object_id: "merchv", quantity: "1", name: "Tee Shirt", gross_return_money: { amount: 3000, currency: "USD" } },
+    ]);
+    const { byCategory } = buildTaproomModelReport([sale, ro], items, [refund("ro1", 3225)]);
+
+    expect(byCategory.MERCHANDISE.returnsCents).toBe(3000);
+    expect(byCategory.MERCHANDISE.netSalesCents).toBe(0); // 3000 - 0 - 3000
+    expect(byCategory.DRAFT_BEER.returnsCents).toBe(0);
+    expect(byCategory.DRAFT_BEER.netSalesCents).toBe(700);
+  });
+
+  it("books returns ex-tax, ignoring the tax-inclusive refund amount", () => {
+    // Refund amount is 3225 (3000 + 225 tax); only the 3000 reverses gross.
+    const ro = returnOrder("ro1", "sale1", [
+      { uid: "r1", source_line_item_uid: "b", catalog_object_id: "merchv", quantity: "1", name: "Tee Shirt", gross_return_money: { amount: 3000, currency: "USD" }, total_tax_money: { amount: 225, currency: "USD" } },
+    ]);
+    const { byCategory } = buildTaproomModelReport([sale, ro], items, [refund("ro1", 3225)]);
+    expect(byCategory.MERCHANDISE.returnsCents).toBe(3000);
+  });
+
+  it("books a discounted return net of its discount, so net sales lands at zero", () => {
+    const discountedSale = order("sale2", [
+      line({ uid: "a", catalog_object_id: "draftv", gross_sales_money: { amount: 1000, currency: "USD" }, total_discount_money: { amount: 200, currency: "USD" } }),
+    ]);
+    const ro = returnOrder("ro2", "sale2", [
+      { uid: "r1", source_line_item_uid: "a", catalog_object_id: "draftv", quantity: "1", name: "Citra Haze", gross_return_money: { amount: 1000, currency: "USD" }, total_discount_money: { amount: 200, currency: "USD" } },
+    ]);
+    const { byCategory } = buildTaproomModelReport([discountedSale, ro], items, [refund("ro2", 800)]);
+
+    expect(byCategory.DRAFT_BEER.returnsCents).toBe(800);
+    expect(byCategory.DRAFT_BEER.netSalesCents).toBe(0); // 1000 - 200 - 800
+  });
+
+  it("ignores tip-only refunds, which carry no returned goods", () => {
+    // Square puts these under returns[].return_tips — no return_line_items.
+    const ro = order("ro3", [], { returns: [{ uid: "ret", source_order_id: "sale1" }] });
+    const { byCategory } = buildTaproomModelReport([sale, ro], items, [refund("ro3", 10000)]);
+
+    expect(byCategory.DRAFT_BEER.returnsCents).toBe(0);
+    expect(byCategory.MERCHANDISE.returnsCents).toBe(0);
+  });
+
+  it("categorizes a returned keg even when the source order is outside the window", () => {
+    // Return lines are self-contained, so no source order is needed.
+    const ro = returnOrder("ro4", "sale-from-last-month", [
+      { uid: "r1", source_line_item_uid: "x", catalog_object_id: "half", quantity: "1", name: "Pale Ale (Keg)", gross_return_money: { amount: 14900, currency: "USD" } },
+    ]);
+    const { byCategory } = buildTaproomModelReport([ro], items, [refund("ro4", 15980)]);
+    expect(byCategory.KEGS.returnsCents).toBe(14900);
+  });
+
+  it("counts a return order once even if two refunds resolve to it", () => {
+    const ro = returnOrder("ro5", "sale1", [
+      { uid: "r1", source_line_item_uid: "b", catalog_object_id: "merchv", quantity: "1", name: "Tee Shirt", gross_return_money: { amount: 3000, currency: "USD" } },
+    ]);
+    const { byCategory } = buildTaproomModelReport([sale, ro], items, [refund("ro5", 1500), { ...refund("ro5", 1500), id: "r-second" }]);
+    expect(byCategory.MERCHANDISE.returnsCents).toBe(3000);
   });
 });

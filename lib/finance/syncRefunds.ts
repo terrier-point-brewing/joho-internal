@@ -12,6 +12,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { SquareRefund } from "@/lib/square/refunds";
 import { fetchRefunds } from "@/lib/square/refunds";
+import { fetchOrdersByIds } from "@/lib/square/orders";
+import { resolveSourceOrderIds } from "@/lib/square/returnOrders";
 
 /** Name of the app-managed contra-revenue account (seeded by migration). */
 export const REFUNDS_CONTRA_ACCOUNT_NAME = "Sales Returns & Refunds";
@@ -108,6 +110,20 @@ export async function syncRefunds(
 
   const normalized = refunds.map(normalizeRefund);
   const coaId = await resolveContraCoaId(supabase);
+
+  // A refund's order_id is the *return order* Square creates for it, not the
+  // sale — the return order has no line items; the goods live under its
+  // returns[].source_order_id. Repoint each refund at the sale it reverses so
+  // square_order_id / order_id drill through to what was actually sold. The
+  // return-order id is preserved in raw_data.order_id. Refunds that already
+  // point at a sale (no return order) are left unchanged. See resolveSourceOrderIds.
+  const returnOrderIds = [...new Set(normalized.map((n) => n.squareOrderId).filter((id): id is string => !!id))];
+  const saleByReturn = returnOrderIds.length
+    ? resolveSourceOrderIds(await fetchOrdersByIds(returnOrderIds))
+    : new Map<string, string>();
+  for (const n of normalized) {
+    if (n.squareOrderId) n.squareOrderId = saleByReturn.get(n.squareOrderId) ?? n.squareOrderId;
+  }
 
   // Map Square order ids → square_orders db ids so refunds link to their order.
   const orderIds = [...new Set(normalized.map((n) => n.squareOrderId).filter((id): id is string => !!id))];

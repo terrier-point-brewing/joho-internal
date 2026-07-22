@@ -166,6 +166,38 @@ export interface OrderLineItem {
   applied_taxes?: OrderAppliedTax[];
 }
 
+// A single returned line on a return order. Square repeats enough of the
+// original line here (`catalog_object_id`, `name`, money) that a return can be
+// categorized without fetching the source order — which may fall outside the
+// requested date range.
+export interface OrderReturnLineItem {
+  uid: string;
+  source_line_item_uid?: string;
+  catalog_object_id?: string;
+  quantity: string;
+  name: string;
+  variation_name?: string;
+  item_type?: string;
+  // Ex-tax, ex-discount value of what came back.
+  gross_return_money?: Money;
+  total_discount_money?: Money;
+  total_tax_money?: Money;
+  total_money?: Money;
+}
+
+export interface OrderReturn {
+  uid: string;
+  // The original sale this return reverses.
+  source_order_id?: string;
+  return_line_items?: OrderReturnLineItem[];
+  return_amounts?: {
+    total_money?: Money;
+    tax_money?: Money;
+    discount_money?: Money;
+    tip_money?: Money;
+  };
+}
+
 export interface Order {
   id: string;
   location_id: string;
@@ -181,6 +213,9 @@ export interface Order {
   metadata?: Record<string, string>;
   net_amount_due_money?: Money;
   line_items?: OrderLineItem[];
+  // Present only on return orders — the negative-total order Square creates for
+  // a refund. Such orders carry NO `line_items`; the goods are in here.
+  returns?: OrderReturn[];
   discounts?: OrderDiscount[];
   taxes?: OrderTax[];
   total_money?: Money;

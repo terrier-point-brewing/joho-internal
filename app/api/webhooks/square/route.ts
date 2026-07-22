@@ -135,8 +135,10 @@ export async function POST(req: NextRequest) {
 
     // Refund events: refunds never change order state, so the order sync can't
     // see them. Persist the refund (nets against revenue on statements) and
-    // re-sync the underlying order so its stored totals/raw stay fresh. Refunds
-    // don't add consumption, so they skip the taproom reconcile below.
+    // sync the return order Square created for it (refund.order_id points at
+    // that return order, not the sale) so its returns[] detail — which the
+    // taproom model reads to attribute the return — lands in square_orders.
+    // Refunds don't add consumption, so they skip the taproom reconcile below.
     if (isRefundEvent(event.type)) {
       const refund = extractSquareRefund(event);
       if (refund) {
