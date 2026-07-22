@@ -43,13 +43,19 @@ export function resolveTokens(canon: BrandCanon): ResolvedTokens {
   return { light, dark, fonts };
 }
 
+// Emits ONLY the color tokens (the sole thing that varies at runtime and by
+// theme). Fonts are intentionally NOT emitted here: `@theme` in globals.css
+// owns `--font-brand-*`, chaining `var(--font-marcellus), …` so the tokens
+// resolve to the next/font-loaded faces. Emitting them here as bare family
+// stacks would override that (BrandStyle's `:root{}` is unlayered and beats
+// `@layer theme`) and silently fall back to generic serif/sans. `fonts` stays
+// in ResolvedTokens for non-CSS consumers (agent brief, brand guide display).
 export function emitBrandCss(t: ResolvedTokens): string {
   const lightDecls = ROLE_NAMES.map((role) => `--color-brand-${role}:${t.light[role]};`).join(" ");
   const darkDecls = ROLE_NAMES.map((role) => `--color-brand-${role}:${t.dark[role]};`).join(" ");
-  const fontDecls = FONT_ROLES.map((role) => `--font-brand-${role}:${t.fonts[role]};`).join(" ");
 
   return (
-    `:root{ ${lightDecls} ${fontDecls} }\n` +
+    `:root{ ${lightDecls} }\n` +
     `:root[data-theme="dark"]{ ${darkDecls} }\n` +
     `@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){ ${darkDecls} }}`
   );

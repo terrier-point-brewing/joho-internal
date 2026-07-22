@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useSyncExternalStore } from "react";
 import { resolveThemeAttr, THEME_COOKIE, type ThemeChoice } from "@/lib/brand/theme";
 
 const OPTIONS: { choice: ThemeChoice; label: string }[] = [
@@ -9,15 +9,26 @@ const OPTIONS: { choice: ThemeChoice; label: string }[] = [
   { choice: "system", label: "System" },
 ];
 
-function currentChoice(): ThemeChoice {
-  if (typeof document === "undefined") return "system";
+const THEME_EVENT = "brand-theme-change";
+
+// The active choice is read from the live `data-theme` attribute (stamped by
+// the pre-hydration script from the cookie), NOT from React state — so SSR and
+// the first client render agree via getServerSnapshot ("system"), avoiding a
+// hydration mismatch, and there is no setState-in-effect.
+function subscribe(onChange: () => void): () => void {
+  window.addEventListener(THEME_EVENT, onChange);
+  return () => window.removeEventListener(THEME_EVENT, onChange);
+}
+function getSnapshot(): ThemeChoice {
   const attr = document.documentElement.dataset.theme;
-  if (attr === "light" || attr === "dark") return attr;
+  return attr === "light" || attr === "dark" ? attr : "system";
+}
+function getServerSnapshot(): ThemeChoice {
   return "system";
 }
 
-// Kept outside the component so the React Compiler doesn't treat the
-// document mutations below as part of the component's render effects.
+// Persist the choice and apply data-theme immediately (no reload), then notify
+// the store so the control re-renders with the new selection.
 function applyThemeChoice(next: ThemeChoice) {
   document.cookie = `${THEME_COOKIE}=${next}; path=/; max-age=31536000`;
 
@@ -27,18 +38,12 @@ function applyThemeChoice(next: ThemeChoice) {
   } else {
     delete document.documentElement.dataset.theme;
   }
+  window.dispatchEvent(new Event(THEME_EVENT));
 }
 
-// Three-state light/dark/system control for the Joho brand surfaces. Writes
-// the theme cookie and applies the `data-theme` attribute immediately (no
-// reload) so preview surfaces update in place.
+// Three-state light/dark/system control for the Joho brand surfaces.
 export default function ThemeToggle() {
-  const [choice, setChoice] = useState<ThemeChoice>(() => currentChoice());
-
-  function handleSelect(next: ThemeChoice) {
-    setChoice(next);
-    applyThemeChoice(next);
-  }
+  const choice = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
   return (
     <div className="flex items-center gap-1" role="group" aria-label="Theme">
@@ -46,7 +51,7 @@ export default function ThemeToggle() {
         <button
           key={optionChoice}
           type="button"
-          onClick={() => handleSelect(optionChoice)}
+          onClick={() => applyThemeChoice(optionChoice)}
           aria-pressed={choice === optionChoice}
           className={`btn-xxs ${choice === optionChoice ? "btn-primary" : "btn-secondary"}`}
         >
