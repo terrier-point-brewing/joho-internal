@@ -12,7 +12,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   fetchOpenPhantomAlerts,
   fetchUnemailedPhantomAlerts,
-  fetchEligibleBatches,
+  fetchEligibleLots,
+  swapPerKegFlOz,
   markPhantomAlertsEmailed,
   type PhantomAlert,
 } from "./phantomExportAlerts";
@@ -125,46 +126,71 @@ describe("fetchUnemailedPhantomAlerts", () => {
   });
 });
 
-describe("fetchEligibleBatches", () => {
+describe("swapPerKegFlOz", () => {
+  it("converts total BBL over keg count to per-keg fl oz", () => {
+    expect(swapPerKegFlOz(0.1666, 1)).toBeCloseTo(661.1, 0); // 1/6 keg
+    expect(swapPerKegFlOz(0.5, 2)).toBeCloseTo(992, 0);       // 1/4 keg each
+  });
+  it("returns 0 when quantity is 0", () => {
+    expect(swapPerKegFlOz(0.5, 0)).toBe(0);
+  });
+});
+
+describe("fetchEligibleLots", () => {
+  // Booked 1/6 keg (perKeg ≈ 661 fl oz).
   const alert: PhantomAlert = {
     exportTransactionId: "et-1",
     recipeId: "r1",
     beerName: "Vienna Lager",
     tapNumber: 3,
     variationId: "pv-1",
-    variationName: "1/2 Keg",
+    variationName: "Fortnight - 1/6 Keg",
     quantityKegs: 1,
-    volumeBbl: 0.4032,
-    exciseUsd: 2.48,
-    occurredAt: "2026-07-18T20:00:00Z",
+    volumeBbl: 0.1666,
+    exciseUsd: 3.77,
+    occurredAt: "2026-07-20T20:00:00Z",
   };
 
-  it("returns only same-recipe/variation batches with on-hand >= quantityKegs", async () => {
+  const keg16 = (over: Record<string, unknown>) => ({
+    batch_id: "b1",
+    variation_id: "pv-generic-16",
+    quantity_on_hand: 2,
+    brew_batches: { batch_number: "B-050" },
+    packaging_variations: { name: "1/6 Keg", total_volume_fl_oz: 661, container: { type: "keg" } },
+    ...over,
+  });
+
+  it("returns same-size keg lots of the recipe with on-hand >= quantityKegs", async () => {
     const { client, calls } = makeSupabase({
       cold_storage_inventory: {
         rows: [
-          { batch_id: "b1", quantity_on_hand: 2, brew_batches: { batch_number: "B-050" } },
-          { batch_id: "b2", quantity_on_hand: 0.5, brew_batches: { batch_number: "B-051" } },
+          keg16({}), // generic 1/6 keg, 2 on hand → eligible even though variation differs from booked
+          keg16({ batch_id: "b2", variation_id: "pv-half", quantity_on_hand: 4,
+            packaging_variations: { name: "1/2 Keg", total_volume_fl_oz: 1984, container: { type: "keg" } } }), // wrong size
+          keg16({ batch_id: "b3", quantity_on_hand: 0.5 }), // right size, too little
+          keg16({ batch_id: "b4", variation_id: "pv-can",
+            packaging_variations: { name: "16oz Can Case", total_volume_fl_oz: 661, container: { type: "can" } } }), // not a keg
         ],
       },
     });
-    const batches = await fetchEligibleBatches(client, alert);
-    expect(batches).toEqual([{ batchId: "b1", batchCode: "B-050", onHand: 2 }]);
+    const lots = await fetchEligibleLots(client, alert);
+    expect(lots).toEqual([
+      { variationId: "pv-generic-16", variationName: "1/6 Keg", batchId: "b1", batchCode: "B-050", onHand: 2 },
+    ]);
     const csiCalls = calls.cold_storage_inventory;
     expect(csiCalls.some((c) => c.method === "eq" && c.args[0] === "recipe_id" && c.args[1] === "r1")).toBe(true);
-    expect(csiCalls.some((c) => c.method === "eq" && c.args[0] === "variation_id" && c.args[1] === "pv-1")).toBe(true);
   });
 
-  it("returns an empty list when no batch has enough on hand", async () => {
+  it("returns an empty list when no lot qualifies", async () => {
     const { client } = makeSupabase({
-      cold_storage_inventory: { rows: [{ batch_id: "b2", quantity_on_hand: 0.5, brew_batches: { batch_number: "B-051" } }] },
+      cold_storage_inventory: { rows: [keg16({ quantity_on_hand: 0.5 })] },
     });
-    expect(await fetchEligibleBatches(client, alert)).toEqual([]);
+    expect(await fetchEligibleLots(client, alert)).toEqual([]);
   });
 
   it("throws when the query errors", async () => {
     const { client } = makeSupabase({ cold_storage_inventory: { rows: null, error: "boom" } });
-    await expect(fetchEligibleBatches(client, alert)).rejects.toThrow("boom");
+    await expect(fetchEligibleLots(client, alert)).rejects.toThrow("boom");
   });
 });
 

@@ -1,4 +1,5 @@
 import { SupabaseClient } from "@supabase/supabase-js";
+import { BBL_TO_FL_OZ } from "@/lib/constants/production";
 
 /**
  * Phantom-export alerts: taproom draft-restock keg swaps that booked barrel
@@ -30,10 +31,22 @@ export interface PhantomAlert {
   occurredAt: string;
 }
 
-export interface EligibleBatch {
+export interface EligibleLot {
+  variationId: string;
+  variationName: string;
   batchId: string;
   batchCode: string;
   onHand: number;
+}
+
+/** Max per-keg volume gap (fl oz) for a lot to count as the "same size" as a
+ *  booked swap. Keg sizes (661 / 992 / 1984 fl oz) are far enough apart that a
+ *  few fl oz of rounding never bleeds across sizes. */
+export const SWAP_VOLUME_TOLERANCE_FL_OZ = 5;
+
+/** Per-keg volume (fl oz) a phantom booked: total BBL / keg count × fl oz per BBL. */
+export function swapPerKegFlOz(volumeBbl: number, quantityKegs: number): number {
+  return quantityKegs > 0 ? (volumeBbl / quantityKegs) * BBL_TO_FL_OZ : 0;
 }
 
 interface PhantomTxRow {
@@ -54,10 +67,16 @@ interface RecipeVariationRow {
   packaging_variations: { id: string; container_id: string; format: string | null } | null;
 }
 
-interface ColdStorageRow {
+interface ColdStorageLotRow {
   batch_id: string;
+  variation_id: string;
   quantity_on_hand: number;
   brew_batches: { batch_number: string } | null;
+  packaging_variations: {
+    name: string;
+    total_volume_fl_oz: number | null;
+    container: { type: string } | null;
+  } | null;
 }
 
 async function fetchPhantomAlerts(
@@ -151,26 +170,40 @@ export async function fetchUnemailedPhantomAlerts(supabase: SupabaseClient): Pro
 }
 
 /**
- * Cold-storage batches of the alert's recipe + variation that hold enough on
- * hand to reconcile the full swap (targeted single-batch depletion).
+ * Cold-storage lots (variation + batch) of the alert's recipe that can resolve
+ * the swap: a keg container, the SAME per-keg volume the phantom booked (so
+ * excise/volume stay valid — never recomputed), and enough on hand for the full
+ * swap. Unlike the old batch-only view this offers *every* same-size keg
+ * variation the recipe holds, so a mislinked booked variation is still
+ * resolvable against the keg physically drained.
  */
-export async function fetchEligibleBatches(
+export async function fetchEligibleLots(
   supabase: SupabaseClient,
   alert: PhantomAlert,
-): Promise<EligibleBatch[]> {
+): Promise<EligibleLot[]> {
   const { data, error } = await supabase
     .from("cold_storage_inventory")
-    .select("batch_id, quantity_on_hand, brew_batches(batch_number)")
-    .eq("recipe_id", alert.recipeId)
-    .eq("variation_id", alert.variationId);
+    .select(
+      "batch_id, variation_id, quantity_on_hand, brew_batches(batch_number), packaging_variations(name, total_volume_fl_oz, container:packaging_items!packaging_variations_container_id_fkey(type))",
+    )
+    .eq("recipe_id", alert.recipeId);
   if (error) throw new Error(error.message);
-  const rows = (data ?? []) as unknown as ColdStorageRow[];
+  const perKeg = swapPerKegFlOz(alert.volumeBbl, alert.quantityKegs);
+  const rows = (data ?? []) as unknown as ColdStorageLotRow[];
   return rows
-    .filter((r) => r.quantity_on_hand >= alert.quantityKegs)
+    .filter((r) => r.packaging_variations?.container?.type === "keg")
+    .filter(
+      (r) =>
+        r.packaging_variations?.total_volume_fl_oz != null &&
+        Math.abs(Number(r.packaging_variations.total_volume_fl_oz) - perKeg) <= SWAP_VOLUME_TOLERANCE_FL_OZ,
+    )
+    .filter((r) => Number(r.quantity_on_hand) >= alert.quantityKegs)
     .map((r) => ({
+      variationId: r.variation_id,
+      variationName: r.packaging_variations?.name ?? "",
       batchId: r.batch_id,
       batchCode: r.brew_batches?.batch_number ?? "",
-      onHand: r.quantity_on_hand,
+      onHand: Number(r.quantity_on_hand),
     }));
 }
 
