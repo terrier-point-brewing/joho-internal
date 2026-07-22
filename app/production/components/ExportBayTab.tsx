@@ -88,8 +88,11 @@ function sortAllocations(list: BatchAllocation[]): BatchAllocation[] {
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
-/** A cold-storage batch still eligible to retroactively cover a phantom export. */
-interface PhantomEligibleBatch {
+/** A cold-storage lot (variation + batch) still eligible to retroactively cover
+ *  a phantom export. */
+interface PhantomEligibleLot {
+  variationId: string;
+  variationName: string;
   batchId: string;
   batchCode: string;
   onHand: number;
@@ -109,7 +112,7 @@ interface PhantomAlert {
   volumeBbl: number;
   exciseUsd: number;
   occurredAt: string;
-  eligibleBatches: PhantomEligibleBatch[];
+  eligibleLots: PhantomEligibleLot[];
 }
 
 interface CustomerRecipeGroup {
@@ -139,7 +142,7 @@ function usePhantomAlertMutations() {
   };
 
   const reconcile = useMutation({
-    mutationFn: async (vars: { exportTransactionId: string; batchId: string }) => {
+    mutationFn: async (vars: { exportTransactionId: string; variationId: string; batchId: string }) => {
       const res = await fetch("/api/production/taproom-consumption/reconcile-phantom", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -167,22 +170,22 @@ function usePhantomAlertMutations() {
 
 function PhantomAlertRow({
   alert,
-  selectedBatchId,
-  onSelectBatch,
-  onReconcile,
+  selectedLotKey,
+  onSelectLot,
+  onResolve,
   onDismiss,
-  reconciling,
+  resolving,
   dismissing,
 }: {
   alert: PhantomAlert;
-  selectedBatchId: string;
-  onSelectBatch: (batchId: string) => void;
-  onReconcile: () => void;
+  selectedLotKey: string;
+  onSelectLot: (lotKey: string) => void;
+  onResolve: () => void;
   onDismiss: () => void;
-  reconciling: boolean;
+  resolving: boolean;
   dismissing: boolean;
 }) {
-  const hasEligibleBatches = alert.eligibleBatches.length > 0;
+  const hasLots = alert.eligibleLots.length > 0;
   return (
     <Card padding="p-3" className="flex items-center justify-between gap-3">
       <div className="flex flex-col gap-1 min-w-0">
@@ -191,30 +194,32 @@ function PhantomAlertRow({
           {alert.tapNumber != null && <span className="text-muted font-normal"> · Tap {alert.tapNumber}</span>}
         </span>
         <span className="text-xs text-muted">
-          {fmtDate(alert.occurredAt)} · {alert.quantityKegs} keg{alert.quantityKegs !== 1 ? "s" : ""} · {alert.volumeBbl.toFixed(2)} BBL
+          {fmtDate(alert.occurredAt)} · {alert.quantityKegs} keg{alert.quantityKegs !== 1 ? "s" : ""} · {alert.volumeBbl.toFixed(2)} BBL · {alert.variationName}
         </span>
       </div>
       <div className="flex items-center gap-2 shrink-0">
-        {hasEligibleBatches && (
+        {hasLots && (
           <select
             className="inp-sm"
-            value={selectedBatchId}
-            onChange={(e) => onSelectBatch(e.target.value)}
+            value={selectedLotKey}
+            onChange={(e) => onSelectLot(e.target.value)}
           >
-            <option value="">— pick batch —</option>
-            {alert.eligibleBatches.map((b) => (
-              <option key={b.batchId} value={b.batchId}>{b.batchCode} ({b.onHand} on hand)</option>
+            <option value="">— pick keg lot —</option>
+            {alert.eligibleLots.map((lot) => (
+              <option key={`${lot.variationId}|${lot.batchId}`} value={`${lot.variationId}|${lot.batchId}`}>
+                {lot.variationName} · {lot.batchCode} ({lot.onHand} on hand)
+              </option>
             ))}
           </select>
         )}
-        {hasEligibleBatches && (
+        {hasLots && (
           <button
             type="button"
-            onClick={onReconcile}
-            disabled={!selectedBatchId || reconciling}
+            onClick={onResolve}
+            disabled={!selectedLotKey || resolving}
             className="btn-primary btn-xxs"
           >
-            {reconciling ? "…" : "Reconcile"}
+            {resolving ? "…" : "Resolve"}
           </button>
         )}
         <button
@@ -232,7 +237,7 @@ function PhantomAlertRow({
 
 function PhantomAlertsPanel({ alerts }: { alerts: PhantomAlert[] }) {
   const [open, setOpen] = useState(false);
-  const [selectedBatchByAlert, setSelectedBatchByAlert] = useState<Record<string, string>>({});
+  const [selectedLotByAlert, setSelectedLotByAlert] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const { reconcile, dismiss } = usePhantomAlertMutations();
 
@@ -240,12 +245,14 @@ function PhantomAlertsPanel({ alerts }: { alerts: PhantomAlert[] }) {
     return <span className="text-xs text-faint whitespace-nowrap">⚑ All reconciled</span>;
   }
 
-  async function handleReconcile(alert: PhantomAlert) {
-    const batchId = selectedBatchByAlert[alert.exportTransactionId];
-    if (!batchId) return;
+  async function handleResolve(alert: PhantomAlert) {
+    const lotKey = selectedLotByAlert[alert.exportTransactionId];
+    if (!lotKey) return;
+    const [variationId, batchId] = lotKey.split("|");
+    if (!variationId || !batchId) return;
     setError(null);
     try {
-      await reconcile.mutateAsync({ exportTransactionId: alert.exportTransactionId, batchId });
+      await reconcile.mutateAsync({ exportTransactionId: alert.exportTransactionId, variationId, batchId });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error");
     }
@@ -273,13 +280,13 @@ function PhantomAlertsPanel({ alerts }: { alerts: PhantomAlert[] }) {
               <PhantomAlertRow
                 key={alert.exportTransactionId}
                 alert={alert}
-                selectedBatchId={selectedBatchByAlert[alert.exportTransactionId] ?? ""}
-                onSelectBatch={(batchId) =>
-                  setSelectedBatchByAlert((prev) => ({ ...prev, [alert.exportTransactionId]: batchId }))
+                selectedLotKey={selectedLotByAlert[alert.exportTransactionId] ?? ""}
+                onSelectLot={(lotKey) =>
+                  setSelectedLotByAlert((prev) => ({ ...prev, [alert.exportTransactionId]: lotKey }))
                 }
-                onReconcile={() => handleReconcile(alert)}
+                onResolve={() => handleResolve(alert)}
                 onDismiss={() => handleDismiss(alert)}
-                reconciling={reconcile.isPending}
+                resolving={reconcile.isPending}
                 dismissing={dismiss.isPending}
               />
             ))}
