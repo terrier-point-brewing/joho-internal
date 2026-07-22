@@ -12,6 +12,21 @@ export const PACKAGING_VARIATION_SELECT = `
   contract_brewing_partners(company_name)
 `;
 
+// The generic house kegs (1/2, 1/4, 1/6 Keg) — keg containers with no contract
+// partner. Every recipe can be drained from these, so they're linked to each
+// recipe by default (backfill migration + recipe-creation route) and surface in
+// the draft swap-keg dropdown as ordinary recipe_packaging_variations.
+export async function getGenericKegVariationIds(supabase: SupabaseClient): Promise<string[]> {
+  const { data } = await supabase
+    .from("packaging_variations")
+    .select("id, container:packaging_items!packaging_variations_container_id_fkey(type)")
+    .is("partner_id", null)
+    .eq("is_active", true);
+  return (data ?? [])
+    .filter((v) => (v.container as unknown as { type?: string } | null)?.type === "keg")
+    .map((v) => v.id as string);
+}
+
 export function validateFormat(format: string, paktech_id: string | null, tray_id: string | null): string | null {
   if (format === "4-pack" || format === "6-pack") {
     if (!paktech_id) return `format "${format}" requires paktech_id`;

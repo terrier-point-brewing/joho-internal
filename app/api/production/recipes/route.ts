@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getGenericKegVariationIds } from "@/lib/production/packagingVariations";
 
 export const dynamic = "force-dynamic";
 
@@ -40,6 +41,16 @@ export async function POST(req: NextRequest) {
     .single();
 
   if (recipeErr) return NextResponse.json({ error: recipeErr.message }, { status: 500 });
+
+  // Link the generic house kegs by default so the draft swap-keg dropdown offers
+  // them for this recipe. The dropdown lists only explicitly-linked variations.
+  const genericKegIds = await getGenericKegVariationIds(supabase);
+  if (genericKegIds.length) {
+    const { error: kegLinkErr } = await supabase
+      .from("recipe_packaging_variations")
+      .insert(genericKegIds.map((variation_id) => ({ recipe_id: recipe.id, variation_id })));
+    if (kegLinkErr) return NextResponse.json({ error: kegLinkErr.message }, { status: 500 });
+  }
 
   if (lines?.length) {
     const rows = lines.map((l: { ingredient_id: string; quantity_per_bbl: number }) => ({
