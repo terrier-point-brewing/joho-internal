@@ -1,3 +1,6 @@
+import type { z } from "zod";
+import type { canonSchema } from "./canon.schema";
+
 export type RoleName =
   | "canvas"
   | "surface"
@@ -15,51 +18,10 @@ export type RoleName =
 
 export type FontRole = "display" | "body" | "wordmark" | "script";
 
-export interface BrandColor {
-  key: string;
-  name: string;
-  hex: string;
-  cmyk?: string;
-  pms?: string;
-}
-
-export interface BrandFont {
-  role: FontRole;
-  family: string;
-  cssStack: string;
-  weights: number[];
-  note?: string;
-}
-
-export interface RoleMap {
-  // each role → a brand color `key` (from palette) OR a raw hex
-  light: Record<RoleName, string>;
-  // sparse overrides applied over the derived dark palette (role → hex)
-  dark: Partial<Record<RoleName, string>>;
-}
-
-export interface BrandCanon {
-  brandName: string; // "Joho"  (data only — never referenced by token names)
-  version: string; // "1.0"
-  mission: string;
-  palette: BrandColor[]; // Paper / Indigo / Seal Red / Camphor Tan (+ neutrals)
-  roleMap: RoleMap;
-  usageRatios: { role: RoleName; pct: number; note?: string }[]; // Paper 60 / Indigo 30 / accent 10
-  fonts: BrandFont[];
-  voice: {
-    summary: string;
-    sliders: { label: string; left: string; right: string; note: string }[];
-    neverWords: string[];
-    leanOnWords: string[];
-  };
-  naming: {
-    pattern: string;
-    criteria: string[];
-    passingExamples?: { name: string; why: string }[];
-  };
-  precedence: string[]; // ordered precedence chain (§10)
-  agentRules: string[]; // the top-10 hard rules (§8)
-}
+// The canon document shape (write-validation contract lives in
+// canon.schema.ts; this type is inferred from that schema so the two never
+// drift apart).
+export type BrandCanon = z.infer<typeof canonSchema>;
 
 export interface ResolvedTokens {
   light: Record<RoleName, string>; // role → hex

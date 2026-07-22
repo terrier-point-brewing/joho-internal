@@ -38,16 +38,39 @@ export async function getCanonFrom(client: SupabaseLikeClient): Promise<BrandCan
   }
 }
 
+// A client stub whose every query resolves to "no rows", so getCanonFrom's
+// existing empty-data branch falls back to seedCanon. Used when the env vars
+// required to build a real Supabase client aren't present (e.g. build-time
+// contexts without env configured) so we never throw constructing the client.
+const seedFallbackClient: SupabaseLikeClient = {
+  from() {
+    return {
+      select() {
+        return {
+          eq() {
+            return {
+              limit() {
+                return Promise.resolve({ data: [], error: null });
+              },
+            };
+          },
+        };
+      },
+    };
+  },
+};
+
 // Cookieless anon client. Published canon is readable by anon (RLS allows
 // SELECT where status='published'), so reading it touches no cookies()/
 // headers() — that's what keeps consumers (root layout, pages) statically
 // renderable instead of forcing the whole route tree dynamic.
 function createCookielessClient(): SupabaseLikeClient {
-  const client = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { auth: { autoRefreshToken: false, persistSession: false } },
-  );
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !anonKey) {
+    return seedFallbackClient;
+  }
+  const client = createClient(url, anonKey, { auth: { autoRefreshToken: false, persistSession: false } });
   return client as unknown as SupabaseLikeClient;
 }
 
