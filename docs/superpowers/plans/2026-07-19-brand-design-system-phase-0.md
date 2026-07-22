@@ -30,7 +30,7 @@
 | `lib/brand/brief.ts` | Pure `compileAgentBrief(canon)` → precedence-ordered brand spec string. |
 | `lib/brand/getCanon.ts` | Server: fetch published canon (cached), fall back to `seedCanon`. |
 | `lib/brand/theme.ts` | Pure theme-cookie helpers (`THEME_COOKIE`, `resolveThemeAttr`). |
-| `supabase/migrations/20260807_brand_canon_versions.sql` | `brand_canon_versions` table + RLS + seed Joho v1.0 row. |
+| `supabase/migrations/20260808_brand_canon_versions.sql` | `brand_canon_versions` table + RLS + seed Joho v1.0 row. |
 | `app/globals.css` | Add `@theme` brand token + font seeds (light) and `.brand-surface` scope. **Append only.** |
 | `app/components/brand/BrandStyle.tsx` | Server component: `getCanon → resolveTokens → emitBrandCss`, injected `<style>`. |
 | `app/components/brand/ThemeToggle.tsx` | Client: light/dark/system toggle; writes cookie + `data-theme`. |
@@ -236,7 +236,7 @@ Emits a deterministic, precedence-ordered plain-text brief for AI features: miss
 ### Task 5: Seed migration — `brand_canon_versions`
 
 **Files:**
-- Create: `supabase/migrations/20260807_brand_canon_versions.sql` (use next unused number if 20260807 is taken).
+- Create: `supabase/migrations/20260808_brand_canon_versions.sql` (use next unused number if 20260807 is taken).
 
 DDL + RLS + seed. RLS: enable; allow **anon SELECT of published rows only** (brand colors are non-sensitive and a future public site reads them); writes are service-role only (no anon/auth write policy). Seed one row `version_label='1.0'`, `status='published'`, `document` = the JSON form of `seedCanon` (Task 1).
 
@@ -266,7 +266,7 @@ values ('1.0','published', '{ …seedCanon JSON… }'::jsonb, now());
 ```
 
 - [ ] **Step 1:** Write the migration; paste the exact JSON serialization of `seedCanon` into the `insert`.
-- [ ] **Step 2:** Validate the JSON parses: `node -e "JSON.parse(require('fs').readFileSync('…/20260807_brand_canon_versions.sql','utf8').match(/'({[\\s\\S]*})'::jsonb/)[1])"` — Expected: no error.
+- [ ] **Step 2:** Validate the JSON parses: `node -e "JSON.parse(require('fs').readFileSync('…/20260808_brand_canon_versions.sql','utf8').match(/'({[\\s\\S]*})'::jsonb/)[1])"` — Expected: no error.
 - [ ] **Step 3:** Confirm header ends with "Human-gated (do not auto-apply)." Do **not** apply to prod.
 - [ ] **Step 4: Commit** `feat(brand): brand_canon_versions table + Joho v1.0 seed migration`.
 
@@ -400,7 +400,7 @@ A full-page `.brand-surface` route proving the system end-to-end: renders the `<
 
 - `npm run verify` green; `lib/**` coverage ≥ 86%.
 - `/brand/preview` renders Joho light/dark, driven by the seeded canon, with the ops chrome unaffected — light + dark screenshots captured.
-- Migration `20260807_brand_canon_versions.sql` committed, **not applied** (human-gated; note it in the PR for prod apply).
+- Migration `20260808_brand_canon_versions.sql` committed, **not applied** (human-gated; note it in the PR for prod apply).
 - No `--color-*` ops token or ops-chrome file modified; no raw colors added in feature code.
 
 ## Spec self-review
