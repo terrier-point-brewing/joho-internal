@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getCanonFrom } from "./getCanon";
+import { getCanonFrom, seedFallbackClient } from "./getCanon";
 import { seedCanon } from "./seedCanon";
 import type { BrandCanon } from "./canon.types";
 
@@ -62,6 +62,11 @@ describe("getCanonFrom", () => {
   it("falls back to seedCanon when the query returns an error", async () => {
     const client = fakeClient({ data: null, error: new Error("query failed") });
     const result = await getCanonFrom(client as never);
+    expect(result).toEqual(seedCanon);
+  });
+
+  it("returns seedCanon when given the seedFallbackClient stub", async () => {
+    const result = await getCanonFrom(seedFallbackClient);
     expect(result).toEqual(seedCanon);
   });
 });
