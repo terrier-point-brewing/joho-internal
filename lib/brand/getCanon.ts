@@ -1,4 +1,5 @@
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createClient } from "@supabase/supabase-js";
+import { unstable_cache } from "next/cache";
 import type { BrandCanon } from "./canon.types";
 import { seedCanon } from "./seedCanon";
 
@@ -37,7 +38,28 @@ export async function getCanonFrom(client: SupabaseLikeClient): Promise<BrandCan
   }
 }
 
+// Cookieless anon client. Published canon is readable by anon (RLS allows
+// SELECT where status='published'), so reading it touches no cookies()/
+// headers() — that's what keeps consumers (root layout, pages) statically
+// renderable instead of forcing the whole route tree dynamic.
+function createCookielessClient(): SupabaseLikeClient {
+  const client = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } },
+  );
+  return client as unknown as SupabaseLikeClient;
+}
+
+// Cached across requests under the 'brand-canon' tag. Phase 1's canon editor
+// calls revalidateTag('brand-canon', ...) on publish so edits reflect without
+// a redeploy; until then the published row (or the seed fallback) is cached.
+const fetchCanonCached = unstable_cache(
+  async () => getCanonFrom(createCookielessClient()),
+  ["brand-canon"],
+  { tags: ["brand-canon"] },
+);
+
 export async function getCanon(): Promise<BrandCanon> {
-  const client = await createSupabaseServerClient();
-  return getCanonFrom(client as unknown as SupabaseLikeClient);
+  return fetchCanonCached();
 }
