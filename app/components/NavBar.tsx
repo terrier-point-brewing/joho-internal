@@ -8,6 +8,7 @@ import { useUserRole } from "@/lib/hooks/useUserRole";
 import { FINANCE_NAV } from "@/app/finance/nav-config";
 import { TAPROOM_NAV } from "@/app/taproom/nav-config";
 import { PRODUCTION_NAV } from "@/app/production/nav-config";
+import { BRAND_TABS } from "@/app/brand/nav-config";
 
 const ROLE_LABELS: Record<string, string> = {
   viewer: "Viewer", brewer: "Brewer", manager: "Manager", admin: "Admin",
@@ -34,6 +35,11 @@ const FinanceIcon = () => (
     <rect x="1" y="4" width="12" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.4"/>
     <path d="M4 4V3a2 2 0 014 0v1" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
     <path d="M7 7.5v1M5.5 8.5h3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+  </svg>
+);
+const BrandIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 14 14" fill="none">
+    <path d="M7 1.5l1.7 3.4 3.8.55-2.75 2.68.65 3.77L7 10.13 3.85 11.9l.65-3.77L1.75 5.45l3.8-.55L7 1.5z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
   </svg>
 );
 const SettingsIcon = () => (
@@ -79,6 +85,7 @@ export default function NavBar() {
   const isProduction = pathname === "/production" || pathname.startsWith("/production/");
   const isTaproom    = pathname === "/taproom" || pathname.startsWith("/taproom/");
   const isFinance    = pathname === "/finance"    || pathname.startsWith("/finance/");
+  const isBrand      = pathname === "/brand"      || pathname.startsWith("/brand/");
   const isSettings   = pathname.startsWith("/settings");
 
   // Derived permissions — only evaluated after loading is done.
@@ -143,6 +150,25 @@ export default function NavBar() {
                   return true;
                 }).map(({ href, label }) => (
                   <Link key={href} href={href} className={subtabCls(pathname.startsWith(href))}>
+                    {label}
+                  </Link>
+                ))}
+              </div>
+            )}
+
+            {/* Brand — the Guide is open to everyone; editor tabs are admin */}
+            <Link
+              href="/brand/guide"
+              className={`px-3 py-2 rounded text-sm font-medium transition-colors mt-2 ${
+                isBrand ? "bg-surface-mid text-primary" : "text-secondary hover:text-strong hover:bg-surface-mid/50"
+              }`}
+            >
+              Brand
+            </Link>
+            {isBrand && !loading && (
+              <div className="mt-1 ml-2 flex flex-col gap-0.5 border-l border-line pl-2">
+                {BRAND_TABS.filter((e) => !e.adminOnly || isAdmin).map(({ href, label }) => (
+                  <Link key={href} href={href} className={subtabCls(pathname === href || pathname.startsWith(href + "/"))}>
                     {label}
                   </Link>
                 ))}
@@ -219,6 +245,10 @@ export default function NavBar() {
               className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${isTaproom ? "bg-surface-mid text-accent" : "text-faint hover:text-body hover:bg-surface-mid/50"}`}>
               <TaproomIcon />
             </Link>
+            <Link href="/brand/guide" title="Brand"
+              className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${isBrand ? "bg-surface-mid text-accent" : "text-faint hover:text-body hover:bg-surface-mid/50"}`}>
+              <BrandIcon />
+            </Link>
             {!loading && canAccessProduction && (
               <Link href="/production/intake" title="Production"
                 className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${isProduction ? "bg-surface-mid text-accent" : "text-faint hover:text-body hover:bg-surface-mid/50"}`}>
@@ -280,6 +310,9 @@ export default function NavBar() {
       <nav className="md:hidden fixed bottom-0 inset-x-0 z-50 bg-surface border-t border-line flex items-stretch">
         <MobileNavItem href="/taproom/performance" active={isTaproom} label="Taproom">
           <TaproomIcon />
+        </MobileNavItem>
+        <MobileNavItem href="/brand/guide" active={isBrand} label="Brand">
+          <BrandIcon />
         </MobileNavItem>
         {!loading && canAccessProduction && (
           <MobileNavItem href="/production/intake" active={isProduction} label="Production">
