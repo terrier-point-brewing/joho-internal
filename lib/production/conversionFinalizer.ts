@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { checkAndCompleteBatch } from "./batchCompletion";
+import { upsertCommitments } from "./commitments";
 
 /** Batch status implied by the stage a batch occupies in a given equipment type. */
 export function conversionTargetStatus(
@@ -49,6 +50,82 @@ export async function createConversionTargetBatch(
 
   if (error || !child) throw new Error(error?.message ?? "Failed to create conversion target batch");
   return (child as { id: string }).id;
+}
+
+/**
+ * Reconcile a conversion-born batch's headline volume to what the conversion(s)
+ * actually delivered (planned volume − transfer shrinkage).
+ *
+ * A pre-planned conversion target is created with an ESTIMATED volume before the
+ * transfer runs. If the executed conversion loses volume to shrinkage, the
+ * target's volume_bbl otherwise stays too high and its Volume Breakdown reads
+ * permanently "unbalanced" by the shrinkage (the child's ledger accounts for the
+ * delivered volume, but is compared against the stale nominal). The inline
+ * new_batch path already births the child at the delivered volume; this brings
+ * the pre-planned path to parity.
+ *
+ * Guards:
+ *  - Only a PURE conversion-born batch is touched — one whose headline volume IS
+ *    its conversion volume (volume_bbl ≈ converted_volume_bbl). A batch blended
+ *    into an existing brew (volume_bbl includes brewed liquid ≠
+ *    converted_volume_bbl) is left untouched.
+ *  - No-ops when the volume already matches the delivered total (the inline path)
+ *    or nothing was delivered.
+ *  - Refreshes absolute ingredient commitments only when the batch already has
+ *    them — never fabricates grain reservations for a liquid-only conversion.
+ *
+ * Sums every conversion inflow so a target fed by more than one source totals
+ * correctly, and is idempotent (re-running with the same transfers is a no-op).
+ */
+export async function reconcileConvertedBatchVolume(
+  supabase: SupabaseClient,
+  targetBatchId: string,
+): Promise<void> {
+  const { data: batchRow } = await supabase
+    .from("brew_batches")
+    .select("volume_bbl, converted_volume_bbl, recipe_id")
+    .eq("id", targetBatchId)
+    .single();
+  const batch = batchRow as
+    | { volume_bbl: number | null; converted_volume_bbl: number | null; recipe_id: string | null }
+    | null;
+  if (!batch) return;
+
+  const volume = Number(batch.volume_bbl ?? 0);
+  const convertedVolume = batch.converted_volume_bbl == null ? null : Number(batch.converted_volume_bbl);
+  // Pure conversion-born signal: headline volume equals the recorded conversion
+  // volume. Skip blended-into-existing targets where the two diverge.
+  if (convertedVolume == null || Math.abs(volume - convertedVolume) > 0.001) return;
+
+  const { data: inflowRows } = await supabase
+    .from("batch_transfers")
+    .select("volume_bbl")
+    .eq("to_batch_id", targetBatchId)
+    .eq("transfer_type", "conversion");
+  const deliveredVol = (inflowRows ?? []).reduce(
+    (sum, r) => sum + Number((r as { volume_bbl: number | null }).volume_bbl ?? 0),
+    0,
+  );
+  // Nothing delivered yet, or already correct → no reconciliation needed.
+  if (deliveredVol <= 0 || Math.abs(volume - deliveredVol) < 0.001) return;
+
+  await supabase
+    .from("brew_batches")
+    .update({ volume_bbl: deliveredVol, converted_volume_bbl: deliveredVol })
+    .eq("id", targetBatchId);
+
+  // Keep absolute ingredient commitments (committed_qty = qty_per_bbl × volume) in
+  // step — but only when the batch already carries them, so a liquid-only
+  // conversion target never gains phantom grain reservations.
+  if (batch.recipe_id) {
+    const { count } = await supabase
+      .from("batch_ingredient_commitments")
+      .select("*", { count: "exact", head: true })
+      .eq("batch_id", targetBatchId);
+    if ((count ?? 0) > 0) {
+      await upsertCommitments(supabase, targetBatchId, batch.recipe_id, deliveredVol);
+    }
+  }
 }
 
 export interface FinalizeConversionArgs {
