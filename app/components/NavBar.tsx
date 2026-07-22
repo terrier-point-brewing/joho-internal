@@ -159,7 +159,7 @@ export default function NavBar() {
             {/* Brand — the Guide is open to everyone; editor tabs are admin */}
             <Link
               href="/brand/guide"
-              className={`px-3 py-2 rounded text-sm font-medium transition-colors mt-2 ${
+              className={`px-3 py-2 rounded text-sm font-medium transition-colors ${
                 isBrand ? "bg-surface-mid text-primary" : "text-secondary hover:text-strong hover:bg-surface-mid/50"
               }`}
             >
