@@ -42,15 +42,19 @@ const openPhantom = {
   packaging_item_id: "c1",
   packaging_format: "loose",
   quantity: 1,
+  volume_bbl: 0.1666, // 1/6 keg → perKeg ≈ 661 fl oz
   is_phantom: true,
   alert_acknowledged_at: null,
 };
-const rpvRow = { variation_id: "pv-1", packaging_variations: { id: "pv-1", container_id: "c1", format: "loose" } };
+// Chosen variation whose container matches the booked one (no label correction).
+const sameVariation = { id: "pv-1", name: "1/6 Keg", container_id: "c1", format: "loose", total_volume_fl_oz: 661, container: { type: "keg" } };
+// Chosen variation on a DIFFERENT container, same size (label correction expected).
+const otherVariation = { id: "pv-2", name: "1/6 Keg", container_id: "c2", format: "loose", total_volume_fl_oz: 661, container: { type: "keg" } };
 
 function tables(overrides: Record<string, { rows: unknown[] | null; error?: string | null }> = {}) {
   return {
     export_transactions: { rows: [openPhantom] },
-    recipe_packaging_variations: { rows: [rpvRow] },
+    packaging_variations: { rows: [sameVariation] },
     cold_storage_inventory: { rows: [{ quantity_on_hand: 2 }] },
     ...overrides,
   };
@@ -62,9 +66,9 @@ beforeEach(() => {
 });
 
 describe("reconcilePhantomExport", () => {
-  it("depletes the chosen batch, backfills batch_id, acknowledges, and completes the batch", async () => {
+  it("depletes the chosen lot, backfills batch_id, acknowledges, completes the batch (same variation)", async () => {
     const { client, calls } = makeSupabase(tables());
-    await reconcilePhantomExport(client, { exportTransactionId: "et-1", batchId: "b1" });
+    await reconcilePhantomExport(client, { exportTransactionId: "et-1", variationId: "pv-1", batchId: "b1" });
 
     expect(depleteColdStorageInventory).toHaveBeenCalledWith(client, {
       recipeId: "r1",
@@ -74,40 +78,70 @@ describe("reconcilePhantomExport", () => {
     });
     const update = calls.export_transactions.find((c) => c.method === "update");
     expect(update?.args[0]).toMatchObject({ batch_id: "b1", alert_acknowledged_at: expect.any(String) });
-    // is_phantom must NOT be flipped.
+    // Same container as booked → no variation-label correction, is_phantom untouched.
+    expect(update?.args[0]).not.toHaveProperty("variant_label");
     expect(update?.args[0]).not.toHaveProperty("is_phantom");
     expect(checkAndCompleteBatch).toHaveBeenCalledWith(client, "b1");
   });
 
+  it("corrects the export record's variation when a different same-size keg is chosen", async () => {
+    const { client, calls } = makeSupabase(tables({ packaging_variations: { rows: [otherVariation] } }));
+    await reconcilePhantomExport(client, { exportTransactionId: "et-1", variationId: "pv-2", batchId: "b1" });
+    const update = calls.export_transactions.find((c) => c.method === "update");
+    expect(update?.args[0]).toMatchObject({
+      batch_id: "b1",
+      packaging_item_id: "c2",
+      packaging_format: "loose",
+      variant_label: "1/6 Keg",
+    });
+  });
+
+  it("rejects a different-size keg and does not deplete", async () => {
+    const bigKeg = { ...sameVariation, total_volume_fl_oz: 1984 };
+    const { client } = makeSupabase(tables({ packaging_variations: { rows: [bigKeg] } }));
+    await expect(reconcilePhantomExport(client, { exportTransactionId: "et-1", variationId: "pv-1", batchId: "b1" }))
+      .rejects.toThrow(/different size/i);
+    expect(depleteColdStorageInventory).not.toHaveBeenCalled();
+  });
+
+  it("rejects a non-keg variation", async () => {
+    const canVar = { ...sameVariation, container: { type: "can" } };
+    const { client } = makeSupabase(tables({ packaging_variations: { rows: [canVar] } }));
+    await expect(reconcilePhantomExport(client, { exportTransactionId: "et-1", variationId: "pv-1", batchId: "b1" }))
+      .rejects.toThrow(/not a keg/i);
+  });
+
+  it("rejects when the chosen variation is not found", async () => {
+    const { client } = makeSupabase(tables({ packaging_variations: { rows: [] } }));
+    await expect(reconcilePhantomExport(client, { exportTransactionId: "et-1", variationId: "pv-x", batchId: "b1" }))
+      .rejects.toThrow(/not found/i);
+  });
+
   it("rejects when the export is not found", async () => {
     const { client } = makeSupabase(tables({ export_transactions: { rows: [] } }));
-    await expect(reconcilePhantomExport(client, { exportTransactionId: "x", batchId: "b1" })).rejects.toBeInstanceOf(
-      PhantomReconcileError,
-    );
+    await expect(reconcilePhantomExport(client, { exportTransactionId: "x", variationId: "pv-1", batchId: "b1" }))
+      .rejects.toBeInstanceOf(PhantomReconcileError);
     expect(depleteColdStorageInventory).not.toHaveBeenCalled();
   });
 
   it("rejects when the export is not a phantom", async () => {
     const { client } = makeSupabase(tables({ export_transactions: { rows: [{ ...openPhantom, is_phantom: false }] } }));
-    await expect(reconcilePhantomExport(client, { exportTransactionId: "et-1", batchId: "b1" })).rejects.toThrow(
-      /not a phantom/i,
-    );
+    await expect(reconcilePhantomExport(client, { exportTransactionId: "et-1", variationId: "pv-1", batchId: "b1" }))
+      .rejects.toThrow(/not a phantom/i);
   });
 
   it("rejects when the alert is already resolved", async () => {
     const { client } = makeSupabase(
       tables({ export_transactions: { rows: [{ ...openPhantom, alert_acknowledged_at: "2026-07-18T00:00:00Z" }] } }),
     );
-    await expect(reconcilePhantomExport(client, { exportTransactionId: "et-1", batchId: "b1" })).rejects.toThrow(
-      /already been resolved/i,
-    );
+    await expect(reconcilePhantomExport(client, { exportTransactionId: "et-1", variationId: "pv-1", batchId: "b1" }))
+      .rejects.toThrow(/already been resolved/i);
   });
 
-  it("rejects and does not deplete when the batch lacks enough on hand", async () => {
+  it("rejects and does not deplete when the lot lacks enough on hand", async () => {
     const { client } = makeSupabase(tables({ cold_storage_inventory: { rows: [{ quantity_on_hand: 0.5 }] } }));
-    await expect(reconcilePhantomExport(client, { exportTransactionId: "et-1", batchId: "b1" })).rejects.toThrow(
-      /on hand/i,
-    );
+    await expect(reconcilePhantomExport(client, { exportTransactionId: "et-1", variationId: "pv-1", batchId: "b1" }))
+      .rejects.toThrow(/on hand/i);
     expect(depleteColdStorageInventory).not.toHaveBeenCalled();
   });
 });
