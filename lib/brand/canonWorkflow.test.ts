@@ -73,6 +73,12 @@ function fakeClient(initialRows: Row[]) {
           return Promise.resolve({ error: null });
         },
         insert(row: Partial<Row>) {
+          // Enforce the brand_canon_one_published partial unique index so a
+          // publish that inserts a 2nd published row before archiving the
+          // prior one fails here (as it would in Postgres).
+          if (row.status === "published" && rows.some((r) => r.status === "published")) {
+            return Promise.resolve({ error: new Error("duplicate published row (one-published index)") });
+          }
           rows.push({ id: `id-${idCounter++}`, ...row } as Row);
           return Promise.resolve({ error: null });
         },

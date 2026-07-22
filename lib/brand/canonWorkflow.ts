@@ -120,17 +120,22 @@ export async function publishDraft(
   const currentPublished = await getCurrentPublished(client);
   const versionLabel = opts.versionLabel ?? nextVersionLabel(currentPublished?.version_label ?? null);
 
-  await client.from(TABLE).insert({
+  // Archive the prior published row BEFORE inserting the new one. The
+  // brand_canon_one_published partial unique index (migration 20260808)
+  // forbids two published rows at once, so insert-then-archive would violate
+  // the index and fail on every publish after the first.
+  if (currentPublished) {
+    await client.from(TABLE).update({ status: "archived" }).eq("id", currentPublished.id);
+  }
+
+  const { error: insertError } = await client.from(TABLE).insert({
     version_label: versionLabel,
     status: "published",
     document: parsed,
     changelog: opts.changelog ?? null,
     published_at: new Date().toISOString(),
   });
-
-  if (currentPublished) {
-    await client.from(TABLE).update({ status: "archived" }).eq("id", currentPublished.id);
-  }
+  if (insertError) throw new Error("Failed to publish new canon version");
 
   await client.from(TABLE).delete().eq("id", draft.id);
 
