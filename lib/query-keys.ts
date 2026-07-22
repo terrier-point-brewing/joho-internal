@@ -140,4 +140,11 @@ export const queryKeys = {
     all:             () => ["settings"] as const,
     breweryTimezone: () => ["settings", "brewery-timezone"] as const,
   },
+
+  // ─── Brand ────────────────────────────────────────────────────────────────
+  brandCanon: {
+    all:      () => ["brand", "canon"] as const,
+    draft:    () => ["brand", "canon", "draft"] as const,
+    versions: () => ["brand", "canon", "versions"] as const,
+  },
 } as const;
