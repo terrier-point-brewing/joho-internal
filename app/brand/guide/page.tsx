@@ -82,35 +82,84 @@ export default async function BrandGuidePage() {
       </div>
 
       <section className="mb-12 max-w-2xl">
-        <h1 className="font-brand-display text-2xl text-brand-high-contrast mb-2">
+        <h1 className="font-brand-display text-2xl text-brand-high-contrast mb-3">
           {canon.mission}
         </h1>
+        {canon.missionNarrative && (
+          <p className="font-brand-body text-brand-content leading-relaxed">
+            {canon.missionNarrative}
+          </p>
+        )}
       </section>
+
+      {/* Values & their costs */}
+      {canon.values?.length > 0 && (
+        <section className="mb-12 max-w-3xl">
+          <h2 className="font-brand-body text-xs font-semibold uppercase tracking-wide text-brand-content-muted mb-3">
+            Values &amp; their costs
+          </h2>
+          <div className="flex flex-col gap-3">
+            {canon.values.map((v) => (
+              <div key={v.n} className="rounded-lg border border-brand-line p-4">
+                <p className="font-brand-display text-lg text-brand-high-contrast">
+                  {v.n}. {v.title}
+                </p>
+                <p className="font-brand-body text-sm text-brand-content mt-1">{v.means}</p>
+                <p className="font-brand-body text-xs text-brand-content-muted mt-2">
+                  <span className="text-brand-accent uppercase tracking-wide">The cost · </span>
+                  {v.cost}
+                </p>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* The Never List */}
+      {canon.neverList?.length > 0 && (
+        <section className="mb-12 max-w-2xl">
+          <h2 className="font-brand-body text-xs font-semibold uppercase tracking-wide text-brand-content-muted mb-3">
+            The Never List
+          </h2>
+          <ul className="list-disc list-inside font-brand-body text-sm text-brand-content space-y-1">
+            {canon.neverList.map((n, i) => (
+              <li key={i}>{n}</li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {/* Voice */}
       <section className="mb-12">
         <h2 className="font-brand-body text-xs font-semibold uppercase tracking-wide text-brand-content-muted mb-3">
           Voice
         </h2>
-        <p className="font-brand-body text-brand-content leading-relaxed max-w-2xl mb-4">
+        <p className="font-brand-body text-brand-content leading-relaxed max-w-2xl mb-2">
           {canon.voice.summary}
         </p>
+        {canon.voice.personality && (
+          <p className="font-brand-body text-sm text-brand-content-muted leading-relaxed max-w-2xl mb-4">
+            {canon.voice.personality}
+          </p>
+        )}
         <div className="grid gap-3 sm:grid-cols-2 max-w-2xl mb-4">
-          {canon.voice.sliders.map((slider) => (
-            <div
-              key={slider.label}
-              className="rounded-lg border border-brand-line p-3 font-brand-body"
-            >
-              <div className="flex items-center justify-between text-xs text-brand-content-muted mb-1">
+          {canon.voice.sliders.map((slider, i) => (
+            <div key={i} className="rounded-lg border border-brand-line p-3 font-brand-body">
+              <div className="flex items-center justify-between text-xs text-brand-content-muted mb-2">
                 <span>{slider.left}</span>
-                <span className="font-semibold text-brand-content">{slider.label}</span>
                 <span>{slider.right}</span>
+              </div>
+              <div className="relative h-1 rounded bg-brand-line mb-2">
+                <span
+                  className="absolute top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand-accent"
+                  style={{ left: `${slider.pos}%` }}
+                />
               </div>
               <p className="text-xs text-brand-content-muted">{slider.note}</p>
             </div>
           ))}
         </div>
-        <div className="flex flex-wrap gap-4 font-brand-body text-xs">
+        <div className="flex flex-wrap gap-4 font-brand-body text-xs mb-4">
           <div>
             <span className="text-brand-content-muted uppercase tracking-wide">Lean on: </span>
             <span className="text-brand-content">{canon.voice.leanOnWords.join(", ")}</span>
@@ -120,6 +169,25 @@ export default async function BrandGuidePage() {
             <span className="text-brand-content">{canon.voice.neverWords.join(", ")}</span>
           </div>
         </div>
+        {canon.voice.rewrites?.length > 0 && (
+          <div className="grid gap-3 sm:grid-cols-2 max-w-3xl">
+            {canon.voice.rewrites.map((rw, i) => (
+              <div key={i} className="rounded-lg border border-brand-line p-3 font-brand-body">
+                <p className="text-2xs uppercase tracking-wide text-brand-content-muted mb-1">
+                  {rw.context}
+                </p>
+                <p className="text-sm text-brand-content">
+                  <span className="text-brand-primary">✓ </span>
+                  {rw.on}
+                </p>
+                <p className="text-xs text-brand-content-muted mt-1">
+                  <span className="text-brand-accent">✕ </span>
+                  {rw.off}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
 
       {/* Color palette */}
@@ -148,6 +216,18 @@ export default async function BrandGuidePage() {
             );
           })}
         </div>
+        {canon.colorForbidden?.length > 0 && (
+          <div className="mt-4 max-w-2xl">
+            <p className="font-brand-body text-2xs uppercase tracking-wide text-brand-accent mb-1">
+              Forbidden
+            </p>
+            <ul className="font-brand-body text-xs text-brand-content-muted space-y-0.5">
+              {canon.colorForbidden.map((f, i) => (
+                <li key={i}>✕ {f}</li>
+              ))}
+            </ul>
+          </div>
+        )}
       </section>
 
       {/* Type specimen */}
@@ -195,6 +275,63 @@ export default async function BrandGuidePage() {
         )}
       </section>
 
+      {/* The chop */}
+      {canon.chop?.specs?.length > 0 && (
+        <section className="mb-12 max-w-3xl">
+          <h2 className="font-brand-body text-xs font-semibold uppercase tracking-wide text-brand-content-muted mb-3">
+            The chop (seal)
+          </h2>
+          <p className="font-brand-body text-brand-content leading-relaxed mb-4">{canon.chop.narrative}</p>
+          <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-2 font-brand-body text-sm">
+            {canon.chop.specs.map((s, i) => (
+              <div key={i}>
+                <dt className="text-brand-content-muted text-xs uppercase tracking-wide">{s.key}</dt>
+                <dd className="text-brand-content">{s.value}</dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+      )}
+
+      {/* Label chassis */}
+      {canon.labelChassis?.elements?.length > 0 && (
+        <section className="mb-12 max-w-3xl">
+          <h2 className="font-brand-body text-xs font-semibold uppercase tracking-wide text-brand-content-muted mb-3">
+            Label chassis
+          </h2>
+          <p className="font-brand-body text-brand-content leading-relaxed mb-4">
+            {canon.labelChassis.narrative}
+          </p>
+          <ol className="flex flex-col gap-2">
+            {canon.labelChassis.elements.map((el) => (
+              <li key={el.n} className="rounded-lg border border-brand-line p-3 font-brand-body">
+                <p className="text-sm text-brand-high-contrast">
+                  {el.n} · {el.title}
+                </p>
+                <p className="text-xs text-brand-content-muted mt-0.5">{el.desc}</p>
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
+
+      {/* Illustration law */}
+      {canon.illustrationLaw?.rules?.length > 0 && (
+        <section className="mb-12 max-w-3xl">
+          <h2 className="font-brand-body text-xs font-semibold uppercase tracking-wide text-brand-content-muted mb-3">
+            Illustration law
+          </h2>
+          <p className="font-brand-body text-brand-content leading-relaxed mb-4">
+            {canon.illustrationLaw.narrative}
+          </p>
+          <ul className="list-disc list-inside font-brand-body text-sm text-brand-content space-y-1">
+            {canon.illustrationLaw.rules.map((r, i) => (
+              <li key={i}>{r}</li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       {/* Tap list — approved labels */}
       {labels.length > 0 && (
         <section className="mb-12 max-w-4xl">
@@ -233,10 +370,10 @@ export default async function BrandGuidePage() {
         </div>
         <div>
           <h2 className="font-brand-body text-xs font-semibold uppercase tracking-wide text-brand-content-muted mb-3">
-            Agent rules
+            Hard rules
           </h2>
           <ul className="list-disc list-inside font-brand-body text-sm text-brand-content space-y-1">
-            {canon.agentRules.map((r, i) => (
+            {(canon.hardRules ?? []).map((r, i) => (
               <li key={i}>{r}</li>
             ))}
           </ul>

@@ -49,11 +49,34 @@ describe("seedCanon", () => {
     expect(seedCanon.voice.summary.length).toBeGreaterThan(0);
   });
 
-  it("has at least one agentRule", () => {
-    expect(seedCanon.agentRules.length).toBeGreaterThanOrEqual(1);
+  it("has the 10 brand hard rules", () => {
+    expect(seedCanon.hardRules.length).toBe(10);
   });
 
   it("has exactly 5 naming criteria", () => {
     expect(seedCanon.naming.criteria.length).toBe(5);
+  });
+
+  it("carries the ethos sections (values, never list, voice rewrites, chop, chassis, illustration)", () => {
+    expect(seedCanon.values.length).toBeGreaterThanOrEqual(1);
+    expect(seedCanon.neverList.length).toBeGreaterThanOrEqual(1);
+    expect(seedCanon.voice.rewrites.length).toBeGreaterThanOrEqual(1);
+    expect(seedCanon.chop.specs.length).toBeGreaterThanOrEqual(1);
+    expect(seedCanon.labelChassis.elements.length).toBeGreaterThanOrEqual(1);
+    expect(seedCanon.illustrationLaw.rules.length).toBeGreaterThanOrEqual(1);
+    expect(seedCanon.colorForbidden.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("has a visibility flag for every section", () => {
+    const keys = Object.keys(seedCanon.visibility);
+    expect(keys.length).toBeGreaterThanOrEqual(12);
+    for (const v of Object.values(seedCanon.visibility)) {
+      expect(v === "internal" || v === "public").toBe(true);
+    }
+  });
+
+  it("parses against the canon schema", async () => {
+    const { canonSchema } = await import("./canon.schema");
+    expect(() => canonSchema.parse(seedCanon)).not.toThrow();
   });
 });

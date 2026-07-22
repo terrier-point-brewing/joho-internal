@@ -5,14 +5,36 @@ import type { BrandCanon } from "@/lib/brand/canon.types";
 import { canonSchema } from "@/lib/brand/canon.schema";
 import Banner from "@/app/components/ui/Banner";
 
-const CONTENT_KEYS = ["mission", "voice", "naming", "precedence", "agentRules"] as const;
+const CONTENT_KEYS = [
+  "mission",
+  "missionNarrative",
+  "values",
+  "neverList",
+  "voice",
+  "naming",
+  "colorForbidden",
+  "chop",
+  "labelChassis",
+  "illustrationLaw",
+  "hardRules",
+  "precedence",
+  "visibility",
+] as const;
 
 const contentSectionSchema = canonSchema.pick({
   mission: true,
+  missionNarrative: true,
+  values: true,
+  neverList: true,
   voice: true,
   naming: true,
+  colorForbidden: true,
+  chop: true,
+  labelChassis: true,
+  illustrationLaw: true,
+  hardRules: true,
   precedence: true,
-  agentRules: true,
+  visibility: true,
 });
 
 function pickContent(draft: BrandCanon) {
@@ -22,10 +44,11 @@ function pickContent(draft: BrandCanon) {
 }
 
 /**
- * Free-form JSON editor for the text sections (mission/voice/naming/precedence/
- * agentRules) — these are prose-heavy and don't warrant per-field structured
- * controls. Validates against a canonSchema.pick() slice on blur; merges into
- * the draft only when valid.
+ * Free-form JSON editor for the prose-heavy text sections (mission, values,
+ * never list, voice, naming, forbidden colors, the chop, chassis, illustration
+ * law, hard rules, precedence, visibility) — these don't warrant per-field
+ * structured controls. Validates against a canonSchema.pick() slice on blur;
+ * merges into the draft only when valid.
  */
 export default function ContentFacet({
   draft,
