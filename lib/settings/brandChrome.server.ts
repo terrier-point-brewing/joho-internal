@@ -11,14 +11,25 @@ export const BRAND_CHROME_KEY = "brand_chrome_enabled";
 export const BRAND_CHROME_TAG = "brand-chrome-setting";
 
 async function readBrandChromeEnabled(): Promise<boolean> {
-  const supabase = createSupabaseAdminClient();
-  const { data } = await supabase
-    .from("system_settings")
-    .select("value")
-    .eq("key", BRAND_CHROME_KEY)
-    .maybeSingle();
-  // jsonb boolean (also tolerate a "true" string just in case)
-  return data?.value === true || data?.value === "true";
+  // BrandChrome runs in the root layout, which is prerendered (incl. static
+  // pages like /_not-found) at build time where the service-role key is absent.
+  // Without this guard createSupabaseAdminClient() throws and fails the build.
+  // Default to off there; at runtime (key present) the real value is read, and
+  // toggling revalidates the tag so pages pick it up.
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) return false;
+
+  try {
+    const supabase = createSupabaseAdminClient();
+    const { data } = await supabase
+      .from("system_settings")
+      .select("value")
+      .eq("key", BRAND_CHROME_KEY)
+      .maybeSingle();
+    // jsonb boolean (also tolerate a "true" string just in case)
+    return data?.value === true || data?.value === "true";
+  } catch {
+    return false;
+  }
 }
 
 // Cached cross-request; revalidated by tag when an admin flips the toggle. Short
