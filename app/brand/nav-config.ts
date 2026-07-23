@@ -5,10 +5,11 @@ export interface BrandNavEntry {
   adminOnly?: boolean;
 }
 
+// Brand Guide bundles the rendered guide + canon editor facets + history as
+// in-page tabs (app/brand/guide/BrandGuideTabs.tsx); Releases is the beer
+// label workbench.
 export const BRAND_TABS: BrandNavEntry[] = [
-  { href: "/brand/guide", label: "Guide" },
-  { href: "/brand/canon", label: "Canon", adminOnly: true },
-  { href: "/brand/canon/history", label: "History", adminOnly: true },
+  { href: "/brand/guide", label: "Brand Guide" },
   { href: "/brand/assets", label: "Assets", adminOnly: true },
-  { href: "/brand/labels", label: "Labels", adminOnly: true },
+  { href: "/brand/releases", label: "Releases", adminOnly: true },
 ];
