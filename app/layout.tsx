@@ -11,6 +11,7 @@ import { Suspense } from "react";
 import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
 import BrandStyle from "./components/brand/BrandStyle";
+import BrandChrome from "./components/brand/BrandChrome";
 import NavBar from "./components/NavBar";
 import Providers from "./providers";
 import { SpeedInsights } from "@vercel/speed-insights/next";
@@ -78,6 +79,9 @@ export default function RootLayout({
       <body className="min-h-screen flex flex-row bg-canvas">
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
         <BrandStyle />
+        {/* When the "brand skin" setting is on, overrides ops --color-* with the
+            brand palette app-wide; renders nothing when off (zinc/amber default). */}
+        <BrandChrome />
         <Providers>
           <Suspense>
             <NavBar />
