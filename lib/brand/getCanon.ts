@@ -75,12 +75,15 @@ function createCookielessClient(): SupabaseLikeClient {
 }
 
 // Cached across requests under the 'brand-canon' tag. Phase 1's canon editor
-// calls revalidateTag('brand-canon', ...) on publish so edits reflect without
-// a redeploy; until then the published row (or the seed fallback) is cached.
+// calls revalidateTag('brand-canon', ...) on publish so edits reflect
+// immediately. The `revalidate` window is a backstop so out-of-band DB changes
+// (e.g. a migration/manual edit that doesn't call revalidateTag) self-heal
+// within a few minutes instead of pinning stale content indefinitely.
+const CANON_CACHE_TTL_SECONDS = 300;
 const fetchCanonCached = unstable_cache(
   async () => getCanonFrom(createCookielessClient()),
   ["brand-canon"],
-  { tags: ["brand-canon"] },
+  { tags: ["brand-canon"], revalidate: CANON_CACHE_TTL_SECONDS },
 );
 
 export async function getCanon(): Promise<BrandCanon> {
