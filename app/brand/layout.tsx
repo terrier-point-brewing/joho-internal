@@ -3,6 +3,7 @@ import { getSessionUser } from "@/lib/auth";
 import { getBrandChromeEnabled } from "@/lib/settings/brandChrome.server";
 import PageHeader from "@/app/components/PageHeader";
 import BrandChromeToggle from "@/app/components/brand/BrandChromeToggle";
+import ThemeToggle from "@/app/components/brand/ThemeToggle";
 import BrandNav from "./BrandNav";
 
 /**
@@ -24,7 +25,12 @@ export default async function BrandLayout({ children }: { children: React.ReactN
     <div className="flex flex-col h-full bg-canvas text-primary">
       <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-8 flex items-start justify-between gap-4">
         <PageHeader title="Brand" description="Joho brand guide and canon." />
-        {isAdmin && <BrandChromeToggle initialEnabled={brandChromeEnabled} />}
+        <div className="flex items-center gap-3 shrink-0">
+          {/* Light/dark applies to the brand surfaces here, and — when brand
+              skin is on — to the whole internal app. */}
+          <ThemeToggle />
+          {isAdmin && <BrandChromeToggle initialEnabled={brandChromeEnabled} />}
+        </div>
       </div>
       <div className="shrink-0 px-4 sm:px-6">
         <BrandNav isAdmin={isAdmin} />

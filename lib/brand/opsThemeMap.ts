@@ -38,16 +38,30 @@ export const OPS_TO_BRAND_ROLE: Record<string, RoleName> = {
 // prevents any CSS breakout from a bad value.
 const HEX = /^#[0-9a-fA-F]{3,8}$/;
 
-// Builds a :root override that repoints each mapped ops token at its brand-role
-// hex (from the brand dark palette). Unlayered :root wins over Tailwind's
-// @layer theme, so this override takes effect app-wide.
-export function opsChromeOverrideCss(darkPalette: Record<RoleName, string>): string {
+function overrideBlock(palette: Record<RoleName, string>, scheme: "light" | "dark"): string {
   const decls = Object.entries(OPS_TO_BRAND_ROLE)
     .map(([opsToken, brandRole]) => {
-      const value = darkPalette[brandRole];
+      const value = palette[brandRole];
       return HEX.test(value) ? `--color-${opsToken}:${value};` : "";
     })
     .filter(Boolean)
     .join(" ");
-  return `:root{ ${decls} }`;
+  return `color-scheme:${scheme}; ${decls}`;
+}
+
+// Repoints the mapped ops tokens at the brand palette for BOTH modes, so the
+// skinned internal app flips light/dark via the same `data-theme` mechanism as
+// the brand surfaces: light is the default (`:root`), dark applies when the
+// user picks dark (`[data-theme="dark"]`) or their OS prefers dark and they
+// haven't forced light. Unlayered `:root` wins over Tailwind's `@layer theme`,
+// so these overrides (and the color-scheme flip) take effect app-wide.
+export function opsChromeOverrideCss(
+  light: Record<RoleName, string>,
+  dark: Record<RoleName, string>,
+): string {
+  return [
+    `:root{ ${overrideBlock(light, "light")} }`,
+    `:root[data-theme="dark"]{ ${overrideBlock(dark, "dark")} }`,
+    `@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){ ${overrideBlock(dark, "dark")} }}`,
+  ].join("\n");
 }

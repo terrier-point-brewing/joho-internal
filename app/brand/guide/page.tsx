@@ -3,7 +3,6 @@ import type { FontRole, RoleName } from "@/lib/brand/canon.types";
 import { getCanon } from "@/lib/brand/getCanon";
 import { resolveAsset, type SupabaseLikeClient } from "@/lib/brand/assets";
 import { resolveApprovedLabels, type SupabaseLikeClient as LabelsClient } from "@/lib/brand/labels";
-import ThemeToggle from "@/app/components/brand/ThemeToggle";
 import ColorSwatch from "./ColorSwatch";
 
 // Cookieless anon client for reading the approved wordmark asset — same
@@ -63,22 +62,19 @@ export default async function BrandGuidePage() {
 
   return (
     <div className="brand-surface -mx-4 sm:-mx-6 -my-4 sm:-my-8 px-4 sm:px-6 py-4 sm:py-8">
-      {/* Hero */}
-      <div className="flex items-start justify-between gap-4 mb-10">
-        <div>
-          {wordmarkUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element -- approved brand asset from Storage, not a static import
-            <img src={wordmarkUrl} alt={canon.brandName} className="h-9 w-auto" />
-          ) : (
-            <span className="font-brand-wordmark text-3xl tracking-wide text-brand-primary">
-              {canon.brandName}
-            </span>
-          )}
-          <p className="font-brand-body text-xs text-brand-content-muted mt-1">
-            Brand guide · v{canon.version}
-          </p>
-        </div>
-        <ThemeToggle />
+      {/* Hero — light/dark toggle lives in the brand-area header (app/brand/layout.tsx) */}
+      <div className="mb-10">
+        {wordmarkUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element -- approved brand asset from Storage, not a static import
+          <img src={wordmarkUrl} alt={canon.brandName} className="h-9 w-auto" />
+        ) : (
+          <span className="font-brand-wordmark text-3xl tracking-wide text-brand-primary">
+            {canon.brandName}
+          </span>
+        )}
+        <p className="font-brand-body text-xs text-brand-content-muted mt-1">
+          Brand guide · v{canon.version}
+        </p>
       </div>
 
       <section className="mb-12 max-w-2xl">
