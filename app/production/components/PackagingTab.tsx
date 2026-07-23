@@ -483,7 +483,7 @@ export default function PackagingTab() {
       {showBulkReceive && (
         <BulkReceiveModal
           itemType="packaging"
-          items={packaging.map((p) => ({ id: p.id, name: p.name, unit: null }))}
+          items={packaging.map((p) => ({ id: p.id, name: p.name, unit: p.type }))}
           onClose={() => setShowBulkReceive(false)}
           onDone={async () => {
             setShowBulkReceive(false);

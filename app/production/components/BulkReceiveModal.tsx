@@ -111,6 +111,7 @@ export default function BulkReceiveModal({ itemType, items, onClose, onDone }: B
               <tr className="border-b border-line bg-surface/50 text-left">
                 <th className="px-3 py-2 text-xs font-medium text-muted">Item</th>
                 <th className="px-3 py-2 text-xs font-medium text-muted text-right">Quantity</th>
+                <th className="px-3 py-2 text-xs font-medium text-muted">Unit</th>
                 <th className="px-3 py-2 text-xs font-medium text-muted text-right whitespace-nowrap">Total Cost ($)</th>
                 <th className="px-3 py-2 text-xs font-medium text-muted text-right whitespace-nowrap">Allocated Freight</th>
                 <th className="px-3 py-2 text-xs font-medium text-muted text-right whitespace-nowrap">Purchase $/Unit</th>
@@ -152,6 +153,9 @@ export default function BulkReceiveModal({ itemType, items, onClose, onDone }: B
                         placeholder="0" value={row.quantity}
                         onChange={(e) => updateRow(idx, { quantity: e.target.value })}
                       />
+                    </td>
+                    <td className="px-3 py-1.5 text-secondary whitespace-nowrap">
+                      {itemsById.get(row.itemId)?.unit || "—"}
                     </td>
                     <td className="px-2 py-1.5">
                       <input
