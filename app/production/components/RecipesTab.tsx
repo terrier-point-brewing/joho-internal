@@ -156,6 +156,35 @@ export default function RecipesTab() {
     setShowModal(true);
   }
 
+  function openClone(r: Recipe) {
+    // Pre-fill the create form from an existing recipe (primary use: conversion
+    // recipes = base recipe + extra ingredients). editingId stays null so the
+    // normal create path runs, minting a brand-new recipe. Name is left blank to
+    // force a fresh, non-duplicate name.
+    const yld = r.expected_yield_bbl ?? 1;
+    setForm({
+      beer_name: "",
+      partner_id: r.partner_id ?? "",
+      expected_yield_bbl: r.expected_yield_bbl != null ? String(r.expected_yield_bbl) : "",
+      days_brewhouse: r.days_brewhouse != null ? String(r.days_brewhouse) : "",
+      days_fermenter: r.days_fermenter != null ? String(r.days_fermenter) : "",
+      days_brite: r.days_brite != null ? String(r.days_brite) : "",
+      notes: r.notes ?? "",
+    });
+    setLines(
+      r.recipe_ingredients.map((ri) => ({
+        ingredient_id: ri.ingredient_id,
+        quantity_per_turn: String(Number((ri.quantity_per_bbl * yld).toFixed(6))),
+        category: (ri.ingredients.category as IngredientCategory) ?? "",
+      }))
+    );
+    setActivityLines(
+      [...(r.recipe_brew_activity_templates ?? [])].sort((a, b) => a.sort_order - b.sort_order).map(templateToFormLine)
+    );
+    setEditingId(null);
+    setShowModal(true);
+  }
+
   function addIngredientLine() {
     setLines((l) => [...l, { ingredient_id: "", quantity_per_turn: "", category: "" }]);
   }
@@ -556,6 +585,12 @@ export default function RecipesTab() {
                         className="text-xs text-secondary hover:text-strong transition-colors"
                       >
                         Edit recipe
+                      </button>
+                      <button
+                        onClick={() => openClone(r)}
+                        className="text-xs text-secondary hover:text-strong transition-colors"
+                      >
+                        Clone
                       </button>
                       <button
                         onClick={() => handleDelete(r.id, r.beer_name)}
