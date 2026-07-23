@@ -1,6 +1,8 @@
 import { redirect } from "next/navigation";
 import { getSessionUser } from "@/lib/auth";
+import { getBrandChromeEnabled } from "@/lib/settings/brandChrome.server";
 import PageHeader from "@/app/components/PageHeader";
+import BrandChromeToggle from "@/app/components/brand/BrandChromeToggle";
 import BrandNav from "./BrandNav";
 
 /**
@@ -16,11 +18,13 @@ export default async function BrandLayout({ children }: { children: React.ReactN
   if (!session) redirect("/");
   const isAdmin = session.role === "admin";
   if (!isAdmin) redirect("/");
+  const brandChromeEnabled = await getBrandChromeEnabled();
 
   return (
     <div className="flex flex-col h-full bg-canvas text-primary">
-      <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-8">
+      <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-8 flex items-start justify-between gap-4">
         <PageHeader title="Brand" description="Joho brand guide and canon." />
+        {isAdmin && <BrandChromeToggle initialEnabled={brandChromeEnabled} />}
       </div>
       <div className="shrink-0 px-4 sm:px-6">
         <BrandNav isAdmin={isAdmin} />
