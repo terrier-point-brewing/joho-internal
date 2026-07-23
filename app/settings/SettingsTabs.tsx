@@ -22,6 +22,7 @@ export default function SettingsTabs({ isAdmin }: { isAdmin: boolean }) {
 
   const tabs = [
     { label: "Account", href: "/settings/account", badge: 0 },
+    { label: "Appearance", href: "/settings/appearance", badge: 0 },
     ...(isAdmin ? [
       { label: "Business", href: "/settings/business", badge: 0 },
       { label: "Users", href: "/settings/users", badge: 0 },
