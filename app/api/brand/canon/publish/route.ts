@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { revalidateTag } from "next/cache";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { apiError } from "@/lib/utils/api";
@@ -21,6 +22,10 @@ export async function POST(req: NextRequest) {
     };
     const supabase = createSupabaseAdminClient() as unknown as SupabaseLikeClient;
     const result = await publishDraft(supabase, body);
+    // Bust getCanon()'s data cache so the new version shows immediately on the
+    // guide + BrandStyle. Without this, publishing writes the DB row but the
+    // cached canon keeps serving the old document.
+    revalidateTag("brand-canon", "max");
     return NextResponse.json(result);
   } catch (err) {
     return apiError(err);
