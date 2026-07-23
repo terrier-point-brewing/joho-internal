@@ -4,16 +4,18 @@ import PageHeader from "@/app/components/PageHeader";
 import BrandNav from "./BrandNav";
 
 /**
- * Ops chrome for the /brand area. Reading the published guide is open to any
- * authenticated user; the Canon/History tabs (and their routes) are
- * admin-only per lib/auth.ts — gated here via a server-side session read so
- * non-admins never see the tabs flash in. The children (guide/canon pages)
- * own their own auth checks for their routes too.
+ * Ops chrome for the /brand area. The whole area is admin-only for now — the
+ * feature is WIP and not yet exposed to regular users — so non-admins are
+ * redirected out here via a server-side session read (nav links are hidden
+ * too, but this guards direct navigation). Once it ships more widely the
+ * Guide can reopen to all authenticated users while the Canon/History/Assets/
+ * Labels tabs stay admin-only per lib/auth.ts.
  */
 export default async function BrandLayout({ children }: { children: React.ReactNode }) {
   const session = await getSessionUser();
   if (!session) redirect("/");
   const isAdmin = session.role === "admin";
+  if (!isAdmin) redirect("/");
 
   return (
     <div className="flex flex-col h-full bg-canvas text-primary">

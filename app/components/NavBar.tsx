@@ -156,25 +156,6 @@ export default function NavBar() {
               </div>
             )}
 
-            {/* Brand — the Guide is open to everyone; editor tabs are admin */}
-            <Link
-              href="/brand/guide"
-              className={`px-3 py-2 rounded text-sm font-medium transition-colors ${
-                isBrand ? "bg-surface-mid text-primary" : "text-secondary hover:text-strong hover:bg-surface-mid/50"
-              }`}
-            >
-              Brand
-            </Link>
-            {isBrand && !loading && (
-              <div className="mt-1 ml-2 flex flex-col gap-0.5 border-l border-line pl-2">
-                {BRAND_TABS.filter((e) => !e.adminOnly || isAdmin).map(({ href, label }) => (
-                  <Link key={href} href={href} className={subtabCls(pathname === href || pathname.startsWith(href + "/"))}>
-                    {label}
-                  </Link>
-                ))}
-              </div>
-            )}
-
             {/* Role-gated items — render only once role is known */}
             {!loading && (
               <>
@@ -192,6 +173,29 @@ export default function NavBar() {
                       <div className="mt-1 ml-2 flex flex-col gap-0.5 border-l border-line pl-2">
                         {PRODUCTION_NAV.map(({ href, label }) => (
                           <Link key={href} href={href} className={subtabCls(pathname.startsWith(href))}>
+                            {label}
+                          </Link>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {/* Brand — WIP, admin-only until ready for regular users */}
+                {isAdmin && (
+                  <>
+                    <Link
+                      href="/brand/guide"
+                      className={`px-3 py-2 rounded text-sm font-medium transition-colors ${
+                        isBrand ? "bg-surface-mid text-primary" : "text-secondary hover:text-strong hover:bg-surface-mid/50"
+                      }`}
+                    >
+                      Brand
+                    </Link>
+                    {isBrand && (
+                      <div className="mt-1 ml-2 flex flex-col gap-0.5 border-l border-line pl-2">
+                        {BRAND_TABS.filter((e) => !e.adminOnly || isAdmin).map(({ href, label }) => (
+                          <Link key={href} href={href} className={subtabCls(pathname === href || pathname.startsWith(href + "/"))}>
                             {label}
                           </Link>
                         ))}
@@ -245,14 +249,16 @@ export default function NavBar() {
               className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${isTaproom ? "bg-surface-mid text-accent" : "text-faint hover:text-body hover:bg-surface-mid/50"}`}>
               <TaproomIcon />
             </Link>
-            <Link href="/brand/guide" title="Brand"
-              className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${isBrand ? "bg-surface-mid text-accent" : "text-faint hover:text-body hover:bg-surface-mid/50"}`}>
-              <BrandIcon />
-            </Link>
             {!loading && canAccessProduction && (
               <Link href="/production/intake" title="Production"
                 className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${isProduction ? "bg-surface-mid text-accent" : "text-faint hover:text-body hover:bg-surface-mid/50"}`}>
                 <ProductionIcon />
+              </Link>
+            )}
+            {!loading && isAdmin && (
+              <Link href="/brand/guide" title="Brand"
+                className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${isBrand ? "bg-surface-mid text-accent" : "text-faint hover:text-body hover:bg-surface-mid/50"}`}>
+                <BrandIcon />
               </Link>
             )}
             {!loading && isAdmin && (
@@ -311,12 +317,14 @@ export default function NavBar() {
         <MobileNavItem href="/taproom/performance" active={isTaproom} label="Taproom">
           <TaproomIcon />
         </MobileNavItem>
-        <MobileNavItem href="/brand/guide" active={isBrand} label="Brand">
-          <BrandIcon />
-        </MobileNavItem>
         {!loading && canAccessProduction && (
           <MobileNavItem href="/production/intake" active={isProduction} label="Production">
             <ProductionIcon />
+          </MobileNavItem>
+        )}
+        {!loading && isAdmin && (
+          <MobileNavItem href="/brand/guide" active={isBrand} label="Brand">
+            <BrandIcon />
           </MobileNavItem>
         )}
         {!loading && isAdmin && (
