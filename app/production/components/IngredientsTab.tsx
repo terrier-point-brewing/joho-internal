@@ -582,8 +582,8 @@ export default function IngredientsTab() {
           ) : (
             <>
               <button onClick={enterBulkEdit} className="btn-secondary" disabled={ingredients.length === 0}>Bulk Edit</button>
-              <button onClick={() => setShowBulkReceive(true)} className="btn-secondary" disabled={ingredients.length === 0}>Bulk Receive</button>
-              <button onClick={() => setShowBulkModal(true)} className="btn-primary">↑ Bulk Upload</button>
+              <button onClick={() => setShowBulkReceive(true)} className="btn-primary" disabled={ingredients.length === 0}>Bulk Receive</button>
+              <button onClick={() => setShowBulkModal(true)} className="btn-secondary">↑ Bulk Upload</button>
               <button onClick={openNew} className="btn-primary">+ New Ingredient</button>
             </>
           )}
