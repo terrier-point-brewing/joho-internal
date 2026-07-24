@@ -35,6 +35,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { buildFinancials } from "@/lib/finance/financials";
 import type { FinancialsRow, FinancialsResponse } from "@/lib/finance/financials/types";
 import { ACCOUNT_TYPE_SECTION } from "@/lib/finance/accountSections";
+import { applyExpenseStatementFilters } from "@/lib/finance/financials/expenseFilters";
 
 // Data starts 2026-05-15 (inception) — these are the only real months.
 const YEAR = 2026;
@@ -204,13 +205,14 @@ async function computeGroundTruth(supabase: SupabaseClient, months: string[]) {
   const expenseRows = await fetchAllRows<{ id: string; amount_cents: number | null; chart_of_accounts_id: string | null; accounting_date: string | null }>(
     supabase,
     (from, to) =>
-      supabase
-        .from("expenses")
-        .select("id, amount_cents, chart_of_accounts_id, accounting_date")
-        .gte("accounting_date", startDate)
-        .lte("accounting_date", endDateInclusive)
-        .or("state.is.null,state.neq.DECLINED")
-        .range(from, to) as unknown as Promise<{ data: never[] | null; error: { message: string } | null }>,
+      applyExpenseStatementFilters(
+        supabase
+          .from("expenses")
+          .select("id, amount_cents, chart_of_accounts_id, accounting_date")
+          .gte("accounting_date", startDate)
+          .lte("accounting_date", endDateInclusive),
+        false,
+      ).range(from, to) as unknown as Promise<{ data: never[] | null; error: { message: string } | null }>,
   );
 
   let totalExpensesTableCents = 0; // ground truth for the "total expenses (expenses.amount_cents)" row — expenses table only

@@ -55,6 +55,8 @@ function fakeClient(opts: { expenses: ExpensesRow[]; splits: SplitRow[]; matches
           gte: () => chain,
           eq: () => chain,
           or: () => chain,
+          ilike: () => chain,
+          is: () => chain,
           order: () => chain,
           range: async (from: number, to: number) => ({ data: opts.expenses.slice(from, to + 1), error: null }),
         };
