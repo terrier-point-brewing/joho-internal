@@ -278,6 +278,7 @@ export function useInvoicePreview(transactionIds: string[], billAsChannel?: stri
       channel: string;
       shippedChannel: string;
       defaultDiscountCatalogId: string | null;
+      warnings: string[];
     }>(`/api/production/export/invoice-preview?ids=${transactionIds.join(",")}${billAsChannel ? `&billAs=${encodeURIComponent(billAsChannel)}` : ""}`),
     enabled: transactionIds.length > 0,
   });

@@ -40,6 +40,13 @@ export interface InvoicePreviewResult {
    * offer re-applying it after manual edits.
    */
   defaultDiscountCatalogId: string | null;
+  /**
+   * Non-blocking advisories raised while building the preview (e.g. packaging
+   * components with no unit cost, or a shipment whose packaging variation could
+   * not be resolved for the materials charge). Rendered in the modal; never
+   * blocks invoice generation. Empty for non-contract-brewing channels.
+   */
+  warnings: string[];
 }
 
 interface ExportTxRow {
@@ -201,7 +208,7 @@ export async function buildPackagingMaterialLines(
       continue;
     }
 
-    const pv = (pvRows[0] as { packaging_variations: Record<string, SlotItem | null> }).packaging_variations;
+    const pv = (pvRows[0] as unknown as { packaging_variations: Record<string, SlotItem | null> }).packaging_variations;
     const roleBySlot: Array<[string, MaterialComponent["role"]]> = [
       ["container", "container"], ["lid", "lid"], ["label", "label"], ["paktech", "paktech"], ["tray", "tray"],
     ];
@@ -379,6 +386,7 @@ export async function buildInvoicePreview(
   const priceByVariationId = buildStandalonePriceMap(catalogItems);
 
   const lineItems: InvoiceLineItemDraft[] = [];
+  const warnings: string[] = [];
   let defaultDiscountCatalogId: string | null = null;
 
   if (channel === "contract_brewing") {
@@ -489,6 +497,14 @@ export async function buildInvoicePreview(
       }
     }
 
+    // ── 5e. Packaging Materials — one line per recipe, cost of components used ──
+    const materialVariationId = findMapping("packaging_material", null)?.square_catalog_variation_id ?? null;
+    const materials = await buildPackagingMaterialLines(
+      supabase, rows, pkgTypeById, pkgNameById, recipeNameById, materialVariationId,
+    );
+    lineItems.push(...materials.lines);
+    warnings.push(...materials.warnings);
+
   } else if (channel === "distribution" || channel === "wholesale") {
     // ── Product lines (from recipe_square_links) ──────────────────────────────
     const productLines = await buildProductLines(supabase, rows, priceByVariationId, pkgNameById);
@@ -520,5 +536,6 @@ export async function buildInvoicePreview(
     channel,
     shippedChannel,
     defaultDiscountCatalogId,
+    warnings,
   };
 }
