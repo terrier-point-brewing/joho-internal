@@ -63,6 +63,8 @@ interface GroupProductRow {
   beer_name: string;
   variant_label: string;
   packaging_category: string;
+  /** Plural noun for allocation counts ("kegs", "cans", "units"). */
+  unit_label: string;
   packaging_sort_key: [number, number, number];
   channel: "taproom" | "distribution" | "contract_brewing" | "wholesale";
   created_at: string;
@@ -184,6 +186,12 @@ function getPackagingCategory(row: ShipmentRow): { label: string; sortKey: [numb
   return { label: row.variant_label, sortKey: [2, 0, 0] };
 }
 
+function unitLabel(type: string | null): string {
+  if (type === "keg") return "kegs";
+  if (type === "can") return "cans";
+  return "units";
+}
+
 function fmtQty(n: number): string {
   return Math.abs(n - Math.round(n)) < 0.0001 ? String(Math.round(n)) : n.toFixed(4);
 }
@@ -232,6 +240,7 @@ function groupByInvoice(rows: ShipmentRow[]): InvoiceGroup[] {
         beer_name: row.brew_batches?.beer_name ?? "Unknown",
         variant_label: row.variant_label,
         packaging_category: label,
+        unit_label: unitLabel(row.packaging_item_type),
         packaging_sort_key: sortKey,
         channel: row.channel,
         created_at: row.created_at,
@@ -663,7 +672,7 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
                               <span className="text-disabled">└</span>
                               <span className="font-mono text-secondary">#{alloc.batch_number}</span>
                               <span className="text-disabled">·</span>
-                              <span className="tabular-nums">{fmtQty(alloc.quantity)} kegs</span>
+                              <span className="tabular-nums">{fmtQty(alloc.quantity)} {product.unit_label}</span>
                               <span className="text-disabled">·</span>
                               <span className="tabular-nums">{alloc.volume_bbl.toFixed(4)} bbl</span>
                             </div>

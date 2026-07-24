@@ -1,14 +1,13 @@
 "use client";
 
 import { useState, useRef } from "react";
-import { formatCurrency } from "@/lib/format";
+import { formatCurrency, formatUnitCost } from "@/lib/format";
 import { useQueryClient } from "@tanstack/react-query";
 import { Ingredient, AdjustmentType, IngredientCategory, INGREDIENT_CATEGORIES } from "../types";
 import { Modal, Field, ModalActions } from "./shared";
 import BulkReceiveModal from "./BulkReceiveModal";
 import { useContractPartnersQuery, useSuppliersQuery, useIngredientsQuery, productionKeys } from "../hooks/queries";
 import { useUserRole } from "@/lib/hooks/useUserRole";
-import { fmtUsd } from "@/lib/utils/formatting";
 import { CATEGORY_BADGE_CLASS as CC } from "../lib/categoryColors";
 import { useTableControls } from "@/app/components/ui/useTableControls";
 import SearchInput from "@/app/components/ui/SearchInput";
@@ -694,7 +693,7 @@ export default function IngredientsTab() {
                             </td>
                             <td className="px-3 py-2.5 text-secondary whitespace-nowrap">{ing.unit}</td>
                             <td className="px-3 py-2.5 text-body text-right tabular-nums whitespace-nowrap">
-                              {ing.cost_per_unit != null ? fmtUsd(Number(ing.cost_per_unit)) : "—"}
+                              {ing.cost_per_unit != null ? formatUnitCost(Number(ing.cost_per_unit)) : "—"}
                             </td>
                             <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap">
                               <span className={Number(ing.stock_quantity) < 0 ? "text-danger" : "text-body"}>
@@ -830,7 +829,7 @@ export default function IngredientsTab() {
               <div>
                 <p className="text-xs text-muted mb-0.5">Unit cost</p>
                 <p className="text-primary font-medium">
-                  {adjIngredient.cost_per_unit != null ? fmtUsd(Number(adjIngredient.cost_per_unit)) : "—"}
+                  {adjIngredient.cost_per_unit != null ? formatUnitCost(Number(adjIngredient.cost_per_unit)) : "—"}
                 </p>
               </div>
               <div>
@@ -897,9 +896,9 @@ export default function IngredientsTab() {
                     <div className="flex justify-between">
                       <span className="text-muted">Unit cost</span>
                       <span className="text-strong">
-                        {currentCost != null ? fmtUsd(Number(currentCost)) : "—"}
+                        {currentCost != null ? formatUnitCost(Number(currentCost)) : "—"}
                         {" → "}
-                        <span className="text-success">{fmtUsd(Number(newCostPerUnit))}</span>
+                        <span className="text-success">{formatUnitCost(Number(newCostPerUnit))}</span>
                         {" (weighted avg)"}
                       </span>
                     </div>

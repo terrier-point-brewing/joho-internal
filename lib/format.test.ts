@@ -5,6 +5,7 @@ import {
   formatCurrencyCents,
   formatNumber,
   formatPercent,
+  formatUnitCost,
 } from "./format";
 
 describe("formatCurrencyCents", () => {
@@ -78,6 +79,33 @@ describe("formatCurrency", () => {
     expect(formatCurrency(undefined)).toBe(EM_DASH);
     expect(formatCurrency(NaN)).toBe(EM_DASH);
     expect(formatCurrency(-Infinity)).toBe(EM_DASH);
+  });
+});
+
+describe("formatUnitCost", () => {
+  it("keeps at least two decimals for whole-cent costs", () => {
+    expect(formatUnitCost(1.5)).toBe("$1.50");
+    expect(formatUnitCost(2)).toBe("$2.00");
+  });
+
+  it("shows sub-cent precision up to four decimals", () => {
+    expect(formatUnitCost(0.035)).toBe("$0.035");
+    expect(formatUnitCost(0.1234)).toBe("$0.1234");
+  });
+
+  it("trims trailing zeros beyond the second decimal", () => {
+    expect(formatUnitCost(0.035)).toBe("$0.035"); // not $0.0350
+  });
+
+  it("rounds precision beyond four decimals", () => {
+    expect(formatUnitCost(0.12345)).toBe("$0.1235");
+  });
+
+  it("renders negatives in parentheses and zero/blank sentinels", () => {
+    expect(formatUnitCost(-0.035)).toBe("($0.035)");
+    expect(formatUnitCost(0)).toBe(EM_DASH);
+    expect(formatUnitCost(null)).toBe(EM_DASH);
+    expect(formatUnitCost(NaN)).toBe(EM_DASH);
   });
 });
 

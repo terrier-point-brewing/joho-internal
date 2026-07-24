@@ -1,14 +1,13 @@
 "use client";
 
 import React, { useState } from "react";
-import { formatCurrency, formatNumber } from "@/lib/format";
+import { formatNumber, formatUnitCost } from "@/lib/format";
 import { useQueryClient } from "@tanstack/react-query";
 import { PackagingItem, PackagingItemType, PackagingAdjustmentType } from "../types";
 import { Modal, Field, ModalActions } from "./shared";
 import BulkReceiveModal from "./BulkReceiveModal";
 import { usePackagingQuery, useContractPartnersQuery, useSuppliersQuery, productionKeys } from "../hooks/queries";
 import { useUserRole } from "@/lib/hooks/useUserRole";
-import { fmtUsd } from "@/lib/utils/formatting";
 import { CATEGORY_BADGE_CLASS as CC } from "../lib/categoryColors";
 import { useTableControls } from "@/app/components/ui/useTableControls";
 import SearchInput from "@/app/components/ui/SearchInput";
@@ -281,7 +280,7 @@ export default function PackagingTab() {
                           </td>
                           <td className="px-3 py-2.5 text-secondary text-right tabular-nums whitespace-nowrap">
                             {item.unit_cost != null
-                              ? formatCurrency(Number(item.unit_cost))
+                              ? formatUnitCost(Number(item.unit_cost))
                               : "—"}
                           </td>
                           <td className="px-3 py-2.5 text-secondary text-right tabular-nums whitespace-nowrap">
@@ -371,7 +370,7 @@ export default function PackagingTab() {
             </div>
 
             <Field label="Unit Cost ($)">
-              <input type="number" step="0.01" min="0" className="inp" placeholder="0.00" value={form.unit_cost}
+              <input type="number" step="0.0001" min="0" className="inp" placeholder="0.0000" value={form.unit_cost}
                 onChange={(e) => setForm((f) => ({ ...f, unit_cost: e.target.value }))} />
             </Field>
             <div className="rounded bg-accent-muted/20 border border-accent-border/40 px-3 py-2 text-xs text-accent-soft">
@@ -436,7 +435,7 @@ export default function PackagingTab() {
               </div>
               <div>
                 <p className="text-xs text-muted mb-0.5">Unit cost</p>
-                <p className="text-primary font-medium">{adjItem.unit_cost != null ? fmtUsd(Number(adjItem.unit_cost)) : "—"}</p>
+                <p className="text-primary font-medium">{adjItem.unit_cost != null ? formatUnitCost(Number(adjItem.unit_cost)) : "—"}</p>
               </div>
             </div>
 
