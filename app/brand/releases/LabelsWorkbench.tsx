@@ -52,7 +52,7 @@ export default function LabelsWorkbench({ criteria }: { criteria: string[] }) {
   const selected = labels.find((l) => l.id === selectedId) ?? null;
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex-1 overflow-auto px-4 sm:px-6 py-4 sm:py-8 flex flex-col gap-4">
       <PageHeader title="Releases" description="Per-beer labels: story, naming check, Tier-2 palette, and chop." />
       <div className="grid grid-cols-1 lg:grid-cols-[18rem_1fr] gap-4">
       {/* List + create */}
