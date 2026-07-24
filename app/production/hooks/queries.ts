@@ -158,6 +158,9 @@ export function useSquareMappingGridQuery() {
   return useQuery({
     queryKey: ["production", "square-mapping-grid"] as const,
     queryFn: () => fetchJson<MappingGridResponse>("/api/production/recipe-square-links?grid=1"),
+    // The Square catalog changes out-of-band; recompute suggestions on every visit.
+    staleTime: 0,
+    refetchOnMount: "always",
   });
 }
 

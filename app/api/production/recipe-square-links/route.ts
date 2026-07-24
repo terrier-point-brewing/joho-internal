@@ -76,12 +76,23 @@ export async function POST(req: NextRequest) {
       .delete()
       .eq("recipe_id", recipe_id)
       .eq("packaging", "draft");
+    // A cell is never both linked and ignored — clear any stale draft ignore.
+    await supabase
+      .from("recipe_square_link_ignores")
+      .delete()
+      .eq("recipe_id", recipe_id)
+      .eq("packaging", "draft");
   } else if (variation_id) {
     await supabase
       .from("recipe_square_links")
       .delete()
       .eq("recipe_id", recipe_id)
       .eq("square_variation_id", square_variation_id);
+    await supabase
+      .from("recipe_square_link_ignores")
+      .delete()
+      .eq("recipe_id", recipe_id)
+      .eq("variation_id", variation_id);
   }
 
   // When a variation_id is supplied, derive the container from it so the

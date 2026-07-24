@@ -13,6 +13,7 @@ import type {
   RpvRow,
   SquareCatalogVariationFlat,
   LinkRow,
+  IgnoreRow,
   ColumnDef,
   GridRow,
 } from "@/lib/production/squareMappingGrid";
@@ -23,6 +24,7 @@ type DbClient = { from: (table: string) => any };
 export interface MappingGrid {
   columns: ColumnDef[];
   rows: GridRow[];
+  catalogSyncedAt: string | null;
 }
 
 export async function fetchMappingGrid(supabase: DbClient): Promise<MappingGrid> {
@@ -32,6 +34,7 @@ export async function fetchMappingGrid(supabase: DbClient): Promise<MappingGrid>
     { data: sqVarData, error: sqVarErr },
     { data: recipesData, error: recipesErr },
     { data: genericKegData, error: genericKegErr },
+    { data: ignoreData, error: ignoreErr },
   ] = await Promise.all([
     supabase
       .from("recipe_packaging_variations")
@@ -49,7 +52,7 @@ export async function fetchMappingGrid(supabase: DbClient): Promise<MappingGrid>
       .order("created_at"),
     supabase
       .from("square_catalog_variations")
-      .select("id, square_variation_id, variation_name, volume_fl_oz_per_unit, square_catalog_items ( square_item_id, item_name, category_name )"),
+      .select("id, square_variation_id, variation_name, volume_fl_oz_per_unit, synced_at, square_catalog_items ( square_item_id, item_name, category_name )"),
     supabase
       .from("recipes")
       .select("id, beer_name, contract_brewing_partners(company_name)")
@@ -61,6 +64,9 @@ export async function fetchMappingGrid(supabase: DbClient): Promise<MappingGrid>
       .select("id, name, format, is_active, packaging_items:container_id ( id, name, type, volume_fl_oz )")
       .is("partner_id", null)
       .eq("is_active", true),
+    supabase
+      .from("recipe_square_link_ignores")
+      .select("id, recipe_id, packaging, variation_id"),
   ]);
 
   if (rpvErr) throw new Error(rpvErr.message);
@@ -68,6 +74,7 @@ export async function fetchMappingGrid(supabase: DbClient): Promise<MappingGrid>
   if (sqVarErr) throw new Error(sqVarErr.message);
   if (recipesErr) throw new Error(recipesErr.message);
   if (genericKegErr) throw new Error(genericKegErr.message);
+  if (ignoreErr) throw new Error(ignoreErr.message);
 
   // Shape the raw data into the types expected by squareMappingGrid functions
   const rpvRows: RpvRow[] = (rpvData ?? []).flatMap((rpv: Record<string, unknown>) => {
@@ -137,6 +144,19 @@ export async function fetchMappingGrid(supabase: DbClient): Promise<MappingGrid>
     itemName: (l.item_name as string | null) ?? null,
   }));
 
+  const ignoreRows: IgnoreRow[] = (ignoreData ?? []).map((ig: Record<string, unknown>) => ({
+    id: ig.id as string,
+    recipeId: ig.recipe_id as string,
+    packaging: ig.packaging as "draft" | "keg" | "can",
+    variationId: (ig.variation_id as string | null) ?? null,
+  }));
+
+  let catalogSyncedAt: string | null = null;
+  for (const sv of (sqVarData ?? []) as Array<{ synced_at: string | null }>) {
+    const t = sv.synced_at ?? null;
+    if (t && (!catalogSyncedAt || t > catalogSyncedAt)) catalogSyncedAt = t;
+  }
+
   const recipesList = (recipesData ?? [])
     .map((r: Record<string, unknown>) => ({
       id: r.id as string,
@@ -153,7 +173,7 @@ export async function fetchMappingGrid(supabase: DbClient): Promise<MappingGrid>
     });
 
   const columns = deriveColumns(allRpvRows);
-  const rows = buildGrid(recipesList, columns, allRpvRows, linkRows, sqVarRows);
+  const rows = buildGrid(recipesList, columns, allRpvRows, linkRows, sqVarRows, ignoreRows);
 
-  return { columns, rows };
+  return { columns, rows, catalogSyncedAt };
 }
