@@ -4,7 +4,7 @@ import { useState, type ReactNode } from "react";
 import TabBar from "@/app/components/TabBar";
 import CanonEditor, { type CanonSection } from "../canon/CanonEditor";
 import CanonHistory from "../canon/CanonHistory";
-import Banner from "@/app/components/ui/Banner";
+import MarksEditor from "./MarksEditor";
 
 type TabKey = "guide" | "color" | "type" | "marks" | "history";
 type Mode = "view" | "edit";
@@ -89,13 +89,7 @@ export default function BrandGuideTabs({
           <CanonEditor section={editorSection} />
         </div>
       )}
-      {showMarksEditor && (
-        <Banner tone="info">
-          Marks are the approved wordmark, logo, and chop artifacts — upload and approve them in the
-          Assets tab, then they appear here. Per-mark specifications are edited via the Content
-          editor on the Guide tab.
-        </Banner>
-      )}
+      {showMarksEditor && <MarksEditor />}
 
       {/* History — admin, view-only */}
       {isAdmin && active === "history" && <CanonHistory />}

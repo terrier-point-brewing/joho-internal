@@ -205,12 +205,12 @@ export default function MarksView({
   return (
     <GuideSection
       title="Marks"
-      lead="The fixed identity artifacts and their specifications. Upload and approve artifacts in the Assets tab; edit specs via the Content editor on the Guide tab."
+      lead="The fixed identity artifacts and their specifications — the wordmark, logo, and chop."
     >
       {specs.length === 0 && looseArtifacts.length === 0 ? (
         <p className="font-brand-body text-sm text-brand-content-muted">
-          No marks yet. Add a wordmark, logo, or chop in the Assets tab, and define its spec in the
-          Content editor.
+          No marks yet. Admins can upload a wordmark, logo, or chop in Edit mode and define its spec
+          via the Content editor.
         </p>
       ) : (
         <div className="flex flex-col gap-8">
