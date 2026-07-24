@@ -31,7 +31,7 @@
 | `app/production/hooks/queries.ts` | `useInvoicePreview` | Add `billAsChannel` arg + `shippedChannel` type |
 | `app/api/production/export/invoice/route.ts` | Invoice write (generate/record) | Derive shipped channel, require reason, persist columns |
 | `app/production/components/InvoicePreviewModal.tsx` | Generate Invoice modal | Bill-as selector, reason field, off-model + excise banners |
-| `supabase/migrations/20260814_invoice_channel_override.sql` | Schema | 3 nullable `invoices` columns |
+| `supabase/migrations/20260815_invoice_channel_override.sql` | Schema | 3 nullable `invoices` columns |
 
 ## Task order & models
 
@@ -296,7 +296,7 @@ git commit -m "feat(export): thread billAs channel through invoice-preview trans
 ### Task 4: Migration — audit columns on `invoices`
 
 **Files:**
-- Create: `supabase/migrations/20260814_invoice_channel_override.sql`
+- Create: `supabase/migrations/20260815_invoice_channel_override.sql`
 
 - [ ] **Step 1: Write the migration**
 
@@ -316,7 +316,7 @@ alter table public.invoices
 - [ ] **Step 2: Commit (do not apply)**
 
 ```bash
-git add supabase/migrations/20260814_invoice_channel_override.sql
+git add supabase/migrations/20260815_invoice_channel_override.sql
 git commit -m "feat(invoices): add shipped/billed channel + override reason columns (human-gated)"
 ```
 
