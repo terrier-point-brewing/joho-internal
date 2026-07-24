@@ -37,7 +37,7 @@ export default function GuideToc({ entries }: { entries: TocEntry[] }) {
   }, [entries]);
 
   return (
-    <nav aria-label="Contents" className="hidden xl:block sticky top-8 self-start">
+    <nav aria-label="Contents" className="hidden xl:block sticky top-4 self-start">
       <p className="font-brand-body text-2xs font-semibold uppercase tracking-wide text-brand-content-muted mb-3">
         Contents
       </p>

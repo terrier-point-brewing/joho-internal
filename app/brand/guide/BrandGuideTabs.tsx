@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import PageHeader from "@/app/components/PageHeader";
 import TabBar from "@/app/components/TabBar";
 import CanonEditor, { type CanonSection } from "../canon/CanonEditor";
 import CanonHistory from "../canon/CanonHistory";
@@ -57,42 +58,52 @@ export default function BrandGuideTabs({
   const showMarksEditor = editing && active === "marks";
 
   return (
-    <div>
-      <div className="flex items-end justify-between gap-4">
-        <TabBar tabs={tabs} activeKey={active} onSelect={setActive} className="flex-1" />
-        {isAdmin && active !== "history" && (
-          <div className="flex items-center gap-1 pb-2 shrink-0" role="group" aria-label="Mode">
-            {(["view", "edit"] as Mode[]).map((m) => (
-              <button
-                key={m}
-                type="button"
-                onClick={() => setModeSafe(m)}
-                aria-pressed={mode === m}
-                className={`btn-xxs ${mode === m ? "btn-primary" : "btn-secondary"}`}
-              >
-                {m === "view" ? "View" : "Edit"}
-              </button>
-            ))}
-          </div>
-        )}
+    <div className="flex flex-col h-full">
+      {/* Fixed header + subtab region — mirrors the app-wide page shell */}
+      <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-8">
+        <PageHeader
+          title="Brand Guide"
+          description="Terrier Point's living brand canon — ethos, voice, color, type, and marks."
+        />
+        <div className="flex items-end justify-between gap-4 mt-2">
+          <TabBar tabs={tabs} activeKey={active} onSelect={setActive} className="flex-1 mb-0" />
+          {isAdmin && active !== "history" && (
+            <div className="flex items-center gap-1 pb-2 shrink-0" role="group" aria-label="Mode">
+              {(["view", "edit"] as Mode[]).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setModeSafe(m)}
+                  aria-pressed={mode === m}
+                  className={`btn-xxs ${mode === m ? "btn-primary" : "btn-secondary"}`}
+                >
+                  {m === "view" ? "View" : "Edit"}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* View mode — each tab's rendered content */}
-      <div className={!editing && active === "guide" ? "" : "hidden"}>{views.guide}</div>
-      <div className={!editing && active === "color" ? "" : "hidden"}>{views.color}</div>
-      <div className={!editing && active === "type" ? "" : "hidden"}>{views.type}</div>
-      <div className={!editing && active === "marks" ? "" : "hidden"}>{views.marks}</div>
+      {/* Scrollable content region */}
+      <div className="flex-1 overflow-auto px-4 sm:px-6 pb-8 pt-4">
+        {/* View mode — each tab's rendered content */}
+        <div className={!editing && active === "guide" ? "" : "hidden"}>{views.guide}</div>
+        <div className={!editing && active === "color" ? "" : "hidden"}>{views.color}</div>
+        <div className={!editing && active === "type" ? "" : "hidden"}>{views.type}</div>
+        <div className={!editing && active === "marks" ? "" : "hidden"}>{views.marks}</div>
 
-      {/* Edit mode — canon editor (kept mounted once opened) */}
-      {isAdmin && editorMounted && (
-        <div className={showCanonEditor ? "" : "hidden"}>
-          <CanonEditor section={editorSection} />
-        </div>
-      )}
-      {showMarksEditor && <MarksEditor />}
+        {/* Edit mode — canon editor (kept mounted once opened) */}
+        {isAdmin && editorMounted && (
+          <div className={showCanonEditor ? "" : "hidden"}>
+            <CanonEditor section={editorSection} />
+          </div>
+        )}
+        {showMarksEditor && <MarksEditor />}
 
-      {/* History — admin, view-only */}
-      {isAdmin && active === "history" && <CanonHistory />}
+        {/* History — admin, view-only */}
+        {isAdmin && active === "history" && <CanonHistory />}
+      </div>
     </div>
   );
 }

@@ -55,7 +55,7 @@ export default async function BrandGuidePage() {
     <BrandGuideTabs
       isAdmin={isAdmin}
       views={{
-        guide: <GuideNarrative canon={canon} wordmarkUrl={wordmarkUrl} labels={labels} />,
+        guide: <GuideNarrative canon={canon} labels={labels} />,
         color: <ColorView canon={canon} />,
         type: <TypeView canon={canon} />,
         marks: <MarksView brandName={canon.brandName} marks={marks} specs={canon.marks ?? []} />,

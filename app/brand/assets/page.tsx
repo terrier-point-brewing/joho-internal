@@ -57,11 +57,21 @@ export default function AssetsPage() {
 
   const mutationError = upload.error ?? approve.error ?? archive.error;
 
-  if (isLoading) return <p className="text-sm text-muted">Loading…</p>;
-  if (loadError) return <Banner tone="danger">{(loadError as Error).message}</Banner>;
+  if (isLoading)
+    return (
+      <div className="flex-1 overflow-auto px-4 sm:px-6 py-4 sm:py-8">
+        <p className="text-sm text-muted">Loading…</p>
+      </div>
+    );
+  if (loadError)
+    return (
+      <div className="flex-1 overflow-auto px-4 sm:px-6 py-4 sm:py-8">
+        <Banner tone="danger">{(loadError as Error).message}</Banner>
+      </div>
+    );
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex-1 overflow-auto px-4 sm:px-6 py-4 sm:py-8 flex flex-col gap-6">
       <PageHeader title="Assets" description="Logos, wordmarks, and artwork for the Joho brand." />
       {mutationError && <Banner tone="danger">{(mutationError as Error).message}</Banner>}
 
