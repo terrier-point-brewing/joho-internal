@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, type FormEvent } from "react";
+import PageHeader from "@/app/components/PageHeader";
 import Card from "@/app/components/ui/Card";
 import Badge from "@/app/components/ui/Badge";
 import Banner from "@/app/components/ui/Banner";
@@ -20,8 +21,8 @@ const STATUS_TONE: Record<BrandAsset["status"], Tone> = {
  * Admin asset library — ops chrome (not a brand surface). Groups approved/
  * draft/archived rows by kind, with an upload form and per-row approve/
  * archive actions. Writes are admin-gated server-side by the API routes;
- * this page assumes it's only reachable by an admin (BrandNav hides the tab
- * for non-admins, same as the canon editor).
+ * this page assumes it's only reachable by an admin (the sidebar hides the
+ * Brand section for non-admins, and the /brand layout redirects them).
  */
 export default function AssetsPage() {
   const { data: assets, isLoading, error: loadError } = useAssets();
@@ -61,6 +62,7 @@ export default function AssetsPage() {
 
   return (
     <div className="flex flex-col gap-6">
+      <PageHeader title="Assets" description="Logos, wordmarks, and artwork for the Joho brand." />
       {mutationError && <Banner tone="danger">{(mutationError as Error).message}</Banner>}
 
       <Card>

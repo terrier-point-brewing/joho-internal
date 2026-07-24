@@ -2,57 +2,102 @@
 
 import { useState, type ReactNode } from "react";
 import TabBar from "@/app/components/TabBar";
-import CanonEditor, { type FacetKey } from "../canon/CanonEditor";
+import CanonEditor, { type CanonSection } from "../canon/CanonEditor";
 import CanonHistory from "../canon/CanonHistory";
+import Banner from "@/app/components/ui/Banner";
 
-type TabKey = "guide" | FacetKey | "history";
+type TabKey = "guide" | "color" | "type" | "marks" | "history";
+type Mode = "view" | "edit";
 
-const EDITOR_FACETS: readonly FacetKey[] = ["palette", "theme", "type", "content"];
+const CANON_SECTIONS: readonly TabKey[] = ["guide", "color", "type"];
 
-// Guide is open to every authenticated user; the canon editor facets and
-// version history are admin-only (see lib/auth.ts).
-const TABS: { key: TabKey; label: string; adminOnly?: boolean }[] = [
-  { key: "guide", label: "Guide" },
-  { key: "palette", label: "Palette", adminOnly: true },
-  { key: "theme", label: "Theme", adminOnly: true },
-  { key: "type", label: "Type", adminOnly: true },
-  { key: "content", label: "Content", adminOnly: true },
-  { key: "history", label: "History", adminOnly: true },
-];
+function isCanonSection(tab: TabKey): tab is CanonSection {
+  return (CANON_SECTIONS as readonly string[]).includes(tab);
+}
 
 /**
- * In-page tabs for the Brand Guide: the rendered guide plus the canon editor
- * facets (Palette/Theme/Type/Content) and version History. The editor mounts
- * lazily on first visit and then stays mounted (hidden, not unmounted) so
- * unsaved draft edits survive switching to Guide/History and back.
+ * In-page tabs for the Brand Guide. Every authenticated user gets read-only
+ * View mode across Guide / Color / Type / Marks. Admins additionally get a
+ * single View/Edit toggle and a History tab: in Edit mode each tab swaps its
+ * rendered content for the matching canon editor (guide→Content prose,
+ * color→Palette+Theme, type→Type; marks are managed in the Assets tab).
+ *
+ * The editor is kept mounted once opened — hidden, not unmounted — so unsaved
+ * draft edits survive both switching tabs and toggling back to View.
  */
 export default function BrandGuideTabs({
   isAdmin,
-  guide,
+  views,
 }: {
   isAdmin: boolean;
-  guide: ReactNode;
+  views: { guide: ReactNode; color: ReactNode; type: ReactNode; marks: ReactNode };
 }) {
   const [active, setActive] = useState<TabKey>("guide");
+  const [mode, setMode] = useState<Mode>("view");
   const [editorMounted, setEditorMounted] = useState(false);
 
-  const tabs = TABS.filter((t) => !t.adminOnly || isAdmin);
-  const activeFacet = EDITOR_FACETS.includes(active as FacetKey) ? (active as FacetKey) : null;
+  const tabs: { key: TabKey; label: string }[] = [
+    { key: "guide", label: "Guide" },
+    { key: "color", label: "Color" },
+    { key: "type", label: "Type" },
+    { key: "marks", label: "Marks" },
+    ...(isAdmin ? [{ key: "history" as TabKey, label: "History" }] : []),
+  ];
 
-  function select(key: TabKey) {
-    if (EDITOR_FACETS.includes(key as FacetKey)) setEditorMounted(true);
-    setActive(key);
+  const editing = isAdmin && mode === "edit";
+  const editorSection: CanonSection = isCanonSection(active) ? active : "guide";
+
+  function setModeSafe(next: Mode) {
+    if (next === "edit") setEditorMounted(true);
+    setMode(next);
   }
+
+  // History has no editor; keep it in View regardless of the toggle.
+  const showCanonEditor = editing && isCanonSection(active);
+  const showMarksEditor = editing && active === "marks";
 
   return (
     <div>
-      <TabBar tabs={tabs} activeKey={active} onSelect={select} />
-      <div className={active === "guide" ? "" : "hidden"}>{guide}</div>
+      <div className="flex items-end justify-between gap-4">
+        <TabBar tabs={tabs} activeKey={active} onSelect={setActive} className="flex-1" />
+        {isAdmin && active !== "history" && (
+          <div className="flex items-center gap-1 pb-2 shrink-0" role="group" aria-label="Mode">
+            {(["view", "edit"] as Mode[]).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setModeSafe(m)}
+                aria-pressed={mode === m}
+                className={`btn-xxs ${mode === m ? "btn-primary" : "btn-secondary"}`}
+              >
+                {m === "view" ? "View" : "Edit"}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* View mode — each tab's rendered content */}
+      <div className={!editing && active === "guide" ? "" : "hidden"}>{views.guide}</div>
+      <div className={!editing && active === "color" ? "" : "hidden"}>{views.color}</div>
+      <div className={!editing && active === "type" ? "" : "hidden"}>{views.type}</div>
+      <div className={!editing && active === "marks" ? "" : "hidden"}>{views.marks}</div>
+
+      {/* Edit mode — canon editor (kept mounted once opened) */}
       {isAdmin && editorMounted && (
-        <div className={activeFacet ? "" : "hidden"}>
-          <CanonEditor facet={activeFacet ?? "palette"} />
+        <div className={showCanonEditor ? "" : "hidden"}>
+          <CanonEditor section={editorSection} />
         </div>
       )}
+      {showMarksEditor && (
+        <Banner tone="info">
+          Marks are the approved wordmark, logo, and chop artifacts — upload and approve them in the
+          Assets tab, then they appear here. Per-mark specifications are edited via the Content
+          editor on the Guide tab.
+        </Banner>
+      )}
+
+      {/* History — admin, view-only */}
       {isAdmin && active === "history" && <CanonHistory />}
     </div>
   );

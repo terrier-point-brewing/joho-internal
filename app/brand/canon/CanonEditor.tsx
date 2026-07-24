@@ -12,18 +12,17 @@ import TypeFacet from "./facets/TypeFacet";
 import ContentFacet from "./facets/ContentFacet";
 import { useDraft, usePublish, useSaveDraft } from "./useCanonEditor";
 
-export type FacetKey = "palette" | "theme" | "type" | "content";
+/** Which guide tab's editor is shown. One draft/publish state spans all three. */
+export type CanonSection = "guide" | "color" | "type";
 
 /**
- * Admin canon editor: loads the draft, holds an editable copy in state, and
- * lets the active facet edit a slice of it. Which facet is shown is owned by
- * the caller (the Brand Guide in-page tabs) — keep this component mounted
- * across facet switches so in-progress draft edits survive. A shared publish
- * bar tracks dirty state, saves the draft, and publishes (with confirmation)
- * a new canon version. A live preview pane reflects the in-progress draft
- * without touching the real app's tokens.
+ * Admin canon editor. Holds one editable draft copy + a shared publish bar and
+ * live preview; the active guide tab decides which facet(s) edit it:
+ *   guide → Content (the narrative prose)   color → Palette + Theme   type → Type
+ * The caller keeps this mounted across tab switches (and across the view/edit
+ * toggle) so in-progress edits survive.
  */
-export default function CanonEditor({ facet }: { facet: FacetKey }) {
+export default function CanonEditor({ section }: { section: CanonSection }) {
   const { data: serverDraft, isLoading, error: loadError } = useDraft();
   const saveDraft = useSaveDraft();
   const publish = usePublish();
@@ -111,11 +110,15 @@ export default function CanonEditor({ facet }: { facet: FacetKey }) {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[1fr_20rem]">
-        <div className="flex flex-col gap-4">
-          {facet === "palette" && <PaletteFacet draft={draft} onChange={setDraft} />}
-          {facet === "theme" && <ThemeFacet draft={draft} onChange={setDraft} />}
-          {facet === "type" && <TypeFacet draft={draft} onChange={setDraft} />}
-          {facet === "content" && <ContentFacet draft={draft} onChange={setDraft} />}
+        <div className="flex flex-col gap-6">
+          {section === "guide" && <ContentFacet draft={draft} onChange={setDraft} />}
+          {section === "color" && (
+            <>
+              <PaletteFacet draft={draft} onChange={setDraft} />
+              <ThemeFacet draft={draft} onChange={setDraft} />
+            </>
+          )}
+          {section === "type" && <TypeFacet draft={draft} onChange={setDraft} />}
         </div>
 
         <BrandPreview draft={draft} />
