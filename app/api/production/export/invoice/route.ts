@@ -29,6 +29,8 @@ interface PostBody {
   paid_at?: string;
   total_cents?: number;
   invoice_date?: string;
+  bill_as_channel?: string;
+  override_reason?: string;
 }
 
 export async function POST(req: NextRequest) {
@@ -53,7 +55,7 @@ export async function POST(req: NextRequest) {
 
   const { data: txs, error: txErr } = await supabase
     .from("export_transactions")
-    .select("id, recipient_id, recipient_name, status, invoice_id, batch_id")
+    .select("id, recipient_id, recipient_name, status, invoice_id, batch_id, channel")
     .in("id", transactionIds);
   if (txErr) return NextResponse.json({ error: txErr.message }, { status: 500 });
   if (!txs || txs.length !== transactionIds.length) {
@@ -64,6 +66,23 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "All selected transactions must belong to the same customer" }, { status: 400 });
   }
   const customerId = txs[0].recipient_id as string;
+
+  // ── Billing-channel override (billing exceptions) ───────────────────────────
+  // The effective billing channel may differ from the stored shipment channel.
+  // We derive the shipped channel authoritatively from export_transactions (never
+  // trusting the client) and require a reason when they differ. These are audit
+  // fields only — the stored channel and excise-liability reporting are untouched.
+  const INVOICEABLE_CHANNELS = new Set(["distribution", "contract_brewing", "wholesale"]);
+  const distinctChannels = new Set(txs.map((t) => (t as { channel: string }).channel));
+  const shippedChannel = distinctChannels.size === 1 ? [...distinctChannels][0] : "mixed";
+  const billedChannel = body.bill_as_channel ?? shippedChannel;
+  if (body.bill_as_channel && !INVOICEABLE_CHANNELS.has(body.bill_as_channel)) {
+    return NextResponse.json({ error: "bill_as_channel must be distribution | contract_brewing | wholesale" }, { status: 400 });
+  }
+  if (billedChannel !== shippedChannel && !body.override_reason?.trim()) {
+    return NextResponse.json({ error: "override_reason is required when billing under a different channel" }, { status: 400 });
+  }
+  const overrideReason = body.override_reason?.trim() || null;
 
   // ── generate ──────────────────────────────────────────────────────────────
   if (action === "generate") {
@@ -126,6 +145,9 @@ export async function POST(req: NextRequest) {
           subtotal_cents: totalCents,
           tax_cents: 0,
           total_cents: totalCents,
+          shipped_channel: shippedChannel,
+          billed_channel: billedChannel,
+          override_reason: overrideReason,
         },
         { onConflict: "source,external_id", ignoreDuplicates: false }
       )
@@ -313,6 +335,9 @@ export async function POST(req: NextRequest) {
           subtotal_cents: totalCents,
           tax_cents:      0,
           total_cents:    totalCents,
+          shipped_channel: shippedChannel,
+          billed_channel:  billedChannel,
+          override_reason: overrideReason,
           notes:          "Manually created export invoice",
         },
         { onConflict: "source,external_id", ignoreDuplicates: false }
