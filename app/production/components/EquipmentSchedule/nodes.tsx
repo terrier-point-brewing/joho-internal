@@ -59,77 +59,77 @@ export function EntryNode({ data }: NodeProps) {
       className={`relative group w-44 rounded-lg border cursor-pointer transition-all select-none
         ${style.bg}
         ${isEditing
-          ? style.activeBorder + " ring-2 ring-amber-600/40 border-2"
+          ? style.activeBorder + " ring-2 ring-accent/40 border-2"
           : style.border + " border hover:border-opacity-100"}`}
     >
       <Handle type="target" position={Position.Left}  style={HS} />
       <Handle type="source" position={Position.Right} style={HS} />
 
-      <div className={`h-0.5 w-full rounded-t-lg ${isDone ? "bg-emerald-500" : isActive ? "bg-amber-400" : "bg-zinc-700"}`} />
+      <div className={`h-0.5 w-full rounded-t-lg ${isDone ? "bg-success" : isActive ? "bg-accent" : "bg-line-strong"}`} />
       <div className="p-3">
         <div className="flex items-center justify-between mb-2">
           <span className={`text-[10px] font-bold uppercase tracking-wider ${style.label}`}>
             {STAGE_LABELS[entry.stage] ?? entry.stage}
           </span>
           <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
-            isDone   ? "bg-emerald-900/50 text-emerald-400"
-            : isActive ? "bg-amber-900/50 text-amber-400"
-            : "bg-zinc-800 text-zinc-500"
+            isDone   ? "bg-success-surface text-success"
+            : isActive ? "bg-accent-muted text-accent"
+            : "bg-surface-mid text-muted"
           }`}>
             {isDone ? "Done" : isActive ? "Active" : "Planned"}
           </span>
         </div>
-        <p className="text-xs font-semibold text-zinc-200 truncate mb-2 min-h-[1rem]">
+        <p className="text-xs font-semibold text-strong truncate mb-2 min-h-[1rem]">
           {entry.equipment?.name
-            ?? <span className="text-zinc-600 font-normal italic">No tank assigned</span>}
+            ?? <span className="text-faint font-normal italic">No tank assigned</span>}
         </p>
         {entry.volume_bbl != null && (
           partialDrain ? (
-            <p className="text-[11px] text-zinc-500 mb-1">
+            <p className="text-[11px] text-muted mb-1">
               {Number(entry.volume_bbl).toFixed(2)} / {partialDrain.arrived.toFixed(2)} BBL
-              <span className="text-zinc-600"> remaining</span>
+              <span className="text-faint"> remaining</span>
             </p>
           ) : (
-            <p className="text-[11px] text-zinc-500 mb-1">{fmtBbl2(entry.volume_bbl)}</p>
+            <p className="text-[11px] text-muted mb-1">{fmtBbl2(entry.volume_bbl)}</p>
           )
         )}
         {packagingShrinkageBbl != null && (
-          <p className="text-[11px] text-red-400 mb-1">−{packagingShrinkageBbl.toFixed(2)} BBL loss</p>
+          <p className="text-[11px] text-danger mb-1">−{packagingShrinkageBbl.toFixed(2)} BBL loss</p>
         )}
         {stageShrinkageBbl != null && (
-          <p className="text-[11px] text-red-400 mb-1">−{stageShrinkageBbl.toFixed(2)} BBL lost</p>
+          <p className="text-[11px] text-danger mb-1">−{stageShrinkageBbl.toFixed(2)} BBL lost</p>
         )}
         {conversionBbl != null && (
-          <p className="text-[11px] text-amber-400 mb-1">→ {conversionBbl.toFixed(2)} BBL converted</p>
+          <p className="text-[11px] text-[var(--cat-amber-fg)] mb-1">→ {conversionBbl.toFixed(2)} BBL converted</p>
         )}
         {pendingConversionBbl != null && (
-          <p className="text-[11px] text-amber-400 mb-1">→ {pendingConversionBbl.toFixed(2)} BBL converting</p>
+          <p className="text-[11px] text-[var(--cat-amber-fg)] mb-1">→ {pendingConversionBbl.toFixed(2)} BBL converting</p>
         )}
-        <div className="text-[11px] text-zinc-400 space-y-0.5">
+        <div className="text-[11px] text-secondary space-y-0.5">
           {entry.actual_start ? (
             <div className="flex items-center gap-1">
-              <span className="text-emerald-500">●</span>
+              <span className="text-success">●</span>
               <span>{fmtShort(entry.actual_start)}</span>
               {entry.actual_end && (
-                <><span className="text-zinc-600">→</span><span>{fmtShort(entry.actual_end)}</span></>
+                <><span className="text-faint">→</span><span>{fmtShort(entry.actual_end)}</span></>
               )}
             </div>
           ) : (
-            <div className="flex items-center gap-1 text-zinc-500">
-              <span className="text-zinc-700">○</span>
+            <div className="flex items-center gap-1 text-muted">
+              <span className="text-disabled">○</span>
               <span>{fmtShort(entry.planned_start)}</span>
-              <span className="text-zinc-700">→</span>
+              <span className="text-disabled">→</span>
               <span>{fmtShort(entry.planned_end)}</span>
             </div>
           )}
-          <div className="text-zinc-600">{days}d</div>
+          <div className="text-faint">{days}d</div>
         </div>
       </div>
 
       {/* Remove */}
       <button type="button"
         onClick={ev => { ev.stopPropagation(); (onRemove as EntryNodeCallbacks["onRemove"])(entry.id); }}
-        className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 text-zinc-600 hover:text-red-400 text-xs transition-opacity leading-none"
+        className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 text-faint hover:text-danger text-xs transition-opacity leading-none"
         title="Remove">×</button>
 
       {/* Split / Convert */}
@@ -138,14 +138,14 @@ export function EntryNode({ data }: NodeProps) {
           {canSplit && (
             <button type="button"
               onClick={ev => { ev.stopPropagation(); (onSplit as EntryNodeCallbacks["onSplit"])(entry); }}
-              className="text-[10px] text-blue-400 hover:text-blue-300 border border-blue-800/50 px-1.5 py-0.5 rounded transition-colors bg-zinc-900/80">
+              className="text-[10px] text-info hover:text-info border border-info-border px-1.5 py-0.5 rounded transition-colors bg-surface/80">
               ⎇ Split
             </button>
           )}
           {canConvert && (
             <button type="button"
               onClick={ev => { ev.stopPropagation(); (onConvert as EntryNodeCallbacks["onConvert"])(entry); }}
-              className="text-[10px] text-amber-400 hover:text-amber-300 border border-amber-800/50 px-1.5 py-0.5 rounded transition-colors bg-zinc-900/80">
+              className="text-[10px] text-[var(--cat-amber-fg)] border border-[var(--cat-amber-bd)] px-1.5 py-0.5 rounded transition-colors bg-surface/80">
               → Convert
             </button>
           )}
@@ -170,22 +170,22 @@ export function GhostNode({ data }: NodeProps) {
       onClick={() => (onBuild as () => void)()}
       className={`w-44 rounded-lg border border-dashed cursor-pointer transition-all select-none
         ${isRequired
-          ? "border-zinc-600 hover:border-amber-600/60 bg-zinc-900/20 hover:bg-amber-950/10"
-          : "border-zinc-700 hover:border-zinc-500 bg-zinc-900/10 hover:bg-zinc-800/20"}`}
+          ? "border-line-subtle hover:border-accent-border bg-surface/20 hover:bg-accent-muted/20"
+          : "border-line-strong hover:border-line-subtle bg-surface/10 hover:bg-surface-mid/20"}`}
     >
       <Handle type="target" position={Position.Left}  style={HS} />
       <Handle type="source" position={Position.Right} style={HS} />
 
-      <div className={`h-0.5 w-full rounded-t-lg ${isRequired ? "bg-zinc-700/50" : "bg-zinc-800/30"}`} />
+      <div className={`h-0.5 w-full rounded-t-lg ${isRequired ? "bg-line-strong/50" : "bg-surface-mid/30"}`} />
       <div className="p-3 flex flex-col items-start justify-center min-h-[96px] gap-1">
-        <span className={`text-[10px] font-bold uppercase tracking-wider ${isRequired ? "text-zinc-500" : "text-zinc-600"}`}>
+        <span className={`text-[10px] font-bold uppercase tracking-wider ${isRequired ? "text-muted" : "text-faint"}`}>
           {label as string}
         </span>
-        <span className={`text-xs ${isRequired ? "text-zinc-500" : "text-zinc-600"}`}>
+        <span className={`text-xs ${isRequired ? "text-muted" : "text-faint"}`}>
           {isRequired ? "Not scheduled" : `+ Add ${(label as string).toLowerCase()}`}
         </span>
         {isRequired && (
-          <span className="text-[10px] text-amber-600/70 mt-0.5">⚠ Schedule needed</span>
+          <span className="text-[10px] text-[var(--cat-amber-fg)] mt-0.5">⚠ Schedule needed</span>
         )}
       </div>
     </div>
@@ -204,23 +204,23 @@ export type ConversionNodeData = {
 export function ConversionNode({ data }: NodeProps) {
   const { toBatch, volumeBbl, plannedDate, destinationEquipmentName, isExecuted } = data as ConversionNodeData;
   return (
-    <div className="w-44 rounded-lg border border-dashed border-amber-700/50 bg-amber-950/20 select-none">
+    <div className="w-44 rounded-lg border border-dashed border-[var(--cat-amber-bd)] bg-[var(--cat-amber-bg)] select-none">
       <Handle type="target" position={Position.Left} style={HS} />
-      <div className="h-0.5 w-full rounded-t-lg bg-amber-700/40" />
+      <div className="h-0.5 w-full rounded-t-lg bg-[var(--cat-amber-bd)]" />
       <div className="p-3 min-h-[96px] flex flex-col justify-center gap-1">
-        <span className="text-[10px] font-bold uppercase tracking-wider text-amber-500">
+        <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--cat-amber-fg)]">
           {isExecuted ? "Converted →" : "Planned conversion →"}
         </span>
-        <p className="text-xs font-semibold text-amber-300 truncate">{toBatch.beer_name}</p>
+        <p className="text-xs font-semibold text-[var(--cat-amber-fg)] truncate">{toBatch.beer_name}</p>
         {toBatch.batch_number && (
-          <p className="text-[10px] font-mono text-amber-600">#{toBatch.batch_number}</p>
+          <p className="text-[10px] font-mono text-[var(--cat-amber-fg)]">#{toBatch.batch_number}</p>
         )}
-        <p className="text-[10px] text-amber-700 mt-0.5">{fmtBbl2(volumeBbl)}</p>
+        <p className="text-[10px] text-[var(--cat-amber-fg)] mt-0.5">{fmtBbl2(volumeBbl)}</p>
         {destinationEquipmentName && (
-          <p className="text-[10px] text-amber-700/80 truncate">→ {destinationEquipmentName}</p>
+          <p className="text-[10px] text-[var(--cat-amber-fg)] truncate">→ {destinationEquipmentName}</p>
         )}
         {plannedDate && (
-          <p className="text-[10px] text-amber-700/80">{fmtShort(plannedDate)}</p>
+          <p className="text-[10px] text-[var(--cat-amber-fg)]">{fmtShort(plannedDate)}</p>
         )}
       </div>
     </div>

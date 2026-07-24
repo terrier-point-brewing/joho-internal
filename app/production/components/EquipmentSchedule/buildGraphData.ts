@@ -20,8 +20,8 @@ const SPLIT_PIPELINE = ["conditioning"];  // splits create their own conditionin
 
 const EDGE_DEFAULTS = {
   type: "smoothstep",
-  markerEnd: { type: MarkerType.ArrowClosed, color: "#52525b", width: 14, height: 14 },
-  style: { strokeDasharray: "5 4", stroke: "#52525b", strokeWidth: 1.5 },
+  markerEnd: { type: MarkerType.ArrowClosed, color: "var(--color-line-subtle)", width: 14, height: 14 },
+  style: { strokeDasharray: "5 4", stroke: "var(--color-line-subtle)", strokeWidth: 1.5 },
 } as const;
 
 function normStage(s: string) {
@@ -441,8 +441,8 @@ export function buildGraphData(
       return {
         ...edge,
         label: partialFillLabel,
-        labelStyle: { fill: "#facc15", fontSize: 10, fontWeight: 600 },
-        labelBgStyle: { fill: "#27272a", fillOpacity: 0.9 },
+        labelStyle: { fill: "var(--cat-yellow-fg)", fontSize: 10, fontWeight: 600 },
+        labelBgStyle: { fill: "var(--color-surface-mid)", fillOpacity: 0.9 },
         labelBgPadding: [4, 2] as [number, number],
         labelBgBorderRadius: 4,
       };
@@ -451,8 +451,8 @@ export function buildGraphData(
       return {
         ...edge,
         label: `${splitVol.toFixed(2)} BBL`,
-        labelStyle: { fill: "#818cf8", fontSize: 10, fontWeight: 600 },
-        labelBgStyle: { fill: "#27272a", fillOpacity: 0.9 },
+        labelStyle: { fill: "var(--color-info)", fontSize: 10, fontWeight: 600 },
+        labelBgStyle: { fill: "var(--color-surface-mid)", fillOpacity: 0.9 },
         labelBgPadding: [4, 2] as [number, number],
         labelBgBorderRadius: 4,
       };

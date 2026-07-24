@@ -1,15 +1,19 @@
 import { createClient } from "@supabase/supabase-js";
 import { getSessionUser } from "@/lib/auth";
 import { getCanon } from "@/lib/brand/getCanon";
+import { seedCanon } from "@/lib/brand/seedCanon";
 import { resolveAsset, type SupabaseLikeClient } from "@/lib/brand/assets";
 import { resolveApprovedLabels, type SupabaseLikeClient as LabelsClient } from "@/lib/brand/labels";
 import BrandGuideTabs from "./BrandGuideTabs";
-import GuideContent from "./GuideContent";
+import GuideNarrative from "./GuideNarrative";
+import ColorView from "./ColorView";
+import TypeView from "./TypeView";
+import MarksView, { type MarkArtifact } from "./MarksView";
 
-// Cookieless anon client for reading the approved wordmark asset — same
-// approach as lib/brand/getCanon.ts's createCookielessClient (not exported
-// there, so duplicated here): approved assets are readable by anon (RLS
-// allows SELECT where status='approved').
+// Cookieless anon client for reading approved assets — same approach as
+// lib/brand/getCanon.ts's createCookielessClient (not exported there, so
+// duplicated here): approved assets are readable by anon (RLS allows SELECT
+// where status='approved').
 function createCookielessAssetClient(): SupabaseLikeClient | null {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -21,10 +25,10 @@ function createCookielessAssetClient(): SupabaseLikeClient | null {
 }
 
 /**
- * Brand Guide — the one brand page. The rendered guide is server-built here
- * and handed to the client tab shell as a ReactNode; the admin-only canon
- * editor facets (Palette/Theme/Type/Content) and History live behind in-page
- * tabs (BrandGuideTabs).
+ * Brand Guide — the one brand page. Its in-page tabs (BrandGuideTabs) split the
+ * guide into Guide / Color / Type / Marks (+ admin History), each with a
+ * read-only view built here and, for admins, an Edit mode. All view content is
+ * server-built and handed to the client tab shell as ReactNodes.
  */
 export default async function BrandGuidePage() {
   const session = await getSessionUser();
@@ -32,15 +36,36 @@ export default async function BrandGuidePage() {
 
   const canon = await getCanon();
   const assetClient = createCookielessAssetClient();
-  const wordmarkUrl = assetClient ? await resolveAsset(assetClient, { kind: "wordmark" }) : null;
-  const labels = assetClient
-    ? await resolveApprovedLabels(assetClient as unknown as LabelsClient)
-    : [];
+
+  const [wordmarkUrl, logoUrl, chopUrl, labels] = assetClient
+    ? await Promise.all([
+        resolveAsset(assetClient, { kind: "wordmark" }),
+        resolveAsset(assetClient, { kind: "logo" }),
+        resolveAsset(assetClient, { kind: "chop_glyph" }),
+        resolveApprovedLabels(assetClient as unknown as LabelsClient),
+      ])
+    : [null, null, null, []];
+
+  const marks: MarkArtifact[] = [
+    { kind: "wordmark", label: "Wordmark", url: wordmarkUrl },
+    { kind: "logo", label: "Logo", url: logoUrl },
+    { kind: "chop_glyph", label: "Chop", url: chopUrl },
+  ];
+
+  // Fall back to the seed's mark specs when the published canon has none — the
+  // published row predates the `marks` field, so its spec sheets live only in
+  // the code seed until an admin publishes marks of their own (which override).
+  const markSpecs = canon.marks?.length ? canon.marks : (seedCanon.marks ?? []);
 
   return (
     <BrandGuideTabs
       isAdmin={isAdmin}
-      guide={<GuideContent canon={canon} wordmarkUrl={wordmarkUrl} labels={labels} />}
+      views={{
+        guide: <GuideNarrative canon={canon} labels={labels} />,
+        color: <ColorView canon={canon} />,
+        type: <TypeView canon={canon} />,
+        marks: <MarksView brandName={canon.brandName} marks={marks} specs={markSpecs} />,
+      }}
     />
   );
 }

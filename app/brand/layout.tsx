@@ -1,7 +1,5 @@
 import { redirect } from "next/navigation";
 import { getSessionUser } from "@/lib/auth";
-import PageHeader from "@/app/components/PageHeader";
-import BrandNav from "./BrandNav";
 
 /**
  * Ops chrome for the /brand area. The whole area is admin-only for now — the
@@ -11,7 +9,11 @@ import BrandNav from "./BrandNav";
  * Brand Guide can reopen to all authenticated users while its editor tabs and
  * the Assets/Releases tabs stay admin-only per lib/auth.ts.
  *
- * The light/dark + brand-skin controls live in Settings → Appearance.
+ * Section nav (Brand Guide / Assets / Releases) lives in the app sidebar, so
+ * this layout is just the admin gate + a full-height shell. Each page owns its
+ * own header/scroll structure (the app-wide `flex flex-col h-full` → fixed
+ * header → `flex-1 overflow-auto` pattern), so the layout adds no padding of
+ * its own. The light/dark + brand-skin controls live in Settings → Appearance.
  */
 export default async function BrandLayout({ children }: { children: React.ReactNode }) {
   const session = await getSessionUser();
@@ -19,15 +21,5 @@ export default async function BrandLayout({ children }: { children: React.ReactN
   const isAdmin = session.role === "admin";
   if (!isAdmin) redirect("/");
 
-  return (
-    <div className="flex flex-col h-full bg-canvas text-primary">
-      <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-8">
-        <PageHeader title="Brand" description="Joho brand guide and canon." />
-      </div>
-      <div className="shrink-0 px-4 sm:px-6">
-        <BrandNav isAdmin={isAdmin} />
-      </div>
-      <main className="px-4 sm:px-6 py-4 sm:py-8">{children}</main>
-    </div>
-  );
+  return <div className="flex flex-col h-full bg-canvas text-primary">{children}</div>;
 }

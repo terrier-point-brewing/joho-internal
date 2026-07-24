@@ -21,6 +21,8 @@ const CONTENT_KEYS = [
   "visibility",
 ] as const;
 
+// Marks are intentionally excluded — they're edited with structured controls
+// on the Marks tab (MarksFacet), not in this JSON blob.
 const contentSectionSchema = canonSchema.pick({
   mission: true,
   missionNarrative: true,

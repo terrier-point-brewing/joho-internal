@@ -56,15 +56,15 @@ function PackagingDaysSummary({
   }
 
   return (
-    <div className="rounded border border-zinc-800 bg-zinc-900/40 p-2 space-y-1">
-      <p className="text-[10px] text-zinc-600 uppercase tracking-wide">
+    <div className="rounded border border-line bg-surface/40 p-2 space-y-1">
+      <p className="text-[10px] text-faint uppercase tracking-wide">
         Upcoming {stage === "kegging" ? "keg" : "can"} days — click to join
       </p>
       {days.map(([date, { totalBbl, batchCount, equipmentCounts }]) => (
         <button key={date} type="button" onClick={() => onPickDate(date, mostCommonEquipment(equipmentCounts))}
-          className="w-full flex items-center justify-between text-[11px] px-2 py-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition-colors">
+          className="w-full flex items-center justify-between text-[11px] px-2 py-1 rounded hover:bg-surface-mid text-secondary hover:text-strong transition-colors">
           <span>{new Date(date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
-          <span className="text-zinc-600">
+          <span className="text-faint">
             {batchCount} batch{batchCount !== 1 ? "es" : ""}
             {totalBbl > 0 ? ` · ${totalBbl.toFixed(2)} BBL planned` : ""}
           </span>
@@ -305,19 +305,19 @@ export function BuildSchedulePanel({
       : "Build Equipment Schedule";
 
   return (
-    <div className="mt-2 rounded border border-zinc-700 bg-zinc-900/60 p-3 space-y-3">
+    <div className="mt-2 rounded border border-line-strong bg-surface/60 p-3 space-y-3">
       <div className="flex items-center justify-between">
-        <span className="text-xs font-medium text-zinc-400">{sectionTitle}</span>
+        <span className="text-xs font-medium text-secondary">{sectionTitle}</span>
         <div className="flex gap-2">
           <button type="button" onClick={suggest} disabled={suggesting || !batch.recipe_id}
-            className="text-xs text-amber-500 hover:text-amber-400 disabled:opacity-40">
+            className="text-xs text-accent hover:text-accent-emphasis disabled:opacity-40">
             {suggesting ? "Suggesting…" : "✦ Auto-suggest"}
           </button>
           <button type="button" onClick={autoFill} disabled={!batch.planned_brew_date}
-            className="text-xs text-zinc-500 hover:text-zinc-300 disabled:opacity-40">
+            className="text-xs text-muted hover:text-body disabled:opacity-40">
             Auto-fill dates
           </button>
-          <button type="button" onClick={onClose} className="text-xs text-zinc-600 hover:text-zinc-400">✕</button>
+          <button type="button" onClick={onClose} className="text-xs text-faint hover:text-secondary">✕</button>
         </div>
       </div>
 
@@ -337,7 +337,7 @@ export function BuildSchedulePanel({
               {isOptional && (
                 <button type="button"
                   onClick={() => setSlots(prev => prev.filter(s => s.stage !== slot.stage))}
-                  className="text-[10px] text-zinc-500 hover:text-red-400 transition-colors">✕ Remove</button>
+                  className="text-[10px] text-muted hover:text-danger transition-colors">✕ Remove</button>
               )}
             </div>
             <div className="grid gap-2 grid-cols-4">
@@ -367,10 +367,10 @@ export function BuildSchedulePanel({
               </div>
             </div>
             {conflict && (
-              <div className="px-2 py-1.5 rounded border border-red-700/50 bg-red-950/30 text-[11px] text-red-400 leading-relaxed">
+              <div className="px-2 py-1.5 rounded border border-danger-border/50 bg-danger-surface/30 text-[11px] text-danger leading-relaxed">
                 <span className="font-semibold">⚠ Equipment conflict</span> — already scheduled for {conflictBatchLabel(conflict)} during these dates.
                 {suggestion && (
-                  <> Try <button type="button" onClick={() => setSlots(prev => prev.map((s, i) => i === idx ? { ...s, equipment_id: suggestion.id } : s))} className="underline underline-offset-2 hover:text-red-300">{suggestion.name}</button> instead.</>
+                  <> Try <button type="button" onClick={() => setSlots(prev => prev.map((s, i) => i === idx ? { ...s, equipment_id: suggestion.id } : s))} className="underline underline-offset-2 hover:text-danger">{suggestion.name}</button> instead.</>
                 )}
                 {!suggestion && " No conflict-free equipment of this type is available for these dates."}
               </div>
@@ -384,7 +384,7 @@ export function BuildSchedulePanel({
       ).map(({ slot, label }) => (
         <div key={slot} className="space-y-1">
           <button type="button" onClick={() => addOptionalSlot(slot as "kegging" | "canning")}
-            className="text-xs text-zinc-500 hover:text-zinc-300 border border-dashed border-zinc-700 hover:border-zinc-500 px-2 py-1 rounded transition-colors w-full text-left">
+            className="text-xs text-muted hover:text-body border border-dashed border-line-strong hover:border-line-subtle px-2 py-1 rounded transition-colors w-full text-left">
             {label}
           </button>
           <PackagingDaysSummary stage={slot as "kegging" | "canning"} excludeBatchId={batchId} conditioningEnd={conditioningEnd}
@@ -394,10 +394,10 @@ export function BuildSchedulePanel({
 
       <div className="flex gap-2 pt-1">
         <button type="button" onClick={save} disabled={saving}
-          className="px-3 py-1.5 text-xs bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white rounded font-medium">
+          className="px-3 py-1.5 text-xs bg-accent-emphasis hover:bg-accent disabled:opacity-50 text-white rounded font-medium">
           {saving ? "Saving…" : "Save schedule"}
         </button>
-        <button type="button" onClick={onClose} className="px-3 py-1.5 text-xs text-zinc-500 hover:text-zinc-300">Cancel</button>
+        <button type="button" onClick={onClose} className="px-3 py-1.5 text-xs text-muted hover:text-body">Cancel</button>
       </div>
     </div>
   );

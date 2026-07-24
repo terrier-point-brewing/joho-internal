@@ -75,6 +75,20 @@ export function resolveInvoiceChannel(
 }
 
 /**
+ * Packaging Fee line descriptions carry the recipe (beer) name so a single
+ * invoice spanning multiple recipes shows which beer each fee belongs to
+ * ("Packaging Fee — Fortnight" vs. a bare "Packaging Fee" that's ambiguous
+ * once two recipes are on the same invoice). Falls back to the bare display
+ * name when the transaction has no recipe. Exported for unit testing.
+ */
+export function packagingFeeDescription(
+  displayName: string,
+  beerName: string | null | undefined
+): string {
+  return beerName ? `${displayName} — ${beerName}` : displayName;
+}
+
+/**
  * Keg-cleaning line quantity = the total number of kegs across every keg-type
  * transaction in the selection, NOT the number of transactions. Kegs are
  * cleaned per unit, so two transactions of 6 and 4 kegs yield a cleaning qty of
@@ -279,11 +293,24 @@ export async function buildInvoicePreview(
 
   if (channel === "contract_brewing") {
     // ── 5a. Packaging Fee lines ─────────────────────────────────────────────
+    // Recipe (beer) names, so each Packaging Fee line names its recipe — an
+    // invoice can span multiple recipes, one Packaging Fee line per transaction.
+    const recipeIds = [...new Set(rows.map((r) => r.recipe_id).filter((id): id is string => !!id))];
+    const recipeNameById = new Map<string, string>();
+    if (recipeIds.length > 0) {
+      const { data: recipeRows } = await supabase
+        .from("recipes")
+        .select("id, beer_name")
+        .in("id", recipeIds);
+      for (const r of recipeRows ?? []) recipeNameById.set(r.id as string, r.beer_name as string);
+    }
+
     // Total keg count across all keg-type transactions — drives keg cleaning qty.
     const kegCleaningQty = sumKegCleaningQuantity(rows, pkgTypeById);
     for (const tx of rows) {
       const isKeg = pkgTypeById.get(tx.packaging_item_id) === "keg";
       const containerName = pkgNameById.get(tx.packaging_item_id) ?? "unknown container";
+      const beerName = tx.recipe_id ? recipeNameById.get(tx.recipe_id) : null;
 
       // Cans carry a case/loose format dimension on the mapping; kegs don't.
       const mapFormat = isKeg ? null : tx.packaging_format ?? "loose";
@@ -302,7 +329,7 @@ export async function buildInvoicePreview(
           }
           lineItems.push({
             id: crypto.randomUUID(),
-            description: caseMapping.display_name,
+            description: packagingFeeDescription(caseMapping.display_name, beerName),
             quantity: wholeCases,
             unitPriceCents: priceByVariationId.get(caseMapping.square_catalog_variation_id) ?? 0,
             squareCatalogVariationId: caseMapping.square_catalog_variation_id,
@@ -317,7 +344,7 @@ export async function buildInvoicePreview(
           }
           lineItems.push({
             id: crypto.randomUUID(),
-            description: looseMapping.display_name,
+            description: packagingFeeDescription(looseMapping.display_name, beerName),
             quantity: looseUnits,
             unitPriceCents: priceByVariationId.get(looseMapping.square_catalog_variation_id) ?? 0,
             squareCatalogVariationId: looseMapping.square_catalog_variation_id,
@@ -334,7 +361,7 @@ export async function buildInvoicePreview(
       }
       lineItems.push({
         id: crypto.randomUUID(),
-        description: mapping.display_name,
+        description: packagingFeeDescription(mapping.display_name, beerName),
         quantity: tx.quantity,
         unitPriceCents: priceByVariationId.get(mapping.square_catalog_variation_id) ?? 0,
         squareCatalogVariationId: mapping.square_catalog_variation_id,

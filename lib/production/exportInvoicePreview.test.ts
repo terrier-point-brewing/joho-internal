@@ -7,7 +7,7 @@
 // and assert the REAL computed unitPriceCents.
 import { describe, it, expect } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { buildExciseTaxLines, sumKegCleaningQuantity, resolveInvoiceChannel } from "./exportInvoicePreview";
+import { buildExciseTaxLines, sumKegCleaningQuantity, resolveInvoiceChannel, packagingFeeDescription } from "./exportInvoicePreview";
 
 interface TaxRow {
   export_transaction_id: string;
@@ -168,5 +168,19 @@ describe("resolveInvoiceChannel", () => {
       shippedChannel: "distribution",
       channel: "contract_brewing",
     });
+  });
+});
+
+describe("packagingFeeDescription", () => {
+  it("appends the recipe name so multi-recipe invoices disambiguate each fee", () => {
+    expect(packagingFeeDescription("Packaging Fee", "Fortnight")).toBe(
+      "Packaging Fee — Fortnight"
+    );
+  });
+
+  it("falls back to the bare display name when there is no recipe", () => {
+    expect(packagingFeeDescription("Packaging Fee", null)).toBe("Packaging Fee");
+    expect(packagingFeeDescription("Packaging Fee", undefined)).toBe("Packaging Fee");
+    expect(packagingFeeDescription("Packaging Fee", "")).toBe("Packaging Fee");
   });
 });

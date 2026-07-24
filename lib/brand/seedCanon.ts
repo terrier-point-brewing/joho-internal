@@ -231,6 +231,63 @@ export const seedCanon: BrandCanon = {
     ],
   },
 
+  // Verbatim from the founder-approved wordmark specification sheet
+  // (Final Specification · Wordmark, approved 22 Jul 2026). Logo and chop
+  // marks are intentionally absent until their sheets are approved — the
+  // Marks tab shows their approved artifacts without a spec until then.
+  marks: [
+    {
+      kind: "wordmark",
+      title: "JOHO — two-cut J system",
+      status: "Final specification",
+      approved: "Approved 22 Jul 2026",
+      summary: ["Horizontal 4a · Vertical 5e"],
+      variants: [
+        {
+          code: "Primary · Horizontal · 4A",
+          cut: "Descending-J display cut",
+          orientation: "horizontal",
+          specs: [
+            { key: "Typeface", value: "Marcellus, all caps" },
+            { key: "J", value: "Descending display cut — tail below baseline" },
+            { key: "Tracking", value: "OHO +0.05em; J set tight to O" },
+            { key: "Min size", value: "96px / 26mm cap height" },
+            { key: "Use for", value: "Packaging face, signage, web header, hero" },
+            { key: "Never", value: "Stack, rotate, or use below min size" },
+          ],
+        },
+        {
+          code: "Vertical · Stacked · 5E",
+          cut: "Cap-height structural cut",
+          orientation: "vertical",
+          specs: [
+            { key: "Typeface", value: "Marcellus, all caps" },
+            { key: "J", value: "Cap-height cut — tail retracted to baseline, matches O/H" },
+            { key: "Leading", value: "gap 4px @ 64px — optically ≈0.06em between caps" },
+            { key: "Alignment", value: "Centred axis, one letter per line" },
+            { key: "Use for", value: "Tap handles, can spines, hanging signage, small sizes" },
+            { key: "Never", value: "Substitute the descending J into the stack" },
+          ],
+        },
+      ],
+      colors: [
+        { name: "Indigo", hex: "#26355D" },
+        { name: "Cream", hex: "#F5F0E6" },
+        { name: "Brass", hex: "#B3A585" },
+        { name: "Chop red", hex: "#AD1A2D" },
+      ],
+      clearspace: [
+        "Clearspace = cap height of the O on all sides (both cuts).",
+        "Horizontal min 26mm cap; vertical min 14mm cap. Below that, use the emblem/chop alone.",
+      ],
+      oneRule: [
+        "Orientation decides the cut. Horizontal → 4a descending J. Vertical → 5e cap-height J.",
+        "Never show both J's in one lockup. Both are Marcellus — same skeleton, two terminals.",
+      ],
+      note: "Both J cuts shown as CSS stand-ins. Final vectors to be drawn per the §11 letterer brief — the descending and cap-height J must be cut from a single skeleton so they read as one family.",
+    },
+  ],
+
   hardRules: [
     "Every cultural reference names a specific referent (fable, place-moment, dish, memory) — never a category, mood, or landmark medley.",
     "Bridges are additive, never substitutive: add an anchor line; never strip cultural specificity to “simplify.”",

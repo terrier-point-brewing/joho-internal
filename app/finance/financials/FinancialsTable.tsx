@@ -100,7 +100,7 @@ function MeasureTotalCell({ measure, row, months }: { measure: Measure; row: Fin
 function ChannelChip({ channel }: { channel: Channel }) {
   const c = CHANNEL_COLOR[channel];
   return (
-    <span className={`shrink-0 text-xs px-2 py-0.5 rounded-full border border-line-subtle ${c.bg} ${c.text}`}>
+    <span className={`shrink-0 text-xs px-2 py-0.5 rounded-full border ${c.border} ${c.bg} ${c.text}`}>
       {CHANNEL_LABEL[channel]}
     </span>
   );

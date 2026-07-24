@@ -81,6 +81,40 @@
   color-scheme: dark;
 }
 
+/* ── Category / data-hue badge tokens ───────────────────────────────────────
+   The one deliberate raw-color exception (data-category / urgency palettes,
+   see docs/UI_STANDARD.md) expressed as tokens so it can flip with the theme.
+   Each hue has three slots — bg (tinted fill), fg (text), bd (border). These
+   are the DARK defaults (the ops app is dark by default); the LIGHT values are
+   emitted by BrandChrome (lib/brand/opsThemeMap.ts) and therefore exist ONLY
+   under the brand skin — the default dark app never sees a light value, so it
+   is never regressed. Consumed via `bg-[var(--cat-*-bg)]` etc. from the shared
+   category palette (app/production/lib/categoryColors.ts) and the equipment-
+   schedule stage palette.
+
+   Values are LITERAL Tailwind hexes (dark ramp = `-900` fill @ 50% / `-300`
+   text / `-700` border), NOT `var(--color-{hue}-{step})`: Tailwind v4 only
+   emits a palette var to :root when some utility uses that exact step, and the
+   token rewrite removed most raw `bg-{hue}-900` usages — so those vars are no
+   longer guaranteed to exist. Baking the hex keeps the tokens self-contained.
+   Kept in lockstep with CAT_RAMP in lib/brand/opsThemeMap.ts (light side). */
+:root {
+  --cat-red-bg:     color-mix(in srgb, #7f1d1d 50%, transparent);  --cat-red-fg:     #fca5a5;  --cat-red-bd:     #b91c1c;
+  --cat-orange-bg:  color-mix(in srgb, #7c2d12 50%, transparent);  --cat-orange-fg:  #fdba74;  --cat-orange-bd:  #c2410c;
+  --cat-amber-bg:   color-mix(in srgb, #78350f 50%, transparent);  --cat-amber-fg:   #fcd34d;  --cat-amber-bd:   #b45309;
+  --cat-yellow-bg:  color-mix(in srgb, #713f12 50%, transparent);  --cat-yellow-fg:  #fde047;  --cat-yellow-bd:  #a16207;
+  --cat-green-bg:   color-mix(in srgb, #14532d 50%, transparent);  --cat-green-fg:   #86efac;  --cat-green-bd:   #15803d;
+  --cat-emerald-bg: color-mix(in srgb, #064e3b 50%, transparent);  --cat-emerald-fg: #6ee7b7;  --cat-emerald-bd: #047857;
+  --cat-teal-bg:    color-mix(in srgb, #134e4a 50%, transparent);  --cat-teal-fg:    #5eead4;  --cat-teal-bd:    #0f766e;
+  --cat-cyan-bg:    color-mix(in srgb, #164e63 50%, transparent);  --cat-cyan-fg:    #67e8f9;  --cat-cyan-bd:    #0e7490;
+  --cat-sky-bg:     color-mix(in srgb, #0c4a6e 50%, transparent);  --cat-sky-fg:     #7dd3fc;  --cat-sky-bd:     #0369a1;
+  --cat-blue-bg:    color-mix(in srgb, #1e3a8a 50%, transparent);  --cat-blue-fg:    #93c5fd;  --cat-blue-bd:    #1d4ed8;
+  --cat-purple-bg:  color-mix(in srgb, #581c87 50%, transparent);  --cat-purple-fg:  #d8b4fe;  --cat-purple-bd:  #7e22ce;
+  --cat-violet-bg:  color-mix(in srgb, #4c1d95 50%, transparent);  --cat-violet-fg:  #c4b5fd;  --cat-violet-bd:  #6d28d9;
+  --cat-rose-bg:    color-mix(in srgb, #881337 50%, transparent);  --cat-rose-fg:    #fda4af;  --cat-rose-bd:    #be123c;
+  --cat-stone-bg:   color-mix(in srgb, #1c1917 50%, transparent);  --cat-stone-fg:   #d6d3d1;  --cat-stone-bd:   #44403c;
+}
+
 body {
   background: var(--color-canvas);
   color: var(--color-text-primary);
