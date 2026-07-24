@@ -209,12 +209,43 @@ export default function InvoicePreviewModal({
     ? `Generate Invoice — ${data?.customerName ?? "…"}`
     : `Manual Invoice — ${data?.customerName ?? "…"}`;
 
+  // Shared so it renders both in the normal body and in the preview-error state —
+  // a mixed-channel selection errors until an override is chosen, so the selector
+  // must stay reachable to recover from that error.
+  const billAsSelector = (
+    <div className="space-y-1">
+      <label className="text-xs text-secondary">Bill as</label>
+      <select
+        className="inp-sm w-56"
+        value={billAsChannel ?? shippedChannel ?? ""}
+        onChange={(e) => {
+          // Rebuild for the new channel — discard edited lines so they can't be
+          // billed under the newly-selected channel (a line-item/channel mismatch).
+          setBillAsChannel(e.target.value === shippedChannel ? null : e.target.value);
+          setLineItems(null);
+        }}
+      >
+        {BILL_AS_OPTIONS.map((o) => (
+          <option key={o.value} value={o.value}>{o.label}</option>
+        ))}
+      </select>
+    </div>
+  );
+
   return (
     <Modal title={title} onClose={onClose} extraWide>
       {isLoading ? (
         <p className="text-sm text-muted">Loading line items…</p>
       ) : previewError ? (
-        <p className="text-sm text-danger">{previewError instanceof Error ? previewError.message : "Failed to load preview"}</p>
+        <div className="space-y-4">
+          {billAsSelector}
+          <Banner tone="danger">
+            {previewError instanceof Error ? previewError.message : "Failed to load preview"}
+          </Banner>
+          <div className="flex justify-end pt-1">
+            <button onClick={onClose} className="btn-secondary">Cancel</button>
+          </div>
+        </div>
       ) : (
         <div className="space-y-4">
           {/* ── Mode toggle ─────────────────────────────────────────────────── */}
@@ -238,18 +269,7 @@ export default function InvoicePreviewModal({
           </div>
 
           {/* ── Bill-as channel override ────────────────────────────────────── */}
-          <div className="space-y-1">
-            <label className="text-xs text-secondary">Bill as</label>
-            <select
-              className="inp-sm w-56"
-              value={billAsChannel ?? shippedChannel ?? ""}
-              onChange={(e) => setBillAsChannel(e.target.value === shippedChannel ? null : e.target.value)}
-            >
-              {BILL_AS_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
-          </div>
+          {billAsSelector}
 
           {isOverride && (
             <>
