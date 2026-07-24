@@ -29,6 +29,17 @@ export const TAXABLE_CHANNELS: ReadonlySet<string> = new Set([
 /** The one non-taxable channel — routed to the Line 4a deduction instead. */
 export const WHOLESALE_CHANNEL = "wholesale";
 
+/**
+ * True when channels `a` and `b` fall on opposite sides of the NC excise
+ * treatment line — one taxable (Line 5), the other the wholesale deduction
+ * (Line 4a). Used to warn when a billing-channel override crosses that boundary:
+ * excise LIABILITY follows the stored shipment channel, so charging excise on an
+ * off-model bill can desync from what TPB actually remits.
+ */
+export function crossesExciseTreatmentBoundary(a: string, b: string): boolean {
+  return TAXABLE_CHANNELS.has(a) !== TAXABLE_CHANNELS.has(b);
+}
+
 /** Convert a USD-per-gallon rate to micro-dollars-per-gallon (rounded once). */
 export function usdToMicros(usd: number): number {
   return Math.round(usd * 1_000_000);
