@@ -79,6 +79,24 @@ export function formatCurrency(dollars: Numeric, decimals = 2): string {
 }
 
 /**
+ * Format a per-unit cost that may carry sub-cent precision (e.g. a $0.0350
+ * paktech or label). Shows at least 2 fraction digits and up to `maxDecimals`
+ * (default 4), trimming trailing zeros beyond the second — so `1.5` renders
+ * `$1.50`, `0.035` renders `$0.035`, and `0.0350` also renders `$0.035`.
+ * Same accounting sentinels as {@link formatCurrency} (null/NaN/0 → em-dash).
+ */
+export function formatUnitCost(dollars: Numeric, maxDecimals = 4): string {
+  if (!isFiniteNumber(dollars) || dollars === 0) return EM_DASH;
+  const abs = getFormatter(`unitcost:${maxDecimals}`, {
+    style: "currency",
+    currency: CURRENCY,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: maxDecimals,
+  }).format(Math.abs(dollars));
+  return dollars < 0 ? `(${abs})` : abs;
+}
+
+/**
  * Format a plain number with grouping separators and a fixed number of decimal
  * places (default 0). Pass `1234.5` to render `1,235`, or `(1234.5, 1)` for
  * `1,234.5`.
