@@ -266,15 +266,16 @@ export function useDepositInvoiceDueDaysQuery() {
   });
 }
 
-export function useInvoicePreview(transactionIds: string[]) {
+export function useInvoicePreview(transactionIds: string[], billAsChannel?: string | null) {
   return useQuery({
-    queryKey: ["production", "invoice-preview", transactionIds] as const,
+    queryKey: ["production", "invoice-preview", transactionIds, billAsChannel ?? null] as const,
     queryFn: () => fetchJson<{
       customerId: string; customerName: string; squareCustomerId: string | null;
       lineItems: { id: string; description: string; quantity: number; unitPriceCents: number; squareCatalogVariationId: string | null; discountCatalogId?: string | null }[];
       channel: string;
+      shippedChannel: string;
       defaultDiscountCatalogId: string | null;
-    }>(`/api/production/export/invoice-preview?ids=${transactionIds.join(",")}`),
+    }>(`/api/production/export/invoice-preview?ids=${transactionIds.join(",")}${billAsChannel ? `&billAs=${encodeURIComponent(billAsChannel)}` : ""}`),
     enabled: transactionIds.length > 0,
   });
 }

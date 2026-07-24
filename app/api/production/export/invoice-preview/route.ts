@@ -10,10 +10,11 @@ export async function GET(req: NextRequest) {
 
   const idsParam = req.nextUrl.searchParams.get("ids");
   const ids = idsParam ? idsParam.split(",").filter(Boolean) : [];
+  const billAs = req.nextUrl.searchParams.get("billAs");
 
   const supabase = createSupabaseAdminClient();
   try {
-    const preview = await buildInvoicePreview(supabase, ids);
+    const preview = await buildInvoicePreview(supabase, ids, billAs);
     return NextResponse.json(preview);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
