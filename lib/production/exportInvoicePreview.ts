@@ -5,6 +5,7 @@ import { buildStandalonePriceMap } from "@/lib/square/catalog";
 import { GALLONS_PER_BBL } from "@/lib/constants/production";
 import { resolveProductSku } from "@/lib/square/skuMappings";
 import { dollarsToCents } from "@/lib/money";
+import { computeMaterialCost, type MaterialComponent, type MaterialTxnInput } from "./packagingMaterials";
 
 export interface InvoiceLineItemDraft {
   id: string;
@@ -148,6 +149,95 @@ export async function buildExciseTaxLines(
     unitPriceCents: entry.amountCents,
     squareCatalogVariationId: entry.variationId,
   }));
+}
+
+// Contract-brewing "Packaging Materials" lines: one per recipe, priced at the
+// summed unit cost of the packaging components each can shipment consumed. Cans
+// only (kegs are reusable / get keg-cleaning). Never throws — an unresolvable
+// variation or missing unit cost degrades to a warning so it can't block an
+// otherwise-valid invoice. Exported for unit testing.
+const MATERIAL_SLOT_SELECT = `
+  packaging_variations!inner(
+    container:packaging_items!packaging_variations_container_id_fkey(name, unit_cost, can_count, type),
+    lid:packaging_items!packaging_variations_lid_id_fkey(name, unit_cost),
+    label:packaging_items!packaging_variations_label_id_fkey(name, unit_cost),
+    paktech:packaging_items!packaging_variations_paktech_id_fkey(name, unit_cost, can_count),
+    tray:packaging_items!packaging_variations_tray_id_fkey(name, unit_cost, can_count)
+  )
+`;
+
+interface SlotItem { name: string; unit_cost: number | null; can_count?: number | null }
+
+export async function buildPackagingMaterialLines(
+  supabase: SupabaseClient,
+  rows: ExportTxRow[],
+  pkgTypeById: Map<string, string>,
+  pkgNameById: Map<string, string>,
+  recipeNameById: Map<string, string>,
+  materialVariationId: string | null,
+): Promise<{ lines: InvoiceLineItemDraft[]; warnings: string[] }> {
+  const warnings: string[] = [];
+  const byRecipe = new Map<string, MaterialTxnInput[]>();
+
+  for (const tx of rows) {
+    if (pkgTypeById.get(tx.packaging_item_id) === "keg") continue; // cans only
+    const containerName = pkgNameById.get(tx.packaging_item_id) ?? tx.packaging_item_id;
+    const beerName = tx.recipe_id ? recipeNameById.get(tx.recipe_id) ?? null : null;
+    const format = tx.packaging_format ?? "loose";
+
+    if (!tx.recipe_id) {
+      warnings.push(`Couldn't resolve packaging materials for "${containerName}" (${format}) — no recipe on the shipment, no materials charged.`);
+      continue;
+    }
+
+    const { data: pvRows, error } = await supabase
+      .from("recipe_packaging_variations")
+      .select(MATERIAL_SLOT_SELECT)
+      .eq("recipe_id", tx.recipe_id)
+      .eq("packaging_variations.container_id", tx.packaging_item_id)
+      .eq("packaging_variations.format", format);
+    if (error || !pvRows || pvRows.length !== 1) {
+      warnings.push(`Couldn't resolve packaging materials for ${beerName ?? containerName} (${containerName}, ${format}) — no materials charged. Check Link Styles to Square.`);
+      continue;
+    }
+
+    const pv = (pvRows[0] as { packaging_variations: Record<string, SlotItem | null> }).packaging_variations;
+    const roleBySlot: Array<[string, MaterialComponent["role"]]> = [
+      ["container", "container"], ["lid", "lid"], ["label", "label"], ["paktech", "paktech"], ["tray", "tray"],
+    ];
+    const components: MaterialComponent[] = [];
+    for (const [slot, role] of roleBySlot) {
+      const item = pv[slot];
+      if (!item) continue; // slot not populated on this variation
+      components.push({ role, name: item.name, unitCostDollars: item.unit_cost, canCount: item.can_count ?? null });
+    }
+
+    const input: MaterialTxnInput = { format, packages: tx.quantity, unitsPerPackage: tx.units_per_package || 1, components };
+    const list = byRecipe.get(tx.recipe_id) ?? [];
+    list.push(input);
+    byRecipe.set(tx.recipe_id, list);
+  }
+
+  const lines: InvoiceLineItemDraft[] = [];
+  const missingAll = new Set<string>();
+  for (const [recipeId, txns] of byRecipe) {
+    const { totalCents, missingCostNames } = computeMaterialCost(txns);
+    missingCostNames.forEach((n) => missingAll.add(n));
+    if (totalCents <= 0) continue; // no meaningful $0 line
+    const beerName = recipeNameById.get(recipeId) ?? null;
+    lines.push({
+      id: crypto.randomUUID(),
+      description: beerName ? `Packaging Materials — ${beerName}` : "Packaging Materials",
+      quantity: 1,
+      unitPriceCents: totalCents,
+      squareCatalogVariationId: materialVariationId,
+    });
+  }
+  if (missingAll.size > 0) {
+    warnings.push(`No unit cost set for ${[...missingAll].join(", ")} — those components billed at $0. Set costs under Packaging Items.`);
+  }
+
+  return { lines, warnings };
 }
 
 async function buildProductLines(

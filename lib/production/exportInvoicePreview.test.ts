@@ -7,7 +7,7 @@
 // and assert the REAL computed unitPriceCents.
 import { describe, it, expect } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { buildExciseTaxLines, sumKegCleaningQuantity, resolveInvoiceChannel, packagingFeeDescription } from "./exportInvoicePreview";
+import { buildExciseTaxLines, sumKegCleaningQuantity, resolveInvoiceChannel, packagingFeeDescription, buildPackagingMaterialLines } from "./exportInvoicePreview";
 
 interface TaxRow {
   export_transaction_id: string;
@@ -168,6 +168,102 @@ describe("resolveInvoiceChannel", () => {
       shippedChannel: "distribution",
       channel: "contract_brewing",
     });
+  });
+});
+
+// Stub the recipe_packaging_variations resolve query. Each call chains
+// .select(...).eq().eq().eq() and is awaited (thenable) → we return the variation
+// keyed by the (recipe, container, format) filters captured in .eq() order.
+function pvStub(variationsByKey: Record<string, unknown[]>): SupabaseClient {
+  const client = {
+    from(_table: string) {
+      const filters: Record<string, unknown> = {};
+      const chain: Record<string, unknown> = {
+        select() { return chain; },
+        eq(col: string, val: unknown) { filters[col] = val; return chain; },
+        then(resolve: (r: { data: unknown[]; error: null }) => void) {
+          const key = `${filters["recipe_id"]}|${filters["packaging_variations.container_id"]}|${filters["packaging_variations.format"]}`;
+          resolve({ data: variationsByKey[key] ?? [], error: null });
+        },
+      };
+      return chain;
+    },
+  };
+  return client as unknown as SupabaseClient;
+}
+
+// One case variation: 12oz can $0.15, lid $0.05, label $0.02, paktech(4) $0.30, tray(24) $0.40
+const caseVariationRow = {
+  packaging_variations: {
+    container: { name: "12oz Can", unit_cost: 0.15, can_count: null, type: "can" },
+    lid: { name: "Lid", unit_cost: 0.05 },
+    label: { name: "Label", unit_cost: 0.02 },
+    paktech: { name: "PakTech 4", unit_cost: 0.30, can_count: 4 },
+    tray: { name: "Tray 24", unit_cost: 0.40, can_count: 24 },
+  },
+};
+
+function matRows(rows: Array<Partial<{ id: string; recipe_id: string | null; packaging_item_id: string; packaging_format: string | null; quantity: number; units_per_package: number }>>) {
+  return rows as unknown as Parameters<typeof buildPackagingMaterialLines>[1];
+}
+
+describe("buildPackagingMaterialLines", () => {
+  const pkgType = new Map([["can-12", "can"], ["keg-half", "keg"]]);
+  const pkgName = new Map([["can-12", "12oz Can"], ["keg-half", "1/2 BBL Keg"]]);
+  const recipeName = new Map([["r1", "Fortnight"]]);
+
+  it("emits one materials line per recipe at the summed cost, named by beer", async () => {
+    const supabase = pvStub({ "r1|can-12|case": [caseVariationRow] });
+    const { lines, warnings } = await buildPackagingMaterialLines(
+      supabase,
+      matRows([{ id: "t1", recipe_id: "r1", packaging_item_id: "can-12", packaging_format: "case", quantity: 2, units_per_package: 24 }]),
+      pkgType, pkgName, recipeName, "var-mat",
+    );
+    // Same math as computeMaterialCost case test: 1496 cents.
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({ description: "Packaging Materials — Fortnight", quantity: 1, unitPriceCents: 1496, squareCatalogVariationId: "var-mat" });
+    expect(warnings).toEqual([]);
+  });
+
+  it("skips keg-type transactions", async () => {
+    const supabase = pvStub({});
+    const { lines } = await buildPackagingMaterialLines(
+      supabase,
+      matRows([{ id: "t1", recipe_id: "r1", packaging_item_id: "keg-half", packaging_format: "loose", quantity: 6, units_per_package: 1 }]),
+      pkgType, pkgName, recipeName, null,
+    );
+    expect(lines).toEqual([]);
+  });
+
+  it("warns and skips (no throw) when the variation can't be uniquely resolved", async () => {
+    const supabase = pvStub({}); // no match → 0 rows
+    const { lines, warnings } = await buildPackagingMaterialLines(
+      supabase,
+      matRows([{ id: "t1", recipe_id: "r1", packaging_item_id: "can-12", packaging_format: "case", quantity: 2, units_per_package: 24 }]),
+      pkgType, pkgName, recipeName, null,
+    );
+    expect(lines).toEqual([]);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatch(/Couldn't resolve packaging materials for Fortnight/);
+  });
+
+  it("surfaces a missing-cost warning while still billing the priced components", async () => {
+    const noCostCanVariation = {
+      packaging_variations: {
+        container: { name: "12oz Can", unit_cost: null, can_count: null, type: "can" },
+        lid: { name: "Lid", unit_cost: 0.05 },
+        label: null, paktech: null, tray: null,
+      },
+    };
+    const supabase = pvStub({ "r1|can-12|loose": [noCostCanVariation] });
+    const { lines, warnings } = await buildPackagingMaterialLines(
+      supabase,
+      matRows([{ id: "t1", recipe_id: "r1", packaging_item_id: "can-12", packaging_format: "loose", quantity: 100, units_per_package: 1 }]),
+      pkgType, pkgName, recipeName, null,
+    );
+    // cans $0, lids 100 × 5 = 500
+    expect(lines[0].unitPriceCents).toBe(500);
+    expect(warnings.some((w) => w.includes("12oz Can") && w.includes("$0"))).toBe(true);
   });
 });
 
