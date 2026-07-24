@@ -296,6 +296,17 @@ export default function InvoicePreviewModal({
             </>
           )}
 
+          {/* ── Preview advisories (missing costs, unresolved materials) ──────── */}
+          {(data?.warnings?.length ?? 0) > 0 && (
+            <Banner tone="accent">
+              <ul className="list-disc pl-4 space-y-0.5">
+                {data!.warnings.map((w, i) => (
+                  <li key={i}>{w}</li>
+                ))}
+              </ul>
+            </Banner>
+          )}
+
           {/* ── Manual-only fields ──────────────────────────────────────────── */}
           {invoiceMode === "manual" && (
             <div className="rounded-lg bg-surface border border-line p-3 grid grid-cols-3 gap-3">
