@@ -7,10 +7,18 @@ import CanonEditor, { type CanonSection } from "../canon/CanonEditor";
 import CanonHistory from "../canon/CanonHistory";
 import MarksEditor from "./MarksEditor";
 
-type TabKey = "guide" | "color" | "type" | "marks" | "history";
+type TabKey = "ethos" | "voice" | "visual" | "agent" | "color" | "type" | "marks" | "history";
 type Mode = "view" | "edit";
 
-const CANON_SECTIONS: readonly TabKey[] = ["guide", "color", "type", "marks"];
+const CANON_SECTIONS: readonly TabKey[] = [
+  "ethos",
+  "voice",
+  "visual",
+  "agent",
+  "color",
+  "type",
+  "marks",
+];
 
 function isCanonSection(tab: TabKey): tab is CanonSection {
   return (CANON_SECTIONS as readonly string[]).includes(tab);
@@ -18,10 +26,11 @@ function isCanonSection(tab: TabKey): tab is CanonSection {
 
 /**
  * In-page tabs for the Brand Guide. Every authenticated user gets read-only
- * View mode across Guide / Color / Type / Marks. Admins additionally get a
- * single View/Edit toggle and a History tab: in Edit mode each tab swaps its
- * rendered content for the matching canon editor (guide→Content prose,
- * color→Palette+Theme, type→Type; marks are managed in the Assets tab).
+ * View mode across Ethos / Voice / Visual Identity / Agent Rules / Color / Type
+ * / Marks. Admins additionally get a single View/Edit toggle and a History tab:
+ * in Edit mode each tab swaps its rendered content for the matching canon
+ * editor (each content tab → its own slice; color→Palette+Theme, type→Type;
+ * marks are managed in the Assets tab).
  *
  * The editor is kept mounted once opened — hidden, not unmounted — so unsaved
  * draft edits survive both switching tabs and toggling back to View.
@@ -31,14 +40,25 @@ export default function BrandGuideTabs({
   views,
 }: {
   isAdmin: boolean;
-  views: { guide: ReactNode; color: ReactNode; type: ReactNode; marks: ReactNode };
+  views: {
+    ethos: ReactNode;
+    voice: ReactNode;
+    visual: ReactNode;
+    agent: ReactNode;
+    color: ReactNode;
+    type: ReactNode;
+    marks: ReactNode;
+  };
 }) {
-  const [active, setActive] = useState<TabKey>("guide");
+  const [active, setActive] = useState<TabKey>("ethos");
   const [mode, setMode] = useState<Mode>("view");
   const [editorMounted, setEditorMounted] = useState(false);
 
   const tabs: { key: TabKey; label: string }[] = [
-    { key: "guide", label: "Guide" },
+    { key: "ethos", label: "Ethos" },
+    { key: "voice", label: "Voice" },
+    { key: "visual", label: "Visual Identity" },
+    { key: "agent", label: "Agent Rules" },
     { key: "color", label: "Color" },
     { key: "type", label: "Type" },
     { key: "marks", label: "Marks" },
@@ -46,7 +66,7 @@ export default function BrandGuideTabs({
   ];
 
   const editing = isAdmin && mode === "edit";
-  const editorSection: CanonSection = isCanonSection(active) ? active : "guide";
+  const editorSection: CanonSection = isCanonSection(active) ? active : "ethos";
 
   function setModeSafe(next: Mode) {
     if (next === "edit") setEditorMounted(true);
@@ -88,7 +108,10 @@ export default function BrandGuideTabs({
       {/* Scrollable content region */}
       <div className="flex-1 overflow-auto px-4 sm:px-6 pb-8 pt-4">
         {/* View mode — each tab's rendered content */}
-        <div className={!editing && active === "guide" ? "" : "hidden"}>{views.guide}</div>
+        <div className={!editing && active === "ethos" ? "" : "hidden"}>{views.ethos}</div>
+        <div className={!editing && active === "voice" ? "" : "hidden"}>{views.voice}</div>
+        <div className={!editing && active === "visual" ? "" : "hidden"}>{views.visual}</div>
+        <div className={!editing && active === "agent" ? "" : "hidden"}>{views.agent}</div>
         <div className={!editing && active === "color" ? "" : "hidden"}>{views.color}</div>
         <div className={!editing && active === "type" ? "" : "hidden"}>{views.type}</div>
         <div className={!editing && active === "marks" ? "" : "hidden"}>{views.marks}</div>
