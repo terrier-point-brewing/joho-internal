@@ -3,9 +3,11 @@ import { getSessionUser } from "@/lib/auth";
 import { getCanon } from "@/lib/brand/getCanon";
 import { seedCanon } from "@/lib/brand/seedCanon";
 import { resolveAsset, type SupabaseLikeClient } from "@/lib/brand/assets";
-import { resolveApprovedLabels, type SupabaseLikeClient as LabelsClient } from "@/lib/brand/labels";
 import BrandGuideTabs from "./BrandGuideTabs";
-import GuideNarrative from "./GuideNarrative";
+import EthosView from "./EthosView";
+import VoiceView from "./VoiceView";
+import VisualIdentityView from "./VisualIdentityView";
+import AgentRulesView from "./AgentRulesView";
 import ColorView from "./ColorView";
 import TypeView from "./TypeView";
 import MarksView, { type MarkArtifact } from "./MarksView";
@@ -26,9 +28,10 @@ function createCookielessAssetClient(): SupabaseLikeClient | null {
 
 /**
  * Brand Guide — the one brand page. Its in-page tabs (BrandGuideTabs) split the
- * guide into Guide / Color / Type / Marks (+ admin History), each with a
- * read-only view built here and, for admins, an Edit mode. All view content is
- * server-built and handed to the client tab shell as ReactNodes.
+ * guide into Ethos / Voice / Visual Identity / Agent Rules / Color / Type /
+ * Marks (+ admin History), each with a read-only view built here and, for
+ * admins, an Edit mode. All view content is server-built and handed to the
+ * client tab shell as ReactNodes.
  */
 export default async function BrandGuidePage() {
   const session = await getSessionUser();
@@ -37,14 +40,13 @@ export default async function BrandGuidePage() {
   const canon = await getCanon();
   const assetClient = createCookielessAssetClient();
 
-  const [wordmarkUrl, logoUrl, chopUrl, labels] = assetClient
+  const [wordmarkUrl, logoUrl, chopUrl] = assetClient
     ? await Promise.all([
         resolveAsset(assetClient, { kind: "wordmark" }),
         resolveAsset(assetClient, { kind: "logo" }),
         resolveAsset(assetClient, { kind: "chop_glyph" }),
-        resolveApprovedLabels(assetClient as unknown as LabelsClient),
       ])
-    : [null, null, null, []];
+    : [null, null, null];
 
   const marks: MarkArtifact[] = [
     { kind: "wordmark", label: "Wordmark", url: wordmarkUrl },
@@ -61,7 +63,10 @@ export default async function BrandGuidePage() {
     <BrandGuideTabs
       isAdmin={isAdmin}
       views={{
-        guide: <GuideNarrative canon={canon} labels={labels} />,
+        ethos: <EthosView canon={canon} />,
+        voice: <VoiceView canon={canon} />,
+        visual: <VisualIdentityView canon={canon} />,
+        agent: <AgentRulesView canon={canon} />,
         color: <ColorView canon={canon} />,
         type: <TypeView canon={canon} />,
         marks: <MarksView brandName={canon.brandName} marks={marks} specs={markSpecs} />,

@@ -9,18 +9,20 @@ import BrandPreview from "./BrandPreview";
 import PaletteFacet from "./facets/PaletteFacet";
 import ThemeFacet from "./facets/ThemeFacet";
 import TypeFacet from "./facets/TypeFacet";
-import ContentFacet from "./facets/ContentFacet";
 import MarksFacet from "./facets/MarksFacet";
+import SliceJsonFacet from "./facets/SliceJsonFacet";
+import { ethosSlice, voiceSlice, visualSlice, agentSlice, colorForbiddenSlice } from "./facets/canonSlices";
 import { useDraft, usePublish, useSaveDraft } from "./useCanonEditor";
 
 /** Which guide tab's editor is shown. One draft/publish state spans them all. */
-export type CanonSection = "guide" | "color" | "type" | "marks";
+export type CanonSection = "ethos" | "voice" | "visual" | "agent" | "color" | "type" | "marks";
 
 /**
  * Admin canon editor. Holds one editable draft copy + a shared publish bar and
  * live preview; the active guide tab decides which facet(s) edit it:
- *   guide → Content (narrative prose)   color → Palette + Theme
- *   type → Type   marks → Mark specification sheets
+ *   ethos/voice/visual/agent → each tab's own content slice
+ *   color → Palette + Theme + forbidden list   type → Type
+ *   marks → Mark specification sheets
  * The caller keeps this mounted across tab switches (and across the view/edit
  * toggle) so in-progress edits survive.
  */
@@ -115,11 +117,23 @@ export default function CanonEditor({ section }: { section: CanonSection }) {
           dropped for the marks editor, which gets the full width instead. */}
       <div className={section === "marks" ? "" : "grid gap-4 lg:grid-cols-[1fr_20rem]"}>
         <div className="flex flex-col gap-6">
-          {section === "guide" && <ContentFacet draft={draft} onChange={setDraft} />}
+          {section === "ethos" && (
+            <SliceJsonFacet {...ethosSlice} draft={draft} onChange={setDraft} />
+          )}
+          {section === "voice" && (
+            <SliceJsonFacet {...voiceSlice} draft={draft} onChange={setDraft} />
+          )}
+          {section === "visual" && (
+            <SliceJsonFacet {...visualSlice} draft={draft} onChange={setDraft} />
+          )}
+          {section === "agent" && (
+            <SliceJsonFacet {...agentSlice} draft={draft} onChange={setDraft} />
+          )}
           {section === "color" && (
             <>
               <PaletteFacet draft={draft} onChange={setDraft} />
               <ThemeFacet draft={draft} onChange={setDraft} />
+              <SliceJsonFacet {...colorForbiddenSlice} draft={draft} onChange={setDraft} />
             </>
           )}
           {section === "type" && <TypeFacet draft={draft} onChange={setDraft} />}
