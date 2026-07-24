@@ -4,7 +4,7 @@
 
 **Goal:** Add exclude-as-duplicate and manual GL-split guards to the Finance > Transactions expenses ledger, and fix the `buildBillTotals` double-count that strands duplicate bank expenses.
 
-**Execution Budget:** Mode = subagent-driven-development (9 tasks, 4 locality groups, ~14 files — above the 6-file inline tier in CLAUDE.md). **Spawn cap = 6** (4 locality groups + 2). The executor STOPS and reports before exceeding it. Token target ≈ 250k.
+**Execution Budget:** Mode = subagent-driven-development (9 tasks, 4 locality groups, ~14 files — above the 6-file inline tier in CLAUDE.md). **Spawn cap = 9**, raised from the formula's 6 by explicit operator decision on 2026-07-24: one implementer per locality group (4) + one review per group (4) + one final Opus whole-branch review (1). Tasks are dispatched per locality group, not per task, per CLAUDE.md. Token target ≈ 350k.
 
 **Architecture:** Exclusion is three sync-safe columns on `expenses` filtered out at a single fetch point. Splitting reuses the existing `expense_gl_splits` table, whose `split_source='manual'` value and P&L aggregation path already exist and are already correct — so no aggregation code changes. Two sync fixes (per-line dedup in `buildBillTotals`, and a guarded prune of reclassified bank expenses) remove the defect class that motivated the feature.
 
