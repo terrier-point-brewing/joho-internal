@@ -141,7 +141,7 @@ async function buildProductLines(
     }
     const variationId = pvRows[0].variation_id as string;
 
-    const sku = await resolveProductSku(supabase, { kind: "packaged", variationId });
+    const sku = await resolveProductSku(supabase, { kind: "packaged", variationId, recipeId: tx.recipe_id });
     if (!sku) {
       throw new Error(
         `No Square product link found for recipe + "${pkgName}" (format: ${tx.packaging_format || "none"}) — ` +

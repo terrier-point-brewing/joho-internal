@@ -192,7 +192,7 @@ export async function reconcileSquareCanInventory(
           try {
             return {
               format: t.format,
-              sku: await resolveProductSku(supabase, { kind: "packaged", variationId: t.variationId }),
+              sku: await resolveProductSku(supabase, { kind: "packaged", variationId: t.variationId, recipeId }),
             };
           } catch {
             // A single broken/duplicate link (e.g. a `.maybeSingle()` throwing on

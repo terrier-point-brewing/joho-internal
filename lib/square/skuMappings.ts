@@ -73,15 +73,20 @@ export function selectServiceMapping(
 
 export async function resolveProductSku(
   db: SkuDbClient,
-  args: { kind: "draft"; recipeId: string } | { kind: "packaged"; variationId: string }
+  args: { kind: "draft"; recipeId: string } | { kind: "packaged"; variationId: string; recipeId: string }
 ): Promise<ProductSku | null> {
   let q = db
     .from("recipe_square_links")
     .select("square_variation_id, square_item_id, catalog_variation_id, item_name, variation_name");
 
+  // A packaging_variation can be shared across recipes (the generic keg sizes —
+  // 1/6, 1/4, 1/2 Keg — are one variation each, linked per-recipe with distinct
+  // Square SKUs). Keying a packaged resolve on variation_id alone matches every
+  // recipe's link and makes `.maybeSingle()` throw; the real grain is
+  // (variation_id, recipe_id) — the rsl_variation_recipe unique index.
   q = args.kind === "draft"
     ? q.eq("recipe_id", args.recipeId).eq("packaging", "draft")
-    : q.eq("variation_id", args.variationId);
+    : q.eq("variation_id", args.variationId).eq("recipe_id", args.recipeId);
 
   const { data, error } = await q.maybeSingle();
   if (error) throw new Error(error.message);
