@@ -7,6 +7,15 @@ import { SquareCatalogSelect, SquareDiscountSelect } from "@/app/components/Squa
 import { useInvoicePreview, useExportSquareCatalogQuery } from "../hooks/queries";
 import type { SquareCatalogOptions } from "../types";
 import { fmtUsd } from "@/lib/utils/formatting";
+import { crossesExciseTreatmentBoundary } from "@/lib/tax/parties/ncDorBeerExcise/rates";
+
+// Channels an export invoice can be billed under (taproom is not invoiceable
+// here). Used by the "Bill as" override selector.
+const BILL_AS_OPTIONS: { value: string; label: string }[] = [
+  { value: "distribution", label: "Distribution" },
+  { value: "contract_brewing", label: "Contract Brewing" },
+  { value: "wholesale", label: "Wholesale" },
+];
 
 interface DraftLineItem {
   id: string;
@@ -47,7 +56,8 @@ export default function InvoicePreviewModal({
   onClose: () => void;
   onCreated: () => void;
 }) {
-  const { data, isLoading, error: previewError } = useInvoicePreview(transactionIds);
+  const [billAsChannel, setBillAsChannel] = useState<string | null>(null);
+  const { data, isLoading, error: previewError } = useInvoicePreview(transactionIds, billAsChannel);
   const { data: catalog } = useExportSquareCatalogQuery();
   const [lineItems, setLineItems] = useState<DraftLineItem[] | null>(null);
   const [creating, setCreating] = useState(false);
@@ -58,10 +68,17 @@ export default function InvoicePreviewModal({
   const [manualSource, setManualSource] = useState<"quickbooks" | "other">("quickbooks");
   const [manualRef, setManualRef] = useState("");
   const [manualDate, setManualDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [overrideReason, setOverrideReason] = useState("");
 
   const effectiveLineItems = lineItems ?? data?.lineItems ?? [];
   const channel = data?.channel ?? null;
   const discountsApply = channel === "distribution" || channel === "wholesale";
+
+  // ── Billing-channel override ────────────────────────────────────────────────
+  const shippedChannel = data?.shippedChannel ?? null;
+  const isOverride = !!shippedChannel && !!channel && channel !== shippedChannel;
+  const crossesExcise = isOverride && shippedChannel != null && channel != null
+    && crossesExciseTreatmentBoundary(shippedChannel, channel);
 
   // ── Catalog lookups ─────────────────────────────────────────────────────────
   const items = useMemo(() => catalog?.items ?? [], [catalog]);
@@ -153,7 +170,13 @@ export default function InvoicePreviewModal({
         const res = await fetch("/api/production/export/invoice", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "generate", transactionIds, lineItems: effectiveLineItems }),
+          body: JSON.stringify({
+            action: "generate",
+            transactionIds,
+            lineItems: effectiveLineItems,
+            bill_as_channel: billAsChannel ?? undefined,
+            override_reason: isOverride ? overrideReason.trim() : undefined,
+          }),
         });
         if (!res.ok) throw new Error((await res.json()).error ?? "Failed to create invoice");
       } else {
@@ -168,6 +191,8 @@ export default function InvoicePreviewModal({
             invoice_date: manualDate,
             total_cents: subtotalCents,
             lineItems: effectiveLineItems,
+            bill_as_channel: billAsChannel ?? undefined,
+            override_reason: isOverride ? overrideReason.trim() : undefined,
           }),
         });
         if (!res.ok) throw new Error((await res.json()).error ?? "Failed to record invoice");
@@ -211,6 +236,45 @@ export default function InvoicePreviewModal({
               Manual
             </button>
           </div>
+
+          {/* ── Bill-as channel override ────────────────────────────────────── */}
+          <div className="space-y-1">
+            <label className="text-xs text-secondary">Bill as</label>
+            <select
+              className="inp-sm w-56"
+              value={billAsChannel ?? shippedChannel ?? ""}
+              onChange={(e) => setBillAsChannel(e.target.value === shippedChannel ? null : e.target.value)}
+            >
+              {BILL_AS_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </div>
+
+          {isOverride && (
+            <>
+              <Banner tone="info">
+                Shipped as <span className="font-medium">{shippedChannel}</span>; billing as{" "}
+                <span className="font-medium">{channel}</span>. The shipment record and excise reporting are unchanged.
+              </Banner>
+              {crossesExcise && (
+                <Banner tone="danger">
+                  This shipment is reported to NC DOR as <span className="font-medium">{shippedChannel}</span>.
+                  Billing it as <span className="font-medium">{channel}</span> does not change TPB&rsquo;s excise
+                  liability — do not add an excise charge unless you also intend to reclassify the shipment for tax reporting.
+                </Banner>
+              )}
+              <div className="space-y-1">
+                <label className="text-xs text-secondary">Reason <span className="text-danger">*</span></label>
+                <input
+                  className="inp-sm w-full"
+                  value={overrideReason}
+                  placeholder="e.g. Fortnight pumpkin ale — billed contract per agreement"
+                  onChange={(e) => setOverrideReason(e.target.value)}
+                />
+              </div>
+            </>
+          )}
 
           {/* ── Manual-only fields ──────────────────────────────────────────── */}
           {invoiceMode === "manual" && (
@@ -412,7 +476,7 @@ export default function InvoicePreviewModal({
             <button onClick={onClose} className="btn-secondary" disabled={creating}>Cancel</button>
             <button
               onClick={handleCreate}
-              disabled={creating || effectiveLineItems.length === 0 || (invoiceMode === "manual" && !manualValid)}
+              disabled={creating || effectiveLineItems.length === 0 || (invoiceMode === "manual" && !manualValid) || (isOverride && !overrideReason.trim())}
               className="btn-primary"
             >
               {creating
