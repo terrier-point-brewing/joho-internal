@@ -23,12 +23,12 @@ export default function NextPlannedBox({ batchNumber, beerName, plannedStart, vo
   const titleSize = size === "sm" ? 13 : 8;
   const metaSize  = size === "sm" ? 12 : 7;
   return (
-    <div className="px-1 py-0.5 rounded bg-zinc-800/60 border border-zinc-700/50 w-full min-w-0">
-      <p className="text-zinc-500 font-semibold uppercase tracking-wide" style={{ fontSize: labelSize }}>Next planned</p>
-      <p className="text-zinc-300 font-medium truncate" style={{ fontSize: titleSize }} title={`#${batchNumber ?? "?"} ${beerName}`}>
+    <div className="px-1 py-0.5 rounded bg-surface-mid/60 border border-line-strong/50 w-full min-w-0">
+      <p className="text-muted font-semibold uppercase tracking-wide" style={{ fontSize: labelSize }}>Next planned</p>
+      <p className="text-body font-medium truncate" style={{ fontSize: titleSize }} title={`#${batchNumber ?? "?"} ${beerName}`}>
         #{batchNumber ?? "?"} {beerName}
       </p>
-      <p className="text-zinc-600 truncate" style={{ fontSize: metaSize }}>
+      <p className="text-faint truncate" style={{ fontSize: metaSize }}>
         {fmtDate(plannedStart)}{volumeBbl != null && ` · ${volumeBbl} BBL`}
       </p>
     </div>

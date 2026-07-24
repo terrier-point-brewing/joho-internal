@@ -70,16 +70,16 @@ export function AddStagePanel({
   }
 
   return (
-    <div className="mt-2 rounded border border-zinc-700 bg-zinc-900/60 p-3 space-y-3">
+    <div className="mt-2 rounded border border-line-strong bg-surface/60 p-3 space-y-3">
       <div className="flex items-center justify-between">
-        <span className="text-xs font-medium text-zinc-400">
+        <span className="text-xs font-medium text-secondary">
           Add Stage{plannedBranch ? ` — ${plannedBranch}` : ""}
         </span>
-        <button type="button" onClick={onClose} className="text-xs text-zinc-600 hover:text-zinc-400">✕</button>
+        <button type="button" onClick={onClose} className="text-xs text-faint hover:text-secondary">✕</button>
       </div>
       <div className="grid gap-2 grid-cols-5">
         <div>
-          <label className="block text-[10px] mb-0.5 text-zinc-500">Stage</label>
+          <label className="block text-[10px] mb-0.5 text-muted">Stage</label>
           <select className="inp text-xs w-full" value={stage}
             onChange={e => { setStage(e.target.value); setEquipmentId(""); }}>
             {PLANNING_STAGES.map(s => (
@@ -88,7 +88,7 @@ export function AddStagePanel({
           </select>
         </div>
         <div>
-          <label className="block text-[10px] mb-0.5 text-zinc-500">Equipment</label>
+          <label className="block text-[10px] mb-0.5 text-muted">Equipment</label>
           <select className="inp text-xs w-full" value={effectiveEquipmentId} onChange={e => setEquipmentId(e.target.value)}>
             <option value="">— none —</option>
             {pool.map(eq => (
@@ -97,34 +97,34 @@ export function AddStagePanel({
           </select>
         </div>
         <div>
-          <label className="block text-[10px] mb-0.5 text-zinc-500">Start</label>
+          <label className="block text-[10px] mb-0.5 text-muted">Start</label>
           <input type="date" className="inp text-xs w-full" value={start} onChange={e => setStart(e.target.value)} />
         </div>
         <div>
-          <label className="block text-[10px] mb-0.5 text-zinc-500">End</label>
+          <label className="block text-[10px] mb-0.5 text-muted">End</label>
           <input type="date" className="inp text-xs w-full" value={end} onChange={e => setEnd(e.target.value)} />
         </div>
         <div>
-          <label className="block text-[10px] mb-0.5 text-zinc-500">BBL</label>
+          <label className="block text-[10px] mb-0.5 text-muted">BBL</label>
           <input type="number" step="0.01" min="0" placeholder="e.g. 3.5" className="inp text-xs w-full"
             value={volBbl} onChange={e => setVolBbl(e.target.value)} />
         </div>
       </div>
       {conflict && (
-        <div className="px-3 py-2 rounded border border-red-700/50 bg-red-950/30 text-xs text-red-400 leading-relaxed">
+        <div className="px-3 py-2 rounded border border-danger-border/50 bg-danger-surface/30 text-xs text-danger leading-relaxed">
           <span className="font-semibold">⚠ Equipment conflict</span> — already scheduled for {conflictBatchLabel(conflict)} during these dates.
           {suggestion && (
-            <> Try <button type="button" onClick={() => setEquipmentId(suggestion.id)} className="underline underline-offset-2 hover:text-red-300">{suggestion.name}</button> instead.</>
+            <> Try <button type="button" onClick={() => setEquipmentId(suggestion.id)} className="underline underline-offset-2 hover:text-danger">{suggestion.name}</button> instead.</>
           )}
           {!suggestion && " No conflict-free equipment of this type is available for these dates."}
         </div>
       )}
       <div className="flex gap-2 pt-1">
         <button type="button" onClick={save} disabled={saving}
-          className="px-3 py-1.5 text-xs bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white rounded font-medium">
+          className="px-3 py-1.5 text-xs bg-accent-emphasis hover:bg-accent disabled:opacity-50 text-white rounded font-medium">
           {saving ? "Saving…" : "Add stage"}
         </button>
-        <button type="button" onClick={onClose} className="px-3 py-1.5 text-xs text-zinc-500 hover:text-zinc-300">Cancel</button>
+        <button type="button" onClick={onClose} className="px-3 py-1.5 text-xs text-muted hover:text-body">Cancel</button>
       </div>
     </div>
   );

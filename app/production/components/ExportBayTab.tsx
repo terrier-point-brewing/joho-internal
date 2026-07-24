@@ -36,9 +36,9 @@ function allocDenomBbl(a: BatchAllocation): number | null {
 // ── Channel display ────────────────────────────────────────────────────────────
 
 const CHANNEL_BADGE: Record<string, { label: string; cls: string }> = {
-  distribution:     { label: "Distribution",     cls: `border ${CHANNEL_COLOR.distribution.bg} ${CHANNEL_COLOR.distribution.text}` },
-  contract_brewing: { label: "Contract Brewing", cls: `border ${CHANNEL_COLOR.contract_brewing.bg} ${CHANNEL_COLOR.contract_brewing.text}` },
-  wholesale:        { label: "Wholesale",        cls: `border ${CHANNEL_COLOR.wholesale.bg} ${CHANNEL_COLOR.wholesale.text}` },
+  distribution:     { label: "Distribution",     cls: `border ${CHANNEL_COLOR.distribution.bg} ${CHANNEL_COLOR.distribution.text} ${CHANNEL_COLOR.distribution.border}` },
+  contract_brewing: { label: "Contract Brewing", cls: `border ${CHANNEL_COLOR.contract_brewing.bg} ${CHANNEL_COLOR.contract_brewing.text} ${CHANNEL_COLOR.contract_brewing.border}` },
+  wholesale:        { label: "Wholesale",        cls: `border ${CHANNEL_COLOR.wholesale.bg} ${CHANNEL_COLOR.wholesale.text} ${CHANNEL_COLOR.wholesale.border}` },
   safety_stock:     { label: "Safety Stock",     cls: "border border-line-subtle bg-surface-mid/60 text-secondary" },
 };
 

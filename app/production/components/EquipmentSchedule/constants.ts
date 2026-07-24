@@ -34,15 +34,20 @@ export const STAGE_TO_EQ_TYPES: Record<string, string[]> = {
 export const PLANNING_STAGES = ["brewhouse", "fermenting", "conditioning", "kegging", "canning"] as const;
 export type PlanningStage = typeof PLANNING_STAGES[number];
 
+// Per-stage card chrome for the equipment-schedule flow. Binds to the
+// theme-flipping `--cat-{hue}-*` tokens (border/bg/label) so cards read on the
+// dark ops canvas AND the light brand skin; `activeBorder` stays a raw `-500`
+// mid-tone that reads on either background. cold_storage uses neutral semantic
+// tokens, which flip on their own.
 export const STAGE_CARD_STYLE: Record<string, {
   border: string; activeBorder: string; bg: string; label: string;
 }> = {
-  brewhouse:    { border: "border-amber-700/50",  activeBorder: "border-amber-500",  bg: "bg-amber-950/30",  label: "text-amber-400"  },
-  fermenting:   { border: "border-blue-700/50",   activeBorder: "border-blue-500",   bg: "bg-blue-950/30",   label: "text-blue-400"   },
-  conditioning: { border: "border-teal-700/50",   activeBorder: "border-teal-500",   bg: "bg-teal-950/30",   label: "text-teal-400"   },
-  kegging:      { border: "border-purple-700/50", activeBorder: "border-purple-500", bg: "bg-purple-950/30", label: "text-purple-400" },
-  canning:      { border: "border-violet-700/50", activeBorder: "border-violet-500", bg: "bg-violet-950/30", label: "text-violet-400" },
-  cold_storage: { border: "border-zinc-600/50",   activeBorder: "border-zinc-400",   bg: "bg-zinc-900/50",   label: "text-zinc-400"   },
+  brewhouse:    { border: "border-[var(--cat-amber-bd)]",  activeBorder: "border-amber-500",  bg: "bg-[var(--cat-amber-bg)]",  label: "text-[var(--cat-amber-fg)]"  },
+  fermenting:   { border: "border-[var(--cat-blue-bd)]",   activeBorder: "border-blue-500",   bg: "bg-[var(--cat-blue-bg)]",   label: "text-[var(--cat-blue-fg)]"   },
+  conditioning: { border: "border-[var(--cat-teal-bd)]",   activeBorder: "border-teal-500",   bg: "bg-[var(--cat-teal-bg)]",   label: "text-[var(--cat-teal-fg)]"   },
+  kegging:      { border: "border-[var(--cat-purple-bd)]", activeBorder: "border-purple-500", bg: "bg-[var(--cat-purple-bg)]", label: "text-[var(--cat-purple-fg)]" },
+  canning:      { border: "border-[var(--cat-violet-bd)]", activeBorder: "border-violet-500", bg: "bg-[var(--cat-violet-bg)]", label: "text-[var(--cat-violet-fg)]" },
+  cold_storage: { border: "border-line-strong",            activeBorder: "border-line-subtle", bg: "bg-surface-mid",           label: "text-secondary"              },
 };
 
 // Ordered pipeline for flow and scheduling
@@ -75,11 +80,11 @@ export const BUILD_STAGE_LABELS: Record<BuildSlot["stage"], string> = {
 };
 
 export const BUILD_STAGE_COLORS: Record<string, string> = {
-  brewhouse: "bg-amber-900/50 text-amber-300 border-amber-700",
-  fermenter:  "bg-blue-900/50 text-blue-300 border-blue-700",
-  brite:      "bg-teal-900/50 text-teal-300 border-teal-700",
-  kegging:    "bg-purple-900/50 text-purple-300 border-purple-700",
-  canning:    "bg-violet-900/50 text-violet-300 border-violet-700",
+  brewhouse: "bg-[var(--cat-amber-bg)] text-[var(--cat-amber-fg)] border-[var(--cat-amber-bd)]",
+  fermenter: "bg-[var(--cat-blue-bg)] text-[var(--cat-blue-fg)] border-[var(--cat-blue-bd)]",
+  brite:     "bg-[var(--cat-teal-bg)] text-[var(--cat-teal-fg)] border-[var(--cat-teal-bd)]",
+  kegging:   "bg-[var(--cat-purple-bg)] text-[var(--cat-purple-fg)] border-[var(--cat-purple-bd)]",
+  canning:   "bg-[var(--cat-violet-bg)] text-[var(--cat-violet-fg)] border-[var(--cat-violet-bd)]",
 };
 
 export const PIPELINE: { slot: BuildSlot["stage"]; dbStage: string }[] = [

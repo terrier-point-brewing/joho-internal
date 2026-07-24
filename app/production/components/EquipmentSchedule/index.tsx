@@ -18,6 +18,7 @@ import {
   findEquipmentConflict, conflictBatchLabel, suggestAlternativeEquipment,
 } from "./constants";
 import { buildGraphData } from "./buildGraphData";
+import { useBrandTheme } from "@/app/components/brand/useBrandTheme";
 import { EntryNode, GhostNode, ConversionNode } from "./nodes";
 import { GhostFlowChain } from "./GhostFlowChain";
 import { AddStagePanel } from "./AddStagePanel";
@@ -47,6 +48,11 @@ export function EquipmentScheduleSection({
 }) {
   const qc     = useQueryClient();
   const reload = () => qc.invalidateQueries({ queryKey: productionKeys.batchSchedule });
+
+  // React Flow's own chrome (canvas, controls, dot grid) is theme-driven: under
+  // the brand skin the app can be light, so drive xyflow's colorMode + the dot
+  // color from the active theme instead of hardcoding "dark".
+  const theme = useBrandTheme();
 
   const { data: allScheduleEntries  = [] } = useBatchScheduleQuery();
   const { data: allTransfers        = [] } = useTransfersQuery();
@@ -326,17 +332,17 @@ export function EquipmentScheduleSection({
     <div>
       {/* ── Header ─────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between mb-3">
-        <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wide">Equipment Schedule</p>
+        <p className="text-xs font-semibold text-secondary uppercase tracking-wide">Equipment Schedule</p>
         <div className="flex gap-3 items-center">
           {batch?.recipe_id && (
             <button type="button" onClick={autoSuggest} disabled={suggesting}
-              className="text-xs text-amber-500 hover:text-amber-400 disabled:opacity-40 transition-colors">
+              className="text-xs text-accent hover:text-accent-emphasis disabled:opacity-40 transition-colors">
               {suggesting ? "Suggesting…" : "✦ Auto-suggest"}
             </button>
           )}
           <button type="button"
             onClick={() => setPanel(p => p.kind === "add_stage" ? { kind: "none" } : { kind: "add_stage" })}
-            className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors">
+            className="text-xs text-muted hover:text-body transition-colors">
             + Add stage
           </button>
         </div>
@@ -344,7 +350,7 @@ export function EquipmentScheduleSection({
 
       {/* ── Planning incomplete alerts ───────────────────────────────────── */}
       {pkgMismatches.map(({ label, detail }) => (
-        <div key={label} className="mb-2 px-3 py-2 rounded border border-amber-700/50 bg-amber-950/20 text-xs text-amber-400 leading-relaxed">
+        <div key={label} className="mb-2 px-3 py-2 rounded border border-[var(--cat-amber-bd)] bg-[var(--cat-amber-bg)] text-xs text-[var(--cat-amber-fg)] leading-relaxed">
           <span className="font-semibold">⚠ {label} — planning incomplete</span>
           {" "}— {detail}.
         </div>
@@ -358,7 +364,7 @@ export function EquipmentScheduleSection({
           </div>
         )
         : (
-          <div style={{ height: `${Math.max(1, 1 + splitBranches.length + conversionCount) * 150 + 80}px` }} className="mb-3 rounded-lg overflow-hidden border border-zinc-800">
+          <div style={{ height: `${Math.max(1, 1 + splitBranches.length + conversionCount) * 150 + 80}px` }} className="mb-3 rounded-lg overflow-hidden border border-line-strong">
             <ReactFlow
               nodes={nodes}
               edges={edges}
@@ -372,9 +378,9 @@ export function EquipmentScheduleSection({
               nodesConnectable={false}
               minZoom={0.2}
               maxZoom={1.5}
-              colorMode="dark"
+              colorMode={theme}
             >
-              <Background color="#3f3f46" gap={20} size={1} variant={BackgroundVariant.Dots} />
+              <Background color="var(--color-line-strong)" gap={20} size={1} variant={BackgroundVariant.Dots} />
               <Controls showInteractive={false} />
             </ReactFlow>
           </div>
@@ -425,18 +431,18 @@ export function EquipmentScheduleSection({
 
       {/* ── Inline edit form ────────────────────────────────────────────── */}
       {editing !== null && (
-        <div className="rounded border border-zinc-700 bg-zinc-900/60 p-3 mb-3 space-y-3">
-          <p className="text-xs text-zinc-400 font-medium">Edit entry</p>
+        <div className="rounded border border-line-strong bg-surface/60 p-3 mb-3 space-y-3">
+          <p className="text-xs text-secondary font-medium">Edit entry</p>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs text-zinc-500 mb-1">Stage</label>
+              <label className="block text-xs text-muted mb-1">Stage</label>
               <select className="inp text-xs" value={editForm.stage}
                 onChange={e => { f("stage", e.target.value); f("equipment_id", ""); }}>
                 {PLANNING_STAGES.map(s => <option key={s} value={s}>{STAGE_LABELS[s] ?? s}</option>)}
               </select>
             </div>
             <div>
-              <label className="block text-xs text-zinc-500 mb-1">Equipment</label>
+              <label className="block text-xs text-muted mb-1">Equipment</label>
               <select className="inp text-xs" value={editForm.equipment_id}
                 onChange={e => f("equipment_id", e.target.value)}>
                 <option value="">— none —</option>
@@ -446,43 +452,43 @@ export function EquipmentScheduleSection({
               </select>
             </div>
             <div>
-              <label className="block text-xs text-zinc-500 mb-1">Planned Start</label>
+              <label className="block text-xs text-muted mb-1">Planned Start</label>
               <input type="date" className="inp text-xs" value={editForm.planned_start}
                 onChange={e => f("planned_start", e.target.value)} />
             </div>
             <div>
-              <label className="block text-xs text-zinc-500 mb-1">Planned End</label>
+              <label className="block text-xs text-muted mb-1">Planned End</label>
               <input type="date" className="inp text-xs" value={editForm.planned_end}
                 onChange={e => f("planned_end", e.target.value)} />
             </div>
             <div>
-              <label className="block text-xs text-zinc-500 mb-1">Actual Start</label>
+              <label className="block text-xs text-muted mb-1">Actual Start</label>
               <input type="date" className="inp text-xs" value={editForm.actual_start}
                 onChange={e => f("actual_start", e.target.value)} />
             </div>
             <div>
-              <label className="block text-xs text-zinc-500 mb-1">Actual End</label>
+              <label className="block text-xs text-muted mb-1">Actual End</label>
               <input type="date" className="inp text-xs" value={editForm.actual_end}
                 onChange={e => f("actual_end", e.target.value)} />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs text-zinc-500 mb-1">Volume (BBL)</label>
+              <label className="block text-xs text-muted mb-1">Volume (BBL)</label>
               <input type="number" step="0.01" min="0" className="inp text-xs" value={editForm.volume_bbl}
                 onChange={e => f("volume_bbl", e.target.value)} placeholder="e.g. 30.00" />
             </div>
             <div>
-              <label className="block text-xs text-zinc-500 mb-1">Notes</label>
+              <label className="block text-xs text-muted mb-1">Notes</label>
               <input type="text" className="inp text-xs" value={editForm.notes}
                 onChange={e => f("notes", e.target.value)} placeholder="Optional" />
             </div>
           </div>
           {editConflict && (
-            <div className="px-3 py-2 rounded border border-red-700/50 bg-red-950/30 text-xs text-red-400 leading-relaxed">
+            <div className="px-3 py-2 rounded border border-danger-border bg-danger-surface/40 text-xs text-danger leading-relaxed">
               <span className="font-semibold">⚠ Equipment conflict</span> — already scheduled for {conflictBatchLabel(editConflict)} during these dates.
               {editSuggestion && (
-                <> Try <button type="button" onClick={() => f("equipment_id", editSuggestion.id)} className="underline underline-offset-2 hover:text-red-300">{editSuggestion.name}</button> instead.</>
+                <> Try <button type="button" onClick={() => f("equipment_id", editSuggestion.id)} className="underline underline-offset-2 hover:text-danger-emphasis">{editSuggestion.name}</button> instead.</>
               )}
               {!editSuggestion && " No conflict-free equipment of this type is available for these dates."}
             </div>
@@ -490,13 +496,13 @@ export function EquipmentScheduleSection({
           <div className="flex gap-2">
             <button type="button" onClick={saveEdit}
               disabled={editSaving || !editForm.planned_start || !editForm.planned_end}
-              className="px-3 py-1.5 text-xs bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white rounded font-medium">
+              className="px-3 py-1.5 text-xs bg-accent-emphasis hover:bg-accent disabled:opacity-50 text-white rounded font-medium">
               {editSaving ? "Saving…" : "Save changes"}
             </button>
             <button type="button" onClick={() => removeEntry(editing.id)}
-              className="px-3 py-1.5 text-xs bg-zinc-700 hover:bg-red-800 text-zinc-300 rounded">Delete</button>
+              className="px-3 py-1.5 text-xs bg-surface-high hover:bg-danger-surface text-body rounded">Delete</button>
             <button type="button" onClick={() => setEditing(null)}
-              className="px-3 py-1.5 text-xs text-zinc-500 hover:text-zinc-300">Cancel</button>
+              className="px-3 py-1.5 text-xs text-muted hover:text-body">Cancel</button>
           </div>
         </div>
       )}

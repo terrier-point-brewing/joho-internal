@@ -66,19 +66,19 @@ export function ConvertPanel({
   }
 
   return (
-    <div className="mt-2 rounded border border-amber-800/50 bg-amber-950/20 p-3 space-y-3">
+    <div className="mt-2 rounded border border-[var(--cat-amber-bd)]/50 bg-[var(--cat-amber-bg)]/20 p-3 space-y-3">
       <div className="flex items-center justify-between">
-        <span className="text-xs font-medium text-amber-300">Plan Conversion from {stageLabel}</span>
-        <button type="button" onClick={onClose} className="text-xs text-zinc-600 hover:text-zinc-400">✕</button>
+        <span className="text-xs font-medium text-[var(--cat-amber-fg)]">Plan Conversion from {stageLabel}</span>
+        <button type="button" onClick={onClose} className="text-xs text-faint hover:text-secondary">✕</button>
       </div>
 
-      <p className="text-[11px] text-zinc-500">
+      <p className="text-[11px] text-muted">
         Links a portion of this batch to an existing target batch as a conversion. Create the target batch first if it does not exist yet.
       </p>
 
       <div className="grid grid-cols-2 gap-3">
         <div className="col-span-2">
-          <label className="block text-[10px] mb-1 text-zinc-500">Target Batch</label>
+          <label className="block text-[10px] mb-1 text-muted">Target Batch</label>
           <select className="inp text-xs w-full" value={toBatchId} onChange={e => setToBatchId(e.target.value)}>
             <option value="">— select batch —</option>
             {candidateBatches.map(b => (
@@ -89,12 +89,12 @@ export function ConvertPanel({
           </select>
         </div>
         <div>
-          <label className="block text-[10px] mb-1 text-zinc-500">Volume to Convert (BBL)</label>
+          <label className="block text-[10px] mb-1 text-muted">Volume to Convert (BBL)</label>
           <input type="number" step="0.01" min="0" className="inp text-xs w-full"
             value={volBbl} onChange={e => setVolBbl(e.target.value)} />
         </div>
         <div>
-          <label className="block text-[10px] mb-1 text-zinc-500">Notes (optional)</label>
+          <label className="block text-[10px] mb-1 text-muted">Notes (optional)</label>
           <input type="text" className="inp text-xs w-full" placeholder="e.g. dry-hop variant"
             value={notes} onChange={e => setNotes(e.target.value)} />
         </div>
@@ -102,10 +102,10 @@ export function ConvertPanel({
 
       <div className="flex gap-2 pt-1">
         <button type="button" onClick={save} disabled={saving}
-          className="px-3 py-1.5 text-xs bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white rounded font-medium">
+          className="px-3 py-1.5 text-xs bg-accent-emphasis hover:bg-accent disabled:opacity-50 text-white rounded font-medium">
           {saving ? "Planning…" : "Plan Conversion"}
         </button>
-        <button type="button" onClick={onClose} className="px-3 py-1.5 text-xs text-zinc-500 hover:text-zinc-300">Cancel</button>
+        <button type="button" onClick={onClose} className="px-3 py-1.5 text-xs text-muted hover:text-body">Cancel</button>
       </div>
     </div>
   );
