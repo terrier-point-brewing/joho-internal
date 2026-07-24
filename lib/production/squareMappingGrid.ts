@@ -57,6 +57,13 @@ export interface LinkRow {
   itemName: string | null;
 }
 
+export interface IgnoreRow {
+  id: string;
+  recipeId: string;
+  packaging: "draft" | "keg" | "can";
+  variationId: string | null; // null for draft
+}
+
 // ── Output types ──────────────────────────────────────────────────────────────
 
 export interface ColumnDef {
@@ -82,6 +89,8 @@ export interface CellVariation {
   linkedSquareCatalogVariationId: string | null;
   linkedSquareName: string | null;
   suggestion: Suggestion | null;
+  ignored: boolean;
+  ignoreId: string | null;
 }
 
 export interface GridCell {
@@ -243,7 +252,8 @@ export function buildGrid(
   columns: ColumnDef[],
   rpvs: RpvRow[],
   links: LinkRow[],
-  sqVars: SquareCatalogVariationFlat[]
+  sqVars: SquareCatalogVariationFlat[],
+  ignores: IgnoreRow[] = []
 ): GridRow[] {
   // Index links by `${variationId}::${recipeId}` (composite) and by recipeId (for draft).
   // Keying by variationId alone causes all recipes sharing a generic keg variation
@@ -255,6 +265,17 @@ export function buildGrid(
       draftLinkByRecipe.set(l.recipeId, l);
     } else if (l.variationId) {
       linkByVariation.set(`${l.variationId}::${l.recipeId}`, l);
+    }
+  }
+
+  // Index ignores identically to links: draft by recipe, keg/can by variation+recipe.
+  const ignoreByVariation = new Map<string, IgnoreRow>(); // key: `${variationId}::${recipeId}`
+  const draftIgnoreByRecipe = new Map<string, IgnoreRow>();
+  for (const ig of ignores) {
+    if (ig.packaging === "draft") {
+      draftIgnoreByRecipe.set(ig.recipeId, ig);
+    } else if (ig.variationId) {
+      ignoreByVariation.set(`${ig.variationId}::${ig.recipeId}`, ig);
     }
   }
 
@@ -289,7 +310,8 @@ export function buildGrid(
       if (col.type === "draft") {
         // Draft is always present for every recipe (one slot, no packaging variation)
         const link = draftLinkByRecipe.get(recipe.id);
-        const suggestion = link
+        const ignore = link ? undefined : draftIgnoreByRecipe.get(recipe.id);
+        const suggestion = link || ignore
           ? null
           : autoSuggest(recipe.beerName, null, "draft", null, sqVars);
         cells["draft"] = {
@@ -303,6 +325,8 @@ export function buildGrid(
                 ? `${link.itemName ?? ""}${link.variationName ? ` · ${link.variationName}` : ""}`.trim()
                 : null,
               suggestion,
+              ignored: !link && !!ignore,
+              ignoreId: ignore?.id ?? null,
             },
           ],
         };
@@ -327,7 +351,8 @@ export function buildGrid(
 
       const variations: CellVariation[] = colRpvs.map((rpv) => {
         const link = linkByVariation.get(`${rpv.variationId}::${recipe.id}`);
-        const suggestion = link
+        const ignore = link ? undefined : ignoreByVariation.get(`${rpv.variationId}::${recipe.id}`);
+        const suggestion = link || ignore
           ? null
           : autoSuggest(recipe.beerName, rpv.volumeFlOz, rpv.containerType, rpv.format, sqVars);
         return {
@@ -339,6 +364,8 @@ export function buildGrid(
             ? `${link.itemName ?? ""}${link.variationName ? ` · ${link.variationName}` : ""}`.trim()
             : null,
           suggestion,
+          ignored: !link && !!ignore,
+          ignoreId: ignore?.id ?? null,
         };
       });
 
