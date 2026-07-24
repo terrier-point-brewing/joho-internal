@@ -7,7 +7,7 @@
 // and assert the REAL computed unitPriceCents.
 import { describe, it, expect } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { buildExciseTaxLines, sumKegCleaningQuantity } from "./exportInvoicePreview";
+import { buildExciseTaxLines, sumKegCleaningQuantity, resolveInvoiceChannel } from "./exportInvoicePreview";
 
 interface TaxRow {
   export_transaction_id: string;
@@ -144,5 +144,29 @@ describe("sumKegCleaningQuantity", () => {
   it("treats an unmapped packaging item as non-keg", () => {
     const qty = sumKegCleaningQuantity([txn("mystery", 3)], pkgTypeById);
     expect(qty).toBe(0);
+  });
+});
+
+describe("resolveInvoiceChannel", () => {
+  it("returns the shared stored channel when there is no override", () => {
+    expect(resolveInvoiceChannel(["distribution", "distribution"])).toEqual({
+      shippedChannel: "distribution",
+      channel: "distribution",
+    });
+  });
+  it("throws on mixed stored channels when there is no override", () => {
+    expect(() => resolveInvoiceChannel(["distribution", "wholesale"])).toThrow(/same channel/i);
+  });
+  it("allows mixed stored channels when an override is supplied, reporting shippedChannel='mixed'", () => {
+    expect(resolveInvoiceChannel(["distribution", "wholesale"], "contract_brewing")).toEqual({
+      shippedChannel: "mixed",
+      channel: "contract_brewing",
+    });
+  });
+  it("uses the override as the effective channel and keeps the single stored channel as shippedChannel", () => {
+    expect(resolveInvoiceChannel(["distribution"], "contract_brewing")).toEqual({
+      shippedChannel: "distribution",
+      channel: "contract_brewing",
+    });
   });
 });

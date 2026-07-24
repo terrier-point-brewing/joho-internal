@@ -20,8 +20,18 @@ export interface InvoicePreviewResult {
   customerName: string;
   squareCustomerId: string | null;
   lineItems: InvoiceLineItemDraft[];
-  /** Shared channel of the selected transactions (all must match). */
+  /**
+   * The effective channel used to build the line items — the billing-channel
+   * override when one is supplied, otherwise the shared stored channel.
+   */
   channel: string;
+  /**
+   * The channel the selected transactions were actually SHIPPED under (the
+   * stored `export_transactions.channel`), or "mixed" if they differ. Equals
+   * `channel` when no override is in effect. For display / audit only — never
+   * used to build line items.
+   */
+  shippedChannel: string;
   /**
    * Square catalog discount mapped for this channel (the "bulk discount" for
    * distribution / the wholesale discount for wholesale), or null when none is
@@ -42,6 +52,26 @@ interface ExportTxRow {
   units_per_package: number;
   channel: string;
   recipe_id: string | null;
+}
+
+/**
+ * Decide the channel the invoice line-item branch should use.
+ * - No override: every selected row must share one stored channel (else throw).
+ * - Override: any mix of stored channels is allowed; the effective channel is the
+ *   override, and shippedChannel is the single stored channel or "mixed".
+ * Exported for unit testing.
+ */
+export function resolveInvoiceChannel(
+  storedChannels: string[],
+  billAsChannel?: string | null
+): { shippedChannel: string; channel: string } {
+  const distinct = new Set(storedChannels);
+  const shippedChannel = distinct.size === 1 ? [...distinct][0] : "mixed";
+  if (billAsChannel) return { shippedChannel, channel: billAsChannel };
+  if (distinct.size !== 1) {
+    throw new Error("All selected transactions must share the same channel — mixed-channel invoices are not supported");
+  }
+  return { shippedChannel, channel: shippedChannel };
 }
 
 /**
@@ -163,7 +193,8 @@ async function buildProductLines(
 
 export async function buildInvoicePreview(
   supabase: SupabaseClient,
-  transactionIds: string[]
+  transactionIds: string[],
+  billAsChannel?: string | null
 ): Promise<InvoicePreviewResult> {
   if (transactionIds.length === 0) {
     throw new Error("At least one export transaction must be selected");
@@ -189,12 +220,13 @@ export async function buildInvoicePreview(
   }
   const customerId = rows[0].recipient_id as string;
 
-  // Validate all transactions share the same channel
-  const channels = new Set(rows.map((r) => r.channel));
-  if (channels.size !== 1) {
-    throw new Error("All selected transactions must share the same channel — mixed-channel invoices are not supported");
-  }
-  const channel = rows[0].channel as string;
+  // Resolve the effective billing channel: the stored channel unless an override
+  // is supplied. Overrides may span mixed stored channels; without one, all rows
+  // must share a channel.
+  const { shippedChannel, channel } = resolveInvoiceChannel(
+    rows.map((r) => r.channel),
+    billAsChannel
+  );
 
   // ── 2. Load the customer (square_customer_id, net terms) ─────────────────
   const { data: partner, error: partnerErr } = await supabase
@@ -369,6 +401,7 @@ export async function buildInvoicePreview(
     squareCustomerId: partner.square_customer_id,
     lineItems,
     channel,
+    shippedChannel,
     defaultDiscountCatalogId,
   };
 }
