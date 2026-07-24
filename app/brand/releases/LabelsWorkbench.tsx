@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import PageHeader from "@/app/components/PageHeader";
 import Card from "@/app/components/ui/Card";
 import Badge from "@/app/components/ui/Badge";
 import Banner from "@/app/components/ui/Banner";
@@ -51,7 +52,9 @@ export default function LabelsWorkbench({ criteria }: { criteria: string[] }) {
   const selected = labels.find((l) => l.id === selectedId) ?? null;
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-[18rem_1fr] gap-4">
+    <div className="flex flex-col gap-4">
+      <PageHeader title="Releases" description="Per-beer labels: story, naming check, Tier-2 palette, and chop." />
+      <div className="grid grid-cols-1 lg:grid-cols-[18rem_1fr] gap-4">
       {/* List + create */}
       <div className="flex flex-col gap-3">
         <form
@@ -120,6 +123,7 @@ export default function LabelsWorkbench({ criteria }: { criteria: string[] }) {
           <p className="text-sm text-secondary">Select a label, or add one to begin.</p>
         </Card>
       )}
+      </div>
     </div>
   );
 }

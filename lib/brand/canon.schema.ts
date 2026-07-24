@@ -69,6 +69,30 @@ const roleMapSchema = z.object({
 
 const keyValSchema = z.object({ key: z.string(), value: z.string() });
 
+// A single identity mark (wordmark / logo / chop) and its specification sheet.
+// A mark can carry several "cuts"/variants (e.g. the wordmark's horizontal 4A
+// and vertical 5E). Optional throughout so a mark can be added with only an
+// approved artifact and its spec filled in over time.
+const markVariantSchema = z.object({
+  code: z.string(), // "Primary · Horizontal · 4A"
+  cut: z.string().optional(), // "Descending-J display cut"
+  orientation: z.enum(["horizontal", "vertical"]).optional(), // drives the CSS stand-in render
+  specs: z.array(keyValSchema),
+});
+
+const markSchema = z.object({
+  kind: z.enum(["wordmark", "logo", "chop"]),
+  title: z.string(),
+  status: z.string().optional(), // "Final specification"
+  approved: z.string().optional(), // "Approved 22 Jul 2026"
+  summary: z.array(z.string()).optional(), // header right-meta lines
+  variants: z.array(markVariantSchema),
+  colors: z.array(z.object({ name: z.string(), hex: hexColorSchema })).optional(),
+  clearspace: z.array(z.string()).optional(),
+  oneRule: z.array(z.string()).optional(),
+  note: z.string().optional(), // footer note
+});
+
 export const canonSchema = z.object({
   brandName: z.string(),
   version: z.string(),
@@ -133,6 +157,12 @@ export const canonSchema = z.object({
     .refine((fonts) => new Set(fonts.map((f) => f.role)).size === fonts.length, {
       message: "fonts must have at most one entry per role",
     }),
+
+  // ── Marks (Specification) — wordmark / logo / chop spec sheets ────────────
+  // Optional: published rows written before this field existed simply have no
+  // marks, and the guide's Marks tab falls back to showing approved artifacts
+  // alone (see app/brand/guide/MarksView.tsx).
+  marks: z.array(markSchema).optional(),
 
   // ── The chop / label chassis / illustration (Specification + Narrative) ──
   chop: z.object({ narrative: z.string(), specs: z.array(keyValSchema) }),
