@@ -34,11 +34,16 @@ type Period = {
   net_sales_cents: number | null; loading: boolean;
 };
 
-const TIERS: { value: Tier; label: string; color: string }[] = [
-  { value: "baseline", label: "Baseline", color: "#71717a" },
-  { value: "recovery", label: "Recovery", color: "#60a5fa" },
-  { value: "target",   label: "Target",   color: "#f59e0b" },
-  { value: "stretch",  label: "Stretch",  color: "#34d399" },
+// `color` is a raw data-category hex kept ONLY for the Recharts series
+// (AchievementChart) — the deliberate palette exception per docs/UI_STANDARD.md.
+// `selected` maps each tier onto the theme-aware --cat-{hue} badge tokens so the
+// pill flips correctly between light (brand skin) and dark. Class strings are
+// literal (not interpolated) so Tailwind statically emits them.
+const TIERS: { value: Tier; label: string; color: string; selected: string }[] = [
+  { value: "baseline", label: "Baseline", color: "#71717a", selected: "bg-[var(--cat-stone-bg)] text-[var(--cat-stone-fg)] border-[var(--cat-stone-bd)]" },
+  { value: "recovery", label: "Recovery", color: "#60a5fa", selected: "bg-[var(--cat-blue-bg)] text-[var(--cat-blue-fg)] border-[var(--cat-blue-bd)]" },
+  { value: "target",   label: "Target",   color: "#f59e0b", selected: "bg-[var(--cat-amber-bg)] text-[var(--cat-amber-fg)] border-[var(--cat-amber-bd)]" },
+  { value: "stretch",  label: "Stretch",  color: "#34d399", selected: "bg-[var(--cat-emerald-bg)] text-[var(--cat-emerald-fg)] border-[var(--cat-emerald-bd)]" },
 ];
 
 // ---------------------------------------------------------------------------
@@ -408,9 +413,8 @@ export default function AchievementTab() {
             return (
               <button key={t.value} onClick={() => setActiveTier(t.value)} disabled={!has}
                 className={`px-3 py-1.5 rounded text-xs font-medium border transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${
-                  activeTier === t.value ? "border-current bg-surface-mid" : "border-line-strong text-secondary hover:border-line-subtle hover:text-strong"
-                }`}
-                style={activeTier === t.value ? { color: t.color, borderColor: t.color } : {}}>
+                  activeTier === t.value ? t.selected : "border-line-strong text-secondary hover:border-line-subtle hover:text-strong"
+                }`}>
                 {t.label}
               </button>
             );
