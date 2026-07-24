@@ -58,7 +58,7 @@ export default async function BrandGuidePage() {
         guide: <GuideNarrative canon={canon} wordmarkUrl={wordmarkUrl} labels={labels} />,
         color: <ColorView canon={canon} />,
         type: <TypeView canon={canon} />,
-        marks: <MarksView marks={marks} />,
+        marks: <MarksView brandName={canon.brandName} marks={marks} specs={canon.marks ?? []} />,
       }}
     />
   );
