@@ -7,6 +7,12 @@
 // same channel reads the same color across Production and Finance; that
 // file's Channel-like union doesn't cover "events"/"unknown" though, so this
 // is its own map keyed off lib/finance/financials/types.ts's Channel type.
+//
+// Colors come from the theme-flipping category tokens (--cat-{hue}-{bg,fg,bd},
+// defined in app/globals.css with dark defaults + light values emitted by
+// lib/brand/opsThemeMap.ts's CAT_RAMP). This mirrors production's
+// CATEGORY_BADGE_CLASS so the channel pills stay legible when the brand skin
+// is toggled to light mode instead of showing light-text-on-light.
 
 import type { Channel } from "@/lib/finance/financials/types";
 
@@ -19,11 +25,11 @@ export const CHANNEL_LABEL: Record<Channel, string> = {
   unknown: "Unknown",
 };
 
-export const CHANNEL_COLOR: Record<Channel, { bg: string; text: string }> = {
-  taproom:          { bg: "bg-blue-900/50",    text: "text-blue-300" },
-  events:           { bg: "bg-teal-900/50",    text: "text-teal-300" },
-  contract_brewing: { bg: "bg-purple-900/50",  text: "text-purple-300" },
-  distribution:     { bg: "bg-emerald-900/50", text: "text-emerald-300" },
-  wholesale:        { bg: "bg-amber-900/50",   text: "text-amber-300" },
-  unknown:          { bg: "bg-surface-mid",    text: "text-secondary" },
+export const CHANNEL_COLOR: Record<Channel, { bg: string; text: string; border: string }> = {
+  taproom:          { bg: "bg-[var(--cat-blue-bg)]",    text: "text-[var(--cat-blue-fg)]",    border: "border-[var(--cat-blue-bd)]" },
+  events:           { bg: "bg-[var(--cat-teal-bg)]",    text: "text-[var(--cat-teal-fg)]",    border: "border-[var(--cat-teal-bd)]" },
+  contract_brewing: { bg: "bg-[var(--cat-purple-bg)]",  text: "text-[var(--cat-purple-fg)]",  border: "border-[var(--cat-purple-bd)]" },
+  distribution:     { bg: "bg-[var(--cat-emerald-bg)]", text: "text-[var(--cat-emerald-fg)]", border: "border-[var(--cat-emerald-bd)]" },
+  wholesale:        { bg: "bg-[var(--cat-amber-bg)]",   text: "text-[var(--cat-amber-fg)]",   border: "border-[var(--cat-amber-bd)]" },
+  unknown:          { bg: "bg-surface-mid",             text: "text-secondary",               border: "border-line-subtle" },
 };

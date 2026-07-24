@@ -209,8 +209,8 @@ export default function MarksView({
     >
       {specs.length === 0 && looseArtifacts.length === 0 ? (
         <p className="font-brand-body text-sm text-brand-content-muted">
-          No marks yet. Admins can upload a wordmark, logo, or chop in Edit mode and define its spec
-          via the Content editor.
+          No marks yet. In Edit mode, admins can upload a wordmark, logo, or chop and define its
+          specification sheet.
         </p>
       ) : (
         <div className="flex flex-col gap-8">

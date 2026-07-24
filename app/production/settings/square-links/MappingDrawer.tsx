@@ -204,6 +204,45 @@ export default function MappingDrawer({ recipeId, colKey, onClose }: Props) {
     }
   }
 
+  async function handleIgnore(v: MappingCellVariation) {
+    setSaving((s) => ({ ...s, [v.variationId]: true }));
+    setErrors((e) => ({ ...e, [v.variationId]: "" }));
+    try {
+      const body: Record<string, unknown> = { recipe_id: recipeId, packaging: col!.type };
+      if (v.variationId !== "draft") body.variation_id = v.variationId;
+      const res = await fetch("/api/production/recipe-square-link-ignores", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        throw new Error((json as { error?: string }).error ?? "Ignore failed");
+      }
+      qc.invalidateQueries({ queryKey: ["production", "square-mapping-grid"] });
+    } catch (err) {
+      setErrors((e) => ({ ...e, [v.variationId]: (err as Error).message }));
+    } finally {
+      setSaving((s) => ({ ...s, [v.variationId]: false }));
+    }
+  }
+
+  async function handleUnignore(v: MappingCellVariation) {
+    if (!v.ignoreId) return;
+    setSaving((s) => ({ ...s, [v.variationId]: true }));
+    try {
+      const res = await fetch(`/api/production/recipe-square-link-ignores?id=${v.ignoreId}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) throw new Error("Un-ignore failed");
+      qc.invalidateQueries({ queryKey: ["production", "square-mapping-grid"] });
+    } catch (err) {
+      setErrors((e) => ({ ...e, [v.variationId]: (err as Error).message }));
+    } finally {
+      setSaving((s) => ({ ...s, [v.variationId]: false }));
+    }
+  }
+
   return (
     <>
       {/* Backdrop */}
@@ -255,6 +294,17 @@ export default function MappingDrawer({ recipeId, colKey, onClose }: Props) {
                       Remove
                     </button>
                   </div>
+                ) : v.ignored ? (
+                  <div className="flex items-center justify-between rounded-lg border border-line bg-surface-mid/40 px-3 py-2">
+                    <span className="text-xs text-muted">Ignored — no Square mapping needed</span>
+                    <button
+                      onClick={() => handleUnignore(v)}
+                      disabled={isBusy}
+                      className="text-xs text-faint hover:text-accent transition-colors disabled:opacity-30 ml-3 shrink-0"
+                    >
+                      Require mapping
+                    </button>
+                  </div>
                 ) : (
                   <div className="space-y-2">
                     {v.suggestion &&
@@ -288,6 +338,13 @@ export default function MappingDrawer({ recipeId, colKey, onClose }: Props) {
                         {isBusy ? "Saving…" : "Link"}
                       </button>
                     )}
+                    <button
+                      onClick={() => handleIgnore(v)}
+                      disabled={isBusy}
+                      className="text-xs text-faint hover:text-secondary transition-colors disabled:opacity-30"
+                    >
+                      Ignore — no Square mapping needed
+                    </button>
                     {err && <p className="text-xs text-danger">{err}</p>}
                   </div>
                 )}

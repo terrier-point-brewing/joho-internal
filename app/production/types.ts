@@ -614,6 +614,8 @@ export interface MappingCellVariation {
     squareName: string;
     confidence: "high" | "medium";
   } | null;
+  ignored: boolean;
+  ignoreId: string | null;
 }
 
 export interface MappingCell {
@@ -630,4 +632,5 @@ export interface MappingGridRow {
 export interface MappingGridResponse {
   columns: MappingColumn[];
   rows: MappingGridRow[];
+  catalogSyncedAt: string | null;
 }
