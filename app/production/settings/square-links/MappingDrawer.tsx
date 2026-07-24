@@ -341,9 +341,9 @@ export default function MappingDrawer({ recipeId, colKey, onClose }: Props) {
                     <button
                       onClick={() => handleIgnore(v)}
                       disabled={isBusy}
-                      className="text-xs text-faint hover:text-secondary transition-colors disabled:opacity-30"
+                      className="btn-danger w-full"
                     >
-                      Ignore — no Square mapping needed
+                      {isBusy ? "Saving…" : "Ignore — no Square mapping needed"}
                     </button>
                     {err && <p className="text-xs text-danger">{err}</p>}
                   </div>
