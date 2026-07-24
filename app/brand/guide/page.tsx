@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { getSessionUser } from "@/lib/auth";
 import { getCanon } from "@/lib/brand/getCanon";
+import { seedCanon } from "@/lib/brand/seedCanon";
 import { resolveAsset, type SupabaseLikeClient } from "@/lib/brand/assets";
 import { resolveApprovedLabels, type SupabaseLikeClient as LabelsClient } from "@/lib/brand/labels";
 import BrandGuideTabs from "./BrandGuideTabs";
@@ -51,6 +52,11 @@ export default async function BrandGuidePage() {
     { kind: "chop_glyph", label: "Chop", url: chopUrl },
   ];
 
+  // Fall back to the seed's mark specs when the published canon has none — the
+  // published row predates the `marks` field, so its spec sheets live only in
+  // the code seed until an admin publishes marks of their own (which override).
+  const markSpecs = canon.marks?.length ? canon.marks : (seedCanon.marks ?? []);
+
   return (
     <BrandGuideTabs
       isAdmin={isAdmin}
@@ -58,7 +64,7 @@ export default async function BrandGuidePage() {
         guide: <GuideNarrative canon={canon} wordmarkUrl={wordmarkUrl} labels={labels} />,
         color: <ColorView canon={canon} />,
         type: <TypeView canon={canon} />,
-        marks: <MarksView brandName={canon.brandName} marks={marks} specs={canon.marks ?? []} />,
+        marks: <MarksView brandName={canon.brandName} marks={marks} specs={markSpecs} />,
       }}
     />
   );
