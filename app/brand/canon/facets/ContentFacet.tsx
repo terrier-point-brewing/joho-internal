@@ -16,12 +16,13 @@ const CONTENT_KEYS = [
   "chop",
   "labelChassis",
   "illustrationLaw",
-  "marks",
   "hardRules",
   "precedence",
   "visibility",
 ] as const;
 
+// Marks are intentionally excluded — they're edited with structured controls
+// on the Marks tab (MarksFacet), not in this JSON blob.
 const contentSectionSchema = canonSchema.pick({
   mission: true,
   missionNarrative: true,
@@ -33,7 +34,6 @@ const contentSectionSchema = canonSchema.pick({
   chop: true,
   labelChassis: true,
   illustrationLaw: true,
-  marks: true,
   hardRules: true,
   precedence: true,
   visibility: true,

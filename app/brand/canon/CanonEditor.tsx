@@ -10,15 +10,17 @@ import PaletteFacet from "./facets/PaletteFacet";
 import ThemeFacet from "./facets/ThemeFacet";
 import TypeFacet from "./facets/TypeFacet";
 import ContentFacet from "./facets/ContentFacet";
+import MarksFacet from "./facets/MarksFacet";
 import { useDraft, usePublish, useSaveDraft } from "./useCanonEditor";
 
-/** Which guide tab's editor is shown. One draft/publish state spans all three. */
-export type CanonSection = "guide" | "color" | "type";
+/** Which guide tab's editor is shown. One draft/publish state spans them all. */
+export type CanonSection = "guide" | "color" | "type" | "marks";
 
 /**
  * Admin canon editor. Holds one editable draft copy + a shared publish bar and
  * live preview; the active guide tab decides which facet(s) edit it:
- *   guide → Content (the narrative prose)   color → Palette + Theme   type → Type
+ *   guide → Content (narrative prose)   color → Palette + Theme
+ *   type → Type   marks → Mark specification sheets
  * The caller keeps this mounted across tab switches (and across the view/edit
  * toggle) so in-progress edits survive.
  */
@@ -109,7 +111,9 @@ export default function CanonEditor({ section }: { section: CanonSection }) {
         </button>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[1fr_20rem]">
+      {/* The token preview only reflects palette/type/prose — not marks — so it's
+          dropped for the marks editor, which gets the full width instead. */}
+      <div className={section === "marks" ? "" : "grid gap-4 lg:grid-cols-[1fr_20rem]"}>
         <div className="flex flex-col gap-6">
           {section === "guide" && <ContentFacet draft={draft} onChange={setDraft} />}
           {section === "color" && (
@@ -119,9 +123,10 @@ export default function CanonEditor({ section }: { section: CanonSection }) {
             </>
           )}
           {section === "type" && <TypeFacet draft={draft} onChange={setDraft} />}
+          {section === "marks" && <MarksFacet draft={draft} onChange={setDraft} />}
         </div>
 
-        <BrandPreview draft={draft} />
+        {section !== "marks" && <BrandPreview draft={draft} />}
       </div>
 
       {confirming && (

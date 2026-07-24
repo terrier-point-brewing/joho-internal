@@ -56,8 +56,8 @@ export default function MarksEditor() {
   return (
     <div className="flex flex-col gap-6">
       <Banner tone="info">
-        Upload the identity artifacts here. Their specification sheets are edited as canon JSON via
-        the Content editor on the Guide tab.
+        Upload the identity artwork here. Each mark&rsquo;s written specification is edited in the
+        spec-sheet editor below.
       </Banner>
       {mutationError && <Banner tone="danger">{(mutationError as Error).message}</Banner>}
 
