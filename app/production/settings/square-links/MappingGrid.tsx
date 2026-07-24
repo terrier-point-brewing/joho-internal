@@ -1,8 +1,22 @@
 "use client";
 
+import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useSquareMappingGridQuery } from "@/app/production/hooks/queries";
+import { queryKeys } from "@/lib/query-keys";
 import type { MappingCellVariation, MappingGridRow, MappingColumn } from "@/app/production/types";
+
+function syncedAgo(iso: string | null): string | null {
+  if (!iso) return null;
+  const ms = Date.now() - new Date(iso).getTime();
+  if (Number.isNaN(ms) || ms < 0) return null;
+  const min = Math.floor(ms / 60000);
+  if (min < 1) return "just now";
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  return `${Math.floor(hr / 24)}d ago`;
+}
 
 async function acceptSuggestion(
   recipeId: string,
@@ -56,6 +70,28 @@ export default function MappingGrid({
 }) {
   const { data, isLoading, error } = useSquareMappingGridQuery();
   const qc = useQueryClient();
+  const [syncing, setSyncing] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
+
+  async function refreshFromSquare() {
+    setSyncing(true);
+    setSyncError(null);
+    try {
+      const res = await fetch("/api/finance/sync-catalog", { method: "POST" });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        throw new Error((json as { error?: string }).error ?? "Sync failed");
+      }
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["production", "square-mapping-grid"] }),
+        qc.invalidateQueries({ queryKey: queryKeys.production.squareCatalog() }),
+      ]);
+    } catch (err) {
+      setSyncError((err as Error).message);
+    } finally {
+      setSyncing(false);
+    }
+  }
 
   if (isLoading) return <div className="text-sm text-muted py-8 text-center">Loading grid…</div>;
   if (error) return <div className="text-sm text-danger py-8 text-center">{(error as Error).message}</div>;
@@ -69,7 +105,7 @@ export default function MappingGrid({
       const cell = row.cells[colKey];
       if (!cell) continue;
       for (const v of cell.variations) {
-        if (!v.linkId && v.suggestion?.confidence === "high") result.push(v);
+        if (!v.linkId && !v.ignored && v.suggestion?.confidence === "high") result.push(v);
       }
     }
     return result;
@@ -84,7 +120,7 @@ export default function MappingGrid({
         const cell = row.cells[col.key];
         if (!cell) return [];
         return cell.variations
-          .filter((v) => !v.linkId && v.suggestion?.confidence === "high")
+          .filter((v) => !v.linkId && !v.ignored && v.suggestion?.confidence === "high")
           .map((v) =>
             acceptSuggestion(
               row.recipeId,
@@ -119,8 +155,22 @@ export default function MappingGrid({
     qc.invalidateQueries({ queryKey: ["production", "square-mapping-grid"] });
   }
 
+  const syncedLabel = syncedAgo(data.catalogSyncedAt);
+
   return (
     <div>
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <button onClick={refreshFromSquare} disabled={syncing} className="btn-secondary">
+            {syncing ? "Syncing…" : "Refresh from Square"}
+          </button>
+          {syncedLabel && (
+            <span className="text-xs text-muted">Catalog synced {syncedLabel}</span>
+          )}
+        </div>
+        {syncError && <span className="text-xs text-danger">{syncError}</span>}
+      </div>
+
       {totalHigh > 0 && (
         <div className="mb-3 flex items-center justify-between rounded-lg border border-info-border/40 bg-info-surface/20 px-4 py-2.5">
           <span className="text-sm text-info">
@@ -265,6 +315,18 @@ export default function MappingGrid({
                                   >
                                     ✓
                                   </button>
+                                </span>
+                              );
+                            }
+
+                            if (v.ignored) {
+                              return (
+                                <span
+                                  key={v.variationId}
+                                  className="inline-block px-1.5 py-0.5 rounded text-[10px] border border-line text-muted bg-surface-mid/40 break-words leading-4"
+                                  title="Ignored — no Square mapping needed"
+                                >
+                                  {label ? `${label}: ` : ""}Ignored
                                 </span>
                               );
                             }
