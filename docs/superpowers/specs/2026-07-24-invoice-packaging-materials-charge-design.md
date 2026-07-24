@@ -35,9 +35,14 @@ export_transactions (recipe_id, packaging_item_id, packaging_format, quantity, u
 - `packaging_items.unit_cost` is **USD dollars (decimal), nullable**.
 - Format quantity math lives in `lib/production/packagingVariations.ts`
   (`getUnitsPerPackage`, `getPaktechUnitsPerPackage`) — reuse it, do not re-derive.
-- `export_transactions` has **no** `variation_id`; the variation is resolved at query
-  time by `(recipe_id ∩ container_id ∩ format)`, exactly as `buildProductLines` does
-  (`exportInvoicePreview.ts:172-186`). Resolution must be exactly one row.
+- `export_transactions` has **no** `variation_id`, but it **does** record the literal
+  variation shipped as `variant_label` (text, not null = the variation's `name` at
+  ship time; written by `writeExportTransaction`, `shipmentWriter.ts:125`). Resolve the
+  exact variation by `(recipe_id ∩ packaging_variations.name = variant_label)` — this
+  **pinpoints the label-variant**. `(recipe ∩ container ∩ format)` alone is ambiguous:
+  one liquid can ship under two brand labels sharing a can + format (verified in prod —
+  "Pumpkin Ale" links to both a *Fortnight Pumpkin Ale* and a *CBC Pumpkin Reaper* case
+  of the same 16oz Blank can). Resolution must be exactly one row.
 
 ## Decisions (locked)
 
@@ -133,11 +138,10 @@ declares an explicit response type; otherwise inference covers it).
 - **Recipe with $0 total** (all costs missing / no populated slots) → still emit the
   line at $0 with a warning? **No** — skip a recipe whose computed total is 0 to avoid
   a meaningless $0 line, but still surface the missing-cost warning so it's visible.
-- **Variation resolution returns ≠ 1 row** → **do not throw.** The contract-brewing
-  branch does not resolve variations today, so a hard throw here could block an
-  otherwise-valid invoice over a materials line. Instead, skip the materials charge for
+- **`variant_label` resolves to ≠ 1 variation** (e.g. the variation was renamed after
+  shipment, or the link is missing) → **do not throw.** Skip the materials charge for
   that transaction and add a warning (`"Couldn't resolve packaging materials for <beer>
-  (<container>, <format>) — no materials charged. Check Link Styles to Square."`).
+  ("<variant_label>") — no materials charged. Check Link Styles to Square."`).
   Consistent with the warn-don't-block choice for missing costs.
 - **`billAs` override to contract_brewing** from another shipped channel → materials
   charge applies based on the effective (billed) channel, consistent with how the whole

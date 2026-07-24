@@ -60,6 +60,11 @@ interface ExportTxRow {
   units_per_package: number;
   channel: string;
   recipe_id: string | null;
+  // The literal packaging variation shipped, stored by name at ship time
+  // (writeExportTransaction: variant_label = variation.name). Pinpoints the exact
+  // label-variant for the materials charge — (recipe ∩ container ∩ format) can be
+  // ambiguous when one liquid ships under two brand labels.
+  variant_label: string;
 }
 
 /**
@@ -175,6 +180,20 @@ const MATERIAL_SLOT_SELECT = `
 
 interface SlotItem { name: string; unit_cost: number | null; can_count?: number | null }
 
+// Map a resolved variation's populated slot items to priced material components.
+function slotComponents(pv: Record<string, SlotItem | null>): MaterialComponent[] {
+  const roleBySlot: Array<[string, MaterialComponent["role"]]> = [
+    ["container", "container"], ["lid", "lid"], ["label", "label"], ["paktech", "paktech"], ["tray", "tray"],
+  ];
+  const out: MaterialComponent[] = [];
+  for (const [slot, role] of roleBySlot) {
+    const item = pv[slot];
+    if (!item) continue; // slot not populated on this variation
+    out.push({ role, name: item.name, unitCostDollars: item.unit_cost, canCount: item.can_count ?? null });
+  }
+  return out;
+}
+
 export async function buildPackagingMaterialLines(
   supabase: SupabaseClient,
   rows: ExportTxRow[],
@@ -197,28 +216,21 @@ export async function buildPackagingMaterialLines(
       continue;
     }
 
+    // Resolve the LITERAL variation shipped, recorded on the export as
+    // variant_label (= the variation's name at ship time). This pinpoints the
+    // exact label-variant — (recipe ∩ container ∩ format) alone is ambiguous when
+    // one liquid ships under two brand labels sharing a can + format.
     const { data: pvRows, error } = await supabase
       .from("recipe_packaging_variations")
       .select(MATERIAL_SLOT_SELECT)
       .eq("recipe_id", tx.recipe_id)
-      .eq("packaging_variations.container_id", tx.packaging_item_id)
-      .eq("packaging_variations.format", format);
+      .eq("packaging_variations.name", tx.variant_label);
     if (error || !pvRows || pvRows.length !== 1) {
-      warnings.push(`Couldn't resolve packaging materials for ${beerName ?? containerName} (${containerName}, ${format}) — no materials charged. Check Link Styles to Square.`);
+      warnings.push(`Couldn't resolve packaging materials for ${beerName ?? containerName} ("${tx.variant_label}") — no materials charged. Check Link Styles to Square.`);
       continue;
     }
 
-    const pv = (pvRows[0] as unknown as { packaging_variations: Record<string, SlotItem | null> }).packaging_variations;
-    const roleBySlot: Array<[string, MaterialComponent["role"]]> = [
-      ["container", "container"], ["lid", "lid"], ["label", "label"], ["paktech", "paktech"], ["tray", "tray"],
-    ];
-    const components: MaterialComponent[] = [];
-    for (const [slot, role] of roleBySlot) {
-      const item = pv[slot];
-      if (!item) continue; // slot not populated on this variation
-      components.push({ role, name: item.name, unitCostDollars: item.unit_cost, canCount: item.can_count ?? null });
-    }
-
+    const components = slotComponents((pvRows[0] as unknown as { packaging_variations: Record<string, SlotItem | null> }).packaging_variations);
     const input: MaterialTxnInput = { format, packages: tx.quantity, unitsPerPackage: tx.units_per_package || 1, components };
     const list = byRecipe.get(tx.recipe_id) ?? [];
     list.push(input);
@@ -314,7 +326,7 @@ export async function buildInvoicePreview(
   // ── 1. Load transactions + validate same-customer, invoice_required ───────
   const { data: txs, error: txErr } = await supabase
     .from("export_transactions")
-    .select("id, recipient_id, status, quantity, volume_bbl, packaging_item_id, packaging_format, units_per_package, channel, recipe_id")
+    .select("id, recipient_id, status, quantity, volume_bbl, packaging_item_id, packaging_format, units_per_package, channel, recipe_id, variant_label")
     .in("id", transactionIds);
   if (txErr) throw new Error(txErr.message);
   if (!txs || txs.length !== transactionIds.length) {
