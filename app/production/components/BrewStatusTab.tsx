@@ -522,7 +522,7 @@ export default function BrewStatusTab() {
               const ledgerVol = volFor(batch) + combinedAssignments.reduce((s, a) => s + volFor(a.brew_batches), 0);
 
               return (
-                <div key={tank.id} className={`rounded-lg border ${eq.border} overflow-hidden`} style={{ background: "rgba(9,9,11,0.95)" }}>
+                <div key={tank.id} className={`rounded-lg border ${eq.border} overflow-hidden`} style={{ background: "color-mix(in srgb, var(--color-surface) 95%, transparent)" }}>
                   {/* Card header */}
                   <div className={`flex items-center justify-between px-3 py-2 ${eq.headerBg}`}>
                     <div className="flex items-center gap-2 min-w-0">
@@ -569,7 +569,7 @@ export default function BrewStatusTab() {
                                   <span className="text-muted">{ledgerVol.toFixed(1)} / {tank.capacity_bbl} BBL</span>
                                   <span className="text-faint">{Math.round((ledgerVol / tank.capacity_bbl) * 100)}%</span>
                                 </div>
-                                <div className="w-full rounded-full overflow-hidden mb-2.5" style={{ height: 4, background: "rgba(63,63,70,0.6)" }}>
+                                <div className="w-full rounded-full overflow-hidden mb-2.5" style={{ height: 4, background: "color-mix(in srgb, var(--color-line-strong) 60%, transparent)" }}>
                                   <div style={{ height: "100%", width: `${Math.min(100, (ledgerVol / tank.capacity_bbl) * 100).toFixed(1)}%`, background: "rgba(245,158,11,0.7)", borderRadius: "9999px" }} />
                                 </div>
                               </>
@@ -771,8 +771,8 @@ export default function BrewStatusTab() {
               width:  gridCols * cell,
               height: gridRows * cell,
               backgroundImage: [
-                `linear-gradient(to right, rgba(63,63,70,0.22) 1px, transparent 1px)`,
-                `linear-gradient(to bottom, rgba(63,63,70,0.22) 1px, transparent 1px)`,
+                `linear-gradient(to right, color-mix(in srgb, var(--color-line-strong) 22%, transparent) 1px, transparent 1px)`,
+                `linear-gradient(to bottom, color-mix(in srgb, var(--color-line-strong) 22%, transparent) 1px, transparent 1px)`,
               ].join(","),
               backgroundSize: `${cell}px ${cell}px`,
             }}
@@ -808,7 +808,7 @@ export default function BrewStatusTab() {
                 className={`absolute flex flex-col rounded border transition-opacity select-none ${
                   isDragging ? "opacity-30" : "opacity-100"
                 } ${editMode && canEditEquipment ? "cursor-grab active:cursor-grabbing" : ""} ${eq.border}`}
-                style={{ ...style, background: "rgba(9,9,11,0.88)" }}
+                style={{ ...style, background: "color-mix(in srgb, var(--color-surface) 88%, transparent)" }}
               >
                 {/* Header: name + type badge + upcoming-plans button on one line */}
                 <div className={`shrink-0 px-1.5 py-1 flex items-center justify-between gap-1 min-w-0 ${eq.headerBg}`}>
@@ -926,7 +926,7 @@ export default function BrewStatusTab() {
                               {batch ? `${ledgerVol.toFixed(1)} / ${tank.capacity_bbl} BBL` : `${tank.capacity_bbl} BBL`}
                             </p>
                             {batch && (
-                              <div className="w-full rounded-full overflow-hidden" style={{ height: 3, background: "rgba(63,63,70,0.6)", marginTop: 2, marginBottom: 2 }}>
+                              <div className="w-full rounded-full overflow-hidden" style={{ height: 3, background: "color-mix(in srgb, var(--color-line-strong) 60%, transparent)", marginTop: 2, marginBottom: 2 }}>
                                 <div
                                   style={{
                                     height: "100%",

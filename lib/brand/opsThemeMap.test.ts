@@ -31,11 +31,32 @@ describe("opsChromeOverrideCss", () => {
     expect(css).toContain(`--color-accent:${light.primary};`);
   });
 
-  it("never overrides status colors (danger/success/info keep their meaning)", () => {
+  it("flips status colors light/dark without drawing them from the brand palette", () => {
     const css = opsChromeOverrideCss(light, dark);
-    expect(css).not.toContain("--color-danger");
-    expect(css).not.toContain("--color-success");
-    expect(css).not.toContain("--color-info");
+    // Emitted in both schemes...
+    expect(css).toContain("--color-danger:");
+    expect(css).toContain("--color-success:");
+    expect(css).toContain("--color-info:");
+    // ...light with dark-on-tint text (red-700), dark re-asserting globals (red-400).
+    expect(css).toContain("--color-danger:#b91c1c;");
+    expect(css).toContain("--color-danger:#f87171;");
+    expect(css).toContain("--color-success-surface:#f0fdf4;"); // light green-50 tint
+    expect(css).toContain("--color-success-surface:#052e16;"); // dark green-950
+    // Status hue is independent of the brand palette (not primary/accent hexes).
+    expect(css).not.toContain(`--color-danger:${light.primary};`);
+    expect(css).not.toContain(`--color-danger:${light.accent};`);
+  });
+
+  it("flips the category (--cat-*) palette light/dark with baked hexes", () => {
+    const css = opsChromeOverrideCss(light, dark);
+    // light: -100 fill, -800 text; dark: -900 mix fill, -300 text — literal
+    // hexes (Tailwind v4 does not keep unused palette vars on :root).
+    expect(css).toContain("--cat-purple-bg:#f3e8ff;");
+    expect(css).toContain("--cat-purple-fg:#6b21a8;");
+    expect(css).toContain("--cat-purple-bg:color-mix(in srgb, #581c87 50%, transparent);");
+    expect(css).toContain("--cat-purple-fg:#d8b4fe;");
+    // no dependence on Tailwind palette vars
+    expect(css).not.toContain("var(--color-purple-");
   });
 
   it("skips a non-hex (potentially unsafe) value instead of injecting it", () => {

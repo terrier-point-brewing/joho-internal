@@ -32,13 +32,15 @@ const STATUS_META: Record<ContractRequestStatus, { label: string; cls: string }>
 const CHANNEL_META: Record<CommitmentChannel, { label: string; cls: string }> = {
   distribution:     { label: "Distribution",     cls: "bg-info-surface/40 text-info border-info-border" },
   contract_brewing: { label: "Contract Brewing", cls: CC.purple },
-  wholesale:        { label: "Wholesale",        cls: "bg-accent-muted/40 text-accent-soft border-accent-border" },
+  // Amber category token (not `accent`, which the brand skin remaps to indigo)
+  // so the pill stays amber and readable in both themes.
+  wholesale:        { label: "Wholesale",        cls: CC.amber },
 };
 
 const CHANNEL_OPTIONS = [
   { value: "distribution", label: CHANNEL_META.distribution.label },
   { value: "contract_brewing", label: CHANNEL_META.contract_brewing.label, className: CC.purple },
-  { value: "wholesale", label: CHANNEL_META.wholesale.label },
+  { value: "wholesale", label: CHANNEL_META.wholesale.label, className: CC.amber },
 ];
 
 const COMMITMENT_CONTROLS: ControlsConfig<SortableRow> = {
