@@ -9,7 +9,7 @@ import MarksEditor from "./MarksEditor";
 type TabKey = "guide" | "color" | "type" | "marks" | "history";
 type Mode = "view" | "edit";
 
-const CANON_SECTIONS: readonly TabKey[] = ["guide", "color", "type"];
+const CANON_SECTIONS: readonly TabKey[] = ["guide", "color", "type", "marks"];
 
 function isCanonSection(tab: TabKey): tab is CanonSection {
   return (CANON_SECTIONS as readonly string[]).includes(tab);
@@ -84,12 +84,17 @@ export default function BrandGuideTabs({
       <div className={!editing && active === "marks" ? "" : "hidden"}>{views.marks}</div>
 
       {/* Edit mode — canon editor (kept mounted once opened) */}
+      {/* Marks edit: upload the artwork (Assets) above the spec-sheet editor. */}
+      {showMarksEditor && (
+        <div className="mb-6">
+          <MarksEditor />
+        </div>
+      )}
       {isAdmin && editorMounted && (
         <div className={showCanonEditor ? "" : "hidden"}>
           <CanonEditor section={editorSection} />
         </div>
       )}
-      {showMarksEditor && <MarksEditor />}
 
       {/* History — admin, view-only */}
       {isAdmin && active === "history" && <CanonHistory />}
