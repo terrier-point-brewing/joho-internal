@@ -52,20 +52,35 @@ export function billMatchKey(name: string | null | undefined): string {
   return (name ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
-/** Group bill line-item expense rows by their bill id (the part before the ":N" suffix) and sum, keyed by fuzzy vendor. */
+/**
+ * Group bill line-item expense rows by their bill id (the part before the ":N"
+ * suffix) and sum, keyed by fuzzy vendor.
+ *
+ * Each line is summed ONCE, keyed by its own source_transaction_id, because a
+ * bill routinely arrives twice in a single sync: rampSync feeds this both the
+ * bill lines already persisted in `expenses` (120-day lookback) and the bills
+ * freshly fetched from the Ramp API. Adding a line twice yields a 2x bill total
+ * that matches no real bank debit, silently regressing an already-excluded
+ * settlement back into a live, double-counted expense.
+ */
 export function buildBillTotals(billLineItems: { source_transaction_id: string; amount_cents: number; merchant_name: string | null }[]): BillTotals {
-  const totalsByBillId = new Map<string, { cents: number; vendorKey: string }>();
+  const linesByBillId = new Map<string, { centsByLineId: Map<string, number>; vendorKey: string }>();
   for (const row of billLineItems) {
     const billId = row.source_transaction_id.split(":")[0];
     const vendorKey = billMatchKey(row.merchant_name);
-    const prior = totalsByBillId.get(billId);
-    totalsByBillId.set(billId, { cents: (prior?.cents ?? 0) + Math.abs(row.amount_cents), vendorKey });
+    const entry = linesByBillId.get(billId) ?? { centsByLineId: new Map<string, number>(), vendorKey };
+    entry.centsByLineId.set(row.source_transaction_id, Math.abs(row.amount_cents));
+    entry.vendorKey = vendorKey;
+    linesByBillId.set(billId, entry);
   }
+
   const result: BillTotals = new Map();
-  for (const { cents, vendorKey } of totalsByBillId.values()) {
+  for (const { centsByLineId, vendorKey } of linesByBillId.values()) {
     if (!vendorKey) continue;
+    let total = 0;
+    for (const cents of centsByLineId.values()) total += cents;
     if (!result.has(vendorKey)) result.set(vendorKey, new Set());
-    result.get(vendorKey)!.add(cents);
+    result.get(vendorKey)!.add(total);
   }
   return result;
 }
