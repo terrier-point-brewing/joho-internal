@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { classifyBankLine, partitionBankLines, buildBillTotals } from "./bankLedger";
+import { classifyBankLine, partitionBankLines, buildBillTotals, selectPrunableExpenseIds } from "./bankLedger";
 import { normalizeCounterparty, type RampBankLine } from "@/lib/ramp";
 
 const OWN = new Set(["operating account", "investment account"].map(normalizeCounterparty));
@@ -225,6 +225,40 @@ function fakeSupabase(
     },
   };
 }
+
+describe("selectPrunableExpenseIds", () => {
+  const plain = { id: "e1", source_transaction_id: "s1", excluded_at: null };
+  const withSplit = { id: "e2", source_transaction_id: "s2", excluded_at: null };
+  const excluded = { id: "e3", source_transaction_id: "s3", excluded_at: "2026-07-20T00:00:00Z" };
+
+  it("deletes a reclassified row carrying no manual work", () => {
+    const r = selectPrunableExpenseIds([plain], new Set());
+    expect(r.deletable).toEqual(["e1"]);
+    expect(r.skipped).toEqual([]);
+  });
+
+  it("keeps a row that has GL splits, so the cascade cannot destroy them", () => {
+    const r = selectPrunableExpenseIds([withSplit], new Set(["e2"]));
+    expect(r.deletable).toEqual([]);
+    expect(r.skipped).toEqual(["s2"]);
+  });
+
+  it("keeps a manually excluded row", () => {
+    const r = selectPrunableExpenseIds([excluded], new Set());
+    expect(r.deletable).toEqual([]);
+    expect(r.skipped).toEqual(["s3"]);
+  });
+
+  it("partitions a mixed batch", () => {
+    const r = selectPrunableExpenseIds([plain, withSplit, excluded], new Set(["e2"]));
+    expect(r.deletable).toEqual(["e1"]);
+    expect(r.skipped).toEqual(["s2", "s3"]);
+  });
+
+  it("handles an empty batch", () => {
+    expect(selectPrunableExpenseIds([], new Set())).toEqual({ deletable: [], skipped: [] });
+  });
+});
 
 describe("syncBankLedger", () => {
   const rec: BankLedgerRecord = {

@@ -85,6 +85,31 @@ export function buildBillTotals(billLineItems: { source_transaction_id: string; 
   return result;
 }
 
+export interface PruneCandidate {
+  id:                    string;
+  source_transaction_id: string;
+  excluded_at:           string | null;
+}
+
+/**
+ * Partition reclassified bank expenses into those safe to delete and those to
+ * leave alone. A row carrying manual work -- a GL split, or a manual exclusion
+ * -- is never deleted: expense_gl_splits cascades on expense delete, so pruning
+ * such a row would silently destroy the operator's split.
+ */
+export function selectPrunableExpenseIds(
+  candidates: PruneCandidate[],
+  expenseIdsWithSplits: Set<string>,
+): { deletable: string[]; skipped: string[] } {
+  const deletable: string[] = [];
+  const skipped:   string[] = [];
+  for (const c of candidates) {
+    if (expenseIdsWithSplits.has(c.id) || c.excluded_at !== null) skipped.push(c.source_transaction_id);
+    else deletable.push(c.id);
+  }
+  return { deletable, skipped };
+}
+
 /** Whether a bank-ledger flow_type affects the P&L. In the ledger table only interest is income; transfers/settlements/deposits/unclassified are non-P&L. */
 export function affectsPlForFlowType(flowType: FlowType): boolean {
   return flowType === "interest_income";
