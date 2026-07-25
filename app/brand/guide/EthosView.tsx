@@ -1,25 +1,18 @@
 import type { BrandCanon } from "@/lib/brand/canon.types";
+import { resolveGuideIntro } from "@/lib/brand/guideIntros";
 import GuideSection from "./GuideSection";
 
 /**
- * Ethos view: the mission up top, its narrative, then the values with their
- * costs — treated as one Ethos family, so the values carry no sub-heading of
- * their own. Single unnumbered section, matching the Color/Type tab layout.
+ * Ethos view: the introduction (the mission narrative, until an admin edits it)
+ * then the values with their costs — one Ethos family, so the values carry no
+ * sub-heading of their own. The mission line itself lives in the canon and the
+ * brand brief, not on this tab.
  */
 export default function EthosView({ canon }: { canon: BrandCanon }) {
   return (
-    <GuideSection title="Ethos">
-      <p className="font-brand-display text-2xl sm:text-4xl leading-tight text-brand-high-contrast mb-6">
-        {canon.mission}
-      </p>
-      {canon.missionNarrative && (
-        <p className="font-brand-body text-base text-brand-content leading-relaxed max-w-3xl">
-          {canon.missionNarrative}
-        </p>
-      )}
-
+    <GuideSection intro={resolveGuideIntro(canon, "ethos")}>
       {canon.values?.length > 0 && (
-        <div className="grid gap-3 sm:grid-cols-2 mt-10">
+        <div className="grid gap-3 sm:grid-cols-2">
           {canon.values.map((v) => (
             <div key={v.n} className="rounded-lg border border-brand-line p-4">
               <p className="font-brand-display text-lg text-brand-high-contrast">

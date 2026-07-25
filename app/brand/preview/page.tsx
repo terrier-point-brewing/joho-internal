@@ -1,5 +1,6 @@
 import type { RoleName } from "@/lib/brand/canon.types";
 import { getCanon } from "@/lib/brand/getCanon";
+import { firstParagraph } from "@/lib/brand/guideIntros";
 import ThemeToggle from "@/app/components/brand/ThemeToggle";
 
 // Explicit literal classNames (not template-string interpolation) so
@@ -53,12 +54,14 @@ export default async function BrandPreviewPage() {
         </div>
       </section>
 
+      {/* Prose specimen — the display and body faces carrying real brand copy,
+          read from the guide's Ethos and Voice introductions. */}
       <section className="mb-10 max-w-2xl">
         <h2 className="font-brand-display text-2xl text-brand-high-contrast mb-2">
-          {canon.mission}
+          {firstParagraph(canon, "ethos")}
         </h2>
         <p className="font-brand-body text-brand-content leading-relaxed">
-          {canon.voice.summary}
+          {firstParagraph(canon, "voice")}
         </p>
       </section>
 

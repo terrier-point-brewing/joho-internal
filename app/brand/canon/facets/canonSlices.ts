@@ -7,7 +7,11 @@ import { canonSchema } from "@/lib/brand/canon.schema";
  * switch and each SliceJsonFacet. `keys` names the fields the slice owns;
  * `schema` is the matching canonSchema.pick() used to validate an edited slice
  * on blur. The Brand Guide's four content subtabs each own exactly one slice —
- * no tab edits another's fields.
+ * no tab edits another's fields. Each subtab's introduction block is edited
+ * separately (IntroFacet → canon.guideIntros), not through these slices.
+ *
+ * Each subtab's narrative copy is not here either — it lives in
+ * canon.guideIntros and is edited by IntroFacet, one textarea per subtab.
  *
  * Fields that live on other tabs/modules are intentionally absent here:
  *   colorForbidden → Color tab (colorSlice)   naming/labelChassis → Releases
@@ -22,24 +26,24 @@ export type CanonSlice = {
 };
 
 export const ethosSlice: CanonSlice = {
-  keys: ["mission", "missionNarrative", "values"],
-  schema: canonSchema.pick({ mission: true, missionNarrative: true, values: true }),
+  keys: ["values"],
+  schema: canonSchema.pick({ values: true }),
   title: "Ethos",
-  description: "Mission, its narrative, and the values with their costs. Validated on blur.",
+  description: "The values with what each one means and costs. Validated on blur.",
 };
 
 export const voiceSlice: CanonSlice = {
   keys: ["voice"],
   schema: canonSchema.pick({ voice: true }),
   title: "Voice",
-  description: "Summary, personality, calibration sliders, word lists, and rewrites. Validated on blur.",
+  description: "Calibration sliders, word lists, and rewrites. Validated on blur.",
 };
 
 export const visualSlice: CanonSlice = {
   keys: ["illustrationLaw"],
   schema: canonSchema.pick({ illustrationLaw: true }),
   title: "Visual Identity",
-  description: "Illustration narrative and its rules — the seed of the wider visual-identity spec. Validated on blur.",
+  description: "The illustration rules — the seed of the wider visual-identity spec. Validated on blur.",
 };
 
 export const agentSlice: CanonSlice = {

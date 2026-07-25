@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { seedCanon } from "./seedCanon";
+import { GUIDE_SECTIONS } from "./guideIntros";
 import type { FontRole, RoleName } from "./canon.types";
 
 const ROLE_NAMES: RoleName[] = [
@@ -44,9 +45,10 @@ describe("seedCanon", () => {
     }
   });
 
-  it("has non-empty mission and voice.summary", () => {
-    expect(seedCanon.mission.length).toBeGreaterThan(0);
-    expect(seedCanon.voice.summary.length).toBeGreaterThan(0);
+  it("has a non-empty introduction for every guide subtab", () => {
+    for (const section of GUIDE_SECTIONS) {
+      expect(seedCanon.guideIntros?.[section]?.length ?? 0).toBeGreaterThan(0);
+    }
   });
 
   it("has the 10 brand hard rules", () => {

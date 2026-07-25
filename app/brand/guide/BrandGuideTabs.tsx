@@ -7,17 +7,17 @@ import CanonEditor, { type CanonSection } from "../canon/CanonEditor";
 import CanonHistory from "../canon/CanonHistory";
 import MarksEditor from "./MarksEditor";
 
-type TabKey = "ethos" | "voice" | "visual" | "agent" | "color" | "type" | "marks" | "history";
+type TabKey = CanonSection | "history";
 type Mode = "view" | "edit";
 
 const CANON_SECTIONS: readonly TabKey[] = [
   "ethos",
   "voice",
   "visual",
-  "agent",
   "color",
   "type",
   "marks",
+  "agent",
 ];
 
 function isCanonSection(tab: TabKey): tab is CanonSection {
@@ -26,11 +26,11 @@ function isCanonSection(tab: TabKey): tab is CanonSection {
 
 /**
  * In-page tabs for the Brand Guide. Every authenticated user gets read-only
- * View mode across Ethos / Voice / Visual Identity / Agent Rules / Color / Type
- * / Marks. Admins additionally get a single View/Edit toggle and a History tab:
- * in Edit mode each tab swaps its rendered content for the matching canon
- * editor (each content tab → its own slice; color→Palette+Theme, type→Type;
- * marks are managed in the Assets tab).
+ * View mode across Ethos / Voice / Visual Identity / Color / Type / Marks /
+ * Agent Rules. Admins additionally get a single View/Edit toggle and a History
+ * tab: in Edit mode each tab swaps its rendered content for the matching canon
+ * editor (every tab → its own introduction, plus its own slice; color→Palette
+ * +Theme, type→Type; marks are managed in the Assets tab).
  *
  * The editor is kept mounted once opened — hidden, not unmounted — so unsaved
  * draft edits survive both switching tabs and toggling back to View.
@@ -58,10 +58,10 @@ export default function BrandGuideTabs({
     { key: "ethos", label: "Ethos" },
     { key: "voice", label: "Voice" },
     { key: "visual", label: "Visual Identity" },
-    { key: "agent", label: "Agent Rules" },
     { key: "color", label: "Color" },
     { key: "type", label: "Type" },
     { key: "marks", label: "Marks" },
+    { key: "agent", label: "Agent Rules" },
     ...(isAdmin ? [{ key: "history" as TabKey, label: "History" }] : []),
   ];
 
@@ -111,10 +111,10 @@ export default function BrandGuideTabs({
         <div className={!editing && active === "ethos" ? "" : "hidden"}>{views.ethos}</div>
         <div className={!editing && active === "voice" ? "" : "hidden"}>{views.voice}</div>
         <div className={!editing && active === "visual" ? "" : "hidden"}>{views.visual}</div>
-        <div className={!editing && active === "agent" ? "" : "hidden"}>{views.agent}</div>
         <div className={!editing && active === "color" ? "" : "hidden"}>{views.color}</div>
         <div className={!editing && active === "type" ? "" : "hidden"}>{views.type}</div>
         <div className={!editing && active === "marks" ? "" : "hidden"}>{views.marks}</div>
+        <div className={!editing && active === "agent" ? "" : "hidden"}>{views.agent}</div>
 
         {/* Edit mode — canon editor (kept mounted once opened) */}
         {/* Marks edit: upload the artwork (Assets) above the spec-sheet editor. */}

@@ -1,4 +1,5 @@
 import type { BrandCanon, FontRole } from "@/lib/brand/canon.types";
+import { resolveGuideIntro } from "@/lib/brand/guideIntros";
 import GuideSection from "./GuideSection";
 
 const FONT_CLASS: Record<FontRole, string> = {
@@ -11,10 +12,7 @@ const FONT_CLASS: Record<FontRole, string> = {
 /** Typography view: one specimen per font role. */
 export default function TypeView({ canon }: { canon: BrandCanon }) {
   return (
-    <GuideSection
-      title="Typography"
-      lead="One family per role. Edit mode assigns the loaded families (admins only)."
-    >
+    <GuideSection intro={resolveGuideIntro(canon, "type")}>
       <div className="flex flex-col gap-6">
         {canon.fonts.map((font) => (
           <div key={font.role} className="border-b border-brand-line pb-6 last:border-0 last:pb-0">

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { BrandCanon } from "@/lib/brand/canon.types";
+import type { GuideSectionKey } from "@/lib/brand/guideIntros";
 import Banner from "@/app/components/ui/Banner";
 import ConfirmDialog from "@/app/components/ui/ConfirmDialog";
 import SaveHint from "@/app/components/ui/SaveHint";
@@ -10,16 +11,18 @@ import PaletteFacet from "./facets/PaletteFacet";
 import ThemeFacet from "./facets/ThemeFacet";
 import TypeFacet from "./facets/TypeFacet";
 import MarksFacet from "./facets/MarksFacet";
+import IntroFacet from "./facets/IntroFacet";
 import SliceJsonFacet from "./facets/SliceJsonFacet";
 import { ethosSlice, voiceSlice, visualSlice, agentSlice, colorForbiddenSlice } from "./facets/canonSlices";
 import { useDraft, usePublish, useSaveDraft } from "./useCanonEditor";
 
 /** Which guide tab's editor is shown. One draft/publish state spans them all. */
-export type CanonSection = "ethos" | "voice" | "visual" | "agent" | "color" | "type" | "marks";
+export type CanonSection = GuideSectionKey;
 
 /**
  * Admin canon editor. Holds one editable draft copy + a shared publish bar and
- * live preview; the active guide tab decides which facet(s) edit it:
+ * live preview; every tab edits its own introduction block, and the active tab
+ * decides which further facet(s) edit it:
  *   ethos/voice/visual/agent → each tab's own content slice
  *   color → Palette + Theme + forbidden list   type → Type
  *   marks → Mark specification sheets
@@ -117,6 +120,7 @@ export default function CanonEditor({ section }: { section: CanonSection }) {
           dropped for the marks editor, which gets the full width instead. */}
       <div className={section === "marks" ? "" : "grid gap-4 lg:grid-cols-[1fr_20rem]"}>
         <div className="flex flex-col gap-6">
+          <IntroFacet section={section} draft={draft} onChange={setDraft} />
           {section === "ethos" && (
             <SliceJsonFacet {...ethosSlice} draft={draft} onChange={setDraft} />
           )}

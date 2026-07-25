@@ -1,4 +1,5 @@
 import type { BrandCanon } from "./canon.types";
+import { resolveGuideIntro, splitParagraphs } from "./guideIntros";
 
 // Compiles the canon into a precedence-ordered plain-text brief for AI
 // features (Phase 4). Carries both the Narrative (mission, values, voice) and
@@ -7,9 +8,11 @@ import type { BrandCanon } from "./canon.types";
 export function compileAgentBrief(canon: BrandCanon): string {
   const lines: string[] = [];
 
-  lines.push("MISSION");
-  lines.push(canon.mission);
-  if (canon.missionNarrative) lines.push(canon.missionNarrative);
+  // The narrative sections are read through the guide's intro resolver, so
+  // agents are told exactly what the Ethos/Voice/Visual Identity subtabs show —
+  // an edited introduction can't leave the brief behind.
+  lines.push("ETHOS");
+  lines.push(...splitParagraphs(resolveGuideIntro(canon, "ethos")));
   lines.push("");
 
   lines.push("VALUES");
@@ -25,8 +28,7 @@ export function compileAgentBrief(canon: BrandCanon): string {
   lines.push("");
 
   lines.push("VOICE");
-  lines.push(canon.voice.summary);
-  if (canon.voice.personality) lines.push(canon.voice.personality);
+  lines.push(...splitParagraphs(resolveGuideIntro(canon, "voice")));
   lines.push(`Lean on: ${canon.voice.leanOnWords.join(", ")}`);
   lines.push(`Never use: ${canon.voice.neverWords.join(", ")}`);
   for (const r of canon.voice.rewrites) {
@@ -54,6 +56,7 @@ export function compileAgentBrief(canon: BrandCanon): string {
   lines.push("");
 
   lines.push("ILLUSTRATION LAW");
+  lines.push(...splitParagraphs(resolveGuideIntro(canon, "visual")));
   for (const rule of canon.illustrationLaw.rules) {
     lines.push(`- ${rule}`);
   }

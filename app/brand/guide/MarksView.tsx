@@ -186,10 +186,12 @@ export default function MarksView({
   brandName,
   marks,
   specs,
+  intro,
 }: {
   brandName: string;
   marks: MarkArtifact[];
   specs: MarkSpec[];
+  intro: string;
 }) {
   const urlByKind = new Map(marks.map((m) => [m.kind, m.url]));
   // chop_glyph is the asset kind; the mark spec uses "chop".
@@ -203,10 +205,7 @@ export default function MarksView({
   );
 
   return (
-    <GuideSection
-      title="Marks"
-      lead="The fixed identity artifacts and their specifications — the wordmark, logo, and chop."
-    >
+    <GuideSection intro={intro}>
       {specs.length === 0 && looseArtifacts.length === 0 ? (
         <p className="font-brand-body text-sm text-brand-content-muted">
           No marks yet. In Edit mode, admins can upload a wordmark, logo, or chop and define its
