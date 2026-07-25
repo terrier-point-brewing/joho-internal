@@ -7,8 +7,8 @@ import PageHeader from "@/app/components/PageHeader";
 import Banner from "@/app/components/ui/Banner";
 import Card from "@/app/components/ui/Card";
 import { Modal, Field, ModalActions } from "@/app/components/ui/Modal";
-
-type UserRole = "viewer" | "brewer" | "manager" | "admin";
+import GrantMatrix from "./GrantMatrix";
+import type { UserRole } from "@/lib/auth";
 
 interface Profile {
   id: string;
@@ -18,13 +18,14 @@ interface Profile {
   email_confirmed: boolean;
 }
 
-const ROLES: UserRole[] = ["viewer", "brewer", "manager", "admin"];
+const ROLES: UserRole[] = ["viewer", "brewer", "manager", "admin", "custom"];
 
 const ROLE_COLORS: Record<UserRole, string> = {
   viewer:  "text-secondary bg-surface-mid",
   brewer:  "text-info bg-info-surface/40",
   manager: "text-accent bg-accent-muted/30",
   admin:   "text-danger bg-danger-surface/40",
+  custom:  "text-accent-emphasis bg-accent-muted/50",
 };
 
 const QUERY_KEY = ["admin", "users"] as const;
@@ -38,6 +39,9 @@ export default function UserManagement() {
   });
 
   const [apiError, setApiError] = useState<string | null>(null);
+
+  // Grant matrix modal state (custom-role users only)
+  const [grantsUserId, setGrantsUserId] = useState<string | null>(null);
 
   // Set password modal state
   const [pwUserId, setPwUserId] = useState<string | null>(null);
@@ -198,6 +202,15 @@ export default function UserManagement() {
                     </td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex gap-2 justify-end items-center">
+                        {u.role === "custom" && (
+                          <button
+                            onClick={() => setGrantsUserId(u.id)}
+                            className="text-xs text-muted hover:text-strong transition-colors"
+                            title="Edit grants"
+                          >
+                            Grants
+                          </button>
+                        )}
                         <button
                           onClick={() => { setPwUserId(u.id); setPwValue(""); setPwError(null); setApiError(null); }}
                           className="text-xs text-muted hover:text-strong transition-colors"
@@ -229,6 +242,15 @@ export default function UserManagement() {
             </table>
           </Card>
         </>
+      )}
+
+      {/* Grant matrix modal */}
+      {grantsUserId && (
+        <GrantMatrix
+          userId={grantsUserId}
+          email={users.find((u) => u.id === grantsUserId)?.email ?? ""}
+          onClose={() => setGrantsUserId(null)}
+        />
       )}
 
       {/* Set password modal */}
