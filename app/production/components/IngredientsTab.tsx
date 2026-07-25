@@ -7,7 +7,8 @@ import { Ingredient, AdjustmentType, IngredientCategory, INGREDIENT_CATEGORIES }
 import { Modal, Field, ModalActions } from "./shared";
 import BulkReceiveModal from "./BulkReceiveModal";
 import { useContractPartnersQuery, useSuppliersQuery, useIngredientsQuery, productionKeys } from "../hooks/queries";
-import { useUserRole } from "@/lib/hooks/useUserRole";
+import { usePermissions } from "@/lib/hooks/useUserRole";
+import { CAP } from "@/lib/auth/capabilities";
 import { CATEGORY_BADGE_CLASS as CC } from "../lib/categoryColors";
 import { useTableControls } from "@/app/components/ui/useTableControls";
 import SearchInput from "@/app/components/ui/SearchInput";
@@ -352,8 +353,8 @@ function fmtValue(v: number | null | undefined) {
 
 export default function IngredientsTab() {
   const qc = useQueryClient();
-  const { role } = useUserRole();
-  const isAdmin = role === "admin";
+  const { can } = usePermissions();
+  const canEditMaster = can(CAP.ingredientMasterEdit);
   const { data: ingredients = [] } = useIngredientsQuery();
   const { data: suppliersList = [] } = useSuppliersQuery();
   const { data: partnersList = [] } = useContractPartnersQuery();
@@ -704,10 +705,12 @@ export default function IngredientsTab() {
                             <td className="px-3 py-2.5">
                               <div className="flex gap-2 justify-end w-full">
                                 <button onClick={() => openAdj(ing)} className="text-xs text-accent-emphasis hover:text-accent transition-colors font-medium whitespace-nowrap">Adjust</button>
-                                {isAdmin && (<><span className="text-disabled">·</span>
-                                <button onClick={() => openEdit(ing)} className="text-xs text-muted hover:text-body transition-colors whitespace-nowrap">Edit</button></>)}
+                                {canEditMaster && (<>
+                                <span className="text-disabled">·</span>
+                                <button onClick={() => openEdit(ing)} className="text-xs text-muted hover:text-body transition-colors whitespace-nowrap">Edit</button>
                                 <span className="text-disabled">·</span>
                                 <button onClick={() => handleDelete(ing.id, ing.name)} className="text-xs text-faint hover:text-danger transition-colors whitespace-nowrap">Del</button>
+                                </>)}
                               </div>
                             </td>
                           </tr>

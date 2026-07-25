@@ -7,7 +7,8 @@ import { PackagingItem, PackagingItemType, PackagingAdjustmentType } from "../ty
 import { Modal, Field, ModalActions } from "./shared";
 import BulkReceiveModal from "./BulkReceiveModal";
 import { usePackagingQuery, useContractPartnersQuery, useSuppliersQuery, productionKeys } from "../hooks/queries";
-import { useUserRole } from "@/lib/hooks/useUserRole";
+import { usePermissions } from "@/lib/hooks/useUserRole";
+import { CAP } from "@/lib/auth/capabilities";
 import { CATEGORY_BADGE_CLASS as CC } from "../lib/categoryColors";
 import { useTableControls } from "@/app/components/ui/useTableControls";
 import SearchInput from "@/app/components/ui/SearchInput";
@@ -69,8 +70,8 @@ function supplierName(item: PackagingItem): string | null {
 
 export default function PackagingTab() {
   const qc = useQueryClient();
-  const { role } = useUserRole();
-  const isAdmin = role === "admin";
+  const { can } = usePermissions();
+  const canEditMaster = can(CAP.packagingMasterEdit);
   const { data: packaging = [] } = usePackagingQuery();
   const { data: partners = [] } = useContractPartnersQuery();
   const { data: suppliers = [] } = useSuppliersQuery();
@@ -310,10 +311,12 @@ export default function PackagingTab() {
                           <td className="px-3 py-2.5">
                             <div className="flex gap-1.5 justify-end items-center whitespace-nowrap text-disabled">
                               <button onClick={() => openAdj(item)} className="text-xs text-accent-emphasis hover:text-accent transition-colors font-medium">Adjust</button>
-                              {isAdmin && (<><span aria-hidden>·</span>
-                              <button onClick={() => openEdit(item)} className="text-xs text-muted hover:text-strong transition-colors">Edit</button></>)}
+                              {canEditMaster && (<>
+                              <span aria-hidden>·</span>
+                              <button onClick={() => openEdit(item)} className="text-xs text-muted hover:text-strong transition-colors">Edit</button>
                               <span aria-hidden>·</span>
                               <button onClick={() => handleDelete(item)} className="text-xs text-faint hover:text-danger transition-colors">Del</button>
+                              </>)}
                             </div>
                           </td>
                         </tr>

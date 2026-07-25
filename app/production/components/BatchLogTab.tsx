@@ -5,7 +5,8 @@ import dynamic from "next/dynamic";
 import { addDays, parseISO } from "date-fns";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
-import { useUserRole } from "@/lib/hooks/useUserRole";
+import { usePermissions } from "@/lib/hooks/useUserRole";
+import { CAP } from "@/lib/auth/capabilities";
 import { BrewBatch, BatchTransfer, BrewActivityEntry, BatchAllocation, AllocationChannel, ContractBrewingRequest } from "../types";
 import { BREWHOUSE_BBL, StatusBadge, Modal, Field, ModalActions } from "./shared";
 import { fmtDateLong, fmtBbl2 } from "@/lib/utils/formatting";
@@ -88,8 +89,8 @@ const BATCH_EMPTY = {
 };
 
 export default function BatchLogTab() {
-  const { role } = useUserRole();
-  const isAdmin = role === "admin";
+  const { can } = usePermissions();
+  const isAdmin = can(CAP.batchDelete);
   const qc = useQueryClient();
   const { data: batches = [] } = useBatchesQuery();
   const { data: recipes = [] } = useRecipesQuery();
