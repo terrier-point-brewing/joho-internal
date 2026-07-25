@@ -7,9 +7,14 @@ describe("canonSchema", () => {
     expect(() => canonSchema.parse(seedCanon)).not.toThrow();
   });
 
-  it("throws when a required field (mission) is missing", () => {
-    const { mission: _mission, ...malformed } = seedCanon;
+  it("throws when a required field (brandName) is missing", () => {
+    const { brandName: _brandName, ...malformed } = seedCanon;
     expect(() => canonSchema.parse(malformed)).toThrow();
+  });
+
+  it("parses a document with no guideIntros (published before the field existed)", () => {
+    const { guideIntros: _guideIntros, ...legacy } = seedCanon;
+    expect(() => canonSchema.parse(legacy)).not.toThrow();
   });
 
   it("throws when a palette hex is malformed", () => {

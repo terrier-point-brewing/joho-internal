@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import { getSessionUser } from "@/lib/auth";
 import { getCanon } from "@/lib/brand/getCanon";
 import { seedCanon } from "@/lib/brand/seedCanon";
+import { resolveGuideIntro } from "@/lib/brand/guideIntros";
 import { resolveAsset, type SupabaseLikeClient } from "@/lib/brand/assets";
 import BrandGuideTabs from "./BrandGuideTabs";
 import EthosView from "./EthosView";
@@ -28,8 +29,8 @@ function createCookielessAssetClient(): SupabaseLikeClient | null {
 
 /**
  * Brand Guide — the one brand page. Its in-page tabs (BrandGuideTabs) split the
- * guide into Ethos / Voice / Visual Identity / Agent Rules / Color / Type /
- * Marks (+ admin History), each with a read-only view built here and, for
+ * guide into Ethos / Voice / Visual Identity / Color / Type / Marks / Agent
+ * Rules (+ admin History), each with a read-only view built here and, for
  * admins, an Edit mode. All view content is server-built and handed to the
  * client tab shell as ReactNodes.
  */
@@ -69,7 +70,14 @@ export default async function BrandGuidePage() {
         agent: <AgentRulesView canon={canon} />,
         color: <ColorView canon={canon} />,
         type: <TypeView canon={canon} />,
-        marks: <MarksView brandName={canon.brandName} marks={marks} specs={markSpecs} />,
+        marks: (
+          <MarksView
+            brandName={canon.brandName}
+            marks={marks}
+            specs={markSpecs}
+            intro={resolveGuideIntro(canon, "marks")}
+          />
+        ),
       }}
     />
   );

@@ -147,7 +147,7 @@ describe("saveDraft", () => {
 
   it("rejects an invalid document", async () => {
     const client = fakeClient([{ id: "d1", version_label: "1.0", status: "draft", document: seedCanon }]);
-    const { mission: _mission, ...invalid } = seedCanon;
+    const { brandName: _brandName, ...invalid } = seedCanon;
     await expect(saveDraft(client as never, invalid)).rejects.toThrow();
   });
 });

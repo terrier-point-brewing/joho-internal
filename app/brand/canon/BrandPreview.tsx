@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { BrandCanon, RoleName, ResolvedTokens } from "@/lib/brand/canon.types";
 import { resolveTokens } from "@/lib/brand/tokens";
+import { firstParagraph } from "@/lib/brand/guideIntros";
 
 const ROLE_NAMES: RoleName[] = [
   "canvas",
@@ -113,9 +114,11 @@ export default function BrandPreview({ draft }: { draft: BrandCanon }) {
             ))}
           </div>
 
+          {/* Display-face specimen — the draft's Ethos introduction, so edits
+              to it show up here live. */}
           <div className="mb-4">
             <p className="font-brand-display text-lg text-brand-high-contrast">
-              {draft.mission}
+              {firstParagraph(draft, "ethos")}
             </p>
           </div>
 

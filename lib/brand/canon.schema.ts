@@ -27,7 +27,10 @@ const fontRoleSchema = z.enum(["display", "body", "wordmark", "script"]);
 
 // Sections that carry a visibility flag for the eventual public site (Phase 5):
 // the internal (auth-gated) guide shows everything; a public renderer filters
-// to `public`.
+// to `public`. "mission" is kept as a key even though the field it named is
+// gone — `visibility` is an exhaustive record, so dropping it here would fail
+// validation on every stored document until they're all rewritten. Phase 5
+// resolves it.
 const sectionKeySchema = z.enum([
   "mission",
   "values",
@@ -41,6 +44,18 @@ const sectionKeySchema = z.enum([
   "illustrationLaw",
   "hardRules",
   "precedence",
+]);
+
+// The Brand Guide's subtabs. Each one opens with an editable introduction
+// block (canon.guideIntros) and is the unit the canon editor edits at a time.
+export const guideSectionSchema = z.enum([
+  "ethos",
+  "voice",
+  "visual",
+  "color",
+  "type",
+  "marks",
+  "agent",
 ]);
 
 const hexColorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/, "must be a #rrggbb hex color");
@@ -97,10 +112,6 @@ export const canonSchema = z.object({
   brandName: z.string(),
   version: z.string(),
 
-  // ── Mission (Narrative) ──────────────────────────────────────────────────
-  mission: z.string(),
-  missionNarrative: z.string(),
-
   // ── Values & their costs (Narrative) ─────────────────────────────────────
   values: z.array(
     z.object({
@@ -112,10 +123,10 @@ export const canonSchema = z.object({
   ),
   neverList: z.array(z.string()),
 
-  // ── Voice (Narrative + Specification) ────────────────────────────────────
+  // ── Voice (Specification) ────────────────────────────────────────────────
+  // The voice's prose lives in guideIntros.voice; what remains here is the
+  // calibration a machine can act on.
   voice: z.object({
-    summary: z.string(),
-    personality: z.string(),
     sliders: z.array(
       z.object({
         left: z.string(),
@@ -170,11 +181,23 @@ export const canonSchema = z.object({
     narrative: z.string(),
     elements: z.array(z.object({ n: z.string(), title: z.string(), desc: z.string() })),
   }),
-  illustrationLaw: z.object({ narrative: z.string(), rules: z.array(z.string()) }),
+  // The illustration narrative lives in guideIntros.visual; the rules stay here.
+  illustrationLaw: z.object({ rules: z.array(z.string()) }),
 
   // ── Rules & precedence ───────────────────────────────────────────────────
   hardRules: z.array(z.string()),
   precedence: z.array(z.string()),
+
+  // ── Brand Guide subtab introductions (Narrative) ─────────────────────────
+  // The prose that opens each guide subtab, keyed by subtab — the single home
+  // for the guide's narrative copy (what used to be missionNarrative,
+  // voice.summary/personality, and illustrationLaw.narrative).
+  //
+  // Optional and partial so a document written before this field existed still
+  // parses; a missing subtab falls back to the seed. Migration
+  // 20260818_brand_canon_guide_intros fills it in for the stored rows. See
+  // lib/brand/guideIntros.ts — the one place that resolution lives.
+  guideIntros: z.partialRecord(guideSectionSchema, z.string()).optional(),
 
   // ── Public-site visibility per section (Phase 5) ─────────────────────────
   visibility: z.record(sectionKeySchema, z.enum(["internal", "public"])),

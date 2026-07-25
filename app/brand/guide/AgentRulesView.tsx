@@ -1,19 +1,16 @@
 import type { BrandCanon } from "@/lib/brand/canon.types";
+import { resolveGuideIntro } from "@/lib/brand/guideIntros";
 import GuideSection, { KICKER } from "./GuideSection";
 
 /**
  * Agent Rules view: the machine-facing rules of the brand — the Never List, the
  * precedence order, and the hard rules. This subtab is largely reference for
  * agents rather than a human read, and is the eventual home for the full
- * Markdown Brand Guide instructions. Single unnumbered section, matching the
- * Color/Type tab layout.
+ * Markdown Brand Guide instructions.
  */
 export default function AgentRulesView({ canon }: { canon: BrandCanon }) {
   return (
-    <GuideSection
-      title="Agent Rules"
-      lead="The machine-facing brand rules — reference for agents building on the brand."
-    >
+    <GuideSection intro={resolveGuideIntro(canon, "agent")}>
       <div className="flex flex-col gap-10">
         {/* The Never List */}
         {canon.neverList?.length > 0 && (

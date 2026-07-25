@@ -1,20 +1,15 @@
 import type { BrandCanon } from "@/lib/brand/canon.types";
+import { resolveGuideIntro } from "@/lib/brand/guideIntros";
 import GuideSection, { KICKER } from "./GuideSection";
 
 /**
- * Voice view: the voice summary as the section lead, then personality, the
- * calibration sliders, the lean-on / never word rows, and the in-practice
- * rewrites. Single unnumbered section, matching the Color/Type tab layout.
+ * Voice view: the introduction (the voice summary and personality, until an
+ * admin edits it), then the calibration sliders, the lean-on / never word rows,
+ * and the in-practice rewrites.
  */
 export default function VoiceView({ canon }: { canon: BrandCanon }) {
   return (
-    <GuideSection title="Voice" lead={canon.voice.summary}>
-      {canon.voice.personality && (
-        <p className="font-brand-body text-sm text-brand-content-muted leading-relaxed mb-6 max-w-3xl">
-          {canon.voice.personality}
-        </p>
-      )}
-
+    <GuideSection intro={resolveGuideIntro(canon, "voice")}>
       <p className={`${KICKER} mb-3`}>Calibration</p>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 mb-6">
         {canon.voice.sliders.map((slider, i) => (

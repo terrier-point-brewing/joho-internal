@@ -8,9 +8,24 @@ export const seedCanon: BrandCanon = {
   brandName: "Joho",
   version: "1.0",
 
-  mission: "Joho makes authentic, fun cultural exploration accessible to those who want it.",
-  missionNarrative:
-    "Beer is the medium, not the mission. An accessible surface with depth underneath for anyone who looks closer — that layering is the brand's signature move everywhere.",
+  // The prose that opens each Brand Guide subtab. Ethos / Voice / Visual
+  // Identity carry the founder-approved narrative that used to live in
+  // missionNarrative, voice.summary + voice.personality, and
+  // illustrationLaw.narrative respectively.
+  guideIntros: {
+    ethos:
+      "Beer is the medium, not the mission. An accessible surface with depth underneath for anyone who looks closer — that layering is the brand's signature move everywhere.",
+    voice:
+      "A companion, not a teacher. Sincere to the bone — the stories are real, and irony would poison them — but quietly funny in a dry, observational register.\n\nShares discoveries the way a well-traveled friend does: warm, curious, unhurried. Never lectures, never tests, never performs.",
+    visual:
+      "Illustration roams the world within a fixed grammar. Era-flexible poster type lives only in derivative artifacts — framed prints and marketing built from label art — never on the can itself.",
+    color:
+      "Roles, not names — every surface binds to one of these thirteen. Edit mode maps roles to the palette (admins only).",
+    type: "One family per role. Edit mode assigns the loaded families (admins only).",
+    marks:
+      "The fixed identity artifacts and their specifications — the wordmark, logo, and chop.",
+    agent: "The machine-facing brand rules — reference for agents building on the brand.",
+  },
 
   values: [
     {
@@ -60,10 +75,6 @@ export const seedCanon: BrandCanon = {
   ],
 
   voice: {
-    summary:
-      "A companion, not a teacher. Sincere to the bone — the stories are real, and irony would poison them — but quietly funny in a dry, observational register.",
-    personality:
-      "Shares discoveries the way a well-traveled friend does: warm, curious, unhurried. Never lectures, never tests, never performs.",
     sliders: [
       { left: "Playful", right: "Reserved", pos: 40, note: "Warm wit, never zany" },
       { left: "Minimal", right: "Ornate", pos: 65, note: "Restraint, with intentional richness (label art)" },
@@ -219,8 +230,6 @@ export const seedCanon: BrandCanon = {
     ],
   },
   illustrationLaw: {
-    narrative:
-      "Illustration roams the world within a fixed grammar. Era-flexible poster type lives only in derivative artifacts — framed prints and marketing built from label art — never on the can itself.",
     rules: [
       "Flat, screen-print-style vector rendering. Gradients only for atmospheric skies / light.",
       "Palette capped at 7 colors per label (excluding the permitted sky gradient).",
