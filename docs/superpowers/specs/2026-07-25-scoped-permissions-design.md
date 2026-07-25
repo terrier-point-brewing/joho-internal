@@ -213,12 +213,12 @@ transaction. Distinct date prefixes, because the CLI keys on the digits before
 the first `_` and same-day prefixes collide.
 
 ```sql
--- supabase/migrations/20260726_user_role_custom.sql
+-- supabase/migrations/20260819_user_role_custom.sql
 alter type user_role add value 'custom';
 ```
 
 ```sql
--- supabase/migrations/20260727_user_permission_grants.sql
+-- supabase/migrations/20260820_user_permission_grants.sql
 create type permission_level as enum ('read','operate','manage','admin');
 
 create table user_permission_grants (

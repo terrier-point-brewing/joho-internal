@@ -73,21 +73,21 @@ Tasks 6, 7 and 8 are independent and may run in parallel. Task 10 follows 9 beca
 ## Task 1: Migrations
 
 **Files:**
-- Create: `supabase/migrations/20260726_user_role_custom.sql`
-- Create: `supabase/migrations/20260727_user_permission_grants.sql`
+- Create: `supabase/migrations/20260819_user_role_custom.sql`
+- Create: `supabase/migrations/20260820_user_permission_grants.sql`
 
 **Interfaces:**
 - Produces: `user_role` enum gains `'custom'`; table `user_permission_grants(user_id, scope, level, granted_by, granted_at)`; enum `permission_level`.
 
 **Why two files:** `ALTER TYPE … ADD VALUE` cannot be *used* in the transaction that adds it, and Supabase runs each migration file in one transaction. Distinct date prefixes — the CLI keys on the digits before the first `_`, so same-day prefixes collide.
 
-- [ ] **Step 1: Write `20260726_user_role_custom.sql`**
+- [ ] **Step 1: Write `20260819_user_role_custom.sql`**
 
 ```sql
 alter type user_role add value 'custom';
 ```
 
-- [ ] **Step 2: Write `20260727_user_permission_grants.sql`**
+- [ ] **Step 2: Write `20260820_user_permission_grants.sql`**
 
 Must contain, in order: `create type permission_level as enum ('read','operate','manage','admin')`; the table per the spec's Schema section; `alter table … enable row level security`; and exactly one policy:
 
@@ -104,8 +104,8 @@ create policy "users read own grants" on user_permission_grants
 
 - [ ] **Step 3: Verify no same-day prefix collision**
 
-Run: `ls supabase/migrations/ | grep -E '^2026072[67]'`
-Expected: only the two new files.
+Run: `ls supabase/migrations/ | grep -E '^2026081[89]|^20260820'`
+Expected: only the two new files. **The repo already has colliding prefixes at `20260726`/`20260727` and `20260818` is claimed by open PR #274 — do not reuse any of them.**
 
 - [ ] **Step 4: Commit**
 
@@ -458,7 +458,7 @@ Opus, once, over the full diff. Focus:
 ## Rollout (orchestrator, after task 13)
 
 1. Back up prod.
-2. Apply `20260726` then `20260727` — in that order, separate transactions.
+2. Apply `20260819` then `20260820` — in that order, separate transactions.
 3. Confirm `select unnest(enum_range(null::user_role))` includes `custom`.
 4. Heads-up to the brewing team: brewers lose the Del button on Ingredients and Packaging.
 5. Set one test user to `custom`, grant `finance@read`, confirm they see Finance read-only and nothing else.
