@@ -1,0 +1,31 @@
+import { RANK, type Level } from "./levels";
+import { ROOT, type ScopeKey, type Section } from "./scopes";
+
+/** One shape, used by both role bundles and user grants. */
+export type ScopeGrants = Partial<Record<ScopeKey | Section | typeof ROOT, Level>>;
+
+/**
+ * Longest-prefix-wins: a key matches when it is ROOT, equals the scope, or
+ * is a dot-prefix of it; the longest matching key supplies the level. The
+ * prefix check is dot-delimited, not a bare substring match — "tax" must not
+ * match a hypothetical scope "taxes.foo".
+ */
+export function effectiveLevel(grants: ScopeGrants, scope: ScopeKey): Level | null {
+  let best: Level | null = null;
+  let bestLen = -1;
+
+  for (const [key, level] of Object.entries(grants) as [string, Level][]) {
+    const matches = key === ROOT || scope === key || scope.startsWith(key + ".");
+    if (matches && key.length > bestLen) {
+      best = level;
+      bestLen = key.length;
+    }
+  }
+
+  return best;
+}
+
+export function can(grants: ScopeGrants, scope: ScopeKey, need: Level): boolean {
+  const level = effectiveLevel(grants, scope);
+  return level !== null && RANK[level] >= RANK[need];
+}
