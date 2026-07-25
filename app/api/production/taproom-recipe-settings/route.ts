@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { apiError } from "@/lib/utils/api";
+import { buildRetirePayload } from "@/lib/taproom/retireRecipe";
 
 export const dynamic = "force-dynamic";
 
@@ -25,16 +26,18 @@ export async function PATCH(req: NextRequest) {
     // Upsert only the fields the caller actually sent so setting one field
     // doesn't clobber the others. Swap config now lives per-tap (tap_assignments);
     // this route keeps only retirement state.
+    const now = new Date().toISOString();
     const payload: Record<string, unknown> = {
       recipe_id,
-      updated_at: new Date().toISOString(),
+      updated_at: now,
     };
 
+    // Shared with the tap-swap queue route, which retires the outgoing beer.
     if ("is_retired" in body) {
-      const is_retired = Boolean(body.is_retired);
-      payload.is_retired = is_retired;
-      payload.retired_at = is_retired ? new Date().toISOString() : null;
-      payload.retired_notes = body.retired_notes || null;
+      Object.assign(
+        payload,
+        buildRetirePayload(recipe_id, Boolean(body.is_retired), now, body.retired_notes),
+      );
     }
 
     const { data, error } = await supabase
