@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { getSessionUser } from "@/lib/auth";
+import { CAP, can } from "@/lib/auth";
 import { getCanon } from "@/lib/brand/getCanon";
 import { seedCanon } from "@/lib/brand/seedCanon";
 import { resolveAsset, type SupabaseLikeClient } from "@/lib/brand/assets";
@@ -35,7 +36,7 @@ function createCookielessAssetClient(): SupabaseLikeClient | null {
  */
 export default async function BrandGuidePage() {
   const session = await getSessionUser();
-  const isAdmin = session?.role === "admin";
+  const isAdmin = session ? can(session.grants, CAP.brandGuideManage.scope, CAP.brandGuideManage.level) : false;
 
   const canon = await getCanon();
   const assetClient = createCookielessAssetClient();

@@ -15,6 +15,7 @@ export const CAP = {
   brewingOperate: { scope: "production.brewing", level: "operate" },
   brewingRead: { scope: "production.brewing", level: "read" },
   batchDelete: { scope: "production.brewing", level: "admin" },
+  brewingCalendarAdmin: { scope: "production.brewing", level: "admin" },
 
   ingredientMasterEdit: { scope: "production.inventory", level: "manage" },
   packagingMasterEdit: { scope: "production.inventory", level: "manage" },
@@ -39,6 +40,7 @@ export const CAP = {
 
   taproomPerformanceOperate: { scope: "taproom.performance", level: "operate" },
   targetsEdit: { scope: "taproom.targets", level: "manage" },
+  taproomSettingsOperate: { scope: "taproom.settings", level: "operate" },
 
   taxRead: { scope: "tax", level: "read" },
   taxOperate: { scope: "tax", level: "operate" },

@@ -1,7 +1,8 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useUserRole } from "@/lib/hooks/useUserRole";
+import { usePermissions } from "@/lib/hooks/useUserRole";
+import type { Capability } from "@/lib/auth";
 import { TAB_ROW, tabItem } from "./ui/tabStyles";
 
 export interface NavEntry {
@@ -9,8 +10,7 @@ export interface NavEntry {
   match?: string;
   also?: string;
   label: React.ReactNode;
-  adminOnly?: boolean;
-  managerOnly?: boolean;
+  requires?: Capability;
   exact?: boolean;
 }
 
@@ -24,13 +24,8 @@ export default function SubNav({
   sticky?: boolean;
 }) {
   const pathname = usePathname();
-  const { role } = useUserRole();
-  const isAdmin = role === "admin";
-  const visible = entries.filter((e) => {
-    if (e.adminOnly && !isAdmin) return false;
-    if (e.managerOnly && role !== "manager" && !isAdmin) return false;
-    return true;
-  });
+  const { can } = usePermissions();
+  const visible = entries.filter((e) => !e.requires || can(e.requires));
 
   const cls = mobile
     ? `md:hidden ${TAB_ROW}`

@@ -4,7 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, useEffect } from "react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
-import { useUserRole } from "@/lib/hooks/useUserRole";
+import { useUserRole, usePermissions } from "@/lib/hooks/useUserRole";
+import { CAP } from "@/lib/auth";
 import { FINANCE_NAV } from "@/app/finance/nav-config";
 import { TAPROOM_NAV } from "@/app/taproom/nav-config";
 import { PRODUCTION_NAV } from "@/app/production/nav-config";
@@ -60,6 +61,7 @@ export default function NavBar() {
   const pathname = usePathname();
 
   const { role, user, loading } = useUserRole();
+  const { can } = usePermissions();
 
   const [collapsed, setCollapsed] = useState(false);
 
@@ -88,9 +90,12 @@ export default function NavBar() {
   const isBrand      = pathname === "/brand"      || pathname.startsWith("/brand/");
   const isSettings   = pathname.startsWith("/settings");
 
-  // Derived permissions — only evaluated after loading is done.
-  const isAdmin            = role === "admin";
-  const canAccessProduction = role === "brewer" || role === "manager" || role === "admin";
+  // Derived permissions — only evaluated after loading is done. Reuses the
+  // same capabilities their respective layouts gate on, so NavBar visibility
+  // and the server-side redirect can never drift apart.
+  const canAccessProduction = can(CAP.productionSettingsRead);
+  const canAccessBrand      = can(CAP.brandGuideRead);
+  const canAccessFinance    = can(CAP.financeStatementsRead);
 
   const subtabCls = (active: boolean) =>
     `px-2 py-1.5 rounded text-xs font-medium transition-colors ${
@@ -144,11 +149,7 @@ export default function NavBar() {
             </Link>
             {isTaproom && (
               <div className="mt-1 ml-2 flex flex-col gap-0.5 border-l border-line pl-2">
-                {TAPROOM_NAV.filter((e) => {
-                  if (e.adminOnly && !isAdmin) return false;
-                  if (e.managerOnly && role !== "manager" && !isAdmin) return false;
-                  return true;
-                }).map(({ href, label }) => (
+                {TAPROOM_NAV.filter((e) => !e.requires || can(e.requires)).map(({ href, label }) => (
                   <Link key={href} href={href} className={subtabCls(pathname.startsWith(href))}>
                     {label}
                   </Link>
@@ -182,7 +183,7 @@ export default function NavBar() {
                 )}
 
                 {/* Brand — WIP, admin-only until ready for regular users */}
-                {isAdmin && (
+                {canAccessBrand && (
                   <>
                     <Link
                       href="/brand/guide"
@@ -194,7 +195,7 @@ export default function NavBar() {
                     </Link>
                     {isBrand && (
                       <div className="mt-1 ml-2 flex flex-col gap-0.5 border-l border-line pl-2">
-                        {BRAND_TABS.filter((e) => !e.adminOnly || isAdmin).map(({ href, label }) => (
+                        {BRAND_TABS.filter((e) => !e.requires || can(e.requires)).map(({ href, label }) => (
                           <Link key={href} href={href} className={subtabCls(pathname === href || pathname.startsWith(href + "/"))}>
                             {label}
                           </Link>
@@ -204,7 +205,7 @@ export default function NavBar() {
                   </>
                 )}
 
-                {isAdmin && (
+                {canAccessFinance && (
                   <>
                     <Link
                       href="/finance/financials"
@@ -255,13 +256,13 @@ export default function NavBar() {
                 <ProductionIcon />
               </Link>
             )}
-            {!loading && isAdmin && (
+            {!loading && canAccessBrand && (
               <Link href="/brand/guide" title="Brand"
                 className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${isBrand ? "bg-surface-mid text-accent" : "text-faint hover:text-body hover:bg-surface-mid/50"}`}>
                 <BrandIcon />
               </Link>
             )}
-            {!loading && isAdmin && (
+            {!loading && canAccessFinance && (
               <Link href="/finance/financials" title="Finance"
                 className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${isFinance ? "bg-surface-mid text-accent" : "text-faint hover:text-body hover:bg-surface-mid/50"}`}>
                 <FinanceIcon />
@@ -322,12 +323,12 @@ export default function NavBar() {
             <ProductionIcon />
           </MobileNavItem>
         )}
-        {!loading && isAdmin && (
+        {!loading && canAccessBrand && (
           <MobileNavItem href="/brand/guide" active={isBrand} label="Brand">
             <BrandIcon />
           </MobileNavItem>
         )}
-        {!loading && isAdmin && (
+        {!loading && canAccessFinance && (
           <MobileNavItem href="/finance/financials" active={isFinance} label="Finance">
             <FinanceIcon />
           </MobileNavItem>

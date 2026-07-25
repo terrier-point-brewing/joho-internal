@@ -1,4 +1,6 @@
-export type NavEntry = { href: string; match?: string; label: string; adminOnly?: boolean; exact?: boolean };
+import type { Capability } from "@/lib/auth";
+
+export type NavEntry = { href: string; match?: string; label: string; requires?: Capability; exact?: boolean };
 
 export const PRODUCTION_NAV: NavEntry[] = [
   { href: "/production/intake",    label: "Intake"    },

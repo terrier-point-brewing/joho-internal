@@ -1,8 +1,12 @@
+import type { Capability } from "@/lib/auth";
+import { CAP } from "@/lib/auth";
+
 export interface BrandNavEntry {
   href: string;
   label: string;
-  /** Hidden from non-admins — canon editing is admin-only (see lib/auth.ts). */
-  adminOnly?: boolean;
+  /** Hidden unless the viewer holds this capability — canon editing is
+   * admin-only today (only the admin role bundle carries any brand.* grant). */
+  requires?: Capability;
 }
 
 // Brand Guide bundles the rendered guide + canon editor facets + history as
@@ -10,6 +14,6 @@ export interface BrandNavEntry {
 // label workbench.
 export const BRAND_TABS: BrandNavEntry[] = [
   { href: "/brand/guide", label: "Brand Guide" },
-  { href: "/brand/assets", label: "Assets", adminOnly: true },
-  { href: "/brand/releases", label: "Releases", adminOnly: true },
+  { href: "/brand/assets", label: "Assets", requires: CAP.brandGuideManage },
+  { href: "/brand/releases", label: "Releases", requires: CAP.brandWorkbenchManage },
 ];

@@ -8,7 +8,7 @@ export default async function SettingsLayout({ children }: { children: React.Rea
 
   return (
     <div className="flex flex-col h-full">
-      <SettingsTabs isAdmin={session.role === "admin"} />
+      <SettingsTabs />
       <div className="flex-1 overflow-auto">{children}</div>
     </div>
   );
