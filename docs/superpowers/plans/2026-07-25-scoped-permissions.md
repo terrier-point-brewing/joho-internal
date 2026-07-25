@@ -317,7 +317,9 @@ where `legacyRequireRole(role, list) = role === "admin" || list.includes(role)`.
 
 - [ ] **Step 3: Run** → PASS, 844 assertions.
 
-**Acceptance criteria:** exactly 211 rows; exactly 28 carry `intentionalChange`; every `reason` is non-empty.
+**Acceptance criteria:** exactly 211 rows; **27** rows carry `intentionalChange`, jointly covering **28** differing assertions; every `reason` is non-empty.
+
+The 27-vs-28 gap is not a typo: `GET production/batch-conversions` carries two deltas at once (viewer loses, brewer gains), which is why `intentionalChange` is `Partial<Record<UserRole, boolean>>` rather than a single flag.
 
 - [ ] **Step 4: Commit**
 
