@@ -3,11 +3,14 @@
 import { useQuery } from "@tanstack/react-query";
 import { fetchJson } from "@/app/production/hooks/queries";
 import { queryKeys } from "@/lib/query-keys";
-import type { UserRole } from "@/lib/auth";
+import type { UserRole, Capability } from "@/lib/auth";
+import { can } from "@/lib/auth/resolve";
+import type { ScopeGrants } from "@/lib/auth/resolve";
 
 interface Me {
   user: { id: string; email: string } | null;
   role: UserRole | null;
+  grants: ScopeGrants;
 }
 
 /**
@@ -24,10 +27,25 @@ export function useAuthMeQuery() {
   });
 }
 
-export function useUserRole(): Me & { loading: boolean } {
+export function useUserRole(): Omit<Me, "grants"> & { loading: boolean } {
   const { data, isLoading } = useAuthMeQuery();
   return {
     user: data?.user ?? null,
+    role: data?.role ?? null,
+    loading: isLoading,
+  };
+}
+
+/**
+ * Client-side affordance check — wraps useAuthMeQuery and runs the *same*
+ * resolve.ts `can` the server uses, so the client cannot drift from the
+ * server. This governs affordance only; the server route remains the gate.
+ */
+export function usePermissions(): { can: (cap: Capability) => boolean; role: UserRole | null; loading: boolean } {
+  const { data, isLoading } = useAuthMeQuery();
+  const grants = data?.grants ?? {};
+  return {
+    can: (cap: Capability) => can(grants, cap.scope, cap.level),
     role: data?.role ?? null,
     loading: isLoading,
   };
