@@ -1,5 +1,5 @@
 -- Per-user scope+level permission grants, consulted only for role = 'custom'.
-create type permission_level as enum ('read', 'operate', 'manage', 'admin');
+create type permission_level as enum ('none', 'read', 'operate', 'manage', 'admin');
 
 create table user_permission_grants (
   user_id    uuid not null references profiles(id) on delete cascade,

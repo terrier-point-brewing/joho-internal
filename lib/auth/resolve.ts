@@ -27,5 +27,10 @@ export function effectiveLevel(grants: ScopeGrants, scope: ScopeKey): Level | nu
 
 export function can(grants: ScopeGrants, scope: ScopeKey, need: Level): boolean {
   const level = effectiveLevel(grants, scope);
+  // No special case for "none": it ranks 0, below every real `need`, so the
+  // plain comparison already denies access. `level === null` (no grant at
+  // all) is handled the same way as `level === "none"` (explicit revoke) —
+  // both fail the rank check — while `effectiveLevel` itself keeps the two
+  // distinguishable for callers that care (e.g. the grants admin UI).
   return level !== null && RANK[level] >= RANK[need];
 }

@@ -56,3 +56,31 @@ describe("effectiveLevel", () => {
     expect(effectiveLevel(grants, "taxes.foo" as ScopeKey)).toBeNull();
   });
 });
+
+describe("the 'none' rung — an explicit revoke", () => {
+  it("a leaf 'none' beats an ancestor section grant", () => {
+    const grants: ScopeGrants = { finance: "read", "finance.statements": "none" };
+    expect(effectiveLevel(grants, "finance.statements")).toBe("none");
+    expect(can(grants, "finance.statements", "read")).toBe(false);
+    // The section grant still applies to a sibling leaf.
+    expect(can(grants, "finance.transactions", "read")).toBe(true);
+  });
+
+  it("'none' at the root denies everything", () => {
+    const grants: ScopeGrants = { "": "none" };
+    expect(can(grants, "finance.statements", "read")).toBe(false);
+    expect(can(grants, "tax.pii", "read")).toBe(false);
+  });
+
+  it("'none' is distinguishable from no grant at all", () => {
+    const explicitlyRevoked: ScopeGrants = { "finance.statements": "none" };
+    const noGrant: ScopeGrants = {};
+    expect(effectiveLevel(explicitlyRevoked, "finance.statements")).toBe("none");
+    expect(effectiveLevel(noGrant, "finance.statements")).toBeNull();
+    // Both fail `can`, but effectiveLevel keeps them distinct for callers
+    // (e.g. the grants admin UI) that need to render "revoked" differently
+    // from "inherits nothing".
+    expect(can(explicitlyRevoked, "finance.statements", "read")).toBe(false);
+    expect(can(noGrant, "finance.statements", "read")).toBe(false);
+  });
+});

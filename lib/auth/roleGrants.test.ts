@@ -40,6 +40,14 @@ describe("ROLE_BUNDLES", () => {
     expect(effectiveLevel(ROLE_BUNDLES.manager, "taproom.targets")).toBe("read");
     expect(effectiveLevel(ROLE_BUNDLES.manager, "taproom.performance")).toBe("operate");
   });
+
+  it("never grants the 'none' rung — that's a per-user revoke, not a static bundle concept", () => {
+    for (const bundle of Object.values(ROLE_BUNDLES)) {
+      for (const level of Object.values(bundle)) {
+        expect(level).not.toBe("none");
+      }
+    }
+  });
 });
 
 describe("CAP", () => {
