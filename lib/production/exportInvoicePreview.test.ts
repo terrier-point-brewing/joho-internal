@@ -7,7 +7,7 @@
 // and assert the REAL computed unitPriceCents.
 import { describe, it, expect } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { buildExciseTaxLines, sumKegCleaningQuantity, resolveInvoiceChannel, packagingFeeDescription, buildPackagingMaterialLines } from "./exportInvoicePreview";
+import { buildExciseTaxLines, sumKegCleaningQuantity, resolveInvoiceChannel, packagingFeeDescription, buildPackagingMaterialLines, buildProductLines } from "./exportInvoicePreview";
 
 interface TaxRow {
   export_transaction_id: string;
@@ -284,6 +284,108 @@ describe("buildPackagingMaterialLines", () => {
     // cans $0, lids 100 × 5 = 500
     expect(lines[0].unitPriceCents).toBe(500);
     expect(warnings.some((w) => w.includes("12oz Can") && w.includes("$0"))).toBe(true);
+  });
+});
+
+// Stub the two queries buildProductLines drives, dispatched by chained filters:
+//  1. recipe_packaging_variations resolve — awaited (thenable), keyed by
+//     (recipe_id, variant_label = packaging_variations.name) → [{ variation_id }].
+//  2. recipe_square_links resolve inside resolveProductSku — .maybeSingle(),
+//     keyed by (variation_id, recipe_id) → the product SKU row (or null).
+function productStub(opts: {
+  pvByKey: Record<string, Array<{ variation_id: string }>>;
+  skuByKey: Record<string, { square_variation_id: string; square_item_id?: string | null; catalog_variation_id?: string | null; item_name?: string | null; variation_name?: string | null } | null>;
+}): SupabaseClient {
+  const client = {
+    from(_table: string) {
+      const filters: Record<string, unknown> = {};
+      const chain: Record<string, unknown> = {
+        select() { return chain; },
+        eq(col: string, val: unknown) { filters[col] = val; return chain; },
+        maybeSingle() {
+          const key = `${filters["variation_id"]}|${filters["recipe_id"]}`;
+          return Promise.resolve({ data: opts.skuByKey[key] ?? null, error: null });
+        },
+        then(resolve: (r: { data: unknown[]; error: null }) => void) {
+          const key = `${filters["recipe_id"]}|${filters["packaging_variations.name"]}`;
+          resolve({ data: opts.pvByKey[key] ?? [], error: null });
+        },
+      };
+      return chain;
+    },
+  };
+  return client as unknown as SupabaseClient;
+}
+
+function prodRows(rows: Array<Partial<{ id: string; recipe_id: string | null; packaging_item_id: string; packaging_format: string | null; quantity: number; variant_label: string }>>) {
+  return rows as unknown as Parameters<typeof buildProductLines>[1];
+}
+
+describe("buildProductLines", () => {
+  const pkgName = new Map([["can-16", "16oz Blank Can"]]);
+
+  it("resolves the LITERAL shipped label-variant by variant_label, not container+format", async () => {
+    // Prod case: recipe "Pumpkin Ale" links TWO labeled-can variations sharing the
+    // same 16oz can + case format. Matching by variant_label must pick the shipped
+    // one (CBC Pumpkin Reaper), never the sibling Fortnight variation.
+    const supabase = productStub({
+      pvByKey: {
+        "pumpkin|Fortnight Pumpkin Ale - 16oz Labeled Can Case": [{ variation_id: "pv-fortnight" }],
+        "pumpkin|CBC Pumpkin Reaper Ale - 16oz Labeled Can Case": [{ variation_id: "pv-cbc" }],
+      },
+      skuByKey: {
+        "pv-cbc|pumpkin": { square_variation_id: "sq-cbc", item_name: "CBC Pumpkin Reaper Ale", variation_name: "16oz Can (Case)" },
+        "pv-fortnight|pumpkin": { square_variation_id: "sq-fortnight", item_name: "Fortnight Pumpkin Ale", variation_name: "16oz Can (Case)" },
+      },
+    });
+    const lines = await buildProductLines(
+      supabase,
+      prodRows([{ id: "t1", recipe_id: "pumpkin", packaging_item_id: "can-16", packaging_format: "case", quantity: 4, variant_label: "CBC Pumpkin Reaper Ale - 16oz Labeled Can Case" }]),
+      new Map([["sq-cbc", 4500]]),
+      pkgName,
+    );
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({ quantity: 4, unitPriceCents: 4500, squareCatalogVariationId: "sq-cbc" });
+    expect(lines[0].description).toBe("CBC Pumpkin Reaper Ale · 16oz Can (Case) (case)");
+  });
+
+  it("throws (fail-closed) when the shipped variant_label resolves to no variation", async () => {
+    const supabase = productStub({ pvByKey: {}, skuByKey: {} }); // renamed/removed variation
+    await expect(
+      buildProductLines(
+        supabase,
+        prodRows([{ id: "t1", recipe_id: "pumpkin", packaging_item_id: "can-16", packaging_format: "case", quantity: 4, variant_label: "Ghost Case" }]),
+        new Map(),
+        pkgName,
+      )
+    ).rejects.toThrow(/Cannot resolve the packaging variation "Ghost Case"/);
+  });
+
+  it("throws when the variation resolves but has no Square product link", async () => {
+    const supabase = productStub({
+      pvByKey: { "pumpkin|CBC Pumpkin Reaper Ale - 16oz Labeled Can Case": [{ variation_id: "pv-cbc" }] },
+      skuByKey: { "pv-cbc|pumpkin": null }, // no recipe_square_links row
+    });
+    await expect(
+      buildProductLines(
+        supabase,
+        prodRows([{ id: "t1", recipe_id: "pumpkin", packaging_item_id: "can-16", packaging_format: "case", quantity: 4, variant_label: "CBC Pumpkin Reaper Ale - 16oz Labeled Can Case" }]),
+        new Map(),
+        pkgName,
+      )
+    ).rejects.toThrow(/No Square product link found/);
+  });
+
+  it("throws when a selected transaction has no recipe", async () => {
+    const supabase = productStub({ pvByKey: {}, skuByKey: {} });
+    await expect(
+      buildProductLines(
+        supabase,
+        prodRows([{ id: "t1", recipe_id: null, packaging_item_id: "can-16", packaging_format: "case", quantity: 4, variant_label: "Whatever" }]),
+        new Map(),
+        pkgName,
+      )
+    ).rejects.toThrow(/has no recipe/);
   });
 });
 
