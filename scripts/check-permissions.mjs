@@ -66,8 +66,22 @@ for (const name of capNames) {
 }
 
 // ── 4. Every scope is covered by at least one capability ────────────────────
+// Keys are quoted only when they aren't a bare identifier (e.g. "taproom.
+// performance"; but `payroll` and `tax` are unquoted since they're valid
+// identifiers) — the quotes must be optional, or unquoted keys are silently
+// skipped.
 const scopeSrc = readFileSync(join(ROOT, AUTH_DIR, "scopes.ts"), "utf8");
-const scopeKeys = [...scopeSrc.matchAll(/^\s{2}"([\w.]+)":\s*\{/gm)].map((m) => m[1]);
+const scopeKeys = [...scopeSrc.matchAll(/^\s{2}"?([\w.]+)"?:\s*\{\s*label/gm)].map((m) => m[1]);
+// Twenty leaves is the documented shape (see scopes.ts's own header comment,
+// and roleGrants.test.ts's "grants admin on all 20 scopes" assertion) — if
+// this count drifts, the extraction regex silently under- or over-matched
+// and every downstream check in this rule is unreliable.
+if (scopeKeys.length !== 20) {
+  problems.push(
+    `scripts/check-permissions.mjs rule 4 — expected to find 20 scopes in lib/auth/scopes.ts, found ${scopeKeys.length}; ` +
+      `the extraction regex is out of sync with scopes.ts's shape`,
+  );
+}
 for (const key of scopeKeys) {
   if (!new RegExp(`scope:\\s*["']${key.replace(/\./g, "\\.")}["']`).test(capSrc))
     problems.push(`lib/auth/scopes.ts — scope "${key}" has no capability; nothing can grant it`);

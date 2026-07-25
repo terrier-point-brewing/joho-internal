@@ -277,13 +277,15 @@ export default function ManualEntriesTab() {
                               {entry.label ?? <span className="text-disabled">—</span>}
                             </td>
                             <td className="px-4 py-2.5 text-right">
-                              <button
-                                onClick={() => handleDelete(entry.id)}
-                                disabled={deleting === entry.id}
-                                className="text-xs text-faint hover:text-danger disabled:opacity-40 transition-colors"
-                              >
-                                {deleting === entry.id ? "…" : "Delete"}
-                              </button>
+                              {canEdit && (
+                                <button
+                                  onClick={() => handleDelete(entry.id)}
+                                  disabled={deleting === entry.id}
+                                  className="text-xs text-faint hover:text-danger disabled:opacity-40 transition-colors"
+                                >
+                                  {deleting === entry.id ? "…" : "Delete"}
+                                </button>
+                              )}
                             </td>
                           </tr>
                         );
