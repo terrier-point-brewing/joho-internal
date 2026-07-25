@@ -259,16 +259,24 @@ export async function buildPackagingMaterialLines(
   return { lines, warnings };
 }
 
-async function buildProductLines(
+// Distribution / wholesale product lines: one per shipped transaction, priced
+// from the resolved Square SKU. Fail-closed — an unresolvable shipped variation
+// or a missing Square product link throws, since a product line IS the invoice
+// and silently dropping it would undercharge the customer. Exported for unit
+// testing.
+export async function buildProductLines(
   supabase: SupabaseClient,
   rows: ExportTxRow[],
   priceByVariationId: Map<string, number>,
   pkgNameById: Map<string, string>
 ): Promise<InvoiceLineItemDraft[]> {
   // export_transactions does NOT store variation_id (confirmed against the live
-  // schema), so resolve the packaging_variation each transaction shipped
-  // (recipe ∩ container ∩ format) first, then the product SKU at variation
-  // grain via the unified resolver.
+  // schema), so resolve the packaging_variation each transaction shipped, then
+  // the product SKU at variation grain via the unified resolver. Match on the
+  // LITERAL variation shipped — variant_label (= packaging_variations.name at
+  // ship time) — scoped to the recipe. (recipe ∩ container ∩ format) is
+  // ambiguous when one liquid ships under two brand labels sharing a can +
+  // format, and would block the whole invoice.
   const lineItems: InvoiceLineItemDraft[] = [];
   for (const tx of rows) {
     if (!tx.recipe_id) {
@@ -280,15 +288,14 @@ async function buildProductLines(
 
     const { data: pvRows, error: pvErr } = await supabase
       .from("recipe_packaging_variations")
-      .select("variation_id, packaging_variations!inner(id, container_id, format)")
+      .select("variation_id, packaging_variations!inner(id, name)")
       .eq("recipe_id", tx.recipe_id)
-      .eq("packaging_variations.container_id", tx.packaging_item_id)
-      .eq("packaging_variations.format", tx.packaging_format ?? "loose");
+      .eq("packaging_variations.name", tx.variant_label);
     if (pvErr) throw new Error(pvErr.message);
     if (!pvRows || pvRows.length !== 1) {
       throw new Error(
-        `Cannot uniquely resolve the packaging variation for recipe + "${pkgName}" ` +
-        `(format: ${tx.packaging_format || "none"}) — ${pvRows?.length ?? 0} candidates. ` +
+        `Cannot resolve the packaging variation "${tx.variant_label}" for recipe + "${pkgName}" ` +
+        `— ${pvRows?.length ?? 0} candidates. ` +
         `Resolve the mapping in Production → Link Styles to Square.`
       );
     }
