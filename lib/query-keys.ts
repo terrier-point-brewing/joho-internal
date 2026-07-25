@@ -100,6 +100,7 @@ export const queryKeys = {
     targets:       () => ["taproom", "targets"] as const,
     manualEntries: () => ["taproom", "manual-entries"] as const,
     tapConfig:     () => ["taproom", "tap-config"] as const,
+    tapSwaps:      () => ["taproom", "tap-swaps"] as const,
     draftStats:    () => ["taproom", "draft-stats"] as const,
     inventory:     () => ["taproom", "inventory"] as const,
     events:        () => ["taproom", "events"] as const,

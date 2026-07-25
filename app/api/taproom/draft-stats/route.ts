@@ -8,6 +8,15 @@ import { BBL_TO_FL_OZ } from "@/lib/constants/production";
 
 export const dynamic = "force-dynamic";
 
+/** A queued beer change on a tap, awaiting its Draft Restock ring. */
+interface QueuedSwap {
+  id: string;
+  to_recipe_id: string;
+  to_beer_name: string;
+  to_variation_name: string;
+  opened_at: string;
+}
+
 export async function GET(req: NextRequest) {
   const supabase = await createSupabaseServerClient();
   try {
@@ -15,7 +24,7 @@ export async function GET(req: NextRequest) {
 
     // Fetch tap config, sell-through data (draft only), swap-keg cold storage, and
     // retired settings in parallel. Shrinkage rows are read afterward.
-    const [tapCfgRes, tapCountRes, draftSellThrough, coldStorageRes, settingsRes] = await Promise.all([
+    const [tapCfgRes, tapCountRes, draftSellThrough, coldStorageRes, settingsRes, queuedSwapRes] = await Promise.all([
       supabase
         .from("tap_assignments")
         .select("tap_number, recipe_id, label, swap_variation_id, swap_volume_fl_oz, recipes(beer_name)")
@@ -27,6 +36,14 @@ export async function GET(req: NextRequest) {
         .select("recipe_id, variation_id, quantity_on_hand")
         .not("recipe_id", "is", null),
       supabase.from("taproom_recipe_settings").select("recipe_id, is_retired"),
+      // Queued beer-change swaps awaiting their Draft Restock ring. NO embed: this
+      // table has two FKs to `recipes`, and constraint-name-disambiguated embeds
+      // have crashed with PGRST200 here before (prod FK names are non-canonical).
+      supabase
+        .from("tap_swap_transitions")
+        .select("id, tap_number, to_recipe_id, to_variation_id, opened_at")
+        .is("consumed_source_ref", null)
+        .order("opened_at"),
     ]);
 
     const tapCount = Number(tapCountRes.data?.value ?? 8);
@@ -44,6 +61,43 @@ export async function GET(req: NextRequest) {
       onHandByRecipeVar.set(key, (onHandByRecipeVar.get(key) ?? 0) + Number(row.quantity_on_hand));
     }
 
+    // Queued swaps, resolved to display names with two plain lookups (no embeds).
+    //
+    // Deliberately non-fatal: a failure here costs the "queued" badges, not the
+    // whole tab. But it is NOT swallowed — before migration 20260816 is applied
+    // this is a PGRST205 ("table not in schema cache"), and that must be visible
+    // in the server log rather than looking like "no swaps queued".
+    if (queuedSwapRes.error) {
+      console.error("[draft-stats] queued swap lookup failed", queuedSwapRes.error.message);
+    }
+    const queuedRows = (queuedSwapRes.data ?? []) as {
+      id: string; tap_number: number; to_recipe_id: string; to_variation_id: string; opened_at: string;
+    }[];
+    const queuedByTap = new Map<number, QueuedSwap>();
+    if (queuedRows.length > 0) {
+      const [incomingRecipes, incomingVariations] = await Promise.all([
+        supabase.from("recipes").select("id, beer_name").in("id", queuedRows.map((r) => r.to_recipe_id)),
+        supabase.from("packaging_variations").select("id, name").in("id", queuedRows.map((r) => r.to_variation_id)),
+      ]);
+      const beerById = new Map(
+        (incomingRecipes.data ?? []).map((r) => [r.id as string, (r.beer_name as string | null) ?? "—"]),
+      );
+      const variationById = new Map(
+        (incomingVariations.data ?? []).map((v) => [v.id as string, (v.name as string | null) ?? "—"]),
+      );
+      for (const r of queuedRows) {
+        // FIFO: the oldest queued swap for a tap is the one the next ring consumes.
+        if (queuedByTap.has(r.tap_number)) continue;
+        queuedByTap.set(r.tap_number, {
+          id:                 r.id,
+          to_recipe_id:       r.to_recipe_id,
+          to_beer_name:       beerById.get(r.to_recipe_id) ?? "—",
+          to_variation_name:  variationById.get(r.to_variation_id) ?? "—",
+          opened_at:          r.opened_at,
+        });
+      }
+    }
+
     const emptyTaps = Array.from({ length: tapCount }, (_, i) => {
       const tap = taps.find((t) => t.tap_number === i + 1);
       return {
@@ -52,6 +106,7 @@ export async function GET(req: NextRequest) {
         label:      tap?.label ?? null,
         beer_name:  (tap?.recipes as unknown as { beer_name: string } | null)?.beer_name ?? null,
         metrics:    null,
+        queued_swap: queuedByTap.get(i + 1) ?? null,
       };
     });
 
@@ -114,6 +169,9 @@ export async function GET(req: NextRequest) {
         recipe_id:  recipeId ?? null,
         label:      tap?.label ?? null,
         beer_name:  tap?.recipes?.beer_name ?? null,
+        // The card keeps showing the OUTGOING beer and its real metrics; this only
+        // adds the "incoming beer queued" hint until the ring flips the tap.
+        queued_swap: queuedByTap.get(i + 1) ?? null,
         metrics: metrics ? {
           current_fl_oz:  Number(metrics.current_fl_oz.toFixed(1)),
           current_bbl:    Number(tapBblOnHand(metrics.current_fl_oz, reserveFlOz).toFixed(3)),

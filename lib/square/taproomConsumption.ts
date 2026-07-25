@@ -4,6 +4,15 @@ import {
   fetchDraftRestockLineItems,
   type RestockLineEvent,
 } from "./inventory";
+import {
+  pairSwapsToRestocks,
+  restockEventKey,
+  staleSwaps,
+  type PendingTapSwap,
+} from "@/lib/taproom/tapSwaps";
+
+/** A queued swap unrung for this long is surfaced as a discrepancy, never auto-expired. */
+const STALE_SWAP_DAYS = 7;
 
 export type ConsumptionKind = "keg_sale" | "can_sale" | "draft_swap";
 
@@ -36,7 +45,20 @@ export interface ConsumptionUnit {
   kind: ConsumptionKind;
   label: string; // human label for discrepancy/summary display
   tapNumber?: number; // the tap this swap drained (restock-driven draft swaps only)
+  /**
+   * RFC3339 timestamp of the triggering restock order. Set for draft swaps —
+   * needed for the outgoing keg's shrinkage row even when the incoming recipe has
+   * no draft Square link (so there is no `recount` to read it from).
+   */
+  occurredAt?: string;
   recount?: RecountInstruction; // set for restock-driven draft swaps; drives the Square recount
+  /**
+   * The queued beer-change transition this restock consumes. Present only when a
+   * `tap_swap_transitions` row was paired to this ring — the sync uses it to book
+   * the OUTGOING side (write off its residual, zero its Square draft SKU) and to
+   * flip `tap_assignments`. Absent for like-for-like restocks.
+   */
+  swap?: PendingTapSwap;
 }
 
 export interface ConfigDiscrepancy {
@@ -52,7 +74,18 @@ export interface UnmappedRestockDiscrepancy {
   count: number;
 }
 
-export type AssemblyDiscrepancy = ConfigDiscrepancy | UnmappedRestockDiscrepancy;
+export interface StaleQueuedSwapDiscrepancy {
+  kind: "stale_queued_swap";
+  tapNumber: number;
+  swapId: string;
+  openedAt: string;
+  toBeerName: string;
+}
+
+export type AssemblyDiscrepancy =
+  | ConfigDiscrepancy
+  | UnmappedRestockDiscrepancy
+  | StaleQueuedSwapDiscrepancy;
 
 // keg/can Square SKU -> cold-storage variation
 export interface KegCanLink {
@@ -92,6 +125,8 @@ export function assembleConsumption(input: {
   draftLinks: DraftLink[];
   restockEvents?: RestockLineEvent[]; // bartender-recorded keg swaps (the new path)
   tapRestockLinks?: TapRestockLink[]; // restock variation → tap → recipe + swap config
+  pendingSwaps?: PendingTapSwap[]; // queued beer-change transitions awaiting a ring
+  nowIso?: string; // enables staleness reporting; omitted keeps this fully time-free
 }): { units: ConsumptionUnit[]; discrepancies: AssemblyDiscrepancy[] } {
   const {
     salesByDay,
@@ -99,6 +134,8 @@ export function assembleConsumption(input: {
     draftLinks,
     restockEvents = [],
     tapRestockLinks = [],
+    pendingSwaps = [],
+    nowIso,
   } = input;
 
   const units: ConsumptionUnit[] = [];
@@ -134,6 +171,13 @@ export function assembleConsumption(input: {
   const linkByRestockVar = new Map<string, TapRestockLink>();
   for (const link of tapRestockLinks) linkByRestockVar.set(link.restockVariationId, link);
 
+  // Pair queued beer-change transitions to rings, FIFO per tap. A paired ring
+  // resolves entirely off the FROZEN transition; an unpaired one keeps resolving
+  // off the (mutable) tap row, which is correct for a like-for-like restock.
+  const tapByRestockVar = new Map<string, number>();
+  for (const link of tapRestockLinks) tapByRestockVar.set(link.restockVariationId, link.tapNumber);
+  const pairedSwaps = pairSwapsToRestocks(restockEvents, tapByRestockVar, pendingSwaps);
+
   const restockUnconfigured = new Map<string, { beerName: string; count: number }>();
   const unmappedRestock = new Map<string, number>();
   for (const ev of restockEvents) {
@@ -142,23 +186,33 @@ export function assembleConsumption(input: {
       unmappedRestock.set(ev.squareVariationId, (unmappedRestock.get(ev.squareVariationId) ?? 0) + 1);
       continue;
     }
-    if (!link.swapVariationId || !link.swapVolumeFlOz) {
-      const prev = restockUnconfigured.get(link.recipeId);
-      restockUnconfigured.set(link.recipeId, { beerName: link.beerName, count: (prev?.count ?? 0) + 1 });
+    const swap = pairedSwaps.get(restockEventKey(ev.orderId, ev.lineUid));
+
+    // Resolved swap target: the transition when one is paired, else the tap row.
+    const recipeId = swap ? swap.toRecipeId : link.recipeId;
+    const beerName = swap ? swap.toBeerName : link.beerName;
+    const variationId = swap ? swap.toVariationId : link.swapVariationId;
+    const volumeFlOz = swap ? swap.toVolumeFlOz : link.swapVolumeFlOz;
+
+    if (!variationId || !volumeFlOz) {
+      const prev = restockUnconfigured.get(recipeId);
+      restockUnconfigured.set(recipeId, { beerName, count: (prev?.count ?? 0) + 1 });
       continue;
     }
-    const draftSquareVar = draftSquareVarByRecipe.get(link.recipeId);
+    const draftSquareVar = swap ? swap.toDraftSquareVariationId : draftSquareVarByRecipe.get(recipeId);
     units.push({
-      recipeId: link.recipeId,
-      variationId: link.swapVariationId,
+      recipeId,
+      variationId,
       quantity: ev.quantity,
       sourceRef: `sqtransfer:${ev.orderId}:${ev.lineUid}`,
       kind: "draft_swap",
-      label: `${link.beerName} · Tap ${link.tapNumber} restock · ${ev.occurredAt.slice(0, 10)}`,
+      label: `${beerName} · Tap ${link.tapNumber} restock · ${ev.occurredAt.slice(0, 10)}`,
       tapNumber: link.tapNumber,
+      occurredAt: ev.occurredAt,
       recount: draftSquareVar
-        ? { squareVariationId: draftSquareVar, quantity: link.swapVolumeFlOz, occurredAt: ev.occurredAt }
+        ? { squareVariationId: draftSquareVar, quantity: volumeFlOz, occurredAt: ev.occurredAt }
         : undefined,
+      swap,
     });
   }
   for (const [recipeId, v] of restockUnconfigured) {
@@ -166,6 +220,20 @@ export function assembleConsumption(input: {
   }
   for (const [squareVariationId, count] of unmappedRestock) {
     discrepancies.push({ kind: "unmapped_restock", squareVariationId, count });
+  }
+
+  // A swap queued but never rung would otherwise sit silently and attach to a much
+  // later ring. Only reported when the caller supplies a clock.
+  if (nowIso) {
+    for (const s of staleSwaps(pendingSwaps, pairedSwaps, nowIso, STALE_SWAP_DAYS)) {
+      discrepancies.push({
+        kind: "stale_queued_swap",
+        tapNumber: s.tapNumber,
+        swapId: s.id,
+        openedAt: s.openedAt,
+        toBeerName: s.toBeerName,
+      });
+    }
   }
 
   return { units, discrepancies };
@@ -179,6 +247,21 @@ interface RecipeSquareLinkRow {
   variation_name: string | null;
   item_name: string | null;
   recipes: { beer_name: string } | null;
+}
+
+/** Raw `tap_swap_transitions` row as selected below (numerics arrive as strings). */
+interface TapSwapTransitionRow {
+  id: string;
+  tap_number: number;
+  from_recipe_id: string | null;
+  from_variation_id: string | null;
+  from_volume_fl_oz: number | string | null;
+  from_draft_square_variation_id: string | null;
+  to_recipe_id: string;
+  to_variation_id: string;
+  to_volume_fl_oz: number | string;
+  to_draft_square_variation_id: string | null;
+  opened_at: string;
 }
 
 interface TapAssignmentRow {
@@ -255,6 +338,53 @@ export async function deriveTaproomConsumption(
     });
   }
 
+  // Pending beer-change transitions. NO PostgREST embed: this table has two FKs to
+  // `recipes` (from_recipe_id / to_recipe_id), and constraint-name-disambiguated
+  // embeds have crashed this codebase with PGRST200 because prod FK names are
+  // non-canonical. Beer names are resolved with a second plain query instead.
+  const { data: swapRows, error: swapErr } = await supabase
+    .from("tap_swap_transitions")
+    .select(
+      "id, tap_number, from_recipe_id, from_variation_id, from_volume_fl_oz, from_draft_square_variation_id, to_recipe_id, to_variation_id, to_volume_fl_oz, to_draft_square_variation_id, opened_at",
+    )
+    .is("consumed_source_ref", null)
+    .order("opened_at");
+  if (swapErr) throw new Error(swapErr.message);
+
+  const swapTransitionRows = (swapRows ?? []) as unknown as TapSwapTransitionRow[];
+  const swapRecipeIds = [
+    ...new Set(
+      swapTransitionRows.flatMap((r) => [r.from_recipe_id, r.to_recipe_id]).filter((id): id is string => !!id),
+    ),
+  ];
+  const beerNameById = new Map<string, string>();
+  if (swapRecipeIds.length > 0) {
+    const { data: recipeRows, error: recipeErr } = await supabase
+      .from("recipes")
+      .select("id, beer_name")
+      .in("id", swapRecipeIds);
+    if (recipeErr) throw new Error(recipeErr.message);
+    for (const r of (recipeRows ?? []) as { id: string; beer_name: string | null }[]) {
+      beerNameById.set(r.id, r.beer_name ?? "");
+    }
+  }
+
+  const pendingSwaps: PendingTapSwap[] = swapTransitionRows.map((r) => ({
+    id: r.id,
+    tapNumber: r.tap_number,
+    fromRecipeId: r.from_recipe_id,
+    fromBeerName: r.from_recipe_id ? beerNameById.get(r.from_recipe_id) ?? "" : null,
+    fromVariationId: r.from_variation_id,
+    fromVolumeFlOz: r.from_volume_fl_oz != null ? Number(r.from_volume_fl_oz) : null,
+    fromDraftSquareVariationId: r.from_draft_square_variation_id,
+    toRecipeId: r.to_recipe_id,
+    toBeerName: beerNameById.get(r.to_recipe_id) ?? "",
+    toVariationId: r.to_variation_id,
+    toVolumeFlOz: Number(r.to_volume_fl_oz),
+    toDraftSquareVariationId: r.to_draft_square_variation_id,
+    openedAt: r.opened_at,
+  }));
+
   const kegCanSquareVarIds = kegCanLinks.map((l) => l.squareVariationId);
   const restockSquareVarIds = tapRestockLinks.map((l) => l.restockVariationId);
 
@@ -274,5 +404,7 @@ export async function deriveTaproomConsumption(
     draftLinks,
     restockEvents,
     tapRestockLinks,
+    pendingSwaps,
+    nowIso: new Date().toISOString(),
   });
 }

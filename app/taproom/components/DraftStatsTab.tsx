@@ -6,6 +6,9 @@ import { queryKeys } from "@/lib/query-keys";
 import dynamic from "next/dynamic";
 import ChartSkeleton from "@/app/components/ChartSkeleton";
 import { fetchJson } from "../../production/hooks/queries";
+import { Modal, Field, ModalActions } from "@/app/components/ui/Modal";
+import Badge from "@/app/components/ui/Badge";
+import Banner from "@/app/components/ui/Banner";
 import type { RecipeSquareLinkRow, AvailableInventoryLine, RecipePackagingVariation } from "../../production/types";
 import {
   type DraftUrgency,
@@ -30,12 +33,23 @@ interface TapMetrics {
   is_retired: boolean;
 }
 
+/** A queued beer change on this tap, awaiting its Draft Restock ring. */
+interface QueuedSwap {
+  id: string;
+  to_recipe_id: string;
+  to_beer_name: string;
+  to_variation_name: string;
+  opened_at: string;
+}
+
 interface TapRow {
   tap_number: number;
   recipe_id: string | null;
   label: string | null;
   beer_name: string | null;
   metrics: TapMetrics | null;
+  /** Present while a swap is queued — the card still shows the OUTGOING beer. */
+  queued_swap?: QueuedSwap | null;
 }
 
 interface KegEvent {
@@ -201,6 +215,17 @@ export default function DraftStatsTab() {
   const [saving, setSaving] = useState(false);
   const [retiringSaving, setRetiringSaving] = useState<string | null>(null);
 
+  // ── Swap keg ────────────────────────────────────────────────────────────────
+  // Queueing a swap records a frozen note of both sides and does NOT touch the tap
+  // assignment — the Draft Restock ring is what books it and flips the card.
+  const [swapTap, setSwapTap] = useState<number | null>(null);
+  const [swapRecipeId, setSwapRecipeId] = useState("");
+  const [swapKegId, setSwapKegId] = useState("");
+  const [swapRetire, setSwapRetire] = useState(true);
+  const [swapSubmitting, setSwapSubmitting] = useState(false);
+  const [swapError, setSwapError] = useState<string | null>(null);
+  const [cancellingSwap, setCancellingSwap] = useState<string | null>(null);
+
   // Variations belonging to the chosen "Draft Restock" Square item, for the
   // per-tap dropdowns. Empty until an item is selected.
   const restockVariations = catalogVariations.filter((v) => v.item_id === restockItemId);
@@ -358,6 +383,77 @@ export default function DraftStatsTab() {
       alert(e instanceof Error ? e.message : "Error");
     } finally {
       setRetiringSaving(null);
+    }
+  }
+
+  // The tap being swapped, and whether its outgoing beer pours anywhere else. The
+  // draft SKU is per recipe, so a beer on two taps can't be written off or zeroed
+  // on one — that also makes retiring it the wrong default.
+  const swapSourceTap = swapTap != null ? stats?.taps.find((t) => t.tap_number === swapTap) : undefined;
+  const outgoingOnOtherTap = !!swapSourceTap?.recipe_id
+    && (stats?.taps ?? []).some((t) => t.tap_number !== swapTap && t.recipe_id === swapSourceTap.recipe_id);
+  const swapKegChoices = kegOptionsByRecipe.get(swapRecipeId) ?? [];
+  const swapKegPick = swapKegChoices.find((k) => k.variation_id === swapKegId);
+  const swapKegVolume = swapKegPick ? codedVolumeFor(swapKegPick) : null;
+
+  function openSwap(tapNumber: number) {
+    setSwapTap(tapNumber);
+    setSwapRecipeId("");
+    setSwapKegId("");
+    setSwapRetire(true);
+    setSwapError(null);
+  }
+
+  function closeSwap() {
+    setSwapTap(null);
+    setSwapError(null);
+  }
+
+  async function submitSwap(e: React.FormEvent) {
+    e.preventDefault();
+    if (swapTap == null) return;
+    setSwapSubmitting(true);
+    setSwapError(null);
+    try {
+      const res = await fetch("/api/taproom/tap-swaps", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tap_number:      swapTap,
+          to_recipe_id:    swapRecipeId,
+          to_variation_id: swapKegId,
+          // Never offered when the beer is still on another tap.
+          retire_outgoing: swapRetire && !outgoingOnOtherTap,
+        }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error ?? "Could not queue the swap");
+      if (body.warning) setSwapError(body.warning);
+      else closeSwap();
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: queryKeys.taproom.draftStats() }),
+        qc.invalidateQueries({ queryKey: queryKeys.taproom.tapConfig() }),
+      ]);
+    } catch (err) {
+      setSwapError(err instanceof Error ? err.message : "Could not queue the swap");
+    } finally {
+      setSwapSubmitting(false);
+    }
+  }
+
+  async function cancelSwap(swapId: string) {
+    setCancellingSwap(swapId);
+    try {
+      const res = await fetch(`/api/taproom/tap-swaps?id=${encodeURIComponent(swapId)}`, { method: "DELETE" });
+      if (!res.ok) throw new Error((await res.json()).error ?? "Could not cancel the swap");
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: queryKeys.taproom.draftStats() }),
+        qc.invalidateQueries({ queryKey: queryKeys.taproom.tapConfig() }),
+      ]);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Could not cancel the swap");
+    } finally {
+      setCancellingSwap(null);
     }
   }
 
@@ -648,6 +744,22 @@ export default function DraftStatsTab() {
                       <p className="text-sm text-faint italic">Empty</p>
                     )}
                     {tap?.label && <p className="text-xs text-muted">{tap.label}</p>}
+                    {/* Queued swap: the card deliberately still shows the OUTGOING
+                        beer and its real metrics — this is only the hint that a
+                        change is staged until the bartender rings the restock. */}
+                    {tap?.queued_swap && (
+                      <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                        <Badge tone="info">→ {tap.queued_swap.to_beer_name} queued</Badge>
+                        <span className="text-2xs text-faint">{tap.queued_swap.to_variation_name}</span>
+                        <button
+                          onClick={() => cancelSwap(tap.queued_swap!.id)}
+                          disabled={cancellingSwap === tap.queued_swap.id}
+                          className="btn-secondary btn-xxs"
+                        >
+                          {cancellingSwap === tap.queued_swap.id ? "…" : "Cancel"}
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -684,17 +796,26 @@ export default function DraftStatsTab() {
                       </div>
                     </div>
                     {tap.recipe_id && (
-                      <button
-                        onClick={() => toggleRetire(tap.recipe_id!, isRetired)}
-                        disabled={retiringSaving === tap.recipe_id}
-                        className={`text-xs self-start px-2 py-0.5 rounded border transition-colors ${
-                          isRetired
-                            ? "border-line-strong text-muted hover:text-body hover:border-line-subtle"
-                            : "border-line-strong text-faint hover:text-accent hover:border-accent-border"
-                        }`}
-                      >
-                        {retiringSaving === tap.recipe_id ? "…" : isRetired ? "Unretire" : "Mark Retired"}
-                      </button>
+                      <div className="flex flex-wrap items-center gap-1.5 self-start">
+                        <button
+                          onClick={() => toggleRetire(tap.recipe_id!, isRetired)}
+                          disabled={retiringSaving === tap.recipe_id}
+                          className={`text-xs px-2 py-0.5 rounded border transition-colors ${
+                            isRetired
+                              ? "border-line-strong text-muted hover:text-body hover:border-line-subtle"
+                              : "border-line-strong text-faint hover:text-accent hover:border-accent-border"
+                          }`}
+                        >
+                          {retiringSaving === tap.recipe_id ? "…" : isRetired ? "Unretire" : "Mark Retired"}
+                        </button>
+                        {/* Deliberately shown on retired/greyed cards too — a retired
+                            tap at critical is exactly the one wanting a swap queued. */}
+                        {!tap.queued_swap && (
+                          <button onClick={() => openSwap(tapNum)} className="btn-secondary btn-xxs">
+                            Swap keg
+                          </button>
+                        )}
+                      </div>
                     )}
                   </>
                 )}
@@ -758,6 +879,107 @@ export default function DraftStatsTab() {
             </p>
           )}
         </div>
+      )}
+
+      {/* ── Swap keg confirm ── */}
+      {swapTap != null && (
+        <Modal title={`Swap keg — Tap ${swapTap}`} onClose={closeSwap}>
+          <form onSubmit={submitSwap} className="space-y-4">
+            <p className="text-xs text-muted leading-relaxed">
+              This records the swap now and books it when a bartender rings{" "}
+              <span className="text-body font-medium">Draft Restock Tap {swapTap}</span>. Until then the
+              tap keeps showing {swapSourceTap?.beer_name ?? "its current beer"}.
+            </p>
+
+            <Field label="Beer going on" required>
+              <select
+                className="inp text-xs w-full"
+                value={swapRecipeId}
+                required
+                onChange={(e) => { setSwapRecipeId(e.target.value); setSwapKegId(""); }}
+              >
+                <option value="">— select beer —</option>
+                {draftRecipes.map((r) => (
+                  <option key={r.id} value={r.id}>{r.beer_name}</option>
+                ))}
+              </select>
+            </Field>
+
+            <Field label="Keg to drain" required>
+              <select
+                className="inp text-xs w-full disabled:opacity-40"
+                value={swapKegId}
+                required
+                disabled={!swapRecipeId}
+                onChange={(e) => setSwapKegId(e.target.value)}
+              >
+                <option value="">— keg to drain —</option>
+                {swapKegChoices.map((k) => (
+                  <option key={k.variation_id} value={k.variation_id}>
+                    {k.variation_name}
+                    {k.quantity_on_hand != null ? ` (${k.quantity_on_hand} on hand)` : ""}
+                  </option>
+                ))}
+              </select>
+              {swapRecipeId && swapKegChoices.length === 0 && (
+                <p className="text-xs text-danger mt-1">This beer has no keg variation configured.</p>
+              )}
+            </Field>
+
+            <Field label="Full-keg volume — recount target">
+              <p className="text-xs text-body tabular-nums" title="From the keg's packaging variation — not editable">
+                {swapKegVolume != null
+                  ? `${swapKegVolume.toLocaleString()} fl oz`
+                  : <span className="text-faint">— select a keg —</span>}
+              </p>
+            </Field>
+
+            {/* The residual is Square's calculated on-hand for the outgoing draft
+                SKU — the same number the card shows — so no extra fetch. */}
+            {swapSourceTap?.metrics && swapSourceTap.recipe_id && (
+              <Banner tone={outgoingOnOtherTap ? "accent" : "info"}>
+                {outgoingOnOtherTap ? (
+                  <>
+                    {swapSourceTap.beer_name} is also on another tap, so its remaining beer
+                    can&rsquo;t be written off here — draft levels are tracked per beer, not per tap.
+                  </>
+                ) : (
+                  <>
+                    Writing off ~
+                    <span className="tabular-nums font-medium">
+                      {Math.max(0, Math.round(swapSourceTap.metrics.current_fl_oz)).toLocaleString()}
+                    </span>{" "}
+                    fl oz of {swapSourceTap.beer_name} as shrinkage when this is rung.
+                  </>
+                )}
+              </Banner>
+            )}
+
+            {swapSourceTap?.recipe_id && !outgoingOnOtherTap && (
+              <label className="flex items-start gap-2 text-xs text-body">
+                <input
+                  type="checkbox"
+                  checked={swapRetire}
+                  onChange={(e) => setSwapRetire(e.target.checked)}
+                  className="mt-0.5"
+                />
+                <span>
+                  Also retire {swapSourceTap.beer_name}
+                  <span className="text-faint"> — stops brew suggestions. Tapping it again un-retires it automatically.</span>
+                </span>
+              </label>
+            )}
+
+            {swapError && <Banner>{swapError}</Banner>}
+
+            <ModalActions
+              submitting={swapSubmitting}
+              onCancel={closeSwap}
+              label="Queue swap"
+              disabled={!swapRecipeId || !swapKegId}
+            />
+          </form>
+        </Modal>
       )}
 
       {shrinkageItems.length === 0 && !isLoading && (

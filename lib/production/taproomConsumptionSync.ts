@@ -4,6 +4,8 @@ import { setPhysicalCount, fetchCurrentCounts } from "@/lib/square/inventory";
 import { recordTaproomConsumption } from "@/lib/production/recordTaproomConsumption";
 import { reconcileSquareCanInventory } from "@/lib/production/reconcileSquareCanInventory";
 import { syncDraftPourConsumption } from "./syncDraftPourConsumption";
+import { buildRetirePayload } from "@/lib/taproom/retireRecipe";
+import type { PendingTapSwap } from "@/lib/taproom/tapSwaps";
 
 /**
  * Reconciling taproom-consumption sync.
@@ -46,6 +48,18 @@ export type SyncDiscrepancy =
       kind: "shrinkage_capture_failed";
       sourceRef: string;
       detail: string;
+    }
+  | {
+      /**
+       * A beer-change swap whose outgoing beer is still pouring on another tap.
+       * The draft SKU is per recipe, so its count is the combined level across
+       * both taps — zeroing it would wipe the other tap's beer and the residual
+       * reading would be wrong. Write-off and zeroing are skipped.
+       */
+      kind: "multi_tap_outgoing_skipped";
+      tapNumber: number;
+      recipeId: string;
+      beerName: string | null;
     };
 
 export interface TaproomSyncResult {
@@ -58,6 +72,8 @@ export interface TaproomSyncResult {
   skipped: number;
   totalRecordedQty: number;
   recountsApplied: number;
+  /** Queued beer-change transitions this run claimed and booked. */
+  swapsConsumed: number;
   packsBrokenDown: number;
   packagingWarnings: string[];
   discrepancies: SyncDiscrepancy[];
@@ -98,6 +114,113 @@ async function recordedByRef(supabase: SupabaseClient, refs: string[]): Promise<
   return map;
 }
 
+/**
+ * Claim a queued beer-change transition and book its OUTGOING side.
+ *
+ * The outgoing keg is pulled early and its remaining beer dumped, so the residual
+ * is a real loss belonging to the OUTGOING recipe — and its per-recipe draft SKU
+ * must be zeroed or it reports on-hand draft forever while pouring on no tap.
+ *
+ * Fire-once rests on the conditional UPDATE below: the Square webhook fires this
+ * sync on every `order.*` event, so one restock spawns a burst of overlapping
+ * runs. Whichever run's update matches `consumed_source_ref IS NULL` owns the
+ * outgoing side; the rest get zero rows back and do nothing.
+ */
+async function consumeSwapTransition(
+  supabase: SupabaseClient,
+  swap: PendingTapSwap,
+  sourceRef: string,
+  occurredAt: string,
+): Promise<{ claimed: boolean; discrepancies: SyncDiscrepancy[] }> {
+  const discrepancies: SyncDiscrepancy[] = [];
+  const nowIso = new Date().toISOString();
+
+  const { data: claimedRows, error: claimErr } = await supabase
+    .from("tap_swap_transitions")
+    .update({ consumed_source_ref: sourceRef, consumed_at: nowIso })
+    .eq("id", swap.id)
+    .is("consumed_source_ref", null)
+    .select("id");
+  if (claimErr) throw new Error(`swap claim failed: ${claimErr.message}`);
+  if ((claimedRows ?? []).length === 0) return { claimed: false, discrepancies };
+
+  // The keg physically changed, so the tap now pours the incoming beer.
+  const { error: flipErr } = await supabase
+    .from("tap_assignments")
+    .update({
+      recipe_id:         swap.toRecipeId,
+      swap_variation_id: swap.toVariationId,
+      swap_volume_fl_oz: swap.toVolumeFlOz,
+      updated_at:        nowIso,
+    })
+    .eq("tap_number", swap.tapNumber);
+  if (flipErr) throw new Error(`tap flip failed: ${flipErr.message}`);
+
+  // Tapping a beer is an unambiguous statement that it's active. Leaving
+  // is_retired set would make the batch scheduler refuse to brew more of a beer
+  // that's actively pouring — a silent stockout.
+  const { error: unretireErr } = await supabase
+    .from("taproom_recipe_settings")
+    .upsert(buildRetirePayload(swap.toRecipeId, false, nowIso), { onConflict: "recipe_id" });
+  if (unretireErr) throw new Error(`un-retire failed: ${unretireErr.message}`);
+
+  // Filling a previously empty tap — no keg came off, nothing to write off.
+  if (!swap.fromRecipeId) return { claimed: true, discrepancies };
+
+  // Run AFTER the flip so this tap doesn't count itself.
+  const { data: otherTaps, error: otherErr } = await supabase
+    .from("tap_assignments")
+    .select("tap_number")
+    .eq("recipe_id", swap.fromRecipeId);
+  if (otherErr) throw new Error(`multi-tap check failed: ${otherErr.message}`);
+  if ((otherTaps ?? []).length > 0) {
+    discrepancies.push({
+      kind: "multi_tap_outgoing_skipped",
+      tapNumber: swap.tapNumber,
+      recipeId: swap.fromRecipeId,
+      beerName: swap.fromBeerName,
+    });
+    return { claimed: true, discrepancies };
+  }
+
+  if (!swap.fromDraftSquareVariationId) {
+    discrepancies.push({
+      kind: "shrinkage_capture_failed",
+      sourceRef,
+      detail: `outgoing recipe ${swap.fromRecipeId} has no draft Square link — residual neither captured nor zeroed`,
+    });
+    return { claimed: true, discrepancies };
+  }
+
+  // Read the residual BEFORE zeroing. Square's CALCULATED on-hand for the draft
+  // base variation already nets pour depletion, so this is the true fl oz dumped.
+  // Best-effort throughout — a Square failure must never block the incoming side.
+  try {
+    const counts = await fetchCurrentCounts([swap.fromDraftSquareVariationId]);
+    const remaining = counts.get(swap.fromDraftSquareVariationId);
+    if (remaining !== undefined) {
+      const { error } = await supabase.from("draft_swap_shrinkage").upsert({
+        source_ref:      sourceRef,
+        recipe_id:       swap.fromRecipeId,
+        tap_number:      swap.tapNumber,
+        occurred_at:     occurredAt,
+        remaining_fl_oz: remaining,
+        full_fl_oz:      swap.fromVolumeFlOz ?? 0,
+      }, { onConflict: "source_ref" });
+      if (error) throw new Error(error.message);
+    }
+    await setPhysicalCount(swap.fromDraftSquareVariationId, 0, occurredAt);
+  } catch (e) {
+    discrepancies.push({
+      kind: "shrinkage_capture_failed",
+      sourceRef,
+      detail: e instanceof Error ? e.message : String(e),
+    });
+  }
+
+  return { claimed: true, discrepancies };
+}
+
 export async function runTaproomConsumptionSync(
   supabase: SupabaseClient,
   { days }: { days: number },
@@ -116,7 +239,7 @@ export async function runTaproomConsumptionSync(
     return {
       shipmentId, windowDays: days, lockSkipped: true,
       recorded: [], recordedUnits: 0, skipped: 0, totalRecordedQty: 0,
-      recountsApplied: 0, packsBrokenDown: 0, packagingWarnings: [], discrepancies: [],
+      recountsApplied: 0, swapsConsumed: 0, packsBrokenDown: 0, packagingWarnings: [], discrepancies: [],
       squareWriteback: { applied: 0, writes: [], warnings: [] },
     };
   }
@@ -131,9 +254,11 @@ export async function runTaproomConsumptionSync(
   const shortStock: SyncDiscrepancy[] = [];
   const recountWarnings: SyncDiscrepancy[] = [];
   const shrinkageWarnings: SyncDiscrepancy[] = [];
+  const swapWarnings: SyncDiscrepancy[] = [];
   let skipped = 0;
   let totalRecordedQty = 0;
   let recountsApplied = 0;
+  let swapsConsumed = 0;
   let packsBrokenDown = 0;
   const packagingWarnings = new Set<string>();
 
@@ -172,6 +297,21 @@ export async function runTaproomConsumptionSync(
       skipped++;
     }
 
+    // A queued beer-change transition: claim it, then book the OUTGOING side
+    // (write off the pulled keg's residual against the OLD beer, zero its Square
+    // draft SKU), flip the tap and un-retire the incoming beer. Gated exactly like
+    // the recount below so a unit that books nothing never claims.
+    if (u.swap && alreadyRecorded === 0 && res.recordedQty + res.shortfallQty > EPS) {
+      const outcome = await consumeSwapTransition(
+        supabase,
+        u.swap,
+        u.sourceRef,
+        u.occurredAt ?? u.recount?.occurredAt ?? new Date().toISOString(),
+      );
+      if (outcome.claimed) swapsConsumed++;
+      swapWarnings.push(...outcome.discrepancies);
+    }
+
     // Restock-driven swaps carry a recount. Fire it once — on the first run
     // that durably records this swap (alreadyRecorded === 0), whether that
     // record was physical, phantom, or both — so the mapped draft SKU is
@@ -188,7 +328,11 @@ export async function runTaproomConsumptionSync(
       // storage on hand) never touched the keg, so there's nothing to
       // capture. Best-effort — never fatal, so a read/write failure never
       // blocks the recount.
-      if (res.recordedQty > EPS) {
+      //
+      // Skipped entirely for a beer-change swap: `u.recount.squareVariationId` is
+      // then the INCOMING beer's SKU, whose level says nothing about the keg that
+      // came off. `consumeSwapTransition` captured the outgoing residual above.
+      if (res.recordedQty > EPS && !u.swap) {
         try {
           const counts = await fetchCurrentCounts([u.recount.squareVariationId]);
           const remaining = counts.get(u.recount.squareVariationId);
@@ -270,9 +414,10 @@ export async function runTaproomConsumptionSync(
     skipped,
     totalRecordedQty: Math.round(totalRecordedQty * 10000) / 10000,
     recountsApplied,
+    swapsConsumed,
     packsBrokenDown,
     packagingWarnings: [...packagingWarnings],
-    discrepancies: [...configDiscrepancies, ...shortStock, ...recountWarnings, ...shrinkageWarnings],
+    discrepancies: [...configDiscrepancies, ...shortStock, ...recountWarnings, ...shrinkageWarnings, ...swapWarnings],
     squareWriteback,
   };
   } finally {
