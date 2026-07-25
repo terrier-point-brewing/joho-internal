@@ -510,7 +510,14 @@ export default function InvoicesPage() {
 
   // Summary stats — always computed over the full filtered `invoices` array,
   // never the page slice below.
-  const totalValue    = invoices.reduce((s, i) => s + i.total_cents, 0);
+  // Under a GL filter each row shows only its matching lines, so the header
+  // total has to be the same narrowed sum — a full-invoice total above narrowed
+  // rows is the misreading the per-row "of …" context exists to prevent.
+  const glFilter      = filters.gl ?? [];
+  const totalValue    = glFilter.length === 0
+    ? invoices.reduce((s, i) => s + i.total_cents, 0)
+    : invoices.reduce((s, i) => s + narrowToGl(i.invoice_line_items ?? [], (li) => li.chart_of_accounts_id, glFilter)
+        .reduce((t, li) => t + (li.net_sales_cents ?? li.total_cents ?? 0), 0), 0);
   const openValue     = invoices.filter((i) => i.status === "open").reduce((s, i) => s + i.total_cents, 0);
   const unlinkedCount = invoices.filter((i) => (i.invoice_batch_links as unknown as { count: number }[])[0]?.count === 0).length;
 
