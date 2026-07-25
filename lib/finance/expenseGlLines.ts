@@ -12,6 +12,7 @@ export interface ExpenseGlLine {
   chartOfAccountsId: string;
   amountCents: number;
   splitSource: "payroll_auto" | "manual" | null; // null when synthesized (no split rows exist)
+  memo?: string | null;
 }
 
 /**
@@ -20,7 +21,7 @@ export interface ExpenseGlLine {
  * the expense has no chart_of_accounts_id at all — unmapped).
  */
 export function resolveExpenseGlLines(
-  splitRows: { chartOfAccountsId: string; amountCents: number; splitSource: "payroll_auto" | "manual" }[],
+  splitRows: { chartOfAccountsId: string; amountCents: number; splitSource: "payroll_auto" | "manual"; memo?: string | null }[],
   fallback: { chartOfAccountsId: string | null; amountCents: number },
 ): ExpenseGlLine[] {
   if (splitRows.length > 0) return splitRows;
