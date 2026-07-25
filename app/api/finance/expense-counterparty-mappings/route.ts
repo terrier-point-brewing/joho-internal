@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse, after } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { autoMapBankLedger } from "@/lib/finance/autoMap";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  try { await requireRole(["viewer"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.financeTransactionsRead); } catch (res) { return res as Response; }
   const supabase = createSupabaseAdminClient();
   const { data, error } = await supabase
     .from("expense_counterparty_mappings")
@@ -17,7 +17,7 @@ export async function GET() {
 }
 
 export async function PATCH(req: NextRequest) {
-  try { await requireRole([]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.financeTransactionsManage); } catch (res) { return res as Response; }
   const body = await req.json() as {
     id: string;
     chart_of_accounts_id?: string | null;

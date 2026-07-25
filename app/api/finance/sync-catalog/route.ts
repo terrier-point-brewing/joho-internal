@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { revalidateTag } from "next/cache";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { fetchCatalogItems, fetchCatalogCategories, fetchCatalogTaxes } from "@/lib/square/catalog";
 import { volumeFlOzPerUnit, inferInventoryUnit } from "@/lib/square/catalogUnits";
@@ -8,7 +8,7 @@ import { volumeFlOzPerUnit, inferInventoryUnit } from "@/lib/square/catalogUnits
 export const dynamic = "force-dynamic";
 
 export async function POST() {
-  try { await requireRole([]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.financeTransactionsManage); } catch (res) { return res as Response; }
 
   // Bust the 5-min live-catalog cache so this sync — and every cached reader of
   // it, e.g. the taproom restock picker via /api/production/square-catalog —

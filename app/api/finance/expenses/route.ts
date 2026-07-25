@@ -7,7 +7,7 @@
  *         null re-resolves from the account's rule.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { resolveExpenseMapping, type CounterpartyRuleRef, type MappingSource } from "@/lib/finance/expenses";
 import { resolveExpenseGlLines } from "@/lib/finance/expenseGlLines";
@@ -15,7 +15,7 @@ import { resolveExpenseGlLines } from "@/lib/finance/expenseGlLines";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
-  try { await requireRole(["viewer"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.financeTransactionsRead); } catch (res) { return res as Response; }
 
   const from   = req.nextUrl.searchParams.get("from");
   const to     = req.nextUrl.searchParams.get("to");
@@ -156,7 +156,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  try { await requireRole([]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.financeTransactionsManage); } catch (res) { return res as Response; }
 
   const body = await req.json() as {
     id: string;

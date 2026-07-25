@@ -8,7 +8,7 @@
  * order's unmapped line items as reviewed/dismissed without mapping them.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { defaultYearRange } from "@/lib/finance/dateRange";
 import { extractVoidedLineItems, type VoidedLineItem } from "@/lib/finance/voidedLineItems";
@@ -16,7 +16,7 @@ import { extractVoidedLineItems, type VoidedLineItem } from "@/lib/finance/voide
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
-  try { await requireRole(["viewer"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.financeTransactionsRead); } catch (res) { return res as Response; }
 
   const { searchParams } = req.nextUrl;
   const { from: defYearFrom, to: defYearTo } = defaultYearRange();
@@ -130,7 +130,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  try { await requireRole([]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.financeTransactionsManage); } catch (res) { return res as Response; }
   const body = await req.json() as { id: string; unmapped_accepted: boolean };
   if (!body.id) return NextResponse.json({ error: "id required" }, { status: 400 });
   const supabase = createSupabaseAdminClient();

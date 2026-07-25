@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse, after } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { autoMapPosLineItems, autoMapInvoiceLineItems } from "@/lib/finance/autoMap";
 
@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 // overwrite=false: only fills unmapped variations
 // overwrite=true:  replaces all existing mappings
 export async function POST(req: NextRequest) {
-  try { await requireRole([]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.financeTransactionsManage); } catch (res) { return res as Response; }
 
   const body = await req.json() as {
     chart_of_accounts_id?: string | null;

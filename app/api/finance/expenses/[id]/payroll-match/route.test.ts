@@ -1,10 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 
-vi.mock("@/lib/auth", () => ({
-  requireRole: vi.fn().mockResolvedValue(undefined),
-  getSessionUser: vi.fn().mockResolvedValue({ user: { id: "USER_1" }, role: "manager" }),
-}));
+vi.mock("@/lib/auth", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/auth")>();
+  return {
+    ...actual,
+    requirePermission: vi.fn().mockResolvedValue(undefined),
+    getSessionUser: vi.fn().mockResolvedValue({ user: { id: "USER_1" }, role: "manager" }),
+  };
+});
 
 // Split math/manual-skip is Task 5's concern (fully unit-tested in
 // payrollMatching.test.ts) -- this route only orchestrates, so we mock the

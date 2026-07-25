@@ -10,14 +10,14 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { syncSquareInvoicesForYear } from "@/lib/finance/syncSquareInvoices";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
-  try { await requireRole([]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.financeTransactionsManage); } catch (res) { return res as Response; }
 
   const year     = parseInt(req.nextUrl.searchParams.get("year") ?? String(new Date().getFullYear()));
   const supabase = createSupabaseAdminClient();

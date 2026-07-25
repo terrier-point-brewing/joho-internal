@@ -14,7 +14,7 @@
  * -- this route is thin orchestration only.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { getSessionUser, requireRole } from "@/lib/auth";
+import { getSessionUser, requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { apiError } from "@/lib/utils/api";
 import { suggestPayPeriod, recomputePeriodExpenseSplits } from "@/lib/finance/payrollMatching";
@@ -29,7 +29,7 @@ type PayrollMatchAction =
   | { action: "recompute"; confirmOverwriteManual?: boolean };
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  try { await requireRole(["manager"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.financeTransactionsManage); } catch (res) { return res as Response; }
 
   const { id } = await params;
 

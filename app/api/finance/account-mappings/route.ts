@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse, after } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { autoMapPosLineItems, autoMapInvoiceLineItems } from "@/lib/finance/autoMap";
 
@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 // GET — all variations with their item context and CoA mappings (default + source overrides)
 export async function GET() {
-  try { await requireRole(["viewer"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.financeTransactionsRead); } catch (res) { return res as Response; }
 
   const supabase = createSupabaseAdminClient();
   const { data, error } = await supabase
@@ -71,7 +71,7 @@ export async function GET() {
 
 // PATCH — set CoA on one variation (default and/or source-specific overrides)
 export async function PATCH(req: NextRequest) {
-  try { await requireRole([]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.financeTransactionsManage); } catch (res) { return res as Response; }
 
   const body = await req.json() as {
     square_variation_id: string;

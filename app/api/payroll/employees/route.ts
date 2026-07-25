@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { apiError } from "@/lib/utils/api";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  try { await requireRole([]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.payrollManage); } catch (res) { return res as Response; }
 
   const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase
@@ -19,7 +19,7 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  try { await requireRole([]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.payrollManage); } catch (res) { return res as Response; }
 
   const supabase = await createSupabaseServerClient();
   const body = await req.json();

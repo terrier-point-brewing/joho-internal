@@ -9,7 +9,7 @@
  * Syncs one month at a time (defaults to current month). Use month=0 for full year.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { syncPosTransactionsForRange } from "@/lib/finance/syncPosTransactions";
 import { syncRefundsForRange } from "@/lib/finance/syncRefunds";
@@ -17,7 +17,7 @@ import { syncRefundsForRange } from "@/lib/finance/syncRefunds";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
-  try { await requireRole([]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.financeTransactionsManage); } catch (res) { return res as Response; }
 
   const year       = parseInt(req.nextUrl.searchParams.get("year") ?? String(new Date().getFullYear()));
   const monthParam = req.nextUrl.searchParams.get("month");

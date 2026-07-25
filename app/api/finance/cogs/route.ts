@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { adjustmentCost } from "@/lib/finance/cogs";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
-  try { await requireRole([]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.financeStatementsRead); } catch (res) { return res as Response; }
 
   const { searchParams } = req.nextUrl;
   const from = searchParams.get("from");

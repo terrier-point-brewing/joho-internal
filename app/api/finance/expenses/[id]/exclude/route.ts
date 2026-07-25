@@ -8,13 +8,13 @@
  * ExpenseRecord, so the Ramp sync upsert never clobbers them.
  */
 import { NextResponse, type NextRequest } from "next/server";
-import { getSessionUser, requireRole } from "@/lib/auth";
+import { getSessionUser, requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  try { await requireRole(["manager"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.financeTransactionsManage); } catch (res) { return res as Response; }
 
   const { id } = await params;
   const body = (await req.json()) as { reason?: string };
@@ -64,7 +64,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  try { await requireRole(["manager"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.financeTransactionsManage); } catch (res) { return res as Response; }
 
   const { id } = await params;
   const sb = createSupabaseAdminClient();
