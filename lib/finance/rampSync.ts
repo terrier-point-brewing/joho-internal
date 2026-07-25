@@ -49,7 +49,15 @@ export async function syncAllRamp(supabase: ReturnType<typeof createSupabaseAdmi
   const bank = await syncBankLedger(supabase, [...ledgerRecords, ...transferRecords]);
   // After the upsert, not before: a line that moved from expenses to the ledger
   // is absent from `records`, so its stale expenses row can only go away here.
-  const pruned = await pruneReclassifiedBankExpenses(supabase, ledgerRecords.map((r) => r.source_transaction_id));
+  // Best-effort: prune failures must never fail an otherwise-successful sync
+  // (e.g. `excluded_at` from a not-yet-applied migration would 42703 here and
+  // must not take down every Ramp sync path with it).
+  let pruned: { deleted: number; skipped: string[]; error?: string };
+  try {
+    pruned = await pruneReclassifiedBankExpenses(supabase, ledgerRecords.map((r) => r.source_transaction_id));
+  } catch (err) {
+    pruned = { deleted: 0, skipped: [], error: err instanceof Error ? err.message : String(err) };
+  }
   return { ...expenses, bank, pruned };
 }
 
@@ -58,7 +66,9 @@ export async function syncAllRamp(supabase: ReturnType<typeof createSupabaseAdmi
  * flows. syncExpenseRecords only upserts what it is handed and never prunes, so
  * a line that used to be an operating_expense and is now (say) a bill_settlement
  * would otherwise persist forever as a phantom second expense -- the Duke Energy
- * double-count. Rows carrying manual work are skipped, not deleted.
+ * double-count. Rows carrying manual work are skipped, not deleted. This is
+ * best-effort housekeeping -- callers should catch failures rather than let a
+ * prune error fail the sync it follows.
  */
 export async function pruneReclassifiedBankExpenses(
   supabase: ReturnType<typeof createSupabaseAdminClient>,
@@ -76,14 +86,19 @@ export async function pruneReclassifiedBankExpenses(
     if (candErr) throw new Error(`Load reclassified bank expenses failed: ${candErr.message}`);
     if (!candidates || candidates.length === 0) continue;
 
-    const { data: splitRows, error: splitErr } = await supabase
-      .from("expense_gl_splits")
-      .select("expense_id")
-      .in("expense_id", candidates.map((c) => c.id as string));
+    const candidateIds = candidates.map((c) => c.id as string);
+    const [{ data: splitRows, error: splitErr }, { data: payrollMatchRows, error: payrollErr }] = await Promise.all([
+      supabase.from("expense_gl_splits").select("expense_id").in("expense_id", candidateIds),
+      supabase.from("payroll_period_expense_matches").select("expense_id").in("expense_id", candidateIds),
+    ]);
     if (splitErr) throw new Error(`Load splits for reclassified bank expenses failed: ${splitErr.message}`);
+    if (payrollErr) throw new Error(`Load payroll matches for reclassified bank expenses failed: ${payrollErr.message}`);
 
-    const withSplits = new Set((splitRows ?? []).map((r) => r.expense_id as string));
-    const picked = selectPrunableExpenseIds(candidates as PruneCandidate[], withSplits);
+    const withManualWork = new Set([
+      ...(splitRows ?? []).map((r) => r.expense_id as string),
+      ...(payrollMatchRows ?? []).map((r) => r.expense_id as string),
+    ]);
+    const picked = selectPrunableExpenseIds(candidates as PruneCandidate[], withManualWork);
     skipped.push(...picked.skipped);
     if (picked.deletable.length === 0) continue;
 

@@ -93,18 +93,24 @@ export interface PruneCandidate {
 
 /**
  * Partition reclassified bank expenses into those safe to delete and those to
- * leave alone. A row carrying manual work -- a GL split, or a manual exclusion
- * -- is never deleted: expense_gl_splits cascades on expense delete, so pruning
- * such a row would silently destroy the operator's split.
+ * leave alone. A row carrying manual work -- a GL split, a payroll match, or a
+ * manual exclusion -- is never deleted. Both `expense_gl_splits.expense_id` and
+ * `payroll_period_expense_matches.expense_id` reference `expenses(id)`, but only
+ * the former cascades on delete (`on delete cascade`); the latter has NO `on
+ * delete` clause (NO ACTION per supabase/migrations/20260714_payroll_gl_split.sql),
+ * so deleting a matched expense doesn't silently orphan/cascade the match row --
+ * it raises a foreign-key violation that fails the whole delete batch. Either
+ * way the row must never be picked for deletion, so both tables feed the same
+ * skip set.
  */
 export function selectPrunableExpenseIds(
   candidates: PruneCandidate[],
-  expenseIdsWithSplits: Set<string>,
+  expenseIdsWithManualWork: Set<string>,
 ): { deletable: string[]; skipped: string[] } {
   const deletable: string[] = [];
   const skipped:   string[] = [];
   for (const c of candidates) {
-    if (expenseIdsWithSplits.has(c.id) || c.excluded_at !== null) skipped.push(c.source_transaction_id);
+    if (expenseIdsWithManualWork.has(c.id) || c.excluded_at !== null) skipped.push(c.source_transaction_id);
     else deletable.push(c.id);
   }
   return { deletable, skipped };
