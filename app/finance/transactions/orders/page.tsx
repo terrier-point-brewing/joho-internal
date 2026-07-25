@@ -466,6 +466,15 @@ export default function SquareTransactionsPage() {
             )}
           />
         </FilterBar>
+        {/* Orders are paginated server-side (unlike Invoices/Expenses, which
+            fetch the whole range), and useTableControls only sees the rows
+            currently loaded. Say so rather than letting a page-scoped result
+            read as the whole range. */}
+        {(filters.gl ?? []).length > 0 && (
+          <p className="mt-1.5 text-2xs text-faint">
+            Orders load {pageSize} at a time, so this GL filter applies to the current page — not all {total.toLocaleString()} orders in range.
+          </p>
+        )}
       </div>
 
       {total > 0 && (
