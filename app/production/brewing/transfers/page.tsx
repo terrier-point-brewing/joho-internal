@@ -6,6 +6,7 @@ import SubNav from "@/app/components/SubNav";
 import { PRODUCTION_NAV, BREWING_NAV } from "@/app/production/nav-config";
 import { fmtBbl2 } from "@/lib/utils/formatting";
 import { fetchJson } from "@/app/production/hooks/queries";
+import { TRANSFER_TYPE_BADGE } from "@/app/production/lib/categoryColors";
 import PageHeader from "@/app/components/PageHeader";
 
 type TransferType = "transfer" | "kegging" | "canning" | "conversion" | "export" | "brewing";
@@ -37,18 +38,13 @@ const TYPE_LABELS: Record<TransferType, string> = {
   brewing:    "Brewing",
 };
 
-const TYPE_COLOR: Record<TransferType, string> = {
-  transfer:   "bg-surface-high/60 text-body border-line-subtle",
-  kegging:    "bg-success-surface/50 text-success border-success-border",
-  canning:    "bg-cyan-900/50 text-cyan-300 border-cyan-700",
-  conversion: "bg-accent-muted/50 text-accent-soft border-accent-border",
-  export:     "bg-purple-900/50 text-purple-300 border-purple-700",
-  brewing:    "bg-info-surface/50 text-info border-info-border",
-};
-
 function TypeBadge({ type }: { type: TransferType }) {
   return (
-    <span className={`text-xs px-2 py-0.5 rounded border font-medium ${TYPE_COLOR[type] ?? TYPE_COLOR.transfer}`}>
+    <span
+      className={`text-xs px-2 py-0.5 rounded border font-medium ${
+        TRANSFER_TYPE_BADGE[type] ?? TRANSFER_TYPE_BADGE.transfer
+      }`}
+    >
       {TYPE_LABELS[type] ?? type}
     </span>
   );

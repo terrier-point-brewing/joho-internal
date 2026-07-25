@@ -1,8 +1,10 @@
 // Centralized data-category color classes for finance badges/pills.
 //
 // Most states map onto the semantic design tokens (success/info/accent/danger/neutral).
-// Two finance-specific categories have NO token equivalent and stay as deliberate category
-// palettes — but they live ONLY here, never re-inlined per file:
+// Two finance-specific categories have NO semantic-token equivalent and stay as deliberate
+// category hues — but they live ONLY here, and they bind to the theme-flipping
+// `--cat-{hue}-*` tokens (dark defaults in app/globals.css, light values emitted by
+// BrandChrome) rather than raw Tailwind hues, so they read on both themes:
 //   • violet = QuickBooks source
 //   • teal   = export invoice type
 //
@@ -26,7 +28,7 @@ export const INVOICE_SOURCE_LABEL: Record<string, string> = {
 };
 export const INVOICE_SOURCE_CLS: Record<string, string> = {
   square:     "bg-info-surface/40 text-info",
-  quickbooks: "bg-violet-900/40 text-violet-400",
+  quickbooks: "bg-[var(--cat-violet-bg)] text-[var(--cat-violet-fg)]",
   other:      "bg-surface-mid text-secondary",
 };
 
@@ -39,7 +41,7 @@ export const INVOICE_TYPE_LABEL: Record<string, string> = {
 export const INVOICE_TYPE_CLS: Record<string, string> = {
   standard:           "bg-surface-mid text-secondary",
   allocation_deposit: "bg-accent-muted/40 text-accent",
-  export_invoice:     "bg-teal-900/40 text-teal-400",
+  export_invoice:     "bg-[var(--cat-teal-bg)] text-[var(--cat-teal-fg)]",
 };
 
 /** POS order status pill (keyed by lower-cased status). */

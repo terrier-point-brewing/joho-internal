@@ -77,6 +77,28 @@
   --font-brand-script:   var(--font-noto-serif-sc), "Noto Serif SC", serif;
 }
 
+/* ── Text-ramp color utilities ───────────────────────────────────────────────
+   Tailwind v4 derives a color's NAME from `--color-<name>`, so `--color-text-body`
+   registers a color literally named `text-body`. That is reachable through the
+   `bg-`/`border-` prefixes (`bg-text-body`), but through the `text-` prefix it
+   would have to be written `text-text-body` — the documented `text-body` instead
+   resolves the nonexistent `--color-body` and silently emits NOTHING.
+
+   The whole ops UI (and docs/UI_STANDARD.md §3) is written against the short
+   names, so define them explicitly here. Without these the entire text ramp is
+   inert and every label falls back to the inherited body color, collapsing the
+   type hierarchy and — because the fallback is a literal inherited value rather
+   than a token lookup — breaking the light/brand-skin flip.
+
+   `--color-*` (not the raw hex) so these follow BrandChrome's overrides. */
+@utility text-primary   { color: var(--color-text-primary); }
+@utility text-strong    { color: var(--color-text-strong); }
+@utility text-body      { color: var(--color-text-body); }
+@utility text-secondary { color: var(--color-text-secondary); }
+@utility text-muted     { color: var(--color-text-muted); }
+@utility text-faint     { color: var(--color-text-faint); }
+@utility text-disabled  { color: var(--color-text-disabled); }
+
 :root {
   color-scheme: dark;
 }
