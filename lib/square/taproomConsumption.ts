@@ -45,6 +45,12 @@ export interface ConsumptionUnit {
   kind: ConsumptionKind;
   label: string; // human label for discrepancy/summary display
   tapNumber?: number; // the tap this swap drained (restock-driven draft swaps only)
+  /**
+   * RFC3339 timestamp of the triggering restock order. Set for draft swaps —
+   * needed for the outgoing keg's shrinkage row even when the incoming recipe has
+   * no draft Square link (so there is no `recount` to read it from).
+   */
+  occurredAt?: string;
   recount?: RecountInstruction; // set for restock-driven draft swaps; drives the Square recount
   /**
    * The queued beer-change transition this restock consumes. Present only when a
@@ -202,6 +208,7 @@ export function assembleConsumption(input: {
       kind: "draft_swap",
       label: `${beerName} · Tap ${link.tapNumber} restock · ${ev.occurredAt.slice(0, 10)}`,
       tapNumber: link.tapNumber,
+      occurredAt: ev.occurredAt,
       recount: draftSquareVar
         ? { squareVariationId: draftSquareVar, quantity: volumeFlOz, occurredAt: ev.occurredAt }
         : undefined,

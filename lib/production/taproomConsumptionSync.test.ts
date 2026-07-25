@@ -71,9 +71,108 @@ const swapUnit = (over: Record<string, unknown> = {}) => ({
   recipeId: "r1", variationId: "pv-keg", quantity: 1,
   sourceRef: "sqtransfer:ord-1:line-1", kind: "draft_swap" as const,
   label: "Vienna · Tap 3 restock · 2026-07-04", tapNumber: 3,
+  occurredAt: "2026-07-04T20:00:00Z",
   recount: { squareVariationId: "draft-sqvar", quantity: 660, occurredAt: "2026-07-04T20:00:00Z" },
   ...over,
 });
+
+// ─── Queued beer-change swap fixtures ────────────────────────────────────────
+
+const pendingSwap = (over: Record<string, unknown> = {}) => ({
+  id: "swap-1", tapNumber: 3,
+  fromRecipeId: "r-old", fromBeerName: "Vienna Lager",
+  fromVariationId: "pv-old", fromVolumeFlOz: 1984,
+  fromDraftSquareVariationId: "draft-sqvar-old",
+  toRecipeId: "r-new", toBeerName: "Hazy IPA",
+  toVariationId: "pv-new", toVolumeFlOz: 661,
+  toDraftSquareVariationId: "draft-sqvar-new",
+  openedAt: "2026-07-04T15:00:00Z",
+  ...over,
+});
+
+/** A restock unit that consumes a queued beer-change transition. */
+const transitionUnit = (swapOver: Record<string, unknown> = {}, unitOver: Record<string, unknown> = {}) =>
+  swapUnit({
+    recipeId: "r-new", variationId: "pv-new",
+    recount: { squareVariationId: "draft-sqvar-new", quantity: 661, occurredAt: "2026-07-04T20:00:00Z" },
+    swap: pendingSwap(swapOver),
+    ...unitOver,
+  });
+
+interface SwapSink {
+  shrinkage: unknown[];
+  released?: number;
+  claims: { id: string; sourceRef: string }[];
+  flips: Record<string, unknown>[];
+  retires: Record<string, unknown>[];
+}
+
+const emptySwapSink = (): SwapSink => ({ shrinkage: [], claims: [], flips: [], retires: [] });
+
+/**
+ * Fake supabase covering the swap path: the conditional claim on
+ * tap_swap_transitions, the tap_assignments flip, the "outgoing beer on another
+ * tap" count, and the taproom_recipe_settings un-retire.
+ *
+ * `claimWins: false` simulates a concurrent run that already claimed the
+ * transition. `otherTapsWithOutgoing` simulates the outgoing beer still pouring
+ * elsewhere, which must suppress zeroing.
+ */
+function fakeSupabaseSwaps(
+  rows: { source_ref: string; quantity: number }[],
+  sink: SwapSink,
+  opts: { claimWins?: boolean; otherTapsWithOutgoing?: number } = {},
+) {
+  const claimWins = opts.claimWins ?? true;
+  const others = opts.otherTapsWithOutgoing ?? 0;
+  return {
+    rpc: async (fn: string) => {
+      if (fn === "try_acquire_sync_lock") return { data: true, error: null };
+      if (fn === "release_sync_lock") { sink.released = (sink.released ?? 0) + 1; return { data: null, error: null }; }
+      return { data: null, error: null };
+    },
+    from: (table: string) => {
+      if (table === "tap_swap_transitions") {
+        return {
+          update: (patch: Record<string, unknown>) => ({
+            eq: (_col: string, id: string) => ({
+              is: () => ({
+                select: async () => {
+                  if (!claimWins) return { data: [], error: null };
+                  sink.claims.push({ id, sourceRef: patch.consumed_source_ref as string });
+                  return { data: [{ id }], error: null };
+                },
+              }),
+            }),
+          }),
+        };
+      }
+      if (table === "tap_assignments") {
+        return {
+          update: (patch: Record<string, unknown>) => ({
+            eq: async () => { sink.flips.push(patch); return { error: null }; },
+          }),
+          select: () => ({
+            eq: async () => ({
+              data: Array.from({ length: others }, (_, i) => ({ tap_number: 90 + i })),
+              error: null,
+            }),
+          }),
+        };
+      }
+      if (table === "taproom_recipe_settings") {
+        return { upsert: async (p: Record<string, unknown>) => { sink.retires.push(p); return { error: null }; } };
+      }
+      if (table === "draft_swap_shrinkage") {
+        return { upsert: async (row: unknown) => { sink.shrinkage.push(row); return { error: null }; } };
+      }
+      if (table === "recipe_square_links") {
+        return { select: () => ({ eq: async () => ({ data: [], error: null }) }) };
+      }
+      return { select: () => ({ in: async () => ({ data: rows, error: null }) }) };
+    },
+  } as never;
+}
 
 beforeEach(() => {
   derive.mockReset(); record.mockReset(); recount.mockReset(); fetchCounts.mockReset();
@@ -366,5 +465,206 @@ describe("runTaproomConsumptionSync", () => {
     const res = await runTaproomConsumptionSync(fakeSupabase([]), { days: 2 });
     const short = res.discrepancies.find((d) => d.kind === "short_stock");
     expect(short).toMatchObject({ kind: "short_stock", requestedQty: 1, recordedQty: 0, shortfallQty: 1 });
+  });
+});
+
+// ─── Queued beer-change swaps ────────────────────────────────────────────────
+//
+// A beer-changing swap has TWO recipes. The outgoing keg is pulled early and its
+// remaining beer dumped, so its residual belongs in shrinkage against the
+// OUTGOING beer and its Square draft SKU must be zeroed — neither of which the
+// like-for-like path could express.
+
+describe("runTaproomConsumptionSync — queued swap transitions", () => {
+  it("writes off the outgoing keg against the OUTGOING recipe and zeroes its SKU", async () => {
+    const sink = emptySwapSink();
+    derive.mockResolvedValue({ units: [transitionUnit()], discrepancies: [] });
+    record.mockResolvedValue({ recordedQty: 1, shortfallQty: 0, exportTransactionIds: ["e"], breaks: [], warnings: [] });
+    fetchCounts.mockResolvedValue(new Map([["draft-sqvar-old", 412]]));
+
+    const res = await runTaproomConsumptionSync(fakeSupabaseSwaps([], sink), { days: 2 });
+
+    // Residual read from the OUTGOING SKU, full volume from the OUTGOING keg.
+    expect(fetchCounts).toHaveBeenCalledWith(["draft-sqvar-old"]);
+    expect(sink.shrinkage).toEqual([{
+      source_ref: "sqtransfer:ord-1:line-1",
+      recipe_id: "r-old",
+      tap_number: 3,
+      occurred_at: "2026-07-04T20:00:00Z",
+      remaining_fl_oz: 412,
+      full_fl_oz: 1984,
+    }]);
+    expect(recount).toHaveBeenCalledWith("draft-sqvar-old", 0, "2026-07-04T20:00:00Z");
+    expect(res.swapsConsumed).toBe(1);
+  });
+
+  it("still recounts the incoming beer to a full keg", async () => {
+    const sink = emptySwapSink();
+    derive.mockResolvedValue({ units: [transitionUnit()], discrepancies: [] });
+    record.mockResolvedValue({ recordedQty: 1, shortfallQty: 0, exportTransactionIds: ["e"], breaks: [], warnings: [] });
+    fetchCounts.mockResolvedValue(new Map([["draft-sqvar-old", 0]]));
+
+    await runTaproomConsumptionSync(fakeSupabaseSwaps([], sink), { days: 2 });
+
+    expect(recount).toHaveBeenCalledWith("draft-sqvar-new", 661, "2026-07-04T20:00:00Z");
+  });
+
+  it("deducts the INCOMING keg from cold storage", async () => {
+    const sink = emptySwapSink();
+    derive.mockResolvedValue({ units: [transitionUnit()], discrepancies: [] });
+    record.mockResolvedValue({ recordedQty: 1, shortfallQty: 0, exportTransactionIds: ["e"], breaks: [], warnings: [] });
+    fetchCounts.mockResolvedValue(new Map([["draft-sqvar-old", 0]]));
+
+    await runTaproomConsumptionSync(fakeSupabaseSwaps([], sink), { days: 2 });
+
+    expect(record).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      recipeId: "r-new", variationId: "pv-new", quantity: 1,
+    }));
+  });
+
+  it("flips the tap onto the incoming beer and un-retires it", async () => {
+    const sink = emptySwapSink();
+    derive.mockResolvedValue({ units: [transitionUnit()], discrepancies: [] });
+    record.mockResolvedValue({ recordedQty: 1, shortfallQty: 0, exportTransactionIds: ["e"], breaks: [], warnings: [] });
+    fetchCounts.mockResolvedValue(new Map([["draft-sqvar-old", 0]]));
+
+    await runTaproomConsumptionSync(fakeSupabaseSwaps([], sink), { days: 2 });
+
+    expect(sink.flips).toHaveLength(1);
+    expect(sink.flips[0]).toMatchObject({
+      recipe_id: "r-new", swap_variation_id: "pv-new", swap_volume_fl_oz: 661,
+    });
+    // Tapping a beer means it's active — leaving is_retired set would make the
+    // batch scheduler refuse to brew more of a beer that's actively pouring.
+    expect(sink.retires).toHaveLength(1);
+    expect(sink.retires[0]).toMatchObject({ recipe_id: "r-new", is_retired: false, retired_at: null });
+  });
+
+  it("does nothing outgoing when the claim loses to a concurrent run", async () => {
+    const sink = emptySwapSink();
+    derive.mockResolvedValue({ units: [transitionUnit()], discrepancies: [] });
+    record.mockResolvedValue({ recordedQty: 1, shortfallQty: 0, exportTransactionIds: ["e"], breaks: [], warnings: [] });
+    fetchCounts.mockResolvedValue(new Map([["draft-sqvar-old", 412]]));
+
+    const res = await runTaproomConsumptionSync(
+      fakeSupabaseSwaps([], sink, { claimWins: false }), { days: 2 });
+
+    expect(sink.shrinkage).toEqual([]);
+    expect(sink.flips).toEqual([]);
+    expect(sink.retires).toEqual([]);
+    expect(recount).not.toHaveBeenCalledWith("draft-sqvar-old", 0, expect.anything());
+    expect(res.swapsConsumed).toBe(0);
+    // The incoming side is guarded independently and still runs.
+    expect(record).toHaveBeenCalled();
+  });
+
+  it("skips zeroing when the outgoing beer is still on another tap", async () => {
+    // The draft SKU is per recipe, so zeroing would wipe the other tap's beer and
+    // the residual reading would be the combined level across both.
+    const sink = emptySwapSink();
+    derive.mockResolvedValue({ units: [transitionUnit()], discrepancies: [] });
+    record.mockResolvedValue({ recordedQty: 1, shortfallQty: 0, exportTransactionIds: ["e"], breaks: [], warnings: [] });
+    fetchCounts.mockResolvedValue(new Map([["draft-sqvar-old", 412]]));
+
+    const res = await runTaproomConsumptionSync(
+      fakeSupabaseSwaps([], sink, { otherTapsWithOutgoing: 1 }), { days: 2 });
+
+    expect(sink.shrinkage).toEqual([]);
+    expect(recount).not.toHaveBeenCalledWith("draft-sqvar-old", 0, expect.anything());
+    expect(res.discrepancies).toContainEqual(expect.objectContaining({
+      kind: "multi_tap_outgoing_skipped", tapNumber: 3, recipeId: "r-old", beerName: "Vienna Lager",
+    }));
+    // The flip and the incoming recount still happen.
+    expect(sink.flips).toHaveLength(1);
+    expect(recount).toHaveBeenCalledWith("draft-sqvar-new", 661, "2026-07-04T20:00:00Z");
+  });
+
+  it("does no outgoing work when the swap fills a previously empty tap", async () => {
+    const sink = emptySwapSink();
+    derive.mockResolvedValue({
+      units: [transitionUnit({ fromRecipeId: null, fromBeerName: null, fromVariationId: null, fromVolumeFlOz: null, fromDraftSquareVariationId: null })],
+      discrepancies: [],
+    });
+    record.mockResolvedValue({ recordedQty: 1, shortfallQty: 0, exportTransactionIds: ["e"], breaks: [], warnings: [] });
+    fetchCounts.mockResolvedValue(new Map());
+
+    const res = await runTaproomConsumptionSync(fakeSupabaseSwaps([], sink), { days: 2 });
+
+    expect(sink.shrinkage).toEqual([]);
+    expect(res.discrepancies).toEqual([]);
+    expect(res.swapsConsumed).toBe(1);
+    expect(sink.flips).toHaveLength(1);
+  });
+
+  it("flags the outgoing recipe having no draft Square link", async () => {
+    const sink = emptySwapSink();
+    derive.mockResolvedValue({
+      units: [transitionUnit({ fromDraftSquareVariationId: null })],
+      discrepancies: [],
+    });
+    record.mockResolvedValue({ recordedQty: 1, shortfallQty: 0, exportTransactionIds: ["e"], breaks: [], warnings: [] });
+    fetchCounts.mockResolvedValue(new Map());
+
+    const res = await runTaproomConsumptionSync(fakeSupabaseSwaps([], sink), { days: 2 });
+
+    expect(sink.shrinkage).toEqual([]);
+    expect(res.discrepancies).toContainEqual(expect.objectContaining({ kind: "shrinkage_capture_failed" }));
+    // Incoming side unaffected.
+    expect(recount).toHaveBeenCalledWith("draft-sqvar-new", 661, "2026-07-04T20:00:00Z");
+  });
+
+  it("a Square failure zeroing the outgoing SKU never blocks the incoming recount", async () => {
+    const sink = emptySwapSink();
+    derive.mockResolvedValue({ units: [transitionUnit()], discrepancies: [] });
+    record.mockResolvedValue({ recordedQty: 1, shortfallQty: 0, exportTransactionIds: ["e"], breaks: [], warnings: [] });
+    fetchCounts.mockResolvedValue(new Map([["draft-sqvar-old", 412]]));
+    recount.mockImplementation(async (varId: string) => {
+      if (varId === "draft-sqvar-old") throw new Error("square 429");
+    });
+
+    const res = await runTaproomConsumptionSync(fakeSupabaseSwaps([], sink), { days: 2 });
+
+    expect(res.discrepancies).toContainEqual(expect.objectContaining({
+      kind: "shrinkage_capture_failed", detail: "square 429",
+    }));
+    expect(recount).toHaveBeenCalledWith("draft-sqvar-new", 661, "2026-07-04T20:00:00Z");
+    expect(res.recountsApplied).toBe(1);
+  });
+
+  it("never re-consumes a swap whose ring was already recorded", async () => {
+    const sink = emptySwapSink();
+    derive.mockResolvedValue({ units: [transitionUnit()], discrepancies: [] });
+
+    const res = await runTaproomConsumptionSync(
+      fakeSupabaseSwaps([{ source_ref: "sqtransfer:ord-1:line-1", quantity: 1 }], sink), { days: 2 });
+
+    expect(sink.claims).toEqual([]);
+    expect(sink.shrinkage).toEqual([]);
+    expect(res.swapsConsumed).toBe(0);
+    expect(res.skipped).toBe(1);
+  });
+
+  it("deducts every keg on a multi-keg ring while booking the outgoing side once", async () => {
+    const sink = emptySwapSink();
+    derive.mockResolvedValue({ units: [transitionUnit({}, { quantity: 2 })], discrepancies: [] });
+    record.mockResolvedValue({ recordedQty: 2, shortfallQty: 0, exportTransactionIds: ["e"], breaks: [], warnings: [] });
+    fetchCounts.mockResolvedValue(new Map([["draft-sqvar-old", 100]]));
+
+    const res = await runTaproomConsumptionSync(fakeSupabaseSwaps([], sink), { days: 2 });
+
+    expect(record).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ quantity: 2 }));
+    expect(sink.shrinkage).toHaveLength(1);
+    expect(res.swapsConsumed).toBe(1);
+  });
+
+  it("stamps the claim with the ring's source_ref", async () => {
+    const sink = emptySwapSink();
+    derive.mockResolvedValue({ units: [transitionUnit()], discrepancies: [] });
+    record.mockResolvedValue({ recordedQty: 1, shortfallQty: 0, exportTransactionIds: ["e"], breaks: [], warnings: [] });
+    fetchCounts.mockResolvedValue(new Map([["draft-sqvar-old", 0]]));
+
+    await runTaproomConsumptionSync(fakeSupabaseSwaps([], sink), { days: 2 });
+
+    expect(sink.claims).toEqual([{ id: "swap-1", sourceRef: "sqtransfer:ord-1:line-1" }]);
   });
 });
