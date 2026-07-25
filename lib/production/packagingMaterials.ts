@@ -23,6 +23,40 @@ export interface MaterialTxnInput {
   packages: number; // export_transactions.quantity
   unitsPerPackage: number; // export_transactions.units_per_package
   components: MaterialComponent[]; // only populated slots
+  /** Literal variation shipped (export_transactions.variant_label). Display only. */
+  label?: string;
+}
+
+// ── Breakdown types ─────────────────────────────────────────────────────────
+// The same math computeMaterialCost sums, but retaining every intermediate so
+// the invoice modal can show the user how a Packaging Materials line was
+// derived. Display-only — never feed these back into pricing.
+
+export interface MaterialComponentBreakdown {
+  role: MaterialRole;
+  name: string;
+  unitCostDollars: number | null;
+  /** Whole units of this component consumed by the transaction. */
+  quantity: number;
+  /** quantity × unit cost, in integer cents. 0 when the unit cost is unset. */
+  extendedCents: number;
+  /** True when the component is consumed but has no unit cost (billed $0). */
+  missingCost: boolean;
+}
+
+export interface MaterialTxnBreakdown {
+  label: string | null;
+  format: string;
+  packages: number;
+  unitsPerPackage: number;
+  components: MaterialComponentBreakdown[];
+  subtotalCents: number;
+}
+
+export interface MaterialCostBreakdown {
+  transactions: MaterialTxnBreakdown[];
+  totalCents: number;
+  missingCostNames: string[];
 }
 
 // Paktech bundles consumed per package: 1 for a 4/6-pack, cansPerCase/cansPerPaktech
@@ -51,19 +85,51 @@ function consumedQty(role: MaterialRole, txn: MaterialTxnInput): number {
   return 0;
 }
 
-export function computeMaterialCost(txns: MaterialTxnInput[]): { totalCents: number; missingCostNames: string[] } {
-  let totalCents = 0;
+/**
+ * Full derivation of the Packaging Materials charge: every consumed component,
+ * its per-unit cost, and its extended cost, grouped by transaction. Components
+ * a transaction never consumes (qty 0 — e.g. a tray on a loose pack) are
+ * omitted, matching what the total actually charges for.
+ */
+export function computeMaterialBreakdown(txns: MaterialTxnInput[]): MaterialCostBreakdown {
   const missing = new Set<string>();
+  let totalCents = 0;
+  const transactions: MaterialTxnBreakdown[] = [];
+
   for (const txn of txns) {
+    const components: MaterialComponentBreakdown[] = [];
+    let subtotalCents = 0;
     for (const comp of txn.components) {
       const qty = consumedQty(comp.role, txn);
       if (qty <= 0) continue;
-      if (comp.unitCostDollars == null) {
-        missing.add(comp.name);
-        continue; // billed $0
-      }
-      totalCents += qty * dollarsToCents(comp.unitCostDollars);
+      const missingCost = comp.unitCostDollars == null;
+      if (missingCost) missing.add(comp.name);
+      const extendedCents = missingCost ? 0 : qty * dollarsToCents(comp.unitCostDollars!);
+      subtotalCents += extendedCents;
+      components.push({
+        role: comp.role,
+        name: comp.name,
+        unitCostDollars: comp.unitCostDollars,
+        quantity: qty,
+        extendedCents,
+        missingCost,
+      });
     }
+    totalCents += subtotalCents;
+    transactions.push({
+      label: txn.label ?? null,
+      format: txn.format,
+      packages: txn.packages,
+      unitsPerPackage: txn.unitsPerPackage,
+      components,
+      subtotalCents,
+    });
   }
-  return { totalCents, missingCostNames: [...missing] };
+
+  return { transactions, totalCents, missingCostNames: [...missing] };
+}
+
+export function computeMaterialCost(txns: MaterialTxnInput[]): { totalCents: number; missingCostNames: string[] } {
+  const { totalCents, missingCostNames } = computeMaterialBreakdown(txns);
+  return { totalCents, missingCostNames };
 }

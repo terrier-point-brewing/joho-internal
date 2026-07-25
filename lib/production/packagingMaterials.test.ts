@@ -1,6 +1,6 @@
 // lib/production/packagingMaterials.test.ts
 import { describe, it, expect } from "vitest";
-import { computeMaterialCost, type MaterialTxnInput } from "./packagingMaterials";
+import { computeMaterialBreakdown, computeMaterialCost, type MaterialTxnInput } from "./packagingMaterials";
 
 // $0.15 can, $0.05 lid, $0.02 label, $0.30 paktech(4), $0.40 tray(24)
 const can = { role: "container" as const, name: "12oz Can", unitCostDollars: 0.15, canCount: null };
@@ -51,5 +51,53 @@ describe("computeMaterialCost", () => {
     expect(computeMaterialCost([])).toEqual({ totalCents: 0, missingCostNames: [] });
     expect(computeMaterialCost([{ format: "loose", packages: 0, unitsPerPackage: 1, components: [can] }]))
       .toEqual({ totalCents: 0, missingCostNames: [] });
+  });
+});
+
+describe("computeMaterialBreakdown", () => {
+  it("itemizes each consumed component and sums to the same total as computeMaterialCost", () => {
+    const txn: MaterialTxnInput = {
+      format: "case", packages: 2, unitsPerPackage: 24,
+      components: [can, lid, label, paktech4, tray24], label: "Fortnight 12oz Case",
+    };
+    const b = computeMaterialBreakdown([txn]);
+
+    expect(b.totalCents).toBe(computeMaterialCost([txn]).totalCents);
+    expect(b.transactions).toHaveLength(1);
+    expect(b.transactions[0]).toMatchObject({
+      label: "Fortnight 12oz Case", format: "case", packages: 2, unitsPerPackage: 24, subtotalCents: 1496,
+    });
+    expect(b.transactions[0].components).toEqual([
+      { role: "container", name: "12oz Can", unitCostDollars: 0.15, quantity: 48, extendedCents: 720, missingCost: false },
+      { role: "lid", name: "Lid", unitCostDollars: 0.05, quantity: 48, extendedCents: 240, missingCost: false },
+      { role: "label", name: "Label", unitCostDollars: 0.02, quantity: 48, extendedCents: 96, missingCost: false },
+      { role: "paktech", name: "PakTech 4", unitCostDollars: 0.30, quantity: 12, extendedCents: 360, missingCost: false },
+      { role: "tray", name: "Tray 24", unitCostDollars: 0.40, quantity: 2, extendedCents: 80, missingCost: false },
+    ]);
+  });
+
+  it("omits components a transaction never consumes", () => {
+    const txn: MaterialTxnInput = { format: "loose", packages: 10, unitsPerPackage: 1, components: [can, tray24] };
+    const b = computeMaterialBreakdown([txn]);
+    expect(b.transactions[0].components.map((c) => c.role)).toEqual(["container"]);
+  });
+
+  it("flags a consumed component with no unit cost and bills it at $0", () => {
+    const noCostCan = { role: "container" as const, name: "12oz Can", unitCostDollars: null, canCount: null };
+    const b = computeMaterialBreakdown([
+      { format: "loose", packages: 100, unitsPerPackage: 1, components: [noCostCan, lid] },
+    ]);
+    expect(b.transactions[0].components[0]).toMatchObject({ missingCost: true, extendedCents: 0, quantity: 100 });
+    expect(b.missingCostNames).toEqual(["12oz Can"]);
+    expect(b.totalCents).toBe(500);
+  });
+
+  it("keeps one entry per packaging run, each with its own subtotal", () => {
+    const b = computeMaterialBreakdown([
+      { format: "loose", packages: 100, unitsPerPackage: 1, components: [can], label: "A" },
+      { format: "loose", packages: 50, unitsPerPackage: 1, components: [can], label: "B" },
+    ]);
+    expect(b.transactions.map((t) => t.subtotalCents)).toEqual([1500, 750]);
+    expect(b.totalCents).toBe(2250);
   });
 });

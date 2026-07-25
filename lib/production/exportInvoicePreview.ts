@@ -5,7 +5,12 @@ import { buildStandalonePriceMap } from "@/lib/square/catalog";
 import { GALLONS_PER_BBL } from "@/lib/constants/production";
 import { resolveProductSku } from "@/lib/square/skuMappings";
 import { dollarsToCents } from "@/lib/money";
-import { computeMaterialCost, type MaterialComponent, type MaterialTxnInput } from "./packagingMaterials";
+import {
+  computeMaterialBreakdown,
+  type MaterialComponent,
+  type MaterialCostBreakdown,
+  type MaterialTxnInput,
+} from "./packagingMaterials";
 
 export interface InvoiceLineItemDraft {
   id: string;
@@ -47,6 +52,20 @@ export interface InvoicePreviewResult {
    * blocks invoice generation. Empty for non-contract-brewing channels.
    */
   warnings: string[];
+  /**
+   * Per-line derivation of every Packaging Materials line, keyed by the line's
+   * `id`. Lets the modal show how the charge was computed (components consumed
+   * × unit cost) without recomputing it client-side. Display only — the
+   * authoritative amount is the line's `unitPriceCents`. Empty for channels
+   * that don't charge materials.
+   */
+  materialBreakdowns: Record<string, MaterialLineBreakdown>;
+}
+
+/** A Packaging Materials line's derivation, plus the recipe it belongs to. */
+export interface MaterialLineBreakdown extends MaterialCostBreakdown {
+  recipeId: string;
+  beerName: string | null;
 }
 
 interface ExportTxRow {
@@ -116,6 +135,64 @@ export function sumKegCleaningQuantity(
     if (pkgTypeById.get(tx.packaging_item_id) === "keg") total += tx.quantity;
   }
   return total;
+}
+
+/**
+ * A packaging-fee charge unit: one recipe × packaging type × mapping format.
+ *
+ * A single physical shipment can be stored as SEVERAL export_transactions when
+ * its volume is drawn from more than one commitment (e.g. 16 half-kegs split
+ * into 5.8034 + 10.1966 keg fulfillments against the same batch). Those splits
+ * are an allocation-ledger concern, not a billing one — the customer packaged
+ * 16 kegs and owes one packaging fee for 16. Grouping before pricing collapses
+ * them, and also keeps the case/loose remainder math honest: 2.5 + 2.5 cases
+ * must bill as 5 whole cases, not as two 2-case lines plus two half-case
+ * remainders.
+ */
+export interface PackagingFeeGroup {
+  recipeId: string | null;
+  packagingItemId: string;
+  /** Mapping's format dimension — null for kegs, else "case" / "loose" / … */
+  mapFormat: string | null;
+  quantity: number;
+  unitsPerPackage: number;
+}
+
+type PackagingFeeRow = Pick<
+  ExportTxRow,
+  "recipe_id" | "packaging_item_id" | "packaging_format" | "quantity" | "units_per_package"
+>;
+
+/**
+ * Collapse transactions into one group per recipe × packaging item × format,
+ * summing quantities. Group order follows first appearance so line order stays
+ * stable. Totals are rounded to 6 decimals to clear the float dust left by
+ * summing fractional commitment splits (5.8034 + 10.1966 → 16, not
+ * 15.999999999999998). Exported for unit testing.
+ */
+export function groupPackagingFeeRows(
+  rows: PackagingFeeRow[],
+  pkgTypeById: Map<string, string>
+): PackagingFeeGroup[] {
+  const groups = new Map<string, PackagingFeeGroup>();
+  for (const tx of rows) {
+    // Cans carry a case/loose format dimension on the mapping; kegs don't.
+    const mapFormat = pkgTypeById.get(tx.packaging_item_id) === "keg" ? null : tx.packaging_format ?? "loose";
+    const key = `${tx.recipe_id ?? ""}|${tx.packaging_item_id}|${mapFormat ?? ""}`;
+    const existing = groups.get(key);
+    if (existing) {
+      existing.quantity += tx.quantity;
+      continue;
+    }
+    groups.set(key, {
+      recipeId: tx.recipe_id,
+      packagingItemId: tx.packaging_item_id,
+      mapFormat,
+      quantity: tx.quantity,
+      unitsPerPackage: tx.units_per_package || 1,
+    });
+  }
+  return [...groups.values()].map((g) => ({ ...g, quantity: Math.round(g.quantity * 1e6) / 1e6 }));
 }
 
 // Exported for unit testing of the amount_usd → cents conversion seam.
@@ -201,9 +278,13 @@ export async function buildPackagingMaterialLines(
   pkgNameById: Map<string, string>,
   recipeNameById: Map<string, string>,
   materialVariationId: string | null,
-): Promise<{ lines: InvoiceLineItemDraft[]; warnings: string[] }> {
+): Promise<{ lines: InvoiceLineItemDraft[]; warnings: string[]; breakdowns: Record<string, MaterialLineBreakdown> }> {
   const warnings: string[] = [];
-  const byRecipe = new Map<string, MaterialTxnInput[]>();
+  // recipe → (variation × format) → the collapsed charge unit. Transactions are
+  // merged the same way packaging fees are (see groupPackagingFeeRows): a
+  // shipment split across commitments is one packaging run, so its packages sum
+  // before the per-component quantities are rounded.
+  const byRecipe = new Map<string, Map<string, MaterialTxnInput>>();
 
   for (const tx of rows) {
     if (pkgTypeById.get(tx.packaging_item_id) === "keg") continue; // cans only
@@ -213,6 +294,17 @@ export async function buildPackagingMaterialLines(
 
     if (!tx.recipe_id) {
       warnings.push(`Couldn't resolve packaging materials for "${containerName}" (${format}) — no recipe on the shipment, no materials charged.`);
+      continue;
+    }
+
+    // Merge into an already-resolved charge unit before hitting the DB — the
+    // components are a property of the variation, not of the transaction.
+    const group = byRecipe.get(tx.recipe_id) ?? new Map<string, MaterialTxnInput>();
+    byRecipe.set(tx.recipe_id, group);
+    const key = `${tx.variant_label}|${format}`;
+    const existing = group.get(key);
+    if (existing) {
+      existing.packages = Math.round((existing.packages + tx.quantity) * 1e6) / 1e6;
       continue;
     }
 
@@ -231,32 +323,93 @@ export async function buildPackagingMaterialLines(
     }
 
     const components = slotComponents((pvRows[0] as unknown as { packaging_variations: Record<string, SlotItem | null> }).packaging_variations);
-    const input: MaterialTxnInput = { format, packages: tx.quantity, unitsPerPackage: tx.units_per_package || 1, components };
-    const list = byRecipe.get(tx.recipe_id) ?? [];
-    list.push(input);
-    byRecipe.set(tx.recipe_id, list);
+    group.set(key, {
+      format,
+      packages: tx.quantity,
+      unitsPerPackage: tx.units_per_package || 1,
+      components,
+      label: tx.variant_label,
+    });
   }
 
   const lines: InvoiceLineItemDraft[] = [];
+  const breakdowns: Record<string, MaterialLineBreakdown> = {};
   const missingAll = new Set<string>();
   for (const [recipeId, txns] of byRecipe) {
-    const { totalCents, missingCostNames } = computeMaterialCost(txns);
-    missingCostNames.forEach((n) => missingAll.add(n));
-    if (totalCents <= 0) continue; // no meaningful $0 line
+    const breakdown = computeMaterialBreakdown([...txns.values()]);
+    breakdown.missingCostNames.forEach((n) => missingAll.add(n));
+    if (breakdown.totalCents <= 0) continue; // no meaningful $0 line
     const beerName = recipeNameById.get(recipeId) ?? null;
+    const id = crypto.randomUUID();
     lines.push({
-      id: crypto.randomUUID(),
+      id,
       description: beerName ? `Packaging Materials — ${beerName}` : "Packaging Materials",
       quantity: 1,
-      unitPriceCents: totalCents,
+      unitPriceCents: breakdown.totalCents,
       squareCatalogVariationId: materialVariationId,
     });
+    breakdowns[id] = { ...breakdown, recipeId, beerName };
   }
   if (missingAll.size > 0) {
     warnings.push(`No unit cost set for ${[...missingAll].join(", ")} — those components billed at $0. Set costs under Packaging Items.`);
   }
 
-  return { lines, warnings };
+  return { lines, warnings, breakdowns };
+}
+
+// Packaging item type ('keg' detection) + display name, keyed by id.
+async function loadPackagingMaps(
+  supabase: SupabaseClient,
+  rows: Pick<ExportTxRow, "packaging_item_id">[]
+): Promise<{ pkgTypeById: Map<string, string>; pkgNameById: Map<string, string> }> {
+  const ids = [...new Set(rows.map((r) => r.packaging_item_id))];
+  const { data } = await supabase.from("packaging_items").select("id, type, name").in("id", ids);
+  return {
+    pkgTypeById: new Map((data ?? []).map((p) => [p.id as string, p.type as string])),
+    pkgNameById: new Map((data ?? []).map((p) => [p.id as string, p.name as string])),
+  };
+}
+
+// Beer name per recipe id, so each line can name the beer it belongs to.
+async function loadRecipeNames(
+  supabase: SupabaseClient,
+  rows: Pick<ExportTxRow, "recipe_id">[]
+): Promise<Map<string, string>> {
+  const ids = [...new Set(rows.map((r) => r.recipe_id).filter((id): id is string => !!id))];
+  const byId = new Map<string, string>();
+  if (ids.length === 0) return byId;
+  const { data } = await supabase.from("recipes").select("id, beer_name").in("id", ids);
+  for (const r of data ?? []) byId.set(r.id as string, r.beer_name as string);
+  return byId;
+}
+
+/**
+ * Recompute the Packaging Materials derivation for a set of shipments, outside
+ * the invoice-preview flow — used to snapshot the computation onto the invoice
+ * at generate/record time. Deliberately does NOT enforce the preview's
+ * same-customer / invoice_required guards: `record` flips status before the
+ * invoice row exists, and the caller has already validated the selection.
+ * Returns one entry per recipe; empty when nothing is materials-billable.
+ */
+export async function computeMaterialBreakdownsForTransactions(
+  supabase: SupabaseClient,
+  transactionIds: string[]
+): Promise<MaterialLineBreakdown[]> {
+  if (transactionIds.length === 0) return [];
+  const { data: txs, error } = await supabase
+    .from("export_transactions")
+    .select("id, recipient_id, status, quantity, volume_bbl, packaging_item_id, packaging_format, units_per_package, channel, recipe_id, variant_label")
+    .in("id", transactionIds);
+  if (error || !txs?.length) return [];
+
+  const rows = txs as ExportTxRow[];
+  const { pkgTypeById, pkgNameById } = await loadPackagingMaps(supabase, rows);
+  const recipeNameById = await loadRecipeNames(supabase, rows);
+
+  const { breakdowns } = await buildPackagingMaterialLines(
+    supabase, rows, pkgTypeById, pkgNameById, recipeNameById, null,
+  );
+  return Object.values(breakdowns);
 }
 
 // Distribution / wholesale product lines: one per shipped transaction, priced
@@ -367,13 +520,7 @@ export async function buildInvoicePreview(
   if (partnerErr || !partner) throw new Error("Customer not found");
 
   // ── 3. Load packaging items (for type='keg' detection + error messages) ───
-  const packagingItemIds = [...new Set(rows.map((r) => r.packaging_item_id))];
-  const { data: pkgItems } = await supabase
-    .from("packaging_items")
-    .select("id, type, name")
-    .in("id", packagingItemIds);
-  const pkgTypeById = new Map((pkgItems ?? []).map((p) => [p.id, p.type as string]));
-  const pkgNameById = new Map((pkgItems ?? []).map((p) => [p.id, p.name as string]));
+  const { pkgTypeById, pkgNameById } = await loadPackagingMaps(supabase, rows);
 
   // ── 4. Load service mappings for this partner (with default fallback) ────
   const { data: mappings } = await supabase
@@ -406,39 +553,33 @@ export async function buildInvoicePreview(
 
   const lineItems: InvoiceLineItemDraft[] = [];
   const warnings: string[] = [];
+  const materialBreakdowns: Record<string, MaterialLineBreakdown> = {};
   let defaultDiscountCatalogId: string | null = null;
 
   if (channel === "contract_brewing") {
     // ── 5a. Packaging Fee lines ─────────────────────────────────────────────
     // Recipe (beer) names, so each Packaging Fee line names its recipe — an
     // invoice can span multiple recipes, one Packaging Fee line per transaction.
-    const recipeIds = [...new Set(rows.map((r) => r.recipe_id).filter((id): id is string => !!id))];
-    const recipeNameById = new Map<string, string>();
-    if (recipeIds.length > 0) {
-      const { data: recipeRows } = await supabase
-        .from("recipes")
-        .select("id, beer_name")
-        .in("id", recipeIds);
-      for (const r of recipeRows ?? []) recipeNameById.set(r.id as string, r.beer_name as string);
-    }
+    const recipeNameById = await loadRecipeNames(supabase, rows);
 
     // Total keg count across all keg-type transactions — drives keg cleaning qty.
     const kegCleaningQty = sumKegCleaningQuantity(rows, pkgTypeById);
-    for (const tx of rows) {
-      const isKeg = pkgTypeById.get(tx.packaging_item_id) === "keg";
-      const containerName = pkgNameById.get(tx.packaging_item_id) ?? "unknown container";
-      const beerName = tx.recipe_id ? recipeNameById.get(tx.recipe_id) : null;
 
-      // Cans carry a case/loose format dimension on the mapping; kegs don't.
-      const mapFormat = isKeg ? null : tx.packaging_format ?? "loose";
+    // One fee line per recipe × packaging type × format — NOT per transaction.
+    // See groupPackagingFeeRows: commitment splits are an allocation detail and
+    // must not fan a single shipment out into multiple fee lines.
+    for (const tx of groupPackagingFeeRows(rows, pkgTypeById)) {
+      const containerName = pkgNameById.get(tx.packagingItemId) ?? "unknown container";
+      const beerName = tx.recipeId ? recipeNameById.get(tx.recipeId) : null;
+      const mapFormat = tx.mapFormat;
 
       if (mapFormat === "case") {
         const wholeCases = Math.floor(tx.quantity + 1e-9);
         const remainder = tx.quantity - wholeCases;
-        const looseUnits = Math.round(remainder * (tx.units_per_package || 1));
+        const looseUnits = Math.round(remainder * tx.unitsPerPackage);
 
         if (wholeCases > 0) {
-          const caseMapping = findMapping("packaging_fee", tx.packaging_item_id, "case");
+          const caseMapping = findMapping("packaging_fee", tx.packagingItemId, "case");
           if (!caseMapping?.square_catalog_variation_id) {
             throw new Error(
               `Packaging Fee (Case) is not configured for "${containerName}" — set it in Export Settings before generating this invoice.`
@@ -453,7 +594,7 @@ export async function buildInvoicePreview(
           });
         }
         if (looseUnits > 0) {
-          const looseMapping = findMapping("packaging_fee", tx.packaging_item_id, "loose");
+          const looseMapping = findMapping("packaging_fee", tx.packagingItemId, "loose");
           if (!looseMapping?.square_catalog_variation_id) {
             throw new Error(
               `Packaging Fee (Loose Can) is not configured for "${containerName}" — set it in Export Settings before generating this invoice (needed for the partial-case remainder).`
@@ -470,7 +611,7 @@ export async function buildInvoicePreview(
         continue;
       }
 
-      const mapping = findMapping("packaging_fee", tx.packaging_item_id, mapFormat);
+      const mapping = findMapping("packaging_fee", tx.packagingItemId, mapFormat);
       if (!mapping?.square_catalog_variation_id) {
         throw new Error(
           `Packaging Fee is not configured for "${containerName}" — set it in Export Settings before generating this invoice.`
@@ -523,6 +664,7 @@ export async function buildInvoicePreview(
     );
     lineItems.push(...materials.lines);
     warnings.push(...materials.warnings);
+    Object.assign(materialBreakdowns, materials.breakdowns);
 
   } else if (channel === "distribution" || channel === "wholesale") {
     // ── Product lines (from recipe_square_links) ──────────────────────────────
@@ -556,5 +698,6 @@ export async function buildInvoicePreview(
     shippedChannel,
     defaultDiscountCatalogId,
     warnings,
+    materialBreakdowns,
   };
 }

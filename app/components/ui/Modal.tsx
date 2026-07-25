@@ -1,10 +1,19 @@
 "use client";
 
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useId, type ReactNode } from "react";
+
+/**
+ * Open-modal stack, outermost first. Every mounted Modal registers here so that
+ * Escape only closes the TOPMOST one — without this, a modal opened from inside
+ * another modal (e.g. the invoice preview's cost-breakdown) would close both on
+ * a single Escape, discarding the parent's unsaved edits.
+ */
+const modalStack: string[] = [];
 
 /**
  * Canonical modal shell. API matches production's prior `shared.tsx` Modal so existing
  * call sites are drop-in. Token-styled; adds Escape-to-close + body scroll lock.
+ * Safe to nest: the topmost modal paints above and owns Escape.
  */
 export function Modal({
   title,
@@ -19,9 +28,19 @@ export function Modal({
   wide?: boolean;
   extraWide?: boolean;
 }) {
+  const modalId = useId();
+
+  useEffect(() => {
+    modalStack.push(modalId);
+    return () => {
+      const i = modalStack.indexOf(modalId);
+      if (i !== -1) modalStack.splice(i, 1);
+    };
+  }, [modalId]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape" && modalStack[modalStack.length - 1] === modalId) onClose();
     };
     document.addEventListener("keydown", onKey);
     const prev = document.body.style.overflow;
@@ -30,7 +49,7 @@ export function Modal({
       document.removeEventListener("keydown", onKey);
       document.body.style.overflow = prev;
     };
-  }, [onClose]);
+  }, [onClose, modalId]);
 
   return (
     <div

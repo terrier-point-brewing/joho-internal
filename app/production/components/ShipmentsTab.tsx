@@ -7,6 +7,7 @@ import { queryKeys } from "@/lib/query-keys";
 import InvoicePreviewModal from "./InvoicePreviewModal";
 import { CHANNEL_COLOR } from "../lib/categoryColors";
 import { fmtDateLong } from "@/lib/utils/formatting";
+import { formatCurrency, formatNumber } from "@/lib/format";
 import { localDateString } from "@/lib/utils/datetime";
 import { useTableControls } from "@/app/components/ui/useTableControls";
 import FilterChips from "@/app/components/ui/FilterChips";
@@ -488,15 +489,17 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
       {/* Summary stats */}
       {filtered.length > 0 && (
         <div className="flex items-center gap-4 px-4 py-2 bg-surface/30 border border-line rounded-lg text-xs">
-          <span className="text-muted">Showing {filtered.length} shipment{filtered.length !== 1 ? "s" : ""}</span>
+          <span className="text-muted">
+            Showing <span className="tabular-nums">{formatNumber(filtered.length)}</span> shipment{filtered.length !== 1 ? "s" : ""}
+          </span>
           <span className="text-disabled">·</span>
           <span className="text-body">
-            <span className="tabular-nums font-medium">{summaryStats.totalBbl.toFixed(2)}</span>
+            <span className="tabular-nums font-medium">{formatNumber(summaryStats.totalBbl, 2)}</span>
             <span className="text-muted ml-1">bbl</span>
           </span>
           <span className="text-disabled">·</span>
           <span className="text-body">
-            <span className="tabular-nums font-medium">${summaryStats.totalExciseTax.toFixed(2)}</span>
+            <span className="tabular-nums font-medium">{formatCurrency(summaryStats.totalExciseTax)}</span>
             <span className="text-muted ml-1">excise tax</span>
           </span>
         </div>

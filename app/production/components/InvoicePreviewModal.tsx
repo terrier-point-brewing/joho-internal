@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { Modal } from "./shared";
 import Banner from "@/app/components/ui/Banner";
+import PackagingMaterialsBreakdownModal from "./PackagingMaterialsBreakdownModal";
 import { SquareCatalogSelect, SquareDiscountSelect } from "@/app/components/SquareCatalogSelect";
 import { useInvoicePreview, useExportSquareCatalogQuery } from "../hooks/queries";
 import type { SquareCatalogOptions } from "../types";
@@ -62,6 +63,8 @@ export default function InvoicePreviewModal({
   const [lineItems, setLineItems] = useState<DraftLineItem[] | null>(null);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  // Line id whose Packaging Materials cost derivation is open in a sub-modal.
+  const [breakdownLineId, setBreakdownLineId] = useState<string | null>(null);
 
   // ── Manual invoice mode ────────────────────────────────────────────────────
   const [invoiceMode, setInvoiceMode] = useState<"square" | "manual">("square");
@@ -71,6 +74,8 @@ export default function InvoicePreviewModal({
   const [overrideReason, setOverrideReason] = useState("");
 
   const effectiveLineItems = lineItems ?? data?.lineItems ?? [];
+  const materialBreakdowns = data?.materialBreakdowns ?? {};
+  const openBreakdown = breakdownLineId ? materialBreakdowns[breakdownLineId] : undefined;
   const channel = data?.channel ?? null;
   const discountsApply = channel === "distribution" || channel === "wholesale";
 
@@ -233,6 +238,7 @@ export default function InvoicePreviewModal({
   );
 
   return (
+    <>
     <Modal title={title} onClose={onClose} extraWide>
       {isLoading ? (
         <p className="text-sm text-muted">Loading line items…</p>
@@ -379,6 +385,7 @@ export default function InvoicePreviewModal({
               const lineDiscount = invoiceMode === "square" && li.discountCatalogId
                 ? estimateDiscountCents(lineSub, discountById.get(li.discountCatalogId))
                 : 0;
+              const breakdown = materialBreakdowns[li.id];
 
               return (
                 <div key={li.id} className="rounded-lg border border-line p-3 space-y-2.5">
@@ -460,6 +467,14 @@ export default function InvoicePreviewModal({
                       ) : (
                         <span className="text-sm text-body tabular-nums">{fmtUsd(lineSub / 100)}</span>
                       )}
+                      {breakdown && (
+                        <button
+                          onClick={() => setBreakdownLineId(li.id)}
+                          className="block ml-auto text-2xs text-accent hover:text-accent-soft underline"
+                        >
+                          How is this calculated?
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -518,5 +533,12 @@ export default function InvoicePreviewModal({
         </div>
       )}
     </Modal>
+    {openBreakdown && (
+      <PackagingMaterialsBreakdownModal
+        breakdown={openBreakdown}
+        onClose={() => setBreakdownLineId(null)}
+      />
+    )}
+    </>
   );
 }

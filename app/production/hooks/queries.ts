@@ -9,6 +9,8 @@ import {
   RecipeSquareLinkRow, BatchConversion, MappingGridResponse,
 } from "../types";
 import { queryKeys } from "@/lib/query-keys";
+// Type-only — the preview payload's shape is owned by the builder that produces it.
+import type { InvoicePreviewResult } from "@/lib/production/exportInvoicePreview";
 
 // A planned/actual occupancy row from /api/production/batch-schedule.
 export interface ScheduleEntry {
@@ -272,14 +274,7 @@ export function useDepositInvoiceDueDaysQuery() {
 export function useInvoicePreview(transactionIds: string[], billAsChannel?: string | null) {
   return useQuery({
     queryKey: ["production", "invoice-preview", transactionIds, billAsChannel ?? null] as const,
-    queryFn: () => fetchJson<{
-      customerId: string; customerName: string; squareCustomerId: string | null;
-      lineItems: { id: string; description: string; quantity: number; unitPriceCents: number; squareCatalogVariationId: string | null; discountCatalogId?: string | null }[];
-      channel: string;
-      shippedChannel: string;
-      defaultDiscountCatalogId: string | null;
-      warnings: string[];
-    }>(`/api/production/export/invoice-preview?ids=${transactionIds.join(",")}${billAsChannel ? `&billAs=${encodeURIComponent(billAsChannel)}` : ""}`),
+    queryFn: () => fetchJson<InvoicePreviewResult>(`/api/production/export/invoice-preview?ids=${transactionIds.join(",")}${billAsChannel ? `&billAs=${encodeURIComponent(billAsChannel)}` : ""}`),
     enabled: transactionIds.length > 0,
   });
 }
