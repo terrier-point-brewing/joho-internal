@@ -8,6 +8,7 @@
 import { describe, it, expect } from "vitest";
 import { assembleConsumption, trailingWindow, type KegCanLink, type DraftLink, type TapRestockLink } from "./taproomConsumption";
 import type { RestockLineEvent } from "./inventory";
+import type { PendingTapSwap } from "@/lib/taproom/tapSwaps";
 
 describe("trailingWindow", () => {
   it("ends at now so same-day orders are inside the window", () => {
@@ -168,5 +169,143 @@ describe("assembleConsumption — restock draft swaps (tap grain)", () => {
       tapRestockLinks: [tapLink()],
     });
     expect(units[0].recount).toBeUndefined();
+  });
+});
+
+// ─── Queued beer-change swaps ────────────────────────────────────────────────
+//
+// When a queued tap_swap_transitions row is paired to a ring, the unit's recipe,
+// keg and recount target come from the FROZEN transition — never from the tap
+// row, which by then may have been edited. Unpaired rings keep resolving off the
+// tap row exactly as before.
+
+const pendingSwap = (over: Partial<PendingTapSwap> = {}): PendingTapSwap => ({
+  id: "swap-1",
+  tapNumber: 3,
+  fromRecipeId: "recipe-1",
+  fromBeerName: "Vienna Lager",
+  fromVariationId: "pv-keg-1",
+  fromVolumeFlOz: 660,
+  fromDraftSquareVariationId: "draft-sqvar",
+  toRecipeId: "recipe-2",
+  toBeerName: "Hazy IPA",
+  toVariationId: "pv-keg-2",
+  toVolumeFlOz: 661,
+  toDraftSquareVariationId: "draft-sqvar-2",
+  openedAt: "2026-07-04T15:00:00Z",
+  ...over,
+});
+
+describe("assembleConsumption — queued swap transitions", () => {
+  it("takes recipe, keg and recount from the transition, not the tap row", () => {
+    const { units, discrepancies } = assembleConsumption({
+      ...empty(),
+      draftLinks: [draftLink],
+      restockEvents: [restockEvent()],
+      tapRestockLinks: [tapLink()],
+      pendingSwaps: [pendingSwap()],
+    });
+    expect(discrepancies).toHaveLength(0);
+    expect(units).toHaveLength(1);
+    expect(units[0]).toMatchObject({
+      recipeId: "recipe-2",      // incoming, NOT the tap row's recipe-1
+      variationId: "pv-keg-2",   // incoming keg
+      kind: "draft_swap",
+      sourceRef: "sqtransfer:ord-1:line-1",
+      tapNumber: 3,
+      recount: { squareVariationId: "draft-sqvar-2", quantity: 661, occurredAt: "2026-07-04T20:00:00Z" },
+    });
+    expect(units[0].swap?.id).toBe("swap-1");
+  });
+
+  it("labels the unit with the incoming beer", () => {
+    const { units } = assembleConsumption({
+      ...empty(),
+      draftLinks: [draftLink],
+      restockEvents: [restockEvent()],
+      tapRestockLinks: [tapLink()],
+      pendingSwaps: [pendingSwap()],
+    });
+    expect(units[0].label).toContain("Hazy IPA");
+    expect(units[0].label).not.toContain("Vienna Lager");
+  });
+
+  it("leaves an unpaired ring resolving off the tap row", () => {
+    // Swap queued on tap 5, ring on tap 3 — the tap 3 ring is a plain restock.
+    const { units } = assembleConsumption({
+      ...empty(),
+      draftLinks: [draftLink],
+      restockEvents: [restockEvent()],
+      tapRestockLinks: [tapLink()],
+      pendingSwaps: [pendingSwap({ tapNumber: 5 })],
+    });
+    expect(units[0]).toMatchObject({ recipeId: "recipe-1", variationId: "pv-keg-1" });
+    expect(units[0].swap).toBeUndefined();
+  });
+
+  it("still emits a unit when the incoming recipe has no draft Square link", () => {
+    const { units } = assembleConsumption({
+      ...empty(),
+      draftLinks: [draftLink],
+      restockEvents: [restockEvent()],
+      tapRestockLinks: [tapLink()],
+      pendingSwaps: [pendingSwap({ toDraftSquareVariationId: null })],
+    });
+    expect(units).toHaveLength(1);
+    expect(units[0].recount).toBeUndefined();
+    expect(units[0].swap?.id).toBe("swap-1");
+  });
+
+  it("carries the ring's quantity through to the incoming keg", () => {
+    const { units } = assembleConsumption({
+      ...empty(),
+      draftLinks: [draftLink],
+      restockEvents: [restockEvent({ quantity: 2 })],
+      tapRestockLinks: [tapLink()],
+      pendingSwaps: [pendingSwap()],
+    });
+    expect(units[0].quantity).toBe(2);
+  });
+
+  it("resolves off the transition even when the tap row has no swap keg", () => {
+    // The tap row is mid-edit / never configured, but the frozen transition has
+    // everything needed — so this must NOT flag unconfigured_draft_swap.
+    const { units, discrepancies } = assembleConsumption({
+      ...empty(),
+      draftLinks: [draftLink],
+      restockEvents: [restockEvent()],
+      tapRestockLinks: [tapLink({ swapVariationId: null, swapVolumeFlOz: null })],
+      pendingSwaps: [pendingSwap()],
+    });
+    expect(units).toHaveLength(1);
+    expect(units[0].variationId).toBe("pv-keg-2");
+    expect(discrepancies).toHaveLength(0);
+  });
+
+  it("flags a stale unpaired swap when nowIso is supplied", () => {
+    const { discrepancies } = assembleConsumption({
+      ...empty(),
+      draftLinks: [draftLink],
+      restockEvents: [],
+      tapRestockLinks: [tapLink()],
+      pendingSwaps: [pendingSwap({ openedAt: "2026-07-01T00:00:00Z" })],
+      nowIso: "2026-07-24T00:00:00Z",
+    });
+    expect(discrepancies).toContainEqual(
+      expect.objectContaining({
+        kind: "stale_queued_swap", tapNumber: 3, swapId: "swap-1", toBeerName: "Hazy IPA",
+      }),
+    );
+  });
+
+  it("emits no staleness when nowIso is omitted", () => {
+    const { discrepancies } = assembleConsumption({
+      ...empty(),
+      draftLinks: [draftLink],
+      restockEvents: [],
+      tapRestockLinks: [tapLink()],
+      pendingSwaps: [pendingSwap({ openedAt: "2026-07-01T00:00:00Z" })],
+    });
+    expect(discrepancies).toHaveLength(0);
   });
 });
