@@ -89,11 +89,21 @@ and grants that apply to non-custom roles (grants are consulted **only** when
 
 ```ts
 // lib/auth/levels.ts
-export type Level = "read" | "operate" | "manage" | "admin";
-export const RANK: Record<Level, number> = { read: 1, operate: 2, manage: 3, admin: 4 };
+export type Level = "none" | "read" | "operate" | "manage" | "admin";
+export const RANK: Record<Level, number> = { none: 0, read: 1, operate: 2, manage: 3, admin: 4 };
 ```
 
 Ordered — each level implies every level below it.
+
+**`none` was added during implementation, not in the original design, and it is
+load-bearing.** Without it, hierarchical grants can only ever widen: setting a
+leaf to "None" in the admin UI merely omits the key, so longest-prefix falls
+back to the ancestor and nothing is revoked. That silently broke this design's
+headline workflow — "grant Finance but not the P&L". As an explicit stored
+level at rank 0, `none` wins the longest-prefix match and denies. Note the
+three distinct leaf states this creates: absent (inherit), an explicit level,
+and explicit `none` (revoked). `ROLE_BUNDLES` never contains `none`; a test
+asserts that.
 
 ### Scopes
 
@@ -374,6 +384,18 @@ for (const row of LEGACY_MATRIX)
 844 assertions. Any conversion that changes an existing role's access fails CI
 unless someone wrote down why.
 
+**This test has a blind spot, and a second test closes it.** It only asks
+whether each of the four legacy roles gets the same allow/deny answer as
+before. A capability given the wrong scope or level is therefore invisible
+whenever the wrong coordinate happens to produce identical answers for all
+four. A sweep over the implemented branch found 31 of 37 levels and 35 of 37
+scopes could be changed with this suite still green — including downgrading
+`taxPiiReveal` from `admin` to `manage`. That is precisely the surface a
+`custom` user's grants resolve against. `lib/auth/__tests__/capability-coordinates.test.ts`
+pins every capability's exact `(scope, level)` against a committed table, so a
+coordinate change fails CI on its own terms rather than only when a legacy role
+happens to notice.
+
 ### Validation result
 
 The bundle table and level assignments above were run against all 211 routes
@@ -399,10 +421,10 @@ Of the 28, 24 are provably unreachable today (16 viewer + 6 manager, all behind
 layouts that already redirect those roles; plus the 2 brewer gains, which grant
 rather than remove).
 
-### The one user-visible change
+### User-visible changes
 
-`ingredients`/`packaging` **DELETE** moving to `manage` is the only change a
-real user will notice. The Del button in `IngredientsTab.tsx:710` and
+Two changes a real user will notice. First, `ingredients`/`packaging`
+**DELETE** moving to `manage`. The Del button in `IngredientsTab.tsx:710` and
 `PackagingTab.tsx:316` is visible to brewers today and is used; after this
 change it disappears for them, leaving Adjust (and Create) as their inventory
 actions.
@@ -415,6 +437,14 @@ the brewing team at rollout rather than shipping silently.
 Implementation note: both components must have their Del button moved behind the
 same capability as Edit. If only the API is tightened, brewers keep a button
 that 403s.
+
+Second, brewers lose the floorplan **edit-layout** affordance in
+`BrewStatusTab.tsx`. Its gate was `role === "brewer" || role === "admin"`, but
+the routes behind it (`production/equipment`, `production/floorplan-settings`)
+were already admin-only, so a brewer's drag-and-drop always 403'd. The gate now
+reads `production.equipment@manage`, which brewers do not have, so the control
+is hidden rather than broken. No working capability is removed — but the button
+does disappear, so it belongs in the rollout note alongside Del.
 
 ---
 
@@ -463,9 +493,9 @@ Grants save through `PUT /api/admin/users/[id]/grants` (admin client,
 ## Rollout
 
 Migrations are additive. No RLS policy changes. `custom` is opt-in per user, so
-the blast radius on day one is zero users. The only behavior change that ships
-is API-only (`ingredients`/`packaging` PATCH), matching button visibility that
-has always been there.
+the blast radius on day one is zero users. Two changes are user-visible — see
+[User-visible changes](#user-visible-changes) — and both remove affordances
+that already failed server-side, so no working capability is lost.
 
 **Scale:** ~200 files — roughly 160 route files, 11 nav/layout files, 24 files
 with inline role checks, ~10 new `lib/auth` modules, 2 migrations, 4 admin-UI
