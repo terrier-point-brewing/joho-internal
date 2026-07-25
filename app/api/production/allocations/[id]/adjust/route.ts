@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createRefund } from "@/lib/square/refunds";
 
@@ -13,7 +13,7 @@ type RouteParams = { params: Promise<{ id: string }> };
 // workflow from the plain PATCH route because it has a real financial
 // side effect — increasing percentage is explicitly out of scope here.
 export async function POST(req: NextRequest, { params }: RouteParams) {
-  try { await requireRole(["brewer"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.exportOperate); } catch (res) { return res as Response; }
 
   const supabase = await createSupabaseServerClient();
   const { id } = await params;

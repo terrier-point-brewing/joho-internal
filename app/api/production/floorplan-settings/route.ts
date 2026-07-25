@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
@@ -19,7 +19,7 @@ export async function GET() {
 }
 
 export async function PUT(req: NextRequest) {
-  try { await requireRole([]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.equipmentManage); } catch (res) { return res as Response; }
 
   const { cols, rows } = await req.json() as { cols: number; rows: number };
   if (!Number.isInteger(cols) || cols < 16 || cols > 80) {

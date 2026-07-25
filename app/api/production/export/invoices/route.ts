@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  try { await requireRole(["viewer", "brewer", "manager"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.exportRead); } catch (res) { return res as Response; }
 
   // `invoices` (and its `invoice_line_items` embed) is RLS-locked to admins, but
-  // this route legitimately serves viewer/brewer/manager. The requireRole gate
+  // this route legitimately serves viewer/brewer/manager. The requirePermission gate
   // above is the authorization boundary; read via the service-role client so the
   // admin-only RLS policy doesn't silently filter every row (mirrors the invoice
   // write routes, which already use the admin client).

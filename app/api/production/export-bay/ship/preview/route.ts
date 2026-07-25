@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { BBL_TO_FL_OZ } from "@/lib/constants/production";
 import { planShipment } from "@/lib/production/allocationReserve";
@@ -20,7 +20,7 @@ interface PreviewRequest {
 // pre-submit warning display so the user sees coverage/over-booking advisories
 // before committing. Shares reserve math with the real ship via loadShipReserveContext.
 export async function POST(req: NextRequest) {
-  try { await requireRole(["brewer"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.exportOperate); } catch (res) { return res as Response; }
 
   const supabase = await createSupabaseServerClient();
   const body: PreviewRequest = await req.json();

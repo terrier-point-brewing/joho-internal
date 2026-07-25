@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission } from "@/lib/auth";
 
-vi.mock("@/lib/auth", () => ({
-  requireRole: vi.fn().mockResolvedValue(undefined),
-}));
+vi.mock("@/lib/auth", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/auth")>();
+  return { ...actual, requirePermission: vi.fn().mockResolvedValue(undefined) };
+});
 
 interface Recorded { table: string; payload: unknown }
 let recorded: Recorded[] = [];
@@ -112,7 +113,7 @@ describe("POST /api/production/packaging-variations/bulk", () => {
   beforeEach(() => {
     recorded = [];
     insertCounter = 1;
-    vi.mocked(requireRole).mockResolvedValue(undefined as never);
+    vi.mocked(requirePermission).mockResolvedValue(undefined as never);
   });
 
   it("rejects an empty items array", async () => {
@@ -121,8 +122,8 @@ describe("POST /api/production/packaging-variations/bulk", () => {
     expect(res.status).toBe(400);
   });
 
-  it("returns whatever requireRole throws (role gate)", async () => {
-    vi.mocked(requireRole).mockRejectedValueOnce(new Response(null, { status: 403 }) as never);
+  it("returns whatever requirePermission throws (permission gate)", async () => {
+    vi.mocked(requirePermission).mockRejectedValueOnce(new Response(null, { status: 403 }) as never);
     const { POST } = await import("./route");
     const res = await POST(req({ items: [VALID_4PACK] }));
     expect(res.status).toBe(403);

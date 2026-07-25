@@ -1,6 +1,6 @@
 // app/api/production/export-bay/ship-adhoc/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getAvailableColdStorageQuantity } from "@/lib/production/coldStorageDepletion";
 import { writeColdStorageShipment } from "@/lib/production/shipmentWriter";
@@ -18,7 +18,7 @@ interface AdHocShipRequest {
 }
 
 export async function POST(req: NextRequest) {
-  try { await requireRole(["brewer"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.exportOperate); } catch (res) { return res as Response; }
 
   const supabase = await createSupabaseServerClient();
   const body: AdHocShipRequest = await req.json();

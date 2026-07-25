@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { fetchCatalogItems, fetchCatalogDiscounts } from "@/lib/square/catalog";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  try { await requireRole(["viewer", "brewer", "manager"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.productionSettingsRead); } catch (res) { return res as Response; }
 
   const [items, discounts] = await Promise.all([fetchCatalogItems(), fetchCatalogDiscounts()]);
 

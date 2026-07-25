@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { reconcilePhantomExport, PhantomReconcileError } from "@/lib/production/reconcilePhantom";
 import { apiError } from "@/lib/utils/api";
@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
 // acknowledges the alert, correcting the record's variation when it differs from
 // what was booked. Writes no new excise — the phantom row already carries it.
 export async function POST(req: NextRequest) {
-  try { await requireRole(["manager"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.taproomPerformanceOperate); } catch (res) { return res as Response; }
 
   let body: { exportTransactionId?: string; variationId?: string; batchId?: string };
   try { body = await req.json(); } catch { return apiError("Invalid JSON body.", 400); }

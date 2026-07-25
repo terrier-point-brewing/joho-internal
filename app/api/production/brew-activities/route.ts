@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 const ALLOWED = ["sort_order", "activity", "time_label", "temp", "temp_unit", "amount", "amount_unit", "vsp"] as const;
 
 export async function POST(req: NextRequest) {
-  try { await requireRole(["brewer"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.brewingOperate); } catch (res) { return res as Response; }
 
   const supabase = await createSupabaseServerClient();
   const body = await req.json();
@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  try { await requireRole(["brewer"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.brewingOperate); } catch (res) { return res as Response; }
 
   const supabase = await createSupabaseServerClient();
   const body = await req.json();
@@ -67,7 +67,7 @@ export async function PATCH(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  try { await requireRole(["brewer"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.brewingOperate); } catch (res) { return res as Response; }
 
   const supabase = await createSupabaseServerClient();
   const { searchParams } = new URL(req.url);

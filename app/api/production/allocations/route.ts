@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import {
@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
 // GET /api/production/allocations?batch_id=<uuid>
 // Returns allocations enriched with fulfillment data computed from export_transactions and batch_transfers.
 export async function GET(req: NextRequest) {
-  try { await requireRole(["viewer", "brewer", "manager"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.exportRead); } catch (res) { return res as Response; }
 
   const supabase = await createSupabaseServerClient();
 
@@ -169,7 +169,7 @@ export async function GET(req: NextRequest) {
 
 // POST /api/production/allocations
 export async function POST(req: NextRequest) {
-  try { await requireRole(["brewer"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.exportOperate); } catch (res) { return res as Response; }
 
 
   const supabase = await createSupabaseServerClient();

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { fetchOpenPhantomAlerts, fetchEligibleLots } from "@/lib/production/phantomExportAlerts";
 import { apiError } from "@/lib/utils/api";
@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 // (variation + batch) now eligible to resolve it. Drives the Export Bay "swaps
 // with missing stock" list.
 export async function GET() {
-  try { await requireRole(["manager"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.taproomPerformanceOperate); } catch (res) { return res as Response; }
 
   const supabase = await createSupabaseServerClient();
   try {

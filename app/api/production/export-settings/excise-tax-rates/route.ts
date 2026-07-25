@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
  * Rates are fixed reference data — there is no create/update/delete here.
  */
 export async function GET(req: NextRequest) {
-  try { await requireRole(["viewer", "brewer", "manager"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.productionSettingsRead); } catch (res) { return res as Response; }
 
   const party = req.nextUrl.searchParams.get("party");
   const supabase = createSupabaseAdminClient();

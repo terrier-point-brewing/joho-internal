@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getAvailableColdStorageQuantity } from "@/lib/production/coldStorageDepletion";
 import { writeColdStorageShipment } from "@/lib/production/shipmentWriter";
@@ -20,7 +20,7 @@ interface ShipRequest {
 // flagged). Delegates the deplete → credit → write pipeline to the shared
 // writeColdStorageShipment; returns the created rows plus reserve advisories.
 export async function POST(req: NextRequest) {
-  try { await requireRole(["brewer"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.exportOperate); } catch (res) { return res as Response; }
 
   const supabase = await createSupabaseServerClient();
   const body: ShipRequest = await req.json();
