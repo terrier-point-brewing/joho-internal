@@ -16,6 +16,8 @@ import type { ControlsConfig } from "@/lib/table/types";
 import AccountSelect from "../../AccountSelect";
 import SyncPanel from "../components/SyncPanel";
 import MappingFilter from "../components/MappingFilter";
+import GlAccountFilter from "../components/GlAccountFilter";
+import { matchesGlFilter, narrowToGl } from "@/lib/finance/glLineMatch";
 import MappingStatusPill from "../components/MappingStatusPill";
 import AutoMapButton from "../components/AutoMapButton";
 import DateRangeFilter from "../components/DateRangeFilter";
@@ -108,6 +110,12 @@ const INVOICE_CONTROLS: ControlsConfig<InvoiceRow> = {
         return matchesMappingFilter(sel[0] as MappingFilterValue, m, n, i.unmapped_accepted);
       },
     },
+    // GL lives on the line items, so an invoice matches when any of its lines
+    // is coded to the selected account.
+    {
+      param: "gl",
+      matches: (i, sel) => matchesGlFilter((i.invoice_line_items ?? []).map((li) => li.chart_of_accounts_id), sel),
+    },
   ],
   sort: {
     columns: [
@@ -132,6 +140,7 @@ function InvoiceExpandableRow({
   onSaveLineItem,
   onBatchChanged,
   onToggleAccept,
+  glFilter,
 }: {
   inv: InvoiceRow;
   accounts: CoARef[];
@@ -139,11 +148,20 @@ function InvoiceExpandableRow({
   onSaveLineItem: (id: string, patch: Record<string, string | null>) => Promise<void>;
   onBatchChanged: () => void;
   onToggleAccept: (id: string, accepted: boolean) => Promise<void>;
+  /** Selected GL account ids; empty means no GL filter and no narrowing. */
+  glFilter: string[];
 }) {
   const [expanded, setExpanded] = useState(false);
   const linkCount = (inv.invoice_batch_links as unknown as { count: number }[])[0]?.count ?? 0;
-  const lineItems = inv.invoice_line_items ?? [];
+  // Under a GL filter the row shows only the lines coded to that account, and
+  // the header total becomes their subtotal — an invoice total sitting above a
+  // narrowed line list reads as the value of the lines shown.
+  const allLineItems = inv.invoice_line_items ?? [];
+  const lineItems = narrowToGl(allLineItems, (li) => li.chart_of_accounts_id, glFilter);
   const mappedCount = lineItems.filter((li) => li.chart_of_accounts_id).length;
+  const shownCents = glFilter.length === 0
+    ? inv.total_cents
+    : lineItems.reduce((sum, li) => sum + (li.net_sales_cents ?? li.total_cents ?? 0), 0);
 
   return (
     <>
@@ -189,7 +207,10 @@ function InvoiceExpandableRow({
           </div>
         </td>
         <td className="px-4 py-2 text-right font-mono text-strong tabular-nums">
-          {fmtDollars(inv.total_cents)}
+          {fmtDollars(shownCents)}
+          {shownCents !== inv.total_cents && (
+            <div className="text-2xs text-faint font-normal">of {fmtDollars(inv.total_cents)}</div>
+          )}
         </td>
         <td className="px-4 py-2 text-center">
           {linkCount > 0
@@ -489,7 +510,14 @@ export default function InvoicesPage() {
 
   // Summary stats — always computed over the full filtered `invoices` array,
   // never the page slice below.
-  const totalValue    = invoices.reduce((s, i) => s + i.total_cents, 0);
+  // Under a GL filter each row shows only its matching lines, so the header
+  // total has to be the same narrowed sum — a full-invoice total above narrowed
+  // rows is the misreading the per-row "of …" context exists to prevent.
+  const glFilter      = filters.gl ?? [];
+  const totalValue    = glFilter.length === 0
+    ? invoices.reduce((s, i) => s + i.total_cents, 0)
+    : invoices.reduce((s, i) => s + narrowToGl(i.invoice_line_items ?? [], (li) => li.chart_of_accounts_id, glFilter)
+        .reduce((t, li) => t + (li.net_sales_cents ?? li.total_cents ?? 0), 0), 0);
   const openValue     = invoices.filter((i) => i.status === "open").reduce((s, i) => s + i.total_cents, 0);
   const unlinkedCount = invoices.filter((i) => (i.invoice_batch_links as unknown as { count: number }[])[0]?.count === 0).length;
 
@@ -550,6 +578,11 @@ export default function InvoicesPage() {
           <MappingFilter
             value={(filters.mapping?.[0] as MappingFilterValue) ?? "all"}
             onChange={(v) => setFilter("mapping", v === "all" ? [] : [v])}
+          />
+          <GlAccountFilter
+            accounts={accounts}
+            value={filters.gl?.[0] ?? null}
+            onChange={(id) => setFilter("gl", id ? [id] : [])}
           />
           <button
             onClick={() => setShowVoided((v) => !v)}
@@ -626,6 +659,7 @@ export default function InvoicesPage() {
                 onSaveLineItem={handleSaveLineItem}
                 onBatchChanged={() => refetch()}
                 onToggleAccept={handleToggleAccept}
+                glFilter={filters.gl ?? []}
               />
             ))
           )}

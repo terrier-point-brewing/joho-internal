@@ -8,6 +8,8 @@ import SaveHint from "@/app/components/ui/SaveHint";
 import AccountSelect from "../../AccountSelect";
 import SyncPanel from "../components/SyncPanel";
 import MappingFilter from "../components/MappingFilter";
+import GlAccountFilter from "../components/GlAccountFilter";
+import { matchesGlFilter, narrowToGl } from "@/lib/finance/glLineMatch";
 import MappingStatusPill from "../components/MappingStatusPill";
 import AutoMapButton from "../components/AutoMapButton";
 import DateRangeFilter from "../components/DateRangeFilter";
@@ -93,6 +95,13 @@ const ORDER_CONTROLS: ControlsConfig<Transaction> = {
         const [m, n] = orderMapped(t);
         return matchesMappingFilter(sel[0] as MappingFilterValue, m, n, t.unmapped_accepted);
       },
+    },
+    // Keyed on effective_chart_of_accounts_id, which already resolves the
+    // catalog-mapping fallback — the raw chart_of_accounts_id is only the
+    // per-line override and is null for most lines.
+    {
+      param: "gl",
+      matches: (t, sel) => matchesGlFilter((t.pos_line_items ?? []).map((li) => li.effective_chart_of_accounts_id), sel),
     },
   ],
   sort: {
@@ -225,14 +234,20 @@ function OrderRow({
   accounts,
   onSaveLineItem,
   onToggleAccept,
+  glFilter,
 }: {
   txn: Transaction;
   accounts: CoARef[];
   onSaveLineItem: (id: string, patch: { chart_of_accounts_id: string | null }) => Promise<void>;
   onToggleAccept: (id: string, accepted: boolean) => Promise<void>;
+  /** Selected GL account ids; empty means no GL filter and no narrowing. */
+  glFilter: string[];
 }) {
   const [expanded, setExpanded] = useState(false);
-  const lineItems = txn.pos_line_items ?? [];
+  // Under a GL filter the order shows only the lines coded to that account, so
+  // the amount becomes their subtotal — the order total above a narrowed line
+  // list reads as the value of the lines shown.
+  const lineItems = narrowToGl(txn.pos_line_items ?? [], (li) => li.effective_chart_of_accounts_id, glFilter);
   const voidedItems = txn.voided_line_items ?? [];
   const mappedCount = lineItems.filter((li) => li.effective_chart_of_accounts_id).length;
   const status = txn.status?.toLowerCase() ?? "";
@@ -268,7 +283,17 @@ function OrderRow({
             )}
           </div>
         </td>
-        <td className="px-4 py-2 text-right font-mono text-strong tabular-nums">{fmtMoney(txn.total_cents)}</td>
+        <td className="px-4 py-2 text-right font-mono text-strong tabular-nums">
+          {glFilter.length === 0 ? fmtMoney(txn.total_cents) : (
+            <>
+              {/* Net sales, not the order total: that is the figure the GL account
+                  actually receives, and an order total minus tax/discount would
+                  never reconcile against a per-account slice anyway. */}
+              {fmtMoney(lineItems.reduce((s, li) => s + li.net_sales_cents, 0))}
+              <div className="text-2xs text-faint font-normal">of {fmtMoney(txn.total_cents)} order</div>
+            </>
+          )}
+        </td>
       </tr>
 
       {expanded && (
@@ -422,6 +447,8 @@ export default function SquareTransactionsPage() {
           <DateRangeFilter from={from} to={to} onChange={handleRangeChange} />
           <MappingFilter value={(filters.mapping?.[0] as MappingFilterValue) ?? "all"}
             onChange={(v) => setFilter("mapping", v === "all" ? [] : [v])} />
+          <GlAccountFilter accounts={accounts} value={filters.gl?.[0] ?? null}
+            onChange={(id) => setFilter("gl", id ? [id] : [])} />
           <AutoMapButton key={`${from}_${to}`} onRun={handleAutoMap} />
           <SyncPanel<SyncResult>
             year={new Date(to).getFullYear()}
@@ -439,6 +466,15 @@ export default function SquareTransactionsPage() {
             )}
           />
         </FilterBar>
+        {/* Orders are paginated server-side (unlike Invoices/Expenses, which
+            fetch the whole range), and useTableControls only sees the rows
+            currently loaded. Say so rather than letting a page-scoped result
+            read as the whole range. */}
+        {(filters.gl ?? []).length > 0 && (
+          <p className="mt-1.5 text-2xs text-faint">
+            Orders load {pageSize} at a time, so this GL filter applies to the current page — not all {total.toLocaleString()} orders in range.
+          </p>
+        )}
       </div>
 
       {total > 0 && (
@@ -477,7 +513,7 @@ export default function SquareTransactionsPage() {
               </>
             }>
             {visibleTransactions.map((txn) => (
-              <OrderRow key={txn.id} txn={txn} accounts={accounts} onSaveLineItem={handleSaveLineItem} onToggleAccept={handleToggleAccept} />
+              <OrderRow key={txn.id} txn={txn} accounts={accounts} onSaveLineItem={handleSaveLineItem} onToggleAccept={handleToggleAccept} glFilter={filters.gl ?? []} />
             ))}
           </LedgerTable>
         )}

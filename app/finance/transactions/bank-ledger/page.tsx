@@ -15,6 +15,7 @@ import SortableTh from "@/app/components/ui/SortableTh";
 import SearchInput from "@/app/components/ui/SearchInput";
 import FilterBar from "@/app/components/ui/FilterBar";
 import FilterSelect from "@/app/components/ui/FilterSelect";
+import GlAccountFilter from "../components/GlAccountFilter";
 import QbSyncBadge, { qbSyncFilterValue, QB_SYNC_FILTER_OPTIONS } from "../components/QbSyncBadge";
 import { normalizeQbSyncStatus } from "@/lib/finance/qbSyncStatus";
 import { useTableControls } from "@/app/components/ui/useTableControls";
@@ -53,6 +54,9 @@ const BANK_CONTROLS: ControlsConfig<BankRow> = {
   filters: [
     { param: "flow", accessor: (r) => r.flow_type },
     { param: "qbsync", accessor: (r) => qbSyncFilterValue(r.qb_sync_status) },
+    // One GL account per bank row, so a plain accessor is enough and there is
+    // nothing to narrow — the matching subtotal always equals the row total.
+    { param: "gl", accessor: (r) => r.chart_of_accounts_id ?? "" },
   ],
   sort: {
     columns: [
@@ -137,6 +141,8 @@ export default function BankLedgerPage() {
             onChange={(v) => setFilter("flow", v)} />
           <FilterSelect label="QB Sync" options={QB_SYNC_FILTER_OPTIONS} value={filters.qbsync ?? []}
             onChange={(v) => setFilter("qbsync", v)} />
+          <GlAccountFilter accounts={accounts} value={filters.gl?.[0] ?? null}
+            onChange={(id) => setFilter("gl", id ? [id] : [])} />
         </FilterBar>
       </div>
       {rows.length > 0 && (
