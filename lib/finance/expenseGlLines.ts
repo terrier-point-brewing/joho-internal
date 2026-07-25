@@ -33,7 +33,7 @@ export function resolveExpenseGlLines(
 export async function getExpenseGlLines(sb: SupabaseClient, expenseId: string): Promise<ExpenseGlLine[]> {
   const { data: splitRows, error: splitErr } = await sb
     .from("expense_gl_splits")
-    .select("chart_of_accounts_id, amount_cents, split_source")
+    .select("chart_of_accounts_id, amount_cents, split_source, memo")
     .eq("expense_id", expenseId);
   if (splitErr) throw new Error(`Load expense GL splits failed: ${splitErr.message}`);
 
@@ -41,6 +41,7 @@ export async function getExpenseGlLines(sb: SupabaseClient, expenseId: string): 
     chartOfAccountsId: r.chart_of_accounts_id as string,
     amountCents: r.amount_cents as number,
     splitSource: r.split_source as "payroll_auto" | "manual",
+    memo: (r.memo as string | null) ?? null,
   }));
 
   // Only need the expense's own fallback account/amount when there's no split.

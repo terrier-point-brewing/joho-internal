@@ -83,6 +83,19 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     return NextResponse.json({ error: "One or more GL accounts do not exist" }, { status: 400 });
   }
 
+  // PostgREST has no transaction across two calls, so capture the rows we are
+  // about to replace: if the insert fails, put them back rather than leaving the
+  // operator with no split at all. Validation and CoA existence are checked
+  // above, so a failure here is transient (connection/constraint), not user
+  // error -- which is exactly the case where silently destroying their work is
+  // least excusable.
+  const { data: priorRows, error: priorErr } = await sb
+    .from("expense_gl_splits")
+    .select("expense_id, chart_of_accounts_id, amount_cents, split_source, memo")
+    .eq("expense_id", id)
+    .eq("split_source", "manual");
+  if (priorErr) return NextResponse.json({ error: priorErr.message }, { status: 500 });
+
   const { error: delErr } = await sb
     .from("expense_gl_splits").delete().eq("expense_id", id).eq("split_source", "manual");
   if (delErr) return NextResponse.json({ error: delErr.message }, { status: 500 });
@@ -96,7 +109,10 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       memo:                 l.memo ?? null,
     })),
   );
-  if (insErr) return NextResponse.json({ error: insErr.message }, { status: 500 });
+  if (insErr) {
+    if ((priorRows ?? []).length > 0) await sb.from("expense_gl_splits").insert(priorRows!);
+    return NextResponse.json({ error: insErr.message }, { status: 500 });
+  }
 
   const { error: pinErr } = await sb.from("expenses").update({ mapping_source: "manual" }).eq("id", id);
   if (pinErr) return NextResponse.json({ error: pinErr.message }, { status: 500 });
@@ -114,14 +130,20 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   const { id } = await params;
   const sb = createSupabaseAdminClient();
 
-  const { error: delErr } = await sb
-    .from("expense_gl_splits").delete().eq("expense_id", id).eq("split_source", "manual");
+  const { data: cleared, error: delErr } = await sb
+    .from("expense_gl_splits").delete().eq("expense_id", id).eq("split_source", "manual").select("id");
   if (delErr) return NextResponse.json({ error: delErr.message }, { status: 500 });
 
-  // Unpin so the next sync / auto-map re-resolves this expense by rule.
+  // Unpin so the next sync / auto-map re-resolves this expense by rule, but ONLY
+  // if a manual split actually existed. mapping_source === 'manual' also means
+  // "operator pinned a GL account by hand", which has nothing to do with splits
+  // -- clobbering that here would silently un-protect the row from
+  // resolveExpenseMapping and autoMap on the next sync.
   // chart_of_accounts_id is left as-is; resolveExpenseMapping re-derives it.
-  const { error: unpinErr } = await sb.from("expenses").update({ mapping_source: "unmapped" }).eq("id", id);
-  if (unpinErr) return NextResponse.json({ error: unpinErr.message }, { status: 500 });
+  if ((cleared ?? []).length > 0) {
+    const { error: unpinErr } = await sb.from("expenses").update({ mapping_source: "unmapped" }).eq("id", id);
+    if (unpinErr) return NextResponse.json({ error: unpinErr.message }, { status: 500 });
+  }
 
   try {
     return NextResponse.json(await currentState(sb, id));

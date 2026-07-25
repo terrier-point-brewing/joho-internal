@@ -23,13 +23,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   const sb = createSupabaseAdminClient();
 
-  // A split expense codes through its split lines; excluding it would strand
-  // them. Make the operator clear the split first rather than silently winning.
+  // A manually split expense codes through its split lines; excluding it would
+  // strand them. Make the operator clear the split first rather than silently
+  // winning. Scoped to split_source='manual': payroll_auto rows are owned by the
+  // pay-period recompute and cannot be cleared from this UI, so treating them as
+  // a blocker would tell the operator to do something they have no way to do.
   const { data: splits, error: splitErr } = await sb
-    .from("expense_gl_splits").select("id").eq("expense_id", id).limit(1);
+    .from("expense_gl_splits").select("id").eq("expense_id", id).eq("split_source", "manual").limit(1);
   if (splitErr) return NextResponse.json({ error: splitErr.message }, { status: 500 });
   if (splits && splits.length > 0) {
-    return NextResponse.json({ error: "Clear this transaction's GL split before excluding it" }, { status: 409 });
+    return NextResponse.json({ error: "Clear this transaction's manual GL split before excluding it" }, { status: 409 });
   }
 
   // getSessionUser returns { user, role } — the id is on .user, not the root.

@@ -70,6 +70,6 @@ describe("getExpensePayrollState", () => {
 
     expect(state.payrollMatch?.hasReport).toBe(true);
     expect(state.glLines).toHaveLength(2);
-    expect(state.glLines[0]).toEqual({ chartOfAccountsId: "C1", amountCents: -3000, splitSource: "payroll_auto" });
+    expect(state.glLines[0]).toEqual({ chartOfAccountsId: "C1", amountCents: -3000, splitSource: "payroll_auto", memo: null });
   });
 });
