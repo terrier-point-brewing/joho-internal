@@ -7,7 +7,7 @@
 // and assert the REAL computed unitPriceCents.
 import { describe, it, expect } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { buildExciseTaxLines, sumKegCleaningQuantity, resolveInvoiceChannel, packagingFeeDescription, buildPackagingMaterialLines, buildProductLines } from "./exportInvoicePreview";
+import { buildExciseTaxLines, sumKegCleaningQuantity, resolveInvoiceChannel, packagingFeeDescription, buildPackagingMaterialLines, buildProductLines, groupPackagingFeeRows } from "./exportInvoicePreview";
 
 interface TaxRow {
   export_transaction_id: string;
@@ -144,6 +144,77 @@ describe("sumKegCleaningQuantity", () => {
   it("treats an unmapped packaging item as non-keg", () => {
     const qty = sumKegCleaningQuantity([txn("mystery", 3)], pkgTypeById);
     expect(qty).toBe(0);
+  });
+});
+
+describe("groupPackagingFeeRows", () => {
+  const pkgTypeById = new Map<string, string>([
+    ["keg-half", "keg"],
+    ["can-12", "can"],
+  ]);
+  type Row = Parameters<typeof groupPackagingFeeRows>[0][number];
+  const row = (r: Partial<Row>): Row => ({
+    recipe_id: "r1", packaging_item_id: "can-12", packaging_format: "case",
+    quantity: 1, units_per_package: 24, ...r,
+  } as Row);
+
+  it("collapses a shipment split across commitments into one charge unit", () => {
+    // Prod case: 16 half-kegs of Pumpkin Ale drawn from two commitments
+    // (5.8034 + 10.1966). One packaging run → one fee line at 16.
+    const groups = groupPackagingFeeRows(
+      [
+        row({ packaging_item_id: "keg-half", packaging_format: null, units_per_package: 1, quantity: 5.8034 }),
+        row({ packaging_item_id: "keg-half", packaging_format: null, units_per_package: 1, quantity: 10.1966 }),
+      ],
+      pkgTypeById
+    );
+    expect(groups).toEqual([
+      { recipeId: "r1", packagingItemId: "keg-half", mapFormat: null, quantity: 16, unitsPerPackage: 1 },
+    ]);
+  });
+
+  it("sums case quantities BEFORE the whole/partial split so halves don't each round down", () => {
+    // 2.5 + 2.5 cases must bill as 5 whole cases, not 2 cases + 12 loose, twice.
+    const groups = groupPackagingFeeRows(
+      [row({ quantity: 2.5 }), row({ quantity: 2.5 })],
+      pkgTypeById
+    );
+    expect(groups).toEqual([
+      { recipeId: "r1", packagingItemId: "can-12", mapFormat: "case", quantity: 5, unitsPerPackage: 24 },
+    ]);
+  });
+
+  it("keeps separate groups per recipe, packaging item, and format", () => {
+    const groups = groupPackagingFeeRows(
+      [
+        row({ quantity: 2 }),
+        row({ recipe_id: "r2", quantity: 3 }),
+        row({ packaging_format: "loose", quantity: 4 }),
+        row({ packaging_item_id: "keg-half", packaging_format: null, quantity: 5 }),
+      ],
+      pkgTypeById
+    );
+    expect(groups.map((g) => [g.recipeId, g.packagingItemId, g.mapFormat, g.quantity])).toEqual([
+      ["r1", "can-12", "case", 2],
+      ["r2", "can-12", "case", 3],
+      ["r1", "can-12", "loose", 4],
+      ["r1", "keg-half", null, 5],
+    ]);
+  });
+
+  it("treats kegs as formatless and defaults a can with no format to loose", () => {
+    const groups = groupPackagingFeeRows(
+      [
+        row({ packaging_item_id: "keg-half", packaging_format: "case", quantity: 6 }),
+        row({ packaging_format: null, quantity: 7 }),
+      ],
+      pkgTypeById
+    );
+    expect(groups.map((g) => g.mapFormat)).toEqual([null, "loose"]);
+  });
+
+  it("returns nothing for an empty selection", () => {
+    expect(groupPackagingFeeRows([], pkgTypeById)).toEqual([]);
   });
 });
 
@@ -284,6 +355,62 @@ describe("buildPackagingMaterialLines", () => {
     // cans $0, lids 100 × 5 = 500
     expect(lines[0].unitPriceCents).toBe(500);
     expect(warnings.some((w) => w.includes("12oz Can") && w.includes("$0"))).toBe(true);
+  });
+
+  it("merges commitment-split rows into one packaging run before rounding components", () => {
+    // 2 cases shipped as 1.5 + 0.5 against two commitments. Rounding each split
+    // separately would consume 36 + 12 cans; merged it is exactly 48 → 1496¢.
+    const supabase = pvStub({ [`r1|${CASE_LABEL}`]: [caseVariationRow] });
+    return buildPackagingMaterialLines(
+      supabase,
+      matRows([
+        { id: "t1", recipe_id: "r1", packaging_item_id: "can-12", packaging_format: "case", quantity: 1.5, units_per_package: 24, variant_label: CASE_LABEL },
+        { id: "t2", recipe_id: "r1", packaging_item_id: "can-12", packaging_format: "case", quantity: 0.5, units_per_package: 24, variant_label: CASE_LABEL },
+      ]),
+      pkgType, pkgName, recipeName, "var-mat",
+    ).then(({ lines, breakdowns }) => {
+      expect(lines).toHaveLength(1);
+      expect(lines[0].unitPriceCents).toBe(1496);
+      // One breakdown entry for the merged run, not one per transaction.
+      const b = breakdowns[lines[0].id];
+      expect(b.beerName).toBe("Fortnight");
+      expect(b.transactions).toHaveLength(1);
+      expect(b.transactions[0]).toMatchObject({ label: CASE_LABEL, packages: 2, subtotalCents: 1496 });
+    });
+  });
+
+  it("returns a per-line breakdown keyed by line id that sums to the charged amount", async () => {
+    const supabase = pvStub({ [`r1|${CASE_LABEL}`]: [caseVariationRow] });
+    const { lines, breakdowns } = await buildPackagingMaterialLines(
+      supabase,
+      matRows([{ id: "t1", recipe_id: "r1", packaging_item_id: "can-12", packaging_format: "case", quantity: 2, units_per_package: 24, variant_label: CASE_LABEL }]),
+      pkgType, pkgName, recipeName, "var-mat",
+    );
+    const b = breakdowns[lines[0].id];
+    expect(b.totalCents).toBe(lines[0].unitPriceCents);
+    expect(b.transactions[0].components.map((c) => c.role)).toEqual(["container", "lid", "label", "paktech", "tray"]);
+  });
+
+  it("keeps separate breakdown entries for different variations on one recipe", async () => {
+    const looseVariation = {
+      packaging_variations: {
+        container: { name: "12oz Can", unit_cost: 0.15, can_count: null, type: "can" },
+        lid: { name: "Lid", unit_cost: 0.05 }, label: null, paktech: null, tray: null,
+      },
+    };
+    const supabase = pvStub({ [`r1|${CASE_LABEL}`]: [caseVariationRow], "r1|Fortnight Loose": [looseVariation] });
+    const { lines, breakdowns } = await buildPackagingMaterialLines(
+      supabase,
+      matRows([
+        { id: "t1", recipe_id: "r1", packaging_item_id: "can-12", packaging_format: "case", quantity: 2, units_per_package: 24, variant_label: CASE_LABEL },
+        { id: "t2", recipe_id: "r1", packaging_item_id: "can-12", packaging_format: "loose", quantity: 100, units_per_package: 1, variant_label: "Fortnight Loose" },
+      ]),
+      pkgType, pkgName, recipeName, null,
+    );
+    // One line for the recipe, two runs inside it: 1496 + (100 × 20¢) = 3496.
+    expect(lines).toHaveLength(1);
+    expect(lines[0].unitPriceCents).toBe(3496);
+    expect(breakdowns[lines[0].id].transactions.map((t) => t.label)).toEqual([CASE_LABEL, "Fortnight Loose"]);
   });
 });
 

@@ -13,7 +13,11 @@ import {
   persistInvoiceLineItems,
   invoiceHeaderTotalsFromOrder,
 } from "@/lib/finance/invoiceLineItems";
-import type { InvoiceLineItemDraft } from "@/lib/production/exportInvoicePreview";
+import {
+  computeMaterialBreakdownsForTransactions,
+  type InvoiceLineItemDraft,
+} from "@/lib/production/exportInvoicePreview";
+import { snapshotMaterialBreakdown } from "@/lib/production/materialBreakdownSnapshot";
 import type { CatalogItem } from "@/types/square";
 import { getNetTermsDays } from "@/lib/production/invoiceTerms";
 import { addDaysStr, todayLocalDate } from "@/lib/utils/datetime";
@@ -83,6 +87,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "override_reason is required when billing under a different channel" }, { status: 400 });
   }
   const overrideReason = body.override_reason?.trim() || null;
+
+  // Freeze the Packaging Materials cost derivation onto the invoice. Contract
+  // brewing only — no other channel bills materials. Never blocks the response:
+  // by the time this runs the invoice is already real, and the snapshot is an
+  // audit aid, not part of the charge.
+  async function snapshotMaterials(invoiceId: string): Promise<void> {
+    if (billedChannel !== "contract_brewing") return;
+    try {
+      const breakdowns = await computeMaterialBreakdownsForTransactions(supabase, transactionIds);
+      await snapshotMaterialBreakdown(supabase, invoiceId, breakdowns);
+    } catch (e) {
+      console.error("[export-invoice] materials breakdown snapshot failed:", e);
+    }
+  }
 
   // ── generate ──────────────────────────────────────────────────────────────
   if (action === "generate") {
@@ -214,6 +232,8 @@ export async function POST(req: NextRequest) {
         { onConflict: "invoice_id,batch_id", ignoreDuplicates: true }
       );
     }
+
+    await snapshotMaterials(inv.id);
 
     return NextResponse.json({ invoiceId: result.invoiceId, invoiceUrl: result.invoiceUrl });
   }
@@ -378,6 +398,8 @@ export async function POST(req: NextRequest) {
           { onConflict: "invoice_id,batch_id", ignoreDuplicates: true }
         );
       }
+
+      await snapshotMaterials(inv.id);
     }
 
     return NextResponse.json({ ok: true });
@@ -451,6 +473,8 @@ export async function POST(req: NextRequest) {
           { onConflict: "invoice_id,batch_id", ignoreDuplicates: true }
         );
       }
+
+      await snapshotMaterials(inv.id);
     }
 
     return NextResponse.json({ ok: true });

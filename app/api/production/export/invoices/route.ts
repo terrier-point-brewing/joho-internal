@@ -28,6 +28,11 @@ export async function GET() {
         id, status, channel, variant_label, quantity, volume_bbl, created_at,
         brew_batches(id, beer_name, batch_number)
       ),
+      export_invoice_material_components(
+        id, recipe_id, beer_name, variant_label, packaging_format, packages,
+        units_per_package, component_role, component_name, unit_cost,
+        quantity_used, line_total_cents, sort_order
+      ),
       contract_brewing_partners!partner_id(company_name)
     `)
     .not("partner_id", "is", null)
@@ -61,6 +66,11 @@ export async function GET() {
         (a: { sort_order: number }, b: { sort_order: number }) => a.sort_order - b.sort_order
       ),
       shipments: inv.export_transactions ?? [],
+      // Frozen Packaging Materials derivation (contract brewing only; empty
+      // otherwise, and for invoices generated before this was captured).
+      material_breakdown: (inv.export_invoice_material_components ?? []).sort(
+        (a: { sort_order: number }, b: { sort_order: number }) => a.sort_order - b.sort_order
+      ),
     };
   });
 
