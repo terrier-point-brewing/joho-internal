@@ -14,7 +14,9 @@
 
 ## Global Constraints
 
-- **Migration `20260816_tap_swap_transitions.sql` is HUMAN-GATED.** Never apply it to prod. Deploying any task past Task 4 before it is applied **500s both the taproom sync and `/api/taproom/draft-stats`**, because both query the new table. This is a hard deploy gate — flag it in the PR body.
+- **Migration `20260816_tap_swap_transitions.sql` is HUMAN-GATED.** Never apply it to prod. It is a **hard deploy gate** — flag it in the PR body. Verified behavior when unapplied (`PGRST205`):
+  - **`deriveTaproomConsumption` throws** → the *entire* taproom-consumption sync dies, so keg/can sales stop being recorded too, not just swaps. This is the severe one, and failing loudly is correct: the sync writes accounting rows.
+  - **`/api/taproom/draft-stats` degrades**, it does not 500 — the queued-swap lookup's error is non-fatal so the tab still renders without "queued" badges. It must log the error rather than look like "no swaps queued".
 - **No PostgREST embeds on `tap_swap_transitions`.** It has two FKs to `recipes` (`from_recipe_id`, `to_recipe_id`). Constraint-name-disambiguated embeds have crashed this codebase with PGRST200 before (prod FK names are non-canonical). Load beer/variation names with separate `recipes` / `packaging_variations` queries and join client-side.
 - **`assembleConsumption` stays pure.** No IO, no clock. Time-dependent behavior takes an explicit `nowIso` parameter.
 - **Volumes are never client-supplied.** `to_volume_fl_oz` is resolved server-side from `packaging_variations.total_volume_fl_oz`.

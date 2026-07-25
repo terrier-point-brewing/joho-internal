@@ -62,6 +62,14 @@ export async function GET(req: NextRequest) {
     }
 
     // Queued swaps, resolved to display names with two plain lookups (no embeds).
+    //
+    // Deliberately non-fatal: a failure here costs the "queued" badges, not the
+    // whole tab. But it is NOT swallowed — before migration 20260816 is applied
+    // this is a PGRST205 ("table not in schema cache"), and that must be visible
+    // in the server log rather than looking like "no swaps queued".
+    if (queuedSwapRes.error) {
+      console.error("[draft-stats] queued swap lookup failed", queuedSwapRes.error.message);
+    }
     const queuedRows = (queuedSwapRes.data ?? []) as {
       id: string; tap_number: number; to_recipe_id: string; to_variation_id: string; opened_at: string;
     }[];
