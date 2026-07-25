@@ -16,7 +16,6 @@ const BUNDLES = {
   manager: {
     taproom: "operate", "taproom.targets": "read",
     payroll: "operate", tax: "operate",
-    "finance.transactions": "operate",
     "production.export": "read", "production.partners": "read",
     "production.settings": "operate",
   },
@@ -44,7 +43,7 @@ const GROUP_LEVEL = {
   "brand.workbench|":                (m) => (m === "GET" ? "read" : "manage"),
   "finance.statements|":             "read",
   "finance.transactions|":           "manage",
-  "finance.transactions|manager":    "operate",
+  "finance.transactions|manager":    "manage",
   "finance.transactions|viewer":     "read",
   "payroll|":                        "manage",
   "payroll|manager":                 (m) => (m === "GET" ? "read" : "operate"),
@@ -77,7 +76,8 @@ const GROUP_LEVEL = {
 
 // divergence resolution: master-data edit is admin-only (adopt the UI's rule)
 const ROUTE_OVERRIDE = [
-  [/^production\/(ingredients|packaging)\/\[id\]$/, "PATCH", "manage"],
+  [/^production\/(ingredients|packaging)\/\[id\]$/, "PATCH",  "manage"],
+  [/^production\/(ingredients|packaging)\/\[id\]$/, "DELETE", "manage"],
 ];
 
 const ROLES = ["viewer", "brewer", "manager", "admin"];

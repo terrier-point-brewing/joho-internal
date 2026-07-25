@@ -22,6 +22,7 @@ const RULES = [
   [/^production\/(deposit-settings|export-settings)/,      "production.settings"],
   [/^production\/recipe-square-link/,                      "production.settings"],
   [/^production\/recipe/,                                  "production.recipes"],
+  [/^production\/packaging-variations/,                    "production.recipes"],
   [/^production\/(ingredients|packaging|stock-adjustments|safety-stock)/, "production.inventory"],
   [/^production\/(allocations|exports?|deposit-invoices)/, "production.export"],
   [/^production\/contract-requests/,                       "production.partners"],

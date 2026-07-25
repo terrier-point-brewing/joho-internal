@@ -73,7 +73,8 @@ them to agree. The design fixes this structurally via
 | 2 | **Four-rung ladder:** `read < operate < manage < admin` | Matches the shape the audit found. Expresses "manager may view Targets but not edit them" as a level difference, with no extra scope |
 | 3 | **Hierarchical scopes, longest-prefix override** | `finance` cascades to `finance.*`; `finance.statements` overrides it. Common case is one dropdown, fine control is one expand away |
 | 4 | **Convert all 211 call sites; delete `requireRole`** | Guarded by the equivalence test, so behavior change fails CI. Avoids a permanent half-migrated state |
-| 5 | **Master-data edit is admin-only** — adopt the UI's rule | `ingredients`/`packaging` PATCH tighten from brewer to admin, matching the button visibility that has always been there. Zero user-visible change |
+| 5 | **Master data is admin-only to edit *or* delete.** Brewers may create and adjust, nothing else | `ingredients`/`packaging` PATCH **and** DELETE move to `manage`. PATCH matches button visibility that already existed; DELETE is a deliberate tightening — see [user-visible change](#the-one-user-visible-change) |
+| 6 | **Manager has no Finance access at all** | Manager's six `finance.transactions` routes are dead code: every caller lives in `app/finance/transactions/expenses/*`, behind the admin-only Finance layout. The Taproom payroll UI that managers *can* reach fetches only `/api/payroll/periods` |
 
 Two concepts considered and dropped: a `base_role` column (unnecessary once
 scopes are hierarchical — a "viewer baseline" is just a `taproom@read` grant),
@@ -158,9 +159,9 @@ export const ROLE_BUNDLES: Record<UserRole, ScopeGrants> = {
   manager: {
     taproom: "operate", "taproom.targets": "read",
     payroll: "operate", tax: "operate",
-    "finance.transactions": "operate",
     "production.export": "read", "production.partners": "read",
     "production.settings": "operate",
+    // no finance key — decision 6
   },
 
   brewer: {
@@ -342,6 +343,7 @@ the distinction and are assigned against their directory:
 | `production/taproom-consumption/{phantom-alerts,dismiss-phantom,reconcile-phantom}` | production | `taproom.performance` | Taproom draft reconciliation, manager-gated |
 | `production/recipe-square-link{,-ignores}` | production.recipes | `production.settings` | It *is* the Square Item Mappings settings page; also shared with Taproom inventory |
 | `production/taproom-consumption/sync` | taproom | `production.brewing` | Brewer-side job that writes the production ledger |
+| `production/packaging-variations` | production.inventory | `production.recipes` | Despite the `packaging` prefix, this is the **Packaging Variations** page at `/production/recipes/variations` — recipe configuration, not stock. A naive `^production/packaging` rule captures it wrongly |
 
 ---
 
@@ -388,17 +390,31 @@ All 28 differences are accounted for. There are no unexplained deltas.
 |---|---|---|
 | `viewer` LOSES `finance.transactions@read` | 8 | API-only; `app/finance/layout.tsx` already redirects every non-admin |
 | `viewer` LOSES `production.{export,settings,partners,brewing}@read` | 8 | API-only; `app/production/layout.tsx` already redirects viewers |
-| `manager` GAINS `finance.transactions@read` | 8 | Manager already holds *write* access to expense splits / payroll-match but could not GET the list — an artifact of `["viewer"]` not meaning "viewer and above". The gain makes existing writes usable |
-| `brewer` GAINS `production.brewing@read` | 1 | `batch-conversions`: brewer could POST but not GET. Same artifact |
-| `brewer` GAINS `production.settings@operate` | 1 | `packaging-fee-class`: brewer manages every other export setting; this one was arbitrarily manager-only. **Weakest justification of the set — flag for review** |
-| `brewer` LOSES `production.inventory@manage` | 2 | `ingredients`/`packaging` PATCH — decision 5 |
+| `manager` LOSES `finance.transactions@manage` | 6 | Decision 6. Dead code — every caller is under `app/finance/transactions/expenses/*`, behind the admin-only Finance layout |
+| `brewer` GAINS `production.brewing@read` | 1 | `batch-conversions`: brewer could POST but not GET — an artifact of `["viewer"]` not meaning "viewer and above" |
+| `brewer` GAINS `production.settings@operate` | 1 | `packaging-fee-class`: brewer manages every other export setting; this one was arbitrarily manager-only. Reviewed and accepted |
+| `brewer` LOSES `production.inventory@manage` | 4 | `ingredients`/`packaging` PATCH **and** DELETE — decision 5 |
 
-**Known residual inconsistency, accepted:** `ingredients`/`packaging` DELETE
-stays at `operate` (brewer) while PATCH moves to `manage` (admin), so a brewer
-can delete a master record but not edit it. This preserves the current Del
-button, which is visible to brewers today. Tightening DELETE to `admin` was
-considered and deliberately not taken, as it would remove a capability brewers
-currently use.
+Of the 28, 24 are provably unreachable today (16 viewer + 6 manager, all behind
+layouts that already redirect those roles; plus the 2 brewer gains, which grant
+rather than remove).
+
+### The one user-visible change
+
+`ingredients`/`packaging` **DELETE** moving to `manage` is the only change a
+real user will notice. The Del button in `IngredientsTab.tsx:710` and
+`PackagingTab.tsx:316` is visible to brewers today and is used; after this
+change it disappears for them, leaving Adjust (and Create) as their inventory
+actions.
+
+This is deliberate per decision 5 — a role that may not *edit* a master record
+should not be able to *delete* it, and the previous split was incoherent. But it
+removes a capability brewers currently exercise, so it warrants a heads-up to
+the brewing team at rollout rather than shipping silently.
+
+Implementation note: both components must have their Del button moved behind the
+same capability as Edit. If only the API is tightened, brewers keep a button
+that 403s.
 
 ---
 
@@ -517,13 +533,13 @@ any row that turns out to be wrong.
 | PATCH | `finance/expense-mappings` | `[]` | `manage` |
 | GET | `finance/expenses` | `[viewer]` | `read` |
 | PATCH | `finance/expenses` | `[]` | `manage` |
-| DELETE | `finance/expenses/[id]/exclude` | `[manager]` | `operate` |
-| POST | `finance/expenses/[id]/exclude` | `[manager]` | `operate` |
-| POST | `finance/expenses/[id]/payroll-match` | `[manager]` | `operate` |
-| DELETE | `finance/expenses/[id]/splits` | `[manager]` | `operate` |
-| PUT | `finance/expenses/[id]/splits` | `[manager]` | `operate` |
+| DELETE | `finance/expenses/[id]/exclude` | `[manager]` | `manage` |
+| POST | `finance/expenses/[id]/exclude` | `[manager]` | `manage` |
+| POST | `finance/expenses/[id]/payroll-match` | `[manager]` | `manage` |
+| DELETE | `finance/expenses/[id]/splits` | `[manager]` | `manage` |
+| PUT | `finance/expenses/[id]/splits` | `[manager]` | `manage` |
 | POST | `finance/expenses/auto-map` | `[]` | `manage` |
-| POST | `finance/expenses/auto-map-payroll` | `[manager]` | `operate` |
+| POST | `finance/expenses/auto-map-payroll` | `[manager]` | `manage` |
 | POST | `finance/expenses/sync` | `[]` | `manage` |
 | POST | `finance/import/parse-pdf` | `[]` | `manage` |
 | GET | `finance/ledger/invoice-batch-links` | `[]` | `manage` |
@@ -624,22 +640,18 @@ any row that turns out to be wrong.
 | DELETE | `production/exports/[id]` | `[brewer]` | `operate` |
 | PATCH | `production/exports/[id]` | `[brewer]` | `operate` |
 
-#### `production.inventory` — 17 routes
+#### `production.inventory` — 13 routes
 
 | Method | Route | Legacy | Level |
 |---|---|---|---|
 | POST | `production/ingredients` | `[brewer]` | `operate` |
-| DELETE | `production/ingredients/[id]` | `[brewer]` | `operate` |
+| DELETE | `production/ingredients/[id]` | `[brewer]` | `manage` |
 | PATCH | `production/ingredients/[id]` | `[brewer]` | `manage` |
 | POST | `production/ingredients/bulk` | `[brewer]` | `operate` |
 | POST | `production/packaging` | `[brewer]` | `operate` |
 | POST | `production/packaging-adjustments` | `[brewer]` | `operate` |
 | POST | `production/packaging-adjustments/bulk` | `[brewer]` | `operate` |
-| POST | `production/packaging-variations` | `[brewer]` | `operate` |
-| DELETE | `production/packaging-variations/[id]` | `[brewer]` | `operate` |
-| PATCH | `production/packaging-variations/[id]` | `[brewer]` | `operate` |
-| POST | `production/packaging-variations/bulk` | `[brewer]` | `operate` |
-| DELETE | `production/packaging/[id]` | `[brewer]` | `operate` |
+| DELETE | `production/packaging/[id]` | `[brewer]` | `manage` |
 | PATCH | `production/packaging/[id]` | `[brewer]` | `manage` |
 | DELETE | `production/safety-stock` | `[]` | `manage` |
 | POST | `production/safety-stock` | `[]` | `manage` |
@@ -662,10 +674,14 @@ any row that turns out to be wrong.
 | PATCH | `production/contract-requests` | `[brewer]` | `operate` |
 | POST | `production/contract-requests` | `[brewer]` | `operate` |
 
-#### `production.recipes` — 5 routes
+#### `production.recipes` — 9 routes
 
 | Method | Route | Legacy | Level |
 |---|---|---|---|
+| POST | `production/packaging-variations` | `[brewer]` | `operate` |
+| DELETE | `production/packaging-variations/[id]` | `[brewer]` | `operate` |
+| PATCH | `production/packaging-variations/[id]` | `[brewer]` | `operate` |
+| POST | `production/packaging-variations/bulk` | `[brewer]` | `operate` |
 | DELETE | `production/recipe-packaging-variations` | `[brewer]` | `operate` |
 | POST | `production/recipe-packaging-variations` | `[brewer]` | `operate` |
 | POST | `production/recipes` | `[brewer]` | `operate` |
