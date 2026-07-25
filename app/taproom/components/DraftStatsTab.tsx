@@ -800,11 +800,7 @@ export default function DraftStatsTab() {
                         <button
                           onClick={() => toggleRetire(tap.recipe_id!, isRetired)}
                           disabled={retiringSaving === tap.recipe_id}
-                          className={`text-xs px-2 py-0.5 rounded border transition-colors ${
-                            isRetired
-                              ? "border-line-strong text-muted hover:text-body hover:border-line-subtle"
-                              : "border-line-strong text-faint hover:text-accent hover:border-accent-border"
-                          }`}
+                          className="btn-secondary btn-xxs"
                         >
                           {retiringSaving === tap.recipe_id ? "…" : isRetired ? "Unretire" : "Mark Retired"}
                         </button>

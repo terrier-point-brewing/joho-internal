@@ -8,7 +8,7 @@ import {
 } from "date-fns";
 import { Equipment } from "../types";
 import { useBatchScheduleQuery, useEquipmentQuery, useBatchesQuery, useScheduleConflictsQuery, productionKeys, type ScheduleEntry, type ScheduleConflict } from "../hooks/queries";
-import { BATCH_PALETTE, EQUIPMENT_TYPE_ACCENT_HEX as TYPE_ACCENT } from "../lib/categoryColors";
+import { BATCH_PALETTE, CATEGORY_FALLBACK_HEX, EQUIPMENT_TYPE_ACCENT_HEX as TYPE_ACCENT } from "../lib/categoryColors";
 
 const EQUIPMENT_STAGE_ORDER = ["brewhouse", "fermenter", "brite", "canning", "kegging"];
 const STAGE_LABELS: Record<string, string> = {
@@ -27,6 +27,17 @@ const RANGE_OPTIONS = [
   { label: "3M", days: 90 },
   { label: "6M", days: 180 },
 ];
+
+// Toolbar toggle chips (range / flow / batch filter). Not `.btn-*` — these are
+// persistent on/off state chips, not actions — so they carry their own token-backed
+// on/off pair. The three "on" hues stay visually distinct (accent / violet / blue)
+// but bind to theme-flipping tokens, so the toolbar reads on the light brand skin too.
+const TOGGLE_ON = {
+  accent: "bg-accent-muted text-accent border-accent-border",
+  violet: "bg-[var(--cat-violet-bg)] text-[var(--cat-violet-fg)] border-[var(--cat-violet-bd)]",
+  blue:   "bg-[var(--cat-blue-bg)] text-[var(--cat-blue-fg)] border-[var(--cat-blue-bd)]",
+} as const;
+const TOGGLE_OFF = "bg-surface-mid text-secondary border-transparent hover:text-strong";
 
 const ROW_H = 44;
 const LABEL_W = 180;
@@ -144,7 +155,7 @@ export default function GanttTab() {
     const paths: { d: string; color: string; key: string }[] = [];
     for (const [batchId, bEntries] of Object.entries(byBatch)) {
       const sorted = [...bEntries].sort((a, b) => a.planned_start.localeCompare(b.planned_start));
-      const color = batchColors[batchId] ?? "#6b7280";
+      const color = batchColors[batchId] ?? CATEGORY_FALLBACK_HEX;
       for (let i = 0; i < sorted.length - 1; i++) {
         const a = sorted[i], b = sorted[i + 1];
         if (!a.equipment_id || !b.equipment_id) continue;
@@ -170,7 +181,7 @@ export default function GanttTab() {
   function entryBar(entry: ScheduleEntry, eqId: string) {
     if (entry.equipment_id !== eqId) return null;
     const isConflicted = conflictedEntryIds.has(entry.id);
-    const color = entry.batch_id ? (batchColors[entry.batch_id] ?? "#6b7280") : "#6b7280";
+    const color = (entry.batch_id ? batchColors[entry.batch_id] : null) ?? CATEGORY_FALLBACK_HEX;
     const label = entry.brew_batches
       ? `#${entry.brew_batches.batch_number} · ${entry.brew_batches.beer_name}`
       : "?";
@@ -227,12 +238,16 @@ export default function GanttTab() {
         className="absolute top-1.5 bottom-1.5 overflow-hidden select-none flex items-center"
         style={{
           left: Math.max(barLeft, 0), width: Math.max(barPx, 6), borderRadius: 4,
-          border: isConflicted ? `2px solid #ef4444` : `1.5px solid ${color}`,
+          border: isConflicted
+            ? `2px solid var(--color-danger-emphasis)`
+            : `1.5px solid ${color}`,
           // Dashed right border = end date is unconfirmed (no downstream chain + not yet ended)
           borderRight: (!entry.downstream_entry_id && !entry.actual_end && !isConflicted)
             ? `1.5px dashed ${color}`
             : undefined,
-          boxShadow: isConflicted ? "0 0 0 2px #ef444460" : undefined,
+          boxShadow: isConflicted
+            ? "0 0 0 2px color-mix(in srgb, var(--color-danger-emphasis) 38%, transparent)"
+            : undefined,
         }}
       >
         {/* Solid (actual / elapsed) left portion */}
@@ -253,9 +268,12 @@ export default function GanttTab() {
         />
         {/* Label — always visible, sits above both portions */}
         {barPx > 28 && (
+          // Bar fills are saturated batch hues in both themes, so the label rides the
+          // theme's own primary text color with a canvas-colored halo: light glyph +
+          // dark halo on the dark app, dark glyph + light halo under the light skin.
           <span
-            className="relative z-10 px-2 text-xs font-medium text-white truncate w-full"
-            style={{ textShadow: "0 1px 2px rgba(0,0,0,0.8)" }}
+            className="relative z-10 px-2 text-xs font-medium text-primary truncate w-full"
+            style={{ textShadow: "0 1px 2px var(--color-canvas)" }}
           >
             {label}
           </span>
@@ -277,8 +295,8 @@ export default function GanttTab() {
     <div>
       {/* Mobile placeholder */}
       <div className="md:hidden flex flex-col items-center justify-center py-16 px-6 text-center">
-        <p className="text-zinc-400 font-medium mb-1">Timeline view is desktop-only</p>
-        <p className="text-sm text-zinc-600">Open this page on a larger screen to view and manage the equipment schedule Gantt chart.</p>
+        <p className="text-secondary font-medium mb-1">Timeline view is desktop-only</p>
+        <p className="text-sm text-faint">Open this page on a larger screen to view and manage the equipment schedule Gantt chart.</p>
       </div>
 
       <div className="hidden md:block">
@@ -289,23 +307,23 @@ export default function GanttTab() {
             <button
               key={o.label}
               onClick={() => setRangeIdx(i)}
-              className={`px-3 py-1 text-xs rounded font-medium ${rangeIdx === i ? "bg-amber-600 text-white" : "bg-zinc-800 text-zinc-400 hover:text-zinc-200"}`}
+              className={`px-3 py-1 text-xs rounded font-medium border transition-colors ${rangeIdx === i ? TOGGLE_ON.accent : TOGGLE_OFF}`}
             >
               {o.label}
             </button>
           ))}
         </div>
         <div className="flex gap-1">
-          <button onClick={() => setViewStart(d => subDays(d, Math.floor(rangeDays / 3)))} className="px-2 py-1 text-xs bg-zinc-800 rounded text-zinc-400 hover:text-zinc-200">‹</button>
-          <button onClick={() => { const d = subDays(startOfToday(), 3); setViewStart(parseISO(format(d, "yyyy-MM-dd") + "T12:00:00")); }} className="px-3 py-1 text-xs bg-zinc-800 rounded text-zinc-400 hover:text-zinc-200">Today</button>
-          <button onClick={() => setViewStart(d => addDays(d, Math.floor(rangeDays / 3)))} className="px-2 py-1 text-xs bg-zinc-800 rounded text-zinc-400 hover:text-zinc-200">›</button>
+          <button onClick={() => setViewStart(d => subDays(d, Math.floor(rangeDays / 3)))} className="px-2 py-1 text-xs bg-surface-mid rounded text-secondary hover:text-strong">‹</button>
+          <button onClick={() => { const d = subDays(startOfToday(), 3); setViewStart(parseISO(format(d, "yyyy-MM-dd") + "T12:00:00")); }} className="px-3 py-1 text-xs bg-surface-mid rounded text-secondary hover:text-strong">Today</button>
+          <button onClick={() => setViewStart(d => addDays(d, Math.floor(rangeDays / 3)))} className="px-2 py-1 text-xs bg-surface-mid rounded text-secondary hover:text-strong">›</button>
         </div>
-        <span className="text-xs text-zinc-500">{format(viewStart, "MMM d")} – {format(viewEnd, "MMM d, yyyy")}</span>
+        <span className="text-xs text-muted">{format(viewStart, "MMM d")} – {format(viewEnd, "MMM d, yyyy")}</span>
 
         {/* Flow toggle */}
         <button
           onClick={() => setShowFlow((v) => !v)}
-          className={`px-3 py-1 text-xs rounded font-medium transition-colors ${showFlow ? "bg-indigo-700 text-indigo-100" : "bg-zinc-800 text-zinc-400 hover:text-zinc-200"}`}
+          className={`px-3 py-1 text-xs rounded font-medium border transition-colors ${showFlow ? TOGGLE_ON.violet : TOGGLE_OFF}`}
           title="Show/hide batch flow arrows between stages"
         >
           {showFlow ? "⇢ Flow on" : "⇢ Flow"}
@@ -315,22 +333,22 @@ export default function GanttTab() {
         <div className="relative">
           <button
             onClick={() => setShowBatchFilter((v) => !v)}
-            className={`px-3 py-1 text-xs rounded font-medium transition-colors ${filteredBatchIds ? "bg-blue-700 text-blue-100" : "bg-zinc-800 text-zinc-400 hover:text-zinc-200"}`}
+            className={`px-3 py-1 text-xs rounded font-medium border transition-colors ${filteredBatchIds ? TOGGLE_ON.blue : TOGGLE_OFF}`}
           >
             Filter{filteredBatchIds ? ` (${filteredBatchIds.size})` : ""}
           </button>
           {showBatchFilter && (
-            <div className="absolute top-8 left-0 z-50 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl p-2 min-w-[220px] max-h-72 overflow-y-auto">
+            <div className="absolute top-8 left-0 z-50 bg-surface border border-line-strong rounded-lg shadow-xl p-2 min-w-[220px] max-h-72 overflow-y-auto">
               <div className="flex items-center justify-between mb-2 px-1">
-                <span className="text-xs font-semibold text-zinc-400">Filter by Batch</span>
+                <span className="text-xs font-semibold text-secondary">Filter by Batch</span>
                 <button onClick={() => { setFilteredBatchIds(null); setShowBatchFilter(false); }}
-                  className="text-[10px] text-zinc-500 hover:text-zinc-300">Clear</button>
+                  className="text-2xs text-muted hover:text-body">Clear</button>
               </div>
               {batches.map((b, i) => {
                 const color = BATCH_PALETTE[i % BATCH_PALETTE.length];
                 const selected = filteredBatchIds ? filteredBatchIds.has(b.id) : true;
                 return (
-                  <label key={b.id} className="flex items-center gap-2 px-1 py-1 rounded hover:bg-zinc-800 cursor-pointer">
+                  <label key={b.id} className="flex items-center gap-2 px-1 py-1 rounded hover:bg-surface-mid cursor-pointer">
                     <input type="checkbox" checked={selected} onChange={(e) => {
                       setFilteredBatchIds((prev) => {
                         const base = prev ?? new Set(batches.map((x) => x.id));
@@ -339,32 +357,35 @@ export default function GanttTab() {
                         return next.size === batches.length ? null : next.size === 0 ? prev : next;
                       });
                     }} className="sr-only" />
-                    <span className="w-2.5 h-2.5 rounded-sm flex-none" style={{ background: selected ? color : "#3f3f46" }} />
-                    <span className={`text-xs truncate ${selected ? "text-zinc-200" : "text-zinc-600"}`}>
+                    <span
+                      className="w-2.5 h-2.5 rounded-sm flex-none"
+                      style={{ background: selected ? color : "var(--color-surface-high)" }}
+                    />
+                    <span className={`text-xs truncate ${selected ? "text-strong" : "text-faint"}`}>
                       #{b.batch_number} {b.beer_name}
                     </span>
                   </label>
                 );
               })}
-              <button onClick={() => setShowBatchFilter(false)} className="mt-2 w-full text-xs text-zinc-500 hover:text-zinc-300 py-1">Done</button>
+              <button onClick={() => setShowBatchFilter(false)} className="mt-2 w-full text-xs text-muted hover:text-body py-1">Done</button>
             </div>
           )}
         </div>
 
         {/* Bar legend */}
         <div className="ml-auto flex items-center gap-4">
-          <div className="flex items-center gap-1.5 text-xs text-zinc-500">
-            <div className="w-8 h-3 rounded-sm flex-none border border-dashed border-zinc-400 bg-zinc-700/30" />
+          <div className="flex items-center gap-1.5 text-xs text-muted">
+            <div className="w-8 h-3 rounded-sm flex-none border border-dashed border-[var(--color-text-secondary)] bg-surface-high/30" />
             Planned
           </div>
-          <div className="flex items-center gap-1.5 text-xs text-zinc-500">
-            <div className="w-8 h-3 rounded-sm flex-none bg-zinc-400" />
+          <div className="flex items-center gap-1.5 text-xs text-muted">
+            <div className="w-8 h-3 rounded-sm flex-none bg-[var(--color-text-secondary)]" />
             Actual
           </div>
-          <div className="flex items-center gap-1.5 text-xs text-zinc-500">
+          <div className="flex items-center gap-1.5 text-xs text-muted">
             <div className="w-8 h-3 rounded-sm flex-none" style={{
-              border: "1.5px solid #a1a1aa",
-              borderRight: "1.5px dashed #a1a1aa",
+              border: "1.5px solid var(--color-text-secondary)",
+              borderRight: "1.5px dashed var(--color-text-secondary)",
             }} />
             End unconfirmed
           </div>
@@ -375,7 +396,7 @@ export default function GanttTab() {
       {batches.length > 0 && (
         <div className="flex flex-wrap gap-x-4 gap-y-1 mb-3 px-0.5">
           {batches.slice(0, 12).map((b, i) => (
-            <div key={b.id} className="flex items-center gap-1.5 text-xs text-zinc-400">
+            <div key={b.id} className="flex items-center gap-1.5 text-xs text-secondary">
               <div className="w-3 h-3 rounded-sm flex-none" style={{ background: BATCH_PALETTE[i % BATCH_PALETTE.length] }} />
               #{b.batch_number} {b.beer_name}
             </div>
@@ -385,25 +406,25 @@ export default function GanttTab() {
 
       {/* Conflict Banner */}
       {conflicts.filter(c => !dismissedConflicts.has(c.id)).length > 0 && (
-        <div className="mb-4 rounded-lg border border-red-700/60 bg-red-950/40 px-4 py-3">
+        <div className="mb-4 rounded-lg border border-danger-border bg-danger-surface/40 px-4 py-3">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-sm font-semibold text-red-400">
+            <span className="text-sm font-semibold text-danger">
               ⚠ {conflicts.filter(c => !dismissedConflicts.has(c.id)).length} Schedule Conflict{conflicts.filter(c => !dismissedConflicts.has(c.id)).length > 1 ? "s" : ""} Detected
             </span>
           </div>
           <div className="space-y-2">
             {conflicts.filter(c => !dismissedConflicts.has(c.id)).map(conflict => (
-              <div key={conflict.id} className="flex items-start justify-between gap-3 text-xs text-zinc-300 bg-red-900/20 rounded px-3 py-2">
+              <div key={conflict.id} className="flex items-start justify-between gap-3 text-xs text-body bg-danger-border/20 rounded px-3 py-2">
                 <div>
-                  <span className="font-medium text-red-300">
+                  <span className="font-medium text-danger">
                     {conflict.equipment.name ?? "Unknown equipment"}:
                   </span>{" "}
                   <span className="font-medium">#{conflict.entry_a.batch_number} {conflict.entry_a.beer_name}</span>
                   {" "}overlaps{" "}
                   <span className="font-medium">#{conflict.entry_b.batch_number} {conflict.entry_b.beer_name}</span>
                   {conflict.suggested_resolution && (
-                    <span className="ml-1 text-zinc-400">
-                      · Suggest: move #{conflict.entry_b.batch_number} to <span className="text-zinc-200">{conflict.suggested_resolution.equipment_name}</span>
+                    <span className="ml-1 text-secondary">
+                      · Suggest: move #{conflict.entry_b.batch_number} to <span className="text-strong">{conflict.suggested_resolution.equipment_name}</span>
                     </span>
                   )}
                 </div>
@@ -412,14 +433,14 @@ export default function GanttTab() {
                     <button
                       onClick={() => applyConflictFix(conflict)}
                       disabled={resolvingConflict === conflict.id}
-                      className="px-2 py-0.5 text-xs bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white rounded"
+                      className="btn-primary btn-xxs"
                     >
                       {resolvingConflict === conflict.id ? "…" : "Apply Fix"}
                     </button>
                   )}
                   <button
                     onClick={() => setDismissedConflicts(prev => { const s = new Set(prev); s.add(conflict.id); return s; })}
-                    className="px-2 py-0.5 text-xs bg-zinc-700 hover:bg-zinc-600 text-zinc-300 rounded"
+                    className="btn-secondary btn-xxs"
                   >
                     Dismiss
                   </button>
@@ -431,54 +452,54 @@ export default function GanttTab() {
       )}
 
       {/* Gantt */}
-      <div className="relative border border-zinc-700 rounded-lg overflow-auto bg-zinc-900" ref={containerRef}>
+      <div className="relative border border-line-strong rounded-lg overflow-auto bg-surface" ref={containerRef}>
         {/* Header */}
-        <div className="flex sticky top-0 z-10 bg-zinc-900 border-b border-zinc-700">
-          <div className="flex-none bg-zinc-900 border-r border-zinc-700 text-xs text-zinc-500 font-medium flex items-end px-3 pb-2" style={{ width: LABEL_W }}>Equipment</div>
+        <div className="flex sticky top-0 z-10 bg-surface border-b border-line-strong">
+          <div className="flex-none bg-surface border-r border-line-strong text-xs text-muted font-medium flex items-end px-3 pb-2" style={{ width: LABEL_W }}>Equipment</div>
           <div className="relative flex-none" style={{ width: totalDays * dayPx, height: 40 }}>
             {dayLabels.map(({ day, date }) => (
-              <div key={day} className="absolute bottom-2 text-xs text-zinc-500" style={{ left: day * dayPx + 2 }}>
+              <div key={day} className="absolute bottom-2 text-xs text-muted" style={{ left: day * dayPx + 2 }}>
                 {format(date, rangeDays <= 30 ? "MMM d" : "MMM d")}
               </div>
             ))}
             {/* Today marker header */}
             {todayOffset >= 0 && todayOffset <= totalDays && (
-              <div className="absolute top-0 bottom-0 w-px bg-amber-500/60" style={{ left: todayOffset * dayPx }} />
+              <div className="absolute top-0 bottom-0 w-px bg-accent-emphasis/60" style={{ left: todayOffset * dayPx }} />
             )}
           </div>
         </div>
 
         {/* Rows — grouped by equipment type with colored section headers */}
         {rows.length === 0 ? (
-          <div className="px-4 py-8 text-sm text-zinc-500 text-center">No schedulable equipment found. Add equipment in the Floorplan tab.</div>
+          <div className="px-4 py-8 text-sm text-muted text-center">No schedulable equipment found. Add equipment in the Floorplan tab.</div>
         ) : EQUIPMENT_STAGE_ORDER.flatMap((type) => {
           const eqs = equipmentByType[type] ?? [];
           if (!eqs.length) return [];
-          const accent = TYPE_ACCENT[type] ?? "#6b7280";
+          const accent = TYPE_ACCENT[type] ?? CATEGORY_FALLBACK_HEX;
           const label  = STAGE_LABELS[type === "brite" ? "conditioning" : type] ?? type;
           return [
             /* Group header row */
-            <div key={`hdr-${type}`} className="flex border-b border-zinc-800/80 sticky top-[40px] z-10" style={{ borderLeft: `3px solid ${accent}` }}>
+            <div key={`hdr-${type}`} className="flex border-b border-line/80 sticky top-[40px] z-10" style={{ borderLeft: `3px solid ${accent}` }}>
               <div
-                className="flex-none border-r border-zinc-700 px-3 flex items-center"
-                style={{ width: LABEL_W - 3, height: 24, background: "#18181b" }}
+                className="flex-none border-r border-line-strong bg-surface px-3 flex items-center"
+                style={{ width: LABEL_W - 3, height: 24 }}
               >
-                <span className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: accent }}>{label}</span>
+                <span className="text-2xs font-semibold uppercase tracking-widest" style={{ color: accent }}>{label}</span>
               </div>
               <div className="flex-none" style={{ width: totalDays * dayPx, height: 24, background: `${accent}08` }} />
             </div>,
             /* Equipment rows */
             ...eqs.map((eq) => (
-              <div key={eq.id} className="flex border-b border-zinc-800 last:border-0">
-                <div className="flex-none border-r border-zinc-700 px-3 py-1.5 flex items-center" style={{ width: LABEL_W, height: ROW_H }}>
-                  <span className="text-xs text-zinc-300 truncate">{eq.name}</span>
+              <div key={eq.id} className="flex border-b border-line last:border-0">
+                <div className="flex-none border-r border-line-strong px-3 py-1.5 flex items-center" style={{ width: LABEL_W, height: ROW_H }}>
+                  <span className="text-xs text-body truncate">{eq.name}</span>
                 </div>
-                <div className="relative flex-none bg-zinc-900/50" style={{ width: totalDays * dayPx, height: ROW_H }}>
+                <div className="relative flex-none bg-surface/50" style={{ width: totalDays * dayPx, height: ROW_H }}>
                   {dayLabels.map(({ day }) => (
-                    <div key={day} className="absolute top-0 bottom-0 w-px bg-zinc-800" style={{ left: day * dayPx }} />
+                    <div key={day} className="absolute top-0 bottom-0 w-px bg-line" style={{ left: day * dayPx }} />
                   ))}
                   {todayOffset >= 0 && todayOffset <= totalDays && (
-                    <div className="absolute top-0 bottom-0 w-px bg-amber-500/40" style={{ left: todayOffset * dayPx }} />
+                    <div className="absolute top-0 bottom-0 w-px bg-accent-emphasis/40" style={{ left: todayOffset * dayPx }} />
                   )}
                   {visibleEntries.map(e => entryBar(e, eq.id))}
                 </div>
