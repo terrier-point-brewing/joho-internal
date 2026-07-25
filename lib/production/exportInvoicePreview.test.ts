@@ -172,8 +172,9 @@ describe("resolveInvoiceChannel", () => {
 });
 
 // Stub the recipe_packaging_variations resolve query. Each call chains
-// .select(...).eq().eq().eq() and is awaited (thenable) → we return the variation
-// keyed by the (recipe, container, format) filters captured in .eq() order.
+// .select(...).eq().eq() and is awaited (thenable) → we return the variation keyed
+// by (recipe_id, variant_label) — the literal shipped variation the resolver
+// matches on packaging_variations.name.
 function pvStub(variationsByKey: Record<string, unknown[]>): SupabaseClient {
   const client = {
     from(_table: string) {
@@ -182,7 +183,7 @@ function pvStub(variationsByKey: Record<string, unknown[]>): SupabaseClient {
         select() { return chain; },
         eq(col: string, val: unknown) { filters[col] = val; return chain; },
         then(resolve: (r: { data: unknown[]; error: null }) => void) {
-          const key = `${filters["recipe_id"]}|${filters["packaging_variations.container_id"]}|${filters["packaging_variations.format"]}`;
+          const key = `${filters["recipe_id"]}|${filters["packaging_variations.name"]}`;
           resolve({ data: variationsByKey[key] ?? [], error: null });
         },
       };
@@ -203,7 +204,7 @@ const caseVariationRow = {
   },
 };
 
-function matRows(rows: Array<Partial<{ id: string; recipe_id: string | null; packaging_item_id: string; packaging_format: string | null; quantity: number; units_per_package: number }>>) {
+function matRows(rows: Array<Partial<{ id: string; recipe_id: string | null; packaging_item_id: string; packaging_format: string | null; quantity: number; units_per_package: number; variant_label: string }>>) {
   return rows as unknown as Parameters<typeof buildPackagingMaterialLines>[1];
 }
 
@@ -211,12 +212,13 @@ describe("buildPackagingMaterialLines", () => {
   const pkgType = new Map([["can-12", "can"], ["keg-half", "keg"]]);
   const pkgName = new Map([["can-12", "12oz Can"], ["keg-half", "1/2 BBL Keg"]]);
   const recipeName = new Map([["r1", "Fortnight"]]);
+  const CASE_LABEL = "Fortnight - 16oz Case";
 
   it("emits one materials line per recipe at the summed cost, named by beer", async () => {
-    const supabase = pvStub({ "r1|can-12|case": [caseVariationRow] });
+    const supabase = pvStub({ [`r1|${CASE_LABEL}`]: [caseVariationRow] });
     const { lines, warnings } = await buildPackagingMaterialLines(
       supabase,
-      matRows([{ id: "t1", recipe_id: "r1", packaging_item_id: "can-12", packaging_format: "case", quantity: 2, units_per_package: 24 }]),
+      matRows([{ id: "t1", recipe_id: "r1", packaging_item_id: "can-12", packaging_format: "case", quantity: 2, units_per_package: 24, variant_label: CASE_LABEL }]),
       pkgType, pkgName, recipeName, "var-mat",
     );
     // Same math as computeMaterialCost case test: 1496 cents.
@@ -225,26 +227,44 @@ describe("buildPackagingMaterialLines", () => {
     expect(warnings).toEqual([]);
   });
 
+  it("resolves the LITERAL shipped variation by variant_label, not container+format", async () => {
+    // Two label-variants share the same can + case format; the export shipped the
+    // pricier-label one. Matching by variant_label must pick THAT variation's cost,
+    // never the other. Pricey label $0.99 vs base $0.02 → 48 cans × extra 97¢ = +4656¢.
+    const pricey = { packaging_variations: { ...caseVariationRow.packaging_variations, label: { name: "Pricey Label", unit_cost: 0.99 } } };
+    const supabase = pvStub({
+      "r1|Fortnight Cheap Case": [caseVariationRow],   // label $0.02
+      "r1|Fortnight Pricey Case": [pricey],            // label $0.99
+    });
+    const { lines } = await buildPackagingMaterialLines(
+      supabase,
+      matRows([{ id: "t1", recipe_id: "r1", packaging_item_id: "can-12", packaging_format: "case", quantity: 2, units_per_package: 24, variant_label: "Fortnight Pricey Case" }]),
+      pkgType, pkgName, recipeName, null,
+    );
+    expect(lines).toHaveLength(1);
+    expect(lines[0].unitPriceCents).toBe(6152); // 1496 base + 4656 (pricey label) — proves it picked the shipped variation
+  });
+
   it("skips keg-type transactions", async () => {
     const supabase = pvStub({});
     const { lines } = await buildPackagingMaterialLines(
       supabase,
-      matRows([{ id: "t1", recipe_id: "r1", packaging_item_id: "keg-half", packaging_format: "loose", quantity: 6, units_per_package: 1 }]),
+      matRows([{ id: "t1", recipe_id: "r1", packaging_item_id: "keg-half", packaging_format: "loose", quantity: 6, units_per_package: 1, variant_label: "1/2 Keg" }]),
       pkgType, pkgName, recipeName, null,
     );
     expect(lines).toEqual([]);
   });
 
-  it("warns and skips (no throw) when the variation can't be uniquely resolved", async () => {
-    const supabase = pvStub({}); // no match → 0 rows
+  it("warns and skips (no throw) when the shipped variation can't be resolved", async () => {
+    const supabase = pvStub({}); // variant_label matches nothing (e.g. renamed variation)
     const { lines, warnings } = await buildPackagingMaterialLines(
       supabase,
-      matRows([{ id: "t1", recipe_id: "r1", packaging_item_id: "can-12", packaging_format: "case", quantity: 2, units_per_package: 24 }]),
+      matRows([{ id: "t1", recipe_id: "r1", packaging_item_id: "can-12", packaging_format: "case", quantity: 2, units_per_package: 24, variant_label: "Ghost Case" }]),
       pkgType, pkgName, recipeName, null,
     );
     expect(lines).toEqual([]);
     expect(warnings).toHaveLength(1);
-    expect(warnings[0]).toMatch(/Couldn't resolve packaging materials for Fortnight/);
+    expect(warnings[0]).toMatch(/Couldn't resolve packaging materials for Fortnight \("Ghost Case"\)/);
   });
 
   it("surfaces a missing-cost warning while still billing the priced components", async () => {
@@ -255,10 +275,10 @@ describe("buildPackagingMaterialLines", () => {
         label: null, paktech: null, tray: null,
       },
     };
-    const supabase = pvStub({ "r1|can-12|loose": [noCostCanVariation] });
+    const supabase = pvStub({ "r1|Fortnight Loose": [noCostCanVariation] });
     const { lines, warnings } = await buildPackagingMaterialLines(
       supabase,
-      matRows([{ id: "t1", recipe_id: "r1", packaging_item_id: "can-12", packaging_format: "loose", quantity: 100, units_per_package: 1 }]),
+      matRows([{ id: "t1", recipe_id: "r1", packaging_item_id: "can-12", packaging_format: "loose", quantity: 100, units_per_package: 1, variant_label: "Fortnight Loose" }]),
       pkgType, pkgName, recipeName, null,
     );
     // cans $0, lids 100 × 5 = 500
