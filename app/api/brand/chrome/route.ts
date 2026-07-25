@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole, getSessionUser } from "@/lib/auth";
+import { requirePermission, CAP, getSessionUser } from "@/lib/auth";
 import { apiError } from "@/lib/utils/api";
 import { getBrandChromeEnabled, setBrandChromeEnabled } from "@/lib/settings/brandChrome.server";
 
@@ -16,7 +16,7 @@ export async function GET() {
 export async function PUT(req: NextRequest) {
   let session;
   try {
-    await requireRole([]); // admin only
+    await requirePermission(CAP.brandGuideManage); // admin only
     session = await getSessionUser();
   } catch (res) {
     return res as Response;

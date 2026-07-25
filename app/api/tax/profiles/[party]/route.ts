@@ -8,7 +8,7 @@
  * UI can't wipe a stored sensitive value.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { apiError } from "@/lib/utils/api";
 import { getProfile, putProfile, maskSensitive } from "@/lib/tax/profiles";
@@ -19,7 +19,7 @@ import "@/lib/tax/parties";
 export const dynamic = "force-dynamic";
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ party: string }> }) {
-  try { await requireRole(["manager"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.taxRead); } catch (res) { return res as Response; }
 
   const { party } = await params;
   try {
@@ -33,7 +33,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ par
 }
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ party: string }> }) {
-  try { await requireRole([]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.taxManage); } catch (res) { return res as Response; }
 
   const { party } = await params;
   try {

@@ -7,7 +7,7 @@
  * different task can't be read or deleted through this route.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { apiError } from "@/lib/utils/api";
 import { signedUrlForFile, deleteTaskFile } from "@/lib/tax/files";
@@ -18,7 +18,7 @@ export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string; fileId: string }> }
 ) {
-  try { await requireRole(["manager"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.taxRead); } catch (res) { return res as Response; }
 
   const { id, fileId } = await params;
   try {
@@ -34,7 +34,7 @@ export async function DELETE(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string; fileId: string }> }
 ) {
-  try { await requireRole(["manager"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.taxOperate); } catch (res) { return res as Response; }
 
   const { id, fileId } = await params;
   try {

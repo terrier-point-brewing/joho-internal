@@ -5,7 +5,7 @@
  * Use engine. Read-only; rate values are seeded/updated via migration.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { apiError } from "@/lib/utils/api";
 import { listTaxRates, type TaxRate } from "@/lib/tax/rates";
@@ -13,7 +13,7 @@ import { listTaxRates, type TaxRate } from "@/lib/tax/rates";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
-  try { await requireRole(["manager"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.taxRead); } catch (res) { return res as Response; }
 
   try {
     const { searchParams } = new URL(req.url);

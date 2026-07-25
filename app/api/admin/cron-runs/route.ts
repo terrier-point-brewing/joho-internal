@@ -3,14 +3,14 @@
  * most recent run history for the Settings → Cron Jobs monitor.
  */
 import { NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { CRON_JOBS } from "@/lib/cron/registry";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  try { await requireRole([]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.cronRead); } catch (res) { return res as Response; }
 
   const supabase = createSupabaseAdminClient();
   const { data: runs, error } = await supabase

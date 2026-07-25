@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    await requireRole([]);
+    await requirePermission(CAP.usersManage);
   } catch (res) {
     return res as Response;
   }
@@ -33,7 +33,7 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
-    await requireRole([]);
+    await requirePermission(CAP.usersManage);
   } catch (res) {
     return res as Response;
   }

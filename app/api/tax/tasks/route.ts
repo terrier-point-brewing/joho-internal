@@ -5,7 +5,7 @@
  * (`ensureTasksForSchedule`, Task 9), not via this route.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { apiError } from "@/lib/utils/api";
 import { listTasks } from "@/lib/tax/tasks";
@@ -14,7 +14,7 @@ import type { TaxTaskStatus } from "@/lib/tax/types";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
-  try { await requireRole(["manager"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.taxRead); } catch (res) { return res as Response; }
 
   try {
     const { searchParams } = new URL(req.url);

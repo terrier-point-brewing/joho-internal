@@ -6,7 +6,7 @@
  * knowing one is on file.
  */
 import { NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { apiError } from "@/lib/utils/api";
 import { getProfile, pickSensitiveValues } from "@/lib/tax/profiles";
@@ -17,7 +17,7 @@ import "@/lib/tax/parties";
 export const dynamic = "force-dynamic";
 
 export async function GET(_req: Request, { params }: { params: Promise<{ party: string }> }) {
-  try { await requireRole([]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.taxPiiReveal); } catch (res) { return res as Response; }
 
   const { party } = await params;
   try {

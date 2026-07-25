@@ -4,7 +4,7 @@
  * removes it from consideration without deleting the Storage object.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { apiError } from "@/lib/utils/api";
 import { approveAsset, archiveAsset, type SupabaseLikeClient } from "@/lib/brand/assets";
@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    await requireRole([]); // admin only
+    await requirePermission(CAP.brandWorkbenchManage); // admin only
   } catch (res) {
     return res as Response;
   }

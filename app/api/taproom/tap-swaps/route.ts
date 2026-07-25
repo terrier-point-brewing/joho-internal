@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { apiError } from "@/lib/utils/api";
 import { buildRetirePayload } from "@/lib/taproom/retireRecipe";
@@ -53,7 +53,7 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   // Taproom managers run the tap list.
-  try { await requireRole(["manager"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.taproomPerformanceOperate); } catch (res) { return res as Response; }
 
   const supabase = await createSupabaseServerClient();
   try {
@@ -167,7 +167,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  try { await requireRole(["manager"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.taproomPerformanceOperate); } catch (res) { return res as Response; }
 
   const supabase = await createSupabaseServerClient();
   try {

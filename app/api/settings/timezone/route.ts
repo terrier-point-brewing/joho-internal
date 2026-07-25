@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidateTag } from "next/cache";
-import { getSessionUser, requireRole } from "@/lib/auth";
+import { getSessionUser, requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { apiError } from "@/lib/utils/api";
 import {
@@ -32,7 +32,7 @@ export async function GET() {
 // Changing the brewery zone shifts every day-bucketed metric, so it's admin-only.
 export async function PUT(req: NextRequest) {
   try {
-    await requireRole([]); // admin only
+    await requirePermission(CAP.businessSettingsManage); // admin only
   } catch (res) {
     return res as Response;
   }
