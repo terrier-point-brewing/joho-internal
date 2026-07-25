@@ -21,6 +21,7 @@
 - **Route implementation and mechanical spawns go to the lean `impl` agent type** (`subagent_type: "impl"`), with the per-task `model` from the table below.
 - **Subagents NEVER apply migrations to prod.** Migration files are written and committed only. Application is orchestrator-only, after explicit user OK plus a backup.
 - **`npm run verify`** (lint + typecheck + tests) is the per-task definition of done.
+- **Any task touching `app/` client components must ALSO pass `npm run build`.** `verify` does NOT catch client/server boundary violations. G6 shipped a build-breaking import of the `@/lib/auth` barrel (which re-exports `getSessionUser` → `next/headers`) into five client modules; `verify` passed and the production build failed. Client code imports `CAP` from `@/lib/auth/capabilities` and `can` from `@/lib/auth/resolve`, never from the barrel.
 - **No raw colors, no hand-rolled primitives** in any UI task — token utilities and `app/components/ui/` primitives only (`docs/UI_STANDARD.md`).
 - **Co-located `*.test.ts`** for every new or modified `lib/` module. Do not drop `lib/` coverage below the `vitest.config.ts` floor.
 - **Commit after every task.** Parallel subagents in a shared worktree wipe each other's work if uncommitted.
