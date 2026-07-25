@@ -153,8 +153,9 @@ function ExpenseRowView({
   // such rows code via their pay-period split, not the single-account select.
   isPayrollSplit: boolean;
   onPayrollUpdated: (next: PayrollState) => void;
-  onExclude: (id: string, reason: string) => Promise<void>;
-  onRestore: (id: string) => Promise<void>;
+  /** Resolve to null on success, or the message to show the operator on failure. */
+  onExclude: (id: string, reason: string) => Promise<string | null>;
+  onRestore: (id: string) => Promise<string | null>;
   onSplitUpdated: (id: string, next: { glLines: GlLine[]; mapping_source: string }) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -162,6 +163,7 @@ function ExpenseRowView({
   const [editingSplit, setEditingSplit] = useState(false);
   const [confirmExclude, setConfirmExclude] = useState(false);
   const [excludeReason, setExcludeReason] = useState("");
+  const [excludeError, setExcludeError] = useState<string | null>(null);
   const hasManualSplit = e.glLines.some((l) => l.splitSource === "manual");
   const mapped = isExpenseMapped(e) ? 1 : 0;
   const state = e.state?.toLowerCase() ?? "";
@@ -301,7 +303,8 @@ function ExpenseRowView({
                   </button>
                 )}
                 {e.excluded_at ? (
-                  <button type="button" className="btn-secondary btn-xxs" onClick={() => onRestore(e.id)}>
+                  <button type="button" className="btn-secondary btn-xxs"
+                    onClick={async () => setExcludeError(await onRestore(e.id))}>
                     Restore
                   </button>
                 ) : (
@@ -313,11 +316,19 @@ function ExpenseRowView({
                 )}
               </div>
 
+              {/* Exclude/restore can 409 (payroll-matched, or already split). Failing
+                  silently here would leave the operator believing a duplicate was
+                  removed from the statements when it was not. */}
+              {excludeError && <div className="text-2xs text-danger">{excludeError}</div>}
+
               {confirmExclude && (
                 <ConfirmDialog
                   title="Exclude as duplicate"
                   confirmLabel="Exclude"
                   tone="danger"
+                  /* ConfirmDialog disables its confirm button on `busy`; reuse it so a
+                     blank reason reads as "not yet allowed" instead of a dead click. */
+                  busy={!excludeReason.trim()}
                   message={
                     <div className="flex flex-col gap-2">
                       <p>This removes the transaction from the P&amp;L, cash flow, and balance sheet. It stays visible here and can be restored.</p>
@@ -330,9 +341,13 @@ function ExpenseRowView({
                       />
                     </div>
                   }
-                  onConfirm={() => {
+                  onConfirm={async () => {
                     if (!excludeReason.trim()) return;
-                    void onExclude(e.id, excludeReason.trim());
+                    const err = await onExclude(e.id, excludeReason.trim());
+                    // Close either way and report failure in the drawer, so the
+                    // message sits next to the row it concerns rather than behind
+                    // a still-open modal.
+                    setExcludeError(err);
                     setConfirmExclude(false);
                     setExcludeReason("");
                   }}
@@ -442,22 +457,28 @@ export default function ExpensesPage() {
     setExpenses((es) => es.map((e) => (e.id === id ? { ...e, unmapped_accepted: accepted } : e)));
   }
 
-  // Exclude / restore a duplicate. Reason is required by the API; the dialog collects it.
-  async function handleExclude(id: string, reason: string) {
+  // Exclude / restore a duplicate. Reason is required by the API; the dialog
+  // collects it. Unlike the other row mutations here, these return the failure
+  // message instead of swallowing it: the API 409s when the expense is
+  // payroll-matched or already manually split, and a silent no-op would leave
+  // the operator believing a duplicate had been taken off the statements.
+  async function handleExclude(id: string, reason: string): Promise<string | null> {
     const res = await fetch(`/api/finance/expenses/${id}/exclude`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ reason }),
     });
-    if (!res.ok) return;
+    if (!res.ok) return ((await res.json()) as { error?: string }).error ?? "Could not exclude this transaction";
     const updated = (await res.json()) as { excluded_at: string | null; excluded_reason: string | null };
     setExpenses((es) => es.map((e) => (e.id === id ? { ...e, ...updated } : e)));
+    return null;
   }
 
-  async function handleRestore(id: string) {
+  async function handleRestore(id: string): Promise<string | null> {
     const res = await fetch(`/api/finance/expenses/${id}/exclude`, { method: "DELETE" });
-    if (!res.ok) return;
+    if (!res.ok) return ((await res.json()) as { error?: string }).error ?? "Could not restore this transaction";
     setExpenses((es) => es.map((e) => (e.id === id ? { ...e, excluded_at: null, excluded_reason: null } : e)));
+    return null;
   }
 
   // Patch one expense's split state in place after a manual-split mutation.

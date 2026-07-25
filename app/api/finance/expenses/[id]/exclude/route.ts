@@ -35,6 +35,21 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: "Clear this transaction's manual GL split before excluding it" }, { status: 409 });
   }
 
+  // A payroll-matched expense stays in its pay period's totals either way:
+  // lib/payroll/periodSummary.ts sums expenses.amount_cents for matched ids and
+  // has no exclusion filter. Excluding here would drop the row from every
+  // statement while payroll still reports it as matched and reconciled, so the
+  // two modules would disagree about the same money. Unmatch first.
+  const { data: matches, error: matchErr } = await sb
+    .from("payroll_period_expense_matches").select("id").eq("expense_id", id).limit(1);
+  if (matchErr) return NextResponse.json({ error: matchErr.message }, { status: 500 });
+  if ((matches ?? []).length > 0) {
+    return NextResponse.json(
+      { error: "Unmatch this transaction from its pay period before excluding it" },
+      { status: 409 },
+    );
+  }
+
   // getSessionUser returns { user, role } — the id is on .user, not the root.
   const session = await getSessionUser();
   const { data, error } = await sb

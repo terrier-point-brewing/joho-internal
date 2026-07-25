@@ -70,6 +70,23 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     return NextResponse.json({ error: "Restore this transaction before splitting it" }, { status: 409 });
   }
 
+  // A payroll-matched expense is already fully coded by its pay-period splits.
+  // Manual lines are inserted ALONGSIDE those rows, and the P&L replaces the
+  // parent with every split it finds regardless of split_source
+  // (aggregateRows.ts:305-312) -- so allowing both would book the expense
+  // twice. That is precisely the double-count this feature exists to remove,
+  // and validateManualSplit cannot catch it: the manual lines balance against
+  // the parent on their own. Unmatch the pay period first.
+  const { data: autoRows, error: autoErr } = await sb
+    .from("expense_gl_splits").select("id").eq("expense_id", id).eq("split_source", "payroll_auto").limit(1);
+  if (autoErr) return NextResponse.json({ error: autoErr.message }, { status: 500 });
+  if ((autoRows ?? []).length > 0) {
+    return NextResponse.json(
+      { error: "This expense is coded by its pay period; unmatch it before splitting manually" },
+      { status: 409 },
+    );
+  }
+
   const validation = validateManualSplit(
     lines.map((l) => ({ chartOfAccountsId: l.chart_of_accounts_id, amountCents: l.amount_cents, memo: l.memo ?? null })),
     expense?.amount_cents as number,
