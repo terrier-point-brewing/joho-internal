@@ -92,6 +92,13 @@ function isExpenseMapped(e: { glLines: GlLine[] }): boolean {
   return (e.glLines?.length ?? 0) > 0;
 }
 
+// Excluded rows stay in this ledger (only the statements drop them), so the
+// operator needs a way to pull them up for review or restore.
+const EXCLUDED_FILTER_OPTIONS = [
+  { value: "active",   label: "Not excluded" },
+  { value: "excluded", label: "Excluded only" },
+];
+
 const EXPENSE_CONTROLS: ControlsConfig<ExpenseRow> = {
   search: [{ param: "q", accessor: (e) => e.merchant_name ?? "" }],
   filters: [
@@ -494,6 +501,8 @@ export default function ExpensesPage() {
             onChange={(v) => setFilter("mapping", v === "all" ? [] : [v])} />
           <FilterSelect label="QB Sync" options={QB_SYNC_FILTER_OPTIONS} value={filters.qbsync ?? []}
             onChange={(v) => setFilter("qbsync", v)} />
+          <FilterSelect label="Excluded" options={EXCLUDED_FILTER_OPTIONS} value={filters.excluded ?? []}
+            onChange={(v) => setFilter("excluded", v)} />
           <AutoMapButton key={`${from}_${to}`} onRun={handleAutoMap} />
           <AutoMapButton
             key={`payroll_${from}_${to}`}

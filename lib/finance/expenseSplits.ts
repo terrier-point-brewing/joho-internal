@@ -19,6 +19,27 @@ export interface ManualSplitLine {
 
 export type SplitValidation = { ok: true } | { ok: false; error: string };
 
+/**
+ * Cents from a raw money string as typed into an input. Partial or non-numeric
+ * input ("", "-", "1.", "1.2.3") yields 0, never NaN — an NaN would propagate
+ * silently through validation and into the request body.
+ *
+ * Lives here rather than in the split editor because a field bound to a
+ * re-formatted number swallows keystrokes: from "0.00" with the caret at the
+ * end, typing "1" yields "0.001", which rounds back to 0 cents and re-renders
+ * as "0.00". The editor keeps the raw string and calls this; that split of
+ * responsibilities is what makes the parsing testable.
+ */
+export function centsFromRaw(raw: string): number {
+  const n = Number(raw.trim());
+  return Number.isFinite(n) ? Math.round(n * 100) : 0;
+}
+
+/** Canonical two-decimal display for a cents value. For seeding a field and normalizing on blur — never mid-typing. */
+export function rawFromCents(cents: number): string {
+  return (cents / 100).toFixed(2);
+}
+
 /** Cents still unallocated: parent minus the sum of the supplied lines. Zero means balanced. */
 export function splitRemainderCents(lines: { amountCents: number }[], parentAmountCents: number): number {
   return parentAmountCents - lines.reduce((total, l) => total + l.amountCents, 0);

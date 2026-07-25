@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { validateManualSplit, splitRemainderCents } from "./expenseSplits";
+import { validateManualSplit, splitRemainderCents, centsFromRaw, rawFromCents } from "./expenseSplits";
 
 const line = (chartOfAccountsId: string, amountCents: number) => ({ chartOfAccountsId, amountCents });
 
@@ -57,5 +57,55 @@ describe("splitRemainderCents", () => {
 
   it("treats an empty set as fully unallocated", () => {
     expect(splitRemainderCents([], -483355)).toBe(-483355);
+  });
+});
+
+describe("centsFromRaw", () => {
+  it("parses a plain amount", () => {
+    expect(centsFromRaw("123.45")).toBe(12345);
+  });
+
+  it("parses a negative amount (outflow)", () => {
+    expect(centsFromRaw("-4833.55")).toBe(-483355);
+  });
+
+  it("parses each prefix of a value typed left-to-right, so no keystroke is swallowed", () => {
+    // Regression: binding the field to a re-formatted number meant typing "1"
+    // into "0.00" produced "0.001" -> 0 cents -> re-render as "0.00".
+    expect(["1", "12", "12.", "12.3", "12.34"].map(centsFromRaw)).toEqual([100, 1200, 1200, 1230, 1234]);
+  });
+
+  it("treats an empty or partial field as zero rather than NaN", () => {
+    expect(centsFromRaw("")).toBe(0);
+    expect(centsFromRaw("-")).toBe(0);
+    expect(centsFromRaw(".")).toBe(0);
+  });
+
+  it("treats junk as zero rather than letting NaN reach validation", () => {
+    expect(centsFromRaw("1.2.3")).toBe(0);
+    expect(centsFromRaw("abc")).toBe(0);
+  });
+
+  it("tolerates surrounding whitespace", () => {
+    expect(centsFromRaw("  12.34  ")).toBe(1234);
+  });
+
+  it("rounds sub-cent input to the nearest cent", () => {
+    expect(centsFromRaw("0.005")).toBe(1);
+    expect(centsFromRaw("0.004")).toBe(0);
+  });
+});
+
+describe("rawFromCents", () => {
+  it("renders two decimals", () => {
+    expect(rawFromCents(12345)).toBe("123.45");
+    expect(rawFromCents(0)).toBe("0.00");
+    expect(rawFromCents(-483355)).toBe("-4833.55");
+  });
+
+  it("round-trips through centsFromRaw", () => {
+    for (const cents of [0, 1, -1, 1234, -483355]) {
+      expect(centsFromRaw(rawFromCents(cents))).toBe(cents);
+    }
   });
 });

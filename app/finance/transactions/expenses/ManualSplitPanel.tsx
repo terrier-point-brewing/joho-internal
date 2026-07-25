@@ -4,11 +4,19 @@ import { useState } from "react";
 import AccountSelect, { type CoARef } from "../../AccountSelect";
 import SaveHint from "@/app/components/ui/SaveHint";
 import { formatCurrencyCents } from "@/lib/format";
-import { validateManualSplit, splitRemainderCents } from "@/lib/finance/expenseSplits";
+import { validateManualSplit, splitRemainderCents, centsFromRaw, rawFromCents } from "@/lib/finance/expenseSplits";
 import type { GlLine } from "./PayrollSplitCell";
 
 interface DraftLine {
   chartOfAccountsId: string;
+  /**
+   * Exactly what the user typed. The field is bound to this rather than to a
+   * re-formatted `amountCents`, because formatting on every keystroke swallows
+   * input: from "0.00" with the caret at the end, typing "1" yields "0.001",
+   * which rounds back to 0 cents and re-renders as "0.00". Keeping the raw
+   * string means the field never fights the typist; it is normalized on blur.
+   */
+  amountRaw: string;
   amountCents: number;
   memo: string;
 }
@@ -35,10 +43,15 @@ export function ManualSplitPanel({
   const existing = glLines.filter((l) => l.splitSource === "manual");
   const [lines, setLines] = useState<DraftLine[]>(
     existing.length > 0
-      ? existing.map((l) => ({ chartOfAccountsId: l.chartOfAccountsId, amountCents: l.amountCents, memo: l.memo ?? "" }))
+      ? existing.map((l) => ({
+          chartOfAccountsId: l.chartOfAccountsId,
+          amountRaw: rawFromCents(l.amountCents),
+          amountCents: l.amountCents,
+          memo: l.memo ?? "",
+        }))
       : [
-          { chartOfAccountsId: "", amountCents: parentAmountCents, memo: "" },
-          { chartOfAccountsId: "", amountCents: 0, memo: "" },
+          { chartOfAccountsId: "", amountRaw: rawFromCents(parentAmountCents), amountCents: parentAmountCents, memo: "" },
+          { chartOfAccountsId: "", amountRaw: rawFromCents(0), amountCents: 0, memo: "" },
         ],
   );
   const [saving, setSaving] = useState(false);
@@ -97,8 +110,9 @@ export function ManualSplitPanel({
           />
           <input
             className="inp-sm w-28 text-right font-mono tabular-nums"
-            value={(l.amountCents / 100).toFixed(2)}
-            onChange={(ev) => patch(i, { amountCents: Math.round(Number(ev.target.value || 0) * 100) })}
+            value={l.amountRaw}
+            onChange={(ev) => patch(i, { amountRaw: ev.target.value, amountCents: centsFromRaw(ev.target.value) })}
+            onBlur={(ev) => patch(i, { amountRaw: rawFromCents(centsFromRaw(ev.target.value)) })}
             inputMode="decimal"
             aria-label={`Split line ${i + 1} amount`}
           />
@@ -124,7 +138,7 @@ export function ManualSplitPanel({
         <button
           type="button"
           className="btn-secondary btn-xxs"
-          onClick={() => setLines((ls) => [...ls, { chartOfAccountsId: "", amountCents: remainder, memo: "" }])}
+          onClick={() => setLines((ls) => [...ls, { chartOfAccountsId: "", amountRaw: rawFromCents(remainder), amountCents: remainder, memo: "" }])}
         >
           Add line
         </button>
