@@ -6,8 +6,8 @@ import { useEffect, useState } from "react";
 import PageHeader from "@/app/components/PageHeader";
 import { TAB_ROW, tabItem } from "@/app/components/ui/tabStyles";
 import { usePermissions } from "@/lib/hooks/useUserRole";
-import { CAP } from "@/lib/auth";
-import type { Capability } from "@/lib/auth";
+import { CAP } from "@/lib/auth/capabilities";
+import type { Capability } from "@/lib/auth/capabilities";
 
 export default function SettingsTabs() {
   const pathname = usePathname();

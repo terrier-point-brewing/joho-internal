@@ -4,7 +4,7 @@ import SubNav from "@/app/components/SubNav";
 import { PRODUCTION_NAV, BREWING_NAV } from "@/app/production/nav-config";
 import CalendarTab from "@/app/production/components/CalendarTab";
 import { usePermissions } from "@/lib/hooks/useUserRole";
-import { CAP } from "@/lib/auth";
+import { CAP } from "@/lib/auth/capabilities";
 import PageHeader from "@/app/components/PageHeader";
 
 export default function CalendarPage() {

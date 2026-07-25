@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { useState, useEffect } from "react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { useUserRole, usePermissions } from "@/lib/hooks/useUserRole";
-import { CAP } from "@/lib/auth";
+import { CAP } from "@/lib/auth/capabilities";
 import { FINANCE_NAV } from "@/app/finance/nav-config";
 import { TAPROOM_NAV } from "@/app/taproom/nav-config";
 import { PRODUCTION_NAV } from "@/app/production/nav-config";

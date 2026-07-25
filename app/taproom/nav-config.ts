@@ -1,5 +1,5 @@
-import type { Capability } from "@/lib/auth";
-import { CAP } from "@/lib/auth";
+import type { Capability } from "@/lib/auth/capabilities";
+import { CAP } from "@/lib/auth/capabilities";
 
 export type NavEntry = { href: string; match?: string; label: string; requires?: Capability; exact?: boolean };
 

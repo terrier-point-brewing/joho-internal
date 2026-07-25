@@ -1,5 +1,5 @@
-import type { Capability } from "@/lib/auth";
-import { CAP } from "@/lib/auth";
+import type { Capability } from "@/lib/auth/capabilities";
+import { CAP } from "@/lib/auth/capabilities";
 
 export interface BrandNavEntry {
   href: string;
