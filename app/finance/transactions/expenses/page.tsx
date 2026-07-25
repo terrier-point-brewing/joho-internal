@@ -26,6 +26,8 @@ import { useTableControls } from "@/app/components/ui/useTableControls";
 import type { ControlsConfig } from "@/lib/table/types";
 import InventoryAlertBanner from "./InventoryAlertBanner";
 import { selectInventoryAlerts } from "@/lib/finance/inventoryAlerts";
+import { matchesGlFilter, narrowToGl } from "@/lib/finance/glLineMatch";
+import GlAccountFilter from "../components/GlAccountFilter";
 import { PayrollSplitSummary, PayrollSplitPanel, type PayrollState, type PayrollMatchInfo, type GlLine } from "./PayrollSplitCell";
 import { ManualSplitPanel } from "./ManualSplitPanel";
 import { defaultYearRange } from "@/lib/finance/dateRange";
@@ -105,6 +107,9 @@ const EXPENSE_CONTROLS: ControlsConfig<ExpenseRow> = {
     { param: "mapping", matches: (e, sel) => matchesMappingFilter(sel[0] as MappingFilterValue, isExpenseMapped(e) ? 1 : 0, 1, e.unmapped_accepted) },
     { param: "qbsync", accessor: (e) => qbSyncFilterValue(e.qb_sync_status) },
     { param: "excluded", accessor: (e) => (e.excluded_at ? "excluded" : "active") },
+    // An expense can carry several GL accounts once it is split, so this matches
+    // on any of its resolved lines rather than the row's own chart_of_accounts_id.
+    { param: "gl", matches: (e, sel) => matchesGlFilter(e.glLines.map((l) => l.chartOfAccountsId), sel) },
   ],
   sort: {
     columns: [
@@ -143,6 +148,7 @@ function ExpenseRowView({
   onExclude,
   onRestore,
   onSplitUpdated,
+  glFilter,
 }: {
   e: ExpenseRow;
   accounts: CoARef[];
@@ -156,8 +162,18 @@ function ExpenseRowView({
   /** Resolve to null on success, or the message to show the operator on failure. */
   onExclude: (id: string, reason: string) => Promise<string | null>;
   onRestore: (id: string) => Promise<string | null>;
+  /** Selected GL account ids; empty means no GL filter and no narrowing. */
+  glFilter: string[];
   onSplitUpdated: (id: string, next: { glLines: GlLine[]; mapping_source: string }) => void;
 }) {
+  // Cents attributable to the selected GL account(s). Short-circuits to the row's
+  // own total when no filter is active — an unmapped expense has NO glLines at
+  // all (resolveExpenseGlLines returns [] without a chart_of_accounts_id), so
+  // summing lines unconditionally would render those rows as $0.00.
+  const glMatchedCents = glFilter.length === 0
+    ? e.amount_cents
+    : narrowToGl(e.glLines, (l) => l.chartOfAccountsId, glFilter).reduce((sum, l) => sum + l.amountCents, 0);
+
   const [expanded, setExpanded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editingSplit, setEditingSplit] = useState(false);
@@ -231,7 +247,13 @@ function ExpenseRowView({
           <QbSyncBadge status={e.qb_sync_status} rampObject={e.ramp_object} />
         </td>
         <td className="px-4 py-2 text-right font-mono tabular-nums text-strong">
-          {formatCurrencyCents(e.amount_cents)}
+          {formatCurrencyCents(glMatchedCents)}
+          {/* Under a GL filter the row is narrowed to its matching lines, so the
+              amount shown is a subtotal. Carry the real row total alongside it —
+              a bare subtotal reads as the expense's full value. */}
+          {glMatchedCents !== e.amount_cents && (
+            <div className="text-2xs text-faint font-normal">of {formatCurrencyCents(e.amount_cents)}</div>
+          )}
         </td>
       </tr>
 
@@ -504,13 +526,22 @@ export default function ExpensesPage() {
     return json;
   }
 
-  const totalCount   = expenses.length;
-  const mappedCount  = expenses.filter((e) => isExpenseMapped(e) || e.unmapped_accepted).length;
-  const totalSpend   = expenses.reduce((s, e) => s + e.amount_cents, 0);
-  const inQbCount    = expenses.filter((e) => normalizeQbSyncStatus(e.qb_sync_status) === "synced").length;
-
   const { rows: visibleExpenses, search, filters, sort, setSearch, setFilter, toggleSort, reset, activeCount } =
     useTableControls(expenses, EXPENSE_CONTROLS);
+
+  // A GL filter narrows each row to the lines coded to that account, so the
+  // stat bar has to follow the same narrowing — a header total covering every
+  // expense while the rows below show one account's slice invites exactly the
+  // misreading the per-row "of …" context exists to prevent. Without a GL
+  // filter these stay over the full set, unchanged.
+  const glFilter     = filters.gl ?? [];
+  const statRows     = glFilter.length > 0 ? visibleExpenses : expenses;
+  const totalCount   = statRows.length;
+  const mappedCount  = statRows.filter((e) => isExpenseMapped(e) || e.unmapped_accepted).length;
+  const totalSpend   = glFilter.length > 0
+    ? statRows.reduce((s, e) => s + narrowToGl(e.glLines, (l) => l.chartOfAccountsId, glFilter).reduce((t, l) => t + l.amountCents, 0), 0)
+    : statRows.reduce((s, e) => s + e.amount_cents, 0);
+  const inQbCount    = statRows.filter((e) => normalizeQbSyncStatus(e.qb_sync_status) === "synced").length;
 
   return (
     <>
@@ -524,6 +555,8 @@ export default function ExpensesPage() {
             onChange={(v) => setFilter("qbsync", v)} />
           <FilterSelect label="Excluded" options={EXCLUDED_FILTER_OPTIONS} value={filters.excluded ?? []}
             onChange={(v) => setFilter("excluded", v)} />
+          <GlAccountFilter accounts={accounts} value={filters.gl?.[0] ?? null}
+            onChange={(id) => setFilter("gl", id ? [id] : [])} />
           <AutoMapButton key={`${from}_${to}`} onRun={handleAutoMap} />
           <AutoMapButton
             key={`payroll_${from}_${to}`}
@@ -612,6 +645,7 @@ export default function ExpensesPage() {
                 onExclude={handleExclude}
                 onRestore={handleRestore}
                 onSplitUpdated={handleSplitUpdated}
+                glFilter={filters.gl ?? []}
               />
             ))}
           </LedgerTable>
