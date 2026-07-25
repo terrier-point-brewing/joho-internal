@@ -52,6 +52,8 @@ export async function GET(req: NextRequest) {
       mapping_source,
       inventory_alert_dismissed,
       unmapped_accepted,
+      excluded_at,
+      excluded_reason,
       chart_of_accounts!expenses_chart_of_accounts_id_fkey ( account_name, account_number, account_type )
     `)
     .order("accounting_date", { ascending: false, nullsFirst: false })
@@ -64,7 +66,13 @@ export async function GET(req: NextRequest) {
   const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  const rows = (data ?? []) as { id: string; chart_of_accounts_id: string | null; amount_cents: number }[];
+  const rows = (data ?? []) as {
+    id: string;
+    chart_of_accounts_id: string | null;
+    amount_cents: number;
+    excluded_at: string | null;
+    excluded_reason: string | null;
+  }[];
   if (rows.length === 0) return NextResponse.json(rows);
 
   // Payroll-match state + resolved GL line(s) per expense, batched (not
@@ -75,7 +83,7 @@ export async function GET(req: NextRequest) {
     supabase.from("payroll_period_expense_matches").select("expense_id, pay_period_id").in("expense_id", ids),
     supabase
       .from("expense_gl_splits")
-      .select("expense_id, chart_of_accounts_id, amount_cents, split_source")
+      .select("expense_id, chart_of_accounts_id, amount_cents, split_source, memo")
       .in("expense_id", ids),
   ]);
   if (matchesResult.error) return NextResponse.json({ error: matchesResult.error.message }, { status: 500 });
@@ -107,16 +115,22 @@ export async function GET(req: NextRequest) {
 
   const splitsByExpense = new Map<
     string,
-    { chartOfAccountsId: string; amountCents: number; splitSource: "payroll_auto" | "manual" }[]
+    { chartOfAccountsId: string; amountCents: number; splitSource: "payroll_auto" | "manual"; memo: string | null }[]
   >();
   for (const r of splitsResult.data as {
     expense_id: string;
     chart_of_accounts_id: string;
     amount_cents: number;
     split_source: "payroll_auto" | "manual";
+    memo: string | null;
   }[]) {
     const list = splitsByExpense.get(r.expense_id) ?? [];
-    list.push({ chartOfAccountsId: r.chart_of_accounts_id, amountCents: r.amount_cents, splitSource: r.split_source });
+    list.push({
+      chartOfAccountsId: r.chart_of_accounts_id,
+      amountCents: r.amount_cents,
+      splitSource: r.split_source,
+      memo: r.memo ?? null,
+    });
     splitsByExpense.set(r.expense_id, list);
   }
 

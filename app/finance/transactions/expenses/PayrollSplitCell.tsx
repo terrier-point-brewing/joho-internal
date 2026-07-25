@@ -9,6 +9,7 @@ export interface GlLine {
   chartOfAccountsId: string;
   amountCents: number;
   splitSource: "payroll_auto" | "manual" | null;
+  memo?: string | null;
 }
 
 export interface PayrollMatchInfo {

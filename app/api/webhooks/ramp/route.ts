@@ -102,6 +102,10 @@ export async function POST(req: NextRequest) {
         eventId: event.id,
         imported: result.imported,
         bank: result.bank.imported,
+        // The prune is best-effort and swallows its own failure into `pruned`.
+        // This is the highest-frequency sync path, so dropping it here would be
+        // the one place a persistently failing prune leaves no trace at all.
+        pruned: result.pruned,
         window: { from: fromStr, to: toStr },
       });
     } catch (e) {

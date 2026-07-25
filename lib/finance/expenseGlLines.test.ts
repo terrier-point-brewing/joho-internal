@@ -63,7 +63,10 @@ describe("getExpenseGlLines", () => {
 
     const result = await getExpenseGlLines(client, "exp-1");
 
-    expect(result).toEqual([{ chartOfAccountsId: "coa-6110", amountCents: 400000, splitSource: "payroll_auto" }]);
+    // memo is null, not absent: the fixture row has no memo column value, and
+    // getExpenseGlLines normalizes a missing/null memo to null so every split
+    // line has the same shape regardless of which path built it.
+    expect(result).toEqual([{ chartOfAccountsId: "coa-6110", amountCents: 400000, splitSource: "payroll_auto", memo: null }]);
     expect(calls).toEqual(["expense_gl_splits"]);
   });
 

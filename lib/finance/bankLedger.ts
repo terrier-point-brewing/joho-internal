@@ -52,22 +52,68 @@ export function billMatchKey(name: string | null | undefined): string {
   return (name ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
-/** Group bill line-item expense rows by their bill id (the part before the ":N" suffix) and sum, keyed by fuzzy vendor. */
+/**
+ * Group bill line-item expense rows by their bill id (the part before the ":N"
+ * suffix) and sum, keyed by fuzzy vendor.
+ *
+ * Each line is summed ONCE, keyed by its own source_transaction_id, because a
+ * bill routinely arrives twice in a single sync: rampSync feeds this both the
+ * bill lines already persisted in `expenses` (120-day lookback) and the bills
+ * freshly fetched from the Ramp API. Adding a line twice yields a 2x bill total
+ * that matches no real bank debit, silently regressing an already-excluded
+ * settlement back into a live, double-counted expense.
+ */
 export function buildBillTotals(billLineItems: { source_transaction_id: string; amount_cents: number; merchant_name: string | null }[]): BillTotals {
-  const totalsByBillId = new Map<string, { cents: number; vendorKey: string }>();
+  const linesByBillId = new Map<string, { centsByLineId: Map<string, number>; vendorKey: string }>();
   for (const row of billLineItems) {
     const billId = row.source_transaction_id.split(":")[0];
     const vendorKey = billMatchKey(row.merchant_name);
-    const prior = totalsByBillId.get(billId);
-    totalsByBillId.set(billId, { cents: (prior?.cents ?? 0) + Math.abs(row.amount_cents), vendorKey });
+    const entry = linesByBillId.get(billId) ?? { centsByLineId: new Map<string, number>(), vendorKey };
+    entry.centsByLineId.set(row.source_transaction_id, Math.abs(row.amount_cents));
+    entry.vendorKey = vendorKey;
+    linesByBillId.set(billId, entry);
   }
+
   const result: BillTotals = new Map();
-  for (const { cents, vendorKey } of totalsByBillId.values()) {
+  for (const { centsByLineId, vendorKey } of linesByBillId.values()) {
     if (!vendorKey) continue;
+    let total = 0;
+    for (const cents of centsByLineId.values()) total += cents;
     if (!result.has(vendorKey)) result.set(vendorKey, new Set());
-    result.get(vendorKey)!.add(cents);
+    result.get(vendorKey)!.add(total);
   }
   return result;
+}
+
+export interface PruneCandidate {
+  id:                    string;
+  source_transaction_id: string;
+  excluded_at:           string | null;
+}
+
+/**
+ * Partition reclassified bank expenses into those safe to delete and those to
+ * leave alone. A row carrying manual work -- a GL split, a payroll match, or a
+ * manual exclusion -- is never deleted. Both `expense_gl_splits.expense_id` and
+ * `payroll_period_expense_matches.expense_id` reference `expenses(id)`, but only
+ * the former cascades on delete (`on delete cascade`); the latter has NO `on
+ * delete` clause (NO ACTION per supabase/migrations/20260714_payroll_gl_split.sql),
+ * so deleting a matched expense doesn't silently orphan/cascade the match row --
+ * it raises a foreign-key violation that fails the whole delete batch. Either
+ * way the row must never be picked for deletion, so both tables feed the same
+ * skip set.
+ */
+export function selectPrunableExpenseIds(
+  candidates: PruneCandidate[],
+  expenseIdsWithManualWork: Set<string>,
+): { deletable: string[]; skipped: string[] } {
+  const deletable: string[] = [];
+  const skipped:   string[] = [];
+  for (const c of candidates) {
+    if (expenseIdsWithManualWork.has(c.id) || c.excluded_at !== null) skipped.push(c.source_transaction_id);
+    else deletable.push(c.id);
+  }
+  return { deletable, skipped };
 }
 
 /** Whether a bank-ledger flow_type affects the P&L. In the ledger table only interest is income; transfers/settlements/deposits/unclassified are non-P&L. */

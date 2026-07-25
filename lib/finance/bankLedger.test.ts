@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { classifyBankLine, partitionBankLines, buildBillTotals } from "./bankLedger";
+import { classifyBankLine, partitionBankLines, buildBillTotals, selectPrunableExpenseIds } from "./bankLedger";
 import { normalizeCounterparty, type RampBankLine } from "@/lib/ramp";
 
 const OWN = new Set(["operating account", "investment account"].map(normalizeCounterparty));
@@ -97,6 +97,47 @@ describe("buildBillTotals", () => {
       { source_transaction_id: "b2:0", amount_cents: -200000, merchant_name: "Duke Energy" },
     ]);
     expect(totals.get("dukeenergy")).toEqual(new Set([100000, 200000]));
+  });
+});
+
+describe("buildBillTotals — duplicate line suppression", () => {
+  // The real Duke Energy bill (7e05e00b…): 12 line items summing to 483355 cents.
+  const DUKE_CENTS = [2200, 9891, 10412, 324205, 13958, 105540, 112, 900, 4167, 5010, 5952, 1008];
+  const dukeLines = DUKE_CENTS.map((c, i) => ({
+    source_transaction_id: `7e05e00b-f3c1-4e65-a5bf-ec8d3b47ac6e:${i}`,
+    amount_cents: -c,
+    merchant_name: "Duke Energy",
+  }));
+
+  it("totals a bill supplied once", () => {
+    expect(buildBillTotals(dukeLines).get("dukeenergy")).toEqual(new Set([483355]));
+  });
+
+  it("does not double-count a bill supplied by both DB history and API batch", () => {
+    expect(buildBillTotals([...dukeLines, ...dukeLines]).get("dukeenergy")).toEqual(new Set([483355]));
+  });
+
+  it("still classifies the bank debit as a settlement when the bill arrives twice", () => {
+    const totals = buildBillTotals([...dukeLines, ...dukeLines]);
+    const bankLine: RampBankLine = {
+      id: "38ba080d-012d-43dc-bb34-d7942a6b6d90",
+      amount: 4833.55,
+      currency_code: "USD",
+      date: "2026-07-16",
+      description: "Withdrawal",
+      source_account_name: "Checking",
+      destination_account_name: "DUKEENERGY",
+      sync_status: null,
+    };
+    expect(classifyBankLine(bankLine, new Set(["checking"]), totals).flow_type).toBe("bill_settlement");
+  });
+
+  it("keeps distinct bills from the same vendor as separate totals", () => {
+    const second = [
+      { source_transaction_id: "other-bill:0", amount_cents: -1000, merchant_name: "Duke Energy" },
+      { source_transaction_id: "other-bill:1", amount_cents: -500, merchant_name: "Duke Energy" },
+    ];
+    expect(buildBillTotals([...dukeLines, ...second]).get("dukeenergy")).toEqual(new Set([483355, 1500]));
   });
 });
 
@@ -244,5 +285,46 @@ describe("syncBankLedger", () => {
     const sb = fakeSupabase({ int: { mapping_source: "unmapped", chart_of_accounts_id: null, flow_type: "unclassified", affects_pl: false } });
     await syncBankLedger(sb as never, [rec]);
     expect(sb.upserts[0]).toMatchObject({ flow_type: "interest_income", affects_pl: true, mapping_source: "unmapped" });
+  });
+});
+
+describe("selectPrunableExpenseIds", () => {
+  const plain = { id: "e1", source_transaction_id: "s1", excluded_at: null };
+  const withSplit = { id: "e2", source_transaction_id: "s2", excluded_at: null };
+  const excluded = { id: "e3", source_transaction_id: "s3", excluded_at: "2026-07-20T00:00:00Z" };
+  const withPayrollMatch = { id: "e4", source_transaction_id: "s4", excluded_at: null };
+
+  it("deletes a reclassified row carrying no manual work", () => {
+    const r = selectPrunableExpenseIds([plain], new Set());
+    expect(r.deletable).toEqual(["e1"]);
+    expect(r.skipped).toEqual([]);
+  });
+
+  it("keeps a row that has GL splits, so the cascade cannot destroy them", () => {
+    const r = selectPrunableExpenseIds([withSplit], new Set(["e2"]));
+    expect(r.deletable).toEqual([]);
+    expect(r.skipped).toEqual(["s2"]);
+  });
+
+  it("keeps a manually excluded row", () => {
+    const r = selectPrunableExpenseIds([excluded], new Set());
+    expect(r.deletable).toEqual([]);
+    expect(r.skipped).toEqual(["s3"]);
+  });
+
+  it("keeps a row matched to a payroll period, whose FK is NO ACTION (not cascading) and would otherwise raise on delete", () => {
+    const r = selectPrunableExpenseIds([withPayrollMatch], new Set(["e4"]));
+    expect(r.deletable).toEqual([]);
+    expect(r.skipped).toEqual(["s4"]);
+  });
+
+  it("partitions a mixed batch", () => {
+    const r = selectPrunableExpenseIds([plain, withSplit, excluded], new Set(["e2"]));
+    expect(r.deletable).toEqual(["e1"]);
+    expect(r.skipped).toEqual(["s2", "s3"]);
+  });
+
+  it("handles an empty batch", () => {
+    expect(selectPrunableExpenseIds([], new Set())).toEqual({ deletable: [], skipped: [] });
   });
 });

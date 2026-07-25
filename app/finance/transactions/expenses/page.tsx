@@ -5,6 +5,8 @@ import { mappingState, matchesMappingFilter, type MappingFilterValue } from "@/l
 import { EXPENSE_STATE_CLS } from "../../lib/categoryColors";
 import AccountSelect, { type CoARef } from "../../AccountSelect";
 import Banner from "@/app/components/ui/Banner";
+import Badge from "@/app/components/ui/Badge";
+import ConfirmDialog from "@/app/components/ui/ConfirmDialog";
 import SaveHint from "@/app/components/ui/SaveHint";
 import DateRangeFilter from "../components/DateRangeFilter";
 import AcceptUnmappedButton from "../components/AcceptUnmappedButton";
@@ -25,6 +27,7 @@ import type { ControlsConfig } from "@/lib/table/types";
 import InventoryAlertBanner from "./InventoryAlertBanner";
 import { selectInventoryAlerts } from "@/lib/finance/inventoryAlerts";
 import { PayrollSplitSummary, PayrollSplitPanel, type PayrollState, type PayrollMatchInfo, type GlLine } from "./PayrollSplitCell";
+import { ManualSplitPanel } from "./ManualSplitPanel";
 import { defaultYearRange } from "@/lib/finance/dateRange";
 
 // ── Types (mirror the API responses) ──────────────────────────────────────────
@@ -61,6 +64,8 @@ interface ExpenseRow {
   mapping_source: "unmapped" | "rule" | "manual";
   inventory_alert_dismissed: boolean;
   unmapped_accepted: boolean;
+  excluded_at: string | null;
+  excluded_reason: string | null;
   chart_of_accounts: CoaJoin | null;
   // Payroll GL split state (Task 8's enriched GET) -- populated for every
   // row; only rendered when the counterparty's routing is 'payroll_split'.
@@ -87,11 +92,19 @@ function isExpenseMapped(e: { glLines: GlLine[] }): boolean {
   return (e.glLines?.length ?? 0) > 0;
 }
 
+// Excluded rows stay in this ledger (only the statements drop them), so the
+// operator needs a way to pull them up for review or restore.
+const EXCLUDED_FILTER_OPTIONS = [
+  { value: "active",   label: "Not excluded" },
+  { value: "excluded", label: "Excluded only" },
+];
+
 const EXPENSE_CONTROLS: ControlsConfig<ExpenseRow> = {
   search: [{ param: "q", accessor: (e) => e.merchant_name ?? "" }],
   filters: [
     { param: "mapping", matches: (e, sel) => matchesMappingFilter(sel[0] as MappingFilterValue, isExpenseMapped(e) ? 1 : 0, 1, e.unmapped_accepted) },
     { param: "qbsync", accessor: (e) => qbSyncFilterValue(e.qb_sync_status) },
+    { param: "excluded", accessor: (e) => (e.excluded_at ? "excluded" : "active") },
   ],
   sort: {
     columns: [
@@ -127,6 +140,9 @@ function ExpenseRowView({
   onToggleAccept,
   isPayrollSplit,
   onPayrollUpdated,
+  onExclude,
+  onRestore,
+  onSplitUpdated,
 }: {
   e: ExpenseRow;
   accounts: CoARef[];
@@ -137,9 +153,18 @@ function ExpenseRowView({
   // such rows code via their pay-period split, not the single-account select.
   isPayrollSplit: boolean;
   onPayrollUpdated: (next: PayrollState) => void;
+  /** Resolve to null on success, or the message to show the operator on failure. */
+  onExclude: (id: string, reason: string) => Promise<string | null>;
+  onRestore: (id: string) => Promise<string | null>;
+  onSplitUpdated: (id: string, next: { glLines: GlLine[]; mapping_source: string }) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [editingSplit, setEditingSplit] = useState(false);
+  const [confirmExclude, setConfirmExclude] = useState(false);
+  const [excludeReason, setExcludeReason] = useState("");
+  const [excludeError, setExcludeError] = useState<string | null>(null);
+  const hasManualSplit = e.glLines.some((l) => l.splitSource === "manual");
   const mapped = isExpenseMapped(e) ? 1 : 0;
   const state = e.state?.toLowerCase() ?? "";
   const glName = e.chart_of_accounts?.account_name ?? null;
@@ -171,11 +196,18 @@ function ExpenseRowView({
           )}
         </td>
         <td className="px-4 py-2">
-          {isPayrollSplit ? (
-            <PayrollSplitSummary payrollMatch={e.payrollMatch} glLines={e.glLines} />
-          ) : (
-            <CategoryBadges items={glName ? [glName] : []} />
-          )}
+          <div className="flex items-center gap-1.5">
+            {isPayrollSplit ? (
+              <PayrollSplitSummary payrollMatch={e.payrollMatch} glLines={e.glLines} />
+            ) : (
+              <CategoryBadges items={glName ? [glName] : []} />
+            )}
+            {e.excluded_at && (
+              <span title={e.excluded_reason ?? undefined}>
+                <Badge tone="danger">Excluded</Badge>
+              </span>
+            )}
+          </div>
         </td>
         <td className="px-4 py-2">
           {state && (
@@ -234,6 +266,15 @@ function ExpenseRowView({
                   accounts={accounts}
                   onUpdated={onPayrollUpdated}
                 />
+              ) : editingSplit || hasManualSplit ? (
+                <ManualSplitPanel
+                  expenseId={e.id}
+                  parentAmountCents={e.amount_cents}
+                  glLines={e.glLines}
+                  accounts={accounts}
+                  onUpdated={(next) => { onSplitUpdated(e.id, next); setEditingSplit(false); }}
+                  onCancel={() => setEditingSplit(false)}
+                />
               ) : (
                 <div className="flex items-center gap-2">
                   <span className="text-2xs text-faint uppercase tracking-wider shrink-0">GL account</span>
@@ -253,6 +294,65 @@ function ExpenseRowView({
                   )}
                   <SaveHint saving={saving} />
                 </div>
+              )}
+
+              <div className="flex items-center gap-2">
+                {!isPayrollSplit && !hasManualSplit && !e.excluded_at && (
+                  <button type="button" className="btn-secondary btn-xxs" onClick={() => setEditingSplit(true)}>
+                    Split across accounts
+                  </button>
+                )}
+                {e.excluded_at ? (
+                  <button type="button" className="btn-secondary btn-xxs"
+                    onClick={async () => setExcludeError(await onRestore(e.id))}>
+                    Restore
+                  </button>
+                ) : (
+                  !hasManualSplit && (
+                    <button type="button" className="btn-danger btn-xxs" onClick={() => setConfirmExclude(true)}>
+                      Exclude as duplicate
+                    </button>
+                  )
+                )}
+              </div>
+
+              {/* Exclude/restore can 409 (payroll-matched, or already split). Failing
+                  silently here would leave the operator believing a duplicate was
+                  removed from the statements when it was not. */}
+              {excludeError && <div className="text-2xs text-danger">{excludeError}</div>}
+
+              {confirmExclude && (
+                <ConfirmDialog
+                  title="Exclude as duplicate"
+                  confirmLabel="Exclude"
+                  tone="danger"
+                  /* ConfirmDialog disables its confirm button on `busy`; reuse it so a
+                     blank reason reads as "not yet allowed" instead of a dead click. */
+                  busy={!excludeReason.trim()}
+                  message={
+                    <div className="flex flex-col gap-2">
+                      <p>This removes the transaction from the P&amp;L, cash flow, and balance sheet. It stays visible here and can be restored.</p>
+                      <input
+                        className="inp-sm w-full"
+                        value={excludeReason}
+                        onChange={(ev) => setExcludeReason(ev.target.value)}
+                        placeholder="Reason (required)"
+                        aria-label="Exclusion reason"
+                      />
+                    </div>
+                  }
+                  onConfirm={async () => {
+                    if (!excludeReason.trim()) return;
+                    const err = await onExclude(e.id, excludeReason.trim());
+                    // Close either way and report failure in the drawer, so the
+                    // message sits next to the row it concerns rather than behind
+                    // a still-open modal.
+                    setExcludeError(err);
+                    setConfirmExclude(false);
+                    setExcludeReason("");
+                  }}
+                  onCancel={() => { setConfirmExclude(false); setExcludeReason(""); }}
+                />
               )}
             </div>
           </td>
@@ -357,6 +457,37 @@ export default function ExpensesPage() {
     setExpenses((es) => es.map((e) => (e.id === id ? { ...e, unmapped_accepted: accepted } : e)));
   }
 
+  // Exclude / restore a duplicate. Reason is required by the API; the dialog
+  // collects it. Unlike the other row mutations here, these return the failure
+  // message instead of swallowing it: the API 409s when the expense is
+  // payroll-matched or already manually split, and a silent no-op would leave
+  // the operator believing a duplicate had been taken off the statements.
+  async function handleExclude(id: string, reason: string): Promise<string | null> {
+    const res = await fetch(`/api/finance/expenses/${id}/exclude`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason }),
+    });
+    if (!res.ok) return ((await res.json()) as { error?: string }).error ?? "Could not exclude this transaction";
+    const updated = (await res.json()) as { excluded_at: string | null; excluded_reason: string | null };
+    setExpenses((es) => es.map((e) => (e.id === id ? { ...e, ...updated } : e)));
+    return null;
+  }
+
+  async function handleRestore(id: string): Promise<string | null> {
+    const res = await fetch(`/api/finance/expenses/${id}/exclude`, { method: "DELETE" });
+    if (!res.ok) return ((await res.json()) as { error?: string }).error ?? "Could not restore this transaction";
+    setExpenses((es) => es.map((e) => (e.id === id ? { ...e, excluded_at: null, excluded_reason: null } : e)));
+    return null;
+  }
+
+  // Patch one expense's split state in place after a manual-split mutation.
+  function handleSplitUpdated(id: string, next: { glLines: GlLine[]; mapping_source: string }) {
+    setExpenses((es) => es.map((e) => (e.id === id
+      ? { ...e, glLines: next.glLines, mapping_source: next.mapping_source as ExpenseRow["mapping_source"] }
+      : e)));
+  }
+
   async function handleAutoMap(): Promise<{ mapped: number }> {
     const res = await fetch(`/api/finance/expenses/auto-map?from=${from}&to=${to}`, { method: "POST" });
     const json = await res.json();
@@ -391,6 +522,8 @@ export default function ExpensesPage() {
             onChange={(v) => setFilter("mapping", v === "all" ? [] : [v])} />
           <FilterSelect label="QB Sync" options={QB_SYNC_FILTER_OPTIONS} value={filters.qbsync ?? []}
             onChange={(v) => setFilter("qbsync", v)} />
+          <FilterSelect label="Excluded" options={EXCLUDED_FILTER_OPTIONS} value={filters.excluded ?? []}
+            onChange={(v) => setFilter("excluded", v)} />
           <AutoMapButton key={`${from}_${to}`} onRun={handleAutoMap} />
           <AutoMapButton
             key={`payroll_${from}_${to}`}
@@ -476,6 +609,9 @@ export default function ExpensesPage() {
                 onToggleAccept={handleToggleAccept}
                 isPayrollSplit={e.ramp_object === "bank" && routingByCounterpartyKey.get(e.counterparty_key ?? "") === "payroll_split"}
                 onPayrollUpdated={(next) => handlePayrollUpdated(e.id, next)}
+                onExclude={handleExclude}
+                onRestore={handleRestore}
+                onSplitUpdated={handleSplitUpdated}
               />
             ))}
           </LedgerTable>

@@ -13,6 +13,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { fetchAllRows } from "@/lib/supabase/paginate";
 import { buildInvoiceSalesReport } from "@/lib/finance/invoiceSalesReport";
+import { applyExpenseStatementFilters } from "./expenseFilters";
 import type { StatementKind } from "./types";
 import type {
   PosLineRecord,
@@ -431,13 +432,7 @@ export async function fetchExpenses(supabase: SupabaseClient, range: DateRange, 
       .lte("accounting_date", range.endDateStr)
       .order("id", { ascending: true });
     if (range.startDateStr) q = q.gte("accounting_date", range.startDateStr);
-    // Cash basis = settled rows only. Card rows settle as "CLEARED" (Square,
-    // uppercase); bank rows — every Gusto payroll withdrawal among them — settle
-    // as "cleared" (bankLedger.ts, lowercase). A case-sensitive .eq("CLEARED")
-    // silently dropped every bank/payroll expense (and its GL splits) from the
-    // cash-flow statement, so match case-insensitively via ilike.
-    q = cashOnly ? q.ilike("state", "cleared") : q.or("state.is.null,state.neq.DECLINED");
-    return q;
+    return applyExpenseStatementFilters(q, cashOnly);
   });
 
   const expenseIds = data.map((r) => r.id);
