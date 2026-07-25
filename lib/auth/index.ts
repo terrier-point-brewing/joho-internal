@@ -20,23 +20,9 @@ export type { ScopeKey, Section } from "./scopes";
 export { RANK } from "./levels";
 export type { Level } from "./levels";
 
-import { getSessionUser } from "./session";
-import type { UserRole } from "./roleGrants";
-
-/**
- * @deprecated Superseded by requirePermission. Kept, with its exact 401/403
- * contract, until every call site is converted to requirePermission — a
- * later group removes it. "admin" is always implicitly allowed and must
- * never be listed explicitly by callers.
- */
-export async function requireRole(allowedRoles: UserRole[]): Promise<void> {
-  const session = await getSessionUser();
-
-  if (!session) {
-    throw new Response("Unauthorized", { status: 401 });
-  }
-
-  if (session.role !== "admin" && !allowedRoles.includes(session.role)) {
-    throw new Response("Forbidden", { status: 403 });
-  }
-}
+// NOTE: this barrel re-exports getSessionUser, which reaches next/headers via
+// lib/supabase/server.ts. Importing it from a "use client" module pulls
+// server-only code into the client bundle and breaks `npm run build` while
+// `npm run verify` still passes. Client code must import CAP from
+// ./capabilities, can from ./resolve, and SCOPES from ./scopes directly.
+// Enforced by scripts/check-permissions.mjs.

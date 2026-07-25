@@ -213,7 +213,7 @@ export async function POST(req: NextRequest) {
  * Body: { batch_id, correct_tank_id, reason? }
  */
 export async function PATCH(req: NextRequest) {
-  try { await requirePermission(CAP.batchDelete); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.tankReassign); } catch (res) { return res as Response; }
 
   const supabase = await createSupabaseServerClient();
   const { data: { user: adminUser } } = await supabase.auth.getUser();

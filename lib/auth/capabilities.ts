@@ -16,6 +16,7 @@ export const CAP = {
   brewingRead: { scope: "production.brewing", level: "read" },
   batchDelete: { scope: "production.brewing", level: "admin" },
   brewingCalendarAdmin: { scope: "production.brewing", level: "admin" },
+  tankReassign: { scope: "production.brewing", level: "admin" },
 
   ingredientMasterEdit: { scope: "production.inventory", level: "manage" },
   packagingMasterEdit: { scope: "production.inventory", level: "manage" },

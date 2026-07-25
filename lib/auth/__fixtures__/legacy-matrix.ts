@@ -192,7 +192,7 @@ export const LEGACY_MATRIX: LegacyRow[] = [
   { route: "production/stock-adjustments", method: "POST", legacy: ["brewer"], capability: "inventoryOperate" },
   { route: "production/tank-assignments/[id]", method: "PATCH", legacy: ["brewer"], capability: "brewingOperate" },
   { route: "production/tank-assignments", method: "POST", legacy: ["brewer"], capability: "brewingOperate" },
-  { route: "production/tank-assignments", method: "PATCH", legacy: [], capability: "batchDelete" },
+  { route: "production/tank-assignments", method: "PATCH", legacy: [], capability: "tankReassign" },
   { route: "production/taproom-consumption/dismiss-phantom", method: "POST", legacy: ["manager"], capability: "taproomPerformanceOperate" },
   { route: "production/taproom-consumption/phantom-alerts", method: "GET", legacy: ["manager"], capability: "taproomPerformanceOperate" },
   { route: "production/taproom-consumption/reconcile-phantom", method: "POST", legacy: ["manager"], capability: "taproomPerformanceOperate" },

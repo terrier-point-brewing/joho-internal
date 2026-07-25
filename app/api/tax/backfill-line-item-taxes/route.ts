@@ -12,7 +12,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { getSessionUser } from "@/lib/auth";
+import { getSessionUser, can, CAP } from "@/lib/auth";
 import { backfillLineItemTaxesForRange } from "@/lib/tax/backfillLineItemTaxes";
 import { apiError } from "@/lib/utils/api";
 
@@ -22,8 +22,11 @@ export async function GET(req: NextRequest) {
   const auth = req.headers.get("authorization");
   const isCron = auth === `Bearer ${process.env.CRON_SECRET}`;
   if (!isCron) {
+    // Not requirePermission: this route's non-cron branch answers 401 for both
+    // "no session" and "wrong role", and changing a non-admin to 403 would be a
+    // behaviour change. Gate on the capability, keep the response shape.
     const session = await getSessionUser();
-    if (!session || session.role !== "admin") {
+    if (!session || !can(session.grants, CAP.taxManage.scope, CAP.taxManage.level)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
   }
