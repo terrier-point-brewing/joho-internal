@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { fetchMappingGrid } from "@/lib/production/mappingGridData";
 
@@ -29,7 +29,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   // brewer (production) and manager (taproom) are scoped siblings — both edit
   // Square item mappings, from the Production Settings and Taproom Settings screens.
-  try { await requireRole(["brewer", "manager"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.productionSettingsOperate); } catch (res) { return res as Response; }
 
   const supabase = await createSupabaseServerClient();
 
@@ -156,7 +156,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  try { await requireRole(["brewer", "manager"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.productionSettingsOperate); } catch (res) { return res as Response; }
 
   const supabase = await createSupabaseServerClient();
 

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { classifyLineItem } from "@/lib/finance/classify";
 import type { InvoiceImportPayload, InvoiceStatus } from "@/types/finance";
@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 // Returns all invoices with line-item counts and batch-link counts.
 // Optional query params: ?source=quickbooks&year=2024&partner_id=<uuid>
 export async function GET(req: NextRequest) {
-  try { await requireRole([]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.financeTransactionsManage); } catch (res) { return res as Response; }
 
   const supabase = createSupabaseAdminClient();
   const params   = req.nextUrl.searchParams;
@@ -44,7 +44,7 @@ export async function GET(req: NextRequest) {
 // Toggles the "accept unmapped as reviewed" dismissal flag on one invoice.
 // Body: { id: string; unmapped_accepted: boolean }
 export async function PATCH(req: NextRequest) {
-  try { await requireRole([]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.financeTransactionsManage); } catch (res) { return res as Response; }
   const body = await req.json() as { id: string; unmapped_accepted: boolean };
   if (!body.id) return NextResponse.json({ error: "id required" }, { status: 400 });
   const supabase = createSupabaseAdminClient();
@@ -63,7 +63,7 @@ export async function PATCH(req: NextRequest) {
 // Body: { invoices: InvoiceImportPayload[] }
 // Uses upsert on (source, external_id) to make re-imports idempotent.
 export async function POST(req: NextRequest) {
-  try { await requireRole([]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.financeTransactionsManage); } catch (res) { return res as Response; }
 
   const supabase = createSupabaseAdminClient();
   const body: { invoices: InvoiceImportPayload[] } = await req.json();

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import {
@@ -31,7 +31,7 @@ type RouteParams = { params: Promise<{ id: string }> };
 // ── GET /api/production/allocations/[id]/invoice ──────────────────────────────
 // Preview the deposit calculation without creating anything in Square.
 export async function GET(_req: NextRequest, { params }: RouteParams) {
-  try { await requireRole(["brewer"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.exportOperate); } catch (res) { return res as Response; }
 
   const supabase = await createSupabaseServerClient();
   const { id } = await params;
@@ -73,7 +73,7 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
 // ── POST /api/production/allocations/[id]/invoice ────────────────────────────
 // Actions: generate | send | sync
 export async function POST(req: NextRequest, { params }: RouteParams) {
-  try { await requireRole(["brewer"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.exportOperate); } catch (res) { return res as Response; }
 
   try {
     return await handleInvoiceAction(req, params);

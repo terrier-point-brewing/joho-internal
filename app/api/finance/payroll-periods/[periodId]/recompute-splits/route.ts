@@ -8,7 +8,7 @@
  * lib/payroll/gustoUpload.ts's doc comment).
  */
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { apiError } from "@/lib/utils/api";
 import { recomputePeriodExpenseSplits } from "@/lib/finance/payrollMatching";
@@ -16,7 +16,7 @@ import { recomputePeriodExpenseSplits } from "@/lib/finance/payrollMatching";
 export const dynamic = "force-dynamic";
 
 export async function POST(_req: NextRequest, { params }: { params: Promise<{ periodId: string }> }) {
-  try { await requireRole(["manager"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.payrollOperate); } catch (res) { return res as Response; }
 
   const { periodId } = await params;
   try {

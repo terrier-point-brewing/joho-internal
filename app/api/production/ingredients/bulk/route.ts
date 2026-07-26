@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { IngredientCategory, INGREDIENT_CATEGORIES } from "@/app/production/types";
 
@@ -19,7 +19,7 @@ interface BulkRow {
  * Inserts all rows and returns { inserted, errors }.
  */
 export async function POST(req: NextRequest) {
-  try { await requireRole(["brewer"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.inventoryOperate); } catch (res) { return res as Response; }
 
 
   const supabase = await createSupabaseServerClient();

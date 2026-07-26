@@ -8,7 +8,7 @@
  * Manager+ (same gate as the worksheet autosave route).
  */
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { apiError } from "@/lib/utils/api";
 import { getTask, saveWorksheet } from "@/lib/tax/tasks";
@@ -23,7 +23,7 @@ import "@/lib/tax/parties";
 export const dynamic = "force-dynamic";
 
 export async function POST(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  try { await requireRole(["manager"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.taxOperate); } catch (res) { return res as Response; }
 
   const { id } = await params;
   try {

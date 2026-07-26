@@ -1,4 +1,6 @@
-export type NavEntry = { href: string; match?: string; label: string; also?: string };
+import type { Capability } from "@/lib/auth";
+
+export type NavEntry = { href: string; match?: string; label: string; also?: string; requires?: Capability };
 
 export const FINANCE_NAV: NavEntry[] = [
   { href: "/finance/financials",           match: "/finance/financials",           label: "Financials"   },

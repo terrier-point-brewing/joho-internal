@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getSessionUser } from "@/lib/auth";
 
@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 // ── POST /api/finance/ledger/invoice-batch-links ───────────────────────────────
 // Body: { invoice_id, batch_id, note? }
 export async function POST(req: NextRequest) {
-  try { await requireRole([]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.financeTransactionsManage); } catch (res) { return res as Response; }
 
   const supabase  = createSupabaseAdminClient();
   const user      = await getSessionUser();
@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
 // ── GET /api/finance/ledger/invoice-batch-links ────────────────────────────────
 // Optional: ?batch_id=<uuid> or ?invoice_id=<uuid>
 export async function GET(req: NextRequest) {
-  try { await requireRole([]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.financeTransactionsManage); } catch (res) { return res as Response; }
 
   const supabase = createSupabaseAdminClient();
   const params   = req.nextUrl.searchParams;

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { getRampTransactions } from "@/lib/ramp";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { fetchCompletedOrders } from "@/lib/square/orders";
@@ -17,7 +17,7 @@ export const dynamic = "force-dynamic";
 const EXCLUDED_CATEGORY_IDS = new Set(["CO2", "OTHER"]);
 
 export async function GET(req: NextRequest) {
-  try { await requireRole([]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.financeStatementsRead); } catch (res) { return res as Response; }
 
   const { searchParams } = req.nextUrl;
   const from = searchParams.get("from");

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { apiError } from "@/lib/utils/api";
 import { getDraft, saveDraft, type SupabaseLikeClient } from "@/lib/brand/canonWorkflow";
@@ -7,10 +7,10 @@ import { getDraft, saveDraft, type SupabaseLikeClient } from "@/lib/brand/canonW
 export const dynamic = "force-dynamic";
 
 // Canon editing is admin-only — the draft is the working copy behind the
-// published guide/tokens, so reads and writes both require requireRole([]).
+// published guide/tokens, so reads and writes both require CAP.brandGuideManage.
 export async function GET() {
   try {
-    await requireRole([]); // admin only
+    await requirePermission(CAP.brandGuideManage); // admin only
   } catch (res) {
     return res as Response;
   }
@@ -26,7 +26,7 @@ export async function GET() {
 
 export async function PUT(req: NextRequest) {
   try {
-    await requireRole([]); // admin only
+    await requirePermission(CAP.brandGuideManage); // admin only
   } catch (res) {
     return res as Response;
   }

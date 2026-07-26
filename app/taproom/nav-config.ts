@@ -1,10 +1,13 @@
-export type NavEntry = { href: string; match?: string; label: string; adminOnly?: boolean; managerOnly?: boolean; exact?: boolean };
+import type { Capability } from "@/lib/auth/capabilities";
+import { CAP } from "@/lib/auth/capabilities";
+
+export type NavEntry = { href: string; match?: string; label: string; requires?: Capability; exact?: boolean };
 
 export const TAPROOM_NAV: NavEntry[] = [
   { href: "/taproom/performance", label: "Performance" },
   { href: "/taproom/targets",     label: "Targets"     },
-  { href: "/taproom/payroll",     label: "Payroll",     managerOnly: true },
-  { href: "/taproom/settings",    label: "Settings",    managerOnly: true },
+  { href: "/taproom/payroll",     label: "Payroll",     requires: CAP.payrollRead },
+  { href: "/taproom/settings",    label: "Settings",    requires: CAP.taproomSettingsOperate },
 ];
 
 export const PERFORMANCE_NAV: NavEntry[] = [

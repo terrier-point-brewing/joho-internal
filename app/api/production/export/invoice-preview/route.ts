@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { buildInvoicePreview } from "@/lib/production/exportInvoicePreview";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
-  try { await requireRole(["brewer"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.exportOperate); } catch (res) { return res as Response; }
 
   const idsParam = req.nextUrl.searchParams.get("ids");
   const ids = idsParam ? idsParam.split(",").filter(Boolean) : [];

@@ -8,13 +8,13 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { parseQBInvoicePDF } from "@/lib/finance/qb-pdf";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
-  try { await requireRole([]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.financeTransactionsManage); } catch (res) { return res as Response; }
 
   let formData: FormData;
   try {

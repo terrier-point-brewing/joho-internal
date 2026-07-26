@@ -6,14 +6,14 @@
  * { matched, periodsRecomputed }. Manager+ (same gate as the per-row action).
  */
 import { NextRequest, NextResponse } from "next/server";
-import { getSessionUser, requireRole } from "@/lib/auth";
+import { getSessionUser, requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { autoMapPayrollExpenses } from "@/lib/finance/payrollMatching";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
-  try { await requireRole(["manager"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.financeTransactionsManage); } catch (res) { return res as Response; }
 
   const from = req.nextUrl.searchParams.get("from");
   const to   = req.nextUrl.searchParams.get("to");

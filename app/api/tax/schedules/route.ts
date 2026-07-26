@@ -6,7 +6,7 @@
  * before creating the row (deferred validation from Task 8).
  */
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { apiError } from "@/lib/utils/api";
 import { listSchedules, createSchedule, type CreateScheduleInput } from "@/lib/tax/schedules";
@@ -18,7 +18,7 @@ import "@/lib/tax/parties";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
-  try { await requireRole(["manager"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.taxRead); } catch (res) { return res as Response; }
 
   try {
     const { searchParams } = new URL(req.url);
@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  try { await requireRole([]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.taxManage); } catch (res) { return res as Response; }
 
   try {
     const body = (await req.json()) as CreateScheduleInput;

@@ -4,14 +4,14 @@
  * lives in lib/finance/autoMap. Returns { mapped }.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { autoMapExpenses } from "@/lib/finance/autoMap";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
-  try { await requireRole([]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.financeTransactionsManage); } catch (res) { return res as Response; }
   const from = req.nextUrl.searchParams.get("from");
   const to   = req.nextUrl.searchParams.get("to");
   if (!from || !to) return NextResponse.json({ error: "from and to required" }, { status: 400 });

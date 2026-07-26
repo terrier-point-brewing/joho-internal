@@ -8,7 +8,7 @@
  * `tax_tasks` rows keep their `schedule_id` foreign key intact.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { apiError } from "@/lib/utils/api";
 import { getSchedule, updateSchedule, setScheduleActive, type UpdateScheduleInput } from "@/lib/tax/schedules";
@@ -20,7 +20,7 @@ import "@/lib/tax/parties";
 export const dynamic = "force-dynamic";
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  try { await requireRole([]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.taxManage); } catch (res) { return res as Response; }
 
   const { id } = await params;
   try {
@@ -53,7 +53,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  try { await requireRole([]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.taxManage); } catch (res) { return res as Response; }
 
   const { id } = await params;
   try {

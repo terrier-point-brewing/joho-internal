@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { upsertCommitments, releaseCommitments } from "@/lib/production/commitments";
 
 export const dynamic = "force-dynamic";
@@ -9,7 +9,7 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  try { await requireRole(["brewer"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.brewingOperate); } catch (res) { return res as Response; }
 
   const supabase = await createSupabaseServerClient();
   const { data: { user: currentUser } } = await supabase.auth.getUser();
@@ -111,7 +111,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   // Hard delete is admin-only. All child records cascade via FK constraints.
-  try { await requireRole([]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.batchDelete); } catch (res) { return res as Response; }
 
   const supabase = await createSupabaseServerClient();
   const { id } = await params;

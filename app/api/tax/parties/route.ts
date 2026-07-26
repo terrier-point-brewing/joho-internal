@@ -6,7 +6,7 @@
  * tax module's GETs (manager+).
  */
 import { NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { apiError } from "@/lib/utils/api";
 import { listParties } from "@/lib/tax/registry";
@@ -18,7 +18,7 @@ import "@/lib/tax/parties";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  try { await requireRole(["manager"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.taxRead); } catch (res) { return res as Response; }
 
   try {
     const sb = createSupabaseAdminClient();

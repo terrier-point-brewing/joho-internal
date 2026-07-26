@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
   allocationView,
@@ -85,7 +85,7 @@ async function loadAllocationView(
 // The `assessment` in the response carries the tolerance verdict so the caller
 // can surface a warning; the write-off is never blocked on it.
 export async function POST(req: NextRequest, { params }: RouteParams) {
-  try { await requireRole(["brewer"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.exportOperate); } catch (res) { return res as Response; }
 
   const supabase = await createSupabaseServerClient();
   const { id } = await params;
@@ -134,7 +134,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 // Reopens the allocation (and its commitment) so it is no longer treated as
 // fulfilled. No financial side effect.
 export async function DELETE(_req: NextRequest, { params }: RouteParams) {
-  try { await requireRole(["brewer"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.exportOperate); } catch (res) { return res as Response; }
 
   const supabase = await createSupabaseServerClient();
   const { id } = await params;

@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { getSessionUser } from "@/lib/auth";
+import { CAP, can } from "@/lib/auth";
 import SubNav from "@/app/components/SubNav";
 import PageHeader from "@/app/components/PageHeader";
 import { TAPROOM_NAV, TAPROOM_SETTINGS_NAV } from "@/app/taproom/nav-config";
@@ -7,8 +8,9 @@ import { TAPROOM_NAV, TAPROOM_SETTINGS_NAV } from "@/app/taproom/nav-config";
 export default async function TaproomSettingsLayout({ children }: { children: React.ReactNode }) {
   const session = await getSessionUser();
   // Settings modules are for taproom managers (and admins); everyone else is
-  // bounced back to the performance dashboard.
-  if (!session || (session.role !== "manager" && session.role !== "admin")) {
+  // bounced back to the performance dashboard. taproom.settings has no API
+  // routes of its own — this layout is its only enforcement point.
+  if (!session || !can(session.grants, CAP.taproomSettingsOperate.scope, CAP.taproomSettingsOperate.level)) {
     redirect("/taproom/performance");
   }
 

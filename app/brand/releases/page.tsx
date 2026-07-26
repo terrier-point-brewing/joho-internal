@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { getSessionUser } from "@/lib/auth";
+import { CAP, can } from "@/lib/auth";
 import { getCanon } from "@/lib/brand/getCanon";
 import LabelsWorkbench from "./LabelsWorkbench";
 
@@ -9,7 +10,9 @@ import LabelsWorkbench from "./LabelsWorkbench";
 // one source — the canon — rather than duplicated in UI).
 export default async function ReleasesPage() {
   const session = await getSessionUser();
-  if (!session || session.role !== "admin") redirect("/brand/guide");
+  if (!session || !can(session.grants, CAP.brandWorkbenchManage.scope, CAP.brandWorkbenchManage.level)) {
+    redirect("/brand/guide");
+  }
 
   const canon = await getCanon();
   return <LabelsWorkbench criteria={canon.naming.criteria} />;

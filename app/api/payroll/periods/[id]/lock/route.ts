@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole, getSessionUser } from "@/lib/auth";
+import { requirePermission, CAP, getSessionUser } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { apiError } from "@/lib/utils/api";
 import { buildPayrollPreview } from "@/lib/payroll/previewService";
@@ -11,7 +11,7 @@ export async function POST(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  try { await requireRole([]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.payrollManage); } catch (res) { return res as Response; }
 
   const session = await getSessionUser();
   const supabase = await createSupabaseServerClient();

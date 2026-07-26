@@ -4,7 +4,8 @@ import { useEffect, useState, useRef } from "react";
 import { formatCurrencyCents } from "@/lib/format";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchJson } from "@/app/production/hooks/queries";
-import { useUserRole } from "@/lib/hooks/useUserRole";
+import { usePermissions } from "@/lib/hooks/useUserRole";
+import { CAP } from "@/lib/auth/capabilities";
 import { queryKeys } from "@/lib/query-keys";
 
 type Tier = "baseline" | "recovery" | "target" | "stretch";
@@ -84,8 +85,8 @@ const selectCls =
 
 export default function TargetSettingTab() {
   const currentYear = new Date().getFullYear();
-  const { role } = useUserRole();
-  const isAdmin = role === "admin";
+  const { can } = usePermissions();
+  const canEdit = can(CAP.targetsEdit);
 
   const qc = useQueryClient();
   const { data: targets = [], isLoading: loading } = useQuery({
@@ -211,7 +212,7 @@ export default function TargetSettingTab() {
               {y}
             </button>
           ))}
-          {isAdmin && (
+          {canEdit && (
             <>
               <div className="w-px h-5 bg-surface-high mx-1" />
               <button
@@ -255,7 +256,7 @@ export default function TargetSettingTab() {
             {!hasAnyForYear && (
               <div className="px-4 py-6 text-center text-sm text-faint">
                 No targets set for {year}.{" "}
-                {isAdmin && (
+                {canEdit && (
                   <button onClick={handleEnterEdit} className="text-accent hover:text-accent underline">
                     Add some
                   </button>

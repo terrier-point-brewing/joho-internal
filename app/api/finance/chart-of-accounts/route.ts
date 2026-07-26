@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole, getSessionUser } from "@/lib/auth";
+import { requirePermission, CAP, getSessionUser } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
 // GET /api/finance/chart-of-accounts — list all accounts
 export async function GET() {
-  try { await requireRole(["viewer"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.financeTransactionsRead); } catch (res) { return res as Response; }
 
   const supabase = createSupabaseAdminClient();
   const { data, error } = await supabase
@@ -35,7 +35,7 @@ export interface CoARow {
 // The "manual add" path sends a single-element array and sets keepExtras=true
 // so manually added accounts are never auto-deleted by a bulk upload.
 export async function POST(req: NextRequest) {
-  try { await requireRole([]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.financeTransactionsManage); } catch (res) { return res as Response; }
 
   const session = await getSessionUser();
   const body = await req.json() as { accounts: CoARow[]; keepExtras?: boolean };
@@ -81,7 +81,7 @@ export async function POST(req: NextRequest) {
 
 // PATCH /api/finance/chart-of-accounts — update individual account fields
 export async function PATCH(req: NextRequest) {
-  try { await requireRole([]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.financeTransactionsManage); } catch (res) { return res as Response; }
 
   const body = await req.json() as {
     id: string;
@@ -114,7 +114,7 @@ export async function PATCH(req: NextRequest) {
 // ON DELETE SET NULL — the per-row delete refuses to orphan mappings/ledger rows
 // and returns 409 with the blocking references so the UI can explain why.
 export async function DELETE(req: NextRequest) {
-  try { await requireRole([]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.financeTransactionsManage); } catch (res) { return res as Response; }
 
   const id = new URL(req.url).searchParams.get("id");
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });

@@ -6,7 +6,7 @@
  * Square catalog taxes, not part of the party template).
  */
 import { NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { apiError } from "@/lib/utils/api";
 import { fetchCatalogTaxes } from "@/lib/square/catalog";
 
@@ -19,7 +19,7 @@ export interface SquareTaxOption {
 }
 
 export async function GET() {
-  try { await requireRole(["manager"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.taxRead); } catch (res) { return res as Response; }
 
   try {
     const taxes = await fetchCatalogTaxes();

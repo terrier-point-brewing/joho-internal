@@ -7,7 +7,7 @@
  * lists the task's files. Manager+ (same gate as the other task routes).
  */
 import { NextRequest, NextResponse } from "next/server";
-import { getSessionUser, requireRole } from "@/lib/auth";
+import { getSessionUser, requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { apiError } from "@/lib/utils/api";
 import { uploadTaskFile, listTaskFiles } from "@/lib/tax/files";
@@ -15,7 +15,7 @@ import { uploadTaskFile, listTaskFiles } from "@/lib/tax/files";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  try { await requireRole(["manager"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.taxOperate); } catch (res) { return res as Response; }
 
   const { id } = await params;
   try {
@@ -48,7 +48,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 }
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  try { await requireRole(["manager"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.taxRead); } catch (res) { return res as Response; }
 
   const { id } = await params;
   try {

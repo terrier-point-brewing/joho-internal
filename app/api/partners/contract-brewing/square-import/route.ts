@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { squareGet } from "@/lib/square/client";
 import { SquareCustomer, customerAddressString } from "@/lib/square/customers";
@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
  * In both cases the partner's fields are synced from Square.
  */
 export async function POST(req: NextRequest) {
-  try { await requireRole([]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.partnersManage); } catch (res) { return res as Response; }
 
 
   const supabase = await createSupabaseServerClient();

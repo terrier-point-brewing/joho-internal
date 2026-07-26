@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 
-vi.mock("@/lib/auth", () => ({
-  requireRole: vi.fn().mockResolvedValue(undefined),
-}));
+vi.mock("@/lib/auth", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/auth")>();
+  return { ...actual, requirePermission: vi.fn().mockResolvedValue(undefined) };
+});
 
 const deleteEqCalls: Array<{ field: string; value: unknown }> = [];
 

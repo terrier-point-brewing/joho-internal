@@ -10,7 +10,7 @@
  * Manager+ only, service-role client.
  */
 import { NextResponse, type NextRequest } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { validateManualSplit } from "@/lib/finance/expenseSplits";
 import { resolveExpenseGlLines } from "@/lib/finance/expenseGlLines";
@@ -55,7 +55,7 @@ async function currentState(sb: SbClient, id: string) {
 }
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  try { await requireRole(["manager"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.financeTransactionsManage); } catch (res) { return res as Response; }
 
   const { id } = await params;
   const body = (await req.json()) as { lines?: SplitLineBody[] };
@@ -142,7 +142,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  try { await requireRole(["manager"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.financeTransactionsManage); } catch (res) { return res as Response; }
 
   const { id } = await params;
   const sb = createSupabaseAdminClient();

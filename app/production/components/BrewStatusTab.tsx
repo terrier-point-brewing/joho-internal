@@ -18,7 +18,8 @@ import {
   useTransfersQuery, useRecipesQuery, useBatchScheduleQuery, useBatchConversionsQuery, useColdStorageQuery,
   productionKeys, type ScheduleEntry,
 } from "../hooks/queries";
-import { useUserRole } from "@/lib/hooks/useUserRole";
+import { usePermissions } from "@/lib/hooks/useUserRole";
+import { CAP } from "@/lib/auth/capabilities";
 import { STAGE_LABELS } from "./EquipmentSchedule/constants";
 
 
@@ -70,9 +71,8 @@ function eqStyle(t: Equipment, cell: number): React.CSSProperties {
 
 export default function BrewStatusTab() {
   const qc = useQueryClient();
-  const { role } = useUserRole();
-  const isAdmin          = role === "admin";
-  const canEditEquipment = role === "brewer" || role === "admin";
+  const { can } = usePermissions();
+  const canEditEquipment = can(CAP.equipmentManage);
   const { data: tanks = [] } = useEquipmentQuery();
   const { data: assignments = [] } = useAssignmentsQuery();
   const { data: batches = [] } = useBatchesQuery();
@@ -733,8 +733,8 @@ export default function BrewStatusTab() {
         </div>
       )}
 
-      {/* Grid size controls — edit mode, admin only */}
-      {editMode && isAdmin && (
+      {/* Grid size controls — edit mode, requires equipment manage */}
+      {editMode && canEditEquipment && (
         <div className="flex items-center gap-4 mb-3 text-xs text-muted">
           <span className="font-medium text-secondary">Grid size:</span>
           <label className="flex items-center gap-1.5">

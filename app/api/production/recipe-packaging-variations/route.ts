@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { PACKAGING_VARIATION_SELECT } from "@/lib/production/packagingVariations";
 
@@ -39,7 +39,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  try { await requireRole(["brewer"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.recipesOperate); } catch (res) { return res as Response; }
 
   const supabase = await createSupabaseServerClient();
   const { recipe_id, variation_id } = await req.json();
@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  try { await requireRole(["brewer"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.recipesOperate); } catch (res) { return res as Response; }
 
   const supabase = await createSupabaseServerClient();
   const id = req.nextUrl.searchParams.get("id");

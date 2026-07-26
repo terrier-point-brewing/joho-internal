@@ -9,7 +9,7 @@
  * leave unchanged).
  */
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { apiError } from "@/lib/utils/api";
 import {
@@ -22,7 +22,7 @@ import { maskSensitive } from "@/lib/tax/profiles";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  try { await requireRole(["manager"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.taxRead); } catch (res) { return res as Response; }
 
   try {
     const sb = createSupabaseAdminClient();
@@ -34,7 +34,7 @@ export async function GET() {
 }
 
 export async function PUT(req: NextRequest) {
-  try { await requireRole([]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.taxManage); } catch (res) { return res as Response; }
 
   try {
     const body = (await req.json()) as Record<string, string>;

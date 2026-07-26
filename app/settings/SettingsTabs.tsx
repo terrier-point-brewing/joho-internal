@@ -5,31 +5,35 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import PageHeader from "@/app/components/PageHeader";
 import { TAB_ROW, tabItem } from "@/app/components/ui/tabStyles";
+import { usePermissions } from "@/lib/hooks/useUserRole";
+import { CAP } from "@/lib/auth/capabilities";
+import type { Capability } from "@/lib/auth/capabilities";
 
-export default function SettingsTabs({ isAdmin }: { isAdmin: boolean }) {
+export default function SettingsTabs() {
   const pathname = usePathname();
+  const { can } = usePermissions();
+  const canManageUsers = can(CAP.usersManage);
   const [pendingCount, setPendingCount] = useState(0);
 
   useEffect(() => {
-    if (!isAdmin) return;
+    if (!canManageUsers) return;
     fetch("/api/admin/requests")
       .then((r) => r.ok ? r.json() : [])
       .then((data: { status: string }[]) =>
         setPendingCount(data.filter((r) => r.status === "pending").length)
       )
       .catch(() => {});
-  }, [isAdmin]);
+  }, [canManageUsers]);
 
-  const tabs = [
+  const allTabs: { label: string; href: string; badge: number; requires?: Capability }[] = [
     { label: "Account", href: "/settings/account", badge: 0 },
     { label: "Appearance", href: "/settings/appearance", badge: 0 },
-    ...(isAdmin ? [
-      { label: "Business", href: "/settings/business", badge: 0 },
-      { label: "Users", href: "/settings/users", badge: 0 },
-      { label: "Access Requests", href: "/settings/requests", badge: pendingCount },
-      { label: "Cron Jobs", href: "/settings/cron", badge: 0 },
-    ] : []),
+    { label: "Business", href: "/settings/business", badge: 0, requires: CAP.businessSettingsManage },
+    { label: "Users", href: "/settings/users", badge: 0, requires: CAP.usersManage },
+    { label: "Access Requests", href: "/settings/requests", badge: pendingCount, requires: CAP.usersManage },
+    { label: "Cron Jobs", href: "/settings/cron", badge: 0, requires: CAP.cronRead },
   ];
+  const tabs = allTabs.filter((t) => !t.requires || can(t.requires));
 
   return (
     <div className="px-4 sm:px-6">

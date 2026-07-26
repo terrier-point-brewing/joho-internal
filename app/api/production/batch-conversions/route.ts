@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -12,7 +12,7 @@ const BATCH_CONVERSION_SELECT = `
 `.trim();
 
 export async function GET(req: NextRequest) {
-  try { await requireRole(["viewer"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.brewingRead); } catch (res) { return res as Response; }
 
   const supabase = await createSupabaseServerClient();
   const { searchParams } = new URL(req.url);
@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  try { await requireRole(["brewer"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.brewingOperate); } catch (res) { return res as Response; }
 
   const supabase = await createSupabaseServerClient();
   const body = await req.json();

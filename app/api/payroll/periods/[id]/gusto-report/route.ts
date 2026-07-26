@@ -13,7 +13,7 @@
  * task files route).
  */
 import { NextRequest, NextResponse } from "next/server";
-import { getSessionUser, requireRole } from "@/lib/auth";
+import { getSessionUser, requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { apiError } from "@/lib/utils/api";
 import { uploadGustoReport, getActiveGustoReport } from "@/lib/payroll/gustoUpload";
@@ -22,7 +22,7 @@ import type { PayrollGlReportEmployee } from "@/lib/payroll/types";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  try { await requireRole(["manager"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.payrollOperate); } catch (res) { return res as Response; }
 
   const { id } = await params;
   try {
@@ -61,7 +61,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 }
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  try { await requireRole(["manager"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.payrollRead); } catch (res) { return res as Response; }
 
   const { id } = await params;
   try {

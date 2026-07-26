@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -9,7 +9,7 @@ export async function PATCH(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  try { await requireRole(["brewer"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.brewingOperate); } catch (res) { return res as Response; }
 
 
   const supabase = await createSupabaseServerClient();

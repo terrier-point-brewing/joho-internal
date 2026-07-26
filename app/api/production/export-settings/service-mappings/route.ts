@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
@@ -9,7 +9,7 @@ const DISCOUNT_TYPES = ["distribution_discount", "wholesale_discount"] as const;
 type ServiceType = typeof SERVICE_TYPES[number];
 
 export async function GET(req: NextRequest) {
-  try { await requireRole(["viewer", "brewer", "manager"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.productionSettingsRead); } catch (res) { return res as Response; }
 
   const { searchParams } = new URL(req.url);
   const serviceType = searchParams.get("service_type");
@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function PUT(req: NextRequest) {
-  try { await requireRole(["brewer"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.productionSettingsManage); } catch (res) { return res as Response; }
 
   const body = await req.json() as {
     id?: string;

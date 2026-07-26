@@ -5,7 +5,7 @@
  * `app/api/brand/assets/[id]/route.ts`.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { apiError } from "@/lib/utils/api";
 import { approveLabel, archiveLabel, getLabel, updateLabel, type SupabaseLikeClient } from "@/lib/brand/labels";
@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(_req: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    await requireRole([]); // admin only
+    await requirePermission(CAP.brandWorkbenchRead); // admin only
   } catch (res) {
     return res as Response;
   }
@@ -34,7 +34,7 @@ export async function GET(_req: NextRequest, context: { params: Promise<{ id: st
 
 export async function PATCH(req: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    await requireRole([]); // admin only
+    await requirePermission(CAP.brandWorkbenchManage); // admin only
   } catch (res) {
     return res as Response;
   }

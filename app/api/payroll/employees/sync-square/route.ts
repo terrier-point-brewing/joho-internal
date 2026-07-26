@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { apiError } from "@/lib/utils/api";
 import { fetchActiveTeamMembers } from "@/lib/square/teamMembers";
@@ -7,7 +7,7 @@ import { fetchActiveTeamMembers } from "@/lib/square/teamMembers";
 export const dynamic = "force-dynamic";
 
 export async function POST() {
-  try { await requireRole([]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.payrollManage); } catch (res) { return res as Response; }
 
   let members;
   try {

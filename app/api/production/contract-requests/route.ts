@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -30,7 +30,7 @@ const COMMITMENT_SELECT = `*, recipes(beer_name), contract_brewing_partners(comp
   commitment_packaging_preferences(id, commitment_id, variation_id, qty, created_at, packaging_variations(id, name, total_volume_fl_oz, container_id, format))`;
 
 export async function GET(req: NextRequest) {
-  try { await requireRole(["viewer", "brewer", "manager"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.partnersRead); } catch (res) { return res as Response; }
 
   const supabase = await createSupabaseServerClient();
 
@@ -111,7 +111,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  try { await requireRole(["brewer"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.partnersOperate); } catch (res) { return res as Response; }
 
   const supabase = await createSupabaseServerClient();
 
@@ -154,7 +154,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  try { await requireRole(["brewer"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.partnersOperate); } catch (res) { return res as Response; }
 
   const supabase = await createSupabaseServerClient();
 
@@ -231,7 +231,7 @@ export async function PATCH(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  try { await requireRole(["brewer"]); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.partnersOperate); } catch (res) { return res as Response; }
 
 
   const supabase = await createSupabaseServerClient();

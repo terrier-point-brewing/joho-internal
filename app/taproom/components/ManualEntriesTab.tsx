@@ -4,7 +4,8 @@ import { useState } from "react";
 import { formatCurrencyCents } from "@/lib/format";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchJson } from "@/app/production/hooks/queries";
-import { useUserRole } from "@/lib/hooks/useUserRole";
+import { usePermissions } from "@/lib/hooks/useUserRole";
+import { CAP } from "@/lib/auth/capabilities";
 import { queryKeys } from "@/lib/query-keys";
 
 type ManualEntry = {
@@ -60,8 +61,8 @@ const inputCls = "inp";
 // ---------------------------------------------------------------------------
 
 export default function ManualEntriesTab() {
-  const { role } = useUserRole();
-  const isAdmin = role === "admin";
+  const { can } = usePermissions();
+  const canEdit = can(CAP.targetsEdit);
   const qc = useQueryClient();
   const { data: entries = [], isLoading: loading } = useQuery({
     queryKey: queryKeys.taproom.manualEntries(),
@@ -135,12 +136,12 @@ export default function ManualEntriesTab() {
   return (
     <div className="max-w-3xl space-y-6">
       {/* Add form — admin only */}
-      {!isAdmin && (
+      {!canEdit && (
         <div className="bg-surface border border-line rounded-lg px-5 py-4 text-sm text-muted">
           Manual entries can only be created by admins.
         </div>
       )}
-      {isAdmin && <form
+      {canEdit && <form
         onSubmit={handleAdd}
         className="bg-surface border border-line rounded-lg p-6 space-y-4"
       >
@@ -276,13 +277,15 @@ export default function ManualEntriesTab() {
                               {entry.label ?? <span className="text-disabled">—</span>}
                             </td>
                             <td className="px-4 py-2.5 text-right">
-                              <button
-                                onClick={() => handleDelete(entry.id)}
-                                disabled={deleting === entry.id}
-                                className="text-xs text-faint hover:text-danger disabled:opacity-40 transition-colors"
-                              >
-                                {deleting === entry.id ? "…" : "Delete"}
-                              </button>
+                              {canEdit && (
+                                <button
+                                  onClick={() => handleDelete(entry.id)}
+                                  disabled={deleting === entry.id}
+                                  className="text-xs text-faint hover:text-danger disabled:opacity-40 transition-colors"
+                                >
+                                  {deleting === entry.id ? "…" : "Delete"}
+                                </button>
+                              )}
                             </td>
                           </tr>
                         );
