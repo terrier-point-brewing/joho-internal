@@ -5,42 +5,7 @@ import type {
   Employee, PayPeriod, PayrollConfig, PayrollEntry, PayrollPreview,
   TipBucketSummary, TipPoolFrequency,
 } from "./types";
-
-function getDays(startDate: string, endDate: string): string[] {
-  const days: string[] = [];
-  const cursor = new Date(startDate + "T12:00:00Z");
-  const end = new Date(endDate + "T12:00:00Z");
-  while (cursor <= end) {
-    days.push(cursor.toISOString().slice(0, 10));
-    cursor.setUTCDate(cursor.getUTCDate() + 1);
-  }
-  return days;
-}
-
-function dayGroups(days: string[], frequency: TipPoolFrequency): string[][] {
-  if (frequency === "biweekly") return [days];
-  if (frequency === "daily") return days.map(d => [d]);
-  const groups: string[][] = [];
-  for (let i = 0; i < days.length; i += 7) groups.push(days.slice(i, i + 7));
-  return groups;
-}
-
-function fmtDate(d: string): string {
-  const [, m, day] = d.split("-");
-  return `${parseInt(m)}/${parseInt(day)}`;
-}
-
-function bucketLabels(frequency: TipPoolFrequency, startDate: string, endDate: string): string[] {
-  const days = getDays(startDate, endDate);
-  if (frequency === "biweekly") return [`${fmtDate(startDate)} – ${fmtDate(endDate)}`];
-  if (frequency === "daily") return days.map(fmtDate);
-  const labels: string[] = [];
-  for (let i = 0; i < days.length; i += 7) {
-    const w = days.slice(i, i + 7);
-    labels.push(`${fmtDate(w[0])} – ${fmtDate(w[w.length - 1])}`);
-  }
-  return labels;
-}
+import { getDays, dayGroups, bucketLabels } from "./dailyGrid";
 
 /**
  * Two-step attribution:
