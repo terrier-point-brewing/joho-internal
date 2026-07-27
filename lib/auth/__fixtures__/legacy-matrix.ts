@@ -15,13 +15,17 @@ export interface LegacyRow {
  * throwaway script — see lib/auth/__tests__/equivalence.test.ts for how it's
  * consumed. Do not hand-edit; regenerate if the validation source changes.
  *
- * 211 rows, one per (route, method) call site under app/api/**. 27 rows carry
- * an intentionalChange — together they cover all 28 assertions (out of 844)
+ * 211 rows, one per (route, method) call site under app/api/**. 28 rows carry
+ * an intentionalChange — together they cover all 29 assertions (out of 844)
  * that differ from legacy requireRole behaviour; one route
- * (GET production/batch-conversions) accounts for two of the 28 (a viewer
- * loss and a brewer gain), so 28 differing assertions land on 27 rows. See
+ * (GET production/batch-conversions) accounts for two of them (a viewer
+ * loss and a brewer gain), so 29 differing assertions land on 28 rows. See
  * docs/superpowers/specs/2026-07-25-scoped-permissions-design.md, "Validation
  * result", for the reasons.
+ *
+ * The 28th row (GET payroll/periods/[id]/shifts) was hand-edited on 2026-07-27
+ * when that route's gate was lowered from payrollManage to payrollRead; see
+ * docs/superpowers/specs/2026-07-27-payroll-day-override-grid-design.md §5.
  */
 export const LEGACY_MATRIX: LegacyRow[] = [
   { route: "admin/cron-runs", method: "GET", legacy: [], capability: "cronRead" },
@@ -113,7 +117,7 @@ export const LEGACY_MATRIX: LegacyRow[] = [
   { route: "payroll/periods/[id]/lock", method: "POST", legacy: [], capability: "payrollManage" },
   { route: "payroll/periods/[id]/preview", method: "GET", legacy: ["manager"], capability: "payrollRead" },
   { route: "payroll/periods/[id]", method: "GET", legacy: ["manager"], capability: "payrollRead" },
-  { route: "payroll/periods/[id]/shifts", method: "GET", legacy: [], capability: "payrollManage" },
+  { route: "payroll/periods/[id]/shifts", method: "GET", legacy: [], capability: "payrollRead", intentionalChange: { manager: true, reason: "Gate lowered from payrollManage (admin-only) to payrollRead: app/taproom/payroll/layout.tsx gates the page at payrollRead, so managers could see the Shifts tab but got a 403 fetching it" } },
   { route: "payroll/periods", method: "GET", legacy: ["manager"], capability: "payrollRead" },
   { route: "payroll/periods", method: "POST", legacy: [], capability: "payrollManage" },
   { route: "production/allocations/[id]/adjust", method: "POST", legacy: ["brewer"], capability: "exportOperate" },

@@ -12,11 +12,11 @@ function legacyRequireRole(role: UserRole, list: UserRole[]): boolean {
 }
 
 describe("legacy role <-> scoped permission equivalence", () => {
-  it("fixture has exactly 211 rows, 27 with an intentional change, every reason non-empty", () => {
+  it("fixture has exactly 211 rows, 28 with an intentional change, every reason non-empty", () => {
     expect(LEGACY_MATRIX).toHaveLength(211);
 
     const changed = LEGACY_MATRIX.filter((row) => row.intentionalChange);
-    expect(changed).toHaveLength(27);
+    expect(changed).toHaveLength(28);
 
     for (const row of changed) {
       expect(row.intentionalChange!.reason.trim().length).toBeGreaterThan(0);

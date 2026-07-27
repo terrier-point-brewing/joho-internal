@@ -29,10 +29,15 @@ export async function GET(
 
   if (pErr || !period) return apiError("Period not found", 404);
 
-  const { data: overrideRows } = await supabase
+  const { data: overrideRows, error: ovErr } = await supabase
     .from("payroll_shift_overrides")
     .select("employee_id, work_date, adj_hours, adj_paycheck_tips_cents, adj_cash_tips_cents, note")
     .eq("pay_period_id", id);
+
+  // Surface rather than degrade: silently falling back to [] would render the
+  // grid as if a manager's corrections had never been saved, inviting them to
+  // enter the same override twice.
+  if (ovErr) return apiError(ovErr.message);
 
   const overrides = (overrideRows ?? []) as DayOverride[];
   const emps = (employees ?? []) as Employee[];
@@ -77,7 +82,9 @@ export async function GET(
 
   const rows = [...sqIds].map(sq => {
     const emp = empBySq.get(sq);
-    const isTipped = !!emp?.receives_tips;
+    // Must match buildDailyGrid's tipped predicate exactly, or a salaried or
+    // inactive tip-receiver renders an all-"—" tips row instead of no row.
+    const isTipped = !!emp && emp.receives_tips && emp.active && emp.employment_type === "hourly";
     const daily_hours = pick(grid.hoursByDate, sq);
     const overridesForRow: Record<string, {
       adj_hours: number | null;
