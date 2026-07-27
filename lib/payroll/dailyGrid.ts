@@ -1,4 +1,6 @@
-import type { TipPoolFrequency } from "./types";
+import { fetchShiftsByDay } from "@/lib/square/labor";
+import { fetchTipsAndCashTakeByDay } from "@/lib/square/payroll";
+import type { Employee, PayPeriod, TipPoolFrequency } from "./types";
 
 export interface DayOverride {
   employee_id: string;
@@ -182,4 +184,113 @@ export function bucketViolations(buckets: TipBucket[]): BucketViolation[] {
     }
   }
   return out;
+}
+
+export interface DailyGrid {
+  days: string[];
+  /** date -> square_team_member_id -> value */
+  hoursByDate: Map<string, Map<string, number>>;
+  cashByDate: Map<string, Map<string, number>>;
+  cardTipsByDate: Map<string, Map<string, number>>;
+  buckets: TipBucket[];
+  totalPooledTipsCents: number;
+}
+
+function setCell(m: Map<string, Map<string, number>>, date: string, sqId: string, v: number) {
+  if (!m.has(date)) m.set(date, new Map());
+  m.get(date)!.set(sqId, v);
+}
+function addCell(m: Map<string, Map<string, number>>, date: string, sqId: string, v: number) {
+  if (!m.has(date)) m.set(date, new Map());
+  const inner = m.get(date)!;
+  inner.set(sqId, (inner.get(sqId) ?? 0) + v);
+}
+
+/**
+ * Single owner of day-level payroll computation. Both the Shifts route and
+ * previewService consume this; they used to duplicate it and had drifted.
+ * Maps key on square_team_member_id (spec §2 "ID space"); override rows are
+ * translated employee-id -> square-id once here.
+ */
+export async function buildDailyGrid(
+  period: PayPeriod,
+  employees: Employee[],
+  tipPoolFrequency: TipPoolFrequency,
+  overrides: DayOverride[],
+): Promise<DailyGrid> {
+  const days = getDays(period.start_date, period.end_date);
+
+  const sqByEmployeeId = new Map(
+    employees.filter(e => e.square_team_member_id).map(e => [e.id, e.square_team_member_id!])
+  );
+  const tippedSqIds = new Set(
+    employees
+      .filter(e => e.employment_type === "hourly" && e.receives_tips && e.active && e.square_team_member_id)
+      .map(e => e.square_team_member_id!)
+  );
+
+  const [rawShifts, dailyTips] = await Promise.all([
+    fetchShiftsByDay(period.start_date, period.end_date),
+    fetchTipsAndCashTakeByDay(period.start_date, period.end_date),
+  ]);
+
+  const hoursByDate = new Map<string, Map<string, number>>();
+  const cashByDate  = new Map<string, Map<string, number>>();
+  for (const s of rawShifts) {
+    addCell(hoursByDate, s.date, s.team_member_id, s.hours);
+    addCell(cashByDate,  s.date, s.team_member_id, s.cash_tips_cents);
+  }
+
+  // Layer 1: day overrides replace the Square-derived value outright. An
+  // override may create a cell that has no underlying shift (missed punch).
+  const pinsByDate = new Map<string, Map<string, number>>();
+  for (const o of overrides) {
+    const sqId = sqByEmployeeId.get(o.employee_id);
+    if (!sqId) continue;
+    if (o.adj_hours != null) setCell(hoursByDate, o.work_date, sqId, o.adj_hours);
+    if (o.adj_cash_tips_cents != null) setCell(cashByDate, o.work_date, sqId, o.adj_cash_tips_cents);
+    if (o.adj_paycheck_tips_cents != null) setCell(pinsByDate, o.work_date, sqId, o.adj_paycheck_tips_cents);
+  }
+
+  const poolByDay = new Map(dailyTips.map(t => [t.date, t.tipsPooledCents]));
+  const groups = dayGroups(days, tipPoolFrequency);
+  const labels = bucketLabels(tipPoolFrequency, period.start_date, period.end_date);
+
+  const cardTipsByDate = new Map<string, Map<string, number>>();
+  const buckets: TipBucket[] = [];
+  let totalPooledTipsCents = 0;
+
+  for (let gi = 0; gi < groups.length; gi++) {
+    const group = groups[gi];
+    let poolCents = 0;
+    const cells: CellHours[] = [];
+    const pins: CellPin[] = [];
+
+    for (const day of group) {
+      poolCents += poolByDay.get(day) ?? 0;
+      for (const [sqId, hours] of hoursByDate.get(day) ?? []) {
+        if (tippedSqIds.has(sqId)) cells.push({ employeeId: sqId, date: day, hours });
+      }
+      for (const [sqId, cents] of pinsByDate.get(day) ?? []) {
+        if (tippedSqIds.has(sqId)) pins.push({ employeeId: sqId, date: day, cents });
+      }
+    }
+    totalPooledTipsCents += poolCents;
+
+    const { tips, attributedCents, pinnedCents } = attributeBucket(poolCents, cells, pins);
+    for (const [key, cents] of tips) {
+      const [sqId, day] = key.split("|");
+      setCell(cardTipsByDate, day, sqId, cents);
+    }
+
+    buckets.push({
+      label: labels[gi] ?? `Bucket ${gi + 1}`,
+      days: group,
+      pool_cents: poolCents,
+      pinned_cents: pinnedCents,
+      attributed_cents: attributedCents,
+    });
+  }
+
+  return { days, hoursByDate, cashByDate, cardTipsByDate, buckets, totalPooledTipsCents };
 }

@@ -1,8 +1,16 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   distributeByWeight, attributeBucket, bucketViolations, cellKey,
-  getDays, dayGroups, bucketLabels,
+  getDays, dayGroups, bucketLabels, buildDailyGrid,
 } from "./dailyGrid";
+import type { DailyShift } from "@/lib/square/labor";
+import type { DailyTips } from "@/lib/square/payroll";
+import type { Employee, PayPeriod } from "./types";
+
+const mockShifts = vi.fn<(s: string, e: string) => Promise<DailyShift[]>>();
+const mockTips   = vi.fn<(s: string, e: string) => Promise<DailyTips[]>>();
+vi.mock("@/lib/square/labor",   () => ({ fetchShiftsByDay: (s: string, e: string) => mockShifts(s, e) }));
+vi.mock("@/lib/square/payroll", () => ({ fetchTipsAndCashTakeByDay: (s: string, e: string) => mockTips(s, e) }));
 
 const cell = (sq: string, date: string, hours: number) => ({ employeeId: sq, date, hours });
 const pin  = (sq: string, date: string, cents: number) => ({ employeeId: sq, date, cents });
@@ -180,5 +188,160 @@ describe("dayGroups", () => {
 
   it("returns a single group when biweekly", () => {
     expect(dayGroups(days, "biweekly")).toHaveLength(1);
+  });
+});
+
+const PERIOD = { id: "p1", start_date: "2026-07-01", end_date: "2026-07-02" } as PayPeriod;
+const EMPS = [
+  { id: "e1", square_team_member_id: "s1", receives_tips: true,  employment_type: "hourly", active: true },
+  { id: "e2", square_team_member_id: "s2", receives_tips: true,  employment_type: "hourly", active: true },
+] as Employee[];
+const noOv = { adj_hours: null, adj_paycheck_tips_cents: null, adj_cash_tips_cents: null, note: null };
+
+describe("buildDailyGrid", () => {
+  beforeEach(() => {
+    mockShifts.mockResolvedValue([
+      { team_member_id: "s1", date: "2026-07-01", hours: 6, cash_tips_cents: 1000 },
+      { team_member_id: "s2", date: "2026-07-01", hours: 2, cash_tips_cents: 500 },
+    ]);
+    mockTips.mockResolvedValue([{ date: "2026-07-01", tipsPooledCents: 8000 }]);
+  });
+
+  it("splits the pool by hours with no overrides", async () => {
+    const g = await buildDailyGrid(PERIOD, EMPS, "daily", []);
+    expect(g.cardTipsByDate.get("2026-07-01")!.get("s1")).toBe(6000);
+    expect(g.buckets.find(b => b.days.includes("2026-07-01"))!.attributed_cents).toBe(8000);
+  });
+
+  it("rebalances card tips when hours are overridden", async () => {
+    const g = await buildDailyGrid(PERIOD, EMPS, "daily", [
+      { ...noOv, employee_id: "e2", work_date: "2026-07-01", adj_hours: 6 },
+    ]);
+    expect(g.hoursByDate.get("2026-07-01")!.get("s2")).toBe(6);
+    expect(g.cardTipsByDate.get("2026-07-01")!.get("s1")).toBe(4000);
+    expect(g.cardTipsByDate.get("2026-07-01")!.get("s2")).toBe(4000);
+  });
+
+  it("creates a cell for a day with no Square shift (missed punch)", async () => {
+    const g = await buildDailyGrid(PERIOD, EMPS, "daily", [
+      { ...noOv, employee_id: "e1", work_date: "2026-07-02", adj_hours: 8 },
+    ]);
+    expect(g.hoursByDate.get("2026-07-02")!.get("s1")).toBe(8);
+  });
+
+  it("replaces declared cash tips without touching hours or card tips", async () => {
+    const g = await buildDailyGrid(PERIOD, EMPS, "daily", [
+      { ...noOv, employee_id: "e1", work_date: "2026-07-01", adj_cash_tips_cents: 4200 },
+    ]);
+    expect(g.cashByDate.get("2026-07-01")!.get("s1")).toBe(4200);
+    expect(g.cardTipsByDate.get("2026-07-01")!.get("s1")).toBe(6000);
+  });
+
+  it("does not throw when a shrunken pool leaves stored pins over-committed", async () => {
+    mockTips.mockResolvedValue([{ date: "2026-07-01", tipsPooledCents: 1000 }]);
+    const g = await buildDailyGrid(PERIOD, EMPS, "daily", [
+      { ...noOv, employee_id: "e1", work_date: "2026-07-01", adj_paycheck_tips_cents: 5000 },
+    ]);
+    const b = g.buckets.find(x => x.days.includes("2026-07-01"))!;
+    expect(b.attributed_cents - b.pool_cents).toBeGreaterThan(0);
+    expect(g.cardTipsByDate.get("2026-07-01")!.get("s2")).toBe(0);
+  });
+
+  it("pools across the whole period when biweekly", async () => {
+    mockShifts.mockResolvedValue([
+      { team_member_id: "s1", date: "2026-07-01", hours: 6, cash_tips_cents: 0 },
+      { team_member_id: "s2", date: "2026-07-02", hours: 2, cash_tips_cents: 0 },
+    ]);
+    mockTips.mockResolvedValue([
+      { date: "2026-07-01", tipsPooledCents: 4000 },
+      { date: "2026-07-02", tipsPooledCents: 4000 },
+    ]);
+    const g = await buildDailyGrid(PERIOD, EMPS, "biweekly", []);
+    expect(g.buckets).toHaveLength(1);
+    // One 8000c pool split 6:2 across days — not two independent 4000c pools.
+    expect(g.cardTipsByDate.get("2026-07-01")!.get("s1")).toBe(6000);
+    expect(g.cardTipsByDate.get("2026-07-02")!.get("s2")).toBe(2000);
+  });
+
+  it("keeps each day independent when daily", async () => {
+    mockShifts.mockResolvedValue([
+      { team_member_id: "s1", date: "2026-07-01", hours: 6, cash_tips_cents: 0 },
+      { team_member_id: "s2", date: "2026-07-02", hours: 2, cash_tips_cents: 0 },
+    ]);
+    mockTips.mockResolvedValue([
+      { date: "2026-07-01", tipsPooledCents: 4000 },
+      { date: "2026-07-02", tipsPooledCents: 4000 },
+    ]);
+    const g = await buildDailyGrid(PERIOD, EMPS, "daily", []);
+    expect(g.buckets).toHaveLength(2);
+    expect(g.cardTipsByDate.get("2026-07-01")!.get("s1")).toBe(4000);
+    expect(g.cardTipsByDate.get("2026-07-02")!.get("s2")).toBe(4000);
+  });
+
+  it("confines a pin's rebalance to its own bucket when daily", async () => {
+    mockShifts.mockResolvedValue([
+      { team_member_id: "s1", date: "2026-07-01", hours: 6, cash_tips_cents: 0 },
+      { team_member_id: "s2", date: "2026-07-01", hours: 2, cash_tips_cents: 0 },
+      { team_member_id: "s1", date: "2026-07-02", hours: 4, cash_tips_cents: 0 },
+    ]);
+    mockTips.mockResolvedValue([
+      { date: "2026-07-01", tipsPooledCents: 8000 },
+      { date: "2026-07-02", tipsPooledCents: 4000 },
+    ]);
+    const g = await buildDailyGrid(PERIOD, EMPS, "daily", [
+      { ...noOv, employee_id: "e1", work_date: "2026-07-01", adj_paycheck_tips_cents: 7000 },
+    ]);
+    expect(g.cardTipsByDate.get("2026-07-01")!.get("s2")).toBe(1000);  // rebalanced
+    expect(g.cardTipsByDate.get("2026-07-02")!.get("s1")).toBe(4000);  // untouched
+  });
+
+  it("excludes an inactive tip-receiving employee's hours from the pool split", async () => {
+    mockShifts.mockResolvedValue([
+      { team_member_id: "s1", date: "2026-07-01", hours: 6, cash_tips_cents: 0 },
+      { team_member_id: "s2", date: "2026-07-01", hours: 2, cash_tips_cents: 0 },
+      { team_member_id: "s3", date: "2026-07-01", hours: 4, cash_tips_cents: 0 },
+    ]);
+    mockTips.mockResolvedValue([{ date: "2026-07-01", tipsPooledCents: 8000 }]);
+    const emps = [
+      ...EMPS,
+      { id: "e3", square_team_member_id: "s3", receives_tips: true, employment_type: "hourly", active: false } as unknown as Employee,
+    ];
+    const g = await buildDailyGrid(PERIOD, emps, "daily", []);
+    // Without the fix, s3's 4 hours would be included in the weight split
+    // (6:2:4 of 8000 = 4000/1333/2667), diluting s1 and s2's card tips.
+    expect(g.cardTipsByDate.get("2026-07-01")!.get("s1")).toBe(6000);
+    expect(g.cardTipsByDate.get("2026-07-01")!.get("s2")).toBe(2000);
+    expect(g.cardTipsByDate.get("2026-07-01")!.get("s3")).toBeUndefined();
+    const b = g.buckets.find(x => x.days.includes("2026-07-01"))!;
+    expect(b.attributed_cents).toBe(b.pool_cents);
+    expect(b.attributed_cents).toBe(8000);
+  });
+
+  it("excludes a salaried tip-receiving employee's hours from the pool split", async () => {
+    mockShifts.mockResolvedValue([
+      { team_member_id: "s1", date: "2026-07-01", hours: 6, cash_tips_cents: 0 },
+      { team_member_id: "s2", date: "2026-07-01", hours: 2, cash_tips_cents: 0 },
+      { team_member_id: "s3", date: "2026-07-01", hours: 4, cash_tips_cents: 0 },
+    ]);
+    mockTips.mockResolvedValue([{ date: "2026-07-01", tipsPooledCents: 8000 }]);
+    const emps = [
+      ...EMPS,
+      { id: "e3", square_team_member_id: "s3", receives_tips: true, employment_type: "salaried", active: true } as unknown as Employee,
+    ];
+    const g = await buildDailyGrid(PERIOD, emps, "daily", []);
+    expect(g.cardTipsByDate.get("2026-07-01")!.get("s1")).toBe(6000);
+    expect(g.cardTipsByDate.get("2026-07-01")!.get("s2")).toBe(2000);
+    expect(g.cardTipsByDate.get("2026-07-01")!.get("s3")).toBeUndefined();
+    const b = g.buckets.find(x => x.days.includes("2026-07-01"))!;
+    expect(b.attributed_cents).toBe(b.pool_cents);
+    expect(b.attributed_cents).toBe(8000);
+  });
+
+  it("ignores overrides for an employee with no square_team_member_id", async () => {
+    const emps = [...EMPS, { id: "e3", square_team_member_id: null, receives_tips: true, employment_type: "hourly", active: true } as unknown as Employee];
+    const g = await buildDailyGrid(PERIOD, emps, "daily", [
+      { ...noOv, employee_id: "e3", work_date: "2026-07-01", adj_hours: 5 },
+    ]);
+    expect(g.cardTipsByDate.get("2026-07-01")!.get("s1")).toBe(6000);
   });
 });

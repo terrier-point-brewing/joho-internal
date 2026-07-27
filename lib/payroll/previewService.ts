@@ -1,11 +1,10 @@
-import { fetchShiftsByDay } from "@/lib/square/labor";
-import { fetchTipsAndCashTakeByDay } from "@/lib/square/payroll";
 import { computePayrollEntries, mergeAdjustments, GuaranteeBucket } from "./calculations";
 import type {
   Employee, PayPeriod, PayrollConfig, PayrollEntry, PayrollPreview,
-  TipBucketSummary, TipPoolFrequency,
+  TipBucketSummary,
 } from "./types";
-import { getDays, dayGroups, bucketLabels } from "./dailyGrid";
+import { buildDailyGrid, dayGroups } from "./dailyGrid";
+import type { DayOverride } from "./dailyGrid";
 
 /**
  * Two-step attribution:
@@ -16,104 +15,50 @@ import { getDays, dayGroups, bucketLabels } from "./dailyGrid";
  */
 async function buildGuaranteeBuckets(
   period: PayPeriod,
-  tippedTeamIds: Set<string>,
+  employees: Employee[],
   config: PayrollConfig,
-): Promise<{
-  buckets: GuaranteeBucket[];
-  tip_buckets: TipBucketSummary[];
-  totalPooledTipsCents: number;
-}> {
-  const days = getDays(period.start_date, period.end_date);
-  const tipFrequency: TipPoolFrequency = config.tip_pool_frequency ?? "biweekly";
-  const guaranteeFrequency: TipPoolFrequency = config.guaranteed_min_frequency ?? "biweekly";
+  overrides: DayOverride[],
+): Promise<{ buckets: GuaranteeBucket[]; tip_buckets: TipBucketSummary[]; totalPooledTipsCents: number }> {
+  const grid = await buildDailyGrid(
+    period, employees, config.tip_pool_frequency ?? "biweekly", overrides
+  );
 
-  const [dailyShifts, dailyTipsArr] = await Promise.all([
-    fetchShiftsByDay(period.start_date, period.end_date),
-    fetchTipsAndCashTakeByDay(period.start_date, period.end_date),
-  ]);
-
-  // Index shifts: date → teamMemberId → hours, and date → teamMemberId → declared cash
-  const shiftsByDate = new Map<string, Map<string, number>>();
-  const cashByDate = new Map<string, Map<string, number>>();
-  for (const s of dailyShifts) {
-    if (!shiftsByDate.has(s.date)) shiftsByDate.set(s.date, new Map());
-    shiftsByDate.get(s.date)!.set(s.team_member_id, (shiftsByDate.get(s.date)!.get(s.team_member_id) ?? 0) + s.hours);
-    if (!cashByDate.has(s.date)) cashByDate.set(s.date, new Map());
-    cashByDate.get(s.date)!.set(s.team_member_id, (cashByDate.get(s.date)!.get(s.team_member_id) ?? 0) + s.cash_tips_cents);
-  }
-
-  // Index pooled (card) tips: date → cents
-  const tipsMap = new Map(dailyTipsArr.map(t => [t.date, t]));
-
-  // ── Step 1: attribute pooled CARD tips to individual days (cash is declared, not pooled) ──
-  const tipGroups = dayGroups(days, tipFrequency);
-  const tipLabels = bucketLabels(tipFrequency, period.start_date, period.end_date);
-
-  const dailyPaycheckTips = new Map<string, Map<string, number>>(); // date → sqId → cents
-
-  const tip_buckets: TipBucketSummary[] = [];
-  let totalPooledTipsCents = 0;
-
-  for (let gi = 0; gi < tipGroups.length; gi++) {
-    const group = tipGroups[gi];
-    let groupTips = 0;
-    for (const day of group) {
-      groupTips += tipsMap.get(day)?.tipsPooledCents ?? 0;
-    }
-    totalPooledTipsCents += groupTips;
-    tip_buckets.push({ label: tipLabels[gi] ?? `Bucket ${gi + 1}`, tipsPooledCents: groupTips });
-
-    // Total tipped-employee hours in this tip pool group (the denominator)
-    let totalGroupHours = 0;
-    for (const day of group) {
-      for (const [id, h] of shiftsByDate.get(day) ?? []) {
-        if (tippedTeamIds.has(id)) totalGroupHours += h;
-      }
-    }
-
-    // Attribute group card tips to each employee-day proportional to hours
-    for (const day of group) {
-      if (!dailyPaycheckTips.has(day)) dailyPaycheckTips.set(day, new Map());
-      const ptMap = dailyPaycheckTips.get(day)!;
-      for (const [id, dayHrs] of shiftsByDate.get(day) ?? []) {
-        if (!tippedTeamIds.has(id) || dayHrs <= 0) continue;
-        const share = totalGroupHours > 0 ? dayHrs / totalGroupHours : 0;
-        ptMap.set(id, Math.round(share * groupTips));
-      }
-    }
-  }
-
-  // ── Step 2: aggregate daily attributed tips into guarantee buckets ─────────
-  const guaranteeGroups = dayGroups(days, guaranteeFrequency);
-  const buckets: GuaranteeBucket[] = guaranteeGroups.map(group => {
+  // Guarantee bucketing is independent of tip-pool bucketing: re-aggregate the
+  // day-level maps at guaranteed_min_frequency. Keys stay square_team_member_id,
+  // which is what GuaranteeBucket and computePayrollEntries already expect.
+  const buckets: GuaranteeBucket[] = dayGroups(
+    grid.days, config.guaranteed_min_frequency ?? "biweekly"
+  ).map(group => {
     const shifts = new Map<string, number>();
     const paycheckTipsCents = new Map<string, number>();
     const cashTipsCents = new Map<string, number>();
     for (const day of group) {
-      for (const [id, h] of shiftsByDate.get(day) ?? []) {
-        if (!tippedTeamIds.has(id)) continue;
-        shifts.set(id, (shifts.get(id) ?? 0) + h);
+      for (const [sqId, h] of grid.hoursByDate.get(day) ?? []) {
+        shifts.set(sqId, (shifts.get(sqId) ?? 0) + h);
       }
-      for (const [id, pt] of dailyPaycheckTips.get(day) ?? []) {
-        paycheckTipsCents.set(id, (paycheckTipsCents.get(id) ?? 0) + pt);
+      for (const [sqId, t] of grid.cardTipsByDate.get(day) ?? []) {
+        paycheckTipsCents.set(sqId, (paycheckTipsCents.get(sqId) ?? 0) + t);
       }
-      // Actual declared cash, straight from the shift record (no pool, no rate).
-      for (const [id, ct] of cashByDate.get(day) ?? []) {
-        if (!tippedTeamIds.has(id)) continue;
-        cashTipsCents.set(id, (cashTipsCents.get(id) ?? 0) + ct);
+      for (const [sqId, c] of grid.cashByDate.get(day) ?? []) {
+        cashTipsCents.set(sqId, (cashTipsCents.get(sqId) ?? 0) + c);
       }
     }
     return { shifts, paycheckTipsCents, cashTipsCents };
   });
 
-  return { buckets, tip_buckets, totalPooledTipsCents };
+  return {
+    buckets,
+    tip_buckets: grid.buckets.map(b => ({ label: b.label, tipsPooledCents: b.pool_cents })),
+    totalPooledTipsCents: grid.totalPooledTipsCents,
+  };
 }
 
 export async function buildPayrollPreview(
   period: PayPeriod,
   allEmployees: Employee[],
   config: PayrollConfig,
-  storedEntries: PayrollEntry[]
+  storedEntries: PayrollEntry[],
+  overrides: DayOverride[] = []
 ): Promise<PayrollPreview> {
   const hourlyTipped = allEmployees.filter(
     (e) => e.employment_type === "hourly" && e.receives_tips && e.active
@@ -122,12 +67,8 @@ export async function buildPayrollPreview(
     (e) => e.employment_type !== "hourly" && e.active
   );
 
-  const tippedTeamIds = new Set(
-    hourlyTipped.filter(e => e.square_team_member_id).map(e => e.square_team_member_id!)
-  );
-
   const { buckets, tip_buckets, totalPooledTipsCents } =
-    await buildGuaranteeBuckets(period, tippedTeamIds, config);
+    await buildGuaranteeBuckets(period, allEmployees, config, overrides);
 
   const computed = computePayrollEntries(hourlyTipped, buckets, config);
 

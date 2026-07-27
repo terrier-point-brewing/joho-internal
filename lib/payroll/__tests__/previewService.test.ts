@@ -273,8 +273,11 @@ describe("buildPayrollPreview — boundaries & fallbacks", () => {
     const preview = await buildPayrollPreview(period, employees, baseConfig, []);
     const shares = preview.entries.map((e) => e.paycheck_tips_cents).sort();
 
-    // 100/3 = 33.33 → Math.round each share to 33 (rounding loses 1 cent total).
-    expect(shares).toEqual([33, 33, 33]);
+    // 100/3 = 33.33 each. The pool total is an invariant: every share floors
+    // to 33 and the one leftover cent goes to the largest fractional
+    // remainder (ties breaking key-ascending), landing on 34 rather than
+    // being lost the way per-cell Math.round used to lose it.
+    expect(shares).toEqual([33, 33, 34]);
   });
 });
 

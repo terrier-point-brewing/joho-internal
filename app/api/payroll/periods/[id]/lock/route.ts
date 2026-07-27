@@ -3,6 +3,7 @@ import { requirePermission, CAP, getSessionUser } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { apiError } from "@/lib/utils/api";
 import { buildPayrollPreview } from "@/lib/payroll/previewService";
+import type { DayOverride } from "@/lib/payroll/dailyGrid";
 import type { PayPeriod, PayrollConfig, Employee, PayrollEntry } from "@/lib/payroll/types";
 
 export const dynamic = "force-dynamic";
@@ -27,9 +28,13 @@ export async function POST(
   if (period.status === "locked") return NextResponse.json({ error: "Already locked" }, { status: 409 });
 
   // Build final preview to snapshot
-  const [{ data: employees }, { data: storedEntries }] = await Promise.all([
+  const [{ data: employees }, { data: storedEntries }, { data: dayOverrides }] = await Promise.all([
     supabase.from("employees").select("*").eq("active", true),
     supabase.from("payroll_entries").select("*").eq("pay_period_id", id),
+    supabase
+      .from("payroll_shift_overrides")
+      .select("employee_id, work_date, adj_hours, adj_paycheck_tips_cents, adj_cash_tips_cents, note")
+      .eq("pay_period_id", id),
   ]);
 
   const { data: configRow, error: cErr } = await supabase
@@ -47,7 +52,8 @@ export async function POST(
       period as PayPeriod,
       (employees ?? []) as Employee[],
       configRow as PayrollConfig,
-      (storedEntries ?? []) as PayrollEntry[]
+      (storedEntries ?? []) as PayrollEntry[],
+      (dayOverrides ?? []) as DayOverride[]
     );
   } catch (err) {
     return apiError(err instanceof Error ? err.message : String(err));
