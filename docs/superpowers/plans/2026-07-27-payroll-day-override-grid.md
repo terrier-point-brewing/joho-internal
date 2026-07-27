@@ -13,7 +13,10 @@
 ## Execution Budget
 
 - **Mode:** subagent-driven-development (4 locality groups: schema+auth / lib.payroll / api / ui).
-- **Spawn cap = 6.** STOP and report before exceeding it.
+- **Spawn cap = 22** (raised from 6 by explicit user decision, 2026-07-27). The
+  `(# locality groups) + 2` formula counts implementation spawns only; subagent-driven
+  development mandates a reviewer per task plus fix rounds, so 6 tasks need ~20.
+  Set `CLAUDE_SPAWN_CAP=22` when executing.
 - Route implementation spawns to the `impl` agent type. Models are per-task below.
 
 ## Global Constraints
