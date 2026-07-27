@@ -191,9 +191,21 @@ export async function buildDailyGrid(
 ```
 
 **ID space:** the Square pipeline keys on `square_team_member_id`; overrides key on
-`employees.id`. The module normalizes to `employees.id` internally so every consumer works
-in employee-id space. Shifts with no matching employee row pass through unmapped and cannot
-be overridden — correct, since there is no FK target.
+`employees.id`. The module keys its maps on **`square_team_member_id`** and translates
+override rows employee-id → square-id once at entry, using the passed `employees` list.
+
+Rationale (revised during planning — an earlier draft normalized to `employees.id`):
+square-id keying is the minimal-blast-radius choice. `GuaranteeBucket` in `calculations.ts`
+is already square-id keyed, so `previewService` needs **no translation at all** and
+`calculations.ts` + `calculations.test.ts` stay untouched — which matters because the whole
+safety argument rests on golden tests staying frozen (§8 case 1). It also preserves today's
+grid behavior of showing shifts from team members with no `employees` row. Unifying the two
+ID spaces is a legitimate follow-up, but must not ride along with a behavior-preserving
+refactor.
+
+An employee with no `square_team_member_id` cannot be overridden — they are already excluded
+from payroll entirely by `computePayrollEntries`, so override mode lists only employees that
+have one.
 
 **Baseline pass.** To render struck-through originals, callers need pre-override values.
 Card tips are derived and rebalance, so the "original" is only meaningful as *what this cell
@@ -363,9 +375,14 @@ Layout **Option B** (click-to-edit one field at a time), validated against a moc
 
 Co-located `lib/payroll/dailyGrid.test.ts` (pure logic; `lib/` coverage floor applies):
 
-1. **Equivalence** — no overrides: output matches current implementation on a fixture.
-   The fixture **must include a refunded payment** so the extraction provably preserves
-   PR #276's net-of-refund behavior (build it via `aggregateDailyTips`).
+1. **Equivalence** — the existing `lib/payroll/__tests__/previewService.test.ts` must pass
+   **unmodified**. It already mocks exactly the two Square fetchers and asserts real computed
+   output across employee filtering, attribution, guarantee bucketing at every frequency,
+   adjustment merge, labels, and totals — it *is* the equivalence harness, stronger than a
+   hand-built fixture. Treat the file as frozen: editing it to accommodate the refactor
+   voids the equivalence claim. `lib/payroll/__tests__/calculations.test.ts` is likewise
+   untouched. Add one case there covering a refunded payment so the extraction provably
+   preserves PR #276's netting (build it via `aggregateDailyTips`).
 2. Hours override — pool total preserved, other cells rebalance.
 3. Card-tip pin — pinned cell exact, remainder redistributed, `Σ == pool`.
 4. Multiple pins in one bucket.
