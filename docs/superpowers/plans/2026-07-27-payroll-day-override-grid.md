@@ -127,6 +127,7 @@ git commit -m "feat(payroll): payroll_shift_overrides table + payrollDayOverride
 **Files:**
 - Create: `lib/payroll/dailyGrid.ts`
 - Create: `lib/payroll/dailyGrid.test.ts`
+- Modify: `lib/payroll/previewService.ts:9-43` (delete the four local helpers, import them instead)
 
 **Interfaces:**
 - Consumes: `TipPoolFrequency` from `./types`.
@@ -472,10 +473,29 @@ export function bucketViolations(buckets: TipBucket[]): BucketViolation[] {
 Run: `npx vitest run lib/payroll/dailyGrid.test.ts`
 Expected: PASS, 21 tests.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Point previewService at the moved helpers**
+
+`getDays`, `dayGroups`, `fmtDate`, and `bucketLabels` now exist in `dailyGrid.ts`. Delete all
+four from `lib/payroll/previewService.ts:9-43` and import the three exported ones instead, so
+the two files never hold duplicate copies:
+
+```ts
+import { getDays, dayGroups, bucketLabels } from "./dailyGrid";
+```
+
+`fmtDate` is module-private in `dailyGrid.ts` and is only used by `bucketLabels`; it does not
+need re-exporting. Nothing else in `previewService.ts` changes in this task.
+
+- [ ] **Step 6: Confirm the equivalence gate still holds**
+
+Run: `npx vitest run lib/payroll lib/square`
+Expected: PASS. `previewService.test.ts` and `calculations.test.ts` must be unmodified —
+this step is a pure move, so any failure means the move was not faithful.
+
+- [ ] **Step 7: Commit**
 
 ```bash
-git add lib/payroll/dailyGrid.ts lib/payroll/dailyGrid.test.ts
+git add lib/payroll/dailyGrid.ts lib/payroll/dailyGrid.test.ts lib/payroll/previewService.ts
 git commit -m "feat(payroll): pool-balanced day-level tip attribution core"
 ```
 
@@ -512,8 +532,12 @@ export interface DailyGrid {
 
 Append to `lib/payroll/dailyGrid.test.ts`. Mock only the Square boundary, mirroring the convention in `previewService.test.ts:24-30`:
 
+Extend the existing import at the top of the file to
+`import { describe, it, expect, vi, beforeEach } from "vitest";` and add `buildDailyGrid` to
+the existing `from "./dailyGrid"` import — do **not** add a dynamic `await import`, the static
+import already resolves post-`vi.mock` (mock calls are hoisted above imports).
+
 ```ts
-import { vi } from "vitest";
 import type { DailyShift } from "@/lib/square/labor";
 import type { DailyTips } from "@/lib/square/payroll";
 import type { Employee, PayPeriod } from "./types";
@@ -522,8 +546,6 @@ const mockShifts = vi.fn<(s: string, e: string) => Promise<DailyShift[]>>();
 const mockTips   = vi.fn<(s: string, e: string) => Promise<DailyTips[]>>();
 vi.mock("@/lib/square/labor",   () => ({ fetchShiftsByDay: (s: string, e: string) => mockShifts(s, e) }));
 vi.mock("@/lib/square/payroll", () => ({ fetchTipsAndCashTakeByDay: (s: string, e: string) => mockTips(s, e) }));
-
-const { buildDailyGrid } = await import("./dailyGrid");
 
 const PERIOD = { id: "p1", start_date: "2026-07-01", end_date: "2026-07-02" } as PayPeriod;
 const EMPS = [
@@ -1516,15 +1538,7 @@ Worded from the live config so no frequency is privileged:
 
 The positive case is reachable with no user action — a refund syncing late shrinks the pool under stored pins — so it must render at blocking severity, not as a quiet note.
 
-- [ ] **Step 6: Verify in the browser**
-
-```bash
-npm run dev
-```
-
-Then via the preview tools: load `/taproom/payroll`, open the Shifts tab, confirm the grid renders read-only, toggle Override Mode, click an hours line, type a value, Save, and confirm the Summary tab total moves. Check `read_console_messages` for errors.
-
-- [ ] **Step 7: Verify and commit**
+- [ ] **Step 6: Verify and commit**
 
 Run: `npm run verify`
 Expected: PASS.
@@ -1538,6 +1552,10 @@ git commit -m "feat(payroll): per-day override mode in the Shifts grid"
 
 ## Post-Implementation
 
+- [ ] Browser verification (**controller, not an implementer subagent** — dev servers run via
+      the preview tooling, never `npm run dev` in Bash). Load `/taproom/payroll`, open Shifts,
+      confirm read-only render, toggle Override Mode, edit an hours line, Save, confirm the
+      Summary total moves. Check console messages for errors.
 - [ ] Final whole-branch review — **Opus**, once. Per `feedback_final_review_catches_real_bugs`, do not skip under budget pressure.
 - [ ] Confirm `git diff main --stat` shows `previewService.test.ts` and `calculations.test.ts` unchanged.
 - [ ] Open the PR. Note in the body that migration `20260821_payroll_shift_overrides.sql` is **pending prod apply** and the feature 500s until it is applied.
