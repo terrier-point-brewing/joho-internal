@@ -1,4 +1,5 @@
 import { squareGetAll, squareLocationId } from "./client";
+import { fetchRefunds } from "./refunds";
 
 interface SquarePayment {
   id: string;
@@ -8,6 +9,19 @@ interface SquarePayment {
   amount_money: { amount: number; currency: string };
   tip_money?: { amount: number; currency: string };
   total_money: { amount: number; currency: string };
+}
+
+interface PaymentInput {
+  id: string;
+  status: string;
+  created_at: string;
+  tip_money?: { amount: number };
+}
+
+interface RefundInput {
+  payment_id: string;
+  status: string;
+  amount_money: { amount: number };
 }
 
 function fetchPayments(startDate: string, endDate: string) {
@@ -35,27 +49,50 @@ export interface DailyTips {
 }
 
 /**
- * Fetches all COMPLETED payments and returns per-day pooled (card) tip totals,
- * keyed by Eastern local date. Cash tips are no longer estimated from cash take —
- * they come per-employee from Square-declared shift cash tips (see lib/square/labor.ts).
+ * Pure aggregation of payments + refunds into per-day pooled (card) tip totals.
+ * Square keeps a payment's status COMPLETED even after it's refunded (the refund
+ * is a separate object), so a refunded tip is netted out here or it silently
+ * inflates the day's pool. A refund is attributed to its original payment's day
+ * (not the refund's own date), and a payment's net tip is floored at zero so a
+ * refund larger than the tip can't push the pool negative.
+ * Extracted for unit testing; fetchTipsAndCashTakeByDay wraps the Square calls.
+ */
+export function aggregateDailyTips(
+  payments: PaymentInput[],
+  refunds: RefundInput[]
+): DailyTips[] {
+  const refundedByPayment = new Map<string, number>();
+  for (const r of refunds) {
+    if (r.status !== "COMPLETED") continue;
+    refundedByPayment.set(r.payment_id, (refundedByPayment.get(r.payment_id) ?? 0) + r.amount_money.amount);
+  }
+
+  const acc = new Map<string, number>();
+  for (const p of payments) {
+    if (p.status !== "COMPLETED") continue;
+    const date = toEasternDate(p.created_at);
+    const tip = p.tip_money?.amount ?? 0;
+    const refunded = refundedByPayment.get(p.id) ?? 0;
+    acc.set(date, (acc.get(date) ?? 0) + Math.max(0, tip - refunded));
+  }
+
+  return Array.from(acc.entries()).map(([date, tips]) => ({ date, tipsPooledCents: tips }));
+}
+
+/**
+ * Fetches all COMPLETED payments and refunds and returns per-day pooled (card)
+ * tip totals net of refunds, keyed by Eastern local date. Cash tips are no
+ * longer estimated from cash take — they come per-employee from Square-declared
+ * shift cash tips (see lib/square/labor.ts).
  */
 export async function fetchTipsAndCashTakeByDay(
   startDate: string,
   endDate: string
 ): Promise<DailyTips[]> {
-  const payments = (await fetchPayments(startDate, endDate)).filter(
-    (p) => p.status === "COMPLETED"
-  );
+  const [payments, refunds] = await Promise.all([
+    fetchPayments(startDate, endDate),
+    fetchRefunds(startDate, endDate),
+  ]);
 
-  const acc = new Map<string, { tips: number }>();
-  for (const p of payments) {
-    const date = toEasternDate(p.created_at);
-    if (!acc.has(date)) acc.set(date, { tips: 0 });
-    acc.get(date)!.tips += p.tip_money?.amount ?? 0;
-  }
-
-  return Array.from(acc.entries()).map(([date, { tips }]) => ({
-    date,
-    tipsPooledCents: tips,
-  }));
+  return aggregateDailyTips(payments, refunds);
 }
