@@ -109,7 +109,10 @@ Do **not** touch `lib/auth/roleGrants.ts`.
 - [ ] **Step 3: Verify**
 
 Run: `npm run verify`
-Expected: PASS. No test asserts on the capability list; this is a type-level addition.
+Expected: PASS. Note `lib/auth/__tests__/capability-coordinates.test.ts` IS a pinning test
+over the full `CAP` map — its `EXPECTED` record is a completeness check, so adding a capability
+requires adding the matching `payroll: "operate"` entry there. That edit is expected and
+required, not scope creep.
 
 - [ ] **Step 4: Commit**
 
