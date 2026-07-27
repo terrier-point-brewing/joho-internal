@@ -28,9 +28,29 @@ attribution — `app/api/payroll/periods/[id]/shifts/route.ts` (lines 63–174) 
 drifted in shape. Once overrides feed totals, any divergence means the Shifts grid and the
 Summary tab disagree about the same paycheck.
 
+## Dependency — PR #276 (tip refunds)
+
+`ea47280 fix(payroll): net refunds out of pooled card tips` (PR #276, open) changes
+`fetchTipsAndCashTakeByDay` to net refunds out of the pool: Square keeps a payment
+`COMPLETED` after refund, so refunded tips were inflating the pool. A refund is attributed
+to **its original payment's day**, not the refund's own date, and each payment's net tip is
+floored at zero.
+
+This is strictly upstream of this feature — `P_bucket` is built from that function's output
+— and touches no file in this spec's file map. But it changes what "the pool" *is*, so:
+
+- **Build this work on top of PR #276.** Rebase onto it (or cherry-pick `ea47280` into the
+  worktree) so tests run against net-of-refund pools. If #276 merges first, a plain rebase
+  onto main is clean.
+- **The equivalence-test fixture must include a refunded payment** (see §8 test 1), or the
+  extraction could silently reintroduce the bug it fixed.
+- It also introduces `aggregateDailyTips(payments, refunds)` as a pure exported function —
+  use it to build `DailyTips[]` fixtures directly instead of mocking Square.
+
 ## The governing invariant
 
-**Attributed card tips always sum to the pool actually collected.**
+**Attributed card tips always sum to the pool actually collected**, where "collected" means
+net of refunds per PR #276.
 
 An override never creates or destroys tip money. Increasing one person's share must reduce
 another's within the same pool bucket.
@@ -79,16 +99,28 @@ asserted invariant, use **largest-remainder**:
    remainders.
 3. Break ties deterministically by `(employee_id, work_date)` so output is stable across runs.
 
-### Guards
+### Guards — write path rejects, read path degrades
 
-Distinguish *user-caused impossibility* (block the save) from a *pre-existing data
-condition* (surface, don't block):
+A pool can shrink **after** pins are stored: a refund syncs later and retroactively reduces
+its original payment's day (PR #276). Stored pins that were valid can therefore become
+invalid with no user action. So the same condition must reject on write but never throw on
+read — the page has to render regardless.
 
-| Condition | Response |
-|---|---|
-| `S > P` | **422** — "Pinned card tips for {label} total ${S}, which exceeds the ${P} pool." |
-| `R ≠ 0`, no unpinned cell with hours > 0, **and `S > 0`** | **422** — "No unpinned cell can absorb the remaining ${R}; pins must total exactly ${P}." |
-| `R > 0`, no unpinned cell with hours > 0, **and `S == 0`** | **Not an error.** Nobody worked but tips were collected — pre-existing condition (today the pool silently vanishes). Attribute nothing and report `pool_variance`. |
+**`buildDailyGrid` never throws on pool imbalance.** It computes best-effort and reports per
+bucket. The write route calls it with the *proposed* override set and rejects on any reported
+imbalance, so a write can never create an invalid state; a read tolerates a state that
+*became* invalid upstream and surfaces it loudly.
+
+| Condition | `buildDailyGrid` (read) | `PUT` route (write) |
+|---|---|---|
+| `S > P` | Pinned cells keep their pinned values; **unpinned cells get 0** (never negative). `attributed = S`. | **422** — "Pinned card tips for {label} total ${S}, which exceeds the ${P} pool." |
+| `R ≠ 0`, no unpinned cell with hours > 0, **and `S > 0`** | Attribute pins only. `attributed = S`. | **422** — "No unpinned cell can absorb the remaining ${R}; pins must total exactly ${P}." |
+| `R > 0`, no unpinned cell with hours > 0, **and `S == 0`** | Attribute nothing. `attributed = 0`. | **Accepted** — nobody worked but tips were collected. Pre-existing condition (today the pool silently vanishes); now surfaced. |
+
+Each bucket reports `attributed_cents` against `pool_cents`. A single signed variance
+(`attributed − pool`) covers all three: `0` healthy, positive = pins exceed pool,
+negative = unattributable pool. The UI banners any non-zero variance, and treats the
+positive case as blocking-severity ("your pins now exceed the pool — revise them").
 
 Field validation: `adj_hours >= 0`, `adj_*_cents >= 0` — else **400**.
 
@@ -97,12 +129,27 @@ Field validation: `adj_hours >= 0`, `adj_*_cents >= 0` — else **400**.
 With zero overrides the new model is algebraically identical to the current one. **The
 refactor must not move any existing payroll number.** This is a required test.
 
-### Blast radius
+### All three pool frequencies are first-class
 
-Redistribution scope equals the tip-pool bucket, driven by `tip_pool_frequency`. A `daily`
-pool contains an edit to that day; the schema-default `biweekly` rebalances the whole
-period from a single edit. The UI must name the affected span rather than let this surprise
-anyone.
+The algorithm is bucket-generic — it never assumes a bucket is one day. `daily`, `weekly`,
+and `biweekly` are equally supported, with no preferred configuration, and all three are
+covered by tests (§8 case 14). Bucket construction reuses the existing `dayGroups()` shape
+from `previewService.ts:20-26`.
+
+Redistribution scope equals the bucket, so the span an edit rebalances differs per setting:
+
+| `tip_pool_frequency` | Bucket | Rebalance span | Grid alignment |
+|---|---|---|---|
+| `daily` | one day | that day's column | one cell column |
+| `weekly` | 7-day chunk | that week | **already delimited** — the grid's week subtotal columns use the same `slice(i, i+7)` chunking |
+| `biweekly` (schema default) | whole period | every cell in the grid | the full row |
+
+`weekly` aligns exactly with the week boundaries `ShiftTimeline` already draws, so keep the
+two chunkings identical — do not let them diverge.
+
+The UI names the affected span for whichever setting is active (§7) rather than assuming a
+narrow one. Under `daily`, a late refund retroactively changes a *past* day's bucket, so
+pins are most likely to be invalidated after the fact at this setting.
 
 ## 2. Shared module — `lib/payroll/dailyGrid.ts`
 
@@ -301,7 +348,13 @@ Layout **Option B** (click-to-edit one field at a time), validated against a moc
 - **Notes:** the schema and API carry a note per cell. v1 exposes a single note input per
   row — mirroring the Notes field in `PayrollEntryRow.tsx:197-203` — whose value is written
   to every cell edited in that save. Per-cell note editing is not in v1.
-- A banner names the span that rebalances, from `tip_buckets`, plus any `pool_variance`.
+- **Rebalance span, per active frequency.** A banner names the span from `tip_buckets` —
+  "Card tips rebalance within {label}" — worded from the live config, never assuming daily.
+  When a card-tip cell is focused for editing, highlight the cells that will move: the day
+  column (`daily`), the week block (`weekly`), or the whole grid (`biweekly`).
+- **Variance banner.** Any non-zero `attributed − pool`. A positive variance (pins exceed
+  the pool — reachable without user action when a refund lands late) renders at
+  blocking severity with the affected bucket and the amount to reconcile.
 - New affordances use token utilities only. The existing hour-ramp raw colors
   (`bg-amber-900/30` etc.) stay — sanctioned data-ramp exception per `docs/UI_STANDARD.md`;
   do not token-swap a multi-step ramp.
@@ -311,6 +364,8 @@ Layout **Option B** (click-to-edit one field at a time), validated against a moc
 Co-located `lib/payroll/dailyGrid.test.ts` (pure logic; `lib/` coverage floor applies):
 
 1. **Equivalence** — no overrides: output matches current implementation on a fixture.
+   The fixture **must include a refunded payment** so the extraction provably preserves
+   PR #276's net-of-refund behavior (build it via `aggregateDailyTips`).
 2. Hours override — pool total preserved, other cells rebalance.
 3. Card-tip pin — pinned cell exact, remainder redistributed, `Σ == pool`.
 4. Multiple pins in one bucket.
@@ -323,7 +378,15 @@ Co-located `lib/payroll/dailyGrid.test.ts` (pure logic; `lib/` coverage floor ap
 11. Card-tip pin on a zero-hour cell → allowed.
 12. Cash override → no effect on hours or card tips.
 13. Day override + period-level `adj_*` → period value wins in `effective_*`.
-14. Bucket boundaries honored at each `tip_pool_frequency`.
+14. **Bucket boundaries honored at each `tip_pool_frequency`** — run cases 2–8 under all
+    three of `daily`, `weekly`, `biweekly`; no setting is privileged. Assert `weekly`
+    bucketing matches `ShiftTimeline`'s week chunking exactly.
+15. **Refund shrinks a pool below stored pins** — `buildDailyGrid` does **not** throw,
+    unpinned cells clamp to 0, and a positive variance is reported for that bucket.
+16. **Refund lands on a day after its original payment** — the pool reduction lands on the
+    payment's day, and under `daily` pooling that past day's attribution rebalances.
+17. Write path rejects (422) the exact conditions the read path degrades on — same
+    override set, opposite outcomes.
 
 ## 9. Out of scope
 
@@ -350,5 +413,9 @@ Co-located `lib/payroll/dailyGrid.test.ts` (pure logic; `lib/` coverage floor ap
   output must be byte-identical to today's.
 - **Migration is human-gated.** Per project convention the migration is applied to prod by
   the orchestrator only, after explicit approval. The feature 500s until it is applied.
-- **Biweekly pool blast radius.** Confirm the production `tip_pool_frequency` before rollout;
-  under `biweekly`, one edit rebalances the entire period.
+- **PR #276 merge order.** No file overlap, but it redefines the pool. Rebase onto it before
+  building fixtures; do not develop against gross tips.
+- **Pins can be invalidated by later data, not by users.** A refund syncing after a pin is
+  stored can push a bucket into positive variance with nobody having touched anything. The
+  read-path degradation rule and the blocking variance banner are what keep that visible
+  instead of silently wrong — they are not optional polish.
