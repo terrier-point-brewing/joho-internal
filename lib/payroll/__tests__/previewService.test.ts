@@ -333,6 +333,48 @@ describe("buildPayrollPreview — frequency granularity", () => {
     const preview = await buildPayrollPreview(period, [], baseConfig, []);
     expect(preview.tip_buckets[0].label).toBe("1/5 – 1/18");
   });
+
+  it("keeps tip pooling and guaranteed-min bucketing independent (daily pool, weekly guarantee)", async () => {
+    // 14-day period, two weeks: 1/5–1/11 and 1/12–1/18.
+    const cfg: PayrollConfig = { ...baseConfig, tip_pool_frequency: "daily", guaranteed_min_frequency: "weekly" };
+    const employees = [mkEmployee({ id: "e1" }), mkEmployee({ id: "e2" })];
+
+    mockFetchShiftsByDay.mockResolvedValue([
+      shift("sq-e1", "2026-01-05", 10), // week 1
+      shift("sq-e2", "2026-01-06", 10), // week 1
+      shift("sq-e1", "2026-01-12", 5),  // week 2
+      shift("sq-e2", "2026-01-12", 5),  // week 2
+    ]);
+    mockFetchTips.mockResolvedValue([
+      tips("2026-01-05", 1000), // daily pool: only e1 worked → e1 gets it all
+      tips("2026-01-06", 2000), // daily pool: only e2 worked → e2 gets it all
+      tips("2026-01-12", 3000), // daily pool: 5:5 split between e1/e2
+    ]);
+
+    const preview = await buildPayrollPreview(period, employees, cfg, []);
+
+    // Daily tip pool → one bucket per day of the 14-day period.
+    expect(preview.tip_buckets).toHaveLength(14);
+
+    const e1 = preview.entries.find((e) => e.employee_id === "e1")!;
+    const e2 = preview.entries.find((e) => e.employee_id === "e2")!;
+
+    // Guarantee re-aggregates the daily-attributed tips at weekly granularity,
+    // independent of the daily pooling above.
+    // Week 1: e1 10h/1000c tips, guaranteedMin 15000 vs base 10000+tips 1000 → bonus 4000.
+    //         e2 10h/2000c tips, guaranteedMin 15000 vs base 10000+tips 2000 → bonus 3000.
+    // Week 2: e1 5h/1500c tips,  guaranteedMin 7500  vs base 5000+tips 1500  → bonus 1000.
+    //         e2 5h/1500c tips,  guaranteedMin 7500  vs base 5000+tips 1500  → bonus 1000.
+    expect(e1.hours_worked).toBe(15);
+    expect(e1.paycheck_tips_cents).toBe(2500);
+    expect(e1.bonus_cents).toBe(5000);
+    expect(e1.total_compensation_cents).toBe(22500);
+
+    expect(e2.hours_worked).toBe(15);
+    expect(e2.paycheck_tips_cents).toBe(3500);
+    expect(e2.bonus_cents).toBe(4000);
+    expect(e2.total_compensation_cents).toBe(22500);
+  });
 });
 
 describe("buildPayrollPreview — adjustment merge from stored entries", () => {

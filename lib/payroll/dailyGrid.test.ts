@@ -222,11 +222,21 @@ describe("buildDailyGrid", () => {
     expect(g.cardTipsByDate.get("2026-07-01")!.get("s2")).toBe(4000);
   });
 
-  it("creates a cell for a day with no Square shift (missed punch)", async () => {
+  it("creates a cell for a day with no Square shift (missed punch) and attributes its pool", async () => {
+    mockTips.mockResolvedValue([
+      { date: "2026-07-01", tipsPooledCents: 8000 },
+      { date: "2026-07-02", tipsPooledCents: 3000 },
+    ]);
     const g = await buildDailyGrid(PERIOD, EMPS, "daily", [
       { ...noOv, employee_id: "e1", work_date: "2026-07-02", adj_hours: 8 },
     ]);
     expect(g.hoursByDate.get("2026-07-02")!.get("s1")).toBe(8);
+    // The synthesized cell is the only worker that day, so it absorbs the
+    // whole 3000c pool — proving it actually participates in attribution.
+    expect(g.cardTipsByDate.get("2026-07-02")!.get("s1")).toBe(3000);
+    const b = g.buckets.find(x => x.days.includes("2026-07-02"))!;
+    expect(b.pool_cents).toBe(3000);
+    expect(b.attributed_cents).toBe(3000);
   });
 
   it("replaces declared cash tips without touching hours or card tips", async () => {
@@ -243,7 +253,12 @@ describe("buildDailyGrid", () => {
       { ...noOv, employee_id: "e1", work_date: "2026-07-01", adj_paycheck_tips_cents: 5000 },
     ]);
     const b = g.buckets.find(x => x.days.includes("2026-07-01"))!;
-    expect(b.attributed_cents - b.pool_cents).toBeGreaterThan(0);
+    // pool 1000, pin 5000 unabsorbable → attributed = pinned 5000, remainder
+    // (s2, unpinned) clamps to 0. Exact variance is 5000 - 1000 = 4000.
+    expect(b.pool_cents).toBe(1000);
+    expect(b.attributed_cents).toBe(5000);
+    expect(b.attributed_cents - b.pool_cents).toBe(4000);
+    expect(g.cardTipsByDate.get("2026-07-01")!.get("s1")).toBe(5000);
     expect(g.cardTipsByDate.get("2026-07-01")!.get("s2")).toBe(0);
   });
 
@@ -343,5 +358,66 @@ describe("buildDailyGrid", () => {
       { ...noOv, employee_id: "e3", work_date: "2026-07-01", adj_hours: 5 },
     ]);
     expect(g.cardTipsByDate.get("2026-07-01")!.get("s1")).toBe(6000);
+    // The map is keyed by square_team_member_id — asserting the raw employee
+    // id is absent proves the override wasn't wrongly written under "e3".
+    expect(g.hoursByDate.get("2026-07-01")!.has("e3")).toBe(false);
+  });
+
+  it("redistributes card tips across days when an override lands in a biweekly (single-pool) bucket", async () => {
+    mockShifts.mockResolvedValue([
+      { team_member_id: "s1", date: "2026-07-01", hours: 6, cash_tips_cents: 0 },
+      { team_member_id: "s2", date: "2026-07-02", hours: 2, cash_tips_cents: 0 },
+    ]);
+    mockTips.mockResolvedValue([
+      { date: "2026-07-01", tipsPooledCents: 4000 },
+      { date: "2026-07-02", tipsPooledCents: 4000 },
+    ]);
+
+    // Baseline (no override): one 8000c pool split 6:2 across the two days.
+    const base = await buildDailyGrid(PERIOD, EMPS, "biweekly", []);
+    expect(base.cardTipsByDate.get("2026-07-01")!.get("s1")).toBe(6000);
+    expect(base.cardTipsByDate.get("2026-07-02")!.get("s2")).toBe(2000);
+
+    // Override s2's hours on 07-02 up to 6 — since biweekly pools the whole
+    // period as ONE bucket, this rebalances the 07-01 cell too, even though
+    // the override itself never touched 07-01.
+    const g = await buildDailyGrid(PERIOD, EMPS, "biweekly", [
+      { ...noOv, employee_id: "e2", work_date: "2026-07-02", adj_hours: 6 },
+    ]);
+    expect(g.buckets).toHaveLength(1);
+    expect(g.cardTipsByDate.get("2026-07-01")!.get("s1")).toBe(4000);
+    expect(g.cardTipsByDate.get("2026-07-02")!.get("s2")).toBe(4000);
+    const b = g.buckets[0];
+    expect(b.pool_cents).toBe(8000);
+    expect(b.attributed_cents).toBe(b.pool_cents);
+  });
+
+  it("confines a weekly bucket override to its own week over a two-chunk 14-day period", async () => {
+    const period14 = { id: "p14", start_date: "2026-07-01", end_date: "2026-07-14" } as PayPeriod;
+    mockShifts.mockResolvedValue([
+      { team_member_id: "s1", date: "2026-07-01", hours: 6, cash_tips_cents: 0 },
+      { team_member_id: "s2", date: "2026-07-01", hours: 2, cash_tips_cents: 0 },
+      { team_member_id: "s1", date: "2026-07-08", hours: 3, cash_tips_cents: 0 },
+      { team_member_id: "s2", date: "2026-07-08", hours: 3, cash_tips_cents: 0 },
+    ]);
+    mockTips.mockResolvedValue([
+      { date: "2026-07-01", tipsPooledCents: 8000 },
+      { date: "2026-07-08", tipsPooledCents: 6000 },
+    ]);
+
+    // Override s2's hours on 07-01 (week 1, days 7/1–7/7) up to 6, matching s1.
+    const g = await buildDailyGrid(period14, EMPS, "weekly", [
+      { ...noOv, employee_id: "e2", work_date: "2026-07-01", adj_hours: 6 },
+    ]);
+    expect(g.buckets).toHaveLength(2);
+
+    // Week 1 (7/1–7/7): 6:6 hours → even split of the 8000c pool.
+    expect(g.cardTipsByDate.get("2026-07-01")!.get("s1")).toBe(4000);
+    expect(g.cardTipsByDate.get("2026-07-01")!.get("s2")).toBe(4000);
+
+    // Week 2 (7/8–7/14, days 7/8): untouched — 3:3 hours → even split of the
+    // 6000c pool, exactly as it would be with no override at all.
+    expect(g.cardTipsByDate.get("2026-07-08")!.get("s1")).toBe(3000);
+    expect(g.cardTipsByDate.get("2026-07-08")!.get("s2")).toBe(3000);
   });
 });

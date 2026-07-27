@@ -42,15 +42,13 @@ export async function GET(
     if (periodConfig) activeConfig = periodConfig as PayrollConfig;
   }
 
-  const { data: storedEntries } = await supabase
-    .from("payroll_entries")
-    .select("*")
-    .eq("pay_period_id", id);
-
-  const { data: dayOverrides } = await supabase
-    .from("payroll_shift_overrides")
-    .select("employee_id, work_date, adj_hours, adj_paycheck_tips_cents, adj_cash_tips_cents, note")
-    .eq("pay_period_id", id);
+  const [{ data: storedEntries }, { data: dayOverrides }] = await Promise.all([
+    supabase.from("payroll_entries").select("*").eq("pay_period_id", id),
+    supabase
+      .from("payroll_shift_overrides")
+      .select("employee_id, work_date, adj_hours, adj_paycheck_tips_cents, adj_cash_tips_cents, note")
+      .eq("pay_period_id", id),
+  ]);
 
   let preview;
   try {
