@@ -1,12 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { DailyShift } from "@/lib/square/labor";
-import type { DailyTips } from "@/lib/square/payroll";
+import { aggregateDailyTips, type DailyTips } from "@/lib/square/payroll";
 import type {
   Employee,
   PayPeriod,
   PayrollConfig,
   PayrollEntry,
 } from "../types";
+import type { DayOverride } from "../dailyGrid";
 
 /**
  * previewService.ts is I/O orchestration on top of two Square fetchers
@@ -24,9 +25,16 @@ const mockFetchTips = vi.fn<(s: string, e: string) => Promise<DailyTips[]>>();
 vi.mock("@/lib/square/labor", () => ({
   fetchShiftsByDay: (s: string, e: string) => mockFetchShiftsByDay(s, e),
 }));
-vi.mock("@/lib/square/payroll", () => ({
-  fetchTipsAndCashTakeByDay: (s: string, e: string) => mockFetchTips(s, e),
-}));
+// I6 needs the real aggregateDailyTips (to build a refund-netted DailyTips[]
+// fixture) alongside the mocked network fetcher, so re-export the actual
+// module and override only the I/O boundary.
+vi.mock("@/lib/square/payroll", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/square/payroll")>();
+  return {
+    ...actual,
+    fetchTipsAndCashTakeByDay: (s: string, e: string) => mockFetchTips(s, e),
+  };
+});
 
 // Imported after vi.mock so the mocks are wired in.
 import { buildPayrollPreview } from "../previewService";
@@ -429,5 +437,96 @@ describe("buildPayrollPreview — adjustment merge from stored entries", () => {
     expect(e1.effective_hours).toBe(10);
     expect(e1.effective_bonus_cents).toBe(5000); // guarantee bonus carried through
     expect(e1.admin_notes).toBeNull();
+  });
+});
+
+// I6 — spec §8 case 1: refund fixture, built via the real aggregateDailyTips
+// rather than a hand-written pooled total, to pin PR #276's net-of-refund
+// behavior through this refactor.
+describe("buildPayrollPreview — refund netting (spec §8 case 1)", () => {
+  it("nets a refunded payment's tip out of the pool before attribution", async () => {
+    const employees = [mkEmployee({ id: "e1" })];
+    mockFetchShiftsByDay.mockResolvedValue([shift("sq-e1", "2026-01-05", 10)]);
+
+    // $10.00 tip on the original payment, $4.00 refunded back → pool nets to $6.00.
+    const dailyTips = aggregateDailyTips(
+      [
+        {
+          id: "pay1",
+          status: "COMPLETED",
+          created_at: "2026-01-05T18:00:00Z",
+          tip_money: { amount: 1000 },
+        },
+      ],
+      [
+        {
+          payment_id: "pay1",
+          status: "COMPLETED",
+          amount_money: { amount: 400 },
+        },
+      ]
+    );
+    mockFetchTips.mockResolvedValue(dailyTips);
+
+    const preview = await buildPayrollPreview(period, employees, baseConfig, []);
+
+    expect(preview.total_pooled_tips_cents).toBe(600);
+    // Sole tipped employee absorbs the entire net-of-refund pool.
+    expect(preview.entries[0].paycheck_tips_cents).toBe(600);
+  });
+});
+
+// I7 — spec §8 case 13: highest-risk interaction between a day-level override
+// (payroll_shift_overrides, layered into buildDailyGrid before computation)
+// and a period-level adj_* (payroll_entries, layered after via mergeAdjustments).
+// Period-level must win for the effective/final value, but the day override
+// still feeds the pre-adjustment computed value (base_pay_cents).
+describe("buildPayrollPreview — day override vs period-level adjustment (spec §8 case 13)", () => {
+  it("period-level adj_hours_worked wins for effective_hours; base_pay_cents reflects the day override", async () => {
+    const employees = [mkEmployee({ id: "e1" })];
+    // No Square shift at all — the day override creates the hours outright
+    // (buildDailyGrid: "An override may create a cell that has no underlying shift").
+    mockFetchTips.mockResolvedValue([tips("2026-01-05", 0)]);
+
+    const dayOverrides: DayOverride[] = [
+      {
+        employee_id: "e1",
+        work_date: "2026-01-05",
+        adj_hours: 8,
+        adj_paycheck_tips_cents: null,
+        adj_cash_tips_cents: null,
+        note: null,
+      },
+    ];
+
+    const stored: PayrollEntry[] = [
+      {
+        id: "pe1",
+        pay_period_id: "p1",
+        employee_id: "e1",
+        hours_worked: null,
+        paycheck_tips_cents: null,
+        cash_tips_cents: null,
+        reported_cash_tips_cents: null,
+        bonus_cents: null,
+        adj_hours_worked: 20, // period-level override
+        adj_paycheck_tips_cents: null,
+        adj_cash_tips_cents: null,
+        adj_reported_cash_tips_cents: null,
+        adj_bonus_cents: null,
+        admin_notes: null,
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-01T00:00:00Z",
+      },
+    ];
+
+    const preview = await buildPayrollPreview(period, employees, baseConfig, stored, dayOverrides);
+    const e1 = preview.entries[0];
+
+    // Day override (8h) feeds the pre-adjustment computed hours/base pay.
+    expect(e1.hours_worked).toBe(8);
+    expect(e1.base_pay_cents).toBe(8000); // 8h * $10/hr base_rate_cents
+    // Period-level adj_hours_worked (20) wins for the final effective value.
+    expect(e1.effective_hours).toBe(20);
   });
 });

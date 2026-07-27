@@ -73,9 +73,12 @@ export async function buildPayrollPreview(
   const computed = computePayrollEntries(hourlyTipped, buckets, config);
 
   const entryMap = new Map(storedEntries.map((e) => [e.employee_id, e]));
+  // Spec §3: employees with a stored day override, so the Summary row can flag
+  // a period-level adj_* that masks it (period-level always wins on read).
+  const employeesWithDayOverrides = new Set(overrides.map((o) => o.employee_id));
   const entries = computed.map((c) => {
     const stored = entryMap.get(c.employee_id);
-    return mergeAdjustments(c, {
+    const merged = mergeAdjustments(c, {
       adj_hours_worked: stored?.adj_hours_worked ?? null,
       adj_paycheck_tips_cents: stored?.adj_paycheck_tips_cents ?? null,
       adj_cash_tips_cents: stored?.adj_cash_tips_cents ?? null,
@@ -83,6 +86,7 @@ export async function buildPayrollPreview(
       adj_bonus_cents: stored?.adj_bonus_cents ?? null,
       admin_notes: stored?.admin_notes ?? null,
     }, config.reported_cash_tips_divisor);
+    return { ...merged, has_day_overrides: employeesWithDayOverrides.has(c.employee_id) };
   });
 
   const entryIds = new Set(entries.map((e) => e.employee_id));

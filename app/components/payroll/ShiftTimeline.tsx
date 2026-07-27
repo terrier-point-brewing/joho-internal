@@ -66,11 +66,11 @@ const editKey = (emp: string, date: string, f: Field) => `${emp}|${date}|${f}`;
 
 function CardLine({
   value, source, overridden, editable, editing, draft,
-  onFocus, onChange, className,
+  onFocus, onBlur, onChange, className,
 }: {
   value: string; source: string; overridden: boolean;
   editable: boolean; editing: boolean; draft: string;
-  onFocus: () => void; onChange: (v: string) => void; className: string;
+  onFocus: () => void; onBlur: () => void; onChange: (v: string) => void; className: string;
 }) {
   if (editable && editing) {
     return (
@@ -81,6 +81,7 @@ function CardLine({
         step="0.01"
         value={draft}
         onChange={e => onChange(e.target.value)}
+        onBlur={onBlur}
         className="inp-sm w-full text-right font-mono text-xs px-1 py-0"
       />
     );
@@ -109,9 +110,9 @@ export function ShiftTimeline({ periodId, overrideMode }: { periodId: string; ov
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const { data, isLoading, error } = useQuery<ShiftData>({
-    queryKey: queryKeys.payroll.shifts(periodId),
+    queryKey: queryKeys.payroll.shifts(periodId, overrideMode),
     queryFn: () =>
-      fetch(`/api/payroll/periods/${periodId}/shifts`).then(async r => {
+      fetch(`/api/payroll/periods/${periodId}/shifts${overrideMode ? "?override=1" : ""}`).then(async r => {
         if (!r.ok) {
           const d = await r.json().catch(() => ({}));
           throw new Error((d as { error?: string }).error ?? "Failed to load shifts");
@@ -133,46 +134,62 @@ export function ShiftTimeline({ periodId, overrideMode }: { periodId: string; ov
 
   async function saveRow(row: ShiftRow) {
     setSavingRow(row.employee_id);
-    const byDate = new Map<string, DayOverrideCell>();
-    for (const day of days) {
-      const existing = row.overrides[day];
-      const g = (f: Field) => {
-        const k = editKey(row.employee_id, day, f);
-        return k in edits ? (edits[k] === "" ? null : Number(edits[k])) : undefined;
-      };
-      const h = g("hours"), card = g("card"), cash = g("cash");
-      if (h === undefined && card === undefined && cash === undefined && !existing) continue;
-      byDate.set(day, {
-        adj_hours: h === undefined ? existing?.adj_hours ?? null : h,
-        adj_paycheck_tips_cents: card === undefined
-          ? existing?.adj_paycheck_tips_cents ?? null
-          : card === null ? null : Math.round(card * 100),
-        adj_cash_tips_cents: cash === undefined
-          ? existing?.adj_cash_tips_cents ?? null
-          : cash === null ? null : Math.round(cash * 100),
-        note: notes[row.employee_id] ?? existing?.note ?? null,
+    try {
+      const byDate = new Map<string, DayOverrideCell>();
+      const rowPrefix = `${row.employee_id}|`;
+      for (const day of days) {
+        const existing = row.overrides[day];
+        const g = (f: Field) => {
+          const k = editKey(row.employee_id, day, f);
+          return k in edits ? (edits[k] === "" ? null : Number(edits[k])) : undefined;
+        };
+        const h = g("hours"), card = g("card"), cash = g("cash");
+        if (h === undefined && card === undefined && cash === undefined && !existing) continue;
+        const dayTouched = h !== undefined || card !== undefined || cash !== undefined;
+        byDate.set(day, {
+          adj_hours: h === undefined ? existing?.adj_hours ?? null : h,
+          adj_paycheck_tips_cents: card === undefined
+            ? existing?.adj_paycheck_tips_cents ?? null
+            : card === null ? null : Math.round(card * 100),
+          adj_cash_tips_cents: cash === undefined
+            ? existing?.adj_cash_tips_cents ?? null
+            : cash === null ? null : Math.round(cash * 100),
+          // Only cells actually edited in this save get stamped with the
+          // note — untouched pre-existing cells keep whatever note they had.
+          note: dayTouched ? (notes[row.employee_id] ?? existing?.note ?? null) : existing?.note ?? null,
+        });
+      }
+
+      const res = await fetch(`/api/payroll/periods/${periodId}/shift-overrides/${row.employee_id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cells: [...byDate].map(([work_date, c]) => ({ work_date, ...c })) }),
       });
-    }
 
-    const res = await fetch(`/api/payroll/periods/${periodId}/shift-overrides/${row.employee_id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ cells: [...byDate].map(([work_date, c]) => ({ work_date, ...c })) }),
-    });
-
-    if (!res.ok) {
-      const { error } = await res.json().catch(() => ({ error: "Save failed" }));
-      setSaveError(error);
+      if (!res.ok) {
+        const { error } = await res.json().catch(() => ({ error: "Save failed" }));
+        setSaveError(error);
+        return;
+      }
+      setSaveError(null);
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: queryKeys.payroll.shiftsAll(periodId) }),
+        qc.invalidateQueries({ queryKey: queryKeys.payroll.preview(periodId) }),
+      ]);
+      // Clear only this row's pending edits — other rows' unsaved edits
+      // must survive the refetch.
+      setEdits(e => Object.fromEntries(Object.entries(e).filter(([k]) => !k.startsWith(rowPrefix))));
+      setNotes(n => {
+        const rest = { ...n };
+        delete rest[row.employee_id];
+        return rest;
+      });
+      setFocused(null);
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "Save failed");
+    } finally {
       setSavingRow(null);
-      return;
     }
-    setSaveError(null);
-    await Promise.all([
-      qc.invalidateQueries({ queryKey: queryKeys.payroll.shifts(periodId) }),
-      qc.invalidateQueries({ queryKey: queryKeys.payroll.preview(periodId) }),
-    ]);
-    setEdits({});
-    setSavingRow(null);
   }
 
   // Chunk days into 7-day weeks
@@ -187,9 +204,9 @@ export function ShiftTimeline({ periodId, overrideMode }: { periodId: string; ov
     <div className="overflow-x-auto">
       {overrideMode && (
         <Banner tone="info" className="mb-3">
-          Card tips rebalance within {data.tip_buckets.length === 1
+          Card tips rebalance within {data.tip_buckets.length <= 1
             ? "the whole period"
-            : `each ${FREQ_LABELS[tip_pool_frequency]} pool (${data.tip_buckets[0].label}, …)`}
+            : `each ${FREQ_LABELS[tip_pool_frequency]} pool (${data.tip_buckets[0]?.label ?? ""}, …)`}
           . Editing one cell moves the others in that span.
         </Banner>
       )}
@@ -264,6 +281,7 @@ export function ShiftTimeline({ periodId, overrideMode }: { periodId: string; ov
                                   editing={focused === editKey(row.employee_id, d, "hours")}
                                   draft={edits[editKey(row.employee_id, d, "hours")] ?? String(h)}
                                   onFocus={() => setFocused(editKey(row.employee_id, d, "hours"))}
+                                  onBlur={() => setFocused(null)}
                                   onChange={v => setEdits(e => ({ ...e, [editKey(row.employee_id, d, "hours")]: v }))}
                                   className="text-sm font-semibold"
                                 />
@@ -276,6 +294,7 @@ export function ShiftTimeline({ periodId, overrideMode }: { periodId: string; ov
                                     editing={focused === editKey(row.employee_id, d, "card")}
                                     draft={edits[editKey(row.employee_id, d, "card")] ?? String((t ?? 0) / 100)}
                                     onFocus={() => setFocused(editKey(row.employee_id, d, "card"))}
+                                    onBlur={() => setFocused(null)}
                                     onChange={v => setEdits(e => ({ ...e, [editKey(row.employee_id, d, "card")]: v }))}
                                     className="text-emerald-400"
                                   />
@@ -289,6 +308,7 @@ export function ShiftTimeline({ periodId, overrideMode }: { periodId: string; ov
                                     editing={focused === editKey(row.employee_id, d, "cash")}
                                     draft={edits[editKey(row.employee_id, d, "cash")] ?? String((ct ?? 0) / 100)}
                                     onFocus={() => setFocused(editKey(row.employee_id, d, "cash"))}
+                                    onBlur={() => setFocused(null)}
                                     onChange={v => setEdits(e => ({ ...e, [editKey(row.employee_id, d, "cash")]: v }))}
                                     className="text-amber-300"
                                   />

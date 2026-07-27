@@ -127,6 +127,14 @@ export function PayrollEntryRow({ entry, employee, periodId, editable, overrideM
         {hasAnyOverride && !overrideMode && (
           <span className="ml-1.5 text-accent-emphasis text-xs" title="Has manual overrides">✦</span>
         )}
+        {hasAnyOverride && entry.has_day_overrides && (
+          <span
+            className="ml-1.5 text-danger text-xs"
+            title="A period-level override masks a day override on the Shifts tab for this employee"
+          >
+            ⚠
+          </span>
+        )}
       </td>
       <td className="py-2 px-3 text-sm text-right">
         <ValueCell

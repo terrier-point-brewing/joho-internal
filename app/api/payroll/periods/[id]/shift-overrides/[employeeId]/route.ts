@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requirePermission, CAP, getSessionUser } from "@/lib/auth";
+import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { apiError } from "@/lib/utils/api";
 import { buildDailyGrid, bucketViolations, type DayOverride } from "@/lib/payroll/dailyGrid";
@@ -19,9 +19,9 @@ export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ id: string; employeeId: string }> }
 ) {
-  try { await requirePermission(CAP.payrollDayOverride); } catch (res) { return res as Response; }
+  let session;
+  try { session = await requirePermission(CAP.payrollDayOverride); } catch (res) { return res as Response; }
 
-  const session = await getSessionUser();
   const supabase = await createSupabaseServerClient();
   const { id, employeeId } = await params;
 
@@ -35,10 +35,19 @@ export async function PUT(
   const body = await req.json().catch(() => null) as { cells?: CellInput[] } | null;
   if (!body || !Array.isArray(body.cells)) return apiError("Expected { cells: [] }", 400);
 
+  const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+  const seenDates = new Set<string>();
   for (const c of body.cells) {
+    if (typeof c.work_date !== "string" || !DATE_RE.test(c.work_date)) {
+      return apiError("work_date must be a YYYY-MM-DD string", 400);
+    }
     if (c.work_date < period.start_date || c.work_date > period.end_date) {
       return apiError(`${c.work_date} is outside this pay period`, 400);
     }
+    if (seenDates.has(c.work_date)) {
+      return apiError(`Duplicate work_date ${c.work_date} in cells`, 400);
+    }
+    seenDates.add(c.work_date);
     for (const v of [c.adj_hours, c.adj_paycheck_tips_cents, c.adj_cash_tips_cents]) {
       if (v != null && (!Number.isFinite(v) || v < 0)) {
         return apiError("Override values must be zero or greater", 400);
@@ -52,7 +61,7 @@ export async function PUT(
 
   // Validate by running the real computation with the proposed override set,
   // so a write can never persist a state the read path would have to degrade.
-  const [{ data: employees }, { data: config }, { data: otherRows }] = await Promise.all([
+  const [{ data: employees }, { data: config }, { data: otherRows }, { data: existingRows }] = await Promise.all([
     supabase.from("employees")
       .select("id, first_name, last_name, square_team_member_id, receives_tips, employment_type, active")
       .not("square_team_member_id", "is", null),
@@ -61,6 +70,9 @@ export async function PUT(
     supabase.from("payroll_shift_overrides")
       .select("employee_id, work_date, adj_hours, adj_paycheck_tips_cents, adj_cash_tips_cents, note")
       .eq("pay_period_id", id).neq("employee_id", employeeId),
+    supabase.from("payroll_shift_overrides")
+      .select("work_date, created_by, created_at")
+      .eq("pay_period_id", id).eq("employee_id", employeeId),
   ]);
 
   const frequency = ((config as { tip_pool_frequency?: string } | null)?.tip_pool_frequency
@@ -95,27 +107,45 @@ export async function PUT(
     return NextResponse.json({ error: message, violations }, { status: 422 });
   }
 
-  const { error: dErr } = await supabase
-    .from("payroll_shift_overrides").delete()
-    .eq("pay_period_id", id).eq("employee_id", employeeId);
-  if (dErr) return apiError(dErr.message);
+  // Upsert kept rows first, then delete anything stale for this employee-period.
+  // In that order a failure at either step can only leave stale rows behind
+  // for the next save to clean up — never data loss (unlike delete-then-insert).
+  const existingByDate = new Map((existingRows ?? []).map(r => [r.work_date, r]));
+  const nowIso = new Date().toISOString();
 
   if (kept.length > 0) {
-    const { error: uErr } = await supabase.from("payroll_shift_overrides").insert(
-      kept.map(c => ({
-        pay_period_id: id,
-        employee_id: employeeId,
-        work_date: c.work_date,
-        adj_hours: c.adj_hours,
-        adj_paycheck_tips_cents: c.adj_paycheck_tips_cents,
-        adj_cash_tips_cents: c.adj_cash_tips_cents,
-        note: c.note ?? null,
-        created_by: session!.user.id,
-        updated_by: session!.user.id,
-      }))
+    const { error: uErr } = await supabase.from("payroll_shift_overrides").upsert(
+      kept.map(c => {
+        const existing = existingByDate.get(c.work_date);
+        return {
+          pay_period_id: id,
+          employee_id: employeeId,
+          work_date: c.work_date,
+          adj_hours: c.adj_hours,
+          adj_paycheck_tips_cents: c.adj_paycheck_tips_cents,
+          adj_cash_tips_cents: c.adj_cash_tips_cents,
+          note: c.note ?? null,
+          created_by: existing?.created_by ?? session.user.id,
+          created_at: existing?.created_at ?? nowIso,
+          updated_by: session.user.id,
+          updated_at: nowIso,
+        };
+      }),
+      { onConflict: "pay_period_id,employee_id,work_date" }
     );
     if (uErr) return apiError(uErr.message);
   }
+
+  const keptDates = [...new Set(kept.map(c => c.work_date))];
+  const { error: dErr } = keptDates.length > 0
+    ? await supabase
+        .from("payroll_shift_overrides").delete()
+        .eq("pay_period_id", id).eq("employee_id", employeeId)
+        .not("work_date", "in", `(${keptDates.join(",")})`)
+    : await supabase
+        .from("payroll_shift_overrides").delete()
+        .eq("pay_period_id", id).eq("employee_id", employeeId);
+  if (dErr) return apiError(dErr.message);
 
   return NextResponse.json({ ok: true, saved: kept.length });
 }

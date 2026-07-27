@@ -115,7 +115,11 @@ export const queryKeys = {
     periods:   () => ["payroll", "periods"] as const,
     period:    (id: string) => ["payroll", "periods", id] as const,
     preview:   (id: string) => ["payroll", "preview", id] as const,
-    shifts:    (id: string) => ["payroll", "shifts", id] as const,
+    // `shiftsAll` is a shorter prefix of `shifts` — pass it to
+    // invalidateQueries to invalidate both the read-only and override-mode
+    // variants at once (they cache separately since I1).
+    shiftsAll: (id: string) => ["payroll", "shifts", id] as const,
+    shifts:    (id: string, override: boolean) => ["payroll", "shifts", id, override] as const,
   },
 
   // ─── Tax ──────────────────────────────────────────────────────────────────

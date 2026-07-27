@@ -8,7 +8,7 @@ import type { Employee, PayPeriod, TipPoolFrequency } from "@/lib/payroll/types"
 export const dynamic = "force-dynamic";
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   // payrollRead, not payrollManage: the Taproom payroll page gates at
@@ -17,6 +17,8 @@ export async function GET(
 
   const supabase = await createSupabaseServerClient();
   const { id } = await params;
+  const { searchParams } = new URL(req.url);
+  const isOverrideMode = searchParams.get("override") === "1";
 
   const [{ data: period, error: pErr }, { data: employees }, { data: config }] = await Promise.all([
     supabase.from("pay_periods").select("start_date, end_date").eq("id", id).single(),
@@ -65,9 +67,13 @@ export async function GET(
   for (const m of [grid.hoursByDate, grid.cashByDate, grid.cardTipsByDate]) {
     for (const inner of m.values()) for (const sq of inner.keys()) sqIds.add(sq);
   }
-  // Override mode must be able to fix someone with no shifts at all.
-  for (const e of emps) {
-    if (e.active && e.employment_type === "hourly" && e.receives_tips) sqIds.add(e.square_team_member_id!);
+  // Override mode must be able to fix someone with no shifts at all. The
+  // read-only view stays unchanged (spec): only union zero-shift employees
+  // in when the caller explicitly requests override mode.
+  if (isOverrideMode) {
+    for (const e of emps) {
+      if (e.active && e.employment_type === "hourly" && e.receives_tips) sqIds.add(e.square_team_member_id!);
+    }
   }
 
   const pick = (m: Map<string, Map<string, number>>, sq: string) => {
