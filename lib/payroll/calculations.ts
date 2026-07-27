@@ -4,6 +4,13 @@ import type { Employee, PayrollConfig, PayrollEntryComputed, PayrollEntryMerged 
  * One guarantee-period bucket.
  * Tips are pre-attributed per employee (done in previewService) so this
  * function only needs to check whether base pay + tips meets the guarantee.
+ *
+ * Built by re-aggregating buildDailyGrid's day-level maps at
+ * guaranteed_min_frequency (see previewService.ts), so these maps carry
+ * every team member present in the grid — tipped and non-tipped alike,
+ * keyed by square_team_member_id — not just tipped employees.
+ * computePayrollEntries below only looks up entries for tipped employees, so
+ * the non-tipped entries are present but unread.
  */
 export interface GuaranteeBucket {
   shifts: Map<string, number>;            // teamMemberId → hours in this period

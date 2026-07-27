@@ -15,13 +15,20 @@ export interface LegacyRow {
  * throwaway script — see lib/auth/__tests__/equivalence.test.ts for how it's
  * consumed. Do not hand-edit; regenerate if the validation source changes.
  *
- * 211 rows, one per (route, method) call site under app/api/**. 27 rows carry
- * an intentionalChange — together they cover all 28 assertions (out of 844)
+ * 212 rows, one per (route, method) call site under app/api/**. 29 rows carry
+ * an intentionalChange — together they cover all 30 assertions (out of 848)
  * that differ from legacy requireRole behaviour; one route
- * (GET production/batch-conversions) accounts for two of the 28 (a viewer
- * loss and a brewer gain), so 28 differing assertions land on 27 rows. See
+ * (GET production/batch-conversions) accounts for two of them (a viewer
+ * loss and a brewer gain), so 30 differing assertions land on 29 rows. See
  * docs/superpowers/specs/2026-07-25-scoped-permissions-design.md, "Validation
  * result", for the reasons.
+ *
+ * The 28th row (GET payroll/periods/[id]/shifts) was hand-edited on 2026-07-27
+ * when that route's gate was lowered from payrollManage to payrollRead; see
+ * docs/superpowers/specs/2026-07-27-payroll-day-override-grid-design.md §5.
+ * The 29th row (PUT payroll/periods/[id]/shift-overrides/[employeeId]) was
+ * added the same day for the new day-override save route — a brand-new call
+ * site with no legacy equivalent (legacy: []).
  */
 export const LEGACY_MATRIX: LegacyRow[] = [
   { route: "admin/cron-runs", method: "GET", legacy: [], capability: "cronRead" },
@@ -113,7 +120,8 @@ export const LEGACY_MATRIX: LegacyRow[] = [
   { route: "payroll/periods/[id]/lock", method: "POST", legacy: [], capability: "payrollManage" },
   { route: "payroll/periods/[id]/preview", method: "GET", legacy: ["manager"], capability: "payrollRead" },
   { route: "payroll/periods/[id]", method: "GET", legacy: ["manager"], capability: "payrollRead" },
-  { route: "payroll/periods/[id]/shifts", method: "GET", legacy: [], capability: "payrollManage" },
+  { route: "payroll/periods/[id]/shift-overrides/[employeeId]", method: "PUT", legacy: [], capability: "payrollDayOverride", intentionalChange: { manager: true, reason: "New route (day-level payroll overrides on the Shifts tab) — no legacy role had it. manager: ROLE_BUNDLES already grants payroll: \"operate\" (same level as payrollDayOverride), so managers gain access by default; reviewed and intended for the Shifts override feature" } },
+  { route: "payroll/periods/[id]/shifts", method: "GET", legacy: [], capability: "payrollRead", intentionalChange: { manager: true, reason: "Gate lowered from payrollManage (admin-only) to payrollRead: app/taproom/payroll/layout.tsx gates the page at payrollRead, so managers could see the Shifts tab but got a 403 fetching it" } },
   { route: "payroll/periods", method: "GET", legacy: ["manager"], capability: "payrollRead" },
   { route: "payroll/periods", method: "POST", legacy: [], capability: "payrollManage" },
   { route: "production/allocations/[id]/adjust", method: "POST", legacy: ["brewer"], capability: "exportOperate" },

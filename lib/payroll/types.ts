@@ -119,6 +119,12 @@ export interface PayrollEntryMerged extends PayrollEntryComputed {
   effective_reported_cash_tips_cents: number;
   effective_bonus_cents: number;
   effective_total_compensation_cents: number;
+  /** True if this employee has any stored day-level override (payroll_shift_overrides)
+   *  in this period. Spec §3: when a period-level adj_* also exists, the period-level
+   *  value wins and masks the day override — the Summary row must flag that conflict.
+   *  Optional (not set by `mergeAdjustments` itself) — `buildPayrollPreview` attaches
+   *  it after merging so `mergeAdjustments`'s frozen-test-covered signature is untouched. */
+  has_day_overrides?: boolean;
 }
 
 // ── Gusto GL-split upload (payroll_gl_reports / _employees / _totals) ──────
