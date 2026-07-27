@@ -56,7 +56,7 @@ export function dayGroups(days: string[], frequency: TipPoolFrequency): string[]
   return groups;
 }
 
-function fmtDate(d: string): string {
+function fmtMonthDay(d: string): string {
   const [, m, day] = d.split("-");
   return `${parseInt(m)}/${parseInt(day)}`;
 }
@@ -65,12 +65,12 @@ export function bucketLabels(
   frequency: TipPoolFrequency, startDate: string, endDate: string
 ): string[] {
   const days = getDays(startDate, endDate);
-  if (frequency === "biweekly") return [`${fmtDate(startDate)} – ${fmtDate(endDate)}`];
-  if (frequency === "daily") return days.map(fmtDate);
+  if (frequency === "biweekly") return [`${fmtMonthDay(startDate)} – ${fmtMonthDay(endDate)}`];
+  if (frequency === "daily") return days.map(fmtMonthDay);
   const labels: string[] = [];
   for (let i = 0; i < days.length; i += 7) {
     const w = days.slice(i, i + 7);
-    labels.push(`${fmtDate(w[0])} – ${fmtDate(w[w.length - 1])}`);
+    labels.push(`${fmtMonthDay(w[0])} – ${fmtMonthDay(w[w.length - 1])}`);
   }
   return labels;
 }
@@ -80,6 +80,13 @@ export function bucketLabels(
  * leftover cents to the largest fractional remainders. Guarantees the result
  * sums to `total` exactly — per-cell Math.round drifts, and the pool total is
  * an asserted invariant. Ties break on key so output is stable across runs.
+ *
+ * Preconditions (not validated at runtime):
+ * - `weights` keys must be unique — a duplicate key is overwritten by
+ *   `out.set` rather than accumulated, silently under-distributing.
+ * - `total` must be an integer (callers pass cents) — a fractional total
+ *   produces a sum larger than `total` since remainders are handed out as
+ *   whole units.
  */
 export function distributeByWeight(
   total: number,
@@ -125,6 +132,11 @@ export function distributeByWeight(
  * stored, previously valid pin set can become invalid with no user action.
  * Read path degrades — unpinned cells clamp to 0, never negative — and the
  * caller surfaces the variance. The write path rejects via bucketViolations.
+ *
+ * Precondition (not validated at runtime): `pins` must contain at most one
+ * entry per cell — two pins for the same cell make `pinnedCents` disagree
+ * with what `tips` actually contributes to `attributedCents`, since the
+ * later pin silently overwrites the earlier one in the map.
  */
 export function attributeBucket(
   poolCents: number,

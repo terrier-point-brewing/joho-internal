@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   distributeByWeight, attributeBucket, bucketViolations, cellKey,
-  getDays, dayGroups,
+  getDays, dayGroups, bucketLabels,
 } from "./dailyGrid";
 
 const cell = (sq: string, date: string, hours: number) => ({ employeeId: sq, date, hours });
@@ -22,9 +22,9 @@ describe("distributeByWeight", () => {
     expect(sum(out)).toBe(1000);
   });
 
-  it("is deterministic under tied remainders", () => {
+  it("breaks tied remainders on key ascending, in Map insertion order", () => {
     const w = [{ key: "b", weight: 1 }, { key: "a", weight: 1 }, { key: "c", weight: 1 }];
-    expect([...distributeByWeight(100, w)]).toEqual([...distributeByWeight(100, w)]);
+    expect([...distributeByWeight(100, w)]).toEqual([["b", 33], ["a", 34], ["c", 33]]);
   });
 
   it("gives every key zero when no weight is positive", () => {
@@ -89,6 +89,18 @@ describe("attributeBucket", () => {
     expect(r.tips.get(cellKey("s2", "2026-07-01"))).toBe(5000);
     expect(r.attributedCents).toBe(8000);
   });
+
+  it("zeroes out unpinned cells when pins total exactly the pool", () => {
+    const r = attributeBucket(8000, cells, [pin("s1", "2026-07-01", 8000)]);
+    expect(r.tips.get(cellKey("s2", "2026-07-01"))).toBe(0);
+    expect(r.attributedCents).toBe(8000);
+    expect(
+      bucketViolations([{
+        label: "7/1", days: ["2026-07-01"],
+        pool_cents: 8000, pinned_cents: r.pinnedCents, attributed_cents: r.attributedCents,
+      }])
+    ).toEqual([]);
+  });
 });
 
 describe("bucketViolations", () => {
@@ -111,6 +123,45 @@ describe("bucketViolations", () => {
 
   it("does not report an unattributable pool when nothing is pinned", () => {
     expect(bucketViolations([{ ...base, pool_cents: 8000, pinned_cents: 0, attributed_cents: 0 }])).toEqual([]);
+  });
+});
+
+describe("getDays", () => {
+  it("returns every date in the inclusive range", () => {
+    expect(getDays("2026-07-01", "2026-07-03")).toEqual([
+      "2026-07-01", "2026-07-02", "2026-07-03",
+    ]);
+  });
+
+  it("returns a single-day array when start equals end", () => {
+    expect(getDays("2026-07-01", "2026-07-01")).toEqual(["2026-07-01"]);
+  });
+
+  it("crosses a month boundary correctly", () => {
+    expect(getDays("2026-07-30", "2026-08-01")).toEqual([
+      "2026-07-30", "2026-07-31", "2026-08-01",
+    ]);
+  });
+});
+
+describe("bucketLabels", () => {
+  it("labels a biweekly bucket as a single start–end range", () => {
+    expect(bucketLabels("biweekly", "2026-07-01", "2026-07-14")).toEqual([
+      "7/1 – 7/14",
+    ]);
+  });
+
+  it("labels a daily bucket with one entry per day", () => {
+    expect(bucketLabels("daily", "2026-07-01", "2026-07-03")).toEqual([
+      "7/1", "7/2", "7/3",
+    ]);
+  });
+
+  it("labels weekly buckets with a short trailing chunk when the period is not a multiple of 7", () => {
+    // 2026-07-01..2026-07-09 is 9 days: one full 7-day week plus a 2-day tail.
+    expect(bucketLabels("weekly", "2026-07-01", "2026-07-09")).toEqual([
+      "7/1 – 7/7", "7/8 – 7/9",
+    ]);
   });
 });
 
