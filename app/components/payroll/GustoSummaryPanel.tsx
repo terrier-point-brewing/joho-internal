@@ -10,6 +10,16 @@ interface Props {
 export function GustoSummaryPanel({ entries, employees, salariedEmployees }: Props) {
   const empMap = new Map(employees.map((e) => [e.id, e]));
 
+  // Gusto is keyed off last name, so this view sorts by it descending —
+  // independent of the Summary tab, which arrives sorted by first name.
+  const byLastNameDesc = (a?: Employee, b?: Employee) =>
+    (b?.last_name ?? "").localeCompare(a?.last_name ?? "");
+
+  const sortedEntries = [...entries].sort((a, b) =>
+    byLastNameDesc(empMap.get(a.employee_id), empMap.get(b.employee_id)),
+  );
+  const sortedSalaried = [...salariedEmployees].sort(byLastNameDesc);
+
   return (
     <div>
       <p className="text-xs text-muted mb-4">
@@ -30,7 +40,7 @@ export function GustoSummaryPanel({ entries, employees, salariedEmployees }: Pro
           </tr>
         </thead>
         <tbody>
-          {entries.map((entry) => {
+          {sortedEntries.map((entry) => {
             const emp = empMap.get(entry.employee_id);
             return (
               <tr key={entry.employee_id} className="border-b border-line">
@@ -53,7 +63,7 @@ export function GustoSummaryPanel({ entries, employees, salariedEmployees }: Pro
               </tr>
             );
           })}
-          {salariedEmployees.map((emp) => (
+          {sortedSalaried.map((emp) => (
             <tr key={emp.id} className="border-b border-line opacity-50">
               <td className="py-2 px-3 text-secondary">
                 {emp.first_name} {emp.last_name}{" "}

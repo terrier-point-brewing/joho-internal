@@ -29,7 +29,7 @@ export default function FinancePayrollPeriodPage() {
       <PayrollPeriodView
         periodId={periodId}
         editable
-        tabs={["summary", "shifts", "gusto", "gustoUpload"]}
+        tabs={["summary", "shifts", "adjustments", "gusto", "gustoUpload"]}
       />
     </main>
   );
