@@ -1,3 +1,4 @@
+import { unstable_cache } from "next/cache";
 import { squareGetAll, squareLocationId } from "./client";
 import { fetchRefunds } from "./refunds";
 
@@ -24,7 +25,7 @@ interface RefundInput {
   amount_money: { amount: number };
 }
 
-function fetchPayments(startDate: string, endDate: string) {
+function fetchPaymentsUncached(startDate: string, endDate: string) {
   return squareGetAll<SquarePayment>("/payments", "payments", {
     location_id: squareLocationId(),
     begin_time: `${startDate}T00:00:00Z`,
@@ -32,6 +33,16 @@ function fetchPayments(startDate: string, endDate: string) {
     sort_order: "ASC",
   });
 }
+
+// Same range is re-fetched by the payroll grid on every save and by both the
+// Shifts and Summary queries. Cache cross-request (keyed by start/end) on the
+// same tag as orders/refunds so one period hits /payments once.
+// Bust via revalidateTag("square-sales") after a sale-data sync.
+const fetchPayments = unstable_cache(
+  fetchPaymentsUncached,
+  ["square-payments"],
+  { revalidate: 90, tags: ["square-sales"] },
+);
 
 /** Convert UTC RFC 3339 to Eastern local date (YYYY-MM-DD). */
 function toEasternDate(utcStr: string): string {

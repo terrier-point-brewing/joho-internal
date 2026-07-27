@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { apiError } from "@/lib/utils/api";
-import { buildDailyGrid, bucketViolations, type DayOverride } from "@/lib/payroll/dailyGrid";
+import { fetchDayGridInputs, computeDailyGrid, bucketViolations, type DayOverride } from "@/lib/payroll/dailyGrid";
 import type { Employee, PayPeriod, TipPoolFrequency } from "@/lib/payroll/types";
 
 export const dynamic = "force-dynamic";
@@ -92,7 +92,8 @@ export async function PUT(
 
   let grid;
   try {
-    grid = await buildDailyGrid(period as PayPeriod, (employees ?? []) as Employee[], frequency, proposed);
+    const inputs = await fetchDayGridInputs(period as PayPeriod);
+    grid = computeDailyGrid(inputs, period as PayPeriod, (employees ?? []) as Employee[], frequency, proposed);
   } catch (err) {
     return apiError(err instanceof Error ? err.message : String(err));
   }

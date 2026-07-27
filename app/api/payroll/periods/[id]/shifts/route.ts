@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { apiError } from "@/lib/utils/api";
-import { buildDailyGrid, type DayOverride } from "@/lib/payroll/dailyGrid";
+import { fetchDayGridInputs, computeDailyGrid, type DayOverride } from "@/lib/payroll/dailyGrid";
 import type { Employee, PayPeriod, TipPoolFrequency } from "@/lib/payroll/types";
 
 export const dynamic = "force-dynamic";
@@ -48,13 +48,15 @@ export async function GET(
 
   let grid, baseline;
   try {
-    // Two passes over already-fetched data: `baseline` (no overrides) gives the
-    // struck-through original. Card tips rebalance, so a cell's "original" is
-    // only meaningful as what it would have been with no pins in the bucket.
-    [grid, baseline] = await Promise.all([
-      buildDailyGrid(period as PayPeriod, emps, frequency, overrides),
-      buildDailyGrid(period as PayPeriod, emps, frequency, []),
-    ]);
+    // Fetch the Square data ONCE, then compute both grids from it. `baseline`
+    // (no overrides) gives the struck-through original — card tips rebalance,
+    // so a cell's "original" is only meaningful as what it would have been with
+    // no pins in the bucket. computeDailyGrid is pure, so the second grid is
+    // free; calling buildDailyGrid twice would re-run all three paginated
+    // Square endpoint sequences.
+    const inputs = await fetchDayGridInputs(period as PayPeriod);
+    grid     = computeDailyGrid(inputs, period as PayPeriod, emps, frequency, overrides);
+    baseline = computeDailyGrid(inputs, period as PayPeriod, emps, frequency, []);
   } catch (err) {
     return apiError(err instanceof Error ? err.message : String(err));
   }

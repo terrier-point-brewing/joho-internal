@@ -1,5 +1,5 @@
-import { fetchShiftsByDay } from "@/lib/square/labor";
-import { fetchTipsAndCashTakeByDay } from "@/lib/square/payroll";
+import { fetchShiftsByDay, type DailyShift } from "@/lib/square/labor";
+import { fetchTipsAndCashTakeByDay, type DailyTips } from "@/lib/square/payroll";
 import type { Employee, PayPeriod, TipPoolFrequency } from "./types";
 
 export interface DayOverride {
@@ -207,17 +207,41 @@ function addCell(m: Map<string, Map<string, number>>, date: string, sqId: string
 }
 
 /**
+ * The Square data one grid computation needs. Fetching is split from computing
+ * so a caller that needs several grids over the SAME period — the Shifts route
+ * (overridden + baseline) and the override write path (pool-guard validation) —
+ * pays for the I/O once instead of once per grid.
+ */
+export interface DayGridInputs {
+  rawShifts: DailyShift[];
+  dailyTips: DailyTips[];
+}
+
+/** The only I/O. Three paginated Square endpoint sequences; call once per period. */
+export async function fetchDayGridInputs(period: PayPeriod): Promise<DayGridInputs> {
+  const [rawShifts, dailyTips] = await Promise.all([
+    fetchShiftsByDay(period.start_date, period.end_date),
+    fetchTipsAndCashTakeByDay(period.start_date, period.end_date),
+  ]);
+  return { rawShifts, dailyTips };
+}
+
+/**
  * Single owner of day-level payroll computation. Both the Shifts route and
  * previewService consume this; they used to duplicate it and had drifted.
  * Maps key on square_team_member_id (spec §2 "ID space"); override rows are
  * translated employee-id -> square-id once here.
+ *
+ * Pure and synchronous — same inputs always give the same grid, so computing a
+ * second grid (e.g. the no-override baseline) costs no I/O.
  */
-export async function buildDailyGrid(
+export function computeDailyGrid(
+  inputs: DayGridInputs,
   period: PayPeriod,
   employees: Employee[],
   tipPoolFrequency: TipPoolFrequency,
   overrides: DayOverride[],
-): Promise<DailyGrid> {
+): DailyGrid {
   const days = getDays(period.start_date, period.end_date);
 
   const sqByEmployeeId = new Map(
@@ -229,10 +253,7 @@ export async function buildDailyGrid(
       .map(e => e.square_team_member_id!)
   );
 
-  const [rawShifts, dailyTips] = await Promise.all([
-    fetchShiftsByDay(period.start_date, period.end_date),
-    fetchTipsAndCashTakeByDay(period.start_date, period.end_date),
-  ]);
+  const { rawShifts, dailyTips } = inputs;
 
   const hoursByDate = new Map<string, Map<string, number>>();
   const cashByDate  = new Map<string, Map<string, number>>();
@@ -293,4 +314,20 @@ export async function buildDailyGrid(
   }
 
   return { days, hoursByDate, cashByDate, cardTipsByDate, buckets, totalPooledTipsCents };
+}
+
+/**
+ * Fetch + compute in one call. Convenience for the single-grid callers
+ * (previewService); a caller needing two grids over the same period should use
+ * fetchDayGridInputs once and computeDailyGrid per grid instead, or it pays for
+ * the Square round-trips twice.
+ */
+export async function buildDailyGrid(
+  period: PayPeriod,
+  employees: Employee[],
+  tipPoolFrequency: TipPoolFrequency,
+  overrides: DayOverride[],
+): Promise<DailyGrid> {
+  const inputs = await fetchDayGridInputs(period);
+  return computeDailyGrid(inputs, period, employees, tipPoolFrequency, overrides);
 }
