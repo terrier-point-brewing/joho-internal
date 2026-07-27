@@ -2,14 +2,30 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { cancelInvoice, createExportInvoice } from "@/lib/square/square-invoices";
+import { fetchOrdersByIds } from "@/lib/square/orders";
+import { fetchCatalogItems } from "@/lib/square/catalog";
+import {
+  buildLineItemIndexes,
+  buildInvoiceLineItemRows,
+  persistInvoiceLineItems,
+  invoiceHeaderTotalsFromOrder,
+  type LineItemCoa,
+} from "@/lib/finance/invoiceLineItems";
+import type { CatalogItem } from "@/types/square";
 import { getNetTermsDays } from "@/lib/production/invoiceTerms";
 import { addDaysStr, todayLocalDate } from "@/lib/utils/datetime";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * `note` is the text that shows as the line item's note on the Square invoice
+ * (e.g. "Packaging Fee — Epic Hazy IPA"). For catalog-backed lines the visible
+ * name comes from Square's catalog, so the note is the only free-text field.
+ * For custom (non-catalog) lines Square has no note and it becomes the name.
+ */
 interface AddBody {
   action: "add";
-  description: string;
+  note: string;
   quantity: number;
   unit_price_cents: number;
   square_catalog_variation_id?: string | null;
@@ -23,7 +39,7 @@ interface RemoveBody {
 interface EditBody {
   action: "edit";
   line_item_id: string;
-  description?: string;
+  note?: string;
   quantity?: number;
   unit_price_cents?: number;
 }
@@ -86,16 +102,16 @@ export async function PATCH(
   // Load current line items.
   const { data: currentItems, error: itemsErr } = await supabase
     .from("invoice_line_items")
-    .select("id, sort_order, description, quantity, unit_price_cents, total_cents, square_catalog_variation_id")
+    .select("id, sort_order, description, note, quantity, unit_price_cents, total_cents, square_catalog_variation_id, chart_of_accounts_id")
     .eq("invoice_id", invoiceId)
     .order("sort_order");
   if (itemsErr) return NextResponse.json({ error: itemsErr.message }, { status: 500 });
 
   // Build updated items list.
   type StoredItem = {
-    id: string; sort_order: number; description: string | null;
+    id: string; sort_order: number; description: string | null; note: string | null;
     quantity: number; unit_price_cents: number; total_cents: number;
-    square_catalog_variation_id: string | null;
+    square_catalog_variation_id: string | null; chart_of_accounts_id?: string | null;
   };
 
   let updatedItems: StoredItem[] = currentItems ?? [];
@@ -107,7 +123,10 @@ export async function PATCH(
     const newItem: StoredItem = {
       id: crypto.randomUUID(),
       sort_order: updatedItems.length,
-      description: body.description,
+      // The canonical read-back below overwrites `description` with the catalog
+      // label; these values only survive if that read-back fails.
+      description: body.note,
+      note: body.note,
       quantity: body.quantity,
       unit_price_cents: body.unit_price_cents,
       total_cents: body.quantity * body.unit_price_cents,
@@ -128,7 +147,13 @@ export async function PATCH(
       item.id === body.line_item_id
         ? {
             ...item,
-            description: body.description ?? item.description,
+            note: body.note ?? item.note,
+            // Catalog-backed lines take their name from Square, so `description`
+            // stays the catalog label. Custom lines have no note on Square — the
+            // note IS the name, so it doubles as the description there.
+            description: item.square_catalog_variation_id
+              ? item.description
+              : body.note ?? item.description,
             quantity: nextQty,
             unit_price_cents: nextPrice,
             total_cents: nextQty * nextPrice,
@@ -154,9 +179,12 @@ export async function PATCH(
     return NextResponse.json({ error: "Failed to cancel existing Square draft" }, { status: 500 });
   }
 
+  // `description` on the draft becomes the Square line's note (catalog lines) or
+  // its name (custom lines). Sending the stored `description` here would replace
+  // every real note with the catalog label, so the note always wins.
   const lineItemsForSquare = updatedItems.map((item) => ({
     id: item.id,
-    description: item.description ?? "",
+    description: item.note ?? item.description ?? "",
     quantity: item.quantity,
     unitPriceCents: item.unit_price_cents,
     squareCatalogVariationId: item.square_catalog_variation_id,
@@ -199,20 +227,63 @@ export async function PATCH(
     .eq("id", invoiceId);
   if (invUpdateErr) return NextResponse.json({ error: invUpdateErr.message }, { status: 500 });
 
-  // Replace all line items in DB.
-  const { error: deleteErr } = await supabase.from("invoice_line_items").delete().eq("invoice_id", invoiceId);
-  if (deleteErr) return NextResponse.json({ error: deleteErr.message }, { status: 500 });
-  if (updatedItems.length > 0) {
+  // Re-persist line items from the recreated Square order, through the same
+  // mapper the sync and the generate read-back use. That's what splits the
+  // catalog label (`description`) from the line's note (`note`) and classifies
+  // `category` — a hand-rolled insert here would flatten both.
+  let linesPersisted = false;
+  try {
+    const [orders, catalogItems] = await Promise.all([
+      fetchOrdersByIds([newSquareResult.orderId]),
+      fetchCatalogItems(),
+    ]);
+    const order = orders[0];
+    if (!order) throw new Error(`order read-back returned no order for ${newSquareResult.orderId}`);
+    const indexes = await buildLineItemIndexes(supabase, catalogItems as CatalogItem[]);
+
+    // Carry existing CoA mappings across the rebuild. Keyed by variation rather
+    // than sort_order because add/remove shifts every position after it.
+    const coaByVariation = new Map<string, string>();
+    for (const item of currentItems ?? []) {
+      if (item.square_catalog_variation_id && item.chart_of_accounts_id) {
+        coaByVariation.set(item.square_catalog_variation_id, item.chart_of_accounts_id);
+      }
+    }
+    const existingCoaBySort = new Map<number, LineItemCoa>();
+    (order.line_items ?? []).forEach((li, i) => {
+      const coa = li.catalog_object_id ? coaByVariation.get(li.catalog_object_id) : undefined;
+      if (coa) existingCoaBySort.set(i, { chart_of_accounts_id: coa });
+    });
+
+    const rows = buildInvoiceLineItemRows(invoiceId, order, indexes, existingCoaBySort);
+    const { error: persistErr } = await persistInvoiceLineItems(supabase, invoiceId, rows);
+    if (persistErr) throw new Error(persistErr);
+    linesPersisted = true;
+
+    const totals = invoiceHeaderTotalsFromOrder(order);
+    const { error: hdrErr } = await supabase.from("invoices").update(totals).eq("id", invoiceId);
+    if (hdrErr) console.error("[line-items] header totals update failed:", hdrErr.message);
+  } catch (err) {
+    console.error("[line-items] read-back failed, falling back to draft values:", err);
+  }
+
+  if (!linesPersisted) {
+    // Fallback: persist the draft values so the invoice is never left empty; a
+    // later sync reconciles descriptions, notes, and categories.
+    const { error: deleteErr } = await supabase.from("invoice_line_items").delete().eq("invoice_id", invoiceId);
+    if (deleteErr) return NextResponse.json({ error: deleteErr.message }, { status: 500 });
     const { error: insertErr } = await supabase.from("invoice_line_items").insert(
       updatedItems.map((item, i) => ({
         invoice_id: invoiceId,
         sort_order: i,
         description: item.description,
+        note: item.note,
         category: "other_services",
         quantity: item.quantity,
         unit_price_cents: item.unit_price_cents,
         total_cents: item.total_cents,
         square_catalog_variation_id: item.square_catalog_variation_id,
+        chart_of_accounts_id: item.chart_of_accounts_id ?? null,
       }))
     );
     if (insertErr) return NextResponse.json({ error: insertErr.message }, { status: 500 });
