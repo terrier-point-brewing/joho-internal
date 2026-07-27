@@ -12,6 +12,8 @@ import { queryKeys } from "@/lib/query-keys";
 import TabBar from "@/app/components/TabBar";
 import Badge from "@/app/components/ui/Badge";
 import { Modal } from "@/app/components/ui/Modal";
+import { usePermissions } from "@/lib/hooks/useUserRole";
+import { CAP } from "@/lib/auth/capabilities"; // NOT "@/lib/auth" — barrel pulls server-only code
 
 export type PayrollTab = "summary" | "shifts" | "gusto" | "gustoUpload";
 
@@ -37,6 +39,8 @@ export function PayrollPeriodView({ periodId, editable, tabs = ["summary", "shif
   const [activeTab, setActiveTab] = useState<PayrollTab>(tabs[0]);
   const [overrideMode, setOverrideMode] = useState(false);
   const [cashView, setCashView] = useState<"actual" | "reported">("actual");
+  const { can } = usePermissions();
+  const canDayOverride = can(CAP.payrollDayOverride);
 
   async function handleLock() {
     setLocking(true);
@@ -94,9 +98,9 @@ export function PayrollPeriodView({ periodId, editable, tabs = ["summary", "shif
             {period.status === "locked" ? "Locked" : "Open"}
           </Badge>
         </div>
-        {editable && isOpen && (
+        {isOpen && (
           <div className="flex items-center gap-2">
-            {activeTab === "summary" && (
+            {((activeTab === "summary" && editable) || (activeTab === "shifts" && canDayOverride)) && (
               <button
                 onClick={() => setOverrideMode(v => !v)}
                 className={overrideMode ? "btn-primary" : "btn-secondary"}
@@ -104,9 +108,11 @@ export function PayrollPeriodView({ periodId, editable, tabs = ["summary", "shif
                 {overrideMode ? "Exit Override" : "Override Mode"}
               </button>
             )}
-            <button onClick={() => setShowLockConfirm(true)} className="btn-primary">
-              Lock Period
-            </button>
+            {editable && (
+              <button onClick={() => setShowLockConfirm(true)} className="btn-primary">
+                Lock Period
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -117,7 +123,7 @@ export function PayrollPeriodView({ periodId, editable, tabs = ["summary", "shif
         activeKey={activeTab}
         onSelect={(tab) => {
           setActiveTab(tab);
-          if (tab !== "summary") setOverrideMode(false);
+          if (tab !== "summary" && tab !== "shifts") setOverrideMode(false);
         }}
       />
 
@@ -160,7 +166,7 @@ export function PayrollPeriodView({ periodId, editable, tabs = ["summary", "shif
 
       {/* Tab content */}
       {activeTab === "shifts" ? (
-        <ShiftTimeline periodId={periodId} />
+        <ShiftTimeline periodId={periodId} overrideMode={overrideMode && canDayOverride} />
       ) : activeTab === "gusto" ? (
         <GustoSummaryPanel
           entries={entries}

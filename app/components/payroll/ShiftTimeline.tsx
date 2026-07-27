@@ -1,25 +1,45 @@
 "use client";
 
-import { Fragment } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { Fragment, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import type { TipPoolFrequency } from "@/lib/payroll/types";
 import { fmtCents } from "@/lib/utils/formatting";
+import Banner from "@/app/components/ui/Banner";
+
+interface DayOverrideCell {
+  adj_hours: number | null;
+  adj_paycheck_tips_cents: number | null;
+  adj_cash_tips_cents: number | null;
+  note: string | null;
+}
 
 interface ShiftRow {
   employee_id: string;
   name: string;
+  overridable: boolean;
   daily_hours: Record<string, number>;
   total_hours: number;
   daily_tips_cents: Record<string, number> | null;
   total_tips_cents: number | null;
   daily_cash_tips_cents: Record<string, number> | null;
   total_cash_tips_cents: number | null;
+  overrides: Record<string, DayOverrideCell>;
+  source_hours: Record<string, number>;
+  source_tips_cents: Record<string, number> | null;
+  source_cash_tips_cents: Record<string, number> | null;
+}
+
+interface TipBucket {
+  label: string; days: string[];
+  pool_cents: number; pinned_cents: number; attributed_cents: number;
 }
 
 interface ShiftData {
   days: string[];
   tip_pool_frequency: TipPoolFrequency;
+  tip_buckets: TipBucket[];
+  pool_variance: Array<{ label: string; pool_cents: number; attributed_cents: number }>;
   rows: ShiftRow[];
 }
 
@@ -41,7 +61,53 @@ const FREQ_LABELS: Record<TipPoolFrequency, string> = {
   biweekly: "biweekly",
 };
 
-export function ShiftTimeline({ periodId }: { periodId: string }) {
+type Field = "hours" | "card" | "cash";
+const editKey = (emp: string, date: string, f: Field) => `${emp}|${date}|${f}`;
+
+function CardLine({
+  value, source, overridden, editable, editing, draft,
+  onFocus, onChange, className,
+}: {
+  value: string; source: string; overridden: boolean;
+  editable: boolean; editing: boolean; draft: string;
+  onFocus: () => void; onChange: (v: string) => void; className: string;
+}) {
+  if (editable && editing) {
+    return (
+      <input
+        autoFocus
+        type="number"
+        min="0"
+        step="0.01"
+        value={draft}
+        onChange={e => onChange(e.target.value)}
+        className="inp-sm w-full text-right font-mono text-xs px-1 py-0"
+      />
+    );
+  }
+  return (
+    <button
+      type="button"
+      disabled={!editable}
+      onClick={onFocus}
+      className={`text-left leading-none font-mono text-xs ${
+        overridden ? "text-accent" : className
+      } ${editable ? "cursor-text" : "cursor-default"}`}
+    >
+      {value}
+      {overridden && <span className="ml-1 text-faint line-through">{source}</span>}
+    </button>
+  );
+}
+
+export function ShiftTimeline({ periodId, overrideMode }: { periodId: string; overrideMode: boolean }) {
+  const qc = useQueryClient();
+  const [edits, setEdits] = useState<Record<string, string>>({});
+  const [focused, setFocused] = useState<string | null>(null);
+  const [notes, setNotes] = useState<Record<string, string>>({});
+  const [savingRow, setSavingRow] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
   const { data, isLoading, error } = useQuery<ShiftData>({
     queryKey: queryKeys.payroll.shifts(periodId),
     queryFn: () =>
@@ -65,6 +131,50 @@ export function ShiftTimeline({ periodId }: { periodId: string }) {
   const hasTippedRows = rows.some(r => r.daily_tips_cents !== null);
   const hasCashTipRows = rows.some(r => r.daily_cash_tips_cents !== null);
 
+  async function saveRow(row: ShiftRow) {
+    setSavingRow(row.employee_id);
+    const byDate = new Map<string, DayOverrideCell>();
+    for (const day of days) {
+      const existing = row.overrides[day];
+      const g = (f: Field) => {
+        const k = editKey(row.employee_id, day, f);
+        return k in edits ? (edits[k] === "" ? null : Number(edits[k])) : undefined;
+      };
+      const h = g("hours"), card = g("card"), cash = g("cash");
+      if (h === undefined && card === undefined && cash === undefined && !existing) continue;
+      byDate.set(day, {
+        adj_hours: h === undefined ? existing?.adj_hours ?? null : h,
+        adj_paycheck_tips_cents: card === undefined
+          ? existing?.adj_paycheck_tips_cents ?? null
+          : card === null ? null : Math.round(card * 100),
+        adj_cash_tips_cents: cash === undefined
+          ? existing?.adj_cash_tips_cents ?? null
+          : cash === null ? null : Math.round(cash * 100),
+        note: notes[row.employee_id] ?? existing?.note ?? null,
+      });
+    }
+
+    const res = await fetch(`/api/payroll/periods/${periodId}/shift-overrides/${row.employee_id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cells: [...byDate].map(([work_date, c]) => ({ work_date, ...c })) }),
+    });
+
+    if (!res.ok) {
+      const { error } = await res.json().catch(() => ({ error: "Save failed" }));
+      setSaveError(error);
+      setSavingRow(null);
+      return;
+    }
+    setSaveError(null);
+    await Promise.all([
+      qc.invalidateQueries({ queryKey: queryKeys.payroll.shifts(periodId) }),
+      qc.invalidateQueries({ queryKey: queryKeys.payroll.preview(periodId) }),
+    ]);
+    setEdits({});
+    setSavingRow(null);
+  }
+
   // Chunk days into 7-day weeks
   const weeks: string[][] = [];
   for (let i = 0; i < days.length; i += 7) weeks.push(days.slice(i, i + 7));
@@ -75,6 +185,22 @@ export function ShiftTimeline({ periodId }: { periodId: string }) {
 
   return (
     <div className="overflow-x-auto">
+      {overrideMode && (
+        <Banner tone="info" className="mb-3">
+          Card tips rebalance within {data.tip_buckets.length === 1
+            ? "the whole period"
+            : `each ${FREQ_LABELS[tip_pool_frequency]} pool (${data.tip_buckets[0].label}, …)`}
+          . Editing one cell moves the others in that span.
+        </Banner>
+      )}
+      {data.pool_variance.map(v => (
+        <Banner key={v.label} tone={v.attributed_cents > v.pool_cents ? "danger" : "neutral"} className="mb-3">
+          {v.attributed_cents > v.pool_cents
+            ? `Pinned card tips for ${v.label} exceed the pool by ${fmtCents(v.attributed_cents - v.pool_cents)} — revise them.`
+            : `${fmtCents(v.pool_cents - v.attributed_cents)} of the ${v.label} pool is unattributed (no eligible hours).`}
+        </Banner>
+      ))}
+      {saveError && <Banner tone="danger" className="mb-3">{saveError}</Banner>}
       <table className="text-xs border-collapse">
         <thead>
           <tr>
@@ -96,6 +222,7 @@ export function ShiftTimeline({ periodId }: { periodId: string }) {
             <th className={`py-2 text-muted font-medium text-right whitespace-nowrap ${multiWeek ? "pl-3 pr-0 border-l border-line" : "pl-5"}`}>
               Total
             </th>
+            {overrideMode && <th />}
           </tr>
         </thead>
         <tbody>
@@ -120,22 +247,51 @@ export function ShiftTimeline({ periodId }: { periodId: string }) {
                         const h  = row.daily_hours[d] ?? 0;
                         const t  = isTipped ? (row.daily_tips_cents![d] ?? 0) : null;
                         const ct = hasCash   ? (row.daily_cash_tips_cents![d] ?? 0) : null;
+                        const ov = row.overrides[d];
+                        const canEdit = overrideMode && row.overridable;
+                        const show = h > 0 || canEdit;
                         return (
                           <td key={d} className="px-1 py-1 align-top">
-                            {h > 0 ? (
-                              <div className={`w-20 ${cardH} rounded-lg px-3 py-2 flex flex-col justify-center gap-0.5 ${hourCellStyle(h)}`}>
-                                <span className="text-sm font-mono font-semibold leading-none">
-                                  {h.toFixed(1)}h
-                                </span>
+                            {show ? (
+                              <div className={`w-20 ${cardH} rounded-lg px-3 py-2 flex flex-col justify-center gap-0.5 ${
+                                h > 0 ? hourCellStyle(h) : "border border-line-strong"
+                              }`}>
+                                <CardLine
+                                  value={`${h.toFixed(1)}h`}
+                                  source={`${(row.source_hours[d] ?? 0).toFixed(1)}h`}
+                                  overridden={ov?.adj_hours != null}
+                                  editable={canEdit}
+                                  editing={focused === editKey(row.employee_id, d, "hours")}
+                                  draft={edits[editKey(row.employee_id, d, "hours")] ?? String(h)}
+                                  onFocus={() => setFocused(editKey(row.employee_id, d, "hours"))}
+                                  onChange={v => setEdits(e => ({ ...e, [editKey(row.employee_id, d, "hours")]: v }))}
+                                  className="text-sm font-semibold"
+                                />
                                 {isTipped && (
-                                  <span className={`text-xs font-mono leading-none ${t && t > 0 ? "text-emerald-400" : "text-faint"}`}>
-                                    {t && t > 0 ? fmtCents(t) : "—"}
-                                  </span>
+                                  <CardLine
+                                    value={t && t > 0 ? fmtCents(t) : "—"}
+                                    source={fmtCents(row.source_tips_cents?.[d] ?? 0)}
+                                    overridden={ov?.adj_paycheck_tips_cents != null}
+                                    editable={canEdit}
+                                    editing={focused === editKey(row.employee_id, d, "card")}
+                                    draft={edits[editKey(row.employee_id, d, "card")] ?? String((t ?? 0) / 100)}
+                                    onFocus={() => setFocused(editKey(row.employee_id, d, "card"))}
+                                    onChange={v => setEdits(e => ({ ...e, [editKey(row.employee_id, d, "card")]: v }))}
+                                    className="text-emerald-400"
+                                  />
                                 )}
                                 {hasCash && (
-                                  <span className={`text-xs font-mono leading-none ${ct && ct > 0 ? "text-amber-300" : "text-disabled"}`}>
-                                    {ct && ct > 0 ? fmtCents(ct) : "—"}
-                                  </span>
+                                  <CardLine
+                                    value={ct && ct > 0 ? fmtCents(ct) : "—"}
+                                    source={fmtCents(row.source_cash_tips_cents?.[d] ?? 0)}
+                                    overridden={ov?.adj_cash_tips_cents != null}
+                                    editable={canEdit}
+                                    editing={focused === editKey(row.employee_id, d, "cash")}
+                                    draft={edits[editKey(row.employee_id, d, "cash")] ?? String((ct ?? 0) / 100)}
+                                    onFocus={() => setFocused(editKey(row.employee_id, d, "cash"))}
+                                    onChange={v => setEdits(e => ({ ...e, [editKey(row.employee_id, d, "cash")]: v }))}
+                                    className="text-amber-300"
+                                  />
                                 )}
                               </div>
                             ) : (
@@ -185,6 +341,27 @@ export function ShiftTimeline({ periodId }: { periodId: string }) {
                     )}
                   </div>
                 </td>
+
+                {overrideMode && row.overridable && (
+                  <td className="pl-4 py-1 align-middle">
+                    <div className="flex gap-2 items-center">
+                      <input
+                        type="text"
+                        value={notes[row.employee_id] ?? ""}
+                        onChange={e => setNotes(n => ({ ...n, [row.employee_id]: e.target.value }))}
+                        placeholder="Notes…"
+                        className="inp-sm w-32"
+                      />
+                      <button
+                        onClick={() => saveRow(row)}
+                        disabled={savingRow === row.employee_id}
+                        className="btn-secondary btn-xxs"
+                      >
+                        {savingRow === row.employee_id ? "…" : "Save"}
+                      </button>
+                    </div>
+                  </td>
+                )}
               </tr>
             );
           })}
@@ -261,6 +438,7 @@ export function ShiftTimeline({ periodId }: { periodId: string }) {
                 })()}
               </div>
             </td>
+            {overrideMode && <td />}
           </tr>
         </tfoot>
       </table>
