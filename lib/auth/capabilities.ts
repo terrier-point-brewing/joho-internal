@@ -51,6 +51,11 @@ export const CAP = {
   payrollRead: { scope: "payroll", level: "read" },
   payrollOperate: { scope: "payroll", level: "operate" },
   payrollManage: { scope: "payroll", level: "manage" },
+  // Named intent for the Shifts-grid day override. Deliberately shares the
+  // `operate` coordinate, which manager and admin already hold — so no
+  // ROLE_BUNDLES change, and manager still cannot lock a period or use the
+  // Summary-tab period override (both `payrollManage`).
+  payrollDayOverride: { scope: "payroll", level: "operate" },
 
   businessSettingsManage: { scope: "settings.business", level: "manage" },
   usersManage: { scope: "settings.users", level: "manage" },

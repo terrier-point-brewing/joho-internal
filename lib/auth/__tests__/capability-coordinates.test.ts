@@ -66,6 +66,7 @@ const EXPECTED: Record<keyof typeof CAP, { scope: ScopeKey; level: Level }> = {
   payrollRead: { scope: "payroll", level: "read" },
   payrollOperate: { scope: "payroll", level: "operate" },
   payrollManage: { scope: "payroll", level: "manage" },
+  payrollDayOverride: { scope: "payroll", level: "operate" },
 
   businessSettingsManage: { scope: "settings.business", level: "manage" },
   usersManage: { scope: "settings.users", level: "manage" },
