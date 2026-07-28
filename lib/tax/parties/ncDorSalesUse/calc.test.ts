@@ -228,7 +228,7 @@ describe("computeDependentTotals", () => {
 interface TaxRow {
   line_item_id: string;
   amount_cents: number;
-  pos_line_items: { net_sales_cents: number; tax_cents: number };
+  pos_line_items: { net_sales_cents: number; tax_cents: number; gross_sales_cents: number; discount_cents: number };
 }
 
 /** Stub Supabase client routing `pos_line_item_taxes` (the Square base/tax
@@ -265,10 +265,10 @@ const period = { start: "2026-07-01", end: "2026-07-31", due: "2026-08-20" };
 describe("fetchTaxableBase", () => {
   it("sums base (net - tax) and collected (amount), deduping by line_item_id", async () => {
     const rows: TaxRow[] = [
-      { line_item_id: "A", amount_cents: 725, pos_line_items: { net_sales_cents: 10000, tax_cents: 725 } },
-      { line_item_id: "B", amount_cents: 363, pos_line_items: { net_sales_cents: 5000, tax_cents: 363 } },
+      { line_item_id: "A", amount_cents: 725, pos_line_items: { net_sales_cents: 10000, tax_cents: 725, gross_sales_cents: 9275, discount_cents: 0 } },
+      { line_item_id: "B", amount_cents: 363, pos_line_items: { net_sales_cents: 5000, tax_cents: 363, gross_sales_cents: 4637, discount_cents: 0 } },
       // defensive duplicate of A (should be ignored)
-      { line_item_id: "A", amount_cents: 725, pos_line_items: { net_sales_cents: 10000, tax_cents: 725 } },
+      { line_item_id: "A", amount_cents: 725, pos_line_items: { net_sales_cents: 10000, tax_cents: 725, gross_sales_cents: 9275, discount_cents: 0 } },
     ];
     const res = await fetchTaxableBase(stubSb(rows), "TAX_GEN", period);
     expect(res.baseCents).toBe(10000 - 725 + (5000 - 363)); // 13912
@@ -281,9 +281,9 @@ describe("fetchTaxableBase", () => {
     // and silently drop line C, understating both base and collected — which
     // is exactly how June's gross receipts came back at ~half the real figure.
     const rows: TaxRow[] = [
-      { line_item_id: "A", amount_cents: 100, pos_line_items: { net_sales_cents: 1000, tax_cents: 100 } },
-      { line_item_id: "B", amount_cents: 200, pos_line_items: { net_sales_cents: 2000, tax_cents: 200 } },
-      { line_item_id: "C", amount_cents: 300, pos_line_items: { net_sales_cents: 3000, tax_cents: 300 } },
+      { line_item_id: "A", amount_cents: 100, pos_line_items: { net_sales_cents: 1000, tax_cents: 100, gross_sales_cents: 900, discount_cents: 0 } },
+      { line_item_id: "B", amount_cents: 200, pos_line_items: { net_sales_cents: 2000, tax_cents: 200, gross_sales_cents: 1800, discount_cents: 0 } },
+      { line_item_id: "C", amount_cents: 300, pos_line_items: { net_sales_cents: 3000, tax_cents: 300, gross_sales_cents: 2700, discount_cents: 0 } },
     ];
     const res = await fetchTaxableBase(stubSb(rows), "TAX_GEN", period, 2);
     expect(res.baseCents).toBe(1000 - 100 + (2000 - 200) + (3000 - 300)); // 5400 — all three lines
@@ -304,7 +304,7 @@ describe("computeNcDorWorksheet", () => {
   it("reads config counties + general_sales_tax_id, pulls base, computes figures via the fetched rateMap", async () => {
     // one line: net 107250, tax 7250 -> base 100000, collected 7250
     const rows: TaxRow[] = [
-      { line_item_id: "A", amount_cents: 7250, pos_line_items: { net_sales_cents: 107250, tax_cents: 7250 } },
+      { line_item_id: "A", amount_cents: 7250, pos_line_items: { net_sales_cents: 107250, tax_cents: 7250, gross_sales_cents: 100000, discount_cents: 0 } },
     ];
     const ctx: ComputeContext = {
       schedule: {
