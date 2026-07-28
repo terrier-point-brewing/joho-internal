@@ -503,6 +503,33 @@ Documented in the deployment sequence below with a verification query.
    the balance is expected to sit credit-side between filings.
 4. **PF&B lands on `Out Of Scope Agency Payable` until repointed.** Deliberate,
    per the account decision; the name misdescribes the money in the interim.
+5. **Refund contra-revenue stays tax-inclusive while revenue becomes tax-free.**
+   Found in the final whole-branch review. `square_refunds.amount_cents` is
+   gross of tax and posts as `-magnitude` against revenue, so a refund of a
+   taxed sale now reverses more revenue than was ever recognized. Before this
+   branch the two sides were symmetric (both tax-inclusive); after it they are
+   not.
+
+   Sized against prod on 2026-07-28: 8 COMPLETED refunds totalling $1,899.58,
+   so the maximum exposure is **~$128.41** if every refunded dollar were fully
+   taxable — about 0.3% of recognized revenue, against the $2,887.32 this branch
+   corrects.
+
+   Not fixable in code: `square_refunds` stores a single total with no tax
+   breakdown, and `square_payments` is not persisted at all, so the tax
+   component of a refund cannot be derived from persisted data. Closing it needs
+   either a Square refund-tax sync or a manual adjustment. Recorded here rather
+   than silently absorbed.
+6. **`square_tax_accounts` is not registered in `coa_reference_count()`.**
+   Deleting a mapped account through the Chart of Accounts UI passes the
+   reference guard and silently nulls the mapping, after which that tax stops
+   accruing. The `unmappedTaxes` data-quality tile surfaces it, but only after
+   the fact. The guard lives in migration `20260802`, which belongs to another
+   unmerged branch and is deliberately not edited here — follow-up work.
+7. **The backfill issues one UPDATE per row.** ~4,740 for step 1 alone, at
+   concurrency 50, against the route's `maxDuration = 300`. A timeout leaves it
+   partially applied; every step is idempotent, so the remedy is simply to run
+   it again. Expect that rather than assuming a single pass.
 
 ## Inherited from PRs #283 / #284 (both merged)
 
@@ -580,6 +607,12 @@ merging, not after.
 3. Apply migrations. Confirm `square_tax_accounts` holds two rows with non-NULL
    `chart_of_accounts_id`; a NULL means the seed's name lookup missed and must
    be set through the UI.
+
+   ⚠️ **The new Settings → Sales Tax Accounts tab is live in the nav from the
+   moment this deploys and will 500 until `20260825` is applied.** Unlike the
+   Financials reads, `listSalesTaxAccounts` deliberately does not degrade — a
+   settings page that silently shows an empty map would be worse than one that
+   fails loudly. Apply the migration in the same window as the deploy.
 4. Deploy. Confirm the Sales Tax Accounts settings page lists both taxes.
 5. Create `Sales & Excise Taxes Payable:Wake County Tax Administration Payable`
    (Other Current Liabilities) via the Chart of Accounts UI.
