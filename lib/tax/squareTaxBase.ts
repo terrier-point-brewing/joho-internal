@@ -9,9 +9,11 @@
  * Joins pos_line_item_taxes (filtered to one square_tax_id) -> pos_line_items
  * -> square_orders, ranged over transaction_date. Filtering to one tax id
  * yields exactly one tax row per qualifying line, so a single pass gives per
- * line: base = net_sales_cents - tax_cents (post-discount, pre-tax receipts),
- * collected = amount_cents. Dedupes by line_item_id. Paged via fetchAllRows to
- * dodge PostgREST's 1000-row cap. pageSize is injectable for tests only.
+ * line: base = gross_sales_cents - discount_cents
+ * (post-discount, pre-tax receipts), collected = amount_cents. Dedupes by
+ * line_item_id, namespaced per source since the two tables' ids are unrelated.
+ * Paged via fetchAllRows to dodge PostgREST's 1000-row cap. pageSize is
+ * injectable for tests only.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { addDaysStr } from "@/lib/utils/datetime";
@@ -24,8 +26,17 @@ interface TaxJoinRow {
   line_item_id: string;
   amount_cents: number | null;
   pos_line_items:
-    | { net_sales_cents: number | null; tax_cents: number | null }
-    | { net_sales_cents: number | null; tax_cents: number | null }[]
+    | { gross_sales_cents: number | null; discount_cents: number | null }
+    | { gross_sales_cents: number | null; discount_cents: number | null }[]
+    | null;
+}
+
+interface InvoiceTaxJoinRow {
+  line_item_id: string;
+  amount_cents: number | null;
+  invoice_line_items:
+    | { gross_sales_cents: number | null; discount_cents: number | null }
+    | { gross_sales_cents: number | null; discount_cents: number | null }[]
     | null;
 }
 
@@ -38,12 +49,12 @@ export async function fetchTaxableBase(
   const startTs = `${period.start}T00:00:00Z`;
   const endExclusiveTs = `${addDaysStr(period.end, 1)}T00:00:00Z`;
 
-  const data = await fetchAllRows<TaxJoinRow>(
+  const posRows = await fetchAllRows<TaxJoinRow>(
     () =>
       sb
         .from("pos_line_item_taxes")
         .select(
-          "line_item_id, amount_cents, pos_line_items!inner ( net_sales_cents, tax_cents, square_orders!inner ( transaction_date ) )",
+          "line_item_id, amount_cents, pos_line_items!inner ( gross_sales_cents, discount_cents, square_orders!inner ( transaction_date ) )",
         )
         .eq("square_tax_id", squareTaxId)
         .gte("pos_line_items.square_orders.transaction_date", startTs)
@@ -52,17 +63,57 @@ export async function fetchTaxableBase(
     pageSize,
   );
 
+  // Invoice-collected tax lives in a mirror table (migration 20260826). It is
+  // wrapped because an unapplied migration must degrade to "no invoice tax"
+  // rather than failing a filing worksheet outright. The POS source above is
+  // deliberately NOT wrapped: that table exists, and a silent zero there would
+  // corrupt the return.
+  let invoiceRows: InvoiceTaxJoinRow[] = [];
+  try {
+    invoiceRows = await fetchAllRows<InvoiceTaxJoinRow>(
+      () =>
+        sb
+          .from("invoice_line_item_taxes")
+          .select(
+            "line_item_id, amount_cents, invoice_line_items!inner ( gross_sales_cents, discount_cents, invoices!invoice_line_items_invoice_id_fkey!inner ( invoice_date, status ) )",
+          )
+          .eq("square_tax_id", squareTaxId)
+          .neq("invoice_line_items.invoices.status", "voided")
+          .gte("invoice_line_items.invoices.invoice_date", period.start)
+          .lte("invoice_line_items.invoices.invoice_date", period.end)
+          .order("line_item_id", { ascending: true }),
+      pageSize,
+    );
+  } catch {
+    invoiceRows = [];
+  }
+
   const seen = new Set<string>();
   let baseCents = 0;
   let collectedCents = 0;
-  for (const row of data) {
-    if (seen.has(row.line_item_id)) continue;
-    seen.add(row.line_item_id);
-    const pliRaw = row.pos_line_items;
-    const pli = Array.isArray(pliRaw) ? pliRaw[0] : pliRaw;
-    if (!pli) continue;
-    baseCents += num(pli.net_sales_cents) - num(pli.tax_cents);
-    collectedCents += num(row.amount_cents);
-  }
+
+  // base = gross_sales_cents - discount_cents (post-discount, pre-tax
+  // receipts). Deliberately NOT net_sales_cents - tax_cents: net_sales_cents
+  // changes meaning when the sales-tax backfill runs, whereas gross/discount
+  // do not, so this form is correct both before and after it.
+  const add = (
+    key: string,
+    amount: number | null,
+    parentRaw:
+      | { gross_sales_cents: number | null; discount_cents: number | null }
+      | { gross_sales_cents: number | null; discount_cents: number | null }[]
+      | null,
+  ) => {
+    if (seen.has(key)) return;
+    seen.add(key);
+    const parent = Array.isArray(parentRaw) ? parentRaw[0] : parentRaw;
+    if (!parent) return;
+    baseCents += num(parent.gross_sales_cents) - num(parent.discount_cents);
+    collectedCents += num(amount);
+  };
+
+  for (const row of posRows) add(`p:${row.line_item_id}`, row.amount_cents, row.pos_line_items);
+  for (const row of invoiceRows) add(`i:${row.line_item_id}`, row.amount_cents, row.invoice_line_items);
+
   return { baseCents, collectedCents };
 }
