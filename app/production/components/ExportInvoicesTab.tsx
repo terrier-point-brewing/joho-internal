@@ -29,12 +29,18 @@ interface InvoiceLineItem {
 }
 
 /**
- * The note as it reads on the physical Square invoice. Square-synced rows keep
- * the catalog label in `description` and the real note in `note`; locally
- * inserted fallback rows only ever had `description`, so fall back to it.
+ * The note as it reads on the physical Square invoice.
+ *
+ * Square-synced rows carry catalog identity (`line_item_name`) and keep the
+ * catalog label in `description`, the real note in `note` — so a null `note`
+ * there means the line genuinely has no note, and falling back to `description`
+ * would just echo the item label back as a bogus note. Rows written by the
+ * non-Square fallback insert paths have no catalog identity and only ever had
+ * `description`, which for them IS the note text.
  */
 function lineItemNote(li: InvoiceLineItem): string | null {
-  return li.note ?? li.description ?? null;
+  if (li.note) return li.note;
+  return li.line_item_name ? null : li.description ?? null;
 }
 
 interface InvoiceShipment {
@@ -412,7 +418,9 @@ function InvoiceExpandedPanel({
                 <tr key={li.id} className="border-b border-line/50 last:border-0 align-top">
                   <td className="py-1">
                     <div className="text-strong">{itemLabel ?? note ?? "—"}</div>
-                    {note && note !== itemLabel && (
+                    {/* Only a second line when there's an item label above it to
+                        distinguish from — otherwise the note IS the label. */}
+                    {itemLabel && note && note !== itemLabel && (
                       <div className="text-[11px] text-muted">Note: {note}</div>
                     )}
                   </td>
