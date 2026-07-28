@@ -4,7 +4,7 @@
 // buildFinancials.test.ts, which mocks fetchFinancialsSources wholesale).
 import { describe, it, expect } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { fetchExpenses, fetchInvoiceLines, fetchTipAccruals } from "./fetchSources";
+import { fetchExpenses, fetchInvoiceLines, fetchTipAccruals, fetchTaxAccruals } from "./fetchSources";
 
 interface ExpensesRow {
   id: string;
@@ -460,5 +460,69 @@ describe("fetchTipAccruals", () => {
     // 1000 x 1 cent from the first page + 50 cents from the second page --
     // only reachable if fetchAllRows actually paged past the 1000-row cap.
     expect(result[0].amountCents).toBe(1050);
+  });
+});
+
+describe("fetchTaxAccruals", () => {
+  const range = { startDateStr: null, start: null, endDateStr: "2026-07-31", end: "2026-08-01T00:00:00Z" };
+
+  function stub(posRows: unknown[], invRows: unknown[], invThrows = false) {
+    const from = (table: string) => {
+      if (table === "invoice_line_item_taxes" && invThrows) throw new Error("missing relation");
+      const b: Record<string, unknown> = {};
+      b.select = () => b; b.eq = () => b; b.neq = () => b;
+      b.gte = () => b; b.lt = () => b; b.lte = () => b; b.order = () => b;
+      b.range = (f: number, t: number) => {
+        const rows = table === "pos_line_item_taxes" ? posRows : invRows;
+        return Promise.resolve({ data: rows.slice(f, t + 1), error: null });
+      };
+      return b;
+    };
+    return { from } as unknown as SupabaseClient;
+  }
+
+  const posRow = (id: string, taxId: string, cents: number) => ({
+    line_item_id: id, square_tax_id: taxId, amount_cents: cents,
+  });
+
+  it("groups by square_tax_id, resolves accounts, and keys the canonical month", async () => {
+    const sb = stub(
+      [posRow("a", "TAX_GEN", 103243), posRow("b", "TAX_PFB", 8644), posRow("c", "TAX_GEN", 98095)],
+      [],
+    );
+    const res = await fetchTaxAccruals(sb, range, new Map([["TAX_GEN", "COA_NCDOR"], ["TAX_PFB", "COA_WAKE"]]));
+    expect(res).toEqual([
+      { id: "tax-COA_NCDOR-2026-07", chartOfAccountsId: "COA_NCDOR", amountCents: 201338, monthKey: "2026-07" },
+      { id: "tax-COA_WAKE-2026-07", chartOfAccountsId: "COA_WAKE", amountCents: 8644, monthKey: "2026-07" },
+    ]);
+  });
+
+  it("merges two taxes that point at the same account", async () => {
+    const sb = stub([posRow("a", "TAX_GEN", 100), posRow("b", "TAX_PFB", 25)], []);
+    const res = await fetchTaxAccruals(sb, range, new Map([["TAX_GEN", "COA_X"], ["TAX_PFB", "COA_X"]]));
+    expect(res).toEqual([{ id: "tax-COA_X-2026-07", chartOfAccountsId: "COA_X", amountCents: 125, monthKey: "2026-07" }]);
+  });
+
+  it("emits nothing for an unmapped tax", async () => {
+    const sb = stub([posRow("a", "TAX_UNKNOWN", 500)], []);
+    // Non-empty map on purpose: an empty map short-circuits before the
+    // per-row mapping filter, so it would pass for the wrong reason.
+    expect(await fetchTaxAccruals(sb, range, new Map([["TAX_GEN", "COA_X"]]))).toEqual([]);
+  });
+
+  it("emits nothing when no tax is mapped at all", async () => {
+    const sb = stub([posRow("a", "TAX_GEN", 500)], []);
+    expect(await fetchTaxAccruals(sb, range, new Map())).toEqual([]);
+  });
+
+  it("skips an account whose total is <= 0", async () => {
+    const sb = stub([posRow("a", "TAX_GEN", 0)], []);
+    expect(await fetchTaxAccruals(sb, range, new Map([["TAX_GEN", "COA_X"]]))).toEqual([]);
+  });
+
+  it("degrades to POS-only when the invoice tax table is missing", async () => {
+    const sb = stub([posRow("a", "TAX_GEN", 700)], [], true);
+    const res = await fetchTaxAccruals(sb, range, new Map([["TAX_GEN", "COA_X"]]));
+    expect(res).toEqual([{ id: "tax-COA_X-2026-07", chartOfAccountsId: "COA_X", amountCents: 700, monthKey: "2026-07" }]);
   });
 });
