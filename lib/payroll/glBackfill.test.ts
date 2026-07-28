@@ -37,13 +37,22 @@ function makeSb(opts: {
   reportsError?: { message: string } | null;
   mappingRows?: { department_name: string; chart_of_accounts_id: string }[];
   settingsRow?: { payroll_taxes_chart_of_accounts_id: string; tips_chart_of_accounts_id: string | null } | null;
-  existingTotalsByReport?: Record<string, { bucket_kind: string | null; amount_cents: number }[]>;
+  existingTotalsByReport?: Record<
+    string,
+    { chart_of_accounts_id?: string; bucket_kind: string | null; amount_cents: number }[]
+  >;
   downloadTextByReport?: Record<string, string>;
   downloadErrorByReport?: Record<string, { message: string }>;
   deleteError?: { message: string } | null;
+  /** Fails the first `payroll_gl_report_totals` insert call only (the primary
+   *  write); subsequent calls (e.g. the post-failure restore) succeed. */
   insertError?: { message: string } | null;
+  /** Fails every `payroll_gl_report_totals` insert call, including a restore
+   *  attempt -- simulates the restore itself also failing. */
+  insertErrorAlways?: boolean;
 } = {}) {
   const calls: { kind: string; args: unknown[] }[] = [];
+  let insertCallCount = 0;
 
   const storageFrom = vi.fn((bucket: string) => {
     calls.push({ kind: "storage.from", args: [bucket] });
@@ -105,8 +114,10 @@ function makeSb(opts: {
           return builder;
         },
         insert: (payload: unknown) => {
+          insertCallCount++;
           calls.push({ kind: "insert", args: [table, payload] });
-          return Promise.resolve(opts.insertError ? { data: null, error: opts.insertError } : { data: null, error: null });
+          const shouldFail = opts.insertError && (opts.insertErrorAlways || insertCallCount === 1);
+          return Promise.resolve(shouldFail ? { data: null, error: opts.insertError } : { data: null, error: null });
         },
       };
     }
@@ -234,5 +245,53 @@ describe("backfillGlReports", () => {
 
     expect(results[0].before).toEqual({ wagesCents: 900, employerTaxCents: 60, tipsCents: 0 });
     expect(results[0].after).toEqual({ wagesCents: 100000, employerTaxCents: 10000, tipsCents: 5000 });
+  });
+
+  it("restores the original rows when the insert fails after delete succeeds", async () => {
+    mockRecompute.mockClear();
+    const originalRows = [{ chart_of_accounts_id: PRODUCTION_COA_ID, bucket_kind: "wages", amount_cents: 900 }];
+    const { sb, calls } = makeSb({
+      existingTotalsByReport: { R1: originalRows },
+      insertError: { message: "insert failed" },
+    });
+
+    const results = await backfillGlReports(sb, { dryRun: false });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].error).toMatch(/Insert new totals failed: insert failed/);
+    expect(results[0].splitsRecomputed).toBe(false);
+    expect(mockRecompute).not.toHaveBeenCalled();
+
+    // Delete happened, then two inserts: the failed primary write and the
+    // restore of the pre-delete rows.
+    expect(calls.some((c) => c.kind === "delete")).toBe(true);
+    const insertCalls = calls.filter((c) => c.kind === "insert");
+    expect(insertCalls).toHaveLength(2);
+    const restorePayload = insertCalls[1].args[1] as {
+      report_id: string;
+      chart_of_accounts_id: string;
+      amount_cents: number;
+      bucket_kind: string | null;
+    }[];
+    expect(restorePayload).toEqual([
+      { report_id: "R1", chart_of_accounts_id: PRODUCTION_COA_ID, amount_cents: 900, bucket_kind: "wages" },
+    ]);
+  });
+
+  it("records manual-recovery guidance when the restore insert also fails", async () => {
+    mockRecompute.mockClear();
+    const originalRows = [{ chart_of_accounts_id: PRODUCTION_COA_ID, bucket_kind: "wages", amount_cents: 900 }];
+    const { sb } = makeSb({
+      existingTotalsByReport: { R1: originalRows },
+      insertError: { message: "insert failed" },
+      insertErrorAlways: true,
+    });
+
+    const results = await backfillGlReports(sb, { dryRun: false });
+
+    expect(results[0].error).toMatch(/Insert new totals failed: insert failed/);
+    expect(results[0].error).toMatch(/Restore of the original rows ALSO failed/);
+    expect(results[0].error).toMatch(/manual recovery/i);
+    expect(mockRecompute).not.toHaveBeenCalled();
   });
 });

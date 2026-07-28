@@ -184,4 +184,36 @@ describe("getPeriodSummaries", () => {
       splitStatus: "none",
     });
   });
+
+  it("excludes the tips bucket from gustoWagesCents so drift is unaffected by a tips bucket", async () => {
+    const summaries = await getPeriodSummaries(
+      fakeClient({
+        pay_periods: [
+          { id: "A", start_date: "2026-06-01", end_date: "2026-06-14", due_date: "2026-06-15", status: "locked", locked_at: null, locked_by: null, created_at: "x" },
+        ],
+        payroll_config: [{ effective_from: "2026-06-01", base_rate_cents: 1000 }],
+        payroll_entries: [
+          { pay_period_id: "A", hours_worked: 10, paycheck_tips_cents: 500, cash_tips_cents: 100, bonus_cents: 0 },
+          { pay_period_id: "A", hours_worked: 5, paycheck_tips_cents: 0, cash_tips_cents: 0, bonus_cents: 200 },
+        ],
+        payroll_gl_settings: [{ payroll_taxes_chart_of_accounts_id: "coa-tax" }],
+        payroll_gl_reports: [{ id: "r1", pay_period_id: "A", uploaded_at: "2026-06-30T00:00:00Z", original_filename: "june.csv" }],
+        payroll_gl_report_totals: [
+          { report_id: "r1", chart_of_accounts_id: "coa-wage", amount_cents: 15650, bucket_kind: "wages" },
+          { report_id: "r1", chart_of_accounts_id: "coa-tax", amount_cents: 3000, bucket_kind: "employer_tax" },
+          // Tips bucket lives on its own (non-tax) account -- pre-fix this leaked
+          // into gustoWagesCents (only the tax account was ever excluded) and
+          // produced a bogus ~$900 drift.
+          { report_id: "r1", chart_of_accounts_id: "coa-tips-liability", amount_cents: 90000, bucket_kind: "tips" },
+        ],
+        payroll_period_expense_matches: [],
+        expenses: [],
+        expense_gl_splits: [],
+      }),
+    );
+
+    const a = summaries.find((s) => s.id === "A")!;
+    expect(a.gustoWagesCents).toBe(15650); // tips excluded despite not being the taxes account
+    expect(a.driftCents).toBe(50); // 15700 − 15650, unaffected by the $900 tips bucket
+  });
 });

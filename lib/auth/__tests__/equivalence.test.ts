@@ -12,18 +12,18 @@ function legacyRequireRole(role: UserRole, list: UserRole[]): boolean {
 }
 
 describe("legacy role <-> scoped permission equivalence", () => {
-  it("fixture has exactly 212 rows, 29 with an intentional change, every reason non-empty", () => {
-    expect(LEGACY_MATRIX).toHaveLength(212);
+  it("fixture has exactly 213 rows, 30 with an intentional change, every reason non-empty", () => {
+    expect(LEGACY_MATRIX).toHaveLength(213);
 
     const changed = LEGACY_MATRIX.filter((row) => row.intentionalChange);
-    expect(changed).toHaveLength(29);
+    expect(changed).toHaveLength(30);
 
     for (const row of changed) {
       expect(row.intentionalChange!.reason.trim().length).toBeGreaterThan(0);
     }
   });
 
-  it("every (route, role) pair matches legacy behaviour, except the 29 documented changes", () => {
+  it("every (route, role) pair matches legacy behaviour, except the 30 documented changes", () => {
     let assertions = 0;
 
     for (const row of LEGACY_MATRIX) {
@@ -40,6 +40,6 @@ describe("legacy role <-> scoped permission equivalence", () => {
       }
     }
 
-    expect(assertions).toBe(848);
+    expect(assertions).toBe(852);
   });
 });

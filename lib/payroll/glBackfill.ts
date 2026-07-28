@@ -111,10 +111,17 @@ export async function backfillGlReports(
     try {
       const { data: totalRows, error: totalsErr } = await sb
         .from("payroll_gl_report_totals")
-        .select("bucket_kind, amount_cents")
+        .select("chart_of_accounts_id, bucket_kind, amount_cents")
         .eq("report_id", report.id);
       if (totalsErr) throw new Error(`Load existing totals failed: ${totalsErr.message}`);
-      const before = summarizeRows((totalRows ?? []) as { bucket_kind: string | null; amount_cents: number }[]);
+      // Retained verbatim so a failed insert (after the delete below already
+      // succeeded) can be undone by re-inserting exactly what was there.
+      const existingRows = (totalRows ?? []) as {
+        chart_of_accounts_id: string;
+        bucket_kind: string | null;
+        amount_cents: number;
+      }[];
+      const before = summarizeRows(existingRows);
 
       const { data: fileData, error: downloadErr } = await sb.storage.from(BUCKET).download(report.storage_path);
       if (downloadErr) throw new Error(`Download CSV failed: ${downloadErr.message}`);
@@ -139,7 +146,29 @@ export async function backfillGlReports(
               bucket_kind: bucket.kind,
             })),
           );
-          if (insertErr) throw new Error(`Insert new totals failed: ${insertErr.message}`);
+          if (insertErr) {
+            // The delete above already succeeded, so without a restore this
+            // period would be left with ZERO payroll_gl_report_totals rows --
+            // recomputePeriodExpenseSplits would then see empty totals,
+            // delete the existing payroll_auto splits, and insert nothing,
+            // silently falling every matched expense to unmapped. Put the
+            // rows read before the delete back so the period isn't destroyed.
+            let restoreNote = "";
+            if (existingRows.length > 0) {
+              const { error: restoreErr } = await sb.from("payroll_gl_report_totals").insert(
+                existingRows.map((row) => ({
+                  report_id: report.id,
+                  chart_of_accounts_id: row.chart_of_accounts_id,
+                  amount_cents: row.amount_cents,
+                  bucket_kind: row.bucket_kind,
+                })),
+              );
+              if (restoreErr) {
+                restoreNote = ` Restore of the original rows ALSO failed (${restoreErr.message}) -- this period needs manual recovery from backup.`;
+              }
+            }
+            throw new Error(`Insert new totals failed: ${insertErr.message}.${restoreNote}`);
+          }
         }
 
         await recomputePeriodExpenseSplits(sb, report.pay_period_id);
