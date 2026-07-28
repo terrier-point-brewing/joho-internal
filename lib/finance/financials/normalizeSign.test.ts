@@ -66,4 +66,45 @@ describe("normalizeSignedCents", () => {
   it("bank outflow mapped to a Balance Sheet section (fixed_assets) still normalizes to a positive asset (BS path unchanged)", () => {
     expect(normalizeSignedCents(-75000, "fixed_assets", "bank")).toBe(75000);
   });
+
+  // ── Liability paydown fix: expense/bank rows on a Balance Sheet liability
+  // section must reduce the liability on an outflow (negative raw), not grow
+  // it. See lib/finance/financials/normalizeSign.ts header + Task 5.
+  it("liability paydown (expense outflow) reduces an other_current_liabilities balance", () => {
+    expect(normalizeSignedCents(-190000, "other_current_liabilities", "expense")).toBe(190000);
+  });
+
+  it("liability inflow (bank credit) increases an other_current_liabilities balance", () => {
+    expect(normalizeSignedCents(50000, "other_current_liabilities", "bank")).toBe(-50000);
+  });
+
+  it("the NC DOR expense case: an outflow reduces the ap liability", () => {
+    expect(normalizeSignedCents(-20000, "ap", "expense")).toBe(20000);
+  });
+
+  it("a tip_accrual on an other_current_liabilities account increases the liability", () => {
+    expect(normalizeSignedCents(204354, "other_current_liabilities", "tip_accrual")).toBe(-204354);
+  });
+
+  it("asset case (expense outflow on fixed_assets) unchanged by the liability fix", () => {
+    expect(normalizeSignedCents(-50000, "fixed_assets", "expense")).toBe(50000);
+  });
+
+  // ── Bank's own ledger (statementSection "bank") is a deliberate carve-out
+  // from the liability fix: a ramp_bank_ledger row mapped back to the
+  // checking account itself represents the cash balance's own delta, not
+  // cash spent to acquire some OTHER asset/pay down a liability. The raw
+  // cash-direction sign already equals the desired cashOnHandCents sign, so
+  // it must not be flipped (unlike ar/other_current_assets/fixed_assets).
+  it("a bank ledger deposit (inflow) mapped to the bank's own account increases cash on hand", () => {
+    expect(normalizeSignedCents(500000, "bank", "bank")).toBe(500000);
+  });
+
+  // Preserves the pre-existing (magnitude-only) treatment for the "bank"
+  // section rather than flipping it -- correctness for a withdrawal here is
+  // the known, separate open item called out in normalizeSign.ts, not
+  // something this test is asserting is right.
+  it("a bank ledger withdrawal (outflow) mapped to the bank's own account still normalizes to positive (pre-existing bank-section behavior, unchanged)", () => {
+    expect(normalizeSignedCents(-75000, "bank", "expense")).toBe(75000);
+  });
 });

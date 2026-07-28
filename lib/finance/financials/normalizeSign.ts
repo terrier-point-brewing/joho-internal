@@ -47,7 +47,7 @@ const PL_SECTIONS = new Set(["revenue", "other_income", "cogs", "expenses", "oth
 export function normalizeSignedCents(
   rawCents: number,
   statementSection: string,
-  source: "pos" | "invoice" | "expense" | "bank" | "refund"
+  source: "pos" | "invoice" | "expense" | "bank" | "refund" | "tip_accrual"
 ): number {
   const magnitude = Math.abs(rawCents);
 
@@ -58,9 +58,24 @@ export function normalizeSignedCents(
     // P&L section: cash-direction sign already matches the target
     // convention -- pass through unchanged (the C1 fix).
     if (PL_SECTIONS.has(statementSection)) return rawCents;
-    // Balance Sheet section: abs()+section-sign, same as pos/invoice.
-    if (POSITIVE_SECTIONS.has(statementSection)) return magnitude;
-    if (NEGATIVE_SECTIONS.has(statementSection)) return -magnitude;
+    // Cash's own ledger (the "bank" section): the raw cash-direction sign IS
+    // the desired cash-balance delta already (a deposit/inflow, positive raw,
+    // should read as MORE cash on hand) -- unlike the other BS sections below
+    // this isn't cash spent to acquire a target asset or pay down a
+    // liability, so it must not be flipped. Mixed inflow/outflow sign
+    // correctness for BS "bank"-section rows generally is a known, separate
+    // open item (see fetchSources.ts's fetchBank "deliberately left
+    // unfiltered" comment) -- not addressed by this fix.
+    if (statementSection === "bank") return magnitude;
+    // Balance Sheet section (asset/liability/equity, excluding bank): flip
+    // the cash-direction sign. An outflow (negative raw) reduces a liability
+    // / increases an asset; an inflow (positive raw) increases a liability /
+    // reduces an asset. Using abs()+section-sign here (the old approach)
+    // lost the outflow/inflow distinction and made liability paydowns GROW
+    // the liability -- see normalizeSign.test.ts, Task 5.
+    if (POSITIVE_SECTIONS.has(statementSection) || NEGATIVE_SECTIONS.has(statementSection)) {
+      return -rawCents;
+    }
     // Unrecognized section: fall back to the source's own cash-direction sign.
     return rawCents;
   }

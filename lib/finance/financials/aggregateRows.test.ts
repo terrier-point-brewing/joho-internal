@@ -462,7 +462,7 @@ describe("aggregateRows", () => {
     expect(sum).toBe(-68205);
   });
 
-  it("a split expense with 3 lines across the same account still groups into 2 rows split by mappingSource, sum equals the original amount", () => {
+  it("a split expense with 3 lines across the same account still groups into 2 rows split by mappingSource", () => {
     const rows = aggregateRows(
       emptyInput({
         expenses: [
@@ -483,8 +483,14 @@ describe("aggregateRows", () => {
     );
 
     expect(rows).toHaveLength(3);
+    // Sum no longer equals the raw split total: coa-beer/coa-pl-deposit are
+    // P&L (Income) accounts, passed through unchanged (-40000, -25000), but
+    // coa-bs-deposit is a Balance Sheet liability (Other Current
+    // Liabilities) -- this -35000 outflow now correctly PAYS DOWN the
+    // liability (+35000) instead of growing it, per the Task 5 fix. See
+    // normalizeSign.ts / normalizeSign.test.ts.
     const total = rows.reduce((s, r) => s + r.amountCentsByMonth["2026-02"], 0);
-    expect(total).toBe(-100000);
+    expect(total).toBe(-30000);
     for (const r of rows) expect(r.mappingSource).toBe("rule");
   });
 
