@@ -1,0 +1,28 @@
+section,scope,scope_label,viewer,brewer,manager,admin,custom
+taproom,taproom.access,"Access",read,read,operate,admin,none
+taproom,taproom.performance,"Performance",read,read,operate,admin,none
+taproom,taproom.targets,"Targets",read,read,read,admin,none
+production,production.access,"Access",none,read,read,admin,none
+production,production.brewing,"Brewing",none,operate,none,admin,none
+production,production.inventory,"Inventory",none,operate,none,admin,none
+production,production.export,"Export",none,operate,read,admin,none
+production,production.recipes,"Recipes",none,operate,none,admin,none
+production,production.partners,"Partners",none,operate,read,admin,none
+production,production.equipment,"Equipment",none,read,none,admin,none
+production,production.settings,"Settings",none,manage,operate,admin,none
+finance,finance.access,"Access",none,none,none,admin,none
+finance,finance.statements,"Statements",none,none,none,admin,none
+finance,finance.transactions,"Transactions",none,none,none,admin,none
+finance,finance.tax,"Tax",none,none,none,admin,none
+finance,finance.tax.filing,"Tax · Filing",none,read,none,admin,none
+finance,finance.tax.pii,"Tax · PII",none,none,none,admin,none
+payroll,payroll,"Payroll",none,none,operate,admin,none
+catalog,catalog,"Catalog",none,manage,none,admin,none
+brand,brand.access,"Access",none,none,none,admin,none
+brand,brand.guide,"Guide",none,none,none,admin,none
+brand,brand.assets,"Assets",none,none,none,admin,none
+brand,brand.releases,"Releases",none,none,none,admin,none
+org,org.users,"Users",none,none,none,admin,none
+org,org.business,"Business",none,none,none,admin,none
+org,org.jobs,"Cron Jobs",none,none,none,admin,none
+org,org.appearance,"Appearance",none,none,none,admin,none
