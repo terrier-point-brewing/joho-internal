@@ -35,9 +35,24 @@ interface Row {
   published_at?: string | null;
 }
 
-function fakeClient(initialRows: Row[]) {
+//
+// `failOn` makes a given operation return a Postgres-style error instead of
+// succeeding — Supabase's client resolves rather than throws on a failed
+// write, so this is the only way to exercise the error branches.
+interface FailOn {
+  select?: boolean;
+  insert?: boolean;
+  update?: boolean;
+  delete?: boolean;
+}
+
+function fakeClient(initialRows: Row[], failOn: FailOn = {}) {
   const rows: Row[] = [...initialRows];
   let idCounter = rows.length;
+  const pgError = (op: string) => ({
+    code: "PGRST204",
+    message: `Could not find the 'updated_at' column of 'brand_canon_versions' in the schema cache (${op})`,
+  });
 
   return {
     rows,
@@ -49,6 +64,7 @@ function fakeClient(initialRows: Row[]) {
               const filtered = rows.filter((r) => (r as never)[column] === value);
               return {
                 limit(n: number) {
+                  if (failOn.select) return Promise.resolve({ data: null, error: pgError("select") });
                   return Promise.resolve({ data: filtered.slice(0, n), error: null });
                 },
               };
@@ -67,6 +83,7 @@ function fakeClient(initialRows: Row[]) {
           };
         },
         insert(row: Partial<Row>) {
+          if (failOn.insert) return Promise.resolve({ error: pgError("insert") });
           // Enforce the brand_canon_one_published partial unique index so a
           // publish that inserts a 2nd published row before archiving the
           // prior one fails here (as it would in Postgres).
@@ -79,6 +96,7 @@ function fakeClient(initialRows: Row[]) {
         update(patch: Partial<Row>) {
           return {
             eq(column: string, value: string) {
+              if (failOn.update) return Promise.resolve({ error: pgError("update") });
               rows.forEach((r, i) => {
                 if ((r as never)[column] === value) rows[i] = { ...r, ...patch };
               });
@@ -89,6 +107,7 @@ function fakeClient(initialRows: Row[]) {
         delete() {
           return {
             eq(column: string, value: string) {
+              if (failOn.delete) return Promise.resolve({ error: pgError("delete") });
               const idx = rows.findIndex((r) => (r as never)[column] === value);
               if (idx >= 0) rows.splice(idx, 1);
               return Promise.resolve({ error: null });
@@ -150,6 +169,30 @@ describe("saveDraft", () => {
     const { brandName: _brandName, ...invalid } = seedCanon;
     await expect(saveDraft(client as never, invalid)).rejects.toThrow();
   });
+
+  // Regression: prod was missing migration 20260809 (no `updated_at` column),
+  // so every draft update came back PGRST204. The error was discarded, the
+  // route answered { ok: true }, and Publish then snapshotted a draft that had
+  // never changed — the guide silently refused to save. A write that fails must
+  // throw, never report success.
+  it("throws when the update fails instead of reporting success", async () => {
+    const client = fakeClient(
+      [{ id: "d1", version_label: "1.0", status: "draft", document: seedCanon }],
+      { update: true },
+    );
+    const updated: BrandCanon = { ...seedCanon, brandName: "Updated" };
+    await expect(saveDraft(client as never, updated)).rejects.toThrow(/updated_at/);
+  });
+
+  it("throws when the insert fails instead of reporting success", async () => {
+    const client = fakeClient([], { insert: true });
+    await expect(saveDraft(client as never, seedCanon)).rejects.toThrow(/updated_at/);
+  });
+
+  it("throws when the existing-draft lookup fails", async () => {
+    const client = fakeClient([], { select: true });
+    await expect(saveDraft(client as never, seedCanon)).rejects.toThrow(/updated_at/);
+  });
 });
 
 describe("publishDraft", () => {
@@ -165,6 +208,40 @@ describe("publishDraft", () => {
     const published = client.rows.find((r) => r.status === "published");
     expect((published?.document as BrandCanon).brandName).toBe("Draft Edit");
     expect(published?.version_label).toBe("1.1");
+  });
+
+  // Same class of bug as saveDraft's: a swallowed error here would archive the
+  // old version, leave the draft in place, and report a version label that was
+  // never published.
+  it("throws when archiving the prior published row fails", async () => {
+    const client = fakeClient(
+      [
+        { id: "p1", version_label: "1.0", status: "published", document: seedCanon, published_at: "2026-01-01" },
+        { id: "d1", version_label: "", status: "draft", document: seedCanon },
+      ],
+      { update: true },
+    );
+    await expect(publishDraft(client as never, {})).rejects.toThrow(/updated_at/);
+  });
+
+  it("throws when deleting the consumed draft fails", async () => {
+    const client = fakeClient(
+      [{ id: "d1", version_label: "", status: "draft", document: seedCanon }],
+      { delete: true },
+    );
+    await expect(publishDraft(client as never, {})).rejects.toThrow(/updated_at/);
+  });
+});
+
+describe("getDraft", () => {
+  it("throws when the draft lookup fails instead of silently seeding a new draft", async () => {
+    const client = fakeClient([], { select: true });
+    await expect(getDraft(client as never)).rejects.toThrow(/updated_at/);
+  });
+
+  it("throws when seeding a new draft fails", async () => {
+    const client = fakeClient([], { insert: true });
+    await expect(getDraft(client as never)).rejects.toThrow(/updated_at/);
   });
 });
 

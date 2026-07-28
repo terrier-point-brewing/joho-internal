@@ -44,6 +44,22 @@ export interface SupabaseLikeClient {
 
 const TABLE = "brand_canon_versions";
 
+// Supabase's client RESOLVES with { error } on a failed query rather than
+// throwing, so an unchecked call looks exactly like a successful one. That cost
+// us the whole Brand Guide: prod was missing migration 20260809 (no
+// `updated_at` column), every draft update came back PGRST204, the error was
+// dropped, the route answered { ok: true }, and Publish snapshotted a draft
+// that had never changed. Every query below routes through here so a write that
+// didn't happen can never be reported as a write that did.
+function assertOk(error: unknown, action: string): void {
+  if (!error) return;
+  const detail =
+    typeof error === "object" && error !== null && "message" in error
+      ? String((error as { message: unknown }).message)
+      : String(error);
+  throw new Error(`Brand canon: failed to ${action} — ${detail}`);
+}
+
 // Pure: bumps the minor version as an integer (never rolls to the next
 // major). null (no prior published version) starts at "1.0".
 export function nextVersionLabel(current: string | null): string {
@@ -55,7 +71,16 @@ export function nextVersionLabel(current: string | null): string {
 }
 
 async function getCurrentPublished(client: SupabaseLikeClient): Promise<CanonRow | null> {
-  const { data } = await client.from(TABLE).select("*").eq("status", "published").limit(1);
+  const { data, error } = await client.from(TABLE).select("*").eq("status", "published").limit(1);
+  assertOk(error, "read the published canon");
+  return data && data.length > 0 ? data[0] : null;
+}
+
+// The draft row, or null when there isn't one. Shared by getDraft/saveDraft/
+// publishDraft so the error check can't be forgotten at one of the three.
+async function getDraftRow(client: SupabaseLikeClient): Promise<CanonRow | null> {
+  const { data, error } = await client.from(TABLE).select("*").eq("status", "draft").limit(1);
+  assertOk(error, "read the canon draft");
   return data && data.length > 0 ? data[0] : null;
 }
 
@@ -63,20 +88,19 @@ async function getCurrentPublished(client: SupabaseLikeClient): Promise<CanonRow
 // current published row (or seedCanon if there's no published row either)
 // and inserts it as the new draft.
 export async function getDraft(client: SupabaseLikeClient): Promise<BrandCanon> {
-  const { data } = await client.from(TABLE).select("*").eq("status", "draft").limit(1);
-  if (data && data.length > 0) {
-    return data[0].document;
-  }
+  const existing = await getDraftRow(client);
+  if (existing) return existing.document;
 
   const published = await getCurrentPublished(client);
   const seedDocument = published?.document ?? seedCanon;
-  await client.from(TABLE).insert({
+  const { error } = await client.from(TABLE).insert({
     version_label: published?.version_label ?? "",
     status: "draft",
     document: seedDocument,
     changelog: null,
     published_at: null,
   });
+  assertOk(error, "create the canon draft");
   return seedDocument;
 }
 
@@ -87,20 +111,22 @@ export async function getDraft(client: SupabaseLikeClient): Promise<BrandCanon> 
 // existing draft explicitly by id, matching how getDraft() ensures one exists.
 export async function saveDraft(client: SupabaseLikeClient, document: unknown): Promise<void> {
   const parsed = canonSchema.parse(document);
-  const { data } = await client.from(TABLE).select("*").eq("status", "draft").limit(1);
-  if (data && data.length > 0) {
-    await client
+  const existing = await getDraftRow(client);
+  if (existing) {
+    const { error } = await client
       .from(TABLE)
       .update({ document: parsed, updated_at: new Date().toISOString() })
-      .eq("id", data[0].id);
+      .eq("id", existing.id);
+    assertOk(error, "save the canon draft");
   } else {
-    await client.from(TABLE).insert({
+    const { error } = await client.from(TABLE).insert({
       version_label: "",
       status: "draft",
       document: parsed,
       changelog: null,
       published_at: null,
     });
+    assertOk(error, "save the canon draft");
   }
 }
 
@@ -110,11 +136,10 @@ export async function publishDraft(
   client: SupabaseLikeClient,
   opts: { versionLabel?: string; changelog?: string },
 ): Promise<{ versionLabel: string }> {
-  const { data: draftRows } = await client.from(TABLE).select("*").eq("status", "draft").limit(1);
-  if (!draftRows || draftRows.length === 0) {
+  const draft = await getDraftRow(client);
+  if (!draft) {
     throw new Error("No draft to publish");
   }
-  const draft = draftRows[0];
   const parsed = canonSchema.parse(draft.document);
 
   const currentPublished = await getCurrentPublished(client);
@@ -125,7 +150,8 @@ export async function publishDraft(
   // forbids two published rows at once, so insert-then-archive would violate
   // the index and fail on every publish after the first.
   if (currentPublished) {
-    await client.from(TABLE).update({ status: "archived" }).eq("id", currentPublished.id);
+    const { error } = await client.from(TABLE).update({ status: "archived" }).eq("id", currentPublished.id);
+    assertOk(error, "archive the prior published version");
   }
 
   const { error: insertError } = await client.from(TABLE).insert({
@@ -135,9 +161,10 @@ export async function publishDraft(
     changelog: opts.changelog ?? null,
     published_at: new Date().toISOString(),
   });
-  if (insertError) throw new Error("Failed to publish new canon version");
+  assertOk(insertError, "publish the new canon version");
 
-  await client.from(TABLE).delete().eq("id", draft.id);
+  const { error: deleteError } = await client.from(TABLE).delete().eq("id", draft.id);
+  assertOk(deleteError, "clear the published draft");
 
   return { versionLabel };
 }
@@ -146,11 +173,12 @@ export async function publishDraft(
 export async function listVersions(client: SupabaseLikeClient): Promise<
   { id: string; version_label: string; status: "published" | "archived"; published_at: string | null; changelog: string | null }[]
 > {
-  const { data } = await client
+  const { data, error } = await client
     .from(TABLE)
     .select("id, version_label, status, published_at, changelog")
     .in("status", ["published", "archived"])
     .order("published_at", { ascending: false });
+  assertOk(error, "list canon versions");
 
   return (data ?? []).map((row) => ({
     id: row.id,
