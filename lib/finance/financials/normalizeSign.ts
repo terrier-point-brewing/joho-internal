@@ -47,7 +47,7 @@ const PL_SECTIONS = new Set(["revenue", "other_income", "cogs", "expenses", "oth
 export function normalizeSignedCents(
   rawCents: number,
   statementSection: string,
-  source: "pos" | "invoice" | "expense" | "bank" | "refund" | "tip_accrual"
+  source: "pos" | "invoice" | "expense" | "bank" | "refund" | "tip_accrual" | "tax_accrual"
 ): number {
   const magnitude = Math.abs(rawCents);
 

@@ -19,6 +19,7 @@ function emptyInput(overrides: Partial<AggregateRowsInput> = {}): AggregateRowsI
     refunds: [],
     bank: [],
     tipAccruals: [],
+    taxAccruals: [],
     coa: COA,
     months: ["2026-01", "2026-02"],
     ...overrides,
@@ -622,5 +623,17 @@ describe("aggregateRows", () => {
       // compounded instead of offsetting, this would be -380000 or +380000.
       expect(total).toBe(0);
     });
+  });
+
+  it("posts a tax accrual negative onto its liability account", () => {
+    const rows = aggregateRows({
+      pos: [], invoiceLines: [], expenses: [], refunds: [], bank: [], tipAccruals: [],
+      taxAccruals: [{ id: "tax-COA_TAX-2026-07", chartOfAccountsId: "COA_TAX", amountCents: 288732, monthKey: "2026-07" }],
+      coa: [{ id: "COA_TAX", parentId: null, accountName: "Sales & Excise Taxes Payable:Sales Tax Payable", accountNumber: null, accountType: "Other Current Liabilities", statementSection: null }],
+      months: ["2026-07"],
+    });
+    const row = rows.find((r) => r.coaId === "COA_TAX");
+    expect(row?.amountCentsByMonth["2026-07"]).toBe(-288732);
+    expect(row?.statementSection).toBe("other_current_liabilities");
   });
 });
