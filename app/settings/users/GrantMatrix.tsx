@@ -61,30 +61,44 @@ function levelOptions(inherited: Level | null): { value: DisplayLevel; label: st
 
 // Section display order + label — SCOPES only carries per-leaf labels, so the
 // section header text lives here, one shared place for this one component.
-const SECTION_ORDER: Section[] = ["taproom", "production", "finance", "payroll", "tax", "brand", "settings"];
 const SECTION_LABELS: Record<Section, string> = {
   taproom: "Taproom",
   production: "Production",
   finance: "Finance",
   payroll: "Payroll",
-  tax: "Tax",
+  catalog: "Catalog",
   brand: "Brand",
-  settings: "Settings",
+  org: "Organization",
 };
 
-// A handful of scopes (payroll, tax) are both a Section and a leaf ScopeKey
+const SECTION_ORDER: Section[] = ["taproom", "production", "finance", "payroll", "catalog", "brand", "org"];
+
+// SECTION_LABELS is a Record<Section, …>, so ADDING a Section is a compile
+// error there. SECTION_ORDER is a plain array literal and would silently drop
+// the new section from this UI instead — this assertion closes that hole.
+const _sectionOrderIsExhaustive: Record<Section, true> = Object.fromEntries(
+  SECTION_ORDER.map((s) => [s, true]),
+) as Record<Section, true>;
+void _sectionOrderIsExhaustive;
+
+// A couple of scopes (payroll, catalog) are both a Section and a leaf ScopeKey
 // of the same name — the section dropdown above already covers that grant,
 // so the identically-keyed leaf row is skipped to avoid two controls writing
 // the same `grants` key.
-const LEAVES_BY_SECTION: Record<Section, { key: ScopeKey; label: string }[]> = SECTION_ORDER.reduce(
-  (acc, section) => {
-    acc[section] = (Object.entries(SCOPES) as [ScopeKey, { label: string; section: Section }][])
-      .filter(([key, v]) => v.section === section && key !== section)
-      .map(([key, v]) => ({ key, label: v.label }));
-    return acc;
-  },
-  {} as Record<Section, { key: ScopeKey; label: string }[]>,
-);
+//
+// `depth` drives indentation for sub-leaves: finance.tax.filing sits one level
+// in from finance.tax. SCOPES declaration order already lists a parent before
+// its children, so no sorting is needed.
+const LEAVES_BY_SECTION: Record<Section, { key: ScopeKey; label: string; depth: number }[]> =
+  SECTION_ORDER.reduce(
+    (acc, section) => {
+      acc[section] = (Object.entries(SCOPES) as [ScopeKey, { label: string; section: Section }][])
+        .filter(([key, v]) => v.section === section && key !== section)
+        .map(([key, v]) => ({ key, label: v.label, depth: key.split(".").length - 2 }));
+      return acc;
+    },
+    {} as Record<Section, { key: ScopeKey; label: string; depth: number }[]>,
+  );
 
 export default function GrantMatrix({ userId, email, onClose }: { userId: string; email: string; onClose: () => void }) {
   const qc = useQueryClient();
@@ -208,7 +222,9 @@ export default function GrantMatrix({ userId, email, onClose }: { userId: string
                       const leafInherited = ancestorLevel(grants, leaf.key);
                       return (
                       <div key={leaf.key} className="flex items-center justify-between gap-3">
-                        <span className="text-xs text-secondary">{leaf.label}</span>
+                        <span className="text-xs text-secondary" style={{ paddingLeft: leaf.depth * 12 }}>
+                          {leaf.label}
+                        </span>
                         <select
                           className="inp-sm w-32"
                           value={grants[leaf.key] ?? "inherit"}

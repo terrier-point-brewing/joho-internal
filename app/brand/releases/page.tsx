@@ -10,7 +10,7 @@ import LabelsWorkbench from "./LabelsWorkbench";
 // one source — the canon — rather than duplicated in UI).
 export default async function ReleasesPage() {
   const session = await getSessionUser();
-  if (!session || !can(session.grants, CAP.brandWorkbenchManage.scope, CAP.brandWorkbenchManage.level)) {
+  if (!session || !can(session.grants, CAP.brandReleasesManage.scope, CAP.brandReleasesManage.level)) {
     redirect("/brand/guide");
   }
 

@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
   // brewer (production) and manager (taproom) both edit Square item mappings.
-  try { await requirePermission(CAP.productionSettingsOperate); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.catalogOperate); } catch (res) { return res as Response; }
 
   const supabase = await createSupabaseServerClient();
   const { recipe_id, packaging, variation_id } = await req.json();
@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  try { await requirePermission(CAP.productionSettingsOperate); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.catalogOperate); } catch (res) { return res as Response; }
 
   const supabase = await createSupabaseServerClient();
   const id = req.nextUrl.searchParams.get("id");

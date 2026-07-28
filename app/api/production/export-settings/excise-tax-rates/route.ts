@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
  * Rates are fixed reference data — there is no create/update/delete here.
  */
 export async function GET(req: NextRequest) {
-  try { await requirePermission(CAP.productionSettingsRead); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.taxFilingRead); } catch (res) { return res as Response; }
 
   const party = req.nextUrl.searchParams.get("party");
   const supabase = createSupabaseAdminClient();

@@ -29,7 +29,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   // brewer (production) and manager (taproom) are scoped siblings — both edit
   // Square item mappings, from the Production Settings and Taproom Settings screens.
-  try { await requirePermission(CAP.productionSettingsOperate); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.catalogOperate); } catch (res) { return res as Response; }
 
   const supabase = await createSupabaseServerClient();
 
@@ -156,7 +156,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  try { await requirePermission(CAP.productionSettingsOperate); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.catalogOperate); } catch (res) { return res as Response; }
 
   const supabase = await createSupabaseServerClient();
 

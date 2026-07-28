@@ -1,16 +1,45 @@
-export type Section = "taproom" | "production" | "finance" | "payroll" | "tax" | "brand" | "settings";
-
 /**
- * Twenty leaves across seven prefixes. A scope is split only where two
- * resources genuinely need different read levels; the ladder absorbs
- * everything else. `taproom.settings` has no API routes of its own — it is
- * enforced only by the app/taproom/settings/layout.tsx redirect.
+ * The scope tree models the DOMAIN — what a permission protects — and nothing
+ * else. Two things it deliberately does NOT model:
+ *
+ *   * WHERE a screen is mounted. Nav tabs and routes are mounting points that
+ *     carry zero authority. Moving a screen, or mounting one component at two
+ *     routes, never renames a scope. Admission to a section is its own leaf
+ *     (`<section>.access`, read-gated in that section's layout) so no content
+ *     scope has to moonlight as a door.
+ *
+ *   * HOW MUCH power. That is the level ladder in ./levels. "Settings" is a
+ *     level, not a place: a settings screen is the `manage` face of a domain
+ *     that already exists, so there is no `settings.*` family. Likewise a
+ *     light-vs-full surface pair (taproom payroll vs finance payroll) is one
+ *     scope at two depths, never two scopes.
+ *
+ * Placement rule: consumed by one section -> leaf under that section's family;
+ * consumed by two or more -> top-level, owned by neither (`payroll`,
+ * `catalog`); a subtab needing finer gating than its parent domain -> sub-leaf
+ * (`finance.tax.filing`).
+ *
+ * Twenty-seven leaves across seven families. Interior nodes are grantable too:
+ * `finance.tax` is a real key, and a bare `finance` grant rolls down into all
+ * of `finance.tax.*` by dot-prefix. A SIBLING leaf grant confers nothing on its
+ * section — `finance.tax:operate` does not resolve `finance.access` — which is
+ * what lets tax nest under finance without widening anyone into finance.
  */
+export type Section =
+  | "taproom"
+  | "production"
+  | "finance"
+  | "payroll"
+  | "catalog"
+  | "brand"
+  | "org";
+
 export const SCOPES = {
+  "taproom.access": { label: "Access", section: "taproom" },
   "taproom.performance": { label: "Performance", section: "taproom" },
   "taproom.targets": { label: "Targets", section: "taproom" },
-  "taproom.settings": { label: "Settings", section: "taproom" },
 
+  "production.access": { label: "Access", section: "production" },
   "production.brewing": { label: "Brewing", section: "production" },
   "production.inventory": { label: "Inventory", section: "production" },
   "production.export": { label: "Export", section: "production" },
@@ -19,20 +48,35 @@ export const SCOPES = {
   "production.equipment": { label: "Equipment", section: "production" },
   "production.settings": { label: "Settings", section: "production" },
 
-  "finance.transactions": { label: "Transactions", section: "finance" },
+  "finance.access": { label: "Access", section: "finance" },
   "finance.statements": { label: "Statements", section: "finance" },
+  "finance.transactions": { label: "Transactions", section: "finance" },
+  "finance.tax": { label: "Tax", section: "finance" },
+  "finance.tax.filing": { label: "Tax · Filing", section: "finance" },
+  "finance.tax.pii": { label: "Tax · PII", section: "finance" },
 
+  // Two surfaces, one scope: the taproom-side payroll view renders only
+  // affordances needing read/operate, the finance-side one exposes through
+  // manage. The masking is presentation; the APIs enforce the real level.
   payroll: { label: "Payroll", section: "payroll" },
 
-  tax: { label: "Tax", section: "tax" },
-  "tax.pii": { label: "PII", section: "tax" },
+  // The Square Item Mappings CONFIGURATION — viewing and editing the mapping
+  // list itself. Data merely computed through those mappings (taproom
+  // consumption, sell-through, export invoice previews) stays on its own
+  // domain scope; gating it here would drag `catalog` across half the app.
+  catalog: { label: "Catalog", section: "catalog" },
 
+  "brand.access": { label: "Access", section: "brand" },
   "brand.guide": { label: "Guide", section: "brand" },
-  "brand.workbench": { label: "Workbench", section: "brand" },
+  "brand.assets": { label: "Assets", section: "brand" },
+  "brand.releases": { label: "Releases", section: "brand" },
 
-  "settings.business": { label: "Business", section: "settings" },
-  "settings.users": { label: "Users", section: "settings" },
-  "settings.cron": { label: "Cron", section: "settings" },
+  "org.users": { label: "Users", section: "org" },
+  "org.business": { label: "Business", section: "org" },
+  "org.jobs": { label: "Cron Jobs", section: "org" },
+  // App-wide reskin. Split out of brand.guide, which used to conflate editing
+  // brand CONTENT with restyling the internal app for every user.
+  "org.appearance": { label: "Appearance", section: "org" },
 } as const satisfies Record<string, { label: string; section: Section }>;
 
 /** Derived from the const, so a typo is a compile error rather than a runtime 403. */

@@ -7,7 +7,7 @@ import AppearanceSettings from "./AppearanceSettings";
 export default async function AppearanceSettingsPage() {
   const session = await getSessionUser();
   if (!session) redirect("/login");
-  const canManageBrandChrome = can(session.grants, CAP.brandGuideManage.scope, CAP.brandGuideManage.level);
+  const canManageBrandChrome = can(session.grants, CAP.appearanceManage.scope, CAP.appearanceManage.level);
   const brandChromeEnabled = canManageBrandChrome ? await getBrandChromeEnabled() : false;
   return <AppearanceSettings isAdmin={canManageBrandChrome} brandChromeEnabled={brandChromeEnabled} />;
 }

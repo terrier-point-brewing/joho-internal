@@ -191,7 +191,7 @@ const toGrants = (rows: GrantRow[]): ScopeGrants =>
 const CASES: { name: string; rows: GrantRow[]; scope: ScopeKey }[] = [
   { name: "exact match", rows: [{ scope: "payroll", level: "operate" }], scope: "payroll" },
   { name: "no grant at all", rows: [], scope: "payroll" },
-  { name: "unrelated grant only", rows: [{ scope: "tax", level: "admin" }], scope: "payroll" },
+  { name: "unrelated grant only", rows: [{ scope: "finance.tax", level: "admin" }], scope: "payroll" },
   { name: "explicit none revoke", rows: [{ scope: "payroll", level: "none" }], scope: "payroll" },
   {
     name: "ROOT cascade",
@@ -220,12 +220,14 @@ const CASES: { name: string; rows: GrantRow[]; scope: ScopeKey }[] = [
     scope: "production.brewing",
   },
   {
-    name: "leaf revoke under a section grant",
+    // Three segments deep, and the revoke sits on the deepest key — the SQL
+    // resolver orders by length, so this is where an off-by-one would show.
+    name: "sub-leaf revoke under an interior-node grant",
     rows: [
-      { scope: "tax", level: "manage" },
-      { scope: "tax.pii", level: "none" },
+      { scope: "finance.tax", level: "manage" },
+      { scope: "finance.tax.pii", level: "none" },
     ],
-    scope: "tax.pii",
+    scope: "finance.tax.pii",
   },
   {
     name: "sibling leaf keeps the section level",
@@ -265,14 +267,14 @@ describe("SQL/TS parity over the grant matrix", () => {
   });
 
   it("treats the prefix check as dot-delimited, not a bare string prefix", () => {
-    const rows: GrantRow[] = [{ scope: "tax", level: "admin" }];
+    const rows: GrantRow[] = [{ scope: "finance.tax", level: "admin" }];
 
-    // "taxes.foo" is not a real ScopeKey, but the SQL operates on raw text and
-    // must not match it — same trap resolve.ts documents.
-    expect(sqlEffectiveGrantLevel("custom", rows, "taxes.foo")).toBeNull();
-    expect(effectiveLevel(toGrants(rows), "taxes.foo" as ScopeKey)).toBeNull();
+    // "finance.taxes.foo" is not a real ScopeKey, but the SQL operates on raw
+    // text and must not match it — same trap resolve.ts documents.
+    expect(sqlEffectiveGrantLevel("custom", rows, "finance.taxes.foo")).toBeNull();
+    expect(effectiveLevel(toGrants(rows), "finance.taxes.foo" as ScopeKey)).toBeNull();
 
-    expect(sqlEffectiveGrantLevel("custom", rows, "tax.pii")).toBe("admin");
+    expect(sqlEffectiveGrantLevel("custom", rows, "finance.tax.pii")).toBe("admin");
   });
 
   it("gives payroll:read DB reads but not DB writes, matching the policy split", () => {

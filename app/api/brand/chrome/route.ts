@@ -16,7 +16,7 @@ export async function GET() {
 export async function PUT(req: NextRequest) {
   let session;
   try {
-    await requirePermission(CAP.brandGuideManage); // admin only
+    await requirePermission(CAP.appearanceManage); // admin only
     session = await getSessionUser();
   } catch (res) {
     return res as Response;

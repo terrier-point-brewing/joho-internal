@@ -7,7 +7,9 @@ export const TAPROOM_NAV: NavEntry[] = [
   { href: "/taproom/performance", label: "Performance" },
   { href: "/taproom/targets",     label: "Targets"     },
   { href: "/taproom/payroll",     label: "Payroll",     requires: CAP.payrollRead },
-  { href: "/taproom/settings",    label: "Settings",    requires: CAP.taproomSettingsOperate },
+  // No Settings entry: taproom.settings retired with zero screens of its own.
+  // Its only screen was Square Item Mappings, which is `catalog` — one scope
+  // for a capability reachable from more than one section.
 ];
 
 export const PERFORMANCE_NAV: NavEntry[] = [
@@ -15,10 +17,6 @@ export const PERFORMANCE_NAV: NavEntry[] = [
   { href: "/taproom/performance/draft-stats", label: "Draft Stats" },
   { href: "/taproom/performance/inventory",   label: "Inventory"   },
   { href: "/taproom/performance/events",      label: "Events"      },
-];
-
-export const TAPROOM_SETTINGS_NAV: NavEntry[] = [
-  { href: "/taproom/settings/square-links", label: "Square Item Mappings" },
 ];
 
 export const TARGETS_NAV: NavEntry[] = [

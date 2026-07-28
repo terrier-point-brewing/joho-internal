@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    await requirePermission(CAP.brandWorkbenchManage); // admin only
+    await requirePermission(CAP.brandAssetsManage); // admin only
   } catch (res) {
     return res as Response;
   }

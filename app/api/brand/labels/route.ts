@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   try {
-    await requirePermission(CAP.brandWorkbenchRead); // admin only
+    await requirePermission(CAP.brandReleasesRead); // admin only
   } catch (res) {
     return res as Response;
   }
@@ -32,7 +32,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    await requirePermission(CAP.brandWorkbenchManage); // admin only
+    await requirePermission(CAP.brandReleasesManage); // admin only
   } catch (res) {
     return res as Response;
   }

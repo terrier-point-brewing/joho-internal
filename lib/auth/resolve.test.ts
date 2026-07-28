@@ -21,15 +21,15 @@ describe("effectiveLevel", () => {
 
   it("ROOT matches every scope", () => {
     const grants: ScopeGrants = { "": "admin" };
-    const scopes: ScopeKey[] = ["finance.statements", "production.brewing", "tax.pii"];
+    const scopes: ScopeKey[] = ["finance.statements", "production.brewing", "finance.tax.pii"];
     for (const scope of scopes) {
       expect(effectiveLevel(grants, scope)).toBe("admin");
     }
   });
 
   it("ROOT loses to any more specific key", () => {
-    const grants: ScopeGrants = { "": "read", "tax.pii": "admin" };
-    expect(effectiveLevel(grants, "tax.pii")).toBe("admin");
+    const grants: ScopeGrants = { "": "read", "finance.tax.pii": "admin" };
+    expect(effectiveLevel(grants, "finance.tax.pii")).toBe("admin");
   });
 
   it("returns null with no matching grant", () => {
@@ -50,10 +50,10 @@ describe("effectiveLevel", () => {
   });
 
   it("prefix matching is dot-delimited, not a bare substring match", () => {
-    const grants: ScopeGrants = { tax: "admin" };
-    // "taxes.foo" is not a real ScopeKey, but the matcher must not treat
-    // "tax" as a substring prefix of it — cast to exercise the guard.
-    expect(effectiveLevel(grants, "taxes.foo" as ScopeKey)).toBeNull();
+    const grants: ScopeGrants = { catalog: "admin" };
+    // "catalogs.foo" is not a real ScopeKey, but the matcher must not treat
+    // "catalog" as a substring prefix of it — cast to exercise the guard.
+    expect(effectiveLevel(grants, "catalogs.foo" as ScopeKey)).toBeNull();
   });
 });
 
@@ -69,7 +69,7 @@ describe("the 'none' rung — an explicit revoke", () => {
   it("'none' at the root denies everything", () => {
     const grants: ScopeGrants = { "": "none" };
     expect(can(grants, "finance.statements", "read")).toBe(false);
-    expect(can(grants, "tax.pii", "read")).toBe(false);
+    expect(can(grants, "finance.tax.pii", "read")).toBe(false);
   });
 
   it("'none' is distinguishable from no grant at all", () => {
