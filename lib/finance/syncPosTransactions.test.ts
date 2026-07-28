@@ -228,4 +228,11 @@ describe("buildInvoiceLineItems", () => {
       chart_of_accounts_id: "COA_INV",
     });
   });
+
+  it("excludes tax from total_cents and net_sales_cents", () => {
+    const items = buildInvoiceLineItems("INV_1", order, () => null);
+    // Square line total_money is 1450 (tax-inclusive); revenue is 1400-50.
+    expect(items[0].total_cents).toBe(1350);
+    expect(items[0].net_sales_cents).toBe(1350);
+  });
 });

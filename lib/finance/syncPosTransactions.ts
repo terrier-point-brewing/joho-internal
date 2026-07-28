@@ -141,8 +141,12 @@ export function buildPosLineItems(
   });
 }
 
-/** Row for the `pos_line_item_taxes` table. */
-export interface PosLineItemTaxRow {
+/**
+ * One row for `pos_line_item_taxes` OR `invoice_line_item_taxes` — the two
+ * tables are structurally identical, so one builder serves both. The caller
+ * decides which table to insert into by which db-id map it passes.
+ */
+export interface LineItemTaxRow {
   line_item_id: string;
   square_tax_id: string;
   tax_name: string | null;
@@ -160,9 +164,9 @@ export interface PosLineItemTaxRow {
 export function buildLineItemTaxRows(
   order: Order,
   lineItemDbIdByUid: Map<string, string>,
-): PosLineItemTaxRow[] {
+): LineItemTaxRow[] {
   const taxByUid = new Map((order.taxes ?? []).map((t) => [t.uid, t]));
-  const rows: PosLineItemTaxRow[] = [];
+  const rows: LineItemTaxRow[] = [];
   for (const li of order.line_items ?? []) {
     const lineItemDbId = li.uid ? lineItemDbIdByUid.get(li.uid) : undefined;
     if (!lineItemDbId) continue;
@@ -195,10 +199,13 @@ export function buildInvoiceLineItems(
       description: [li.name, li.variation_name].filter(Boolean).join(" – "),
       quantity: parseFloat(li.quantity ?? "1"),
       unit_price_cents: li.base_price_money?.amount ?? 0,
-      total_cents: li.total_money?.amount ?? 0,
+      // Tax-free, matching lib/finance/invoiceLineItems.ts's canonical builder.
+      // Square's line `total_money` includes tax on invoice orders too
+      // (verified in raw_data: 10000 - 724 + 673 = 9949).
+      total_cents: (li.gross_sales_money?.amount ?? 0) - (li.total_discount_money?.amount ?? 0),
       gross_sales_cents: li.gross_sales_money?.amount ?? 0,
       discount_cents: li.total_discount_money?.amount ?? 0,
-      net_sales_cents: li.total_money?.amount ?? 0,
+      net_sales_cents: (li.gross_sales_money?.amount ?? 0) - (li.total_discount_money?.amount ?? 0),
       square_catalog_variation_id: varId,
       square_line_item_uid: li.uid ?? null,
       chart_of_accounts_id: varId ? getInvoiceCoA(varId) : null,
@@ -274,7 +281,7 @@ export async function syncSquareOrders(
   let canceled = 0;
   const posLineItems: object[] = [];
   const posOrdersByDbId = new Map<string, Order>(); // for tax-row building, after ids are known
-  const invoiceLineItemsToInsert: { invoiceId: string; items: object[] }[] = [];
+  const invoiceLineItemsToInsert: { invoiceId: string; items: object[]; order: Order }[] = [];
 
   for (const order of orders) {
     const dbId = upsertedIds.get(order.id);
@@ -288,7 +295,7 @@ export async function syncSquareOrders(
     // queueing an empty item set (delete-then-insert-nothing).
     if (actionByOrderId.get(order.id) === "cancel") {
       canceled++;
-      if (invoiceId) invoiceLineItemsToInsert.push({ invoiceId, items: [] });
+      if (invoiceId) invoiceLineItemsToInsert.push({ invoiceId, items: [], order });
       continue;
     }
 
@@ -297,6 +304,7 @@ export async function syncSquareOrders(
       invoiceLineItemsToInsert.push({
         invoiceId,
         items: buildInvoiceLineItems(invoiceId, order, getInvoiceCoA),
+        order,
       });
     } else {
       posLineItems.push(...buildPosLineItems(dbId, order, getPosCoA));
@@ -331,7 +339,7 @@ export async function syncSquareOrders(
   // pos_line_item_taxes cascades on pos_line_items delete (FK ON DELETE CASCADE),
   // so re-syncing an order's line items above already dropped its stale tax rows —
   // no separate delete needed here.
-  const taxRows: PosLineItemTaxRow[] = [];
+  const taxRows: LineItemTaxRow[] = [];
   for (const [orderDbId, order] of posOrdersByDbId) {
     const uidMap = lineItemDbIdByUidByOrderDbId.get(orderDbId);
     if (!uidMap) continue;
@@ -342,11 +350,35 @@ export async function syncSquareOrders(
     if (error) errors.push(`POS line item taxes batch ${i}: ${error.message}`);
   }
 
-  for (const { invoiceId, items } of invoiceLineItemsToInsert) {
+  for (const { invoiceId, items, order } of invoiceLineItemsToInsert) {
+    // The delete cascades to invoice_line_item_taxes (ON DELETE CASCADE), so a
+    // re-sync converges without a separate tax-row cleanup.
     await supabase.from("invoice_line_items").delete().eq("invoice_id", invoiceId);
+
+    // Select the server-generated ids back, keyed by square_line_item_uid, the
+    // same way the POS path does -- that map is what buildLineItemTaxRows needs.
+    const uidMap = new Map<string, string>();
     for (let i = 0; i < items.length; i += BATCH_SIZE) {
-      const { error } = await supabase.from("invoice_line_items").insert(items.slice(i, i + BATCH_SIZE));
-      if (error) errors.push(`Invoice line items (${invoiceId}) batch ${i}: ${error.message}`);
+      const { data, error } = await supabase
+        .from("invoice_line_items")
+        .insert(items.slice(i, i + BATCH_SIZE))
+        .select("id, square_line_item_uid");
+      if (error) {
+        errors.push(`Invoice line items (${invoiceId}) batch ${i}: ${error.message}`);
+        continue;
+      }
+      for (const row of (data ?? []) as { id: string; square_line_item_uid: string | null }[]) {
+        if (row.square_line_item_uid) uidMap.set(row.square_line_item_uid, row.id);
+      }
+    }
+    if (uidMap.size === 0) continue;
+
+    const invoiceTaxRows = buildLineItemTaxRows(order, uidMap);
+    for (let i = 0; i < invoiceTaxRows.length; i += BATCH_SIZE) {
+      const { error } = await supabase
+        .from("invoice_line_item_taxes")
+        .insert(invoiceTaxRows.slice(i, i + BATCH_SIZE));
+      if (error) errors.push(`Invoice line item taxes (${invoiceId}) batch ${i}: ${error.message}`);
     }
   }
 
