@@ -255,10 +255,15 @@ delete-then-insert block, so no new fetch is required.
 
 ## Settings UI
 
-New subtab **Sales Tax Accounts** at `app/finance/settings/sales-tax-accounts/`,
-added to `app/finance/settings/SettingsNav.tsx`'s `SUBTABS`.
+New subtab **Sales Tax Accounts** at `app/settings/finance/sales-tax-accounts/`,
+added to `FINANCE_SETTINGS_NAV` in `app/settings/nav-config.ts`.
 
-Modelled directly on `app/finance/settings/counterparty-accounts/page.tsx`,
+(Originally specced against `app/finance/settings/` + `SettingsNav.tsx`'s
+`SUBTABS`. PR #287 landed mid-flight, consolidating every settings screen into
+`/settings/<group>/<subtab>` and deleting `SettingsNav.tsx`; this branch follows
+the new structure. The API route did **not** move — #287 relocated pages only.)
+
+Modelled directly on `app/settings/finance/counterparty-accounts/page.tsx`,
 reusing `AccountSelect`, `Banner`, `Badge`, and `SaveHint`. No new primitives,
 no raw colors.
 
