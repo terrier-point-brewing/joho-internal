@@ -423,14 +423,16 @@ Written, **not run**. Prod migrations are human-gated, orchestrator-only.
 
 `npm run verify` green (2162 tests), `check:permissions` clean and now enforced in CI, production build passes.
 
-## ⚠️ Open gates
+## Migrations — both applied
 
-**Two migrations written, neither applied. Both are human-gated.**
+Applied to prod and verified 2026-07-28, ahead of merge, so there is no window in which a grant row resolves to nothing.
 
-- **`20260825_scope_registry_restructure.sql`** — rewrites `user_permission_grants`. **Merging without it costs `jeffkliao@gmail.com` the Cron Jobs tab and `catalog` read**, because `settings` and `production` stop resolving those. Everything else is preserved by prefix.
-- **`20260826_role_permission_grants.sql`** — seeds the editable role bundles and redefines `effective_grant_level`. Deliberately safe to apply late: the app falls back to the `ROLE_BUNDLES` constant while the table is unreadable, so behaviour is identical either way.
+- **`20260825_scope_registry_restructure.sql`** — `user_permission_grants` rewritten. `jeffkliao@gmail.com` now holds 8 rows: `brand`, `catalog`, `finance`, `finance.tax`, `org`, `payroll`, `production`, `taproom`, all `read`. Exactly the documented AFTER state; nothing narrowed.
+- **`20260826_role_permission_grants.sql`** — 24 seed rows (admin 1 / brewer 13 / manager 7 / viewer 3) matching `ROLE_BUNDLES`, and `effective_grant_level` redefined to span both grant sources with the per-user tiebreak.
 
-**Merge conflict pending with `claude/tips-balance-sheet-passthrough`.** That branch modifies `app/finance/settings/payroll-department-mappings/page.tsx`, which phase 4 moved to `app/settings/payroll/departments/page.tsx`. Git rename detection usually handles this, but the tips-liability GL account picker must survive the merge — check for it explicitly afterwards. The API route was deliberately left at `/api/finance/settings/payroll-department-mappings` partly to keep that half conflict-free.
+Post-apply RLS check: `role_permission_grants` has `relrowsecurity = true` and exactly one policy — `authenticated` SELECT, `qual: true` — with no write policy, so writes remain service-role-only. The Supabase SQL Editor's "run and enable RLS" prompt on `create table` was a no-op here; the migration already enabled it.
+
+**Tips-branch rebase, resolved.** `origin/main` gained #283/#284 mid-branch. The rebase produced a clean, compiling, fully-green tree in which the tips-liability GL picker had silently vanished — phase 4 moved `payroll-department-mappings/page.tsx` and git carried the pre-tips content to the new path. Caught by grepping the moved file, not by any test. **On a rebase that both moves and modifies a file, green tests prove nothing.**
 
 ## Verification limits, stated honestly
 
