@@ -841,6 +841,7 @@ describe("recomputePeriodExpenseSplits", () => {
       expenses: [expenseRecord],
       refunds: [],
       bank: [],
+      tipAccruals: [],
       coa,
       months: ["2026-07"],
     });
