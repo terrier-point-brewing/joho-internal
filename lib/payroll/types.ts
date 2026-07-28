@@ -156,6 +156,7 @@ export interface PayrollGlReportTotal {
   report_id: string;
   chart_of_accounts_id: string;
   amount_cents: number;
+  bucket_kind: "wages" | "employer_tax" | "tips";
 }
 
 export interface TipBucketSummary {

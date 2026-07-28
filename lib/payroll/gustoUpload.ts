@@ -80,7 +80,7 @@ export async function uploadGustoReport(sb: SupabaseClient, input: UploadGustoRe
 
   const [mappingsResult, settingsResult] = await Promise.all([
     sb.from("payroll_department_gl_mappings").select("department_name, chart_of_accounts_id"),
-    sb.from("payroll_gl_settings").select("payroll_taxes_chart_of_accounts_id").single(),
+    sb.from("payroll_gl_settings").select("payroll_taxes_chart_of_accounts_id, tips_chart_of_accounts_id").single(),
   ]);
   if (mappingsResult.error) throw new Error(mappingsResult.error.message);
   if (settingsResult.error) throw new Error(settingsResult.error.message);
@@ -91,11 +91,19 @@ export async function uploadGustoReport(sb: SupabaseClient, input: UploadGustoRe
       row.chart_of_accounts_id,
     ]),
   );
-  const payrollTaxesAccountId = (
-    settingsResult.data as { payroll_taxes_chart_of_accounts_id: string }
-  ).payroll_taxes_chart_of_accounts_id;
+  const settingsRow = settingsResult.data as {
+    payroll_taxes_chart_of_accounts_id: string;
+    tips_chart_of_accounts_id: string | null;
+  };
+  const payrollTaxesAccountId = settingsRow.payroll_taxes_chart_of_accounts_id;
+  const tipsAccountId = settingsRow.tips_chart_of_accounts_id;
+  if (!tipsAccountId) {
+    throw new Error(
+      "No tips account configured — set one in Finance → Settings → Payroll Departments before uploading a Gusto report.",
+    );
+  }
 
-  const buckets = computeGlBucketTotals(parsed, departmentMap, payrollTaxesAccountId);
+  const buckets = computeGlBucketTotals(parsed, departmentMap, payrollTaxesAccountId, tipsAccountId);
 
   const { data: reportRow, error: reportError } = await sb
     .from("payroll_gl_reports")
@@ -147,6 +155,7 @@ export async function uploadGustoReport(sb: SupabaseClient, input: UploadGustoRe
           report_id: report.id,
           chart_of_accounts_id: bucket.chartOfAccountsId,
           amount_cents: bucket.amountCents,
+          bucket_kind: bucket.kind,
         })),
       )
       .select();

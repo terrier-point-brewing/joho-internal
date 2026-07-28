@@ -10,6 +10,7 @@ import { uploadGustoReport, getActiveGustoReport } from "./gustoUpload";
 const PRODUCTION_COA_ID = "coa-production";
 const FOH_COA_ID = "coa-foh";
 const TAXES_COA_ID = "coa-payroll-taxes";
+const TIPS_COA_ID = "coa-payroll-tips";
 
 const sampleReport: PayrollGlReport = {
   id: "R1",
@@ -22,8 +23,8 @@ const sampleReport: PayrollGlReport = {
 };
 
 const sampleTotals: PayrollGlReportTotal[] = [
-  { id: "T1", report_id: "R1", chart_of_accounts_id: PRODUCTION_COA_ID, amount_cents: 1000 },
-  { id: "T2", report_id: "R1", chart_of_accounts_id: TAXES_COA_ID, amount_cents: 100 },
+  { id: "T1", report_id: "R1", chart_of_accounts_id: PRODUCTION_COA_ID, amount_cents: 1000, bucket_kind: "wages" },
+  { id: "T2", report_id: "R1", chart_of_accounts_id: TAXES_COA_ID, amount_cents: 100, bucket_kind: "employer_tax" },
 ];
 
 // A minimal single-employee CSV — just enough to exercise the upload/parse/
@@ -39,7 +40,7 @@ function makeSb(opts: {
   supersedeError?: { message: string } | null;
   mappingRows?: { department_name: string; chart_of_accounts_id: string }[];
   mappingError?: { message: string } | null;
-  settingsRow?: { payroll_taxes_chart_of_accounts_id: string } | null;
+  settingsRow?: { payroll_taxes_chart_of_accounts_id: string; tips_chart_of_accounts_id: string | null } | null;
   settingsError?: { message: string } | null;
   reportInsertResult?: { data: unknown; error: unknown };
   employeesInsertError?: { message: string } | null;
@@ -205,7 +206,13 @@ function makeSb(opts: {
             single: async () =>
               opts.settingsError
                 ? { data: null, error: opts.settingsError }
-                : { data: opts.settingsRow ?? { payroll_taxes_chart_of_accounts_id: TAXES_COA_ID }, error: null },
+                : {
+                    data: opts.settingsRow ?? {
+                      payroll_taxes_chart_of_accounts_id: TAXES_COA_ID,
+                      tips_chart_of_accounts_id: TIPS_COA_ID,
+                    },
+                    error: null,
+                  },
           };
         },
       };
@@ -367,6 +374,52 @@ describe("uploadGustoReport", () => {
     // Employees deleted before the report row (dependent rows first).
     expect(calls.indexOf(employeesDeleteEq!)).toBeLessThan(calls.indexOf(reportDeleteEq!));
     expect(calls.some((c) => c.kind === "update")).toBe(false);
+  });
+
+  it("throws when tips_chart_of_accounts_id is null, before any DB write", async () => {
+    const { sb, calls } = makeSb({
+      mappingRows: fullDepartmentMappingRows(),
+      settingsRow: { payroll_taxes_chart_of_accounts_id: TAXES_COA_ID, tips_chart_of_accounts_id: null },
+    });
+
+    await expect(
+      uploadGustoReport(sb, { payPeriodId: "P1", file: new Blob([MINIMAL_CSV]), fileName: "payroll.csv", userId: "USER_1" })
+    ).rejects.toThrow(
+      "No tips account configured — set one in Finance → Settings → Payroll Departments before uploading a Gusto report."
+    );
+
+    expect(
+      calls.some((c) => c.kind === "insert" && (c.args[0] as { pay_period_id?: string })?.pay_period_id === "P1")
+    ).toBe(false);
+  });
+
+  it("persists bucket_kind on each total row matching the computed bucket's kind", async () => {
+    const { sb, calls } = makeSb({ mappingRows: fullDepartmentMappingRows() });
+
+    await uploadGustoReport(sb, {
+      payPeriodId: "P1",
+      file: new Blob([MINIMAL_CSV]),
+      fileName: "payroll.csv",
+      userId: "USER_1",
+    });
+
+    const totalsInsertCall = calls.find(
+      (c) =>
+        c.kind === "insert" &&
+        Array.isArray(c.args[0]) &&
+        (c.args[0] as Record<string, unknown>[]).length > 0 &&
+        "chart_of_accounts_id" in (c.args[0] as Record<string, unknown>[])[0]
+    );
+    const payload = totalsInsertCall?.args[0] as
+      | { chart_of_accounts_id: string; bucket_kind: string; amount_cents: number }[]
+      | undefined;
+
+    expect(payload).toBeDefined();
+    const wagesRow = payload!.find((row) => row.chart_of_accounts_id === PRODUCTION_COA_ID);
+    const taxesRow = payload!.find((row) => row.chart_of_accounts_id === TAXES_COA_ID);
+
+    expect(wagesRow?.bucket_kind).toBe("wages");
+    expect(taxesRow?.bucket_kind).toBe("employer_tax");
   });
 
   it("surfaces an unmapped department in the result without throwing", async () => {
