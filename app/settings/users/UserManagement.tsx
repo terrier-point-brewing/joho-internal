@@ -20,6 +20,16 @@ interface Profile {
 
 const ROLES: UserRole[] = ["viewer", "brewer", "manager", "admin", "custom"];
 
+/**
+ * Preset bundles that can be edited here. `admin` is deliberately absent — it
+ * is the recovery path, and an admin who strips ROOT from it locks every admin
+ * out with no way back but raw SQL. `custom` is per-user by definition and is
+ * edited through the per-user Grants button instead. The API enforces the same
+ * list; this only decides what gets rendered.
+ */
+type EditableRole = "viewer" | "brewer" | "manager";
+const EDITABLE_ROLES: EditableRole[] = ["viewer", "brewer", "manager"];
+
 const ROLE_COLORS: Record<UserRole, string> = {
   viewer:  "text-secondary bg-surface-mid",
   brewer:  "text-info bg-info-surface/40",
@@ -42,6 +52,7 @@ export default function UserManagement() {
 
   // Grant matrix modal state (custom-role users only)
   const [grantsUserId, setGrantsUserId] = useState<string | null>(null);
+  const [grantsRole, setGrantsRole] = useState<EditableRole | null>(null);
 
   // Set password modal state
   const [pwUserId, setPwUserId] = useState<string | null>(null);
@@ -241,15 +252,43 @@ export default function UserManagement() {
               </tbody>
             </table>
           </Card>
+
+          <Card className="mt-6">
+            <h2 className="text-sm font-semibold text-strong">Preset roles</h2>
+            <p className="text-xs text-secondary mt-1 mb-3">
+              What every user of a role can reach. Editing a bundle changes access for
+              everyone holding that role — take effect within 30 seconds.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {EDITABLE_ROLES.map((role) => (
+                <button
+                  key={role}
+                  type="button"
+                  onClick={() => setGrantsRole(role)}
+                  className="btn-secondary btn-xxs capitalize"
+                >
+                  {role}
+                </button>
+              ))}
+            </div>
+          </Card>
         </>
       )}
 
       {/* Grant matrix modal */}
       {grantsUserId && (
         <GrantMatrix
-          userId={grantsUserId}
-          email={users.find((u) => u.id === grantsUserId)?.email ?? ""}
+          endpoint={`/api/admin/users/${grantsUserId}/grants`}
+          title={`Grants — ${users.find((u) => u.id === grantsUserId)?.email ?? ""}`}
           onClose={() => setGrantsUserId(null)}
+        />
+      )}
+
+      {grantsRole && (
+        <GrantMatrix
+          endpoint={`/api/admin/roles/${grantsRole}/grants`}
+          title={`Role bundle — ${grantsRole}`}
+          onClose={() => setGrantsRole(null)}
         />
       )}
 

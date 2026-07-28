@@ -1,7 +1,8 @@
 import type { User } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "../supabase/server";
 import type { ScopeGrants } from "./resolve";
-import { ROLE_BUNDLES, type UserRole } from "./roleGrants";
+import { getRoleBundle } from "./roleBundles.server";
+import { type UserRole } from "./roleGrants";
 
 export interface Session {
   user: User;
@@ -11,9 +12,12 @@ export interface Session {
 
 /**
  * Returns the authenticated user + their resolved scope grants, or null if
- * not logged in. Grants are consulted from user_permission_grants only when
- * role === "custom" — the four static roles resolve straight from
- * ROLE_BUNDLES and never touch that table.
+ * not logged in.
+ *
+ * Two grant sources, never mixed: role === "custom" resolves from that user's
+ * own user_permission_grants rows; every other role resolves from its editable
+ * bundle in role_permission_grants (cached, and falling back to the
+ * ROLE_BUNDLES constant if that table cannot be read).
  */
 export async function getSessionUser(): Promise<Session | null> {
   const supabase = await createSupabaseServerClient();
@@ -43,5 +47,5 @@ export async function getSessionUser(): Promise<Session | null> {
     return { user, role, grants };
   }
 
-  return { user, role, grants: ROLE_BUNDLES[role] };
+  return { user, role, grants: await getRoleBundle(role) };
 }

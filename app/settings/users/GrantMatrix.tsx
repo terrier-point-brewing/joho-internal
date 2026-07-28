@@ -100,13 +100,28 @@ const LEAVES_BY_SECTION: Record<Section, { key: ScopeKey; label: string; depth: 
     {} as Record<Section, { key: ScopeKey; label: string; depth: number }[]>,
   );
 
-export default function GrantMatrix({ userId, email, onClose }: { userId: string; email: string; onClose: () => void }) {
+/**
+ * One editor for both grant sources: a single user's rows
+ * (user_permission_grants) and a preset role's bundle
+ * (role_permission_grants). They are the same shape — a map of scope key to
+ * Level, resolved longest-prefix-wins — so they get the same control rather
+ * than two matrices that can drift apart.
+ */
+export default function GrantMatrix({
+  endpoint,
+  title,
+  onClose,
+}: {
+  endpoint: string;
+  title: string;
+  onClose: () => void;
+}) {
   const qc = useQueryClient();
-  const queryKey = ["admin", "users", userId, "grants"] as const;
+  const queryKey = ["admin", "grants", endpoint] as const;
 
   const { data, isLoading, error } = useQuery({
     queryKey,
-    queryFn: () => fetchJson<GrantsResponse>(`/api/admin/users/${userId}/grants`),
+    queryFn: () => fetchJson<GrantsResponse>(endpoint),
   });
 
   const [grants, setGrants] = useState<Record<string, DisplayLevel>>({});
@@ -154,7 +169,7 @@ export default function GrantMatrix({ userId, email, onClose }: { userId: string
     for (const [key, value] of Object.entries(grants)) {
       if (value !== "inherit") payload[key] = value;
     }
-    const res = await fetch(`/api/admin/users/${userId}/grants`, {
+    const res = await fetch(endpoint, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ grants: payload }),
@@ -178,7 +193,7 @@ export default function GrantMatrix({ userId, email, onClose }: { userId: string
   const loadFailed = !isLoading && (!!error || !data);
 
   return (
-    <Modal title={`Grants — ${email}`} onClose={onClose} wide>
+    <Modal title={title} onClose={onClose} wide>
       {saveError && <Banner tone="danger" className="mb-4">{saveError}</Banner>}
 
       {isLoading ? (
