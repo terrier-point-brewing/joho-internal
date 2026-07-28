@@ -12,7 +12,7 @@ create table if not exists public.square_tax_accounts (
   square_tax_id        text        primary key,
   tax_name             text,
   tax_pct              numeric,
-  chart_of_accounts_id uuid        references public.chart_of_accounts(id),
+  chart_of_accounts_id uuid        references public.chart_of_accounts(id) on delete set null,
   created_at           timestamptz not null default now(),
   updated_at           timestamptz not null default now()
 );
@@ -43,3 +43,9 @@ create policy "finance readers" on public.square_tax_accounts
   for all to authenticated
   using ( public.get_my_role() = any (public.finance_reader_roles()) )
   with check ( public.get_my_role() = any (public.finance_reader_roles()) );
+
+-- Keeps updated_at current on every write, matching the sibling finance tables
+-- (see 20260609_baseline.sql's update_updated_at()).
+create trigger square_tax_accounts_updated_at
+  before update on public.square_tax_accounts
+  for each row execute function public.update_updated_at();
