@@ -34,7 +34,9 @@ const order: Order = {
       gross_sales_money: { amount: 1400, currency: "USD" },
       total_discount_money: { amount: 50, currency: "USD" },
       total_tax_money: { amount: 100, currency: "USD" },
-      total_money: { amount: 1350, currency: "USD" },
+      // Prod identity: line total_money = gross - discount + tax (1400-50+100).
+      // Verified against square_orders.raw_data for both POS and invoice orders.
+      total_money: { amount: 1450, currency: "USD" },
     },
   ],
 };
@@ -144,6 +146,16 @@ describe("buildPosLineItems", () => {
     const items = buildPosLineItems("DBID_1", noVar, () => "SHOULD_NOT_BE_USED");
     expect(items[0].chart_of_accounts_id).toBeNull();
   });
+
+  it("excludes tax from net_sales_cents (sales tax is a liability, not revenue)", () => {
+    const items = buildPosLineItems("DBID_1", order, () => null);
+    // gross 1400 - discount 50 = 1350; the line's 100c of tax must NOT be here.
+    expect(items[0].net_sales_cents).toBe(1350);
+    expect(items[0].tax_cents).toBe(100);
+    expect(items[0].net_sales_cents + items[0].tax_cents).toBe(
+      order.line_items![0].total_money!.amount,
+    );
+  });
 });
 
 describe("buildLineItemTaxRows", () => {
@@ -215,5 +227,12 @@ describe("buildInvoiceLineItems", () => {
       square_catalog_variation_id: "VAR_A",
       chart_of_accounts_id: "COA_INV",
     });
+  });
+
+  it("excludes tax from total_cents and net_sales_cents", () => {
+    const items = buildInvoiceLineItems("INV_1", order, () => null);
+    // Square line total_money is 1450 (tax-inclusive); revenue is 1400-50.
+    expect(items[0].total_cents).toBe(1350);
+    expect(items[0].net_sales_cents).toBe(1350);
   });
 });

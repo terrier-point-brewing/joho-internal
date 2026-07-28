@@ -23,6 +23,7 @@ import type {
   RefundRecord,
   CoaRecord,
   TipAccrualRecord,
+  TaxAccrualRecord,
 } from "./aggregateRows";
 import type { ManualNetSalesEntryRecord } from "./manualNetSales";
 
@@ -42,6 +43,15 @@ export interface FinancialsSourcesResult {
    * doesn't exist yet (migration 20260823 pending) -- see fetchTipAccruals.
    */
   tipAccruals: TipAccrualRecord[];
+  taxAccruals: TaxAccrualRecord[];
+  /**
+   * balance_sheet mode only: coverage stat for the data-quality panel -- how
+   * many distinct Square taxes have collections but no mapped liability
+   * account, and how many cents that hides from the balance sheet. { count:
+   * 0, cents: 0 } for pl/cash_flow and on any error, mirroring
+   * fetchTaxAccountMap's degrade-to-empty contract.
+   */
+  unmappedTaxes: { count: number; cents: number };
   coa: CoaRecord[];
   /**
    * manual_net_sales_entries rows, unbounded by date range (proration happens
@@ -644,6 +654,143 @@ export async function fetchTipAccruals(
   return [{ id: `tips-${monthKey}`, chartOfAccountsId: tipsAccountId, amountCents, monthKey }];
 }
 
+/**
+ * square_tax_id -> chart_of_accounts_id, for taxes that have been mapped.
+ * Unmapped rows are omitted, so fetchTaxAccruals naturally emits nothing for
+ * them. Degrades to an EMPTY MAP on any error -- a missing table (migration
+ * 20260825 unapplied) must leave the balance sheet rendering exactly as it did
+ * before, never 500 it. Same contract as fetchTipsAccountId's null.
+ */
+async function fetchTaxAccountMap(supabase: SupabaseClient): Promise<Map<string, string>> {
+  try {
+    const rows = await fetchAllRows<{ square_tax_id: string; chart_of_accounts_id: string | null }>(() =>
+      supabase
+        .from("square_tax_accounts")
+        .select("square_tax_id, chart_of_accounts_id")
+        .order("square_tax_id", { ascending: true }),
+    );
+    const map = new Map<string, string>();
+    for (const r of rows) {
+      if (r.chart_of_accounts_id) map.set(r.square_tax_id, r.chart_of_accounts_id);
+    }
+    return map;
+  } catch {
+    return new Map();
+  }
+}
+
+/**
+ * balance_sheet mode only: derived accrual of collected sales tax, grouped per
+ * liability account. Unions pos_line_item_taxes and invoice_line_item_taxes.
+ *
+ * Grouped by square_tax_id ONLY, not by month: BS mode collapses every record
+ * onto one synthetic month key (cumulativeRange's canonicalMonth), which is why
+ * fetchTipAccruals emits a single record and derives monthKey from
+ * range.endDateStr. Two taxes mapped to one account merge into one record.
+ *
+ * The COMPLETED filter is defensive rather than load-bearing: pos_line_item_taxes
+ * cascades from pos_line_items, whose rows are deleted for canceled orders (see
+ * syncPosTransactions.ts), so canceled tax cannot survive -- unlike
+ * square_orders.tip_cents, which does and is why fetchTipAccruals needs it.
+ */
+export async function fetchTaxAccruals(
+  supabase: SupabaseClient,
+  range: DateRange,
+  accountByTaxId: Map<string, string>,
+): Promise<TaxAccrualRecord[]> {
+  if (accountByTaxId.size === 0) return [];
+
+  const posRows = await fetchAllRows<{ square_tax_id: string; amount_cents: number | null }>(() => {
+    let q = supabase
+      .from("pos_line_item_taxes")
+      .select("square_tax_id, amount_cents, pos_line_items!inner ( square_orders!inner ( transaction_date, status ) )")
+      .eq("pos_line_items.square_orders.status", "COMPLETED")
+      .lt("pos_line_items.square_orders.transaction_date", range.end)
+      .order("id", { ascending: true });
+    if (range.start) q = q.gte("pos_line_items.square_orders.transaction_date", range.start);
+    return q;
+  });
+
+  // Wrapped: migration 20260826 may be unapplied. Degrade to POS-only -- but
+  // only for that specific cause. Any other failure (a transient PostgREST
+  // 5xx, a timeout) must propagate: silently returning zero invoice-collected
+  // tax here would understate the balance-sheet liability with no signal to
+  // the operator (mirrors lib/tax/squareTaxBase.ts's narrowing).
+  let invoiceRows: { square_tax_id: string; amount_cents: number | null }[] = [];
+  try {
+    invoiceRows = await fetchAllRows<{ square_tax_id: string; amount_cents: number | null }>(() => {
+      let q = supabase
+        .from("invoice_line_item_taxes")
+        .select("square_tax_id, amount_cents, invoice_line_items!inner ( invoices!invoice_line_items_invoice_id_fkey!inner ( invoice_date, status ) )")
+        .neq("invoice_line_items.invoices.status", "voided")
+        .lte("invoice_line_items.invoices.invoice_date", range.endDateStr)
+        .order("id", { ascending: true });
+      if (range.startDateStr) q = q.gte("invoice_line_items.invoices.invoice_date", range.startDateStr);
+      return q;
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (!/does not exist|PGRST205|Could not find the table/i.test(msg)) throw err;
+    invoiceRows = [];
+  }
+
+  const centsByAccount = new Map<string, number>();
+  for (const r of [...posRows, ...invoiceRows]) {
+    const coaId = accountByTaxId.get(r.square_tax_id);
+    if (!coaId) continue;
+    centsByAccount.set(coaId, (centsByAccount.get(coaId) ?? 0) + (r.amount_cents ?? 0));
+  }
+
+  // range.endDateStr's month IS the canonical month by construction.
+  const monthKey = range.endDateStr.slice(0, 7);
+  const out: TaxAccrualRecord[] = [];
+  for (const [coaId, amountCents] of centsByAccount) {
+    // Degenerate guard, mirroring fetchTipAccruals: the -magnitude branch signs
+    // a negative sum identically to a positive one, so a negative total would
+    // silently read as MORE liability.
+    if (amountCents <= 0) continue;
+    out.push({ id: `tax-${coaId}-${monthKey}`, chartOfAccountsId: coaId, amountCents, monthKey });
+  }
+  return out;
+}
+
+/**
+ * Coverage stat for the data-quality panel: how many distinct Square taxes have
+ * collections but no mapped liability account, and how many cents that hides.
+ * Returns zeros on any error, for the same reason fetchTaxAccountMap does.
+ */
+async function fetchUnmappedTaxCoverage(
+  supabase: SupabaseClient,
+  accountByTaxId: Map<string, string>,
+): Promise<{ count: number; cents: number }> {
+  try {
+    const pos = await fetchAllRows<{ square_tax_id: string; amount_cents: number | null }>(() =>
+      supabase.from("pos_line_item_taxes").select("square_tax_id, amount_cents").order("id", { ascending: true }),
+    );
+    // Invoice taxes count too -- fetchTaxAccruals unions both sources, so a tax
+    // seen ONLY on invoices and left unmapped must still be reported here.
+    // Wrapped separately: migration 20260826 may be unapplied.
+    let invoice: { square_tax_id: string; amount_cents: number | null }[] = [];
+    try {
+      invoice = await fetchAllRows<{ square_tax_id: string; amount_cents: number | null }>(() =>
+        supabase.from("invoice_line_item_taxes").select("square_tax_id, amount_cents").order("id", { ascending: true }),
+      );
+    } catch {
+      invoice = [];
+    }
+    const byTax = new Map<string, number>();
+    for (const r of [...pos, ...invoice]) {
+      if (accountByTaxId.has(r.square_tax_id)) continue;
+      byTax.set(r.square_tax_id, (byTax.get(r.square_tax_id) ?? 0) + (r.amount_cents ?? 0));
+    }
+    let cents = 0;
+    for (const v of byTax.values()) cents += v;
+    return { count: byTax.size, cents };
+  } catch {
+    return { count: 0, cents: 0 };
+  }
+}
+
 // ── entry point ──────────────────────────────────────────────────────────
 
 export async function fetchFinancialsSources(params: { statement: StatementKind; year: number }): Promise<FinancialsSourcesResult> {
@@ -667,7 +814,7 @@ export async function fetchFinancialsSources(params: { statement: StatementKind;
     range = rangeFromMonths(months);
   }
 
-  const [coa, pos, invoiceLines, expenses, bank, refunds, exciseCoverage, openInvoiceArCents, manualNetSalesEntries, tipAccruals] =
+  const [coa, pos, invoiceLines, expenses, bank, refunds, exciseCoverage, openInvoiceArCents, manualNetSalesEntries, tipAccruals, taxBundle] =
     await Promise.all([
       fetchCoa(supabase),
       fetchPos(supabase, range),
@@ -686,6 +833,13 @@ export async function fetchFinancialsSources(params: { statement: StatementKind;
       isBalanceSheet
         ? fetchTipsAccountId(supabase).then((tipsAccountId) => fetchTipAccruals(supabase, range, tipsAccountId))
         : Promise.resolve<TipAccrualRecord[]>([]),
+      // balance_sheet only -- chained so the settings map read stays parallel.
+      isBalanceSheet
+        ? fetchTaxAccountMap(supabase).then(async (map) => ({
+            accruals: await fetchTaxAccruals(supabase, range, map),
+            unmapped: await fetchUnmappedTaxCoverage(supabase, map),
+          }))
+        : Promise.resolve({ accruals: [] as TaxAccrualRecord[], unmapped: { count: 0, cents: 0 } }),
     ]);
 
   const arAcct = isBalanceSheet ? coa.find((c) => c.accountType === "Accounts receivable (A/R)") : undefined;
@@ -699,9 +853,11 @@ export async function fetchFinancialsSources(params: { statement: StatementKind;
       expenses: collapseDates(expenses, "accountingDate", canonicalMonth),
       bank: collapseDates(bank, "transactionDate", canonicalMonth),
       refunds: collapseDates(refunds, "refundedAt", canonicalMonth),
-      // tipAccruals already carries the canonical monthKey by construction
-      // (fetchTipAccruals derives it from range.endDateStr) -- no collapseDates needed.
+      // tipAccruals/taxAccruals already carry the canonical monthKey by
+      // construction (derived from range.endDateStr) -- no collapseDates needed.
       tipAccruals,
+      taxAccruals: taxBundle.accruals,
+      unmappedTaxes: taxBundle.unmapped,
       months,
       exciseCoverage,
       arAccount,
@@ -718,6 +874,8 @@ export async function fetchFinancialsSources(params: { statement: StatementKind;
     bank,
     refunds,
     tipAccruals,
+    taxAccruals: taxBundle.accruals,
+    unmappedTaxes: taxBundle.unmapped,
     months,
     exciseCoverage,
     arAccount,

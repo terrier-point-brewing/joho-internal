@@ -129,7 +129,11 @@ export function buildPosLineItems(
       base_price_cents: li.base_price_money?.amount ?? 0,
       gross_sales_cents: li.gross_sales_money?.amount ?? 0,
       discount_cents: li.total_discount_money?.amount ?? 0,
-      net_sales_cents: li.total_money?.amount ?? 0,
+      // Square's line `total_money` is gross - discount + TAX. Sales tax is
+      // money held for NC DOR / Wake County, not revenue, so net sales is
+      // gross - discount and the tax is carried separately in tax_cents.
+      // fetchPos maps this column straight onto P&L revenue.
+      net_sales_cents: (li.gross_sales_money?.amount ?? 0) - (li.total_discount_money?.amount ?? 0),
       tax_cents: li.total_tax_money?.amount ?? 0,
       chart_of_accounts_id: varId ? getPosCoA(varId) : null,
       raw_data: li as object,
@@ -137,8 +141,14 @@ export function buildPosLineItems(
   });
 }
 
-/** Row for the `pos_line_item_taxes` table. */
-export interface PosLineItemTaxRow {
+/**
+ * One row for `pos_line_item_taxes` or its invoice-side sibling table — the
+ * two tables are structurally identical, so one builder serves both. The
+ * caller decides which table to insert into by which db-id map it passes.
+ * (The invoice-side insert itself lives in lib/finance/invoiceLineItems.ts,
+ * the canonical writer for that table — see the note below.)
+ */
+export interface LineItemTaxRow {
   line_item_id: string;
   square_tax_id: string;
   tax_name: string | null;
@@ -156,9 +166,9 @@ export interface PosLineItemTaxRow {
 export function buildLineItemTaxRows(
   order: Order,
   lineItemDbIdByUid: Map<string, string>,
-): PosLineItemTaxRow[] {
+): LineItemTaxRow[] {
   const taxByUid = new Map((order.taxes ?? []).map((t) => [t.uid, t]));
-  const rows: PosLineItemTaxRow[] = [];
+  const rows: LineItemTaxRow[] = [];
   for (const li of order.line_items ?? []) {
     const lineItemDbId = li.uid ? lineItemDbIdByUid.get(li.uid) : undefined;
     if (!lineItemDbId) continue;
@@ -191,10 +201,13 @@ export function buildInvoiceLineItems(
       description: [li.name, li.variation_name].filter(Boolean).join(" – "),
       quantity: parseFloat(li.quantity ?? "1"),
       unit_price_cents: li.base_price_money?.amount ?? 0,
-      total_cents: li.total_money?.amount ?? 0,
+      // Tax-free, matching lib/finance/invoiceLineItems.ts's canonical builder.
+      // Square's line `total_money` includes tax on invoice orders too
+      // (verified in raw_data: 10000 - 724 + 673 = 9949).
+      total_cents: (li.gross_sales_money?.amount ?? 0) - (li.total_discount_money?.amount ?? 0),
       gross_sales_cents: li.gross_sales_money?.amount ?? 0,
       discount_cents: li.total_discount_money?.amount ?? 0,
-      net_sales_cents: li.total_money?.amount ?? 0,
+      net_sales_cents: (li.gross_sales_money?.amount ?? 0) - (li.total_discount_money?.amount ?? 0),
       square_catalog_variation_id: varId,
       square_line_item_uid: li.uid ?? null,
       chart_of_accounts_id: varId ? getInvoiceCoA(varId) : null,
@@ -327,7 +340,7 @@ export async function syncSquareOrders(
   // pos_line_item_taxes cascades on pos_line_items delete (FK ON DELETE CASCADE),
   // so re-syncing an order's line items above already dropped its stale tax rows —
   // no separate delete needed here.
-  const taxRows: PosLineItemTaxRow[] = [];
+  const taxRows: LineItemTaxRow[] = [];
   for (const [orderDbId, order] of posOrdersByDbId) {
     const uidMap = lineItemDbIdByUidByOrderDbId.get(orderDbId);
     if (!uidMap) continue;
@@ -338,11 +351,25 @@ export async function syncSquareOrders(
     if (error) errors.push(`POS line item taxes batch ${i}: ${error.message}`);
   }
 
+  // NOTE: this path does NOT own the invoice-side line-item tax table. The
+  // canonical writer (buildInvoiceLineItemRows + persistInvoiceLineItems in
+  // lib/finance/invoiceLineItems.ts) upserts on (invoice_id, sort_order) using
+  // a DIFFERENT (0-based, excise-skipping) sort_order than this builder's
+  // 1-based one, so a tax-row write keyed to THIS insert's row ids would be
+  // silently orphaned or misattributed the moment the canonical sync runs
+  // over the same invoice. Rebuilding tax rows is that writer's job alone.
   for (const { invoiceId, items } of invoiceLineItemsToInsert) {
+    // The delete cascades to the invoice-side line-item tax rows (ON DELETE
+    // CASCADE), so a re-sync converges without a separate tax-row cleanup.
     await supabase.from("invoice_line_items").delete().eq("invoice_id", invoiceId);
+
     for (let i = 0; i < items.length; i += BATCH_SIZE) {
-      const { error } = await supabase.from("invoice_line_items").insert(items.slice(i, i + BATCH_SIZE));
-      if (error) errors.push(`Invoice line items (${invoiceId}) batch ${i}: ${error.message}`);
+      const { error } = await supabase
+        .from("invoice_line_items")
+        .insert(items.slice(i, i + BATCH_SIZE));
+      if (error) {
+        errors.push(`Invoice line items (${invoiceId}) batch ${i}: ${error.message}`);
+      }
     }
   }
 

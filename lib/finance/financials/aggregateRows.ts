@@ -123,6 +123,17 @@ export interface TipAccrualRecord {
   monthKey: string;
 }
 
+/** One month's collected sales tax for ONE liability account, derived on read. */
+export interface TaxAccrualRecord {
+  /** Synthetic, e.g. `tax-<coaId>-2026-07`. */
+  id: string;
+  chartOfAccountsId: string;
+  /** Positive magnitude of tax collected. */
+  amountCents: number;
+  /** "YYYY-MM", already canonical -- balance-sheet mode collapses everything onto one synthetic month key. */
+  monthKey: string;
+}
+
 /** chart_of_accounts row. */
 export interface CoaRecord {
   id: string;
@@ -142,13 +153,14 @@ export interface AggregateRowsInput {
   refunds: RefundRecord[];
   bank: BankLedgerRecord[];
   tipAccruals: TipAccrualRecord[];
+  taxAccruals: TaxAccrualRecord[];
   coa: CoaRecord[];
   months: string[];
 }
 
 const UNMAPPED_SECTION = "unmapped";
 
-type NormalizeSource = "pos" | "invoice" | "expense" | "bank" | "refund" | "tip_accrual";
+type NormalizeSource = "pos" | "invoice" | "expense" | "bank" | "refund" | "tip_accrual" | "tax_accrual";
 
 /** One row's resolved shape, prior to grouping/month-bucketing. */
 interface ResolvedRow {
@@ -319,6 +331,27 @@ function resolveTipAccrual(row: TipAccrualRecord, coaMap: Map<string, CoaRecord>
   };
 }
 
+function resolveTaxAccrual(row: TaxAccrualRecord, coaMap: Map<string, CoaRecord>): ResolvedRow {
+  const section = coaSection(coaMap.get(row.chartOfAccountsId));
+  return {
+    // Synthetic label, not a real table: this row aggregates BOTH
+    // pos_line_item_taxes and invoice_line_item_taxes, so naming either one
+    // would misdescribe it. sourceRef.table is only ever compared against
+    // "manual_net_sales_entries" (summaries.ts) and otherwise displayed.
+    table: "sales_tax_accrual",
+    id: row.id,
+    coaId: row.chartOfAccountsId,
+    mappingSource: "rule",
+    channel: "unknown",
+    posCategory: null,
+    kegSize: null,
+    amountCents: normalizeSignedCents(row.amountCents, section, "tax_accrual"),
+    bbl: 0,
+    bblCoverage: "full",
+    monthKey: row.monthKey,
+  };
+}
+
 function groupKey(r: ResolvedRow): string {
   return [r.table, r.coaId ?? "\0null", r.channel, r.posCategory ?? "\0null", r.kegSize ?? "\0null", r.mappingSource].join("::");
 }
@@ -386,6 +419,10 @@ export function aggregateRows(input: AggregateRowsInput): FinancialsRow[] {
   }
   for (const row of input.tipAccruals) {
     const r = resolveTipAccrual(row, coaMap);
+    if (monthSet.has(r.monthKey)) resolved.push(r);
+  }
+  for (const row of input.taxAccruals) {
+    const r = resolveTaxAccrual(row, coaMap);
     if (monthSet.has(r.monthKey)) resolved.push(r);
   }
   for (const row of input.refunds) {

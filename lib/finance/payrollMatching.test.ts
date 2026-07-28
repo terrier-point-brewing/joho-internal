@@ -966,6 +966,7 @@ describe("recomputePeriodExpenseSplits", () => {
       refunds: [],
       bank: [],
       tipAccruals: [],
+      taxAccruals: [],
       coa,
       months: ["2026-07"],
     });

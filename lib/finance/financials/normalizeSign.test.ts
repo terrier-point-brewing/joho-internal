@@ -108,4 +108,8 @@ describe("normalizeSignedCents", () => {
   it("a bank ledger withdrawal (outflow) mapped to the bank's own account normalizes to negative, reducing cash on hand", () => {
     expect(normalizeSignedCents(-75000, "bank", "expense")).toBe(-75000);
   });
+
+  it("signs tax_accrual negative on a liability section (collected tax = we owe more)", () => {
+    expect(normalizeSignedCents(288732, "other_current_liabilities", "tax_accrual")).toBe(-288732);
+  });
 });

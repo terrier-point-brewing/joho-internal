@@ -55,7 +55,7 @@ describe("computeWakeFigures", () => {
 interface TaxRow {
   line_item_id: string;
   amount_cents: number;
-  pos_line_items: { net_sales_cents: number; tax_cents: number };
+  pos_line_items: { net_sales_cents: number; tax_cents: number; gross_sales_cents: number; discount_cents: number };
 }
 
 /** Routes pos_line_item_taxes per captured square_tax_id, and tax_rates for getTaxRate. */
@@ -68,6 +68,19 @@ function stubSb(opts: { rowsByTaxId: Record<string, TaxRow[]>; rate?: number | n
       b.maybeSingle = () =>
         Promise.resolve({ data: opts.rate == null ? null : { rate: opts.rate }, error: null });
       return b;
+    }
+    // The invoice source contributes nothing in these fixtures.
+    if (table === "invoice_line_item_taxes") {
+      const empty: Record<string, unknown> = {};
+      empty.select = () => empty;
+      empty.eq = () => empty;
+      empty.neq = () => empty;
+      empty.gte = () => empty;
+      empty.lt = () => empty;
+      empty.lte = () => empty;
+      empty.order = () => empty;
+      empty.range = () => Promise.resolve({ data: [], error: null });
+      return empty;
     }
     if (table !== "pos_line_item_taxes") throw new Error(`unexpected table: ${table}`);
     let taxId = "";
@@ -110,8 +123,8 @@ describe("computeWakeWorksheet", () => {
   it("computes applicable + gross from their own tax ids and the tax_rates rate", async () => {
     const sb = stubSb({
       rowsByTaxId: {
-        TAX_FB: [{ line_item_id: "A", amount_cents: 3000, pos_line_items: { net_sales_cents: 303000, tax_cents: 3000 } }],
-        TAX_GEN: [{ line_item_id: "A", amount_cents: 23750, pos_line_items: { net_sales_cents: 523750, tax_cents: 23750 } }],
+        TAX_FB: [{ line_item_id: "A", amount_cents: 3000, pos_line_items: { net_sales_cents: 303000, tax_cents: 3000, gross_sales_cents: 300000, discount_cents: 0 } }],
+        TAX_GEN: [{ line_item_id: "A", amount_cents: 23750, pos_line_items: { net_sales_cents: 523750, tax_cents: 23750, gross_sales_cents: 500000, discount_cents: 0 } }],
       },
       rate: 0.01,
     });
@@ -124,7 +137,7 @@ describe("computeWakeWorksheet", () => {
 
   it("gross receipts null when general_sales_tax_id is blank", async () => {
     const sb = stubSb({
-      rowsByTaxId: { TAX_FB: [{ line_item_id: "A", amount_cents: 3000, pos_line_items: { net_sales_cents: 303000, tax_cents: 3000 } }] },
+      rowsByTaxId: { TAX_FB: [{ line_item_id: "A", amount_cents: 3000, pos_line_items: { net_sales_cents: 303000, tax_cents: 3000, gross_sales_cents: 300000, discount_cents: 0 } }] },
       rate: 0.01,
     });
     const ws = await computeWakeWorksheet(ctxWith({ food_beverage_tax_id: "TAX_FB" }), sb);
@@ -134,7 +147,7 @@ describe("computeWakeWorksheet", () => {
 
   it("falls back to the statutory 1% and warns when no tax_rates row exists", async () => {
     const sb = stubSb({
-      rowsByTaxId: { TAX_FB: [{ line_item_id: "A", amount_cents: 3000, pos_line_items: { net_sales_cents: 303000, tax_cents: 3000 } }] },
+      rowsByTaxId: { TAX_FB: [{ line_item_id: "A", amount_cents: 3000, pos_line_items: { net_sales_cents: 303000, tax_cents: 3000, gross_sales_cents: 300000, discount_cents: 0 } }] },
       rate: null,
     });
     const ws = await computeWakeWorksheet(ctxWith({ food_beverage_tax_id: "TAX_FB" }), sb);

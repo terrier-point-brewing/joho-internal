@@ -189,7 +189,7 @@ export async function POST(req: NextRequest) {
       if (!order) throw new Error(`order read-back returned no order for ${result.orderId}`);
       const indexes = await buildLineItemIndexes(supabase, catalogItems as CatalogItem[]);
       const rows = buildInvoiceLineItemRows(inv.id, order, indexes, new Map());
-      const { error: persistErr } = await persistInvoiceLineItems(supabase, inv.id, rows);
+      const { error: persistErr } = await persistInvoiceLineItems(supabase, inv.id, rows, order);
       if (persistErr) throw new Error(persistErr);
       linesPersisted = true;
       const totals = invoiceHeaderTotalsFromOrder(order);
