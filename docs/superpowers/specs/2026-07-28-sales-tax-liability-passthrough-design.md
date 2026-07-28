@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-28
 **Status:** Approved, ready for planning
-**Depends on:** PR #283 (`claude/tips-balance-sheet-passthrough`) — see [Dependency](#dependency-on-pr-283)
+**Builds on:** PRs #283 / #284, both merged; rebased onto `2892d18` — see [Inherited](#inherited-from-prs-283--284-both-merged)
 
 ## Problem
 
@@ -168,9 +168,16 @@ investigate any that appear rather than editing the test.
 
 ## Data model
 
-Two migrations. `20260821`–`20260824` are already claimed and unapplied
-(`20260821` payroll shift overrides, `20260822` grant-aware RLS, `20260823`/
-`20260824` the tips branch), so these take **`20260825`** and **`20260826`**.
+Two migrations, taking **`20260825`** and **`20260826`**. `20260821`–`20260824`
+are on disk and claimed (`20260821` payroll shift overrides, `20260822`
+grant-aware RLS, `20260823`/`20260824` the merged tips branch).
+
+Probed against prod on 2026-07-28: `payroll_shift_overrides`,
+`payroll_gl_settings.tips_chart_of_accounts_id`, and
+`payroll_gl_report_totals.bucket_kind` all **exist**, so `20260821`, `20260823`,
+and `20260824` are already applied. `20260822` is policy-only and cannot be
+probed through PostgREST — confirm it in `schema_migrations` before pushing.
+
 The CLI keys on the digits before the first `_`; verify `schema_migrations`
 before any push — this repo already carries duplicated prefixes from earlier work.
 
@@ -260,28 +267,54 @@ PUT (set one row's account). Business logic lives in
 
 ## Collection leg
 
-`fetchTaxAccruals(supabase, range)` in `lib/finance/financials/fetchSources.ts`:
+`fetchTaxAccruals(supabase, range, accountByTaxId)` in
+`lib/finance/financials/fetchSources.ts`, modelled directly on the merged
+`fetchTipAccruals`:
 
 - Union `pos_line_item_taxes` and `invoice_line_item_taxes`, joined to their
   parent line's order/invoice date, ranged over the BS window
-- Group by (month, `square_tax_id`), resolve to an account via
-  `square_tax_accounts`
-- Emit one record per account per month
+- Group by **`square_tax_id` only** — *not* by month. Balance-sheet mode
+  collapses every record onto a single synthetic month key
+  (`cumulativeRange`'s `canonicalMonth`), so `fetchTipAccruals` emits exactly
+  one record and derives `monthKey` as `range.endDateStr.slice(0, 7)`. Do the
+  same, one record per mapped account.
+- Resolve each tax to an account via `square_tax_accounts`; sum per account, so
+  two taxes pointing at the same account merge into one record
 - Paginate via `fetchAllRows` — PostgREST silently truncates at 1000 rows, and
   `pos_line_item_taxes` already holds 8,814 rows
-- **Balance-sheet mode only**, the same way `openInvoiceArCents` is BS-only, so
-  the P&L and cash-flow payloads and their cost are untouched
+- **Balance-sheet mode only**, the same way `openInvoiceArCents` and
+  `fetchTipAccruals` are, so the P&L and cash-flow payloads and their cost are
+  untouched
+- Chained inside the existing `Promise.all` as
+  `fetchTaxAccountMap(supabase).then((map) => fetchTaxAccruals(supabase, range, map))`,
+  exactly as the tips lookup is, so the settings read stays parallel rather than
+  serializing in front of everything else
 - A tax with a NULL account emits **nothing** — the Financials page must never
   break on missing config
+- Per-account degenerate guard: skip any account whose summed tax is `<= 0`.
+  The `-magnitude` branch signs a negative sum identically to a positive one, so
+  a negative total would silently read as *more* liability. This mirrors
+  `fetchTipAccruals`'s `if (amountCents <= 0) return []`.
+
+A status filter is **not** required: `pos_line_item_taxes` cascades from
+`pos_line_items`, whose rows are deleted for canceled orders, so canceled tax
+cannot survive. (This is why `fetchTipAccruals` *does* need `.eq("status",
+"COMPLETED")` — a canceled order keeps its header `tip_cents`.) Prod confirms
+every tax-bearing order is `COMPLETED`. Add the filter anyway as cheap defence,
+and say in the comment that it is defensive rather than load-bearing.
 
 ### Missing-table degradation (required, not optional)
 
 PostgREST 400s on a query against a table that does not exist, so both new
 readers must survive the merge→migration window:
 
-- `fetchTaxAccruals` catches its own error and returns `[]`. The balance sheet
-  then renders exactly as it does today. This mirrors the tips branch's
-  deliberately-swallowed `fetchTipsAccountId` error.
+- `fetchTaxAccountMap` catches its own error and returns an **empty map**, so
+  `fetchTaxAccruals` emits nothing and the balance sheet renders exactly as it
+  does today. This is the same shape as the merged `fetchTipsAccountId`, which
+  wraps its settings read in `try { ... } catch { return null; }` for precisely
+  this reason.
+- `fetchTaxAccruals`'s `invoice_line_item_taxes` source is wrapped the same way
+  and degrades to contributing zero, leaving the POS accrual intact.
 - `fetchTaxableBase`'s **invoice** source is likewise wrapped and degrades to
   contributing zero, leaving the POS base — today's behavior — intact. Its POS
   source is not wrapped: that table exists and a silent zero there would corrupt
@@ -419,22 +452,34 @@ Documented in the deployment sequence below with a verification query.
 4. **PF&B lands on `Out Of Scope Agency Payable` until repointed.** Deliberate,
    per the account decision; the name misdescribes the money in the interim.
 
-## Dependency on PR #283
+## Inherited from PRs #283 / #284 (both merged)
 
-`normalizeSign.ts` currently returns `−magnitude` for `expense`/`bank` on a
-balance-sheet section, which makes a liability **grow** when it is paid down.
-The two existing remittance rows are already wrong because of it, and the tax
-accrual's remittance leg depends on the fix.
+Both merged on 2026-07-28; this branch is rebased onto `2892d18`. The rebase was
+clean — this branch carried only the spec document at that point. What they
+provide, and what this work must therefore *not* re-invent:
 
-PR #283 fixes this (`return -rawCents` for `expense`/`bank` on any BS section).
-**This branch does not duplicate or revert that fix.** It rebases onto #283 once
-merged. Both branches touch `normalizeSign.ts`, `fetchSources.ts`, and
-`aggregateRows.ts`; conflicts are expected and resolved in favor of #283's
-version of the shared sign logic.
+**The balance-sheet sign fix is in.** `normalizeSign.ts` now flips the
+cash-direction sign for `expense`/`bank` on any BS section (`return -rawCents`),
+so a remittance correctly *reduces* the liability. It also added a
+`statementSection === "bank"` carve-out that returns `rawCents` unflipped, so
+`cashOnHandCents` reads as net movement. Do not touch either branch.
 
-If #283 is abandoned rather than merged, the sign fix must be lifted into this
-branch verbatim, and its frozen `normalizeSign.test.ts` equivalence gate lifted
-with it.
+**`tip_accrual` already exists in both source unions** — `type NormalizeSource`
+at `aggregateRows.ts:151` and the inline `source:` parameter at
+`normalizeSign.ts:50`. Adding `"tax_accrual"` follows an established, working
+path rather than blazing one. It falls through to the pos/invoice branch, where
+`other_current_liabilities ∈ NEGATIVE_SECTIONS` yields `-magnitude` — collection
+posts negative (we owe more), remittance positive (we owe less). Exactly the
+behavior this design needs, with no further sign work.
+
+**`fetchTipAccruals` is the template** for the collection leg: BS-only, chained
+inside `Promise.all` so the settings lookup stays parallel, single record keyed
+to `range.endDateStr.slice(0, 7)`, `<= 0` degenerate guard, and a settings
+reader (`fetchTipsAccountId`) that swallows its own error. Mirror all five
+properties; the differences are the per-tax account map and the two-table union.
+
+`20260823`/`20260824` are applied in prod, so nothing from that branch is
+pending.
 
 ## Testing
 
@@ -468,29 +513,29 @@ because of the guards specified in
 Those guards are load-bearing for this property — verify them in review before
 merging, not after.
 
-1. Merge PR #283 first, then rebase this branch onto it.
-2. Back up `pos_line_items`, `invoice_line_items`, `chart_of_accounts`.
-3. Verify `schema_migrations` — `20260821`–`20260824` are also unapplied, so a
-   push applies **six** migrations, not two.
-4. Apply migrations. Confirm `square_tax_accounts` holds two rows with non-NULL
+1. Back up `pos_line_items`, `invoice_line_items`, `chart_of_accounts`.
+2. Verify `schema_migrations`. `20260821`/`20260823`/`20260824` are confirmed
+   applied; `20260822` is policy-only and must be checked there directly. This
+   branch should add exactly **two** migrations to the pending set.
+3. Apply migrations. Confirm `square_tax_accounts` holds two rows with non-NULL
    `chart_of_accounts_id`; a NULL means the seed's name lookup missed and must
    be set through the UI.
-5. Deploy. Confirm the Sales Tax Accounts settings page lists both taxes.
-6. Create `Sales & Excise Taxes Payable:Wake County Tax Administration Payable`
+4. Deploy. Confirm the Sales Tax Accounts settings page lists both taxes.
+5. Create `Sales & Excise Taxes Payable:Wake County Tax Administration Payable`
    (Other Current Liabilities) via the Chart of Accounts UI.
-7. Repoint Prepared Food & Beverage Tax to it on the Sales Tax Accounts page.
-8. Recode the 2026-06-17 −$118.83 Wake County Tax Administration expense to that
+6. Repoint Prepared Food & Beverage Tax to it on the Sales Tax Accounts page.
+7. Recode the 2026-06-17 −$118.83 Wake County Tax Administration expense to that
    account via the Transactions tab. Verify:
    `select count(*) from expenses e join chart_of_accounts c on c.id =
    e.chart_of_accounts_id where c.account_name like '%Wake County%'` returns 1.
-9. `POST /api/finance/backfill/sales-tax` with no body (dry run). Confirm the
+8. `POST /api/finance/backfill/sales-tax` with no body (dry run). Confirm the
    three monthly deltas match the restatement table exactly and that no row is
    reported as failing the identity guard. Do not proceed on a partially
    successful dry run.
-10. `POST` with `{"dryRun": false}`.
-11. Verify on Financials: May–July revenue drops by $2,887.32 in total, and the
+9. `POST` with `{"dryRun": false}`.
+10. Verify on Financials: May–July revenue drops by $2,887.32 in total, and the
     two liability accounts carry Σcollected − Σremitted.
-12. Re-run one NC DOR worksheet for a closed period and confirm the collected
+11. Re-run one NC DOR worksheet for a closed period and confirm the collected
     figure now includes invoice tax.
 
 Verified against prod on 2026-07-28 (read-only): all 4,740 POS rows satisfy the
