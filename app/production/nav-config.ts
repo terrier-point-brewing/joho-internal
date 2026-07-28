@@ -1,5 +1,4 @@
 import type { Capability } from "@/lib/auth/capabilities";
-import { CAP } from "@/lib/auth/capabilities";
 
 export type NavEntry = { href: string; match?: string; label: string; requires?: Capability; exact?: boolean };
 
@@ -10,7 +9,6 @@ export const PRODUCTION_NAV: NavEntry[] = [
   { href: "/production/recipes",   label: "Recipes"   },
   { href: "/production/inventory", label: "Inventory" },
   { href: "/production/partners",  label: "Partners"  },
-  { href: "/production/settings",  label: "Settings"  },
 ];
 
 export const BREWING_NAV: NavEntry[] = [
@@ -25,12 +23,4 @@ export const RECIPES_NAV: NavEntry[] = [
   { href: "/production/recipes",                     label: "Brewing Recipes",    exact: true },
   { href: "/production/recipes/variations",          label: "Packaging Variations" },
   { href: "/production/recipes/brew-step-templates", label: "Brew Step Templates" },
-];
-
-export const SETTINGS_NAV: NavEntry[] = [
-  { href: "/production/settings/deposits",     label: "Deposit Settings", requires: CAP.productionSettingsManage },
-  { href: "/production/settings/export",       label: "Export Settings",  requires: CAP.productionSettingsManage },
-  // `catalog`, not production.settings — so this tab disappears for anyone
-  // holding production config but not the shared mapping scope.
-  { href: "/production/settings/square-links", label: "Square Item Mappings", requires: CAP.catalogRead },
 ];

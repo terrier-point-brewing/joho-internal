@@ -1,10 +1,7 @@
-import { redirectToFirstReachable, CAP } from "@/lib/auth";
+import { redirect } from "next/navigation";
 
-// Subtabs gate independently now, so a fixed redirect to /deposits would bounce
-// anyone holding `catalog` but not production.settings:manage.
-export default async function SettingsPage() {
-  return redirectToFirstReachable([
-    { href: "/production/settings/deposits", cap: CAP.productionSettingsManage },
-    { href: "/production/settings/square-links", cap: CAP.catalogRead },
-  ]);
+// Settings consolidated into the /settings hub. Points at the hub root
+// rather than a specific group, which the caller may not be able to open.
+export default function LegacySettingsRedirect() {
+  redirect("/settings");
 }

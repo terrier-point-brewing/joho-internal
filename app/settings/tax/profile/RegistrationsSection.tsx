@@ -8,7 +8,7 @@ import { queryKeys } from "@/lib/query-keys";
 import { fetchJson } from "@/app/production/hooks/queries";
 import type { TaxAuthority } from "@/lib/tax/authorities";
 import type { TaxRegistrationInput } from "@/lib/tax/registrations";
-import type { RegistrationsResponse } from "../../tax/hooks/useTaxData";
+import type { RegistrationsResponse } from "@/app/finance/tax/hooks/useTaxData";
 
 async function putJson<T>(url: string, body: unknown): Promise<T> {
   const res = await fetch(url, {

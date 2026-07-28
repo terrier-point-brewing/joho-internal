@@ -11,5 +11,4 @@ export const FINANCE_NAV: NavEntry[] = [
   { href: "/finance/transactions/orders",  match: "/finance/transactions",         label: "Transactions", requires: CAP.financeTransactionsRead },
   { href: "/finance/tax",                  match: "/finance/tax",                  label: "Tax",          requires: CAP.taxRead },
   { href: "/finance/payroll",              match: "/finance/payroll",              label: "Payroll",      requires: CAP.payrollManage },
-  { href: "/finance/settings",             match: "/finance/settings",             label: "Settings"     },
 ];

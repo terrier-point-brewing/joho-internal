@@ -128,7 +128,7 @@ export function GustoUploadPanel({ periodId }: Props) {
         <Banner>
           {unmappedDepartments.length} department{unmappedDepartments.length === 1 ? "" : "s"} not mapped to a GL account
           (excluded from the totals below): <span className="text-body">{unmappedDepartments.join(", ")}</span>.{" "}
-          <a href="/finance/settings/payroll-department-mappings" className="text-accent hover:underline">
+          <a href="/settings/payroll/departments" className="text-accent hover:underline">
             Map them →
           </a>
         </Banner>
