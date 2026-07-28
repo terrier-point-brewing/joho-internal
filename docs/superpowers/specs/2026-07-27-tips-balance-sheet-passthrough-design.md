@@ -283,3 +283,92 @@ rebase rather than reverting either change.
 - Cash tips as a liability — no company money moves
 - Materializing accrual rows for a future QBO push
 - Reclassifying the $822/period residual — force-fill retained by decision
+
+## Known limitations carried to merge
+
+Surfaced by the final whole-branch review. Each was assessed and deliberately
+not fixed in this branch; none blocks the feature's correctness.
+
+1. **Cash Flow operating cash shifts.** `buildFinancials.ts`'s
+   `operatingCashCents` sums P&L sections only. Tips used to sit on wage/COGS
+   and were counted as operating cash; they now sit on a liability section and
+   are counted nowhere, so the direct-method operating cash figure reads
+   ~$900/period (~$2k/month) too favorable after the backfill. Real cash did
+   leave the bank. The spec guaranteed the *P&L* was untouched and delivered
+   that — `cash_flow` shares the same summation and was not considered. Proper
+   fix is a working-capital adjustment for balance-sheet liability movement.
+2. **No under-match flag on the exact carve-out.** The clamp prevents negative
+   lines, but a period where only one of several Gusto debits has been matched
+   pulls the *full* period tip total out of that single partial debit and
+   starves the wage fill. Pro-rata degraded gracefully here; exact carve-out
+   does not. It self-corrects once the remaining debits are matched and the
+   splits are recomputed, so the bad state is transient. Fix would be returning
+   `{ tipsClamped, tipsShortfallCents }` and surfacing it on the recompute route.
+3. **Dry-run `before` summary reads oddly.** Migration `20260824`'s
+   `DEFAULT 'wages'` stamps pre-existing employer-tax rows as `wages`, so
+   `before.wagesCents` includes employer tax and `before.employerTaxCents`
+   reads 0. When reviewing the dry run, the assertion that matters is that the
+   *total* is unchanged and `after.tips` is ~$900–$1,050 — not the apparent
+   wage drop, which is mostly reclassification.
+4. **Repointing the tips account strands history.** Historical splits stay on
+   the old account while new accruals credit the new one, splitting the
+   liability across two accounts with no migration path.
+5. **`Cash on Hand` changes meaning.** The `statementSection === "bank"`
+   carve-out in `normalizeSign.ts` is a second, independent correction riding
+   along with this work: `cashOnHandCents` goes from a sum of *absolute* bank
+   movements (meaningless) to net movement since inception (meaningful, though
+   still not a reconciled balance). An improvement, but it will move visibly on
+   the balance sheet and should not be discovered as a surprise.
+
+## Deployment sequence
+
+The merge→migration window is the real hazard: **merging this branch breaks the
+Gusto upload, the payroll-match action, and the payroll-mappings settings page
+until both migrations are applied.** PostgREST 400s on a missing column.
+
+Complete break list for that window:
+
+*Without `20260823` (`tips_chart_of_accounts_id`)* — `GET` and `PUT`
+`/api/finance/settings/payroll-department-mappings` both 500, taking down the
+whole settings page including the pre-existing taxes picker; `uploadGustoReport`
+fails, so Gusto CSV upload is fully broken; `backfillGlReports` throws (intended).
+`fetchTipsAccountId` swallows its error and returns null, so **the Financials
+page never breaks** — that degradation is deliberate.
+
+*Without `20260824` (`bucket_kind`)* — `recomputePeriodExpenseSplits` throws,
+killing the recompute route, all three payroll-match call sites, and
+auto-map-payroll; the payroll-match action on the Expenses tab is dead.
+`uploadGustoReport`'s totals insert fails, but its existing compensating cleanup
+unwinds cleanly, so there is no partial state.
+
+Ordered steps:
+
+1. Back up `payroll_gl_report_totals`, `expense_gl_splits`, `payroll_gl_settings`.
+2. Confirm `SELECT id FROM chart_of_accounts WHERE account_name =
+   'Payroll Liabilities:Undistributed Tips'` returns exactly one row — the
+   migration's seed silently no-ops otherwise, leaving the column NULL and
+   hard-failing every Gusto upload.
+3. Verify `schema_migrations` for collisions. `20260821` and `20260822` are also
+   unapplied ahead of these two, so a push applies **four** migrations, not two.
+   The repo already carries 33 duplicated prefixes from earlier work and the CLI
+   keys on digits before the first `_`.
+4. Apply all four migrations **before or in the same maintenance window as the
+   deploy** — not after.
+5. Deploy. Confirm the settings page loads and shows the seeded tips account.
+6. `POST /api/payroll/gl-reports/backfill` with no body (`dryRun` defaults true).
+   Per period, check `after.tips` is ~$900–$1,050 and that the bucket totals sum
+   to the same figure before and after. Resolve any period reporting an `error`
+   before continuing — do not proceed on a partially-successful dry run.
+7. `POST` with `{"dryRun": false}`. Re-check for per-period `error` strings.
+8. Verify on Financials: Direct Production Labor drops, gross margin improves,
+   and the tips liability sits near Σcollected − Σdisbursed (credit-side, per
+   the documented refund-netting exclusion).
+9. Expect and communicate the two collateral movements from Known Limitations
+   above: Cash on Hand changes definition, and Cash Flow operating cash now
+   excludes tip disbursements.
+
+Verified against prod on 2026-07-28 (read-only): both migrations unapplied;
+`payroll_gl_settings` holds exactly one row, so the `.single()` calls are safe;
+zero manual GL split overrides (0 of 57), so the manual-override netting path is
+latent; zero canceled tip-bearing orders (all 1,398 COMPLETED, $5,498.29), so the
+status filter is defensive.
