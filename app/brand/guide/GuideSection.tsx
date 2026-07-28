@@ -22,7 +22,7 @@ export default function GuideSection({
   return (
     <section>
       {paragraphs.length > 0 && (
-        <div className="mb-8 flex flex-col gap-3 max-w-3xl">
+        <div className="mb-8 flex flex-col gap-3">
           {paragraphs.map((p, i) => (
             <p key={i} className="font-brand-body text-base text-brand-content leading-relaxed">
               {p}

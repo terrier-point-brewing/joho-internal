@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import type { BrandCanon } from "@/lib/brand/canon.types";
 import type { GuideSectionKey } from "@/lib/brand/guideIntros";
 import Banner from "@/app/components/ui/Banner";
@@ -30,6 +31,7 @@ export type CanonSection = GuideSectionKey;
  * toggle) so in-progress edits survive.
  */
 export default function CanonEditor({ section }: { section: CanonSection }) {
+  const router = useRouter();
   const { data: serverDraft, isLoading, error: loadError } = useDraft();
   const saveDraft = useSaveDraft();
   const publish = usePublish();
@@ -65,6 +67,12 @@ export default function CanonEditor({ section }: { section: CanonSection }) {
     setConfirming(false);
     setVersionLabel("");
     setChangelog("");
+    // The route handler's revalidateTag("brand-canon") only busts the server's
+    // data cache — it doesn't push an update to the already-mounted View tab,
+    // which holds the ReactNode the server rendered at initial page load.
+    // Without this, Publish "succeeds" but View mode keeps showing the
+    // pre-publish content until a manual hard reload.
+    router.refresh();
   }
 
   if (isLoading) return <p className="text-sm text-muted">Loading…</p>;
