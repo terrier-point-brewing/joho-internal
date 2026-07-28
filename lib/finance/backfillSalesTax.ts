@@ -18,7 +18,7 @@ export interface BackfillSalesTaxReport {
   posNetSales: { scanned: number; corrected: number; skippedIdentityMismatch: number; centsRemoved: number; byMonth: Record<string, number> };
   invoiceUids: { invoicesScanned: number; rowsRepaired: number; invoicesSkipped: string[] };
   invoiceTaxes: { invoicesScanned: number; rowsWritten: number; centsWritten: number };
-  invoiceTotals: { scanned: number; corrected: number };
+  invoiceTotals: { scanned: number; corrected: number; skippedNullMoney: number };
   errors: string[];
 }
 
@@ -95,6 +95,18 @@ export function planInvoiceUidRepair(
   const orderedLines: RawLine[] = [];
   for (const li of rawLines) {
     const gross = li.gross_sales_money?.amount ?? 0;
+    // NOTE: this skip is name-only, unlike buildInvoiceLineItemRows (the
+    // canonical builder in lib/finance/invoiceLineItems.ts), which skips a
+    // carve-out excise line only when its `category` is STILL null -- i.e.
+    // neither a keg nor a can variation. The planner has no catalog indexes
+    // here, so it cannot replicate that category test, and a
+    // "Barrel Excise Tax"-named line that carries a keg/can catalog id would
+    // be kept by the builder but dropped here. This divergence is fail-safe,
+    // not silently wrong: the (gross, discount, tax) triple check below will
+    // fail to match on the resulting off-by-one, returning `ok: false` and
+    // landing the invoice in `invoicesSkipped` rather than writing a wrong
+    // uid mapping. Read `invoicesSkipped` carefully in the dry run for this
+    // reason -- it is not noise.
     if ((li.name ?? "").toLowerCase().includes("barrel excise tax")) {
       const idx = remaining.findIndex((a) => Math.abs(a - gross) <= 1);
       if (idx >= 0) { remaining.splice(idx, 1); continue; }
@@ -118,6 +130,35 @@ export function planInvoiceUidRepair(
   }
 
   return { ok: true, updates, uidByRowId };
+}
+
+// ── Step 4: invoice_line_items.total_cents ─────────────────────────────────
+
+export interface InvoiceTotalsRowForFix {
+  id: string;
+  gross_sales_cents: number | null;
+  discount_cents: number | null;
+  total_cents: number | null;
+}
+
+/**
+ * Pure. total_cents must become gross - discount. gross_sales_cents/
+ * discount_cents are nullable independently of the net_sales_cents filter
+ * that selects these rows -- a row with a non-null net_sales_cents but a null
+ * gross_sales_cents would otherwise have total_cents silently zeroed by a
+ * `?? 0` fallback (no current writer produces that combination, but Step 1
+ * sets the precedent of refusing rather than guessing). Skipped and counted
+ * rather than corrected.
+ */
+export function planInvoiceTotalsFix(rows: InvoiceTotalsRowForFix[]) {
+  const updates: { id: string; total_cents: number }[] = [];
+  let skippedNullMoney = 0;
+  for (const r of rows) {
+    if (r.gross_sales_cents == null || r.discount_cents == null) { skippedNullMoney++; continue; }
+    const target = r.gross_sales_cents - r.discount_cents;
+    if (r.total_cents !== target) updates.push({ id: r.id, total_cents: target });
+  }
+  return { updates, skippedNullMoney };
 }
 
 // ── Driver ─────────────────────────────────────────────────────────────────
@@ -242,10 +283,8 @@ export async function backfillSalesTax(
       .not("net_sales_cents", "is", null)
       .order("id", { ascending: true }),
   );
-  const totalUpdates = invRows
-    .filter((r) => r.total_cents !== (r.gross_sales_cents ?? 0) - (r.discount_cents ?? 0))
-    .map((r) => ({ id: r.id, total_cents: (r.gross_sales_cents ?? 0) - (r.discount_cents ?? 0) }));
-  if (!dryRun) await applyUpdates(sb, "invoice_line_items", totalUpdates, errors);
+  const totalsPlan = planInvoiceTotalsFix(invRows);
+  if (!dryRun) await applyUpdates(sb, "invoice_line_items", totalsPlan.updates, errors);
 
   return {
     dryRun,
@@ -258,7 +297,7 @@ export async function backfillSalesTax(
     },
     invoiceUids,
     invoiceTaxes,
-    invoiceTotals: { scanned: invRows.length, corrected: totalUpdates.length },
+    invoiceTotals: { scanned: invRows.length, corrected: totalsPlan.updates.length, skippedNullMoney: totalsPlan.skippedNullMoney },
     errors,
   };
 }

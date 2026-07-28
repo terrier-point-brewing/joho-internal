@@ -155,7 +155,7 @@ async function upsertInvoiceWithLines(
   );
 
   const rows = buildInvoiceLineItemRows(invRow.id, order, ctx, existingCoaBySort);
-  const { error: liErr } = await persistInvoiceLineItems(supabase, invRow.id, rows);
+  const { error: liErr } = await persistInvoiceLineItems(supabase, invRow.id, rows, order);
   if (liErr) errors.push(`Line items for ${inv.invoice_number ?? inv.id}: ${liErr}`);
 
   return { outcome: wasInserted ? "synced" : "updated", errors: errors.length ? errors : undefined };

@@ -142,9 +142,11 @@ export function buildPosLineItems(
 }
 
 /**
- * One row for `pos_line_item_taxes` OR `invoice_line_item_taxes` — the two
- * tables are structurally identical, so one builder serves both. The caller
- * decides which table to insert into by which db-id map it passes.
+ * One row for `pos_line_item_taxes` or its invoice-side sibling table — the
+ * two tables are structurally identical, so one builder serves both. The
+ * caller decides which table to insert into by which db-id map it passes.
+ * (The invoice-side insert itself lives in lib/finance/invoiceLineItems.ts,
+ * the canonical writer for that table — see the note below.)
  */
 export interface LineItemTaxRow {
   line_item_id: string;
@@ -281,7 +283,7 @@ export async function syncSquareOrders(
   let canceled = 0;
   const posLineItems: object[] = [];
   const posOrdersByDbId = new Map<string, Order>(); // for tax-row building, after ids are known
-  const invoiceLineItemsToInsert: { invoiceId: string; items: object[]; order: Order }[] = [];
+  const invoiceLineItemsToInsert: { invoiceId: string; items: object[] }[] = [];
 
   for (const order of orders) {
     const dbId = upsertedIds.get(order.id);
@@ -295,7 +297,7 @@ export async function syncSquareOrders(
     // queueing an empty item set (delete-then-insert-nothing).
     if (actionByOrderId.get(order.id) === "cancel") {
       canceled++;
-      if (invoiceId) invoiceLineItemsToInsert.push({ invoiceId, items: [], order });
+      if (invoiceId) invoiceLineItemsToInsert.push({ invoiceId, items: [] });
       continue;
     }
 
@@ -304,7 +306,6 @@ export async function syncSquareOrders(
       invoiceLineItemsToInsert.push({
         invoiceId,
         items: buildInvoiceLineItems(invoiceId, order, getInvoiceCoA),
-        order,
       });
     } else {
       posLineItems.push(...buildPosLineItems(dbId, order, getPosCoA));
@@ -350,35 +351,25 @@ export async function syncSquareOrders(
     if (error) errors.push(`POS line item taxes batch ${i}: ${error.message}`);
   }
 
-  for (const { invoiceId, items, order } of invoiceLineItemsToInsert) {
-    // The delete cascades to invoice_line_item_taxes (ON DELETE CASCADE), so a
-    // re-sync converges without a separate tax-row cleanup.
+  // NOTE: this path does NOT own the invoice-side line-item tax table. The
+  // canonical writer (buildInvoiceLineItemRows + persistInvoiceLineItems in
+  // lib/finance/invoiceLineItems.ts) upserts on (invoice_id, sort_order) using
+  // a DIFFERENT (0-based, excise-skipping) sort_order than this builder's
+  // 1-based one, so a tax-row write keyed to THIS insert's row ids would be
+  // silently orphaned or misattributed the moment the canonical sync runs
+  // over the same invoice. Rebuilding tax rows is that writer's job alone.
+  for (const { invoiceId, items } of invoiceLineItemsToInsert) {
+    // The delete cascades to the invoice-side line-item tax rows (ON DELETE
+    // CASCADE), so a re-sync converges without a separate tax-row cleanup.
     await supabase.from("invoice_line_items").delete().eq("invoice_id", invoiceId);
 
-    // Select the server-generated ids back, keyed by square_line_item_uid, the
-    // same way the POS path does -- that map is what buildLineItemTaxRows needs.
-    const uidMap = new Map<string, string>();
     for (let i = 0; i < items.length; i += BATCH_SIZE) {
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from("invoice_line_items")
-        .insert(items.slice(i, i + BATCH_SIZE))
-        .select("id, square_line_item_uid");
+        .insert(items.slice(i, i + BATCH_SIZE));
       if (error) {
         errors.push(`Invoice line items (${invoiceId}) batch ${i}: ${error.message}`);
-        continue;
       }
-      for (const row of (data ?? []) as { id: string; square_line_item_uid: string | null }[]) {
-        if (row.square_line_item_uid) uidMap.set(row.square_line_item_uid, row.id);
-      }
-    }
-    if (uidMap.size === 0) continue;
-
-    const invoiceTaxRows = buildLineItemTaxRows(order, uidMap);
-    for (let i = 0; i < invoiceTaxRows.length; i += BATCH_SIZE) {
-      const { error } = await supabase
-        .from("invoice_line_item_taxes")
-        .insert(invoiceTaxRows.slice(i, i + BATCH_SIZE));
-      if (error) errors.push(`Invoice line item taxes (${invoiceId}) batch ${i}: ${error.message}`);
     }
   }
 

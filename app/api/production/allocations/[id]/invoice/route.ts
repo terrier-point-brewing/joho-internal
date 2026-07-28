@@ -232,7 +232,7 @@ async function handleInvoiceAction(req: NextRequest, params: RouteParams["params
         if (!order) throw new Error(`order read-back returned no order for ${result.orderId}`);
         const indexes = await buildLineItemIndexes(adminSupabase, catalogItems as CatalogItem[]);
         const rows = buildInvoiceLineItemRows(ledgerInvoiceId, order, indexes, new Map());
-        const { error: persistErr } = await persistInvoiceLineItems(adminSupabase, ledgerInvoiceId, rows);
+        const { error: persistErr } = await persistInvoiceLineItems(adminSupabase, ledgerInvoiceId, rows, order);
         if (persistErr) throw new Error(persistErr);
         linesPersisted = true;
         const totals = invoiceHeaderTotalsFromOrder(order);

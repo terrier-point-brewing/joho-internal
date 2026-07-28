@@ -242,6 +242,19 @@ function stubSb(rows: TaxRow[], rateRows: TaxRate[] = SEEDED_RATE_ROWS, error?: 
       b.select = () => Promise.resolve({ data: rateRows, error: null });
       return b;
     }
+    // The invoice source contributes nothing in these fixtures.
+    if (table === "invoice_line_item_taxes") {
+      const empty: Record<string, unknown> = {};
+      empty.select = () => empty;
+      empty.eq = () => empty;
+      empty.neq = () => empty;
+      empty.gte = () => empty;
+      empty.lt = () => empty;
+      empty.lte = () => empty;
+      empty.order = () => empty;
+      empty.range = () => Promise.resolve({ data: [], error: null });
+      return empty;
+    }
     if (table !== "pos_line_item_taxes") throw new Error(`unexpected table: ${table}`);
     const b: Record<string, unknown> = {};
     b.select = () => b;

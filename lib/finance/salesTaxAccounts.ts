@@ -33,7 +33,7 @@ interface ObservedTax {
 async function observedTaxes(sb: SupabaseClient, table: string, tolerateMissing: boolean): Promise<ObservedTax[]> {
   try {
     const rows = await fetchAllRows<ObservedTax>(() =>
-      sb.from(table).select("square_tax_id, tax_name, tax_pct").order("line_item_id", { ascending: true }),
+      sb.from(table).select("square_tax_id, tax_name, tax_pct").order("id", { ascending: true }),
     );
     const byId = new Map<string, ObservedTax>();
     for (const r of rows) if (!byId.has(r.square_tax_id)) byId.set(r.square_tax_id, r);
@@ -94,9 +94,14 @@ export async function setSalesTaxAccount(
   squareTaxId: string,
   chartOfAccountsId: string | null,
 ): Promise<void> {
-  const { error } = await sb
+  const { data, error } = await sb
     .from("square_tax_accounts")
     .update({ chart_of_accounts_id: chartOfAccountsId, updated_at: new Date().toISOString() })
-    .eq("square_tax_id", squareTaxId);
+    .eq("square_tax_id", squareTaxId)
+    .select("square_tax_id");
   if (error) throw new Error(error.message);
+  // An UPDATE matching zero rows returns no PostgREST error -- without this
+  // check the route would reply {ok:true} and the UI would show "saved" for a
+  // mapping that was never written.
+  if (!data || data.length === 0) throw new Error(`unknown square_tax_id: ${squareTaxId}`);
 }

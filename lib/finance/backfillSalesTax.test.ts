@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { planPosNetSalesFix, planInvoiceUidRepair } from "./backfillSalesTax";
+import { planPosNetSalesFix, planInvoiceUidRepair, planInvoiceTotalsFix } from "./backfillSalesTax";
 
 describe("planPosNetSalesFix", () => {
   it("corrects a tax-inclusive row to gross - discount", () => {
@@ -68,5 +68,32 @@ describe("planInvoiceUidRepair", () => {
     );
     expect(res.ok).toBe(false);
     expect(res.updates).toEqual([]);
+  });
+});
+
+describe("planInvoiceTotalsFix", () => {
+  it("corrects total_cents to gross - discount", () => {
+    const plan = planInvoiceTotalsFix([
+      { id: "a", gross_sales_cents: 1200, discount_cents: 200, total_cents: 1200 },
+    ]);
+    expect(plan.updates).toEqual([{ id: "a", total_cents: 1000 }]);
+    expect(plan.skippedNullMoney).toBe(0);
+  });
+
+  it("is idempotent — an already-correct row is skipped", () => {
+    const plan = planInvoiceTotalsFix([
+      { id: "a", gross_sales_cents: 1200, discount_cents: 200, total_cents: 1000 },
+    ]);
+    expect(plan.updates).toEqual([]);
+  });
+
+  it("skips and counts a row with a null gross_sales_cents or discount_cents rather than zeroing total_cents", () => {
+    const plan = planInvoiceTotalsFix([
+      { id: "a", gross_sales_cents: null, discount_cents: 0, total_cents: 500 },
+      { id: "b", gross_sales_cents: 1000, discount_cents: null, total_cents: 500 },
+      { id: "c", gross_sales_cents: 1000, discount_cents: 200, total_cents: 800 },
+    ]);
+    expect(plan.updates).toEqual([]);
+    expect(plan.skippedNullMoney).toBe(2);
   });
 });

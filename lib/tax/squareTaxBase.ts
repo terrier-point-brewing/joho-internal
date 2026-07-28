@@ -84,7 +84,13 @@ export async function fetchTaxableBase(
           .order("line_item_id", { ascending: true }),
       pageSize,
     );
-  } catch {
+  } catch (err) {
+    // Only an unapplied migration (20260826) may be swallowed. Any other
+    // failure -- a transient PostgREST 5xx, a timeout -- must propagate:
+    // silently returning zero invoice receipts would understate a filed
+    // return with no signal to the operator.
+    const msg = err instanceof Error ? err.message : String(err);
+    if (!/does not exist|PGRST205|Could not find the table/i.test(msg)) throw err;
     invoiceRows = [];
   }
 

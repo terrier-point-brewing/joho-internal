@@ -5,6 +5,7 @@ import { buildKegIndex } from "@/lib/reports/kegs";
 import { canOzPerUnit } from "@/lib/reports/bbl-tracker";
 import { CATEGORY_IDS } from "@/lib/constants/categories";
 import { classifyLineItem } from "@/lib/finance/classify";
+import { buildLineItemTaxRows } from "@/lib/finance/syncPosTransactions";
 
 export interface LineItemCoa {
   chart_of_accounts_id: string | null;
@@ -171,10 +172,54 @@ export function invoiceHeaderTotalsFromOrder(order: Order) {
   return { subtotal_cents: subtotal, tax_cents: tax, discount_cents: orderDiscount, total_cents: total };
 }
 
+/**
+ * Rebuilds an invoice's `invoice_line_item_taxes` rows from `order`, keyed off
+ * the invoice's just-upserted `invoice_line_items` rows (read back by
+ * `square_line_item_uid`, which this builder writes by construction -- see
+ * `CanonicalLineItemRow.square_line_item_uid`'s docstring). Always deletes
+ * first, even when the invoice no longer has any taxable lines, so a
+ * since-removed tax doesn't survive as a stale row.
+ */
+async function rebuildInvoiceLineItemTaxes(
+  supabase: SupabaseClient,
+  invoiceId: string,
+  order: Order,
+): Promise<{ error?: string }> {
+  const { data: lineRows, error: selectError } = await supabase
+    .from("invoice_line_items")
+    .select("id, square_line_item_uid")
+    .eq("invoice_id", invoiceId);
+  if (selectError) return { error: selectError.message };
+
+  const uidMap = new Map<string, string>();
+  const lineIds: string[] = [];
+  for (const row of (lineRows ?? []) as { id: string; square_line_item_uid: string | null }[]) {
+    lineIds.push(row.id);
+    if (row.square_line_item_uid) uidMap.set(row.square_line_item_uid, row.id);
+  }
+
+  if (lineIds.length > 0) {
+    const { error: deleteError } = await supabase
+      .from("invoice_line_item_taxes")
+      .delete()
+      .in("line_item_id", lineIds);
+    if (deleteError) return { error: deleteError.message };
+  }
+
+  const taxRows = buildLineItemTaxRows(order, uidMap);
+  if (taxRows.length > 0) {
+    const { error: insertError } = await supabase.from("invoice_line_item_taxes").insert(taxRows);
+    if (insertError) return { error: insertError.message };
+  }
+
+  return {};
+}
+
 export async function persistInvoiceLineItems(
   supabase: SupabaseClient,
   invoiceId: string,
   rows: CanonicalLineItemRow[],
+  order?: Order,
 ): Promise<{ error?: string }> {
   if (rows.length === 0) {
     await supabase.from("invoice_line_items").delete().eq("invoice_id", invoiceId);
@@ -184,10 +229,17 @@ export async function persistInvoiceLineItems(
     .from("invoice_line_items")
     .upsert(rows, { onConflict: "invoice_id,sort_order", ignoreDuplicates: false });
   if (error) return { error: error.message };
-  await supabase
+  const { error: deleteError } = await supabase
     .from("invoice_line_items")
     .delete()
     .eq("invoice_id", invoiceId)
     .gt("sort_order", rows.length - 1);
+  if (deleteError) return { error: deleteError.message };
+
+  if (order) {
+    const taxResult = await rebuildInvoiceLineItemTaxes(supabase, invoiceId, order);
+    if (taxResult.error) return taxResult;
+  }
+
   return {};
 }

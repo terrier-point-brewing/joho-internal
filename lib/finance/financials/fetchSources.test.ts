@@ -468,7 +468,7 @@ describe("fetchTaxAccruals", () => {
 
   function stub(posRows: unknown[], invRows: unknown[], invThrows = false) {
     const from = (table: string) => {
-      if (table === "invoice_line_item_taxes" && invThrows) throw new Error("missing relation");
+      if (table === "invoice_line_item_taxes" && invThrows) throw new Error('relation "invoice_line_item_taxes" does not exist');
       const b: Record<string, unknown> = {};
       b.select = () => b; b.eq = () => b; b.neq = () => b;
       b.gte = () => b; b.lt = () => b; b.lte = () => b; b.order = () => b;
@@ -524,5 +524,19 @@ describe("fetchTaxAccruals", () => {
     const sb = stub([posRow("a", "TAX_GEN", 700)], [], true);
     const res = await fetchTaxAccruals(sb, range, new Map([["TAX_GEN", "COA_X"]]));
     expect(res).toEqual([{ id: "tax-COA_X-2026-07", chartOfAccountsId: "COA_X", amountCents: 700, monthKey: "2026-07" }]);
+  });
+
+  it("propagates a non-missing-table error from the invoice tax fetch instead of silently zeroing it", async () => {
+    const from = (table: string) => {
+      if (table === "invoice_line_item_taxes") throw new Error("boom");
+      const b: Record<string, unknown> = {};
+      b.select = () => b; b.eq = () => b; b.neq = () => b;
+      b.gte = () => b; b.lt = () => b; b.lte = () => b; b.order = () => b;
+      b.range = (f: number, t: number) =>
+        Promise.resolve({ data: [posRow("a", "TAX_GEN", 700)].slice(f, t + 1), error: null });
+      return b;
+    };
+    const sb = { from } as unknown as SupabaseClient;
+    await expect(fetchTaxAccruals(sb, range, new Map([["TAX_GEN", "COA_X"]]))).rejects.toThrow(/boom/);
   });
 });

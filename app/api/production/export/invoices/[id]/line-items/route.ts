@@ -256,7 +256,7 @@ export async function PATCH(
     });
 
     const rows = buildInvoiceLineItemRows(invoiceId, order, indexes, existingCoaBySort);
-    const { error: persistErr } = await persistInvoiceLineItems(supabase, invoiceId, rows);
+    const { error: persistErr } = await persistInvoiceLineItems(supabase, invoiceId, rows, order);
     if (persistErr) throw new Error(persistErr);
     linesPersisted = true;
 

@@ -69,6 +69,19 @@ function stubSb(opts: { rowsByTaxId: Record<string, TaxRow[]>; rate?: number | n
         Promise.resolve({ data: opts.rate == null ? null : { rate: opts.rate }, error: null });
       return b;
     }
+    // The invoice source contributes nothing in these fixtures.
+    if (table === "invoice_line_item_taxes") {
+      const empty: Record<string, unknown> = {};
+      empty.select = () => empty;
+      empty.eq = () => empty;
+      empty.neq = () => empty;
+      empty.gte = () => empty;
+      empty.lt = () => empty;
+      empty.lte = () => empty;
+      empty.order = () => empty;
+      empty.range = () => Promise.resolve({ data: [], error: null });
+      return empty;
+    }
     if (table !== "pos_line_item_taxes") throw new Error(`unexpected table: ${table}`);
     let taxId = "";
     const b: Record<string, unknown> = {};

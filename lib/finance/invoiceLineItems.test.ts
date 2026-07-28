@@ -252,6 +252,134 @@ describe("persistInvoiceLineItems", () => {
   });
 });
 
+/**
+ * In-memory stub covering `invoice_line_items` (upsert/delete/select-back, with
+ * server-assigned ids) AND `invoice_line_item_taxes` (delete/insert) --
+ * everything `persistInvoiceLineItems` touches once an `order` is passed.
+ */
+function invoiceLineItemsWithTaxesStub(seed: CanonicalLineItemRow[] = []) {
+  let stored: (CanonicalLineItemRow & { id: string })[] = seed.map((r, i) => ({ ...r, id: `row-${i}` }));
+  let taxRows: { line_item_id: string; square_tax_id: string; tax_name: string | null; tax_pct: number | null; amount_cents: number }[] = [];
+  let nextId = stored.length;
+
+  const client = {
+    from: (table: string) => {
+      if (table === "invoice_line_items") {
+        return {
+          upsert: (rows: CanonicalLineItemRow[]) => {
+            for (const row of rows) {
+              const at = stored.findIndex((s) => s.invoice_id === row.invoice_id && s.sort_order === row.sort_order);
+              if (at >= 0) stored[at] = { ...row, id: stored[at].id };
+              else stored.push({ ...row, id: `row-${nextId++}` });
+            }
+            return Promise.resolve({ error: null });
+          },
+          delete: () => {
+            const filters: Array<(r: CanonicalLineItemRow) => boolean> = [];
+            const chain = {
+              eq: (col: string, val: unknown) => {
+                filters.push((r) => (r as unknown as Record<string, unknown>)[col] === val);
+                return chain;
+              },
+              gt: (col: string, val: number) => {
+                filters.push((r) => (r as unknown as Record<string, number>)[col] > val);
+                return chain;
+              },
+              then: (resolve: (v: { error: null }) => void) => {
+                stored = stored.filter((r) => !filters.every((f) => f(r)));
+                return Promise.resolve({ error: null }).then(resolve);
+              },
+            };
+            return chain;
+          },
+          select: () => ({
+            eq: (col: string, val: unknown) =>
+              Promise.resolve({
+                data: stored
+                  .filter((r) => (r as unknown as Record<string, unknown>)[col] === val)
+                  .map((r) => ({ id: r.id, square_line_item_uid: r.square_line_item_uid })),
+                error: null,
+              }),
+          }),
+        };
+      }
+      if (table === "invoice_line_item_taxes") {
+        return {
+          delete: () => ({
+            in: (_col: string, ids: string[]) => {
+              taxRows = taxRows.filter((t) => !ids.includes(t.line_item_id));
+              return Promise.resolve({ error: null });
+            },
+          }),
+          insert: (rows: typeof taxRows) => {
+            taxRows.push(...rows);
+            return Promise.resolve({ error: null });
+          },
+        };
+      }
+      throw new Error(`unexpected table ${table}`);
+    },
+  } as unknown as SupabaseClient;
+
+  return { client, rows: () => stored, taxRows: () => taxRows };
+}
+
+describe("persistInvoiceLineItems — tax-row rebuild (order passed)", () => {
+  it("rebuilds invoice_line_item_taxes from the order, keyed to the read-back row ids", async () => {
+    const order = orderWith([
+      {
+        uid: "u-a", quantity: "1", name: "CO2 Refill",
+        gross_sales_money: { amount: 900, currency: "USD" },
+        total_tax_money: { amount: 65, currency: "USD" },
+        total_money: { amount: 965, currency: "USD" },
+        applied_taxes: [{ uid: "at1", tax_uid: "t1", applied_money: { amount: 65, currency: "USD" } }],
+      },
+    ]);
+    (order as { taxes?: Order["taxes"] }).taxes = [
+      { uid: "t1", catalog_object_id: "TAX_GEN", name: "General Sales Tax", percentage: "7.25" },
+    ];
+    const rows = buildInvoiceLineItemRows("INV1", order, emptyIndexes, new Map());
+    const db = invoiceLineItemsWithTaxesStub();
+
+    const { error } = await persistInvoiceLineItems(db.client, "INV1", rows, order);
+
+    expect(error).toBeUndefined();
+    expect(db.taxRows()).toEqual([
+      { line_item_id: "row-0", square_tax_id: "TAX_GEN", tax_name: "General Sales Tax", tax_pct: 7.25, amount_cents: 65 },
+    ]);
+  });
+
+  it("deletes stale tax rows unconditionally when the invoice no longer has any", async () => {
+    const order = orderWith([
+      { uid: "u-a", quantity: "1", name: "Packaging Fee", gross_sales_money: { amount: 100, currency: "USD" }, total_money: { amount: 100, currency: "USD" } },
+    ]);
+    const rows = buildInvoiceLineItemRows("INV1", order, emptyIndexes, new Map());
+    const db = invoiceLineItemsWithTaxesStub(rows);
+    // Seed a stale tax row directly, as if a previous sync (with a tax on this
+    // line) had written it.
+    await db.client.from("invoice_line_item_taxes").insert([
+      { line_item_id: "row-0", square_tax_id: "TAX_GEN", tax_name: "General Sales Tax", tax_pct: 7.25, amount_cents: 999 },
+    ]);
+
+    const { error } = await persistInvoiceLineItems(db.client, "INV1", rows, order);
+
+    expect(error).toBeUndefined();
+    expect(db.taxRows()).toEqual([]);
+  });
+
+  it("does not touch invoice_line_item_taxes when no order is passed", async () => {
+    const order = orderWith([
+      { uid: "u-a", quantity: "1", name: "Packaging Fee", gross_sales_money: { amount: 100, currency: "USD" }, total_money: { amount: 100, currency: "USD" } },
+    ]);
+    const rows = buildInvoiceLineItemRows("INV1", order, emptyIndexes, new Map());
+    const db = invoiceLineItemsStub();
+
+    const { error } = await persistInvoiceLineItems(db.client, "INV1", rows);
+
+    expect(error).toBeUndefined();
+  });
+});
+
 describe("invoiceHeaderTotalsFromOrder", () => {
   it("uses order.total_money as authoritative and sums order-scoped discounts", () => {
     const order = orderWith(

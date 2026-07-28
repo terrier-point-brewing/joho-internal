@@ -6,6 +6,13 @@ import SaveHint from "@/app/components/ui/SaveHint";
 
 interface CoaJoin { account_name: string; account_number: string | null }
 
+// Only these two chart-of-accounts types are balance-sheet liabilities.
+// Sales tax is money held for NC DOR / Wake County, not revenue -- letting a
+// user map it to any other account type (e.g. a REVENUE account) would post
+// collected tax straight back into revenue, the exact bug this page exists
+// to prevent.
+const LIABILITY_ACCOUNT_TYPES = new Set(["Other Current Liabilities", "Long Term Liabilities"]);
+
 interface TaxRow {
   square_tax_id: string;
   tax_name: string | null;
@@ -60,6 +67,7 @@ export default function SalesTaxAccountsPage() {
   }
 
   const mappedCount = taxes.filter((t) => t.chart_of_accounts_id).length;
+  const liabilityAccounts = accounts.filter((a) => LIABILITY_ACCOUNT_TYPES.has(a.account_type));
 
   return (
     <>
@@ -114,7 +122,7 @@ export default function SalesTaxAccountsPage() {
                         <AccountSelect
                           value={row.chart_of_accounts_id}
                           onChange={(id) => handleSet(row, id)}
-                          accounts={accounts}
+                          accounts={liabilityAccounts}
                           placeholder="— map this tax —"
                           shortLabel
                           className="w-full max-w-[360px]"
@@ -130,6 +138,7 @@ export default function SalesTaxAccountsPage() {
           <p className="py-3 text-2xs text-faint">
             Collected sales tax is credited to the account mapped here instead of being recognized as revenue.
             An unmapped tax contributes nothing to the balance sheet — its collections are simply omitted.
+            Only balance-sheet liability accounts are selectable, so a tax can never be mapped back into revenue.
           </p>
         </div>
       )}

@@ -663,12 +663,14 @@ export async function fetchTipAccruals(
  */
 async function fetchTaxAccountMap(supabase: SupabaseClient): Promise<Map<string, string>> {
   try {
-    const { data, error } = await supabase
-      .from("square_tax_accounts")
-      .select("square_tax_id, chart_of_accounts_id");
-    if (error) return new Map();
+    const rows = await fetchAllRows<{ square_tax_id: string; chart_of_accounts_id: string | null }>(() =>
+      supabase
+        .from("square_tax_accounts")
+        .select("square_tax_id, chart_of_accounts_id")
+        .order("square_tax_id", { ascending: true }),
+    );
     const map = new Map<string, string>();
-    for (const r of (data ?? []) as { square_tax_id: string; chart_of_accounts_id: string | null }[]) {
+    for (const r of rows) {
       if (r.chart_of_accounts_id) map.set(r.square_tax_id, r.chart_of_accounts_id);
     }
     return map;
@@ -704,12 +706,16 @@ export async function fetchTaxAccruals(
       .select("square_tax_id, amount_cents, pos_line_items!inner ( square_orders!inner ( transaction_date, status ) )")
       .eq("pos_line_items.square_orders.status", "COMPLETED")
       .lt("pos_line_items.square_orders.transaction_date", range.end)
-      .order("line_item_id", { ascending: true });
+      .order("id", { ascending: true });
     if (range.start) q = q.gte("pos_line_items.square_orders.transaction_date", range.start);
     return q;
   });
 
-  // Wrapped: migration 20260826 may be unapplied. Degrade to POS-only.
+  // Wrapped: migration 20260826 may be unapplied. Degrade to POS-only -- but
+  // only for that specific cause. Any other failure (a transient PostgREST
+  // 5xx, a timeout) must propagate: silently returning zero invoice-collected
+  // tax here would understate the balance-sheet liability with no signal to
+  // the operator (mirrors lib/tax/squareTaxBase.ts's narrowing).
   let invoiceRows: { square_tax_id: string; amount_cents: number | null }[] = [];
   try {
     invoiceRows = await fetchAllRows<{ square_tax_id: string; amount_cents: number | null }>(() => {
@@ -718,11 +724,13 @@ export async function fetchTaxAccruals(
         .select("square_tax_id, amount_cents, invoice_line_items!inner ( invoices!invoice_line_items_invoice_id_fkey!inner ( invoice_date, status ) )")
         .neq("invoice_line_items.invoices.status", "voided")
         .lte("invoice_line_items.invoices.invoice_date", range.endDateStr)
-        .order("line_item_id", { ascending: true });
+        .order("id", { ascending: true });
       if (range.startDateStr) q = q.gte("invoice_line_items.invoices.invoice_date", range.startDateStr);
       return q;
     });
-  } catch {
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (!/does not exist|PGRST205|Could not find the table/i.test(msg)) throw err;
     invoiceRows = [];
   }
 
@@ -757,7 +765,7 @@ async function fetchUnmappedTaxCoverage(
 ): Promise<{ count: number; cents: number }> {
   try {
     const pos = await fetchAllRows<{ square_tax_id: string; amount_cents: number | null }>(() =>
-      supabase.from("pos_line_item_taxes").select("square_tax_id, amount_cents").order("line_item_id", { ascending: true }),
+      supabase.from("pos_line_item_taxes").select("square_tax_id, amount_cents").order("id", { ascending: true }),
     );
     // Invoice taxes count too -- fetchTaxAccruals unions both sources, so a tax
     // seen ONLY on invoices and left unmapped must still be reported here.
@@ -765,7 +773,7 @@ async function fetchUnmappedTaxCoverage(
     let invoice: { square_tax_id: string; amount_cents: number | null }[] = [];
     try {
       invoice = await fetchAllRows<{ square_tax_id: string; amount_cents: number | null }>(() =>
-        supabase.from("invoice_line_item_taxes").select("square_tax_id, amount_cents").order("line_item_id", { ascending: true }),
+        supabase.from("invoice_line_item_taxes").select("square_tax_id, amount_cents").order("id", { ascending: true }),
       );
     } catch {
       invoice = [];

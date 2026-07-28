@@ -9,6 +9,8 @@ function stubSb(opts: {
   observedInvoice?: { square_tax_id: string; tax_name: string | null; tax_pct: number | null }[];
   onInsert?: (rows: unknown[]) => void;
   onUpdate?: (patch: unknown, id: string) => void;
+  /** Simulates an UPDATE matching zero rows (unknown square_tax_id). */
+  updateMatchesZeroRows?: boolean;
 }) {
   const rows = [...opts.existing];
   const from = (table: string) => {
@@ -26,7 +28,16 @@ function stubSb(opts: {
     b.insert = (r: unknown[]) => { opts.onInsert?.(r); return Promise.resolve({ error: null }); };
     b.update = (patch: unknown) => {
       const u: Record<string, unknown> = {};
-      u.eq = (_c: string, v: string) => { opts.onUpdate?.(patch, v); return Promise.resolve({ error: null }); };
+      u.eq = (_c: string, v: string) => {
+        opts.onUpdate?.(patch, v);
+        return {
+          select: () =>
+            Promise.resolve({
+              data: opts.updateMatchesZeroRows ? [] : [{ square_tax_id: v }],
+              error: null,
+            }),
+        };
+      };
       return u;
     };
     return b;
@@ -99,5 +110,10 @@ describe("setSalesTaxAccount", () => {
     });
     await setSalesTaxAccount(sb, "TAX_GEN", null);
     expect(seen[0].patch.chart_of_accounts_id).toBeNull();
+  });
+
+  it("throws when the update matches zero rows instead of silently reporting success", async () => {
+    const sb = stubSb({ existing: [], observedPos: [], updateMatchesZeroRows: true });
+    await expect(setSalesTaxAccount(sb, "TAX_UNKNOWN", "COA_1")).rejects.toThrow(/unknown square_tax_id/);
   });
 });

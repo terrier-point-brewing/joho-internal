@@ -116,4 +116,17 @@ describe("fetchTaxableBase", () => {
     const res = await fetchTaxableBase(sb, "TAX_GEN", period);
     expect(res).toEqual({ baseCents: 9275, collectedCents: 725 });
   });
+
+  it("propagates a non-missing-table error from the invoice tax fetch instead of silently zeroing it", async () => {
+    const from = (table: string) => {
+      if (table === "invoice_line_item_taxes") throw new Error("boom");
+      const b: Record<string, unknown> = {};
+      b.select = () => b; b.eq = () => b; b.gte = () => b; b.lt = () => b; b.order = () => b;
+      b.range = (f: number, t: number) =>
+        Promise.resolve({ data: [{ line_item_id: "P1", amount_cents: 725, pos_line_items: { gross_sales_cents: 9275, discount_cents: 0 } }].slice(f, t + 1), error: null });
+      return b;
+    };
+    const sb = { from } as unknown as SupabaseClient;
+    await expect(fetchTaxableBase(sb, "TAX_GEN", period)).rejects.toThrow(/boom/);
+  });
 });
