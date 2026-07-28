@@ -100,11 +100,12 @@ describe("normalizeSignedCents", () => {
     expect(normalizeSignedCents(500000, "bank", "bank")).toBe(500000);
   });
 
-  // Preserves the pre-existing (magnitude-only) treatment for the "bank"
-  // section rather than flipping it -- correctness for a withdrawal here is
-  // the known, separate open item called out in normalizeSign.ts, not
-  // something this test is asserting is right.
-  it("a bank ledger withdrawal (outflow) mapped to the bank's own account still normalizes to positive (pre-existing bank-section behavior, unchanged)", () => {
-    expect(normalizeSignedCents(-75000, "bank", "expense")).toBe(75000);
+  // The "bank" section carve-out passes the raw cash-direction sign through
+  // UNCHANGED (not magnitude): ramp_bank_ledger rows on "bank" ARE the cash
+  // account's own ledger, so raw already expresses the balance delta. An
+  // outflow (negative raw) must reduce cashOnHandCents, not inflate it --
+  // see buildFinancials.ts's cashOnHandCents and normalizeSign.ts's header.
+  it("a bank ledger withdrawal (outflow) mapped to the bank's own account normalizes to negative, reducing cash on hand", () => {
+    expect(normalizeSignedCents(-75000, "bank", "expense")).toBe(-75000);
   });
 });

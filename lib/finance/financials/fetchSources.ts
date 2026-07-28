@@ -599,12 +599,18 @@ async function fetchTipsAccountId(supabase: SupabaseClient): Promise<string | nu
 
 /**
  * balance_sheet mode only: derived monthly accrual of collected card tips.
- * Sums square_orders.tip_cents where invoice_id is null (the taproom basis --
- * mirrors fetchPos's own POS/invoice split) across the whole cumulative
- * range, into a single record keyed to the canonical month (BS mode
- * collapses everything onto one synthetic month key, so no per-month
- * grouping is needed here). Returns [] when tipsAccountId is null -- never
- * fail the financials page over an unconfigured/not-yet-migrated setting.
+ * Sums square_orders.tip_cents where status='COMPLETED' and invoice_id is
+ * null (the taproom basis -- mirrors fetchPos's own POS/invoice split)
+ * across the whole cumulative range, into a single record keyed to the
+ * canonical month (BS mode collapses everything onto one synthetic month
+ * key, so no per-month grouping is needed here). The status filter matters
+ * here specifically -- syncPosTransactions.ts keeps a CANCELED order's
+ * header tip_cents intact and only withdraws its line items, so every other
+ * financials source is immune to canceled orders but this one isn't without
+ * it. Returns [] when tipsAccountId is null (never fail the financials page
+ * over an unconfigured/not-yet-migrated setting) or when the summed tips are
+ * <= 0 (a degenerate $0 row, and resolveTipAccrual's -magnitude branch would
+ * sign a negative sum the same as a positive one).
  */
 export async function fetchTipAccruals(
   supabase: SupabaseClient,
@@ -617,6 +623,7 @@ export async function fetchTipAccruals(
     let q = supabase
       .from("square_orders")
       .select("tip_cents")
+      .eq("status", "COMPLETED")
       .is("invoice_id", null)
       .lt("transaction_date", range.end)
       .order("id", { ascending: true });
@@ -625,6 +632,11 @@ export async function fetchTipAccruals(
   });
 
   const amountCents = rows.reduce((s, r) => s + (r.tip_cents ?? 0), 0);
+  // Degenerate guard: a would-be $0 (or negative, which shouldn't happen but
+  // isn't trusted) balance-sheet row is pointless, and resolveTipAccrual's
+  // -magnitude branch would sign a negative sum identically to a positive
+  // one -- bail out before either can happen.
+  if (amountCents <= 0) return [];
   // range.endDateStr's month IS the canonical month by construction
   // (cumulativeRange sets it to the period-end month) -- no separate
   // canonicalMonth param needed.

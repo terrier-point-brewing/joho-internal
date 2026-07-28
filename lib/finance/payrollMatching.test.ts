@@ -461,6 +461,26 @@ describe("computeProportionalSplits — tips carve-out", () => {
     expect(computeProportionalSplits([], buckets).size).toBe(0);
   });
 
+  it("(10) all-zero non-tips buckets: the even-weight fallback (payrollMatching.ts:183) still allocates the expense IN FULL -- deliberately diverges from the legacy implementation, which under-allocates here (only distributes as many leftover cents as there are buckets, then silently drops the rest)", () => {
+    const matched: MatchedExpenseAmount[] = [{ expenseId: "e1", amountCents: 1000 }];
+    const buckets: PeriodBucket[] = [
+      { chartOfAccountsId: "coa-a", amountCents: 0, kind: "wages" },
+      { chartOfAccountsId: "coa-b", amountCents: 0, kind: "wages" },
+    ];
+
+    const result = computeProportionalSplits(matched, buckets);
+    const lines = result.get("e1")!;
+
+    // Even fallback weight (1 / 2 buckets): 1000 splits into two exact 500s.
+    expect(lines).toEqual([
+      { chartOfAccountsId: "coa-a", amountCents: 500, splitSource: "payroll_auto" },
+      { chartOfAccountsId: "coa-b", amountCents: 500, splitSource: "payroll_auto" },
+    ]);
+    // Full allocation -- NOT the legacy behavior, which would only place 2
+    // cents (one per bucket) and drop the remaining 998.
+    expect(lines.reduce((s, l) => s + l.amountCents, 0)).toBe(1000);
+  });
+
   it("multiple tips buckets are each carved out exactly and independently", () => {
     const matched: MatchedExpenseAmount[] = [
       { expenseId: "a", amountCents: 548554 },
@@ -776,6 +796,110 @@ describe("recomputePeriodExpenseSplits", () => {
       expect(lines.reduce((s, l) => s + l.amount_cents, 0)).toBe(expected);
       for (const l of lines) expect(l.amount_cents).toBeLessThanOrEqual(0);
     }
+  });
+
+  it("nets a manual override's tip posting against the tips target: override posts nothing to tips -> the writable expense covers the FULL period tip total", async () => {
+    const state: FakeState = {
+      reports: [{ id: "report-1", pay_period_id: "period-1", superseded_at: null }],
+      totals: [
+        { report_id: "report-1", chart_of_accounts_id: "coa-wages", amount_cents: 100000, bucket_kind: "wages" },
+        { report_id: "report-1", chart_of_accounts_id: "coa-tips", amount_cents: 20000, bucket_kind: "tips" },
+      ],
+      matches: [
+        { pay_period_id: "period-1", expense_id: "exp-manual" },
+        { pay_period_id: "period-1", expense_id: "exp-auto" },
+      ],
+      expenses: [
+        { id: "exp-manual", amount_cents: -60000 },
+        { id: "exp-auto", amount_cents: -60000 },
+      ],
+      splits: [
+        // Manual override posts its whole amount elsewhere -- nothing to coa-tips.
+        { id: "existing-manual", expense_id: "exp-manual", chart_of_accounts_id: "coa-other", amount_cents: -60000, split_source: "manual" },
+      ],
+    };
+    const client = makeClient(state);
+    await recomputePeriodExpenseSplits(client, "period-1");
+
+    const autoTipLine = state.splits.find((s) => s.expense_id === "exp-auto" && s.chart_of_accounts_id === "coa-tips");
+    expect(autoTipLine?.amount_cents).toBe(-20000); // full $200.00 period tip total, netted against $0 already posted
+
+    // exp-manual is untouched.
+    expect(state.splits.filter((s) => s.expense_id === "exp-manual")).toEqual([
+      { id: "existing-manual", expense_id: "exp-manual", chart_of_accounts_id: "coa-other", amount_cents: -60000, split_source: "manual" },
+    ]);
+
+    // Period-wide tips total (manual + auto) still equals the exact period tip total.
+    const periodTipSum = state.splits.filter((s) => s.chart_of_accounts_id === "coa-tips").reduce((s, l) => s + l.amount_cents, 0);
+    expect(periodTipSum).toBe(-20000);
+  });
+
+  it("nets a manual override's tip posting against the tips target: override posts PART of the tips -- the writable expense covers the remainder", async () => {
+    const state: FakeState = {
+      reports: [{ id: "report-1", pay_period_id: "period-1", superseded_at: null }],
+      totals: [
+        { report_id: "report-1", chart_of_accounts_id: "coa-wages", amount_cents: 100000, bucket_kind: "wages" },
+        { report_id: "report-1", chart_of_accounts_id: "coa-tips", amount_cents: 20000, bucket_kind: "tips" },
+      ],
+      matches: [
+        { pay_period_id: "period-1", expense_id: "exp-manual" },
+        { pay_period_id: "period-1", expense_id: "exp-auto" },
+      ],
+      expenses: [
+        { id: "exp-manual", amount_cents: -60000 },
+        { id: "exp-auto", amount_cents: -60000 },
+      ],
+      splits: [
+        // Manual override hand-posts $50.00 of the $200.00 period tip total.
+        { id: "existing-manual-tips", expense_id: "exp-manual", chart_of_accounts_id: "coa-tips", amount_cents: -5000, split_source: "manual" },
+        { id: "existing-manual-rest", expense_id: "exp-manual", chart_of_accounts_id: "coa-other", amount_cents: -55000, split_source: "manual" },
+      ],
+    };
+    const client = makeClient(state);
+    await recomputePeriodExpenseSplits(client, "period-1");
+
+    const autoTipLine = state.splits.find((s) => s.expense_id === "exp-auto" && s.chart_of_accounts_id === "coa-tips");
+    expect(autoTipLine?.amount_cents).toBe(-15000); // $150.00 remainder: $200.00 - $50.00 already posted
+
+    const periodTipSum = state.splits.filter((s) => s.chart_of_accounts_id === "coa-tips").reduce((s, l) => s + l.amount_cents, 0);
+    expect(periodTipSum).toBe(-20000); // manual $50.00 + auto $150.00 = exact period total
+  });
+
+  it("nets a manual override's tip posting against the tips target: override posts ALL (or more than) the tips -- the writable expense allocates ZERO, never negative", async () => {
+    const state: FakeState = {
+      reports: [{ id: "report-1", pay_period_id: "period-1", superseded_at: null }],
+      totals: [
+        { report_id: "report-1", chart_of_accounts_id: "coa-wages", amount_cents: 100000, bucket_kind: "wages" },
+        { report_id: "report-1", chart_of_accounts_id: "coa-tips", amount_cents: 20000, bucket_kind: "tips" },
+      ],
+      matches: [
+        { pay_period_id: "period-1", expense_id: "exp-manual" },
+        { pay_period_id: "period-1", expense_id: "exp-auto" },
+      ],
+      expenses: [
+        { id: "exp-manual", amount_cents: -60000 },
+        { id: "exp-auto", amount_cents: -60000 },
+      ],
+      splits: [
+        // Manual override over-posts $250.00 against a $200.00 period tip total.
+        { id: "existing-manual-tips", expense_id: "exp-manual", chart_of_accounts_id: "coa-tips", amount_cents: -25000, split_source: "manual" },
+        { id: "existing-manual-rest", expense_id: "exp-manual", chart_of_accounts_id: "coa-other", amount_cents: -35000, split_source: "manual" },
+      ],
+    };
+    const client = makeClient(state);
+    await recomputePeriodExpenseSplits(client, "period-1");
+
+    const autoTipLine = state.splits.find((s) => s.expense_id === "exp-auto" && s.chart_of_accounts_id === "coa-tips");
+    // Never a negative allocation -- clamped at zero, and either omitted or
+    // present at exactly 0 (this implementation floors the netted target at
+    // 0, which computeProportionalSplits then carves out as literally 0).
+    // Math.abs guards against a signed -0 (0 * -1) failing a strict toBe(0).
+    if (autoTipLine) expect(Math.abs(autoTipLine.amount_cents)).toBe(0);
+
+    // exp-auto's total lines still sum to its own amountCents (invariant 1
+    // holds even when tips are fully absorbed by the override).
+    const autoSum = state.splits.filter((s) => s.expense_id === "exp-auto").reduce((s, l) => s + l.amount_cents, 0);
+    expect(autoSum).toBe(-60000);
   });
 
   it("treats totals rows with no bucket_kind as non-tips (pre-backfill safe state)", async () => {

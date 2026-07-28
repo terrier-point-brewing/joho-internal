@@ -60,13 +60,17 @@ export function normalizeSignedCents(
     if (PL_SECTIONS.has(statementSection)) return rawCents;
     // Cash's own ledger (the "bank" section): the raw cash-direction sign IS
     // the desired cash-balance delta already (a deposit/inflow, positive raw,
-    // should read as MORE cash on hand) -- unlike the other BS sections below
-    // this isn't cash spent to acquire a target asset or pay down a
-    // liability, so it must not be flipped. Mixed inflow/outflow sign
-    // correctness for BS "bank"-section rows generally is a known, separate
-    // open item (see fetchSources.ts's fetchBank "deliberately left
-    // unfiltered" comment) -- not addressed by this fix.
-    if (statementSection === "bank") return magnitude;
+    // should read as MORE cash on hand; an outflow, negative raw, should read
+    // as LESS cash on hand) -- unlike the other BS sections below this isn't
+    // cash spent to acquire a target asset or pay down a liability, so it
+    // must not be flipped, and unlike the abs()+section-sign treatment it
+    // must not be collapsed to a magnitude either (that would make an
+    // outflow read as MORE cash, corrupting cashOnHandCents -- see
+    // buildFinancials.ts's cashOnHandCents and normalizeSign.test.ts). Mixed
+    // inflow/outflow coverage for BS "bank"-section rows generally is a
+    // known, separate open item (see fetchSources.ts's fetchBank
+    // "deliberately left unfiltered" comment) -- not addressed by this fix.
+    if (statementSection === "bank") return rawCents;
     // Balance Sheet section (asset/liability/equity, excluding bank): flip
     // the cash-direction sign. An outflow (negative raw) reduces a liability
     // / increases an asset; an inflow (positive raw) increases a liability /
