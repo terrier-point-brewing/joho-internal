@@ -1,4 +1,4 @@
-import SubNav from "@/app/components/SubNav";
+import SettingsGroupShell from "../SettingsGroupShell";
 import { requirePage, CAP } from "@/lib/auth";
 import { FINANCE_SETTINGS_NAV } from "../nav-config";
 
@@ -9,10 +9,5 @@ import { FINANCE_SETTINGS_NAV } from "../nav-config";
  */
 export default async function FinanceSettingsLayout({ children }: { children: React.ReactNode }) {
   await requirePage(CAP.financeTransactionsManage);
-  return (
-    <div className="flex flex-col gap-4">
-      <SubNav entries={FINANCE_SETTINGS_NAV} />
-      <div>{children}</div>
-    </div>
-  );
+  return <SettingsGroupShell nav={FINANCE_SETTINGS_NAV}>{children}</SettingsGroupShell>;
 }

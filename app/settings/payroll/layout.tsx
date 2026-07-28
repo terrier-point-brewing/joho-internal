@@ -1,4 +1,4 @@
-import SubNav from "@/app/components/SubNav";
+import SettingsGroupShell from "../SettingsGroupShell";
 import { requirePage, CAP } from "@/lib/auth";
 import { PAYROLL_SETTINGS_NAV } from "../nav-config";
 
@@ -8,10 +8,5 @@ import { PAYROLL_SETTINGS_NAV } from "../nav-config";
  */
 export default async function PayrollSettingsLayout({ children }: { children: React.ReactNode }) {
   await requirePage(CAP.payrollManage);
-  return (
-    <div className="flex flex-col gap-4">
-      <SubNav entries={PAYROLL_SETTINGS_NAV} />
-      <div>{children}</div>
-    </div>
-  );
+  return <SettingsGroupShell nav={PAYROLL_SETTINGS_NAV}>{children}</SettingsGroupShell>;
 }
