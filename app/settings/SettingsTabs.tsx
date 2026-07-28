@@ -8,6 +8,7 @@ import { TAB_ROW, tabItem } from "@/app/components/ui/tabStyles";
 import { usePermissions } from "@/lib/hooks/useUserRole";
 import { CAP } from "@/lib/auth/capabilities";
 import type { Capability } from "@/lib/auth/capabilities";
+import { SETTINGS_GROUPS } from "./nav-config";
 
 export default function SettingsTabs() {
   const pathname = usePathname();
@@ -25,14 +26,15 @@ export default function SettingsTabs() {
       .catch(() => {});
   }, [canManageUsers]);
 
-  const allTabs: { label: string; href: string; badge: number; requires?: Capability }[] = [
-    { label: "Account", href: "/settings/account", badge: 0 },
-    { label: "Appearance", href: "/settings/appearance", badge: 0 },
-    { label: "Business", href: "/settings/business", badge: 0, requires: CAP.businessSettingsManage },
-    { label: "Users", href: "/settings/users", badge: 0, requires: CAP.usersManage },
-    { label: "Access Requests", href: "/settings/requests", badge: pendingCount, requires: CAP.usersManage },
-    { label: "Cron Jobs", href: "/settings/cron", badge: 0, requires: CAP.cronRead },
-  ];
+  // Tab set comes from the hub's one nav source; only the Access Requests
+  // badge count is local to this component.
+  const allTabs: { label: string; href: string; badge: number; requires?: Capability }[] =
+    SETTINGS_GROUPS.map((g) => ({
+      label: g.label,
+      href: g.href,
+      badge: g.href === "/settings/requests" ? pendingCount : 0,
+      requires: g.requires,
+    }));
   const tabs = allTabs.filter((t) => !t.requires || can(t.requires));
 
   return (

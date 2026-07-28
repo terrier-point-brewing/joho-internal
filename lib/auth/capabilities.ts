@@ -10,8 +10,21 @@ export interface Capability {
  * Named intents, imported by both the route and the component that gates
  * the same action. Several names may share a (scope, level) pair — that is
  * intentional; capabilities name the *intent*, not the coordinate.
+ *
+ * Entry NAMES are a stable API: lib/auth/__fixtures__/legacy-matrix.ts keys
+ * 212 rows on them. A scope re-key should change the `scope:` coordinate here
+ * and leave the name alone (that is why `taxRead` still reads "tax" while
+ * pointing at `finance.tax`).
  */
 export const CAP = {
+  // ── Admission ────────────────────────────────────────────────────────────
+  // Read-gated in each section's layout and used for nothing else. Never gate
+  // authority on an access key, and never gate one above `read`.
+  taproomAccess: { scope: "taproom.access", level: "read" },
+  productionAccess: { scope: "production.access", level: "read" },
+  financeAccess: { scope: "finance.access", level: "read" },
+  brandAccess: { scope: "brand.access", level: "read" },
+
   brewingOperate: { scope: "production.brewing", level: "operate" },
   brewingRead: { scope: "production.brewing", level: "read" },
   batchDelete: { scope: "production.brewing", level: "admin" },
@@ -35,18 +48,30 @@ export const CAP = {
 
   recipesOperate: { scope: "production.recipes", level: "operate" },
 
+  // Production-only configuration: deposit terms and export settings. The
+  // Square-mapping half of this scope moved to `catalog`.
   productionSettingsRead: { scope: "production.settings", level: "read" },
   productionSettingsOperate: { scope: "production.settings", level: "operate" },
   productionSettingsManage: { scope: "production.settings", level: "manage" },
 
-  taproomPerformanceOperate: { scope: "taproom.performance", level: "operate" },
-  targetsEdit: { scope: "taproom.targets", level: "manage" },
-  taproomSettingsOperate: { scope: "taproom.settings", level: "operate" },
+  // Square Item Mappings — one scope for a capability reachable from two
+  // sections, so no route ever has to invent a second gate for it.
+  catalogRead: { scope: "catalog", level: "read" },
+  catalogOperate: { scope: "catalog", level: "operate" },
 
-  taxRead: { scope: "tax", level: "read" },
-  taxOperate: { scope: "tax", level: "operate" },
-  taxManage: { scope: "tax", level: "manage" },
-  taxPiiReveal: { scope: "tax.pii", level: "admin" },
+  taproomPerformanceRead: { scope: "taproom.performance", level: "read" },
+  taproomPerformanceOperate: { scope: "taproom.performance", level: "operate" },
+  targetsRead: { scope: "taproom.targets", level: "read" },
+  targetsEdit: { scope: "taproom.targets", level: "manage" },
+
+  taxRead: { scope: "finance.tax", level: "read" },
+  taxOperate: { scope: "finance.tax", level: "operate" },
+  taxManage: { scope: "finance.tax", level: "manage" },
+  // Filing configuration + the excise rate reference data it owns. A sub-leaf
+  // so it can be granted without conferring the rest of finance.tax.
+  taxFilingRead: { scope: "finance.tax.filing", level: "read" },
+  taxFilingManage: { scope: "finance.tax.filing", level: "manage" },
+  taxPiiReveal: { scope: "finance.tax.pii", level: "admin" },
 
   payrollRead: { scope: "payroll", level: "read" },
   payrollOperate: { scope: "payroll", level: "operate" },
@@ -57,14 +82,19 @@ export const CAP = {
   // Summary-tab period override (both `payrollManage`).
   payrollDayOverride: { scope: "payroll", level: "operate" },
 
-  businessSettingsManage: { scope: "settings.business", level: "manage" },
-  usersManage: { scope: "settings.users", level: "manage" },
-  cronRead: { scope: "settings.cron", level: "read" },
+  businessSettingsManage: { scope: "org.business", level: "manage" },
+  usersManage: { scope: "org.users", level: "manage" },
+  cronRead: { scope: "org.jobs", level: "read" },
+  // The "apply brand to the internal app" toggle — app-wide restyling, split
+  // out of brandGuideManage, which is only about brand CONTENT.
+  appearanceManage: { scope: "org.appearance", level: "manage" },
 
   brandGuideRead: { scope: "brand.guide", level: "read" },
   brandGuideManage: { scope: "brand.guide", level: "manage" },
-  brandWorkbenchRead: { scope: "brand.workbench", level: "read" },
-  brandWorkbenchManage: { scope: "brand.workbench", level: "manage" },
+  brandAssetsRead: { scope: "brand.assets", level: "read" },
+  brandAssetsManage: { scope: "brand.assets", level: "manage" },
+  brandReleasesRead: { scope: "brand.releases", level: "read" },
+  brandReleasesManage: { scope: "brand.releases", level: "manage" },
 
   financeStatementsRead: { scope: "finance.statements", level: "read" },
   financeTransactionsRead: { scope: "finance.transactions", level: "read" },

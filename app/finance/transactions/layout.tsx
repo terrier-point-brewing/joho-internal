@@ -1,3 +1,4 @@
+import { requirePage, CAP } from "@/lib/auth";
 import FinanceNav from "../FinanceNav";
 import PageHeader from "@/app/components/PageHeader";
 import TransactionsNav from "./TransactionsNav";
@@ -7,7 +8,8 @@ import TransactionsNav from "./TransactionsNav";
  * title, and the Orders / Invoices / Expenses sub-nav so every subtab renders
  * identical framing — each page only supplies its own control bar + body.
  */
-export default function TransactionsLayout({ children }: { children: React.ReactNode }) {
+export default async function TransactionsLayout({ children }: { children: React.ReactNode }) {
+  await requirePage(CAP.financeTransactionsRead);
   return (
     <div className="flex flex-col h-full bg-canvas text-primary">
       <FinanceNav mobile />

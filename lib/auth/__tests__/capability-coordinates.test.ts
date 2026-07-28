@@ -21,12 +21,22 @@ import type { Level } from "../levels";
  * capability's routes agreed on a single (scope, level) pair; that pair is
  * what's committed below.
  *
- * The remaining 3 capabilities have no API route (layout-only /
- * UI-only): brewingCalendarAdmin, taproomSettingsOperate, brandGuideRead.
- * Their coordinate is taken from lib/auth/capabilities.ts as of this test's
- * authorship — there is no independent route-derived source for them.
+ * The route-less capabilities (layout-only / UI-only) are marked `// no
+ * route` below: brewingCalendarAdmin, brandGuideRead, and the four admission
+ * leaves. Their coordinate has no independent route-derived source, so it is
+ * taken from lib/auth/capabilities.ts and pinned here deliberately.
  */
 const EXPECTED: Record<keyof typeof CAP, { scope: ScopeKey; level: Level }> = {
+  // Admission leaves — read, always, and never anything else. A `.access` key
+  // pinned above read would silently turn a door into an authority check.
+  taproomAccess: { scope: "taproom.access", level: "read" }, // no route
+  productionAccess: { scope: "production.access", level: "read" }, // no route
+  financeAccess: { scope: "finance.access", level: "read" }, // no route
+  brandAccess: { scope: "brand.access", level: "read" }, // no route
+
+  catalogRead: { scope: "catalog", level: "read" },
+  catalogOperate: { scope: "catalog", level: "operate" },
+
   brewingOperate: { scope: "production.brewing", level: "operate" },
   brewingRead: { scope: "production.brewing", level: "read" },
   batchDelete: { scope: "production.brewing", level: "admin" },
@@ -54,28 +64,34 @@ const EXPECTED: Record<keyof typeof CAP, { scope: ScopeKey; level: Level }> = {
   productionSettingsOperate: { scope: "production.settings", level: "operate" },
   productionSettingsManage: { scope: "production.settings", level: "manage" },
 
+  taproomPerformanceRead: { scope: "taproom.performance", level: "read" }, // no route
   taproomPerformanceOperate: { scope: "taproom.performance", level: "operate" },
+  targetsRead: { scope: "taproom.targets", level: "read" }, // no route
   targetsEdit: { scope: "taproom.targets", level: "manage" },
-  taproomSettingsOperate: { scope: "taproom.settings", level: "operate" }, // no route
 
-  taxRead: { scope: "tax", level: "read" },
-  taxOperate: { scope: "tax", level: "operate" },
-  taxManage: { scope: "tax", level: "manage" },
-  taxPiiReveal: { scope: "tax.pii", level: "admin" },
+  taxRead: { scope: "finance.tax", level: "read" },
+  taxOperate: { scope: "finance.tax", level: "operate" },
+  taxManage: { scope: "finance.tax", level: "manage" },
+  taxFilingRead: { scope: "finance.tax.filing", level: "read" },
+  taxFilingManage: { scope: "finance.tax.filing", level: "manage" }, // no route
+  taxPiiReveal: { scope: "finance.tax.pii", level: "admin" },
 
   payrollRead: { scope: "payroll", level: "read" },
   payrollOperate: { scope: "payroll", level: "operate" },
   payrollManage: { scope: "payroll", level: "manage" },
   payrollDayOverride: { scope: "payroll", level: "operate" },
 
-  businessSettingsManage: { scope: "settings.business", level: "manage" },
-  usersManage: { scope: "settings.users", level: "manage" },
-  cronRead: { scope: "settings.cron", level: "read" },
+  businessSettingsManage: { scope: "org.business", level: "manage" },
+  usersManage: { scope: "org.users", level: "manage" },
+  cronRead: { scope: "org.jobs", level: "read" },
+  appearanceManage: { scope: "org.appearance", level: "manage" },
 
   brandGuideRead: { scope: "brand.guide", level: "read" }, // no route
   brandGuideManage: { scope: "brand.guide", level: "manage" },
-  brandWorkbenchRead: { scope: "brand.workbench", level: "read" },
-  brandWorkbenchManage: { scope: "brand.workbench", level: "manage" },
+  brandAssetsRead: { scope: "brand.assets", level: "read" },
+  brandAssetsManage: { scope: "brand.assets", level: "manage" },
+  brandReleasesRead: { scope: "brand.releases", level: "read" },
+  brandReleasesManage: { scope: "brand.releases", level: "manage" },
 
   financeStatementsRead: { scope: "finance.statements", level: "read" },
   financeTransactionsRead: { scope: "finance.transactions", level: "read" },

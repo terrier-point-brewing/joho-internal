@@ -1,6 +1,6 @@
 /**
  * Pure form-state helpers for the Tax Filing settings identity form
- * (app/finance/settings/tax-filing/IdentityForm.tsx). Kept out of the
+ * (app/settings/tax/filing/IdentityForm.tsx). Kept out of the
  * component so the write-only sensitive-field contract — a masked GET never
  * seeds a real value into the form, and a blank submit means "leave
  * unchanged" — is unit-testable without React.

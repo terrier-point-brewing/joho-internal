@@ -12,7 +12,7 @@ import {
 } from "../hooks/queries";
 import type { ExportServiceMapping, ServiceType, SquareCatalogOptions } from "../types";
 import { SquareCatalogSelect, SquareDiscountSelect } from "@/app/components/SquareCatalogSelect";
-import ExciseRatesSection from "@/app/finance/settings/tax-filing/ExciseRatesSection";
+import ExciseRatesSection from "@/app/settings/tax/filing/ExciseRatesSection";
 
 
 const KEG_VOL_LABELS: Record<number, string> = { 1984: "1/2 BBL", 992: "1/4 BBL", 661: "1/6 BBL" };

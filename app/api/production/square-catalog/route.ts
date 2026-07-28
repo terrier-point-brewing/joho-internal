@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requirePermission, CAP } from "@/lib/auth";
 import { fetchCatalogItems } from "@/lib/square/catalog";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { apiError } from "@/lib/utils/api";
@@ -7,7 +8,16 @@ export const dynamic = "force-dynamic";
 
 // Flattened list of catalog item variations for linking recipes to Square inventory.
 // category_name is joined from the master square_catalog_items table when available.
+// This is the mapping drawer's picker, so it is `catalog` like the rest of the
+// mapping surface — it previously carried no permission check at all and was
+// readable by any signed-in user.
 export async function GET() {
+  try {
+    await requirePermission(CAP.catalogRead);
+  } catch (res) {
+    return res as Response;
+  }
+
   try {
     const [items, masterRows] = await Promise.all([
       fetchCatalogItems(),

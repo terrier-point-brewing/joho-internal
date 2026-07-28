@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useSquareMappingGridQuery } from "@/app/production/hooks/queries";
+import { usePermissions } from "@/lib/hooks/useUserRole";
+import { CAP } from "@/lib/auth/capabilities";
 import { queryKeys } from "@/lib/query-keys";
 import type { MappingCellVariation, MappingGridRow, MappingColumn } from "@/app/production/types";
 
@@ -70,6 +72,12 @@ export default function MappingGrid({
 }) {
   const { data, isLoading, error } = useSquareMappingGridQuery();
   const qc = useQueryClient();
+  // "Refresh from Square" posts to /api/finance/sync-catalog, which is gated
+  // finance.transactions:manage — a different domain from the `catalog` scope
+  // that opens this screen. Holding one does not imply the other, so the
+  // button is hidden rather than left to 403 on click.
+  const { can } = usePermissions();
+  const canSyncCatalog = can(CAP.financeTransactionsManage);
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
 
@@ -161,9 +169,11 @@ export default function MappingGrid({
     <div>
       <div className="mb-3 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <button onClick={refreshFromSquare} disabled={syncing} className="btn-secondary">
-            {syncing ? "Syncing…" : "Refresh from Square"}
-          </button>
+          {canSyncCatalog && (
+            <button onClick={refreshFromSquare} disabled={syncing} className="btn-secondary">
+              {syncing ? "Syncing…" : "Refresh from Square"}
+            </button>
+          )}
           {syncedLabel && (
             <span className="text-xs text-muted">Catalog synced {syncedLabel}</span>
           )}

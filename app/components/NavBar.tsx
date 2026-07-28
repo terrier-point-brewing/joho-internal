@@ -93,9 +93,9 @@ export default function NavBar() {
   // Derived permissions — only evaluated after loading is done. Reuses the
   // same capabilities their respective layouts gate on, so NavBar visibility
   // and the server-side redirect can never drift apart.
-  const canAccessProduction = can(CAP.productionSettingsRead);
-  const canAccessBrand      = can(CAP.brandGuideRead);
-  const canAccessFinance    = can(CAP.financeStatementsRead);
+  const canAccessProduction = can(CAP.productionAccess);
+  const canAccessBrand      = can(CAP.brandAccess);
+  const canAccessFinance    = can(CAP.financeAccess);
 
   const subtabCls = (active: boolean) =>
     `px-2 py-1.5 rounded text-xs font-medium transition-colors ${

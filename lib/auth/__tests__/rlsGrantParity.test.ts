@@ -22,6 +22,9 @@ import type { ScopeKey } from "../scopes";
 const MIGRATIONS = join(process.cwd(), "supabase", "migrations");
 const GRANT_MIGRATION = "20260822_rls_grant_aware_policies.sql";
 const GRANTS_MIGRATION = "20260820_user_permission_grants.sql";
+// 20260826 REDEFINES effective_grant_level to span role bundles too, so it —
+// not 20260822 — is the current definition and the one to assert against.
+const ROLE_MIGRATION = "20260826_role_permission_grants.sql";
 
 const read = (file: string) => readFileSync(join(MIGRATIONS, file), "utf8");
 
@@ -131,19 +134,33 @@ describe("grant-policy coverage", () => {
 
 describe("SQL resolver mirrors lib/auth/resolve.ts", () => {
   const migration = read(GRANT_MIGRATION);
+  const current = read(ROLE_MIGRATION);
 
-  it("gates on role = custom, mirroring getSessionUser", () => {
-    expect(migration).toMatch(/get_my_role\(\)\s*=\s*'custom'::user_role/);
+  it("still gates PER-USER rows on role = custom, mirroring getSessionUser", () => {
+    expect(current).toMatch(/get_my_role\(\)\s*=\s*'custom'::user_role/);
+  });
+
+  it("resolves ROLE bundles for every role, not just custom", () => {
+    // The regression this guards is precise and severe: if the resolver goes
+    // back to short-circuiting on custom, Postgres denies every non-custom
+    // user the payroll tables their bundle authorizes — the app allows, the DB
+    // refuses. That is the divergence 20260822 existed to fix, reintroduced
+    // from the other side.
+    expect(current).toMatch(/from public\.role_permission_grants r/);
+    expect(current).toMatch(/where r\.role = public\.get_my_role\(\)/);
+    expect(current).toMatch(/union all/i);
   });
 
   it("uses starts_with rather than LIKE for the dot-prefix arm", () => {
     // LIKE would treat an underscore in a future scope key as a wildcard.
     expect(migration).toContain("starts_with(p_scope, g.scope || '.')");
-    expect(migration).not.toMatch(/p_scope\s+like/i);
+    expect(current).toContain("starts_with(p_scope, c.scope || '.')");
+    expect(current).not.toMatch(/p_scope\s+like/i);
   });
 
-  it("resolves longest-prefix-wins", () => {
+  it("resolves longest-prefix-wins, with a per-user row outranking a role row", () => {
     expect(migration).toMatch(/order by length\(g\.scope\) desc\s*\n?\s*limit 1/i);
+    expect(current).toMatch(/order by length\(c\.scope\) desc,\s*c\.precedence desc\s*\n?\s*limit 1/i);
   });
 
   it("denies when no grant matches", () => {
@@ -165,17 +182,32 @@ describe("SQL resolver mirrors lib/auth/resolve.ts", () => {
 type GrantRow = { scope: string; level: Level };
 type Role = "viewer" | "brewer" | "manager" | "admin" | "custom";
 
-/** Line-by-line equivalent of public.effective_grant_level(). */
-function sqlEffectiveGrantLevel(role: Role, rows: GrantRow[], scope: string): Level | null {
-  if (role !== "custom") return null; // the WHERE clause's role gate
+/**
+ * Line-by-line equivalent of public.effective_grant_level() as redefined by
+ * 20260826 — the UNION of the caller's per-user rows (custom only) and their
+ * role's bundle (any role).
+ */
+function sqlEffectiveGrantLevel(
+  role: Role,
+  rows: GrantRow[],
+  scope: string,
+  roleRows: GrantRow[] = [],
+): Level | null {
+  const candidates = [
+    // the per-user arm keeps its `get_my_role() = custom` gate
+    ...(role === "custom" ? rows.map((r) => ({ ...r, precedence: 1 })) : []),
+    ...roleRows.map((r) => ({ ...r, precedence: 0 })),
+  ];
 
-  const matching = rows.filter(
+  const matching = candidates.filter(
     (r) => r.scope === "" || r.scope === scope || scope.startsWith(r.scope + "."),
   );
   if (matching.length === 0) return null;
 
-  // order by length(g.scope) desc limit 1
-  return [...matching].sort((a, b) => b.scope.length - a.scope.length)[0].level;
+  // order by length(c.scope) desc, c.precedence desc limit 1
+  return [...matching].sort(
+    (a, b) => b.scope.length - a.scope.length || b.precedence - a.precedence,
+  )[0].level;
 }
 
 /** Line-by-line equivalent of public.has_grant(), incl. enum-ordinal compare. */
@@ -191,7 +223,7 @@ const toGrants = (rows: GrantRow[]): ScopeGrants =>
 const CASES: { name: string; rows: GrantRow[]; scope: ScopeKey }[] = [
   { name: "exact match", rows: [{ scope: "payroll", level: "operate" }], scope: "payroll" },
   { name: "no grant at all", rows: [], scope: "payroll" },
-  { name: "unrelated grant only", rows: [{ scope: "tax", level: "admin" }], scope: "payroll" },
+  { name: "unrelated grant only", rows: [{ scope: "finance.tax", level: "admin" }], scope: "payroll" },
   { name: "explicit none revoke", rows: [{ scope: "payroll", level: "none" }], scope: "payroll" },
   {
     name: "ROOT cascade",
@@ -220,12 +252,14 @@ const CASES: { name: string; rows: GrantRow[]; scope: ScopeKey }[] = [
     scope: "production.brewing",
   },
   {
-    name: "leaf revoke under a section grant",
+    // Three segments deep, and the revoke sits on the deepest key — the SQL
+    // resolver orders by length, so this is where an off-by-one would show.
+    name: "sub-leaf revoke under an interior-node grant",
     rows: [
-      { scope: "tax", level: "manage" },
-      { scope: "tax.pii", level: "none" },
+      { scope: "finance.tax", level: "manage" },
+      { scope: "finance.tax.pii", level: "none" },
     ],
-    scope: "tax.pii",
+    scope: "finance.tax.pii",
   },
   {
     name: "sibling leaf keeps the section level",
@@ -265,14 +299,14 @@ describe("SQL/TS parity over the grant matrix", () => {
   });
 
   it("treats the prefix check as dot-delimited, not a bare string prefix", () => {
-    const rows: GrantRow[] = [{ scope: "tax", level: "admin" }];
+    const rows: GrantRow[] = [{ scope: "finance.tax", level: "admin" }];
 
-    // "taxes.foo" is not a real ScopeKey, but the SQL operates on raw text and
-    // must not match it — same trap resolve.ts documents.
-    expect(sqlEffectiveGrantLevel("custom", rows, "taxes.foo")).toBeNull();
-    expect(effectiveLevel(toGrants(rows), "taxes.foo" as ScopeKey)).toBeNull();
+    // "finance.taxes.foo" is not a real ScopeKey, but the SQL operates on raw
+    // text and must not match it — same trap resolve.ts documents.
+    expect(sqlEffectiveGrantLevel("custom", rows, "finance.taxes.foo")).toBeNull();
+    expect(effectiveLevel(toGrants(rows), "finance.taxes.foo" as ScopeKey)).toBeNull();
 
-    expect(sqlEffectiveGrantLevel("custom", rows, "tax.pii")).toBe("admin");
+    expect(sqlEffectiveGrantLevel("custom", rows, "finance.tax.pii")).toBe("admin");
   });
 
   it("gives payroll:read DB reads but not DB writes, matching the policy split", () => {
@@ -287,5 +321,47 @@ describe("SQL/TS parity over the grant matrix", () => {
 
     expect(sqlHasGrant("custom", rows, "payroll", "read")).toBe(true);
     expect(sqlHasGrant("custom", rows, "payroll", "operate")).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 4. Role bundles as data (20260826) — the union arm
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("role bundle resolution", () => {
+  const managerBundle: GrantRow[] = [
+    { scope: "payroll", level: "operate" },
+    { scope: "taproom", level: "operate" },
+    { scope: "taproom.targets", level: "read" },
+  ];
+
+  it("resolves a non-custom role from its bundle, where it used to resolve nothing", () => {
+    // Before 20260826 this returned null for every non-custom role, which was
+    // correct only while bundles lived exclusively in TS.
+    expect(sqlEffectiveGrantLevel("manager", [], "payroll", managerBundle)).toBe("operate");
+    expect(sqlHasGrant("manager", [], "payroll", "operate")).toBe(false); // no bundle passed
+  });
+
+  it("applies longest-prefix-wins across the bundle exactly as resolve.ts does", () => {
+    const grants = toGrants(managerBundle);
+    for (const scope of ["taproom.performance", "taproom.targets", "payroll"] as ScopeKey[]) {
+      expect(sqlEffectiveGrantLevel("manager", [], scope, managerBundle)).toBe(
+        effectiveLevel(grants, scope),
+      );
+    }
+  });
+
+  it("gives a per-user row precedence over a role row at the same key", () => {
+    // Only reachable if `custom` is ever given a base bundle. Modelled anyway,
+    // because the SQL's ORDER BY says so and silent disagreement is the whole
+    // failure mode this file guards.
+    const userRows: GrantRow[] = [{ scope: "payroll", level: "none" }];
+    const roleRows: GrantRow[] = [{ scope: "payroll", level: "manage" }];
+    expect(sqlEffectiveGrantLevel("custom", userRows, "payroll", roleRows)).toBe("none");
+  });
+
+  it("keeps ignoring per-user rows for non-custom roles", () => {
+    const userRows: GrantRow[] = [{ scope: "payroll", level: "admin" }];
+    expect(sqlEffectiveGrantLevel("brewer", userRows, "payroll", [])).toBeNull();
   });
 });

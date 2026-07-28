@@ -34,6 +34,13 @@ jobs:
       - name: Search/filter standard
         run: npm run check:search-filter -- --strict
 
+      # Guards the scope registry: no retired requireRole, no legacy role
+      # comparisons outside lib/auth, no capability without a consumer, no
+      # scope without a capability, no client module value-importing the
+      # server-reaching @/lib/auth barrel.
+      - name: Permission model standard
+        run: npm run check:permissions
+
       - name: Build
         run: npm run build
         env:

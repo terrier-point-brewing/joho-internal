@@ -25,7 +25,7 @@ const BUCKET = "brand-assets";
 
 export async function GET(req: NextRequest) {
   try {
-    await requirePermission(CAP.brandWorkbenchRead); // admin only
+    await requirePermission(CAP.brandAssetsRead); // admin only
   } catch (res) {
     return res as Response;
   }
@@ -42,7 +42,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    await requirePermission(CAP.brandWorkbenchManage); // admin only
+    await requirePermission(CAP.brandAssetsManage); // admin only
   } catch (res) {
     return res as Response;
   }

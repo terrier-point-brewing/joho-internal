@@ -22,7 +22,7 @@ import { CAP, can } from "@/lib/auth";
 export default async function BrandLayout({ children }: { children: React.ReactNode }) {
   const session = await getSessionUser();
   if (!session) redirect("/");
-  const canAccessBrand = can(session.grants, CAP.brandGuideRead.scope, CAP.brandGuideRead.level);
+  const canAccessBrand = can(session.grants, CAP.brandAccess.scope, CAP.brandAccess.level);
   if (!canAccessBrand) redirect("/");
 
   return <div className="flex flex-col h-full bg-canvas text-primary">{children}</div>;

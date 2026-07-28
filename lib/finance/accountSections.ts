@@ -1,7 +1,7 @@
 // Shared account_type → statement_section mapping for the chart of accounts.
 // Single source of truth for QBO's 14 standard account types. Consumed by
 // both server route handlers (app/api/finance/statements/route.ts) and a
-// client component (app/finance/settings/chart-of-accounts/page.tsx), so
+// client component (app/settings/finance/chart-of-accounts/page.tsx), so
 // this module must stay free of server-only imports — plain exports only.
 
 export type StatementSection =

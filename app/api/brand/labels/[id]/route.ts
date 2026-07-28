@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(_req: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    await requirePermission(CAP.brandWorkbenchRead); // admin only
+    await requirePermission(CAP.brandReleasesRead); // admin only
   } catch (res) {
     return res as Response;
   }
@@ -34,7 +34,7 @@ export async function GET(_req: NextRequest, context: { params: Promise<{ id: st
 
 export async function PATCH(req: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    await requirePermission(CAP.brandWorkbenchManage); // admin only
+    await requirePermission(CAP.brandReleasesManage); // admin only
   } catch (res) {
     return res as Response;
   }
