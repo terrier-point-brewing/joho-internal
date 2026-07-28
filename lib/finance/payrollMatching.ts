@@ -8,7 +8,10 @@
  * period has an active Gusto upload (payroll_gl_reports/payroll_gl_report_totals),
  * computeProportionalSplits allocates that upload's per-GL-account totals
  * across all expenses matched to the period, proportional to each expense's
- * own amount. recomputePeriodExpenseSplits is the single DB-orchestrating
+ * own amount -- except for tips (payroll_gl_report_totals.bucket_kind='tips'),
+ * which are a balance-sheet pass-through and are carved out at their EXACT
+ * reported amount before that proportional fill runs.
+ * recomputePeriodExpenseSplits is the single DB-orchestrating
  * entry point that regenerates 'payroll_auto' expense_gl_splits rows for a
  * period — used by the match action and by an on-demand recompute route.
  */
@@ -72,45 +75,140 @@ interface ProportionalLine {
   splitSource: "payroll_auto";
 }
 
+export interface PeriodBucket {
+  chartOfAccountsId: string;
+  amountCents: number;
+  /**
+   * Which side of the payroll journal this bucket is. Absent (pre-backfill
+   * rows, and every caller that predates payroll_gl_report_totals.bucket_kind)
+   * is deliberately treated as NON-tips, so the code path is provably
+   * equivalent to the pre-tips implementation until the backfill lands.
+   */
+  kind?: "wages" | "employer_tax" | "tips";
+}
+
 /**
- * Splits each matchedExpense across periodTotals' buckets using the period's
- * own wage/tax mix (each bucket's share of sum(periodTotals)), scaled to that
- * expense's own amountCents -- independent of every other matched expense and
- * independent of how sum(matchedExpenses) relates to sum(periodTotals). Rounds
- * down per line, then distributes leftover cents (from rounding) one at a
- * time to the largest remainders first, so every expense's lines sum exactly
- * to that expense's own amountCents by construction, for ANY reconciliation
- * variance between the matched total and the period total.
+ * Splits each matchedExpense across periodTotals' buckets in TWO stages.
+ *
+ * Stage 1 (EXACT -- tips): employee tips are a balance-sheet pass-through, not
+ * an expense, so a `kind: "tips"` bucket must reach its liability account at
+ * its EXACT reported amount. Each tips bucket is distributed across the matched
+ * expenses by each expense's share of the MATCHED total (floor, then leftover
+ * cents to the largest remainders first), so the tip lines summed over all of
+ * the period's expenses equal that bucket's amount to the cent -- never scaled
+ * by the reconciliation variance between matched cash and the period's GL total.
+ *
+ * Stage 2 (FILL -- wages/tax): whatever is left of each expense after its tip
+ * shares are carved out is force-filled across the non-tips buckets using the
+ * period's own wage/tax mix, with the same floor + largest-remainder rounding
+ * as before. This is the pre-existing behavior and is what absorbs the
+ * reconciliation residual (a deliberate product decision: the variance lands on
+ * wage/tax accounts rather than being surfaced as its own line).
+ *
+ * Three invariants hold simultaneously:
+ *   1. Each expense's lines sum exactly to its own amountCents.
+ *   2. The residual is absorbed by the wage/tax buckets.
+ *   3. Tip lines across all of a period's expenses sum exactly to the period's
+ *      tip total.
+ * Where (1) and (3) cannot both hold -- tipsTotal > matchedTotal, so an
+ * expense's tip share would exceed the whole expense -- (1) wins: the share is
+ * clamped to the expense's own amount rather than emitting negative wage lines.
+ *
+ * Works purely in magnitudes; callers re-apply each expense's cash-direction
+ * sign (see recomputePeriodExpenseSplits).
  */
 export function computeProportionalSplits(
   matchedExpenses: MatchedExpenseAmount[],
-  periodTotals: { chartOfAccountsId: string; amountCents: number }[],
+  periodTotals: PeriodBucket[],
 ): Map<string, ProportionalLine[]> {
-  const periodTotal = periodTotals.reduce((s, b) => s + b.amountCents, 0);
-  const ratios = periodTotals.map((b) => (periodTotal > 0 ? b.amountCents / periodTotal : 0));
   const result = new Map<string, ProportionalLine[]>();
+  if (matchedExpenses.length === 0) return result;
 
-  for (const e of matchedExpenses) {
-    const lines = periodTotals.map((b, i) => {
-      const raw = e.amountCents * ratios[i];
-      const floored = Math.floor(raw);
-      return { chartOfAccountsId: b.chartOfAccountsId, amountCents: floored, remainder: raw - floored };
+  const tipIdx = periodTotals.flatMap((b, i) => (b.kind === "tips" ? [i] : []));
+  const restIdx = periodTotals.flatMap((b, i) => (b.kind === "tips" ? [] : [i]));
+  const matchedTotal = matchedExpenses.reduce((s, e) => s + e.amountCents, 0);
+
+  // Mirrors the old periodTotal > 0 guard: nothing to allocate, no lines.
+  if (matchedTotal <= 0) {
+    for (const e of matchedExpenses) result.set(e.expenseId, []);
+    return result;
+  }
+
+  // amounts[expenseIndex][bucketIndex] -- built in periodTotals order so the
+  // emitted line order is identical to the pre-change implementation.
+  const amounts = matchedExpenses.map(() => periodTotals.map(() => 0));
+  // Remaining capacity per expense after its tip carve-outs.
+  const remaining = matchedExpenses.map((e) => e.amountCents);
+
+  // ---- Stage 1: exact tip carve-out, one bucket at a time ----
+  for (const bi of tipIdx) {
+    const bucketAmount = periodTotals[bi].amountCents;
+    if (bucketAmount <= 0) continue;
+
+    const remainders = matchedExpenses.map((e, ei) => {
+      const raw = (bucketAmount * e.amountCents) / matchedTotal;
+      const floored = Math.min(Math.floor(raw), remaining[ei]); // clamp: never exceed the expense itself
+      amounts[ei][bi] = floored;
+      remaining[ei] -= floored;
+      return raw - Math.floor(raw);
     });
 
-    const flooredSum = lines.reduce((s, l) => s + l.amountCents, 0);
-    let toDistribute = e.amountCents - flooredSum;
+    let leftover = bucketAmount - matchedExpenses.reduce((s, _e, ei) => s + amounts[ei][bi], 0);
+    // Largest remainder first; ties keep matchedExpenses' original order.
+    const order = [...remainders.keys()].sort((a, b) => remainders[b] - remainders[a]);
+    // Normally one pass suffices (leftover < expense count); the loop only
+    // repeats when clamping pushed cents onto expenses that had no capacity.
+    let progressed = true;
+    while (leftover > 0 && progressed) {
+      progressed = false;
+      for (const ei of order) {
+        if (leftover <= 0) break;
+        if (remaining[ei] <= 0) continue;
+        amounts[ei][bi] += 1;
+        remaining[ei] -= 1;
+        leftover -= 1;
+        progressed = true;
+      }
+    }
+  }
 
-    // Largest remainder first; ties keep periodTotals' original order (stable sort).
-    const order = [...lines.keys()].sort((a, b) => lines[b].remainder - lines[a].remainder);
-    for (const idx of order) {
-      if (toDistribute <= 0) break;
-      lines[idx].amountCents += 1;
-      toDistribute -= 1;
+  // ---- Stage 2: force-fill the remainder across the wage/tax buckets ----
+  const restTotal = restIdx.reduce((s, i) => s + periodTotals[i].amountCents, 0);
+  // Fall back to the tips buckets only when there is no wage/tax bucket at all
+  // (degenerate: a report with nothing but tips) -- invariant 1 outranks 3.
+  const fillIdx = restIdx.length > 0 ? restIdx : tipIdx;
+  const fillTotal = restIdx.length > 0 ? restTotal : tipIdx.reduce((s, i) => s + periodTotals[i].amountCents, 0);
+  // Weight by each bucket's share; if every fill bucket is zero, weight evenly
+  // so the expense still allocates in full rather than dropping cents.
+  const weights = fillIdx.map((i) => (fillTotal > 0 ? periodTotals[i].amountCents / fillTotal : 1 / fillIdx.length));
+
+  for (let ei = 0; ei < matchedExpenses.length; ei++) {
+    const toFill = remaining[ei];
+    if (fillIdx.length > 0 && toFill > 0) {
+      const remainders = fillIdx.map((bi, k) => {
+        const raw = toFill * weights[k];
+        const floored = Math.floor(raw);
+        amounts[ei][bi] += floored;
+        return raw - floored;
+      });
+
+      let leftover = toFill - fillIdx.reduce((s, bi, k) => s + Math.floor(toFill * weights[k]), 0);
+      // Largest remainder first; ties keep periodTotals' original order.
+      const order = [...remainders.keys()].sort((a, b) => remainders[b] - remainders[a]);
+      for (const k of order) {
+        if (leftover <= 0) break;
+        amounts[ei][fillIdx[k]] += 1;
+        leftover -= 1;
+      }
     }
 
     result.set(
-      e.expenseId,
-      lines.map((l) => ({ chartOfAccountsId: l.chartOfAccountsId, amountCents: l.amountCents, splitSource: "payroll_auto" as const })),
+      matchedExpenses[ei].expenseId,
+      periodTotals.map((b, bi) => ({
+        chartOfAccountsId: b.chartOfAccountsId,
+        amountCents: amounts[ei][bi],
+        splitSource: "payroll_auto" as const,
+      })),
     );
   }
 
@@ -143,12 +241,21 @@ export async function recomputePeriodExpenseSplits(sb: SupabaseClient, payPeriod
 
   const { data: totalRows, error: totalsErr } = await sb
     .from("payroll_gl_report_totals")
-    .select("chart_of_accounts_id, amount_cents")
+    .select("chart_of_accounts_id, amount_cents, bucket_kind")
     .eq("report_id", report.id);
   if (totalsErr) throw new Error(`Load payroll GL report totals failed: ${totalsErr.message}`);
-  const periodTotals = ((totalRows ?? []) as { chart_of_accounts_id: string; amount_cents: number }[]).map((r) => ({
+  // bucket_kind drives the exact tips carve-out in computeProportionalSplits;
+  // anything unrecognised (or null, pre-backfill) is left undefined and is
+  // therefore treated as non-tips, i.e. the pre-change force-fill behavior.
+  const BUCKET_KINDS = ["wages", "employer_tax", "tips"] as const;
+  const periodTotals: PeriodBucket[] = (
+    (totalRows ?? []) as { chart_of_accounts_id: string; amount_cents: number; bucket_kind: string | null }[]
+  ).map((r) => ({
     chartOfAccountsId: r.chart_of_accounts_id,
     amountCents: r.amount_cents,
+    kind: (BUCKET_KINDS as readonly string[]).includes(r.bucket_kind ?? "")
+      ? (r.bucket_kind as PeriodBucket["kind"])
+      : undefined,
   }));
 
   const { data: matchRows, error: matchErr } = await sb

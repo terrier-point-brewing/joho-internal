@@ -6,6 +6,7 @@ import {
   recomputePeriodExpenseSplits,
   planPayrollMatches,
   type MatchedExpenseAmount,
+  type PeriodBucket,
 } from "./payrollMatching";
 import { aggregateRows, type CoaRecord, type ExpenseRecord } from "./financials/aggregateRows";
 
@@ -205,6 +206,340 @@ describe("computeProportionalSplits", () => {
   });
 });
 
+describe("computeProportionalSplits — tips carve-out", () => {
+  /**
+   * Verbatim copy of the pre-tips-carve-out implementation, frozen here as the
+   * equivalence oracle for assertion 5: with no `tips` bucket present the new
+   * two-stage code must produce byte-identical output to this.
+   */
+  function legacyComputeProportionalSplits(
+    matchedExpenses: MatchedExpenseAmount[],
+    periodTotals: { chartOfAccountsId: string; amountCents: number }[],
+  ): Map<string, { chartOfAccountsId: string; amountCents: number; splitSource: "payroll_auto" }[]> {
+    const periodTotal = periodTotals.reduce((s, b) => s + b.amountCents, 0);
+    const ratios = periodTotals.map((b) => (periodTotal > 0 ? b.amountCents / periodTotal : 0));
+    const result = new Map<string, { chartOfAccountsId: string; amountCents: number; splitSource: "payroll_auto" }[]>();
+
+    for (const e of matchedExpenses) {
+      const lines = periodTotals.map((b, i) => {
+        const raw = e.amountCents * ratios[i];
+        const floored = Math.floor(raw);
+        return { chartOfAccountsId: b.chartOfAccountsId, amountCents: floored, remainder: raw - floored };
+      });
+
+      const flooredSum = lines.reduce((s, l) => s + l.amountCents, 0);
+      let toDistribute = e.amountCents - flooredSum;
+
+      const order = [...lines.keys()].sort((a, b) => lines[b].remainder - lines[a].remainder);
+      for (const idx of order) {
+        if (toDistribute <= 0) break;
+        lines[idx].amountCents += 1;
+        toDistribute -= 1;
+      }
+
+      result.set(
+        e.expenseId,
+        lines.map((l) => ({ chartOfAccountsId: l.chartOfAccountsId, amountCents: l.amountCents, splitSource: "payroll_auto" as const })),
+      );
+    }
+
+    return result;
+  }
+
+  function sumByKind(
+    result: Map<string, { chartOfAccountsId: string; amountCents: number }[]>,
+    buckets: PeriodBucket[],
+    kind: "tips" | "rest",
+  ): number {
+    const tipIds = new Set(buckets.filter((b) => b.kind === "tips").map((b) => b.chartOfAccountsId));
+    let sum = 0;
+    for (const lines of result.values()) {
+      for (const l of lines) {
+        const isTip = tipIds.has(l.chartOfAccountsId);
+        if ((kind === "tips") === isTip) sum += l.amountCents;
+      }
+    }
+    return sum;
+  }
+
+  // Real prod shape, pay period 2026-06-01 -> 2026-06-14.
+  const goldenExpenses: MatchedExpenseAmount[] = [
+    { expenseId: "a", amountCents: 548554 },
+    { expenseId: "b", amountCents: 166510 },
+    { expenseId: "c", amountCents: 65592 },
+    { expenseId: "d", amountCents: 13716 },
+  ]; // sum = 794372
+  const goldenBuckets: PeriodBucket[] = [
+    { chartOfAccountsId: "labor", amountCents: 487539, kind: "wages" },
+    { chartOfAccountsId: "taproom", amountCents: 62398, kind: "wages" },
+    { chartOfAccountsId: "admin", amountCents: 5824, kind: "wages" },
+    { chartOfAccountsId: "taxes", amountCents: 65210, kind: "employer_tax" },
+    { chartOfAccountsId: "tips", amountCents: 91158, kind: "tips" },
+  ]; // wage/tax sum = 620971, + tips = 712129; matched total is 794372 => $822.43 residual
+
+  it("golden case (1): tip lines across all four expenses sum to EXACTLY the period tip total, 91158", () => {
+    const result = computeProportionalSplits(goldenExpenses, goldenBuckets);
+    const tipSum = sumByKind(result, goldenBuckets, "tips");
+    expect(tipSum).toBe(91158);
+  });
+
+  it("golden case (1b): each expense's tip line is its exact largest-remainder share of the tip total", () => {
+    const result = computeProportionalSplits(goldenExpenses, goldenBuckets);
+    const tipOf = (id: string) => result.get(id)!.find((l) => l.chartOfAccountsId === "tips")!.amountCents;
+    // 91158 * a_i / 794372, floored, with the 3 leftover cents to the largest
+    // remainders (c .9968, d .9768, b .8218).
+    expect(tipOf("a")).toBe(62949);
+    expect(tipOf("b")).toBe(19108);
+    expect(tipOf("c")).toBe(7527);
+    expect(tipOf("d")).toBe(1574);
+  });
+
+  it("golden case (2): each expense's lines still sum to exactly its own amountCents", () => {
+    const result = computeProportionalSplits(goldenExpenses, goldenBuckets);
+    for (const e of goldenExpenses) {
+      const sum = result.get(e.expenseId)!.reduce((s, l) => s + l.amountCents, 0);
+      expect(sum).toBe(e.amountCents);
+    }
+  });
+
+  it("golden case (3): no line is negative", () => {
+    const result = computeProportionalSplits(goldenExpenses, goldenBuckets);
+    for (const lines of result.values()) {
+      for (const l of lines) expect(l.amountCents).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it("golden case (4): the $822.43 reconciliation residual lands on wage/tax buckets, never on tips", () => {
+    const result = computeProportionalSplits(goldenExpenses, goldenBuckets);
+    const restSum = sumByKind(result, goldenBuckets, "rest");
+    const restBucketTotal = 487539 + 62398 + 5824 + 65210; // 620971
+
+    // Wage/tax lines absorb the whole variance between matched cash and the
+    // period's wage/tax GL total: 794372 - 91158 = 703214 = 620971 + 82243.
+    expect(restSum).toBe(703214);
+    expect(restSum - restBucketTotal).toBe(82243); // $822.43
+    // ...and the tips bucket is untouched by it.
+    expect(sumByKind(result, goldenBuckets, "tips")).toBe(91158);
+  });
+
+  it("golden case (4b): wage/tax lines keep the wage/tax mix among themselves (residual spread pro-rata, not dumped on one account)", () => {
+    const result = computeProportionalSplits(goldenExpenses, goldenBuckets);
+    const restBucketTotal = 620971;
+    const byBucket = new Map<string, number>();
+    for (const lines of result.values()) {
+      for (const l of lines) byBucket.set(l.chartOfAccountsId, (byBucket.get(l.chartOfAccountsId) ?? 0) + l.amountCents);
+    }
+    for (const b of goldenBuckets.filter((x) => x.kind !== "tips")) {
+      const expected = 703214 * (b.amountCents / restBucketTotal);
+      expect(Math.abs((byBucket.get(b.chartOfAccountsId) ?? 0) - expected)).toBeLessThan(5);
+    }
+  });
+
+  it("(5) equivalence: with no tips bucket, output is identical to the pre-change implementation", () => {
+    const cases: { matched: MatchedExpenseAmount[]; buckets: PeriodBucket[] }[] = [
+      {
+        matched: [
+          { expenseId: "exp-net-pay", amountCents: 685205 },
+          { expenseId: "exp-tax-debit", amountCents: 80749 },
+        ],
+        buckets: [
+          { chartOfAccountsId: "coa-6110", amountCents: 500000, kind: "wages" },
+          { chartOfAccountsId: "coa-5130", amountCents: 200000, kind: "wages" },
+          { chartOfAccountsId: "coa-6130", amountCents: 65954, kind: "employer_tax" },
+        ],
+      },
+      {
+        matched: goldenExpenses,
+        buckets: goldenBuckets.filter((b) => b.kind !== "tips"),
+      },
+      {
+        matched: [
+          { expenseId: "e1", amountCents: 10000 },
+          { expenseId: "e2", amountCents: 5000 },
+        ],
+        buckets: [
+          { chartOfAccountsId: "coa-a", amountCents: 3000 },
+          { chartOfAccountsId: "coa-b", amountCents: 2000 },
+        ],
+      },
+      {
+        matched: [{ expenseId: "e3", amountCents: 1000 }],
+        buckets: [
+          { chartOfAccountsId: "coa-a", amountCents: 30000 },
+          { chartOfAccountsId: "coa-b", amountCents: 15000 },
+          { chartOfAccountsId: "coa-c", amountCents: 5000 },
+        ],
+      },
+      {
+        matched: [
+          { expenseId: "e4", amountCents: 733 },
+          { expenseId: "e5", amountCents: 291 },
+          { expenseId: "e6", amountCents: 1 },
+        ],
+        buckets: [
+          { chartOfAccountsId: "coa-a", amountCents: 12345 },
+          { chartOfAccountsId: "coa-b", amountCents: 6789 },
+        ],
+      },
+      {
+        matched: [{ expenseId: "e7", amountCents: 999999 }],
+        buckets: [{ chartOfAccountsId: "coa-only", amountCents: 100 }],
+      },
+      {
+        matched: [
+          { expenseId: "exp-1", amountCents: 111 },
+          { expenseId: "exp-2", amountCents: 222 },
+          { expenseId: "exp-3", amountCents: 333 },
+        ],
+        buckets: [
+          { chartOfAccountsId: "coa-1", amountCents: 100, kind: "wages" },
+          { chartOfAccountsId: "coa-2", amountCents: 200, kind: "wages" },
+          { chartOfAccountsId: "coa-3", amountCents: 366, kind: "employer_tax" },
+        ],
+      },
+    ];
+
+    for (const { matched, buckets } of cases) {
+      const actual = computeProportionalSplits(matched, buckets);
+      const legacy = legacyComputeProportionalSplits(matched, buckets);
+      expect([...actual.entries()]).toEqual([...legacy.entries()]);
+    }
+  });
+
+  it("(6) buckets with kind absent behave as non-tips", () => {
+    const matched: MatchedExpenseAmount[] = [{ expenseId: "e1", amountCents: 1000 }];
+    const untyped: PeriodBucket[] = [
+      { chartOfAccountsId: "coa-a", amountCents: 300 },
+      { chartOfAccountsId: "coa-b", amountCents: 200 },
+    ];
+    const asWages: PeriodBucket[] = untyped.map((b) => ({ ...b, kind: "wages" as const }));
+    expect([...computeProportionalSplits(matched, untyped).entries()]).toEqual([
+      ...computeProportionalSplits(matched, asWages).entries(),
+    ]);
+    // and it is scaled (force-filled) like today, not carved out exactly
+    expect(computeProportionalSplits(matched, untyped).get("e1")!.reduce((s, l) => s + l.amountCents, 0)).toBe(1000);
+  });
+
+  it("(7) single expense, tips-only bucket -> the whole amount goes to tips", () => {
+    const matched: MatchedExpenseAmount[] = [{ expenseId: "e1", amountCents: 91158 }];
+    const buckets: PeriodBucket[] = [{ chartOfAccountsId: "tips", amountCents: 91158, kind: "tips" }];
+    const lines = computeProportionalSplits(matched, buckets).get("e1")!;
+    expect(lines).toEqual([{ chartOfAccountsId: "tips", amountCents: 91158, splitSource: "payroll_auto" }]);
+  });
+
+  it("(8) tipsTotal > matchedTotal -> tip shares clamp at each expense's own amount, no negative lines", () => {
+    const matched: MatchedExpenseAmount[] = [
+      { expenseId: "e1", amountCents: 6000 },
+      { expenseId: "e2", amountCents: 4000 },
+    ];
+    const buckets: PeriodBucket[] = [
+      { chartOfAccountsId: "wages", amountCents: 5000, kind: "wages" },
+      { chartOfAccountsId: "tips", amountCents: 30000, kind: "tips" },
+    ];
+    const result = computeProportionalSplits(matched, buckets);
+    for (const e of matched) {
+      const lines = result.get(e.expenseId)!;
+      for (const l of lines) expect(l.amountCents).toBeGreaterThanOrEqual(0);
+      expect(lines.reduce((s, l) => s + l.amountCents, 0)).toBe(e.amountCents);
+      // clamped: everything the expense has goes to tips, nothing left for wages
+      expect(lines.find((l) => l.chartOfAccountsId === "tips")!.amountCents).toBe(e.amountCents);
+      expect(lines.find((l) => l.chartOfAccountsId === "wages")!.amountCents).toBe(0);
+    }
+  });
+
+  it("(9) matchedTotal === 0 -> no lines", () => {
+    const matched: MatchedExpenseAmount[] = [
+      { expenseId: "e1", amountCents: 0 },
+      { expenseId: "e2", amountCents: 0 },
+    ];
+    const buckets: PeriodBucket[] = [
+      { chartOfAccountsId: "wages", amountCents: 5000, kind: "wages" },
+      { chartOfAccountsId: "tips", amountCents: 1000, kind: "tips" },
+    ];
+    const result = computeProportionalSplits(matched, buckets);
+    for (const lines of result.values()) expect(lines).toEqual([]);
+    expect(computeProportionalSplits([], buckets).size).toBe(0);
+  });
+
+  it("multiple tips buckets are each carved out exactly and independently", () => {
+    const matched: MatchedExpenseAmount[] = [
+      { expenseId: "a", amountCents: 548554 },
+      { expenseId: "b", amountCents: 166510 },
+      { expenseId: "c", amountCents: 65592 },
+      { expenseId: "d", amountCents: 13716 },
+    ];
+    const buckets: PeriodBucket[] = [
+      { chartOfAccountsId: "labor", amountCents: 487539, kind: "wages" },
+      { chartOfAccountsId: "tips-cash", amountCents: 91158, kind: "tips" },
+      { chartOfAccountsId: "tips-card", amountCents: 13337, kind: "tips" },
+    ];
+    const result = computeProportionalSplits(matched, buckets);
+    const perBucket = new Map<string, number>();
+    for (const lines of result.values()) {
+      for (const l of lines) perBucket.set(l.chartOfAccountsId, (perBucket.get(l.chartOfAccountsId) ?? 0) + l.amountCents);
+    }
+    expect(perBucket.get("tips-cash")).toBe(91158);
+    expect(perBucket.get("tips-card")).toBe(13337);
+    for (const e of matched) {
+      expect(result.get(e.expenseId)!.reduce((s, l) => s + l.amountCents, 0)).toBe(e.amountCents);
+    }
+  });
+
+  it("tips exactness holds across a range of matched/period combinations, alongside per-expense exactness", () => {
+    const cases: { matched: MatchedExpenseAmount[]; buckets: PeriodBucket[]; tipsTotal: number }[] = [
+      {
+        matched: [
+          { expenseId: "e1", amountCents: 3 },
+          { expenseId: "e2", amountCents: 7 },
+          { expenseId: "e3", amountCents: 11 },
+        ],
+        buckets: [
+          { chartOfAccountsId: "w", amountCents: 13, kind: "wages" },
+          { chartOfAccountsId: "t", amountCents: 5, kind: "tips" },
+        ],
+        tipsTotal: 5,
+      },
+      {
+        matched: [
+          { expenseId: "e1", amountCents: 100001 },
+          { expenseId: "e2", amountCents: 1 },
+        ],
+        buckets: [
+          { chartOfAccountsId: "w", amountCents: 7777, kind: "wages" },
+          { chartOfAccountsId: "x", amountCents: 3, kind: "employer_tax" },
+          { chartOfAccountsId: "t", amountCents: 33333, kind: "tips" },
+        ],
+        tipsTotal: 33333,
+      },
+      {
+        // matched total far below the period total: tips still exact, wages absorb the shortfall
+        matched: [{ expenseId: "e1", amountCents: 50000 }],
+        buckets: [
+          { chartOfAccountsId: "w", amountCents: 400000, kind: "wages" },
+          { chartOfAccountsId: "t", amountCents: 9999, kind: "tips" },
+        ],
+        tipsTotal: 9999,
+      },
+    ];
+
+    for (const { matched, buckets, tipsTotal } of cases) {
+      const result = computeProportionalSplits(matched, buckets);
+      const tipIds = new Set(buckets.filter((b) => b.kind === "tips").map((b) => b.chartOfAccountsId));
+      let tipSum = 0;
+      for (const lines of result.values()) {
+        for (const l of lines) {
+          expect(l.amountCents).toBeGreaterThanOrEqual(0);
+          if (tipIds.has(l.chartOfAccountsId)) tipSum += l.amountCents;
+        }
+      }
+      expect(tipSum).toBe(tipsTotal);
+      for (const e of matched) {
+        expect(result.get(e.expenseId)!.reduce((s, l) => s + l.amountCents, 0)).toBe(e.amountCents);
+      }
+    }
+  });
+});
+
 describe("planPayrollMatches", () => {
   const periods = [
     { id: "p-jun", endDate: "2026-06-14" },
@@ -245,7 +580,7 @@ describe("planPayrollMatches", () => {
 describe("recomputePeriodExpenseSplits", () => {
   interface FakeState {
     reports: { id: string; pay_period_id: string; superseded_at: string | null }[];
-    totals: { report_id: string; chart_of_accounts_id: string; amount_cents: number }[];
+    totals: { report_id: string; chart_of_accounts_id: string; amount_cents: number; bucket_kind?: string }[];
     matches: { pay_period_id: string; expense_id: string }[];
     expenses: { id: string; amount_cents: number }[];
     splits: { id: string; expense_id: string; chart_of_accounts_id: string; amount_cents: number; split_source: string }[];
@@ -407,6 +742,59 @@ describe("recomputePeriodExpenseSplits", () => {
     const autoLines = state.splits.filter((s) => s.expense_id === "exp-auto");
     expect(autoLines.reduce((s, l) => s + l.amount_cents, 0)).toBe(-50000);
     expect(autoLines.every((l) => l.split_source === "payroll_auto")).toBe(true);
+  });
+
+  it("maps bucket_kind onto PeriodBucket.kind: the tips bucket is carved out at its exact amount across the period's expenses, signs preserved", async () => {
+    const state: FakeState = {
+      reports: [{ id: "report-1", pay_period_id: "period-1", superseded_at: null }],
+      totals: [
+        { report_id: "report-1", chart_of_accounts_id: "coa-wages", amount_cents: 487539, bucket_kind: "wages" },
+        { report_id: "report-1", chart_of_accounts_id: "coa-taxes", amount_cents: 65210, bucket_kind: "employer_tax" },
+        { report_id: "report-1", chart_of_accounts_id: "coa-tips", amount_cents: 91158, bucket_kind: "tips" },
+      ],
+      matches: [
+        { pay_period_id: "period-1", expense_id: "exp-1" },
+        { pay_period_id: "period-1", expense_id: "exp-2" },
+      ],
+      expenses: [
+        { id: "exp-1", amount_cents: -548554 },
+        { id: "exp-2", amount_cents: -166510 },
+      ],
+      splits: [],
+    };
+    const client = makeClient(state);
+    await recomputePeriodExpenseSplits(client, "period-1");
+
+    // Tips liability lines across the whole period sum to exactly the period's
+    // tip total (negated, since both source expenses are outflows).
+    const tipSum = state.splits.filter((s) => s.chart_of_accounts_id === "coa-tips").reduce((s, l) => s + l.amount_cents, 0);
+    expect(tipSum).toBe(-91158);
+
+    for (const id of ["exp-1", "exp-2"]) {
+      const lines = state.splits.filter((s) => s.expense_id === id);
+      const expected = state.expenses.find((e) => e.id === id)!.amount_cents;
+      expect(lines.reduce((s, l) => s + l.amount_cents, 0)).toBe(expected);
+      for (const l of lines) expect(l.amount_cents).toBeLessThanOrEqual(0);
+    }
+  });
+
+  it("treats totals rows with no bucket_kind as non-tips (pre-backfill safe state)", async () => {
+    const state: FakeState = {
+      reports: [{ id: "report-1", pay_period_id: "period-1", superseded_at: null }],
+      totals: [
+        { report_id: "report-1", chart_of_accounts_id: "coa-a", amount_cents: 60000 },
+        { report_id: "report-1", chart_of_accounts_id: "coa-b", amount_cents: 40000 },
+      ],
+      matches: [{ pay_period_id: "period-1", expense_id: "exp-1" }],
+      expenses: [{ id: "exp-1", amount_cents: -120000 }],
+      splits: [],
+    };
+    const client = makeClient(state);
+    await recomputePeriodExpenseSplits(client, "period-1");
+
+    const lines = state.splits.filter((s) => s.expense_id === "exp-1");
+    // Pure force-fill, exactly as before the tips change: 60/40 of $1200.
+    expect(lines.map((l) => l.amount_cents).sort((a, b) => a - b)).toEqual([-72000, -48000]);
   });
 
   it("write→read round trip: a negative-amount expense's recomputed splits stay negative through aggregateRows on a P&L expenses-section account (regression for the sign-loss bug)", async () => {
