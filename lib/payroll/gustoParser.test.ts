@@ -58,9 +58,23 @@ const SAMPLE_CSV = `"Payroll Journal Report"
 "","","","","","","","Gross","","","8143.43","","","","","","","","","","","","","","","",""
 `;
 
+// A single-employee, no-sub-rows CSV — used to verify the tips bucket is
+// omitted entirely (never a $0 row) when a report has no Paycheck Tips rows.
+const NO_TIPS_CSV = `"Last Name","First Name","Department","Work Address","Employee Type","Payment","Job","Pay Type","Hours","Rate","Amount","Employee Taxes","Federal Income Tax (Employee)","Social Security (Employee)","Medicare (Employee)","Additional Medicare (Employee)","NC State Tax (Employee)","Employer Taxes","Social Security (Employer)","Medicare (Employer)","FUTA (Employer)","NC Unemployment Tax (Employer)","Net Pay","Reimbursements","Donations","Check Amount","Employer Cost"
+"Ashford","Casey","Production","140 Thomas Mill Rd, Holly Springs, NC 27540","Salary/No overtime","Direct Deposit","Brewer","Regular","80.00","29.81","2384.62","458.74","202.31","147.85","34.58","0.00","74.00","227.74","147.85","34.58","0.00","45.31","1925.88","0.00","0.00","1925.88","2612.36"
+`;
+
+// A single employee with only a Cash Tips sub-row (no Paycheck Tips) — used
+// to prove Cash Tips alone never sets paycheckTipsCents.
+const CASH_TIPS_ONLY_CSV = `"Last Name","First Name","Department","Work Address","Employee Type","Payment","Job","Pay Type","Hours","Rate","Amount","Employee Taxes","Federal Income Tax (Employee)","Social Security (Employee)","Medicare (Employee)","Additional Medicare (Employee)","NC State Tax (Employee)","Employer Taxes","Social Security (Employer)","Medicare (Employer)","FUTA (Employer)","NC Unemployment Tax (Employer)","Net Pay","Reimbursements","Donations","Check Amount","Employer Cost"
+"Carver","Coral","Front of House","140 Thomas Mill Rd, Holly Springs, NC 27540","Paid by the hour","Direct Deposit","Bartender","Regular","8.08","7.00","56.56","9.27","0.00","7.51","1.76","0.00","0.00","12.30","7.51","1.76","0.73","2.30","111.42","0.00","0.00","111.42","132.99"
+"","","","","","","Totals","Cash Tips","","","0.54","","","","","","","","","","","","","","","",""
+`;
+
 const PRODUCTION_COA_ID = "coa-production";
 const FOH_COA_ID = "coa-foh";
 const TAXES_COA_ID = "coa-payroll-taxes";
+const TIPS_COA_ID = "coa-payroll-tips";
 
 function fullDepartmentMap(): Map<string, string> {
   return new Map([
@@ -109,6 +123,32 @@ describe("parseGustoPayrollJournal", () => {
     expect(carver?.employerTaxCents).toBe(1230);
   });
 
+  it("captures Paycheck Tips into paycheckTipsCents without folding them into grossAmountCents", () => {
+    const parsed = parseGustoPayrollJournal(SAMPLE_CSV);
+    const carver = parsed.employees.find((e) => e.lastName === "Carver");
+    const hastings = parsed.employees.find((e) => e.lastName === "Hastings");
+
+    // Carver: Cash Tips 0.54 (discarded) + Paycheck Tips 56.46 -> only the
+    // Paycheck Tips amount (5646 cents) should land in paycheckTipsCents.
+    expect(carver?.paycheckTipsCents).toBe(5646);
+    expect(carver?.grossAmountCents).toBe(6423); // unchanged by tips
+
+    expect(hastings?.paycheckTipsCents).toBe(39128);
+    expect(hastings?.grossAmountCents).toBe(25354); // Regular only; unchanged by tips
+  });
+
+  it("leaves paycheckTipsCents at 0 for employees with no Paycheck Tips sub-row", () => {
+    const parsed = parseGustoPayrollJournal(SAMPLE_CSV);
+    const ashford = parsed.employees.find((e) => e.lastName === "Ashford");
+    expect(ashford?.paycheckTipsCents).toBe(0);
+  });
+
+  it("a Cash Tips sub-row alone is discarded — paycheckTipsCents stays 0", () => {
+    const parsed = parseGustoPayrollJournal(CASH_TIPS_ONLY_CSV);
+    expect(parsed.employees).toHaveLength(1);
+    expect(parsed.employees[0].paycheckTipsCents).toBe(0);
+  });
+
   it("keeps $0 Front of House employees (no shifts that period) in the employee list rather than dropping them", () => {
     const parsed = parseGustoPayrollJournal(SAMPLE_CSV);
 
@@ -137,7 +177,7 @@ describe("parseGustoPayrollJournal", () => {
 describe("computeGlBucketTotals", () => {
   it("buckets gross wages by department and sums employer tax across all departments into the one payroll-taxes account, matching the file's own Payroll Totals row", () => {
     const parsed = parseGustoPayrollJournal(SAMPLE_CSV);
-    const totals = computeGlBucketTotals(parsed, fullDepartmentMap(), TAXES_COA_ID);
+    const totals = computeGlBucketTotals(parsed, fullDepartmentMap(), TAXES_COA_ID, TIPS_COA_ID);
 
     const production = totals.find((t) => t.chartOfAccountsId === PRODUCTION_COA_ID);
     const foh = totals.find((t) => t.chartOfAccountsId === FOH_COA_ID);
@@ -148,9 +188,38 @@ describe("computeGlBucketTotals", () => {
     // 561.06 + 246.43 = 807.49 -> matches the file's own "Payroll Totals" row exactly.
     expect(taxes?.amountCents).toBe(80749);
     expect(parsed.unmappedDepartments).toEqual([]);
+
+    // Wage and tax buckets carry the correct kind.
+    expect(production?.kind).toBe("wages");
+    expect(foh?.kind).toBe("wages");
+    expect(taxes?.kind).toBe("employer_tax");
   });
 
-  it("surfaces an unmapped department without throwing, and excludes its gross dollars from the returned buckets (while still taxing it)", () => {
+  it("emits one company-wide kind:'tips' bucket summing Paycheck Tips across all employees, matching the file's own Payroll Totals row", () => {
+    const parsed = parseGustoPayrollJournal(SAMPLE_CSV);
+    const totals = computeGlBucketTotals(parsed, fullDepartmentMap(), TAXES_COA_ID, TIPS_COA_ID);
+
+    const tipsBuckets = totals.filter((t) => t.kind === "tips");
+    expect(tipsBuckets).toHaveLength(1);
+    // Carver 56.46 + Hastings 391.28 + Mercer 151.39 + Osei 403.34 = 1002.47
+    // -> matches the file's own "Payroll Totals" "Paycheck Tips" row exactly.
+    expect(tipsBuckets[0].chartOfAccountsId).toBe(TIPS_COA_ID);
+    expect(tipsBuckets[0].amountCents).toBe(100247);
+  });
+
+  it("emits no tips bucket when the report has no Paycheck Tips rows", () => {
+    const parsed = parseGustoPayrollJournal(NO_TIPS_CSV);
+    const totals = computeGlBucketTotals(
+      parsed,
+      new Map([["Production", PRODUCTION_COA_ID]]),
+      TAXES_COA_ID,
+      TIPS_COA_ID,
+    );
+
+    expect(totals.some((t) => t.kind === "tips")).toBe(false);
+  });
+
+  it("surfaces an unmapped department without throwing, and excludes its gross dollars from the returned buckets (while still taxing and tipping it)", () => {
     // Fixture copy: Carver's department changed to an unmapped value.
     const modifiedCsv = SAMPLE_CSV.replace(
       `"Carver","Coral","Front of House"`,
@@ -159,7 +228,7 @@ describe("computeGlBucketTotals", () => {
     const parsed = parseGustoPayrollJournal(modifiedCsv);
     const departmentMap = fullDepartmentMap(); // no "Kitchen" entry
 
-    const totals = computeGlBucketTotals(parsed, departmentMap, TAXES_COA_ID);
+    const totals = computeGlBucketTotals(parsed, departmentMap, TAXES_COA_ID, TIPS_COA_ID);
 
     expect(parsed.unmappedDepartments).toContain("Kitchen");
 
@@ -168,9 +237,11 @@ describe("computeGlBucketTotals", () => {
     // department no longer resolves.
     expect(foh?.amountCents).toBe(141598 - 6423);
 
-    // Employer tax is department-independent — Carver's tax still lands in
-    // the one payroll-taxes bucket, so the grand total is unaffected.
+    // Employer tax and tips are department-independent — Carver's tax and
+    // tips still land in their one company-wide buckets, unaffected.
     const taxes = totals.find((t) => t.chartOfAccountsId === TAXES_COA_ID);
     expect(taxes?.amountCents).toBe(80749);
+    const tips = totals.find((t) => t.kind === "tips");
+    expect(tips?.amountCents).toBe(100247);
   });
 });
