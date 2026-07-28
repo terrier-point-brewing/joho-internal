@@ -15,11 +15,11 @@ export interface LegacyRow {
  * throwaway script — see lib/auth/__tests__/equivalence.test.ts for how it's
  * consumed. Do not hand-edit; regenerate if the validation source changes.
  *
- * 212 rows, one per (route, method) call site under app/api/**. 29 rows carry
- * an intentionalChange — together they cover all 30 assertions (out of 848)
+ * 213 rows, one per (route, method) call site under app/api/**. 30 rows carry
+ * an intentionalChange — together they cover all 31 assertions (out of 852)
  * that differ from legacy requireRole behaviour; one route
  * (GET production/batch-conversions) accounts for two of them (a viewer
- * loss and a brewer gain), so 30 differing assertions land on 29 rows. See
+ * loss and a brewer gain), so 31 differing assertions land on 30 rows. See
  * docs/superpowers/specs/2026-07-25-scoped-permissions-design.md, "Validation
  * result", for the reasons.
  *
@@ -29,6 +29,11 @@ export interface LegacyRow {
  * The 29th row (PUT payroll/periods/[id]/shift-overrides/[employeeId]) was
  * added the same day for the new day-override save route — a brand-new call
  * site with no legacy equivalent (legacy: []).
+ * The 30th row (POST payroll/gl-reports/backfill) was added on 2026-07-28
+ * when the tips balance-sheet pass-through work exposed that this route was
+ * missing from the pinned matrix entirely — a call-site gap, not a change to
+ * the source spec. Same shape as the 29th row: brand-new route, no legacy
+ * equivalent, manager gains access via the existing payroll: "operate" grant.
  */
 export const LEGACY_MATRIX: LegacyRow[] = [
   { route: "admin/cron-runs", method: "GET", legacy: [], capability: "cronRead" },
@@ -114,6 +119,7 @@ export const LEGACY_MATRIX: LegacyRow[] = [
   { route: "payroll/employees", method: "GET", legacy: [], capability: "payrollManage" },
   { route: "payroll/employees", method: "POST", legacy: [], capability: "payrollManage" },
   { route: "payroll/employees/sync-square", method: "POST", legacy: [], capability: "payrollManage" },
+  { route: "payroll/gl-reports/backfill", method: "POST", legacy: [], capability: "payrollOperate", intentionalChange: { manager: true, reason: "New route (tips GL bucket backfill tool) — no legacy role had it. manager: ROLE_BUNDLES already grants payroll: \"operate\" (same level as payrollOperate), so managers gain access by default; reviewed and intended, same precedent as payroll/periods/[id]/shift-overrides/[employeeId]" } },
   { route: "payroll/periods/[id]/entries/[employeeId]", method: "PATCH", legacy: [], capability: "payrollManage" },
   { route: "payroll/periods/[id]/gusto-report", method: "POST", legacy: ["manager"], capability: "payrollOperate" },
   { route: "payroll/periods/[id]/gusto-report", method: "GET", legacy: ["manager"], capability: "payrollRead" },

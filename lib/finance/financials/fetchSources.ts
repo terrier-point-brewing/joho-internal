@@ -22,6 +22,7 @@ import type {
   BankLedgerRecord,
   RefundRecord,
   CoaRecord,
+  TipAccrualRecord,
 } from "./aggregateRows";
 import type { ManualNetSalesEntryRecord } from "./manualNetSales";
 
@@ -31,6 +32,16 @@ export interface FinancialsSourcesResult {
   expenses: ExpenseRecord[];
   refunds: RefundRecord[];
   bank: BankLedgerRecord[];
+  /**
+   * balance_sheet mode only: a single derived accrual record (keyed to the
+   * canonical month) summing collected card tips (square_orders.tip_cents,
+   * taproom-basis) across the whole cumulative range -- credits the tips
+   * liability the same way a tip payout debits it (see aggregateRows.ts's
+   * resolveTipAccrual). Always [] for pl/cash_flow (no P&L analog) and when
+   * payroll_gl_settings.tips_chart_of_accounts_id is unset or the column
+   * doesn't exist yet (migration 20260823 pending) -- see fetchTipAccruals.
+   */
+  tipAccruals: TipAccrualRecord[];
   coa: CoaRecord[];
   /**
    * manual_net_sales_entries rows, unbounded by date range (proration happens
@@ -566,6 +577,73 @@ async function fetchOpenInvoiceAr(supabase: SupabaseClient, endDateStr: string):
   return rows.reduce((s, inv) => s + (inv.total_cents ?? 0), 0);
 }
 
+/**
+ * balance_sheet mode only: payroll_gl_settings.tips_chart_of_accounts_id
+ * (migration 20260823, not yet applied to prod). Degrades to null on ANY
+ * error -- missing column, missing row, or any other Supabase error -- so an
+ * unapplied migration never fails the financials page; it just leaves tip
+ * accruals off until the setting exists.
+ */
+async function fetchTipsAccountId(supabase: SupabaseClient): Promise<string | null> {
+  try {
+    const { data, error } = await supabase
+      .from("payroll_gl_settings")
+      .select("tips_chart_of_accounts_id")
+      .maybeSingle();
+    if (error) return null;
+    return (data as { tips_chart_of_accounts_id: string | null } | null)?.tips_chart_of_accounts_id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * balance_sheet mode only: derived monthly accrual of collected card tips.
+ * Sums square_orders.tip_cents where status='COMPLETED' and invoice_id is
+ * null (the taproom basis -- mirrors fetchPos's own POS/invoice split)
+ * across the whole cumulative range, into a single record keyed to the
+ * canonical month (BS mode collapses everything onto one synthetic month
+ * key, so no per-month grouping is needed here). The status filter matters
+ * here specifically -- syncPosTransactions.ts keeps a CANCELED order's
+ * header tip_cents intact and only withdraws its line items, so every other
+ * financials source is immune to canceled orders but this one isn't without
+ * it. Returns [] when tipsAccountId is null (never fail the financials page
+ * over an unconfigured/not-yet-migrated setting) or when the summed tips are
+ * <= 0 (a degenerate $0 row, and resolveTipAccrual's -magnitude branch would
+ * sign a negative sum the same as a positive one).
+ */
+export async function fetchTipAccruals(
+  supabase: SupabaseClient,
+  range: DateRange,
+  tipsAccountId: string | null,
+): Promise<TipAccrualRecord[]> {
+  if (!tipsAccountId) return [];
+
+  const rows = await fetchAllRows<{ tip_cents: number | null }>(() => {
+    let q = supabase
+      .from("square_orders")
+      .select("tip_cents")
+      .eq("status", "COMPLETED")
+      .is("invoice_id", null)
+      .lt("transaction_date", range.end)
+      .order("id", { ascending: true });
+    if (range.start) q = q.gte("transaction_date", range.start);
+    return q;
+  });
+
+  const amountCents = rows.reduce((s, r) => s + (r.tip_cents ?? 0), 0);
+  // Degenerate guard: a would-be $0 (or negative, which shouldn't happen but
+  // isn't trusted) balance-sheet row is pointless, and resolveTipAccrual's
+  // -magnitude branch would sign a negative sum identically to a positive
+  // one -- bail out before either can happen.
+  if (amountCents <= 0) return [];
+  // range.endDateStr's month IS the canonical month by construction
+  // (cumulativeRange sets it to the period-end month) -- no separate
+  // canonicalMonth param needed.
+  const monthKey = range.endDateStr.slice(0, 7);
+  return [{ id: `tips-${monthKey}`, chartOfAccountsId: tipsAccountId, amountCents, monthKey }];
+}
+
 // ── entry point ──────────────────────────────────────────────────────────
 
 export async function fetchFinancialsSources(params: { statement: StatementKind; year: number }): Promise<FinancialsSourcesResult> {
@@ -589,19 +667,26 @@ export async function fetchFinancialsSources(params: { statement: StatementKind;
     range = rangeFromMonths(months);
   }
 
-  const [coa, pos, invoiceLines, expenses, bank, refunds, exciseCoverage, openInvoiceArCents, manualNetSalesEntries] = await Promise.all([
-    fetchCoa(supabase),
-    fetchPos(supabase, range),
-    fetchInvoiceLines(supabase, range, cashOnly),
-    fetchExpenses(supabase, range, cashOnly),
-    fetchBank(supabase, range, statement),
-    fetchRefunds(supabase, range),
-    fetchExciseCoverage(supabase, year),
-    isBalanceSheet ? fetchOpenInvoiceAr(supabase, range.endDateStr) : Promise.resolve(0),
-    // pl/cash_flow only -- balance_sheet has no analog for this P&L revenue
-    // adjustment (Square parity fix B).
-    isBalanceSheet ? Promise.resolve<ManualNetSalesEntryRecord[]>([]) : fetchManualNetSalesEntries(supabase),
-  ]);
+  const [coa, pos, invoiceLines, expenses, bank, refunds, exciseCoverage, openInvoiceArCents, manualNetSalesEntries, tipAccruals] =
+    await Promise.all([
+      fetchCoa(supabase),
+      fetchPos(supabase, range),
+      fetchInvoiceLines(supabase, range, cashOnly),
+      fetchExpenses(supabase, range, cashOnly),
+      fetchBank(supabase, range, statement),
+      fetchRefunds(supabase, range),
+      fetchExciseCoverage(supabase, year),
+      isBalanceSheet ? fetchOpenInvoiceAr(supabase, range.endDateStr) : Promise.resolve(0),
+      // pl/cash_flow only -- balance_sheet has no analog for this P&L revenue
+      // adjustment (Square parity fix B).
+      isBalanceSheet ? Promise.resolve<ManualNetSalesEntryRecord[]>([]) : fetchManualNetSalesEntries(supabase),
+      // balance_sheet only -- chained (not a separate `await` before
+      // Promise.all) so the settings lookup stays parallel with everything
+      // else instead of serializing in front of it.
+      isBalanceSheet
+        ? fetchTipsAccountId(supabase).then((tipsAccountId) => fetchTipAccruals(supabase, range, tipsAccountId))
+        : Promise.resolve<TipAccrualRecord[]>([]),
+    ]);
 
   const arAcct = isBalanceSheet ? coa.find((c) => c.accountType === "Accounts receivable (A/R)") : undefined;
   const arAccount = arAcct ? { id: arAcct.id, name: arAcct.accountName } : null;
@@ -614,6 +699,9 @@ export async function fetchFinancialsSources(params: { statement: StatementKind;
       expenses: collapseDates(expenses, "accountingDate", canonicalMonth),
       bank: collapseDates(bank, "transactionDate", canonicalMonth),
       refunds: collapseDates(refunds, "refundedAt", canonicalMonth),
+      // tipAccruals already carries the canonical monthKey by construction
+      // (fetchTipAccruals derives it from range.endDateStr) -- no collapseDates needed.
+      tipAccruals,
       months,
       exciseCoverage,
       arAccount,
@@ -629,6 +717,7 @@ export async function fetchFinancialsSources(params: { statement: StatementKind;
     expenses,
     bank,
     refunds,
+    tipAccruals,
     months,
     exciseCoverage,
     arAccount,

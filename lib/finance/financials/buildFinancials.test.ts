@@ -25,6 +25,7 @@ function emptySources(months: string[]): FinancialsSourcesResult {
     expenses: [],
     refunds: [],
     bank: [],
+    tipAccruals: [],
     coa: COA,
     months,
     exciseCoverage: { shipmentsMissingExcise: 0 },
@@ -72,6 +73,7 @@ describe("buildFinancials", () => {
             transactionDate: "2026-12", mappingSource: "manual" as const,
           },
         ],
+        tipAccruals: [],
         coa: COA,
         months: ["2026-12"],
             exciseCoverage: { shipmentsMissingExcise: 0 },
@@ -219,6 +221,32 @@ describe("buildFinancials", () => {
 
     expect(resp.dataQuality.exciseCoverage).toEqual({
       shipmentsMissingExcise: 3, href: "/finance/transactions/invoices?filter=excise-coverage",
+    });
+  });
+
+  describe("tip accruals (balance_sheet mode only)", () => {
+    it("a tipAccruals record from the fetch layer produces a row for balance_sheet but never leaks into pl or cash_flow", async () => {
+      const months = ["2026-06"];
+      mockedFetch.mockImplementation(async ({ statement }: { statement: StatementKind; year: number }) => ({
+        ...emptySources(months),
+        // Real fetchTipAccruals always returns [] outside balance_sheet mode
+        // (fetchSources.ts) -- this fixture models that exactly, so this test
+        // proves buildFinancials's P&L/cash-flow payload is unaffected by the
+        // tipAccruals wiring even though it's passed into aggregateRows
+        // unconditionally.
+        tipAccruals:
+          statement === "balance_sheet"
+            ? [{ id: "tips-2026-06", chartOfAccountsId: "coa-exp", amountCents: 15000, monthKey: "2026-06" }]
+            : [],
+      }));
+
+      const bs = await buildFinancials({ statement: "balance_sheet", year: 2026 });
+      const pl = await buildFinancials({ statement: "pl", year: 2026 });
+      const cashFlow = await buildFinancials({ statement: "cash_flow", year: 2026 });
+
+      expect(bs.rows.find((r) => r.sourceRef.table === "square_orders" && r.sourceRef.ids.includes("tips-2026-06"))).toBeDefined();
+      expect(pl.rows.find((r) => r.sourceRef.table === "square_orders" && r.sourceRef.ids.includes("tips-2026-06"))).toBeUndefined();
+      expect(cashFlow.rows.find((r) => r.sourceRef.table === "square_orders" && r.sourceRef.ids.includes("tips-2026-06"))).toBeUndefined();
     });
   });
 

@@ -4,7 +4,7 @@
 // buildFinancials.test.ts, which mocks fetchFinancialsSources wholesale).
 import { describe, it, expect } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { fetchExpenses, fetchInvoiceLines } from "./fetchSources";
+import { fetchExpenses, fetchInvoiceLines, fetchTipAccruals } from "./fetchSources";
 
 interface ExpensesRow {
   id: string;
@@ -344,5 +344,121 @@ describe("fetchInvoiceLines", () => {
     // phantom row is read at all (not dropped) and its volume flows through.
     expect(row.exportChannel).toBeNull();
     expect(row.volumeBbl).toBe(0.5);
+  });
+});
+
+// ── fetchTipAccruals ─────────────────────────────────────────────────────
+
+interface SquareOrderTipRow {
+  tip_cents: number | null;
+  invoice_id: string | null;
+  status?: string;
+}
+
+/**
+ * Fake `square_orders` client. Applies the `.is("invoice_id", null)` and
+ * `.eq("status", "COMPLETED")` filters itself (mirroring how the real query
+ * excludes invoice-backed and non-completed orders) so tests can assert
+ * exclusion behavior, not just the raw sum.
+ */
+function fakeSquareOrdersClient(rows: SquareOrderTipRow[]) {
+  let filteredByNullInvoiceId = false;
+  let filteredByStatus: string | null = null;
+  const chain: Record<string, unknown> = {
+    select: () => chain,
+    is: (col: string, val: unknown) => {
+      if (col === "invoice_id" && val === null) filteredByNullInvoiceId = true;
+      return chain;
+    },
+    eq: (col: string, val: unknown) => {
+      if (col === "status") filteredByStatus = val as string;
+      return chain;
+    },
+    lt: () => chain,
+    gte: () => chain,
+    order: () => chain,
+    range: async (from: number, to: number) => {
+      let data = rows;
+      if (filteredByNullInvoiceId) data = data.filter((r) => r.invoice_id === null);
+      if (filteredByStatus) data = data.filter((r) => r.status === filteredByStatus);
+      return { data: data.slice(from, to + 1), error: null };
+    },
+  };
+  const client = { from: () => chain };
+  return client as unknown as SupabaseClient;
+}
+
+const TIP_RANGE = { startDateStr: null, start: null, endDateStr: "2026-01-31", end: "2026-02-01T00:00:00Z" };
+
+describe("fetchTipAccruals", () => {
+  it("sums tip_cents across orders in range into one canonical-month record", async () => {
+    const client = fakeSquareOrdersClient([
+      { tip_cents: 500, invoice_id: null, status: "COMPLETED" },
+      { tip_cents: 300, invoice_id: null, status: "COMPLETED" },
+    ]);
+
+    const result = await fetchTipAccruals(client, TIP_RANGE, "acct-tips");
+
+    expect(result).toEqual([{ id: "tips-2026-01", chartOfAccountsId: "acct-tips", amountCents: 800, monthKey: "2026-01" }]);
+  });
+
+  it("excludes rows with a non-null invoice_id", async () => {
+    const client = fakeSquareOrdersClient([
+      { tip_cents: 500, invoice_id: null, status: "COMPLETED" },
+      { tip_cents: 9999, invoice_id: "inv-1", status: "COMPLETED" },
+    ]);
+
+    const result = await fetchTipAccruals(client, TIP_RANGE, "acct-tips");
+
+    expect(result[0].amountCents).toBe(500);
+  });
+
+  // syncPosTransactions.ts keeps a CANCELED order's header tip_cents intact
+  // and only withdraws its line items, so this is the one financials source
+  // that isn't immune to canceled orders without an explicit status filter.
+  it("excludes rows whose status is not COMPLETED (e.g. CANCELED)", async () => {
+    const client = fakeSquareOrdersClient([
+      { tip_cents: 500, invoice_id: null, status: "COMPLETED" },
+      { tip_cents: 9999, invoice_id: null, status: "CANCELED" },
+    ]);
+
+    const result = await fetchTipAccruals(client, TIP_RANGE, "acct-tips");
+
+    expect(result[0].amountCents).toBe(500);
+  });
+
+  it("returns [] when tipsAccountId is null, without querying the database", async () => {
+    const client = {
+      from: () => {
+        throw new Error("fetchTipAccruals must not query when tipsAccountId is null");
+      },
+    } as unknown as SupabaseClient;
+
+    const result = await fetchTipAccruals(client, TIP_RANGE, null);
+
+    expect(result).toEqual([]);
+  });
+
+  it("returns [] when the summed tips are 0 (degenerate accrual guard)", async () => {
+    const client = fakeSquareOrdersClient([
+      { tip_cents: 0, invoice_id: null, status: "COMPLETED" },
+      { tip_cents: null, invoice_id: null, status: "COMPLETED" },
+    ]);
+
+    const result = await fetchTipAccruals(client, TIP_RANGE, "acct-tips");
+
+    expect(result).toEqual([]);
+  });
+
+  it("pages past 1000 rows (PostgREST silently truncates unpaginated selects)", async () => {
+    const firstPage: SquareOrderTipRow[] = Array.from({ length: 1000 }, () => ({ tip_cents: 1, invoice_id: null, status: "COMPLETED" }));
+    const secondPage: SquareOrderTipRow[] = [{ tip_cents: 50, invoice_id: null, status: "COMPLETED" }];
+    const client = fakeSquareOrdersClient([...firstPage, ...secondPage]);
+
+    const result = await fetchTipAccruals(client, TIP_RANGE, "acct-tips");
+
+    // 1000 x 1 cent from the first page + 50 cents from the second page --
+    // only reachable if fetchAllRows actually paged past the 1000-row cap.
+    expect(result[0].amountCents).toBe(1050);
   });
 });

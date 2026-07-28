@@ -18,6 +18,7 @@ function emptyInput(overrides: Partial<AggregateRowsInput> = {}): AggregateRowsI
     expenses: [],
     refunds: [],
     bank: [],
+    tipAccruals: [],
     coa: COA,
     months: ["2026-01", "2026-02"],
     ...overrides,
@@ -462,7 +463,7 @@ describe("aggregateRows", () => {
     expect(sum).toBe(-68205);
   });
 
-  it("a split expense with 3 lines across the same account still groups into 2 rows split by mappingSource, sum equals the original amount", () => {
+  it("a split expense with 3 lines across the same account still groups into 2 rows split by mappingSource", () => {
     const rows = aggregateRows(
       emptyInput({
         expenses: [
@@ -483,8 +484,14 @@ describe("aggregateRows", () => {
     );
 
     expect(rows).toHaveLength(3);
+    // Sum no longer equals the raw split total: coa-beer/coa-pl-deposit are
+    // P&L (Income) accounts, passed through unchanged (-40000, -25000), but
+    // coa-bs-deposit is a Balance Sheet liability (Other Current
+    // Liabilities) -- this -35000 outflow now correctly PAYS DOWN the
+    // liability (+35000) instead of growing it, per the Task 5 fix. See
+    // normalizeSign.ts / normalizeSign.test.ts.
     const total = rows.reduce((s, r) => s + r.amountCentsByMonth["2026-02"], 0);
-    expect(total).toBe(-100000);
+    expect(total).toBe(-30000);
     for (const r of rows) expect(r.mappingSource).toBe("rule");
   });
 
@@ -562,5 +569,58 @@ describe("aggregateRows", () => {
     expect(autoRow.amountCentsByMonth["2026-06"]).toBe(-30000);
     expect(manualRow.amountCentsByMonth["2026-05"]).toBe(-4000);
     expect(manualRow.amountCentsByMonth["2026-06"]).toBe(-4000);
+  });
+
+  describe("tip accruals", () => {
+    it("a tip accrual on an other_current_liabilities account resolves to negative signed cents (credits the liability)", () => {
+      const rows = aggregateRows(
+        emptyInput({
+          tipAccruals: [{ id: "tips-2026-01", chartOfAccountsId: "coa-bs-deposit", amountCents: 204354, monthKey: "2026-01" }],
+        }),
+      );
+
+      expect(rows).toHaveLength(1);
+      expect(rows[0].coaId).toBe("coa-bs-deposit");
+      expect(rows[0].amountCentsByMonth["2026-01"]).toBe(-204354);
+      expect(rows[0].mappingSource).toBe("rule");
+      expect(rows[0].channel).toBe("unknown");
+    });
+
+    it("a tip accrual whose monthKey is outside `months` is dropped", () => {
+      const rows = aggregateRows(
+        emptyInput({
+          months: ["2026-01", "2026-02"],
+          tipAccruals: [{ id: "tips-2025-12", chartOfAccountsId: "coa-bs-deposit", amountCents: 100000, monthKey: "2025-12" }],
+        }),
+      );
+
+      expect(rows).toHaveLength(0);
+    });
+
+    it("an accrual and a payout on the same liability account in the same month OFFSET rather than compound", () => {
+      const rows = aggregateRows(
+        emptyInput({
+          months: ["2026-06"],
+          expenses: [
+            // Payout: cash leaves to pay employees out their collected tips.
+            { id: "exp-tip-payout", chartOfAccountsId: "coa-bs-deposit", amountCents: -190000, accountingDate: "2026-06-15", mappingSource: "manual" },
+          ],
+          tipAccruals: [
+            // Collection: that same month's card tips collected.
+            { id: "tips-2026-06", chartOfAccountsId: "coa-bs-deposit", amountCents: 190000, monthKey: "2026-06" },
+          ],
+        }),
+      );
+
+      const total = rows
+        .filter((r) => r.coaId === "coa-bs-deposit")
+        .reduce((s, r) => s + (r.amountCentsByMonth["2026-06"] ?? 0), 0);
+
+      // Payout (-190000 raw -> +190000, pays the liability down) and accrual
+      // (+190000 raw -> -190000, credits the liability back up) are equal and
+      // opposite -- net liability movement for the month is 0. If the signs
+      // compounded instead of offsetting, this would be -380000 or +380000.
+      expect(total).toBe(0);
+    });
   });
 });

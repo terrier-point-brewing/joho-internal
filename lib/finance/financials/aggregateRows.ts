@@ -105,6 +105,24 @@ export interface RefundRecord {
   refundedAt: string | null;
 }
 
+/**
+ * Derived monthly accrual of collected card tips, owed back out to
+ * employees. Balance-sheet only -- credits the tips liability account the
+ * same way a tip payout (an expense/bank row on the same account) debits it,
+ * so the two legs offset instead of compounding. Synthesized upstream by
+ * fetchTipAccruals (fetchSources.ts) from square_orders.tip_cents; there is
+ * no underlying DB row per accrual, hence the synthetic id.
+ */
+export interface TipAccrualRecord {
+  /** Synthetic, e.g. `tips-2026-06`. */
+  id: string;
+  chartOfAccountsId: string;
+  /** Positive magnitude of tips collected. */
+  amountCents: number;
+  /** "YYYY-MM", already canonical -- balance-sheet mode collapses everything onto one synthetic month key. */
+  monthKey: string;
+}
+
 /** chart_of_accounts row. */
 export interface CoaRecord {
   id: string;
@@ -123,13 +141,14 @@ export interface AggregateRowsInput {
   expenses: ExpenseRecord[];
   refunds: RefundRecord[];
   bank: BankLedgerRecord[];
+  tipAccruals: TipAccrualRecord[];
   coa: CoaRecord[];
   months: string[];
 }
 
 const UNMAPPED_SECTION = "unmapped";
 
-type NormalizeSource = "pos" | "invoice" | "expense" | "bank" | "refund";
+type NormalizeSource = "pos" | "invoice" | "expense" | "bank" | "refund" | "tip_accrual";
 
 /** One row's resolved shape, prior to grouping/month-bucketing. */
 interface ResolvedRow {
@@ -275,6 +294,31 @@ function resolveExpenseLike(
   };
 }
 
+/**
+ * Collected-tips accrual: no date to parse (monthKey arrives already
+ * canonical from fetchTipAccruals), no sales channel, no volume -- it credits
+ * the tips liability the same way a payout debits it. `amountCents` is an
+ * unsigned-positive magnitude (like pos/invoice), so normalizeSignedCents
+ * falls through to its pos/invoice branch and takes its sign entirely from
+ * the mapped account's statement section.
+ */
+function resolveTipAccrual(row: TipAccrualRecord, coaMap: Map<string, CoaRecord>): ResolvedRow {
+  const section = coaSection(coaMap.get(row.chartOfAccountsId));
+  return {
+    table: "square_orders",
+    id: row.id,
+    coaId: row.chartOfAccountsId,
+    mappingSource: "rule",
+    channel: "unknown",
+    posCategory: null,
+    kegSize: null,
+    amountCents: normalizeSignedCents(row.amountCents, section, "tip_accrual"),
+    bbl: 0,
+    bblCoverage: "full",
+    monthKey: row.monthKey,
+  };
+}
+
 function groupKey(r: ResolvedRow): string {
   return [r.table, r.coaId ?? "\0null", r.channel, r.posCategory ?? "\0null", r.kegSize ?? "\0null", r.mappingSource].join("::");
 }
@@ -339,6 +383,10 @@ export function aggregateRows(input: AggregateRowsInput): FinancialsRow[] {
       "bank",
     );
     if (r && monthSet.has(r.monthKey)) resolved.push(r);
+  }
+  for (const row of input.tipAccruals) {
+    const r = resolveTipAccrual(row, coaMap);
+    if (monthSet.has(r.monthKey)) resolved.push(r);
   }
   for (const row of input.refunds) {
     // square_refunds has no separate "rule" tier — its chart_of_accounts_id

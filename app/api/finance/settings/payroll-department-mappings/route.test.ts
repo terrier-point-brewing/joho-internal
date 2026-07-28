@@ -117,6 +117,36 @@ describe("GET /api/finance/settings/payroll-department-mappings", () => {
     expect(json.mappings).toEqual([]);
     expect(json.payrollTaxesAccountId).toBeNull();
   });
+
+  it("returns tipsAccountId from the settings row", async () => {
+    sbConfig = {
+      settingsSelectResult: {
+        data: { payroll_taxes_chart_of_accounts_id: "COA_TAX", tips_chart_of_accounts_id: "COA_TIPS" },
+        error: null,
+      },
+    };
+
+    const { GET } = await import("./route");
+    const res = await GET();
+    const json = await res.json();
+
+    expect(json.tipsAccountId).toBe("COA_TIPS");
+  });
+
+  it("returns null tipsAccountId when the column is null", async () => {
+    sbConfig = {
+      settingsSelectResult: {
+        data: { payroll_taxes_chart_of_accounts_id: "COA_TAX", tips_chart_of_accounts_id: null },
+        error: null,
+      },
+    };
+
+    const { GET } = await import("./route");
+    const res = await GET();
+    const json = await res.json();
+
+    expect(json.tipsAccountId).toBeNull();
+  });
 });
 
 describe("PUT /api/finance/settings/payroll-department-mappings", () => {
@@ -147,6 +177,7 @@ describe("PUT /api/finance/settings/payroll-department-mappings", () => {
       putRequest({
         mappings: [{ departmentName: "Production", chartOfAccountsId: "COA_PROD" }],
         payrollTaxesAccountId: "COA_TAX",
+        tipsAccountId: "COA_TIPS",
       }),
     );
     const json = await res.json();
@@ -161,7 +192,7 @@ describe("PUT /api/finance/settings/payroll-department-mappings", () => {
     sbConfig = { mappingsSelectResults: [{ data: [], error: null }] };
 
     const { PUT } = await import("./route");
-    await PUT(putRequest({ mappings: [], payrollTaxesAccountId: "COA_TAX" }));
+    await PUT(putRequest({ mappings: [], payrollTaxesAccountId: "COA_TAX", tipsAccountId: "COA_TIPS" }));
 
     const deleteIdx = lastCalls.findIndex((c) => c.table === "payroll_department_gl_mappings" && c.op === "delete");
     const insertIdx = lastCalls.findIndex((c) => c.table === "payroll_department_gl_mappings" && c.op === "insert");
@@ -174,16 +205,39 @@ describe("PUT /api/finance/settings/payroll-department-mappings", () => {
     sbConfig = { mappingsSelectResults: [{ data: [], error: null }] };
 
     const { PUT } = await import("./route");
-    await PUT(putRequest({ mappings: [], payrollTaxesAccountId: "COA_TAX" }));
+    await PUT(putRequest({ mappings: [], payrollTaxesAccountId: "COA_TAX", tipsAccountId: "COA_TIPS" }));
 
     const upsertCall = lastCalls.find((c) => c.table === "payroll_gl_settings" && c.op === "upsert");
-    expect(upsertCall?.args[0]).toEqual({ id: true, payroll_taxes_chart_of_accounts_id: "COA_TAX" });
+    expect(upsertCall?.args[0]).toEqual({
+      id: true,
+      payroll_taxes_chart_of_accounts_id: "COA_TAX",
+      tips_chart_of_accounts_id: "COA_TIPS",
+    });
     expect(upsertCall?.args[1]).toEqual({ onConflict: "id" });
   });
 
   it("requires payrollTaxesAccountId", async () => {
     const { PUT } = await import("./route");
-    const res = await PUT(putRequest({ mappings: [] }));
+    const res = await PUT(putRequest({ mappings: [], tipsAccountId: "COA_TIPS" }));
     expect(res.status).toBe(400);
+  });
+
+  it("requires tipsAccountId", async () => {
+    const { PUT } = await import("./route");
+    const res = await PUT(putRequest({ mappings: [], payrollTaxesAccountId: "COA_TAX" }));
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toBe("tipsAccountId required");
+  });
+
+  it("persists and echoes back tipsAccountId", async () => {
+    sbConfig = { mappingsSelectResults: [{ data: [], error: null }] };
+
+    const { PUT } = await import("./route");
+    const res = await PUT(putRequest({ mappings: [], payrollTaxesAccountId: "COA_TAX", tipsAccountId: "COA_TIPS" }));
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(json.tipsAccountId).toBe("COA_TIPS");
   });
 });

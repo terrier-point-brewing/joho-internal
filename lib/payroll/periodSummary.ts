@@ -132,15 +132,15 @@ export async function getPeriodSummaries(sb: SupabaseClient): Promise<PayPeriodS
 
   // report GL totals for the active reports
   const activeReportIds = [...reportByPeriod.values()].map((r) => r.id);
-  const totalsByReport = new Map<string, { chart_of_accounts_id: string; amount_cents: number }[]>();
+  const totalsByReport = new Map<string, { chart_of_accounts_id: string; amount_cents: number; bucket_kind: string | null }[]>();
   if (activeReportIds.length > 0) {
     const { data: totalRows } = await sb
       .from("payroll_gl_report_totals")
-      .select("report_id, chart_of_accounts_id, amount_cents")
+      .select("report_id, chart_of_accounts_id, amount_cents, bucket_kind")
       .in("report_id", activeReportIds);
-    for (const t of (totalRows ?? []) as { report_id: string; chart_of_accounts_id: string; amount_cents: number }[]) {
+    for (const t of (totalRows ?? []) as { report_id: string; chart_of_accounts_id: string; amount_cents: number; bucket_kind: string | null }[]) {
       const arr = totalsByReport.get(t.report_id) ?? [];
-      arr.push({ chart_of_accounts_id: t.chart_of_accounts_id, amount_cents: t.amount_cents });
+      arr.push({ chart_of_accounts_id: t.chart_of_accounts_id, amount_cents: t.amount_cents, bucket_kind: t.bucket_kind });
       totalsByReport.set(t.report_id, arr);
     }
   }
@@ -174,8 +174,15 @@ export async function getPeriodSummaries(sb: SupabaseClient): Promise<PayPeriodS
     const report = reportByPeriod.get(p.id) ?? null;
     const totals = report ? (totalsByReport.get(report.id) ?? []) : [];
     const gustoTotalCents = report ? totals.reduce((s, t) => s + t.amount_cents, 0) : null;
+    // Tips are a balance-sheet pass-through, not wages -- exclude them by
+    // bucket_kind (not by requiring bucket_kind === "wages"): migration
+    // 20260824's DEFAULT 'wages' means pre-existing employer-tax rows also
+    // read bucket_kind='wages', so an inclusive test would misclassify them.
+    // They're already excluded by the taxesAccountId check below regardless.
     const gustoWagesCents = report
-      ? totals.filter((t) => t.chart_of_accounts_id !== taxesAccountId).reduce((s, t) => s + t.amount_cents, 0)
+      ? totals
+          .filter((t) => t.chart_of_accounts_id !== taxesAccountId && t.bucket_kind !== "tips")
+          .reduce((s, t) => s + t.amount_cents, 0)
       : null;
 
     const matchedIds = matchedByPeriod.get(p.id) ?? [];

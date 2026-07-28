@@ -7,9 +7,11 @@
  * own row (non-blank Last Name) carries their Regular/Salary `Amount` and
  * pre-summed `Employer Taxes`. It may be followed by blank-Last-Name
  * sub-rows carrying additional pay-type breakdowns — a Bonus (real wage
- * expense, must be added to gross), Cash/Paycheck Tips (pass-through, not
- * wage expense), and a "Gross" subtotal (sum of the above, would
- * double-count if included). The label for these sub-rows lives in the
+ * expense, must be added to gross), Paycheck Tips (a balance-sheet
+ * pass-through — captured separately, never folded into gross wages), Cash
+ * Tips (never moves company money, so it is discarded entirely), and a
+ * "Gross" subtotal (sum of the above, would double-count if included). The
+ * label for these sub-rows lives in the
  * "Pay Type" column position (index 7) — verified directly against the
  * real export; the first sub-row of a block also carries the literal
  * "Totals" in the "Job" column position (index 6), which is not used here.
@@ -37,6 +39,10 @@ export interface ParsedGustoEmployee {
   payType: string | null;
   grossAmountCents: number;
   employerTaxCents: number;
+  /** Sum of this employee's "Paycheck Tips" sub-rows, in cents. 0 when the
+   *  employee has no Paycheck Tips sub-row. Never folded into grossAmountCents —
+   *  tips are a balance-sheet pass-through, not wage expense. */
+  paycheckTipsCents: number;
 }
 
 export interface ParsedGustoReport {
@@ -148,6 +154,7 @@ export function parseGustoPayrollJournal(csvText: string): ParsedGustoReport {
         payType: cell(row, COL.payType) || null,
         grossAmountCents: parseAmountCents(cell(row, COL.amount)),
         employerTaxCents: parseAmountCents(cell(row, COL.employerTaxes)),
+        paycheckTipsCents: 0,
       });
       continue;
     }
@@ -159,8 +166,10 @@ export function parseGustoPayrollJournal(csvText: string): ParsedGustoReport {
     const label = cell(row, COL.payType);
     if (label === "Bonus") {
       current.grossAmountCents += parseAmountCents(cell(row, COL.amount));
+    } else if (label === "Paycheck Tips") {
+      current.paycheckTipsCents += parseAmountCents(cell(row, COL.amount));
     }
-    // Cash Tips / Paycheck Tips (pass-through) and Gross (would double-count) — excluded.
+    // Cash Tips (never moves company money) and Gross (would double-count) — excluded.
   }
 
   if (employees.length === 0) {
@@ -176,30 +185,40 @@ export function parseGustoPayrollJournal(csvText: string): ParsedGustoReport {
   };
 }
 
+export type GlBucketKind = "wages" | "employer_tax" | "tips";
+
 export interface GlBucketTotal {
   chartOfAccountsId: string;
   amountCents: number;
+  kind: GlBucketKind;
 }
 
 /**
  * Buckets parsed.employees by department via departmentMap, sums employer
- * tax across ALL employees into payrollTaxesAccountId. Employees whose
+ * tax across ALL employees into payrollTaxesAccountId, and sums Paycheck
+ * Tips across ALL employees into tipsAccountId — both are company-wide
+ * liability buckets, independent of department mapping. Employees whose
  * department isn't in departmentMap contribute to parsed.unmappedDepartments
  * (already populated by parseGustoPayrollJournal) and are excluded from the
- * returned totals.
+ * wage buckets (but still contribute to taxes/tips). The tips bucket is
+ * omitted entirely when the summed amount is 0 — never a $0 row.
  */
 export function computeGlBucketTotals(
   parsed: ParsedGustoReport,
   departmentMap: Map<string, string>,
   payrollTaxesAccountId: string,
+  tipsAccountId: string,
 ): GlBucketTotal[] {
   const grossByAccount = new Map<string, number>();
   let totalEmployerTaxCents = 0;
+  let totalPaycheckTipsCents = 0;
 
   for (const employee of parsed.employees) {
-    // Employer payroll taxes are a single company-wide GL bucket — taxed
-    // regardless of whether the employee's department resolves to a mapping.
+    // Employer payroll taxes and Paycheck Tips are each a single
+    // company-wide GL bucket — accrued regardless of whether the employee's
+    // department resolves to a mapping.
     totalEmployerTaxCents += employee.employerTaxCents;
+    totalPaycheckTipsCents += employee.paycheckTipsCents;
 
     const department = employee.department.trim();
     const chartOfAccountsId = department ? departmentMap.get(department) : undefined;
@@ -214,10 +233,14 @@ export function computeGlBucketTotals(
   }
 
   const totals: GlBucketTotal[] = Array.from(grossByAccount.entries()).map(
-    ([chartOfAccountsId, amountCents]) => ({ chartOfAccountsId, amountCents }),
+    ([chartOfAccountsId, amountCents]) => ({ chartOfAccountsId, amountCents, kind: "wages" as const }),
   );
 
-  totals.push({ chartOfAccountsId: payrollTaxesAccountId, amountCents: totalEmployerTaxCents });
+  totals.push({ chartOfAccountsId: payrollTaxesAccountId, amountCents: totalEmployerTaxCents, kind: "employer_tax" });
+
+  if (totalPaycheckTipsCents > 0) {
+    totals.push({ chartOfAccountsId: tipsAccountId, amountCents: totalPaycheckTipsCents, kind: "tips" });
+  }
 
   return totals;
 }

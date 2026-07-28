@@ -88,6 +88,7 @@ export async function buildFinancials(params: { statement: StatementKind; year: 
     expenses: src.expenses,
     refunds: src.refunds,
     bank: src.bank,
+    tipAccruals: src.tipAccruals,
     coa: src.coa,
     months,
   });
