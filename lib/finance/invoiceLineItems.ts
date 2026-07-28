@@ -94,7 +94,13 @@ export function buildInvoiceLineItemRows(
     .filter((a) => a > 0);
 
   const rows: CanonicalLineItemRow[] = [];
-  (order.line_items ?? []).forEach((li, i) => {
+  // sort_order counts PUSHED rows, not the order's line-item positions: carve-out
+  // excise lines are skipped below, and a gap would make persistInvoiceLineItems'
+  // `sort_order > rows.length - 1` cleanup delete a row it just wrote. Keyed the
+  // same way, existingCoaBySort stays aligned — its keys are DB sort_order values
+  // this function wrote, so they are push positions too.
+  let sortOrder = 0;
+  (order.line_items ?? []).forEach((li) => {
     const qty     = parseFloat(li.quantity ?? "1");
     const varId   = li.catalog_object_id ?? "";
     const varName = li.variation_name ?? "";
@@ -112,7 +118,7 @@ export function buildInvoiceLineItemRows(
     if (!category) category = classifyLineItem(li.name);
 
     const varMapping = varId ? variationById.get(varId) : undefined;
-    const coa = resolveLineItemCoa(existingCoaBySort.get(i), {
+    const coa = resolveLineItemCoa(existingCoaBySort.get(sortOrder), {
       // Invoice-specific override wins; else the variation's default GL. Matches
       // the invoice auto-map priority so a re-sync fully maps in one pass.
       chart_of_accounts_id: varMapping?.chart_of_accounts_id_invoice ?? varMapping?.chart_of_accounts_id ?? null,
@@ -123,7 +129,7 @@ export function buildInvoiceLineItemRows(
 
     rows.push({
       invoice_id: invoiceId,
-      sort_order: i,
+      sort_order: sortOrder,
       line_item_name: lineName || null,
       variation_name: varName || null,
       description: li.name + (varName ? ` — ${varName}` : ""),
@@ -139,6 +145,7 @@ export function buildInvoiceLineItemRows(
       square_catalog_variation_id: varId || null,
       chart_of_accounts_id: coa.chart_of_accounts_id,
     });
+    sortOrder++;
   });
 
   return rows;
