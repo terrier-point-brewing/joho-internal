@@ -15,7 +15,8 @@ export default function AppearanceSettings({
   brandChromeEnabled: boolean;
 }) {
   return (
-    <div className="p-4 sm:p-6 max-w-md">
+    <div className="flex-1 overflow-auto px-4 sm:px-6 py-4 sm:py-6">
+    <div className="max-w-md">
       <PageHeader title="Appearance" description="Theme and skin for the internal app." />
 
       <div className="flex flex-col gap-4 mt-4">
@@ -43,6 +44,7 @@ export default function AppearanceSettings({
           </div>
         )}
       </div>
+    </div>
     </div>
   );
 }

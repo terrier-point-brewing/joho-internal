@@ -5,11 +5,14 @@ import { usePathname } from "next/navigation";
 import { useState, useEffect } from "react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { useUserRole, usePermissions } from "@/lib/hooks/useUserRole";
+import { usePendingAccessRequestCount } from "@/lib/hooks/useAccessRequests";
 import { CAP } from "@/lib/auth/capabilities";
+import { navEntryVisible } from "./SubNav";
 import { FINANCE_NAV } from "@/app/finance/nav-config";
 import { TAPROOM_NAV } from "@/app/taproom/nav-config";
 import { PRODUCTION_NAV } from "@/app/production/nav-config";
 import { BRAND_TABS } from "@/app/brand/nav-config";
+import { SETTINGS_GROUPS } from "@/app/settings/nav-config";
 
 const ROLE_LABELS: Record<string, string> = {
   viewer: "Viewer", brewer: "Brewer", manager: "Manager", admin: "Admin",
@@ -62,6 +65,7 @@ export default function NavBar() {
 
   const { role, user, loading } = useUserRole();
   const { can } = usePermissions();
+  const pendingRequests = usePendingAccessRequestCount();
 
   const [collapsed, setCollapsed] = useState(false);
 
@@ -231,13 +235,30 @@ export default function NavBar() {
                 )}
 
                 <Link
-                  href="/settings/account"
-                  className={`px-3 py-2 rounded text-sm font-medium transition-colors mt-1 ${
+                  href="/settings/user/account"
+                  className={`px-3 py-2 rounded text-sm font-medium transition-colors mt-1 flex items-center gap-1.5 ${
                     isSettings ? "bg-surface-mid text-primary" : "text-secondary hover:text-strong hover:bg-surface-mid/50"
                   }`}
                 >
                   Settings
+                  {!isSettings && pendingRequests > 0 && <PendingBadge count={pendingRequests} />}
                 </Link>
+                {isSettings && (
+                  <div className="mt-1 ml-2 flex flex-col gap-0.5 border-l border-line pl-2">
+                    {SETTINGS_GROUPS.filter((e) => navEntryVisible(e, can)).map(({ href, label }) => (
+                      <Link
+                        key={href}
+                        href={href}
+                        className={`${subtabCls(pathname === href || pathname.startsWith(href + "/"))} flex items-center gap-1.5`}
+                      >
+                        {label}
+                        {href === "/settings/environment" && pendingRequests > 0 && (
+                          <PendingBadge count={pendingRequests} />
+                        )}
+                      </Link>
+                    ))}
+                  </div>
+                )}
               </>
             )}
           </nav>
@@ -269,7 +290,7 @@ export default function NavBar() {
               </Link>
             )}
             {!loading && (
-              <Link href="/settings/account" title="Settings"
+              <Link href="/settings/user/account" title="Settings"
                 className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${isSettings ? "bg-surface-mid text-accent" : "text-faint hover:text-body hover:bg-surface-mid/50"}`}>
                 <SettingsIcon />
               </Link>
@@ -334,7 +355,7 @@ export default function NavBar() {
           </MobileNavItem>
         )}
         {!loading && (
-          <MobileNavItem href="/settings/account" active={isSettings} label="Settings">
+          <MobileNavItem href="/settings/user/account" active={isSettings} label="Settings">
             <SettingsIcon />
           </MobileNavItem>
         )}
@@ -347,6 +368,19 @@ export default function NavBar() {
         </button>
       </nav>
     </>
+  );
+}
+
+/**
+ * Pending access-request count. Rides the Environment settings group, and the
+ * Settings entry itself while that group is collapsed, so an admin sees the
+ * count without having to be inside settings already.
+ */
+function PendingBadge({ count }: { count: number }) {
+  return (
+    <span className="text-xs bg-accent-emphasis text-canvas font-bold rounded-full px-1.5 py-0.5 leading-none">
+      {count}
+    </span>
   );
 }
 

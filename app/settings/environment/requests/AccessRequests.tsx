@@ -1,25 +1,15 @@
 "use client";
 
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { fetchJson } from "@/app/production/hooks/queries";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import PageHeader from "@/app/components/PageHeader";
 import Banner from "@/app/components/ui/Banner";
 import Card from "@/app/components/ui/Card";
 import Badge from "@/app/components/ui/Badge";
 import type { Tone } from "@/app/components/ui/tone";
+import { useAccessRequests, type AccessRequest } from "@/lib/hooks/useAccessRequests";
+import { queryKeys } from "@/lib/query-keys";
 
-interface AccountRequest {
-  id: string;
-  name: string;
-  email: string;
-  reason: string | null;
-  status: "pending" | "approved" | "denied";
-  created_at: string;
-}
-
-const QUERY_KEY = ["admin", "requests"] as const;
-
-const STATUS_TONE: Record<AccountRequest["status"], Tone> = {
+const STATUS_TONE: Record<AccessRequest["status"], Tone> = {
   pending: "accent",
   approved: "success",
   denied: "neutral",
@@ -28,10 +18,7 @@ const STATUS_TONE: Record<AccountRequest["status"], Tone> = {
 export default function AccessRequests() {
   const qc = useQueryClient();
 
-  const { data: requests = [], isLoading, error } = useQuery({
-    queryKey: QUERY_KEY,
-    queryFn: () => fetchJson<AccountRequest[]>("/api/admin/requests"),
-  });
+  const { data: requests = [], isLoading, error } = useAccessRequests();
 
   const action = useMutation({
     mutationFn: ({ id, status }: { id: string; status: "approved" | "denied" }) =>
@@ -45,11 +32,12 @@ export default function AccessRequests() {
           throw new Error(data.error ?? `Failed to ${status} request`);
         }
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: QUERY_KEY }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.admin.requests() }),
   });
 
   return (
-    <div className="p-4 sm:p-6 max-w-4xl mx-auto">
+    <div className="flex-1 overflow-auto px-4 sm:px-6 py-4 sm:py-6">
+      <div className="max-w-4xl">
       <PageHeader title="Access Requests" />
 
       {isLoading && <p className="text-sm text-muted">Loading…</p>}
@@ -117,6 +105,7 @@ export default function AccessRequests() {
           </table>
         </Card>
       )}
+      </div>
     </div>
   );
 }

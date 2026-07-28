@@ -26,6 +26,14 @@ export const queryKeys = {
     me:  () => ["auth", "me"] as const,
   },
 
+  // ─── Admin ───────────────────────────────────────────────────────────────
+  admin: {
+    all: () => ["admin"] as const,
+    // Shared by the Access Requests table and the sidebar's pending badge, so
+    // approving a request refreshes both off one cache entry.
+    requests: () => ["admin", "requests"] as const,
+  },
+
   // ─── Production ──────────────────────────────────────────────────────────
   production: {
     all:                  () => ["production"] as const,

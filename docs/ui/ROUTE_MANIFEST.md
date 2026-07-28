@@ -36,15 +36,29 @@ Legend: **C** = client component (`"use client"`), **S** = server component.
 
 | Path | Kind | Scope | Description |
 |---|---|---|---|
-| `app/settings/layout.tsx` | S | guard | Auth guard; renders SettingsTabs + children. |
-| `app/settings/SettingsTabs.tsx` | C | **content** | Settings tab bar (hand-rolled, dup of SubNav). |
-| `app/settings/page.tsx` | S | redirect | → `/settings/account`. |
-| `app/settings/account/page.tsx` | S | guard | Renders AccountSettings. |
-| `app/settings/account/AccountSettings.tsx` | C | **content** | Change-password form. |
-| `app/settings/requests/page.tsx` | S | guard | Renders AccessRequests. |
-| `app/settings/requests/AccessRequests.tsx` | C | **content** | Access-request review table. |
-| `app/settings/users/page.tsx` | S | guard | Renders UserManagement. |
-| `app/settings/users/UserManagement.tsx` | C | **content** | User table + create/set-password modals. |
+Seven groups, one per scope family, listed in `app/settings/nav-config.ts`. The
+group row renders in the app sidebar (desktop) and as a `md:hidden` SubNav
+inside `SettingsGroupShell` (mobile); each group then has ONE level of sub-tabs.
+Every group layout is `requirePage(cap)` + `<SettingsGroupShell nav={…}>`.
+
+| Path | Kind | Scope | Description |
+|---|---|---|---|
+| `app/settings/layout.tsx` | S | guard | Session gate + full-height shell. |
+| `app/settings/SettingsGroupShell.tsx` | S | **content** | Shared group chrome: mobile group row + sub-tabs + padded content slot. |
+| `app/settings/page.tsx` | S | redirect | → `/settings/user/account`. |
+| `app/settings/user/layout.tsx` | S | shell | No gate — scope-less personal settings. |
+| `app/settings/user/account/AccountSettings.tsx` | C | **content** | Change-password form. |
+| `app/settings/user/appearance/AppearanceSettings.tsx` | C | **content** | Theme + brand-skin toggle. |
+| `app/settings/environment/layout.tsx` | S | shell | No group gate; the four `org.*` subtabs gate individually. |
+| `app/settings/environment/business/BusinessSettings.tsx` | C | **content** | Location-wide business settings. |
+| `app/settings/environment/users/UserManagement.tsx` | C | **content** | User table + create/set-password modals. |
+| `app/settings/environment/requests/AccessRequests.tsx` | C | **content** | Access-request review table. |
+| `app/settings/environment/cron/CronMonitor.tsx` | C | **content** | Cron job run log. |
+| `app/settings/finance/**` | S | `finance.transactions:manage` | CoA, Account Mapping, Expense Accounts, Counterparty Accounts. |
+| `app/settings/payroll/**` | S | `payroll:manage` | Payroll config, Departments. |
+| `app/settings/tax/**` | S | per-subtab | Tax Profile (`finance.tax`), Tax Filing (`finance.tax.filing`). |
+| `app/settings/production/**` | S | `production.settings:manage` | Deposit Settings, Export Settings. |
+| `app/settings/catalog/**` | S | `catalog:read` | Square Item Mappings. Single page — no sub-tab row. |
 
 ## Finance (`app/finance/**`) — admin-gated
 

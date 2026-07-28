@@ -106,7 +106,8 @@ export default function CronMonitor() {
   }
 
   return (
-    <div className="px-4 sm:px-6 py-4 sm:py-6 max-w-3xl">
+    <div className="flex-1 overflow-auto px-4 sm:px-6 py-4 sm:py-6">
+    <div className="max-w-3xl">
       <div className="flex items-center justify-between mb-4">
         <div>
           <h2 className="text-sm font-semibold text-strong">Cron Jobs</h2>
@@ -192,6 +193,7 @@ export default function CronMonitor() {
           </p>
         </div>
       )}
+    </div>
     </div>
   );
 }

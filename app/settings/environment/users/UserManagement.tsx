@@ -144,7 +144,8 @@ export default function UserManagement() {
   const displayError = apiError ?? (error as Error)?.message ?? null;
 
   return (
-    <div className="p-4 sm:p-6 max-w-4xl mx-auto">
+    <div className="flex-1 overflow-auto px-4 sm:px-6 py-4 sm:py-6">
+    <div className="max-w-4xl">
       <PageHeader title="Users" />
 
       {isLoading && <p className="text-sm text-muted">Loading…</p>}
@@ -367,6 +368,7 @@ export default function UserManagement() {
           </form>
         </Modal>
       )}
+    </div>
     </div>
   );
 }

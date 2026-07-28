@@ -44,7 +44,8 @@ export default function AccountSettings() {
   }
 
   return (
-    <div className="p-4 sm:p-6 max-w-md">
+    <div className="flex-1 overflow-auto px-4 sm:px-6 py-4 sm:py-6">
+    <div className="max-w-md">
       <PageHeader title="Change Password" description="Set a new password for your account." />
 
       {error && <Banner tone="danger" className="mb-4">{error}</Banner>}
@@ -81,6 +82,7 @@ export default function AccountSettings() {
           </button>
         </div>
       </form>
+    </div>
     </div>
   );
 }

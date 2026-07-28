@@ -1,4 +1,4 @@
-import SubNav from "@/app/components/SubNav";
+import SettingsGroupShell from "../SettingsGroupShell";
 import { TAX_SETTINGS_NAV } from "../nav-config";
 
 /**
@@ -7,10 +7,5 @@ import { TAX_SETTINGS_NAV } from "../nav-config";
  * the sub-nav hides whichever the caller cannot open.
  */
 export default function TaxSettingsLayout({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="flex flex-col gap-4">
-      <SubNav entries={TAX_SETTINGS_NAV} />
-      <div>{children}</div>
-    </div>
-  );
+  return <SettingsGroupShell nav={TAX_SETTINGS_NAV}>{children}</SettingsGroupShell>;
 }

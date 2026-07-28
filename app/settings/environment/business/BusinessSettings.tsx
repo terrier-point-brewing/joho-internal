@@ -50,7 +50,8 @@ export default function BusinessSettings() {
   }
 
   return (
-    <div className="p-4 sm:p-6 max-w-xl">
+    <div className="flex-1 overflow-auto px-4 sm:px-6 py-4 sm:py-6">
+    <div className="max-w-xl">
       <PageHeader
         title="Business"
         description="Location-wide settings that apply across every report and dashboard."
@@ -104,6 +105,7 @@ export default function BusinessSettings() {
           )}
         </div>
       </section>
+    </div>
     </div>
   );
 }

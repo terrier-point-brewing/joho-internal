@@ -10,7 +10,7 @@ import { getSessionUser, type Session } from "./session";
  * copied per file — that copying is how page gates and API gates drifted
  * apart in the first place.
  *
- * The default fallback is /settings/account, and deliberately so. Any deny
+ * The default fallback is /settings/user/account, and deliberately so. Any deny
  * target must be a surface with NO scope, or a user who lacks the section
  * they were bounced into gets redirected again: "/" forwards to
  * /taproom/performance, so sending a taproom-less user there loops forever.
@@ -20,7 +20,7 @@ import { getSessionUser, type Session } from "./session";
  */
 export async function requirePage(
   cap: Capability,
-  fallback = "/settings/account",
+  fallback = "/settings/user/account",
 ): Promise<Session> {
   const session = await getSessionUser();
   if (!session) redirect("/login");
@@ -35,7 +35,7 @@ export async function requirePage(
  */
 export async function redirectToFirstReachable(
   candidates: { href: string; cap: Capability }[],
-  fallback = "/settings/account",
+  fallback = "/settings/user/account",
 ): Promise<never> {
   const session = await getSessionUser();
   if (!session) redirect("/login");

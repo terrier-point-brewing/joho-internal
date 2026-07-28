@@ -1,4 +1,4 @@
-import SubNav from "@/app/components/SubNav";
+import SettingsGroupShell from "../SettingsGroupShell";
 import { requirePage, CAP } from "@/lib/auth";
 import { PRODUCTION_SETTINGS_NAV } from "../nav-config";
 
@@ -9,10 +9,5 @@ import { PRODUCTION_SETTINGS_NAV } from "../nav-config";
  */
 export default async function ProductionSettingsLayout({ children }: { children: React.ReactNode }) {
   await requirePage(CAP.productionSettingsManage);
-  return (
-    <div className="flex flex-col gap-4">
-      <SubNav entries={PRODUCTION_SETTINGS_NAV} />
-      <div>{children}</div>
-    </div>
-  );
+  return <SettingsGroupShell nav={PRODUCTION_SETTINGS_NAV}>{children}</SettingsGroupShell>;
 }

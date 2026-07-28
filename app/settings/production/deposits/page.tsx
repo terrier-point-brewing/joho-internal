@@ -1,7 +1,20 @@
+import PageHeader from "@/app/components/PageHeader";
 import DepositSettingsPanel from "@/app/production/components/DepositSettingsPanel";
 
-// Section chrome (production nav + page header + settings sub-nav) now comes
-// from the settings hub layout, so the page is just its panel.
+// Group chrome (sidebar nav + mobile group row + sub-tabs) comes from the
+// settings group shell; the page owns its header and content padding.
 export default function DepositSettingsPage() {
-  return <DepositSettingsPanel />;
+  return (
+    <div className="flex-1 overflow-auto px-4 sm:px-6 py-4 sm:py-6">
+      <div className="max-w-3xl">
+        <PageHeader
+          title="Deposit Settings"
+          description="Deposit terms and the Square item deposit invoices bill against."
+        />
+        <div className="mt-4">
+          <DepositSettingsPanel />
+        </div>
+      </div>
+    </div>
+  );
 }
