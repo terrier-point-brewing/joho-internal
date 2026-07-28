@@ -411,18 +411,33 @@ Retired: `taproom.settings`, `brand.workbench`, `settings.*`, top-level `tax`.
 
 Written, **not run**. Prod migrations are human-gated, orchestrator-only.
 
-# Order of work
+# Order of work — all five phases delivered
 
-| Phase | Content | Status |
+| Phase | Content | Commit |
 |---|---|---|
-| 1 | Scope registry (27 keys) + CAP entries + type/matrix/guard updates | ready on Q-W4 |
-| 2 | Gate every surface per the A3 matrix; `.access` layouts; retire `taproom.settings` + `brand.workbench`; fix F6 | ready |
-| 3 | Grant migration SQL (written, human-gated) + bundle rewrite + role-matrix diff | ready |
-| 4 | **R1** — settings consolidation / routing (mechanical once gates settle) | ready |
-| 5 | **R2** — editable preset-role bundles | **needs its own design doc** |
+| 1 | Scope registry (27 keys) + CAP entries + type/matrix/guard updates | `7052aff` |
+| 2 | Gate every surface per the A3 matrix; `.access` layouts; retire `taproom.settings` + `brand.workbench`; fix F6 | `f9e046b` |
+| 3 | Grant migration SQL (written, human-gated) + bundle rewrite + role-matrix diff | `3cb1861` |
+| 4 | **R1** — settings consolidation into one hub | `430c390` |
+| 5 | **R2** — editable preset-role bundles | `41a7db0` |
 
-## Deferred to approval
+`npm run verify` green (2162 tests), `check:permissions` clean and now enforced in CI, production build passes.
 
-Nothing in phases 1–5 is started. Steps 3–6 of the original §9 (registry + type/resolver/matrix changes, grant migration SQL, bundle rewrite + role-matrix diff, routing consolidation) remain **not started**.
+## ⚠️ Open gates
+
+**Two migrations written, neither applied. Both are human-gated.**
+
+- **`20260825_scope_registry_restructure.sql`** — rewrites `user_permission_grants`. **Merging without it costs `jeffkliao@gmail.com` the Cron Jobs tab and `catalog` read**, because `settings` and `production` stop resolving those. Everything else is preserved by prefix.
+- **`20260826_role_permission_grants.sql`** — seeds the editable role bundles and redefines `effective_grant_level`. Deliberately safe to apply late: the app falls back to the `ROLE_BUNDLES` constant while the table is unreadable, so behaviour is identical either way.
+
+**Merge conflict pending with `claude/tips-balance-sheet-passthrough`.** That branch modifies `app/finance/settings/payroll-department-mappings/page.tsx`, which phase 4 moved to `app/settings/payroll/departments/page.tsx`. Git rename detection usually handles this, but the tips-liability GL account picker must survive the merge — check for it explicitly afterwards. The API route was deliberately left at `/api/finance/settings/payroll-department-mappings` partly to keep that half conflict-free.
+
+## Verification limits, stated honestly
+
+The 2162 tests cover the resolver, bundles, CAP coordinates, seed parity, the SQL transliteration, and every (route, role) pair in the legacy fixture. Browser verification confirmed the app boots and that all new and legacy settings paths resolve without runtime error — but **not** the gate semantics: `proxy.ts` short-circuits every request to `/login` without an authenticated session, so no gated layout was exercised end-to-end in a browser. Behaviour for a real signed-in manager/brewer/viewer rests on the test suite, not on a click-through.
+
+## Still deferred
+
+Nothing. Phase 5 was originally recommended as a separate design doc; it was pulled in on request and is delivered, with its design captured in the migration header and `roleBundles.server.ts`.
 
 Brief §7 constraints re-verified and still binding: `npm run verify`, near-unmodified page moves, redirects from every old path including `GustoUploadPanel.tsx:131` and `counterparty-accounts/page.tsx:150`, the `ExportSettingsPanel.tsx:15 → ExciseRatesSection` cross-import, deletion of the dead `finance/settings/excise-tax` redirect, coordination with `claude/tips-pl-exclusion-a91722`, and `docs/UI_STANDARD.md`.
