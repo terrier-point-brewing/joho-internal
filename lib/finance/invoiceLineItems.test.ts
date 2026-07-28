@@ -121,6 +121,26 @@ describe("buildInvoiceLineItemRows", () => {
     expect(rows.map((r) => r.sort_order)).toEqual([0, 1]);
   });
 
+  it("aligns square_line_item_uid with sort_order across a skipped excise line", () => {
+    const order = orderWith(
+      [
+        { uid: "u-a", quantity: "1", name: "Packaging Fee", gross_sales_money: { amount: 100, currency: "USD" }, total_money: { amount: 100, currency: "USD" } },
+        // Skipped: carve-out excise line, matched on gross === 500.
+        { uid: "u-excise", quantity: "1", name: "Barrel Excise Tax", gross_sales_money: { amount: 500, currency: "USD" }, total_money: { amount: 500, currency: "USD" } },
+        { uid: "u-c", quantity: "1", name: "CO2 Refill", gross_sales_money: { amount: 900, currency: "USD" }, total_tax_money: { amount: 65, currency: "USD" }, total_money: { amount: 900, currency: "USD" } },
+      ],
+      [{ uid: "d", name: "Excise carve out", scope: "LINE_ITEM", applied_money: { amount: 500, currency: "USD" } }],
+    );
+
+    const rows = buildInvoiceLineItemRows("INV_1", order, emptyIndexes, new Map());
+
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({ sort_order: 0, square_line_item_uid: "u-a" });
+    // The excise line is skipped WITHOUT advancing sort_order, so row 1 must
+    // carry u-c -- not u-excise. This is the off-by-one that corrupted 60 rows.
+    expect(rows[1]).toMatchObject({ sort_order: 1, square_line_item_uid: "u-c", tax_cents: 65 });
+  });
+
   it("keys existingCoaBySort by push position, so a dropped carve-out does not shift COA onto the wrong line", () => {
     const order = orderWith(
       [

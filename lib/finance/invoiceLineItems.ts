@@ -46,6 +46,15 @@ export interface CanonicalLineItemRow {
   tax_cents: number;
   total_cents: number;
   square_catalog_variation_id: string | null;
+  /**
+   * Square's per-line uid. MUST be written here rather than left to
+   * syncPosTransactions.ts's buildInvoiceLineItems: persistInvoiceLineItems
+   * upserts on (invoice_id, sort_order), so a column absent from this type is
+   * never overwritten. That let a 1-based uid from the other writer survive
+   * under this builder's 0-based, excise-skipping sort_order -- corrupting 60
+   * of 64 populated uids before this fix.
+   */
+  square_line_item_uid: string | null;
   chart_of_accounts_id: string | null;
 }
 
@@ -143,6 +152,7 @@ export function buildInvoiceLineItemRows(
       tax_cents: tax,
       total_cents: net,
       square_catalog_variation_id: varId || null,
+      square_line_item_uid: li.uid ?? null,
       chart_of_accounts_id: coa.chart_of_accounts_id,
     });
     sortOrder++;
