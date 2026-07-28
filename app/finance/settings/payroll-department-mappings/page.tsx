@@ -11,21 +11,29 @@ interface DepartmentMappingRow {
   chartOfAccountsId: string | null;
 }
 
+// Liability account types eligible for the tips pass-through account -- a
+// tips liability is neither A/P nor a credit card.
+const TIPS_ACCOUNT_TYPES = new Set(["Other Current Liabilities", "Long Term Liabilities"]);
+
 // Gusto payroll journal departments (e.g. "Production", "Front of House") ->
 // Chart of Accounts, plus the single payroll-taxes account that receives
-// every department's summed employer tax. Consumed by
+// every department's summed employer tax, plus the tips liability account
+// paycheck tips post to instead of a wage expense. Consumed by
 // lib/payroll/gustoUpload.ts's uploadGustoReport when bucketing an uploaded
 // Gusto CSV into GL totals for a pay period.
 export default function PayrollDepartmentMappingsPage() {
   const [accounts, setAccounts] = useState<CoARef[]>([]);
   const [rows, setRows] = useState<DepartmentMappingRow[]>([]);
   const [payrollTaxesAccountId, setPayrollTaxesAccountId] = useState<string | null>(null);
+  const [tipsAccountId, setTipsAccountId] = useState<string | null>(null);
   const [newDepartmentName, setNewDepartmentName] = useState("");
   const [newDepartmentAccountId, setNewDepartmentAccountId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+
+  const tipsAccounts = accounts.filter((a) => TIPS_ACCOUNT_TYPES.has(a.account_type));
 
   const loadAll = useCallback(async () => {
     try {
@@ -45,6 +53,7 @@ export default function PayrollDepartmentMappingsPage() {
           : [],
       );
       setPayrollTaxesAccountId(map?.payrollTaxesAccountId ?? null);
+      setTipsAccountId(map?.tipsAccountId ?? null);
     } catch {
       setError("Failed to load payroll department mappings.");
     } finally {
@@ -81,6 +90,10 @@ export default function PayrollDepartmentMappingsPage() {
       setError("Select a payroll taxes account before saving.");
       return;
     }
+    if (!tipsAccountId) {
+      setError("Select a tips liability account before saving.");
+      return;
+    }
     const incomplete = rows.filter((r) => !r.chartOfAccountsId);
     if (incomplete.length > 0) {
       setError(`Every department needs an account (missing: ${incomplete.map((r) => r.departmentName).join(", ")}).`);
@@ -97,6 +110,7 @@ export default function PayrollDepartmentMappingsPage() {
         body: JSON.stringify({
           mappings: rows.map((r) => ({ departmentName: r.departmentName, chartOfAccountsId: r.chartOfAccountsId })),
           payrollTaxesAccountId,
+          tipsAccountId,
         }),
       });
       if (!res.ok) {
@@ -208,6 +222,21 @@ export default function PayrollDepartmentMappingsPage() {
               onChange={setPayrollTaxesAccountId}
               accounts={accounts}
               placeholder="— select the payroll taxes account —"
+              shortLabel
+              className="w-full max-w-[360px]"
+            />
+          </Card>
+
+          <Card>
+            <h3 className="text-sm font-semibold text-strong">Tips liability account</h3>
+            <p className="text-xs text-muted mt-1 mb-2">
+              Paycheck tips from Gusto uploads post here instead of to wage accounts. Tips never appear on the P&amp;L.
+            </p>
+            <AccountSelect
+              value={tipsAccountId}
+              onChange={setTipsAccountId}
+              accounts={tipsAccounts}
+              placeholder="— select the tips liability account —"
               shortLabel
               className="w-full max-w-[360px]"
             />

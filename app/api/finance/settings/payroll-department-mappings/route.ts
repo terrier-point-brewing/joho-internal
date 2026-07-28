@@ -1,10 +1,13 @@
 /**
  * Payroll department -> GL account mapping settings, consumed by
  * lib/payroll/gustoUpload.ts's uploadGustoReport (bucketing each Gusto
- * employee's gross wages by department) and by the payroll-taxes single
+ * employee's gross wages by department), by the payroll-taxes single
  * bucket (payroll_gl_settings.payroll_taxes_chart_of_accounts_id, summing
- * employer tax across every department into one account). GET reads both;
- * PUT replaces the full mapping set and upserts the singleton settings row.
+ * employer tax across every department into one account), and by the tips
+ * liability bucket (payroll_gl_settings.tips_chart_of_accounts_id, where
+ * paycheck tips post as a balance-sheet pass-through instead of a wage
+ * expense). GET reads all three; PUT replaces the full mapping set and
+ * upserts the singleton settings row.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, CAP } from "@/lib/auth";
@@ -28,16 +31,19 @@ export async function GET() {
     const sb = createSupabaseAdminClient();
     const [mappingsResult, settingsResult] = await Promise.all([
       sb.from("payroll_department_gl_mappings").select("*").order("department_name", { ascending: true }),
-      sb.from("payroll_gl_settings").select("payroll_taxes_chart_of_accounts_id").maybeSingle(),
+      sb.from("payroll_gl_settings").select("payroll_taxes_chart_of_accounts_id, tips_chart_of_accounts_id").maybeSingle(),
     ]);
     if (mappingsResult.error) throw new Error(mappingsResult.error.message);
     if (settingsResult.error) throw new Error(settingsResult.error.message);
 
+    const settings = settingsResult.data as
+      | { payroll_taxes_chart_of_accounts_id: string; tips_chart_of_accounts_id: string | null }
+      | null;
+
     return NextResponse.json({
       mappings: (mappingsResult.data ?? []) as PayrollDepartmentGlMapping[],
-      payrollTaxesAccountId:
-        (settingsResult.data as { payroll_taxes_chart_of_accounts_id: string } | null)?.payroll_taxes_chart_of_accounts_id ??
-        null,
+      payrollTaxesAccountId: settings?.payroll_taxes_chart_of_accounts_id ?? null,
+      tipsAccountId: settings?.tips_chart_of_accounts_id ?? null,
     });
   } catch (err) {
     return apiError(err);
@@ -51,8 +57,10 @@ export async function PUT(req: NextRequest) {
     const body = (await req.json()) as {
       mappings: { departmentName: string; chartOfAccountsId: string }[];
       payrollTaxesAccountId: string;
+      tipsAccountId: string;
     };
     if (!body.payrollTaxesAccountId) return apiError("payrollTaxesAccountId required", 400);
+    if (!body.tipsAccountId) return apiError("tipsAccountId required", 400);
 
     const sb = createSupabaseAdminClient();
 
@@ -77,7 +85,14 @@ export async function PUT(req: NextRequest) {
 
     const { error: settingsErr } = await sb
       .from("payroll_gl_settings")
-      .upsert({ id: true, payroll_taxes_chart_of_accounts_id: body.payrollTaxesAccountId }, { onConflict: "id" });
+      .upsert(
+        {
+          id: true,
+          payroll_taxes_chart_of_accounts_id: body.payrollTaxesAccountId,
+          tips_chart_of_accounts_id: body.tipsAccountId,
+        },
+        { onConflict: "id" },
+      );
     if (settingsErr) throw new Error(settingsErr.message);
 
     const { data: mappings, error: reselectErr } = await sb
@@ -89,6 +104,7 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({
       mappings: (mappings ?? []) as PayrollDepartmentGlMapping[],
       payrollTaxesAccountId: body.payrollTaxesAccountId,
+      tipsAccountId: body.tipsAccountId,
     });
   } catch (err) {
     return apiError(err);
