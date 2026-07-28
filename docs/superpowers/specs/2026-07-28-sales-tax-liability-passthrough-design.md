@@ -162,9 +162,17 @@ Because `net = gross − discount + tax` holds on **every** prod row, this is
 arithmetically identical both before and after the backfill. Deploy ordering
 becomes irrelevant and the filings cannot drift.
 
-`squareTaxBase.test.ts` is **frozen as an equivalence gate** before the change —
-this is a shared pure function on a live filing path. Expect zero conflicts;
-investigate any that appear rather than editing the test.
+`squareTaxBase.test.ts` acts as the **equivalence gate** for the change — this is
+a shared pure function on a live filing path. Note the precise form the gate
+takes here: its stub rows currently expose only `net_sales_cents`/`tax_cents`, so
+a literal freeze cannot compile against a `gross − discount` implementation.
+
+The gate is therefore: **every `expect(...)` value stays byte-identical**, and
+the fixtures gain `gross_sales_cents`/`discount_cents` chosen to satisfy
+`net = gross − discount + tax` (e.g. the existing `net 10000 / tax 725` row
+becomes `gross 9275, discount 0`). If any expected value has to move to make the
+suite pass, stop — that means the rebase is not equivalent and the premise is
+wrong.
 
 ## Data model
 
@@ -365,23 +373,67 @@ in full and verified to carry the complete per-tax breakdown — for the
 ADD7EKQD2KN72NOYVUWHU34J` with per-line `applied_taxes` of 7268/7267/4649 cents,
 summing to the $191.84 header total.
 
+### Blocker: `invoice_line_items.square_line_item_uid` is corrupt
+
+Attaching tax to an invoice line needs a reliable line key, and the obvious one
+is broken. **60 of the 64 populated `square_line_item_uid` values point at the
+wrong Square line, across 18 invoices.** Each row carries the *previous* line's
+uid.
+
+Two writers disagree on indexing:
+
+- `buildInvoiceLineItems` (`syncPosTransactions.ts:199`) inserts
+  `sort_order: idx + 1` — **1-based** — together with `square_line_item_uid`.
+- `buildInvoiceLineItemRows` (`invoiceLineItems.ts:83`) writes `sort_order`
+  **0-based**, and skips Barrel Excise Tax carve-out lines entirely.
+- `persistInvoiceLineItems` upserts with
+  `{ onConflict: "invoice_id,sort_order" }`. `square_line_item_uid` is not a
+  member of `CanonicalLineItemRow`, so the upsert leaves it untouched and the
+  stale 1-based uid stays glued to the 0-based canonical row.
+
+Verified on invoice `35acf8f5`: the row described `CO2 Refill — 20#` with
+`tax_cents = 673` stores uid `992032da`, which in `raw_data` is the Forklift
+Service Fee (`tax 0`). The correct uid is `f9d90286`.
+
+Keying invoice tax on this column would attach every tax to the wrong line and
+feed a wrong taxable base to the NC DOR worksheet.
+
+**Fix:** add `square_line_item_uid: string | null` to `CanonicalLineItemRow` and
+set it from `li.uid ?? null` inside `buildInvoiceLineItemRows`'s existing push,
+so uid and `sort_order` are correct by construction and every subsequent invoice
+sync self-heals. The backfill repairs the 60 historical rows in the same pass
+that populates `invoice_line_item_taxes`.
+
+This also removes the need to replay the excise-skip logic in the backfill: once
+uid is authoritative, `raw_data.line_items[].uid → invoice_line_items.id` is a
+direct join.
+
 ## Backfill
 
 One route, `POST /api/finance/backfill/sales-tax`, **dry-run by default**
 (`dryRun` defaults true, matching the tips backfill's contract). Logic in
-`lib/finance/backfillSalesTax.ts`. Three independent steps, each separately
-reported:
+`lib/finance/backfillSalesTax.ts`. Four steps, each separately reported. Steps 2
+and 3 are ordered — step 3 depends on the key step 2 repairs; steps 1 and 4 are
+independent:
 
 1. **`pos_line_items.net_sales_cents`** → `gross_sales_cents − discount_cents`.
    Idempotent: rows already satisfying the identity are skipped, so a re-run is
    a no-op. Guard: abort the row if `net_sales_cents ≠ gross − discount + tax`,
    since the correction is only provably safe where the identity holds. Report
    any such row rather than guessing.
-2. **`invoice_line_item_taxes`** ← rebuilt from `square_orders.raw_data` for
-   invoice-backed orders, keyed to `invoice_line_items` by
-   `square_line_item_uid` where present and by `sort_order` otherwise.
-   Delete-then-insert per invoice, so re-runs converge.
-3. **`invoice_line_items.total_cents`** → `gross − discount` for any row where
+2. **`invoice_line_items.square_line_item_uid`** → repaired from
+   `square_orders.raw_data` by replaying `buildInvoiceLineItemRows`'s own
+   iteration (skip carve-out excise lines, increment `sort_order` per pushed
+   row) and matching on `sort_order`. Each match is **verified** against the
+   row's `gross_sales_cents`/`discount_cents`/`tax_cents` before writing; an
+   invoice whose triples don't line up is reported and skipped, never guessed
+   at. This is the one step that cannot key on uid, because uid is what it is
+   repairing.
+3. **`invoice_line_item_taxes`** ← rebuilt from `square_orders.raw_data`,
+   joining `raw_data.line_items[].uid → invoice_line_items.square_line_item_uid`
+   (now trustworthy after step 2). Delete-then-insert per invoice, so re-runs
+   converge.
+4. **`invoice_line_items.total_cents`** → `gross − discount` for any row where
    they disagree *and* `net_sales_cents` is non-null, repairing anything the
    latent tax-inclusive writer produced. Rows with NULL `net_sales_cents` are
    hand-added lines (Packaging Fee, Ingredient Deposit — 22 in prod) and are
@@ -488,12 +540,20 @@ rule; `npm run verify` must pass.
 
 - `squareTaxBase.test.ts` — **frozen first** as an equivalence gate, then
   extended for the invoice-source union
-- `syncPosTransactions.test.ts` — `buildPosLineItems` emits tax-free
-  `net_sales_cents`; `buildInvoiceLineItems` emits tax-free `total_cents`;
-  generalized `buildLineItemTaxRows` covers both tables. The existing
-  `buildInvoiceLineItems` test at line 202 pins the current tax-inclusive
-  behavior and **is expected to conflict** — that is the one legitimate
-  conflict, since it pins the bug being fixed.
+- `syncPosTransactions.test.ts` — **the shared `order` fixture must be corrected
+  first.** It currently sets line `total_money: 1350` with `gross 1400`,
+  `discount 50`, `tax 100` — i.e. `gross − discount`, tax-*exclusive*. Prod is
+  the opposite: line `total_money` is tax-**inclusive** on both POS and invoice
+  orders (verified: CO2 Refill `10000 − 724 + 673 = 9949`). Because the fixture
+  is unrealistic, `net_sales_cents: 1350` passes under **both** the buggy and
+  the fixed implementation — the existing tests cannot detect this bug at all.
+  Set `total_money: 1450` so the fixture satisfies the prod identity; the
+  existing assertions then fail against current code (proving the bug) and pass
+  after the fix. Then extend for `buildInvoiceLineItems`' tax-free `total_cents`
+  and the generalized `buildLineItemTaxRows` across both tables.
+- `invoiceLineItems.test.ts` — `buildInvoiceLineItemRows` emits
+  `square_line_item_uid` aligned with its own `sort_order`, including across a
+  skipped carve-out excise line (the case that produces the off-by-one).
 - `salesTaxAccounts.test.ts` — seeding is idempotent; unmapped tax yields no
   accrual
 - `fetchSources.test.ts` — `fetchTaxAccruals` groups by tax and month, is empty
