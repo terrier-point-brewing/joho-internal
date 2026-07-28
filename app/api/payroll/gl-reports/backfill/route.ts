@@ -15,7 +15,7 @@ import { backfillGlReports } from "@/lib/payroll/glBackfill";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
-  try { await requirePermission(CAP.payrollOperate); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.payrollManage); } catch (res) { return res as Response; }
 
   try {
     let body: { dryRun?: boolean } = {};
