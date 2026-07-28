@@ -27,6 +27,7 @@ const HREFS = {
   uncategorized: "/finance/transactions?filter=uncategorized",
   unknownVolume: "/finance/transactions?filter=unknownVolume",
   exciseCoverage: "/finance/transactions?filter=exciseCoverage",
+  unmappedTaxes: "/finance/settings/sales-tax-accounts",
 };
 
 describe("buildKpis", () => {
@@ -116,6 +117,7 @@ describe("buildDataQuality", () => {
     const dq = buildDataQuality(rows, {
       hrefs: HREFS,
         exciseCoverage: { shipmentsMissingExcise: 0 },
+      unmappedTaxes: { count: 0, cents: 0 },
     });
 
     expect(dq.unmapped).toEqual({ count: 1, cents: 7000, href: HREFS.unmapped });
@@ -134,6 +136,7 @@ describe("buildDataQuality", () => {
     const dq = buildDataQuality(rows, {
       hrefs: HREFS,
         exciseCoverage: { shipmentsMissingExcise: 0 },
+      unmappedTaxes: { count: 0, cents: 0 },
     });
 
     expect(dq.uncategorized).toEqual({ count: 1, cents: 3000, href: HREFS.uncategorized });
@@ -149,6 +152,7 @@ describe("buildDataQuality", () => {
     const dq = buildDataQuality(rows, {
       hrefs: HREFS,
         exciseCoverage: { shipmentsMissingExcise: 0 },
+      unmappedTaxes: { count: 0, cents: 0 },
     });
 
     expect(dq.unknownVolume).toEqual({ count: 2, cents: 4000, href: HREFS.unknownVolume });
@@ -168,6 +172,7 @@ describe("buildDataQuality", () => {
     const dq = buildDataQuality(rows, {
       hrefs: HREFS,
         exciseCoverage: { shipmentsMissingExcise: 0 },
+      unmappedTaxes: { count: 0, cents: 0 },
     });
 
     // Both rows count now that DRAFT is no longer special-cased.
@@ -178,9 +183,22 @@ describe("buildDataQuality", () => {
     const dq = buildDataQuality([], {
       hrefs: HREFS,
       exciseCoverage: { shipmentsMissingExcise: 7 },
+      unmappedTaxes: { count: 0, cents: 0 },
     });
 
     expect(dq.exciseCoverage).toEqual({ shipmentsMissingExcise: 7, href: HREFS.exciseCoverage });
+  });
+
+  it("passes unmappedTaxes through from opts with its href", () => {
+    const dq = buildDataQuality([], {
+      hrefs: {
+        unmapped: "/u", uncategorized: "/c", unknownVolume: "/v",
+        exciseCoverage: "/e", unmappedTaxes: "/finance/settings/sales-tax-accounts",
+      },
+      exciseCoverage: { shipmentsMissingExcise: 0 },
+      unmappedTaxes: { count: 1, cents: 24204 },
+    });
+    expect(dq.unmappedTaxes).toEqual({ count: 1, cents: 24204, href: "/finance/settings/sales-tax-accounts" });
   });
 });
 

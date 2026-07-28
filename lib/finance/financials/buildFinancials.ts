@@ -23,6 +23,7 @@ const HREFS = {
   uncategorized: "/finance/transactions/orders?filter=uncategorized",
   unknownVolume: "/finance/transactions/orders?filter=unknown-volume",
   exciseCoverage: "/finance/transactions/invoices?filter=excise-coverage",
+  unmappedTaxes: "/finance/settings/sales-tax-accounts",
 };
 
 /**
@@ -89,6 +90,7 @@ export async function buildFinancials(params: { statement: StatementKind; year: 
     refunds: src.refunds,
     bank: src.bank,
     tipAccruals: src.tipAccruals,
+    taxAccruals: src.taxAccruals,
     coa: src.coa,
     months,
   });
@@ -123,6 +125,7 @@ export async function buildFinancials(params: { statement: StatementKind; year: 
   const dataQuality = buildDataQuality(rows, {
     hrefs: HREFS,
     exciseCoverage: src.exciseCoverage,
+    unmappedTaxes: src.unmappedTaxes,
   });
 
   // Full CoA reference table (not filtered to accounts with postings) --

@@ -142,8 +142,10 @@ export function buildDataQuality(
       uncategorized: string;
       unknownVolume: string;
       exciseCoverage: string;
+      unmappedTaxes: string;
     };
     exciseCoverage: { shipmentsMissingExcise: number };
+    unmappedTaxes: { count: number; cents: number };
   },
 ): DataQualitySummary {
   // manualNetSales.ts's injectManualNetSales synthesizes a coaId:null taproom
@@ -160,5 +162,8 @@ export function buildDataQuality(
     uncategorized: bucket(uncategorizedRows, opts.hrefs.uncategorized),
     unknownVolume: bucket(unknownVolumeRows, opts.hrefs.unknownVolume),
     exciseCoverage: { ...opts.exciseCoverage, href: opts.hrefs.exciseCoverage },
+    // Config coverage, not a property of the aggregated rows -- passed in the
+    // same way exciseCoverage is.
+    unmappedTaxes: { ...opts.unmappedTaxes, href: opts.hrefs.unmappedTaxes },
   };
 }
