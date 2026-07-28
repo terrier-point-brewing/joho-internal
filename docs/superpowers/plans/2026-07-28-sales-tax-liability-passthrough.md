@@ -326,12 +326,13 @@ export interface LineItemTaxRow {
   tax_pct: number | null;
   amount_cents: number;
 }
-
-/** @deprecated Use LineItemTaxRow. Kept so existing importers keep compiling. */
-export type PosLineItemTaxRow = LineItemTaxRow;
 ```
 
-Then change `buildLineItemTaxRows`'s return type annotation from `PosLineItemTaxRow[]` to `LineItemTaxRow[]` and its internal `const rows: PosLineItemTaxRow[] = []` to `const rows: LineItemTaxRow[] = []`. **Do not change its logic** — resolving `applied_taxes[].tax_uid` against `order.taxes[]` is already table-agnostic.
+`PosLineItemTaxRow` has **no importers outside this file** (verified: `rg "PosLineItemTaxRow" lib/ app/` matches only `syncPosTransactions.ts`), so rename it outright rather than leaving a compatibility alias — an alias nothing imports is dead code.
+
+Replace all three of its uses in `lib/finance/syncPosTransactions.ts` with `LineItemTaxRow`: the `buildLineItemTaxRows` return-type annotation, its internal `const rows: PosLineItemTaxRow[] = []`, and the `const taxRows: PosLineItemTaxRow[] = []` in the sync driver. **Do not change `buildLineItemTaxRows`' logic** — resolving `applied_taxes[].tax_uid` against `order.taxes[]` is already table-agnostic.
+
+Confirm none remain: `rg -n "PosLineItemTaxRow" lib/ app/` → no matches.
 
 - [ ] **Step 6: Carry the order alongside the queued invoice items**
 
@@ -860,7 +861,11 @@ In `lib/finance/financials/aggregateRows.ts`, add after `resolveTipAccrual`:
 function resolveTaxAccrual(row: TaxAccrualRecord, coaMap: Map<string, CoaRecord>): ResolvedRow {
   const section = coaSection(coaMap.get(row.chartOfAccountsId));
   return {
-    table: "pos_line_item_taxes",
+    // Synthetic label, not a real table: this row aggregates BOTH
+    // pos_line_item_taxes and invoice_line_item_taxes, so naming either one
+    // would misdescribe it. sourceRef.table is only ever compared against
+    // "manual_net_sales_entries" (summaries.ts) and otherwise displayed.
+    table: "sales_tax_accrual",
     id: row.id,
     coaId: row.chartOfAccountsId,
     mappingSource: "rule",
@@ -1269,11 +1274,22 @@ async function fetchUnmappedTaxCoverage(
   accountByTaxId: Map<string, string>,
 ): Promise<{ count: number; cents: number }> {
   try {
-    const rows = await fetchAllRows<{ square_tax_id: string; amount_cents: number | null }>(() =>
+    const pos = await fetchAllRows<{ square_tax_id: string; amount_cents: number | null }>(() =>
       supabase.from("pos_line_item_taxes").select("square_tax_id, amount_cents").order("line_item_id", { ascending: true }),
     );
+    // Invoice taxes count too -- fetchTaxAccruals unions both sources, so a tax
+    // seen ONLY on invoices and left unmapped must still be reported here.
+    // Wrapped separately: migration 20260826 may be unapplied.
+    let invoice: { square_tax_id: string; amount_cents: number | null }[] = [];
+    try {
+      invoice = await fetchAllRows<{ square_tax_id: string; amount_cents: number | null }>(() =>
+        supabase.from("invoice_line_item_taxes").select("square_tax_id, amount_cents").order("line_item_id", { ascending: true }),
+      );
+    } catch {
+      invoice = [];
+    }
     const byTax = new Map<string, number>();
-    for (const r of rows) {
+    for (const r of [...pos, ...invoice]) {
       if (accountByTaxId.has(r.square_tax_id)) continue;
       byTax.set(r.square_tax_id, (byTax.get(r.square_tax_id) ?? 0) + (r.amount_cents ?? 0));
     }
