@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { buildInvoiceLineItemRows, invoiceHeaderTotalsFromOrder, type LineItemIndexes } from "./invoiceLineItems";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  buildInvoiceLineItemRows,
+  invoiceHeaderTotalsFromOrder,
+  persistInvoiceLineItems,
+  type CanonicalLineItemRow,
+  type LineItemIndexes,
+} from "./invoiceLineItems";
 import type { Order } from "@/types/square";
 
 const emptyIndexes: LineItemIndexes = {
@@ -99,6 +106,41 @@ describe("buildInvoiceLineItemRows", () => {
     expect(row.chart_of_accounts_id).toBe("COA-INVOICE");
   });
 
+  it("numbers sort_order contiguously when a carve-out excise line sits in the middle", () => {
+    const order = orderWith(
+      [
+        { uid: "a", catalog_object_id: "VARK", quantity: "10", name: "Vienna Lager (Keg)", variation_name: "1/6 Keg", gross_sales_money: { amount: 79000, currency: "USD" }, total_money: { amount: 79000, currency: "USD" } },
+        { uid: "b", catalog_object_id: "VAR1", quantity: "1", name: "Barrel Excise Tax", variation_name: "Regular", note: "TTB (1.50 bbls)", gross_sales_money: { amount: 525, currency: "USD" }, total_money: { amount: 525, currency: "USD" } },
+        { uid: "c", quantity: "1", name: "Packaging Fee", gross_sales_money: { amount: 1200, currency: "USD" }, total_money: { amount: 1200, currency: "USD" } },
+      ],
+      [{ uid: "d", name: "Excise carve out", scope: "LINE_ITEM", applied_money: { amount: 525, currency: "USD" } }],
+    );
+    const rows = buildInvoiceLineItemRows("INV1", order, emptyIndexes, new Map());
+    // The middle line is dropped, so the survivors must renumber 0,1 — not 0,2.
+    expect(rows.map((r) => r.description)).toEqual(["Vienna Lager (Keg) — 1/6 Keg", "Packaging Fee"]);
+    expect(rows.map((r) => r.sort_order)).toEqual([0, 1]);
+  });
+
+  it("keys existingCoaBySort by push position, so a dropped carve-out does not shift COA onto the wrong line", () => {
+    const order = orderWith(
+      [
+        { uid: "a", quantity: "1", name: "Packaging Fee", gross_sales_money: { amount: 1200, currency: "USD" }, total_money: { amount: 1200, currency: "USD" } },
+        { uid: "b", catalog_object_id: "VAR1", quantity: "1", name: "Barrel Excise Tax", variation_name: "Regular", gross_sales_money: { amount: 525, currency: "USD" }, total_money: { amount: 525, currency: "USD" } },
+        { uid: "c", quantity: "1", name: "Delivery Fee", gross_sales_money: { amount: 3000, currency: "USD" }, total_money: { amount: 3000, currency: "USD" } },
+      ],
+      [{ uid: "d", name: "Excise carve out", scope: "LINE_ITEM", applied_money: { amount: 525, currency: "USD" } }],
+    );
+    // Mirrors what syncSquareInvoices reads back: DB sort_order values this same
+    // function wrote on the previous sync, i.e. push positions 0 and 1.
+    const existing = new Map([
+      [0, { chart_of_accounts_id: "COA-PACKAGING" }],
+      [1, { chart_of_accounts_id: "COA-DELIVERY" }],
+    ]);
+    const rows = buildInvoiceLineItemRows("INV1", order, emptyIndexes, existing);
+    expect(rows.map((r) => r.description)).toEqual(["Packaging Fee", "Delivery Fee"]);
+    expect(rows.map((r) => r.chart_of_accounts_id)).toEqual(["COA-PACKAGING", "COA-DELIVERY"]);
+  });
+
   it("preserves an existing non-null COA (fill-nulls-only)", () => {
     const order = orderWith([
       { uid: "u1", catalog_object_id: "VAR1", quantity: "1", name: "Barrel Excise Tax", variation_name: "Regular", gross_sales_money: { amount: 525, currency: "USD" }, total_money: { amount: 525, currency: "USD" } },
@@ -106,6 +148,87 @@ describe("buildInvoiceLineItemRows", () => {
     const existing = new Map([[0, { chart_of_accounts_id: "USER-SET" }]]);
     const [row] = buildInvoiceLineItemRows("INV1", order, emptyIndexes, existing);
     expect(row.chart_of_accounts_id).toBe("USER-SET");
+  });
+});
+
+/**
+ * In-memory `invoice_line_items` stub covering the two calls persistInvoiceLineItems
+ * makes: `.upsert(rows, { onConflict: "invoice_id,sort_order" })` and the trailing
+ * cleanup `.delete().eq("invoice_id", …).gt("sort_order", n)`. Keeps the stored rows
+ * so a test can assert what actually survives a persist.
+ */
+function invoiceLineItemsStub(seed: CanonicalLineItemRow[] = []) {
+  let stored = [...seed];
+  const client = {
+    from: (table: string) => {
+      if (table !== "invoice_line_items") throw new Error(`unexpected table ${table}`);
+      return {
+        upsert: (rows: CanonicalLineItemRow[]) => {
+          for (const row of rows) {
+            const at = stored.findIndex(
+              (s) => s.invoice_id === row.invoice_id && s.sort_order === row.sort_order,
+            );
+            if (at >= 0) stored[at] = row;
+            else stored.push(row);
+          }
+          return Promise.resolve({ error: null });
+        },
+        delete: () => {
+          const filters: Array<(r: CanonicalLineItemRow) => boolean> = [];
+          const chain = {
+            eq: (col: string, val: unknown) => {
+              filters.push((r) => (r as unknown as Record<string, unknown>)[col] === val);
+              return chain;
+            },
+            gt: (col: string, val: number) => {
+              filters.push((r) => (r as unknown as Record<string, number>)[col] > val);
+              return chain;
+            },
+            then: (resolve: (v: { error: null }) => void) => {
+              stored = stored.filter((r) => !filters.every((f) => f(r)));
+              return Promise.resolve({ error: null }).then(resolve);
+            },
+          };
+          return chain;
+        },
+      };
+    },
+  } as unknown as SupabaseClient;
+  return { client, rows: () => stored };
+}
+
+describe("persistInvoiceLineItems", () => {
+  it("keeps every row when an order's carve-out line is dropped mid-list", async () => {
+    const order = orderWith(
+      [
+        { uid: "a", quantity: "1", name: "Packaging Fee", gross_sales_money: { amount: 1200, currency: "USD" }, total_money: { amount: 1200, currency: "USD" } },
+        { uid: "b", catalog_object_id: "VAR1", quantity: "1", name: "Barrel Excise Tax", variation_name: "Regular", gross_sales_money: { amount: 525, currency: "USD" }, total_money: { amount: 525, currency: "USD" } },
+        { uid: "c", quantity: "1", name: "Delivery Fee", gross_sales_money: { amount: 3000, currency: "USD" }, total_money: { amount: 3000, currency: "USD" } },
+      ],
+      [{ uid: "d", name: "Excise carve out", scope: "LINE_ITEM", applied_money: { amount: 525, currency: "USD" } }],
+    );
+    const rows = buildInvoiceLineItemRows("INV1", order, emptyIndexes, new Map());
+    const db = invoiceLineItemsStub();
+
+    const { error } = await persistInvoiceLineItems(db.client, "INV1", rows);
+
+    expect(error).toBeUndefined();
+    // With a gapped sort_order ([0, 3]) the `> rows.length - 1` cleanup would delete
+    // the Delivery Fee row it had just written.
+    expect(db.rows().map((r) => r.description)).toEqual(["Packaging Fee", "Delivery Fee"]);
+  });
+
+  it("still deletes rows left over from a longer previous sync", async () => {
+    const order = orderWith([
+      { uid: "a", quantity: "1", name: "Packaging Fee", gross_sales_money: { amount: 1200, currency: "USD" }, total_money: { amount: 1200, currency: "USD" } },
+    ]);
+    const rows = buildInvoiceLineItemRows("INV1", order, emptyIndexes, new Map());
+    const stale = { ...rows[0], sort_order: 1, description: "Removed Line" };
+    const db = invoiceLineItemsStub([{ ...rows[0] }, stale]);
+
+    await persistInvoiceLineItems(db.client, "INV1", rows);
+
+    expect(db.rows().map((r) => r.description)).toEqual(["Packaging Fee"]);
   });
 });
 
