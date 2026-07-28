@@ -72,6 +72,7 @@ export const FINANCE_SETTINGS_NAV: SettingsNavEntry[] = [
   { href: "/settings/finance/account-mapping", label: "Account Mapping" },
   { href: "/settings/finance/expense-accounts", label: "Expense Accounts" },
   { href: "/settings/finance/counterparty-accounts", label: "Counterparty Accounts" },
+  { href: "/settings/finance/sales-tax-accounts", label: "Sales Tax Accounts" },
 ];
 
 export const PAYROLL_SETTINGS_NAV: SettingsNavEntry[] = [

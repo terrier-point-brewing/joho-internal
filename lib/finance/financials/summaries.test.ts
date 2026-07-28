@@ -27,7 +27,7 @@ const HREFS = {
   uncategorized: "/finance/transactions?filter=uncategorized",
   unknownVolume: "/finance/transactions?filter=unknownVolume",
   exciseCoverage: "/finance/transactions?filter=exciseCoverage",
-  unmappedTaxes: "/finance/settings/sales-tax-accounts",
+  unmappedTaxes: "/settings/finance/sales-tax-accounts",
 };
 
 describe("buildKpis", () => {
@@ -193,12 +193,12 @@ describe("buildDataQuality", () => {
     const dq = buildDataQuality([], {
       hrefs: {
         unmapped: "/u", uncategorized: "/c", unknownVolume: "/v",
-        exciseCoverage: "/e", unmappedTaxes: "/finance/settings/sales-tax-accounts",
+        exciseCoverage: "/e", unmappedTaxes: "/settings/finance/sales-tax-accounts",
       },
       exciseCoverage: { shipmentsMissingExcise: 0 },
       unmappedTaxes: { count: 1, cents: 24204 },
     });
-    expect(dq.unmappedTaxes).toEqual({ count: 1, cents: 24204, href: "/finance/settings/sales-tax-accounts" });
+    expect(dq.unmappedTaxes).toEqual({ count: 1, cents: 24204, href: "/settings/finance/sales-tax-accounts" });
   });
 });
 

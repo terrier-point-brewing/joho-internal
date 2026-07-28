@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
-import AccountSelect, { type CoARef } from "../../AccountSelect";
+import AccountSelect, { type CoARef } from "@/app/finance/AccountSelect";
 import Banner from "@/app/components/ui/Banner";
 import SaveHint from "@/app/components/ui/SaveHint";
 
