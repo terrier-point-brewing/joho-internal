@@ -15,12 +15,32 @@ import type { ControlsConfig } from "@/lib/table/types";
 interface InvoiceLineItem {
   id: string;
   sort_order: number;
+  line_item_name: string | null;
+  variation_name: string | null;
+  /** Catalog-derived label ("Packaging Fee — 1/6 Keg"), NOT the note. */
   description: string | null;
+  /** The note attached to the line item on the Square invoice. */
+  note: string | null;
   category: string | null;
   quantity: number;
   unit_price_cents: number;
   total_cents: number;
   square_catalog_variation_id: string | null;
+}
+
+/**
+ * The note as it reads on the physical Square invoice.
+ *
+ * Square-synced rows carry catalog identity (`line_item_name`) and keep the
+ * catalog label in `description`, the real note in `note` — so a null `note`
+ * there means the line genuinely has no note, and falling back to `description`
+ * would just echo the item label back as a bogus note. Rows written by the
+ * non-Square fallback insert paths have no catalog identity and only ever had
+ * `description`, which for them IS the note text.
+ */
+function lineItemNote(li: InvoiceLineItem): string | null {
+  if (li.note) return li.note;
+  return li.line_item_name ? null : li.description ?? null;
 }
 
 interface InvoiceShipment {
@@ -93,7 +113,7 @@ function InvoiceExpandedPanel({
   const { data: mappings = [] } = useExportServiceMappingsQuery();
   const { data: catalog } = useExportSquareCatalogQuery();
   const [addOpen, setAddOpen] = useState(false);
-  const [addDesc, setAddDesc] = useState("");
+  const [addNote, setAddNote] = useState("");
   const [addQty, setAddQty] = useState("1");
   const [addPrice, setAddPrice] = useState("");
   const [addMappingId, setAddMappingId] = useState("");
@@ -102,7 +122,7 @@ function InvoiceExpandedPanel({
 
   // Inline line-item editing (Draft only).
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editDesc, setEditDesc] = useState("");
+  const [editNote, setEditNote] = useState("");
   const [editQty, setEditQty] = useState("1");
   const [editPrice, setEditPrice] = useState("");
 
@@ -111,8 +131,8 @@ function InvoiceExpandedPanel({
   const isPaid = invoice.status === "paid";
 
   // Resolve a Square catalog variation ID to its "Item · Variation" name so the
-  // panel shows the same label the generate-invoice UI does. The user-entered
-  // description then reads as the line's note beneath it.
+  // panel shows the same label the generate-invoice UI does. The line's Square
+  // note (`note`, e.g. "Packaging Fee — Epic Hazy IPA") reads beneath it.
   const variationName = useMemo(() => {
     const m = new Map<string, string>();
     for (const it of catalog?.items ?? []) {
@@ -151,7 +171,7 @@ function InvoiceExpandedPanel({
 
   function startEdit(li: InvoiceLineItem) {
     setEditingId(li.id);
-    setEditDesc(li.description ?? "");
+    setEditNote(lineItemNote(li) ?? "");
     setEditQty(String(li.quantity));
     setEditPrice((li.unit_price_cents / 100).toFixed(2));
     setActionError(null);
@@ -171,7 +191,7 @@ function InvoiceExpandedPanel({
     await patchLineItem({
       action: "edit",
       line_item_id: lineItemId,
-      description: editDesc,
+      note: editNote,
       quantity,
       unit_price_cents: unitPriceCents,
     });
@@ -179,27 +199,27 @@ function InvoiceExpandedPanel({
   }
 
   async function addLineItem() {
-    if (!addDesc && !addMappingId) return;
-    let description = addDesc;
+    if (!addNote && !addMappingId) return;
+    let note = addNote;
     let squareCatalogVariationId: string | null = null;
     const unitPriceCents = Math.round(parseFloat(addPrice) * 100);
 
     if (addMappingId) {
       const mapping = selectableMappings.find((m) => m.id === addMappingId);
       if (mapping) {
-        description = description || mapping.display_name;
+        note = note || mapping.display_name;
         squareCatalogVariationId = mapping.square_catalog_variation_id ?? null;
       }
     }
 
     await patchLineItem({
       action: "add",
-      description,
+      note,
       quantity: Number(addQty) || 1,
       unit_price_cents: unitPriceCents,
       square_catalog_variation_id: squareCatalogVariationId,
     });
-    setAddDesc(""); setAddQty("1"); setAddPrice(""); setAddMappingId(""); setAddOpen(false);
+    setAddNote(""); setAddQty("1"); setAddPrice(""); setAddMappingId(""); setAddOpen(false);
   }
 
   async function handleSend() {
@@ -321,9 +341,18 @@ function InvoiceExpandedPanel({
           </thead>
           <tbody>
             {invoice.line_items.map((li) => {
-              const catName = li.square_catalog_variation_id
-                ? variationName.get(li.square_catalog_variation_id) ?? null
+              // Prefer the live catalog label; fall back to the names captured at
+              // sync time so the row still reads correctly if the catalog query
+              // is unavailable or the variation has since been archived.
+              const catName =
+                (li.square_catalog_variation_id
+                  ? variationName.get(li.square_catalog_variation_id)
+                  : null) ?? null;
+              const storedName = li.line_item_name
+                ? `${li.line_item_name}${li.variation_name ? ` · ${li.variation_name}` : ""}`
                 : null;
+              const itemLabel = catName ?? storedName;
+              const note = lineItemNote(li);
               const isEditing = editingId === li.id;
               const inpCls = "bg-surface-mid border border-line-strong rounded px-2 py-1 text-xs text-strong";
 
@@ -334,11 +363,11 @@ function InvoiceExpandedPanel({
                 return (
                   <tr key={li.id} className="border-b border-line/50 last:border-0 align-top">
                     <td className="py-1 pr-2">
-                      {catName && <div className="text-strong mb-1">{catName}</div>}
+                      {itemLabel && <div className="text-strong mb-1">{itemLabel}</div>}
                       <input
                         type="text"
-                        value={editDesc}
-                        onChange={(e) => setEditDesc(e.target.value)}
+                        value={editNote}
+                        onChange={(e) => setEditNote(e.target.value)}
                         placeholder="Item note / description"
                         className={`${inpCls} w-full`}
                         aria-label="Line item note"
@@ -388,9 +417,11 @@ function InvoiceExpandedPanel({
               return (
                 <tr key={li.id} className="border-b border-line/50 last:border-0 align-top">
                   <td className="py-1">
-                    <div className="text-strong">{catName ?? li.description ?? "—"}</div>
-                    {catName && li.description && (
-                      <div className="text-[11px] text-muted">Note: {li.description}</div>
+                    <div className="text-strong">{itemLabel ?? note ?? "—"}</div>
+                    {/* Only a second line when there's an item label above it to
+                        distinguish from — otherwise the note IS the label. */}
+                    {itemLabel && note && note !== itemLabel && (
+                      <div className="text-[11px] text-muted">Note: {note}</div>
                     )}
                   </td>
                   <td className="py-1 text-right text-secondary">{li.quantity}</td>
@@ -446,7 +477,7 @@ function InvoiceExpandedPanel({
                     value={addMappingId}
                     onChange={(e) => {
                       setAddMappingId(e.target.value);
-                      if (e.target.value) setAddDesc("");
+                      if (e.target.value) setAddNote("");
                     }}
                     className="bg-surface-mid border border-line-strong rounded px-2 py-1 text-xs text-strong flex-1"
                   >
@@ -457,13 +488,13 @@ function InvoiceExpandedPanel({
                   </select>
                 </div>
                 <div className="flex gap-2">
-                  <label htmlFor="add-desc" className="sr-only">Description</label>
+                  <label htmlFor="add-note" className="sr-only">Note</label>
                   <input
-                    id="add-desc"
+                    id="add-note"
                     type="text"
-                    placeholder="Description"
-                    value={addDesc}
-                    onChange={(e) => setAddDesc(e.target.value)}
+                    placeholder="Item note / description"
+                    value={addNote}
+                    onChange={(e) => setAddNote(e.target.value)}
                     className="bg-surface-mid border border-line-strong rounded px-2 py-1 text-xs text-strong flex-1"
                   />
                   <label htmlFor="add-qty" className="sr-only">Quantity</label>
@@ -491,14 +522,14 @@ function InvoiceExpandedPanel({
                 <div className="flex gap-2">
                   <button
                     onClick={addLineItem}
-                    disabled={actionLoading || (!addDesc && !addMappingId) || !addPrice}
+                    disabled={actionLoading || (!addNote && !addMappingId) || !addPrice}
                     className="btn-secondary"
                   >
                     {actionLoading ? "Adding…" : "Add"}
                   </button>
                   <button
                     onClick={() => {
-                      setAddOpen(false); setAddDesc(""); setAddQty("1");
+                      setAddOpen(false); setAddNote(""); setAddQty("1");
                       setAddPrice(""); setAddMappingId("");
                     }}
                     className="text-xs text-muted hover:text-body"

@@ -20,7 +20,7 @@ export async function GET() {
       id, invoice_number, invoice_date, customer_name, partner_id,
       status, source, square_invoice_id, subtotal_cents, total_cents,
       invoice_line_items!invoice_line_items_invoice_id_fkey(
-        id, sort_order, description, category,
+        id, sort_order, line_item_name, variation_name, description, note, category,
         quantity, unit_price_cents, total_cents,
         square_catalog_variation_id
       ),

@@ -201,7 +201,9 @@ export async function POST(req: NextRequest) {
       if (!linesPersisted && lineItems.length > 0) {
         await supabase.from("invoice_line_items").upsert(
           lineItems.map((li, i) => ({
-            invoice_id: inv.id, sort_order: i, description: li.description,
+            // `li.description` is what we sent Square as the line's note, so it
+            // seeds both columns here; a later sync splits them properly.
+            invoice_id: inv.id, sort_order: i, description: li.description, note: li.description,
             category: "other_services", quantity: li.quantity,
             unit_price_cents: li.unitPriceCents, total_cents: li.quantity * li.unitPriceCents,
             square_catalog_variation_id: li.squareCatalogVariationId ?? null,
