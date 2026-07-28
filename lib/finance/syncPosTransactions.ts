@@ -129,7 +129,11 @@ export function buildPosLineItems(
       base_price_cents: li.base_price_money?.amount ?? 0,
       gross_sales_cents: li.gross_sales_money?.amount ?? 0,
       discount_cents: li.total_discount_money?.amount ?? 0,
-      net_sales_cents: li.total_money?.amount ?? 0,
+      // Square's line `total_money` is gross - discount + TAX. Sales tax is
+      // money held for NC DOR / Wake County, not revenue, so net sales is
+      // gross - discount and the tax is carried separately in tax_cents.
+      // fetchPos maps this column straight onto P&L revenue.
+      net_sales_cents: (li.gross_sales_money?.amount ?? 0) - (li.total_discount_money?.amount ?? 0),
       tax_cents: li.total_tax_money?.amount ?? 0,
       chart_of_accounts_id: varId ? getPosCoA(varId) : null,
       raw_data: li as object,
