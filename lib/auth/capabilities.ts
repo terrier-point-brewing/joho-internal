@@ -59,7 +59,9 @@ export const CAP = {
   catalogRead: { scope: "catalog", level: "read" },
   catalogOperate: { scope: "catalog", level: "operate" },
 
+  taproomPerformanceRead: { scope: "taproom.performance", level: "read" },
   taproomPerformanceOperate: { scope: "taproom.performance", level: "operate" },
+  targetsRead: { scope: "taproom.targets", level: "read" },
   targetsEdit: { scope: "taproom.targets", level: "manage" },
 
   taxRead: { scope: "finance.tax", level: "read" },
@@ -67,9 +69,8 @@ export const CAP = {
   taxManage: { scope: "finance.tax", level: "manage" },
   // Filing configuration + the excise rate reference data it owns. A sub-leaf
   // so it can be granted without conferring the rest of finance.tax.
-  // The `manage` face arrives with the Tax Filing settings screen's own gate;
-  // adding it before it has a consumer would trip check-permissions rule 3.
   taxFilingRead: { scope: "finance.tax.filing", level: "read" },
+  taxFilingManage: { scope: "finance.tax.filing", level: "manage" },
   taxPiiReveal: { scope: "finance.tax.pii", level: "admin" },
 
   payrollRead: { scope: "payroll", level: "read" },

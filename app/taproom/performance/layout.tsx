@@ -1,8 +1,10 @@
+import { requirePage, CAP } from "@/lib/auth";
 import SubNav from "@/app/components/SubNav";
 import PageHeader from "@/app/components/PageHeader";
 import { TAPROOM_NAV, PERFORMANCE_NAV } from "@/app/taproom/nav-config";
 
-export default function PerformanceLayout({ children }: { children: React.ReactNode }) {
+export default async function PerformanceLayout({ children }: { children: React.ReactNode }) {
+  await requirePage(CAP.taproomPerformanceRead);
   return (
     <main className="px-4 sm:px-6">
       {/* Title + subtabs stay pinned; only the tab content scrolls beneath them. */}

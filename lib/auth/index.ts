@@ -4,6 +4,7 @@ export { getSessionUser } from "./session";
 export type { Session } from "./session";
 
 export { requirePermission } from "./guard";
+export { requirePage, redirectToFirstReachable } from "./requirePage";
 
 export { can, effectiveLevel } from "./resolve";
 export type { ScopeGrants } from "./resolve";

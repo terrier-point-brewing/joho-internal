@@ -64,13 +64,16 @@ const EXPECTED: Record<keyof typeof CAP, { scope: ScopeKey; level: Level }> = {
   productionSettingsOperate: { scope: "production.settings", level: "operate" },
   productionSettingsManage: { scope: "production.settings", level: "manage" },
 
+  taproomPerformanceRead: { scope: "taproom.performance", level: "read" }, // no route
   taproomPerformanceOperate: { scope: "taproom.performance", level: "operate" },
+  targetsRead: { scope: "taproom.targets", level: "read" }, // no route
   targetsEdit: { scope: "taproom.targets", level: "manage" },
 
   taxRead: { scope: "finance.tax", level: "read" },
   taxOperate: { scope: "finance.tax", level: "operate" },
   taxManage: { scope: "finance.tax", level: "manage" },
   taxFilingRead: { scope: "finance.tax.filing", level: "read" },
+  taxFilingManage: { scope: "finance.tax.filing", level: "manage" }, // no route
   taxPiiReveal: { scope: "finance.tax.pii", level: "admin" },
 
   payrollRead: { scope: "payroll", level: "read" },
