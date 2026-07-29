@@ -68,6 +68,7 @@ export const SECTION_LABEL: Record<StatementSection, string> = {
   ar: "Accounts Receivable",
   other_current_assets: "Other Current Assets",
   fixed_assets: "Fixed Assets",
+  other_assets: "Other Assets",
   ap: "Accounts Payable",
   credit_card: "Credit Cards",
   other_current_liabilities: "Other Current Liabilities",

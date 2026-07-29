@@ -24,6 +24,7 @@ const POSITIVE_SECTIONS = new Set([
   "ar",
   "other_current_assets",
   "fixed_assets",
+  "other_assets",
 ]);
 
 const NEGATIVE_SECTIONS = new Set([

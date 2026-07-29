@@ -11,6 +11,7 @@ const ACCOUNT_TYPES = [
   "Accounts receivable (A/R)",
   "Other Current Assets",
   "Fixed Assets",
+  "Other Assets",
   "Accounts payable (A/P)",
   "Credit Card",
   "Other Current Liabilities",
@@ -25,7 +26,7 @@ const ACCOUNT_TYPES = [
 
 type SectionKey =
   | "revenue" | "other_income" | "cogs" | "expenses" | "other_expense"
-  | "bank" | "ar" | "other_current_assets" | "fixed_assets"
+  | "bank" | "ar" | "other_current_assets" | "fixed_assets" | "other_assets"
   | "ap" | "credit_card" | "other_current_liabilities" | "long_term_liabilities"
   | "equity";
 
@@ -39,6 +40,7 @@ const SECTION_LABELS: Record<SectionKey, string> = {
   ar:                        "Accounts Receivable",
   other_current_assets:      "Other Current Assets",
   fixed_assets:              "Fixed Assets",
+  other_assets:              "Other Assets",
   ap:                        "Accounts Payable",
   credit_card:               "Credit Cards",
   other_current_liabilities: "Other Current Liabilities",
@@ -47,7 +49,7 @@ const SECTION_LABELS: Record<SectionKey, string> = {
 };
 
 const PL_SECTIONS:  SectionKey[] = ["revenue","other_income","cogs","expenses","other_expense"];
-const BS_SECTIONS:  SectionKey[] = ["bank","ar","other_current_assets","fixed_assets","ap","credit_card","other_current_liabilities","long_term_liabilities","equity"];
+const BS_SECTIONS:  SectionKey[] = ["bank","ar","other_current_assets","fixed_assets","other_assets","ap","credit_card","other_current_liabilities","long_term_liabilities","equity"];
 
 // QBO standard export header aliases
 const HEADER_MAP: Record<string, keyof ParsedRow> = {

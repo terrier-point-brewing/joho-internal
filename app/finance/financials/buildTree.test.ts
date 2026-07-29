@@ -387,10 +387,10 @@ describe("buildTree — balance_sheet", () => {
 
   const tree = buildTree(rows, "balance_sheet");
 
-  it("builds the 15 balance-sheet section/subtotal nodes in order (incl. the M1 'Other' catch-all)", () => {
+  it("builds the 16 balance-sheet section/subtotal nodes in order (incl. the M1 'Other' catch-all)", () => {
     expect(tree.map((n) => n.label)).toEqual([
       "Bank & Cash", "Accounts Receivable", "Other Current Assets", "Total Current Assets",
-      "Fixed Assets", "Total Assets",
+      "Fixed Assets", "Other Assets", "Total Assets",
       "Accounts Payable", "Credit Cards", "Other Current Liabilities", "Total Current Liabilities",
       "Long-Term Liabilities", "Total Liabilities",
       "Equity", "Other", "Total Liabilities + Equity",
@@ -399,22 +399,49 @@ describe("buildTree — balance_sheet", () => {
 
   it("rolls current-asset sections into Total Current Assets, then adds Fixed Assets into Total Assets", () => {
     const totalCurrentAssets = tree[3];
-    const totalAssets = tree[5];
+    const totalAssets = tree[6];
     expect(totalCurrentAssets.row?.amountCentsByMonth["2026-01"]).toBe(120000);
     expect(totalAssets.row?.amountCentsByMonth["2026-01"]).toBe(170000);
   });
 
   it("rolls liability sections + equity into Total Liabilities + Equity", () => {
-    const totalLiab = tree[11];
-    const totalLE = tree[14];
+    const totalLiab = tree[12];
+    const totalLE = tree[15];
     expect(totalLiab.row?.amountCentsByMonth["2026-01"]).toBe(-15000);
     expect(totalLE.row?.amountCentsByMonth["2026-01"]).toBe(-170000);
   });
 
   it("balances: Total Assets + Total Liabilities + Equity nets to zero under the signed-cents convention", () => {
-    const totalAssets = tree[5];
-    const totalLE = tree[14];
+    const totalAssets = tree[6];
+    const totalLE = tree[15];
     expect((totalAssets.row?.amountCentsByMonth["2026-01"] ?? 0) + (totalLE.row?.amountCentsByMonth["2026-01"] ?? 0)).toBe(0);
+  });
+});
+
+// "Other Assets" is QBO's NON-current asset type (security deposits, lease
+// buyouts, goodwill), so it must sit outside Total Current Assets while still
+// counting toward Total Assets. Getting that wrong would either hide the
+// balance from Total Assets or overstate working capital.
+describe("buildTree — balance_sheet with an Other Assets row", () => {
+  const rows: FinancialsRow[] = [
+    row({ coaId: "bank-1", accountName: "Chase", statementSection: "bank", amountCentsByMonth: { "2026-01": 100000 } }),
+    row({ coaId: "dep-1", accountName: "Security Deposits Paid", statementSection: "other_assets", amountCentsByMonth: { "2026-01": 25000 } }),
+  ];
+
+  const tree = buildTree(rows, "balance_sheet");
+  const byLabel = (label: string) => tree.find((n) => n.label === label);
+
+  it("excludes Other Assets from Total Current Assets", () => {
+    expect(byLabel("Total Current Assets")?.row?.amountCentsByMonth["2026-01"]).toBe(100000);
+  });
+
+  it("includes Other Assets in Total Assets", () => {
+    expect(byLabel("Other Assets")?.row?.amountCentsByMonth["2026-01"]).toBe(25000);
+    expect(byLabel("Total Assets")?.row?.amountCentsByMonth["2026-01"]).toBe(125000);
+  });
+
+  it("does not fall into the 'Other' unrecognised-section catch-all", () => {
+    expect(byLabel("Other")?.row?.amountCentsByMonth["2026-01"] ?? 0).toBe(0);
   });
 });
 
@@ -447,7 +474,7 @@ describe("buildTree — edge cases", () => {
   it("returns zeroed sections for an empty rows array, per statement kind", () => {
     expect(buildTree([], "pl")).toHaveLength(9);
     expect(buildTree([], "cash_flow")).toHaveLength(9);
-    expect(buildTree([], "balance_sheet")).toHaveLength(15);
+    expect(buildTree([], "balance_sheet")).toHaveLength(16);
   });
 
   it("groups unmapped (coaId null) rows by accountName into separate root accounts", () => {
