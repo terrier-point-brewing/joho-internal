@@ -16,6 +16,7 @@ import { useTableControls } from "@/app/components/ui/useTableControls";
 import SearchInput from "@/app/components/ui/SearchInput";
 import FilterChips from "@/app/components/ui/FilterChips";
 import FilterBar from "@/app/components/ui/FilterBar";
+import ToggleChip from "@/app/components/ui/ToggleChip";
 import SortableTh from "@/app/components/ui/SortableTh";
 import type { ControlsConfig } from "@/lib/table/types";
 
@@ -206,17 +207,13 @@ export default function StockAdjustmentsTab() {
           />
         </FilterBar>
 
-        {/* Group */}
-        <button
-          onClick={() => setGroupByDate((v) => !v)}
-          className={`text-xs px-2.5 py-1 rounded border transition-colors ${
-            groupByDate ? "border-accent-border bg-accent-muted/30 text-accent-soft" : "border-line-strong text-muted hover:text-body"
-          }`}
-        >
-          Group by Day
-        </button>
-
-        <span className="ml-auto text-xs text-faint">{filtered.length} records</span>
+        {/* View options + count, anchored right */}
+        <div className="ml-auto flex items-center gap-3 shrink-0">
+          <ToggleChip active={groupByDate} onClick={() => setGroupByDate((v) => !v)}>
+            Group by Day
+          </ToggleChip>
+          <span className="text-xs text-faint">{filtered.length} records</span>
+        </div>
       </div>
 
       {loading ? (
