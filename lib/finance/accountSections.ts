@@ -14,6 +14,7 @@ export type StatementSection =
   | "ar"
   | "other_current_assets"
   | "fixed_assets"
+  | "other_assets"
   | "ap"
   | "credit_card"
   | "other_current_liabilities"
@@ -30,6 +31,11 @@ export const ACCOUNT_TYPE_SECTION: Record<string, StatementSection> = {
   "Accounts receivable (A/R)":   "ar",
   "Other Current Assets":        "other_current_assets",
   "Fixed Assets":                "fixed_assets",
+  // QBO's non-current catch-all asset type — its detail types are Security
+  // Deposits, Lease Buyout, Licenses, Organizational Costs, Goodwill and the
+  // like. Distinct from "Other Current Assets": these are not expected back
+  // within a year, so they sit outside Total Current Assets.
+  "Other Assets":                "other_assets",
   "Accounts payable (A/P)":      "ap",
   "Credit Card":                 "credit_card",
   "Other Current Liabilities":   "other_current_liabilities",

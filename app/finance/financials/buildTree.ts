@@ -411,7 +411,7 @@ function monthsOf(rows: FinancialsRow[]): string[] {
 // same 5 P&L sections it derives cash movement from.
 const PL_KNOWN_SECTIONS: ReadonlySet<string> = new Set(["revenue", "other_income", "cogs", "expenses", "other_expense"]);
 const BS_KNOWN_SECTIONS: ReadonlySet<string> = new Set([
-  "bank", "ar", "other_current_assets", "fixed_assets",
+  "bank", "ar", "other_current_assets", "fixed_assets", "other_assets",
   "ap", "credit_card", "other_current_liabilities", "long_term_liabilities", "equity",
 ]);
 
@@ -469,7 +469,11 @@ function buildBalanceSheet(rows: FinancialsRow[], months: string[], coaMap: CoaL
   const otherCurrentAssets = buildSection(rows, "other_current_assets", "Other Current Assets", months, coaMap);
   const totalCurrentAssets = subtotal("Total Current Assets", [bank, ar, otherCurrentAssets], months);
   const fixedAssets = buildSection(rows, "fixed_assets", "Fixed Assets", months, coaMap);
-  const totalAssets = subtotal("Total Assets", [bank, ar, otherCurrentAssets, fixedAssets], months);
+  // Non-current, so deliberately OUTSIDE Total Current Assets above but inside
+  // Total Assets — QBO's "Other Assets" type (security deposits, lease buyouts,
+  // goodwill).
+  const otherAssets = buildSection(rows, "other_assets", "Other Assets", months, coaMap);
+  const totalAssets = subtotal("Total Assets", [bank, ar, otherCurrentAssets, fixedAssets, otherAssets], months);
 
   const ap = buildSection(rows, "ap", "Accounts Payable", months, coaMap);
   const creditCard = buildSection(rows, "credit_card", "Credit Cards", months, coaMap);
@@ -494,7 +498,7 @@ function buildBalanceSheet(rows: FinancialsRow[], months: string[], coaMap: CoaL
   );
 
   return [
-    bank, ar, otherCurrentAssets, totalCurrentAssets, fixedAssets, totalAssets,
+    bank, ar, otherCurrentAssets, totalCurrentAssets, fixedAssets, otherAssets, totalAssets,
     ap, creditCard, otherCurrentLiab, totalCurrentLiab, longTermLiab, totalLiab,
     equity, other, totalLiabEquity,
   ];
