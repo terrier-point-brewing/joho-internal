@@ -73,19 +73,29 @@ export const FINANCE_SETTINGS_NAV: SettingsNavEntry[] = [
   { href: "/settings/finance/expense-accounts", label: "Expense Accounts" },
   { href: "/settings/finance/counterparty-accounts", label: "Counterparty Accounts" },
   { href: "/settings/finance/sales-tax-accounts", label: "Sales Tax Accounts" },
+  { href: "/settings/finance/backfill", label: "Backfill" },
 ];
 
 export const PAYROLL_SETTINGS_NAV: SettingsNavEntry[] = [
   { href: "/settings/payroll/config", label: "Payroll" },
   { href: "/settings/payroll/departments", label: "Departments" },
+  { href: "/settings/payroll/backfill", label: "Backfill" },
 ];
 
 export const TAX_SETTINGS_NAV: SettingsNavEntry[] = [
   { href: "/settings/tax/profile", label: "Tax Profile", requires: CAP.taxManage },
   { href: "/settings/tax/filing", label: "Tax Filing", requires: CAP.taxFilingManage },
+  // The group gates on taxFilingManage, but this backfill's route enforces
+  // finance.tax:manage — the PARENT scope. Without an explicit gate a holder of
+  // only the filing sub-leaf would see a tab that 401s.
+  { href: "/settings/tax/backfill", label: "Backfill", requires: CAP.taxManage },
 ];
 
 export const PRODUCTION_SETTINGS_NAV: SettingsNavEntry[] = [
   { href: "/settings/production/deposits", label: "Deposit Settings" },
   { href: "/settings/production/export", label: "Export Settings" },
+  // The group gates on production.settings:manage, but this backfill's route
+  // enforces production.export:manage — a different scope, not a parent — so it
+  // needs its own gate or a settings-only holder sees a tab that 403s.
+  { href: "/settings/production/backfill", label: "Backfill", requires: CAP.exportManage },
 ];

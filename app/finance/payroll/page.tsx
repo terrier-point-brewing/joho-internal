@@ -4,7 +4,6 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import FinanceNav from "../FinanceNav";
 import PeriodsTable from "./PeriodsTable";
-import GlBackfillPanel from "./GlBackfillPanel";
 import PageHeader from "@/app/components/PageHeader";
 import Banner from "@/app/components/ui/Banner";
 import FilterBar from "@/app/components/ui/FilterBar";
@@ -117,7 +116,6 @@ export default function FinancePayrollPage() {
         <PeriodsTable rows={controls.rows} sort={controls.sort} onSort={controls.toggleSort} />
       )}
 
-      <GlBackfillPanel />
     </main>
   );
 }
