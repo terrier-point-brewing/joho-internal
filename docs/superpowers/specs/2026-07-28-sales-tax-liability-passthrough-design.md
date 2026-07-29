@@ -189,7 +189,7 @@ probed through PostgREST — confirm it in `schema_migrations` before pushing.
 The CLI keys on the digits before the first `_`; verify `schema_migrations`
 before any push — this repo already carries duplicated prefixes from earlier work.
 
-### `20260825_square_tax_accounts.sql`
+### `20260827_square_tax_accounts.sql`
 
 ```
 square_tax_id         text  primary key
@@ -214,7 +214,7 @@ maps to "no accrual emitted", which is safe, whereas a failed migration is not.
 `tax_name`/`tax_pct` are display-only, refreshed on seed; the map keys on
 `square_tax_id`.
 
-### `20260826_invoice_line_item_taxes.sql`
+### `20260828_invoice_line_item_taxes.sql`
 
 Structurally identical to `pos_line_item_taxes`, one table over:
 

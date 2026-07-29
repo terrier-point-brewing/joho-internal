@@ -49,3 +49,8 @@ create policy "finance readers" on public.square_tax_accounts
 create trigger square_tax_accounts_updated_at
   before update on public.square_tax_accounts
   for each row execute function public.update_updated_at();
+
+-- RENUMBERED 2026-07-28: originally 20260825_square_tax_accounts.sql. PR #285 merged first and had
+-- already claimed that prefix, so this file moved to keep every migration
+-- version unique. Already applied to prod under the old name; the rename is
+-- repo hygiene only and re-applies nothing.

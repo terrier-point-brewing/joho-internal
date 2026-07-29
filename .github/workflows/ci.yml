@@ -41,6 +41,12 @@ jobs:
       - name: Permission model standard
         run: npm run check:permissions
 
+      # A Supabase migration's version is the digits before the first
+      # underscore, so two same-day files are ONE version and `db push` skips
+      # the second. #285 and #286 collided this way.
+      - name: Migration version uniqueness
+        run: npm run check:migrations
+
       - name: Build
         run: npm run build
         env:
