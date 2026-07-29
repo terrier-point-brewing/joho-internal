@@ -11,8 +11,13 @@ export const dynamic = "force-dynamic";
 // with no cold-storage stock), each with the same-size cold-storage lots
 // (variation + batch) now eligible to resolve it. Drives the Export Bay "swaps
 // with missing stock" list.
+// Gated at `read`, not `operate`: this is the Export Bay reconciliation
+// indicator, and brewer holds `production.export: operate` (so reaches the tab)
+// but only `taproom.performance: read`. Gating the GET at `operate` 403'd every
+// brewer, and the panel rendered that failure as "All reconciled" — a false
+// all-clear for the majority of users. Resolve/dismiss stay at `operate`.
 export async function GET() {
-  try { await requirePermission(CAP.taproomPerformanceOperate); } catch (res) { return res as Response; }
+  try { await requirePermission(CAP.taproomPerformanceRead); } catch (res) { return res as Response; }
 
   const supabase = await createSupabaseServerClient();
   try {

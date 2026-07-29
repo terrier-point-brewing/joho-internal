@@ -12,8 +12,10 @@ function legacyRequireRole(role: UserRole, list: UserRole[]): boolean {
 }
 
 describe("legacy role <-> scoped permission equivalence", () => {
-  // 52 = 29 inherited from the original legacy-role -> scoped-permission
-  // migration, plus 23 from the 2026-07-28 scope restructure: 19 tax routes manager no longer reaches (their tax grant
+  // 53 = 29 inherited from the original legacy-role -> scoped-permission
+  // migration, plus 23 from the 2026-07-28 scope restructure, plus the
+  // phantom-alerts GET lowered to taproomPerformanceRead the same day (brewer
+  // and viewer both gain a read they were wrongly 403'd out of). Of the 23: 19 tax routes manager no longer reaches (their tax grant
   // was unreachable and was removed), 4 Square-mapping routes that moved to the
   // shared `catalog` scope, and the excise-rates row, which already carried a
   // change and gained `manager: false`. The tips-passthrough row added by #284
@@ -24,18 +26,18 @@ describe("legacy role <-> scoped permission equivalence", () => {
   // This count is the whole point of the fixture: a bundle edit that moves any
   // (route, role) answer WITHOUT a recorded reason fails here rather than
   // shipping as silent drift.
-  it("fixture has exactly 213 rows, 52 with an intentional change, every reason non-empty", () => {
+  it("fixture has exactly 213 rows, 53 with an intentional change, every reason non-empty", () => {
     expect(LEGACY_MATRIX).toHaveLength(213);
 
     const changed = LEGACY_MATRIX.filter((row) => row.intentionalChange);
-    expect(changed).toHaveLength(52);
+    expect(changed).toHaveLength(53);
 
     for (const row of changed) {
       expect(row.intentionalChange!.reason.trim().length).toBeGreaterThan(0);
     }
   });
 
-  it("every (route, role) pair matches legacy behaviour, except the 52 documented changes", () => {
+  it("every (route, role) pair matches legacy behaviour, except the 53 documented changes", () => {
     let assertions = 0;
 
     for (const row of LEGACY_MATRIX) {

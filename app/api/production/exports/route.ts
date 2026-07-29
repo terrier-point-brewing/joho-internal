@@ -12,8 +12,10 @@ export async function GET() {
       id, shipment_id, recipe_id, channel, recipient_id, recipient_name, variant_label,
       quantity, volume_bbl, total_excise_tax_usd, status, invoice_id,
       packaging_item_id, packaging_format, source_ref,
+      is_phantom, alert_acknowledged_at,
       created_at,
       brew_batches(id, beer_name, batch_number),
+      recipes(beer_name),
       invoices!invoice_id(invoice_number),
       packaging_items!packaging_item_id(type, volume_fl_oz, name)
     `)
@@ -33,14 +35,24 @@ export async function GET() {
       ? (piRaw[0] as { type: string; volume_fl_oz: number | null; name: string } | undefined)
       : (piRaw as { type: string; volume_fl_oz: number | null; name: string } | null);
 
+    // A phantom draft swap has no batch, but it always has a recipe. Surfacing
+    // the recipe name lets the client name the beer instead of falling back to
+    // a bare "Unknown" that reads like corrupt data.
+    const recRaw = tx.recipes as unknown;
+    const rec = Array.isArray(recRaw)
+      ? (recRaw[0] as { beer_name: string } | undefined)
+      : (recRaw as { beer_name: string } | null);
+
     return {
       ...tx,
       invoice_number: inv?.invoice_number ?? null,
       packaging_item_type: pi?.type ?? null,
       packaging_item_volume_fl_oz: pi?.volume_fl_oz ?? null,
       packaging_item_name: pi?.name ?? null,
+      recipe_beer_name: rec?.beer_name ?? null,
       invoices: undefined,
       packaging_items: undefined,
+      recipes: undefined,
     };
   });
 
