@@ -1,13 +1,20 @@
 import { NextResponse } from "next/server";
 import { requirePermission, CAP } from "@/lib/auth";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   try { await requirePermission(CAP.exportRead); } catch (res) { return res as Response; }
 
-  const supabase = await createSupabaseServerClient();
+  // Admin client, not the server client: `invoices` and
+  // `deposit_invoice_ingredients` both carry an admin-ONLY RLS policy (see
+  // 20260609_invoices.sql / 20260709_deposit_invoice_ingredients.sql), so a
+  // brewer passing the exportRead gate above still got a silent empty list.
+  // The requirePermission call is the authorization gate — same pattern as
+  // every sibling route that reads this table (export/invoices, export/invoice,
+  // deposit-invoices/backfill).
+  const supabase = createSupabaseAdminClient();
 
   const { data, error } = await supabase
     .from("invoices")

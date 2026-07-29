@@ -354,7 +354,12 @@ function fmtValue(v: number | null | undefined) {
 export default function IngredientsTab() {
   const qc = useQueryClient();
   const { can } = usePermissions();
+  // Two tiers, matching the two tiers the routes enforce: master-data writes
+  // (create/edit/delete an ingredient) need `manage`; stock movements (adjust,
+  // receive) need `operate`. Every write affordance below is gated on one of
+  // them, so a read-only grant renders the tab without a single dead button.
   const canEditMaster = can(CAP.ingredientMasterEdit);
+  const canOperate = can(CAP.inventoryOperate);
   const { data: ingredients = [] } = useIngredientsQuery();
   const { data: suppliersList = [] } = useSuppliersQuery();
   const { data: partnersList = [] } = useContractPartnersQuery();
@@ -412,6 +417,9 @@ export default function IngredientsTab() {
             String(orig?.cost_per_unit ?? "") === row.cost_per_unit
           )
             return Promise.resolve();
+          // res.ok must be checked: fetch resolves on 4xx, so an unauthorized
+          // PATCH used to leave Promise.all fulfilled and this handler exited
+          // bulk-edit mode as if every row had saved.
           return fetch(`/api/production/ingredients/${row.id}`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
@@ -424,13 +432,18 @@ export default function IngredientsTab() {
               cost_per_unit: row.cost_per_unit !== "" ? parseFloat(row.cost_per_unit) : null,
               stock_quantity: orig?.stock_quantity ?? 0,
             }),
+          }).then(async (res) => {
+            if (!res.ok) {
+              const body = await res.json().catch(() => null);
+              throw new Error(body?.error ?? `${row.name}: save failed (${res.status})`);
+            }
           });
         })
       );
       setBulkEditMode(false);
       await onRefresh();
-    } catch {
-      alert("Some saves failed — check network");
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Some saves failed — check network");
     } finally {
       setBulkSaving(false);
     }
@@ -581,10 +594,20 @@ export default function IngredientsTab() {
             </>
           ) : (
             <>
-              <button onClick={enterBulkEdit} className="btn-secondary min-w-32" disabled={ingredients.length === 0}>Bulk Edit</button>
-              <button onClick={() => setShowBulkModal(true)} className="btn-secondary min-w-32">↑ Bulk Upload</button>
-              <button onClick={() => setShowBulkReceive(true)} className="btn-primary min-w-32" disabled={ingredients.length === 0}>Bulk Receive</button>
-              <button onClick={openNew} className="btn-primary min-w-32">+ New Ingredient</button>
+              {/* Bulk Edit, Bulk Upload and New Ingredient all write ingredient
+                  MASTER data (name, unit, cost), so they take the same
+                  manage-level gate as the per-row Edit/Del below. Bulk Receive
+                  is a stock movement and stays at operate — a brewer's day job. */}
+              {canEditMaster && (<>
+                <button onClick={enterBulkEdit} className="btn-secondary min-w-32" disabled={ingredients.length === 0}>Bulk Edit</button>
+                <button onClick={() => setShowBulkModal(true)} className="btn-secondary min-w-32">↑ Bulk Upload</button>
+              </>)}
+              {canOperate && (
+                <button onClick={() => setShowBulkReceive(true)} className="btn-primary min-w-32" disabled={ingredients.length === 0}>Bulk Receive</button>
+              )}
+              {canEditMaster && (
+                <button onClick={openNew} className="btn-primary min-w-32">+ New Ingredient</button>
+              )}
             </>
           )}
         </div>
@@ -704,9 +727,11 @@ export default function IngredientsTab() {
                             <td className="px-3 py-2.5 text-right tabular-nums text-body whitespace-nowrap">{fmtValue(totalValue)}</td>
                             <td className="px-3 py-2.5">
                               <div className="flex gap-2 justify-end w-full">
+                                {canOperate && (
                                 <button onClick={() => openAdj(ing)} className="text-xs text-accent-emphasis hover:text-accent transition-colors font-medium whitespace-nowrap">Adjust</button>
+                                )}
                                 {canEditMaster && (<>
-                                <span className="text-disabled">·</span>
+                                {canOperate && <span className="text-disabled">·</span>}
                                 <button onClick={() => openEdit(ing)} className="text-xs text-muted hover:text-body transition-colors whitespace-nowrap">Edit</button>
                                 <span className="text-disabled">·</span>
                                 <button onClick={() => handleDelete(ing.id, ing.name)} className="text-xs text-faint hover:text-danger transition-colors whitespace-nowrap">Del</button>
