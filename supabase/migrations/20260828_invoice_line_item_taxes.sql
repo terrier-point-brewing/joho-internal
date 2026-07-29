@@ -31,3 +31,8 @@ create policy "finance readers" on public.invoice_line_item_taxes
   for all to authenticated
   using ( public.get_my_role() = any (public.finance_reader_roles()) )
   with check ( public.get_my_role() = any (public.finance_reader_roles()) );
+
+-- RENUMBERED 2026-07-28: originally 20260826_invoice_line_item_taxes.sql. PR #285 merged first and had
+-- already claimed that prefix, so this file moved to keep every migration
+-- version unique. Already applied to prod under the old name; the rename is
+-- repo hygiene only and re-applies nothing.

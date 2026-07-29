@@ -47,8 +47,8 @@ Task order matters across groups: A → (B, C, D in any order) → E → F → G
 ### Task 1: Migrations
 
 **Files:**
-- Create: `supabase/migrations/20260825_square_tax_accounts.sql`
-- Create: `supabase/migrations/20260826_invoice_line_item_taxes.sql`
+- Create: `supabase/migrations/20260827_square_tax_accounts.sql`
+- Create: `supabase/migrations/20260828_invoice_line_item_taxes.sql`
 
 **Interfaces:**
 - Consumes: nothing.
@@ -56,7 +56,7 @@ Task order matters across groups: A → (B, C, D in any order) → E → F → G
 
 - [ ] **Step 1: Create the tax-account map migration**
 
-Create `supabase/migrations/20260825_square_tax_accounts.sql`:
+Create `supabase/migrations/20260827_square_tax_accounts.sql`:
 
 ```sql
 -- square_tax_accounts: maps each Square catalog tax to the balance-sheet
@@ -108,7 +108,7 @@ create policy "finance readers" on public.square_tax_accounts
 
 - [ ] **Step 2: Create the invoice tax mirror migration**
 
-Create `supabase/migrations/20260826_invoice_line_item_taxes.sql`:
+Create `supabase/migrations/20260828_invoice_line_item_taxes.sql`:
 
 ```sql
 -- invoice_line_item_taxes: per-line Square tax breakdown for invoice-backed
@@ -149,12 +149,12 @@ create policy "finance readers" on public.invoice_line_item_taxes
 - [ ] **Step 3: Confirm no prefix collision**
 
 Run: `ls supabase/migrations | sort | tail -4`
-Expected: `20260823_payroll_tips_account.sql`, `20260824_payroll_gl_bucket_kind.sql`, `20260825_square_tax_accounts.sql`, `20260826_invoice_line_item_taxes.sql` — each prefix appearing exactly once.
+Expected: `20260823_payroll_tips_account.sql`, `20260824_payroll_gl_bucket_kind.sql`, `20260827_square_tax_accounts.sql`, `20260828_invoice_line_item_taxes.sql` — each prefix appearing exactly once.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add supabase/migrations/20260825_square_tax_accounts.sql supabase/migrations/20260826_invoice_line_item_taxes.sql
+git add supabase/migrations/20260827_square_tax_accounts.sql supabase/migrations/20260828_invoice_line_item_taxes.sql
 git commit -m "feat(finance): add square_tax_accounts map and invoice_line_item_taxes"
 ```
 
