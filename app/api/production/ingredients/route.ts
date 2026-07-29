@@ -17,7 +17,9 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  try { await requirePermission(CAP.inventoryOperate); } catch (res) { return res as Response; }
+  // ingredientMasterEdit, matching PATCH/DELETE on /ingredients/[id]: creating
+  // an ingredient is a master-data write, not a stock movement.
+  try { await requirePermission(CAP.ingredientMasterEdit); } catch (res) { return res as Response; }
 
 
   const supabase = await createSupabaseServerClient();

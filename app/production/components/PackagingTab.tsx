@@ -71,7 +71,11 @@ function supplierName(item: PackagingItem): string | null {
 export default function PackagingTab() {
   const qc = useQueryClient();
   const { can } = usePermissions();
+  // Two tiers, matching the two the routes enforce — see IngredientsTab, which
+  // gates the same way: master-data writes need `manage`, stock movements
+  // (adjust, receive) need `operate`.
   const canEditMaster = can(CAP.packagingMasterEdit);
+  const canOperate = can(CAP.inventoryOperate);
   const { data: packaging = [] } = usePackagingQuery();
   const { data: partners = [] } = useContractPartnersQuery();
   const { data: suppliers = [] } = useSuppliersQuery();
@@ -151,7 +155,7 @@ export default function PackagingTab() {
 
   async function toggleDefault(item: PackagingItem) {
     const newDefault = !item.is_default;
-    await fetch(`/api/production/packaging/${item.id}`, {
+    const res = await fetch(`/api/production/packaging/${item.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -162,6 +166,13 @@ export default function PackagingTab() {
         can_count: item.can_count, is_default: newDefault,
       }),
     });
+    // fetch resolves on 4xx, so without this an unauthorized toggle just
+    // refetched and silently snapped the star back to its old state.
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      alert(body?.error ?? `Could not change the default (${res.status})`);
+      return;
+    }
     await onRefresh();
   }
 
@@ -221,8 +232,12 @@ export default function PackagingTab() {
           />
         </FilterBar>
         <div className="flex gap-2 shrink-0">
-          <button onClick={() => setShowBulkReceive(true)} className="btn-primary min-w-32" disabled={packaging.length === 0}>Bulk Receive</button>
-          <button onClick={openNew} className="btn-primary min-w-32">+ Add Item</button>
+          {canOperate && (
+            <button onClick={() => setShowBulkReceive(true)} className="btn-primary min-w-32" disabled={packaging.length === 0}>Bulk Receive</button>
+          )}
+          {canEditMaster && (
+            <button onClick={openNew} className="btn-primary min-w-32">+ Add Item</button>
+          )}
         </div>
       </div>
 
@@ -296,23 +311,33 @@ export default function PackagingTab() {
                               : "—"}
                           </td>
                           <td className="px-3 py-2.5 text-center">
-                            <button
-                              onClick={() => toggleDefault(item)}
-                              title={item.is_default ? "Remove default" : "Set as default"}
-                              className={`text-xs px-1.5 py-0.5 rounded border transition-colors ${
-                                item.is_default
-                                  ? "border-accent-border bg-accent-muted/30 text-accent-soft"
-                                  : "border-line-strong text-faint hover:border-line-subtle hover:text-secondary"
-                              }`}
-                            >
-                              {item.is_default ? "★" : "☆"}
-                            </button>
+                            {/* Writes is_default through the manage-gated PATCH,
+                                so it is an edit affordance, not a view toggle. */}
+                            {canEditMaster ? (
+                              <button
+                                onClick={() => toggleDefault(item)}
+                                title={item.is_default ? "Remove default" : "Set as default"}
+                                className={`text-xs px-1.5 py-0.5 rounded border transition-colors ${
+                                  item.is_default
+                                    ? "border-accent-border bg-accent-muted/30 text-accent-soft"
+                                    : "border-line-strong text-faint hover:border-line-subtle hover:text-secondary"
+                                }`}
+                              >
+                                {item.is_default ? "★" : "☆"}
+                              </button>
+                            ) : (
+                              <span className={`text-xs ${item.is_default ? "text-accent-soft" : "text-disabled"}`}>
+                                {item.is_default ? "★" : "☆"}
+                              </span>
+                            )}
                           </td>
                           <td className="px-3 py-2.5">
                             <div className="flex gap-1.5 justify-end items-center whitespace-nowrap text-disabled">
+                              {canOperate && (
                               <button onClick={() => openAdj(item)} className="text-xs text-accent-emphasis hover:text-accent transition-colors font-medium">Adjust</button>
+                              )}
                               {canEditMaster && (<>
-                              <span aria-hidden>·</span>
+                              {canOperate && <span aria-hidden>·</span>}
                               <button onClick={() => openEdit(item)} className="text-xs text-muted hover:text-strong transition-colors">Edit</button>
                               <span aria-hidden>·</span>
                               <button onClick={() => handleDelete(item)} className="text-xs text-faint hover:text-danger transition-colors">Del</button>

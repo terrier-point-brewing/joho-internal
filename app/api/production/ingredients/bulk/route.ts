@@ -19,7 +19,10 @@ interface BulkRow {
  * Inserts all rows and returns { inserted, errors }.
  */
 export async function POST(req: NextRequest) {
-  try { await requirePermission(CAP.inventoryOperate); } catch (res) { return res as Response; }
+  // ingredientMasterEdit, not inventoryOperate: this creates ingredient master
+  // rows, the same class of write as PATCH /ingredients/[id]. Gating it at
+  // operate let a brewer bulk-create what they cannot edit one at a time.
+  try { await requirePermission(CAP.ingredientMasterEdit); } catch (res) { return res as Response; }
 
 
   const supabase = await createSupabaseServerClient();
