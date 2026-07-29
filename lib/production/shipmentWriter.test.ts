@@ -24,7 +24,7 @@ vi.mock("./batchCompletion", () => ({
   checkAndCompleteBatch: vi.fn(),
 }));
 
-import { writeColdStorageShipment } from "./shipmentWriter";
+import { writeColdStorageShipment, resolvePackagingLossByBatch } from "./shipmentWriter";
 import { depleteColdStorageInventory } from "./coldStorageDepletion";
 import { writeExportTransaction } from "./exportTransactionWriter";
 import { getUnitsPerPackage } from "./packagingVariations";
@@ -45,12 +45,24 @@ const VARIATION = {
   paktech_id: "paktech-1",
 };
 
-/** Fake supabase whose packaging_variations select().eq().single() returns VARIATION. */
-function fakeSupabase(variation: unknown = VARIATION, varErr: string | null = null): SupabaseClient {
+/** A canning run row as resolvePackagingLossByBatch reads it. */
+type CanningRun = { batch_id: string; quantity: number; packaging_loss_pct: number };
+
+/**
+ * Fake supabase serving two reads:
+ *   • packaging_variations … .single()  → VARIATION
+ *   • batch_transfers      … .in()      → the canning runs behind the loss lookup
+ */
+function fakeSupabase(
+  variation: unknown = VARIATION,
+  varErr: string | null = null,
+  cannedRuns: CanningRun[] = [],
+): SupabaseClient {
   const from = () => {
     const b: Record<string, unknown> = {};
     b.select = () => b;
     b.eq = () => b;
+    b.in = () => Promise.resolve({ data: cannedRuns, error: null });
     b.single = () => Promise.resolve({ data: variation, error: varErr ? { message: varErr } : null });
     return b;
   };
@@ -199,5 +211,65 @@ describe("writeColdStorageShipment", () => {
     await expect(
       writeColdStorageShipment(fakeSupabase(null, "db down"), baseParams)
     ).rejects.toThrow("db down");
+  });
+});
+
+describe("resolvePackagingLossByBatch", () => {
+  it("returns an empty map when no batches are drawn (no query issued)", async () => {
+    const map = await resolvePackagingLossByBatch(fakeSupabase(), { variationId: "v1", batchIds: [] });
+    expect(map.size).toBe(0);
+  });
+
+  it("takes a single run's loss verbatim", async () => {
+    const map = await resolvePackagingLossByBatch(
+      fakeSupabase(VARIATION, null, [{ batch_id: "b1", quantity: 100, packaging_loss_pct: 5 }]),
+      { variationId: "v1", batchIds: ["b1"] },
+    );
+    expect(map.get("b1")).toBe(5);
+  });
+
+  it("weights several runs of one batch by quantity", async () => {
+    // (5×100 + 10×300) / 400 = 8.75
+    const map = await resolvePackagingLossByBatch(
+      fakeSupabase(VARIATION, null, [
+        { batch_id: "b1", quantity: 100, packaging_loss_pct: 5 },
+        { batch_id: "b1", quantity: 300, packaging_loss_pct: 10 },
+      ]),
+      { variationId: "v1", batchIds: ["b1"] },
+    );
+    expect(map.get("b1")).toBe(8.75);
+  });
+
+  it("lets a zero-loss run dilute the average rather than skipping it", async () => {
+    // (10×100 + 0×100) / 200 = 5
+    const map = await resolvePackagingLossByBatch(
+      fakeSupabase(VARIATION, null, [
+        { batch_id: "b1", quantity: 100, packaging_loss_pct: 10 },
+        { batch_id: "b1", quantity: 100, packaging_loss_pct: 0 },
+      ]),
+      { variationId: "v1", batchIds: ["b1"] },
+    );
+    expect(map.get("b1")).toBe(5);
+  });
+
+  it("keeps batches separate and omits ones with no canning history", async () => {
+    const map = await resolvePackagingLossByBatch(
+      fakeSupabase(VARIATION, null, [
+        { batch_id: "b1", quantity: 100, packaging_loss_pct: 5 },
+        { batch_id: "b2", quantity: 100, packaging_loss_pct: 12 },
+      ]),
+      { variationId: "v1", batchIds: ["b1", "b2", "b3"] },
+    );
+    expect(map.get("b1")).toBe(5);
+    expect(map.get("b2")).toBe(12);
+    expect(map.has("b3")).toBe(false); // caller defaults it to 0
+  });
+
+  it("ignores rows with no quantity so they can't divide by zero", async () => {
+    const map = await resolvePackagingLossByBatch(
+      fakeSupabase(VARIATION, null, [{ batch_id: "b1", quantity: 0, packaging_loss_pct: 5 }]),
+      { variationId: "v1", batchIds: ["b1"] },
+    );
+    expect(map.has("b1")).toBe(false);
   });
 });

@@ -25,7 +25,23 @@ export interface MaterialTxnInput {
   components: MaterialComponent[]; // only populated slots
   /** Literal variation shipped (export_transactions.variant_label). Display only. */
   label?: string;
+  /**
+   * Canning packaging loss %, inherited from the run that filled these cans.
+   * Applies ONLY to the per-can components (container/lid/label) — a spoiled can
+   * takes its lid and label with it, but paktechs and trays are consumed per
+   * package and are unaffected. Omit or 0 for kegs and for runs with no loss.
+   */
+  lossPct?: number;
 }
+
+/** Grows a per-can quantity by the run's loss %, rounded to whole units. */
+export function applyPackagingLoss(quantity: number, lossPct: number | undefined): number {
+  if (!lossPct) return quantity;
+  return Math.round(quantity * (1 + lossPct / 100));
+}
+
+/** Components a canning loss % applies to. */
+const LOSS_BEARING_ROLES: ReadonlySet<MaterialRole> = new Set<MaterialRole>(["container", "lid", "label"]);
 
 // ── Breakdown types ─────────────────────────────────────────────────────────
 // The same math computeMaterialCost sums, but retaining every intermediate so
@@ -77,8 +93,8 @@ function paktechPerPackage(format: string, components: MaterialComponent[]): num
 // Whole units of one component consumed across a transaction (rounded).
 function consumedQty(role: MaterialRole, txn: MaterialTxnInput): number {
   const { format, packages, unitsPerPackage } = txn;
-  if (role === "container" || role === "lid" || role === "label") {
-    return Math.round(packages * (unitsPerPackage || 1));
+  if (LOSS_BEARING_ROLES.has(role)) {
+    return applyPackagingLoss(Math.round(packages * (unitsPerPackage || 1)), txn.lossPct);
   }
   if (role === "paktech") return Math.round(packages * paktechPerPackage(format, txn.components));
   if (role === "tray") return Math.round(packages * (format === "case" ? 1 : 0));

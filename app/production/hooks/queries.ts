@@ -279,15 +279,11 @@ export function useInvoicePreview(transactionIds: string[], billAsChannel?: stri
   });
 }
 
-export interface IngredientShortfall {
-  ingredient_id: string;
-  name: string;
-  unit: string;
-  stock_quantity: number;
-  total_committed: number;
-  this_batch_committed: number;
-  shortfall: number;
-}
+// The route returns getShortfalls' rows verbatim, so re-export its type rather
+// than maintaining a second copy that silently drifts (this one was already
+// missing available_to_batch).
+import type { IngredientShortfall } from "@/lib/production/commitments";
+export type { IngredientShortfall };
 
 export function useIngredientShortfallsQuery(batchId: string, enabled = true) {
   return useQuery({

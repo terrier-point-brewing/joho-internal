@@ -47,6 +47,12 @@ export async function writeExportTransaction(
     overAllocation?: boolean;
     sourceRef?: string | null;
     isPhantom?: boolean;
+    /**
+     * Canning packaging loss % inherited from the run that filled these cans, so
+     * a Packaging Materials invoice line bills the same container/lid/label
+     * quantity that was physically consumed. 0 for kegs and for runs with no loss.
+     */
+    packagingLossPct?: number;
   }
 ): Promise<string> {
   const taxBreakdown = await computeExciseTaxBreakdown(supabase, params.volumeBbl);
@@ -75,6 +81,7 @@ export async function writeExportTransaction(
       notes: params.notes ?? null,
       over_allocation: params.overAllocation ?? false,
       is_phantom: params.isPhantom ?? false,
+      packaging_loss_pct: params.packagingLossPct ?? 0,
     })
     .select("id")
     .single();

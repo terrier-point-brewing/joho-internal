@@ -126,9 +126,15 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
       : plannedDestValid && plannedDestId ? plannedDestId
       : (destTanks[0]?.id ?? "")
   );
-  const [volumeMode, setVolumeMode] = useState<"full" | "partial">("full");
+  // Partial is the default: most real transfers draw part of a tank, and
+  // defaulting to Full silently pre-fills the batch's whole volume, which is
+  // easy to submit by accident.
+  const [volumeMode, setVolumeMode] = useState<"full" | "partial">("partial");
   const [partialBbl, setPartialBbl] = useState("");
   const [shrinkage,  setShrinkage]  = useState("0");
+  // Material loss on a canning run — spoiled cans take their lid and label with
+  // them. Distinct from the shrinkage field above, which is lost BEER volume.
+  const [packagingLossPct, setPackagingLossPct] = useState("5");
   const [notes,      setNotes]      = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -180,6 +186,24 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
     drawBbl = Math.max(0, batchVol - shrinkBbl);
   } else {
     drawBbl = parseFloat(partialBbl) || 0;
+  }
+
+  // Individual cans filled across every line (a 4-pack is 4 cans), and what the
+  // material loss grows that to. Mirrors the server's per-line rounding so the
+  // preview matches the deduction that actually lands.
+  const lossPctNum = Math.min(100, Math.max(0, parseFloat(packagingLossPct) || 0));
+  let canUnitsProduced = 0;
+  let lossAdjustedCanUnits = 0;
+  if (showCanDetail) {
+    for (const l of packagingLines) {
+      const v = canVariations.find((cv) => cv.id === l.variation_id);
+      const qty = parseInt(l.quantity) || 0;
+      const containerVol = v?.container?.volume_fl_oz ?? 0;
+      if (!v || !qty || !containerVol) continue;
+      const units = Math.round(qty * (v.total_volume_fl_oz / containerVol));
+      canUnitsProduced += units;
+      lossAdjustedCanUnits += Math.round(units * (1 + lossPctNum / 100));
+    }
   }
 
   const totalDraw = drawBbl + (mode === "convert" ? 0 : shrinkBbl);
@@ -282,6 +306,7 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
           transfer_type,
           notes:         notes || null,
           packaging_lines,
+          ...(transfer_type === "canning" ? { packaging_loss_pct: lossPctNum } : {}),
         }),
       });
       if (!res.ok) throw new Error((await res.json()).error ?? "Error");
@@ -543,6 +568,22 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
                 </div>
               </Field>
             </div>
+            {showCanDetail && (
+              <div className="mt-3 pt-3 border-t border-line">
+                <Field label="Material loss (%)">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <input type="number" step="0.1" min="0" max="100" className="inp w-40" placeholder="5"
+                      value={packagingLossPct} onChange={(e) => setPackagingLossPct(e.target.value)} />
+                    <span className="text-muted text-sm">of cans, lids &amp; labels</span>
+                  </div>
+                </Field>
+                <p className="text-xs text-faint mt-1.5">
+                  {canUnitsProduced > 0
+                    ? `${canUnitsProduced} cans filled → ${lossAdjustedCanUnits} cans, lids and labels consumed. Paktechs and trays are unaffected.`
+                    : "Spoiled cans, lids and labels deducted on top of what was filled. Paktechs and trays are unaffected."}
+                </p>
+              </div>
+            )}
           </div>
         )}
 

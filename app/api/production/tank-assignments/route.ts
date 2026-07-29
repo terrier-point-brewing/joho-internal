@@ -26,12 +26,28 @@ export async function POST(req: NextRequest) {
   const { data: { user: currentUser } } = await supabase.auth.getUser();
 
   const body = await req.json();
-  const { batch_id, tank_id, notes } = body;
+  const { batch_id, tank_id, notes, yeast_repitch, yeast_repitch_note } = body as {
+    batch_id: string; tank_id: string; notes?: string | null;
+    yeast_repitch?: boolean; yeast_repitch_note?: string | null;
+  };
+
+  // A re-pitch reuses yeast cropped from a previous batch, so the recipe's yeast
+  // line neither draws stock nor blocks the assignment. Recorded on the batch
+  // before the shortfall check so both read the same flag. Nothing else changes:
+  // ingredient deposits, commitments and every non-yeast ingredient are untouched.
+  const isRepitch = yeast_repitch === true;
+  if (isRepitch) {
+    const { error: repitchErr } = await supabase
+      .from("brew_batches")
+      .update({ yeast_repitch: true, yeast_repitch_note: yeast_repitch_note?.trim() || null })
+      .eq("id", batch_id);
+    if (repitchErr) return NextResponse.json({ error: repitchErr.message }, { status: 500 });
+  }
 
   // Before allowing a brewhouse assignment, verify ingredient stock is sufficient.
   const { data: tankType } = await supabase.from("equipment").select("type").eq("id", tank_id).single();
   if (tankType?.type === "brewhouse") {
-    const shortfalls = await getShortfalls(supabase, batch_id);
+    const shortfalls = await getShortfalls(supabase, batch_id, { excludeYeast: isRepitch });
     if (shortfalls.length > 0) {
       return NextResponse.json({ error: "Insufficient ingredient stock", shortfalls }, { status: 422 });
     }
@@ -144,11 +160,20 @@ export async function POST(req: NextRequest) {
         const turns   = Math.max(1, Number(batch.turns ?? 1));
         const turnVol = Number(batch.volume_bbl) / turns;
 
-        const { data: recipeIngredients, error: riErr } = await supabase
+        const { data: allRecipeIngredients, error: riErr } = await supabase
           .from("recipe_ingredients")
-          .select("ingredient_id, quantity_per_bbl, ingredients(cost_per_unit, unit)")
+          .select("ingredient_id, quantity_per_bbl, ingredients(cost_per_unit, unit, category)")
           .eq("recipe_id", batch.recipe_id);
         if (riErr) return NextResponse.json({ error: riErr.message }, { status: 500 });
+
+        // On a re-pitch the yeast came off a previous batch, so it never leaves
+        // the shelf — drop those lines before any stock movement is written.
+        // Every other ingredient behaves exactly as it always has.
+        const recipeIngredients = isRepitch
+          ? (allRecipeIngredients ?? []).filter(
+              (ri) => (ri.ingredients as unknown as { category: string | null } | null)?.category !== "Yeast",
+            )
+          : allRecipeIngredients;
 
         const { data: batchRow, error: batchRowErr } = await supabase
           .from("brew_batches")

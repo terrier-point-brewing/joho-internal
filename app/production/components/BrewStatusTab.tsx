@@ -10,6 +10,8 @@ import { GRID_CELL_PX as CELL, GRID_COLS, GRID_ROWS, GRID_GAP_PX as GAP } from "
 import { fmtDate } from "@/lib/utils/formatting";
 import TransferModal from "./TransferModal";
 import NextPlannedBox from "./FloorplanTile/NextPlannedBox";
+import IngredientShortfallModal from "./IngredientShortfallModal";
+import type { IngredientShortfall } from "@/lib/production/commitments";
 import { useTankDragDrop } from "../hooks/useTankDragDrop";
 import { useEquipmentCrud } from "../hooks/useEquipmentCrud";
 import { useBatchAssign } from "../hooks/useBatchAssign";
@@ -33,6 +35,9 @@ const BATCH_EMPTY = {
 };
 
 const TANK_TYPES = new Set(["fermenter", "brite", "brewhouse"]);
+// Stages whose schedule entries carry a packaging volume that can be fulfilled
+// by a different run — see isPendingWork.
+const PACKAGING_STAGES = new Set(["kegging", "canning"]);
 
 // Minimal calendar glyph for the per-equipment "upcoming plans" button —
 // crisper at tiny sizes than an emoji and matches the rest of the UI's line-icon style.
@@ -244,24 +249,37 @@ export default function BrewStatusTab() {
     return map;
   }, [scheduleEntries]);
 
-  // Every not-yet-started, non-cancelled entry per equipment, earliest first —
-  // backs both the per-equipment "Plans" popup and the top "what's next" banner.
+  // An entry only represents outstanding work if it hasn't started, hasn't been
+  // cancelled, belongs to a batch that is still in progress, and still has volume
+  // attached. The last two matter for packaging: a completed batch has nothing
+  // left to keg or can, and a packaging entry whose volume was clawed back to
+  // zero by an unscheduled run was already fulfilled elsewhere. Without these,
+  // B-038 kept advertising a 2026-07-14 Canning action months after completing.
+  // Flattened, globally-sorted pending tasks — the top "what's next" banner.
+  const upcomingTasks = React.useMemo(() => {
+    const statusByBatchId = new Map(batches.map((b) => [b.id, b.status]));
+    const isPendingWork = (entry: ScheduleEntry) => {
+      if (!entry.equipment_id || entry.cancelled_at || entry.actual_start) return false;
+      const batchStatus = entry.brew_batches?.status ?? statusByBatchId.get(entry.batch_id);
+      if (batchStatus === "complete") return false;
+      if (PACKAGING_STAGES.has(entry.stage) && entry.volume_bbl != null && Number(entry.volume_bbl) <= 0.001) return false;
+      return true;
+    };
+    return scheduleEntries
+      .filter(isPendingWork)
+      .sort((a, b) => a.planned_start.localeCompare(b.planned_start));
+  }, [scheduleEntries, batches]);
+
+  // The same pending entries bucketed per equipment, earliest first — backs the
+  // per-equipment "Plans" popup. Derived from upcomingTasks so both views can
+  // never disagree about what counts as outstanding work.
   const upcomingByEquipment = React.useMemo(() => {
     const map = new Map<string, ScheduleEntry[]>();
-    for (const entry of scheduleEntries) {
-      if (!entry.equipment_id || entry.cancelled_at || entry.actual_start) continue;
-      (map.get(entry.equipment_id) ?? map.set(entry.equipment_id, []).get(entry.equipment_id)!).push(entry);
+    for (const entry of upcomingTasks) {
+      (map.get(entry.equipment_id!) ?? map.set(entry.equipment_id!, []).get(entry.equipment_id!)!).push(entry);
     }
-    for (const list of map.values()) list.sort((a, b) => a.planned_start.localeCompare(b.planned_start));
     return map;
-  }, [scheduleEntries]);
-
-  // Flattened, globally-sorted upcoming tasks for the top banner.
-  const upcomingTasks = React.useMemo(() => {
-    return [...scheduleEntries]
-      .filter(e => e.equipment_id && !e.cancelled_at && !e.actual_start)
-      .sort((a, b) => a.planned_start.localeCompare(b.planned_start));
-  }, [scheduleEntries]);
+  }, [upcomingTasks]);
 
   // Resolve the right click-through action for an Up Next card: prefer a
   // direct Transfer/Convert action over the tank's current occupant, falling
@@ -349,6 +367,9 @@ export default function BrewStatusTab() {
   } = useTankDragDrop(tanks, onRefresh, gridScale, gridCols, gridRows);
   const eqCrud = useEquipmentCrud(onRefresh);
   const assign = useBatchAssign(unassignedBatches, onRefresh);
+  // Shortfall detail opened from a blocked brewhouse assignment.
+  const [shortfallDetail, setShortfallDetail] =
+    useState<{ shortfalls: IngredientShortfall[]; batchLabel: string | null } | null>(null);
 
   return (
     <>
@@ -1268,9 +1289,56 @@ export default function BrewStatusTab() {
               <input className="inp" value={assign.assignNotes}
                 onChange={(e) => assign.setAssignNotes(e.target.value)} />
             </Field>
+            {/* Yeast re-pitch — skips consuming the recipe's yeast only. */}
+            <div className="rounded border border-line bg-surface/40 p-3 space-y-2">
+              <label className="flex items-center gap-2 text-sm text-body cursor-pointer">
+                <input type="checkbox" checked={assign.yeastRepitch}
+                  onChange={(e) => assign.setYeastRepitch(e.target.checked)} />
+                Yeast is a re-pitch
+              </label>
+              {assign.yeastRepitch && (
+                <Field label="Re-pitch note">
+                  <input className="inp" placeholder="e.g. 3rd gen from B-041"
+                    value={assign.yeastRepitchNote}
+                    onChange={(e) => assign.setYeastRepitchNote(e.target.value)} />
+                </Field>
+              )}
+              <p className="text-xs text-faint">
+                Leaves the recipe&rsquo;s yeast in inventory. Ingredient deposits and every other
+                ingredient are unaffected.
+              </p>
+            </div>
+            {assign.assignShortfalls && assign.assignShortfalls.length > 0 && (
+              <div className="rounded border border-danger-border bg-danger-surface/40 px-3 py-2 flex items-center justify-between gap-3">
+                <p className="text-xs text-danger">
+                  Blocked — {assign.assignShortfalls.length} ingredient
+                  {assign.assignShortfalls.length > 1 ? "s" : ""} short.
+                </p>
+                <button type="button" className="btn-secondary btn-xxs"
+                  onClick={() => setShortfallDetail({
+                    shortfalls: assign.assignShortfalls!,
+                    batchLabel: (() => {
+                      const b = batchById[assign.assignBatchId];
+                      return b ? `${b.batch_number ?? "?"} · ${b.beer_name}` : null;
+                    })(),
+                  })}>
+                  View detail
+                </button>
+              </div>
+            )}
             <ModalActions submitting={assign.assignSubmitting} onCancel={() => assign.setShowAssignModal(false)} label="Assign" />
           </form>
         </Modal>
+      )}
+
+      {/* Ingredient shortfall detail — opened from a blocked assignment */}
+      {shortfallDetail && (
+        <IngredientShortfallModal
+          shortfalls={shortfallDetail.shortfalls}
+          batchLabel={shortfallDetail.batchLabel}
+          blockedMessage="This batch can't be assigned to a brewhouse until the shortfall is resolved."
+          onClose={() => setShortfallDetail(null)}
+        />
       )}
 
       {/* Transfer modal */}
