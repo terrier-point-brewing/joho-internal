@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { fetchJson, useContractPartnersQuery } from "../hooks/queries";
 import { queryKeys } from "@/lib/query-keys";
 import { fmtUsd } from "@/lib/utils/formatting";
+import Banner from "@/app/components/ui/Banner";
 
 interface DepositBreakdownLine {
   id: string; ingredient_name: string; unit: string;
@@ -100,7 +101,7 @@ function ExpandedPanel({ invoice }: { invoice: DepositInvoiceListItem }) {
 }
 
 export default function DepositInvoicesTab() {
-  const { data: invoices = [] } = useQuery({
+  const { data: invoices = [], isLoading, error } = useQuery({
     queryKey: queryKeys.production.depositInvoices(),
     queryFn: () => fetchJson<DepositInvoiceListItem[]>("/api/production/deposit-invoices"),
   });
@@ -157,8 +158,12 @@ export default function DepositInvoicesTab() {
         <span className="text-secondary"><span className="text-strong font-medium">{fmtUsd(grandTotal / 100)}</span> total</span>
       </div>
 
-      {filtered.length === 0 ? (
-        <p className="text-sm text-faint">No deposit invoices match the current filters.</p>
+      {error ? (
+        <Banner>Could not load deposit invoices: {error instanceof Error ? error.message : "unknown error"}</Banner>
+      ) : filtered.length === 0 ? (
+        <p className="text-sm text-faint">
+          {isLoading ? "Loading deposit invoices…" : "No deposit invoices match the current filters."}
+        </p>
       ) : (
         <div className="rounded-lg border border-line overflow-hidden">
           <table className="w-full text-sm">
