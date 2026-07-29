@@ -36,6 +36,12 @@ export interface LegacyRow {
  * restructure raised it to payrollManage so it matches the /finance/payroll
  * page that hosts it. At manage, every legacy role resolves to the legacy
  * default (admin only), so it needs no intentionalChange.
+ * GET production/taproom-consumption/phantom-alerts was hand-edited on
+ * 2026-07-28, lowered from taproomPerformanceOperate to taproomPerformanceRead.
+ * Brewer reaches the Export Bay tab that hosts this indicator (via
+ * production.export: operate) but holds only taproom.performance: read, so the
+ * operate gate 403'd every brewer — and the panel reported that failure as
+ * "All reconciled". Reading the list is a read; resolve/dismiss stay at operate.
  */
 export const LEGACY_MATRIX: LegacyRow[] = [
   { route: "admin/cron-runs", method: "GET", legacy: [], capability: "cronRead" },
@@ -210,7 +216,7 @@ export const LEGACY_MATRIX: LegacyRow[] = [
   { route: "production/tank-assignments", method: "POST", legacy: ["brewer"], capability: "brewingOperate" },
   { route: "production/tank-assignments", method: "PATCH", legacy: [], capability: "tankReassign" },
   { route: "production/taproom-consumption/dismiss-phantom", method: "POST", legacy: ["manager"], capability: "taproomPerformanceOperate" },
-  { route: "production/taproom-consumption/phantom-alerts", method: "GET", legacy: ["manager"], capability: "taproomPerformanceOperate" },
+  { route: "production/taproom-consumption/phantom-alerts", method: "GET", legacy: ["manager"], capability: "taproomPerformanceRead", intentionalChange: { brewer: true, viewer: true, reason: "Read-only reconciliation indicator on a tab brewer already reaches via production.export:operate; at operate every brewer was 403'd and the panel rendered the failure as 'All reconciled'" } },
   { route: "production/taproom-consumption/reconcile-phantom", method: "POST", legacy: ["manager"], capability: "taproomPerformanceOperate" },
   { route: "production/taproom-consumption/sync", method: "POST", legacy: ["brewer"], capability: "brewingOperate" },
   { route: "production/transfers", method: "POST", legacy: ["brewer"], capability: "brewingOperate" },

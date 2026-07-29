@@ -9,6 +9,11 @@ import { CHANNEL_COLOR } from "../lib/categoryColors";
 import { fmtDateLong } from "@/lib/utils/formatting";
 import { formatCurrency, formatNumber } from "@/lib/format";
 import { localDateString } from "@/lib/utils/datetime";
+import {
+  rowReconcileState,
+  worseReconcileState,
+  type ReconcileState,
+} from "@/lib/production/draftRecountState";
 import { useTableControls } from "@/app/components/ui/useTableControls";
 import FilterChips from "@/app/components/ui/FilterChips";
 import FilterSelect from "@/app/components/ui/FilterSelect";
@@ -36,6 +41,12 @@ interface ShipmentRow {
   packaging_item_name: string | null;
   created_at: string;
   brew_batches: { id: string; beer_name: string; batch_number: string } | null;
+  /** Beer name off the recipe. Always present, including on batchless rows. */
+  recipe_beer_name: string | null;
+  /** Draft swap that booked barrel excise with no cold-storage stock to deduct. */
+  is_phantom: boolean | null;
+  /** Set once a phantom is resolved against a keg lot, or dismissed as stockless. */
+  alert_acknowledged_at: string | null;
 }
 
 // Display status shown on the Shipments tab. "draft" is a UI-only state derived
@@ -74,6 +85,8 @@ interface GroupProductRow {
   total_excise_tax_usd: number;
   /** True when any constituent row came from a restock-driven draft keg swap. */
   isDraftRecount: boolean;
+  /** Worst reconciliation state across the constituent rows. */
+  reconcileState: ReconcileState;
   allocations: AllocationCredit[];
 }
 
@@ -238,7 +251,10 @@ function groupByInvoice(rows: ShipmentRow[]): InvoiceGroup[] {
       const { label, sortKey } = getPackagingCategory(row);
       product = {
         recipe_id: row.recipe_id,
-        beer_name: row.brew_batches?.beer_name ?? "Unknown",
+        // A batchless row still knows its recipe, so fall through to the recipe
+        // name before giving up. "Unknown" now means genuinely unidentifiable,
+        // not merely "no batch linked".
+        beer_name: row.brew_batches?.beer_name ?? row.recipe_beer_name ?? "Unknown",
         variant_label: row.variant_label,
         packaging_category: label,
         unit_label: unitLabel(row.packaging_item_type),
@@ -249,12 +265,14 @@ function groupByInvoice(rows: ShipmentRow[]): InvoiceGroup[] {
         total_volume_bbl: 0,
         total_excise_tax_usd: 0,
         isDraftRecount: false,
+        reconcileState: null,
         allocations: [],
       };
       group.products.push(product);
     }
 
     if (isDraftRecountRef(row.source_ref)) product.isDraftRecount = true;
+    product.reconcileState = worseReconcileState(product.reconcileState, rowReconcileState(row));
 
     product.total_quantity = Math.round((product.total_quantity + Number(row.quantity)) * 10000) / 10000;
     product.total_volume_bbl = Math.round((product.total_volume_bbl + Number(row.volume_bbl)) * 10000) / 10000;
@@ -633,6 +651,22 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
                               title="Keg drained by a draft line restock (recount swap), not a partner shipment"
                             >
                               Draft recount
+                            </span>
+                          )}
+                          {product.reconcileState === "unreconciled" && (
+                            <span
+                              className="text-[10px] px-1.5 py-0.5 rounded bg-danger-surface/50 text-danger whitespace-nowrap shrink-0"
+                              title="Barrel excise was booked with no cold-storage keg to deduct. Resolve or dismiss it under Export Bay."
+                            >
+                              Unreconciled
+                            </span>
+                          )}
+                          {product.reconcileState === "no_stock" && (
+                            <span
+                              className="text-[10px] px-1.5 py-0.5 rounded bg-surface-mid text-muted whitespace-nowrap shrink-0"
+                              title="Reviewed under Export Bay and dismissed — there was no cold-storage keg to draw down, so this recount stays batchless by design."
+                            >
+                              No cold-storage stock
                             </span>
                           )}
                         </span>

@@ -235,11 +235,37 @@ function PhantomAlertRow({
   );
 }
 
-function PhantomAlertsPanel({ alerts }: { alerts: PhantomAlert[] }) {
+function PhantomAlertsPanel({
+  alerts,
+  status,
+  loadError,
+}: {
+  alerts: PhantomAlert[];
+  status: "pending" | "error" | "success";
+  loadError: string | null;
+}) {
   const [open, setOpen] = useState(false);
   const [selectedLotByAlert, setSelectedLotByAlert] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const { reconcile, dismiss } = usePhantomAlertMutations();
+
+  // "All reconciled" is a positive claim about the ledger, so it may only be
+  // rendered from a query that actually succeeded. Reporting a pending or
+  // failed fetch as reconciled is how a tab full of unresolved draft recounts
+  // came to sit behind a clean bill of health.
+  if (status === "pending") {
+    return <span className="text-xs text-faint whitespace-nowrap">⚑ Checking reconciliation…</span>;
+  }
+  if (status === "error") {
+    return (
+      <span
+        className="text-xs text-danger whitespace-nowrap"
+        title={loadError ?? "The draft-swap reconciliation check could not be loaded."}
+      >
+        ⚑ Reconciliation status unavailable
+      </span>
+    );
+  }
 
   if (alerts.length === 0) {
     return <span className="text-xs text-faint whitespace-nowrap">⚑ All reconciled</span>;
@@ -312,7 +338,11 @@ export default function ExportBayTab() {
   });
   const { data: recipes = [] } = useRecipesQuery();
   const { data: partners = [] } = useContractPartnersQuery();
-  const { data: phantomAlertsData } = useQuery({
+  const {
+    data: phantomAlertsData,
+    status: phantomAlertsStatus,
+    error: phantomAlertsError,
+  } = useQuery({
     queryKey: queryKeys.production.phantomAlerts(),
     queryFn: () => fetchJson<{ alerts: PhantomAlert[] }>("/api/production/taproom-consumption/phantom-alerts"),
   });
@@ -531,7 +561,11 @@ export default function ExportBayTab() {
 
       {/* Actions */}
       <div className="flex items-center justify-between gap-2">
-        <PhantomAlertsPanel alerts={phantomAlerts} />
+        <PhantomAlertsPanel
+          alerts={phantomAlerts}
+          status={phantomAlertsStatus}
+          loadError={phantomAlertsError instanceof Error ? phantomAlertsError.message : null}
+        />
         <div className="flex items-center gap-2">
           <button
             onClick={() => setShowSync(true)}
