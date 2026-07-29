@@ -221,7 +221,7 @@ export function ShiftTimeline({ periodId, overrideMode }: { periodId: string; ov
       <table className="text-xs border-collapse">
         <thead>
           <tr>
-            <th className="text-left py-2 pr-8 text-muted font-medium whitespace-nowrap">Employee</th>
+            <th className="sticky left-0 z-20 bg-canvas shadow-[1px_0_0_0_var(--color-line)] text-left py-2 pr-8 text-muted font-medium whitespace-nowrap">Employee</th>
             {weeks.map((week, wi) => (
               <Fragment key={wi}>
                 {week.map(d => (
@@ -239,7 +239,7 @@ export function ShiftTimeline({ periodId, overrideMode }: { periodId: string; ov
             <th className={`py-2 text-muted font-medium text-right whitespace-nowrap ${multiWeek ? "pl-3 pr-0 border-l border-line" : "pl-5"}`}>
               Total
             </th>
-            {overrideMode && <th />}
+            {overrideMode && <th className="sticky right-0 z-20 bg-canvas shadow-[-1px_0_0_0_var(--color-line)]" />}
           </tr>
         </thead>
         <tbody>
@@ -248,7 +248,7 @@ export function ShiftTimeline({ periodId, overrideMode }: { periodId: string; ov
             const hasCash = row.daily_cash_tips_cents !== null;
             return (
               <tr key={row.employee_id} className={i > 0 ? "border-t border-transparent" : ""}>
-                <td className="pr-8 py-1 text-body whitespace-nowrap font-medium align-middle">
+                <td className="sticky left-0 z-10 bg-canvas shadow-[1px_0_0_0_var(--color-line)] pr-8 py-1 text-body whitespace-nowrap font-medium align-middle">
                   {row.name}
                 </td>
 
@@ -363,7 +363,7 @@ export function ShiftTimeline({ periodId, overrideMode }: { periodId: string; ov
                 </td>
 
                 {overrideMode && row.overridable && (
-                  <td className="pl-4 py-1 align-middle">
+                  <td className="sticky right-0 z-10 bg-canvas shadow-[-1px_0_0_0_var(--color-line)] pl-4 pr-2 py-1 align-middle">
                     <div className="flex gap-2 items-center">
                       <input
                         type="text"
@@ -388,7 +388,7 @@ export function ShiftTimeline({ periodId, overrideMode }: { periodId: string; ov
         </tbody>
         <tfoot>
           <tr className="border-t-2 border-line-strong">
-            <td className="pr-8 py-2 text-muted font-medium text-xs whitespace-nowrap align-middle">Total</td>
+            <td className="sticky left-0 z-20 bg-canvas shadow-[1px_0_0_0_var(--color-line)] pr-8 py-2 text-muted font-medium text-xs whitespace-nowrap align-middle">Total</td>
             {weeks.map((week, wi) => {
               const wkTotalHours    = week.reduce((s, d) =>
                 s + rows.reduce((rs, r) => rs + (r.daily_hours[d] ?? 0), 0), 0);
@@ -458,7 +458,7 @@ export function ShiftTimeline({ periodId, overrideMode }: { periodId: string; ov
                 })()}
               </div>
             </td>
-            {overrideMode && <td />}
+            {overrideMode && <td className="sticky right-0 z-20 bg-canvas shadow-[-1px_0_0_0_var(--color-line)]" />}
           </tr>
         </tfoot>
       </table>

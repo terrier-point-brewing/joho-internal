@@ -8,6 +8,7 @@ import { PayrollEntryRow } from "./PayrollEntryRow";
 import { GustoSummaryPanel } from "./GustoSummaryPanel";
 import { GustoUploadPanel } from "./GustoUploadPanel";
 import { ShiftTimeline } from "./ShiftTimeline";
+import { AdjustmentsPanel } from "./AdjustmentsPanel";
 import { queryKeys } from "@/lib/query-keys";
 import TabBar from "@/app/components/TabBar";
 import Badge from "@/app/components/ui/Badge";
@@ -15,11 +16,12 @@ import { Modal } from "@/app/components/ui/Modal";
 import { usePermissions } from "@/lib/hooks/useUserRole";
 import { CAP } from "@/lib/auth/capabilities"; // NOT "@/lib/auth" — barrel pulls server-only code
 
-export type PayrollTab = "summary" | "shifts" | "gusto" | "gustoUpload";
+export type PayrollTab = "summary" | "shifts" | "adjustments" | "gusto" | "gustoUpload";
 
 const TAB_LABELS: Record<PayrollTab, string> = {
   summary: "Summary",
   shifts: "Shifts",
+  adjustments: "Adjustments",
   gusto: "Gusto Summary",
   gustoUpload: "Gusto Upload",
 };
@@ -31,7 +33,7 @@ interface Props {
   tabs?: PayrollTab[];
 }
 
-export function PayrollPeriodView({ periodId, editable, tabs = ["summary", "shifts"] }: Props) {
+export function PayrollPeriodView({ periodId, editable, tabs = ["summary", "shifts", "adjustments"] }: Props) {
   const { data: preview, isLoading, error } = usePayrollPeriod(periodId);
   const qc = useQueryClient();
   const [locking, setLocking] = useState(false);
@@ -167,6 +169,8 @@ export function PayrollPeriodView({ periodId, editable, tabs = ["summary", "shif
       {/* Tab content */}
       {activeTab === "shifts" ? (
         <ShiftTimeline periodId={periodId} overrideMode={overrideMode && canDayOverride} />
+      ) : activeTab === "adjustments" ? (
+        <AdjustmentsPanel periodId={periodId} entries={entries} employees={employees} />
       ) : activeTab === "gusto" ? (
         <GustoSummaryPanel
           entries={entries}

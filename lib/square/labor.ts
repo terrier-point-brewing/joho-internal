@@ -1,3 +1,4 @@
+import { unstable_cache } from "next/cache";
 import { squarePostAll, squareLocationId } from "./client";
 
 interface SquareShift {
@@ -98,7 +99,7 @@ export function aggregateDailyShifts(
  * Same shift search as fetchShiftHours, but returns per-day granularity.
  * Date is taken from the local portion of the ISO start_at timestamp.
  */
-export async function fetchShiftsByDay(
+async function fetchShiftsByDayUncached(
   startDate: string,
   endDate: string
 ): Promise<DailyShift[]> {
@@ -120,4 +121,22 @@ export async function fetchShiftsByDay(
   );
 
   return aggregateDailyShifts(shifts);
+}
+
+// The payroll grid recomputes this for the same period on every save and on
+// both the Shifts and Summary queries. Cache cross-request (keyed by
+// start/end) so one period hits Square's paginated shift search once.
+// Bust via revalidateTag("square-labor") after a labor-data sync.
+const fetchShiftsByDayCached = unstable_cache(
+  fetchShiftsByDayUncached,
+  ["square-shifts-by-day"],
+  { revalidate: 90, tags: ["square-labor"] },
+);
+
+/** Public entry point — signature unchanged for callers. */
+export async function fetchShiftsByDay(
+  startDate: string,
+  endDate: string
+): Promise<DailyShift[]> {
+  return fetchShiftsByDayCached(startDate, endDate);
 }

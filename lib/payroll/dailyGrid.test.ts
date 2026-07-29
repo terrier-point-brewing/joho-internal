@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   distributeByWeight, attributeBucket, bucketViolations, cellKey,
   getDays, dayGroups, bucketLabels, buildDailyGrid,
+  fetchDayGridInputs, computeDailyGrid,
 } from "./dailyGrid";
 import type { DailyShift } from "@/lib/square/labor";
 import type { DailyTips } from "@/lib/square/payroll";
@@ -419,5 +420,53 @@ describe("buildDailyGrid", () => {
     // 6000c pool, exactly as it would be with no override at all.
     expect(g.cardTipsByDate.get("2026-07-08")!.get("s1")).toBe(3000);
     expect(g.cardTipsByDate.get("2026-07-08")!.get("s2")).toBe(3000);
+  });
+});
+
+describe("fetchDayGridInputs / computeDailyGrid split", () => {
+  beforeEach(() => {
+    mockShifts.mockClear();
+    mockTips.mockClear();
+    mockShifts.mockResolvedValue([
+      { team_member_id: "s1", date: "2026-07-01", hours: 6, cash_tips_cents: 1000 },
+      { team_member_id: "s2", date: "2026-07-01", hours: 2, cash_tips_cents: 500 },
+    ]);
+    mockTips.mockResolvedValue([{ date: "2026-07-01", tipsPooledCents: 8000 }]);
+  });
+
+  // The Shifts route needs two grids over one period (overridden + baseline).
+  // Calling buildDailyGrid twice re-ran every paginated Square sequence; this
+  // pins that one fetch now serves N computations.
+  it("fetches Square once no matter how many grids are computed", async () => {
+    const inputs = await fetchDayGridInputs(PERIOD);
+    computeDailyGrid(inputs, PERIOD, EMPS, "daily", []);
+    computeDailyGrid(inputs, PERIOD, EMPS, "daily", [
+      { ...noOv, employee_id: "e1", work_date: "2026-07-01", adj_hours: 2 },
+    ]);
+    computeDailyGrid(inputs, PERIOD, EMPS, "biweekly", []);
+
+    expect(mockShifts).toHaveBeenCalledTimes(1);
+    expect(mockTips).toHaveBeenCalledTimes(1);
+  });
+
+  it("computes an identical grid to buildDailyGrid", async () => {
+    const viaWrapper = await buildDailyGrid(PERIOD, EMPS, "daily", []);
+    const inputs = await fetchDayGridInputs(PERIOD);
+    const viaSplit = computeDailyGrid(inputs, PERIOD, EMPS, "daily", []);
+
+    expect(viaSplit.buckets).toEqual(viaWrapper.buckets);
+    expect([...viaSplit.cardTipsByDate.get("2026-07-01")!]).toEqual(
+      [...viaWrapper.cardTipsByDate.get("2026-07-01")!],
+    );
+    expect(viaSplit.totalPooledTipsCents).toBe(viaWrapper.totalPooledTipsCents);
+  });
+
+  it("does not mutate the shared inputs between computations", async () => {
+    const inputs = await fetchDayGridInputs(PERIOD);
+    const before = JSON.stringify(inputs);
+    computeDailyGrid(inputs, PERIOD, EMPS, "daily", [
+      { ...noOv, employee_id: "e1", work_date: "2026-07-02", adj_hours: 9 },
+    ]);
+    expect(JSON.stringify(inputs)).toBe(before);
   });
 });
