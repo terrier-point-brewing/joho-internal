@@ -7,6 +7,7 @@ import { checkAndCompleteBatch } from "@/lib/production/batchCompletion";
 import { finalizeConversion, createConversionTargetBatch, reconcileConvertedBatchVolume } from "@/lib/production/conversionFinalizer";
 import { computeTankVolumes } from "@/lib/production/volumeLedger";
 import { getPaktechUnitsPerPackage } from "@/lib/production/packagingVariations";
+import { applyPackagingLoss } from "@/lib/production/packagingMaterials";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +25,8 @@ interface TransferLineInput {
   quantity: number | null;
   created_by: string | null;
   recipe_id: string | null;
+  /** Canning loss %, applied to containers/lids/labels. Ignored for other types. */
+  packaging_loss_pct: number;
 }
 
 /**
@@ -38,7 +41,7 @@ async function processTransferLine(
   supabase: SupabaseClient,
   line: TransferLineInput
 ): Promise<{ transfer: Record<string, unknown>; scheduleUpdate: ScheduleUpdateEntry[] }> {
-  const { batch_id, from_tank_id, to_tank_id, volume_bbl, shrinkage_bbl, transfer_type, notes, variation_id, quantity, created_by, recipe_id } = line;
+  const { batch_id, from_tank_id, to_tank_id, volume_bbl, shrinkage_bbl, transfer_type, notes, variation_id, quantity, created_by, recipe_id, packaging_loss_pct: packagingLossPct } = line;
 
   const { data: transfer, error } = await supabase
     .rpc("record_batch_transfer", {
@@ -62,6 +65,16 @@ async function processTransferLine(
 
   const transferRow = transfer as { id: string };
 
+  // The RPC's signature predates packaging loss, so stamp it on the row it just
+  // wrote. Kept off the RPC deliberately: changing that signature would break
+  // every other caller for a column only canning cares about.
+  if (transfer_type === "canning" && packagingLossPct > 0) {
+    await supabase
+      .from("batch_transfers")
+      .update({ packaging_loss_pct: packagingLossPct })
+      .eq("id", transferRow.id);
+  }
+
   // ── Packaging deduction + cold storage inventory ─────────────────────────
   if (variation_id && quantity) {
     try {
@@ -82,10 +95,18 @@ async function processTransferLine(
           format: variation.format, tray_id: variation.tray_id, paktech_id: variation.paktech_id,
         });
 
+        // A canning run spoils some cans outright — mis-fills, bad seams, torn
+        // labels — and a spoiled can takes its lid and label with it. Grow those
+        // three by the run's loss %, rounded to whole units, so inventory
+        // reflects what actually left the shelf. Paktechs and trays are consumed
+        // per package, not per can, so they never carry the loss.
+        const lossPct = transfer_type === "canning" ? packagingLossPct : 0;
+        const lossAdjustedUnits = applyPackagingLoss(Math.round(totalUnits), lossPct);
+
         const deductions: { id: string | null; qty: number; label: string }[] = [
-          { id: variation.container_id, qty: totalUnits, label: "container" },
-          { id: variation.lid_id,       qty: totalUnits, label: "lids" },
-          { id: variation.label_id,     qty: totalUnits, label: "labels" },
+          { id: variation.container_id, qty: lossAdjustedUnits, label: "container" },
+          { id: variation.lid_id,       qty: lossAdjustedUnits, label: "lids" },
+          { id: variation.label_id,     qty: lossAdjustedUnits, label: "labels" },
           { id: variation.tray_id,      qty: quantity,    label: "trays" },
           { id: variation.paktech_id,   qty: quantity * paktechUnitsPerPackage, label: "paktechs" },
         ];
@@ -349,9 +370,22 @@ async function reconcileSchedule(
             if (!openEntry || openEntry.volume_bbl == null) continue;
             const newVol = Math.max(0, Number(openEntry.volume_bbl) - remaining);
             const deducted = Number(openEntry.volume_bbl) - newVol;
+            // An entry clawed all the way to zero has no volume left to package,
+            // so it is not a pending action any more. Cancelling it here is what
+            // keeps it out of the Floorplan's "Up Next" banner — leaving it open
+            // stranded ghosts that advertised a canning run for months after the
+            // batch finished (see 20260831_cancel_fulfilled_packaging_ghosts).
+            const exhausted = newVol <= 0.001;
             await supabase
               .from("batch_schedule_entries")
-              .update({ volume_bbl: newVol, updated_at: new Date().toISOString() })
+              .update({
+                volume_bbl: newVol,
+                updated_at: new Date().toISOString(),
+                ...(exhausted ? {
+                  cancelled_at: new Date().toISOString(),
+                  cancellation_reason: "Volume fulfilled by other packaging runs",
+                } : {}),
+              })
               .eq("id", openEntry.id);
             remaining -= deducted;
           }
@@ -660,8 +694,15 @@ export async function POST(req: NextRequest) {
     volume_bbl?: number;
     shrinkage_bbl?: number;
     packaging_lines?: { variation_id: string; quantity: number }[];
+    packaging_loss_pct?: number;
     new_batch?: { beer_name: string; recipe_id: string } | null;
   };
+
+  // Clamped rather than rejected: the field is advisory shrink accounting, and a
+  // nonsense value shouldn't lose the operator an otherwise-valid canning run.
+  const packagingLossPct = transfer_type === "canning"
+    ? Math.min(100, Math.max(0, Number(body.packaging_loss_pct ?? 0) || 0))
+    : 0;
 
   const { data: batchRow } = await supabase.from("brew_batches").select("recipe_id").eq("id", batch_id).single();
   const recipe_id: string | null = batchRow?.recipe_id ?? null;
@@ -768,6 +809,7 @@ export async function POST(req: NextRequest) {
         transfer_type: transfer_type ?? "transfer", notes: notes || null,
         variation_id: line.variation_id, quantity: line.quantity,
         created_by: currentUser?.id ?? null, recipe_id,
+        packaging_loss_pct: packagingLossPct,
       });
       transfers.push(transfer);
       allScheduleUpdates.push(...scheduleUpdate);

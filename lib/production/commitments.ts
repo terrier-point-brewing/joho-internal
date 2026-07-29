@@ -19,9 +19,11 @@ export interface IngredientShortfall {
   name: string;
   unit: string;
   stock_quantity: number;
-  total_committed: number;   // across ALL active batches
+  total_committed: number;      // across all pre-brew batches
   this_batch_committed: number;
-  shortfall: number;         // total_committed - stock_quantity (always > 0)
+  /** Stock left for this batch after earlier-dated pre-brew batches take theirs. */
+  available_to_batch: number;
+  shortfall: number;            // this_batch_committed - available_to_batch (always > 0)
 }
 
 /** Create or update commitments for every ingredient in the recipe × volume. */
@@ -62,39 +64,102 @@ export async function releaseCommitments(
     .is("released_at", null);
 }
 
+/** Batch statuses that have NOT yet consumed their ingredients. */
+const PRE_BREW_STATUSES = ["planning", "backlog"];
+
+export interface GetShortfallsOptions {
+  /**
+   * Skip Yeast-category ingredients. Set when the batch is flagged as a yeast
+   * re-pitch — the yeast is cropped from a previous batch, so the recipe's
+   * yeast line never draws stock and must not block the brewhouse assignment.
+   */
+  excludeYeast?: boolean;
+}
+
 /**
- * Return any ingredient shortfalls caused by this batch's commitments.
- * A shortfall exists when total active commitments across all batches
- * exceed the ingredient's current stock_quantity.
+ * Return the ingredient shortfalls that would block THIS batch from brewing.
+ *
+ * Stock is allocated to pre-brew batches in planned_brew_date order: the batch
+ * that brews first gets first claim. A batch is short only on what is left after
+ * every earlier-dated batch has taken its share. That keeps the genuine
+ * over-booking signal (the later batch reports the shortfall) without falsely
+ * blocking the batch that is actually next to brew.
+ *
+ * Two things deliberately do NOT count against the pool:
+ *   • commitments held by batches past planning — those ingredients are already
+ *     physically deducted from stock_quantity, so counting the reservation too
+ *     would double-charge them (this is what made B-034 report 9 phantom shorts)
+ *   • the batch's own commitment, which is what we're testing for
  */
 export async function getShortfalls(
   supabase: SupabaseClient,
   batchId: string,
+  options: GetShortfallsOptions = {},
 ): Promise<IngredientShortfall[]> {
   // This batch's active commitments
   const { data: mine } = await supabase
     .from("batch_ingredient_commitments")
-    .select("ingredient_id, committed_qty, ingredients(name, unit, stock_quantity)")
+    .select("ingredient_id, committed_qty, ingredients(name, unit, stock_quantity, category)")
     .eq("batch_id", batchId)
     .is("released_at", null);
 
   if (!mine?.length) return [];
 
+  // Where this batch sits in the brew queue. A batch with no planned date sorts
+  // last, so it never displaces a dated batch from stock it has already claimed.
+  const { data: self } = await supabase
+    .from("brew_batches")
+    .select("planned_brew_date")
+    .eq("id", batchId)
+    .maybeSingle();
+  const myDate = self?.planned_brew_date ?? null;
+
   const shortfalls: IngredientShortfall[] = [];
 
   for (const c of mine) {
-    const ing = (c.ingredients as unknown) as { name: string; unit: string; stock_quantity: number } | null;
+    const ing = (c.ingredients as unknown) as
+      { name: string; unit: string; stock_quantity: number; category: string | null } | null;
     if (!ing) continue;
+    if (options.excludeYeast && ing.category === "Yeast") continue;
 
-    // Total committed for this ingredient across all unreleased batches
+    // Every unreleased commitment for this ingredient, with the owning batch's
+    // status and queue position.
     const { data: all } = await supabase
       .from("batch_ingredient_commitments")
-      .select("committed_qty")
+      .select("batch_id, committed_qty, brew_batches(status, planned_brew_date)")
       .eq("ingredient_id", c.ingredient_id)
       .is("released_at", null);
 
-    const totalCommitted = (all ?? []).reduce((s, x) => s + Number(x.committed_qty), 0);
-    const effective = Number(ing.stock_quantity) - totalCommitted;
+    // Claims that outrank this batch: still pre-brew, and brewing sooner.
+    // Ties break on batch_id so two same-date batches get a stable, consistent
+    // ordering rather than one that flips between requests.
+    let priorClaims = 0;
+    let totalCommitted = 0;
+    for (const row of all ?? []) {
+      const owner = (row.brew_batches as unknown) as
+        { status: string; planned_brew_date: string | null } | null;
+      if (!owner || !PRE_BREW_STATUSES.includes(owner.status)) continue;
+
+      const qty = Number(row.committed_qty);
+      totalCommitted += qty;
+      if (row.batch_id === batchId) continue;
+
+      const theirDate = owner.planned_brew_date ?? null;
+      const outranks =
+        theirDate == null && myDate == null ? row.batch_id < batchId
+        : theirDate == null ? false
+        : myDate == null    ? true
+        : theirDate !== myDate ? theirDate < myDate
+        : row.batch_id < batchId;
+      if (outranks) priorClaims += qty;
+    }
+
+    // Clamped at zero: an earlier batch can only claim stock that exists, so its
+    // own unmet deficit must not roll forward into this batch's shortfall. Without
+    // the clamp B-056 reported "needs 450 lb Pilsner, short 1110" — 450 of its own
+    // plus the 660 B-054 was already missing.
+    const availableToMe = Math.max(0, Number(ing.stock_quantity) - priorClaims);
+    const effective     = availableToMe - Number(c.committed_qty);
 
     if (effective < -0.001) {
       shortfalls.push({
@@ -104,6 +169,7 @@ export async function getShortfalls(
         stock_quantity:       Number(ing.stock_quantity),
         total_committed:      Math.round(totalCommitted * 1000) / 1000,
         this_batch_committed: Number(c.committed_qty),
+        available_to_batch:   Math.round(availableToMe * 1000) / 1000,
         shortfall:            Math.round(Math.abs(effective) * 1000) / 1000,
       });
     }

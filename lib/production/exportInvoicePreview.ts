@@ -84,6 +84,8 @@ interface ExportTxRow {
   // label-variant for the materials charge — (recipe ∩ container ∩ format) can be
   // ambiguous when one liquid ships under two brand labels.
   variant_label: string;
+  /** Canning loss % inherited from the run that filled these cans; 0 for kegs. */
+  packaging_loss_pct: number | null;
 }
 
 /**
@@ -304,7 +306,17 @@ export async function buildPackagingMaterialLines(
     const key = `${tx.variant_label}|${format}`;
     const existing = group.get(key);
     if (existing) {
-      existing.packages = Math.round((existing.packages + tx.quantity) * 1e6) / 1e6;
+      // Two shipments of the same variation can come off canning runs with
+      // different loss rates, so the merged charge unit carries their
+      // package-weighted average rather than whichever row happened to land first.
+      const merged = Math.round((existing.packages + tx.quantity) * 1e6) / 1e6;
+      if (merged > 0) {
+        const weighted =
+          (existing.lossPct ?? 0) * existing.packages +
+          Number(tx.packaging_loss_pct ?? 0) * tx.quantity;
+        existing.lossPct = Math.round((weighted / merged) * 1000) / 1000;
+      }
+      existing.packages = merged;
       continue;
     }
 
@@ -329,6 +341,7 @@ export async function buildPackagingMaterialLines(
       unitsPerPackage: tx.units_per_package || 1,
       components,
       label: tx.variant_label,
+      lossPct: Number(tx.packaging_loss_pct ?? 0),
     });
   }
 
@@ -398,7 +411,7 @@ export async function computeMaterialBreakdownsForTransactions(
   if (transactionIds.length === 0) return [];
   const { data: txs, error } = await supabase
     .from("export_transactions")
-    .select("id, recipient_id, status, quantity, volume_bbl, packaging_item_id, packaging_format, units_per_package, channel, recipe_id, variant_label")
+    .select("id, recipient_id, status, quantity, volume_bbl, packaging_item_id, packaging_format, units_per_package, channel, recipe_id, variant_label, packaging_loss_pct")
     .in("id", transactionIds);
   if (error || !txs?.length) return [];
 
@@ -486,7 +499,7 @@ export async function buildInvoicePreview(
   // ── 1. Load transactions + validate same-customer, invoice_required ───────
   const { data: txs, error: txErr } = await supabase
     .from("export_transactions")
-    .select("id, recipient_id, status, quantity, volume_bbl, packaging_item_id, packaging_format, units_per_package, channel, recipe_id, variant_label")
+    .select("id, recipient_id, status, quantity, volume_bbl, packaging_item_id, packaging_format, units_per_package, channel, recipe_id, variant_label, packaging_loss_pct")
     .in("id", transactionIds);
   if (txErr) throw new Error(txErr.message);
   if (!txs || txs.length !== transactionIds.length) {

@@ -136,6 +136,9 @@ describe("writeExportTransaction", () => {
         notes: null,
         over_allocation: false,
         is_phantom: false,
+        // Defaults to 0 — kegs carry no canning loss, and callers that don't
+        // pass one must not silently inflate a Packaging Materials charge.
+        packaging_loss_pct: 0,
       },
     ]);
     expect(inserted.export_transaction_taxes).toEqual([

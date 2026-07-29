@@ -101,3 +101,43 @@ describe("computeMaterialBreakdown", () => {
     expect(b.totalCents).toBe(2250);
   });
 });
+
+describe("packaging loss %", () => {
+  it("grows containers/lids/labels but never paktechs or trays", () => {
+    // The worked example from the spec: 300 cans filled across formats at 5%
+    // loss → 315 cans, 315 lids, 315 labels consumed.
+    const txn: MaterialTxnInput = {
+      format: "case", packages: 12.5, unitsPerPackage: 24,
+      components: [can, lid, label, paktech4, tray24], lossPct: 5,
+    };
+    const b = computeMaterialBreakdown([txn]);
+    const qty = Object.fromEntries(b.transactions[0].components.map((c) => [c.role, c.quantity]));
+    expect(qty.container).toBe(315);
+    expect(qty.lid).toBe(315);
+    expect(qty.label).toBe(315);
+    // 12.5 cases × (24/4) paktechs and × 1 tray — untouched by the loss
+    expect(qty.paktech).toBe(75);
+    expect(qty.tray).toBe(13); // Math.round(12.5)
+  });
+
+  it("charges the grown quantity, not the filled one", () => {
+    const base: MaterialTxnInput = { format: "loose", packages: 100, unitsPerPackage: 1, components: [can, lid, label] };
+    expect(computeMaterialCost([base]).totalCents).toBe(2200);
+    // 105 × (15+5+2) = 2310
+    expect(computeMaterialCost([{ ...base, lossPct: 5 }]).totalCents).toBe(2310);
+  });
+
+  it("rounds to whole units", () => {
+    // 33 × 1.05 = 34.65 → 35
+    const b = computeMaterialBreakdown([
+      { format: "loose", packages: 33, unitsPerPackage: 1, components: [can], lossPct: 5 },
+    ]);
+    expect(b.transactions[0].components[0].quantity).toBe(35);
+  });
+
+  it("is a no-op at 0 or undefined", () => {
+    const base: MaterialTxnInput = { format: "loose", packages: 100, unitsPerPackage: 1, components: [can, lid, label] };
+    expect(computeMaterialCost([{ ...base, lossPct: 0 }]).totalCents).toBe(2200);
+    expect(computeMaterialCost([base]).totalCents).toBe(2200);
+  });
+});

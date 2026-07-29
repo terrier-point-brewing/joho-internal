@@ -8,6 +8,43 @@ import { BBL_TO_FL_OZ } from "@/lib/constants/production";
 import { planShipment, planCreditedWrites, type PlannedWrite, type ShipmentWarning } from "@/lib/production/allocationReserve";
 import { loadShipReserveContext } from "@/lib/production/shipReserveContext";
 
+/**
+ * Quantity-weighted packaging loss % per batch for one variation, taken from the
+ * canning runs that produced it. Weighted because a batch can be canned across
+ * several runs at different rates; a run with no recorded loss weighs in at 0
+ * rather than being skipped, so it correctly dilutes the average. Batches with
+ * no canning history (kegs, or pre-migration rows) are simply absent from the
+ * map and default to 0 at the call site.
+ */
+export async function resolvePackagingLossByBatch(
+  supabase: SupabaseClient,
+  { variationId, batchIds }: { variationId: string; batchIds: string[] },
+): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  if (batchIds.length === 0) return out;
+
+  const { data: runs } = await supabase
+    .from("batch_transfers")
+    .select("batch_id, quantity, packaging_loss_pct")
+    .eq("variation_id", variationId)
+    .eq("transfer_type", "canning")
+    .in("batch_id", batchIds);
+
+  const totals = new Map<string, { weighted: number; qty: number }>();
+  for (const r of runs ?? []) {
+    const qty = Number(r.quantity ?? 0);
+    if (qty <= 0) continue;
+    const acc = totals.get(r.batch_id) ?? { weighted: 0, qty: 0 };
+    acc.weighted += Number(r.packaging_loss_pct ?? 0) * qty;
+    acc.qty      += qty;
+    totals.set(r.batch_id, acc);
+  }
+  for (const [batchId, { weighted, qty }] of totals) {
+    if (qty > 0) out.set(batchId, Math.round((weighted / qty) * 1000) / 1000);
+  }
+  return out;
+}
+
 export interface WriteColdStorageShipmentParams {
   shipmentId?: string;                 // default crypto.randomUUID()
   channel: string;                     // 'taproom' | 'distribution' | 'contract_brewing' | 'wholesale'
@@ -81,6 +118,16 @@ export async function writeColdStorageShipment(
   // ── Deplete cold_storage_inventory, oldest row first ──────────────────────
   const depleted = await depleteColdStorageInventory(supabase, { recipeId, variationId, quantity });
 
+  // ── Packaging loss inherited from the canning run(s) ──────────────────────
+  // Cans are billed for the materials they actually consumed, spoilage included,
+  // so the invoice matches the inventory deduction. Resolved per batch because
+  // two batches of the same variation can have been canned at different rates.
+  // Kegs never carry a loss.
+  const lossPctByBatch = await resolvePackagingLossByBatch(supabase, {
+    variationId,
+    batchIds: depleted.map((d) => d.batchId),
+  });
+
   // ── Break the drained volume into rows (the one place the modes differ) ────
   let writes: PlannedWrite[];
   let warnings: ShipmentWarning[] = [];
@@ -134,6 +181,7 @@ export async function writeColdStorageShipment(
       unitsPerPackage,
       sourceRef,
       overAllocation: w.overAllocation,
+      packagingLossPct: lossPctByBatch.get(w.batchId) ?? 0,
     });
 
     if (!completedBatches.has(w.batchId)) {

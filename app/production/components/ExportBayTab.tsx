@@ -1158,33 +1158,48 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
   onClose: () => void;
   onDone: () => void;
 }) {
-  const [variationId, setVariationId] = useState(inventoryLines[0]?.variation_id ?? "");
-  const [quantity,    setQuantity]    = useState("");
+  // Several packaging variations of the same recipe can ship together against
+  // one allocation — e.g. 2× 1/2 keg and 3× 1/6 keg of the same beer.
+  const [shipLines, setShipLines] = useState<{ variation_id: string; quantity: string }[]>(
+    [{ variation_id: inventoryLines[0]?.variation_id ?? "", quantity: "" }]
+  );
   const [notes,       setNotes]       = useState("");
   const [submitting,  setSubmitting]  = useState(false);
   const [error,       setError]       = useState<string | null>(null);
   const [warnings,    setWarnings]    = useState<ShipmentWarning[]>([]);
-  const [preview,     setPreview]     = useState<{ warnings: ShipmentWarning[]; insufficientStock: boolean; available: number } | null>(null);
+  const [preview,     setPreview]     = useState<{
+    warnings: ShipmentWarning[];
+    insufficientStock: boolean;
+    available: number;
+    lines?: { variation_id: string; requested: number; available: number; insufficient: boolean }[];
+  } | null>(null);
+
+  // Only complete lines are worth previewing or submitting.
+  const filledLines = shipLines
+    .map((l) => ({ variation_id: l.variation_id, quantity: parseFloat(l.quantity) }))
+    .filter((l) => l.variation_id && Number.isFinite(l.quantity) && l.quantity > 0);
+  // Serialized so the effect re-runs on content change, not identity change.
+  const linesKey = JSON.stringify(filledLines);
 
   // Live advisory preview: ask the server what warnings this shipment would raise
   // (coverage / over-booking / under-production) before the user commits.
   useEffect(() => {
-    const q = parseFloat(quantity);
+    const lines = JSON.parse(linesKey) as { variation_id: string; quantity: number }[];
     const ctrl = new AbortController();
     const t = setTimeout(async () => {
-      if (!variationId || !q || q <= 0) { setPreview(null); return; }
+      if (lines.length === 0) { setPreview(null); return; }
       try {
         const res = await fetch("/api/production/export-bay/ship/preview", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           signal: ctrl.signal,
-          body: JSON.stringify({ partner_id: group.partnerId, recipe_id: group.recipeId, variation_id: variationId, quantity: q }),
+          body: JSON.stringify({ partner_id: group.partnerId, recipe_id: group.recipeId, lines }),
         });
         if (res.ok) setPreview(await res.json());
       } catch { /* aborted / network — advisory only, ignore */ }
     }, 400);
     return () => { clearTimeout(t); ctrl.abort(); };
-  }, [quantity, variationId, group.partnerId, group.recipeId]);
+  }, [linesKey, group.partnerId, group.recipeId]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -1195,11 +1210,10 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          partner_id:   group.partnerId,
-          recipe_id:    group.recipeId,
-          variation_id: variationId,
-          quantity:     parseFloat(quantity),
-          notes:        notes || null,
+          partner_id: group.partnerId,
+          recipe_id:  group.recipeId,
+          lines:      filledLines,
+          notes:      notes || null,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -1239,26 +1253,53 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
         ) : (
         <form onSubmit={handleSubmit} className="space-y-3">
           <div>
-            <label className="text-xs text-secondary block mb-1">Packaging</label>
-            <select className="inp w-full" value={variationId} onChange={(e) => setVariationId(e.target.value)}>
-              {inventoryLines.map((l) => (
-                <option key={l.variation_id} value={l.variation_id}>
-                  {l.variation_name} ({l.quantity_on_hand} available)
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="text-xs text-secondary block mb-1">Quantity</label>
-            <input type="number" min="0" step="1" className="inp w-full" required value={quantity} onChange={(e) => setQuantity(e.target.value)} />
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-xs text-secondary">Packaging</label>
+              <button type="button" className="text-xs text-accent-emphasis hover:text-accent"
+                onClick={() => setShipLines((ls) => [...ls, { variation_id: "", quantity: "" }])}>
+                + Add line
+              </button>
+            </div>
+            <div className="space-y-2">
+              {shipLines.map((line, i) => {
+                const linePreview = preview?.lines?.find((p) => p.variation_id === line.variation_id);
+                return (
+                  <div key={i}>
+                    <div className="grid items-center gap-2" style={{ gridTemplateColumns: "1fr 72px auto" }}>
+                      <select className="inp" value={line.variation_id}
+                        onChange={(e) => setShipLines((ls) => ls.map((l, idx) => idx === i ? { ...l, variation_id: e.target.value } : l))}>
+                        <option value="">— select —</option>
+                        {inventoryLines.map((l) => (
+                          <option key={l.variation_id} value={l.variation_id}>
+                            {l.variation_name} ({l.quantity_on_hand} available)
+                          </option>
+                        ))}
+                      </select>
+                      <input type="number" min="0" step="1" className="inp" placeholder="qty"
+                        value={line.quantity}
+                        onChange={(e) => setShipLines((ls) => ls.map((l, idx) => idx === i ? { ...l, quantity: e.target.value } : l))} />
+                      {shipLines.length > 1
+                        ? <button type="button" className="text-faint hover:text-danger text-lg leading-none"
+                            onClick={() => setShipLines((ls) => ls.filter((_, idx) => idx !== i))}>×</button>
+                        : <span />}
+                    </div>
+                    {linePreview?.insufficient && (
+                      <p className="text-xs text-danger mt-1">
+                        Only {linePreview.available} available — reduce this line.
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            <p className="text-xs text-muted mt-2">
+              Total units: {filledLines.reduce((s, l) => s + l.quantity, 0)}
+            </p>
           </div>
           <div>
             <label className="text-xs text-secondary block mb-1">Notes</label>
             <input className="inp w-full" value={notes} onChange={(e) => setNotes(e.target.value)} />
           </div>
-          {preview?.insufficientStock && (
-            <p className="text-xs text-danger">Only {preview.available} available — reduce the quantity.</p>
-          )}
           {preview && preview.warnings.length > 0 && (
             <div className="rounded border border-accent-border bg-accent-muted/30 px-3 py-2 space-y-1">
               <p className="text-xs font-medium text-accent-soft">Heads up</p>
@@ -1274,7 +1315,7 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
             <button type="button" onClick={onClose} className="btn-secondary">Cancel</button>
             <button
               type="submit"
-              disabled={submitting || inventoryLines.length === 0 || preview?.insufficientStock}
+              disabled={submitting || inventoryLines.length === 0 || filledLines.length === 0 || preview?.insufficientStock}
               className="btn-primary"
             >
               {submitting ? "Shipping…" : "Ship"}

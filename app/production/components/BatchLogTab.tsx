@@ -23,6 +23,7 @@ import {
 import { computeBranchPackagingStatus } from "./EquipmentSchedule/constants";
 import { DepositInvoiceModal } from "./DepositInvoiceModal";
 import { RefundAdjustmentModal } from "./RefundAdjustmentModal";
+import IngredientShortfallModal from "./IngredientShortfallModal";
 import { CHANNEL_COLOR, TRANSFER_TYPE_TEXT } from "../lib/categoryColors";
 import { useTableControls } from "@/app/components/ui/useTableControls";
 import SearchInput from "@/app/components/ui/SearchInput";
@@ -1317,7 +1318,7 @@ function BatchTable({
                         converted from {b.converted_from_batch.beer_name}
                       </span>
                     )}
-                    <ShortfallBadge batchId={b.id} status={b.status} />
+                    <ShortfallBadge batchId={b.id} status={b.status} batchLabel={`${b.batch_number ?? "?"} · ${b.beer_name}`} />
                   </td>
                   <td className="px-4 py-2.5 text-secondary">{fmtDate(b.planned_brew_date)}</td>
                   <td className="px-4 py-2.5 text-secondary">
@@ -1773,17 +1774,30 @@ function DepositInvoiceBadge({ batchId, status }: { batchId: string; status: str
   );
 }
 
-function ShortfallBadge({ batchId, status }: { batchId: string; status: string }) {
+function ShortfallBadge({ batchId, status, batchLabel }: { batchId: string; status: string; batchLabel?: string | null }) {
   const enabled = status === "planning" || status === "backlog";
   const { data: shortfalls } = useIngredientShortfallsQuery(batchId, enabled);
+  const [open, setOpen] = useState(false);
   if (!shortfalls?.length) return null;
   return (
-    <span
-      title={shortfalls.map((s) => `${s.name}: need ${s.this_batch_committed.toFixed(2)} ${s.unit}, short by ${s.shortfall.toFixed(2)}`).join("\n")}
-      className="ml-1.5 px-1.5 py-px rounded border border-danger-border/50 bg-danger-surface/40 text-danger text-[10px] font-normal whitespace-nowrap cursor-help"
-    >
-      ⚠ {shortfalls.length} ingredient{shortfalls.length > 1 ? "s" : ""} short
-    </span>
+    <>
+      <button
+        type="button"
+        // Stop the click from also toggling the surrounding batch row.
+        onClick={(e) => { e.stopPropagation(); setOpen(true); }}
+        title="View what's missing"
+        className="ml-1.5 px-1.5 py-px rounded border border-danger-border/50 bg-danger-surface/40 text-danger text-[10px] font-normal whitespace-nowrap hover:bg-danger-surface/70"
+      >
+        ⚠ {shortfalls.length} ingredient{shortfalls.length > 1 ? "s" : ""} short
+      </button>
+      {open && (
+        <IngredientShortfallModal
+          shortfalls={shortfalls}
+          batchLabel={batchLabel ?? null}
+          onClose={() => setOpen(false)}
+        />
+      )}
+    </>
   );
 }
 

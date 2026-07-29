@@ -4,12 +4,16 @@
 // async DB orchestration, but each carries load-bearing pure logic:
 //   • upsertCommitments  → committed_qty = quantity_per_bbl × volumeBbl per ingredient
 //   • releaseCommitments → stamps released_at (ISO string)
-//   • getShortfalls      → effective = stock − Σ(active commitments); reports only
-//                          when effective < -0.001, rounding to 3 dp.
+//   • getShortfalls      → stock is claimed by pre-brew batches in
+//                          planned_brew_date order; this batch is short only on
+//                          what earlier-dated batches leave behind. Reports when
+//                          the remainder is < -0.001, rounding to 3 dp.
 // We drive them with a stub that returns fixed rows and records mutation payloads,
 // then assert the REAL computed values (the upsert rows, the shortfall numbers) —
 // not that a mock was called. Boundaries: empty recipe, zero volume, exact-stock
-// (no shortfall), the -0.001 tolerance edge, rounding to 3 dp, multi-batch sum.
+// (no shortfall), the -0.001 tolerance edge, rounding to 3 dp, priority ordering
+// (earlier date wins, undated sorts last, same-date ties break on batch_id),
+// post-planning batches excluded, and the yeast re-pitch exemption.
 import { describe, it, expect } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { upsertCommitments, releaseCommitments, getShortfalls } from "./commitments";
@@ -82,24 +86,34 @@ describe("releaseCommitments", () => {
 interface MineRow {
   ingredient_id: string;
   committed_qty: number;
-  ingredients: { name: string; unit: string; stock_quantity: number } | null;
+  ingredients: { name: string; unit: string; stock_quantity: number; category?: string | null } | null;
+}
+interface AllRow {
+  batch_id: string;
+  committed_qty: number;
+  brew_batches: { status: string; planned_brew_date: string | null } | null;
 }
 
 /**
- * Stub for getShortfalls. The first batch_ingredient_commitments select returns
- * `mine`; subsequent selects (per ingredient, across all batches) return the
- * queued totals rows in order.
+ * Stub for getShortfalls. Terminal calls in order:
+ *   1. .is()         → this batch's own commitments (`mine`)
+ *   2. .maybeSingle()→ this batch's planned_brew_date
+ *   3.. .is()        → per-ingredient commitments across every batch, in order
  */
-function shortfallStub(mine: MineRow[] | null, allByIngredient: Array<Array<{ committed_qty: number }>>): SupabaseClient {
-  let call = 0;
+function shortfallStub(
+  mine: MineRow[] | null,
+  allByIngredient: Array<AllRow[]>,
+  myDate: string | null = "2026-01-01",
+): SupabaseClient {
+  let isCall = 0;
   const from = () => {
     const b: Record<string, unknown> = {};
     b.select = () => b;
     b.eq = () => b;
+    b.maybeSingle = () => Promise.resolve({ data: { planned_brew_date: myDate }, error: null });
     b.is = () => {
-      const idx = call;
-      call += 1;
-      // call 0 = this batch's commitments (mine); calls 1..n = per-ingredient totals
+      const idx = isCall;
+      isCall += 1;
       if (idx === 0) return Promise.resolve({ data: mine, error: null });
       return Promise.resolve({ data: allByIngredient[idx - 1] ?? [], error: null });
     };
@@ -108,28 +122,97 @@ function shortfallStub(mine: MineRow[] | null, allByIngredient: Array<Array<{ co
   return { from } as unknown as SupabaseClient;
 }
 
+const planning = (planned_brew_date: string | null) => ({ status: "planning", planned_brew_date });
+
 describe("getShortfalls", () => {
-  it("reports a shortfall when total committed exceeds stock", async () => {
+  it("reports a shortfall when this batch alone exceeds stock", async () => {
     const client = shortfallStub(
-      [{ ingredient_id: "hops", committed_qty: 30, ingredients: { name: "Hops", unit: "lb", stock_quantity: 50 } }],
-      [[{ committed_qty: 30 }, { committed_qty: 40 }]], // total 70 across all batches vs stock 50
+      [{ ingredient_id: "hops", committed_qty: 70, ingredients: { name: "Hops", unit: "lb", stock_quantity: 50 } }],
+      [[{ batch_id: "b1", committed_qty: 70, brew_batches: planning("2026-01-01") }]],
     );
-    const result = await getShortfalls(client, "b1");
-    expect(result).toEqual([{
+    expect(await getShortfalls(client, "b1")).toEqual([{
       ingredient_id: "hops",
       name: "Hops",
       unit: "lb",
       stock_quantity: 50,
       total_committed: 70,
-      this_batch_committed: 30,
-      shortfall: 20, // |50 - 70|
+      this_batch_committed: 70,
+      available_to_batch: 50,
+      shortfall: 20,
     }]);
   });
 
-  it("reports no shortfall when commitments exactly equal stock", async () => {
+  it("ignores commitments held by batches that already left planning", async () => {
+    // The regression that made B-034 report 9 phantom shorts: B-045 brewed in
+    // April but never released its reservation, so its already-consumed stock
+    // was counted a second time against every batch still in planning.
+    const client = shortfallStub(
+      [{ ingredient_id: "malt", committed_qty: 770, ingredients: { name: "Prairie Select", unit: "lb", stock_quantity: 770 } }],
+      [[
+        { batch_id: "b1",   committed_qty: 770, brew_batches: planning("2026-07-13") },
+        { batch_id: "done", committed_qty: 770, brew_batches: { status: "complete", planned_brew_date: "2026-04-17" } },
+      ]],
+      "2026-07-13",
+    );
+    expect(await getShortfalls(client, "b1")).toEqual([]);
+  });
+
+  it("gives the earlier-dated batch first claim on contested stock", async () => {
+    const contested: AllRow[] = [
+      { batch_id: "early", committed_qty: 30, brew_batches: planning("2026-07-13") },
+      { batch_id: "late",  committed_qty: 30, brew_batches: planning("2026-08-04") },
+    ];
+    // Stock 50: "early" brews first and fits.
+    expect(await getShortfalls(
+      shortfallStub([{ ingredient_id: "h", committed_qty: 30, ingredients: { name: "H", unit: "lb", stock_quantity: 50 } }], [contested], "2026-07-13"),
+      "early",
+    )).toEqual([]);
+
+    // …and "late" absorbs the genuine over-booking: only 20 is left for its 30.
+    const lateResult = await getShortfalls(
+      shortfallStub([{ ingredient_id: "h", committed_qty: 30, ingredients: { name: "H", unit: "lb", stock_quantity: 50 } }], [contested], "2026-08-04"),
+      "late",
+    );
+    expect(lateResult).toHaveLength(1);
+    expect(lateResult[0].available_to_batch).toBe(20);
+    expect(lateResult[0].shortfall).toBe(10);
+    expect(lateResult[0].total_committed).toBe(60);
+  });
+
+  it("sorts an undated batch last, behind every dated one", async () => {
+    const rows: AllRow[] = [
+      { batch_id: "dated",   committed_qty: 40, brew_batches: planning("2026-07-13") },
+      { batch_id: "undated", committed_qty: 40, brew_batches: planning(null) },
+    ];
+    const result = await getShortfalls(
+      shortfallStub([{ ingredient_id: "h", committed_qty: 40, ingredients: { name: "H", unit: "lb", stock_quantity: 50 } }], [rows], null),
+      "undated",
+    );
+    expect(result).toHaveLength(1);
+    expect(result[0].available_to_batch).toBe(10); // 50 − the dated batch's 40
+  });
+
+  it("breaks a same-date tie on batch_id so ordering is stable across requests", async () => {
+    const rows: AllRow[] = [
+      { batch_id: "aaa", committed_qty: 40, brew_batches: planning("2026-07-13") },
+      { batch_id: "bbb", committed_qty: 40, brew_batches: planning("2026-07-13") },
+    ];
+    const mine = [{ ingredient_id: "h", committed_qty: 40, ingredients: { name: "H", unit: "lb", stock_quantity: 50 } }];
+    expect(await getShortfalls(shortfallStub(mine, [rows], "2026-07-13"), "aaa")).toEqual([]);
+    expect(await getShortfalls(shortfallStub(mine, [rows], "2026-07-13"), "bbb")).toHaveLength(1);
+  });
+
+  it("skips Yeast-category ingredients when the batch is a re-pitch", async () => {
+    const mine = [{ ingredient_id: "y", committed_qty: 2, ingredients: { name: "Wy1318", unit: "L", stock_quantity: 0, category: "Yeast" } }];
+    const rows: Array<AllRow[]> = [[{ batch_id: "b1", committed_qty: 2, brew_batches: planning("2026-01-01") }]];
+    expect(await getShortfalls(shortfallStub(mine, rows), "b1")).toHaveLength(1);
+    expect(await getShortfalls(shortfallStub(mine, rows), "b1", { excludeYeast: true })).toEqual([]);
+  });
+
+  it("reports no shortfall when this batch's commitment exactly equals stock", async () => {
     const client = shortfallStub(
       [{ ingredient_id: "malt", committed_qty: 25, ingredients: { name: "Malt", unit: "lb", stock_quantity: 25 } }],
-      [[{ committed_qty: 25 }]],
+      [[{ batch_id: "b1", committed_qty: 25, brew_batches: planning("2026-01-01") }]],
     );
     expect(await getShortfalls(client, "b1")).toEqual([]);
   });
@@ -138,32 +221,20 @@ describe("getShortfalls", () => {
     // effective = 10 - 10.0005 = -0.0005, which is NOT < -0.001 → no shortfall
     const client = shortfallStub(
       [{ ingredient_id: "x", committed_qty: 10.0005, ingredients: { name: "X", unit: "u", stock_quantity: 10 } }],
-      [[{ committed_qty: 10.0005 }]],
+      [[{ batch_id: "b1", committed_qty: 10.0005, brew_batches: planning("2026-01-01") }]],
     );
     expect(await getShortfalls(client, "b1")).toEqual([]);
-  });
-
-  it("reports when the deficit is just past the -0.001 tolerance, rounded to 3 dp", async () => {
-    // effective = 10 - 12.5 = -2.5 < -0.001 → shortfall |−2.5| = 2.5
-    const client = shortfallStub(
-      [{ ingredient_id: "x", committed_qty: 12.5, ingredients: { name: "X", unit: "u", stock_quantity: 10 } }],
-      [[{ committed_qty: 12.5 }]],
-    );
-    const result = await getShortfalls(client, "b1");
-    expect(result).toHaveLength(1);
-    expect(result[0].shortfall).toBe(2.5);
-    expect(result[0].total_committed).toBe(12.5);
   });
 
   it("rounds shortfall/total to 3 dp and reflects the float-subtraction artifact", async () => {
     // total_committed = round(10.0025 * 1000)/1000 = 10.003 (rounds 10.0025 directly).
     // BUT effective = 10 - 10.0025 computes as -0.0024999999999995 (float), so
-    // shortfall = round(0.00249999… * 1000)/1000 = round(2.4999…)/1000 = 0.002,
-    // NOT 0.003. The two rounded figures disagree by 1 in the 3rd dp because one
-    // rounds the committed value and the other rounds a float-subtracted deficit.
+    // shortfall = round(0.00249999… * 1000)/1000 = 0.002, NOT 0.003. The two
+    // rounded figures disagree by 1 in the 3rd dp because one rounds the
+    // committed value and the other rounds a float-subtracted deficit.
     const client = shortfallStub(
       [{ ingredient_id: "x", committed_qty: 10.0025, ingredients: { name: "X", unit: "u", stock_quantity: 10 } }],
-      [[{ committed_qty: 10.0025 }]],
+      [[{ batch_id: "b1", committed_qty: 10.0025, brew_batches: planning("2026-01-01") }]],
     );
     const result = await getShortfalls(client, "b1");
     expect(result).toHaveLength(1);
@@ -179,8 +250,47 @@ describe("getShortfalls", () => {
   it("skips a commitment row whose joined ingredient is null", async () => {
     const client = shortfallStub(
       [{ ingredient_id: "ghost", committed_qty: 100, ingredients: null }],
-      [[{ committed_qty: 100 }]],
+      [[{ batch_id: "b1", committed_qty: 100, brew_batches: planning("2026-01-01") }]],
     );
     expect(await getShortfalls(client, "b1")).toEqual([]);
+  });
+});
+
+describe("getShortfalls — an earlier batch's own deficit does not roll forward", () => {
+  it("reports only this batch's unmet need when the prior claim already exceeds stock", async () => {
+    // Prod case: Pilsner Malt at 0 on hand. B-054 (Jul 21) claims 660 it can't
+    // have; B-056 (Aug 4) needs 450. B-056 is short 450 — not 1110.
+    const rows: AllRow[] = [
+      { batch_id: "early", committed_qty: 660, brew_batches: planning("2026-07-21") },
+      { batch_id: "late",  committed_qty: 450, brew_batches: planning("2026-08-04") },
+    ];
+    const result = await getShortfalls(
+      shortfallStub(
+        [{ ingredient_id: "p", committed_qty: 450, ingredients: { name: "Pilsner Malt", unit: "lb", stock_quantity: 0 } }],
+        [rows],
+        "2026-08-04",
+      ),
+      "late",
+    );
+    expect(result).toHaveLength(1);
+    expect(result[0].available_to_batch).toBe(0);
+    expect(result[0].shortfall).toBe(450);
+  });
+
+  it("still subtracts a prior claim that stock can actually cover", async () => {
+    const rows: AllRow[] = [
+      { batch_id: "early", committed_qty: 40, brew_batches: planning("2026-07-13") },
+      { batch_id: "late",  committed_qty: 30, brew_batches: planning("2026-08-04") },
+    ];
+    const result = await getShortfalls(
+      shortfallStub(
+        [{ ingredient_id: "h", committed_qty: 30, ingredients: { name: "H", unit: "lb", stock_quantity: 50 } }],
+        [rows],
+        "2026-08-04",
+      ),
+      "late",
+    );
+    expect(result[0].available_to_batch).toBe(10); // 50 − 40, not clamped
+    expect(result[0].shortfall).toBe(20);
   });
 });
