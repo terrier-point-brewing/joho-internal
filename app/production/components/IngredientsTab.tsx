@@ -574,17 +574,17 @@ export default function IngredientsTab() {
         <div className="flex gap-2 shrink-0">
           {bulkEditMode ? (
             <>
-              <button onClick={() => setBulkEditMode(false)} className="btn-secondary" disabled={bulkSaving}>Cancel</button>
-              <button onClick={saveBulkEdit} className="btn-primary" disabled={bulkSaving}>
+              <button onClick={() => setBulkEditMode(false)} className="btn-secondary min-w-32" disabled={bulkSaving}>Cancel</button>
+              <button onClick={saveBulkEdit} className="btn-primary min-w-32" disabled={bulkSaving}>
                 {bulkSaving ? "Saving…" : "Save All"}
               </button>
             </>
           ) : (
             <>
-              <button onClick={enterBulkEdit} className="btn-secondary" disabled={ingredients.length === 0}>Bulk Edit</button>
-              <button onClick={() => setShowBulkReceive(true)} className="btn-primary" disabled={ingredients.length === 0}>Bulk Receive</button>
-              <button onClick={() => setShowBulkModal(true)} className="btn-secondary">↑ Bulk Upload</button>
-              <button onClick={openNew} className="btn-primary">+ New Ingredient</button>
+              <button onClick={enterBulkEdit} className="btn-secondary min-w-32" disabled={ingredients.length === 0}>Bulk Edit</button>
+              <button onClick={() => setShowBulkModal(true)} className="btn-secondary min-w-32">↑ Bulk Upload</button>
+              <button onClick={() => setShowBulkReceive(true)} className="btn-primary min-w-32" disabled={ingredients.length === 0}>Bulk Receive</button>
+              <button onClick={openNew} className="btn-primary min-w-32">+ New Ingredient</button>
             </>
           )}
         </div>

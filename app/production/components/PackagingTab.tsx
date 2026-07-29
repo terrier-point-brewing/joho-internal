@@ -221,8 +221,8 @@ export default function PackagingTab() {
           />
         </FilterBar>
         <div className="flex gap-2 shrink-0">
-          <button onClick={() => setShowBulkReceive(true)} className="btn-secondary" disabled={packaging.length === 0}>Bulk Receive</button>
-          <button onClick={openNew} className="btn-primary">+ Add Item</button>
+          <button onClick={() => setShowBulkReceive(true)} className="btn-primary min-w-32" disabled={packaging.length === 0}>Bulk Receive</button>
+          <button onClick={openNew} className="btn-primary min-w-32">+ Add Item</button>
         </div>
       </div>
 
