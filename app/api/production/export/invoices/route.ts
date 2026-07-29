@@ -4,6 +4,22 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * Flatten a shipment's `recipes` embed to `recipe_beer_name`.
+ *
+ * A draft-recount / phantom shipment has no batch but always has a recipe, so
+ * the batch beer name alone leaves those rows nameless — which makes them
+ * invisible to a recipe search and blank in the Included Shipments table.
+ * Mirrors the same normalization in /api/production/exports.
+ */
+function normalizeShipment(tx: Record<string, unknown>) {
+  const recRaw = tx.recipes as unknown;
+  const rec = Array.isArray(recRaw)
+    ? (recRaw[0] as { beer_name: string } | undefined)
+    : (recRaw as { beer_name: string } | null);
+  return { ...tx, recipe_beer_name: rec?.beer_name ?? null, recipes: undefined };
+}
+
 export async function GET() {
   try { await requirePermission(CAP.exportRead); } catch (res) { return res as Response; }
 
@@ -26,7 +42,9 @@ export async function GET() {
       ),
       export_transactions!invoice_id(
         id, status, channel, variant_label, quantity, volume_bbl, created_at,
-        brew_batches(id, beer_name, batch_number)
+        recipe_id,
+        brew_batches(id, beer_name, batch_number),
+        recipes(beer_name)
       ),
       export_invoice_material_components(
         id, recipe_id, beer_name, variant_label, packaging_format, packages,
@@ -65,7 +83,7 @@ export async function GET() {
       line_items: (inv.invoice_line_items ?? []).sort(
         (a: { sort_order: number }, b: { sort_order: number }) => a.sort_order - b.sort_order
       ),
-      shipments: inv.export_transactions ?? [],
+      shipments: (inv.export_transactions ?? []).map(normalizeShipment),
       // Frozen Packaging Materials derivation (contract brewing only; empty
       // otherwise, and for invoices generated before this was captured).
       material_breakdown: (inv.export_invoice_material_components ?? []).sort(

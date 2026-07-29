@@ -51,6 +51,13 @@ interface InvoiceShipment {
   volume_bbl: number;
   created_at: string;
   brew_batches: { id: string; beer_name: string; batch_number: string } | null;
+  /** Beer name off the recipe. Present even on batchless (draft-recount) rows. */
+  recipe_beer_name: string | null;
+}
+
+/** The beer a shipment line represents, batch name first, recipe as fallback. */
+function shipmentBeerName(s: InvoiceShipment): string | null {
+  return s.brew_batches?.beer_name ?? s.recipe_beer_name ?? null;
 }
 
 interface ExportInvoiceListItem {
@@ -310,8 +317,12 @@ function InvoiceExpandedPanel({
               {invoice.shipments.map((s) => (
                 <tr key={s.id} className="border-b border-line/50 last:border-0">
                   <td className="py-1 text-secondary">{fmt(s.created_at)}</td>
+                  {/* Batchless (draft-recount) lines still name their beer off the
+                      recipe — otherwise a recipe search hit expands into a "—". */}
                   <td className="py-1 text-strong">
-                    {s.brew_batches ? `#${s.brew_batches.batch_number} ${s.brew_batches.beer_name}` : "—"}
+                    {s.brew_batches
+                      ? `#${s.brew_batches.batch_number} ${s.brew_batches.beer_name}`
+                      : s.recipe_beer_name ?? "—"}
                   </td>
                   <td className="py-1 text-secondary">{CHANNEL_LABELS[s.channel] ?? s.channel}</td>
                   <td className="py-1">
@@ -602,7 +613,16 @@ export default function ExportInvoicesTab({ highlightInvoiceId }: ExportInvoices
   // Search/filter/sort config — customer sort needs the partner-name map, so this
   // closes over it and must stay useMemo for a stable dep set.
   const invoiceControls = useMemo<ControlsConfig<ExportInvoiceListItem>>(() => ({
-    search: [{ param: "q", accessor: (i) => i.invoice_number ?? "" }],
+    search: [
+      { param: "q", accessor: (i) => i.invoice_number ?? "" },
+      // Recipe is a different entity from the invoice, so it gets its own box
+      // (search standard: no invoice-#-OR-recipe blend). An invoice matches when
+      // ANY of its rolled-up shipment lines is that beer.
+      {
+        param: "q_recipe",
+        accessor: (i) => i.shipments.map(shipmentBeerName),
+      },
+    ],
     filters: [
       { param: "customer", accessor: (i) => i.partner_id ?? "" },
       { param: "status", accessor: (i) => i.status },
@@ -643,6 +663,11 @@ export default function ExportInvoicesTab({ highlightInvoiceId }: ExportInvoices
           value={search.q ?? ""}
           onChange={(v) => setSearch("q", v)}
           placeholder="Search invoice #…"
+        />
+        <SearchInput
+          value={search.q_recipe ?? ""}
+          onChange={(v) => setSearch("q_recipe", v)}
+          placeholder="Search recipe…"
         />
         <FilterSelect
           label="Customer"

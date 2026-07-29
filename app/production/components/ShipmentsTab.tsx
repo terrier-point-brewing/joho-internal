@@ -16,6 +16,7 @@ import {
 } from "@/lib/production/draftRecountState";
 import { useTableControls } from "@/app/components/ui/useTableControls";
 import FilterChips from "@/app/components/ui/FilterChips";
+import SearchInput from "@/app/components/ui/SearchInput";
 import FilterSelect from "@/app/components/ui/FilterSelect";
 import FilterBar from "@/app/components/ui/FilterBar";
 import type { ControlsConfig } from "@/lib/table/types";
@@ -140,6 +141,9 @@ const STATUS_OPTIONS = [
 ];
 
 const SHIPMENT_CONTROLS: ControlsConfig<InvoiceGroup> = {
+  // A card matches when ANY of its product lines is that beer; the whole card
+  // then renders intact, consistent with how the categorical filters behave.
+  search: [{ param: "q_recipe", accessor: (g) => g.products.map((p) => p.beer_name) }],
   filters: [
     { param: "channel", matches: (g, sel) => g.products.some((p) => sel.includes(p.channel)) },
     { param: "status", accessor: (g) => g.status },
@@ -336,7 +340,7 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
 
   const invoiceGroups = useMemo(() => groupByInvoice(allRows), [allRows]);
 
-  const { rows: hookFiltered, filters, setFilter, reset, activeCount } =
+  const { rows: hookFiltered, search, filters, setSearch, setFilter, reset, activeCount } =
     useTableControls(invoiceGroups, SHIPMENT_CONTROLS, { prefix: "ship_" });
 
   // Date range stays a local, non-URL-synced control (design non-goal: date-range
@@ -465,6 +469,11 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
         activeCount={activeCount}
         onClear={() => { reset(); setDateFrom(""); setDateTo(""); }}
       >
+        <SearchInput
+          value={search.q_recipe ?? ""}
+          onChange={(v) => setSearch("q_recipe", v)}
+          placeholder="Search recipe…"
+        />
         <FilterChips
           label="Channel"
           options={CHANNEL_OPTIONS}
