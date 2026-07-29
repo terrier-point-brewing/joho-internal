@@ -247,6 +247,60 @@ describe("backfillGlReports", () => {
     expect(results[0].after).toEqual({ wagesCents: 100000, employerTaxCents: 10000, tipsCents: 5000 });
   });
 
+  // A report uploaded before its department was mapped is permanently short
+  // that department's wages -- computeGlBucketTotals skips an unmapped
+  // employee's gross while still accruing their employer tax. Re-parsing with
+  // the mapping in place restores them, so non-tip payroll legitimately rises.
+  // Reporting WHICH accounts came back is what lets the UI tell that apart from
+  // the re-parse inventing money. Real case: the 2026-05-04 and 2026-05-18
+  // reports were uploaded ~2 minutes before the "Sales & Admin" mapping existed.
+  it("reports a wage account absent from the stored totals as recovered", async () => {
+    const { sb } = makeSb({
+      existingTotalsByReport: {
+        // Employer tax was recorded, but the Production wages row never was.
+        R1: [{ chart_of_accounts_id: TAXES_COA_ID, bucket_kind: "employer_tax", amount_cents: 10000 }],
+      },
+    });
+
+    const results = await backfillGlReports(sb, { dryRun: true });
+
+    expect(results[0].recoveredAccounts).toEqual([
+      { chartOfAccountsId: PRODUCTION_COA_ID, amountCents: 100000 },
+    ]);
+  });
+
+  it("reports nothing recovered when every wage account already has a stored row", async () => {
+    const { sb } = makeSb({
+      existingTotalsByReport: {
+        R1: [
+          { chart_of_accounts_id: PRODUCTION_COA_ID, bucket_kind: "wages", amount_cents: 100000 },
+          { chart_of_accounts_id: TAXES_COA_ID, bucket_kind: "employer_tax", amount_cents: 10000 },
+        ],
+      },
+    });
+
+    const results = await backfillGlReports(sb, { dryRun: true });
+
+    expect(results[0].recoveredAccounts).toEqual([]);
+  });
+
+  // Employer tax and tips are company-wide buckets accrued regardless of
+  // department mapping, so their appearance says nothing about dropped wages
+  // and must never be reported as recovered -- otherwise EVERY period would
+  // look "explained" purely because the tips bucket is new.
+  it("never reports the tips or employer-tax buckets as recovered", async () => {
+    const { sb } = makeSb({
+      existingTotalsByReport: {
+        R1: [{ chart_of_accounts_id: PRODUCTION_COA_ID, bucket_kind: "wages", amount_cents: 100000 }],
+      },
+    });
+
+    const results = await backfillGlReports(sb, { dryRun: true });
+
+    expect(results[0].after.tipsCents).toBe(5000);
+    expect(results[0].recoveredAccounts).toEqual([]);
+  });
+
   it("restores the original rows when the insert fails after delete succeeds", async () => {
     mockRecompute.mockClear();
     const originalRows = [{ chart_of_accounts_id: PRODUCTION_COA_ID, bucket_kind: "wages", amount_cents: 900 }];

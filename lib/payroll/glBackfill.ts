@@ -32,11 +32,40 @@ export interface BackfillBucketSummary {
   tipsCents: number;
 }
 
+/** A GL account the fresh parse produces that the stored totals never had. */
+export interface RecoveredAccount {
+  chartOfAccountsId: string;
+  amountCents: number;
+}
+
 export interface BackfillPeriodResult {
   payPeriodId: string;
   reportId: string;
   before: BackfillBucketSummary;
   after: BackfillBucketSummary;
+  /**
+   * Wage accounts present in the re-parse but ABSENT from the stored totals —
+   * i.e. wages the original upload silently dropped.
+   *
+   * `computeGlBucketTotals` skips an employee's gross when their department has
+   * no mapping (it records the name in `unmappedDepartments` and moves on),
+   * while still accruing their employer tax. So a report uploaded before its
+   * department was mapped is permanently short those wages.
+   *
+   * That is not hypothetical: the 2026-05-04 and 2026-05-18 reports were
+   * uploaded at 00:53:58 and 00:55:37 on 2026-07-17, and the "Sales & Admin"
+   * mapping was created at 00:56:01 — two minutes and twenty-four seconds
+   * later. Both periods are missing that employee's wages ($350.60 and $400.00)
+   * to this day.
+   *
+   * The backfill CORRECTS that, which means non-tip payroll legitimately rises.
+   * Reporting the accounts responsible lets the UI distinguish "recovered wages
+   * the upload dropped" from "the re-parse invented money" instead of blocking
+   * both alike. Inferred from the data — an account in the new buckets with no
+   * stored row — rather than from any record of past mapping state, which is
+   * not kept.
+   */
+  recoveredAccounts: RecoveredAccount[];
   splitsRecomputed: boolean;
   error?: string;
 }
@@ -55,6 +84,22 @@ function summarizeRows(rows: { bucket_kind: string | null; amount_cents: number 
     // that absence is exactly what the backfill exists to fix.
   }
   return summary;
+}
+
+/**
+ * Wage accounts in the fresh parse that have no stored row at all. Restricted
+ * to `wages` buckets: employer tax and tips are company-wide single buckets
+ * accrued regardless of department mapping, so their appearance is expected and
+ * carries no information about dropped wages.
+ */
+function findRecoveredAccounts(
+  buckets: GlBucketTotal[],
+  existingRows: { chart_of_accounts_id: string }[],
+): RecoveredAccount[] {
+  const stored = new Set(existingRows.map((r) => r.chart_of_accounts_id));
+  return buckets
+    .filter((b) => b.kind === "wages" && !stored.has(b.chartOfAccountsId))
+    .map((b) => ({ chartOfAccountsId: b.chartOfAccountsId, amountCents: b.amountCents }));
 }
 
 function summarizeBuckets(buckets: GlBucketTotal[]): BackfillBucketSummary {
@@ -131,6 +176,7 @@ export async function backfillGlReports(
       const parsed = parseGustoPayrollJournal(csvText);
       const buckets = computeGlBucketTotals(parsed, departmentMap, payrollTaxesAccountId, tipsAccountId);
       const after = summarizeBuckets(buckets);
+      const recoveredAccounts = findRecoveredAccounts(buckets, existingRows);
 
       let splitsRecomputed = false;
       if (!opts.dryRun) {
@@ -175,13 +221,21 @@ export async function backfillGlReports(
         splitsRecomputed = true;
       }
 
-      results.push({ payPeriodId: report.pay_period_id, reportId: report.id, before, after, splitsRecomputed });
+      results.push({
+        payPeriodId: report.pay_period_id,
+        reportId: report.id,
+        before,
+        after,
+        recoveredAccounts,
+        splitsRecomputed,
+      });
     } catch (err) {
       results.push({
         payPeriodId: report.pay_period_id,
         reportId: report.id,
         before: emptySummary(),
         after: emptySummary(),
+        recoveredAccounts: [],
         splitsRecomputed: false,
         error: err instanceof Error ? err.message : String(err),
       });

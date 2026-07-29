@@ -12,6 +12,7 @@
 import { useState } from "react";
 import BackfillShell from "../../BackfillShell";
 import Badge from "@/app/components/ui/Badge";
+import Banner from "@/app/components/ui/Banner";
 import { LedgerTable, Th } from "@/app/finance/transactions/components/LedgerTable";
 import { formatCurrencyCents } from "@/lib/format";
 import { fmtDate } from "@/lib/utils/formatting";
@@ -50,18 +51,46 @@ async function post(dryRun: boolean): Promise<BackfillPeriodResult[]> {
   return (body.results ?? []) as BackfillPeriodResult[];
 }
 
+/** Cents of the delta attributable to wage accounts the original upload dropped. */
+function recoveredCents(r: BackfillPeriodResult): number {
+  return (r.recoveredAccounts ?? []).reduce((s, a) => s + a.amountCents, 0);
+}
+
+/**
+ * A non-tip delta is ACCOUNTED FOR when it equals the wages recovered from
+ * accounts the stored totals never had — the signature of a report uploaded
+ * before its department was mapped, whose gross `computeGlBucketTotals` then
+ * silently skipped. That is the backfill correcting a real understatement, so
+ * it warns rather than blocks. Any other movement still blocks: an unexplained
+ * change means the re-parse and the stored totals disagree for a reason nobody
+ * has established.
+ */
+function isExplained(r: BackfillPeriodResult): boolean {
+  return nonTips(r.after) - nonTips(r.before) === recoveredCents(r) && recoveredCents(r) > 0;
+}
+
 function blockers(rows: BackfillPeriodResult[]): string[] {
   const out: string[] = [];
   for (const r of rows) {
     if (r.error) out.push(`Period ${r.payPeriodId.slice(0, 8)}: ${r.error}`);
-    else if (nonTips(r.before) !== nonTips(r.after)) {
+    else if (nonTips(r.before) !== nonTips(r.after) && !isExplained(r)) {
       const delta = nonTips(r.after) - nonTips(r.before);
       out.push(
-        `Period ${r.payPeriodId.slice(0, 8)}: non-tip payroll changed by ${delta > 0 ? "+" : ""}${formatCurrencyCents(delta)} (${formatCurrencyCents(nonTips(r.before))} → ${formatCurrencyCents(nonTips(r.after))}). Re-parsing the stored CSV should reproduce the recorded wages and employer tax exactly; investigate this period before writing.`,
+        `Period ${r.payPeriodId.slice(0, 8)}: non-tip payroll changed by ${delta > 0 ? "+" : ""}${formatCurrencyCents(delta)} (${formatCurrencyCents(nonTips(r.before))} → ${formatCurrencyCents(nonTips(r.after))}) with no accounting for it. Re-parsing the stored CSV should reproduce the recorded wages and employer tax exactly; investigate before writing.`,
       );
     }
   }
   return out;
+}
+
+/** Readable, non-blocking notes about periods whose delta IS accounted for. */
+function notes(rows: BackfillPeriodResult[]): string[] {
+  return rows
+    .filter(isExplained)
+    .map(
+      (r) =>
+        `Period ${r.payPeriodId.slice(0, 8)}: non-tip payroll rises ${formatCurrencyCents(recoveredCents(r))} because ${r.recoveredAccounts.length} wage account(s) present in the CSV were missing from the stored totals — the report was uploaded before that department was mapped, so its wages were dropped. The backfill restores them.`,
+    );
 }
 
 export default function PayrollBackfillPage() {
@@ -112,6 +141,15 @@ export default function PayrollBackfillPage() {
           <p className="text-sm text-secondary">No active Gusto reports found — nothing to backfill.</p>
         ) : (
           <>
+            {notes(rows).length > 0 && (
+              <Banner tone="info" className="mb-3">
+                <ul className="list-disc ml-4">
+                  {notes(rows).map((n) => (
+                    <li key={n}>{n}</li>
+                  ))}
+                </ul>
+              </Banner>
+            )}
             <LedgerTable
               head={
                 <>
@@ -146,6 +184,10 @@ export default function PayrollBackfillPage() {
                   <td className="px-4 py-2">
                     {r.error ? (
                       <Badge tone="danger">{r.error}</Badge>
+                    ) : isExplained(r) ? (
+                      <Badge tone="info">
+                        {mode === "applied" ? "Wages restored" : `Restores ${formatCurrencyCents(recoveredCents(r))}`}
+                      </Badge>
                     ) : nonTips(r.before) !== nonTips(r.after) ? (
                       <Badge tone="danger">Non-tip payroll changed</Badge>
                     ) : mode === "applied" ? (
