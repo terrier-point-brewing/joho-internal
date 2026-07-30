@@ -4,7 +4,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getCanon } from "@/lib/brand/getCanon";
 import { seedCanon } from "@/lib/brand/seedCanon";
 import { resolveGuideIntro } from "@/lib/brand/guideIntros";
-import { resolveAsset, type SupabaseLikeClient } from "@/lib/brand/assets";
+import { listAssets, type SupabaseLikeClient } from "@/lib/brand/assets";
 import BrandGuideTabs from "./BrandGuideTabs";
 import EthosView from "./EthosView";
 import VoiceView from "./VoiceView";
@@ -12,7 +12,7 @@ import VisualIdentityView from "./VisualIdentityView";
 import AgentRulesView from "./AgentRulesView";
 import ColorView from "./ColorView";
 import TypeView from "./TypeView";
-import MarksView, { type MarkArtifact } from "./MarksView";
+import MarksView from "./MarksView";
 
 /**
  * Brand Guide — the one brand page. Its in-page tabs (BrandGuideTabs) split the
@@ -33,17 +33,11 @@ export default async function BrandGuidePage() {
   // approved assets anonymously — a capability that no longer exists.
   const assetClient = createSupabaseAdminClient() as unknown as SupabaseLikeClient;
 
-  const [wordmarkUrl, logoUrl, chopUrl] = await Promise.all([
-    resolveAsset(assetClient, { kind: "wordmark" }),
-    resolveAsset(assetClient, { kind: "logo" }),
-    resolveAsset(assetClient, { kind: "chop_glyph" }),
-  ]);
-
-  const marks: MarkArtifact[] = [
-    { kind: "wordmark", label: "Wordmark", url: wordmarkUrl },
-    { kind: "logo", label: "Logo", url: logoUrl },
-    { kind: "chop_glyph", label: "Chop", url: chopUrl },
-  ];
+  // Every approved asset, once. Mark variants reference these by id, which
+  // replaced three hardcoded kind+variant="default" lookups — those allowed
+  // exactly one file per mark kind, so a second wordmark cut or a PNG beside
+  // the SVG was a code change rather than an upload.
+  const approvedAssets = (await listAssets(assetClient)).filter((a) => a.status === "approved");
 
   // Fall back to the seed's mark specs when the published canon has none — the
   // published row predates the `marks` field, so its spec sheets live only in
@@ -63,9 +57,8 @@ export default async function BrandGuidePage() {
         type: <TypeView canon={canon} />,
         marks: (
           <MarksView
-            brandName={canon.brandName}
-            marks={marks}
             specs={markSpecs}
+            assets={approvedAssets}
             intro={resolveGuideIntro(canon, "marks")}
           />
         ),

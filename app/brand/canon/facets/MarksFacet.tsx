@@ -1,7 +1,10 @@
 "use client";
 
+import { useMemo } from "react";
 import type { BrandCanon } from "@/lib/brand/canon.types";
 import { seedCanon } from "@/lib/brand/seedCanon";
+import { useAssets } from "@/app/brand/assets/useAssets";
+import RuleListField from "../fields/RuleListField";
 
 type MarkSpec = NonNullable<BrandCanon["marks"]>[number];
 type MarkVariant = MarkSpec["variants"][number];
@@ -74,6 +77,17 @@ export default function MarksFacet({
   onChange: (next: BrandCanon) => void;
 }) {
   const marks = draft.marks ?? [];
+
+  // Identity artwork only — a texture or a do/don't example in a mark slot
+  // would be a mistake, and filtering is cheaper than explaining it.
+  const { data: allAssets } = useAssets();
+  const markAssets = useMemo(
+    () =>
+      (allAssets ?? []).filter((a) =>
+        ["wordmark", "logo", "chop_glyph"].includes(a.kind),
+      ),
+    [allAssets],
+  );
 
   const setMarks = (next: MarkSpec[]) => onChange({ ...draft, marks: next });
   const patchMark = (mi: number, patch: Partial<MarkSpec>) =>
@@ -183,6 +197,16 @@ export default function MarksFacet({
             onChange={(summary) => patchMark(mi, { summary: summary.length ? summary : undefined })}
           />
 
+          {/* Usage rules — the same GuideRule primitive as Visual Identity, so
+              a reader meets one pattern for "how to use this" across the guide. */}
+          <RuleListField
+            label="Usage"
+            description="How this mark may and may not be used. Shown on every one of its cuts."
+            rules={mark.usage}
+            defaultPolarity="do"
+            onChange={(usage) => patchMark(mi, { usage })}
+          />
+
           {/* Variants */}
           <div className="flex flex-col gap-2">
             <span className={SUBLABEL}>Cuts / variants</span>
@@ -227,6 +251,39 @@ export default function MarksFacet({
                     Remove cut
                   </button>
                 </div>
+
+                {/* Artwork. One cut ships in several formats — SVG for screen,
+                    PNG for anything that can't take a vector, PDF for print —
+                    so this is a multi-select rather than a single file. */}
+                <label className="flex flex-col gap-1">
+                  <span className={SUBLABEL}>
+                    Artwork files{" "}
+                    <span className="text-faint">
+                      ({(variant.assetIds ?? []).length} attached · ⌘-click to multi-select)
+                    </span>
+                  </span>
+                  <select
+                    multiple
+                    className="inp-sm min-h-20"
+                    value={variant.assetIds ?? []}
+                    onChange={(e) =>
+                      patchVariant(mi, vi, {
+                        assetIds: Array.from(e.target.selectedOptions, (o) => o.value),
+                      })
+                    }
+                  >
+                    {markAssets.map((asset) => (
+                      <option key={asset.id} value={asset.id}>
+                        {asset.title || asset.variant} · {asset.format} · {asset.status}
+                      </option>
+                    ))}
+                  </select>
+                  {markAssets.length === 0 && (
+                    <span className="text-2xs text-faint">
+                      No wordmark, logo or chop assets uploaded yet — add them above.
+                    </span>
+                  )}
+                </label>
                 <label className="flex flex-col gap-1">
                   <span className={SUBLABEL}>Cut description</span>
                   <input

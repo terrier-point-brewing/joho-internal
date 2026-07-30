@@ -137,6 +137,14 @@ const markVariantSchema = z.object({
   cut: z.string().optional(), // "Descending-J display cut"
   orientation: z.enum(["horizontal", "vertical"]).optional(), // drives the CSS stand-in render
   specs: z.array(keyValSchema),
+  /**
+   * The artwork files for THIS cut — one variant, many formats (svg + png + pdf).
+   *
+   * Replaces the guide's three hardcoded `kind`+`variant="default"` lookups,
+   * which allowed exactly one file per mark kind and made "add a second
+   * wordmark cut" a code change rather than an upload.
+   */
+  assetIds: z.array(z.string()).optional(),
 });
 
 const markSchema = z.object({
@@ -150,6 +158,9 @@ const markSchema = z.object({
   colors: z.array(z.object({ name: z.string(), hex: hexColorSchema })).optional(),
   clearspace: z.array(z.string()).optional(),
   oneRule: z.array(z.string()).optional(),
+  /** How this mark may and may not be used — the same primitive as the
+   *  Visual Identity grid, so a reader meets one pattern across the guide. */
+  usage: z.array(guideRuleSchema).optional(),
   note: z.string().optional(), // footer note
 });
 
