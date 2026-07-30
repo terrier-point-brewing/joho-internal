@@ -104,7 +104,9 @@ export { fetchAllRows };
 
 // ── date range helpers ──────────────────────────────────────────────────────
 
-interface DateRange {
+// Exported so lib/finance/balances/providers/retainedEarnings.ts can build its
+// own cumulative-through-periodEnd DateRange for fetchPos/fetchBank/fetchRefunds.
+export interface DateRange {
   /** Inclusive lower bound, "YYYY-MM-DD" (invoices/expenses/bank) or ISO timestamp (pos/refunds). Null = from inception. */
   startDateStr: string | null;
   start: string | null;
@@ -171,7 +173,12 @@ function collapseDates<T, K extends keyof T>(records: T[], field: K, canonical: 
 
 // ── per-source fetches ──────────────────────────────────────────────────────
 
-async function fetchCoa(supabase: SupabaseClient): Promise<CoaRecord[]> {
+// Exported (alongside fetchInvoiceLines/fetchExpenses/fetchTipAccruals/
+// fetchTaxAccruals) so lib/finance/balances/providers/retainedEarnings.ts can
+// reuse these exact per-source fetches for its own cumulative-through-
+// periodEnd range, rather than re-deriving the pos/bank fetch + catalog
+// prefill logic and risking drift from the P&L.
+export async function fetchCoa(supabase: SupabaseClient): Promise<CoaRecord[]> {
   const data = await fetchAllRows<{
     id: string;
     parent_id: string | null;
@@ -195,7 +202,7 @@ async function fetchCoa(supabase: SupabaseClient): Promise<CoaRecord[]> {
   }));
 }
 
-async function fetchPos(supabase: SupabaseClient, range: DateRange): Promise<PosLineRecord[]> {
+export async function fetchPos(supabase: SupabaseClient, range: DateRange): Promise<PosLineRecord[]> {
   const rows = await fetchAllRows<{
     id: string;
     net_sales_cents: number | null;
@@ -474,7 +481,7 @@ export async function fetchExpenses(supabase: SupabaseClient, range: DateRange, 
   }));
 }
 
-async function fetchBank(supabase: SupabaseClient, range: DateRange, statement: StatementKind): Promise<BankLedgerRecord[]> {
+export async function fetchBank(supabase: SupabaseClient, range: DateRange, statement: StatementKind): Promise<BankLedgerRecord[]> {
   const data = await fetchAllRows<{
     id: string;
     chart_of_accounts_id: string | null;
@@ -514,7 +521,7 @@ async function fetchBank(supabase: SupabaseClient, range: DateRange, statement: 
   }));
 }
 
-async function fetchRefunds(supabase: SupabaseClient, range: DateRange): Promise<RefundRecord[]> {
+export async function fetchRefunds(supabase: SupabaseClient, range: DateRange): Promise<RefundRecord[]> {
   const data = await fetchAllRows<{
     id: string;
     chart_of_accounts_id: string | null;
