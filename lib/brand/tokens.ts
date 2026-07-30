@@ -1,7 +1,7 @@
 import type { BrandCanon, FontRole, ResolvedTokens, RoleName } from "./canon.types";
 import { deriveDarkPalette } from "./deriveDark";
 
-const ROLE_NAMES: RoleName[] = [
+export const ROLE_NAMES: RoleName[] = [
   "canvas",
   "surface",
   "surface-raised",
@@ -19,7 +19,8 @@ const ROLE_NAMES: RoleName[] = [
 
 const FONT_ROLES: FontRole[] = ["display", "body", "wordmark", "script"];
 
-function resolveLight(canon: BrandCanon): Record<RoleName, string> {
+/** Role → hex for light mode. A role value is a palette key or a raw hex. */
+export function resolveLightRoles(canon: BrandCanon): Record<RoleName, string> {
   const paletteByKey = new Map(canon.palette.map((c) => [c.key, c.hex]));
   const out = {} as Record<RoleName, string>;
   for (const role of ROLE_NAMES) {
@@ -29,9 +30,35 @@ function resolveLight(canon: BrandCanon): Record<RoleName, string> {
   return out;
 }
 
+/**
+ * Role → hex for dark mode, mirroring light: each role's value is a palette key
+ * or a raw hex.
+ *
+ * Falls back to `deriveDarkPalette` for any role `roleMap.dark` omits. That
+ * fallback is what makes this deployable ahead of migration 20260905 — without
+ * it, shipping the symmetric model against today's empty dark map would leave
+ * every dark role unresolved. Once the migration lands the map is complete and
+ * the derivation never runs.
+ */
+export function resolveDarkRoles(
+  canon: BrandCanon,
+  light: Record<RoleName, string>,
+): Record<RoleName, string> {
+  const paletteByKey = new Map(canon.palette.map((c) => [c.key, c.hex]));
+  const derived = deriveDarkPalette(light);
+  const stored = canon.roleMap.dark ?? {};
+
+  const out = {} as Record<RoleName, string>;
+  for (const role of ROLE_NAMES) {
+    const value = stored[role];
+    out[role] = value ? (paletteByKey.get(value) ?? value) : derived[role];
+  }
+  return out;
+}
+
 export function resolveTokens(canon: BrandCanon): ResolvedTokens {
-  const light = resolveLight(canon);
-  const dark = { ...deriveDarkPalette(light), ...canon.roleMap.dark };
+  const light = resolveLightRoles(canon);
+  const dark = resolveDarkRoles(canon, light);
 
   const fonts = {} as Record<FontRole, string>;
   for (const role of FONT_ROLES) {
