@@ -105,6 +105,7 @@ function MarkKindEditor({
 }) {
   const [file, setFile] = useState<File | null>(null);
   const [variant, setVariant] = useState("default");
+  const [altText, setAltText] = useState("");
 
   function handleUpload(e: FormEvent) {
     e.preventDefault();
@@ -113,9 +114,13 @@ function MarkKindEditor({
     formData.set("file", file);
     formData.set("kind", kind);
     formData.set("variant", variant.trim() || "default");
+    // Marks are pure imagery with no adjacent prose, so the alt text written
+    // here is the only description a screen reader ever gets for them.
+    if (altText.trim()) formData.set("alt_text", altText.trim());
     onUpload(formData);
     setFile(null);
     setVariant("default");
+    setAltText("");
   }
 
   return (
@@ -145,6 +150,18 @@ function MarkKindEditor({
               value={variant}
               onChange={(e) => setVariant(e.target.value)}
               placeholder="default"
+            />
+          </div>
+          <div className="flex flex-col gap-1 flex-1 min-w-40">
+            <label className="text-xs text-muted" htmlFor={`mark-alt-${kind}`}>
+              Alt text
+            </label>
+            <input
+              id={`mark-alt-${kind}`}
+              className="inp-sm"
+              value={altText}
+              onChange={(e) => setAltText(e.target.value)}
+              placeholder="Describe the mark…"
             />
           </div>
           <button type="submit" className="btn-primary btn-xxs" disabled={!file || uploading}>

@@ -44,6 +44,7 @@ export default async function BrandGuidePage() {
   // pale mark on a transparent background renders as an empty box on the
   // default pale surface, which reads as a broken upload.
   const assetGrounds = await groundsForAssets(approvedAssets);
+  const assetsById = new Map(approvedAssets.map((a) => [a.id, a]));
 
   // Fall back to the seed's mark specs when the published canon has none — the
   // published row predates the `marks` field, so its spec sheets live only in
@@ -57,9 +58,9 @@ export default async function BrandGuidePage() {
       views={{
         ethos: <EthosView canon={canon} />,
         voice: <VoiceView canon={canon} />,
-        visual: <VisualIdentityView canon={canon} />,
+        visual: <VisualIdentityView canon={canon} assetsById={assetsById} />,
         agent: <AgentRulesView canon={canon} />,
-        color: <ColorView canon={canon} />,
+        color: <ColorView canon={canon} assetsById={assetsById} />,
         type: <TypeView canon={canon} />,
         marks: (
           <MarksView

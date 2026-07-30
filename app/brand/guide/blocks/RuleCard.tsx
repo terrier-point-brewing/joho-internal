@@ -1,3 +1,4 @@
+import type { BrandAsset } from "@/lib/brand/assets";
 import type { GuideRule } from "@/lib/brand/guideRules";
 import AssetImage from "./AssetImage";
 
@@ -13,7 +14,13 @@ import AssetImage from "./AssetImage";
  * so a card inside the "Don't" column doesn't need to say "don't" again. That
  * keeps the title free to be the rule itself.
  */
-export default function RuleCard({ rule }: { rule: GuideRule }) {
+export default function RuleCard({
+  rule,
+  asset,
+}: {
+  rule: GuideRule;
+  asset?: BrandAsset;
+}) {
   return (
     <div className="rounded-lg border border-brand-line p-3">
       <p className="font-brand-body text-sm font-semibold text-brand-high-contrast">
@@ -28,7 +35,12 @@ export default function RuleCard({ rule }: { rule: GuideRule }) {
       {/* Only take up vertical space when there is something to show. */}
       {rule.assetId && (
         <div className="mt-3">
-          <AssetImage assetId={rule.assetId} alt={rule.title} caption={rule.caption} />
+          <AssetImage
+            assetId={rule.assetId}
+            asset={asset}
+            alt={rule.title}
+            caption={rule.caption}
+          />
         </div>
       )}
     </div>

@@ -56,7 +56,7 @@ export default function MarkArtwork({
           // eslint-disable-next-line @next/next/no-img-element -- session-gated brand asset from the proxy route
           <img
             src={assetFileUrl(display.id)}
-            alt={alt}
+            alt={display.alt_text || alt}
             className="max-h-full max-w-full w-auto object-contain"
           />
         ) : (

@@ -1,4 +1,4 @@
-import { assetFileUrl } from "@/lib/brand/assets";
+import { assetFileUrl, type BrandAsset } from "@/lib/brand/assets";
 
 /**
  * The one place brand imagery is sized.
@@ -14,13 +14,21 @@ import { assetFileUrl } from "@/lib/brand/assets";
  */
 export default function AssetImage({
   assetId,
+  asset,
   alt,
   caption,
 }: {
   assetId?: string;
+  /** The resolved row, when available — carries the authored alt text. */
+  asset?: BrandAsset;
+  /** Fallback description, derived from whatever the image sits beside. */
   alt: string;
   caption?: string;
 }) {
+  // The uploader's own description wins: they are the only person who knows
+  // what the image depicts. The derived fallback is better than nothing but
+  // describes the rule, not the picture.
+  const description = asset?.alt_text || alt;
   return (
     <figure>
       {/* Capped in height as well as aspect. These sit two-to-a-row inside a
@@ -31,7 +39,7 @@ export default function AssetImage({
           // eslint-disable-next-line @next/next/no-img-element -- session-gated brand asset from the proxy route, not a static import
           <img
             src={assetFileUrl(assetId)}
-            alt={alt}
+            alt={description}
             className="max-h-full max-w-full w-auto object-contain"
           />
         ) : (

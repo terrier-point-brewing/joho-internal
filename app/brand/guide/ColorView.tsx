@@ -1,3 +1,4 @@
+import type { BrandAsset } from "@/lib/brand/assets";
 import type { BrandCanon, RoleName } from "@/lib/brand/canon.types";
 import { resolveGuideIntro } from "@/lib/brand/guideIntros";
 import { normalizeRules } from "@/lib/brand/guideRules";
@@ -71,7 +72,14 @@ function ThemeRow({
  * which color it came from. That link was previously invisible in the guide and
  * only half-visible in the editor.
  */
-export default function ColorView({ canon }: { canon: BrandCanon }) {
+export default function ColorView({
+  canon,
+  assetsById,
+}: {
+  canon: BrandCanon;
+  /** Resolved assets, so illustrated rules can use their authored alt text. */
+  assetsById?: Map<string, BrandAsset>;
+}) {
   const lightRoles = resolveLightRoles(canon);
   const darkRoles = resolveDarkRoles(canon, lightRoles);
   const drivesLight = rolesByPaletteKey(canon, "light");
@@ -161,7 +169,7 @@ export default function ColorView({ canon }: { canon: BrandCanon }) {
             title="Forbidden"
             description="Combinations that must never ship. Each one fails a review on its own."
           />
-          <RuleGrid rules={forbidden} />
+          <RuleGrid rules={forbidden} assetsById={assetsById} />
         </section>
       )}
     </GuideSection>
