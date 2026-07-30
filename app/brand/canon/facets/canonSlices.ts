@@ -21,20 +21,6 @@ export type CanonSlice = {
   description: string;
 };
 
-export const ethosSlice: CanonSlice = {
-  keys: SECTION_KEYS.ethos,
-  schema: sectionSchema("ethos"),
-  title: "Ethos",
-  description: "The values with what each one means and costs. Validated on blur.",
-};
-
-export const voiceSlice: CanonSlice = {
-  keys: SECTION_KEYS.voice,
-  schema: sectionSchema("voice"),
-  title: "Voice",
-  description: "Calibration sliders, word lists, and rewrites. Validated on blur.",
-};
-
 export const visualSlice: CanonSlice = {
   keys: SECTION_KEYS.visual,
   schema: sectionSchema("visual"),

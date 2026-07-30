@@ -13,7 +13,9 @@ import TypeFacet from "./facets/TypeFacet";
 import MarksFacet from "./facets/MarksFacet";
 import IntroFacet from "./facets/IntroFacet";
 import SliceJsonFacet from "./facets/SliceJsonFacet";
-import { ethosSlice, voiceSlice, visualSlice, agentSlice, colorForbiddenSlice } from "./facets/canonSlices";
+import { visualSlice, agentSlice, colorForbiddenSlice } from "./facets/canonSlices";
+import EthosFields from "./fields/EthosFields";
+import VoiceFields from "./fields/VoiceFields";
 import { useDraft, usePublish } from "./useCanonEditor";
 import { useSectionAutosave, type SaveState } from "./useSectionAutosave";
 import { changedSections } from "@/lib/brand/canonSections";
@@ -176,12 +178,8 @@ export default function CanonEditor({
       <div>
         <div className="flex flex-col gap-6">
           <IntroFacet section={section} draft={draft} onChange={setDraft} />
-          {section === "ethos" && (
-            <SliceJsonFacet {...ethosSlice} draft={draft} onChange={setDraft} />
-          )}
-          {section === "voice" && (
-            <SliceJsonFacet {...voiceSlice} draft={draft} onChange={setDraft} />
-          )}
+          {section === "ethos" && <EthosFields draft={draft} onChange={setDraft} />}
+          {section === "voice" && <VoiceFields draft={draft} onChange={setDraft} />}
           {section === "visual" && (
             <SliceJsonFacet {...visualSlice} draft={draft} onChange={setDraft} />
           )}
