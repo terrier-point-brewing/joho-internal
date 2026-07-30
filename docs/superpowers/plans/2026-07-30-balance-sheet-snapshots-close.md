@@ -23,7 +23,7 @@
 - **UI:** `docs/UI_STANDARD.md` is binding — token utilities only, shared primitives only. Same rules as PR A.
 - **Auth:** reads `CAP.financeStatementsRead`; provider-rule writes `CAP.financeTransactionsManage`.
 - **Supabase client per context:** `server.ts` in route handlers, `browser.ts` in client components, `admin.ts` for cron and privileged writes.
-- **Migrations:** this PR owns prefix `20260903` exclusively. Never hand-edit an existing migration. **Subagents never apply migrations** — authoring is in scope, applying is orchestrator-only after user approval and a backup.
+- **Migrations:** this PR owns the full stamp `20260904130000` exclusively. Plain `YYYYMMDD` prefixes keep colliding with parallel branches, so new migrations take a full `YYYYMMDDHHMMSS` stamp. Never hand-edit an existing migration. **Subagents never apply migrations** — authoring is in scope, applying is orchestrator-only after user approval and a backup.
 - **Graceful degradation is a requirement, not a nicety.** `taxAccrual` depends on `square_tax_accounts` (migration 20260827) and `tipAccrual` on `payroll_gl_settings.tips_chart_of_accounts_id` (20260823). Both may be unapplied in prod. Their existing try/catch-to-empty behavior must survive the move verbatim — a missing table must leave the balance sheet rendering, never 500 it.
 
 ## Task Table
@@ -44,7 +44,7 @@ No task is escalated to Opus: this migration is additive DDL plus seed inserts w
 ### Task 1: Migration + provider registry
 
 **Files:**
-- Create: `supabase/migrations/20260903_balance_sheet_snapshots.sql`
+- Create: `supabase/migrations/20260904130000_balance_sheet_snapshots.sql`
 - Create: `lib/finance/balances/registry.ts`
 - Create: `lib/finance/balances/registry.test.ts`
 
@@ -115,7 +115,7 @@ Expected: PASS.
 
 - [ ] **Step 5: Author the migration**
 
-Create `supabase/migrations/20260903_balance_sheet_snapshots.sql`:
+Create `supabase/migrations/20260904130000_balance_sheet_snapshots.sql`:
 
 1. The three tables above. `balance_cents bigint not null`. `contributions jsonb not null default '{}'`. `status text not null default 'open' check (status in ('open','completed','skipped'))`.
 
@@ -159,7 +159,7 @@ node scripts/check-migrations.mjs --strict && npm run verify
 ```
 
 ```bash
-git add supabase/migrations/20260903_balance_sheet_snapshots.sql lib/finance/balances/registry.ts lib/finance/balances/registry.test.ts
+git add supabase/migrations/20260904130000_balance_sheet_snapshots.sql lib/finance/balances/registry.ts lib/finance/balances/registry.test.ts
 git commit -m "feat(finance): balance snapshot schema and provider registry"
 ```
 

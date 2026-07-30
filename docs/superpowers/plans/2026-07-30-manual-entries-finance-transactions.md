@@ -21,7 +21,7 @@
 - **Auth:** reads `CAP.financeTransactionsRead`, writes `CAP.financeTransactionsManage`. Never roll your own role logic — use `lib/auth`.
 - **Supabase client per context:** `lib/supabase/server.ts` in route handlers, `browser.ts` in client components, `admin.ts` only for privileged ops.
 - **API routes:** wrap errors with `apiError()` from `lib/utils/api.ts`.
-- **Migrations:** never hand-edit an existing migration. `scripts/check-migrations.mjs` fails CI on duplicate numeric prefixes — this PR owns prefix `20260902` exclusively.
+- **Migrations:** never hand-edit an existing migration. `scripts/check-migrations.mjs` fails CI on duplicate numeric prefixes — this PR owns the full stamp `20260904120000` exclusively. Plain `YYYYMMDD` prefixes keep colliding with parallel branches (20260902 and 20260903 were both taken mid-flight), so new migrations take a full `YYYYMMDDHHMMSS` stamp.
 - **Subagents never apply migrations.** Authoring the `.sql` file is in scope; running it against any database is orchestrator-only, after explicit user approval and a backup.
 
 ## Task Table
@@ -41,7 +41,7 @@ Task 1 is **Opus** because its migration performs an irreversible data operation
 ### Task 1: Migration + pure validators
 
 **Files:**
-- Create: `supabase/migrations/20260902_manual_entries.sql`
+- Create: `supabase/migrations/20260904120000_manual_entries.sql`
 - Create: `lib/finance/manualEntries.ts`
 - Create: `lib/finance/manualEntries.test.ts`
 
@@ -116,7 +116,7 @@ Expected: PASS, all cases.
 
 - [ ] **Step 5: Author the migration**
 
-Create `supabase/migrations/20260902_manual_entries.sql` with these sections, in this order:
+Create `supabase/migrations/20260904120000_manual_entries.sql` with these sections, in this order:
 
 1. `create table manual_entries (...)` — columns per the Interfaces block. `amount_cents bigint not null` (signed). `mapping_source text not null default 'manual'`. Timestamps default `now()`. `created_by`/`updated_by` reference `auth.users(id)`.
 
@@ -186,7 +186,7 @@ npm run verify
 ```
 
 ```bash
-git add supabase/migrations/20260902_manual_entries.sql lib/finance/manualEntries.ts lib/finance/manualEntries.test.ts
+git add supabase/migrations/20260904120000_manual_entries.sql lib/finance/manualEntries.ts lib/finance/manualEntries.test.ts
 git commit -m "feat(finance): manual_entries table and validators"
 ```
 

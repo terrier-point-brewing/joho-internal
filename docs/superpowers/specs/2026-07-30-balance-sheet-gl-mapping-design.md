@@ -150,7 +150,7 @@ Manual entries become auditable finance records in the section that owns them.
 **Settings holds rules; Transactions holds values.** This PR ships independently
 and carries no balance-sheet risk.
 
-### 3.1 Data model — `supabase/migrations/20260902_manual_entries.sql`
+### 3.1 Data model — `supabase/migrations/20260904120000_manual_entries.sql`
 
 ```sql
 create table manual_entries (
@@ -230,7 +230,7 @@ would be worse than an honest null).
 
 | File | Purpose |
 |---|---|
-| `supabase/migrations/20260902_manual_entries.sql` | schema, audit trigger, RLS, data migration, drop old table |
+| `supabase/migrations/20260904120000_manual_entries.sql` | schema, audit trigger, RLS, data migration, drop old table |
 | `lib/finance/manualEntries.ts` | types + pure validators |
 | `lib/finance/manualEntries.test.ts` | validator tests |
 | `app/api/finance/manual-entries/route.ts` | GET/POST/PATCH/DELETE |
@@ -330,7 +330,7 @@ figure the way the current taproom tab does.
 
 Depends on PR A for the `manualBalance` provider's data source.
 
-### 4.1 Data model — `supabase/migrations/20260903_balance_sheet_snapshots.sql`
+### 4.1 Data model — `supabase/migrations/20260904130000_balance_sheet_snapshots.sql`
 
 ```sql
 -- The "auto-mapping" rule table. An account may declare MORE THAN ONE source:
@@ -579,7 +579,7 @@ closed or past `due_date`.
 
 | File | Purpose |
 |---|---|
-| `supabase/migrations/20260903_balance_sheet_snapshots.sql` | 3 tables, RLS, seed source rows |
+| `supabase/migrations/20260904130000_balance_sheet_snapshots.sql` | 3 tables, RLS, seed source rows |
 | `lib/finance/balances/registry.ts` | provider interface + registry |
 | `lib/finance/balances/snapshot.ts` | compute/store/freeze + pure `resolveSnapshotWrites` |
 | `lib/finance/balances/closeTasks.ts` | month-end task lifecycle |

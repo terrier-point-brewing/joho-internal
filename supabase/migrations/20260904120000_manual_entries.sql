@@ -1,4 +1,4 @@
--- supabase/migrations/20260902_manual_entries.sql
+-- supabase/migrations/20260904120000_manual_entries.sql
 --
 -- manual_entries — the auditable home for manual financial entries, replacing
 -- the ad hoc manual_net_sales_entries rows that used to be edited under
