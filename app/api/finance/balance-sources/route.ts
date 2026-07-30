@@ -26,6 +26,7 @@ import { apiError } from "@/lib/utils/api";
 // manual-entries never touch the provider registry.
 import "@/lib/finance/balances/providers";
 import { getProvider, listProviders } from "@/lib/finance/balances/registry";
+import type { CoaAccountRef } from "@/lib/finance/financials/types";
 
 export const dynamic = "force-dynamic";
 
@@ -49,6 +50,7 @@ const BALANCE_SHEET_SECTIONS = [
 
 interface CoaRow {
   id: string;
+  parent_id: string | null;
   account_name: string;
   account_number: string | null;
   statement_section: string | null;
@@ -62,6 +64,13 @@ interface SourceRow {
   updated_at: string;
 }
 
+interface BalanceRow {
+  chart_of_accounts_id: string;
+  period_end: string;
+  balance_cents: number;
+  contributions: Record<string, number>;
+}
+
 export async function GET() {
   try { await requirePermission(CAP.financeStatementsRead); } catch (res) { return res as Response; }
 
@@ -70,7 +79,7 @@ export async function GET() {
 
     const { data: coaRows, error: coaError } = await supabase
       .from("chart_of_accounts")
-      .select("id, account_name, account_number, statement_section")
+      .select("id, parent_id, account_name, account_number, statement_section")
       .in("statement_section", BALANCE_SHEET_SECTIONS)
       .order("account_number", { ascending: true, nullsFirst: false });
     if (coaError) throw coaError;
@@ -79,13 +88,28 @@ export async function GET() {
     const coaIds = accounts.map((a) => a.id);
 
     let sourceRows: SourceRow[] = [];
+    // Read-only "current balance / as of" column (Settings holds rules, never
+    // dollar values -- see this route's own header) -- the latest
+    // gl_account_balances row per account, contributions broken out per
+    // provider so a balance is explainable at a glance without leaving this
+    // screen.
+    let balanceRows: BalanceRow[] = [];
     if (coaIds.length > 0) {
-      const { data, error: sourcesError } = await supabase
-        .from("balance_sheet_account_sources")
-        .select("chart_of_accounts_id, provider_key, config, active, updated_at")
-        .in("chart_of_accounts_id", coaIds);
-      if (sourcesError) throw sourcesError;
-      sourceRows = (data ?? []) as SourceRow[];
+      const [sourcesRes, balancesRes] = await Promise.all([
+        supabase
+          .from("balance_sheet_account_sources")
+          .select("chart_of_accounts_id, provider_key, config, active, updated_at")
+          .in("chart_of_accounts_id", coaIds),
+        supabase
+          .from("gl_account_balances")
+          .select("chart_of_accounts_id, period_end, balance_cents, contributions")
+          .in("chart_of_accounts_id", coaIds)
+          .order("period_end", { ascending: false }),
+      ]);
+      if (sourcesRes.error) throw sourcesRes.error;
+      if (balancesRes.error) throw balancesRes.error;
+      sourceRows = (sourcesRes.data ?? []) as SourceRow[];
+      balanceRows = (balancesRes.data ?? []) as BalanceRow[];
     }
 
     const sourcesByCoa = new Map<string, SourceRow[]>();
@@ -95,20 +119,47 @@ export async function GET() {
       else sourcesByCoa.set(row.chart_of_accounts_id, [row]);
     }
 
+    // balanceRows is ordered period_end DESC, so the first row seen per coaId
+    // is its latest snapshot.
+    const latestBalanceByCoa = new Map<string, BalanceRow>();
+    for (const row of balanceRows) {
+      if (!latestBalanceByCoa.has(row.chart_of_accounts_id)) latestBalanceByCoa.set(row.chart_of_accounts_id, row);
+    }
+
+    const providers = listProviders();
+
     const body = {
-      accounts: accounts.map((a) => ({
-        id: a.id,
-        accountName: a.account_name,
-        accountNumber: a.account_number,
-        statementSection: a.statement_section,
-        sources: (sourcesByCoa.get(a.id) ?? []).map((s) => ({
-          providerKey: s.provider_key,
-          config: s.config,
-          active: s.active,
-          updatedAt: s.updated_at,
-        })),
-      })),
-      providers: listProviders().map((p) => ({ key: p.key, label: p.label, kind: p.kind })),
+      accounts: accounts.map((a) => {
+        const coaRef: CoaAccountRef = {
+          id: a.id,
+          parentId: a.parent_id,
+          accountName: a.account_name,
+          accountNumber: a.account_number,
+          statementSection: a.statement_section ?? "",
+        };
+        const latest = latestBalanceByCoa.get(a.id);
+        return {
+          id: a.id,
+          accountName: a.account_name,
+          accountNumber: a.account_number,
+          statementSection: a.statement_section,
+          sources: (sourcesByCoa.get(a.id) ?? []).map((s) => ({
+            providerKey: s.provider_key,
+            config: s.config,
+            active: s.active,
+            updatedAt: s.updated_at,
+          })),
+          // Providers offerable in the "add a source" dropdown -- filtered
+          // server-side since appliesTo is a function, not JSON-serializable.
+          // A provider with no appliesTo (transactionPostings, manualBalance)
+          // applies to every account.
+          availableProviderKeys: providers.filter((p) => !p.appliesTo || p.appliesTo(coaRef)).map((p) => p.key),
+          currentBalance: latest
+            ? { periodEnd: latest.period_end, cents: latest.balance_cents, contributions: latest.contributions }
+            : null,
+        };
+      }),
+      providers: providers.map((p) => ({ key: p.key, label: p.label, kind: p.kind })),
     };
 
     return NextResponse.json(body);
