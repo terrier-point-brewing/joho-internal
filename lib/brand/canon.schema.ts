@@ -60,7 +60,20 @@ export const guideSectionSchema = z.enum([
 
 const hexColorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/, "must be a #rrggbb hex color");
 
+// Stable identity for a list item, assigned once by lib/brand/canonIds.ts and
+// then never regenerated. Optional because documents written before this field
+// existed must still parse; getDraft() backfills them on first read, so a
+// stored row acquires ids without a data migration.
+//
+// diffCanon matches list items across versions by this id. That's what lets the
+// auto-generated changelog say "renamed value 3" instead of "values array
+// differs", and what stops a reorder being reported as N deletions plus N
+// additions. Derive it from nothing — a content-derived id would change when the
+// content changes, which defeats the entire purpose.
+const idSchema = z.string().optional();
+
 const brandColorSchema = z.object({
+  id: idSchema,
   key: z.string(),
   name: z.string(),
   hex: hexColorSchema,
@@ -70,6 +83,7 @@ const brandColorSchema = z.object({
 });
 
 const brandFontSchema = z.object({
+  id: idSchema,
   role: fontRoleSchema,
   family: z.string(),
   cssStack: z.string(),
@@ -89,6 +103,7 @@ const keyValSchema = z.object({ key: z.string(), value: z.string() });
 // and vertical 5E). Optional throughout so a mark can be added with only an
 // approved artifact and its spec filled in over time.
 const markVariantSchema = z.object({
+  id: idSchema,
   code: z.string(), // "Primary · Horizontal · 4A"
   cut: z.string().optional(), // "Descending-J display cut"
   orientation: z.enum(["horizontal", "vertical"]).optional(), // drives the CSS stand-in render
@@ -96,6 +111,7 @@ const markVariantSchema = z.object({
 });
 
 const markSchema = z.object({
+  id: idSchema,
   kind: z.enum(["wordmark", "logo", "chop"]),
   title: z.string(),
   status: z.string().optional(), // "Final specification"
@@ -115,6 +131,7 @@ export const canonSchema = z.object({
   // ── Values & their costs (Narrative) ─────────────────────────────────────
   values: z.array(
     z.object({
+      id: idSchema,
       n: z.string(),
       title: z.string(),
       means: z.string(),
@@ -129,6 +146,7 @@ export const canonSchema = z.object({
   voice: z.object({
     sliders: z.array(
       z.object({
+        id: idSchema,
         left: z.string(),
         right: z.string(),
         pos: z.number(), // 0–100 toward `right`
@@ -139,6 +157,7 @@ export const canonSchema = z.object({
     leanOnWords: z.array(z.string()),
     rewrites: z.array(
       z.object({
+        id: idSchema,
         context: z.string(),
         on: z.string(),
         off: z.string(),

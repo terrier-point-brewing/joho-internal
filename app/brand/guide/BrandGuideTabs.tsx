@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import type { BrandCanon } from "@/lib/brand/canon.types";
 import PageHeader from "@/app/components/PageHeader";
 import TabBar from "@/app/components/TabBar";
 import CanonEditor, { type CanonSection } from "../canon/CanonEditor";
@@ -37,9 +38,12 @@ function isCanonSection(tab: TabKey): tab is CanonSection {
  */
 export default function BrandGuideTabs({
   isAdmin,
+  publishedCanon,
   views,
 }: {
   isAdmin: boolean;
+  /** The live canon — lets the editor's publish bar name what differs. */
+  publishedCanon?: BrandCanon;
   views: {
     ethos: ReactNode;
     voice: ReactNode;
@@ -125,7 +129,7 @@ export default function BrandGuideTabs({
         )}
         {isAdmin && editorMounted && (
           <div className={showCanonEditor ? "" : "hidden"}>
-            <CanonEditor section={editorSection} />
+            <CanonEditor section={editorSection} publishedCanon={publishedCanon} />
           </div>
         )}
 

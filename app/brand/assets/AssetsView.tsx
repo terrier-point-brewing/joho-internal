@@ -6,7 +6,7 @@ import Card from "@/app/components/ui/Card";
 import Badge from "@/app/components/ui/Badge";
 import Banner from "@/app/components/ui/Banner";
 import type { Tone } from "@/app/components/ui/tone";
-import { publicUrlFor, type BrandAsset, type BrandAssetKind } from "@/lib/brand/assets";
+import { assetFileUrl, type BrandAsset, type BrandAssetKind } from "@/lib/brand/assets";
 import { useApproveAsset, useArchiveAsset, useAssets, useUploadAsset } from "./useAssets";
 
 const KINDS: BrandAssetKind[] = ["logo", "wordmark", "chop_glyph", "texture", "icon", "photo"];
@@ -137,7 +137,7 @@ export default function AssetsView() {
                   <div className="aspect-square bg-surface-mid rounded flex items-center justify-center overflow-hidden">
                     {/* eslint-disable-next-line @next/next/no-img-element -- arbitrary uploaded asset URLs, not a static import */}
                     <img
-                      src={publicUrlFor(asset.storage_path)}
+                      src={assetFileUrl(asset.id)}
                       alt={`${asset.kind} ${asset.variant}`}
                       className="max-h-full max-w-full object-contain"
                     />

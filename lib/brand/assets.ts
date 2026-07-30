@@ -1,5 +1,9 @@
 // Single source of truth for the asset kinds — mirrors the brand_assets.kind
-// check constraint (migration 20260810). The API validates uploads against this.
+// check constraint (migrations 20260810, 20260903). The API validates uploads
+// against this, so the two must be changed together.
+//
+//   font    — uploaded typefaces, emitted as @font-face for the Type tab
+//   example — do/don't imagery for Visual Identity and forbidden colors
 export const BRAND_ASSET_KINDS = [
   "logo",
   "wordmark",
@@ -7,6 +11,8 @@ export const BRAND_ASSET_KINDS = [
   "texture",
   "icon",
   "photo",
+  "font",
+  "example",
 ] as const;
 export type BrandAssetKind = (typeof BRAND_ASSET_KINDS)[number];
 
@@ -18,6 +24,10 @@ export interface BrandAsset {
   format: string;
   file_meta: Record<string, unknown>;
   status: "draft" | "approved" | "archived";
+  /** Human label for the library; null on rows predating migration 20260903. */
+  title?: string | null;
+  /** Required for accessible do/don't imagery. Null on older rows. */
+  alt_text?: string | null;
 }
 
 // Same injected-client testability pattern as canonWorkflow.ts: callers pass
@@ -49,26 +59,37 @@ export interface SupabaseLikeClient {
 
 const TABLE = "brand_assets";
 
-// Pure: builds the public Storage URL for a path in the brand-assets bucket.
-export function publicUrlFor(path: string): string {
-  return `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/brand-assets/${path}`;
+/**
+ * Pure: the URL an asset's bytes are served from.
+ *
+ * The `brand-assets` bucket is PRIVATE (migration 20260903), so there is no
+ * public storage URL to build. Bytes come through a session-gated proxy route
+ * instead — `app/api/brand/assets/[id]/file`.
+ *
+ * A permanent, origin-relative path rather than a signed URL, deliberately:
+ * signed URLs expire, which breaks an `@font-face src` that must outlive a
+ * cached page, an `<img src>` inside a cached RSC payload, and a stable
+ * download link on a mark's spec sheet.
+ */
+export function assetFileUrl(id: string): string {
+  return `/api/brand/assets/${id}/file`;
 }
 
-// Returns the approved row's public URL for the given kind+variant, or null
-// if none is approved (draft/archived-only or no rows at all).
+// Returns the approved row's URL for the given kind+variant, or null if none is
+// approved (draft/archived-only or no rows at all).
 export async function resolveAsset(
   client: SupabaseLikeClient,
   { kind, variant = "default" }: { kind: BrandAssetKind; variant?: string },
 ): Promise<string | null> {
   const { data } = await client
     .from(TABLE)
-    .select("storage_path")
+    .select("id")
     .eq("kind", kind)
     .eq("variant", variant)
     .eq("status", "approved")
     .limit(1);
   if (!data || data.length === 0) return null;
-  return publicUrlFor(data[0].storage_path);
+  return assetFileUrl(data[0].id);
 }
 
 export async function listAssets(

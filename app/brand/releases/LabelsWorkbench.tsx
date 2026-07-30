@@ -7,7 +7,7 @@ import Badge from "@/app/components/ui/Badge";
 import Banner from "@/app/components/ui/Banner";
 import TabBar from "@/app/components/TabBar";
 import { type Tone } from "@/app/components/ui/tone";
-import { publicUrlFor, type BrandAsset } from "@/lib/brand/assets";
+import { assetFileUrl, type BrandAsset } from "@/lib/brand/assets";
 import {
   syncNamingCheck,
   type BrandLabel,
@@ -304,7 +304,7 @@ function ChopPicker({
           className={`w-16 h-16 rounded border overflow-hidden ${selectedId === a.id ? "border-accent" : "border-line"}`}
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={publicUrlFor(a.storage_path)} alt={a.variant} className="w-full h-full object-contain" />
+          <img src={assetFileUrl(a.id)} alt={a.variant} className="w-full h-full object-contain" />
         </button>
       ))}
     </div>

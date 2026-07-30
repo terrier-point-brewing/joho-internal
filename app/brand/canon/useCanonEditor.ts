@@ -4,12 +4,17 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import type { BrandCanon } from "@/lib/brand/canon.types";
 
+import type { ChangeEntry } from "@/lib/brand/diffCanon";
+import type { GuideSectionKey } from "@/lib/brand/guideIntros";
+
 export interface VersionRow {
   id: string;
   version_label: string;
   status: "published" | "archived";
   published_at: string | null;
   changelog: string | null;
+  /** Null for versions published before migration 20260902. */
+  change_entries: ChangeEntry[] | null;
 }
 
 // Shared fetch helper: throws on non-2xx, surfacing the API's { error } body
@@ -40,15 +45,48 @@ export function useDraft() {
   });
 }
 
-export function useSaveDraft() {
+// NOTE: there is deliberately no whole-document save hook. The editor saves per
+// section (usePatchSection below). The PUT /api/brand/canon/draft route and
+// lib/brand/canonWorkflow.saveDraft remain as a server-side escape hatch, but
+// nothing in the UI sends a full document any more.
+
+/**
+ * Saves ONE subtab's slice of the draft. The path autosave uses.
+ *
+ * Deliberately does NOT invalidate the draft query on success. An invalidate
+ * triggers a refetch, and a refetch landing mid-edit is exactly the race the
+ * re-seed guard in CanonEditor exists to defend against — autosave fires often
+ * enough to hit it constantly. The server's response carries no new
+ * information (we know what we just wrote), so the cache is updated in place
+ * and no refetch happens at all.
+ */
+export function usePatchSection() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (document: BrandCanon) =>
+    mutationFn: ({
+      section,
+      patch,
+    }: {
+      section: GuideSectionKey;
+      patch: Partial<BrandCanon>;
+    }) =>
       request<{ ok: true }>("/api/brand/canon/draft", {
-        method: "PUT",
-        body: JSON.stringify(document),
+        method: "PATCH",
+        body: JSON.stringify({ section, patch }),
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.brandCanon.draft() }),
+    onSuccess: (_data, { patch }) => {
+      qc.setQueryData<BrandCanon>(queryKeys.brandCanon.draft(), (prev) =>
+        prev
+          ? {
+              ...prev,
+              ...patch,
+              ...(patch.guideIntros
+                ? { guideIntros: { ...prev.guideIntros, ...patch.guideIntros } }
+                : {}),
+            }
+          : prev,
+      );
+    },
   });
 }
 

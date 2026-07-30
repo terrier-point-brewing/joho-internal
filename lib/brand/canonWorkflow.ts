@@ -1,5 +1,9 @@
 import { canonSchema } from "./canon.schema";
 import type { BrandCanon } from "./canon.types";
+import { withIds } from "./canonIds";
+import { SECTION_KEYS, sectionOf, sectionSchema } from "./canonSections";
+import { diffCanon, renderChangelog, type ChangeEntry } from "./diffCanon";
+import type { GuideSectionKey } from "./guideIntros";
 import { seedCanon } from "./seedCanon";
 
 interface CanonRow {
@@ -8,7 +12,19 @@ interface CanonRow {
   status: "draft" | "published" | "archived";
   document: BrandCanon;
   changelog: string | null;
+  // Null on rows published before migration 20260902 — the UI falls back to the
+  // flat `changelog` text for those.
+  change_entries: ChangeEntry[] | null;
   published_at: string | null;
+}
+
+export interface CanonVersionSummary {
+  id: string;
+  version_label: string;
+  status: "published" | "archived";
+  published_at: string | null;
+  changelog: string | null;
+  change_entries: ChangeEntry[] | null;
 }
 
 // Same injected-client testability pattern as getCanonFrom (lib/brand/getCanon.ts):
@@ -87,12 +103,27 @@ async function getDraftRow(client: SupabaseLikeClient): Promise<CanonRow | null>
 // Returns the draft row's document. If no draft exists, seeds one from the
 // current published row (or seedCanon if there's no published row either)
 // and inserts it as the new draft.
+//
+// Also backfills stable list-item ids (lib/brand/canonIds.ts). This is how
+// stored rows acquire ids without a data migration: read once, persist if
+// anything was assigned, and every read after that is a no-op. withIds is
+// idempotent, which is what stops this rewriting the row on every request.
 export async function getDraft(client: SupabaseLikeClient): Promise<BrandCanon> {
   const existing = await getDraftRow(client);
-  if (existing) return existing.document;
+  if (existing) {
+    const { canon, changed } = withIds(existing.document);
+    if (changed) {
+      const { error } = await client
+        .from(TABLE)
+        .update({ document: canon, updated_at: new Date().toISOString() })
+        .eq("id", existing.id);
+      assertOk(error, "backfill canon item ids");
+    }
+    return canon;
+  }
 
   const published = await getCurrentPublished(client);
-  const seedDocument = published?.document ?? seedCanon;
+  const { canon: seedDocument } = withIds(published?.document ?? seedCanon);
   const { error } = await client.from(TABLE).insert({
     version_label: published?.version_label ?? "",
     status: "draft",
@@ -102,6 +133,68 @@ export async function getDraft(client: SupabaseLikeClient): Promise<BrandCanon> 
   });
   assertOk(error, "create the canon draft");
   return seedDocument;
+}
+
+// Writes ONE Brand Guide subtab's slice of the draft.
+//
+// The reason this exists: saveDraft() validates the entire document, so a stale
+// or invalid field in any section blocked saving from every section. Here only
+// `sectionSchema(section)` runs, so editing Ethos can't be held hostage by a
+// malformed `naming` block three tabs away. Whole-document validation still
+// happens — once, at publish, where it belongs (validateCanonForPublish).
+//
+// The stored draft is re-read inside this call and the patch merged into it.
+// The client never sends a full document, so two admins editing different
+// subtabs can't clobber each other's work.
+export async function saveDraftSection(
+  client: SupabaseLikeClient,
+  section: GuideSectionKey,
+  patch: Partial<BrandCanon>,
+): Promise<void> {
+  const owned = new Set<string>(SECTION_KEYS[section] as readonly string[]);
+
+  // A section may write its own keys plus its own guideIntros entry — nothing
+  // else. Rejecting loudly beats silently dropping: a patch carrying a foreign
+  // key means the caller is confused, and swallowing it would hide the bug.
+  const { guideIntros, ...rest } = patch;
+  for (const key of Object.keys(rest)) {
+    if (!owned.has(key)) {
+      throw new Error(
+        `Brand canon: section "${section}" may not write "${key}" (owned by another subtab)`,
+      );
+    }
+  }
+  if (guideIntros) {
+    for (const key of Object.keys(guideIntros)) {
+      if (key !== section) {
+        throw new Error(
+          `Brand canon: section "${section}" may not write the "${key}" introduction`,
+        );
+      }
+    }
+  }
+
+  const parsed = Object.keys(rest).length > 0 ? sectionSchema(section).parse(rest) : {};
+
+  // getDraft (not getDraftRow) so a first-ever section save still works — it
+  // creates the seeded draft, which we then re-read to patch by id.
+  await getDraft(client);
+  const existing = await getDraftRow(client);
+  if (!existing) throw new Error("Brand canon: no draft to patch");
+
+  const nextDocument: BrandCanon = {
+    ...existing.document,
+    ...parsed,
+    ...(guideIntros
+      ? { guideIntros: { ...existing.document.guideIntros, ...guideIntros } }
+      : {}),
+  };
+
+  const { error } = await client
+    .from(TABLE)
+    .update({ document: nextDocument, updated_at: new Date().toISOString() })
+    .eq("id", existing.id);
+  assertOk(error, "save the canon draft section");
 }
 
 // Validates, then updates the single existing draft row (or inserts one if
@@ -130,6 +223,75 @@ export async function saveDraft(client: SupabaseLikeClient, document: unknown): 
   }
 }
 
+/** One thing wrong with a canon, attributed to the subtab that can fix it. */
+export interface PublishIssue {
+  section: GuideSectionKey | "other";
+  path: string;
+  message: string;
+}
+
+export type PublishValidation =
+  | { ok: true; canon: BrandCanon }
+  | { ok: false; issues: PublishIssue[] };
+
+/**
+ * Whole-document validation — the ONE place it happens. Section saves validate
+ * only their own slice (saveDraftSection), so this is the gate that catches
+ * anything that slipped through or was never edited.
+ *
+ * Issues are grouped by the subtab a human would open to fix them, so the
+ * editor can say "Color: roleMap.light is missing accent" and link there,
+ * rather than printing a raw Zod dump.
+ */
+export function validateCanonForPublish(doc: unknown): PublishValidation {
+  const result = canonSchema.safeParse(doc);
+  if (result.success) return { ok: true, canon: result.data };
+
+  const issues: PublishIssue[] = result.error.issues.map((issue) => {
+    const path = issue.path.map(String).join(".");
+    const rootKey = issue.path.length > 0 ? String(issue.path[0]) : "";
+    return {
+      section: sectionOf(rootKey) ?? "other",
+      path: path || rootKey || "(document)",
+      message: issue.message,
+    };
+  });
+
+  return { ok: false, issues };
+}
+
+/** Renders a validation failure as a readable, subtab-grouped message. */
+function describeIssues(issues: PublishIssue[]): string {
+  const bySection = new Map<string, PublishIssue[]>();
+  for (const issue of issues) {
+    bySection.set(issue.section, [...(bySection.get(issue.section) ?? []), issue]);
+  }
+
+  const parts = [...bySection.entries()].map(
+    ([section, list]) =>
+      `${section}: ${list.map((i) => `${i.path} — ${i.message}`).join("; ")}`,
+  );
+  return `Cannot publish — fix these first. ${parts.join(" | ")}`;
+}
+
+/**
+ * The stored `changelog` text: the generated summary, with any founder note
+ * kept above it as context.
+ *
+ * The note is deliberately additive. Publishing used to record ONLY whatever an
+ * admin typed into a small input, so the record of what actually changed
+ * depended on someone remembering to describe it. Now the diff is the record
+ * and the note is the commentary.
+ */
+function composeChangelog(entries: ChangeEntry[], note?: string): string | null {
+  const generated = renderChangelog(entries);
+  const trimmedNote = note?.trim();
+
+  if (!trimmedNote) return generated || null;
+  if (!generated) return trimmedNote;
+  return `${trimmedNote}\n\n${generated}`;
+}
+
 // Snapshots the current draft as a new published row, archives the prior
 // published row (if any), and deletes the draft.
 export async function publishDraft(
@@ -140,10 +302,22 @@ export async function publishDraft(
   if (!draft) {
     throw new Error("No draft to publish");
   }
-  const parsed = canonSchema.parse(draft.document);
+
+  // Validate BEFORE touching any row. Archiving the prior published version and
+  // only then discovering the draft is invalid would leave the brand with no
+  // live canon at all.
+  const validation = validateCanonForPublish(draft.document);
+  if (!validation.ok) throw new Error(describeIssues(validation.issues));
+  const parsed = validation.canon;
 
   const currentPublished = await getCurrentPublished(client);
   const versionLabel = opts.versionLabel ?? nextVersionLabel(currentPublished?.version_label ?? null);
+
+  // Diff against the currently published document BEFORE it's archived — after
+  // the archive step getCurrentPublished returns nothing and every publish
+  // would look like a first publish, losing the real change list.
+  const entries = diffCanon(currentPublished?.document ?? null, parsed);
+  const changelog = composeChangelog(entries, opts.changelog);
 
   // Archive the prior published row BEFORE inserting the new one. The
   // brand_canon_one_published partial unique index (migration 20260808)
@@ -158,7 +332,8 @@ export async function publishDraft(
     version_label: versionLabel,
     status: "published",
     document: parsed,
-    changelog: opts.changelog ?? null,
+    changelog,
+    change_entries: entries,
     published_at: new Date().toISOString(),
   });
   assertOk(insertError, "publish the new canon version");
@@ -170,12 +345,12 @@ export async function publishDraft(
 }
 
 // Published + archived rows, newest first (by published_at).
-export async function listVersions(client: SupabaseLikeClient): Promise<
-  { id: string; version_label: string; status: "published" | "archived"; published_at: string | null; changelog: string | null }[]
-> {
+export async function listVersions(
+  client: SupabaseLikeClient,
+): Promise<CanonVersionSummary[]> {
   const { data, error } = await client
     .from(TABLE)
-    .select("id, version_label, status, published_at, changelog")
+    .select("id, version_label, status, published_at, changelog, change_entries")
     .in("status", ["published", "archived"])
     .order("published_at", { ascending: false });
   assertOk(error, "list canon versions");
@@ -186,5 +361,6 @@ export async function listVersions(client: SupabaseLikeClient): Promise<
     status: row.status as "published" | "archived",
     published_at: row.published_at,
     changelog: row.changelog,
+    change_entries: row.change_entries ?? null,
   }));
 }
