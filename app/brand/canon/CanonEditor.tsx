@@ -17,6 +17,7 @@ import VoiceFields from "./fields/VoiceFields";
 import RuleListField from "./fields/RuleListField";
 import TypeUseCaseField from "./fields/TypeUseCaseField";
 import AgentFields from "./fields/AgentFields";
+import MarksEditor from "@/app/brand/guide/MarksEditor";
 import { useDraft, usePublish } from "./useCanonEditor";
 import { useSectionAutosave, type SaveState } from "./useSectionAutosave";
 import { changedSections } from "@/lib/brand/canonSections";
@@ -210,7 +211,15 @@ export default function CanonEditor({
               <TypeUseCaseField draft={draft} onChange={setDraft} />
             </>
           )}
-          {section === "marks" && <MarksFacet draft={draft} onChange={setDraft} />}
+          {section === "marks" && (
+            <>
+              {/* Intro → upload artwork → attach it to a cut. The uploader used
+                  to render above the whole editor, so the subtab's own
+                  introduction appeared below its file inputs. */}
+              <MarksEditor />
+              <MarksFacet draft={draft} onChange={setDraft} />
+            </>
+          )}
         </div>
       </div>
 

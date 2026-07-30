@@ -42,9 +42,13 @@ function ThemeRow({
           detached {hex}
         </span>
       ) : (
-        // No stored value — still computed at render time until the palette
-        // expansion migration lands.
-        <span className="font-brand-body text-xs text-brand-content-muted truncate">derived</span>
+        // No stored value — computed at render time from the light role. Show
+        // WHAT it derived to: a bare "derived" tells a reader nothing they can
+        // act on, and it's the state a stale cache produces, so it needs to be
+        // legible rather than mysterious.
+        <span className="font-brand-body text-xs text-brand-content-muted truncate">
+          derived {hex}
+        </span>
       )}
     </span>
   );

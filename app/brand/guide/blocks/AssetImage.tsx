@@ -23,7 +23,10 @@ export default function AssetImage({
 }) {
   return (
     <figure>
-      <div className="aspect-[16/10] rounded border border-brand-line bg-brand-surface flex items-center justify-center overflow-hidden">
+      {/* Capped in height as well as aspect. These sit two-to-a-row inside a
+          do/don't grid, so an unbounded box makes each rule taller than a
+          screen and turns a scannable comparison into a scroll. */}
+      <div className="aspect-[16/10] max-h-56 rounded border border-brand-line bg-brand-surface flex items-center justify-center overflow-hidden">
         {assetId ? (
           // eslint-disable-next-line @next/next/no-img-element -- session-gated brand asset from the proxy route, not a static import
           <img

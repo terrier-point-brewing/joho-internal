@@ -1,5 +1,6 @@
 import type { BrandAsset } from "@/lib/brand/assets";
 import { assetFileUrl } from "@/lib/brand/assets";
+import type { ArtworkGround } from "@/lib/brand/svgColor";
 
 /**
  * A mark's artwork, plus a download for every format it ships in.
@@ -16,6 +17,20 @@ import { assetFileUrl } from "@/lib/brand/assets";
 /** Formats that render reliably in an <img>. PDFs and archives are download-only. */
 const DISPLAYABLE = new Set(["svg", "png", "jpg", "jpeg", "webp", "gif"]);
 
+/**
+ * Ground colours for the artwork box.
+ *
+ * Identity marks are usually one flat colour on a transparent background, so a
+ * pale wordmark on the default pale surface renders as an empty box — the
+ * upload looks broken when it is fine. `ground` comes from reading the artwork
+ * itself (lib/brand/svgColor.ts).
+ */
+const GROUND_CLASS: Record<ArtworkGround, string> = {
+  light: "bg-brand-canvas",
+  dark: "bg-brand-primary",
+  neutral: "bg-brand-surface",
+};
+
 function pickDisplayAsset(assets: BrandAsset[]): BrandAsset | null {
   const displayable = assets.filter((a) => DISPLAYABLE.has(a.format.toLowerCase()));
   return displayable.find((a) => a.format.toLowerCase() === "svg") ?? displayable[0] ?? null;
@@ -24,15 +39,19 @@ function pickDisplayAsset(assets: BrandAsset[]): BrandAsset | null {
 export default function MarkArtwork({
   assets,
   alt,
+  ground = "neutral",
 }: {
   assets: BrandAsset[];
   alt: string;
+  ground?: ArtworkGround;
 }) {
   const display = pickDisplayAsset(assets);
 
   return (
     <div>
-      <div className="aspect-[16/9] rounded border border-brand-line bg-brand-surface flex items-center justify-center overflow-hidden p-4">
+      <div
+        className={`aspect-[16/9] rounded border border-brand-line flex items-center justify-center overflow-hidden p-4 ${GROUND_CLASS[ground]}`}
+      >
         {display ? (
           // eslint-disable-next-line @next/next/no-img-element -- session-gated brand asset from the proxy route
           <img
