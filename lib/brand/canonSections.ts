@@ -26,7 +26,7 @@ export const SECTION_KEYS: Record<GuideSectionKey, readonly (keyof BrandCanon)[]
   color: ["palette", "roleMap", "usageRatios", "colorForbidden"],
   type: ["fonts", "typeUseCases"],
   marks: ["marks"],
-  agent: ["neverList", "precedence", "hardRules"],
+  agent: ["neverList", "precedence", "hardRules", "agentTechnical"],
 };
 
 // canonSchema.pick() wants a mask object ({ values: true }), built here from

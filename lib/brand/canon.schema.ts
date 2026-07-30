@@ -291,6 +291,16 @@ export const canonSchema = z.object({
   hardRules: z.array(z.string()),
   precedence: z.array(z.string()),
 
+  /**
+   * Rules that apply ONLY to agents building on the brand, and to nothing a
+   * human reads elsewhere in the guide — token binding, asset handling, what
+   * to do when the canon is ambiguous.
+   *
+   * Everything else in the Agent Rules markdown is compiled from the other
+   * subtabs, so this is the one place agent-specific technical direction lives.
+   */
+  agentTechnical: z.array(z.string()).optional(),
+
   // ── Brand Guide subtab introductions (Narrative) ─────────────────────────
   // The prose that opens each guide subtab, keyed by subtab — the single home
   // for the guide's narrative copy (what used to be missionNarrative,
