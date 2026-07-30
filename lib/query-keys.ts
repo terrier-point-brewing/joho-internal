@@ -100,6 +100,10 @@ export const queryKeys = {
     financials: (statement: string, year: number) => ["finance", "financials", statement, year] as const,
     /** Manual entries (Finance > Transactions), keyed by kind + year filter. */
     manualEntries: (kind: string, year: number) => ["finance", "manual-entries", kind, year] as const,
+    /** Balance-sheet account → provider source declarations (Settings > Finance > Balance Sheet Accounts). */
+    balanceSources: () => ["finance", "balance-sources"] as const,
+    /** Month-end close tasks + closed status for one period_end. */
+    balanceClose: (periodEnd: string) => ["finance", "balance-close", periodEnd] as const,
   },
 
   // ─── Taproom ──────────────────────────────────────────────────────────────

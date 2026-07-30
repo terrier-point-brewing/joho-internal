@@ -28,6 +28,7 @@ const HREFS = {
   unknownVolume: "/finance/transactions?filter=unknownVolume",
   exciseCoverage: "/finance/transactions?filter=exciseCoverage",
   unmappedTaxes: "/settings/finance/sales-tax-accounts",
+  unsourcedAccounts: "/settings/finance/balance-sheet-accounts",
 };
 
 describe("buildKpis", () => {
@@ -217,11 +218,31 @@ describe("buildDataQuality", () => {
       hrefs: {
         unmapped: "/u", uncategorized: "/c", unknownVolume: "/v",
         exciseCoverage: "/e", unmappedTaxes: "/settings/finance/sales-tax-accounts",
+        unsourcedAccounts: "/settings/finance/balance-sheet-accounts",
       },
       exciseCoverage: { shipmentsMissingExcise: 0 },
       unmappedTaxes: { count: 1, cents: 24204 },
     });
     expect(dq.unmappedTaxes).toEqual({ count: 1, cents: 24204, href: "/settings/finance/sales-tax-accounts" });
+  });
+
+  // unsourcedAccounts is a balance_sheet-only, config-coverage stat (not
+  // derivable from FinancialsRow[] -- see buildDataQuality's own opts doc) --
+  // pl/cash_flow never supply it, so it must default to a real zero, not
+  // `undefined`, so DataQualityPanel.tsx can render it unconditionally.
+  it("defaults unsourcedAccounts to 0 when the caller omits it (pl/cash_flow)", () => {
+    const dq = buildDataQuality([], { hrefs: HREFS, exciseCoverage: { shipmentsMissingExcise: 0 }, unmappedTaxes: { count: 0, cents: 0 } });
+    expect(dq.unsourcedAccounts).toEqual({ count: 0, href: HREFS.unsourcedAccounts });
+  });
+
+  it("passes unsourcedAccounts' count through from opts with its href (balance_sheet)", () => {
+    const dq = buildDataQuality([], {
+      hrefs: HREFS,
+      exciseCoverage: { shipmentsMissingExcise: 0 },
+      unmappedTaxes: { count: 0, cents: 0 },
+      unsourcedAccounts: { count: 5 },
+    });
+    expect(dq.unsourcedAccounts).toEqual({ count: 5, href: HREFS.unsourcedAccounts });
   });
 });
 

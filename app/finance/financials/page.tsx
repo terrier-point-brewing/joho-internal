@@ -12,6 +12,7 @@ import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import { fetchJson } from "@/app/production/hooks/queries";
+import { monthEnd } from "@/lib/finance/manualEntries";
 import { formatCurrencyCents, formatPercent, EM_DASH } from "@/lib/format";
 import type { FinancialsResponse, FinancialsRow, Measure, StatementKind } from "@/lib/finance/financials/types";
 import type { StatementSection } from "@/lib/finance/accountSections";
@@ -132,6 +133,38 @@ function MeasureChips({ value, onChange }: { value: Measure; onChange: (v: Measu
   );
 }
 
+interface CloseTasksResponse {
+  periodEnd: string;
+  tasks: { id: string; status: "open" | "completed" | "skipped" }[];
+  closed: boolean;
+}
+
+/**
+ * Balance-sheet month-end close nudge (spec §4.5): shown whenever the
+ * current period has open balance_close_tasks (a manualBalance-sourced
+ * account with no manual_entries balance row yet for this month), regardless
+ * of which statement tab is active -- the close workflow is a
+ * balance-sheet-wide concept, not scoped to whichever tab happens to be open.
+ */
+function CloseTasksBanner() {
+  const periodEnd = useMemo(() => monthEnd(new Date().toISOString().slice(0, 10)), []);
+  const { data } = useQuery({
+    queryKey: queryKeys.finance.balanceClose(periodEnd),
+    queryFn: () => fetchJson<CloseTasksResponse>(`/api/finance/balance-close?periodEnd=${periodEnd}`),
+  });
+
+  const openCount = data?.tasks.filter((t) => t.status === "open").length ?? 0;
+  if (openCount === 0) return null;
+
+  return (
+    <Banner tone="info" className="mx-4 sm:mx-6 mb-4 mt-4">
+      {openCount} balance-sheet account{openCount === 1 ? "" : "s"} need{openCount === 1 ? "s" : ""} a month-end
+      balance for {periodEnd}.{" "}
+      <a href="/finance/transactions/manual-entries" className="underline">Enter it in Manual Entries</a>.
+    </Banner>
+  );
+}
+
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function FinancialsPage() {
@@ -226,6 +259,8 @@ export default function FinancialsPage() {
           {error instanceof Error ? error.message : "Failed to load"}
         </Banner>
       )}
+
+      <CloseTasksBanner />
 
       <div className="flex-1 overflow-auto px-4 sm:px-6 pb-6 pt-4">
         <KpiStrip data={data} />

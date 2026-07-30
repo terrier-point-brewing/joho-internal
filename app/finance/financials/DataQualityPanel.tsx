@@ -76,7 +76,8 @@ export default function DataQualityPanel({
     (summary.unmapped.count > 0 ? 1 : 0) +
     (summary.uncategorized.count > 0 ? 1 : 0) +
     (summary.unknownVolume.count > 0 ? 1 : 0) +
-    (summary.exciseCoverage.shipmentsMissingExcise > 0 ? 1 : 0);
+    (summary.exciseCoverage.shipmentsMissingExcise > 0 ? 1 : 0) +
+    (summary.unsourcedAccounts.count > 0 ? 1 : 0);
 
   if (issueBucketCount === 0) {
     return <span className="text-xs text-faint whitespace-nowrap">⚑ All reconciled</span>;
@@ -115,6 +116,21 @@ export default function DataQualityPanel({
                 </div>
                 <a href={summary.exciseCoverage.href} className="btn-secondary btn-xxs shrink-0">
                   Review in Transactions
+                </a>
+              </Card>
+            )}
+
+            {summary.unsourcedAccounts.count > 0 && (
+              <Card padding="p-3" className="flex items-center justify-between gap-3">
+                <div className="flex flex-col gap-1 min-w-0">
+                  <span className="text-sm font-medium text-primary">Unsourced Accounts</span>
+                  <Badge tone="danger" className="w-fit">
+                    {summary.unsourcedAccounts.count} account{summary.unsourcedAccounts.count === 1 ? "" : "s"}
+                  </Badge>
+                  <span className="text-xs text-muted">no configured balance source</span>
+                </div>
+                <a href={summary.unsourcedAccounts.href} className="btn-secondary btn-xxs shrink-0">
+                  Configure sources
                 </a>
               </Card>
             )}

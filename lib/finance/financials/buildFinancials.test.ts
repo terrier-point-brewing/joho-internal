@@ -4,9 +4,13 @@ import { fetchFinancialsSources } from "./fetchSources";
 import type { FinancialsSourcesResult } from "./fetchSources";
 import type { StatementKind } from "./types";
 
-vi.mock("./fetchSources", () => ({
-  fetchFinancialsSources: vi.fn(),
-}));
+// pl/cash_flow mocking -- unchanged shape (balance_sheet no longer calls
+// fetchFinancialsSources at all; see the "balance_sheet" describe block below,
+// which mocks the DB layer buildBalanceSheetFinancials actually reads).
+vi.mock("./fetchSources", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./fetchSources")>();
+  return { ...actual, fetchFinancialsSources: vi.fn(), fetchCoa: vi.fn() };
+});
 
 const mockedFetch = vi.mocked(fetchFinancialsSources);
 
@@ -25,14 +29,9 @@ function emptySources(months: string[]): FinancialsSourcesResult {
     expenses: [],
     refunds: [],
     bank: [],
-    tipAccruals: [],
-    taxAccruals: [],
-    unmappedTaxes: { count: 0, cents: 0 },
     coa: COA,
     months,
     exciseCoverage: { shipmentsMissingExcise: 0 },
-    arAccount: null,
-    openInvoiceArCents: 0,
     manualNetSalesEntries: [],
   };
 }
@@ -41,7 +40,7 @@ beforeEach(() => {
   mockedFetch.mockReset();
 });
 
-describe("buildFinancials", () => {
+describe("buildFinancials — pl / cash_flow", () => {
   it("caps months at 12 even if the fetch layer returns more", async () => {
     // 14 fabricated month keys, ascending -- exercising the cap itself, not
     // calendar correctness of what a real fetch would return.
@@ -53,45 +52,6 @@ describe("buildFinancials", () => {
     expect(resp.months).toHaveLength(12);
     // The cap keeps the most recent months (tail), not the earliest.
     expect(resp.months).toEqual(fake.slice(-12));
-  });
-
-  it("balance_sheet mode returns a single cumulative-Total month bucket and computes cashOnHandCents from the bank section", async () => {
-    mockedFetch.mockImplementation(async ({ statement }: { statement: StatementKind; year: number }) => {
-      expect(statement).toBe("balance_sheet");
-      return {
-        pos: [
-          {
-            id: "pos-1", netSalesCents: 10000, transactionDate: "2026-12",
-            chartOfAccountsId: "coa-rev", prefillChartOfAccountsId: null, invoiceId: null,
-            isEventPour: false, exportChannel: null, categoryId: null, variationName: null, quantity: 1,
-          },
-        ],
-        invoiceLines: [],
-        expenses: [],
-        refunds: [],
-        bank: [
-          {
-            id: "bank-1", chartOfAccountsId: "coa-bank", amountCents: 500000,
-            transactionDate: "2026-12", mappingSource: "manual" as const,
-          },
-        ],
-        tipAccruals: [],
-        taxAccruals: [],
-        unmappedTaxes: { count: 0, cents: 0 },
-        coa: COA,
-        months: ["2026-12"],
-            exciseCoverage: { shipmentsMissingExcise: 0 },
-        arAccount: null,
-        openInvoiceArCents: 0,
-        manualNetSalesEntries: [],
-      };
-    });
-
-    const resp = await buildFinancials({ statement: "balance_sheet", year: 2026 });
-
-    expect(resp.months).toEqual(["2026-12"]);
-    expect(resp.kpis.cashOnHandCents).toBe(500000);
-    expect(resp.kpis.operatingCashCents).toBeNull();
   });
 
   it("cash_flow mode computes operatingCashCents and excludes an unpaid invoice / uncleared expense that pl mode includes", async () => {
@@ -228,107 +188,11 @@ describe("buildFinancials", () => {
     });
   });
 
-  describe("tip accruals (balance_sheet mode only)", () => {
-    it("a tipAccruals record from the fetch layer produces a row for balance_sheet but never leaks into pl or cash_flow", async () => {
-      const months = ["2026-06"];
-      mockedFetch.mockImplementation(async ({ statement }: { statement: StatementKind; year: number }) => ({
-        ...emptySources(months),
-        // Real fetchTipAccruals always returns [] outside balance_sheet mode
-        // (fetchSources.ts) -- this fixture models that exactly, so this test
-        // proves buildFinancials's P&L/cash-flow payload is unaffected by the
-        // tipAccruals wiring even though it's passed into aggregateRows
-        // unconditionally.
-        tipAccruals:
-          statement === "balance_sheet"
-            ? [{ id: "tips-2026-06", chartOfAccountsId: "coa-exp", amountCents: 15000, monthKey: "2026-06" }]
-            : [],
-      }));
-
-      const bs = await buildFinancials({ statement: "balance_sheet", year: 2026 });
-      const pl = await buildFinancials({ statement: "pl", year: 2026 });
-      const cashFlow = await buildFinancials({ statement: "cash_flow", year: 2026 });
-
-      expect(bs.rows.find((r) => r.sourceRef.table === "square_orders" && r.sourceRef.ids.includes("tips-2026-06"))).toBeDefined();
-      expect(pl.rows.find((r) => r.sourceRef.table === "square_orders" && r.sourceRef.ids.includes("tips-2026-06"))).toBeUndefined();
-      expect(cashFlow.rows.find((r) => r.sourceRef.table === "square_orders" && r.sourceRef.ids.includes("tips-2026-06"))).toBeUndefined();
-    });
-  });
-
-  describe("open-invoice A/R (balance_sheet mode, C3)", () => {
-    const AR_ACCOUNT = { id: "coa-ar", name: "Accounts Receivable" };
-
-    it("adds the open-invoice A/R total to an already-mapped A/R account's cumulative balance", async () => {
-      mockedFetch.mockImplementation(async ({ statement }: { statement: StatementKind; year: number }) => {
-        expect(statement).toBe("balance_sheet");
-        return {
-          ...emptySources(["2026-12"]),
-          invoiceLines: [
-            {
-              id: "inv-ar-mapped", totalCents: 20000, invoiceDate: "2026-12",
-              chartOfAccountsId: "coa-ar",
-              exportChannel: null, volumeBbl: null,
-            },
-          ],
-          arAccount: AR_ACCOUNT,
-          // Two open invoices totaling 50000 cents.
-          openInvoiceArCents: 50000,
-        };
-      });
-
-      const resp = await buildFinancials({ statement: "balance_sheet", year: 2026 });
-
-      const arRow = resp.rows.find((r) => r.coaId === "coa-ar");
-      expect(arRow).toBeDefined();
-      expect(arRow!.statementSection).toBe("ar");
-      // 20000 already-mapped invoice line + 50000 open-invoice A/R = 70000.
-      expect(arRow!.amountCentsByMonth["2026-12"]).toBe(70000);
-    });
-
-    it("synthesizes an A/R row when no invoice lines are mapped to the A/R account", async () => {
-      mockedFetch.mockResolvedValue({
-        ...emptySources(["2026-12"]),
-        arAccount: AR_ACCOUNT,
-        openInvoiceArCents: 50000,
-      });
-
-      const resp = await buildFinancials({ statement: "balance_sheet", year: 2026 });
-
-      const arRow = resp.rows.find((r) => r.coaId === "coa-ar");
-      expect(arRow).toBeDefined();
-      expect(arRow).toMatchObject({
-        coaId: "coa-ar",
-        accountName: "Accounts Receivable",
-        statementSection: "ar",
-        channel: "unknown",
-      });
-      expect(arRow!.amountCentsByMonth["2026-12"]).toBe(50000);
-    });
-
-    it("does not inject A/R for pl or cash_flow modes even when the fetch layer returns arAccount/openInvoiceArCents", async () => {
-      const months = ["2026-06"];
-      mockedFetch.mockResolvedValue({
-        ...emptySources(months),
-        arAccount: AR_ACCOUNT,
-        openInvoiceArCents: 50000,
-      });
-
-      const pl = await buildFinancials({ statement: "pl", year: 2026 });
-      const cashFlow = await buildFinancials({ statement: "cash_flow", year: 2026 });
-
-      expect(pl.rows.find((r) => r.coaId === "coa-ar")).toBeUndefined();
-      expect(cashFlow.rows.find((r) => r.coaId === "coa-ar")).toBeUndefined();
-    });
-
-    it("does not add a row when openInvoiceArCents is 0", async () => {
-      mockedFetch.mockResolvedValue({
-        ...emptySources(["2026-12"]),
-        arAccount: AR_ACCOUNT,
-        openInvoiceArCents: 0,
-      });
-
-      const resp = await buildFinancials({ statement: "balance_sheet", year: 2026 });
-
-      expect(resp.rows.find((r) => r.coaId === "coa-ar")).toBeUndefined();
+  it("unsourcedAccounts defaults to 0 for pl/cash_flow (a balance_sheet-only concept)", async () => {
+    mockedFetch.mockResolvedValue(emptySources(["2026-06"]));
+    const resp = await buildFinancials({ statement: "pl", year: 2026 });
+    expect(resp.dataQuality.unsourcedAccounts).toEqual({
+      count: 0, href: "/settings/finance/balance-sheet-accounts",
     });
   });
 
@@ -401,19 +265,6 @@ describe("buildFinancials", () => {
       // the unmapped bucket on its own merits -- no special-case needed.
       expect(resp.dataQuality.unmapped.count).toBe(0);
       expect(resp.dataQuality.unmapped.cents).toBe(0);
-    });
-
-    it("does not inject a manual net-sales row for balance_sheet mode even when entries are present", async () => {
-      mockedFetch.mockResolvedValue({
-        ...emptySources(["2026-12"]),
-        manualNetSalesEntries: [
-          { id: "m-4", startDate: "2026-01-01", endDate: "2026-12-31", amountCents: 500000, chartOfAccountsId: "coa-rev" },
-        ],
-      });
-
-      const resp = await buildFinancials({ statement: "balance_sheet", year: 2026 });
-
-      expect(resp.rows.find((r) => r.sourceRef.table === "manual_entries")).toBeUndefined();
     });
   });
 });
