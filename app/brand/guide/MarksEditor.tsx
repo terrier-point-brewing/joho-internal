@@ -56,8 +56,11 @@ export default function MarksEditor() {
   return (
     <div className="flex flex-col gap-6">
       <Banner tone="info">
-        Upload the identity artwork here. Each mark&rsquo;s written specification is edited in the
-        spec-sheet editor below.
+        Upload identity artwork here, then attach it to a specific cut in the spec-sheet editor
+        below. Upload one file per format &mdash; SVG for screen, PNG where a vector won&rsquo;t
+        do, PDF for print &mdash; and use the variant name to tell cuts apart
+        (&ldquo;horizontal&rdquo;, &ldquo;stacked&rdquo;). A cut can carry several files, and the
+        guide offers each as its own download.
       </Banner>
       {mutationError && <Banner tone="danger">{(mutationError as Error).message}</Banner>}
 
