@@ -108,7 +108,6 @@ export const queryKeys = {
     salesPulse:    (start: string, end: string) => ["taproom", "sales-pulse", start, end] as const,
     salesPulseDay: (date: string) => ["taproom", "sales-pulse-day", date] as const,
     targets:       () => ["taproom", "targets"] as const,
-    manualEntries: () => ["taproom", "manual-entries"] as const,
     tapConfig:     () => ["taproom", "tap-config"] as const,
     tapSwaps:      () => ["taproom", "tap-swaps"] as const,
     draftStats:    () => ["taproom", "draft-stats"] as const,
