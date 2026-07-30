@@ -22,6 +22,12 @@ import {
   type ManualEntryRecord,
 } from "@/lib/finance/manualEntries";
 import { parseManualEntryFilter } from "@/lib/finance/manualEntryFilters";
+// Balance-sheet close tasks close themselves as soon as the corresponding
+// balance appears -- see lib/finance/balances/closeTasks.ts's header. Never
+// let a reconciler failure fail the entry write below: the entry is the
+// user's data, the task is derived bookkeeping that the next
+// balance-close cron run will catch regardless.
+import { reconcileCloseTasks } from "@/lib/finance/balances/closeTasks";
 
 export const dynamic = "force-dynamic";
 
@@ -68,6 +74,24 @@ const DUPLICATE_BALANCE_CONSTRAINT = "manual_entries_one_balance_per_period";
 
 function isDuplicateBalanceError(error: { code?: string; message?: string }): boolean {
   return error.code === "23505" && !!error.message?.includes(DUPLICATE_BALANCE_CONSTRAINT);
+}
+
+/**
+ * Fires reconcileCloseTasks for a just-written balance entry so its close
+ * task clears immediately instead of waiting for the next balance-close
+ * cron run. A reconciler failure is logged and swallowed -- it must never
+ * fail the entry write that already succeeded.
+ */
+async function reconcileAfterWrite(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  record: ManualEntryRecord,
+): Promise<void> {
+  if (record.entryKind !== "balance" || !record.asOfDate) return;
+  try {
+    await reconcileCloseTasks(supabase, record.asOfDate);
+  } catch (err) {
+    console.error("[manual-entries] reconcileCloseTasks failed", { asOfDate: record.asOfDate, err });
+  }
 }
 
 /**
@@ -162,7 +186,10 @@ export async function POST(req: NextRequest) {
       throw error;
     }
 
-    return NextResponse.json(toRecord(data as ManualEntryRow), { status: 201 });
+    const record = toRecord(data as ManualEntryRow);
+    await reconcileAfterWrite(supabase, record);
+
+    return NextResponse.json(record, { status: 201 });
   } catch (err) {
     return apiError(err);
   }
@@ -276,7 +303,10 @@ export async function PATCH(req: NextRequest) {
       throw error;
     }
 
-    return NextResponse.json(toRecord(data as ManualEntryRow));
+    const record = toRecord(data as ManualEntryRow);
+    await reconcileAfterWrite(supabase, record);
+
+    return NextResponse.json(record);
   } catch (err) {
     return apiError(err);
   }
