@@ -22,5 +22,4 @@ export const PERFORMANCE_NAV: NavEntry[] = [
 export const TARGETS_NAV: NavEntry[] = [
   { href: "/taproom/targets/achievement",    label: "Achievement"    },
   { href: "/taproom/targets/target-setting", label: "Target Setting" },
-  { href: "/taproom/targets/manual-entries", label: "Manual Entries" },
 ];

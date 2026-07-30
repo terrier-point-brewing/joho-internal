@@ -98,6 +98,8 @@ export const queryKeys = {
     chartOfAccounts: () => ["finance", "chart-of-accounts"] as const,
     /** Consolidated Financials view (Task 7), keyed by statement kind + year. */
     financials: (statement: string, year: number) => ["finance", "financials", statement, year] as const,
+    /** Manual entries (Finance > Transactions), keyed by kind + year filter. */
+    manualEntries: (kind: string, year: number) => ["finance", "manual-entries", kind, year] as const,
   },
 
   // ─── Taproom ──────────────────────────────────────────────────────────────
@@ -106,7 +108,6 @@ export const queryKeys = {
     salesPulse:    (start: string, end: string) => ["taproom", "sales-pulse", start, end] as const,
     salesPulseDay: (date: string) => ["taproom", "sales-pulse-day", date] as const,
     targets:       () => ["taproom", "targets"] as const,
-    manualEntries: () => ["taproom", "manual-entries"] as const,
     tapConfig:     () => ["taproom", "tap-config"] as const,
     tapSwaps:      () => ["taproom", "tap-swaps"] as const,
     draftStats:    () => ["taproom", "draft-stats"] as const,

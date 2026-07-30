@@ -8,7 +8,7 @@ export default async function TargetsLayout({ children }: { children: React.Reac
   return (
     <main className="px-4 sm:px-6 py-4 sm:py-8">
       <SubNav entries={TAPROOM_NAV} mobile />
-      <PageHeader title="Targets" description="Sales goals, achievement tracking, and manual entries" />
+      <PageHeader title="Targets" description="Sales goals and achievement tracking" />
       <SubNav entries={TARGETS_NAV} sticky />
       <div className="mt-4">{children}</div>
     </main>

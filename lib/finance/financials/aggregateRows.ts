@@ -336,8 +336,7 @@ function resolveTaxAccrual(row: TaxAccrualRecord, coaMap: Map<string, CoaRecord>
   return {
     // Synthetic label, not a real table: this row aggregates BOTH
     // pos_line_item_taxes and invoice_line_item_taxes, so naming either one
-    // would misdescribe it. sourceRef.table is only ever compared against
-    // "manual_net_sales_entries" (summaries.ts) and otherwise displayed.
+    // would misdescribe it. sourceRef.table is display-only.
     table: "sales_tax_accrual",
     id: row.id,
     coaId: row.chartOfAccountsId,

@@ -54,11 +54,12 @@ export interface FinancialsSourcesResult {
   unmappedTaxes: { count: number; cents: number };
   coa: CoaRecord[];
   /**
-   * manual_net_sales_entries rows, unbounded by date range (proration happens
-   * per-month in buildFinancials.ts's injectManualNetSales, mirroring the
-   * deleted app/api/finance/sales/taproom/route.ts). pl/cash_flow modes only
-   * -- always [] for balance_sheet (Square parity fix B: this is a P&L
-   * revenue adjustment, it has no balance-sheet analog).
+   * manual_entries rows (entry_kind = 'flow'), unbounded by date range
+   * (proration happens per-month in buildFinancials.ts's
+   * injectManualNetSales, mirroring the deleted app/api/finance/sales/
+   * taproom/route.ts). pl/cash_flow modes only -- always [] for
+   * balance_sheet (Square parity fix B: this is a P&L revenue adjustment,
+   * it has no balance-sheet analog).
    */
   manualNetSalesEntries: ManualNetSalesEntryRecord[];
   /**
@@ -538,9 +539,12 @@ async function fetchRefunds(supabase: SupabaseClient, range: DateRange): Promise
 }
 
 /**
- * manual_net_sales_entries, unbounded (proration against the window happens
- * downstream, per-month, in buildFinancials.ts's injectManualNetSales -- this
- * is a small, hand-maintained table, not worth a range filter).
+ * manual_entries rows filtered to entry_kind = 'flow' (the taproom net-sales
+ * plugs), unbounded (proration against the window happens downstream,
+ * per-month, in buildFinancials.ts's injectManualNetSales -- this is a small,
+ * hand-maintained table, not worth a range filter). entry_kind = 'as_of'
+ * (balance-sheet) rows are deliberately excluded here -- see manual_entries'
+ * schema (Task 1 migration) for the entry_kind split.
  */
 async function fetchManualNetSalesEntries(supabase: SupabaseClient): Promise<ManualNetSalesEntryRecord[]> {
   const rows = await fetchAllRows<{
@@ -548,10 +552,12 @@ async function fetchManualNetSalesEntries(supabase: SupabaseClient): Promise<Man
     start_date: string;
     end_date: string;
     amount_cents: number | null;
+    chart_of_accounts_id: string;
   }>(() =>
     supabase
-      .from("manual_net_sales_entries")
-      .select("id, start_date, end_date, amount_cents")
+      .from("manual_entries")
+      .select("id, start_date, end_date, amount_cents, chart_of_accounts_id")
+      .eq("entry_kind", "flow")
       .order("id", { ascending: true }),
   );
   return rows.map((r) => ({
@@ -559,6 +565,7 @@ async function fetchManualNetSalesEntries(supabase: SupabaseClient): Promise<Man
     startDate: r.start_date,
     endDate: r.end_date,
     amountCents: r.amount_cents ?? 0,
+    chartOfAccountsId: r.chart_of_accounts_id,
   }));
 }
 

@@ -7,20 +7,23 @@
 // aggregateRows, same shape as buildFinancials.ts's injectOpenInvoiceAr.
 
 import type { Channel, FinancialsRow } from "./types";
+import { coaSection, type CoaRecord } from "./aggregateRows";
 
-/** manual_net_sales_entries row (start_date/end_date/amount_cents; id kept for sourceRef traceability). */
+/** manual_entries row filtered to entry_kind = 'flow' (start_date/end_date/amount_cents/chart_of_accounts_id; id kept for sourceRef traceability). */
 export interface ManualNetSalesEntryRecord {
   id: string;
-  /** manual_net_sales_entries.start_date, "YYYY-MM-DD". */
+  /** manual_entries.start_date, "YYYY-MM-DD" (non-null for entry_kind = 'flow'). */
   startDate: string;
-  /** manual_net_sales_entries.end_date, "YYYY-MM-DD". */
+  /** manual_entries.end_date, "YYYY-MM-DD" (non-null for entry_kind = 'flow'). */
   endDate: string;
   amountCents: number;
+  /** manual_entries.chart_of_accounts_id -- NOT NULL at the DB level. */
+  chartOfAccountsId: string;
 }
 
 const MS_PER_DAY = 86_400_000;
 const MANUAL_CHANNEL: Channel = "taproom";
-const MANUAL_TABLE = "manual_net_sales_entries";
+const MANUAL_TABLE = "manual_entries";
 
 function parseDateUtc(dateStr: string): Date {
   const [y, m, d] = dateStr.split("-").map(Number);
@@ -70,50 +73,89 @@ export function proratedManualAdjustment(
 }
 
 /**
- * Synthesizes ONE taproom-revenue FinancialsRow spanning `months` (mirrors
- * buildFinancials.ts's injectOpenInvoiceAr shape), zero-filled per month like
- * aggregateRows' own groups so downstream month-key derivation (e.g.
+ * Synthesizes ONE taproom-revenue FinancialsRow PER DISTINCT
+ * chart_of_accounts_id spanning `months` (mirrors buildFinancials.ts's
+ * injectOpenInvoiceAr shape), zero-filled per month like aggregateRows' own
+ * groups so downstream month-key derivation (e.g.
  * app/finance/financials/buildTree.ts reading rows[0]'s keys) stays correct
- * regardless of row order. coaId is deliberately null (a top-line adjustment,
- * not a CoA-mapped account) -- see summaries.ts's buildDataQuality, which
- * excludes sourceRef.table === "manual_net_sales_entries" from the unmapped
- * bucket so this doesn't read as a mapping oversight.
+ * regardless of row order.
  *
- * Appends nothing (returns `rows` unchanged) when every month prorates to 0
- * -- no entries configured, or none overlap the window.
+ * Entries are grouped by chartOfAccountsId BEFORE proration -- two
+ * overlapping flow entries coded to different accounts (e.g. one Revenue,
+ * one Other Income) must never collapse into a single blended total filed
+ * under just one of their accounts. Each group gets its own prorated
+ * amountCentsByMonth (via proratedManualAdjustment, unchanged), its own
+ * coaId, its own coaSection()-derived statementSection, and its own
+ * sourceRef.ids containing only that group's entry ids.
+ *
+ * `coa` is the full chart-of-accounts reference list (buildFinancials.ts's
+ * src.coa), used both to resolve each group's statementSection and to
+ * resolve accountName to the real account name (see the accountName comment
+ * below) -- required, not optional: an omitted/empty coa silently resolves
+ * every row to aggregateRows.ts's UNMAPPED_SECTION via coaSection(undefined)
+ * instead of failing loudly.
+ *
+ * accountName is the real resolved account's name (matching how every other
+ * CoA-mapped row is labelled -- see aggregateRows.ts), suffixed with
+ * "(Manual Adjustment)" so the row stays identifiable as a manual, not
+ * Square-sourced, posting without misrepresenting which account it belongs
+ * to (mappingSource: "manual" and sourceRef.table: "manual_entries" already
+ * carry that signal too).
+ *
+ * Appends nothing (returns `rows` unchanged) when every group prorates to 0
+ * across every month -- no entries configured, or none overlap the window.
  */
 export function injectManualNetSales(
   rows: FinancialsRow[],
   entries: ManualNetSalesEntryRecord[],
   months: string[],
+  coa: CoaRecord[],
 ): FinancialsRow[] {
-  const amountCentsByMonth: Record<string, number> = {};
-  const idSet = new Set<string>();
-  let hasNonZero = false;
+  const coaMap = new Map(coa.map((c) => [c.id, c]));
 
-  for (const month of months) {
-    const { cents, ids } = proratedManualAdjustment(entries, month);
-    amountCentsByMonth[month] = cents;
-    if (cents !== 0) hasNonZero = true;
-    for (const id of ids) idSet.add(id);
+  const entriesByAccount = new Map<string, ManualNetSalesEntryRecord[]>();
+  for (const entry of entries) {
+    const bucket = entriesByAccount.get(entry.chartOfAccountsId);
+    if (bucket) bucket.push(entry);
+    else entriesByAccount.set(entry.chartOfAccountsId, [entry]);
   }
 
-  if (!hasNonZero) return rows;
+  const synthesized: FinancialsRow[] = [];
 
-  const synthesized: FinancialsRow = {
-    coaId: null,
-    parentId: null,
-    accountName: "Manual Net-Sales Adjustment",
-    statementSection: "revenue",
-    channel: MANUAL_CHANNEL,
-    posCategory: null,
-    kegSize: null,
-    amountCentsByMonth,
-    bblByMonth: {},
-    bblCoverage: "full",
-    mappingSource: "manual",
-    sourceRef: { table: MANUAL_TABLE, ids: [...idSet] },
-  };
+  for (const [coaId, groupEntries] of entriesByAccount) {
+    const amountCentsByMonth: Record<string, number> = {};
+    const idSet = new Set<string>();
+    let hasNonZero = false;
 
-  return [...rows, synthesized];
+    for (const month of months) {
+      const { cents, ids } = proratedManualAdjustment(groupEntries, month);
+      amountCentsByMonth[month] = cents;
+      if (cents !== 0) hasNonZero = true;
+      for (const id of ids) idSet.add(id);
+    }
+
+    if (!hasNonZero) continue;
+
+    const account = coaMap.get(coaId);
+    const accountName = account ? `${account.accountName} (Manual Adjustment)` : "Manual Net-Sales Adjustment";
+
+    synthesized.push({
+      coaId,
+      parentId: null,
+      accountName,
+      statementSection: coaSection(account),
+      channel: MANUAL_CHANNEL,
+      posCategory: null,
+      kegSize: null,
+      amountCentsByMonth,
+      bblByMonth: {},
+      bblCoverage: "full",
+      mappingSource: "manual",
+      sourceRef: { table: MANUAL_TABLE, ids: [...idSet] },
+    });
+  }
+
+  if (synthesized.length === 0) return rows;
+
+  return [...rows, ...synthesized];
 }

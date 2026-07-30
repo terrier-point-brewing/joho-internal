@@ -44,8 +44,9 @@ export async function GET(req: NextRequest) {
     const endDate   = new Date(end   + "T00:00:00");
 
     const { data: manualEntries, error: manualErr } = await supabase
-      .from("manual_net_sales_entries")
-      .select("start_date, end_date, amount_cents");
+      .from("manual_entries")
+      .select("start_date, end_date, amount_cents")
+      .eq("entry_kind", "flow");
     if (manualErr) throw manualErr;
 
     for (const entry of manualEntries ?? []) {
