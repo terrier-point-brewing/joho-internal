@@ -10,7 +10,7 @@
 // exported < allocated boundary.
 import { describe, it, expect } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { checkAndFulfillCommitment } from "./commitmentFulfillment";
+import { checkAndFulfillCommitment, recheckCommitmentFulfillment } from "./commitmentFulfillment";
 
 interface Tables {
   allocation?: unknown;
@@ -166,5 +166,99 @@ describe("checkAndFulfillCommitment", () => {
     });
     await checkAndFulfillCommitment(client, "a1");
     expect(recorded).toHaveLength(1);
+  });
+});
+
+// ── recheckCommitmentFulfillment ──────────────────────────────────────────────
+// The reversible sibling, used when a shipment edit releases allocation credits.
+// Releasing credit can push a commitment back below its threshold, so
+// fulfillment has to be able to go backwards. Same gates, same math, same stub —
+// the only difference is that a fulfilled commitment can return to "open".
+describe("recheckCommitmentFulfillment", () => {
+  it("reverts fulfilled → open when exported falls below the allocated share", async () => {
+    // produced = 20 ; allocated = 50% × 20 = 10 ; exported = 4 < 10
+    const { client, recorded } = stub({
+      allocation: fullAllocation,
+      batch: { status: "complete" },
+      transfers: [{ volume_bbl: 20, transfer_type: "kegging" }],
+      exports: [{ volume_bbl: 4 }],
+      commitment: { status: "fulfilled" },
+    });
+    await recheckCommitmentFulfillment(client, "a1");
+    expect(recorded).toEqual([
+      { table: "commitments", op: "update", payload: { status: "open" } },
+    ]);
+  });
+
+  it("does not write when the commitment is already open and still below", async () => {
+    const { client, recorded } = stub({
+      allocation: fullAllocation,
+      batch: { status: "complete" },
+      transfers: [{ volume_bbl: 20, transfer_type: "kegging" }],
+      exports: [{ volume_bbl: 4 }],
+      commitment: { status: "open" },
+    });
+    await recheckCommitmentFulfillment(client, "a1");
+    expect(recorded).toEqual([]);
+  });
+
+  it("does not write when fulfilled and exported is still at or above allocated", async () => {
+    const { client, recorded } = stub({
+      allocation: fullAllocation,
+      batch: { status: "complete" },
+      transfers: [{ volume_bbl: 20, transfer_type: "kegging" }],
+      exports: [{ volume_bbl: 10 }],
+      commitment: { status: "fulfilled" },
+    });
+    await recheckCommitmentFulfillment(client, "a1");
+    expect(recorded).toEqual([]);
+  });
+
+  it("still fulfills on the way up, matching checkAndFulfillCommitment", async () => {
+    const { client, recorded } = stub({
+      allocation: fullAllocation,
+      batch: { status: "complete" },
+      transfers: [{ volume_bbl: 20, transfer_type: "kegging" }],
+      exports: [{ volume_bbl: 10 }],
+      commitment: { status: "open" },
+    });
+    await recheckCommitmentFulfillment(client, "a1");
+    expect(recorded).toEqual([
+      { table: "commitments", op: "update", payload: { status: "fulfilled" } },
+    ]);
+  });
+
+  it("does not write in either direction when the batch is not complete", async () => {
+    // A fulfilled commitment on an incomplete batch stays put: allocatedBbl is
+    // still a moving target, so reverting on it would be meaningless.
+    const { client, recorded } = stub({
+      allocation: fullAllocation,
+      batch: { status: "packaging" },
+      transfers: [{ volume_bbl: 20, transfer_type: "kegging" }],
+      exports: [{ volume_bbl: 0 }],
+      commitment: { status: "fulfilled" },
+    });
+    await recheckCommitmentFulfillment(client, "a1");
+    expect(recorded).toEqual([]);
+  });
+
+  it("does not write when the allocation has no contract_request_id", async () => {
+    const { client, recorded } = stub({
+      allocation: { ...fullAllocation, contract_request_id: null },
+      commitment: { status: "fulfilled" },
+    });
+    await recheckCommitmentFulfillment(client, "a1");
+    expect(recorded).toEqual([]);
+  });
+
+  it("does not write when producedBbl is zero", async () => {
+    const { client, recorded } = stub({
+      allocation: fullAllocation,
+      batch: { status: "complete" },
+      transfers: [],
+      commitment: { status: "fulfilled" },
+    });
+    await recheckCommitmentFulfillment(client, "a1");
+    expect(recorded).toEqual([]);
   });
 });
