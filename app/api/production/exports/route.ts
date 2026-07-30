@@ -10,8 +10,8 @@ export async function GET() {
     .from("export_transactions")
     .select(`
       id, shipment_id, recipe_id, channel, recipient_id, recipient_name, variant_label,
-      quantity, volume_bbl, total_excise_tax_usd, status, invoice_id,
-      packaging_item_id, packaging_format, source_ref,
+      quantity, volume_bbl, total_excise_tax_usd, status, invoice_id, allocation_id,
+      packaging_item_id, packaging_format, source_ref, notes,
       is_phantom, alert_acknowledged_at,
       created_at,
       brew_batches(id, beer_name, batch_number),

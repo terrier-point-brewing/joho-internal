@@ -5,6 +5,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchJson, useContractPartnersQuery } from "../hooks/queries";
 import { queryKeys } from "@/lib/query-keys";
 import InvoicePreviewModal from "./InvoicePreviewModal";
+import EditShipmentModal from "./EditShipmentModal";
+import { isShipmentEditable } from "@/lib/production/shipmentEdit";
 import { CHANNEL_COLOR } from "../lib/categoryColors";
 import { fmtDateLong } from "@/lib/utils/formatting";
 import { formatCurrency, formatNumber } from "@/lib/format";
@@ -35,6 +37,9 @@ interface ShipmentRow {
   status: "invoice_required" | "unpaid" | "paid";
   invoice_id: string | null;
   invoice_number: string | null;
+  /** Allocation this row credits, if any. Drives the edit affordance + credit-release warning. */
+  allocation_id: string | null;
+  notes: string | null;
   source_ref: string | null;
   packaging_format: string | null;
   packaging_item_type: string | null;
@@ -105,6 +110,14 @@ interface InvoiceGroup {
   isTaproom: boolean;
   day: string | null;
   products: GroupProductRow[];
+  /**
+   * The raw rows behind this card, retained so the edit affordance can evaluate
+   * the shared guards. A group keyed by invoice_id can span several
+   * shipment_ids — but an invoiced shipment is never editable (guard G1), so an
+   * editable group is always exactly one shipment and rows[0].shipment_id is
+   * unambiguous.
+   */
+  rows: ShipmentRow[];
 }
 
 const DRAFT_RECOUNT_PREFIX = "sqtransfer:";
@@ -239,10 +252,12 @@ function groupByInvoice(rows: ShipmentRow[]): InvoiceGroup[] {
         isTaproom,
         day: isTaproom ? day : null,
         products: [],
+        rows: [],
       });
     }
 
     const group = map.get(key)!;
+    group.rows.push(row);
 
     if (STATUS_RANK[displayStatus] > STATUS_RANK[group.status]) {
       group.status = displayStatus;
@@ -327,6 +342,7 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
 
   const [selected, setSelected] = useState<{ customerId: string; ids: Set<string> } | null>(null);
   const [showModal, setShowModal] = useState(false);
+  const [editing, setEditing] = useState<InvoiceGroup | null>(null);
   const [showMarkPaid, setShowMarkPaid] = useState(false);
   const [mpSource, setMpSource] = useState<"quickbooks" | "other">("quickbooks");
   const [mpRef, setMpRef] = useState("");
@@ -589,10 +605,18 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
                       <span className="text-strong font-medium">{partnerName}</span>
                     </>
                   )}
-                  <div className="ml-auto">
+                  <div className="ml-auto flex items-center gap-2">
                     <span className={`px-1.5 py-0.5 rounded ${STATUS_BADGE[group.status] ?? "bg-surface-mid text-secondary"}`}>
                       {STATUS_LABELS[group.status] ?? group.status}
                     </span>
+                    {isShipmentEditable(group.rows) && (
+                      <button
+                        onClick={() => setEditing(group)}
+                        className="btn-secondary btn-xxs"
+                      >
+                        Edit
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -760,6 +784,20 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
             Clear
           </button>
         </div>
+      )}
+
+      {editing && (
+        <EditShipmentModal
+          shipmentId={editing.rows[0].shipment_id}
+          rows={editing.rows}
+          currentRecipientId={editing.recipient_id}
+          currentNotes={editing.rows[0].notes}
+          onClose={() => setEditing(null)}
+          onSaved={() => {
+            setEditing(null);
+            qc.invalidateQueries({ queryKey: queryKeys.production.exports() });
+          }}
+        />
       )}
 
       {showModal && selected && (

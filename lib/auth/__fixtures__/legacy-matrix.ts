@@ -186,6 +186,7 @@ export const LEGACY_MATRIX: LegacyRow[] = [
   { route: "production/exports/[id]", method: "PATCH", legacy: ["brewer"], capability: "exportOperate" },
   { route: "production/exports/[id]", method: "DELETE", legacy: ["brewer"], capability: "exportOperate" },
   { route: "production/floorplan-settings", method: "PUT", legacy: [], capability: "equipmentManage" },
+  { route: "production/shipments/[id]", method: "PATCH", legacy: ["brewer"], capability: "exportOperate" },
   { route: "production/ingredients/[id]", method: "PATCH", legacy: ["brewer"], capability: "ingredientMasterEdit", intentionalChange: { brewer: false, reason: "ingredients/packaging PATCH and DELETE — decision 5" } },
   { route: "production/ingredients/[id]", method: "DELETE", legacy: ["brewer"], capability: "ingredientMasterEdit", intentionalChange: { brewer: false, reason: "ingredients/packaging PATCH and DELETE — decision 5" } },
   { route: "production/ingredients/bulk", method: "POST", legacy: ["brewer"], capability: "inventoryOperate" },
