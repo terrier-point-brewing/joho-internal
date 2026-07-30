@@ -324,9 +324,10 @@ async function main() {
   }
 
   const { data: manualEntries, error: manualErr } = await supabase
-    .from("manual_net_sales_entries")
-    .select("start_date, end_date, amount_cents");
-  if (manualErr) throw new Error(`manual_net_sales_entries: ${manualErr.message}`);
+    .from("manual_entries")
+    .select("start_date, end_date, amount_cents")
+    .eq("entry_kind", "flow");
+  if (manualErr) throw new Error(`manual_entries: ${manualErr.message}`);
 
   console.log("\n=== Fetching NEW pipeline (buildFinancials pl) ===");
   const newRes = await buildFinancials({ statement: "pl", year: YEAR });

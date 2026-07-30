@@ -78,8 +78,9 @@ export async function GET(req: NextRequest) {
 
   // Manual entries (amount_cents) prorated onto the window → dollars.
   const { data: manualEntries } = await supabase
-    .from("manual_net_sales_entries")
-    .select("start_date, end_date, amount_cents");
+    .from("manual_entries")
+    .select("start_date, end_date, amount_cents")
+    .eq("entry_kind", "flow");
   const manualRevenue = proratedManualRevenue(manualEntries ?? [], from, to);
 
   // ── COGS ───────────────────────────────────────────────────────────────────

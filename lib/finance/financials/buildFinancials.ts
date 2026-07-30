@@ -100,8 +100,10 @@ export async function buildFinancials(params: { statement: StatementKind; year: 
   } else {
     // pl/cash_flow only (Square parity fix B) -- src.manualNetSalesEntries is
     // always [] for balance_sheet anyway (fetchSources.ts), so this branch is
-    // belt-and-suspenders explicit about the statement-mode scoping.
-    rows = injectManualNetSales(rows, src.manualNetSalesEntries, months);
+    // belt-and-suspenders explicit about the statement-mode scoping. src.coa
+    // is passed through so the synthesized row's statementSection resolves
+    // via coaSection() from the entry's real chart_of_accounts_id.
+    rows = injectManualNetSales(rows, src.manualNetSalesEntries, months, src.coa);
   }
 
   // Non-row-derivable KPI pieces (see lib/finance/financials/types.ts):

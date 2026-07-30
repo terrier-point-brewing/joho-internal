@@ -123,6 +123,29 @@ describe("buildDataQuality", () => {
     expect(dq.unmapped).toEqual({ count: 1, cents: 7000, href: HREFS.unmapped });
   });
 
+  // manualNetSales.ts's injectManualNetSales now synthesizes its taproom
+  // adjustment row with a real coaId (Square parity fix B follow-up), so a
+  // manual flow entry's row falls out of the unmapped bucket on its own
+  // merits -- no special-case keyed on sourceRef.table is needed anymore.
+  it("does not count a manual flow-entry row with a real coaId as unmapped", () => {
+    const rows: FinancialsRow[] = [
+      row({
+        coaId: "coa-rev",
+        accountName: "Manual Net-Sales Adjustment",
+        sourceRef: { table: "manual_entries", ids: ["m-1"] },
+        amountCentsByMonth: { "2026-01": 5000, "2026-02": 0 },
+      }),
+    ];
+
+    const dq = buildDataQuality(rows, {
+      hrefs: HREFS,
+      exciseCoverage: { shipmentsMissingExcise: 0 },
+      unmappedTaxes: { count: 0, cents: 0 },
+    });
+
+    expect(dq.unmapped).toEqual({ count: 0, cents: 0, href: HREFS.unmapped });
+  });
+
   it("buckets uncategorized rows (channel === 'unknown' on a revenue/other_income row) by count + summed abs cents", () => {
     const rows: FinancialsRow[] = [
       row({ statementSection: "revenue", channel: "unknown", amountCentsByMonth: { "2026-01": 3000, "2026-02": 0 } }),

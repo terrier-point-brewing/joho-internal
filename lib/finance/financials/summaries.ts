@@ -148,12 +148,7 @@ export function buildDataQuality(
     unmappedTaxes: { count: number; cents: number };
   },
 ): DataQualitySummary {
-  // manualNetSales.ts's injectManualNetSales synthesizes a coaId:null taproom
-  // revenue row for prorated manual_net_sales_entries adjustments -- a
-  // deliberate top-line adjustment, not an unmapped-account classification
-  // gap. Narrow exclusion keyed on sourceRef.table (not a broader
-  // coaId-null carve-out) so it doesn't inflate the unmapped bucket.
-  const unmappedRows = rows.filter((r) => r.coaId === null && r.sourceRef.table !== "manual_net_sales_entries");
+  const unmappedRows = rows.filter((r) => r.coaId === null);
   const uncategorizedRows = rows.filter(isUncategorized);
   const unknownVolumeRows = rows.filter(isUnknownVolume);
 

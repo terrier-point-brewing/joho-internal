@@ -332,24 +332,25 @@ describe("buildFinancials", () => {
     });
   });
 
-  describe("manual_net_sales_entries proration (Square parity fix B)", () => {
+  describe("manual_entries flow-kind proration (Square parity fix B)", () => {
     it("attributes the full amount_cents to a month an entry spans entirely, into taproom revenue and Net Income", async () => {
       const months = ["2026-05"];
       mockedFetch.mockResolvedValue({
         ...emptySources(months),
         manualNetSalesEntries: [
-          { id: "m-1", startDate: "2026-05-01", endDate: "2026-05-31", amountCents: 891300 },
+          { id: "m-1", startDate: "2026-05-01", endDate: "2026-05-31", amountCents: 891300, chartOfAccountsId: "coa-rev" },
         ],
       });
 
       const resp = await buildFinancials({ statement: "pl", year: 2026 });
       const month = "2026-05";
 
-      const manualRow = resp.rows.find((r) => r.sourceRef.table === "manual_net_sales_entries");
+      const manualRow = resp.rows.find((r) => r.sourceRef.table === "manual_entries");
       expect(manualRow).toBeDefined();
       expect(manualRow!.channel).toBe("taproom");
+      // "coa-rev" is accountType "Income" -> ACCOUNT_TYPE_SECTION derives "revenue".
       expect(manualRow!.statementSection).toBe("revenue");
-      expect(manualRow!.coaId).toBeNull();
+      expect(manualRow!.coaId).toBe("coa-rev");
       expect(manualRow!.amountCentsByMonth[month]).toBe(891300);
 
       expect(resp.kpis.revenueCents[month]).toBe(891300);
@@ -364,13 +365,13 @@ describe("buildFinancials", () => {
       mockedFetch.mockResolvedValue({
         ...emptySources(months),
         manualNetSalesEntries: [
-          { id: "m-2", startDate: "2026-04-16", endDate: "2026-05-15", amountCents: 100000 },
+          { id: "m-2", startDate: "2026-04-16", endDate: "2026-05-15", amountCents: 100000, chartOfAccountsId: "coa-rev" },
         ],
       });
 
       const resp = await buildFinancials({ statement: "pl", year: 2026 });
 
-      const manualRow = resp.rows.find((r) => r.sourceRef.table === "manual_net_sales_entries");
+      const manualRow = resp.rows.find((r) => r.sourceRef.table === "manual_entries");
       expect(manualRow).toBeDefined();
       // Apr 16-30 overlap (15 inclusive days of a 30-day entry) -> 50000.
       expect(manualRow!.amountCentsByMonth["2026-04"]).toBe(50000);
@@ -381,23 +382,23 @@ describe("buildFinancials", () => {
       expect(resp.kpis.revenueCents["2026-05"]).toBe(50000);
     });
 
-    it("excludes the synthesized manual row from the unmapped data-quality bucket despite coaId:null", async () => {
+    it("excludes the synthesized manual row from the unmapped data-quality bucket now that it carries a real coaId", async () => {
       const months = ["2026-05"];
       mockedFetch.mockResolvedValue({
         ...emptySources(months),
         manualNetSalesEntries: [
-          { id: "m-3", startDate: "2026-05-01", endDate: "2026-05-31", amountCents: 891300 },
+          { id: "m-3", startDate: "2026-05-01", endDate: "2026-05-31", amountCents: 891300, chartOfAccountsId: "coa-rev" },
         ],
       });
 
       const resp = await buildFinancials({ statement: "pl", year: 2026 });
 
-      const manualRow = resp.rows.find((r) => r.sourceRef.table === "manual_net_sales_entries");
+      const manualRow = resp.rows.find((r) => r.sourceRef.table === "manual_entries");
       expect(manualRow).toBeDefined();
-      expect(manualRow!.coaId).toBeNull();
+      expect(manualRow!.coaId).toBe("coa-rev");
 
-      // The row is coaId:null (would otherwise count as unmapped), but the
-      // deliberate top-line adjustment carve-out keeps it out of the bucket.
+      // The row is genuinely mapped now (coaId: "coa-rev"), so it falls out of
+      // the unmapped bucket on its own merits -- no special-case needed.
       expect(resp.dataQuality.unmapped.count).toBe(0);
       expect(resp.dataQuality.unmapped.cents).toBe(0);
     });
@@ -406,13 +407,13 @@ describe("buildFinancials", () => {
       mockedFetch.mockResolvedValue({
         ...emptySources(["2026-12"]),
         manualNetSalesEntries: [
-          { id: "m-4", startDate: "2026-01-01", endDate: "2026-12-31", amountCents: 500000 },
+          { id: "m-4", startDate: "2026-01-01", endDate: "2026-12-31", amountCents: 500000, chartOfAccountsId: "coa-rev" },
         ],
       });
 
       const resp = await buildFinancials({ statement: "balance_sheet", year: 2026 });
 
-      expect(resp.rows.find((r) => r.sourceRef.table === "manual_net_sales_entries")).toBeUndefined();
+      expect(resp.rows.find((r) => r.sourceRef.table === "manual_entries")).toBeUndefined();
     });
   });
 });
