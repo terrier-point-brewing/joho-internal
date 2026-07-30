@@ -12,8 +12,10 @@ import { apiError } from "@/lib/utils/api";
 import {
   validateManualEntry,
   type ManualEntryInput,
+  type ManualEntryKind,
   type ManualEntryRecord,
 } from "@/lib/finance/manualEntries";
+import { parseManualEntryFilter } from "@/lib/finance/manualEntryFilters";
 
 export const dynamic = "force-dynamic";
 
@@ -89,34 +91,29 @@ export async function GET(req: NextRequest) {
 
   try {
     const { searchParams } = req.nextUrl;
-    const kindParam = searchParams.get("kind");
-    const kind = kindParam === "flow" || kindParam === "balance" ? kindParam : null;
-    const yearParam = searchParams.get("year");
-    const yearNum = yearParam !== null ? Number(yearParam) : NaN;
-    const year = Number.isInteger(yearNum) ? yearNum : null;
+    const filter = parseManualEntryFilter(searchParams.get("kind"), searchParams.get("year"));
 
     let query = supabase
       .from("manual_entries")
       .select(SELECT_COLUMNS)
       .order("created_at", { ascending: false });
 
-    if (kind) query = query.eq("entry_kind", kind);
-
-    if (year !== null) {
-      const yearStart = `${year}-01-01`;
-      const yearEnd = `${year}-12-31`;
-      if (kind === "flow") {
-        query = query.lte("start_date", yearEnd).gte("end_date", yearStart);
-      } else if (kind === "balance") {
-        query = query.gte("as_of_date", yearStart).lte("as_of_date", yearEnd);
-      } else {
-        // No kind filter: match either a flow entry overlapping the year, or a
-        // balance entry dated within it.
-        query = query.or(
-          `and(entry_kind.eq.flow,start_date.lte.${yearEnd},end_date.gte.${yearStart}),` +
-          `and(entry_kind.eq.balance,as_of_date.gte.${yearStart},as_of_date.lte.${yearEnd})`,
-        );
-      }
+    switch (filter.type) {
+      case "none":
+        break;
+      case "kind":
+        query = query.eq("entry_kind", filter.kind);
+        break;
+      case "kind-year":
+        query = query.eq("entry_kind", filter.kind);
+        query =
+          filter.kind === "flow"
+            ? query.lte("start_date", filter.yearEnd).gte("end_date", filter.yearStart)
+            : query.gte("as_of_date", filter.yearStart).lte("as_of_date", filter.yearEnd);
+        break;
+      case "year":
+        query = query.or(filter.or);
+        break;
     }
 
     const { data, error } = await query;
@@ -165,6 +162,33 @@ export async function POST(req: NextRequest) {
   }
 }
 
+/** Sparse-PATCH body: `{ id } & Partial<ManualEntryInput>`, flattened across both
+ * kinds' fields since `Partial` over the discriminated `ManualEntryInput` union
+ * would drop the kind-specific date fields. */
+interface ManualEntryPatchBody {
+  id?: string;
+  entryKind?: ManualEntryKind;
+  chartOfAccountsId?: string;
+  startDate?: string | null;
+  endDate?: string | null;
+  asOfDate?: string | null;
+  amountCents?: number;
+  label?: string | null;
+  note?: string | null;
+}
+
+/** Maps ManualEntryInput field names to their manual_entries column names. */
+const PATCHABLE_COLUMNS: Record<keyof Omit<ManualEntryPatchBody, "id">, string> = {
+  entryKind: "entry_kind",
+  chartOfAccountsId: "chart_of_accounts_id",
+  startDate: "start_date",
+  endDate: "end_date",
+  asOfDate: "as_of_date",
+  amountCents: "amount_cents",
+  label: "label",
+  note: "note",
+};
+
 export async function PATCH(req: NextRequest) {
   let session;
   try { session = await requirePermission(CAP.financeTransactionsManage); } catch (res) { return res as Response; }
@@ -172,24 +196,66 @@ export async function PATCH(req: NextRequest) {
   const supabase = await createSupabaseServerClient();
 
   try {
-    const body = (await req.json()) as { id?: string } & Partial<ManualEntryInput>;
-    const { id, ...rest } = body;
+    const body = (await req.json()) as ManualEntryPatchBody;
+    const { id, ...patch } = body;
 
     if (!id) {
       return NextResponse.json({ error: "id is required" }, { status: 400 });
     }
 
-    const input = rest as ManualEntryInput;
-    const validation = validateManualEntry(input);
+    const { data: existingRow, error: fetchError } = await supabase
+      .from("manual_entries")
+      .select(SELECT_COLUMNS)
+      .eq("id", id)
+      .maybeSingle();
+
+    if (fetchError) throw fetchError;
+    if (!existingRow) {
+      return NextResponse.json({ error: "Manual entry not found" }, { status: 404 });
+    }
+
+    const existing = toRecord(existingRow as ManualEntryRow);
+
+    // Merge only the fields the caller actually supplied over the existing
+    // record — an absent key keeps its current value; an explicit `null` on
+    // a nullable field clears it. Validation then runs on the full
+    // post-merge state, keeping validateManualEntry authoritative.
+    const merged: ManualEntryInput = {
+      entryKind: "entryKind" in patch ? (patch.entryKind as ManualEntryKind) : existing.entryKind,
+      chartOfAccountsId:
+        "chartOfAccountsId" in patch ? (patch.chartOfAccountsId as string) : existing.chartOfAccountsId,
+      startDate: "startDate" in patch ? (patch.startDate ?? null) : existing.startDate,
+      endDate: "endDate" in patch ? (patch.endDate ?? null) : existing.endDate,
+      asOfDate: "asOfDate" in patch ? (patch.asOfDate ?? null) : existing.asOfDate,
+      amountCents: "amountCents" in patch ? (patch.amountCents as number) : existing.amountCents,
+      label: "label" in patch ? (patch.label ?? null) : existing.label,
+      note: "note" in patch ? (patch.note ?? null) : existing.note,
+    } as ManualEntryInput;
+
+    const validation = validateManualEntry(merged);
     if (!validation.ok) {
       return NextResponse.json({ error: validation.error }, { status: 400 });
     }
 
-    const row = toRow(input, { updated_by: session.user.id });
+    const mergedRow = toRow(merged, { updated_by: session.user.id });
+
+    // Update only the columns actually supplied in the patch (plus updated_by).
+    // A kind switch (`entryKind` supplied) must also rewrite all three date
+    // columns together, since toRow nulls out the pair that no longer applies.
+    const updateRow: Record<string, unknown> = { updated_by: session.user.id };
+    for (const key of Object.keys(patch) as (keyof Omit<ManualEntryPatchBody, "id">)[]) {
+      const column = PATCHABLE_COLUMNS[key];
+      if (column) updateRow[column] = mergedRow[column as keyof typeof mergedRow];
+    }
+    if ("entryKind" in patch) {
+      updateRow.start_date = mergedRow.start_date;
+      updateRow.end_date = mergedRow.end_date;
+      updateRow.as_of_date = mergedRow.as_of_date;
+    }
 
     const { data, error } = await supabase
       .from("manual_entries")
-      .update(row)
+      .update(updateRow)
       .eq("id", id)
       .select(SELECT_COLUMNS)
       .single();
