@@ -1,5 +1,6 @@
 import type { BrandCanon, FontRole, ResolvedTokens, RoleName } from "./canon.types";
 import { deriveDarkPalette } from "./deriveDark";
+import { fontStackFor } from "./fontRegistry";
 
 export const ROLE_NAMES: RoleName[] = [
   "canvas",
@@ -64,25 +65,41 @@ export function resolveTokens(canon: BrandCanon): ResolvedTokens {
   for (const role of FONT_ROLES) {
     const font = canon.fonts.find((f) => f.role === role);
     if (!font) throw new Error(`Missing font for role: ${role}`);
-    fonts[role] = font.cssStack;
+    // NOT font.cssStack — see fontStackFor. A bundled family has to chain
+    // through its next/font variable or the face silently degrades.
+    fonts[role] = fontStackFor(font);
   }
 
   return { light, dark, fonts };
 }
 
-// Emits ONLY the color tokens (the sole thing that varies at runtime and by
-// theme). Fonts are intentionally NOT emitted here: `@theme` in globals.css
-// owns `--font-brand-*`, chaining `var(--font-marcellus), …` so the tokens
-// resolve to the next/font-loaded faces. Emitting them here as bare family
-// stacks would override that (BrandStyle's `:root{}` is unlayered and beats
-// `@layer theme`) and silently fall back to generic serif/sans. `fonts` stays
-// in ResolvedTokens for non-CSS consumers (agent brief, brand guide display).
+/**
+ * Emits the brand color AND font tokens.
+ *
+ * Fonts used to be excluded here, with `@theme` in globals.css hardcoding
+ * `--font-brand-display: var(--font-marcellus), …`. The consequence was that
+ * the Type editor did nothing: an admin could assign Lato to the display role,
+ * save, publish — and the guide kept rendering Marcellus.
+ *
+ * The original reason for the exclusion was real. `BrandStyle` writes an
+ * unlayered `:root{}` that outranks `@layer theme`, so emitting a bare family
+ * stack (`"Marcellus", serif`) would override the next/font chain and silently
+ * fall back to a generic face. The fix is to emit the *mapping* rather than the
+ * stack — `fontStackFor` chains through the next/font variable for bundled
+ * families, so the canon chooses WHICH loaded face a role uses without
+ * breaking HOW it loads. globals.css keeps its four lines as build-time
+ * defaults; this overrides them at runtime.
+ *
+ * ⚠️ A broken var() chain fails silently and passes every build. Verify by
+ * reading `getComputedStyle(el).fontFamily` in a browser, not by compiling.
+ */
 export function emitBrandCss(t: ResolvedTokens): string {
   const lightDecls = ROLE_NAMES.map((role) => `--color-brand-${role}:${t.light[role]};`).join(" ");
   const darkDecls = ROLE_NAMES.map((role) => `--color-brand-${role}:${t.dark[role]};`).join(" ");
+  const fontDecls = FONT_ROLES.map((role) => `--font-brand-${role}:${t.fonts[role]};`).join(" ");
 
   return (
-    `:root{ ${lightDecls} }\n` +
+    `:root{ ${lightDecls} ${fontDecls} }\n` +
     `:root[data-theme="dark"]{ ${darkDecls} }\n` +
     `@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){ ${darkDecls} }}`
   );

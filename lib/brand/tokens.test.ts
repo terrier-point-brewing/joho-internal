@@ -31,9 +31,14 @@ describe("resolveTokens", () => {
     expect(t.dark.primary).toBe("#123456");
   });
 
-  it("resolves fonts.display to the Marcellus stack", () => {
+  it("resolves fonts.display through the next/font variable, not the bare stack", () => {
+    // Changed deliberately. This used to assert the canon's stored cssStack
+    // ('"Marcellus", serif'), which is the value that must NOT reach CSS:
+    // BrandStyle's unlayered :root{} outranks @layer theme, so emitting a bare
+    // stack overrides the next/font chain and degrades to a generic serif
+    // without failing any build. See lib/brand/fontRegistry.ts.
     const t = resolveTokens(seedCanon);
-    expect(t.fonts.display).toBe('"Marcellus", serif');
+    expect(t.fonts.display).toBe('var(--font-marcellus), "Marcellus", serif');
   });
 });
 
