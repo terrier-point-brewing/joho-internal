@@ -7,7 +7,6 @@ import type { GuideSectionKey } from "@/lib/brand/guideIntros";
 import Banner from "@/app/components/ui/Banner";
 import ConfirmDialog from "@/app/components/ui/ConfirmDialog";
 import SaveHint from "@/app/components/ui/SaveHint";
-import BrandPreview from "./BrandPreview";
 import PaletteFacet from "./facets/PaletteFacet";
 import ThemeFacet from "./facets/ThemeFacet";
 import TypeFacet from "./facets/TypeFacet";
@@ -124,9 +123,11 @@ export default function CanonEditor({ section }: { section: CanonSection }) {
         </button>
       </div>
 
-      {/* The token preview only reflects palette/type/prose — not marks — so it's
-          dropped for the marks editor, which gets the full width instead. */}
-      <div className={section === "marks" ? "" : "grid gap-4 lg:grid-cols-[1fr_20rem]"}>
+      {/* Every section gets the full width. The old two-column layout existed
+          only to host the Live Preview card, which showed the same fixed swatch
+          grid regardless of which subtab you were on and was irrelevant on five
+          of the seven. The editors themselves are the preview. */}
+      <div>
         <div className="flex flex-col gap-6">
           <IntroFacet section={section} draft={draft} onChange={setDraft} />
           {section === "ethos" && (
@@ -151,8 +152,6 @@ export default function CanonEditor({ section }: { section: CanonSection }) {
           {section === "type" && <TypeFacet draft={draft} onChange={setDraft} />}
           {section === "marks" && <MarksFacet draft={draft} onChange={setDraft} />}
         </div>
-
-        {section !== "marks" && <BrandPreview draft={draft} />}
       </div>
 
       {confirming && (
