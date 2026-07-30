@@ -267,6 +267,15 @@ git commit -m "feat(finance): manual entries API route"
 - Modify: `lib/finance/financials/manualNetSales.test.ts`
 - Modify: `lib/finance/financials/summaries.ts`
 - Modify: `lib/finance/financials/summaries.test.ts`
+- Modify: `app/api/net-sales-summary/route.ts` (line 47)
+- Modify: `app/api/finance/pl/route.ts` (line 81)
+- Modify: `scripts/financials-parity-square.ts` (line 327)
+
+**All five runtime query sites must move in this task.** Task 1's migration drops
+`manual_net_sales_entries`; any reader left behind is a 500 the moment the migration
+runs. `app/api/manual-entries/route.ts` is the sixth reader and is *deleted* by Task 5,
+so leave it alone here. The parity script is diagnostic rather than runtime, but update
+it too so it does not throw on its next run.
 
 **Interfaces:**
 - Consumes: the `manual_entries` schema from Task 1.
@@ -432,10 +441,12 @@ In `lib/query-keys.ts`, delete `taproom.manualEntries` (line 109). Task 2 added 
 - [ ] **Step 4: Confirm nothing still references the removed code**
 
 ```bash
-grep -rn "ManualEntriesTab\|taproom/targets/manual-entries\|api/manual-entries\|taproom.manualEntries\|manual_net_sales_entries" app/ lib/ --include=*.ts --include=*.tsx
+grep -rn "ManualEntriesTab\|taproom/targets/manual-entries\|api/manual-entries\|taproom\.manualEntries\|manual_net_sales_entries" app lib scripts
 ```
 
-Expected: **no matches.** A hit on `manual_net_sales_entries` means Task 3 missed a read path and the table is about to be dropped out from under live code — stop and fix it before committing.
+Expected: **no matches.** Note `scripts/` is in scope deliberately — `scripts/financials-parity-square.ts` reads the dropped table too.
+
+A hit on `manual_net_sales_entries` means Task 3 missed a read path and the table is about to be dropped out from under live code — stop and fix it before committing. Comments and doc-strings mentioning the old table name by way of history are acceptable; a `.from("manual_net_sales_entries")` call is not.
 
 - [ ] **Step 5: Verify and commit**
 
