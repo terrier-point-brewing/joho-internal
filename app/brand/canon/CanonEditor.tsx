@@ -17,6 +17,7 @@ import { agentSlice } from "./facets/canonSlices";
 import EthosFields from "./fields/EthosFields";
 import VoiceFields from "./fields/VoiceFields";
 import RuleListField from "./fields/RuleListField";
+import TypeUseCaseField from "./fields/TypeUseCaseField";
 import { useDraft, usePublish } from "./useCanonEditor";
 import { useSectionAutosave, type SaveState } from "./useSectionAutosave";
 import { changedSections } from "@/lib/brand/canonSections";
@@ -206,7 +207,12 @@ export default function CanonEditor({
               />
             </>
           )}
-          {section === "type" && <TypeFacet draft={draft} onChange={setDraft} />}
+          {section === "type" && (
+            <>
+              <TypeFacet draft={draft} onChange={setDraft} />
+              <TypeUseCaseField draft={draft} onChange={setDraft} />
+            </>
+          )}
           {section === "marks" && <MarksFacet draft={draft} onChange={setDraft} />}
         </div>
       </div>

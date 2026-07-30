@@ -24,7 +24,7 @@ export const SECTION_KEYS: Record<GuideSectionKey, readonly (keyof BrandCanon)[]
   voice: ["voice"],
   visual: ["illustrationLaw"],
   color: ["palette", "roleMap", "usageRatios", "colorForbidden"],
-  type: ["fonts"],
+  type: ["fonts", "typeUseCases"],
   marks: ["marks"],
   agent: ["neverList", "precedence", "hardRules"],
 };

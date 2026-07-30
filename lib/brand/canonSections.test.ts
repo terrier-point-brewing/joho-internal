@@ -154,3 +154,21 @@ describe("isSectionDirty / changedSections", () => {
     expect(changedSections(undefined, base)).toEqual([]);
   });
 });
+
+describe("section ownership covers every editable key", () => {
+  it("lets the type section write its use cases", () => {
+    // Regression: typeUseCases was added to the schema and the editor before
+    // SECTION_KEYS knew about it, so saveDraftSection would have rejected every
+    // use-case edit with "section type may not write typeUseCases".
+    expect(SECTION_KEYS.type).toContain("typeUseCases");
+    expect(sectionOf("typeUseCases")).toBe("type");
+  });
+
+  it("carries typeUseCases in a type section patch", () => {
+    const patch = pickSectionPatch(
+      { ...seedCanon, typeUseCases: [] },
+      "type",
+    );
+    expect("typeUseCases" in patch).toBe(true);
+  });
+});

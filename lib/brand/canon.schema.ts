@@ -99,7 +99,41 @@ const brandFontSchema = z.object({
   family: z.string(),
   cssStack: z.string(),
   weights: z.array(z.number()),
+  /**
+   * Where the face comes from. Absent on documents predating the split;
+   * lib/brand/fontRegistry.ts infers it from the family in that case.
+   *
+   *   bundled  — loaded by next/font in app/layout.tsx
+   *   uploaded — a brand_assets row of kind `font`, served via @font-face
+   *   system   — a stack of families already on the device
+   */
+  source: z.enum(["bundled", "uploaded", "system"]).optional(),
+  /** Font files for an `uploaded` face — woff2/woff/ttf/otf. */
+  assetIds: z.array(z.string()).optional(),
+  /** Licensing note. Uploaded faces are redistributed by this app. */
+  license: z.string().optional(),
   note: z.string().optional(),
+});
+
+/**
+ * One typographic use case — "page title on screen", "poster title in print".
+ *
+ * The guide previously described type as one run-on line per role
+ * (`display · Marcellus · weights 400 · <note>`), which said nothing about
+ * where a face is used or at what size. These rows render a live specimen at
+ * their own stated size and weight, so "48pt poster title" is something you
+ * see rather than a claim you take on trust.
+ */
+const typeUseCaseSchema = z.object({
+  id: idSchema,
+  medium: z.enum(["screen", "print", "packaging", "signage"]),
+  element: z.string(),
+  fontRole: fontRoleSchema,
+  weight: z.number(),
+  /** As authored — "32/38", "48pt". Free text: print and screen don't share units. */
+  size: z.string(),
+  tracking: z.string().optional(),
+  notes: z.string().optional(),
 });
 
 const roleMapSchema = z.object({
@@ -229,6 +263,10 @@ export const canonSchema = z.object({
     .refine((fonts) => new Set(fonts.map((f) => f.role)).size === fonts.length, {
       message: "fonts must have at most one entry per role",
     }),
+
+  // Where each face is actually used, grouped by medium in the guide.
+  // Optional: documents predating this field simply show no use-case table.
+  typeUseCases: z.array(typeUseCaseSchema).optional(),
 
   // ── Marks (Specification) — wordmark / logo / chop spec sheets ────────────
   // Optional: published rows written before this field existed simply have no
