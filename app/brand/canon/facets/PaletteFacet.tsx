@@ -22,7 +22,12 @@ export default function PaletteFacet({
   function addColor() {
     const palette = [
       ...draft.palette,
-      { key: `color-${draft.palette.length + 1}`, name: "New color", hex: "#000000" },
+      {
+        key: `color-${draft.palette.length + 1}`,
+        name: "New color",
+        hex: "#000000",
+        tier: "neutral" as const,
+      },
     ];
     onChange({ ...draft, palette });
   }
@@ -67,6 +72,15 @@ export default function PaletteFacet({
               className="h-8 w-8 shrink-0 rounded border border-line-strong bg-transparent cursor-pointer"
               aria-label={`${color.name} hex color`}
             />
+            <select
+              className="inp-sm w-24 shrink-0"
+              value={color.tier ?? "neutral"}
+              onChange={(e) => updateColor(i, { tier: e.target.value as "core" | "neutral" })}
+              aria-label={`${color.name} tier`}
+            >
+              <option value="core">Core</option>
+              <option value="neutral">Neutral</option>
+            </select>
             <input
               className="inp-sm w-24 shrink-0"
               value={color.key}

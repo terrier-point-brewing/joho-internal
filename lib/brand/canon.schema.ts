@@ -74,9 +74,20 @@ const idSchema = z.string().optional();
 
 const brandColorSchema = z.object({
   id: idSchema,
+  /** Stable slug the roleMap binds to. Not a display name. */
   key: z.string(),
   name: z.string(),
   hex: hexColorSchema,
+  /**
+   * `core` = a Tier-1 brand color. `neutral` = a UI step.
+   *
+   * This replaces the old convention of appending "(derived)" to a neutral's
+   * NAME, which was misleading — those colors are hand-authored, not computed
+   * from anything. Optional so documents written before the split still parse;
+   * migration 20260905 sets it on every entry.
+   */
+  tier: z.enum(["core", "neutral"]).optional(),
+  /** What this color is for, in words. Shown prominently in the guide. */
   role: z.string().optional(),
   cmyk: z.string().optional(),
   pms: z.string().optional(),

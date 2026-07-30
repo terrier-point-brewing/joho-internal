@@ -2,7 +2,9 @@
 
 import type { BrandCanon, RoleName } from "@/lib/brand/canon.types";
 import { deriveDarkPalette } from "@/lib/brand/deriveDark";
+import { suggestDarkRoles } from "@/lib/brand/suggestDark";
 import Badge from "@/app/components/ui/Badge";
+import Banner from "@/app/components/ui/Banner";
 
 const ROLE_NAMES: RoleName[] = [
   "canvas",
@@ -21,6 +23,8 @@ const ROLE_NAMES: RoleName[] = [
 ];
 
 const CUSTOM_HEX = "__custom__";
+// A dark role with no stored value falls back to the runtime derivation.
+const UNSET = "__unset__";
 
 const HEX_RE = /^#[0-9a-fA-F]{6}$/;
 
@@ -58,6 +62,10 @@ export default function ThemeFacet({
   const derivedDark = deriveDarkPalette(resolvedLight);
   const paletteKeys = draft.palette.map((c) => c.key);
 
+  const suggestions = suggestDarkRoles(draft);
+  const snapCount = suggestions.filter((s) => s.verdict === "snap" && s.nearestKey).length;
+  const needsNewColors = suggestions.filter((s) => s.verdict === "add");
+
   function setLight(role: RoleName, value: string) {
     onChange({
       ...draft,
@@ -65,29 +73,81 @@ export default function ThemeFacet({
     });
   }
 
-  function setDarkOverride(role: RoleName, hex: string) {
+  function setDark(role: RoleName, value: string) {
     onChange({
       ...draft,
-      roleMap: { ...draft.roleMap, dark: { ...draft.roleMap.dark, [role]: hex } },
+      roleMap: { ...draft.roleMap, dark: { ...draft.roleMap.dark, [role]: value } },
     });
   }
 
-  function resetDarkOverride(role: RoleName) {
+  function resetDark(role: RoleName) {
     const dark = { ...draft.roleMap.dark };
     delete dark[role];
     onChange({ ...draft, roleMap: { ...draft.roleMap, dark } });
   }
 
+  /**
+   * Binds every role that has a confident palette match in one go.
+   *
+   * Roles the suggester can't place are deliberately left alone rather than
+   * bound to a near-enough color: those are the ones that need a NEW palette
+   * entry, and quietly snapping them is how a dark mode ends up subtly wrong
+   * in ways nobody can point at.
+   */
+  function applySuggestions() {
+    const dark = { ...draft.roleMap.dark };
+    for (const s of suggestions) {
+      if (s.verdict === "snap" && s.nearestKey) dark[s.role] = s.nearestKey;
+    }
+    onChange({ ...draft, roleMap: { ...draft.roleMap, dark } });
+  }
+
   return (
     <div className="flex flex-col gap-3">
-      <div>
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">Theme</h3>
-        <p className="text-xs text-muted mt-1">
-          Each UI role binds to a palette color — edit a hex in Palette and every role linked
-          to it follows. Choosing &ldquo;Custom hex&rdquo; detaches the role from the palette.
-          Dark is auto-derived from light unless overridden.
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">Theme</h3>
+          <p className="text-xs text-muted mt-1">
+            Each UI role binds to a palette color in both modes — edit a hex in Palette and every
+            role linked to it follows. &ldquo;Custom hex&rdquo; detaches a role. A dark role left
+            unset is still computed from light at render time.
+          </p>
+        </div>
+        <button
+          type="button"
+          className="btn-secondary btn-xxs shrink-0"
+          onClick={applySuggestions}
+          disabled={snapCount === 0}
+          title="Bind every dark role that has a close palette match"
+        >
+          Auto-derive dark ({snapCount})
+        </button>
       </div>
+
+      {needsNewColors.length > 0 && (
+        <Banner tone="info">
+          <span className="font-medium">
+            {needsNewColors.length} dark {needsNewColors.length === 1 ? "role has" : "roles have"} no
+            close palette match.
+          </span>{" "}
+          Auto-derive will skip{" "}
+          {needsNewColors.map((s) => s.role).join(", ")} — each needs a new palette color rather
+          than being snapped to something near enough.{" "}
+          {needsNewColors
+            .slice(0, 3)
+            .map(
+              (s) =>
+                `${s.role} → ${s.derived}${
+                  s.reason === "would-collide"
+                    ? ` (would collide with ${s.nearestKey})`
+                    : s.nearestKey
+                      ? ` (nearest ${s.nearestKey}, ΔE ${s.distance.toFixed(2)})`
+                      : ""
+                }`,
+            )
+            .join(" · ")}
+        </Banner>
+      )}
 
       {/* Column headers */}
       <div className="grid grid-cols-[7rem_1fr_1fr] items-center gap-3 px-2 text-2xs uppercase tracking-wide text-muted">
@@ -101,8 +161,12 @@ export default function ThemeFacet({
           const lightValue = draft.roleMap.light[role] ?? "";
           const isPaletteKey = paletteKeys.includes(lightValue);
           const lightHex = resolvedLight[role];
-          const override = draft.roleMap.dark[role];
-          const derived = derivedDark[role];
+
+          const darkValue = draft.roleMap.dark?.[role] ?? "";
+          const darkIsPaletteKey = paletteKeys.includes(darkValue);
+          const darkHex = darkValue
+            ? (draft.palette.find((c) => c.key === darkValue)?.hex ?? darkValue)
+            : derivedDark[role];
 
           return (
             <div
@@ -159,41 +223,47 @@ export default function ThemeFacet({
                 )}
               </div>
 
+              {/* Dark mirrors light: bind to a palette color, or detach to a
+                  raw hex. Dark used to be a sparse set of raw-hex overrides
+                  computed at render time, which meant its colors existed
+                  nowhere in the palette — unnameable, and invisible in the
+                  guide. */}
               <div className="flex items-center gap-2">
-                <input
-                  type="color"
-                  value={pickerSafe(override ?? derived)}
-                  onChange={(e) => setDarkOverride(role, e.target.value)}
-                  className="h-6 w-6 shrink-0 rounded border border-line-strong bg-transparent cursor-pointer"
-                  title={override ? `Override: ${override}` : `Derived: ${derived} — picking a color overrides`}
-                  aria-label={`${role} dark color`}
-                />
-                <input
-                  className="inp-sm w-24"
-                  value={override ?? ""}
+                {darkIsPaletteKey ? (
+                  <span
+                    className="h-6 w-6 shrink-0 rounded border border-line-strong"
+                    style={{ background: darkHex }}
+                    title={`${darkValue} → ${darkHex}`}
+                  />
+                ) : (
+                  <input
+                    type="color"
+                    value={pickerSafe(darkHex)}
+                    onChange={(e) => setDark(role, e.target.value)}
+                    className="h-6 w-6 shrink-0 rounded border border-line-strong bg-transparent cursor-pointer"
+                    aria-label={`${role} dark custom color`}
+                  />
+                )}
+                <select
+                  className="inp-sm"
+                  value={darkIsPaletteKey ? darkValue : darkValue ? CUSTOM_HEX : UNSET}
                   onChange={(e) => {
                     const next = e.target.value;
-                    if (next.trim() === "") {
-                      resetDarkOverride(role);
-                    } else {
-                      setDarkOverride(role, next);
-                    }
+                    if (next === UNSET) resetDark(role);
+                    else setDark(role, next === CUSTOM_HEX ? darkHex : next);
                   }}
-                  placeholder={derived}
-                />
-                {override !== undefined ? (
-                  <>
-                    <Badge tone="info" className="shrink-0">override</Badge>
-                    <button
-                      type="button"
-                      className="btn-secondary btn-xxs shrink-0"
-                      onClick={() => resetDarkOverride(role)}
-                    >
-                      Reset
-                    </button>
-                  </>
-                ) : (
-                  <span className="text-2xs text-faint shrink-0">auto</span>
+                >
+                  <option value={UNSET}>Derived (not set)</option>
+                  {paletteKeys.map((key) => (
+                    <option key={key} value={key}>
+                      {draft.palette.find((c) => c.key === key)?.name ?? key}
+                    </option>
+                  ))}
+                  <option value={CUSTOM_HEX}>Custom hex…</option>
+                </select>
+                {!darkValue && <span className="text-2xs text-faint shrink-0">auto</span>}
+                {darkValue && !darkIsPaletteKey && (
+                  <Badge tone="accent" className="shrink-0">detached</Badge>
                 )}
               </div>
             </div>
