@@ -1,5 +1,11 @@
 import type { BrandCanon } from "./canon.types";
 import { resolveGuideIntro, splitParagraphs } from "./guideIntros";
+import { normalizeRules, type GuideRule } from "./guideRules";
+
+/** A rule as one brief line — its detail folded in, its imagery dropped. */
+function ruleLine(rule: GuideRule): string {
+  return rule.detail ? `${rule.title} — ${rule.detail}` : rule.title;
+}
 
 // Compiles the canon into a precedence-ordered plain-text brief for AI
 // features (Phase 4). Carries both the Narrative (mission, values, voice) and
@@ -43,8 +49,8 @@ export function compileAgentBrief(canon: BrandCanon): string {
     lines.push(`${ratio.role}: ${ratio.pct}%${note}`);
   }
   lines.push("Seal Red ≤5% of any composition.");
-  for (const f of canon.colorForbidden) {
-    lines.push(`Forbidden: ${f}`);
+  for (const rule of normalizeRules(canon.colorForbidden, "dont")) {
+    lines.push(`Forbidden: ${ruleLine(rule)}`);
   }
   lines.push("");
 
@@ -57,8 +63,11 @@ export function compileAgentBrief(canon: BrandCanon): string {
 
   lines.push("ILLUSTRATION LAW");
   lines.push(...splitParagraphs(resolveGuideIntro(canon, "visual")));
-  for (const rule of canon.illustrationLaw.rules) {
-    lines.push(`- ${rule}`);
+  for (const rule of normalizeRules(canon.illustrationLaw?.rules, "do")) {
+    // Polarity is load-bearing for an agent: "flat two-colour line work" and
+    // "never flat two-colour line work" are the same words either side of a
+    // prefix, and the brief is the only thing the agent reads.
+    lines.push(`- ${rule.polarity === "dont" ? "NEVER: " : "ALWAYS: "}${ruleLine(rule)}`);
   }
   lines.push("");
 

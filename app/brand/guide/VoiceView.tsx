@@ -1,66 +1,74 @@
 import type { BrandCanon } from "@/lib/brand/canon.types";
 import { resolveGuideIntro } from "@/lib/brand/guideIntros";
-import GuideSection, { KICKER } from "./GuideSection";
+import GuideSection from "./GuideSection";
+import SubHead from "./blocks/SubHead";
+import SliderRow from "./blocks/SliderRow";
+import ChipList from "./blocks/ChipList";
+import ComparisonCard from "./blocks/ComparisonCard";
 
 /**
- * Voice view: the introduction (the voice summary and personality, until an
- * admin edits it), then the calibration sliders, the lean-on / never word rows,
- * and the in-practice rewrites.
+ * Voice view: introduction, then three sections in a deliberate order —
+ * calibration (the register), vocabulary (the words that hit it), and in
+ * practice (both applied to real copy). Each narrows from principle to example,
+ * which is why vocabulary sits in the middle rather than trailing off the end
+ * as the inline afterthought it used to be.
  */
 export default function VoiceView({ canon }: { canon: BrandCanon }) {
+  const { sliders, leanOnWords, neverWords, rewrites } = canon.voice;
+  const hasVocabulary = leanOnWords.length > 0 || neverWords.length > 0;
+
   return (
     <GuideSection intro={resolveGuideIntro(canon, "voice")}>
-      <p className={`${KICKER} mb-3`}>Calibration</p>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 mb-6">
-        {canon.voice.sliders.map((slider, i) => (
-          <div key={i} className="rounded-lg border border-brand-line p-3 font-brand-body">
-            <div className="flex items-center justify-between text-xs text-brand-content-muted mb-2">
-              <span>{slider.left}</span>
-              <span>{slider.right}</span>
-            </div>
-            <div className="relative h-1 rounded bg-brand-line mb-2">
-              <span
-                className="absolute top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand-accent"
-                style={{ left: `${slider.pos}%` }}
+      {sliders.length > 0 && (
+        <section className="mb-8">
+          <SubHead
+            title="Calibration"
+            description="Where the voice sits on each axis. The number is the position toward the right-hand pole."
+          />
+          <div className="grid gap-3 lg:grid-cols-2">
+            {sliders.map((slider, i) => (
+              <SliderRow
+                key={slider.id ?? i}
+                left={slider.left}
+                right={slider.right}
+                pos={slider.pos}
+                note={slider.note}
               />
-            </div>
-            <p className="text-xs text-brand-content-muted">{slider.note}</p>
-          </div>
-        ))}
-      </div>
-
-      <div className="flex flex-wrap gap-x-8 gap-y-2 font-brand-body text-xs mb-6">
-        <div>
-          <span className="text-brand-content-muted uppercase tracking-wide">Lean on: </span>
-          <span className="text-brand-content">{canon.voice.leanOnWords.join(", ")}</span>
-        </div>
-        <div>
-          <span className="text-brand-accent uppercase tracking-wide">Never: </span>
-          <span className="text-brand-content">{canon.voice.neverWords.join(", ")}</span>
-        </div>
-      </div>
-
-      {canon.voice.rewrites?.length > 0 && (
-        <>
-          <p className={`${KICKER} mb-3`}>In practice</p>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {canon.voice.rewrites.map((rw, i) => (
-              <div key={i} className="rounded-lg border border-brand-line p-3 font-brand-body">
-                <p className="text-2xs uppercase tracking-wide text-brand-content-muted mb-1">
-                  {rw.context}
-                </p>
-                <p className="text-sm text-brand-content">
-                  <span className="text-brand-primary">✓ </span>
-                  {rw.on}
-                </p>
-                <p className="text-xs text-brand-content-muted mt-1">
-                  <span className="text-brand-accent">✕ </span>
-                  {rw.off}
-                </p>
-              </div>
             ))}
           </div>
-        </>
+        </section>
+      )}
+
+      {hasVocabulary && (
+        <section className="mb-8">
+          <SubHead
+            title="Vocabulary"
+            description="The words to reach for, and the ones that put a piece of copy off-voice on their own."
+          />
+          <div className="grid gap-4 sm:grid-cols-2">
+            <ChipList label="Lean on" words={leanOnWords} />
+            <ChipList label="Never" words={neverWords} tone="accent" />
+          </div>
+        </section>
+      )}
+
+      {rewrites?.length > 0 && (
+        <section>
+          <SubHead
+            title="In practice"
+            description="The same message on-voice and off-voice, so the difference is visible rather than described."
+          />
+          <div className="flex flex-col gap-3">
+            {rewrites.map((rw, i) => (
+              <ComparisonCard
+                key={rw.id ?? i}
+                context={rw.context}
+                left={{ label: "✓ On-voice", value: rw.on }}
+                right={{ label: "✕ Off-voice", value: rw.off }}
+              />
+            ))}
+          </div>
+        </section>
       )}
     </GuideSection>
   );

@@ -1,12 +1,14 @@
 import type { BrandCanon } from "@/lib/brand/canon.types";
 import { resolveGuideIntro } from "@/lib/brand/guideIntros";
 import GuideSection from "./GuideSection";
+import SpecCard from "./blocks/SpecCard";
 
 /**
- * Ethos view: the introduction (the mission narrative, until an admin edits it)
- * then the values with their costs — one Ethos family, so the values carry no
- * sub-heading of their own. The mission line itself lives in the canon and the
- * brand brief, not on this tab.
+ * Ethos view: the introduction, then the values.
+ *
+ * Each value is one card with two equally-labelled halves — what it means, and
+ * what it costs. They used to be asymmetric: only the cost carried a label, so
+ * the meaning read as unlabelled prose and the pairing wasn't obvious.
  */
 export default function EthosView({ canon }: { canon: BrandCanon }) {
   return (
@@ -14,16 +16,15 @@ export default function EthosView({ canon }: { canon: BrandCanon }) {
       {canon.values?.length > 0 && (
         <div className="grid gap-3 sm:grid-cols-2">
           {canon.values.map((v) => (
-            <div key={v.n} className="rounded-lg border border-brand-line p-4">
-              <p className="font-brand-display text-lg text-brand-high-contrast">
-                {v.n}. {v.title}
-              </p>
-              <p className="font-brand-body text-sm text-brand-content mt-1">{v.means}</p>
-              <p className="font-brand-body text-xs text-brand-content-muted mt-2">
-                <span className="text-brand-accent uppercase tracking-wide">The cost · </span>
-                {v.cost}
-              </p>
-            </div>
+            <SpecCard
+              key={v.id ?? v.n}
+              eyebrow={v.n}
+              title={v.title}
+              rows={[
+                { label: "What it means", value: v.means },
+                { label: "The cost", value: v.cost, tone: "accent" },
+              ]}
+            />
           ))}
         </div>
       )}

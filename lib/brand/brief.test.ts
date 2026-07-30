@@ -34,3 +34,37 @@ describe("compileAgentBrief", () => {
     expect(compileAgentBrief(seedCanon)).toBe(compileAgentBrief(seedCanon));
   });
 });
+
+describe("compileAgentBrief with illustrated rules", () => {
+  it("renders rich rules as text, never [object Object]", () => {
+    // Regression: colorForbidden and illustrationLaw.rules widened to accept
+    // GuideRule objects in phase 2. Template-literal interpolation accepts any
+    // type, so typecheck cannot catch this — only an assertion can.
+    const canon = {
+      ...seedCanon,
+      colorForbidden: [
+        { id: "f1", polarity: "dont" as const, title: "No pure black", detail: "Use Indigo." },
+      ],
+      illustrationLaw: {
+        rules: [{ id: "v1", polarity: "dont" as const, title: "No drop shadows" }],
+      },
+    };
+
+    const brief = compileAgentBrief(canon);
+
+    expect(brief).not.toContain("[object Object]");
+    expect(brief).toContain("No pure black — Use Indigo.");
+    expect(brief).toContain("NEVER: No drop shadows");
+  });
+
+  it("still renders legacy string rules", () => {
+    const brief = compileAgentBrief({
+      ...seedCanon,
+      colorForbidden: ["Pure black anywhere."],
+      illustrationLaw: { rules: ["Flat two-colour line work."] },
+    });
+
+    expect(brief).toContain("Forbidden: Pure black anywhere.");
+    expect(brief).toContain("ALWAYS: Flat two-colour line work.");
+  });
+});
