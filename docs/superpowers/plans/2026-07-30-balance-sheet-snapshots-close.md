@@ -32,7 +32,7 @@
 - **RLS — this exact mistake shipped a blocker in PR A; it is waiting for all three of this PR's tables.** `apply_grant_policies(table, scope)` is **ADDITIVE-ONLY**. Its predicate bottoms out in `effective_grant_level()`, which carries `and get_my_role() = 'custom'` (`20260822_rls_grant_aware_policies.sql:54`), so on its own it denies every `viewer`/`brewer`/`manager`/`admin`. On the payroll tables it was always layered over an existing role policy; a NEW table that gets only the grant pair matches **no policy for any real user**. A SELECT matching no policy returns **zero rows with no error** — it renders as a plausible empty state and silently zeroes any figure computed from it. Pair it with a role policy, or lock the table down and read via `createSupabaseAdminClient()` behind `requirePermission` (the `chart-of-accounts` / `expenses` pattern; note `finance_reader_roles()` returns an empty array on purpose). Before switching any route to the admin client, check **who reaches it** — `/api/net-sales-summary` looks like finance but is called from the Taproom Achievement tab under `CAP.targetsRead`.
 - **New `chart_of_accounts` FKs need a `coa_reference_count` arm.** All three tables in Task 1 carry one. Without an arm, deleting a referenced account reports zero references and then raises a raw 23503 instead of the designed 409. Add the arms in this PR's migration — but note the function is currently mid-repair in prod (see `20260905090000_fix_coa_reference_count.sql`), so restate the body from THAT file, not from `20260802_coa_reference_count.sql`, which references dropped columns and will abort at CREATE time.
 - **Supabase client per context:** `server.ts` in route handlers, `browser.ts` in client components, `admin.ts` for cron and privileged writes.
-- **Migrations:** this PR owns the full stamp `20260904130000` exclusively. Plain `YYYYMMDD` prefixes keep colliding with parallel branches, so new migrations take a full `YYYYMMDDHHMMSS` stamp. Never hand-edit an existing migration. **Subagents never apply migrations** — authoring is in scope, applying is orchestrator-only after user approval and a backup.
+- **Migrations:** this PR owns the full stamp `20260905100000` exclusively. Plain `YYYYMMDD` prefixes keep colliding with parallel branches, so new migrations take a full `YYYYMMDDHHMMSS` stamp. Never hand-edit an existing migration. **Subagents never apply migrations** — authoring is in scope, applying is orchestrator-only after user approval and a backup.
 - **Graceful degradation is a requirement, not a nicety.** `taxAccrual` depends on `square_tax_accounts` (migration 20260827) and `tipAccrual` on `payroll_gl_settings.tips_chart_of_accounts_id` (20260823). Both may be unapplied in prod. Their existing try/catch-to-empty behavior must survive the move verbatim — a missing table must leave the balance sheet rendering, never 500 it.
 
 ## Task Table
@@ -53,7 +53,7 @@ No task is escalated to Opus: this migration is additive DDL plus seed inserts w
 ### Task 1: Migration + provider registry
 
 **Files:**
-- Create: `supabase/migrations/20260904130000_balance_sheet_snapshots.sql`
+- Create: `supabase/migrations/20260905100000_balance_sheet_snapshots.sql`
 - Create: `lib/finance/balances/registry.ts`
 - Create: `lib/finance/balances/registry.test.ts`
 
@@ -124,7 +124,7 @@ Expected: PASS.
 
 - [ ] **Step 5: Author the migration**
 
-Create `supabase/migrations/20260904130000_balance_sheet_snapshots.sql`:
+Create `supabase/migrations/20260905100000_balance_sheet_snapshots.sql`:
 
 1. The three tables above. `balance_cents bigint not null`. `contributions jsonb not null default '{}'`. `status text not null default 'open' check (status in ('open','completed','skipped'))`.
 
@@ -168,7 +168,7 @@ node scripts/check-migrations.mjs --strict && npm run verify
 ```
 
 ```bash
-git add supabase/migrations/20260904130000_balance_sheet_snapshots.sql lib/finance/balances/registry.ts lib/finance/balances/registry.test.ts
+git add supabase/migrations/20260905100000_balance_sheet_snapshots.sql lib/finance/balances/registry.ts lib/finance/balances/registry.test.ts
 git commit -m "feat(finance): balance snapshot schema and provider registry"
 ```
 

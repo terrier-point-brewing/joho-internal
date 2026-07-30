@@ -1,4 +1,4 @@
--- supabase/migrations/20260904130000_balance_sheet_snapshots.sql
+-- supabase/migrations/20260905100000_balance_sheet_snapshots.sql
 --
 -- Foundation for balance-sheet GL mapping: every balance-sheet account gets a
 -- declared "balance provider" (lib/finance/balances/registry.ts) that feeds a
@@ -204,7 +204,7 @@ as $$
   select 'manual entries', count(*) from manual_entries
     where chart_of_accounts_id = p_account_id
   union all
-  -- new: 20260904130000_balance_sheet_snapshots.sql
+  -- new: 20260905100000_balance_sheet_snapshots.sql
   select 'balance sheet account sources', count(*) from balance_sheet_account_sources
     where chart_of_accounts_id = p_account_id
   union all
