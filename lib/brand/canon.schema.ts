@@ -98,6 +98,24 @@ const roleMapSchema = z.object({
 
 const keyValSchema = z.object({ key: z.string(), value: z.string() });
 
+// One illustrated rule — the shared atom behind Visual Identity's do/don't
+// grid and the Color tab's forbidden list, and (later) each mark's usage notes.
+// `assetId` points at a brand_assets row of kind `example`.
+export const guideRuleSchema = z.object({
+  id: idSchema,
+  polarity: z.enum(["do", "dont"]),
+  title: z.string(),
+  detail: z.string().optional(),
+  assetId: z.string().optional(),
+  caption: z.string().optional(),
+});
+
+// Rule lists accept either shape. Documents written before this phase hold bare
+// strings, and getCanon() does NOT validate on read — so a schema that rejected
+// them would render an empty subtab rather than fail loudly. lib/brand/guideRules
+// normalizes on read; migration 20260904 rewrites stored rows to the rich shape.
+const ruleListSchema = z.array(z.union([z.string(), guideRuleSchema]));
+
 // A single identity mark (wordmark / logo / chop) and its specification sheet.
 // A mark can carry several "cuts"/variants (e.g. the wordmark's horizontal 4A
 // and vertical 5E). Optional throughout so a mark can be added with only an
@@ -179,7 +197,9 @@ export const canonSchema = z.object({
   usageRatios: z.array(
     z.object({ role: roleNameSchema, pct: z.number(), note: z.string().optional() }),
   ),
-  colorForbidden: z.array(z.string()),
+  // Illustrated "never do this" rules. Legacy documents hold bare strings; the
+  // Color tab normalizes them to `dont` rules on read.
+  colorForbidden: ruleListSchema,
 
   // ── Typography (Specification) ───────────────────────────────────────────
   fonts: z
@@ -201,7 +221,11 @@ export const canonSchema = z.object({
     elements: z.array(z.object({ n: z.string(), title: z.string(), desc: z.string() })),
   }),
   // The illustration narrative lives in guideIntros.visual; the rules stay here.
-  illustrationLaw: z.object({ rules: z.array(z.string()) }),
+  // The Visual Identity subtab's rules. Storage key kept as `illustrationLaw`
+  // deliberately: renaming it would need the migration to land in lockstep with
+  // the deploy, since getCanon() doesn't validate on read and a moved key would
+  // render an empty subtab silently. Widening the element type cannot break.
+  illustrationLaw: z.object({ rules: ruleListSchema }),
 
   // ── Rules & precedence ───────────────────────────────────────────────────
   hardRules: z.array(z.string()),

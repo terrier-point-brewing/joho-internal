@@ -13,9 +13,10 @@ import TypeFacet from "./facets/TypeFacet";
 import MarksFacet from "./facets/MarksFacet";
 import IntroFacet from "./facets/IntroFacet";
 import SliceJsonFacet from "./facets/SliceJsonFacet";
-import { visualSlice, agentSlice, colorForbiddenSlice } from "./facets/canonSlices";
+import { agentSlice } from "./facets/canonSlices";
 import EthosFields from "./fields/EthosFields";
 import VoiceFields from "./fields/VoiceFields";
+import RuleListField from "./fields/RuleListField";
 import { useDraft, usePublish } from "./useCanonEditor";
 import { useSectionAutosave, type SaveState } from "./useSectionAutosave";
 import { changedSections } from "@/lib/brand/canonSections";
@@ -181,7 +182,13 @@ export default function CanonEditor({
           {section === "ethos" && <EthosFields draft={draft} onChange={setDraft} />}
           {section === "voice" && <VoiceFields draft={draft} onChange={setDraft} />}
           {section === "visual" && (
-            <SliceJsonFacet {...visualSlice} draft={draft} onChange={setDraft} />
+            <RuleListField
+              label="Visual identity rules"
+              description="What the brand's imagery must and must not do. Each rule can carry an example."
+              rules={draft.illustrationLaw?.rules}
+              defaultPolarity="do"
+              onChange={(rules) => setDraft({ ...draft, illustrationLaw: { rules } })}
+            />
           )}
           {section === "agent" && (
             <SliceJsonFacet {...agentSlice} draft={draft} onChange={setDraft} />
@@ -190,7 +197,13 @@ export default function CanonEditor({
             <>
               <PaletteFacet draft={draft} onChange={setDraft} />
               <ThemeFacet draft={draft} onChange={setDraft} />
-              <SliceJsonFacet {...colorForbiddenSlice} draft={draft} onChange={setDraft} />
+              <RuleListField
+                label="Forbidden colors"
+                description="Combinations that must never ship. Each one can carry an image showing the violation."
+                rules={draft.colorForbidden}
+                defaultPolarity="dont"
+                onChange={(colorForbidden) => setDraft({ ...draft, colorForbidden })}
+              />
             </>
           )}
           {section === "type" && <TypeFacet draft={draft} onChange={setDraft} />}

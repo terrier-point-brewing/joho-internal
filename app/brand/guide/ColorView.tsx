@@ -1,7 +1,10 @@
 import type { BrandCanon, RoleName } from "@/lib/brand/canon.types";
 import { resolveGuideIntro } from "@/lib/brand/guideIntros";
+import { normalizeRules } from "@/lib/brand/guideRules";
 import ColorSwatch from "./ColorSwatch";
-import GuideSection, { KICKER } from "./GuideSection";
+import GuideSection from "./GuideSection";
+import SubHead from "./blocks/SubHead";
+import RuleGrid from "./blocks/RuleGrid";
 
 // Explicit literal classNames (not template-string interpolation) so Tailwind's
 // content scanner picks up every bg-brand-<role> utility. Order = display order.
@@ -25,6 +28,8 @@ const ROLE_SWATCHES: { role: RoleName; className: string }[] = [
 export default function ColorView({ canon }: { canon: BrandCanon }) {
   const paletteByKey = new Map(canon.palette.map((c) => [c.key, c]));
   const ratioByRole = new Map(canon.usageRatios.map((r) => [r.role, r]));
+  // Legacy entries are bare strings and are all prohibitions by definition.
+  const forbidden = normalizeRules(canon.colorForbidden, "dont");
 
   return (
     <GuideSection intro={resolveGuideIntro(canon, "color")}>
@@ -48,14 +53,16 @@ export default function ColorView({ canon }: { canon: BrandCanon }) {
           );
         })}
       </div>
-      {canon.colorForbidden?.length > 0 && (
-        <div className="mt-6">
-          <p className={`${KICKER} mb-1 !text-brand-accent`}>Forbidden</p>
-          <ul className="font-brand-body text-xs text-brand-content-muted space-y-0.5 max-w-3xl">
-            {canon.colorForbidden.map((f, i) => (
-              <li key={i}>✕ {f}</li>
-            ))}
-          </ul>
+      {/* Forbidden combinations, as illustrated rules rather than a tiny list.
+          "Seal Red on Indigo vibrates" is a claim you have to take on trust
+          until you see it, so each rule carries an image slot. */}
+      {forbidden.length > 0 && (
+        <div className="mt-8">
+          <SubHead
+            title="Forbidden"
+            description="Combinations that must never ship. Each one fails a review on its own."
+          />
+          <RuleGrid rules={forbidden} />
         </div>
       )}
     </GuideSection>
