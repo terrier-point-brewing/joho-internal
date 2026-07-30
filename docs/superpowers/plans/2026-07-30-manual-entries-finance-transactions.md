@@ -335,6 +335,7 @@ git commit -m "feat(finance): read manual net-sales plugs from manual_entries"
 **Files:**
 - Create: `app/finance/transactions/manual-entries/page.tsx`
 - Modify: `app/finance/transactions/TransactionsNav.tsx`
+- Modify: `app/finance/transactions/layout.tsx` (the `<PageHeader description>` only)
 
 **Interfaces:**
 - Consumes: the API from Task 2, `queryKeys.finance.manualEntries`, and `ManualEntryRecord`/`ManualEntryKind` from Task 1.
@@ -456,10 +457,22 @@ git commit -m "refactor(taproom): remove Manual Entries, now under Finance > Tra
 
 ## Post-Implementation
 
-**Orchestrator-only, after all five tasks are reviewed and merged:**
+**Orchestrator-only. The migration must be applied BEFORE the branch merges, not after.**
 
-1. Back up `manual_net_sales_entries` before applying `20260902` — the migration drops it.
-2. Apply the migration with explicit user approval. Verify the row count copied across matches the source count, and that every copied row resolved to GL 4100.
-3. Confirm the P&L for a month containing a migrated entry reports the same net sales as before the migration. A drift here means the account resolution or the proration rewire is wrong.
+Task 3 rewires the app to read `manual_entries`, and merging to `main` triggers a
+Vercel production deploy. If the migration has not run by then, prod reads a table
+that does not exist and the P&L 500s. Ordering:
+
+1. All five tasks implemented and reviewed on the branch.
+2. Back up `manual_net_sales_entries` — the migration drops it.
+3. Apply `20260902` to production with explicit user approval. Verify the copied row
+   count matches the source count and that every copied row resolved to GL 4100.
+4. Confirm the P&L for a month containing a migrated entry reports the same net sales
+   as before. A drift means the account resolution or the proration rewire is wrong.
+5. Only then merge.
+
+Per `feedback_prod_db_migration_authorization`: a partial apply looks identical to a
+full one, so verify the post-apply state directly rather than trusting the command's
+exit status.
 
 **Known follow-up:** PR B modifies `app/api/finance/manual-entries/route.ts` to call `reconcileCloseTasks` after a balance write. That hook does not exist yet and is deliberately out of scope here.
