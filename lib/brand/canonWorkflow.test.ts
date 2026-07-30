@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { getDraft, listVersions, nextVersionLabel, publishDraft, saveDraft } from "./canonWorkflow";
+import {
+  getDraft,
+  listVersions,
+  nextVersionLabel,
+  publishDraft,
+  saveDraft,
+  saveDraftSection,
+} from "./canonWorkflow";
 import { seedCanon } from "./seedCanon";
+import { withIds } from "./canonIds";
 import type { BrandCanon } from "./canon.types";
 
 describe("nextVersionLabel", () => {
@@ -140,8 +148,156 @@ describe("getDraft", () => {
   it("seeds a new draft from seedCanon when no rows at all exist", async () => {
     const client = fakeClient([]);
     const result = await getDraft(client as never);
-    expect(result).toEqual(seedCanon);
+    // Equal to the seed except for the ids getDraft backfills on read.
+    expect(result).toEqual(expect.objectContaining({ brandName: seedCanon.brandName }));
+    expect(result.values.map((v) => v.title)).toEqual(seedCanon.values.map((v) => v.title));
     expect(client.rows.some((r) => r.status === "draft")).toBe(true);
+  });
+
+  it("backfills stable ids onto a stored draft that has none", async () => {
+    const noIds = JSON.parse(
+      JSON.stringify(seedCanon, (k, v) => (k === "id" ? undefined : v)),
+    ) as BrandCanon;
+    const client = fakeClient([
+      { id: "d1", version_label: "1.0", status: "draft", document: noIds },
+    ]);
+
+    const result = await getDraft(client as never);
+
+    for (const v of result.values) expect(v.id).toBeTruthy();
+    // …and persists them, so the next read is stable rather than re-generating.
+    const stored = client.rows.find((r) => r.status === "draft")!.document as BrandCanon;
+    expect(stored.values.map((v) => v.id)).toEqual(result.values.map((v) => v.id));
+  });
+
+  it("does not rewrite the draft row when ids are already present", async () => {
+    const seeded = (await getDraft(fakeClient([]) as never)) as BrandCanon;
+    const client = fakeClient([
+      { id: "d1", version_label: "1.0", status: "draft", document: seeded },
+    ]);
+    const before = JSON.stringify(client.rows[0]);
+
+    await getDraft(client as never);
+
+    expect(JSON.stringify(client.rows[0])).toBe(before);
+  });
+});
+
+describe("saveDraftSection", () => {
+  // A stored draft whose `naming` block is invalid against the full canon
+  // schema (criteria must be exactly 5). Before section-scoped saving this
+  // made EVERY save from EVERY subtab fail, because saveDraft ran
+  // canonSchema.parse() over the whole document.
+  function draftWithBrokenNaming(): BrandCanon {
+    return {
+      ...seedCanon,
+      naming: { ...seedCanon.naming, criteria: ["only", "three", "criteria"] as never },
+    };
+  }
+
+  it("saves one section while an unrelated section is invalid", async () => {
+    const client = fakeClient([
+      { id: "d1", version_label: "1.0", status: "draft", document: draftWithBrokenNaming() },
+    ]);
+
+    const values = [{ n: "1", title: "Rewritten", means: "m", cost: "c" }];
+    await expect(saveDraftSection(client as never, "ethos", { values })).resolves.toBeUndefined();
+
+    const stored = client.rows.find((r) => r.status === "draft")!.document as BrandCanon;
+    expect(stored.values[0].title).toBe("Rewritten");
+  });
+
+  it("leaves every key outside the section byte-identical", async () => {
+    // Start from an id-bearing document so the getDraft backfill is a no-op and
+    // the comparison below is genuinely exact rather than "equal except ids".
+    const original = withIds(seedCanon).canon;
+    const client = fakeClient([
+      { id: "d1", version_label: "1.0", status: "draft", document: original },
+    ]);
+
+    await saveDraftSection(client as never, "ethos", {
+      values: [{ n: "1", title: "Only this changes", means: "m", cost: "c" }],
+    });
+
+    const stored = client.rows.find((r) => r.status === "draft")!.document as BrandCanon;
+    expect(stored.voice).toEqual(original.voice);
+    expect(stored.palette).toEqual(original.palette);
+    expect(stored.naming).toEqual(original.naming);
+    expect(stored.visibility).toEqual(original.visibility);
+    expect(stored.brandName).toBe(original.brandName);
+  });
+
+  it("refuses a patch carrying another section's key", async () => {
+    const client = fakeClient([
+      { id: "d1", version_label: "1.0", status: "draft", document: seedCanon },
+    ]);
+
+    await expect(
+      saveDraftSection(client as never, "ethos", { voice: seedCanon.voice } as never),
+    ).rejects.toThrow(/voice/);
+  });
+
+  it("rejects a patch whose own key is malformed", async () => {
+    const client = fakeClient([
+      { id: "d1", version_label: "1.0", status: "draft", document: seedCanon },
+    ]);
+
+    await expect(
+      saveDraftSection(client as never, "ethos", { values: "nope" } as never),
+    ).rejects.toThrow();
+  });
+
+  it("merges only this subtab's guideIntros entry, leaving the others intact", async () => {
+    const client = fakeClient([
+      { id: "d1", version_label: "1.0", status: "draft", document: seedCanon },
+    ]);
+
+    await saveDraftSection(client as never, "ethos", {
+      guideIntros: { ethos: "New ethos intro" },
+    });
+
+    const stored = client.rows.find((r) => r.status === "draft")!.document as BrandCanon;
+    expect(stored.guideIntros?.ethos).toBe("New ethos intro");
+    expect(stored.guideIntros?.voice).toBe(seedCanon.guideIntros?.voice);
+    expect(stored.guideIntros?.color).toBe(seedCanon.guideIntros?.color);
+  });
+
+  it("refuses a guideIntros patch targeting a different subtab", async () => {
+    const client = fakeClient([
+      { id: "d1", version_label: "1.0", status: "draft", document: seedCanon },
+    ]);
+
+    await expect(
+      saveDraftSection(client as never, "ethos", { guideIntros: { voice: "sneaky" } }),
+    ).rejects.toThrow(/voice/);
+  });
+
+  it("surfaces a failed write instead of reporting success", async () => {
+    // Ids pre-assigned so the only update this test can trip is the section
+    // write itself — otherwise the id-backfill update fails first and we'd be
+    // asserting on the wrong error.
+    const client = fakeClient(
+      [{ id: "d1", version_label: "1.0", status: "draft", document: withIds(seedCanon).canon }],
+      { update: true },
+    );
+
+    await expect(
+      saveDraftSection(client as never, "ethos", {
+        values: [{ n: "1", title: "t", means: "m", cost: "c" }],
+      }),
+    ).rejects.toThrow(/save the canon draft section/);
+  });
+
+  it("creates a draft first when none exists, then applies the patch", async () => {
+    const client = fakeClient([]);
+
+    await saveDraftSection(client as never, "ethos", {
+      values: [{ n: "1", title: "From nothing", means: "m", cost: "c" }],
+    });
+
+    const drafts = client.rows.filter((r) => r.status === "draft");
+    expect(drafts).toHaveLength(1);
+    expect((drafts[0].document as BrandCanon).values[0].title).toBe("From nothing");
   });
 });
 

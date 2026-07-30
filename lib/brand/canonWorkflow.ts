@@ -1,5 +1,8 @@
 import { canonSchema } from "./canon.schema";
 import type { BrandCanon } from "./canon.types";
+import { withIds } from "./canonIds";
+import { SECTION_KEYS, sectionSchema } from "./canonSections";
+import type { GuideSectionKey } from "./guideIntros";
 import { seedCanon } from "./seedCanon";
 
 interface CanonRow {
@@ -87,12 +90,27 @@ async function getDraftRow(client: SupabaseLikeClient): Promise<CanonRow | null>
 // Returns the draft row's document. If no draft exists, seeds one from the
 // current published row (or seedCanon if there's no published row either)
 // and inserts it as the new draft.
+//
+// Also backfills stable list-item ids (lib/brand/canonIds.ts). This is how
+// stored rows acquire ids without a data migration: read once, persist if
+// anything was assigned, and every read after that is a no-op. withIds is
+// idempotent, which is what stops this rewriting the row on every request.
 export async function getDraft(client: SupabaseLikeClient): Promise<BrandCanon> {
   const existing = await getDraftRow(client);
-  if (existing) return existing.document;
+  if (existing) {
+    const { canon, changed } = withIds(existing.document);
+    if (changed) {
+      const { error } = await client
+        .from(TABLE)
+        .update({ document: canon, updated_at: new Date().toISOString() })
+        .eq("id", existing.id);
+      assertOk(error, "backfill canon item ids");
+    }
+    return canon;
+  }
 
   const published = await getCurrentPublished(client);
-  const seedDocument = published?.document ?? seedCanon;
+  const { canon: seedDocument } = withIds(published?.document ?? seedCanon);
   const { error } = await client.from(TABLE).insert({
     version_label: published?.version_label ?? "",
     status: "draft",
@@ -102,6 +120,68 @@ export async function getDraft(client: SupabaseLikeClient): Promise<BrandCanon> 
   });
   assertOk(error, "create the canon draft");
   return seedDocument;
+}
+
+// Writes ONE Brand Guide subtab's slice of the draft.
+//
+// The reason this exists: saveDraft() validates the entire document, so a stale
+// or invalid field in any section blocked saving from every section. Here only
+// `sectionSchema(section)` runs, so editing Ethos can't be held hostage by a
+// malformed `naming` block three tabs away. Whole-document validation still
+// happens — once, at publish, where it belongs (validateCanonForPublish).
+//
+// The stored draft is re-read inside this call and the patch merged into it.
+// The client never sends a full document, so two admins editing different
+// subtabs can't clobber each other's work.
+export async function saveDraftSection(
+  client: SupabaseLikeClient,
+  section: GuideSectionKey,
+  patch: Partial<BrandCanon>,
+): Promise<void> {
+  const owned = new Set<string>(SECTION_KEYS[section] as readonly string[]);
+
+  // A section may write its own keys plus its own guideIntros entry — nothing
+  // else. Rejecting loudly beats silently dropping: a patch carrying a foreign
+  // key means the caller is confused, and swallowing it would hide the bug.
+  const { guideIntros, ...rest } = patch;
+  for (const key of Object.keys(rest)) {
+    if (!owned.has(key)) {
+      throw new Error(
+        `Brand canon: section "${section}" may not write "${key}" (owned by another subtab)`,
+      );
+    }
+  }
+  if (guideIntros) {
+    for (const key of Object.keys(guideIntros)) {
+      if (key !== section) {
+        throw new Error(
+          `Brand canon: section "${section}" may not write the "${key}" introduction`,
+        );
+      }
+    }
+  }
+
+  const parsed = Object.keys(rest).length > 0 ? sectionSchema(section).parse(rest) : {};
+
+  // getDraft (not getDraftRow) so a first-ever section save still works — it
+  // creates the seeded draft, which we then re-read to patch by id.
+  await getDraft(client);
+  const existing = await getDraftRow(client);
+  if (!existing) throw new Error("Brand canon: no draft to patch");
+
+  const nextDocument: BrandCanon = {
+    ...existing.document,
+    ...parsed,
+    ...(guideIntros
+      ? { guideIntros: { ...existing.document.guideIntros, ...guideIntros } }
+      : {}),
+  };
+
+  const { error } = await client
+    .from(TABLE)
+    .update({ document: nextDocument, updated_at: new Date().toISOString() })
+    .eq("id", existing.id);
+  assertOk(error, "save the canon draft section");
 }
 
 // Validates, then updates the single existing draft row (or inserts one if
