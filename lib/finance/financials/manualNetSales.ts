@@ -73,66 +73,89 @@ export function proratedManualAdjustment(
 }
 
 /**
- * Synthesizes ONE taproom-revenue FinancialsRow spanning `months` (mirrors
- * buildFinancials.ts's injectOpenInvoiceAr shape), zero-filled per month like
- * aggregateRows' own groups so downstream month-key derivation (e.g.
+ * Synthesizes ONE taproom-revenue FinancialsRow PER DISTINCT
+ * chart_of_accounts_id spanning `months` (mirrors buildFinancials.ts's
+ * injectOpenInvoiceAr shape), zero-filled per month like aggregateRows' own
+ * groups so downstream month-key derivation (e.g.
  * app/finance/financials/buildTree.ts reading rows[0]'s keys) stays correct
- * regardless of row order. coaId is the mapped entry's real
- * chart_of_accounts_id (every manual_entries row has one -- NOT NULL at the
- * DB level) and statementSection is derived from it via aggregateRows.ts's
- * coaSection(), same as every other CoA-mapped row, so it's a genuinely
- * mapped row rather than the carve-out summaries.ts's buildDataQuality used
- * to need when this row's coaId was null.
+ * regardless of row order.
+ *
+ * Entries are grouped by chartOfAccountsId BEFORE proration -- two
+ * overlapping flow entries coded to different accounts (e.g. one Revenue,
+ * one Other Income) must never collapse into a single blended total filed
+ * under just one of their accounts. Each group gets its own prorated
+ * amountCentsByMonth (via proratedManualAdjustment, unchanged), its own
+ * coaId, its own coaSection()-derived statementSection, and its own
+ * sourceRef.ids containing only that group's entry ids.
  *
  * `coa` is the full chart-of-accounts reference list (buildFinancials.ts's
- * src.coa) used only to resolve that statementSection; optional/empty is
- * only for callers that don't care about the resolved section.
+ * src.coa), used both to resolve each group's statementSection and to
+ * resolve accountName to the real account name (see the accountName comment
+ * below) -- required, not optional: an omitted/empty coa silently resolves
+ * every row to aggregateRows.ts's UNMAPPED_SECTION via coaSection(undefined)
+ * instead of failing loudly.
  *
- * The synthesized coaId is taken from whichever contributing entry appears
- * first in `entries` -- in practice every flow entry shares one operator-
- * chosen "top-line adjustment" account, so this doesn't split across
- * multiple rows the way aggregateRows does for real per-account postings.
+ * accountName is the real resolved account's name (matching how every other
+ * CoA-mapped row is labelled -- see aggregateRows.ts), suffixed with
+ * "(Manual Adjustment)" so the row stays identifiable as a manual, not
+ * Square-sourced, posting without misrepresenting which account it belongs
+ * to (mappingSource: "manual" and sourceRef.table: "manual_entries" already
+ * carry that signal too).
  *
- * Appends nothing (returns `rows` unchanged) when every month prorates to 0
- * -- no entries configured, or none overlap the window.
+ * Appends nothing (returns `rows` unchanged) when every group prorates to 0
+ * across every month -- no entries configured, or none overlap the window.
  */
 export function injectManualNetSales(
   rows: FinancialsRow[],
   entries: ManualNetSalesEntryRecord[],
   months: string[],
-  coa: CoaRecord[] = [],
+  coa: CoaRecord[],
 ): FinancialsRow[] {
-  const amountCentsByMonth: Record<string, number> = {};
-  const idSet = new Set<string>();
-  let hasNonZero = false;
+  const coaMap = new Map(coa.map((c) => [c.id, c]));
 
-  for (const month of months) {
-    const { cents, ids } = proratedManualAdjustment(entries, month);
-    amountCentsByMonth[month] = cents;
-    if (cents !== 0) hasNonZero = true;
-    for (const id of ids) idSet.add(id);
+  const entriesByAccount = new Map<string, ManualNetSalesEntryRecord[]>();
+  for (const entry of entries) {
+    const bucket = entriesByAccount.get(entry.chartOfAccountsId);
+    if (bucket) bucket.push(entry);
+    else entriesByAccount.set(entry.chartOfAccountsId, [entry]);
   }
 
-  if (!hasNonZero) return rows;
+  const synthesized: FinancialsRow[] = [];
 
-  const coaMap = new Map(coa.map((c) => [c.id, c]));
-  const contributingEntry = entries.find((e) => idSet.has(e.id));
-  const coaId = contributingEntry?.chartOfAccountsId ?? null;
+  for (const [coaId, groupEntries] of entriesByAccount) {
+    const amountCentsByMonth: Record<string, number> = {};
+    const idSet = new Set<string>();
+    let hasNonZero = false;
 
-  const synthesized: FinancialsRow = {
-    coaId,
-    parentId: null,
-    accountName: "Manual Net-Sales Adjustment",
-    statementSection: coaSection(coaId ? coaMap.get(coaId) : undefined),
-    channel: MANUAL_CHANNEL,
-    posCategory: null,
-    kegSize: null,
-    amountCentsByMonth,
-    bblByMonth: {},
-    bblCoverage: "full",
-    mappingSource: "manual",
-    sourceRef: { table: MANUAL_TABLE, ids: [...idSet] },
-  };
+    for (const month of months) {
+      const { cents, ids } = proratedManualAdjustment(groupEntries, month);
+      amountCentsByMonth[month] = cents;
+      if (cents !== 0) hasNonZero = true;
+      for (const id of ids) idSet.add(id);
+    }
 
-  return [...rows, synthesized];
+    if (!hasNonZero) continue;
+
+    const account = coaMap.get(coaId);
+    const accountName = account ? `${account.accountName} (Manual Adjustment)` : "Manual Net-Sales Adjustment";
+
+    synthesized.push({
+      coaId,
+      parentId: null,
+      accountName,
+      statementSection: coaSection(account),
+      channel: MANUAL_CHANNEL,
+      posCategory: null,
+      kegSize: null,
+      amountCentsByMonth,
+      bblByMonth: {},
+      bblCoverage: "full",
+      mappingSource: "manual",
+      sourceRef: { table: MANUAL_TABLE, ids: [...idSet] },
+    });
+  }
+
+  if (synthesized.length === 0) return rows;
+
+  return [...rows, ...synthesized];
 }

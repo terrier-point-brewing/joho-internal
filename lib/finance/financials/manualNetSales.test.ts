@@ -55,7 +55,11 @@ describe("injectManualNetSales", () => {
     expect(row.channel).toBe("taproom");
     // "coa-rev" is accountType "Income" -> ACCOUNT_TYPE_SECTION derives "revenue".
     expect(row.statementSection).toBe("revenue");
-    expect(row.accountName).toBe("Manual Net-Sales Adjustment");
+    // accountName tracks the entry's real resolved account (Finding 3) so a
+    // row never misrepresents which account it belongs to; the "(Manual
+    // Adjustment)" suffix keeps it identifiable as a manual, not
+    // Square-sourced, posting.
+    expect(row.accountName).toBe("Taproom Revenue (Manual Adjustment)");
     expect(row.coaId).toBe("coa-rev");
     expect(row.mappingSource).toBe("manual");
     expect(row.bblCoverage).toBe("full");
@@ -107,6 +111,28 @@ describe("injectManualNetSales", () => {
   it("returns rows unchanged when there are no entries at all", () => {
     const rows = injectManualNetSales([], [], months, COA);
     expect(rows).toEqual([]);
+  });
+
+  it("synthesizes one row PER ACCOUNT when overlapping entries are coded to different accounts, instead of blending them under whichever entry's account happens to be found first (Finding 1)", () => {
+    const entries = [
+      { id: "m-rev", startDate: "2026-05-01", endDate: "2026-05-31", amountCents: 100000, chartOfAccountsId: "coa-rev" },
+      { id: "m-oi", startDate: "2026-05-01", endDate: "2026-05-31", amountCents: 25000, chartOfAccountsId: "coa-other-income" },
+    ];
+    const rows = injectManualNetSales([], entries, months, COA);
+
+    expect(rows).toHaveLength(2);
+    const revRow = rows.find((r) => r.coaId === "coa-rev");
+    const oiRow = rows.find((r) => r.coaId === "coa-other-income");
+    expect(revRow).toBeDefined();
+    expect(oiRow).toBeDefined();
+
+    expect(revRow!.statementSection).toBe("revenue");
+    expect(revRow!.amountCentsByMonth["2026-05"]).toBe(100000);
+    expect(revRow!.sourceRef).toEqual({ table: "manual_entries", ids: ["m-rev"] });
+
+    expect(oiRow!.statementSection).toBe("other_income");
+    expect(oiRow!.amountCentsByMonth["2026-05"]).toBe(25000);
+    expect(oiRow!.sourceRef).toEqual({ table: "manual_entries", ids: ["m-oi"] });
   });
 
   it("deduplicates ids across months and omits ids from non-overlapping entries", () => {
