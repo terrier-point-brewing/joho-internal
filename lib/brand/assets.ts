@@ -1,5 +1,9 @@
 // Single source of truth for the asset kinds — mirrors the brand_assets.kind
-// check constraint (migration 20260810). The API validates uploads against this.
+// check constraint (migrations 20260810, 20260903). The API validates uploads
+// against this, so the two must be changed together.
+//
+//   font    — uploaded typefaces, emitted as @font-face for the Type tab
+//   example — do/don't imagery for Visual Identity and forbidden colors
 export const BRAND_ASSET_KINDS = [
   "logo",
   "wordmark",
@@ -7,6 +11,8 @@ export const BRAND_ASSET_KINDS = [
   "texture",
   "icon",
   "photo",
+  "font",
+  "example",
 ] as const;
 export type BrandAssetKind = (typeof BRAND_ASSET_KINDS)[number];
 
@@ -18,6 +24,10 @@ export interface BrandAsset {
   format: string;
   file_meta: Record<string, unknown>;
   status: "draft" | "approved" | "archived";
+  /** Human label for the library; null on rows predating migration 20260903. */
+  title?: string | null;
+  /** Required for accessible do/don't imagery. Null on older rows. */
+  alt_text?: string | null;
 }
 
 // Same injected-client testability pattern as canonWorkflow.ts: callers pass

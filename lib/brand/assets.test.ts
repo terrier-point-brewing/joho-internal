@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  BRAND_ASSET_KINDS,
   approveAsset,
   archiveAsset,
   assetFileUrl,
@@ -8,6 +9,25 @@ import {
   resolveAsset,
   type BrandAsset,
 } from "./assets";
+
+describe("BRAND_ASSET_KINDS", () => {
+  // This list mirrors the brand_assets.kind check constraint. If they drift, an
+  // upload the API accepts is rejected by Postgres at insert time — so the
+  // literal list is asserted here rather than derived, and updating it is a
+  // deliberate two-file change alongside a migration.
+  it("matches the kinds allowed by migration 20260903", () => {
+    expect([...BRAND_ASSET_KINDS]).toEqual([
+      "logo",
+      "wordmark",
+      "chop_glyph",
+      "texture",
+      "icon",
+      "photo",
+      "font",
+      "example",
+    ]);
+  });
+});
 
 describe("assetFileUrl", () => {
   it("points at the session-gated proxy route, keyed by asset id", () => {
