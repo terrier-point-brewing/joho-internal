@@ -127,70 +127,28 @@ create policy "manual flow readers" on public.manual_entries
   for select to authenticated
   using ( entry_kind = 'flow' );
 
--- ── 6b. Extend the CoA deletion reference guard ─────────────────────────────
--- coa_reference_count (20260802_coa_reference_count.sql) backs the per-row
--- Delete in Settings > Chart of Accounts: it reports, per source table, how many
--- rows still reference an account so the route can return a readable 409 instead
--- of a raw FK error. manual_entries.chart_of_accounts_id is NOT NULL REFERENCES
--- chart_of_accounts(id) with no ON DELETE clause, so without this branch the RPC
--- reports zero references, the route proceeds, and Postgres raises an opaque
--- 23503 that surfaces to the operator as a 500.
+-- ── 6b. coa_reference_count: DELIBERATELY NOT EXTENDED HERE ────────────────
+-- The final review correctly flagged that coa_reference_count
+-- (20260802_coa_reference_count.sql) has no manual_entries arm, so deleting an
+-- account referenced only by a manual entry reports zero references and then
+-- raises an opaque 23503 instead of the designed 409.
 --
--- Re-declared in full because create-or-replace cannot patch a single UNION arm.
--- Every pre-existing arm below is copied verbatim from 20260802; the only change
--- is the final 'manual entries' arm.
-create or replace function public.coa_reference_count(p_account_id uuid)
-returns table(source text, n bigint)
-language sql
-stable
-security definer
-set search_path = public
-as $$
-  select 'account mappings'::text, count(*)::bigint from square_catalog_variations
-    where chart_of_accounts_id = p_account_id
-       or chart_of_accounts_id_pos = p_account_id
-       or chart_of_accounts_id_invoice = p_account_id
-       or bs_chart_of_accounts_id = p_account_id
-       or pl_chart_of_accounts_id = p_account_id
-  union all
-  select 'invoice line items', count(*) from invoice_line_items
-    where chart_of_accounts_id = p_account_id
-       or bs_chart_of_accounts_id = p_account_id
-       or pl_chart_of_accounts_id = p_account_id
-  union all
-  select 'POS order line items', count(*) from pos_line_items
-    where chart_of_accounts_id = p_account_id
-  union all
-  select 'expenses', count(*) from expenses
-    where chart_of_accounts_id = p_account_id
-  union all
-  select 'expense account rules', count(*) from expense_account_mappings
-    where chart_of_accounts_id = p_account_id
-  union all
-  select 'expense GL splits', count(*) from expense_gl_splits
-    where chart_of_accounts_id = p_account_id
-  union all
-  select 'counterparty rules', count(*) from expense_counterparty_mappings
-    where chart_of_accounts_id = p_account_id
-  union all
-  select 'bank ledger lines', count(*) from ramp_bank_ledger
-    where chart_of_accounts_id = p_account_id
-  union all
-  select 'refunds', count(*) from square_refunds
-    where chart_of_accounts_id = p_account_id
-  union all
-  select 'payroll department mappings', count(*) from payroll_department_gl_mappings
-    where chart_of_accounts_id = p_account_id
-  union all
-  select 'payroll tax account', count(*) from payroll_gl_settings
-    where payroll_taxes_chart_of_accounts_id = p_account_id
-  union all
-  select 'manual entries', count(*) from manual_entries
-    where chart_of_accounts_id = p_account_id
-  union all
-  select 'child accounts', count(*) from chart_of_accounts
-    where parent_id = p_account_id;
-$$;
+-- Extending it means CREATE OR REPLACE with the whole body restated, and that
+-- body is ALREADY BROKEN AGAINST PRODUCTION: it references
+-- square_catalog_variations.bs_chart_of_accounts_id / pl_chart_of_accounts_id,
+-- which do not exist in prod. Verified live -- calling the function today
+-- returns 42703 "column bs_chart_of_accounts_id does not exist", so the per-row
+-- CoA delete in Settings is already failing, independently of this feature.
+--
+-- Those two columns are added by 20260615_deposit_recognition.sql and dropped by
+-- 20260802_retire_deposit_recognition_columns.sql -- which shares the 20260802
+-- prefix with coa_reference_count itself (grandfathered in
+-- scripts/check-migrations.mjs), so the CLI treats applying either as applying
+-- both. Restating the body here would make THIS migration abort on prod at
+-- CREATE time, turning a clean apply into a partial one.
+--
+-- Fixing that drift is its own change and needs a decision about which columns
+-- are real. It does not belong inside a feature migration. Tracked as follow-up.
 
 -- ── 7. Data migration from manual_net_sales_entries ─────────────────────────
 -- Every legacy row becomes a 'flow' against 4100 BREWERY REVENUE:Taproom
