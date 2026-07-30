@@ -1,0 +1,143 @@
+-- supabase/migrations/20260902_manual_entries.sql
+--
+-- manual_entries — the auditable home for manual financial entries, replacing
+-- the ad hoc manual_net_sales_entries rows that used to be edited under
+-- Taproom > Targets with no account, no audit trail, and no balance-sheet kind.
+--
+-- Two kinds share one table:
+--   * 'flow'    — a P&L amount over a date RANGE (start_date..end_date).
+--   * 'balance' — a balance-sheet amount AS OF a month end (as_of_date).
+--
+-- amount_cents is SIGNED. Negative is legitimate for both kinds: a negative
+-- flow is a correction, and a negative balance is how this codebase stores
+-- contra-accounts (e.g. Accumulated Depreciation) and credit-side accounts.
+-- There is deliberately no positivity constraint.
+--
+-- The kind/date rules are mirrored in lib/finance/manualEntries.ts
+-- (validateManualEntry / monthEnd) so the API returns a readable 400 instead of
+-- surfacing Postgres 23514.
+
+-- ── 1. Table ────────────────────────────────────────────────────────────────
+create table if not exists public.manual_entries (
+  id                   uuid        primary key default gen_random_uuid(),
+  entry_kind           text        not null check (entry_kind in ('flow', 'balance')),
+  chart_of_accounts_id uuid        not null references public.chart_of_accounts(id),
+
+  -- 'flow' owns start_date/end_date; 'balance' owns as_of_date. Enforced below.
+  start_date           date,
+  end_date             date,
+  as_of_date           date,
+
+  amount_cents         bigint      not null,
+  label                text,
+  note                 text,
+
+  mapping_source       text        not null default 'manual',
+
+  -- QuickBooks push state, same shape as expenses / ramp_bank_ledger
+  -- (20260805_expenses_qb_sync_status.sql). Null until an export runs.
+  qb_remote_id         text,
+  qb_sync_status       text,
+  qb_synced_at         timestamptz,
+
+  created_at           timestamptz not null default now(),
+  created_by           uuid        references auth.users(id),
+  updated_at           timestamptz not null default now(),
+  updated_by           uuid        references auth.users(id),
+
+  -- ── 2. Kind/date CHECK ────────────────────────────────────────────────────
+  -- The month-end clause on 'balance' is load-bearing: the snapshot layer only
+  -- ever reads balances keyed to a month end, so a mid-month value would be
+  -- silently invisible. Reject it here rather than discover it downstream.
+  constraint manual_entries_kind_dates check (
+    (entry_kind = 'flow'
+       and start_date is not null and end_date is not null
+       and as_of_date is null and start_date <= end_date)
+    or
+    (entry_kind = 'balance'
+       and as_of_date is not null
+       and start_date is null and end_date is null
+       and as_of_date = (date_trunc('month', as_of_date) + interval '1 month - 1 day')::date)
+  )
+);
+
+comment on table public.manual_entries is
+  'Manual financial entries, auditable via audit_log. entry_kind = flow (P&L amount over start_date..end_date) or balance (balance-sheet amount as of a month end). amount_cents is signed; negative is legitimate for contra- and credit-side accounts.';
+comment on column public.manual_entries.amount_cents is 'integer cents, signed';
+comment on column public.manual_entries.mapping_source is
+  'How chart_of_accounts_id was chosen. ''manual'' for operator-entered rows.';
+
+-- ── 3. One balance per account per period ───────────────────────────────────
+-- A correction is an UPDATE (history lands in audit_log), never a duplicate row.
+create unique index if not exists manual_entries_one_balance_per_period
+  on public.manual_entries (chart_of_accounts_id, as_of_date)
+  where entry_kind = 'balance';
+
+-- ── 4. Lookup index ─────────────────────────────────────────────────────────
+create index if not exists manual_entries_coa_kind
+  on public.manual_entries (chart_of_accounts_id, entry_kind);
+
+-- ── 5. Audit trigger ────────────────────────────────────────────────────────
+-- Reuses the generic function from 20260609_baseline.sql that already backs 16
+-- production tables. Do not write a new one.
+drop trigger if exists manual_entries_audit on public.manual_entries;
+create trigger manual_entries_audit
+  after insert or update or delete on public.manual_entries
+  for each row execute function public.audit_trigger_fn();
+
+-- Repo convention (same pair the dropped manual_net_sales_entries carried):
+-- keep updated_at honest regardless of what the caller sends.
+drop trigger if exists manual_entries_updated_at on public.manual_entries;
+create trigger manual_entries_updated_at
+  before update on public.manual_entries
+  for each row execute function public.update_updated_at();
+
+-- ── 6. RLS ──────────────────────────────────────────────────────────────────
+-- The one-line applicator from 20260822_rls_grant_aware_policies.sql.
+-- NOTE: it grants write at 'operate' while the app layer gates on 'manage'.
+-- The app is deliberately the stricter of the two; do not loosen the app guard.
+alter table public.manual_entries enable row level security;
+select public.apply_grant_policies('manual_entries', 'finance.transactions');
+
+-- ── 7. Data migration from manual_net_sales_entries ─────────────────────────
+-- Every legacy row becomes a 'flow' against 4100 BREWERY REVENUE:Taproom
+-- Revenue. created_by stays null: the source table never recorded it, and an
+-- honest null beats a backfilled guess.
+do $$
+declare
+  v_coa_id uuid;
+  v_moved  bigint;
+begin
+  if to_regclass('public.manual_net_sales_entries') is null then
+    raise notice 'manual_net_sales_entries absent; nothing to migrate';
+    return;
+  end if;
+
+  select id into v_coa_id
+    from public.chart_of_accounts
+   where account_number = '4100'
+   order by is_active desc, uploaded_at desc
+   limit 1;
+
+  if v_coa_id is null then
+    raise exception
+      'manual_entries migration: no chart_of_accounts row with account_number = ''4100'' (BREWERY REVENUE:Taproom Revenue); cannot resolve chart_of_accounts_id for the manual_net_sales_entries backfill';
+  end if;
+
+  insert into public.manual_entries (
+    id, entry_kind, chart_of_accounts_id,
+    start_date, end_date, amount_cents, label,
+    created_at, updated_at
+  )
+  select m.id, 'flow', v_coa_id,
+         m.start_date, m.end_date, m.amount_cents, m.label,
+         m.created_at, m.updated_at
+    from public.manual_net_sales_entries m
+  on conflict (id) do nothing;
+
+  get diagnostics v_moved = row_count;
+  raise notice 'manual_entries migration: moved % manual_net_sales_entries row(s) to chart_of_accounts %', v_moved, v_coa_id;
+end $$;
+
+-- ── 8. Retire the source table ──────────────────────────────────────────────
+drop table if exists public.manual_net_sales_entries;
