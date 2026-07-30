@@ -49,26 +49,37 @@ export interface SupabaseLikeClient {
 
 const TABLE = "brand_assets";
 
-// Pure: builds the public Storage URL for a path in the brand-assets bucket.
-export function publicUrlFor(path: string): string {
-  return `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/brand-assets/${path}`;
+/**
+ * Pure: the URL an asset's bytes are served from.
+ *
+ * The `brand-assets` bucket is PRIVATE (migration 20260903), so there is no
+ * public storage URL to build. Bytes come through a session-gated proxy route
+ * instead — `app/api/brand/assets/[id]/file`.
+ *
+ * A permanent, origin-relative path rather than a signed URL, deliberately:
+ * signed URLs expire, which breaks an `@font-face src` that must outlive a
+ * cached page, an `<img src>` inside a cached RSC payload, and a stable
+ * download link on a mark's spec sheet.
+ */
+export function assetFileUrl(id: string): string {
+  return `/api/brand/assets/${id}/file`;
 }
 
-// Returns the approved row's public URL for the given kind+variant, or null
-// if none is approved (draft/archived-only or no rows at all).
+// Returns the approved row's URL for the given kind+variant, or null if none is
+// approved (draft/archived-only or no rows at all).
 export async function resolveAsset(
   client: SupabaseLikeClient,
   { kind, variant = "default" }: { kind: BrandAssetKind; variant?: string },
 ): Promise<string | null> {
   const { data } = await client
     .from(TABLE)
-    .select("storage_path")
+    .select("id")
     .eq("kind", kind)
     .eq("variant", variant)
     .eq("status", "approved")
     .limit(1);
   if (!data || data.length === 0) return null;
-  return publicUrlFor(data[0].storage_path);
+  return assetFileUrl(data[0].id);
 }
 
 export async function listAssets(

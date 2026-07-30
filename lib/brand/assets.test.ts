@@ -2,17 +2,26 @@ import { describe, expect, it } from "vitest";
 import {
   approveAsset,
   archiveAsset,
+  assetFileUrl,
   createAsset,
   listAssets,
-  publicUrlFor,
   resolveAsset,
   type BrandAsset,
 } from "./assets";
 
-describe("publicUrlFor", () => {
-  it("builds the public storage URL for a path", () => {
-    const url = publicUrlFor("logo/x.svg");
-    expect(url).toContain("/storage/v1/object/public/brand-assets/logo/x.svg");
+describe("assetFileUrl", () => {
+  it("points at the session-gated proxy route, keyed by asset id", () => {
+    expect(assetFileUrl("abc-123")).toBe("/api/brand/assets/abc-123/file");
+  });
+
+  it("is origin-relative and reads no Supabase env", () => {
+    // The bucket is private (migration 20260903), so there is no public storage
+    // URL to build. A permanent same-origin path also survives caching and works
+    // as an @font-face src, which a signed URL would not.
+    const url = assetFileUrl("abc-123");
+    expect(url.startsWith("/")).toBe(true);
+    expect(url).not.toContain("supabase");
+    expect(url).not.toContain("/storage/v1/object/public");
   });
 });
 
@@ -121,12 +130,12 @@ const baseRow = (overrides: Partial<Row>): Row => ({
 });
 
 describe("resolveAsset", () => {
-  it("returns the public URL for an approved row", async () => {
+  it("returns the proxied URL for an approved row", async () => {
     const client = fakeClient([
       baseRow({ id: "a1", status: "approved", storage_path: "wordmark/approved.svg" }),
     ]);
     const url = await resolveAsset(client as never, { kind: "wordmark" });
-    expect(url).toBe(publicUrlFor("wordmark/approved.svg"));
+    expect(url).toBe(assetFileUrl("a1"));
   });
 
   it("returns null when only a draft exists", async () => {

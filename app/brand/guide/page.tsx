@@ -1,6 +1,6 @@
-import { createClient } from "@supabase/supabase-js";
 import { getSessionUser } from "@/lib/auth";
 import { CAP, can } from "@/lib/auth";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getCanon } from "@/lib/brand/getCanon";
 import { seedCanon } from "@/lib/brand/seedCanon";
 import { resolveGuideIntro } from "@/lib/brand/guideIntros";
@@ -14,20 +14,6 @@ import ColorView from "./ColorView";
 import TypeView from "./TypeView";
 import MarksView, { type MarkArtifact } from "./MarksView";
 
-// Cookieless anon client for reading approved assets — same approach as
-// lib/brand/getCanon.ts's createCookielessClient (not exported there, so
-// duplicated here): approved assets are readable by anon (RLS allows SELECT
-// where status='approved').
-function createCookielessAssetClient(): SupabaseLikeClient | null {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !anonKey) return null;
-  const client = createClient(url, anonKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  });
-  return client as unknown as SupabaseLikeClient;
-}
-
 /**
  * Brand Guide — the one brand page. Its in-page tabs (BrandGuideTabs) split the
  * guide into Ethos / Voice / Visual Identity / Color / Type / Marks / Agent
@@ -40,15 +26,18 @@ export default async function BrandGuidePage() {
   const isAdmin = session ? can(session.grants, CAP.brandGuideManage.scope, CAP.brandGuideManage.level) : false;
 
   const canon = await getCanon();
-  const assetClient = createCookielessAssetClient();
 
-  const [wordmarkUrl, logoUrl, chopUrl] = assetClient
-    ? await Promise.all([
-        resolveAsset(assetClient, { kind: "wordmark" }),
-        resolveAsset(assetClient, { kind: "logo" }),
-        resolveAsset(assetClient, { kind: "chop_glyph" }),
-      ])
-    : [null, null, null];
+  // The brand-assets bucket is private and the whole /brand tree is already
+  // session-gated by app/brand/layout.tsx, so assets are read through the admin
+  // client. The cookieless anon client this used to build existed only to read
+  // approved assets anonymously — a capability that no longer exists.
+  const assetClient = createSupabaseAdminClient() as unknown as SupabaseLikeClient;
+
+  const [wordmarkUrl, logoUrl, chopUrl] = await Promise.all([
+    resolveAsset(assetClient, { kind: "wordmark" }),
+    resolveAsset(assetClient, { kind: "logo" }),
+    resolveAsset(assetClient, { kind: "chop_glyph" }),
+  ]);
 
   const marks: MarkArtifact[] = [
     { kind: "wordmark", label: "Wordmark", url: wordmarkUrl },
