@@ -1,72 +1,62 @@
 import type { BrandCanon } from "@/lib/brand/canon.types";
 import { resolveGuideIntro } from "@/lib/brand/guideIntros";
-import GuideSection, { KICKER } from "./GuideSection";
+import { compileBrandMarkdown } from "@/lib/brand/markdown";
+import GuideSection from "./GuideSection";
+import SubHead from "./blocks/SubHead";
+import MarkdownBlock from "./blocks/MarkdownBlock";
+
+/** A filename-safe slug for a section download. */
+function slug(heading: string): string {
+  return heading.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
 
 /**
- * Agent Rules view: the machine-facing rules of the brand — the Never List, the
- * precedence order, and the hard rules. This subtab is largely reference for
- * agents rather than a human read, and is the eventual home for the full
- * Markdown Brand Guide instructions.
+ * Agent Rules view: the whole brand canon as Markdown, copyable whole or by
+ * section.
+ *
+ * Everything here is COMPILED from the other subtabs rather than written
+ * alongside them, so it cannot drift from what the guide shows — the failure
+ * mode of every hand-maintained brand summary. The only content unique to this
+ * tab is the technical section, which holds direction that applies to agents
+ * and to nothing a human reads elsewhere.
+ *
+ * The Markdown is shown as source, not rendered. The audience is an agent and
+ * the thing being copied is the text itself; formatting it would hide the exact
+ * string that ends up in a prompt.
  */
 export default function AgentRulesView({ canon }: { canon: BrandCanon }) {
+  const { sections, full } = compileBrandMarkdown(canon);
+
   return (
     <GuideSection intro={resolveGuideIntro(canon, "agent")}>
-      <div className="flex flex-col gap-10">
-        {/* The Never List */}
-        {canon.neverList?.length > 0 && (
-          <div>
-            <p className={`${KICKER} mb-3`}>The Never List</p>
-            <ul className="grid gap-x-10 gap-y-2 sm:grid-cols-2 font-brand-body text-sm text-brand-content">
-              {canon.neverList.map((n, i) => (
-                <li key={i} className="flex gap-2.5 leading-relaxed">
-                  <span className="text-brand-accent shrink-0" aria-hidden="true">
-                    —
-                  </span>
-                  <span>{n}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
+      <section className="mb-8">
+        <SubHead
+          title="Full brief"
+          description="Everything below, as one document. This is what an agent should be given."
+        />
+        <MarkdownBlock
+          markdown={full}
+          label={`${canon.brandName} — Brand Guide`}
+          filename={`${slug(canon.brandName)}-brand-guide.md`}
+        />
+      </section>
 
-        {/* Precedence — an ordered hierarchy: when directives conflict, the
-            earlier item wins. Rendered as a ranked list, not a bullet list. */}
-        <div>
-          <p className={`${KICKER} mb-1`}>Precedence</p>
-          <p className="font-brand-body text-sm text-brand-content-muted mb-4">
-            When two directives conflict, resolve in this order — the earlier item wins.
-          </p>
-          <ol className="flex flex-col divide-y divide-brand-line border-y border-brand-line">
-            {canon.precedence.map((p, i) => (
-              <li key={i} className="flex gap-4 py-3">
-                <span className="font-brand-body text-sm tabular-nums text-brand-accent shrink-0 leading-relaxed">
-                  {String(i + 1).padStart(2, "0")}
-                </span>
-                <span className="font-brand-body text-sm text-brand-content leading-relaxed">{p}</span>
-              </li>
-            ))}
-          </ol>
+      <section>
+        <SubHead
+          title="By section"
+          description="The same content split by subtab, for when only one part is relevant."
+        />
+        <div className="flex flex-col gap-3">
+          {sections.map((section) => (
+            <MarkdownBlock
+              key={section.key}
+              markdown={section.markdown}
+              label={section.heading}
+              filename={`${slug(canon.brandName)}-${slug(section.heading)}.md`}
+            />
+          ))}
         </div>
-
-        {/* Hard rules — the non-negotiable quick reference. Two-column, true
-            hanging indents so wrapped lines stay clear of the marker. */}
-        <div>
-          <p className={`${KICKER} mb-1`}>Hard rules</p>
-          <p className="font-brand-body text-sm text-brand-content-muted mb-4">
-            Non-negotiables — each one is a fail-the-review line.
-          </p>
-          <ul className="grid gap-x-12 gap-y-3 lg:grid-cols-2 font-brand-body text-sm text-brand-content">
-            {(canon.hardRules ?? []).map((r, i) => (
-              <li key={i} className="flex gap-2.5 leading-relaxed">
-                <span className="text-brand-accent shrink-0" aria-hidden="true">
-                  •
-                </span>
-                <span>{r}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      </div>
+      </section>
     </GuideSection>
   );
 }
