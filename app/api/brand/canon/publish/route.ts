@@ -8,6 +8,10 @@ import { publishDraft, type SupabaseLikeClient } from "@/lib/brand/canonWorkflow
 export const dynamic = "force-dynamic";
 
 // Publishing snapshots the draft as the new live canon version — admin-only.
+//
+// This is the one point where the whole canon is validated (section saves check
+// only their own slice). A validation failure comes back through apiError as a
+// subtab-grouped message naming what to fix and where, not a raw Zod dump.
 export async function POST(req: NextRequest) {
   try {
     await requirePermission(CAP.brandGuideManage); // admin only

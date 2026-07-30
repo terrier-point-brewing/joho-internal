@@ -6,6 +6,7 @@ import {
   publishDraft,
   saveDraft,
   saveDraftSection,
+  validateCanonForPublish,
 } from "./canonWorkflow";
 import { seedCanon } from "./seedCanon";
 import { withIds } from "./canonIds";
@@ -180,6 +181,111 @@ describe("getDraft", () => {
     await getDraft(client as never);
 
     expect(JSON.stringify(client.rows[0])).toBe(before);
+  });
+});
+
+describe("validateCanonForPublish", () => {
+  it("accepts a valid canon and hands back the parsed document", () => {
+    const result = validateCanonForPublish(seedCanon);
+    expect(result.ok).toBe(true);
+    expect(result.ok && result.canon.brandName).toBe(seedCanon.brandName);
+  });
+
+  it("attributes an unowned key's issue to 'other'", () => {
+    const broken = {
+      ...seedCanon,
+      naming: { ...seedCanon.naming, criteria: ["one", "two", "three"] },
+    };
+    const result = validateCanonForPublish(broken);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.issues).toHaveLength(1);
+    expect(result.issues[0].path).toBe("naming.criteria");
+    expect(result.issues[0].section).toBe("other");
+  });
+
+  it("attributes a color-section issue to the color subtab", () => {
+    const roleMap = { ...seedCanon.roleMap, light: { ...seedCanon.roleMap.light } };
+    delete (roleMap.light as Record<string, unknown>).accent;
+    const result = validateCanonForPublish({ ...seedCanon, roleMap });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.issues.some((i) => i.section === "color")).toBe(true);
+  });
+
+  it("reports every independent breakage, not just the first", () => {
+    const roleMap = { ...seedCanon.roleMap, light: { ...seedCanon.roleMap.light } };
+    delete (roleMap.light as Record<string, unknown>).accent;
+    const result = validateCanonForPublish({
+      ...seedCanon,
+      roleMap,
+      naming: { ...seedCanon.naming, criteria: ["one"] },
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.issues.length).toBeGreaterThanOrEqual(2);
+    expect(new Set(result.issues.map((i) => i.section))).toEqual(new Set(["color", "other"]));
+  });
+
+  it("gives each issue a human-readable message", () => {
+    const result = validateCanonForPublish({
+      ...seedCanon,
+      naming: { ...seedCanon.naming, criteria: ["one"] },
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.issues[0].message.length).toBeGreaterThan(0);
+  });
+});
+
+describe("publishDraft validation", () => {
+  it("refuses to publish an invalid draft", async () => {
+    const broken = {
+      ...seedCanon,
+      naming: { ...seedCanon.naming, criteria: ["one", "two"] },
+    };
+    const client = fakeClient([
+      { id: "d1", version_label: "", status: "draft", document: broken },
+    ]);
+
+    await expect(publishDraft(client as never, {})).rejects.toThrow();
+  });
+
+  it("does not archive the prior published row when validation fails", async () => {
+    const broken = {
+      ...seedCanon,
+      naming: { ...seedCanon.naming, criteria: ["one", "two"] },
+    };
+    const client = fakeClient([
+      { id: "d1", version_label: "", status: "draft", document: broken },
+      {
+        id: "p1",
+        version_label: "1.0",
+        status: "published",
+        document: seedCanon,
+        published_at: "2026-01-01",
+      },
+    ]);
+
+    await expect(publishDraft(client as never, {})).rejects.toThrow();
+
+    // A partial publish (archived the old, inserted nothing) would leave the
+    // brand with no live canon at all.
+    expect(client.rows.find((r) => r.id === "p1")!.status).toBe("published");
+    expect(client.rows.filter((r) => r.status === "published")).toHaveLength(1);
+  });
+
+  it("names the offending subtab in the thrown message", async () => {
+    const roleMap = { ...seedCanon.roleMap, light: { ...seedCanon.roleMap.light } };
+    delete (roleMap.light as Record<string, unknown>).accent;
+    const client = fakeClient([
+      { id: "d1", version_label: "", status: "draft", document: { ...seedCanon, roleMap } },
+    ]);
+
+    await expect(publishDraft(client as never, {})).rejects.toThrow(/color/i);
   });
 });
 

@@ -1,7 +1,7 @@
 import { canonSchema } from "./canon.schema";
 import type { BrandCanon } from "./canon.types";
 import { withIds } from "./canonIds";
-import { SECTION_KEYS, sectionSchema } from "./canonSections";
+import { SECTION_KEYS, sectionOf, sectionSchema } from "./canonSections";
 import type { GuideSectionKey } from "./guideIntros";
 import { seedCanon } from "./seedCanon";
 
@@ -210,6 +210,57 @@ export async function saveDraft(client: SupabaseLikeClient, document: unknown): 
   }
 }
 
+/** One thing wrong with a canon, attributed to the subtab that can fix it. */
+export interface PublishIssue {
+  section: GuideSectionKey | "other";
+  path: string;
+  message: string;
+}
+
+export type PublishValidation =
+  | { ok: true; canon: BrandCanon }
+  | { ok: false; issues: PublishIssue[] };
+
+/**
+ * Whole-document validation — the ONE place it happens. Section saves validate
+ * only their own slice (saveDraftSection), so this is the gate that catches
+ * anything that slipped through or was never edited.
+ *
+ * Issues are grouped by the subtab a human would open to fix them, so the
+ * editor can say "Color: roleMap.light is missing accent" and link there,
+ * rather than printing a raw Zod dump.
+ */
+export function validateCanonForPublish(doc: unknown): PublishValidation {
+  const result = canonSchema.safeParse(doc);
+  if (result.success) return { ok: true, canon: result.data };
+
+  const issues: PublishIssue[] = result.error.issues.map((issue) => {
+    const path = issue.path.map(String).join(".");
+    const rootKey = issue.path.length > 0 ? String(issue.path[0]) : "";
+    return {
+      section: sectionOf(rootKey) ?? "other",
+      path: path || rootKey || "(document)",
+      message: issue.message,
+    };
+  });
+
+  return { ok: false, issues };
+}
+
+/** Renders a validation failure as a readable, subtab-grouped message. */
+function describeIssues(issues: PublishIssue[]): string {
+  const bySection = new Map<string, PublishIssue[]>();
+  for (const issue of issues) {
+    bySection.set(issue.section, [...(bySection.get(issue.section) ?? []), issue]);
+  }
+
+  const parts = [...bySection.entries()].map(
+    ([section, list]) =>
+      `${section}: ${list.map((i) => `${i.path} — ${i.message}`).join("; ")}`,
+  );
+  return `Cannot publish — fix these first. ${parts.join(" | ")}`;
+}
+
 // Snapshots the current draft as a new published row, archives the prior
 // published row (if any), and deletes the draft.
 export async function publishDraft(
@@ -220,7 +271,13 @@ export async function publishDraft(
   if (!draft) {
     throw new Error("No draft to publish");
   }
-  const parsed = canonSchema.parse(draft.document);
+
+  // Validate BEFORE touching any row. Archiving the prior published version and
+  // only then discovering the draft is invalid would leave the brand with no
+  // live canon at all.
+  const validation = validateCanonForPublish(draft.document);
+  if (!validation.ok) throw new Error(describeIssues(validation.issues));
+  const parsed = validation.canon;
 
   const currentPublished = await getCurrentPublished(client);
   const versionLabel = opts.versionLabel ?? nextVersionLabel(currentPublished?.version_label ?? null);
