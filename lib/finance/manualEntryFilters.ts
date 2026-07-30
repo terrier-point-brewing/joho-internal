@@ -28,8 +28,14 @@ export function parseManualEntryFilter(
 ): ManualEntryFilter {
   const kind = kindParam === "flow" || kindParam === "balance" ? kindParam : null;
 
+  // The range bound is load-bearing, not decorative. `Number("")` is 0, which
+  // Number.isInteger accepts, so a bare `?year=` would otherwise build
+  // "0-01-01" and hand Postgres a value it rejects with 22008 -- a 500 out of
+  // what is supposed to be a silently-ignored optional filter. Same 2000-2100
+  // window parseFinancialsParams uses.
   const yearNum = yearParam !== null ? Number(yearParam) : NaN;
-  const year = Number.isInteger(yearNum) ? yearNum : null;
+  const year =
+    Number.isInteger(yearNum) && yearNum >= 2000 && yearNum <= 2100 ? yearNum : null;
 
   if (year === null) {
     return kind ? { type: "kind", kind } : { type: "none" };

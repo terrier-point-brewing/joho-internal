@@ -116,3 +116,24 @@ describe("matchesManualEntryFilter — overlap boundary dates", () => {
     expect(matchesManualEntryFilter({ type: "kind", kind: "flow" }, row)).toBe(false);
   });
 });
+
+describe("parseManualEntryFilter — year bounds", () => {
+  // Regression: `Number("")` is 0, which Number.isInteger accepts. Without a
+  // range bound this built "0-01-01" and Postgres rejected it with 22008 --
+  // a 500 out of an optional filter that is supposed to be ignored.
+  it("treats an empty year param as no year filter", () => {
+    expect(parseManualEntryFilter(null, "")).toEqual({ type: "none" });
+  });
+
+  it("rejects years outside 2000-2100", () => {
+    expect(parseManualEntryFilter(null, "0")).toEqual({ type: "none" });
+    expect(parseManualEntryFilter(null, "1999")).toEqual({ type: "none" });
+    expect(parseManualEntryFilter(null, "2101")).toEqual({ type: "none" });
+    expect(parseManualEntryFilter(null, "999999")).toEqual({ type: "none" });
+  });
+
+  it("accepts the boundary years", () => {
+    expect(parseManualEntryFilter(null, "2000").type).toBe("year");
+    expect(parseManualEntryFilter(null, "2100").type).toBe("year");
+  });
+});

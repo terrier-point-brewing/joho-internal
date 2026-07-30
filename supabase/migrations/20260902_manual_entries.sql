@@ -99,6 +99,99 @@ create trigger manual_entries_updated_at
 alter table public.manual_entries enable row level security;
 select public.apply_grant_policies('manual_entries', 'finance.transactions');
 
+-- apply_grant_policies ALONE is not sufficient here, and this is the trap:
+-- its predicate bottoms out in effective_grant_level(), which is gated on
+-- `get_my_role() = 'custom'` (20260822_rls_grant_aware_policies.sql:54). On the
+-- payroll tables it was only ever ADDITIVE, layered over an existing role
+-- policy. This table has no such sibling, so with the grant pair alone every
+-- viewer/brewer/manager/admin matches NO policy -- SELECT returns zero rows
+-- with no error, which reads as "no entries" in the UI and silently drops the
+-- prorated manual adjustment out of /api/finance/pl and /api/net-sales-summary.
+--
+-- Flow rows are readable by any authenticated user, restoring exactly the
+-- posture their predecessor had: manual_net_sales_entries carried the phase-1
+-- catch-all `using (true)` (20260709_enable_rls_phase1.sql) and was
+-- deliberately NOT tightened in phase 3. /api/net-sales-summary depends on
+-- that -- it is reached from the Taproom Achievement tab under CAP.targetsRead,
+-- a TAPROOM capability, so it cannot be moved behind a finance guard or onto
+-- the admin client without breaking taproom users who have no finance access.
+--
+-- Balance rows are deliberately NOT covered: they carry bank and equity
+-- balances and stay service-role-only, reached exclusively through
+-- /api/finance/manual-entries, which uses the admin client behind
+-- CAP.financeTransactions{Read,Manage} -- the same pattern as the
+-- chart-of-accounts and expenses routes, and consistent with
+-- finance_reader_roles() returning an empty array on purpose
+-- (20260709_rls_phase3_tighten_sensitive.sql:31-33).
+create policy "manual flow readers" on public.manual_entries
+  for select to authenticated
+  using ( entry_kind = 'flow' );
+
+-- ── 6b. Extend the CoA deletion reference guard ─────────────────────────────
+-- coa_reference_count (20260802_coa_reference_count.sql) backs the per-row
+-- Delete in Settings > Chart of Accounts: it reports, per source table, how many
+-- rows still reference an account so the route can return a readable 409 instead
+-- of a raw FK error. manual_entries.chart_of_accounts_id is NOT NULL REFERENCES
+-- chart_of_accounts(id) with no ON DELETE clause, so without this branch the RPC
+-- reports zero references, the route proceeds, and Postgres raises an opaque
+-- 23503 that surfaces to the operator as a 500.
+--
+-- Re-declared in full because create-or-replace cannot patch a single UNION arm.
+-- Every pre-existing arm below is copied verbatim from 20260802; the only change
+-- is the final 'manual entries' arm.
+create or replace function public.coa_reference_count(p_account_id uuid)
+returns table(source text, n bigint)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select 'account mappings'::text, count(*)::bigint from square_catalog_variations
+    where chart_of_accounts_id = p_account_id
+       or chart_of_accounts_id_pos = p_account_id
+       or chart_of_accounts_id_invoice = p_account_id
+       or bs_chart_of_accounts_id = p_account_id
+       or pl_chart_of_accounts_id = p_account_id
+  union all
+  select 'invoice line items', count(*) from invoice_line_items
+    where chart_of_accounts_id = p_account_id
+       or bs_chart_of_accounts_id = p_account_id
+       or pl_chart_of_accounts_id = p_account_id
+  union all
+  select 'POS order line items', count(*) from pos_line_items
+    where chart_of_accounts_id = p_account_id
+  union all
+  select 'expenses', count(*) from expenses
+    where chart_of_accounts_id = p_account_id
+  union all
+  select 'expense account rules', count(*) from expense_account_mappings
+    where chart_of_accounts_id = p_account_id
+  union all
+  select 'expense GL splits', count(*) from expense_gl_splits
+    where chart_of_accounts_id = p_account_id
+  union all
+  select 'counterparty rules', count(*) from expense_counterparty_mappings
+    where chart_of_accounts_id = p_account_id
+  union all
+  select 'bank ledger lines', count(*) from ramp_bank_ledger
+    where chart_of_accounts_id = p_account_id
+  union all
+  select 'refunds', count(*) from square_refunds
+    where chart_of_accounts_id = p_account_id
+  union all
+  select 'payroll department mappings', count(*) from payroll_department_gl_mappings
+    where chart_of_accounts_id = p_account_id
+  union all
+  select 'payroll tax account', count(*) from payroll_gl_settings
+    where payroll_taxes_chart_of_accounts_id = p_account_id
+  union all
+  select 'manual entries', count(*) from manual_entries
+    where chart_of_accounts_id = p_account_id
+  union all
+  select 'child accounts', count(*) from chart_of_accounts
+    where parent_id = p_account_id;
+$$;
+
 -- ── 7. Data migration from manual_net_sales_entries ─────────────────────────
 -- Every legacy row becomes a 'flow' against 4100 BREWERY REVENUE:Taproom
 -- Revenue. created_by stays null: the source table never recorded it, and an

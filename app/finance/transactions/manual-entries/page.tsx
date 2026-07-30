@@ -447,7 +447,8 @@ export default function ManualEntriesPage() {
             ))}
           </LedgerTable>
           <p className="py-3 text-2xs text-faint">
-            Flows prorate by day overlap onto the P&amp;L; balances post as of their month end on the Balance Sheet.
+            Flows prorate by day overlap onto the P&amp;L. Balances are recorded as of their month end and
+            are staged for the Balance Sheet — no statement reads them yet.
           </p>
         </div>
       )}
@@ -469,11 +470,19 @@ export default function ManualEntriesPage() {
           tone="danger"
           busy={deleting}
           message={
-            <p>
-              Delete this {deleteTarget.entryKind === "flow" ? "flow" : "balance"} entry
-              {deleteTarget.label ? ` (“${deleteTarget.label}”)` : ""}? This removes it from the{" "}
-              {deleteTarget.entryKind === "flow" ? "P&L" : "Balance Sheet"} immediately.
-            </p>
+            <>
+              <p>
+                Delete this {deleteTarget.entryKind === "flow" ? "flow" : "balance"} entry
+                {deleteTarget.label ? ` (“${deleteTarget.label}”)` : ""}?
+                {deleteTarget.entryKind === "flow"
+                  ? " This removes it from the P&L immediately."
+                  : " Balance entries are not yet read by any statement."}
+              </p>
+              {/* The page-level <Banner> for actionError renders behind this
+                  dialog's fixed backdrop, so a failed delete would leave the
+                  user staring at an unchanged dialog. Surface it in here. */}
+              {actionError && <Banner className="mt-3">{actionError}</Banner>}
+            </>
           }
           onConfirm={handleDelete}
           onCancel={() => setDeleteTarget(null)}

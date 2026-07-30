@@ -6,7 +6,13 @@
 //   * "flow"    — a P&L amount over a date RANGE (startDate..endDate).
 //   * "balance" — a balance-sheet amount AS OF a month end (asOfDate).
 import { NextRequest, NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+// Admin client, not the server client: manual_entries' RLS deliberately covers
+// only entry_kind='flow' (see 20260902_manual_entries.sql). Balance rows carry
+// bank and equity figures and are service-role-only, so a session-scoped client
+// would silently read zero of them here. Authorization is enforced in this
+// route by requirePermission on every verb -- the same arrangement the
+// chart-of-accounts and expenses routes use.
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { requirePermission, CAP } from "@/lib/auth";
 import { apiError } from "@/lib/utils/api";
 import {
@@ -87,7 +93,7 @@ function toRow(input: ManualEntryInput, author: { created_by?: string; updated_b
 export async function GET(req: NextRequest) {
   try { await requirePermission(CAP.financeTransactionsRead); } catch (res) { return res as Response; }
 
-  const supabase = await createSupabaseServerClient();
+  const supabase = createSupabaseAdminClient();
 
   try {
     const { searchParams } = req.nextUrl;
@@ -128,7 +134,7 @@ export async function POST(req: NextRequest) {
   let session;
   try { session = await requirePermission(CAP.financeTransactionsManage); } catch (res) { return res as Response; }
 
-  const supabase = await createSupabaseServerClient();
+  const supabase = createSupabaseAdminClient();
 
   try {
     const body = (await req.json()) as ManualEntryInput;
@@ -193,7 +199,7 @@ export async function PATCH(req: NextRequest) {
   let session;
   try { session = await requirePermission(CAP.financeTransactionsManage); } catch (res) { return res as Response; }
 
-  const supabase = await createSupabaseServerClient();
+  const supabase = createSupabaseAdminClient();
 
   try {
     const body = (await req.json()) as ManualEntryPatchBody;
@@ -279,7 +285,7 @@ export async function PATCH(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   try { await requirePermission(CAP.financeTransactionsManage); } catch (res) { return res as Response; }
 
-  const supabase = await createSupabaseServerClient();
+  const supabase = createSupabaseAdminClient();
 
   try {
     const { id } = (await req.json()) as { id?: string };
