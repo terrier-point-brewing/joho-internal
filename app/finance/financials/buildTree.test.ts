@@ -457,104 +457,24 @@ describe("buildTree — balance_sheet", () => {
     expect(diff.row?.amountCentsByMonth["2026-01"]).toBe(100000);
   });
 });
-
-// Equivalence gate (spec §4.5, feedback_frozen_tests_as_equivalence_gate):
-// real production magnitudes, queried before normalization, frozen into this
-// fixture -- NOT invented numbers. Each is run through the SAME
-// normalizeSignedCents function the real providers use (never re-derived by
-// hand) to get the internal-convention value a provider would actually store,
-// then through buildTree's presentation flip. Proves the flip preserves
-// magnitude exactly and inverts sign only for the credit side.
+// The balance-sheet presentation flip is covered structurally below (that it
+// negates exactly the five credit-side sections and leaves assets and every P&L
+// tree alone). It is deliberately NOT covered by an "equivalence gate" here.
 //
-//   GL   | source                              | n    | raw sum (cents)
-//   2220 | expenses.amount_cents                | 4    | -395483
-//   2230 | expenses.amount_cents                | 1    | -40600
-//   2250 | expenses.amount_cents                | 1    | -8644
-//   2420 | pos_line_items.net_sales_cents        | 6    | +24000
-//   2430 | invoice_line_items.total_cents        | 5    | +645948
-//   1100 | open invoices.total_cents             | 9    | +1626536
-//   2310 | square_orders.tip_cents (COMPLETED,   | 1987 | +561648
-//        | invoice_id null) -- paginated past PostgREST's 1000-row cap;
-//        | the truncated (wrong) sum was 300692.
+// A previous version of this file claimed to be one: it froze seven real
+// production magnitudes, ran each through normalizeSignedCents -- the very
+// function under test -- and asserted the flipped value was its negation. That
+// is true by construction for ANY flip function. It never ran a provider, never
+// wrote or read a snapshot, and never compared against pre-branch output, so it
+// constrained nothing; six real defects passed it. Two of its seven frozen
+// numbers were also simply wrong (GL 2430 used total_cents where the pipeline
+// uses net_sales_cents; GL 2310 used an unbounded, 1000-row-truncated sum).
 //
-// 2220/2230/2250/2420/2430/2310 are all liabilities in this chart of accounts
-// (confirmed by 20260905100000_balance_sheet_snapshots.sql's seed rows —
-// taxAccrual/tipAccrual only ever apply to liability GLs); 1100 is the A/R
-// asset. 1100's provider (openInvoiceAr) returns the raw sum unchanged (an
-// asset, POSITIVE_SECTIONS); 2310's provider (tipAccrual) negates the
-// collected total for its liability account -- both mirrored here rather than
-// routed through normalizeSignedCents, which only applies to the
-// transactionPostings provider's pos/invoice/expense sources.
-describe("buildTree — balance_sheet equivalence gate: real prod magnitudes survive the presentation flip", () => {
-  const month = "2026-07";
-  const LIABILITY_SECTION = "other_current_liabilities";
+// The real gate is scripts/balance-sheet-parity.ts, checked against
+// lib/finance/balances/__fixtures__/goldenBalanceSheet.ts -- a capture of what
+// the pre-PR-B pipeline actually produced from production. It has to run
+// against a database, which is why it is a script and not a unit test.
 
-  const FIXTURES: { coaId: string; glNumber: string; accountName: string; section: string; internalCents: number; rawMagnitude: number }[] = [
-    { coaId: "coa-2220", glNumber: "2220", accountName: "Sales Tax Payable", section: LIABILITY_SECTION,
-      internalCents: normalizeSignedCents(-395483, LIABILITY_SECTION, "expense"), rawMagnitude: 395483 },
-    { coaId: "coa-2230", glNumber: "2230", accountName: "GL 2230 Payable", section: LIABILITY_SECTION,
-      internalCents: normalizeSignedCents(-40600, LIABILITY_SECTION, "expense"), rawMagnitude: 40600 },
-    { coaId: "coa-2250", glNumber: "2250", accountName: "Wake County Tax Payable", section: LIABILITY_SECTION,
-      internalCents: normalizeSignedCents(-8644, LIABILITY_SECTION, "expense"), rawMagnitude: 8644 },
-    { coaId: "coa-2420", glNumber: "2420", accountName: "GL 2420 Payable", section: LIABILITY_SECTION,
-      internalCents: normalizeSignedCents(24000, LIABILITY_SECTION, "pos"), rawMagnitude: 24000 },
-    { coaId: "coa-2430", glNumber: "2430", accountName: "GL 2430 Payable", section: LIABILITY_SECTION,
-      internalCents: normalizeSignedCents(645948, LIABILITY_SECTION, "invoice"), rawMagnitude: 645948 },
-    { coaId: "coa-1100", glNumber: "1100", accountName: "Accounts Receivable", section: "ar",
-      internalCents: 1626536, rawMagnitude: 1626536 },
-    { coaId: "coa-2310", glNumber: "2310", accountName: "Tips Payable", section: LIABILITY_SECTION,
-      internalCents: -561648, rawMagnitude: 561648 },
-  ];
-
-  it("preserves magnitude exactly and flips sign only for the credit-side accounts", () => {
-    for (const f of FIXTURES) {
-      const rows: FinancialsRow[] = [
-        row({ coaId: f.coaId, accountName: f.accountName, statementSection: f.section, amountCentsByMonth: { [month]: f.internalCents } }),
-      ];
-      const coaAccounts = [{ id: f.coaId, parentId: null, accountName: f.accountName, accountNumber: f.glNumber, statementSection: f.section }];
-      const tree = buildTree(rows, "balance_sheet", coaAccounts);
-
-      const section = tree.find((n) =>
-        f.section === "ar" ? n.label === "Accounts Receivable" : n.label === "Other Current Liabilities",
-      )!;
-      const acctNode = section.children.find((c) => c.row?.coaId === f.coaId)!;
-      expect(acctNode).toBeDefined();
-      const displayed = acctNode.row!.amountCentsByMonth[month];
-
-      // Magnitude survives the flip exactly -- this is the core claim.
-      expect(Math.abs(displayed)).toBe(f.rawMagnitude);
-
-      if (f.section === "ar") {
-        expect(displayed).toBe(f.internalCents); // asset: untouched by the flip
-      } else {
-        // Credit side: negated. A single row's displayed sign still depends
-        // on its own business direction (a liability paydown legitimately
-        // displays negative -- it REDUCES the positive-displayed balance);
-        // what's structurally guaranteed for every row is that the flip
-        // negates the internal value exactly, never anything more/less.
-        expect(displayed).toBe(-f.internalCents);
-      }
-    }
-  });
-
-  it("2420/2430/2310's own collected-liability providers (pos/invoice/tip, all inherently positive collections) render positive after the flip", () => {
-    for (const f of FIXTURES.filter((x) => ["2420", "2430", "2310"].includes(x.glNumber))) {
-      const rows: FinancialsRow[] = [
-        row({ coaId: f.coaId, accountName: f.accountName, statementSection: f.section, amountCentsByMonth: { [month]: f.internalCents } }),
-      ];
-      const coaAccounts = [{ id: f.coaId, parentId: null, accountName: f.accountName, accountNumber: f.glNumber, statementSection: f.section }];
-      const tree = buildTree(rows, "balance_sheet", coaAccounts);
-      const section = tree.find((n) => n.label === "Other Current Liabilities")!;
-      const acctNode = section.children.find((c) => c.row?.coaId === f.coaId)!;
-      expect(acctNode.row!.amountCentsByMonth[month]).toBe(f.rawMagnitude);
-    }
-  });
-});
-
-// "Other Assets" is QBO's NON-current asset type (security deposits, lease
-// buyouts, goodwill), so it must sit outside Total Current Assets while still
-// counting toward Total Assets. Getting that wrong would either hide the
-// balance from Total Assets or overstate working capital.
 describe("buildTree — balance_sheet with an Other Assets row", () => {
   const rows: FinancialsRow[] = [
     row({ coaId: "bank-1", accountName: "Chase", statementSection: "bank", amountCentsByMonth: { "2026-01": 100000 } }),
