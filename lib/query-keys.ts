@@ -98,6 +98,8 @@ export const queryKeys = {
     chartOfAccounts: () => ["finance", "chart-of-accounts"] as const,
     /** Consolidated Financials view (Task 7), keyed by statement kind + year. */
     financials: (statement: string, year: number) => ["finance", "financials", statement, year] as const,
+    /** Manual entries (Finance > Transactions), keyed by kind + year filter. */
+    manualEntries: (kind: string, year: number) => ["finance", "manual-entries", kind, year] as const,
   },
 
   // ─── Taproom ──────────────────────────────────────────────────────────────
