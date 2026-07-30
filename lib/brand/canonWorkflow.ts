@@ -2,6 +2,7 @@ import { canonSchema } from "./canon.schema";
 import type { BrandCanon } from "./canon.types";
 import { withIds } from "./canonIds";
 import { SECTION_KEYS, sectionOf, sectionSchema } from "./canonSections";
+import { diffCanon, renderChangelog, type ChangeEntry } from "./diffCanon";
 import type { GuideSectionKey } from "./guideIntros";
 import { seedCanon } from "./seedCanon";
 
@@ -11,7 +12,19 @@ interface CanonRow {
   status: "draft" | "published" | "archived";
   document: BrandCanon;
   changelog: string | null;
+  // Null on rows published before migration 20260902 — the UI falls back to the
+  // flat `changelog` text for those.
+  change_entries: ChangeEntry[] | null;
   published_at: string | null;
+}
+
+export interface CanonVersionSummary {
+  id: string;
+  version_label: string;
+  status: "published" | "archived";
+  published_at: string | null;
+  changelog: string | null;
+  change_entries: ChangeEntry[] | null;
 }
 
 // Same injected-client testability pattern as getCanonFrom (lib/brand/getCanon.ts):
@@ -261,6 +274,24 @@ function describeIssues(issues: PublishIssue[]): string {
   return `Cannot publish — fix these first. ${parts.join(" | ")}`;
 }
 
+/**
+ * The stored `changelog` text: the generated summary, with any founder note
+ * kept above it as context.
+ *
+ * The note is deliberately additive. Publishing used to record ONLY whatever an
+ * admin typed into a small input, so the record of what actually changed
+ * depended on someone remembering to describe it. Now the diff is the record
+ * and the note is the commentary.
+ */
+function composeChangelog(entries: ChangeEntry[], note?: string): string | null {
+  const generated = renderChangelog(entries);
+  const trimmedNote = note?.trim();
+
+  if (!trimmedNote) return generated || null;
+  if (!generated) return trimmedNote;
+  return `${trimmedNote}\n\n${generated}`;
+}
+
 // Snapshots the current draft as a new published row, archives the prior
 // published row (if any), and deletes the draft.
 export async function publishDraft(
@@ -282,6 +313,12 @@ export async function publishDraft(
   const currentPublished = await getCurrentPublished(client);
   const versionLabel = opts.versionLabel ?? nextVersionLabel(currentPublished?.version_label ?? null);
 
+  // Diff against the currently published document BEFORE it's archived — after
+  // the archive step getCurrentPublished returns nothing and every publish
+  // would look like a first publish, losing the real change list.
+  const entries = diffCanon(currentPublished?.document ?? null, parsed);
+  const changelog = composeChangelog(entries, opts.changelog);
+
   // Archive the prior published row BEFORE inserting the new one. The
   // brand_canon_one_published partial unique index (migration 20260808)
   // forbids two published rows at once, so insert-then-archive would violate
@@ -295,7 +332,8 @@ export async function publishDraft(
     version_label: versionLabel,
     status: "published",
     document: parsed,
-    changelog: opts.changelog ?? null,
+    changelog,
+    change_entries: entries,
     published_at: new Date().toISOString(),
   });
   assertOk(insertError, "publish the new canon version");
@@ -307,12 +345,12 @@ export async function publishDraft(
 }
 
 // Published + archived rows, newest first (by published_at).
-export async function listVersions(client: SupabaseLikeClient): Promise<
-  { id: string; version_label: string; status: "published" | "archived"; published_at: string | null; changelog: string | null }[]
-> {
+export async function listVersions(
+  client: SupabaseLikeClient,
+): Promise<CanonVersionSummary[]> {
   const { data, error } = await client
     .from(TABLE)
-    .select("id, version_label, status, published_at, changelog")
+    .select("id, version_label, status, published_at, changelog, change_entries")
     .in("status", ["published", "archived"])
     .order("published_at", { ascending: false });
   assertOk(error, "list canon versions");
@@ -323,5 +361,6 @@ export async function listVersions(client: SupabaseLikeClient): Promise<
     status: row.status as "published" | "archived",
     published_at: row.published_at,
     changelog: row.changelog,
+    change_entries: row.change_entries ?? null,
   }));
 }

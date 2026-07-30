@@ -4,12 +4,16 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import type { BrandCanon } from "@/lib/brand/canon.types";
 
+import type { ChangeEntry } from "@/lib/brand/diffCanon";
+
 export interface VersionRow {
   id: string;
   version_label: string;
   status: "published" | "archived";
   published_at: string | null;
   changelog: string | null;
+  /** Null for versions published before migration 20260902. */
+  change_entries: ChangeEntry[] | null;
 }
 
 // Shared fetch helper: throws on non-2xx, surfacing the API's { error } body

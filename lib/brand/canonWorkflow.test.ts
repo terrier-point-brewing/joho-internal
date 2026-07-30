@@ -289,6 +289,117 @@ describe("publishDraft validation", () => {
   });
 });
 
+describe("publishDraft changelog generation", () => {
+  function withPalette(hex: string): BrandCanon {
+    const canon = withIds(seedCanon).canon;
+    canon.palette[2] = { ...canon.palette[2], hex };
+    return canon;
+  }
+
+  it("generates a changelog naming the changed color, with no typing", async () => {
+    const published = withIds(seedCanon).canon;
+    const draft = structuredClone(published);
+    draft.palette[2].hex = "#a51829";
+
+    const client = fakeClient([
+      { id: "d1", version_label: "", status: "draft", document: draft },
+      {
+        id: "p1",
+        version_label: "1.0",
+        status: "published",
+        document: published,
+        published_at: "2026-01-01",
+      },
+    ]);
+
+    await publishDraft(client as never, {});
+
+    const row = client.rows.find((r) => r.status === "published" && r.id !== "p1")!;
+    expect(row.changelog).toContain("Seal Red");
+    expect(row.changelog).toContain("#a51829");
+    expect((row as { change_entries?: unknown[] }).change_entries).toHaveLength(1);
+  });
+
+  it("keeps a founder note alongside the generated text rather than replacing it", async () => {
+    const published = withIds(seedCanon).canon;
+    const draft = structuredClone(published);
+    draft.palette[2].hex = "#a51829";
+
+    const client = fakeClient([
+      { id: "d1", version_label: "", status: "draft", document: draft },
+      {
+        id: "p1",
+        version_label: "1.0",
+        status: "published",
+        document: published,
+        published_at: "2026-01-01",
+      },
+    ]);
+
+    await publishDraft(client as never, { changelog: "Approved by founder 30 Jul." });
+
+    const row = client.rows.find((r) => r.status === "published" && r.id !== "p1")!;
+    expect(row.changelog).toContain("Approved by founder 30 Jul.");
+    expect(row.changelog).toContain("Seal Red");
+  });
+
+  it("publishes a first version with no prior published row", async () => {
+    const client = fakeClient([
+      { id: "d1", version_label: "", status: "draft", document: withPalette("#ad1a2d") },
+    ]);
+
+    await publishDraft(client as never, {});
+
+    const row = client.rows.find((r) => r.status === "published")!;
+    expect((row as { change_entries?: unknown[] }).change_entries!.length).toBeGreaterThan(0);
+    expect(row.changelog).toContain("published for the first time");
+  });
+
+  it("diffs against the pre-archive published document", async () => {
+    // If the diff ran after the archive step it would compare the draft against
+    // nothing and report a first publish, losing the real change list.
+    const published = withIds(seedCanon).canon;
+    const draft = structuredClone(published);
+    draft.values[0].title = "Retitled value";
+
+    const client = fakeClient([
+      { id: "d1", version_label: "", status: "draft", document: draft },
+      {
+        id: "p1",
+        version_label: "1.0",
+        status: "published",
+        document: published,
+        published_at: "2026-01-01",
+      },
+    ]);
+
+    await publishDraft(client as never, {});
+
+    const row = client.rows.find((r) => r.status === "published" && r.id !== "p1")!;
+    expect(row.changelog).toContain("Retitled value");
+    expect(row.changelog).not.toContain("published for the first time");
+  });
+
+  it("records an empty entry list when nothing changed", async () => {
+    const published = withIds(seedCanon).canon;
+    const client = fakeClient([
+      { id: "d1", version_label: "", status: "draft", document: structuredClone(published) },
+      {
+        id: "p1",
+        version_label: "1.0",
+        status: "published",
+        document: published,
+        published_at: "2026-01-01",
+      },
+    ]);
+
+    await publishDraft(client as never, {});
+
+    const row = client.rows.find((r) => r.status === "published" && r.id !== "p1")!;
+    expect((row as { change_entries?: unknown[] }).change_entries).toEqual([]);
+  });
+});
+
 describe("saveDraftSection", () => {
   // A stored draft whose `naming` block is invalid against the full canon
   // schema (criteria must be exactly 5). Before section-scoped saving this
