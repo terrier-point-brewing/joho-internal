@@ -66,3 +66,44 @@ for (const section of Object.keys(SECTION_KEYS) as GuideSectionKey[]) {
 export function sectionOf(key: string): GuideSectionKey | null {
   return OWNER_BY_KEY.get(key) ?? null;
 }
+
+/**
+ * The exact payload a section PATCH should carry: that subtab's keys, plus its
+ * own `guideIntros` entry when set. Nothing else — the editor never sends a
+ * whole document, so concurrent edits on different subtabs don't collide.
+ */
+export function pickSectionPatch(
+  canon: BrandCanon,
+  section: GuideSectionKey,
+): Partial<BrandCanon> {
+  const patch: Partial<BrandCanon> = {};
+  for (const key of SECTION_KEYS[section]) {
+    if (canon[key] !== undefined) {
+      (patch as Record<string, unknown>)[key] = canon[key];
+    }
+  }
+
+  const intro = canon.guideIntros?.[section];
+  if (intro !== undefined) patch.guideIntros = { [section]: intro };
+
+  return patch;
+}
+
+/** True when a subtab's own slice differs between two canon documents. */
+export function isSectionDirty(
+  a: BrandCanon | null | undefined,
+  b: BrandCanon | null | undefined,
+  section: GuideSectionKey,
+): boolean {
+  if (!a || !b) return false;
+  return JSON.stringify(pickSectionPatch(a, section)) !== JSON.stringify(pickSectionPatch(b, section));
+}
+
+/** Every subtab whose slice differs — drives the publish bar's summary. */
+export function changedSections(
+  a: BrandCanon | null | undefined,
+  b: BrandCanon | null | undefined,
+): GuideSectionKey[] {
+  if (!a || !b) return [];
+  return (Object.keys(SECTION_KEYS) as GuideSectionKey[]).filter((s) => isSectionDirty(a, b, s));
+}

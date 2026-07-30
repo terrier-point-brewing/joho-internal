@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { GUIDE_SECTIONS } from "./guideIntros";
-import { SECTION_KEYS, sectionOf, sectionSchema } from "./canonSections";
+import {
+  SECTION_KEYS,
+  changedSections,
+  isSectionDirty,
+  pickSectionPatch,
+  sectionOf,
+  sectionSchema,
+} from "./canonSections";
 import { seedCanon } from "./seedCanon";
+import type { BrandCanon } from "./canon.types";
 
 describe("SECTION_KEYS", () => {
   it("gives every guide subtab at least one canon key", () => {
@@ -66,5 +74,83 @@ describe("sectionOf", () => {
     expect(sectionOf("naming")).toBeNull();
     expect(sectionOf("visibility")).toBeNull();
     expect(sectionOf("brandName")).toBeNull();
+  });
+});
+
+describe("pickSectionPatch", () => {
+  it("carries only the section's keys plus its own intro", () => {
+    const patch = pickSectionPatch(seedCanon, "ethos");
+
+    expect(Object.keys(patch).sort()).toEqual(["guideIntros", "values"]);
+    expect(Object.keys(patch.guideIntros!)).toEqual(["ethos"]);
+  });
+
+  it("never carries another subtab's intro", () => {
+    const patch = pickSectionPatch(seedCanon, "color");
+    expect(patch.guideIntros).toEqual({ color: seedCanon.guideIntros?.color });
+  });
+
+  it("carries all four color keys", () => {
+    const patch = pickSectionPatch(seedCanon, "color");
+    expect(Object.keys(patch).sort()).toEqual([
+      "colorForbidden",
+      "guideIntros",
+      "palette",
+      "roleMap",
+      "usageRatios",
+    ]);
+  });
+
+  it("omits an absent optional key rather than sending undefined", () => {
+    const noMarks: BrandCanon = { ...seedCanon };
+    delete noMarks.marks;
+    expect("marks" in pickSectionPatch(noMarks, "marks")).toBe(false);
+  });
+});
+
+describe("isSectionDirty / changedSections", () => {
+  const base = seedCanon;
+
+  it("reports a section clean against itself", () => {
+    expect(isSectionDirty(base, structuredClone(base), "ethos")).toBe(false);
+    expect(changedSections(base, structuredClone(base))).toEqual([]);
+  });
+
+  it("flags only the section that actually changed", () => {
+    const next = structuredClone(base);
+    next.values[0].title = "Changed";
+
+    expect(isSectionDirty(base, next, "ethos")).toBe(true);
+    expect(isSectionDirty(base, next, "voice")).toBe(false);
+    expect(changedSections(base, next)).toEqual(["ethos"]);
+  });
+
+  it("flags a section whose intro changed even when its keys did not", () => {
+    const next = structuredClone(base);
+    next.guideIntros = { ...next.guideIntros, voice: "A new voice introduction." };
+
+    expect(isSectionDirty(base, next, "voice")).toBe(true);
+    expect(changedSections(base, next)).toEqual(["voice"]);
+  });
+
+  it("reports several changed sections at once", () => {
+    const next = structuredClone(base);
+    next.values[0].title = "Changed";
+    next.palette[0].hex = "#111111";
+    next.hardRules = [...next.hardRules, "A new rule"];
+
+    expect(changedSections(base, next).sort()).toEqual(["agent", "color", "ethos"]);
+  });
+
+  it("ignores a change to a key no subtab owns", () => {
+    const next = structuredClone(base);
+    next.naming = { ...next.naming, pattern: "Something else" };
+
+    expect(changedSections(base, next)).toEqual([]);
+  });
+
+  it("treats a null document as not dirty rather than throwing", () => {
+    expect(isSectionDirty(null, base, "ethos")).toBe(false);
+    expect(changedSections(undefined, base)).toEqual([]);
   });
 });

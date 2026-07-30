@@ -64,6 +64,7 @@ export default async function BrandGuidePage() {
   return (
     <BrandGuideTabs
       isAdmin={isAdmin}
+      publishedCanon={isAdmin ? canon : undefined}
       views={{
         ethos: <EthosView canon={canon} />,
         voice: <VoiceView canon={canon} />,

@@ -14,10 +14,30 @@ import MarksFacet from "./facets/MarksFacet";
 import IntroFacet from "./facets/IntroFacet";
 import SliceJsonFacet from "./facets/SliceJsonFacet";
 import { ethosSlice, voiceSlice, visualSlice, agentSlice, colorForbiddenSlice } from "./facets/canonSlices";
-import { useDraft, usePublish, useSaveDraft } from "./useCanonEditor";
+import { useDraft, usePublish } from "./useCanonEditor";
+import { useSectionAutosave, type SaveState } from "./useSectionAutosave";
+import { changedSections } from "@/lib/brand/canonSections";
+import { diffCanon, renderChangelog } from "@/lib/brand/diffCanon";
 
 /** Which guide tab's editor is shown. One draft/publish state spans them all. */
 export type CanonSection = GuideSectionKey;
+
+const SAVE_LABEL: Record<SaveState, string> = {
+  idle: "Saves automatically",
+  saving: "Saving…",
+  saved: "Saved",
+  error: "Save failed",
+};
+
+const SECTION_LABEL: Record<GuideSectionKey, string> = {
+  ethos: "Ethos",
+  voice: "Voice",
+  visual: "Visual Identity",
+  color: "Color",
+  type: "Type",
+  marks: "Marks",
+  agent: "Agent Rules",
+};
 
 /**
  * Admin canon editor. Holds one editable draft copy + a shared publish bar and
@@ -29,10 +49,16 @@ export type CanonSection = GuideSectionKey;
  * The caller keeps this mounted across tab switches (and across the view/edit
  * toggle) so in-progress edits survive.
  */
-export default function CanonEditor({ section }: { section: CanonSection }) {
+export default function CanonEditor({
+  section,
+  publishedCanon,
+}: {
+  section: CanonSection;
+  /** The live canon, so the publish bar can name which subtabs differ. */
+  publishedCanon?: BrandCanon;
+}) {
   const router = useRouter();
   const { data: serverDraft, isLoading, error: loadError } = useDraft();
-  const saveDraft = useSaveDraft();
   const publish = usePublish();
 
   const [draft, setDraft] = useState<BrandCanon | null>(null);
@@ -43,29 +69,46 @@ export default function CanonEditor({ section }: { section: CanonSection }) {
   // prevents render loops.
   const [seededFrom, setSeededFrom] = useState<BrandCanon | null>(null);
   const [versionLabel, setVersionLabel] = useState("");
-  const [changelog, setChangelog] = useState("");
+  const [note, setNote] = useState("");
   const [confirming, setConfirming] = useState(false);
 
   const dirty = !!draft && JSON.stringify(draft) !== JSON.stringify(serverDraft);
 
-  // Re-seed `draft` from a fresh server value, but never while a save is
-  // in flight or edits are pending — a post-save refetch landing mid-edit
-  // would otherwise clobber unsaved changes made after Save was clicked.
-  if (serverDraft && serverDraft !== seededFrom && !saveDraft.isPending && !dirty) {
+  const autosave = useSectionAutosave({
+    draft,
+    serverDraft,
+    section,
+    enabled: !!draft,
+  });
+
+  // Re-seed `draft` from a fresh server value, but never while a save is in
+  // flight or edits are pending. Autosave makes refetch-vs-edit races far more
+  // frequent than the manual-save flow did, so this guard matters more now, not
+  // less — usePatchSection deliberately updates the cache in place rather than
+  // invalidating, precisely to keep this quiet.
+  if (serverDraft && serverDraft !== seededFrom && autosave.state !== "saving" && !dirty) {
     setSeededFrom(serverDraft);
     setDraft(serverDraft);
   }
 
+  // Which subtabs differ from what's live — the publish bar's summary, and the
+  // source of the changelog preview shown before committing.
+  const pendingSections = changedSections(publishedCanon, draft ?? undefined);
+  const pendingChangelog =
+    publishedCanon && draft ? renderChangelog(diffCanon(publishedCanon, draft)) : "";
+
   async function handlePublish() {
     if (!draft) return;
-    if (dirty) await saveDraft.mutateAsync(draft);
+    // Flush the active section first so an in-flight debounce can't publish a
+    // draft that's missing the edit still sitting in the textarea.
+    await autosave.flush();
     await publish.mutateAsync({
       versionLabel: versionLabel.trim() || undefined,
-      changelog: changelog.trim() || undefined,
+      changelog: note.trim() || undefined,
     });
     setConfirming(false);
     setVersionLabel("");
-    setChangelog("");
+    setNote("");
     // The route handler's revalidateTag("brand-canon") only busts the server's
     // data cache — it doesn't push an update to the already-mounted View tab,
     // which holds the ReactNode the server rendered at initial page load.
@@ -80,19 +123,22 @@ export default function CanonEditor({ section }: { section: CanonSection }) {
 
   return (
     <div className="flex flex-col gap-4">
-      {(saveDraft.error || publish.error) && (
+      {(autosave.error || publish.error) && (
         <Banner tone="danger">
-          {((saveDraft.error ?? publish.error) as Error).message}
+          {((autosave.error ?? publish.error) as Error).message}
         </Banner>
       )}
 
       {/* Publish bar */}
       <div className="flex flex-wrap items-center gap-2 bg-surface border border-line rounded-lg p-3">
-        <span className="text-xs text-muted">
-          {dirty ? "Unsaved changes" : "No unsaved changes"}
-        </span>
-        <SaveHint saving={saveDraft.isPending} />
+        <span className="text-xs text-muted">{SAVE_LABEL[autosave.state]}</span>
+        <SaveHint saving={autosave.state === "saving"} />
         <div className="flex-1" />
+        {pendingSections.length > 0 && (
+          <span className="text-xs text-secondary">
+            Unpublished: {pendingSections.map((s) => SECTION_LABEL[s]).join(", ")}
+          </span>
+        )}
         <input
           className="inp-sm w-32"
           placeholder="version (auto)"
@@ -101,15 +147,15 @@ export default function CanonEditor({ section }: { section: CanonSection }) {
         />
         <input
           className="inp-sm w-56"
-          placeholder="changelog"
-          value={changelog}
-          onChange={(e) => setChangelog(e.target.value)}
+          placeholder="note (optional)"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
         />
         <button
           type="button"
           className="btn-secondary"
-          disabled={!dirty || saveDraft.isPending}
-          onClick={() => draft && saveDraft.mutate(draft)}
+          disabled={!autosave.dirty}
+          onClick={() => void autosave.flush()}
         >
           Save
         </button>
@@ -157,10 +203,14 @@ export default function CanonEditor({ section }: { section: CanonSection }) {
       {confirming && (
         <ConfirmDialog
           title="Publish canon"
-          message="This snapshots the current draft as the new live version and archives the prior published version. Continue?"
+          message={
+            pendingChangelog
+              ? `This snapshots the draft as the new live version and archives the prior one. The changelog below is generated automatically.\n\n${pendingChangelog}`
+              : "This snapshots the current draft as the new live version and archives the prior published version. No content has changed since the last publish."
+          }
           tone="primary"
           confirmLabel="Publish"
-          busy={saveDraft.isPending || publish.isPending}
+          busy={autosave.state === "saving" || publish.isPending}
           onConfirm={handlePublish}
           onCancel={() => setConfirming(false)}
         />

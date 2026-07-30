@@ -1,22 +1,18 @@
 import type { ZodType } from "zod";
 import type { BrandCanon } from "@/lib/brand/canon.types";
 import { canonSchema } from "@/lib/brand/canon.schema";
+import { SECTION_KEYS, sectionSchema } from "@/lib/brand/canonSections";
 
 /**
- * One definition per editable canon slice, shared by the CanonEditor facet
- * switch and each SliceJsonFacet. `keys` names the fields the slice owns;
- * `schema` is the matching canonSchema.pick() used to validate an edited slice
- * on blur. The Brand Guide's four content subtabs each own exactly one slice —
- * no tab edits another's fields. Each subtab's introduction block is edited
- * separately (IntroFacet → canon.guideIntros), not through these slices.
+ * UI copy for each editable canon slice.
  *
- * Each subtab's narrative copy is not here either — it lives in
- * canon.guideIntros and is edited by IntroFacet, one textarea per subtab.
+ * `keys` and `schema` come from lib/brand/canonSections.ts — the same table the
+ * PATCH route validates against — so the editor and the server can never
+ * disagree about what a subtab owns. Only the human-facing title and
+ * description live here.
  *
- * Fields that live on other tabs/modules are intentionally absent here:
- *   colorForbidden → Color tab (colorSlice)   naming/labelChassis → Releases
- *   chop → Marks/Releases   visibility → Phase-5 public site
- * Those keep their stored values; their editors are owned by their own modules.
+ * Each subtab's introduction is edited separately (IntroFacet →
+ * canon.guideIntros), not through these slices.
  */
 export type CanonSlice = {
   keys: readonly (keyof BrandCanon)[];
@@ -26,34 +22,42 @@ export type CanonSlice = {
 };
 
 export const ethosSlice: CanonSlice = {
-  keys: ["values"],
-  schema: canonSchema.pick({ values: true }),
+  keys: SECTION_KEYS.ethos,
+  schema: sectionSchema("ethos"),
   title: "Ethos",
   description: "The values with what each one means and costs. Validated on blur.",
 };
 
 export const voiceSlice: CanonSlice = {
-  keys: ["voice"],
-  schema: canonSchema.pick({ voice: true }),
+  keys: SECTION_KEYS.voice,
+  schema: sectionSchema("voice"),
   title: "Voice",
   description: "Calibration sliders, word lists, and rewrites. Validated on blur.",
 };
 
 export const visualSlice: CanonSlice = {
-  keys: ["illustrationLaw"],
-  schema: canonSchema.pick({ illustrationLaw: true }),
+  keys: SECTION_KEYS.visual,
+  schema: sectionSchema("visual"),
   title: "Visual Identity",
-  description: "The illustration rules — the seed of the wider visual-identity spec. Validated on blur.",
+  description:
+    "The illustration rules — the seed of the wider visual-identity spec. Validated on blur.",
 };
 
 export const agentSlice: CanonSlice = {
-  keys: ["neverList", "precedence", "hardRules"],
-  schema: canonSchema.pick({ neverList: true, precedence: true, hardRules: true }),
+  keys: SECTION_KEYS.agent,
+  schema: sectionSchema("agent"),
   title: "Agent Rules",
   description: "The Never List, precedence order, and hard rules. Validated on blur.",
 };
 
-/** Color-tab slice for the forbidden-colors list (rendered in ColorView). */
+/**
+ * The Color tab's forbidden-colors list.
+ *
+ * A SUB-slice, not a section: Color owns four keys, and Palette and Theme have
+ * their own dedicated facets. So this one builds its own single-key schema
+ * rather than reusing sectionSchema("color"), which requires all four keys to
+ * be present and would reject a patch carrying only colorForbidden.
+ */
 export const colorForbiddenSlice: CanonSlice = {
   keys: ["colorForbidden"],
   schema: canonSchema.pick({ colorForbidden: true }),
