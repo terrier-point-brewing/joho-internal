@@ -1,7 +1,11 @@
 # Brand Template System — Phase 2 proposal
 
-Companion to `docs/brand-template-system-phase1-findings.md`. Nothing implemented.
-Decisions from the owner (2026-07-30) are folded in and marked **[locked]**.
+Companion to `docs/brand-template-system-phase1-findings.md`. Decisions from the
+owner (2026-07-30) are folded in and marked **[locked]**.
+
+**Status: paused after Phase B.** Phases 0, A and B are built and committed;
+C–I are not started. Full progress record, and the state to be careful of when
+resuming, in **§7**. What blocks Phase C is in **§8**.
 
 ---
 
@@ -272,10 +276,10 @@ Each phase ships something usable on its own.
 
 | # | Phase | Ships | Notes |
 |---|---|---|---|
-| **0** | Constraint fix (§0) | `font`/`example` uploads work again | Standalone PR, ahead of everything |
-| **A** | Foundations true-up | `chop` + `labelChassis` become editable; `clearspace` + cap-height fields land | No render. Unblocks the chassis being *data*. |
-| **B** | Templates + Seasons schema, slot model, validator | Template authoring UI; validation errors; seasons editor | No render. `brand_outputs` stores composed SVG only. |
-| **C** | Render pipeline + **Beer label** | PNG + PDF export; full reproducibility record | Adds the two deps. Proves slot/constraint/render end to end, incl. the `generated` barcode slot. |
+| ✅ **0** | Constraint fix (§0) | `font`/`example` uploads work again | Done — commit `de5fce1` |
+| ✅ **A** | Foundations true-up | `chop` + `labelChassis` become editable; `clearspace` + cap-height fields land | Done — commit `db81f67`. Scope grew: see §7. |
+| ✅ **B** | Templates + Seasons schema, slot model, validator | Template + Seasons authoring UI; the pre-render validator | Done — commit `6deecc9`. No slot editor yet, deliberately: see §7. |
+| **C** | Render pipeline + **Beer label** | PNG + PDF export; full reproducibility record | **Next.** Adds the two deps. Proves slot/constraint/render end to end, incl. the `generated` barcode slot. Blocked — see §8. |
 | **D** | **Social** (square / story / landscape) | Multi-format export from one family | Main future consumer of AI drafts. |
 | **E** | **Apparel** | Print-ready layouts; **one-color all-indigo fallback** enforced by the validator | First true print-production export. |
 | **F** | **Signage** | Slots sized in mm; export at production scale | Feeds the taproom redesign. |
@@ -312,17 +316,66 @@ becomes the per-beer launcher into templates **[locked]**.
    so **Menu moves from phase D to after Apparel**; building a throwaway manual
    price path ahead of the FK would be waste.
 
-## 7. Shipped in this branch
+## 7. Progress — paused after Phase B (2026-07-30)
+
+Branch `claude/brand-template-exploration-c43d33`, three commits, working tree
+clean. `npm run verify` green: 0 lint errors, typecheck clean, **2670 tests**.
+`npm run build` compiles, 105 pages.
+
+### `de5fce1` — Phase 0, the constraint clash
 
 | Change | Files |
 |---|---|
-| Asset-kind constraint clash fixed (union of all three lists) | `20260907090000_brand_assets_kind_union.sql`, `lib/brand/assets.ts`, `lib/brand/assets.test.ts` |
-| CMYK derived for every color; Pantone removed | `20260907100000_brand_canon_cmyk_backfill_drop_pms.sql`, `lib/brand/cmyk.ts` (+test), `canon.schema.ts`, `seedCanon.ts`, `SwatchCard.tsx`, `PaletteFacet.tsx`, `markdown.ts`, `markdown.test.ts` |
-| Wordmark placeholder wording removed | `lib/brand/seedCanon.ts` |
-| `seedCanon` content-muted hex corrected to `#575a66` | `lib/brand/seedCanon.ts` |
+| Asset-kind constraint restated as the union of all three lists | `20260907090000_brand_assets_kind_union.sql`, `lib/brand/assets.ts` (+test) |
+| Upload dropdown offered 6 kinds while the API accepted 8 | `app/brand/assets/AssetsView.tsx` |
 
-Both migrations are unapplied and human-gated. Each carries its verification
-query in a trailing comment.
+### `db81f67` — CMYK/Pantone + Phase A
+
+| Change | Files |
+|---|---|
+| CMYK derived for every color; Pantone removed entirely | `20260907100000_…_cmyk_backfill_drop_pms.sql`, `lib/brand/cmyk.ts` (+test), `canon.schema.ts`, `seedCanon.ts`, `SwatchCard.tsx`, `PaletteFacet.tsx`, `markdown.ts` (+test) |
+| Palette editor's CMYK is read-only and re-derives from the hex | `PaletteFacet.tsx` |
+| `seedCanon` content-muted hex corrected to `#575a66` (was serving a WCAG-failing color on fallback) | `lib/brand/seedCanon.ts` |
+| Wordmark "interim placeholder" wording removed | `lib/brand/seedCanon.ts` |
+| `chop` / `labelChassis` / `naming` given owners, editors, guide rendering, and blocks in the agent brief | `canonSections.ts`, `ChopFields.tsx`, `ChassisFields.tsx`, `NamingFields.tsx`, `CanonEditor.tsx`, `MarksView.tsx`, `VisualIdentityView.tsx`, `VoiceView.tsx`, `guide/page.tsx`, `markdown.ts` |
+| `fonts[].capHeightRatio` + `marks[].clearspaceSpec` | `canon.schema.ts`, `TypeFacet.tsx` |
+
+**Phase A grew beyond its plan line for a reason worth recording:** `chop`,
+`labelChassis` and `naming` were owned by no subtab, so they were stored,
+editable nowhere, and rendered nowhere — not in the guide and *not in the Agent
+Rules brief*. An agent asked to lay out a label got no chassis spec; one asked to
+propose a name got the never-words and nothing about the five criteria its
+proposal would be judged against. Meanwhile the Releases workbench had been
+gating every beer name on `naming.criteria` all along.
+
+### `6deecc9` — Phase B
+
+| Change | Files |
+|---|---|
+| Slot model — six types incl. `generated` (barcode) | `lib/brand/slots.ts` |
+| Pre-render validator, 36 tests | `lib/brand/validateSlots.ts` (+test) |
+| `brand_templates` / `brand_seasons` / `brand_outputs` | `20260908090000_brand_templates_seasons_outputs.sql` |
+| CRUD modules with archive-before-write ordering | `templates.ts`, `seasons.ts`, `outputs.ts` (+tests), `__fixtures__/fakeBrandClient.ts` |
+| Scopes `brand.templates`, `brand.outputs` | `lib/auth/scopes.ts`, `capabilities.ts` (+pinned-coordinate test) |
+| API routes | `app/api/brand/{templates,seasons,outputs}/**` |
+| Templates + Seasons UI, nav entry | `app/brand/templates/**`, `nav-config.ts` |
+
+### ⚠️ State to be aware of when resuming
+
+1. **Three migrations are unapplied.** `20260907090000` fixes a **live production
+   bug** — `font` and `example` uploads currently fail a check violation, and that
+   is true whether or not this branch merges. The other two are only needed when
+   it lands. Each carries its verification query in a trailing comment.
+2. **Nothing has been seen in a browser.** Every surface here was verified by
+   build and tests only; the login wall blocked visual checks throughout. That is
+   real coverage for logic and none for layout.
+3. **Phase B has no slot editor.** Templates can be created, published and
+   versioned; their slots are authored through the API. Deliberately deferred to
+   Phase C so the editor is designed against a real template rather than guessed
+   at.
+4. **`naming.criteria` is fixed at five rows.** The schema pins the length and
+   `syncNamingCheck` matches saved answers by criterion text, so a sixth row fails
+   validation on save and rewording one drops the old answer.
 
 ## 8. Open questions
 
