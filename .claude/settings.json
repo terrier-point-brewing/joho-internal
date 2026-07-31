@@ -1,4 +1,8 @@
 {
-  "availableModels": ["sonnet", "opus", "haiku"],
+  "availableModels": [
+    "sonnet",
+    "opus",
+    "haiku"
+  ],
   "disableClaudeAiConnectors": true
 }
