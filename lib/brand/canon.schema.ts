@@ -282,7 +282,16 @@ export const canonSchema = z.object({
     pattern: z.string(),
     narrative: z.string(),
     criteria: z.array(z.string()).length(5),
-    passingExamples: z.array(z.object({ name: z.string(), why: z.string() })),
+    // `story` and `menuDescription` are optional: documents published before
+    // they existed hold name + why only, and must keep validating on read.
+    passingExamples: z.array(
+      z.object({
+        name: z.string(),
+        story: z.string().optional(),
+        menuDescription: z.string().optional(),
+        why: z.string(),
+      }),
+    ),
   }),
 
   // ── Color (Specification) ────────────────────────────────────────────────
