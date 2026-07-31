@@ -15,7 +15,9 @@ describe("BRAND_ASSET_KINDS", () => {
   // upload the API accepts is rejected by Postgres at insert time — so the
   // literal list is asserted here rather than derived, and updating it is a
   // deliberate two-file change alongside a migration.
-  it("matches the kinds allowed by migration 20260903", () => {
+  // 20260907090000 restates the UNION of every kind any migration has declared,
+  // after 20260811 was hand-applied out of order and clobbered `font`/`example`.
+  it("matches the kinds allowed by migration 20260907090000", () => {
     expect([...BRAND_ASSET_KINDS]).toEqual([
       "logo",
       "wordmark",
@@ -25,6 +27,7 @@ describe("BRAND_ASSET_KINDS", () => {
       "photo",
       "font",
       "example",
+      "label_art",
     ]);
   });
 });

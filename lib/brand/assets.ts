@@ -1,9 +1,10 @@
 // Single source of truth for the asset kinds — mirrors the brand_assets.kind
-// check constraint (migrations 20260810, 20260903). The API validates uploads
-// against this, so the two must be changed together.
+// check constraint (migrations 20260810, 20260811, 20260903, 20260907090000).
+// The API validates uploads against this, so the two must be changed together.
 //
-//   font    — uploaded typefaces, emitted as @font-face for the Type tab
-//   example — do/don't imagery for Visual Identity and forbidden colors
+//   font      — uploaded typefaces, emitted as @font-face for the Type tab
+//   example   — do/don't imagery for Visual Identity and forbidden colors
+//   label_art — illustration scoped to a brand_labels row / motif family
 export const BRAND_ASSET_KINDS = [
   "logo",
   "wordmark",
@@ -13,6 +14,7 @@ export const BRAND_ASSET_KINDS = [
   "photo",
   "font",
   "example",
+  "label_art",
 ] as const;
 export type BrandAssetKind = (typeof BRAND_ASSET_KINDS)[number];
 

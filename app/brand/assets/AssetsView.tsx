@@ -6,10 +6,19 @@ import Card from "@/app/components/ui/Card";
 import Badge from "@/app/components/ui/Badge";
 import Banner from "@/app/components/ui/Banner";
 import type { Tone } from "@/app/components/ui/tone";
-import { assetFileUrl, type BrandAsset, type BrandAssetKind } from "@/lib/brand/assets";
+import {
+  BRAND_ASSET_KINDS,
+  assetFileUrl,
+  type BrandAsset,
+  type BrandAssetKind,
+} from "@/lib/brand/assets";
 import { useApproveAsset, useArchiveAsset, useAssets, useUploadAsset } from "./useAssets";
 
-const KINDS: BrandAssetKind[] = ["logo", "wordmark", "chop_glyph", "texture", "icon", "photo"];
+// Every kind the API and the database accept, so the library can actually take
+// one of each. `font`, `example` and `label_art` were missing here: the Type
+// facet and the rule editors READ assets of those kinds, but no upload form
+// offered them, so the only way to create one was to POST the route by hand.
+const KINDS: BrandAssetKind[] = [...BRAND_ASSET_KINDS];
 
 const STATUS_TONE: Record<BrandAsset["status"], Tone> = {
   approved: "success",
