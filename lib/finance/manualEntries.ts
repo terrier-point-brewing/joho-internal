@@ -6,7 +6,7 @@
 //   * "balance" — a balance-sheet amount AS OF a month end (as_of_date).
 //
 // The validators below mirror the `manual_entries_kind_dates` CHECK in
-// supabase/migrations/20260902_manual_entries.sql so the API can return a
+// supabase/migrations/20260904120000_manual_entries.sql so the API can return a
 // readable 400 instead of surfacing Postgres error 23514.
 //
 // SIGN CONVENTION: amountCents is signed and may be NEGATIVE for either kind.

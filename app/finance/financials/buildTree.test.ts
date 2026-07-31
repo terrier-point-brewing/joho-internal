@@ -467,13 +467,17 @@ describe("buildTree — balance_sheet", () => {
 // is true by construction for ANY flip function. It never ran a provider, never
 // wrote or read a snapshot, and never compared against pre-branch output, so it
 // constrained nothing; six real defects passed it. Two of its seven frozen
-// numbers were also simply wrong (GL 2430 used total_cents where the pipeline
-// uses net_sales_cents; GL 2310 used an unbounded, 1000-row-truncated sum).
+// numbers were also simply wrong. Do not reintroduce a gate shaped like that.
 //
-// The real gate is scripts/balance-sheet-parity.ts, checked against
-// lib/finance/balances/__fixtures__/goldenBalanceSheet.ts -- a capture of what
-// the pre-PR-B pipeline actually produced from production. It has to run
-// against a database, which is why it is a script and not a unit test.
+// The equivalence work was done by a one-shot gate -- a capture of what the
+// pre-snapshot pipeline produced from production, diffed against the provider
+// path -- which lived in lib/finance/balances/__fixtures__/goldenBalanceSheet.ts
+// and scripts/balance-sheet-parity.ts. Both were removed after the migration
+// applied and parity passed: the pipeline they photographed no longer exists,
+// and a frozen capture drifts as historical data is edited, so keeping them
+// would have meant a gate that silently goes wrong. Recoverable from git
+// history at commit 5205004 if a similar migration ever needs the same
+// treatment.
 
 describe("buildTree — balance_sheet with an Other Assets row", () => {
   const rows: FinancialsRow[] = [
