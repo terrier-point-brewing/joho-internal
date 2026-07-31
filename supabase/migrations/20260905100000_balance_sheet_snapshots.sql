@@ -240,6 +240,24 @@ on conflict (key) do nothing;
 -- 2210, 2240 and 2260 are deliberately NOT seeded here: no square_tax_accounts
 -- row points at them and they carry no postings, so a source row would
 -- compute to nothing and hide them from the unsourced-accounts tile.
+--
+-- The seed list below is derived from an actual capture of what the pre-PR-B
+-- pipeline produced in production, not from reasoning about which accounts
+-- "should" have sources -- see lib/finance/balances/__fixtures__/
+-- goldenBalanceSheet.ts and scripts/balance-sheet-parity.ts. Two entries exist
+-- ONLY because that capture caught their absence:
+--
+--   * 1310 Security Deposits Paid carries $3,120 of ordinary expense postings.
+--     Nothing in the design pointed at it, and it is not a "tax" or "deposit"
+--     account anyone thought to enumerate, so it was simply missed. Without
+--     this row the account silently reads $0 on the statement.
+--   * 2310 needs transactionPostings ALONGSIDE tipAccrual. tipAccrual books
+--     tips COLLECTED; the payouts that settle the liability arrive as ordinary
+--     expenses (payroll tip disbursements via expense_gl_splits). With the
+--     accrual alone the liability is gross tips from inception -- it only ever
+--     grows and never settles. Off by 202,529 at capture time.
+--
+-- Add an account here whenever the parity script reports LOST.
 insert into public.balance_sheet_account_sources (chart_of_accounts_id, provider_key)
 values
   ((select id from public.chart_of_accounts where account_number = '2220'), 'taxAccrual'),
@@ -249,7 +267,9 @@ values
   ((select id from public.chart_of_accounts where account_number = '2230'), 'transactionPostings'),
   ((select id from public.chart_of_accounts where account_number = '2420'), 'transactionPostings'),
   ((select id from public.chart_of_accounts where account_number = '2430'), 'transactionPostings'),
+  ((select id from public.chart_of_accounts where account_number = '1310'), 'transactionPostings'),
   ((select id from public.chart_of_accounts where account_number = '1100'), 'openInvoiceAr'),
   ((select id from public.chart_of_accounts where account_number = '2310'), 'tipAccrual'),
+  ((select id from public.chart_of_accounts where account_number = '2310'), 'transactionPostings'),
   ((select id from public.chart_of_accounts where account_number = '3300'), 'retainedEarnings')
 on conflict (chart_of_accounts_id, provider_key) do nothing;

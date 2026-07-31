@@ -37,6 +37,12 @@ export interface GoldenAccount {
   totalCents: number;
   /** Which fetch sources contributed, in the OLD pipeline's vocabulary. */
   sources: string[];
+  /**
+   * Set ONLY where the new path is deliberately expected to differ because the
+   * old path was wrong. Parity treats a match against this value as a pass and
+   * a match against `totalCents` as a FAILURE — the bug must not be reproduced.
+   */
+  knownDivergence?: { expectedNewCents: number; why: string };
 }
 
 /**
@@ -44,11 +50,16 @@ export interface GoldenAccount {
  *
  * An account absent from this list produced nothing in the old pipeline, and
  * the new path must not invent a balance for it. GL 2430 Contract Brewing
- * Deposits is the instructive absence: it has 5 invoice_line_items rows whose
- * `total_cents` sum to 645,948, but the old pipeline books invoice lines on
- * `net_sales_cents`, which is 0 for all five. A provider that reaches for
- * `total_cents` would silently invent 645,948 of liability — and an earlier
- * draft of this fixture asserted exactly that wrong number.
+ * Deposits is the instructive absence: it has 5 invoice_line_items rows
+ * totalling 645,948, and every one of them sits on a **voided** invoice. The
+ * old pipeline drops them via `.neq("invoices.status", "voided")`. A provider
+ * that omits that filter silently invents $6,459.48 of liability.
+ *
+ * (An earlier draft of this fixture asserted 645,948 as 2430's expected value,
+ * and then explained its own absence with a second wrong reason — that invoice
+ * lines are booked on `net_sales_cents`. They are booked on `total_cents`. Both
+ * errors came from reasoning about the pipeline instead of running it, which is
+ * the entire argument for capturing golden values rather than deriving them.)
  */
 export const GOLDEN_BALANCE_SHEET: GoldenAccount[] = [
   {
@@ -106,6 +117,23 @@ export const GOLDEN_BALANCE_SHEET: GoldenAccount[] = [
     statementSection: "other_current_liabilities",
     totalCents: -364_149,
     sources: ["expenses", "square_orders"],
+    knownDivergence: {
+      // Old: tipAccrual (all collections, cumulative) + only the payroll-split
+      // payouts that happened to land in the single collapsed month bucket.
+      // New: collections + ALL payouts through periodEnd. Difference 302,331.
+      expectedNewCents: -67_347,
+      why:
+        "The old balance sheet DROPPED payroll-split allocations outside its one " +
+        "synthetic month. aggregateRows.ts:395-397 prorates a payroll split across " +
+        "the months its pay period spans, then keeps an allocation only if " +
+        "`monthSet.has(r.monthKey)` — and balance-sheet mode collapsed every record " +
+        "onto a single canonical month key. So a June tip payout vanished from a " +
+        "July-31 cumulative balance. GL 2310's payout side therefore only ever " +
+        "reflected the current month, while its collections side was cumulative — " +
+        "mismatched bases on the same account, overstating the liability by 302,331. " +
+        "A cumulative liability must include every payout through the period end, " +
+        "so the new path is correct and this divergence must NOT be 'fixed' back.",
+    },
   },
   {
     accountNumber: "2420",

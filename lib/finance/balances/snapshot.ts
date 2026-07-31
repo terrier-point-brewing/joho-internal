@@ -110,11 +110,22 @@ export async function snapshotPeriod(supabase: AdminClient, periodEnd: string): 
   }));
 
   const results = new Map<string, number | null>();
+  // Accounts where a provider THREW. These must not be written at all.
+  //
+  // A throw leaves its key absent from `results`, and resolveSnapshotWrites
+  // treats an absent key exactly like null -- so without this set, a transient
+  // 5xx on one provider silently writes the OTHER providers' partial sum over a
+  // previously-correct snapshot. GL 2220 is the worked example: if
+  // transactionPostings fails while taxAccrual succeeds, the account would be
+  // stored as -291,519 instead of 103,964, with nothing to indicate the figure
+  // is half a balance. A stale-but-correct row beats a fresh-but-partial one.
+  const failedAccounts = new Set<string>();
 
   for (const source of sources) {
     const provider = getProvider(source.providerKey);
     if (!provider) {
       errors.push(`Unknown balance provider "${source.providerKey}" for account ${source.coaId}`);
+      failedAccounts.add(source.coaId);
       continue;
     }
     try {
@@ -129,6 +140,7 @@ export async function snapshotPeriod(supabase: AdminClient, periodEnd: string): 
       errors.push(
         `Provider "${source.providerKey}" failed for account ${source.coaId}: ${err instanceof Error ? err.message : String(err)}`,
       );
+      failedAccounts.add(source.coaId);
     }
   }
 
@@ -150,6 +162,10 @@ export async function snapshotPeriod(supabase: AdminClient, periodEnd: string): 
 
   let written = 0;
   for (const write of writes) {
+    // Skip any account whose providers did not all succeed -- writing it would
+    // persist a partial sum as if it were a whole balance. Already reported in
+    // `errors` at the point of failure.
+    if (failedAccounts.has(write.coaId)) continue;
     const { error } = await supabase.from("gl_account_balances").upsert(
       {
         chart_of_accounts_id: write.coaId,

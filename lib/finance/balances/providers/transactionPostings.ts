@@ -10,6 +10,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchAllRows } from "@/lib/supabase/paginate";
 import { normalizeSignedCents } from "@/lib/finance/financials/normalizeSign";
 import { coaSection } from "@/lib/finance/financials/aggregateRows";
+import { applyExpenseStatementFilters } from "@/lib/finance/financials/expenseFilters";
 import type { CoaRecord } from "@/lib/finance/financials/aggregateRows";
 import { registerProvider } from "../registry";
 import type { BalanceContext, BalanceProvider } from "../registry";
@@ -64,11 +65,18 @@ async function sumInvoiceLines(supabase: SupabaseClient, coaId: string, periodEn
   // invoice_line_items carries no date column of its own -- invoice_date
   // lives on the joined invoices row (mirrors fetchSources.ts's
   // fetchInvoiceLines / accruals.ts's taxAccrual invoice-tax join).
+  //
+  // The voided filter is NOT optional and NOT defensive. Every one of GL 2430's
+  // five lines sits on a voided invoice, totalling 645,948 -- without this the
+  // provider invents $6,459.48 of Contract Brewing Deposits liability that the
+  // pre-PR-B pipeline never reported. Mirrors fetchSources.ts's own
+  // `.neq("invoices.status", "voided")`.
   const rows = await fetchAllRows<{ total_cents: number | null }>(() =>
     supabase
       .from("invoice_line_items")
-      .select("total_cents, invoices!invoice_line_items_invoice_id_fkey!inner ( invoice_date )")
+      .select("total_cents, invoices!invoice_line_items_invoice_id_fkey!inner ( invoice_date, status )")
       .eq("chart_of_accounts_id", coaId)
+      .neq("invoices.status", "voided")
       .lte("invoices.invoice_date", periodEnd)
       .order("id", { ascending: true }),
   );
@@ -77,15 +85,77 @@ async function sumInvoiceLines(supabase: SupabaseClient, coaId: string, periodEn
 }
 
 async function sumExpenses(supabase: SupabaseClient, coaId: string, periodEnd: string, section: string): Promise<{ sum: number; count: number }> {
+  // applyExpenseStatementFilters is what keeps DECLINED cards and
+  // manually-excluded rows off the statements (fetchSources.ts:404 applies it
+  // to the very same table). Omitting it here would let this provider count
+  // money the P&L deliberately ignores. cashOnly=false: the balance sheet is
+  // accrual-basis, matching fetchSources' non-cash-flow modes.
+  const rows = await fetchAllRows<{ amount_cents: number | null }>(() =>
+    applyExpenseStatementFilters(
+      supabase
+        .from("expenses")
+        .select("amount_cents")
+        .eq("chart_of_accounts_id", coaId)
+        .lte("accounting_date", periodEnd)
+        .order("id", { ascending: true }),
+      false,
+    ),
+  );
+  const sum = rows.reduce((s, r) => s + normalizeSignedCents(r.amount_cents ?? 0, section, "expense"), 0);
+  return { sum, count: rows.length };
+}
+
+/**
+ * expense_gl_splits — an expense divided across several GL accounts.
+ *
+ * THIS IS NOT AN OPTIONAL EXTRA SOURCE. A split expense's own
+ * `chart_of_accounts_id` is NULL by design; the real GL assignment lives on its
+ * split rows. So `.eq("chart_of_accounts_id", coaId)` against `expenses` can
+ * NEVER match a split, and an account funded entirely by splits reads $0.
+ *
+ * Two accounts are in exactly that position, and both were reported as blank
+ * before this function existed:
+ *   * GL 1310 Security Deposits Paid — 2 splits, the account's ENTIRE balance.
+ *   * GL 2310 Undistributed Tips — 17 splits carrying the payout side that
+ *     settles the liability against tipAccrual's collections.
+ *
+ * `fetchSources.ts:408` expands splits for the same reason. The state/excluded
+ * predicates are spelled out here rather than reusing applyExpenseStatementFilters
+ * because they must target the EMBEDDED parent (`expenses.state`), which that
+ * helper cannot express.
+ */
+async function sumExpenseSplits(supabase: SupabaseClient, coaId: string, periodEnd: string, section: string): Promise<{ sum: number; count: number }> {
   const rows = await fetchAllRows<{ amount_cents: number | null }>(() =>
     supabase
-      .from("expenses")
-      .select("amount_cents")
+      .from("expense_gl_splits")
+      .select("amount_cents, expenses!inner ( accounting_date, state, excluded_at )")
       .eq("chart_of_accounts_id", coaId)
-      .lte("accounting_date", periodEnd)
+      .lte("expenses.accounting_date", periodEnd)
+      .or("state.is.null,state.neq.DECLINED", { referencedTable: "expenses" })
+      .is("expenses.excluded_at", null)
       .order("id", { ascending: true }),
   );
   const sum = rows.reduce((s, r) => s + normalizeSignedCents(r.amount_cents ?? 0, section, "expense"), 0);
+  return { sum, count: rows.length };
+}
+
+/**
+ * square_refunds. The pre-PR-B pipeline fed these into the same aggregation as
+ * everything else (fetchSources.ts:472), so omitting them here would drop the
+ * entire refund side of any account they post to. Status and date filters
+ * mirror that fetch exactly; `refunded_at` is a timestamp, hence exclusiveEnd.
+ */
+async function sumRefunds(supabase: SupabaseClient, coaId: string, periodEnd: string, section: string): Promise<{ sum: number; count: number }> {
+  const rows = await fetchAllRows<{ amount_cents: number | null }>(() =>
+    supabase
+      .from("square_refunds")
+      .select("amount_cents")
+      .eq("chart_of_accounts_id", coaId)
+      .eq("status", "COMPLETED")
+      .lt("refunded_at", exclusiveEnd(periodEnd))
+      .order("id", { ascending: true }),
+  );
+  const sum = rows.reduce((s, r) => s + normalizeSignedCents(r.amount_cents ?? 0, section, "refund"), 0);
   return { sum, count: rows.length };
 }
 
@@ -113,17 +183,20 @@ export const transactionPostings: BalanceProvider = {
     if (!coa) return null;
     const section = coaSection(coa);
 
-    const [pos, invoiceLines, expenses, bank] = await Promise.all([
+    const [pos, invoiceLines, expenses, splits, bank, refunds] = await Promise.all([
       sumPos(supabase, coaId, periodEnd, section),
       sumInvoiceLines(supabase, coaId, periodEnd, section),
       sumExpenses(supabase, coaId, periodEnd, section),
+      sumExpenseSplits(supabase, coaId, periodEnd, section),
       sumBank(supabase, coaId, periodEnd, section),
+      sumRefunds(supabase, coaId, periodEnd, section),
     ]);
 
-    const totalRows = pos.count + invoiceLines.count + expenses.count + bank.count;
+    const totalRows =
+      pos.count + invoiceLines.count + expenses.count + splits.count + bank.count + refunds.count;
     if (totalRows === 0) return null;
 
-    return pos.sum + invoiceLines.sum + expenses.sum + bank.sum;
+    return pos.sum + invoiceLines.sum + expenses.sum + splits.sum + bank.sum + refunds.sum;
   },
 };
 

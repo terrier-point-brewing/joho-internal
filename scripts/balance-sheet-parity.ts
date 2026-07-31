@@ -95,8 +95,20 @@ async function main(): Promise<void> {
   for (const acctNo of [...accounts].sort()) {
     const golden = GOLDEN_BY_ACCOUNT.get(acctNo);
     const actual = computed.get(acctNo);
-    const want = golden?.totalCents ?? 0;
+    // A knownDivergence account must match the NEW expected value, not the old
+    // one. Matching the old value there means a real bug was reproduced.
+    const want = golden?.knownDivergence?.expectedNewCents ?? golden?.totalCents ?? 0;
     const got = actual?.cents ?? 0;
+
+    if (golden?.knownDivergence && got === golden.totalCents) {
+      drift++;
+      console.error(
+        `  ✗ ${acctNo}  reproduced the OLD value ${usd(got)} — this account has a known\n` +
+        `        divergence and must NOT match the old pipeline. Expected ${usd(want)}.\n` +
+        `        ${golden.knownDivergence.why}`,
+      );
+      continue;
+    }
 
     if (want === got) {
       console.log(`  ✓ ${acctNo}  ${usd(got).padStart(14)}`);

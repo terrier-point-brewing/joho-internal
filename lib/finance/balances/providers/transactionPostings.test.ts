@@ -25,12 +25,17 @@ function fakeClient(opts: {
   posRows?: { net_sales_cents: number | null }[];
   invoiceRows?: { total_cents: number | null }[];
   expenseRows?: { amount_cents: number | null }[];
+  splitRows?: { amount_cents: number | null }[];
+  refundRows?: { amount_cents: number | null }[];
   bankRows?: { amount_cents: number | null }[];
 }): SupabaseClient {
   const paginated = (rows: unknown[]) => {
     const chain: Record<string, unknown> = {
       select: () => chain,
       eq: () => chain,
+      is: () => chain,
+      or: () => chain,
+      neq: () => chain,
       lt: () => chain,
       lte: () => chain,
       order: () => chain,
@@ -52,6 +57,8 @@ function fakeClient(opts: {
       if (table === "pos_line_items") return paginated(opts.posRows ?? []);
       if (table === "invoice_line_items") return paginated(opts.invoiceRows ?? []);
       if (table === "expenses") return paginated(opts.expenseRows ?? []);
+      if (table === "expense_gl_splits") return paginated(opts.splitRows ?? []);
+      if (table === "square_refunds") return paginated(opts.refundRows ?? []);
       if (table === "ramp_bank_ledger") return paginated(opts.bankRows ?? []);
       throw new Error(`unexpected table: ${table}`);
     },
@@ -72,7 +79,7 @@ function ctx(supabase: SupabaseClient, coaId = "coa-2220", periodEnd = "2026-01-
 }
 
 describe("transactionPostings", () => {
-  it("sums sign-normalized amounts across all four sources for a liability account", async () => {
+  it("sums sign-normalized amounts across all six sources for a liability account", async () => {
     const supabase = fakeClient({
       coa: LIABILITY_COA,
       posRows: [{ net_sales_cents: 100 }],
@@ -105,5 +112,26 @@ describe("transactionPostings", () => {
     const result = await transactionPostings.compute(ctx(supabase));
 
     expect(result).toBeNull();
+  });
+});
+
+describe("transactionPostings — sources that are easy to forget", () => {
+  // expense_gl_splits: a split expense's OWN chart_of_accounts_id is NULL by
+  // design, so an account funded entirely by splits reads $0 without this.
+  // GL 1310 Security Deposits Paid is exactly that account in production.
+  it("counts expense_gl_splits, which the parent expense can never match on", async () => {
+    const supabase = fakeClient({ coa: LIABILITY_COA, splitRows: [{ amount_cents: -312000 }] });
+    // liability section + expense source => normalizeSignedCents flips the sign
+    expect(await transactionPostings.compute(ctx(supabase))).toBe(312000);
+  });
+
+  it("counts square_refunds", async () => {
+    const supabase = fakeClient({ coa: LIABILITY_COA, refundRows: [{ amount_cents: 5000 }] });
+    // refunds are always contra-revenue: -magnitude regardless of section
+    expect(await transactionPostings.compute(ctx(supabase))).toBe(-5000);
+  });
+
+  it("still returns null when every one of the six sources is empty", async () => {
+    expect(await transactionPostings.compute(ctx(fakeClient({ coa: LIABILITY_COA })))).toBeNull();
   });
 });
