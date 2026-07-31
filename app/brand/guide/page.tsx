@@ -5,6 +5,7 @@ import { getCanon } from "@/lib/brand/getCanon";
 import { seedCanon } from "@/lib/brand/seedCanon";
 import { resolveGuideIntro } from "@/lib/brand/guideIntros";
 import { listAssets, type SupabaseLikeClient } from "@/lib/brand/assets";
+import { groundsForAssets } from "@/lib/brand/artworkGround";
 import BrandGuideTabs from "./BrandGuideTabs";
 import EthosView from "./EthosView";
 import VoiceView from "./VoiceView";
@@ -39,6 +40,12 @@ export default async function BrandGuidePage() {
   // the SVG was a code change rather than an upload.
   const approvedAssets = (await listAssets(assetClient)).filter((a) => a.status === "approved");
 
+  // Which background keeps each SVG legible, read from the artwork itself. A
+  // pale mark on a transparent background renders as an empty box on the
+  // default pale surface, which reads as a broken upload.
+  const assetGrounds = await groundsForAssets(approvedAssets);
+  const assetsById = new Map(approvedAssets.map((a) => [a.id, a]));
+
   // Fall back to the seed's mark specs when the published canon has none — the
   // published row predates the `marks` field, so its spec sheets live only in
   // the code seed until an admin publishes marks of their own (which override).
@@ -51,14 +58,15 @@ export default async function BrandGuidePage() {
       views={{
         ethos: <EthosView canon={canon} />,
         voice: <VoiceView canon={canon} />,
-        visual: <VisualIdentityView canon={canon} />,
+        visual: <VisualIdentityView canon={canon} assetsById={assetsById} />,
         agent: <AgentRulesView canon={canon} />,
-        color: <ColorView canon={canon} />,
+        color: <ColorView canon={canon} assetsById={assetsById} />,
         type: <TypeView canon={canon} />,
         marks: (
           <MarksView
             specs={markSpecs}
             assets={approvedAssets}
+            grounds={assetGrounds}
             intro={resolveGuideIntro(canon, "marks")}
           />
         ),

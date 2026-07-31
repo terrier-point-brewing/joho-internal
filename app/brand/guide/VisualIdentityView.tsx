@@ -1,3 +1,4 @@
+import type { BrandAsset } from "@/lib/brand/assets";
 import type { BrandCanon } from "@/lib/brand/canon.types";
 import { resolveGuideIntro } from "@/lib/brand/guideIntros";
 import { normalizeRules } from "@/lib/brand/guideRules";
@@ -15,12 +16,19 @@ import RuleGrid from "./blocks/RuleGrid";
  * Legacy rules (bare strings) default to the "Do" column — historically these
  * were written as positive laws, and an admin can re-polarise any that aren't.
  */
-export default function VisualIdentityView({ canon }: { canon: BrandCanon }) {
+export default function VisualIdentityView({
+  canon,
+  assetsById,
+}: {
+  canon: BrandCanon;
+  /** Resolved assets, so illustrated rules can use their authored alt text. */
+  assetsById?: Map<string, BrandAsset>;
+}) {
   const rules = normalizeRules(canon.illustrationLaw?.rules, "do");
 
   return (
     <GuideSection intro={resolveGuideIntro(canon, "visual")}>
-      <RuleGrid rules={rules} />
+      <RuleGrid rules={rules} assetsById={assetsById} />
     </GuideSection>
   );
 }

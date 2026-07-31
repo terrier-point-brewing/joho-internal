@@ -6,7 +6,6 @@ import PageHeader from "@/app/components/PageHeader";
 import TabBar from "@/app/components/TabBar";
 import CanonEditor, { type CanonSection } from "../canon/CanonEditor";
 import CanonHistory from "../canon/CanonHistory";
-import MarksEditor from "./MarksEditor";
 
 type TabKey = CanonSection | "history";
 type Mode = "view" | "edit";
@@ -31,7 +30,7 @@ function isCanonSection(tab: TabKey): tab is CanonSection {
  * Agent Rules. Admins additionally get a single View/Edit toggle and a History
  * tab: in Edit mode each tab swaps its rendered content for the matching canon
  * editor (every tab → its own introduction, plus its own slice; color→Palette
- * +Theme, type→Type; marks are managed in the Assets tab).
+ * +Theme, type→Type+use cases, marks→artwork upload + spec sheets).
  *
  * The editor is kept mounted once opened — hidden, not unmounted — so unsaved
  * draft edits survive both switching tabs and toggling back to View.
@@ -79,7 +78,6 @@ export default function BrandGuideTabs({
 
   // History has no editor; keep it in View regardless of the toggle.
   const showCanonEditor = editing && isCanonSection(active);
-  const showMarksEditor = editing && active === "marks";
 
   return (
     <div className="flex flex-col h-full">
@@ -121,12 +119,6 @@ export default function BrandGuideTabs({
         <div className={!editing && active === "agent" ? "" : "hidden"}>{views.agent}</div>
 
         {/* Edit mode — canon editor (kept mounted once opened) */}
-        {/* Marks edit: upload the artwork (Assets) above the spec-sheet editor. */}
-        {showMarksEditor && (
-          <div className="mb-6">
-            <MarksEditor />
-          </div>
-        )}
         {isAdmin && editorMounted && (
           <div className={showCanonEditor ? "" : "hidden"}>
             <CanonEditor section={editorSection} publishedCanon={publishedCanon} />

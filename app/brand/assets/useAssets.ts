@@ -68,6 +68,24 @@ export function useApproveAsset() {
   });
 }
 
+/**
+ * Renames an asset or rewrites its alternative text.
+ *
+ * Shares the [id] PATCH route with approve/archive, distinguished by body
+ * shape: an `action` approves or archives, a `title`/`alt_text` edits metadata.
+ */
+export function useUpdateAssetMeta() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...meta }: { id: string; title?: string; alt_text?: string }) =>
+      requestJson<{ ok: true }>(`/api/brand/assets/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(meta),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.brandAssets.all() }),
+  });
+}
+
 export function useArchiveAsset() {
   const qc = useQueryClient();
   return useMutation({

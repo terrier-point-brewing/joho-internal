@@ -7,6 +7,7 @@ import Badge from "@/app/components/ui/Badge";
 import Banner from "@/app/components/ui/Banner";
 import type { Tone } from "@/app/components/ui/tone";
 import { assetFileUrl, type BrandAsset, type BrandAssetKind } from "@/lib/brand/assets";
+import AssetMeta from "./AssetMeta";
 import { useApproveAsset, useArchiveAsset, useAssets, useUploadAsset } from "./useAssets";
 
 const KINDS: BrandAssetKind[] = ["logo", "wordmark", "chop_glyph", "texture", "icon", "photo"];
@@ -32,6 +33,8 @@ export default function AssetsView() {
 
   const [file, setFile] = useState<File | null>(null);
   const [kind, setKind] = useState<BrandAssetKind>("logo");
+  const [title, setTitle] = useState("");
+  const [altText, setAltText] = useState("");
   const [variant, setVariant] = useState("default");
 
   const grouped = useMemo(() => {
@@ -50,9 +53,13 @@ export default function AssetsView() {
     formData.set("file", file);
     formData.set("kind", kind);
     formData.set("variant", variant.trim() || "default");
+    if (title.trim()) formData.set("title", title.trim());
+    if (altText.trim()) formData.set("alt_text", altText.trim());
     await upload.mutateAsync(formData);
     setFile(null);
     setVariant("default");
+    setTitle("");
+    setAltText("");
   }
 
   const mutationError = upload.error ?? approve.error ?? archive.error;
@@ -117,6 +124,30 @@ export default function AssetsView() {
               placeholder="default"
             />
           </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-muted" htmlFor="asset-title">
+              Title
+            </label>
+            <input
+              id="asset-title"
+              className="inp"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="Primary wordmark"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-muted" htmlFor="asset-alt">
+              Alt text
+            </label>
+            <input
+              id="asset-alt"
+              className="inp"
+              value={altText}
+              onChange={(e) => setAltText(e.target.value)}
+              placeholder="Describe the image…"
+            />
+          </div>
           <button type="submit" className="btn-primary" disabled={!file || upload.isPending}>
             {upload.isPending ? "Uploading…" : "Upload"}
           </button>
@@ -138,7 +169,7 @@ export default function AssetsView() {
                     {/* eslint-disable-next-line @next/next/no-img-element -- arbitrary uploaded asset URLs, not a static import */}
                     <img
                       src={assetFileUrl(asset.id)}
-                      alt={`${asset.kind} ${asset.variant}`}
+                      alt={asset.alt_text || `${asset.kind} ${asset.variant}`}
                       className="max-h-full max-w-full object-contain"
                     />
                   </div>
@@ -146,6 +177,7 @@ export default function AssetsView() {
                     <span className="text-xs text-secondary truncate">{asset.variant}</span>
                     <Badge tone={STATUS_TONE[asset.status]}>{asset.status}</Badge>
                   </div>
+                  <AssetMeta asset={asset} />
                   <div className="flex gap-1">
                     {asset.status !== "approved" && (
                       <button
