@@ -24,6 +24,7 @@
 // depth 0 + isSection -> section header; depth 0 + !isSection -> a top-level
 // subtotal (Total Income, Gross Profit, ...); depth > 0 -> account or slice.
 
+import { CREDIT_SIDE_SECTIONS } from "@/lib/finance/financials/statementTotal";
 import type { BblCoverage, FinancialsRow, StatementKind } from "@/lib/finance/financials/types";
 import { CHANNEL_LABEL } from "./channelColors";
 
@@ -463,6 +464,70 @@ function buildCashFlow(rows: FinancialsRow[], months: string[], coaMap: CoaLooku
   return [revenue, otherIncome, totalCashIn, cogs, opEx, otherExp, totalCashOut, other, netOperating];
 }
 
+// The five credit-side statement sections (spec §4.5): normalizeSign.ts's
+// NEGATIVE_SECTIONS stores these as negative internally (assets positive,
+// liabilities/equity negative -- "Assets + Liabilities + Equity = 0"). A
+// conventionally presented balance sheet shows liabilities and equity
+// POSITIVE instead, so this display-only flip negates exactly these five,
+// never touching an asset section.
+// Shared with the sort accessor (controls.ts) via statementTotal.ts -- two
+// copies of this set is how the cell and the sort came to disagree on sign.
+const CREDIT_SECTIONS = CREDIT_SIDE_SECTIONS;
+
+function negateRow(row: FinancialsRow): FinancialsRow {
+  const amountCentsByMonth: Record<string, number> = {};
+  for (const [m, v] of Object.entries(row.amountCentsByMonth)) amountCentsByMonth[m] = -v || 0;
+  return { ...row, amountCentsByMonth };
+}
+
+/** Negates every row in a subtree (this node's own row, plus every descendant account/child/slice row), unconditionally. */
+function negateTreeDeep(node: TreeNode): TreeNode {
+  return { ...node, row: node.row ? negateRow(node.row) : null, children: node.children.map(negateTreeDeep) };
+}
+
+/** Balance-sheet presentation only: negate the credit-side sections so
+ *  liabilities and equity render positive, per standard presentation.
+ *  Applied at the tree layer AFTER every sum, so stored snapshots and
+ *  normalizeSign.ts keep the internal convention (spec §2.2) and the P&L
+ *  is untouched. */
+function toPresentationSign(node: TreeNode, section: string): TreeNode {
+  return CREDIT_SECTIONS.has(section) ? negateTreeDeep(node) : node;
+}
+
+/**
+ * Balancing Difference = Total Assets − (Total Liabilities + Equity),
+ * computed ONCE, post-flip, off the two already-built subtotal nodes --
+ * never re-derived from the pre-flip additive identity (they're the same
+ * number; two formulas invite drift). Zero when the books genuinely balance;
+ * well-defined (and non-zero) even when an entire side has no data at all.
+ */
+function balancingDifference(totalAssets: TreeNode, totalLiabEquity: TreeNode, months: string[]): TreeNode {
+  const amountCentsByMonth: Record<string, number> = {};
+  for (const m of months) {
+    amountCentsByMonth[m] = (totalAssets.row?.amountCentsByMonth[m] ?? 0) - (totalLiabEquity.row?.amountCentsByMonth[m] ?? 0);
+  }
+  return {
+    row: {
+      coaId: null,
+      parentId: null,
+      accountName: "Balancing Difference",
+      statementSection: "other",
+      channel: "unknown",
+      posCategory: null,
+      kegSize: null,
+      amountCentsByMonth,
+      bblByMonth: Object.fromEntries(months.map((m) => [m, 0])),
+      bblCoverage: "full",
+      mappingSource: "rule",
+      sourceRef: { table: "", ids: [] },
+    },
+    label: "Balancing Difference",
+    children: [],
+    depth: 0,
+    isSection: false,
+  };
+}
+
 function buildBalanceSheet(rows: FinancialsRow[], months: string[], coaMap: CoaLookup): TreeNode[] {
   const bank = buildSection(rows, "bank", "Bank & Cash", months, coaMap);
   const ar = buildSection(rows, "ar", "Accounts Receivable", months, coaMap);
@@ -475,14 +540,14 @@ function buildBalanceSheet(rows: FinancialsRow[], months: string[], coaMap: CoaL
   const otherAssets = buildSection(rows, "other_assets", "Other Assets", months, coaMap);
   const totalAssets = subtotal("Total Assets", [bank, ar, otherCurrentAssets, fixedAssets, otherAssets], months);
 
-  const ap = buildSection(rows, "ap", "Accounts Payable", months, coaMap);
-  const creditCard = buildSection(rows, "credit_card", "Credit Cards", months, coaMap);
-  const otherCurrentLiab = buildSection(rows, "other_current_liabilities", "Other Current Liabilities", months, coaMap);
-  const totalCurrentLiab = subtotal("Total Current Liabilities", [ap, creditCard, otherCurrentLiab], months);
-  const longTermLiab = buildSection(rows, "long_term_liabilities", "Long-Term Liabilities", months, coaMap);
-  const totalLiab = subtotal("Total Liabilities", [ap, creditCard, otherCurrentLiab, longTermLiab], months);
-
-  const equity = buildSection(rows, "equity", "Equity", months, coaMap);
+  // Credit-side sections, built in the internal (liabilities/equity negative)
+  // convention like everything above, then flipped to conventional
+  // presentation (positive) below -- see toPresentationSign's header comment.
+  const apInternal = buildSection(rows, "ap", "Accounts Payable", months, coaMap);
+  const creditCardInternal = buildSection(rows, "credit_card", "Credit Cards", months, coaMap);
+  const otherCurrentLiabInternal = buildSection(rows, "other_current_liabilities", "Other Current Liabilities", months, coaMap);
+  const longTermLiabInternal = buildSection(rows, "long_term_liabilities", "Long-Term Liabilities", months, coaMap);
+  const equityInternal = buildSection(rows, "equity", "Equity", months, coaMap);
   // M1: an unrecognized/missing CoA accountType gives no signal for which
   // side of the balance sheet a row belongs on, so the "Other" catch-all is
   // folded into the final Total Liabilities + Equity grand total (rather
@@ -490,17 +555,34 @@ function buildBalanceSheet(rows: FinancialsRow[], months: string[], coaMap: CoaL
   // toward a grand total, so it's never silently dropped. Rows mapped to a
   // genuine P&L account, or entirely unmapped, are excluded (symmetric with
   // buildPl) -- a P&L account's balance never belonged on the Balance Sheet.
-  const other = buildOtherSection(rows, BS_KNOWN_SECTIONS, PL_KNOWN_SECTIONS, months, coaMap);
+  const otherInternal = buildOtherSection(rows, BS_KNOWN_SECTIONS, PL_KNOWN_SECTIONS, months, coaMap);
+
+  const ap = toPresentationSign(apInternal, "ap");
+  const creditCard = toPresentationSign(creditCardInternal, "credit_card");
+  const otherCurrentLiab = toPresentationSign(otherCurrentLiabInternal, "other_current_liabilities");
+  const longTermLiab = toPresentationSign(longTermLiabInternal, "long_term_liabilities");
+  const equity = toPresentationSign(equityInternal, "equity");
+  // "Other" always sits on the credit side of the grand total below (see
+  // buildOtherSection's caller-side comment) -- flip it unconditionally
+  // rather than through toPresentationSign's section-membership check, since
+  // its own row.statementSection is the synthetic "other", not one of the
+  // five named credit sections.
+  const other = negateTreeDeep(otherInternal);
+
+  const totalCurrentLiab = subtotal("Total Current Liabilities", [ap, creditCard, otherCurrentLiab], months);
+  const totalLiab = subtotal("Total Liabilities", [ap, creditCard, otherCurrentLiab, longTermLiab], months);
   const totalLiabEquity = subtotal(
     "Total Liabilities + Equity",
     [ap, creditCard, otherCurrentLiab, longTermLiab, equity, other],
     months,
   );
 
+  const diff = balancingDifference(totalAssets, totalLiabEquity, months);
+
   return [
     bank, ar, otherCurrentAssets, totalCurrentAssets, fixedAssets, otherAssets, totalAssets,
     ap, creditCard, otherCurrentLiab, totalCurrentLiab, longTermLiab, totalLiab,
-    equity, other, totalLiabEquity,
+    equity, other, totalLiabEquity, diff,
   ];
 }
 

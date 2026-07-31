@@ -22,73 +22,33 @@ import type {
   BankLedgerRecord,
   RefundRecord,
   CoaRecord,
-  TipAccrualRecord,
-  TaxAccrualRecord,
 } from "./aggregateRows";
 import type { ManualNetSalesEntryRecord } from "./manualNetSales";
 
+// balance_sheet no longer reads through this module (see buildFinancials.ts's
+// balance_sheet branch, which reads lib/finance/balances/snapshot.ts's
+// fetchBalances + the provider registry instead) -- this fetch layer is now
+// pl/cash_flow only. Its balance-sheet-only pieces (the single-canonical-
+// month collapse, open-invoice A/R, tip/tax accrual derivation) moved to
+// lib/finance/balances/providers/{accruals,retainedEarnings}.ts in an earlier
+// task and are deleted here, not duplicated.
 export interface FinancialsSourcesResult {
   pos: PosLineRecord[];
   invoiceLines: InvoiceLineRecord[];
   expenses: ExpenseRecord[];
   refunds: RefundRecord[];
   bank: BankLedgerRecord[];
-  /**
-   * balance_sheet mode only: a single derived accrual record (keyed to the
-   * canonical month) summing collected card tips (square_orders.tip_cents,
-   * taproom-basis) across the whole cumulative range -- credits the tips
-   * liability the same way a tip payout debits it (see aggregateRows.ts's
-   * resolveTipAccrual). Always [] for pl/cash_flow (no P&L analog) and when
-   * payroll_gl_settings.tips_chart_of_accounts_id is unset or the column
-   * doesn't exist yet (migration 20260823 pending) -- see fetchTipAccruals.
-   */
-  tipAccruals: TipAccrualRecord[];
-  taxAccruals: TaxAccrualRecord[];
-  /**
-   * balance_sheet mode only: coverage stat for the data-quality panel -- how
-   * many distinct Square taxes have collections but no mapped liability
-   * account, and how many cents that hides from the balance sheet. { count:
-   * 0, cents: 0 } for pl/cash_flow and on any error, mirroring
-   * fetchTaxAccountMap's degrade-to-empty contract.
-   */
-  unmappedTaxes: { count: number; cents: number };
   coa: CoaRecord[];
   /**
    * manual_entries rows (entry_kind = 'flow'), unbounded by date range
    * (proration happens per-month in buildFinancials.ts's
    * injectManualNetSales, mirroring the deleted app/api/finance/sales/
-   * taproom/route.ts). pl/cash_flow modes only -- always [] for
-   * balance_sheet (Square parity fix B: this is a P&L revenue adjustment,
-   * it has no balance-sheet analog).
+   * taproom/route.ts).
    */
   manualNetSalesEntries: ManualNetSalesEntryRecord[];
-  /**
-   * Month keys the fetched records are bounded to, ascending.
-   *  - pl / cash_flow: the trailing (up to) 12 real calendar months, "YYYY-MM".
-   *  - balance_sheet: a single synthetic key equal to the period-end month
-   *    ("YYYY-12" or the current month for the current year). Every fetched
-   *    record's date has already been normalized onto that one key so
-   *    aggregateRows collapses the whole from-inception range into one
-   *    bucket — preserving today's BS page's single-Total semantics
-   *    (app/api/finance/statements/route.ts's cumulative=true mode).
-   */
+  /** The trailing (up to) 12 real calendar months, ascending "YYYY-MM". */
   months: string[];
   exciseCoverage: { shipmentsMissingExcise: number };
-  /**
-   * balance_sheet mode only: the first "Accounts receivable (A/R)" account
-   * in the chart of accounts (mirrors app/api/finance/statements/route.ts's
-   * arAccount, which is also a bare `.find()` -- first row in whatever order
-   * Supabase returns, no explicit ORDER BY). Null for pl/cash_flow, and null
-   * if no A/R account is configured.
-   */
-  arAccount: { id: string; name: string } | null;
-  /**
-   * balance_sheet mode only: sum of invoices.total_cents where status='open'
-   * and invoice_date <= the BS period end (mirrors
-   * app/api/finance/statements/route.ts:474-488's arCents). 0 for
-   * pl/cash_flow.
-   */
-  openInvoiceArCents: number;
 }
 
 const VOLUME_CATEGORIES = new Set(["distribution_keg", "distribution_can"]);
@@ -104,7 +64,9 @@ export { fetchAllRows };
 
 // ── date range helpers ──────────────────────────────────────────────────────
 
-interface DateRange {
+// Exported so lib/finance/balances/providers/retainedEarnings.ts can build its
+// own cumulative-through-periodEnd DateRange for fetchPos/fetchBank/fetchRefunds.
+export interface DateRange {
   /** Inclusive lower bound, "YYYY-MM-DD" (invoices/expenses/bank) or ISO timestamp (pos/refunds). Null = from inception. */
   startDateStr: string | null;
   start: string | null;
@@ -149,29 +111,14 @@ function rangeFromMonths(months: string[]): DateRange {
   };
 }
 
-/** Cumulative-from-inception range through the end of `year`'s period-end month. */
-function cumulativeRange(year: number, now: Date): { range: DateRange; canonicalMonth: string } {
-  const { y, m } = periodEndYearMonth(year, now);
-  const canonicalMonth = `${y}-${pad(m)}`;
-  return {
-    range: {
-      startDateStr: null,
-      start: null,
-      endDateStr: `${y}-${pad(m)}-${pad(new Date(y, m, 0).getDate())}`,
-      end: `${m === 12 ? y + 1 : y}-${pad(m === 12 ? 1 : m + 1)}-01T00:00:00Z`,
-    },
-    canonicalMonth,
-  };
-}
-
-/** Collapses every record's date field onto `canonical`, for balance_sheet's single-Total bucket. */
-function collapseDates<T, K extends keyof T>(records: T[], field: K, canonical: T[K]): T[] {
-  return records.map((r) => ({ ...r, [field]: canonical }));
-}
-
 // ── per-source fetches ──────────────────────────────────────────────────────
 
-async function fetchCoa(supabase: SupabaseClient): Promise<CoaRecord[]> {
+// Exported (alongside fetchInvoiceLines/fetchExpenses) so
+// lib/finance/balances/providers/retainedEarnings.ts can reuse these exact
+// per-source fetches for its own cumulative-through-periodEnd range, rather
+// than re-deriving the pos/bank fetch + catalog prefill logic and risking
+// drift from the P&L.
+export async function fetchCoa(supabase: SupabaseClient): Promise<CoaRecord[]> {
   const data = await fetchAllRows<{
     id: string;
     parent_id: string | null;
@@ -195,7 +142,7 @@ async function fetchCoa(supabase: SupabaseClient): Promise<CoaRecord[]> {
   }));
 }
 
-async function fetchPos(supabase: SupabaseClient, range: DateRange): Promise<PosLineRecord[]> {
+export async function fetchPos(supabase: SupabaseClient, range: DateRange): Promise<PosLineRecord[]> {
   const rows = await fetchAllRows<{
     id: string;
     net_sales_cents: number | null;
@@ -474,7 +421,7 @@ export async function fetchExpenses(supabase: SupabaseClient, range: DateRange, 
   }));
 }
 
-async function fetchBank(supabase: SupabaseClient, range: DateRange, statement: StatementKind): Promise<BankLedgerRecord[]> {
+export async function fetchBank(supabase: SupabaseClient, range: DateRange, statement: StatementKind): Promise<BankLedgerRecord[]> {
   const data = await fetchAllRows<{
     id: string;
     chart_of_accounts_id: string | null;
@@ -514,7 +461,7 @@ async function fetchBank(supabase: SupabaseClient, range: DateRange, statement: 
   }));
 }
 
-async function fetchRefunds(supabase: SupabaseClient, range: DateRange): Promise<RefundRecord[]> {
+export async function fetchRefunds(supabase: SupabaseClient, range: DateRange): Promise<RefundRecord[]> {
   const data = await fetchAllRows<{
     id: string;
     chart_of_accounts_id: string | null;
@@ -569,309 +516,47 @@ async function fetchManualNetSalesEntries(supabase: SupabaseClient): Promise<Man
   }));
 }
 
-/** Reuses lib/finance/invoiceSalesReport.ts's exciseCoverage rather than reinventing the TPB-liable-shipments-missing-excise computation. */
-async function fetchExciseCoverage(supabase: SupabaseClient, year: number): Promise<{ shipmentsMissingExcise: number }> {
+/**
+ * Reuses lib/finance/invoiceSalesReport.ts's exciseCoverage rather than
+ * reinventing the TPB-liable-shipments-missing-excise computation. Exported
+ * so buildFinancials.ts's balance_sheet branch (which no longer calls
+ * fetchFinancialsSources at all -- it reads lib/finance/balances/
+ * snapshot.ts's fetchBalances + the provider registry instead) can still
+ * populate this dataQuality tile the same way pl/cash_flow do below.
+ */
+export async function fetchExciseCoverage(supabase: SupabaseClient, year: number): Promise<{ shipmentsMissingExcise: number }> {
   const report = await buildInvoiceSalesReport(supabase, year);
   return { shipmentsMissingExcise: report.exciseCoverage.missingDetailTxns };
 }
 
-/**
- * Open-invoice A/R total as of the BS period end -- mirrors
- * app/api/finance/statements/route.ts:474-488's open-invoice sum exactly
- * (status='open', invoice_date <= period end). Deliberately NOT bounded by
- * the range's lower bound: like the old route, this is a point-in-time
- * open-balance snapshot, not a period movement.
- */
-async function fetchOpenInvoiceAr(supabase: SupabaseClient, endDateStr: string): Promise<number> {
-  const rows = await fetchAllRows<{ total_cents: number | null }>(() =>
-    supabase
-      .from("invoices")
-      .select("total_cents")
-      .eq("status", "open")
-      .lte("invoice_date", endDateStr)
-      .order("id", { ascending: true }),
-  );
-  return rows.reduce((s, inv) => s + (inv.total_cents ?? 0), 0);
-}
-
-/**
- * balance_sheet mode only: payroll_gl_settings.tips_chart_of_accounts_id
- * (migration 20260823, not yet applied to prod). Degrades to null on ANY
- * error -- missing column, missing row, or any other Supabase error -- so an
- * unapplied migration never fails the financials page; it just leaves tip
- * accruals off until the setting exists.
- */
-async function fetchTipsAccountId(supabase: SupabaseClient): Promise<string | null> {
-  try {
-    const { data, error } = await supabase
-      .from("payroll_gl_settings")
-      .select("tips_chart_of_accounts_id")
-      .maybeSingle();
-    if (error) return null;
-    return (data as { tips_chart_of_accounts_id: string | null } | null)?.tips_chart_of_accounts_id ?? null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * balance_sheet mode only: derived monthly accrual of collected card tips.
- * Sums square_orders.tip_cents where status='COMPLETED' and invoice_id is
- * null (the taproom basis -- mirrors fetchPos's own POS/invoice split)
- * across the whole cumulative range, into a single record keyed to the
- * canonical month (BS mode collapses everything onto one synthetic month
- * key, so no per-month grouping is needed here). The status filter matters
- * here specifically -- syncPosTransactions.ts keeps a CANCELED order's
- * header tip_cents intact and only withdraws its line items, so every other
- * financials source is immune to canceled orders but this one isn't without
- * it. Returns [] when tipsAccountId is null (never fail the financials page
- * over an unconfigured/not-yet-migrated setting) or when the summed tips are
- * <= 0 (a degenerate $0 row, and resolveTipAccrual's -magnitude branch would
- * sign a negative sum the same as a positive one).
- */
-export async function fetchTipAccruals(
-  supabase: SupabaseClient,
-  range: DateRange,
-  tipsAccountId: string | null,
-): Promise<TipAccrualRecord[]> {
-  if (!tipsAccountId) return [];
-
-  const rows = await fetchAllRows<{ tip_cents: number | null }>(() => {
-    let q = supabase
-      .from("square_orders")
-      .select("tip_cents")
-      .eq("status", "COMPLETED")
-      .is("invoice_id", null)
-      .lt("transaction_date", range.end)
-      .order("id", { ascending: true });
-    if (range.start) q = q.gte("transaction_date", range.start);
-    return q;
-  });
-
-  const amountCents = rows.reduce((s, r) => s + (r.tip_cents ?? 0), 0);
-  // Degenerate guard: a would-be $0 (or negative, which shouldn't happen but
-  // isn't trusted) balance-sheet row is pointless, and resolveTipAccrual's
-  // -magnitude branch would sign a negative sum identically to a positive
-  // one -- bail out before either can happen.
-  if (amountCents <= 0) return [];
-  // range.endDateStr's month IS the canonical month by construction
-  // (cumulativeRange sets it to the period-end month) -- no separate
-  // canonicalMonth param needed.
-  const monthKey = range.endDateStr.slice(0, 7);
-  return [{ id: `tips-${monthKey}`, chartOfAccountsId: tipsAccountId, amountCents, monthKey }];
-}
-
-/**
- * square_tax_id -> chart_of_accounts_id, for taxes that have been mapped.
- * Unmapped rows are omitted, so fetchTaxAccruals naturally emits nothing for
- * them. Degrades to an EMPTY MAP on any error -- a missing table (migration
- * 20260825 unapplied) must leave the balance sheet rendering exactly as it did
- * before, never 500 it. Same contract as fetchTipsAccountId's null.
- */
-async function fetchTaxAccountMap(supabase: SupabaseClient): Promise<Map<string, string>> {
-  try {
-    const rows = await fetchAllRows<{ square_tax_id: string; chart_of_accounts_id: string | null }>(() =>
-      supabase
-        .from("square_tax_accounts")
-        .select("square_tax_id, chart_of_accounts_id")
-        .order("square_tax_id", { ascending: true }),
-    );
-    const map = new Map<string, string>();
-    for (const r of rows) {
-      if (r.chart_of_accounts_id) map.set(r.square_tax_id, r.chart_of_accounts_id);
-    }
-    return map;
-  } catch {
-    return new Map();
-  }
-}
-
-/**
- * balance_sheet mode only: derived accrual of collected sales tax, grouped per
- * liability account. Unions pos_line_item_taxes and invoice_line_item_taxes.
- *
- * Grouped by square_tax_id ONLY, not by month: BS mode collapses every record
- * onto one synthetic month key (cumulativeRange's canonicalMonth), which is why
- * fetchTipAccruals emits a single record and derives monthKey from
- * range.endDateStr. Two taxes mapped to one account merge into one record.
- *
- * The COMPLETED filter is defensive rather than load-bearing: pos_line_item_taxes
- * cascades from pos_line_items, whose rows are deleted for canceled orders (see
- * syncPosTransactions.ts), so canceled tax cannot survive -- unlike
- * square_orders.tip_cents, which does and is why fetchTipAccruals needs it.
- */
-export async function fetchTaxAccruals(
-  supabase: SupabaseClient,
-  range: DateRange,
-  accountByTaxId: Map<string, string>,
-): Promise<TaxAccrualRecord[]> {
-  if (accountByTaxId.size === 0) return [];
-
-  const posRows = await fetchAllRows<{ square_tax_id: string; amount_cents: number | null }>(() => {
-    let q = supabase
-      .from("pos_line_item_taxes")
-      .select("square_tax_id, amount_cents, pos_line_items!inner ( square_orders!inner ( transaction_date, status ) )")
-      .eq("pos_line_items.square_orders.status", "COMPLETED")
-      .lt("pos_line_items.square_orders.transaction_date", range.end)
-      .order("id", { ascending: true });
-    if (range.start) q = q.gte("pos_line_items.square_orders.transaction_date", range.start);
-    return q;
-  });
-
-  // Wrapped: migration 20260826 may be unapplied. Degrade to POS-only -- but
-  // only for that specific cause. Any other failure (a transient PostgREST
-  // 5xx, a timeout) must propagate: silently returning zero invoice-collected
-  // tax here would understate the balance-sheet liability with no signal to
-  // the operator (mirrors lib/tax/squareTaxBase.ts's narrowing).
-  let invoiceRows: { square_tax_id: string; amount_cents: number | null }[] = [];
-  try {
-    invoiceRows = await fetchAllRows<{ square_tax_id: string; amount_cents: number | null }>(() => {
-      let q = supabase
-        .from("invoice_line_item_taxes")
-        .select("square_tax_id, amount_cents, invoice_line_items!inner ( invoices!invoice_line_items_invoice_id_fkey!inner ( invoice_date, status ) )")
-        .neq("invoice_line_items.invoices.status", "voided")
-        .lte("invoice_line_items.invoices.invoice_date", range.endDateStr)
-        .order("id", { ascending: true });
-      if (range.startDateStr) q = q.gte("invoice_line_items.invoices.invoice_date", range.startDateStr);
-      return q;
-    });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (!/does not exist|PGRST205|Could not find the table/i.test(msg)) throw err;
-    invoiceRows = [];
-  }
-
-  const centsByAccount = new Map<string, number>();
-  for (const r of [...posRows, ...invoiceRows]) {
-    const coaId = accountByTaxId.get(r.square_tax_id);
-    if (!coaId) continue;
-    centsByAccount.set(coaId, (centsByAccount.get(coaId) ?? 0) + (r.amount_cents ?? 0));
-  }
-
-  // range.endDateStr's month IS the canonical month by construction.
-  const monthKey = range.endDateStr.slice(0, 7);
-  const out: TaxAccrualRecord[] = [];
-  for (const [coaId, amountCents] of centsByAccount) {
-    // Degenerate guard, mirroring fetchTipAccruals: the -magnitude branch signs
-    // a negative sum identically to a positive one, so a negative total would
-    // silently read as MORE liability.
-    if (amountCents <= 0) continue;
-    out.push({ id: `tax-${coaId}-${monthKey}`, chartOfAccountsId: coaId, amountCents, monthKey });
-  }
-  return out;
-}
-
-/**
- * Coverage stat for the data-quality panel: how many distinct Square taxes have
- * collections but no mapped liability account, and how many cents that hides.
- * Returns zeros on any error, for the same reason fetchTaxAccountMap does.
- */
-async function fetchUnmappedTaxCoverage(
-  supabase: SupabaseClient,
-  accountByTaxId: Map<string, string>,
-): Promise<{ count: number; cents: number }> {
-  try {
-    const pos = await fetchAllRows<{ square_tax_id: string; amount_cents: number | null }>(() =>
-      supabase.from("pos_line_item_taxes").select("square_tax_id, amount_cents").order("id", { ascending: true }),
-    );
-    // Invoice taxes count too -- fetchTaxAccruals unions both sources, so a tax
-    // seen ONLY on invoices and left unmapped must still be reported here.
-    // Wrapped separately: migration 20260826 may be unapplied.
-    let invoice: { square_tax_id: string; amount_cents: number | null }[] = [];
-    try {
-      invoice = await fetchAllRows<{ square_tax_id: string; amount_cents: number | null }>(() =>
-        supabase.from("invoice_line_item_taxes").select("square_tax_id, amount_cents").order("id", { ascending: true }),
-      );
-    } catch {
-      invoice = [];
-    }
-    const byTax = new Map<string, number>();
-    for (const r of [...pos, ...invoice]) {
-      if (accountByTaxId.has(r.square_tax_id)) continue;
-      byTax.set(r.square_tax_id, (byTax.get(r.square_tax_id) ?? 0) + (r.amount_cents ?? 0));
-    }
-    let cents = 0;
-    for (const v of byTax.values()) cents += v;
-    return { count: byTax.size, cents };
-  } catch {
-    return { count: 0, cents: 0 };
-  }
-}
-
 // ── entry point ──────────────────────────────────────────────────────────
 
+/**
+ * pl / cash_flow only -- balance_sheet reads through
+ * lib/finance/balances/snapshot.ts's fetchBalances + the provider registry
+ * instead (buildFinancials.ts's balance_sheet branch never calls this
+ * function). Always the trailing (up to) 12 real calendar months; no more
+ * single-canonical-month collapse branch.
+ */
 export async function fetchFinancialsSources(params: { statement: StatementKind; year: number }): Promise<FinancialsSourcesResult> {
   const { statement, year } = params;
   const now = new Date();
   const supabase = createSupabaseAdminClient();
   const cashOnly = statement === "cash_flow";
-  const isBalanceSheet = statement === "balance_sheet";
 
-  let range: DateRange;
-  let months: string[];
-  let canonicalMonth: string | null = null;
+  const months = trailingMonths(year, now);
+  const range = rangeFromMonths(months);
 
-  if (statement === "balance_sheet") {
-    const cum = cumulativeRange(year, now);
-    range = cum.range;
-    canonicalMonth = cum.canonicalMonth;
-    months = [canonicalMonth];
-  } else {
-    months = trailingMonths(year, now);
-    range = rangeFromMonths(months);
-  }
-
-  const [coa, pos, invoiceLines, expenses, bank, refunds, exciseCoverage, openInvoiceArCents, manualNetSalesEntries, tipAccruals, taxBundle] =
-    await Promise.all([
-      fetchCoa(supabase),
-      fetchPos(supabase, range),
-      fetchInvoiceLines(supabase, range, cashOnly),
-      fetchExpenses(supabase, range, cashOnly),
-      fetchBank(supabase, range, statement),
-      fetchRefunds(supabase, range),
-      fetchExciseCoverage(supabase, year),
-      isBalanceSheet ? fetchOpenInvoiceAr(supabase, range.endDateStr) : Promise.resolve(0),
-      // pl/cash_flow only -- balance_sheet has no analog for this P&L revenue
-      // adjustment (Square parity fix B).
-      isBalanceSheet ? Promise.resolve<ManualNetSalesEntryRecord[]>([]) : fetchManualNetSalesEntries(supabase),
-      // balance_sheet only -- chained (not a separate `await` before
-      // Promise.all) so the settings lookup stays parallel with everything
-      // else instead of serializing in front of it.
-      isBalanceSheet
-        ? fetchTipsAccountId(supabase).then((tipsAccountId) => fetchTipAccruals(supabase, range, tipsAccountId))
-        : Promise.resolve<TipAccrualRecord[]>([]),
-      // balance_sheet only -- chained so the settings map read stays parallel.
-      isBalanceSheet
-        ? fetchTaxAccountMap(supabase).then(async (map) => ({
-            accruals: await fetchTaxAccruals(supabase, range, map),
-            unmapped: await fetchUnmappedTaxCoverage(supabase, map),
-          }))
-        : Promise.resolve({ accruals: [] as TaxAccrualRecord[], unmapped: { count: 0, cents: 0 } }),
-    ]);
-
-  const arAcct = isBalanceSheet ? coa.find((c) => c.accountType === "Accounts receivable (A/R)") : undefined;
-  const arAccount = arAcct ? { id: arAcct.id, name: arAcct.accountName } : null;
-
-  if (canonicalMonth) {
-    return {
-      coa,
-      pos: collapseDates(pos, "transactionDate", canonicalMonth),
-      invoiceLines: collapseDates(invoiceLines, "invoiceDate", canonicalMonth),
-      expenses: collapseDates(expenses, "accountingDate", canonicalMonth),
-      bank: collapseDates(bank, "transactionDate", canonicalMonth),
-      refunds: collapseDates(refunds, "refundedAt", canonicalMonth),
-      // tipAccruals/taxAccruals already carry the canonical monthKey by
-      // construction (derived from range.endDateStr) -- no collapseDates needed.
-      tipAccruals,
-      taxAccruals: taxBundle.accruals,
-      unmappedTaxes: taxBundle.unmapped,
-      months,
-      exciseCoverage,
-      arAccount,
-      openInvoiceArCents,
-      manualNetSalesEntries,
-    };
-  }
+  const [coa, pos, invoiceLines, expenses, bank, refunds, exciseCoverage, manualNetSalesEntries] = await Promise.all([
+    fetchCoa(supabase),
+    fetchPos(supabase, range),
+    fetchInvoiceLines(supabase, range, cashOnly),
+    fetchExpenses(supabase, range, cashOnly),
+    fetchBank(supabase, range, statement),
+    fetchRefunds(supabase, range),
+    fetchExciseCoverage(supabase, year),
+    fetchManualNetSalesEntries(supabase),
+  ]);
 
   return {
     coa,
@@ -880,13 +565,8 @@ export async function fetchFinancialsSources(params: { statement: StatementKind;
     expenses,
     bank,
     refunds,
-    tipAccruals,
-    taxAccruals: taxBundle.accruals,
-    unmappedTaxes: taxBundle.unmapped,
     months,
     exciseCoverage,
-    arAccount,
-    openInvoiceArCents,
     manualNetSalesEntries,
   };
 }

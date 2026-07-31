@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildTree } from "./buildTree";
+import { normalizeSignedCents } from "@/lib/finance/financials/normalizeSign";
 import type { FinancialsRow } from "@/lib/finance/financials/types";
 
 function row(
@@ -376,52 +377,104 @@ describe("buildTree — pl orders siblings by GL account number", () => {
   });
 });
 
+// Rows are fixtured in the INTERNAL storage convention (normalizeSign.ts:
+// assets positive, liabilities/equity negative) -- exactly what a provider's
+// compute() or a P&L-derived row would store. buildTree's presentation flip
+// (spec §4.5) negates the five credit-side sections AFTER every sum, so the
+// assertions below check the DISPLAYED (post-flip, liabilities/equity
+// positive) values, not the internal ones.
 describe("buildTree — balance_sheet", () => {
   const rows: FinancialsRow[] = [
     row({ coaId: "bank-1", accountName: "Checking", statementSection: "bank", amountCentsByMonth: { "2026-01": 100000 } }),
     row({ coaId: "ar-1", accountName: "AR", statementSection: "ar", amountCentsByMonth: { "2026-01": 20000 } }),
     row({ coaId: "fixed-1", accountName: "Equipment", statementSection: "fixed_assets", amountCentsByMonth: { "2026-01": 50000 } }),
     row({ coaId: "ap-1", accountName: "AP", statementSection: "ap", amountCentsByMonth: { "2026-01": -15000 } }),
-    row({ coaId: "eq-1", accountName: "Owner Equity", statementSection: "equity", amountCentsByMonth: { "2026-01": -155000 } }),
+    row({ coaId: "cc-1", accountName: "Visa", statementSection: "credit_card", amountCentsByMonth: { "2026-01": -5000 } }),
+    row({ coaId: "ocl-1", accountName: "Accrued Liabilities", statementSection: "other_current_liabilities", amountCentsByMonth: { "2026-01": -3000 } }),
+    row({ coaId: "ltl-1", accountName: "Loan Payable", statementSection: "long_term_liabilities", amountCentsByMonth: { "2026-01": -7000 } }),
+    row({ coaId: "eq-1", accountName: "Owner Equity", statementSection: "equity", amountCentsByMonth: { "2026-01": -140000 } }),
   ];
 
   const tree = buildTree(rows, "balance_sheet");
 
-  it("builds the 16 balance-sheet section/subtotal nodes in order (incl. the M1 'Other' catch-all)", () => {
+  it("builds the 17 balance-sheet section/subtotal nodes in order (incl. the M1 'Other' catch-all + Balancing Difference)", () => {
     expect(tree.map((n) => n.label)).toEqual([
       "Bank & Cash", "Accounts Receivable", "Other Current Assets", "Total Current Assets",
       "Fixed Assets", "Other Assets", "Total Assets",
       "Accounts Payable", "Credit Cards", "Other Current Liabilities", "Total Current Liabilities",
       "Long-Term Liabilities", "Total Liabilities",
-      "Equity", "Other", "Total Liabilities + Equity",
+      "Equity", "Other", "Total Liabilities + Equity", "Balancing Difference",
     ]);
   });
 
-  it("rolls current-asset sections into Total Current Assets, then adds Fixed Assets into Total Assets", () => {
+  it("rolls current-asset sections into Total Current Assets, then adds Fixed Assets into Total Assets (assets untouched by the flip)", () => {
     const totalCurrentAssets = tree[3];
     const totalAssets = tree[6];
     expect(totalCurrentAssets.row?.amountCentsByMonth["2026-01"]).toBe(120000);
     expect(totalAssets.row?.amountCentsByMonth["2026-01"]).toBe(170000);
   });
 
-  it("rolls liability sections + equity into Total Liabilities + Equity", () => {
+  it("negates exactly the five credit-side sections so each renders positive", () => {
+    const [ap, creditCard, otherCurrentLiab] = [tree[7], tree[8], tree[9]];
+    const [longTermLiab, equity] = [tree[11], tree[13]];
+    expect(ap.row?.amountCentsByMonth["2026-01"]).toBe(15000);
+    expect(creditCard.row?.amountCentsByMonth["2026-01"]).toBe(5000);
+    expect(otherCurrentLiab.row?.amountCentsByMonth["2026-01"]).toBe(3000);
+    expect(longTermLiab.row?.amountCentsByMonth["2026-01"]).toBe(7000);
+    expect(equity.row?.amountCentsByMonth["2026-01"]).toBe(140000);
+  });
+
+  it("rolls the (now-positive) liability sections + equity into Total Liabilities + Equity", () => {
+    const totalCurrentLiab = tree[10];
     const totalLiab = tree[12];
     const totalLE = tree[15];
-    expect(totalLiab.row?.amountCentsByMonth["2026-01"]).toBe(-15000);
-    expect(totalLE.row?.amountCentsByMonth["2026-01"]).toBe(-170000);
+    expect(totalCurrentLiab.row?.amountCentsByMonth["2026-01"]).toBe(23000); // 15000 + 5000 + 3000
+    expect(totalLiab.row?.amountCentsByMonth["2026-01"]).toBe(30000); // + 7000 long-term
+    expect(totalLE.row?.amountCentsByMonth["2026-01"]).toBe(170000); // + 140000 equity
   });
 
-  it("balances: Total Assets + Total Liabilities + Equity nets to zero under the signed-cents convention", () => {
+  it("computes the Balancing Difference as Total Assets − (Total Liabilities + Equity), post-flip, zero when the books balance", () => {
     const totalAssets = tree[6];
     const totalLE = tree[15];
-    expect((totalAssets.row?.amountCentsByMonth["2026-01"] ?? 0) + (totalLE.row?.amountCentsByMonth["2026-01"] ?? 0)).toBe(0);
+    const diff = tree[16];
+    expect(diff.label).toBe("Balancing Difference");
+    expect(diff.row?.amountCentsByMonth["2026-01"]).toBe(
+      (totalAssets.row?.amountCentsByMonth["2026-01"] ?? 0) - (totalLE.row?.amountCentsByMonth["2026-01"] ?? 0),
+    );
+    expect(diff.row?.amountCentsByMonth["2026-01"]).toBe(0);
+  });
+
+  it("Balancing Difference is well-defined and non-zero when an entire side is absent", () => {
+    const assetsOnly: FinancialsRow[] = [
+      row({ coaId: "bank-1", accountName: "Checking", statementSection: "bank", amountCentsByMonth: { "2026-01": 100000 } }),
+    ];
+    const t = buildTree(assetsOnly, "balance_sheet");
+    const totalAssets = t.find((n) => n.label === "Total Assets")!;
+    const totalLE = t.find((n) => n.label === "Total Liabilities + Equity")!;
+    const diff = t.find((n) => n.label === "Balancing Difference")!;
+    expect(totalAssets.row?.amountCentsByMonth["2026-01"]).toBe(100000);
+    expect(totalLE.row?.amountCentsByMonth["2026-01"]).toBe(0);
+    expect(diff.row?.amountCentsByMonth["2026-01"]).toBe(100000);
   });
 });
+// The balance-sheet presentation flip is covered structurally below (that it
+// negates exactly the five credit-side sections and leaves assets and every P&L
+// tree alone). It is deliberately NOT covered by an "equivalence gate" here.
+//
+// A previous version of this file claimed to be one: it froze seven real
+// production magnitudes, ran each through normalizeSignedCents -- the very
+// function under test -- and asserted the flipped value was its negation. That
+// is true by construction for ANY flip function. It never ran a provider, never
+// wrote or read a snapshot, and never compared against pre-branch output, so it
+// constrained nothing; six real defects passed it. Two of its seven frozen
+// numbers were also simply wrong (GL 2430 used total_cents where the pipeline
+// uses net_sales_cents; GL 2310 used an unbounded, 1000-row-truncated sum).
+//
+// The real gate is scripts/balance-sheet-parity.ts, checked against
+// lib/finance/balances/__fixtures__/goldenBalanceSheet.ts -- a capture of what
+// the pre-PR-B pipeline actually produced from production. It has to run
+// against a database, which is why it is a script and not a unit test.
 
-// "Other Assets" is QBO's NON-current asset type (security deposits, lease
-// buyouts, goodwill), so it must sit outside Total Current Assets while still
-// counting toward Total Assets. Getting that wrong would either hide the
-// balance from Total Assets or overstate working capital.
 describe("buildTree — balance_sheet with an Other Assets row", () => {
   const rows: FinancialsRow[] = [
     row({ coaId: "bank-1", accountName: "Chase", statementSection: "bank", amountCentsByMonth: { "2026-01": 100000 } }),
@@ -474,7 +527,7 @@ describe("buildTree — edge cases", () => {
   it("returns zeroed sections for an empty rows array, per statement kind", () => {
     expect(buildTree([], "pl")).toHaveLength(9);
     expect(buildTree([], "cash_flow")).toHaveLength(9);
-    expect(buildTree([], "balance_sheet")).toHaveLength(16);
+    expect(buildTree([], "balance_sheet")).toHaveLength(17);
   });
 
   it("groups unmapped (coaId null) rows by accountName into separate root accounts", () => {

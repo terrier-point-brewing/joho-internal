@@ -39,6 +39,8 @@ export interface DataQualitySummary {
   exciseCoverage: { shipmentsMissingExcise: number; href: string };
   /** Square taxes collected but not mapped to a liability account -- their collections are silently omitted from the balance sheet. */
   unmappedTaxes: { count: number; cents: number; href: string };
+  /** balance_sheet only: balance-sheet accounts with no active balance_sheet_account_sources row (spec §4.5) -- 0 for pl/cash_flow. */
+  unsourcedAccounts: { count: number; href: string };
 }
 
 export interface KpiSummary {

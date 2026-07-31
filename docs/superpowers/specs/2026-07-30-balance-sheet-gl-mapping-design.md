@@ -330,7 +330,7 @@ figure the way the current taproom tab does.
 
 Depends on PR A for the `manualBalance` provider's data source.
 
-### 4.1 Data model — `supabase/migrations/20260904130000_balance_sheet_snapshots.sql`
+### 4.1 Data model — `supabase/migrations/20260905100000_balance_sheet_snapshots.sql`
 
 ```sql
 -- The "auto-mapping" rule table. An account may declare MORE THAN ONE source:
@@ -579,7 +579,7 @@ closed or past `due_date`.
 
 | File | Purpose |
 |---|---|
-| `supabase/migrations/20260904130000_balance_sheet_snapshots.sql` | 3 tables, RLS, seed source rows |
+| `supabase/migrations/20260905100000_balance_sheet_snapshots.sql` | 3 tables, RLS, seed source rows |
 | `lib/finance/balances/registry.ts` | provider interface + registry |
 | `lib/finance/balances/snapshot.ts` | compute/store/freeze + pure `resolveSnapshotWrites` |
 | `lib/finance/balances/closeTasks.ts` | month-end task lifecycle |

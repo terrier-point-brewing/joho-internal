@@ -143,9 +143,19 @@ export function buildDataQuality(
       unknownVolume: string;
       exciseCoverage: string;
       unmappedTaxes: string;
+      unsourcedAccounts: string;
     };
     exciseCoverage: { shipmentsMissingExcise: number };
     unmappedTaxes: { count: number; cents: number };
+    /**
+     * balance_sheet only: count of balance-sheet CoA accounts with no active
+     * balance_sheet_account_sources row. Not derivable from FinancialsRow[]
+     * alone (it's a config-coverage stat, same category as unmappedTaxes) --
+     * buildFinancials.ts's balance_sheet branch queries it directly, since it
+     * already has DB access there for the live open-month provider compute.
+     * Omitted (defaults to 0) for pl/cash_flow, which have no such concept.
+     */
+    unsourcedAccounts?: { count: number };
   },
 ): DataQualitySummary {
   const unmappedRows = rows.filter((r) => r.coaId === null);
@@ -160,5 +170,6 @@ export function buildDataQuality(
     // Config coverage, not a property of the aggregated rows -- passed in the
     // same way exciseCoverage is.
     unmappedTaxes: { ...opts.unmappedTaxes, href: opts.hrefs.unmappedTaxes },
+    unsourcedAccounts: { count: opts.unsourcedAccounts?.count ?? 0, href: opts.hrefs.unsourcedAccounts },
   };
 }

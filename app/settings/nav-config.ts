@@ -73,6 +73,7 @@ export const FINANCE_SETTINGS_NAV: SettingsNavEntry[] = [
   { href: "/settings/finance/expense-accounts", label: "Expense Accounts" },
   { href: "/settings/finance/counterparty-accounts", label: "Counterparty Accounts" },
   { href: "/settings/finance/sales-tax-accounts", label: "Sales Tax Accounts" },
+  { href: "/settings/finance/balance-sheet-accounts", label: "Balance Sheet Accounts" },
   { href: "/settings/finance/backfill", label: "Backfill" },
 ];
 

@@ -12,6 +12,7 @@ import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import { fetchJson } from "@/app/production/hooks/queries";
+import { monthEnd } from "@/lib/finance/manualEntries";
 import { formatCurrencyCents, formatPercent, EM_DASH } from "@/lib/format";
 import type { FinancialsResponse, FinancialsRow, Measure, StatementKind } from "@/lib/finance/financials/types";
 import type { StatementSection } from "@/lib/finance/accountSections";
@@ -29,6 +30,7 @@ import FinancialsTable from "./FinancialsTable";
 import DataQualityPanel from "./DataQualityPanel";
 import { buildTree } from "./buildTree";
 import { buildFinancialsControls, retainAncestors, CHANNEL_OPTIONS, QUALITY_OPTIONS, SECTION_LABEL } from "./controls";
+import { totalModeFor } from "@/lib/finance/financials/statementTotal";
 
 // Stable empty-array reference so useTableControls/useMemo deps don't churn
 // on every render while `data` is still loading (a fresh `[]` literal would
@@ -132,6 +134,46 @@ function MeasureChips({ value, onChange }: { value: Measure; onChange: (v: Measu
   );
 }
 
+interface CloseTasksResponse {
+  periodEnd: string;
+  tasks: { id: string; status: "open" | "completed" | "skipped" }[];
+  closed: boolean;
+}
+
+/**
+ * Balance-sheet month-end close nudge (spec §4.5): shown whenever the
+ * current period has open balance_close_tasks (a manualBalance-sourced
+ * account with no manual_entries balance row yet for this month), regardless
+ * of which statement tab is active -- the close workflow is a
+ * balance-sheet-wide concept, not scoped to whichever tab happens to be open.
+ */
+function CloseTasksBanner() {
+  // The PRIOR month end, not the current one. The cron only ever creates tasks
+  // for the most recently ENDED month (app/api/cron/balance-close/route.ts),
+  // so querying the current month end matched nothing on every possible date
+  // and this banner could never render.
+  const periodEnd = useMemo(() => {
+    const now = new Date();
+    const priorMonthEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 0));
+    return priorMonthEnd.toISOString().slice(0, 10);
+  }, []);
+  const { data } = useQuery({
+    queryKey: queryKeys.finance.balanceClose(periodEnd),
+    queryFn: () => fetchJson<CloseTasksResponse>(`/api/finance/balance-close?periodEnd=${periodEnd}`),
+  });
+
+  const openCount = data?.tasks.filter((t) => t.status === "open").length ?? 0;
+  if (openCount === 0) return null;
+
+  return (
+    <Banner tone="info" className="mx-4 sm:mx-6 mb-4 mt-4">
+      {openCount} balance-sheet account{openCount === 1 ? "" : "s"} need{openCount === 1 ? "s" : ""} a month-end
+      balance for {periodEnd}.{" "}
+      <a href="/finance/transactions/manual-entries" className="underline">Enter it in Manual Entries</a>.
+    </Banner>
+  );
+}
+
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function FinancialsPage() {
@@ -161,7 +203,14 @@ export default function FinancialsPage() {
   // month) -- rebuild it whenever the month range changes, matching
   // ExportInvoicesTab.tsx's dynamic-config precedent for a config that closes
   // over fetched data.
-  const financialsControls = useMemo(() => buildFinancialsControls(data?.months ?? []), [data?.months]);
+  // A balance sheet's period figure is its CLOSING balance, not the sum of its
+  // months -- summing point-in-time balances multiplies them. Both the rendered
+  // column and the sort accessor take this from the same helper.
+  const totalMode = useMemo(() => totalModeFor(statement), [statement]);
+  const financialsControls = useMemo(
+    () => buildFinancialsControls(data?.months ?? [], totalMode),
+    [data?.months, totalMode],
+  );
 
   const {
     rows: survivorRows, search, filters, sort, setSearch, setFilter, toggleSort, reset, activeCount,
@@ -227,6 +276,8 @@ export default function FinancialsPage() {
         </Banner>
       )}
 
+      <CloseTasksBanner />
+
       <div className="flex-1 overflow-auto px-4 sm:px-6 pb-6 pt-4">
         <KpiStrip data={data} />
 
@@ -281,6 +332,7 @@ export default function FinancialsPage() {
               onSort={toggleSort}
               coaAccounts={data.coaAccounts}
               showGlNumbers={showGlNumbers}
+              totalMode={totalMode}
             />
           </div>
         )}
