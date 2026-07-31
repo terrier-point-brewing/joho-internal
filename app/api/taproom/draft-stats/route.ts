@@ -134,11 +134,12 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Deterministic shrinkage: read persisted per-swap rows for the window.
+    // Deterministic shrinkage: read persisted per-keg rows for the window.
+    // `cause` comes along so beer-change dumps can be held out of the average.
     const shrinkageStart = new Date(Date.now() - days * 86400000).toISOString();
     const { data: shrinkRows } = await supabase
       .from("draft_swap_shrinkage")
-      .select("recipe_id, occurred_at, remaining_fl_oz, full_fl_oz")
+      .select("recipe_id, occurred_at, unaccounted_fl_oz, full_fl_oz, cause")
       .gte("occurred_at", shrinkageStart);
 
     const beerNameByRecipe = new Map<string, string>(

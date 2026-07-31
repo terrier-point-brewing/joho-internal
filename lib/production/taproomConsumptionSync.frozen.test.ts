@@ -3,9 +3,9 @@ import { it, expect, vi } from "vitest";
 // Guardrail: asserts a draft_swap still drives the identical export/accounting
 // writes after the #155 revert — quantity = whole keg, sourceRef carries the
 // sqtransfer: prefix, and the recount fires to full. Proves the accounting
-// path (recordTaproomConsumption + setPhysicalCount) is untouched by swapping
-// the shrinkage-capture source from ledger reconstruction to Square's
-// calculated on-hand.
+// path (recordTaproomConsumption + setPhysicalCount) is untouched as the
+// shrinkage-capture source moves underneath it: ledger reconstruction → Square's
+// calculated on-hand → summed pour transactions.
 vi.mock("@/lib/square/taproomConsumption", () => ({ deriveTaproomConsumption: vi.fn() }));
 vi.mock("@/lib/production/recordTaproomConsumption", () => ({ recordTaproomConsumption: vi.fn() }));
 vi.mock("@/lib/square/inventory", () => ({ setPhysicalCount: vi.fn(), fetchCurrentCounts: vi.fn(), fetchPhysicalCounts: vi.fn() }));
@@ -32,9 +32,11 @@ const swapUnit = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-// Fake supabase: no rows already recorded, draft_swap_shrinkage upserts are a
-// no-op sink, the lease lock is always granted, and recipe_square_links
-// returns no rows so the best-effort pour-ledger sync no-ops cleanly.
+// Fake supabase: no rows already recorded, draft_swap_shrinkage upserts and the
+// pour-window anchor advance are no-op sinks, the lease lock is always granted,
+// and recipe_square_links returns no rows — so no pour variations resolve and
+// shrinkage measurement falls back to Square's on-hand, exactly as it must when
+// a recipe has none configured.
 function fakeSupabase() {
   return {
     rpc: async (fn: string) => {
@@ -44,6 +46,12 @@ function fakeSupabase() {
     from: (table: string) => {
       if (table === "draft_swap_shrinkage") {
         return { upsert: async () => ({ error: null }) };
+      }
+      if (table === "tap_assignments") {
+        return {
+          select: () => ({ then: (r: (v: unknown) => unknown) => r({ data: [], error: null }) }),
+          update: () => ({ eq: async () => ({ error: null }) }),
+        };
       }
       if (table === "recipe_square_links") {
         return { select: () => ({ eq: async () => ({ data: [], error: null }) }) };

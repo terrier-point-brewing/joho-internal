@@ -5,6 +5,8 @@ import { recordTaproomConsumption } from "@/lib/production/recordTaproomConsumpt
 import { reconcileSquareCanInventory } from "@/lib/production/reconcileSquareCanInventory";
 import { syncDraftPourConsumption } from "./syncDraftPourConsumption";
 import { buildRetirePayload } from "@/lib/taproom/retireRecipe";
+import { fetchPourFlOzBetweenWith } from "@/lib/taproom/kegPourWindow";
+import { loadDraftPourVariations, type PourVar } from "@/lib/taproom/draftPourConsumption";
 import type { PendingTapSwap } from "@/lib/taproom/tapSwaps";
 
 /**
@@ -48,6 +50,33 @@ export type SyncDiscrepancy =
       kind: "shrinkage_capture_failed";
       sourceRef: string;
       detail: string;
+    }
+  | {
+      /**
+       * A pour size on the menu with no fl oz mapping, found while measuring a
+       * keg's shrinkage. Its sales are invisible to the pour sum, so shrinkage
+       * fell back to Square's on-hand for this keg. Left unfixed, every keg of
+       * this beer keeps measuring the weaker way — map the variation's size in
+       * the Square catalog to clear it.
+       */
+      kind: "unmapped_pour_size";
+      recipeId: string;
+      sourceRef: string;
+      squareVariationIds: string[];
+    }
+  | {
+      /**
+       * More pour volume was recorded than the keg could hold. Shrinkage can't be
+       * negative, so this is never a measurement — it means the restock was rung
+       * after the keg was already swapped, and the surplus belongs to the NEXT
+       * keg. It IS netted out of the incoming recount, but it's surfaced because
+       * the shrinkage figure for the keg that just came off is unusable.
+       */
+      kind: "restock_overdraft";
+      sourceRef: string;
+      recipeId: string;
+      tapNumber: number | null;
+      overdraftFlOz: number;
     }
   | {
       /**
@@ -96,6 +125,93 @@ export function remainingDelta(targetQty: number, alreadyRecorded: number): numb
   return d > EPS ? d : 0;
 }
 
+/**
+ * Split a keg's closing balance into shrinkage and overdraft.
+ *
+ * The balance is `full_keg_fl_oz − recorded pour fl oz` over the keg's life.
+ * Square's on-hand for the draft SKU is the same quantity computed by Square, so
+ * both measurement paths below feed this one function.
+ *
+ * A keg is swapped when it blows, so whatever the balance still shows is beer
+ * that left with no transaction behind it — foam, off-book giveaways, line
+ * cleaning. That is the shrinkage.
+ *
+ * A NEGATIVE balance cannot be shrinkage: you can't lose less than nothing. It
+ * means more pours were recorded than the keg could hold, which happens when a
+ * restock is rung late — the keg was swapped hours earlier and every pour since
+ * belongs to the NEXT keg. That surplus is the overdraft, and it has to come off
+ * the incoming keg's recount target or Square hands the tap back beer it has
+ * already poured.
+ */
+export function splitKegBalance(balanceFlOz: number): { unaccountedFlOz: number; overdraftFlOz: number } {
+  return balanceFlOz >= 0
+    ? { unaccountedFlOz: balanceFlOz, overdraftFlOz: 0 }
+    : { unaccountedFlOz: 0, overdraftFlOz: -balanceFlOz };
+}
+
+/**
+ * Absolute fl oz to recount a fresh keg to: full volume less what it already
+ * poured before the restock was rung. Floored at zero — an overdraft bigger than
+ * a keg means more than one missed restock, and writing the count negative again
+ * would just carry the same error forward.
+ */
+export function recountTarget(fullFlOz: number, overdraftFlOz: number): number {
+  const t = fullFlOz - overdraftFlOz;
+  return t > 0 ? t : 0;
+}
+
+/** How a keg's closing balance was measured. */
+export type BalanceSource = "pours" | "square_on_hand";
+
+export interface KegBalance {
+  unaccountedFlOz: number;
+  overdraftFlOz: number;
+  source: BalanceSource;
+}
+
+/**
+ * Measure the balance of the keg coming off a tap.
+ *
+ * Preferred path sums the pour transactions recorded between this tap's previous
+ * restock ring and this one and subtracts them from the keg's full volume — that
+ * IS the definition of shrinkage, computed from receipts we own.
+ *
+ * Falls back to Square's on-hand for the draft SKU when the pour sum can't be
+ * trusted: no previous ring to bound the window (first restock on this tap), no
+ * pour variations configured, or a pour size with no fl oz mapping. That last
+ * case matters most — an unmapped pour size makes real sales invisible, so the
+ * sum would report the volume it sold as missing beer. The Square read carries
+ * the opposite bias (it doesn't decrement for unmapped pours either, so the error
+ * cancels), which is exactly why it stays as the safety net.
+ */
+export async function measureKegBalance(opts: {
+  pourVarsByRecipe: Map<string, PourVar[]>;
+  recipeId: string;
+  fullFlOz: number;
+  lastRestockAt: string | null;
+  occurredAt: string;
+  squareVariationId: string;
+}): Promise<{ balance: KegBalance | null; unmappedVariationIds: string[] }> {
+  const { pourVarsByRecipe, recipeId, fullFlOz, lastRestockAt, occurredAt, squareVariationId } = opts;
+
+  let unmappedVariationIds: string[] = [];
+  if (lastRestockAt && fullFlOz > 0 && lastRestockAt < occurredAt) {
+    const window = await fetchPourFlOzBetweenWith(pourVarsByRecipe, recipeId, lastRestockAt, occurredAt);
+    if (window && window.unmappedVariationIds.length === 0) {
+      return {
+        balance: { ...splitKegBalance(fullFlOz - window.flOz), source: "pours" },
+        unmappedVariationIds,
+      };
+    }
+    unmappedVariationIds = window?.unmappedVariationIds ?? [];
+  }
+
+  const counts = await fetchCurrentCounts([squareVariationId]);
+  const onHand = counts.get(squareVariationId);
+  if (onHand === undefined) return { balance: null, unmappedVariationIds };
+  return { balance: { ...splitKegBalance(onHand), source: "square_on_hand" }, unmappedVariationIds };
+}
+
 /** Sum of already-recorded quantity per source_ref (chunked to stay under `in` limits). */
 async function recordedByRef(supabase: SupabaseClient, refs: string[]): Promise<Map<string, number>> {
   const map = new Map<string, number>();
@@ -117,21 +233,31 @@ async function recordedByRef(supabase: SupabaseClient, refs: string[]): Promise<
 /**
  * Claim a queued beer-change transition and book its OUTGOING side.
  *
- * The outgoing keg is pulled early and its remaining beer dumped, so the residual
- * is a real loss belonging to the OUTGOING recipe — and its per-recipe draft SKU
- * must be zeroed or it reports on-hand draft forever while pouring on no tap.
+ * This is the one path where a keg comes off NOT empty: the beer is being
+ * changed, so a half-full keg gets pulled and dumped. Its balance is therefore
+ * dominated by a deliberate decision rather than by foam and giveaways, which is
+ * why the row is stamped `cause: "beer_change"` — averaging it in with blown
+ * kegs would swamp the real shrinkage signal. Either way it's a loss belonging to
+ * the OUTGOING recipe, and that recipe's per-tap draft SKU must be zeroed or it
+ * reports on-hand draft forever while pouring on no tap.
  *
  * Fire-once rests on the conditional UPDATE below: the Square webhook fires this
  * sync on every `order.*` event, so one restock spawns a burst of overlapping
  * runs. Whichever run's update matches `consumed_source_ref IS NULL` owns the
  * outgoing side; the rest get zero rows back and do nothing.
+ *
+ * Returns `overdraftFlOz` — pour volume recorded beyond what the outgoing keg
+ * could hold, which belongs to the INCOMING keg (see `splitKegBalance`) and so
+ * has to come off its recount target. Zero whenever the balance couldn't be read.
  */
 async function consumeSwapTransition(
   supabase: SupabaseClient,
   swap: PendingTapSwap,
   sourceRef: string,
   occurredAt: string,
-): Promise<{ claimed: boolean; discrepancies: SyncDiscrepancy[] }> {
+  pourVarsByRecipe: Map<string, PourVar[]>,
+  lastRestockAt: string | null,
+): Promise<{ claimed: boolean; overdraftFlOz: number; discrepancies: SyncDiscrepancy[] }> {
   const discrepancies: SyncDiscrepancy[] = [];
   const nowIso = new Date().toISOString();
 
@@ -142,7 +268,7 @@ async function consumeSwapTransition(
     .is("consumed_source_ref", null)
     .select("id");
   if (claimErr) throw new Error(`swap claim failed: ${claimErr.message}`);
-  if ((claimedRows ?? []).length === 0) return { claimed: false, discrepancies };
+  if ((claimedRows ?? []).length === 0) return { claimed: false, overdraftFlOz: 0, discrepancies };
 
   // The keg physically changed, so the tap now pours the incoming beer.
   const { error: flipErr } = await supabase
@@ -165,7 +291,7 @@ async function consumeSwapTransition(
   if (unretireErr) throw new Error(`un-retire failed: ${unretireErr.message}`);
 
   // Filling a previously empty tap — no keg came off, nothing to write off.
-  if (!swap.fromRecipeId) return { claimed: true, discrepancies };
+  if (!swap.fromRecipeId) return { claimed: true, overdraftFlOz: 0, discrepancies };
 
   // Run AFTER the flip so this tap doesn't count itself.
   const { data: otherTaps, error: otherErr } = await supabase
@@ -180,7 +306,7 @@ async function consumeSwapTransition(
       recipeId: swap.fromRecipeId,
       beerName: swap.fromBeerName,
     });
-    return { claimed: true, discrepancies };
+    return { claimed: true, overdraftFlOz: 0, discrepancies };
   }
 
   if (!swap.fromDraftSquareVariationId) {
@@ -189,23 +315,49 @@ async function consumeSwapTransition(
       sourceRef,
       detail: `outgoing recipe ${swap.fromRecipeId} has no draft Square link — residual neither captured nor zeroed`,
     });
-    return { claimed: true, discrepancies };
+    return { claimed: true, overdraftFlOz: 0, discrepancies };
   }
 
-  // Read the residual BEFORE zeroing. Square's CALCULATED on-hand for the draft
-  // base variation already nets pour depletion, so this is the true fl oz dumped.
+  // Measure BEFORE zeroing — the Square fallback inside `measureKegBalance` reads
+  // the very SKU the zeroing below overwrites.
   // Best-effort throughout — a Square failure must never block the incoming side.
+  let overdraftFlOz = 0;
   try {
-    const counts = await fetchCurrentCounts([swap.fromDraftSquareVariationId]);
-    const remaining = counts.get(swap.fromDraftSquareVariationId);
-    if (remaining !== undefined) {
+    const { balance, unmappedVariationIds } = await measureKegBalance({
+      pourVarsByRecipe,
+      recipeId:          swap.fromRecipeId,
+      fullFlOz:          swap.fromVolumeFlOz ?? 0,
+      lastRestockAt,
+      occurredAt,
+      squareVariationId: swap.fromDraftSquareVariationId,
+    });
+    if (unmappedVariationIds.length > 0) {
+      discrepancies.push({
+        kind: "unmapped_pour_size",
+        recipeId: swap.fromRecipeId,
+        sourceRef,
+        squareVariationIds: unmappedVariationIds,
+      });
+    }
+    if (balance) {
+      overdraftFlOz = balance.overdraftFlOz;
+      if (balance.overdraftFlOz > EPS) {
+        discrepancies.push({
+          kind: "restock_overdraft",
+          sourceRef,
+          recipeId: swap.fromRecipeId,
+          tapNumber: swap.tapNumber,
+          overdraftFlOz: balance.overdraftFlOz,
+        });
+      }
       const { error } = await supabase.from("draft_swap_shrinkage").upsert({
-        source_ref:      sourceRef,
-        recipe_id:       swap.fromRecipeId,
-        tap_number:      swap.tapNumber,
-        occurred_at:     occurredAt,
-        remaining_fl_oz: remaining,
-        full_fl_oz:      swap.fromVolumeFlOz ?? 0,
+        source_ref:        sourceRef,
+        recipe_id:         swap.fromRecipeId,
+        tap_number:        swap.tapNumber,
+        occurred_at:       occurredAt,
+        unaccounted_fl_oz: balance.unaccountedFlOz,
+        full_fl_oz:        swap.fromVolumeFlOz ?? 0,
+        cause:             "beer_change",
       }, { onConflict: "source_ref" });
       if (error) throw new Error(error.message);
     }
@@ -218,7 +370,7 @@ async function consumeSwapTransition(
     });
   }
 
-  return { claimed: true, discrepancies };
+  return { claimed: true, overdraftFlOz, discrepancies };
 }
 
 export async function runTaproomConsumptionSync(
@@ -262,6 +414,26 @@ export async function runTaproomConsumptionSync(
   let packsBrokenDown = 0;
   const packagingWarnings = new Set<string>();
 
+  // Shrinkage measurement inputs, loaded once per run and only when a restock is
+  // actually in the window — both are catalog/config reads that a sales-only run
+  // has no use for. `lastRestockAt` is the lower bound of each keg's pour window;
+  // it stays null for a tap whose first restock this is, which falls the
+  // measurement back to Square's on-hand.
+  const hasRestock = units.some((u) => u.kind === "draft_swap");
+  const pourVarsByRecipe = hasRestock
+    ? await loadDraftPourVariations(supabase)
+    : new Map<string, PourVar[]>();
+  const lastRestockByTap = new Map<number, string | null>();
+  if (hasRestock) {
+    const { data: tapRows, error: tapErr } = await supabase
+      .from("tap_assignments")
+      .select("tap_number, last_restock_at");
+    if (tapErr) throw new Error(`tap restock anchors failed: ${tapErr.message}`);
+    for (const t of (tapRows ?? []) as { tap_number: number; last_restock_at: string | null }[]) {
+      lastRestockByTap.set(t.tap_number, t.last_restock_at);
+    }
+  }
+
   for (const u of units) {
     const alreadyRecorded = recorded.get(u.sourceRef) ?? 0;
     const delta = remainingDelta(u.quantity, alreadyRecorded);
@@ -297,18 +469,29 @@ export async function runTaproomConsumptionSync(
       skipped++;
     }
 
+    // Pour volume recorded beyond what the outgoing keg could hold — the mark of a
+    // restock rung late — netted out of the incoming keg's recount target below.
+    let overdraftFlOz = 0;
+    const restockAt = u.occurredAt ?? u.recount?.occurredAt ?? new Date().toISOString();
+    const lastRestockAt = u.tapNumber != null ? lastRestockByTap.get(u.tapNumber) ?? null : null;
+
     // A queued beer-change transition: claim it, then book the OUTGOING side
-    // (write off the pulled keg's residual against the OLD beer, zero its Square
-    // draft SKU), flip the tap and un-retire the incoming beer. Gated exactly like
-    // the recount below so a unit that books nothing never claims.
+    // (write off the pulled keg against the OLD beer, zero its Square draft SKU),
+    // flip the tap and un-retire the incoming beer. Gated exactly like the recount
+    // below so a unit that books nothing never claims.
     if (u.swap && alreadyRecorded === 0 && res.recordedQty + res.shortfallQty > EPS) {
       const outcome = await consumeSwapTransition(
         supabase,
         u.swap,
         u.sourceRef,
-        u.occurredAt ?? u.recount?.occurredAt ?? new Date().toISOString(),
+        restockAt,
+        pourVarsByRecipe,
+        lastRestockAt,
       );
       if (outcome.claimed) swapsConsumed++;
+      // On a beer change the overdraft is measured against the OUTGOING keg —
+      // that's the one the tap kept ringing while the new keg poured.
+      overdraftFlOz = outcome.overdraftFlOz;
       swapWarnings.push(...outcome.discrepancies);
     }
 
@@ -320,32 +503,59 @@ export async function runTaproomConsumptionSync(
     // fire-once: subsequent runs see alreadyRecorded > 0 and skip.
     // Best-effort: a Square failure is flagged, never fatal.
     if (u.recount && alreadyRecorded === 0 && res.recordedQty + res.shortfallQty > EPS) {
-      // Live shrinkage: Square's CALCULATED on-hand (IN_STOCK) for the draft
-      // base variation nets pour depletion already, so the value read here —
-      // before the recount below overwrites it to full — equals the true fl
-      // oz left in the keg at swap time. Only meaningful when physical
-      // inventory actually moved this run — a phantom-only swap (no cold
-      // storage on hand) never touched the keg, so there's nothing to
-      // capture. Best-effort — never fatal, so a read/write failure never
-      // blocks the recount.
+      // Shrinkage for the keg that just blew: its full volume less every pour
+      // transaction recorded since this tap's previous restock. The measurement
+      // is unconditional (the overdraft has to be netted out of the recount
+      // whether or not cold storage moved), but the shrinkage ROW is gated on
+      // physical inventory actually moving — a phantom-only swap never touched a
+      // keg, so there is no keg to attribute a loss to. Best-effort — never
+      // fatal, so a read/write failure can't block the recount.
       //
       // Skipped entirely for a beer-change swap: `u.recount.squareVariationId` is
-      // then the INCOMING beer's SKU, whose level says nothing about the keg that
-      // came off. `consumeSwapTransition` captured the outgoing residual above.
-      if (res.recordedQty > EPS && !u.swap) {
+      // then the INCOMING beer's SKU and `u.recipeId` the incoming recipe, neither
+      // of which says anything about the keg that came off.
+      // `consumeSwapTransition` measured the outgoing side above.
+      if (!u.swap) {
         try {
-          const counts = await fetchCurrentCounts([u.recount.squareVariationId]);
-          const remaining = counts.get(u.recount.squareVariationId);
-          if (remaining !== undefined) {
-            const { error } = await supabase.from("draft_swap_shrinkage").upsert({
-              source_ref:      u.sourceRef,
-              recipe_id:       u.recipeId,
-              tap_number:      u.tapNumber ?? null,
-              occurred_at:     u.recount.occurredAt,
-              remaining_fl_oz: remaining,
-              full_fl_oz:      u.recount.quantity,
-            }, { onConflict: "source_ref" });
-            if (error) throw new Error(error.message);
+          const { balance, unmappedVariationIds } = await measureKegBalance({
+            pourVarsByRecipe,
+            recipeId:          u.recipeId,
+            fullFlOz:          u.recount.quantity,
+            lastRestockAt,
+            occurredAt:        u.recount.occurredAt,
+            squareVariationId: u.recount.squareVariationId,
+          });
+          if (unmappedVariationIds.length > 0) {
+            shrinkageWarnings.push({
+              kind: "unmapped_pour_size",
+              recipeId: u.recipeId,
+              sourceRef: u.sourceRef,
+              squareVariationIds: unmappedVariationIds,
+            });
+          }
+          if (balance) {
+            overdraftFlOz = balance.overdraftFlOz;
+            if (balance.overdraftFlOz > EPS) {
+              shrinkageWarnings.push({
+                kind: "restock_overdraft",
+                sourceRef: u.sourceRef,
+                recipeId: u.recipeId,
+                tapNumber: u.tapNumber ?? null,
+                overdraftFlOz: balance.overdraftFlOz,
+              });
+            }
+            if (res.recordedQty > EPS) {
+              const { error } = await supabase.from("draft_swap_shrinkage").upsert({
+                source_ref:        u.sourceRef,
+                recipe_id:         u.recipeId,
+                tap_number:        u.tapNumber ?? null,
+                occurred_at:       u.recount.occurredAt,
+                unaccounted_fl_oz: balance.unaccountedFlOz,
+                full_fl_oz:        u.recount.quantity,
+                cause:             "keg_emptied",
+              }, { onConflict: "source_ref" });
+              if (error) throw new Error(error.message);
+            }
           }
         } catch (e) {
           shrinkageWarnings.push({
@@ -357,7 +567,11 @@ export async function runTaproomConsumptionSync(
       }
 
       try {
-        await setPhysicalCount(u.recount.squareVariationId, u.recount.quantity, u.recount.occurredAt);
+        await setPhysicalCount(
+          u.recount.squareVariationId,
+          recountTarget(u.recount.quantity, overdraftFlOz),
+          u.recount.occurredAt,
+        );
         recountsApplied++;
       } catch (e) {
         recountWarnings.push({
@@ -366,6 +580,34 @@ export async function runTaproomConsumptionSync(
           label: u.label,
           detail: e instanceof Error ? e.message : String(e),
         });
+      }
+    }
+
+    // Advance the tap's pour-window anchor so the NEXT keg is measured from this
+    // ring forward. Gated on the same fire-once condition as the recount, but
+    // deliberately independent of `u.recount` — a tap whose recipe has no draft
+    // Square link still needs its window to move, or the following keg would be
+    // charged with every pour since the last tap that did have one.
+    // Monotonic: a late-arriving older ring in the trailing window must not drag
+    // the anchor backwards. Best-effort — a failure here only costs the next
+    // keg's measurement its preferred path, and it falls back cleanly.
+    if (u.kind === "draft_swap" && u.tapNumber != null && alreadyRecorded === 0
+        && res.recordedQty + res.shortfallQty > EPS) {
+      const prior = lastRestockByTap.get(u.tapNumber) ?? null;
+      if (!prior || restockAt > prior) {
+        const { error } = await supabase
+          .from("tap_assignments")
+          .update({ last_restock_at: restockAt })
+          .eq("tap_number", u.tapNumber);
+        if (error) {
+          shrinkageWarnings.push({
+            kind: "shrinkage_capture_failed",
+            sourceRef: u.sourceRef,
+            detail: `pour-window anchor not advanced: ${error.message}`,
+          });
+        } else {
+          lastRestockByTap.set(u.tapNumber, restockAt);
+        }
       }
     }
 
