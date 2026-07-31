@@ -1,6 +1,11 @@
 # Brand Guide restructure — proposal
 
-Status: **draft for review**. Nothing implemented yet.
+Status: **complete**. All six phases shipped (#299, #301, #303, #304, #305, #306),
+plus two follow-up rounds from first real use (#308).
+
+Kept as the design record: it explains why the structure is what it is, and the
+"Still open" section below is now the honest list of what was deliberately not
+done.
 
 ### Decisions locked (2026-07-30)
 
@@ -775,27 +780,39 @@ roles in light **and** dark.
 
 ---
 
-## 7. Still open
+## 7. Closing state
 
-Nothing blocking — Q1–Q8 are resolved above. Four things to settle **during** the
-phases they belong to rather than now:
+**Resolved after shipping:**
 
-0. **Whether `secondary` (Camphor Tan) is ever used as text**, and whether `line-strong`
-   should be re-bound to clear the 3:1 border target (§3.4-B, "flagged"). Both need a
-   usage audit in phase 3, and both touch protected colors, so they're your call.
+- **The refresh question** (open item 1) — answered, and not the way it was framed.
+  The publish path was correct all along; the real defect was that `getCanon`'s
+  `unstable_cache` had no `revalidate` window, so migrations that rewrote the canon
+  directly were invisible until a publish or redeploy. Four of the five migrations did
+  exactly that. Fixed in #308 with a 5-minute window. The Server Action + `updateTag()`
+  change was never needed and has been dropped.
+- **`secondary` as text** — audited: nothing renders `text-brand-secondary`. No color
+  change. The theme table now states each role's purpose, so the fill-only constraint
+  lives where someone writing code will see it.
+- **`line-strong` at 1.99:1** — fixed by adding Camphor Deep `#847552` and re-binding.
+  The accessibility case was thin (every control is labelled); the real problem was that
+  `line` and `line-strong` were indistinguishable, so the brand had no emphasized
+  divider. Camphor Tan is untouched.
+- **Asset `title` / `alt_text`** — the columns were added in phase 0 anticipating a need
+  that phases 2 and 4 then met differently, leaving them written by nothing. Closed in
+  #308: both are collected at upload and editable afterwards.
 
-1. **Whether the "publish doesn't refresh" report survives the autosave fix.** §0.2 gives
-   a complete alternative explanation (the draft never saved), and the current publish
-   path already does the correct Next 16 revalidation. Phase 0's instrumented autosave
-   makes the two distinguishable. If it still misbehaves afterward, the Server Action +
-   `updateTag()` change in §4.6 is the fix; if not, that change is unnecessary churn.
+**Deliberately not done:**
 
-2. **Whether Voice's calibration `pos` should stay 0–100.** Adding a numeric readout
-   makes the scale user-visible for the first time. 0–100 is fine, but if you'd rather
-   the guide read `3 of 5` or `−2 … +2`, that's a schema decision better made once the
-   slider is on screen than in the abstract.
+- **`illustrationLaw` → `visual.rules` rename** (proposal §3.3). The union type made it
+  unnecessary, and a key rename needs a lockstep deploy because `getCanon` does not
+  validate on read — a moved key renders an empty subtab silently. Optional cleanup.
+- **Voice calibration scale** (0–100 vs `3 of 5`). Easier to judge with the slider on
+  screen than in the abstract; nobody has asked for it to change.
+- **Canon-defined type sizes driving the guide's own chrome** (§1.2). Family and weight
+  are canon-driven; sizes render as specimens only, so a fat-fingered value cannot break
+  the page that edits it.
 
-3. **How far the guide should assume its own type scale** (§1.2). Family and weight are
-   canon-driven either way. The question is whether canon-defined *sizes* drive the
-   guide's own headings, or stay rendered as specimens only. Easier to judge once the
-   Type use-case table exists in phase 5.
+**Never verified:** no part of this was seen in a browser during construction — the app
+is behind a login wall. Everything was verified by tests, emitted values, contrast
+arithmetic and production builds. The four issues found on first real use (#308) are
+the measure of what that misses.
