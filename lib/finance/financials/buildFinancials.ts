@@ -125,16 +125,26 @@ async function computeLiveBalances(
   );
 
   const results = new Map<string, number | null>();
+  // Same hazard snapshot.ts guards on the write path, and it applies just as
+  // much here -- more, in fact, because this is the number the user actually
+  // looks at. resolveSnapshotWrites cannot distinguish "provider returned null"
+  // from "provider threw", so letting a failure fall through renders the
+  // SURVIVING providers' partial sum as if it were the whole balance: GL 2220
+  // would show -291,519 (accruals only) instead of 103,964, with no dash, no
+  // banner and no fallback. Drop the account entirely instead -- a missing row
+  // reads as unsourced, which is visibly wrong rather than plausibly wrong.
+  const failedAccounts = new Set<string>();
   for (const source of sources) {
     const provider = getProvider(source.providerKey);
-    if (!provider) continue;
+    if (!provider) {
+      failedAccounts.add(source.coaId);
+      continue;
+    }
     try {
       const value = await provider.compute({ supabase, periodEnd, coaId: source.coaId, config: source.config });
       results.set(`${source.coaId}:${source.providerKey}`, value);
     } catch {
-      // A live mid-month compute failing for one provider must not blank the
-      // whole statement -- leave this source's contribution absent, same as
-      // a null result.
+      failedAccounts.add(source.coaId);
     }
   }
 
@@ -142,7 +152,7 @@ async function computeLiveBalances(
     sources.map(({ coaId, providerKey }) => ({ coaId, providerKey })),
     results,
     new Map(), // nothing frozen for a live, unwritten compute
-  );
+  ).filter((w) => !failedAccounts.has(w.coaId));
 
   const out = new Map<string, { balanceCents: number; contributions: Record<string, number> }>();
   for (const w of writes) out.set(w.coaId, { balanceCents: w.balanceCents, contributions: w.contributions });

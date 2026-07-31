@@ -90,28 +90,52 @@ async function sumExpenses(supabase: SupabaseClient, coaId: string, periodEnd: s
   // to the very same table). Omitting it here would let this provider count
   // money the P&L deliberately ignores. cashOnly=false: the balance sheet is
   // accrual-basis, matching fetchSources' non-cash-flow modes.
-  const rows = await fetchAllRows<{ amount_cents: number | null }>(() =>
+  const rows = await fetchAllRows<{ id: string; amount_cents: number | null }>(() =>
     applyExpenseStatementFilters(
       supabase
         .from("expenses")
-        .select("amount_cents")
+        .select("id, amount_cents")
         .eq("chart_of_accounts_id", coaId)
         .lte("accounting_date", periodEnd)
         .order("id", { ascending: true }),
       false,
     ),
   );
-  const sum = rows.reduce((s, r) => s + normalizeSignedCents(r.amount_cents ?? 0, section, "expense"), 0);
-  return { sum, count: rows.length };
+  if (rows.length === 0) return { sum: 0, count: 0 };
+
+  // PRECEDENCE: when an expense has split lines, the splits REPLACE its own
+  // chart_of_accounts_id -- they do not add to it. aggregateRows.ts encodes this
+  // as `row.splitLines?.length ? splitLines : [{ coaId: row.chartOfAccountsId }]`.
+  //
+  // Counting both double-counts real money. The parent's account is NOT cleared
+  // when splits are created: app/api/finance/expenses/[id]/splits/route.ts
+  // updates only `mapping_source`, and resolveExpenseMapping preserves the
+  // existing chart_of_accounts_id on every later sync -- deliberately, so a
+  // re-sync cannot re-code a parent whose real coding now lives in its splits.
+  // So a $10,000 expense coded to 1310 and then split 1310/$3,000 + 6100/$7,000
+  // would move 1310 by $13,000 without this exclusion.
+  const splitParents = await fetchAllRows<{ expense_id: string }>(() =>
+    supabase
+      .from("expense_gl_splits")
+      .select("expense_id")
+      .in("expense_id", rows.map((r) => r.id))
+      .order("id", { ascending: true }),
+  );
+  const hasSplits = new Set(splitParents.map((r) => r.expense_id));
+  const own = rows.filter((r) => !hasSplits.has(r.id));
+
+  const sum = own.reduce((s, r) => s + normalizeSignedCents(r.amount_cents ?? 0, section, "expense"), 0);
+  return { sum, count: own.length };
 }
 
 /**
  * expense_gl_splits — an expense divided across several GL accounts.
  *
- * THIS IS NOT AN OPTIONAL EXTRA SOURCE. A split expense's own
- * `chart_of_accounts_id` is NULL by design; the real GL assignment lives on its
- * split rows. So `.eq("chart_of_accounts_id", coaId)` against `expenses` can
- * NEVER match a split, and an account funded entirely by splits reads $0.
+ * THIS IS NOT AN OPTIONAL EXTRA SOURCE. When an expense is split, the real GL
+ * assignment lives on its split rows, and an account funded only by splits reads
+ * $0 without this. (An earlier version of this comment claimed the parent's own
+ * `chart_of_accounts_id` is NULL by design. It is not -- see the precedence note
+ * in sumExpenses, which is why that function must exclude split parents.)
  *
  * Two accounts are in exactly that position, and both were reported as blank
  * before this function existed:

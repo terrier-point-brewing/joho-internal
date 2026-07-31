@@ -43,6 +43,13 @@ export interface GoldenAccount {
    * a match against `totalCents` as a FAILURE — the bug must not be reproduced.
    */
   knownDivergence?: { expectedNewCents: number; why: string };
+  /**
+   * Set where the OLD pipeline produced nothing and the new path legitimately
+   * introduces a balance whose value moves with every transaction, so no fixed
+   * expectation can be frozen. Parity reports the computed figure for review
+   * instead of flagging it as INVENTED.
+   */
+  introducedByDesign?: { why: string };
 }
 
 /**
@@ -120,7 +127,8 @@ export const GOLDEN_BALANCE_SHEET: GoldenAccount[] = [
     knownDivergence: {
       // Old: tipAccrual (all collections, cumulative) + only the payroll-split
       // payouts that happened to land in the single collapsed month bucket.
-      // New: collections + ALL payouts through periodEnd. Difference 302,331.
+      // New: collections + ALL payouts through periodEnd.
+      // -364,149 -> -67,347 is a difference of 296,802.
       expectedNewCents: -67_347,
       why:
         "The old balance sheet DROPPED payroll-split allocations outside its one " +
@@ -130,9 +138,30 @@ export const GOLDEN_BALANCE_SHEET: GoldenAccount[] = [
         "onto a single canonical month key. So a June tip payout vanished from a " +
         "July-31 cumulative balance. GL 2310's payout side therefore only ever " +
         "reflected the current month, while its collections side was cumulative — " +
-        "mismatched bases on the same account, overstating the liability by 302,331. " +
+        "mismatched bases on the same account, overstating the liability by 296,802. " +
         "A cumulative liability must include every payout through the period end, " +
         "so the new path is correct and this divergence must NOT be 'fixed' back.",
+    },
+  },
+  {
+    // The old pipeline produced NOTHING here -- 3300 was one of the 41 blank
+    // accounts this feature exists to fill, and retainedEarnings is a genuinely
+    // new source. Its value is cumulative net income, which moves with every
+    // transaction, so there is no stable figure to freeze. Without this entry
+    // the parity script takes its `!golden` branch, prints "3300 INVENTED" and
+    // exits 1 -- i.e. the gate could not pass against the branch's own seed
+    // list, which is how a hand-rolled probe that omitted 3300 was mistaken for
+    // a clean run.
+    accountNumber: "3300",
+    accountName: "Retained Earnings",
+    statementSection: "equity",
+    totalCents: 0,
+    sources: [],
+    introducedByDesign: {
+      why:
+        "retainedEarnings is a new provider; the old balance sheet had no Retained " +
+        "Earnings figure at all. Cumulative net income changes with every posting, " +
+        "so parity reports it rather than asserting a frozen value.",
     },
   },
   {

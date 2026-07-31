@@ -27,6 +27,7 @@ import { apiError } from "@/lib/utils/api";
 import "@/lib/finance/balances/providers";
 import { getProvider, listProviders } from "@/lib/finance/balances/registry";
 import type { CoaAccountRef } from "@/lib/finance/financials/types";
+import { ACCOUNT_TYPE_SECTION } from "@/lib/finance/accountSections";
 
 export const dynamic = "force-dynamic";
 
@@ -77,14 +78,27 @@ export async function GET() {
   try {
     const supabase = createSupabaseAdminClient();
 
+    // `statement_section` is a nullable OVERRIDE, not the effective section:
+    // 20260614_coa_parent_and_statement_section.sql says verbatim
+    // "NULL = inferred from account_type". Filtering on it in SQL therefore
+    // drops every account without an explicit override -- which is nearly all
+    // of them -- and NULL never satisfies IN (...) anyway.
+    //
+    // That mismatch is load-bearing here: buildFinancials' unsourced-accounts
+    // tile counts via coaSection() (the INFERRED section), so the tile would
+    // say "41 accounts need a source", link to this screen, and this screen
+    // would not list them. Fetch account_type and resolve the same way
+    // coaSection does, then filter in JS.
     const { data: coaRows, error: coaError } = await supabase
       .from("chart_of_accounts")
-      .select("id, parent_id, account_name, account_number, statement_section")
-      .in("statement_section", BALANCE_SHEET_SECTIONS)
+      .select("id, parent_id, account_name, account_number, account_type, statement_section")
       .order("account_number", { ascending: true, nullsFirst: false });
     if (coaError) throw coaError;
 
-    const accounts = (coaRows ?? []) as CoaRow[];
+    const bsSections = new Set<string>(BALANCE_SHEET_SECTIONS);
+    const accounts = ((coaRows ?? []) as (CoaRow & { account_type: string })[]).filter((a) =>
+      bsSections.has(a.statement_section ?? ACCOUNT_TYPE_SECTION[a.account_type] ?? ""),
+    ) as CoaRow[];
     const coaIds = accounts.map((a) => a.id);
 
     let sourceRows: SourceRow[] = [];

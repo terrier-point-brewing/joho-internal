@@ -49,3 +49,34 @@ export function statementTotal(
 export function totalColumnLabel(mode: TotalMode): string {
   return mode === "closing" ? "Balance" : "Total";
 }
+
+/**
+ * The five credit-side balance-sheet sections, stored NEGATIVE internally and
+ * flipped for display (buildTree's toPresentationSign).
+ *
+ * Lives here so the sort accessor can apply the same flip. It previously could
+ * not: useTableControls sorts the flat internal-convention rows while the tree
+ * negates afterwards, so sorting the balance sheet by Balance descending put
+ * the LARGEST liability last while displaying it as the largest positive
+ * number. Unifying sum-vs-closing was not enough -- the cell and the accessor
+ * have to agree on sign as well.
+ */
+export const CREDIT_SIDE_SECTIONS: ReadonlySet<string> = new Set([
+  "ap",
+  "credit_card",
+  "other_current_liabilities",
+  "long_term_liabilities",
+  "equity",
+]);
+
+/** Display value for one row: the period figure, flipped if it sits on the credit side. */
+export function presentationTotal(
+  byMonth: Record<string, number>,
+  months: string[],
+  mode: TotalMode,
+  statementSection: string,
+): number {
+  const total = statementTotal(byMonth, months, mode);
+  if (mode === "closing" && CREDIT_SIDE_SECTIONS.has(statementSection)) return -total || 0;
+  return total;
+}

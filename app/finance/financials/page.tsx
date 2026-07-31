@@ -148,7 +148,15 @@ interface CloseTasksResponse {
  * balance-sheet-wide concept, not scoped to whichever tab happens to be open.
  */
 function CloseTasksBanner() {
-  const periodEnd = useMemo(() => monthEnd(new Date().toISOString().slice(0, 10)), []);
+  // The PRIOR month end, not the current one. The cron only ever creates tasks
+  // for the most recently ENDED month (app/api/cron/balance-close/route.ts),
+  // so querying the current month end matched nothing on every possible date
+  // and this banner could never render.
+  const periodEnd = useMemo(() => {
+    const now = new Date();
+    const priorMonthEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 0));
+    return priorMonthEnd.toISOString().slice(0, 10);
+  }, []);
   const { data } = useQuery({
     queryKey: queryKeys.finance.balanceClose(periodEnd),
     queryFn: () => fetchJson<CloseTasksResponse>(`/api/finance/balance-close?periodEnd=${periodEnd}`),

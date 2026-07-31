@@ -269,6 +269,13 @@ values
   ((select id from public.chart_of_accounts where account_number = '2430'), 'transactionPostings'),
   ((select id from public.chart_of_accounts where account_number = '1310'), 'transactionPostings'),
   ((select id from public.chart_of_accounts where account_number = '1100'), 'openInvoiceAr'),
+  -- openInvoiceAr alone would LOSE any direct posting to A/R. The function it
+  -- replaces (injectOpenInvoiceAr) was ADDITIVE over the account's own rows:
+  -- it did `existing.amountCentsByMonth[m] + openInvoiceArCents`. 1100 happens
+  -- to carry no direct postings today, so parity passes either way -- but the
+  -- moment an invoice line, expense or bank row is coded to A/R it would
+  -- vanish, and the unsourced tile would not flag 1100 because it HAS a source.
+  ((select id from public.chart_of_accounts where account_number = '1100'), 'transactionPostings'),
   ((select id from public.chart_of_accounts where account_number = '2310'), 'tipAccrual'),
   ((select id from public.chart_of_accounts where account_number = '2310'), 'transactionPostings'),
   ((select id from public.chart_of_accounts where account_number = '3300'), 'retainedEarnings')

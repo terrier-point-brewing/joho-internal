@@ -24,6 +24,7 @@
 // depth 0 + isSection -> section header; depth 0 + !isSection -> a top-level
 // subtotal (Total Income, Gross Profit, ...); depth > 0 -> account or slice.
 
+import { CREDIT_SIDE_SECTIONS } from "@/lib/finance/financials/statementTotal";
 import type { BblCoverage, FinancialsRow, StatementKind } from "@/lib/finance/financials/types";
 import { CHANNEL_LABEL } from "./channelColors";
 
@@ -469,9 +470,9 @@ function buildCashFlow(rows: FinancialsRow[], months: string[], coaMap: CoaLooku
 // conventionally presented balance sheet shows liabilities and equity
 // POSITIVE instead, so this display-only flip negates exactly these five,
 // never touching an asset section.
-const CREDIT_SECTIONS: ReadonlySet<string> = new Set([
-  "ap", "credit_card", "other_current_liabilities", "long_term_liabilities", "equity",
-]);
+// Shared with the sort accessor (controls.ts) via statementTotal.ts -- two
+// copies of this set is how the cell and the sort came to disagree on sign.
+const CREDIT_SECTIONS = CREDIT_SIDE_SECTIONS;
 
 function negateRow(row: FinancialsRow): FinancialsRow {
   const amountCentsByMonth: Record<string, number> = {};

@@ -26,18 +26,24 @@ function fakeClient(opts: {
   invoiceRows?: { total_cents: number | null }[];
   expenseRows?: { amount_cents: number | null }[];
   splitRows?: { amount_cents: number | null }[];
+  /** expense_gl_splits rows returned to sumExpenses' precedence probe (select "expense_id"). */
+  splitParents?: { expense_id: string }[];
+  /** Records every filter call, so a test can assert a filter is actually applied. */
+  calls?: string[];
   refundRows?: { amount_cents: number | null }[];
   bankRows?: { amount_cents: number | null }[];
 }): SupabaseClient {
-  const paginated = (rows: unknown[]) => {
+  const rec = (m: string, a: unknown[]) => opts.calls?.push(`${m}(${a.map(String).join(",")})`);
+  const paginated = (rows: unknown[], table = "") => {
     const chain: Record<string, unknown> = {
-      select: () => chain,
-      eq: () => chain,
-      is: () => chain,
-      or: () => chain,
-      neq: () => chain,
-      lt: () => chain,
-      lte: () => chain,
+      select: (...a: unknown[]) => { rec(`${table}.select`, a); return chain; },
+      eq: (...a: unknown[]) => { rec(`${table}.eq`, a); return chain; },
+      is: (...a: unknown[]) => { rec(`${table}.is`, a); return chain; },
+      or: (...a: unknown[]) => { rec(`${table}.or`, a); return chain; },
+      neq: (...a: unknown[]) => { rec(`${table}.neq`, a); return chain; },
+      in: (...a: unknown[]) => { rec(`${table}.in`, a); return chain; },
+      lt: (...a: unknown[]) => { rec(`${table}.lt`, a); return chain; },
+      lte: (...a: unknown[]) => { rec(`${table}.lte`, a); return chain; },
       order: () => chain,
       range: async (from: number, to: number) => ({ data: rows.slice(from, to + 1), error: null }),
     };
@@ -54,12 +60,24 @@ function fakeClient(opts: {
         };
         return chain;
       }
-      if (table === "pos_line_items") return paginated(opts.posRows ?? []);
-      if (table === "invoice_line_items") return paginated(opts.invoiceRows ?? []);
-      if (table === "expenses") return paginated(opts.expenseRows ?? []);
-      if (table === "expense_gl_splits") return paginated(opts.splitRows ?? []);
-      if (table === "square_refunds") return paginated(opts.refundRows ?? []);
-      if (table === "ramp_bank_ledger") return paginated(opts.bankRows ?? []);
+      if (table === "pos_line_items") return paginated(opts.posRows ?? [], table);
+      if (table === "invoice_line_items") return paginated(opts.invoiceRows ?? [], table);
+      if (table === "expenses") return paginated((opts.expenseRows ?? []).map((r, i) => ({ id: `e${i}`, ...r })), table);
+      if (table === "expense_gl_splits") {
+        // Two different queries hit this table: sumExpenses' precedence probe
+        // (selects expense_id) and sumExpenseSplits (selects amount_cents).
+        const chain = paginated(opts.splitRows ?? [], table) as Record<string, unknown>;
+        const origSelect = chain.select as (...a: unknown[]) => unknown;
+        chain.select = (...a: unknown[]) => {
+          origSelect(...a);
+          return String(a[0]).includes("expense_id")
+            ? paginated(opts.splitParents ?? [], table)
+            : chain;
+        };
+        return chain;
+      }
+      if (table === "square_refunds") return paginated(opts.refundRows ?? [], table);
+      if (table === "ramp_bank_ledger") return paginated(opts.bankRows ?? [], table);
       throw new Error(`unexpected table: ${table}`);
     },
   } as unknown as SupabaseClient;
@@ -133,5 +151,62 @@ describe("transactionPostings — sources that are easy to forget", () => {
 
   it("still returns null when every one of the six sources is empty", async () => {
     expect(await transactionPostings.compute(ctx(fakeClient({ coa: LIABILITY_COA })))).toBeNull();
+  });
+});
+
+// Regression guards for the four query filters. Before these, every chain
+// method on the fake was an identity no-op, so deleting any of the filters
+// left the suite fully green — the fixes had no artefact defending them.
+describe("transactionPostings — the filters are actually applied", () => {
+  async function callsFor(o: Parameters<typeof fakeClient>[0] = { coa: LIABILITY_COA }) {
+    const calls: string[] = [];
+    await transactionPostings.compute(ctx(fakeClient({ ...o, calls })));
+    return calls;
+  }
+
+  it("excludes voided invoices — without this, GL 2430 invents $6,459.48", async () => {
+    const calls = await callsFor({ coa: LIABILITY_COA, invoiceRows: [{ total_cents: 1 }] });
+    expect(calls).toContain("invoice_line_items.neq(invoices.status,voided)");
+  });
+
+  it("applies the DECLINED/excluded expense filters", async () => {
+    const calls = await callsFor({ coa: LIABILITY_COA, expenseRows: [{ amount_cents: -1 }] });
+    expect(calls.some((c) => c.startsWith("expenses.or(state.is.null,state.neq.DECLINED"))).toBe(true);
+    expect(calls).toContain("expenses.is(excluded_at,null)");
+  });
+
+  it("filters refunds to COMPLETED", async () => {
+    const calls = await callsFor({ coa: LIABILITY_COA, refundRows: [{ amount_cents: 1 }] });
+    expect(calls).toContain("square_refunds.eq(status,COMPLETED)");
+  });
+
+  it("applies the split parent's state/excluded filters against the embedded expense", async () => {
+    const calls = await callsFor({ coa: LIABILITY_COA, splitRows: [{ amount_cents: -1 }] });
+    expect(calls).toContain("expense_gl_splits.is(expenses.excluded_at,null)");
+  });
+});
+
+describe("transactionPostings — split precedence", () => {
+  // Splits REPLACE the parent's own account; they do not add to it. The parent
+  // keeps its chart_of_accounts_id when split (the splits route pins only
+  // mapping_source), so counting both double-counts real money.
+  it("drops a parent expense that has split lines", async () => {
+    const supabase = fakeClient({
+      coa: LIABILITY_COA,
+      expenseRows: [{ amount_cents: -1000000 }], // becomes id "e0"
+      splitParents: [{ expense_id: "e0" }],
+      splitRows: [{ amount_cents: -300000 }],
+    });
+    // Only the split contributes: 300000, not 300000 + 1000000.
+    expect(await transactionPostings.compute(ctx(supabase))).toBe(300000);
+  });
+
+  it("keeps a parent expense that has no splits", async () => {
+    const supabase = fakeClient({
+      coa: LIABILITY_COA,
+      expenseRows: [{ amount_cents: -1000000 }],
+      splitParents: [],
+    });
+    expect(await transactionPostings.compute(ctx(supabase))).toBe(1000000);
   });
 });

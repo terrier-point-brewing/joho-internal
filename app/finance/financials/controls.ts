@@ -8,7 +8,7 @@
 //
 // No DB/Square/React imports -- pure over already-fetched FinancialsRow[].
 
-import { statementTotal } from "@/lib/finance/financials/statementTotal";
+import { presentationTotal } from "@/lib/finance/financials/statementTotal";
 import type { TotalMode } from "@/lib/finance/financials/statementTotal";
 import type { ControlsConfig } from "@/lib/table/types";
 import type { Channel, FinancialsRow } from "@/lib/finance/financials/types";
@@ -99,8 +99,13 @@ export function buildFinancialsControls(months: string[], totalMode: TotalMode =
       columns: [
         // Must agree with FinancialsTable's MeasureTotalCell -- same helper, or
         // sorting a balance sheet ranks by a number the column never shows.
-        { key: "total", accessor: (r) => statementTotal(r.amountCentsByMonth, months, totalMode) },
-        ...months.map((m) => ({ key: m, accessor: (r: FinancialsRow) => r.amountCentsByMonth[m] ?? 0 })),
+        { key: "total", accessor: (r) => presentationTotal(r.amountCentsByMonth, months, totalMode, r.statementSection) },
+        // Per-month columns flip too, for the same reason as the Balance column.
+        ...months.map((m) => ({
+          key: m,
+          accessor: (r: FinancialsRow) =>
+            presentationTotal(r.amountCentsByMonth, [m], totalMode, r.statementSection),
+        })),
       ],
       default: null,
     },

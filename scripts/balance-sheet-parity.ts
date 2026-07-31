@@ -100,6 +100,13 @@ async function main(): Promise<void> {
     const want = golden?.knownDivergence?.expectedNewCents ?? golden?.totalCents ?? 0;
     const got = actual?.cents ?? 0;
 
+    if (golden?.introducedByDesign) {
+      console.log(
+        `  ✓ ${acctNo}  ${usd(got).padStart(14)}  (introduced by design — reported, not asserted)`,
+      );
+      continue;
+    }
+
     if (golden?.knownDivergence && got === golden.totalCents) {
       drift++;
       console.error(
