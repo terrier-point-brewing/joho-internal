@@ -170,6 +170,25 @@ export default function TypeFacet({
                   />
                 </>
               )}
+              {/* Cap height, measured per face. Needed to place type by its cap
+                  line rather than its font size — a slot specified as "26mm cap
+                  height" (the wordmark's stated minimum) cannot be rendered
+                  from a size alone. */}
+              <input
+                className="inp-sm"
+                type="number"
+                step="0.01"
+                min="0.01"
+                max="2"
+                value={entry?.capHeightRatio ?? ""}
+                onChange={(e) =>
+                  patchFont(role, {
+                    capHeightRatio: e.target.value ? Number(e.target.value) : undefined,
+                  })
+                }
+                placeholder="Cap height ÷ em — e.g. 0.70"
+                aria-label={`${role} cap-height ratio`}
+              />
             </div>
           );
         })}

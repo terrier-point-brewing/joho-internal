@@ -5,6 +5,7 @@ import SubHead from "./blocks/SubHead";
 import SliderRow from "./blocks/SliderRow";
 import ChipList from "./blocks/ChipList";
 import ComparisonCard from "./blocks/ComparisonCard";
+import SpecCard from "./blocks/SpecCard";
 
 /**
  * Voice view: introduction, then three sections in a deliberate order —
@@ -16,6 +17,10 @@ import ComparisonCard from "./blocks/ComparisonCard";
 export default function VoiceView({ canon }: { canon: BrandCanon }) {
   const { sliders, leanOnWords, neverWords, rewrites } = canon.voice;
   const hasVocabulary = leanOnWords.length > 0 || neverWords.length > 0;
+  // Naming joins this tab in Phase A. It was stored in the canon and rendered
+  // nowhere, while the Releases workbench quietly gated every beer name on its
+  // five criteria — a checklist whose source no reader could see.
+  const naming = canon.naming;
 
   return (
     <GuideSection intro={resolveGuideIntro(canon, "voice")}>
@@ -68,6 +73,46 @@ export default function VoiceView({ canon }: { canon: BrandCanon }) {
               />
             ))}
           </div>
+        </section>
+      )}
+
+      {naming && (
+        <section className="mt-8">
+          <SubHead
+            title="Naming"
+            description="How a release earns its name. Every release is checked against the five criteria in Releases."
+          />
+          {naming.pattern && (
+            <p className="font-brand-display text-lg text-brand-high-contrast mb-2">
+              {naming.pattern}
+            </p>
+          )}
+          {naming.narrative && (
+            <p className="font-brand-body text-sm text-brand-content leading-relaxed mb-4">
+              {naming.narrative}
+            </p>
+          )}
+          {naming.criteria?.length > 0 && (
+            <ol className="flex flex-col gap-1.5 mb-4">
+              {naming.criteria.map((criterion, i) => (
+                <li key={i} className="font-brand-body text-sm text-brand-content flex gap-2">
+                  <span className="text-brand-content-muted tabular-nums shrink-0">{i + 1}.</span>
+                  <span>{criterion}</span>
+                </li>
+              ))}
+            </ol>
+          )}
+          {naming.passingExamples?.length > 0 && (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {naming.passingExamples.map((example, i) => (
+                <SpecCard
+                  key={i}
+                  title={example.name}
+                  rows={[{ label: "Why it passes", value: example.why }]}
+                />
+              ))}
+            </div>
+          )}
         </section>
       )}
     </GuideSection>

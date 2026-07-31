@@ -192,6 +192,21 @@ describe("validateCanonForPublish", () => {
   });
 
   it("attributes an unowned key's issue to 'other'", () => {
+    // `brandName` is one of the three keys still owned by no subtab
+    // (brandName · version · visibility), so its issues have nowhere to route.
+    const broken = { ...seedCanon, brandName: 42 as unknown as string };
+    const result = validateCanonForPublish(broken);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.issues).toHaveLength(1);
+    expect(result.issues[0].path).toBe("brandName");
+    expect(result.issues[0].section).toBe("other");
+  });
+
+  // Phase A moved `naming` under voice, so a bad criteria count now routes to
+  // the subtab that edits it instead of falling through to 'other'.
+  it("attributes a naming issue to the voice subtab", () => {
     const broken = {
       ...seedCanon,
       naming: { ...seedCanon.naming, criteria: ["one", "two", "three"] },
@@ -200,9 +215,8 @@ describe("validateCanonForPublish", () => {
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.issues).toHaveLength(1);
     expect(result.issues[0].path).toBe("naming.criteria");
-    expect(result.issues[0].section).toBe("other");
+    expect(result.issues[0].section).toBe("voice");
   });
 
   it("attributes a color-section issue to the color subtab", () => {
@@ -227,7 +241,7 @@ describe("validateCanonForPublish", () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.issues.length).toBeGreaterThanOrEqual(2);
-    expect(new Set(result.issues.map((i) => i.section))).toEqual(new Set(["color", "other"]));
+    expect(new Set(result.issues.map((i) => i.section))).toEqual(new Set(["color", "voice"]));
   });
 
   it("gives each issue a human-readable message", () => {

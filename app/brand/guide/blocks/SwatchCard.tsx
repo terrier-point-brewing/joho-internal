@@ -51,7 +51,6 @@ export default function SwatchCard({
           <CopyChip label="hex" value={color.hex.toUpperCase()} />
           <CopyChip label="rgb" value={toRgb(color.hex)} />
           {color.cmyk && <CopyChip label="cmyk" value={color.cmyk} />}
-          {color.pms && <CopyChip label="pms" value={color.pms} />}
         </div>
 
         <p className="font-brand-body text-2xs text-brand-content-muted mt-2.5">

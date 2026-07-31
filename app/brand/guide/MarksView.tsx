@@ -3,6 +3,7 @@ import type { BrandAsset } from "@/lib/brand/assets";
 import { normalizeRules, splitByPolarity } from "@/lib/brand/guideRules";
 import GuideSection from "./GuideSection";
 import SubHead from "./blocks/SubHead";
+import SpecCard from "./blocks/SpecCard";
 import MarkArtwork from "./blocks/MarkArtwork";
 
 type MarkSpec = NonNullable<BrandCanon["marks"]>[number];
@@ -120,11 +121,19 @@ export default function MarksView({
   specs,
   assets,
   intro,
+  chop,
 }: {
   specs: MarkSpec[];
   /** Approved assets — variants reference these by id. */
   assets: BrandAsset[];
   intro: string;
+  /**
+   * The chop's narrative and spec sheet. Rendered here from Phase A on: the
+   * chop IS a mark, but its rules lived in their own canon key that no view
+   * read, so the placement and footprint law a label is built against appeared
+   * nowhere in the guide.
+   */
+  chop?: BrandCanon["chop"];
 }) {
   const assetById = new Map(assets.map((a) => [a.id, a]));
   const assetsFor = (variant: MarkVariant): BrandAsset[] =>
@@ -135,13 +144,31 @@ export default function MarksView({
     marks: specs.filter((s) => s.kind === section.kind),
   })).filter((section) => section.marks.length > 0);
 
+  const chopRows = (chop?.specs ?? []).map((s) => ({ label: s.key, value: s.value }));
+  const chopBlock = (chop?.narrative || chopRows.length > 0) && (
+    <section>
+      <SubHead
+        title="The chop — specification"
+        description="Placement, footprint, color and content. Fixed across every release; only the glyph rotates."
+      />
+      {chop?.narrative && (
+        <p className="font-brand-body text-sm text-brand-content leading-relaxed mb-3">
+          {chop.narrative}
+        </p>
+      )}
+      {chopRows.length > 0 && <SpecCard title="Chop specification" rows={chopRows} />}
+    </section>
+  );
+
   if (sections.length === 0) {
     return (
       <GuideSection intro={intro}>
-        <p className="font-brand-body text-sm text-brand-content-muted">
-          No marks yet. In Edit mode, admins can define a wordmark, chop or logo and attach its
-          artwork.
-        </p>
+        {chopBlock || (
+          <p className="font-brand-body text-sm text-brand-content-muted">
+            No marks yet. In Edit mode, admins can define a wordmark, chop or logo and attach its
+            artwork.
+          </p>
+        )}
       </GuideSection>
     );
   }
@@ -149,6 +176,7 @@ export default function MarksView({
   return (
     <GuideSection intro={intro}>
       <div className="flex flex-col gap-8">
+        {chopBlock}
         {sections.map((section) => (
           <section key={section.kind}>
             <SubHead title={section.title} description={section.description} />

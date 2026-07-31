@@ -135,17 +135,25 @@ export const seedCanon: BrandCanon = {
   },
 
   palette: [
-    { key: "indigo", name: "Indigo", hex: "#26355d", role: "Primary dark / text, dark grounds", cmyk: "59 43 0 64", pms: "534 C" },
-    { key: "paper", name: "Paper", hex: "#f5f0e6", role: "Default ground", cmyk: "0 2 6 4", pms: "9080 C" },
-    { key: "seal-red", name: "Seal Red", hex: "#ad1a2d", role: "Chop + accents only, ≤5% of composition", cmyk: "0 85 74 32", pms: "187 C" },
-    { key: "camphor", name: "Camphor Tan", hex: "#b3a585", role: "Bridge neutral — card backgrounds, tags, wood", cmyk: "0 8 26 30", pms: "4525 C" },
-    // Derived UI neutrals (not Tier-1 brand colors) — surfaces/text steps the
-    // app UI needs between Paper and Indigo. Not part of the brand's 4-color
-    // Tier-1; kept here so roleMap can reference them.
-    { key: "paper-2", name: "Paper 2 (derived)", hex: "#efe8da", role: "Derived UI neutral — surface" },
-    { key: "paper-3", name: "Paper 3 (derived)", hex: "#ded5c1", role: "Derived UI neutral — raised/line" },
-    { key: "content", name: "Content Ink (derived)", hex: "#3a4256", role: "Derived UI neutral — body text" },
-    { key: "content-muted", name: "Content Ink Muted (derived)", hex: "#6b6f7d", role: "Derived UI neutral — muted text" },
+    // `cmyk` is the process value derived from `hex` — see lib/brand/cmyk.ts.
+    // There is no `pms`: Pantone was removed from the canon (migration
+    // 20260907100000) rather than kept half-populated.
+    { key: "indigo", name: "Indigo", hex: "#26355d", role: "Primary dark / text, dark grounds", cmyk: "59 43 0 64" },
+    { key: "paper", name: "Paper", hex: "#f5f0e6", role: "Default ground", cmyk: "0 2 6 4" },
+    { key: "seal-red", name: "Seal Red", hex: "#ad1a2d", role: "Chop + accents only, ≤5% of composition", cmyk: "0 85 74 32" },
+    { key: "camphor", name: "Camphor Tan", hex: "#b3a585", role: "Bridge neutral — card backgrounds, tags, wood", cmyk: "0 8 26 30" },
+    // UI neutrals (not Tier-1 brand colors) — surfaces/text steps the app UI
+    // needs between Paper and Indigo. Not part of the brand's 4-color Tier-1;
+    // kept here so roleMap can reference them.
+    { key: "paper-2", name: "Paper 2 (derived)", hex: "#efe8da", role: "Derived UI neutral — surface", cmyk: "0 3 9 6" },
+    { key: "paper-3", name: "Paper 3 (derived)", hex: "#ded5c1", role: "Derived UI neutral — raised/line", cmyk: "0 4 13 13" },
+    { key: "content", name: "Content Ink (derived)", hex: "#3a4256", role: "Derived UI neutral — body text", cmyk: "33 23 0 66" },
+    // #575a66, not the original #6b6f7d: that value failed WCAG AA on all three
+    // light grounds and was corrected in the database by migration 20260905.
+    // This fallback was never updated to match and is corrected here — leaving
+    // it stale would serve a contrast-failing color whenever getCanon() falls
+    // back to the seed.
+    { key: "content-muted", name: "Content Ink Muted (derived)", hex: "#575a66", role: "Derived UI neutral — muted text", cmyk: "15 12 0 60" },
   ],
   roleMap: {
     light: {
@@ -197,7 +205,7 @@ export const seedCanon: BrandCanon = {
       family: "Jost",
       cssStack: '"Jost", sans-serif',
       weights: [500],
-      note: "Interim placeholder — commissioned locked vector pending. “Joho” in Jost Medium, +2% tracking, Indigo or Paper only. Never re-typeset.",
+      note: "“Joho” in Jost Medium, +2% tracking, Indigo or Paper only. The wordmark is placed as its approved vector and never re-typeset — this face is the stand-in used where the artwork itself cannot be placed.",
     },
     {
       role: "script",
@@ -293,7 +301,7 @@ export const seedCanon: BrandCanon = {
         "Orientation decides the cut. Horizontal → 4a descending J. Vertical → 5e cap-height J.",
         "Never show both J's in one lockup. Both are Marcellus — same skeleton, two terminals.",
       ],
-      note: "Both J cuts shown as CSS stand-ins. Final vectors to be drawn per the §11 letterer brief — the descending and cap-height J must be cut from a single skeleton so they read as one family.",
+      note: "A cut renders its approved vector once one is attached to the variant, and falls back to a CSS stand-in until then. The descending and cap-height J are cut from a single skeleton so they read as one family.",
     },
   ],
 
