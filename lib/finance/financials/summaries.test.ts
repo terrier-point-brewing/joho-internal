@@ -155,6 +155,14 @@ describe("buildDataQuality", () => {
       // aggregateRows.ts (no sales-channel dimension) -- they must NOT be
       // flagged uncategorized just for lacking a channel.
       row({ statementSection: "expenses", channel: "unknown", amountCentsByMonth: { "2026-01": 9000, "2026-02": 0 } }),
+      // Same for a manual entry: brewery-wide by design, so it has no channel
+      // to be missing. Flagging it would be permanently unfixable -- the
+      // Manual Entries form has no channel field to fill in.
+      row({
+        statementSection: "revenue", channel: "unknown",
+        amountCentsByMonth: { "2026-01": 7000, "2026-02": 0 },
+        sourceRef: { table: "manual_entries", ids: ["m-1"] },
+      }),
     ];
 
     const dq = buildDataQuality(rows, {

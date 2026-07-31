@@ -149,10 +149,15 @@ function AccountRow({ node, path, ...rest }: RowCommonProps & { node: TreeNode; 
   const expanded = isExpanded(key, false);
   const hasChildren = node.children.length > 0;
   const showChannelChip = !hasChildren && node.row !== null && node.row.channel !== "unknown";
+  // An operator-entered exception broken out of its parent account (buildTree's
+  // isAdjustment) renders italic -- label AND figures, via inheritance on the
+  // <tr> -- so it reads at a glance as a manual line building INTO the account
+  // above it rather than as one more real sub-account beside its siblings.
+  const rowStyle = node.isAdjustment ? "italic" : "";
 
   return (
     <>
-      <tr className="border-t border-line/40 hover:bg-surface/20">
+      <tr className={`border-t border-line/40 hover:bg-surface/20 ${rowStyle}`}>
         <td className={`py-1.5 pr-3 text-xs bg-surface ${STICKY_LABEL_CELL} ${ACCOUNT_CELL_BASE}`}>
           {hasChildren ? (
             <button

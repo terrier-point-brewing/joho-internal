@@ -15,6 +15,7 @@
 // the DB fetch / cash-flow statement) supplies those.
 
 import type { DataQualitySummary, FinancialsRow, KpiSummary } from "./types";
+import { isManualAdjustmentRow } from "./manualAdjustment";
 
 // StatementSection values that belong to the P&L (income statement), as
 // opposed to Balance Sheet sections (bank, ar, ap, equity, ...). Mirrors
@@ -41,8 +42,15 @@ const CHANNEL_EXPECTED_SECTIONS: ReadonlySet<string> = new Set(["revenue", "othe
  * "Uncategorized" = a row where a sales channel is expected but missing.
  * Shared by buildDataQuality (this file) and controls.ts's qualityBucket so
  * the KPI-strip count and the table's "quality" filter chip never disagree.
+ *
+ * Manual entries are excluded for the same reason expense/bank/refund rows
+ * are (see CHANNEL_EXPECTED_SECTIONS above): they have no channel dimension
+ * to be missing. An operator books one against a GL account, not a sales
+ * channel -- flagging it would put a permanent, unfixable item in the Data
+ * Quality panel, since there is no UI field that could ever clear it.
  */
 export function isUncategorized(row: FinancialsRow): boolean {
+  if (isManualAdjustmentRow(row)) return false;
   return row.channel === "unknown" && CHANNEL_EXPECTED_SECTIONS.has(row.statementSection);
 }
 

@@ -8,6 +8,7 @@
 
 import type { Channel, FinancialsRow } from "./types";
 import { coaSection, type CoaRecord } from "./aggregateRows";
+import { MANUAL_ADJUSTMENT_TABLE } from "./manualAdjustment";
 
 /** manual_entries row filtered to entry_kind = 'flow' (start_date/end_date/amount_cents/chart_of_accounts_id; id kept for sourceRef traceability). */
 export interface ManualNetSalesEntryRecord {
@@ -22,8 +23,24 @@ export interface ManualNetSalesEntryRecord {
 }
 
 const MS_PER_DAY = 86_400_000;
-const MANUAL_CHANNEL: Channel = "taproom";
-const MANUAL_TABLE = "manual_entries";
+
+/**
+ * Manual entries carry NO sales channel.
+ *
+ * This was hardcoded "taproom" back when the feature was the taproom-only
+ * manual_net_sales_entries table edited under Taproom > Targets. PR #300
+ * replaced it with brewery-wide Manual Entries under Finance > Transactions,
+ * where the operator picks any GL account -- so an entry coded to, say, 4200
+ * Wholesale / Distribution Revenue was still being stamped (and chipped in
+ * the P&L) as Taproom. A manual entry has no channel dimension at all, which
+ * is exactly what "unknown" means for the expense/bank/refund rows
+ * aggregateRows.ts already stamps that way.
+ *
+ * summaries.ts's isUncategorized excludes these rows explicitly -- "revenue
+ * row with no channel" is a real miscoding signal for a POS/invoice row, but
+ * never for a manual entry, which HAS no channel to be missing.
+ */
+const MANUAL_CHANNEL: Channel = "unknown";
 
 function parseDateUtc(dateStr: string): Date {
   const [y, m, d] = dateStr.split("-").map(Number);
@@ -141,7 +158,14 @@ export function injectManualNetSales(
 
     synthesized.push({
       coaId,
-      parentId: null,
+      // The REAL account's parent, not null. A hardcoded null here made the
+      // adjustment's account look parentless to buildTree, which resolves an
+      // account's parent from its own rows first (resolveParentId) -- so a
+      // grouping account whose ONLY row is its manual adjustment (e.g. 4100
+      // Taproom Revenue, every real posting landing on a 41x0 leaf) was
+      // promoted to a section root and rendered as a sibling of its own
+      // parent 4000 BREWERY REVENUE instead of nesting under it.
+      parentId: account?.parentId ?? null,
       accountName,
       statementSection: coaSection(account),
       channel: MANUAL_CHANNEL,
@@ -151,7 +175,7 @@ export function injectManualNetSales(
       bblByMonth: {},
       bblCoverage: "full",
       mappingSource: "manual",
-      sourceRef: { table: MANUAL_TABLE, ids: [...idSet] },
+      sourceRef: { table: MANUAL_ADJUSTMENT_TABLE, ids: [...idSet] },
     });
   }
 
