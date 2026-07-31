@@ -1,11 +1,18 @@
 "use client";
 
 import type { BrandCanon } from "@/lib/brand/canon.types";
+import { cmykFromHex } from "@/lib/brand/cmyk";
 
 /**
- * Editable palette swatches — the raw `key/name/hex(/cmyk/pms)` entries that
+ * Editable palette swatches — the raw `key/name/hex(/cmyk)` entries that
  * ThemeFacet's role→key mapping resolves against. Add/remove/edit rows here;
  * ThemeFacet is where a role gets assigned one of these keys.
+ *
+ * CMYK follows the hex automatically and is not editable. It is a pure function
+ * of the hex (lib/brand/cmyk.ts), so a hand-editable field could only ever hold
+ * a stale value — which is exactly what happened once already: 20260905 changed
+ * content-muted's hex for contrast and left every derived print value behind it
+ * untouched. There is no Pantone field; see canon.schema.ts.
  */
 export default function PaletteFacet({
   draft,
@@ -15,17 +22,26 @@ export default function PaletteFacet({
   onChange: (next: BrandCanon) => void;
 }) {
   function updateColor(index: number, patch: Partial<BrandCanon["palette"][number]>) {
-    const palette = draft.palette.map((c, i) => (i === index ? { ...c, ...patch } : c));
+    const palette = draft.palette.map((c, i) => {
+      if (i !== index) return c;
+      const next = { ...c, ...patch };
+      // Re-derive on every hex edit. A half-typed hex yields null, which leaves
+      // the previous value in place until the input parses again.
+      if (patch.hex !== undefined) next.cmyk = cmykFromHex(next.hex) ?? c.cmyk;
+      return next;
+    });
     onChange({ ...draft, palette });
   }
 
   function addColor() {
+    const hex = "#000000";
     const palette = [
       ...draft.palette,
       {
         key: `color-${draft.palette.length + 1}`,
         name: "New color",
-        hex: "#000000",
+        hex,
+        cmyk: cmykFromHex(hex) ?? undefined,
         tier: "neutral" as const,
       },
     ];
@@ -100,16 +116,13 @@ export default function PaletteFacet({
               placeholder="#rrggbb"
             />
             <input
-              className="inp-sm w-24"
+              className="inp-sm w-28 shrink-0"
               value={color.cmyk ?? ""}
-              onChange={(e) => updateColor(i, { cmyk: e.target.value || undefined })}
+              readOnly
+              tabIndex={-1}
+              aria-label={`${color.name} CMYK, derived from hex`}
+              title="Derived from the hex — edit the hex to change it"
               placeholder="CMYK"
-            />
-            <input
-              className="inp-sm w-20"
-              value={color.pms ?? ""}
-              onChange={(e) => updateColor(i, { pms: e.target.value || undefined })}
-              placeholder="PMS"
             />
             <button type="button" className="btn-danger btn-xxs shrink-0" onClick={() => removeColor(i)}>
               Remove

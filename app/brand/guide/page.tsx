@@ -68,6 +68,7 @@ export default async function BrandGuidePage() {
             assets={approvedAssets}
             grounds={assetGrounds}
             intro={resolveGuideIntro(canon, "marks")}
+            chop={canon.chop}
           />
         ),
       }}

@@ -92,6 +92,11 @@ const EXPECTED: Record<keyof typeof CAP, { scope: ScopeKey; level: Level }> = {
   brandAssetsManage: { scope: "brand.assets", level: "manage" },
   brandReleasesRead: { scope: "brand.releases", level: "read" },
   brandReleasesManage: { scope: "brand.releases", level: "manage" },
+  brandTemplatesRead: { scope: "brand.templates", level: "read" },
+  brandTemplatesManage: { scope: "brand.templates", level: "manage" },
+  brandOutputsRead: { scope: "brand.outputs", level: "read" },
+  brandOutputsOperate: { scope: "brand.outputs", level: "operate" },
+  brandOutputsManage: { scope: "brand.outputs", level: "manage" },
 
   financeStatementsRead: { scope: "finance.statements", level: "read" },
   financeTransactionsRead: { scope: "finance.transactions", level: "read" },

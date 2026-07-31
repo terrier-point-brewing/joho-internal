@@ -11,6 +11,9 @@ import PaletteFacet from "./facets/PaletteFacet";
 import ThemeFacet from "./facets/ThemeFacet";
 import TypeFacet from "./facets/TypeFacet";
 import MarksFacet from "./facets/MarksFacet";
+import ChopFields from "./fields/ChopFields";
+import ChassisFields from "./fields/ChassisFields";
+import NamingFields from "./fields/NamingFields";
 import IntroFacet from "./facets/IntroFacet";
 import EthosFields from "./fields/EthosFields";
 import VoiceFields from "./fields/VoiceFields";
@@ -181,15 +184,23 @@ export default function CanonEditor({
         <div className="flex flex-col gap-6">
           <IntroFacet section={section} draft={draft} onChange={setDraft} />
           {section === "ethos" && <EthosFields draft={draft} onChange={setDraft} />}
-          {section === "voice" && <VoiceFields draft={draft} onChange={setDraft} />}
+          {section === "voice" && (
+            <>
+              <VoiceFields draft={draft} onChange={setDraft} />
+              <NamingFields draft={draft} onChange={setDraft} />
+            </>
+          )}
           {section === "visual" && (
-            <RuleListField
-              label="Visual identity rules"
-              description="What the brand's imagery must and must not do. Each rule can carry an example."
-              rules={draft.illustrationLaw?.rules}
-              defaultPolarity="do"
-              onChange={(rules) => setDraft({ ...draft, illustrationLaw: { rules } })}
-            />
+            <>
+              <RuleListField
+                label="Visual identity rules"
+                description="What the brand's imagery must and must not do. Each rule can carry an example."
+                rules={draft.illustrationLaw?.rules}
+                defaultPolarity="do"
+                onChange={(rules) => setDraft({ ...draft, illustrationLaw: { rules } })}
+              />
+              <ChassisFields draft={draft} onChange={setDraft} />
+            </>
           )}
           {section === "agent" && <AgentFields draft={draft} onChange={setDraft} />}
           {section === "color" && (
@@ -218,6 +229,10 @@ export default function CanonEditor({
                   introduction appeared below its file inputs. */}
               <MarksEditor />
               <MarksFacet draft={draft} onChange={setDraft} />
+              {/* The chop's own spec sheet last: it is a mark, but it is one
+                  fixed specification rather than a per-cut artifact, so it reads
+                  as a footer to the marks rather than another cut among them. */}
+              <ChopFields draft={draft} onChange={setDraft} />
             </>
           )}
         </div>

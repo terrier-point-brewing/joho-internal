@@ -89,8 +89,17 @@ const brandColorSchema = z.object({
   tier: z.enum(["core", "neutral"]).optional(),
   /** What this color is for, in words. Shown prominently in the guide. */
   role: z.string().optional(),
+  /**
+   * Process CMYK, "C M Y K" as percentages. Derived from `hex` by
+   * lib/brand/cmyk.ts unless authored; migration 20260907100000 backfilled
+   * every color. Not a color-managed separation — see that module.
+   *
+   * There is deliberately no `pms`. Pantone was populated on the four Tier-1
+   * colors and nowhere else, with no derivable source for the rest, so it was
+   * removed rather than left half-filled on a guide people copy values out of.
+   * Spot matching is a prepress conversation from the hex and this value.
+   */
   cmyk: z.string().optional(),
-  pms: z.string().optional(),
 });
 
 const brandFontSchema = z.object({
@@ -112,6 +121,32 @@ const brandFontSchema = z.object({
   assetIds: z.array(z.string()).optional(),
   /** Licensing note. Uploaded faces are redistributed by this app. */
   license: z.string().optional(),
+  /**
+   * Cap height as a fraction of the em — Marcellus ≈ 0.7, Lato ≈ 0.72.
+   *
+   * Needed to place type by its cap height rather than its font size. A slot
+   * that says "26mm cap height" (the wordmark's stated minimum) cannot be
+   * rendered from a font size alone, and optical spacing between a title and a
+   * rule is measured from the cap line, not the em box. Measured per face, so
+   * it is authored rather than derived.
+   */
+  capHeightRatio: z.number().positive().max(2).optional(),
+  note: z.string().optional(),
+});
+
+/**
+ * One machine-readable clearspace rule.
+ *
+ * The prose `clearspace` lines stay as the human statement; this is the same
+ * rule in a form a renderer can enforce. "Clearspace = cap height of the O on
+ * all sides" becomes { unit: 'cap-height', value: 1 }.
+ */
+const clearspaceRuleSchema = z.object({
+  id: idSchema,
+  unit: z.enum(["cap-height", "mm", "px", "percent"]),
+  value: z.number(),
+  /** Which edges it applies to. Omitted means all four. */
+  sides: z.array(z.enum(["top", "right", "bottom", "left"])).optional(),
   note: z.string().optional(),
 });
 
@@ -190,7 +225,10 @@ const markSchema = z.object({
   summary: z.array(z.string()).optional(), // header right-meta lines
   variants: z.array(markVariantSchema),
   colors: z.array(z.object({ name: z.string(), hex: hexColorSchema })).optional(),
+  /** The human statement of clearspace, one rule per line. */
   clearspace: z.array(z.string()).optional(),
+  /** The same rules in enforceable form. Optional: prose came first and stays. */
+  clearspaceSpec: z.array(clearspaceRuleSchema).optional(),
   oneRule: z.array(z.string()).optional(),
   /** How this mark may and may not be used — the same primitive as the
    *  Visual Identity grid, so a reader meets one pattern across the guide. */

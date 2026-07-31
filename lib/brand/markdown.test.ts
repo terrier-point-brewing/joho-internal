@@ -82,12 +82,91 @@ describe("compileBrandMarkdown", () => {
 
   it("carries every palette code it has", () => {
     const full = compile({
-      palette: [{ key: "k", name: "Test Ink", hex: "#123456", cmyk: "1 2 3 4", pms: "123 C" }],
+      palette: [{ key: "k", name: "Test Ink", hex: "#123456", cmyk: "1 2 3 4" }],
     }).full;
 
     expect(full).toContain("#123456");
     expect(full).toContain("CMYK 1 2 3 4");
-    expect(full).toContain("PMS 123 C");
+  });
+
+  // Pantone left the canon (migration 20260907100000). Archived rows still hold
+  // a `pms` key and getCanon() does not validate on read, so a stale document
+  // reaches the compiler intact — it must be ignored, not printed.
+  it("ignores a leftover Pantone code on an archived document", () => {
+    const full = compile({
+      palette: [
+        { key: "k", name: "Test Ink", hex: "#123456", cmyk: "1 2 3 4", pms: "123 C" },
+      ] as unknown as BrandCanon["palette"],
+    }).full;
+
+    expect(full).toContain("CMYK 1 2 3 4");
+    expect(full).not.toContain("123 C");
+    expect(full).not.toContain("PMS");
+  });
+
+  // Phase A. Before it, `naming`, `labelChassis` and `chop` reached this brief
+  // nowhere — an agent asked to lay out a label or propose a name got the
+  // never-words and nothing else. These are the regression guards for that.
+  describe("the specs Phase A brought into the brief", () => {
+    it("states the naming pattern and all five criteria", () => {
+      const full = compile({
+        naming: {
+          pattern: "Story Title — Plain Style Subtitle",
+          narrative: "A name earns its place.",
+          criteria: ["Grounded in a real story", "Speakable", "Plain subtitle", "No never-words", "Said aloud"],
+          passingExamples: [{ name: "Peach Blossom Spring", why: "Grounded in place" }],
+        },
+      }).full;
+
+      expect(full).toContain("Story Title — Plain Style Subtitle");
+      expect(full).toContain("1. Grounded in a real story");
+      expect(full).toContain("5. Said aloud");
+      expect(full).toContain("Peach Blossom Spring — Grounded in place");
+    });
+
+    it("states the label chassis, numbered in panel order", () => {
+      const full = compile({
+        labelChassis: {
+          narrative: "The illustration roams; the chassis is home.",
+          elements: [
+            { n: "1", title: "Wordmark", desc: "Top band. Never re-typeset." },
+            { n: "4", title: "The chop", desc: "Bottom-right of the art window." },
+          ],
+        },
+      }).full;
+
+      expect(full).toContain("### Label chassis");
+      expect(full).toContain("The illustration roams; the chassis is home.");
+      expect(full).toContain("- 1. Wordmark: Top band. Never re-typeset.");
+      expect(full).toContain("- 4. The chop: Bottom-right of the art window.");
+    });
+
+    it("states the chop's placement spec", () => {
+      const full = compile({
+        chop: {
+          narrative: "The brand's second signature.",
+          specs: [{ key: "Footprint", value: "Square, 8–10% of art-window height" }],
+        },
+      }).full;
+
+      expect(full).toContain("### The chop");
+      expect(full).toContain("- Footprint: Square, 8–10% of art-window height");
+    });
+
+    it("states clearspace in enforceable form when a mark carries it", () => {
+      const full = compile({
+        marks: [
+          {
+            kind: "wordmark",
+            title: "JOHO",
+            variants: [{ code: "Horizontal", specs: [] }],
+            clearspaceSpec: [{ unit: "cap-height", value: 1, note: "the O" }],
+          },
+        ],
+      }).full;
+
+      expect(full).toContain("Clearspace: 1 cap-height on all sides — the O");
+    });
   });
 
   it("numbers precedence, since the order is the meaning", () => {

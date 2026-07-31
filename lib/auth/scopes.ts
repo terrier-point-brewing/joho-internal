@@ -19,7 +19,7 @@
  * `catalog`); a subtab needing finer gating than its parent domain -> sub-leaf
  * (`finance.tax.filing`).
  *
- * Twenty-seven leaves across seven families. Interior nodes are grantable too:
+ * Twenty-nine leaves across seven families. Interior nodes are grantable too:
  * `finance.tax` is a real key, and a bare `finance` grant rolls down into all
  * of `finance.tax.*` by dot-prefix. A SIBLING leaf grant confers nothing on its
  * section — `finance.tax:operate` does not resolve `finance.access` — which is
@@ -70,6 +70,13 @@ export const SCOPES = {
   "brand.guide": { label: "Guide", section: "brand" },
   "brand.assets": { label: "Assets", section: "brand" },
   "brand.releases": { label: "Releases", section: "brand" },
+  // Authoring templates and seasons — rare, structural, and separate from
+  // producing artifacts with them. Someone who lays out a hundred labels should
+  // not thereby be able to change the chassis every label is built on.
+  "brand.templates": { label: "Templates", section: "brand" },
+  // Producing and approving outputs. `operate` drafts a render; `manage`
+  // approves and exports one, which is the human gate nothing may skip.
+  "brand.outputs": { label: "Outputs", section: "brand" },
 
   "org.users": { label: "Users", section: "org" },
   "org.business": { label: "Business", section: "org" },

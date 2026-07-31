@@ -14,18 +14,25 @@ import type { GuideSectionKey } from "./guideIntros";
  * the route decides what to accept from the same table, so the two can't drift.
  *
  * Keys deliberately absent, because no subtab edits them today:
- *   brandName · version · naming · chop · labelChassis · visibility
+ *   brandName · version · visibility
  * A section PATCH must preserve them verbatim. `guideIntros` is also absent:
  * every subtab owns its own entry in that record, so it's handled as a special
  * case in saveDraftSection rather than being assigned to one section here.
+ *
+ * `naming`, `chop` and `labelChassis` joined this table in Phase A. Before that
+ * they were unowned, which meant three of the canon's most load-bearing specs —
+ * the naming pattern the Releases workbench checks against, the chop's placement
+ * rules, and the label chassis itself — were stored, editable nowhere, and
+ * rendered nowhere. Ownership follows subject matter: the chop is a mark, the
+ * chassis is visual law, and naming is language.
  */
 export const SECTION_KEYS: Record<GuideSectionKey, readonly (keyof BrandCanon)[]> = {
   ethos: ["values"],
-  voice: ["voice"],
-  visual: ["illustrationLaw"],
+  voice: ["voice", "naming"],
+  visual: ["illustrationLaw", "labelChassis"],
   color: ["palette", "roleMap", "usageRatios", "colorForbidden"],
   type: ["fonts", "typeUseCases"],
-  marks: ["marks"],
+  marks: ["marks", "chop"],
   agent: ["neverList", "precedence", "hardRules", "agentTechnical"],
 };
 

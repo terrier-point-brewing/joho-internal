@@ -93,12 +93,43 @@ function voice(canon: BrandCanon): string[] {
     lines.push("");
   }
 
+  // Naming was absent from this brief entirely until Phase A, so an agent asked
+  // to propose a beer name was given the never-words and nothing about the
+  // pattern or the five criteria its proposal would actually be judged against.
+  const naming = canon.naming;
+  if (naming) {
+    lines.push("### Naming");
+    if (naming.pattern) lines.push(`- Pattern: ${naming.pattern}`);
+    if (naming.narrative) lines.push(`- ${naming.narrative}`);
+    if (naming.criteria?.length) {
+      lines.push("- A name must pass all five:");
+      naming.criteria.forEach((c, i) => lines.push(`  ${i + 1}. ${c}`));
+    }
+    for (const ex of naming.passingExamples ?? []) {
+      lines.push(`- Passes: ${ex.name} — ${ex.why}`);
+    }
+    lines.push("");
+  }
+
   return lines;
 }
 
 function visual(canon: BrandCanon): string[] {
   const lines = intro(canon, "visual");
   lines.push(...rulesBlock(normalizeRules(canon.illustrationLaw?.rules, "do")), "");
+
+  // The chassis is the single most load-bearing spec for anything that lays out
+  // a label, and it reached this brief nowhere before Phase A.
+  const chassis = canon.labelChassis;
+  if (chassis?.narrative || chassis?.elements?.length) {
+    lines.push("### Label chassis");
+    if (chassis.narrative) lines.push(chassis.narrative, "");
+    for (const el of chassis.elements ?? []) {
+      lines.push(`- ${el.n}. ${el.title}: ${el.desc}`);
+    }
+    lines.push("");
+  }
+
   return lines;
 }
 
@@ -107,9 +138,7 @@ function color(canon: BrandCanon): string[] {
 
   lines.push("### Palette");
   for (const c of canon.palette) {
-    const codes = [c.hex.toUpperCase(), c.cmyk && `CMYK ${c.cmyk}`, c.pms && `PMS ${c.pms}`]
-      .filter(Boolean)
-      .join(" · ");
+    const codes = [c.hex.toUpperCase(), c.cmyk && `CMYK ${c.cmyk}`].filter(Boolean).join(" · ");
     lines.push(`- ${c.name} (\`${c.key}\`): ${codes}${c.role ? ` — ${c.role}` : ""}`);
   }
   lines.push("");
@@ -183,6 +212,24 @@ function marks(canon: BrandCanon): string[] {
       lines.push(`- ${v.code}${v.cut ? ` (${v.cut})` : ""}${specs ? `: ${specs}` : ""}`);
     }
     if (mark.clearspace?.length) lines.push(...bullets(mark.clearspace));
+    // The enforceable form, when it has been filled in. Stated alongside the
+    // prose rather than instead of it: an agent can act on "1 cap-height on all
+    // sides", a human reads the sentence.
+    for (const cs of mark.clearspaceSpec ?? []) {
+      const sides = cs.sides?.length ? cs.sides.join("/") : "all sides";
+      lines.push(`- Clearspace: ${cs.value} ${cs.unit} on ${sides}${cs.note ? ` — ${cs.note}` : ""}`);
+    }
+    lines.push("");
+  }
+
+  // The chop's own spec sheet. It is a mark, but it lives in its own canon key
+  // and so was absent from this brief — including the placement and footprint
+  // rules a label's chop slot is positioned by.
+  const chop = canon.chop;
+  if (chop?.narrative || chop?.specs?.length) {
+    lines.push("### The chop");
+    if (chop.narrative) lines.push(chop.narrative, "");
+    for (const s of chop.specs ?? []) lines.push(`- ${s.key}: ${s.value}`);
     lines.push("");
   }
 

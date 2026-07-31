@@ -71,9 +71,17 @@ describe("sectionOf", () => {
   });
 
   it("returns null for a key no subtab owns", () => {
-    expect(sectionOf("naming")).toBeNull();
     expect(sectionOf("visibility")).toBeNull();
     expect(sectionOf("brandName")).toBeNull();
+    expect(sectionOf("version")).toBeNull();
+  });
+
+  // Phase A gave these three owners. They were stored, editable nowhere, and
+  // rendered nowhere — including in the Agent Rules brief.
+  it("owns the keys Phase A adopted", () => {
+    expect(sectionOf("naming")).toBe("voice");
+    expect(sectionOf("labelChassis")).toBe("visual");
+    expect(sectionOf("chop")).toBe("marks");
   });
 });
 
@@ -144,9 +152,16 @@ describe("isSectionDirty / changedSections", () => {
 
   it("ignores a change to a key no subtab owns", () => {
     const next = structuredClone(base);
-    next.naming = { ...next.naming, pattern: "Something else" };
+    next.brandName = "Something else";
 
     expect(changedSections(base, next)).toEqual([]);
+  });
+
+  it("attributes a naming change to the voice subtab", () => {
+    const next = structuredClone(base);
+    next.naming = { ...next.naming, pattern: "Something else" };
+
+    expect(changedSections(base, next)).toEqual(["voice"]);
   });
 
   it("treats a null document as not dirty rather than throwing", () => {
