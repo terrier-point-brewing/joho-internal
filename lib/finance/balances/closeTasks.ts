@@ -201,7 +201,32 @@ export async function reconcileCloseTasks(supabase: AdminClient, periodEnd: stri
   return toClose.length;
 }
 
-/** Pure. True when every task is completed or skipped (vacuously true for an empty list). */
+/**
+ * Pure. True when tasks EXIST and every one is completed or skipped.
+ *
+ * The empty case returns FALSE, deliberately, and `Array.every`'s vacuous truth
+ * is exactly the trap. Nothing seeds a `manualBalance` source on a fresh
+ * install, so `ensureTasksForPeriod` legitimately produces zero tasks -- and
+ * with a vacuously-true reading the very first cron run froze the previous
+ * month on day one, before its due date, permanently. "No tasks were generated"
+ * is not the same statement as "all the work is done".
+ *
+ * A period with genuinely no manual accounts still freezes, via the caller's
+ * past-due-date branch. That path is time-based and safe; this one is not.
+ */
 export function isPeriodClosed(tasks: CloseTask[]): boolean {
+  if (tasks.length === 0) return false;
   return tasks.every((task) => task.status === "completed" || task.status === "skipped");
+}
+
+/**
+ * The close due date for a period, derived from configuration ALONE.
+ *
+ * The cron previously read `tasks[0].dueDate`, which is unavailable in exactly
+ * the situation that matters -- zero tasks -- leaving the freeze decision to
+ * isPeriodClosed's vacuous truth. Deriving it here means the past-due branch
+ * works whether or not any task exists.
+ */
+export function dueDateForPeriod(periodEnd: string, dueDay: number): string {
+  return resolveDueDate(periodEnd, { monthOffset: 1, day: dueDay });
 }

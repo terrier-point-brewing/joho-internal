@@ -11,6 +11,7 @@ import {
   tasksNeedingAlert,
   isPeriodClosed,
   reconcileCloseTasks,
+  dueDateForPeriod,
 } from "./closeTasks";
 import type { CloseTask } from "./closeTasks";
 
@@ -195,8 +196,12 @@ describe("isPeriodClosed", () => {
     expect(isPeriodClosed(tasks)).toBe(false);
   });
 
-  it("is true for an empty list", () => {
-    expect(isPeriodClosed([])).toBe(true);
+  it("is FALSE for an empty list — Array.every's vacuous truth was the day-one freeze bug", () => {
+    // This assertion previously read `.toBe(true)`, encoding the defect: with
+    // no manualBalance source seeded, ensureTasksForPeriod returns zero tasks,
+    // so the first cron run froze the prior month before its due date and
+    // nothing could unfreeze it. "No tasks generated" != "all work done".
+    expect(isPeriodClosed([])).toBe(false);
   });
 });
 
@@ -259,5 +264,27 @@ describe("reconcileCloseTasks", () => {
 
     expect(closed).toBe(0);
     expect(db.closeTasks[0].status).toBe("open");
+  });
+});
+
+describe("isPeriodClosed — the empty case is the whole bug", () => {
+  // Array.every is vacuously true, and nothing seeds a manualBalance source on
+  // a fresh install, so ensureTasksForPeriod legitimately returns zero tasks.
+  // The first cron run therefore froze the previous month on day one, before
+  // its due date, with no unfreeze path anywhere.
+  it("returns FALSE for an empty task list, not vacuously true", () => {
+    expect(isPeriodClosed([])).toBe(false);
+  });
+});
+
+describe("dueDateForPeriod", () => {
+  // The cron used to read tasks[0].dueDate, which does not exist in exactly the
+  // zero-task situation that matters. Deriving from config always works.
+  it("puts the due day in the month AFTER the period", () => {
+    expect(dueDateForPeriod("2026-07-31", 5)).toBe("2026-08-05");
+  });
+
+  it("rolls a December period into the next year", () => {
+    expect(dueDateForPeriod("2026-12-31", 5)).toBe("2027-01-05");
   });
 });

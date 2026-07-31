@@ -32,6 +32,7 @@ import {
   tasksNeedingAlert,
   markAlerted,
   isPeriodClosed,
+  dueDateForPeriod,
   readCloseConfig,
 } from "@/lib/finance/balances/closeTasks";
 import { renderBalanceCloseEmail } from "@/lib/finance/balances/alertEmail";
@@ -64,7 +65,7 @@ export async function GET(req: NextRequest) {
 
     const tasks = await listTasksForPeriod(supabase, periodEnd);
 
-    const { alertLeadDays } = await readCloseConfig(supabase);
+    const { alertLeadDays, dueDay } = await readCloseConfig(supabase);
     const alertCandidates = tasksNeedingAlert(tasks, todayIso, alertLeadDays);
 
     let alertsSent = 0;
@@ -101,7 +102,10 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const pastDueDate = tasks.length > 0 && todayIso > tasks[0].dueDate;
+    // Derive the due date from CONFIG, not from tasks[0] -- with zero tasks
+    // there is no tasks[0], which is precisely when the old code fell through
+    // to isPeriodClosed's vacuous truth and froze the month on day one.
+    const pastDueDate = todayIso > dueDateForPeriod(periodEnd, dueDay);
     let frozen = false;
     if (isPeriodClosed(tasks) || pastDueDate) {
       await freezePeriod(supabase, periodEnd);

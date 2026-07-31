@@ -221,6 +221,23 @@ export async function fetchBalances(
 }
 
 /** Sets is_frozen = true for every gl_account_balances row of `periodEnd`. A frozen row is never recomputed by snapshotPeriod again. */
+/**
+ * Reopen a frozen period so its balances recompute on the next snapshot run.
+ *
+ * Freezing was previously a one-way door: there was no unfreeze anywhere, so a
+ * period frozen in error -- which the day-one freeze bug did to whatever month
+ * preceded the first cron run -- stayed wrong forever, with resolveSnapshotWrites
+ * skipping it on every subsequent pass. An operation that can be performed by
+ * accident needs an inverse.
+ */
+export async function unfreezePeriod(supabase: AdminClient, periodEnd: string): Promise<void> {
+  const { error } = await supabase
+    .from("gl_account_balances")
+    .update({ is_frozen: false })
+    .eq("period_end", periodEnd);
+  if (error) throw new Error(error.message);
+}
+
 export async function freezePeriod(supabase: AdminClient, periodEnd: string): Promise<void> {
   const { error } = await supabase
     .from("gl_account_balances")
