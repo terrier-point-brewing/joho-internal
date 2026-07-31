@@ -19,6 +19,14 @@
 -- tax payments -- so the primary key is the pair, not chart_of_accounts_id
 -- alone.
 create table if not exists public.balance_sheet_account_sources (
+  -- Surrogate id, present ONLY because audit_trigger_fn() does
+  -- `(new.id)::text` unconditionally (20260609_baseline.sql). A table with a
+  -- purely composite key and an audit trigger raises
+  -- `42703: record "new" has no field "id"` on the first INSERT -- which is
+  -- what silently blocked this migration's own seed rows. The composite key
+  -- below is still the real identity; this column exists to satisfy the
+  -- trigger, not to be used.
+  id                    uuid        not null default gen_random_uuid(),
   chart_of_accounts_id uuid        not null references public.chart_of_accounts(id),
   provider_key          text        not null,
   config                 jsonb       not null default '{}',
