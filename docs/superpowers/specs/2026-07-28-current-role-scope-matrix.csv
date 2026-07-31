@@ -1,0 +1,21 @@
+section,scope,scope_label,viewer,brewer,manager,admin,custom,via_key_brewer,via_key_manager,note
+taproom,taproom.performance,Performance,read,read,operate,admin,none,taproom.performance,taproom,manager inherits from bare `taproom` grant (prefix match)
+taproom,taproom.targets,Targets,read,read,read,admin,none,taproom.targets,taproom.targets,
+taproom,taproom.settings,Settings,none,none,operate,admin,none,,taproom,manager inherits from bare `taproom`; scope has NO API of its own - enforced only by app/taproom/settings/layout.tsx
+production,production.brewing,Brewing,none,operate,none,admin,none,production.brewing,,
+production,production.inventory,Inventory,none,operate,none,admin,none,production.inventory,,
+production,production.export,Export,none,operate,read,admin,none,production.export,production.export,
+production,production.recipes,Recipes,none,operate,none,admin,none,production.recipes,,
+production,production.partners,Partners,none,operate,read,admin,none,production.partners,production.partners,
+production,production.equipment,Equipment,none,read,none,admin,none,production.equipment,,
+production,production.settings,Settings,none,manage,operate,admin,none,production.settings,production.settings,LOAD-BEARING: app/production/layout.tsx gates the ENTIRE /production section on this scope at read level
+finance,finance.transactions,Transactions,none,none,none,admin,none,,,the scope the finance settings APIs actually enforce
+finance,finance.statements,Statements,none,none,none,admin,none,,,"gates all 8 finance settings pages via app/finance/layout.tsx, though none of their APIs use this scope"
+payroll,payroll,Payroll,none,none,operate,admin,none,,payroll,
+tax,tax,Tax,none,none,operate,admin,none,,tax,
+tax,tax.pii,PII,none,none,operate,admin,none,,tax,"manager inherits `operate` from bare `tax` grant - PII reveal needs admin level, so still denied"
+brand,brand.guide,Guide,none,none,none,admin,none,,,
+brand,brand.workbench,Workbench,none,none,none,admin,none,,,
+settings,settings.business,Business,none,none,none,admin,none,,,
+settings,settings.users,Users,none,none,none,admin,none,,,
+settings,settings.cron,Cron,none,none,none,admin,none,,,
