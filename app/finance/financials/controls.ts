@@ -8,6 +8,8 @@
 //
 // No DB/Square/React imports -- pure over already-fetched FinancialsRow[].
 
+import { statementTotal } from "@/lib/finance/financials/statementTotal";
+import type { TotalMode } from "@/lib/finance/financials/statementTotal";
 import type { ControlsConfig } from "@/lib/table/types";
 import type { Channel, FinancialsRow } from "@/lib/finance/financials/types";
 import type { StatementSection } from "@/lib/finance/accountSections";
@@ -85,7 +87,7 @@ export const SECTION_LABEL: Record<StatementSection, string> = {
  * no active sort leaves buildTree's canonical section/account order
  * untouched (the statement's canonical presentation order).
  */
-export function buildFinancialsControls(months: string[]): ControlsConfig<FinancialsRow> {
+export function buildFinancialsControls(months: string[], totalMode: TotalMode = "sum"): ControlsConfig<FinancialsRow> {
   return {
     search: [{ param: "q", accessor: (r) => r.accountName }],
     filters: [
@@ -95,7 +97,9 @@ export function buildFinancialsControls(months: string[]): ControlsConfig<Financ
     ],
     sort: {
       columns: [
-        { key: "total", accessor: (r) => months.reduce((s, m) => s + (r.amountCentsByMonth[m] ?? 0), 0) },
+        // Must agree with FinancialsTable's MeasureTotalCell -- same helper, or
+        // sorting a balance sheet ranks by a number the column never shows.
+        { key: "total", accessor: (r) => statementTotal(r.amountCentsByMonth, months, totalMode) },
         ...months.map((m) => ({ key: m, accessor: (r: FinancialsRow) => r.amountCentsByMonth[m] ?? 0 })),
       ],
       default: null,

@@ -30,6 +30,7 @@ import FinancialsTable from "./FinancialsTable";
 import DataQualityPanel from "./DataQualityPanel";
 import { buildTree } from "./buildTree";
 import { buildFinancialsControls, retainAncestors, CHANNEL_OPTIONS, QUALITY_OPTIONS, SECTION_LABEL } from "./controls";
+import { totalModeFor } from "@/lib/finance/financials/statementTotal";
 
 // Stable empty-array reference so useTableControls/useMemo deps don't churn
 // on every render while `data` is still loading (a fresh `[]` literal would
@@ -194,7 +195,14 @@ export default function FinancialsPage() {
   // month) -- rebuild it whenever the month range changes, matching
   // ExportInvoicesTab.tsx's dynamic-config precedent for a config that closes
   // over fetched data.
-  const financialsControls = useMemo(() => buildFinancialsControls(data?.months ?? []), [data?.months]);
+  // A balance sheet's period figure is its CLOSING balance, not the sum of its
+  // months -- summing point-in-time balances multiplies them. Both the rendered
+  // column and the sort accessor take this from the same helper.
+  const totalMode = useMemo(() => totalModeFor(statement), [statement]);
+  const financialsControls = useMemo(
+    () => buildFinancialsControls(data?.months ?? [], totalMode),
+    [data?.months, totalMode],
+  );
 
   const {
     rows: survivorRows, search, filters, sort, setSearch, setFilter, toggleSort, reset, activeCount,
@@ -316,6 +324,7 @@ export default function FinancialsPage() {
               onSort={toggleSort}
               coaAccounts={data.coaAccounts}
               showGlNumbers={showGlNumbers}
+              totalMode={totalMode}
             />
           </div>
         )}

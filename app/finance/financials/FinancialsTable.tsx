@@ -12,6 +12,8 @@ import { formatCurrencyCents, EM_DASH } from "@/lib/format";
 import Badge from "@/app/components/ui/Badge";
 import SortableTh from "@/app/components/ui/SortableTh";
 import { amountPerBbl } from "@/lib/finance/financials/volume";
+import { statementTotal, totalColumnLabel } from "@/lib/finance/financials/statementTotal";
+import type { TotalMode } from "@/lib/finance/financials/statementTotal";
 import type { BblCoverage, Channel, CoaAccountRef, FinancialsRow, Measure } from "@/lib/finance/financials/types";
 import type { SortState } from "@/lib/table/types";
 import { CHANNEL_COLOR, CHANNEL_LABEL } from "./channelColors";
@@ -87,10 +89,12 @@ function MeasureCell({ measure, row, month }: { measure: Measure; row: Financial
   return <MoneyCell cents={row.amountCentsByMonth[month] ?? 0} />;
 }
 
-function MeasureTotalCell({ measure, row, months }: { measure: Measure; row: FinancialsRow | null; months: string[] }) {
+function MeasureTotalCell({ measure, row, months, totalMode }: { measure: Measure; row: FinancialsRow | null; months: string[]; totalMode: TotalMode }) {
   if (!row) return <span className="text-faint">{EM_DASH}</span>;
-  const totalCents = months.reduce((s, m) => s + (row.amountCentsByMonth[m] ?? 0), 0);
-  const totalBbl = months.reduce((s, m) => s + (row.bblByMonth[m] ?? 0), 0);
+  const totalCents = statementTotal(row.amountCentsByMonth, months, totalMode);
+  // BBL follows the same rule: a balance sheet's volume figure, if ever shown,
+  // is a position at period end, not a sum of positions.
+  const totalBbl = statementTotal(row.bblByMonth, months, totalMode);
   if (measure === "bbl") return <BblCell bbl={totalBbl} />;
   if (measure === "amount_per_bbl") return <AmountPerBblCell amountCents={totalCents} bbl={totalBbl} coverage={row.bblCoverage} />;
   return <MoneyCell cents={totalCents} />;
@@ -110,6 +114,7 @@ function ChannelChip({ channel }: { channel: Channel }) {
 
 interface RowCommonProps {
   months: string[];
+  totalMode: TotalMode;
   measure: Measure;
   isExpanded: (key: string, defaultExpanded: boolean) => boolean;
   toggle: (key: string) => void;
@@ -139,7 +144,7 @@ const EXPAND_SLOT = "inline-flex w-3 shrink-0 items-center justify-center overfl
 
 /** A single account/sub-account/channel-slice row, recursing into its children when expanded. Depth >= 1 (top-level sections/subtotals are rendered separately). Collapsed by default (unlike sections) so opening a statement doesn't dump the entire CoA depth at once -- drilling into an account's sub-accounts/channel slices is opt-in per row. */
 function AccountRow({ node, path, ...rest }: RowCommonProps & { node: TreeNode; path: string }) {
-  const { months, measure, isExpanded, toggle, glNumberByCoaId } = rest;
+  const { months, measure, isExpanded, toggle, glNumberByCoaId, totalMode } = rest;
   const key = nodeKey(node, path);
   const expanded = isExpanded(key, false);
   const hasChildren = node.children.length > 0;
@@ -175,7 +180,7 @@ function AccountRow({ node, path, ...rest }: RowCommonProps & { node: TreeNode; 
           </td>
         ))}
         <td className="py-1.5 pl-2 pr-4 text-right text-sm font-mono tabular-nums font-semibold">
-          <MeasureTotalCell measure={measure} row={node.row} months={months} />
+          <MeasureTotalCell measure={measure} row={node.row} months={months} totalMode={totalMode} />
         </td>
       </tr>
       {expanded && node.children.map((child, i) => (
@@ -187,7 +192,7 @@ function AccountRow({ node, path, ...rest }: RowCommonProps & { node: TreeNode; 
 
 /** Top-level section band (Revenue, COGS, Bank & Cash, ...): a static, non-interactive header (never a dropdown -- a section is a presentation grouping, not a real account, so it has nothing of its own to expand/collapse) + its account rows (each individually still collapsible via AccountRow) + a "Total {label}" footer computed from the section's own rolled-up row. */
 function SectionBlock({ node, ...rest }: RowCommonProps & { node: TreeNode }) {
-  const { months, measure } = rest;
+  const { months, measure, totalMode } = rest;
   const key = nodeKey(node, "root");
   const hasChildren = node.children.length > 0;
 
@@ -220,7 +225,7 @@ function SectionBlock({ node, ...rest }: RowCommonProps & { node: TreeNode }) {
           </td>
         ))}
         <td className="py-1.5 pl-2 pr-4 text-right text-sm font-mono tabular-nums font-bold text-primary">
-          <MeasureTotalCell measure={measure} row={node.row} months={months} />
+          <MeasureTotalCell measure={measure} row={node.row} months={months} totalMode={totalMode} />
         </td>
       </tr>
     </>
@@ -228,7 +233,7 @@ function SectionBlock({ node, ...rest }: RowCommonProps & { node: TreeNode }) {
 }
 
 /** Top-level subtotal (Total Income, Gross Profit, Net Income, Total Cash In/Out, Net Operating, Total Assets/Liabilities/L+E, ...) — a single bold rollup line, no drill-down (its constituent sections already rendered their own detail above it). */
-function SubtotalBar({ node, months, measure }: { node: TreeNode; months: string[]; measure: Measure }) {
+function SubtotalBar({ node, months, measure, totalMode }: { node: TreeNode; months: string[]; measure: Measure; totalMode: TotalMode }) {
   return (
     <tr className="border-t-2 border-line-subtle bg-surface-mid">
       <td className={`py-2 px-4 text-xs font-semibold text-primary bg-surface-mid ${STICKY_LABEL_CELL}`}>{node.label}</td>
@@ -238,7 +243,7 @@ function SubtotalBar({ node, months, measure }: { node: TreeNode; months: string
         </td>
       ))}
       <td className="py-2 pl-2 pr-4 text-right text-sm font-mono tabular-nums font-bold text-primary">
-        <MeasureTotalCell measure={measure} row={node.row} months={months} />
+        <MeasureTotalCell measure={measure} row={node.row} months={months} totalMode={totalMode} />
       </td>
     </tr>
   );
@@ -247,7 +252,7 @@ function SubtotalBar({ node, months, measure }: { node: TreeNode; months: string
 /** Sortable month/Total header cells only render as <SortableTh> when the caller
  * threads `sort`/`onSort` in (Task 11) — otherwise this falls back to the original
  * plain <th> so FinancialsTable stays usable uncontrolled. */
-function TableHead({ months, sort, onSort }: { months: string[]; sort?: SortState; onSort?: (key: string) => void }) {
+function TableHead({ months, sort, onSort, totalMode }: { months: string[]; sort?: SortState; onSort?: (key: string) => void; totalMode: TotalMode }) {
   return (
     <thead>
       <tr className="bg-surface border-b border-line sticky top-0 z-10">
@@ -271,7 +276,7 @@ function TableHead({ months, sort, onSort }: { months: string[]; sort?: SortStat
         )}
         {onSort ? (
           <SortableTh
-            label="Total"
+            label={totalColumnLabel(totalMode)}
             sortKey="total"
             sort={sort ?? null}
             onSort={onSort}
@@ -292,6 +297,8 @@ interface FinancialsTableProps {
   tree: TreeNode[];
   months: string[];
   measure: Measure;
+  /** `closing` for the balance sheet: its rows are point-in-time balances, so the period figure is the latest month, never a sum. Defaults to `sum` for flow statements. */
+  totalMode?: TotalMode;
   onToggleExpand?: (key: string) => void;
   expandedKeys?: Set<string>;
   /** Task 11: current sort state + toggle handler for the Total/month <SortableTh> headers.
@@ -305,6 +312,7 @@ interface FinancialsTableProps {
 
 export default function FinancialsTable({
   tree, months, measure, onToggleExpand, expandedKeys, sort, onSort, coaAccounts, showGlNumbers,
+  totalMode = "sum",
 }: FinancialsTableProps) {
   const glNumberByCoaId = useMemo(
     () => (showGlNumbers ? new Map((coaAccounts ?? []).map((c) => [c.id, c.accountNumber])) : null),
@@ -341,14 +349,14 @@ export default function FinancialsTable({
   return (
     <div className="overflow-x-auto">
       <table className="w-full border-collapse text-xs" style={{ minWidth: `${months.length * 96 + 280}px` }}>
-        <TableHead months={months} sort={sort} onSort={onSort} />
+        <TableHead months={months} sort={sort} onSort={onSort} totalMode={totalMode} />
         <tbody>
           {tree.map((node, i) => {
-            const rowProps = { months, measure, isExpanded, toggle, glNumberByCoaId };
+            const rowProps = { months, measure, isExpanded, toggle, glNumberByCoaId, totalMode };
             return node.isSection ? (
               <SectionBlock key={nodeKey(node, "root") + i} node={node} {...rowProps} />
             ) : (
-              <SubtotalBar key={nodeKey(node, "root") + i} node={node} months={months} measure={measure} />
+              <SubtotalBar key={nodeKey(node, "root") + i} node={node} months={months} measure={measure} totalMode={totalMode} />
             );
           })}
         </tbody>
