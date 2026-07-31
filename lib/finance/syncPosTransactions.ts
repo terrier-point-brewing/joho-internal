@@ -16,6 +16,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Order } from "@/types/square";
 import { fetchCompletedOrders, fetchCanceledOrders, fetchOrdersByIds } from "@/lib/square/orders";
+import { isReturnOrder } from "@/lib/square/returnOrders";
 
 const BATCH_SIZE = 100;
 
@@ -52,8 +53,18 @@ interface InvoiceLookupRow {
  * items. OPEN/DRAFT orders aren't sales yet, so we skip them. Kept pure for
  * testing. NOTE: a refund does NOT change order state (a refunded order stays
  * COMPLETED); refunds are handled separately in syncRefunds.ts.
+ *
+ * Return orders are skipped outright, whatever their state. Square models a
+ * refund as its own COMPLETED order carrying no `line_items` and no
+ * `total_money` (the money lives in `net_amounts`/`return_amounts`), so the
+ * upsert path would store it as a $0 order with no items — a blank phantom row
+ * in the Orders ledger that inflates the order count and reads as "unmapped".
+ * The refund itself is captured by syncRefunds.ts, which resolves return orders
+ * straight from the Square API rather than from `square_orders`, so dropping
+ * them here costs no refund attribution.
  */
-export function classifyOrderForSync(order: Pick<Order, "state">): OrderSyncAction {
+export function classifyOrderForSync(order: Pick<Order, "state"> & { returns?: unknown[] }): OrderSyncAction {
+  if (isReturnOrder(order)) return "skip";
   if (order.state === "COMPLETED") return "upsert";
   if (order.state === "CANCELED") return "cancel";
   return "skip";
@@ -110,14 +121,35 @@ export function buildOrderPayload(order: Order, invoiceId: string | null, nowIso
   };
 }
 
-/** `pos_line_items` rows for one POS order. Pure. */
+/**
+ * GL state already sitting on a line-item row — a chart-of-accounts mapping (set
+ * by hand in the Orders grid, or materialized by the auto-map pass) and any note.
+ * Carried across the delete-and-rebuild in `syncSquareOrders` so a re-sync never
+ * silently reverts it.
+ */
+export interface PriorLineItemState {
+  chart_of_accounts_id: string | null;
+  notes: string | null;
+}
+
+/**
+ * `pos_line_items` rows for one POS order. Pure.
+ *
+ * `priorByUid` carries forward the GL state of the rows this rebuild replaces,
+ * keyed by `square_line_item_uid` (stable across re-fetches of an order, unique
+ * within it). Without it, re-syncing an order — the nightly cron's trailing
+ * window, or any month backfill — would overwrite a human's mapping with the
+ * catalog default and drop their notes, with no error and no trace.
+ */
 export function buildPosLineItems(
   orderDbId: string,
   order: Order,
   getPosCoA: (variationId: string) => string | null,
+  priorByUid?: Map<string, PriorLineItemState>,
 ) {
   return (order.line_items ?? []).map((li) => {
     const varId = li.catalog_object_id ?? null;
+    const prior = li.uid ? priorByUid?.get(li.uid) : undefined;
     return {
       order_id: orderDbId,
       square_line_item_uid: li.uid,
@@ -135,7 +167,9 @@ export function buildPosLineItems(
       // fetchPos maps this column straight onto P&L revenue.
       net_sales_cents: (li.gross_sales_money?.amount ?? 0) - (li.total_discount_money?.amount ?? 0),
       tax_cents: li.total_tax_money?.amount ?? 0,
-      chart_of_accounts_id: varId ? getPosCoA(varId) : null,
+      // Prior mapping wins over the catalog default — see `priorByUid` above.
+      chart_of_accounts_id: prior?.chart_of_accounts_id ?? (varId ? getPosCoA(varId) : null),
+      notes: prior?.notes ?? null,
       raw_data: li as object,
     };
   });
@@ -265,18 +299,67 @@ export async function syncSquareOrders(
     for (const row of data ?? []) upsertedIds.set(row.square_order_id, row.id);
   }
 
-  // Split into POS vs invoice-backed by the resolved db ids.
+  // Split into POS vs invoice-backed by the resolved db ids. POS orders split
+  // again by action: a canceled one has its line items withdrawn outright, an
+  // upserted one is rebuilt from the fetched order.
   const posOrderDbIds: string[] = [];
   const invoiceOrderDbIds: string[] = [];
+  const canceledPosDbIds: string[] = [];
+  const rebuildPosDbIds: string[] = [];
   for (const order of orders) {
     const dbId = upsertedIds.get(order.id);
     if (!dbId) continue;
-    (invoiceIdByOrderId.has(order.id) ? invoiceOrderDbIds : posOrderDbIds).push(dbId);
+    if (invoiceIdByOrderId.has(order.id)) {
+      invoiceOrderDbIds.push(dbId);
+      continue;
+    }
+    posOrderDbIds.push(dbId);
+    (actionByOrderId.get(order.id) === "cancel" ? canceledPosDbIds : rebuildPosDbIds).push(dbId);
+  }
+
+  // Read the GL state off the line items a rebuild is about to replace, so
+  // manual mappings and notes survive the round-trip (see buildPosLineItems).
+  // If a batch's read fails we must NOT go on to delete it — rebuilding blind
+  // is exactly how a mapping gets silently reverted — so those orders are left
+  // untouched this run and picked up by the next. Canceled orders need no prior
+  // state: their line items are withdrawn, not rebuilt.
+  const priorByOrderDbId = new Map<string, Map<string, PriorLineItemState>>();
+  const priorReadFailed = new Set<string>();
+  for (let i = 0; i < rebuildPosDbIds.length; i += BATCH_SIZE) {
+    const batchIds = rebuildPosDbIds.slice(i, i + BATCH_SIZE);
+    const { data, error } = await supabase
+      .from("pos_line_items")
+      .select("order_id, square_line_item_uid, chart_of_accounts_id, notes")
+      .in("order_id", batchIds);
+
+    if (error) {
+      errors.push(`Prior line-item state ${i}–${i + batchIds.length}: ${error.message}`);
+      for (const id of batchIds) priorReadFailed.add(id);
+      continue;
+    }
+
+    for (const row of data ?? []) {
+      if (!row.square_line_item_uid) continue;
+      if (row.chart_of_accounts_id == null && row.notes == null) continue;
+      let uidMap = priorByOrderDbId.get(row.order_id);
+      if (!uidMap) {
+        uidMap = new Map();
+        priorByOrderDbId.set(row.order_id, uidMap);
+      }
+      uidMap.set(row.square_line_item_uid, {
+        chart_of_accounts_id: row.chart_of_accounts_id ?? null,
+        notes: row.notes ?? null,
+      });
+    }
   }
 
   // Rebuild POS line items: delete existing for these orders, then insert fresh.
-  for (let i = 0; i < posOrderDbIds.length; i += BATCH_SIZE) {
-    await supabase.from("pos_line_items").delete().in("order_id", posOrderDbIds.slice(i, i + BATCH_SIZE));
+  const posDbIdsToClear = [
+    ...canceledPosDbIds,
+    ...rebuildPosDbIds.filter((id) => !priorReadFailed.has(id)),
+  ];
+  for (let i = 0; i < posDbIdsToClear.length; i += BATCH_SIZE) {
+    await supabase.from("pos_line_items").delete().in("order_id", posDbIdsToClear.slice(i, i + BATCH_SIZE));
   }
 
   let synced = 0;
@@ -301,6 +384,11 @@ export async function syncSquareOrders(
       continue;
     }
 
+    // Prior line items unreadable ⇒ they were never deleted above. Leave the
+    // order exactly as it stands rather than rebuild it from a blank slate, and
+    // don't count it as synced — nothing about it changed.
+    if (!invoiceId && priorReadFailed.has(dbId)) continue;
+
     synced++;
     if (invoiceId) {
       invoiceLineItemsToInsert.push({
@@ -308,7 +396,7 @@ export async function syncSquareOrders(
         items: buildInvoiceLineItems(invoiceId, order, getInvoiceCoA),
       });
     } else {
-      posLineItems.push(...buildPosLineItems(dbId, order, getPosCoA));
+      posLineItems.push(...buildPosLineItems(dbId, order, getPosCoA, priorByOrderDbId.get(dbId)));
       posOrdersByDbId.set(dbId, order);
     }
   }
