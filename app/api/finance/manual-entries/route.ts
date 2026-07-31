@@ -7,7 +7,7 @@
 //   * "balance" — a balance-sheet amount AS OF a month end (asOfDate).
 import { NextRequest, NextResponse } from "next/server";
 // Admin client, not the server client: manual_entries' RLS deliberately covers
-// only entry_kind='flow' (see 20260902_manual_entries.sql). Balance rows carry
+// only entry_kind='flow' (see 20260904120000_manual_entries.sql). Balance rows carry
 // bank and equity figures and are service-role-only, so a session-scoped client
 // would silently read zero of them here. Authorization is enforced in this
 // route by requirePermission on every verb -- the same arrangement the
