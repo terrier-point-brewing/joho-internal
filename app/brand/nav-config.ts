@@ -18,5 +18,8 @@ export const BRAND_TABS: BrandNavEntry[] = [
   // never leads to a redirect. Assets is `read` (looking is the common case);
   // Releases stays `manage` because the label workbench is all writes.
   { href: "/brand/assets", label: "Assets", requires: CAP.brandAssetsRead },
+  // Templates sits before Releases because it is upstream of it: a release is
+  // launched INTO a template, so the layouts have to exist first.
+  { href: "/brand/templates", label: "Templates", requires: CAP.brandTemplatesRead },
   { href: "/brand/releases", label: "Releases", requires: CAP.brandReleasesManage },
 ];

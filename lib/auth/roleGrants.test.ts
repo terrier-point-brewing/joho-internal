@@ -19,9 +19,9 @@ describe("ROLE_BUNDLES", () => {
     }
   });
 
-  it("grants admin on all 27 scopes for the admin role", () => {
+  it("grants admin on all 29 scopes for the admin role", () => {
     const scopeKeys = Object.keys(SCOPES) as ScopeKey[];
-    expect(scopeKeys.length).toBe(27);
+    expect(scopeKeys.length).toBe(29);
     for (const scope of scopeKeys) {
       expect(effectiveLevel(ROLE_BUNDLES.admin, scope)).toBe("admin");
     }

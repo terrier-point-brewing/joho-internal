@@ -70,6 +70,13 @@ export const SCOPES = {
   "brand.guide": { label: "Guide", section: "brand" },
   "brand.assets": { label: "Assets", section: "brand" },
   "brand.releases": { label: "Releases", section: "brand" },
+  // Authoring templates and seasons — rare, structural, and separate from
+  // producing artifacts with them. Someone who lays out a hundred labels should
+  // not thereby be able to change the chassis every label is built on.
+  "brand.templates": { label: "Templates", section: "brand" },
+  // Producing and approving outputs. `operate` drafts a render; `manage`
+  // approves and exports one, which is the human gate nothing may skip.
+  "brand.outputs": { label: "Outputs", section: "brand" },
 
   "org.users": { label: "Users", section: "org" },
   "org.business": { label: "Business", section: "org" },

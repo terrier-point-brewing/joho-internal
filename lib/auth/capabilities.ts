@@ -96,6 +96,14 @@ export const CAP = {
   brandReleasesRead: { scope: "brand.releases", level: "read" },
   brandReleasesManage: { scope: "brand.releases", level: "manage" },
 
+  brandTemplatesRead: { scope: "brand.templates", level: "read" },
+  brandTemplatesManage: { scope: "brand.templates", level: "manage" },
+  brandOutputsRead: { scope: "brand.outputs", level: "read" },
+  /** Draft a render. Producing is not approving. */
+  brandOutputsOperate: { scope: "brand.outputs", level: "operate" },
+  /** Approve and export — the human gate an agent draft must pass through. */
+  brandOutputsManage: { scope: "brand.outputs", level: "manage" },
+
   financeStatementsRead: { scope: "finance.statements", level: "read" },
   financeTransactionsRead: { scope: "finance.transactions", level: "read" },
   financeTransactionsManage: { scope: "finance.transactions", level: "manage" },
