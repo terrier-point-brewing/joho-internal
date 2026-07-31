@@ -114,7 +114,14 @@ describe("compileBrandMarkdown", () => {
           pattern: "Story Title — Plain Style Subtitle",
           narrative: "A name earns its place.",
           criteria: ["Grounded in a real story", "Speakable", "Plain subtitle", "No never-words", "Said aloud"],
-          passingExamples: [{ name: "Peach Blossom Spring", why: "Grounded in place" }],
+          passingExamples: [
+            {
+              name: "Peach Blossom Spring",
+              story: "A fisherman follows the blossoms upstream.",
+              menuDescription: "Soft, floral, gently sweet.",
+              why: "Grounded in place",
+            },
+          ],
         },
       }).full;
 
@@ -122,6 +129,10 @@ describe("compileBrandMarkdown", () => {
       expect(full).toContain("1. Grounded in a real story");
       expect(full).toContain("5. Said aloud");
       expect(full).toContain("Peach Blossom Spring — Grounded in place");
+      // An agent proposing a name needs the two pieces of writing that produce
+      // the verdict, not just the verdict.
+      expect(full).toContain("Story: A fisherman follows the blossoms upstream.");
+      expect(full).toContain("Menu: Soft, floral, gently sweet.");
     });
 
     it("states the label chassis, numbered in panel order", () => {

@@ -105,14 +105,14 @@ export default function NamingFields({
             />
             <textarea
               className="inp min-h-16 text-sm"
-              value={example.story ?? ""}
+              value={example.story}
               onChange={(e) => update({ story: e.target.value })}
               aria-label="Story line"
               placeholder="Story line — the moment or story the name points to"
             />
             <input
               className="inp-sm"
-              value={example.menuDescription ?? ""}
+              value={example.menuDescription}
               onChange={(e) => update({ menuDescription: e.target.value })}
               aria-label="Menu description"
               placeholder="Menu description — how it reads on the tap list"
