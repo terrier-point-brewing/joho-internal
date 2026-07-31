@@ -73,13 +73,16 @@ for (const name of capNames) {
 // skipped.
 const scopeSrc = readFileSync(join(ROOT, AUTH_DIR, "scopes.ts"), "utf8");
 const scopeKeys = [...scopeSrc.matchAll(/^\s{2}"?([\w.]+)"?:\s*\{\s*label/gm)].map((m) => m[1]);
-// Twenty-seven leaves is the documented shape (see scopes.ts's own header comment,
-// and roleGrants.test.ts's "grants admin on all 27 scopes" assertion) — if
+// Twenty-nine leaves is the documented shape (see scopes.ts's own header comment,
+// and roleGrants.test.ts's "grants admin on all 29 scopes" assertion) — if
 // this count drifts, the extraction regex silently under- or over-matched
 // and every downstream check in this rule is unreliable.
-if (scopeKeys.length !== 27) {
+//
+// This is a canary for the regex, not a cap on the scope count: adding a scope
+// SHOULD trip it once, and the fix is to update all three references together.
+if (scopeKeys.length !== 29) {
   problems.push(
-    `scripts/check-permissions.mjs rule 4 — expected to find 27 scopes in lib/auth/scopes.ts, found ${scopeKeys.length}; ` +
+    `scripts/check-permissions.mjs rule 4 — expected to find 29 scopes in lib/auth/scopes.ts, found ${scopeKeys.length}; ` +
       `the extraction regex is out of sync with scopes.ts's shape`,
   );
 }

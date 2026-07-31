@@ -19,7 +19,7 @@
  * `catalog`); a subtab needing finer gating than its parent domain -> sub-leaf
  * (`finance.tax.filing`).
  *
- * Twenty-seven leaves across seven families. Interior nodes are grantable too:
+ * Twenty-nine leaves across seven families. Interior nodes are grantable too:
  * `finance.tax` is a real key, and a bare `finance` grant rolls down into all
  * of `finance.tax.*` by dot-prefix. A SIBLING leaf grant confers nothing on its
  * section — `finance.tax:operate` does not resolve `finance.access` — which is
