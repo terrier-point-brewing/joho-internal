@@ -211,7 +211,8 @@ describe("buildFinancials — pl / cash_flow", () => {
 
       const manualRow = resp.rows.find((r) => r.sourceRef.table === "manual_entries");
       expect(manualRow).toBeDefined();
-      expect(manualRow!.channel).toBe("taproom");
+      // Brewery-wide, so no sales channel (see manualNetSales.ts's MANUAL_CHANNEL).
+      expect(manualRow!.channel).toBe("unknown");
       // "coa-rev" is accountType "Income" -> ACCOUNT_TYPE_SECTION derives "revenue".
       expect(manualRow!.statementSection).toBe("revenue");
       expect(manualRow!.coaId).toBe("coa-rev");

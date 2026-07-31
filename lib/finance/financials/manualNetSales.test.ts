@@ -52,7 +52,9 @@ describe("injectManualNetSales", () => {
 
     expect(rows).toHaveLength(1);
     const row = rows[0];
-    expect(row.channel).toBe("taproom");
+    // No channel: manual entries are brewery-wide (any GL account), not
+    // taproom-only as the retired manual_net_sales_entries table was.
+    expect(row.channel).toBe("unknown");
     // "coa-rev" is accountType "Income" -> ACCOUNT_TYPE_SECTION derives "revenue".
     expect(row.statementSection).toBe("revenue");
     // accountName tracks the entry's real resolved account (Finding 3) so a
@@ -74,6 +76,34 @@ describe("injectManualNetSales", () => {
     expect(row.amountCentsByMonth["2026-06"]).toBe(0);
   });
 
+  it("carries the mapped account's real parentId so the row nests under its parent account", () => {
+    // Regression: parentId was hardcoded null, which made 4100 BREWERY
+    // REVENUE:Taproom Revenue -- an account whose every real posting lands on
+    // a 41x0 leaf, leaving the adjustment as its ONLY row -- look parentless
+    // to buildTree, so it rendered as a sibling of 4000 rather than under it.
+    const coa: CoaRecord[] = [
+      { id: "coa-4000", parentId: null, accountName: "BREWERY REVENUE", accountNumber: "4000", accountType: "Income", statementSection: null },
+      { id: "coa-4100", parentId: "coa-4000", accountName: "BREWERY REVENUE:Taproom Revenue", accountNumber: "4100", accountType: "Income", statementSection: null },
+    ];
+    const entries = [{ id: "m-1", startDate: "2026-05-01", endDate: "2026-05-31", amountCents: 891300, chartOfAccountsId: "coa-4100" }];
+    const rows = injectManualNetSales([], entries, months, coa);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].parentId).toBe("coa-4000");
+  });
+
+  it("leaves parentId null for a root account and for an entry whose account is missing from the CoA", () => {
+    const entries = [
+      { id: "m-root", startDate: "2026-05-01", endDate: "2026-05-31", amountCents: 10000, chartOfAccountsId: "coa-rev" },
+      { id: "m-gone", startDate: "2026-05-01", endDate: "2026-05-31", amountCents: 20000, chartOfAccountsId: "coa-missing" },
+    ];
+    const rows = injectManualNetSales([], entries, months, COA);
+
+    expect(rows.map((r) => r.parentId)).toEqual([null, null]);
+    // The unresolvable one still falls back to the generic label, unchanged.
+    expect(rows.find((r) => r.coaId === "coa-missing")?.accountName).toBe("Manual Net-Sales Adjustment");
+  });
+
   it("derives statementSection from the entry's mapped account rather than hardcoding revenue", () => {
     const entries = [{ id: "m-oi", startDate: "2026-05-01", endDate: "2026-05-31", amountCents: 50000, chartOfAccountsId: "coa-other-income" }];
     const rows = injectManualNetSales([], entries, months, COA);
@@ -83,8 +113,9 @@ describe("injectManualNetSales", () => {
     expect(row.coaId).toBe("coa-other-income");
     // "coa-other-income" is accountType "Other Income" -> "other_income", not the old hardcoded "revenue".
     expect(row.statementSection).toBe("other_income");
-    // Channel stays hardcoded taproom -- it is not account-derived.
-    expect(row.channel).toBe("taproom");
+    // Channel is "unknown" regardless of account -- a manual entry has no
+    // sales-channel dimension at all, whatever GL account it is booked to.
+    expect(row.channel).toBe("unknown");
   });
 
   it("appends to existing rows rather than replacing them", () => {

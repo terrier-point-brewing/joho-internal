@@ -25,6 +25,7 @@
 // subtotal (Total Income, Gross Profit, ...); depth > 0 -> account or slice.
 
 import { CREDIT_SIDE_SECTIONS } from "@/lib/finance/financials/statementTotal";
+import { isManualAdjustmentRow } from "@/lib/finance/financials/manualAdjustment";
 import type { BblCoverage, FinancialsRow, StatementKind } from "@/lib/finance/financials/types";
 import { CHANNEL_LABEL } from "./channelColors";
 
@@ -34,6 +35,8 @@ export interface TreeNode {
   children: TreeNode[];
   depth: number;
   isSection: boolean;
+  /** Marks an operator-entered exception line broken out from its parent account's own postings (currently only a manual entry -- see lib/finance/financials/manualAdjustment.ts). Like a channel slice it is a DECOMPOSITION of the parent's already-rolled-up total, not an extra addend on top of it; FinancialsTable renders it italic so it reads as an exception building INTO the account rather than as a real sub-account of its own. */
+  isAdjustment?: boolean;
 }
 
 /** Minimal chart_of_accounts reference shape buildTree needs to nest an account under an ancestor that itself carries no direct postings (see CoaLookup below), to sort siblings by GL number, and to seed a real-but-currently-unused root account as a $0 line (see seedEmptyRootAccounts). `statementSection` is the SAME derived value aggregateRows.ts's coaSection() would assign this account if it ever got a posting -- computed once server-side (buildFinancials.ts) for every CoA account, not just posted-to ones. */
@@ -89,6 +92,12 @@ function sortByAccountNumber(nodes: TreeNode[], coaMap: CoaLookup): TreeNode[] {
     return an - bn;
   });
 }
+
+// A manual entry (lib/finance/financials/manualNetSales.ts) is posted to a
+// REAL account's coaId, so it lands in the same rowsByAccount bucket as that
+// account's own Square/invoice postings and silently disappears into its
+// total -- see buildAccountNode's breakOutAdjustment.
+const MANUAL_ADJUSTMENT_LABEL = "Manual Adjustment";
 
 const COVERAGE_RANK: Record<BblCoverage, number> = { full: 0, partial: 1, unknown: 2 };
 
@@ -162,11 +171,22 @@ function shortenChildLabel(childName: string, parentName: string): string {
   return rest.length > 0 ? rest : child;
 }
 
-/** An account's parent coaId, preferring its own row data (always present when it has postings, and requires no CoaLookup) and falling back to the CoA reference table only for a synthesized grouping account that has none. */
+/**
+ * An account's parent coaId, preferring its own row data (always present when
+ * it has postings, and requires no CoaLookup) and falling back to the CoA
+ * reference table for a synthesized grouping account that has none.
+ *
+ * A row's own NULL parentId is not treated as authoritative: rows are
+ * synthesized by several injectors (manualNetSales.ts, buildFinancials.ts's
+ * AR/balance injection) and one leaving parentId unset must not be able to
+ * promote a real, genuinely-nested account to a section root -- consult the
+ * full chart_of_accounts reference table before concluding it has no parent.
+ * Only a null on BOTH sides means a true root.
+ */
 function resolveParentId(key: string, rowsByAccount: Map<string, FinancialsRow[]>, coaMap: CoaLookup): string | null {
-  const ownRows = rowsByAccount.get(key);
-  if (ownRows && ownRows.length > 0) return ownRows[0].parentId;
-  return coaMap.get(key)?.parentId ?? null;
+  const ownRows = rowsByAccount.get(key) ?? [];
+  const fromRow = ownRows.find((r) => r.parentId !== null)?.parentId ?? null;
+  return fromRow ?? coaMap.get(key)?.parentId ?? null;
 }
 
 /** Builds one account node (and its channel-slice + child-account descendants) for a single coaId (or unmapped bucket) within a section. A grouping account with no direct postings of its own (ownRows empty) still gets a node here -- purely so its real descendants have somewhere to nest -- with its own row rolling up to just the sum of its children. `parentLabel` is the immediate parent account's raw (unshortened) name, used to strip a duplicative prefix from this node's own label -- omitted for root accounts, which always show their full name. */
@@ -180,13 +200,25 @@ function buildAccountNode(
   statementSection: string,
   parentLabel?: string,
 ): TreeNode {
-  const ownRows = rowsByAccount.get(key) ?? [];
+  const allOwnRows = rowsByAccount.get(key) ?? [];
+  const adjustmentRows = allOwnRows.filter(isManualAdjustmentRow);
+  const childKeys = childKeysByParent.get(key) ?? [];
+
+  // A manual adjustment posts to a REAL account's coaId, so it arrives in the
+  // same bucket as that account's own postings and vanishes into its total.
+  // Break it out into its own line whenever the account has anything else to
+  // be distinguished from -- sub-accounts, or postings of its own. When it
+  // doesn't (the account's entire balance IS the adjustment), the account row
+  // already IS that line, so the adjustment stays folded into ownRows and a
+  // lone, identical child is never emitted.
+  const breakOutAdjustment = adjustmentRows.length > 0 && (childKeys.length > 0 || adjustmentRows.length < allOwnRows.length);
+  const ownRows = breakOutAdjustment ? allOwnRows.filter((r) => !isManualAdjustmentRow(r)) : allOwnRows;
+
   const rawAccountName = ownRows[0]?.accountName ?? coaMap.get(key)?.accountName ?? key;
   const label = parentLabel ? shortenChildLabel(rawAccountName, parentLabel) : rawAccountName;
   const coaId = ownRows[0]?.coaId ?? key;
   const parentId = resolveParentId(key, rowsByAccount, coaMap);
 
-  const childKeys = childKeysByParent.get(key) ?? [];
   const childAccountNodes = sortByAccountNumber(
     childKeys.map((childKey) =>
       buildAccountNode(childKey, rowsByAccount, coaMap, childKeysByParent, months, depth + 1, statementSection, rawAccountName),
@@ -229,9 +261,40 @@ function buildAccountNode(
     channel: distinctChannels.length === 1 ? distinctChannels[0] : "unknown",
   });
 
+  const adjustmentNodes: TreeNode[] = breakOutAdjustment
+    ? [
+        {
+          row: sumRows(adjustmentRows, months, {
+            coaId,
+            parentId,
+            accountName: adjustmentRows[0].accountName,
+            statementSection,
+            channel: adjustmentRows[0].channel,
+          }),
+          label: MANUAL_ADJUSTMENT_LABEL,
+          children: [],
+          depth: depth + 1,
+          isSection: false,
+          isAdjustment: true,
+        },
+      ]
+    : [];
+
+  // Every addend of this account's displayed total, in one place: its own
+  // postings, its sub-accounts' already-rolled totals, and any broken-out
+  // adjustment. When the adjustment ISN'T broken out it's already inside
+  // ownTotalRow instead -- so the account's total is identical either way.
+  // Breaking it out is purely a presentation split, never a change in what
+  // 4100 sums to.
+  const addends = [
+    ownTotalRow,
+    ...childAccountNodes.map((n) => n.row).filter((r): r is FinancialsRow => r !== null),
+    ...adjustmentNodes.map((n) => n.row).filter((r): r is FinancialsRow => r !== null),
+  ];
+
   const rolledRow =
-    childAccountNodes.length > 0
-      ? sumRows([ownTotalRow, ...childAccountNodes.map((n) => n.row).filter((r): r is FinancialsRow => r !== null)], months, {
+    addends.length > 1
+      ? sumRows(addends, months, {
           coaId,
           parentId,
           accountName: rawAccountName,
@@ -243,7 +306,9 @@ function buildAccountNode(
   return {
     row: rolledRow,
     label,
-    children: [...childAccountNodes, ...sliceNodes],
+    // Adjustment last, after the GL-numbered sub-accounts and channel slices:
+    // it reads as the closing exception line that builds into this account.
+    children: [...childAccountNodes, ...sliceNodes, ...adjustmentNodes],
     depth,
     isSection: false,
   };

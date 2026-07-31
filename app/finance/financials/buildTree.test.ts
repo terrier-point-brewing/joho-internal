@@ -645,3 +645,101 @@ describe("buildTree — excludes cross-statement and unmapped rows from Net Inco
     expect(bsOther.children).toHaveLength(0);
   });
 });
+
+// The 4100 case. A manual net-sales adjustment (manual_entries) posts to a
+// REAL account's coaId, so it arrives in that account's own row bucket. Two
+// distinct bugs fell out of that for 4100 BREWERY REVENUE:Taproom Revenue,
+// whose every real posting lands on a 41x0 leaf so the adjustment is its ONLY
+// own row: (1) the adjustment's null parentId promoted 4100 to a section root,
+// rendering it beside its own parent 4000 instead of under it; (2) the
+// adjustment silently merged into 4100's total, so 4100 didn't equal the sum
+// of the sub-accounts shown beneath it and nothing on screen said why.
+describe("buildTree — manual adjustment posted to a grouping account (4100)", () => {
+  const coaAccounts = [
+    { id: "coa-4000", parentId: null, accountName: "BREWERY REVENUE", accountNumber: "4000", statementSection: "revenue" },
+    { id: "coa-4100", parentId: "coa-4000", accountName: "BREWERY REVENUE:Taproom Revenue", accountNumber: "4100", statementSection: "revenue" },
+    { id: "coa-4110", parentId: "coa-4100", accountName: "BREWERY REVENUE:Taproom Revenue:Taproom Beer Sales", accountNumber: "4110", statementSection: "revenue" },
+    { id: "coa-4120", parentId: "coa-4100", accountName: "BREWERY REVENUE:Taproom Revenue:Taproom Liquor Sales", accountNumber: "4120", statementSection: "revenue" },
+  ];
+
+  // parentId "coa-4000" is what injectManualNetSales now supplies (it reads the
+  // real account's parent); the null-parentId case is covered separately below.
+  const adjustment = row({
+    coaId: "coa-4100", parentId: "coa-4000",
+    accountName: "BREWERY REVENUE:Taproom Revenue (Manual Adjustment)",
+    statementSection: "revenue", channel: "taproom",
+    amountCentsByMonth: { "2026-01": 25000 },
+    sourceRef: { table: "manual_entries", ids: ["m-1"] },
+  });
+
+  const rows: FinancialsRow[] = [
+    row({
+      coaId: "coa-4110", parentId: "coa-4100", accountName: "BREWERY REVENUE:Taproom Revenue:Taproom Beer Sales",
+      statementSection: "revenue", channel: "taproom", amountCentsByMonth: { "2026-01": 100000 },
+    }),
+    row({
+      coaId: "coa-4120", parentId: "coa-4100", accountName: "BREWERY REVENUE:Taproom Revenue:Taproom Liquor Sales",
+      statementSection: "revenue", channel: "taproom", amountCentsByMonth: { "2026-01": 40000 },
+    }),
+    adjustment,
+  ];
+
+  const revenue = buildTree(rows, "pl", coaAccounts).find((n) => n.label === "Revenue")!;
+
+  it("nests 4100 under 4000 instead of rendering it as a second section root", () => {
+    expect(revenue.children.map((c) => c.label)).toEqual(["BREWERY REVENUE"]);
+    const brewery = revenue.children[0];
+    expect(brewery.children.map((c) => c.label)).toEqual(["Taproom Revenue"]);
+    // ...and 4100 is labelled as the account it is, not as the adjustment row
+    // that happens to be its only own posting.
+    expect(brewery.children[0].label).not.toContain("Manual Adjustment");
+  });
+
+  it("breaks the adjustment out as its own flagged line, last, beneath 4100's real sub-accounts", () => {
+    const taproomRev = revenue.children[0].children[0];
+    expect(taproomRev.children.map((c) => c.label)).toEqual([
+      "Taproom Beer Sales", "Taproom Liquor Sales", "Manual Adjustment",
+    ]);
+
+    const adj = taproomRev.children[2];
+    expect(adj.isAdjustment).toBe(true);
+    expect(adj.depth).toBe(taproomRev.depth + 1);
+    expect(adj.row?.amountCentsByMonth).toEqual({ "2026-01": 25000 });
+    // Only the adjustment is flagged -- a real sub-account never is.
+    expect(taproomRev.children.slice(0, 2).every((c) => !c.isAdjustment)).toBe(true);
+  });
+
+  it("keeps 4100's total inclusive of the adjustment, and equal to its visible children", () => {
+    const brewery = revenue.children[0];
+    const taproomRev = brewery.children[0];
+
+    // 100000 + 40000 + 25000 -- breaking the adjustment out is a presentation
+    // split, so the total is what it always was...
+    expect(taproomRev.row?.amountCentsByMonth).toEqual({ "2026-01": 165000 });
+    // ...and now visibly reconciles against the lines rendered beneath it.
+    const childSum = taproomRev.children.reduce((s, c) => s + (c.row?.amountCentsByMonth["2026-01"] ?? 0), 0);
+    expect(childSum).toBe(165000);
+
+    // No double count anywhere up the chain.
+    expect(brewery.row?.amountCentsByMonth).toEqual({ "2026-01": 165000 });
+    expect(revenue.row?.amountCentsByMonth).toEqual({ "2026-01": 165000 });
+  });
+
+  it("still nests 4100 under 4000 when the adjustment row itself carries no parentId", () => {
+    // Belt-and-braces: buildTree consults the CoA reference table rather than
+    // treating a synthesized row's null parentId as proof of a root account.
+    const withNullParent = [rows[0], rows[1], { ...adjustment, parentId: null }];
+    const rev = buildTree(withNullParent, "pl", coaAccounts).find((n) => n.label === "Revenue")!;
+    expect(rev.children.map((c) => c.label)).toEqual(["BREWERY REVENUE"]);
+    expect(rev.row?.amountCentsByMonth).toEqual({ "2026-01": 165000 });
+  });
+
+  it("does not emit a redundant child when the adjustment is an account's entire balance", () => {
+    // 4100 with no sub-accounts and no postings of its own: the account row
+    // already IS the adjustment, so a lone identical child would be noise.
+    const rev = buildTree([adjustment], "pl", coaAccounts).find((n) => n.label === "Revenue")!;
+    const taproomRev = rev.children[0].children[0];
+    expect(taproomRev.children).toEqual([]);
+    expect(taproomRev.row?.amountCentsByMonth).toEqual({ "2026-01": 25000 });
+  });
+});
