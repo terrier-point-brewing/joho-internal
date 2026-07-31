@@ -1,3 +1,4 @@
+import type { BrandAsset } from "@/lib/brand/assets";
 import type { GuideRule } from "@/lib/brand/guideRules";
 import { splitByPolarity } from "@/lib/brand/guideRules";
 import RuleCard from "./RuleCard";
@@ -14,7 +15,14 @@ import RuleCard from "./RuleCard";
  * don't-only list (the Color tab's forbidden section) renders as one column
  * instead of a half-blank grid.
  */
-export default function RuleGrid({ rules }: { rules: GuideRule[] }) {
+export default function RuleGrid({
+  rules,
+  assetsById,
+}: {
+  rules: GuideRule[];
+  /** Resolved assets, so each card can use its authored alt text. */
+  assetsById?: Map<string, BrandAsset>;
+}) {
   const { dos, donts } = splitByPolarity(rules);
 
   if (rules.length === 0) {
@@ -39,7 +47,11 @@ export default function RuleGrid({ rules }: { rules: GuideRule[] }) {
           </p>
           <div className="flex flex-col gap-3">
             {column.items.map((rule) => (
-              <RuleCard key={rule.id} rule={rule} />
+              <RuleCard
+                key={rule.id}
+                rule={rule}
+                asset={rule.assetId ? assetsById?.get(rule.assetId) : undefined}
+              />
             ))}
           </div>
         </div>

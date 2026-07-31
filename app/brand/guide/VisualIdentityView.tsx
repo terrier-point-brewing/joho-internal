@@ -1,3 +1,4 @@
+import type { BrandAsset } from "@/lib/brand/assets";
 import type { BrandCanon } from "@/lib/brand/canon.types";
 import { resolveGuideIntro } from "@/lib/brand/guideIntros";
 import { normalizeRules } from "@/lib/brand/guideRules";
@@ -22,14 +23,21 @@ import SpecCard from "./blocks/SpecCard";
  * canon and rendered nowhere, which meant the one spec every beer label is built
  * against could not be read by anyone using the guide.
  */
-export default function VisualIdentityView({ canon }: { canon: BrandCanon }) {
+export default function VisualIdentityView({
+  canon,
+  assetsById,
+}: {
+  canon: BrandCanon;
+  /** Resolved assets, so illustrated rules can use their authored alt text. */
+  assetsById?: Map<string, BrandAsset>;
+}) {
   const rules = normalizeRules(canon.illustrationLaw?.rules, "do");
   const chassis = canon.labelChassis;
   const elements = chassis?.elements ?? [];
 
   return (
     <GuideSection intro={resolveGuideIntro(canon, "visual")}>
-      <RuleGrid rules={rules} />
+      <RuleGrid rules={rules} assetsById={assetsById} />
 
       {(chassis?.narrative || elements.length > 0) && (
         <section className="mt-8">

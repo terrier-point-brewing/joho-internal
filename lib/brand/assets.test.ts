@@ -7,6 +7,7 @@ import {
   createAsset,
   listAssets,
   resolveAsset,
+  updateAssetMeta,
   type BrandAsset,
 } from "./assets";
 
@@ -230,5 +231,53 @@ describe("archiveAsset", () => {
     const client = fakeClient([baseRow({ id: "a1", status: "approved" })]);
     await archiveAsset(client as never, "a1");
     expect(client.rows.find((r) => r.id === "a1")?.status).toBe("archived");
+  });
+});
+
+describe("updateAssetMeta", () => {
+  it("writes a title and alt text", async () => {
+    const client = fakeClient([baseRow({ id: "a1" })]);
+    await updateAssetMeta(client as never, "a1", {
+      title: "Primary wordmark",
+      alt_text: "The word Joho set in Marcellus",
+    });
+
+    const row = client.rows.find((r) => r.id === "a1") as unknown as Record<string, unknown>;
+    expect(row.title).toBe("Primary wordmark");
+    expect(row.alt_text).toBe("The word Joho set in Marcellus");
+  });
+
+  it("clears a field to null rather than an empty string", async () => {
+    // A cleared title must fall back to the variant exactly as an unset one
+    // does — "" would render as a blank label in every picker.
+    const client = fakeClient([baseRow({ id: "a1" })]);
+    await updateAssetMeta(client as never, "a1", { title: "   " });
+
+    const row = client.rows.find((r) => r.id === "a1") as unknown as Record<string, unknown>;
+    expect(row.title).toBeNull();
+  });
+
+  it("trims surrounding whitespace", async () => {
+    const client = fakeClient([baseRow({ id: "a1" })]);
+    await updateAssetMeta(client as never, "a1", { title: "  Chop  " });
+
+    const row = client.rows.find((r) => r.id === "a1") as unknown as Record<string, unknown>;
+    expect(row.title).toBe("Chop");
+  });
+
+  it("leaves a field alone when it is not supplied", async () => {
+    const client = fakeClient([baseRow({ id: "a1", title: "Kept" } as never)]);
+    await updateAssetMeta(client as never, "a1", { alt_text: "Only this changes" });
+
+    const row = client.rows.find((r) => r.id === "a1") as unknown as Record<string, unknown>;
+    expect(row.title).toBe("Kept");
+    expect(row.alt_text).toBe("Only this changes");
+  });
+
+  it("does nothing at all when given no fields", async () => {
+    const client = fakeClient([baseRow({ id: "a1" })]);
+    const before = JSON.stringify(client.rows);
+    await updateAssetMeta(client as never, "a1", {});
+    expect(JSON.stringify(client.rows)).toBe(before);
   });
 });

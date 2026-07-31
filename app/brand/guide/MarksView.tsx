@@ -1,6 +1,7 @@
 import type { BrandCanon } from "@/lib/brand/canon.types";
 import type { BrandAsset } from "@/lib/brand/assets";
 import { normalizeRules, splitByPolarity } from "@/lib/brand/guideRules";
+import type { ArtworkGround } from "@/lib/brand/svgColor";
 import GuideSection from "./GuideSection";
 import SubHead from "./blocks/SubHead";
 import SpecCard from "./blocks/SpecCard";
@@ -33,16 +34,22 @@ function MarkCard({
   spec,
   variant,
   assets,
+  grounds,
 }: {
   spec: MarkSpec;
   variant: MarkVariant;
   assets: BrandAsset[];
+  grounds: Map<string, ArtworkGround>;
 }) {
   const { dos, donts } = splitByPolarity(normalizeRules(spec.usage, "do"));
 
   return (
     <div className="rounded-lg border border-brand-line p-3 flex flex-col gap-3">
-      <MarkArtwork assets={assets} alt={variant.code} />
+      <MarkArtwork
+        assets={assets}
+        alt={variant.code}
+        ground={assets.length > 0 ? (grounds.get(assets[0].id) ?? "neutral") : "neutral"}
+      />
 
       <div>
         <div className="flex items-baseline justify-between gap-2">
@@ -104,6 +111,13 @@ function MarkCard({
   );
 }
 
+/** A mark's `kind` uses "chop"; the asset library calls the same thing "chop_glyph". */
+const ASSET_KIND_FOR_MARK: Record<MarkSpec["kind"], string> = {
+  wordmark: "wordmark",
+  logo: "logo",
+  chop: "chop_glyph",
+};
+
 /**
  * Marks view: the identity artifacts, grouped into Wordmarks, Chops and Logos.
  *
@@ -120,12 +134,15 @@ function MarkCard({
 export default function MarksView({
   specs,
   assets,
+  grounds,
   intro,
   chop,
 }: {
   specs: MarkSpec[];
   /** Approved assets — variants reference these by id. */
   assets: BrandAsset[];
+  /** Per-asset background choice, read from the artwork itself. */
+  grounds: Map<string, ArtworkGround>;
   intro: string;
   /**
    * The chop's narrative and spec sheet. Rendered here from Phase A on: the
@@ -136,8 +153,24 @@ export default function MarksView({
   chop?: BrandCanon["chop"];
 }) {
   const assetById = new Map(assets.map((a) => [a.id, a]));
-  const assetsFor = (variant: MarkVariant): BrandAsset[] =>
-    (variant.assetIds ?? []).map((id) => assetById.get(id)).filter((a): a is BrandAsset => !!a);
+
+  /**
+   * A variant's artwork.
+   *
+   * Explicit `assetIds` win. When a variant has none, approved assets of the
+   * matching kind are shown instead — otherwise uploading and approving a
+   * wordmark changed nothing on screen until someone also went and attached it
+   * to a specific cut, which reads as the upload having silently failed.
+   */
+  const assetsFor = (spec: MarkSpec, variant: MarkVariant): BrandAsset[] => {
+    const explicit = (variant.assetIds ?? [])
+      .map((id) => assetById.get(id))
+      .filter((a): a is BrandAsset => !!a);
+    if (explicit.length > 0) return explicit;
+
+    const kind = ASSET_KIND_FOR_MARK[spec.kind];
+    return assets.filter((a) => a.kind === kind);
+  };
 
   const sections = SECTIONS.map((section) => ({
     ...section,
@@ -199,7 +232,8 @@ export default function MarksView({
                         key={variant.id ?? vi}
                         spec={spec}
                         variant={variant}
-                        assets={assetsFor(variant)}
+                        assets={assetsFor(spec, variant)}
+                        grounds={grounds}
                       />
                     ))}
                   </div>

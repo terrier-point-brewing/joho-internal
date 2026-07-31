@@ -69,6 +69,14 @@ export async function POST(req: NextRequest) {
     const variantRaw = formData.get("variant");
     const variant = typeof variantRaw === "string" && variantRaw ? variantRaw : "default";
 
+    // Human metadata, both optional. `title` names the asset in pickers, which
+    // otherwise show a storage variant; `alt_text` is the description a screen
+    // reader gets, and only whoever uploaded the file knows what it depicts.
+    const titleRaw = formData.get("title");
+    const altRaw = formData.get("alt_text");
+    const title = typeof titleRaw === "string" && titleRaw.trim() ? titleRaw.trim() : null;
+    const altText = typeof altRaw === "string" && altRaw.trim() ? altRaw.trim() : null;
+
     // Derive a format/extension from the file name, falling back to the MIME
     // subtype (e.g. "image/svg+xml" -> "svg") when the name has none.
     const extFromName = file.name.includes(".") ? file.name.split(".").pop()!.toLowerCase() : "";
@@ -86,6 +94,8 @@ export async function POST(req: NextRequest) {
       storage_path: storagePath,
       format,
       file_meta: { bytes: file.size, mime: file.type },
+      title,
+      alt_text: altText,
     });
     return NextResponse.json(asset, { status: 201 });
   } catch (err) {

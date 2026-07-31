@@ -42,6 +42,15 @@ export interface LegacyRow {
  * production.export: operate) but holds only taproom.performance: read, so the
  * operate gate 403'd every brewer — and the panel reported that failure as
  * "All reconciled". Reading the list is a read; resolve/dismiss stay at operate.
+ * PATCH production/shipments/[id] was added on 2026-07-30 for the shipment
+ * editor — a new call site with no legacy equivalent, at the same exportOperate
+ * gate as every other export-mutating route.
+ * PATCH and DELETE production/exports/[id] were REMOVED on 2026-07-30 along with
+ * the route itself: both mutated the export ledger with no guards and no
+ * compensating writes (DELETE dropped a row without restoring cold-storage
+ * inventory; PATCH set volume_bbl without recomputing excise tax), and nothing
+ * called either. The row count is therefore 212, not the 213 this file was
+ * generated with.
  */
 export const LEGACY_MATRIX: LegacyRow[] = [
   { route: "admin/cron-runs", method: "GET", legacy: [], capability: "cronRead" },
@@ -183,8 +192,6 @@ export const LEGACY_MATRIX: LegacyRow[] = [
   { route: "production/export/invoice", method: "POST", legacy: ["brewer"], capability: "exportOperate" },
   { route: "production/export/invoices/[id]/line-items", method: "PATCH", legacy: ["brewer"], capability: "exportOperate" },
   { route: "production/export/invoices", method: "GET", legacy: ["viewer", "brewer", "manager"], capability: "exportRead", intentionalChange: { viewer: false, reason: "API-only; app/production/layout.tsx already redirects viewers" } },
-  { route: "production/exports/[id]", method: "PATCH", legacy: ["brewer"], capability: "exportOperate" },
-  { route: "production/exports/[id]", method: "DELETE", legacy: ["brewer"], capability: "exportOperate" },
   { route: "production/floorplan-settings", method: "PUT", legacy: [], capability: "equipmentManage" },
   { route: "production/shipments/[id]", method: "PATCH", legacy: ["brewer"], capability: "exportOperate" },
   { route: "production/ingredients/[id]", method: "PATCH", legacy: ["brewer"], capability: "ingredientMasterEdit", intentionalChange: { brewer: false, reason: "ingredients/packaging PATCH and DELETE — decision 5" } },

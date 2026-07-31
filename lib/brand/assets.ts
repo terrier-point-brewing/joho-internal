@@ -112,6 +112,8 @@ export async function createAsset(
     storage_path: string;
     format: string;
     file_meta: Record<string, unknown>;
+    title?: string | null;
+    alt_text?: string | null;
   },
 ): Promise<BrandAsset> {
   const { data, error } = await client
@@ -155,4 +157,29 @@ export async function approveAsset(client: SupabaseLikeClient, id: string): Prom
 
 export async function archiveAsset(client: SupabaseLikeClient, id: string): Promise<void> {
   await client.from(TABLE).update({ status: "archived" }).eq("id", id);
+}
+
+/**
+ * Renames an asset and/or rewrites its alternative text.
+ *
+ * Separate from approve/archive because it's editable at any point in an
+ * asset's life — a library of any size accumulates uploads whose storage path
+ * means nothing to anyone, and re-uploading a file just to name it is not a
+ * reasonable ask.
+ *
+ * An empty string clears the field rather than storing "", so a cleared title
+ * falls back to the variant the same way an unset one does.
+ */
+export async function updateAssetMeta(
+  client: SupabaseLikeClient,
+  id: string,
+  meta: { title?: string; alt_text?: string },
+): Promise<void> {
+  const patch: Record<string, string | null> = {};
+  if (meta.title !== undefined) patch.title = meta.title.trim() || null;
+  if (meta.alt_text !== undefined) patch.alt_text = meta.alt_text.trim() || null;
+  if (Object.keys(patch).length === 0) return;
+
+  const { error } = await client.from(TABLE).update(patch).eq("id", id);
+  if (error) throw new Error("Failed to update asset details");
 }

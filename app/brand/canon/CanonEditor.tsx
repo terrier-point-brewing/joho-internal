@@ -20,6 +20,7 @@ import VoiceFields from "./fields/VoiceFields";
 import RuleListField from "./fields/RuleListField";
 import TypeUseCaseField from "./fields/TypeUseCaseField";
 import AgentFields from "./fields/AgentFields";
+import MarksEditor from "@/app/brand/guide/MarksEditor";
 import { useDraft, usePublish } from "./useCanonEditor";
 import { useSectionAutosave, type SaveState } from "./useSectionAutosave";
 import { changedSections } from "@/lib/brand/canonSections";
@@ -223,7 +224,14 @@ export default function CanonEditor({
           )}
           {section === "marks" && (
             <>
+              {/* Intro → upload artwork → attach it to a cut. The uploader used
+                  to render above the whole editor, so the subtab's own
+                  introduction appeared below its file inputs. */}
+              <MarksEditor />
               <MarksFacet draft={draft} onChange={setDraft} />
+              {/* The chop's own spec sheet last: it is a mark, but it is one
+                  fixed specification rather than a per-cut artifact, so it reads
+                  as a footer to the marks rather than another cut among them. */}
               <ChopFields draft={draft} onChange={setDraft} />
             </>
           )}

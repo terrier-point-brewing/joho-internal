@@ -77,10 +77,20 @@ function createCookielessClient(): SupabaseLikeClient {
 // Cached across requests under the 'brand-canon' tag. Phase 1's canon editor
 // calls revalidateTag('brand-canon', ...) on publish so edits reflect without
 // a redeploy; until then the published row (or the seed fallback) is cached.
+// `revalidate` matters as much as the tag. The tag only busts on publish, which
+// covers edits made through the UI — but the canon is ALSO edited by migrations
+// (20260902–20260905 all rewrote the published document directly), and those
+// call nothing. Without a revalidate window the app served a pre-migration
+// snapshot indefinitely: the palette expansion landed in Postgres and the Color
+// tab kept reporting every dark role as "derived", because the canon it held
+// genuinely had no dark map.
+//
+// Five minutes is the trade: a schema-level change surfaces on its own without
+// a redeploy, and a UI publish is still instant via revalidateTag.
 const fetchCanonCached = unstable_cache(
   async () => getCanonFrom(createCookielessClient()),
   ["brand-canon"],
-  { tags: ["brand-canon"] },
+  { tags: ["brand-canon"], revalidate: 300 },
 );
 
 export async function getCanon(): Promise<BrandCanon> {

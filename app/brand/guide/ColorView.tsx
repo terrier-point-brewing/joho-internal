@@ -1,3 +1,4 @@
+import type { BrandAsset } from "@/lib/brand/assets";
 import type { BrandCanon, RoleName } from "@/lib/brand/canon.types";
 import { resolveGuideIntro } from "@/lib/brand/guideIntros";
 import { normalizeRules } from "@/lib/brand/guideRules";
@@ -8,6 +9,31 @@ import SubHead from "./blocks/SubHead";
 import SwatchCard from "./blocks/SwatchCard";
 import RatioBar from "./blocks/RatioBar";
 import RuleGrid from "./blocks/RuleGrid";
+
+/**
+ * What each role is for.
+ *
+ * The theme table listed thirteen bare role names, which told a reader nothing
+ * about when to reach for one. These lines also carry constraints that live
+ * nowhere else — `secondary` in particular is a FILL, never text: Camphor Tan
+ * on Paper is 2.14:1, so setting type in it would be unreadable. Nothing in the
+ * codebase does, and this is what keeps it that way.
+ */
+const ROLE_PURPOSE: Record<RoleName, string> = {
+  canvas: "The page itself",
+  surface: "Cards and panels sitting on the canvas",
+  "surface-raised": "Anything lifted above a surface",
+  primary: "Primary actions and emphasis",
+  "on-primary": "Text and icons on a primary fill",
+  secondary: "Supporting fills — never text",
+  accent: "The chop and small accents, ≤5% of a composition",
+  "on-accent": "Text and icons on an accent fill",
+  "high-contrast": "Headings and the highest-emphasis text",
+  content: "Body text",
+  "content-muted": "Secondary and supporting text",
+  line: "Hairlines and dividers",
+  "line-strong": "Emphasized dividers and control borders",
+};
 
 /** One row of the theme table: the role, and where each mode's value comes from. */
 function ThemeRow({
@@ -42,16 +68,27 @@ function ThemeRow({
           detached {hex}
         </span>
       ) : (
-        // No stored value — still computed at render time until the palette
-        // expansion migration lands.
-        <span className="font-brand-body text-xs text-brand-content-muted truncate">derived</span>
+        // No stored value — computed at render time from the light role. Show
+        // WHAT it derived to: a bare "derived" tells a reader nothing they can
+        // act on, and it's the state a stale cache produces, so it needs to be
+        // legible rather than mysterious.
+        <span className="font-brand-body text-xs text-brand-content-muted truncate">
+          derived {hex}
+        </span>
       )}
     </span>
   );
 
   return (
-    <div className="grid grid-cols-[8rem_1fr_1fr] items-center gap-3 px-3 py-2 border-b border-brand-line last:border-0">
-      <span className="font-brand-body text-xs text-brand-high-contrast truncate">{role}</span>
+    <div className="grid grid-cols-[11rem_1fr_1fr] items-center gap-3 px-3 py-2 border-b border-brand-line last:border-0">
+      <span className="min-w-0">
+        <span className="font-brand-body text-xs text-brand-high-contrast block truncate">
+          {role}
+        </span>
+        <span className="font-brand-body text-2xs text-brand-content-muted block">
+          {ROLE_PURPOSE[role]}
+        </span>
+      </span>
       {source(light, lightHex)}
       {source(dark, darkHex)}
     </div>
@@ -67,7 +104,14 @@ function ThemeRow({
  * which color it came from. That link was previously invisible in the guide and
  * only half-visible in the editor.
  */
-export default function ColorView({ canon }: { canon: BrandCanon }) {
+export default function ColorView({
+  canon,
+  assetsById,
+}: {
+  canon: BrandCanon;
+  /** Resolved assets, so illustrated rules can use their authored alt text. */
+  assetsById?: Map<string, BrandAsset>;
+}) {
   const lightRoles = resolveLightRoles(canon);
   const darkRoles = resolveDarkRoles(canon, lightRoles);
   const drivesLight = rolesByPaletteKey(canon, "light");
@@ -115,7 +159,7 @@ export default function ColorView({ canon }: { canon: BrandCanon }) {
           description="Every surface binds to one of these thirteen roles. Each row shows the palette color behind it in each mode."
         />
         <div className="rounded-lg border border-brand-line overflow-hidden">
-          <div className="grid grid-cols-[8rem_1fr_1fr] gap-3 px-3 py-2 border-b border-brand-line">
+          <div className="grid grid-cols-[11rem_1fr_1fr] gap-3 px-3 py-2 border-b border-brand-line">
             <span className="font-brand-body text-2xs uppercase tracking-wide text-brand-content-muted">
               Role
             </span>
@@ -157,7 +201,7 @@ export default function ColorView({ canon }: { canon: BrandCanon }) {
             title="Forbidden"
             description="Combinations that must never ship. Each one fails a review on its own."
           />
-          <RuleGrid rules={forbidden} />
+          <RuleGrid rules={forbidden} assetsById={assetsById} />
         </section>
       )}
     </GuideSection>
