@@ -32,6 +32,7 @@ import { registerProvider } from "../registry";
 import type { BalanceContext, BalanceProvider } from "../registry";
 import { resolveConnection, recordSyncResult } from "../connections";
 import { getRampAccountBalanceHistory } from "@/lib/ramp";
+import { todayLocalDate } from "@/lib/utils/datetime";
 
 /**
  * How many days before the month end to ask for. Wide enough to survive an
@@ -54,57 +55,89 @@ function daysBefore(isoDate: string, days: number): string {
  * HTTP status.
  */
 export type RampReadResult =
-  | { ok: true; balanceCents: number }
+  | { ok: true; balanceCents: number; asOfDate: string }
   | { ok: false; reason: string };
 
 /**
- * Reads one month end's balance for a connected Ramp account.
+ * Reads a connected Ramp account's balance for a period.
  *
- * Exported so the connect-time check (`POST
- * /api/finance/balance-connections/ramp/check`) exercises the EXACT path the
- * monthly snapshot will later take. A check that used its own lighter query
- * would be worth very little: it could pass while the real read fails, which is
- * the one outcome a validation exists to rule out.
+ * ── Two periods, two different correct answers ───────────────────────────────
+ * The balance sheet asks this for both a CLOSED month and the OPEN one, and
+ * conflating them is how the account went blank for a whole month at a time.
  *
- * Does not touch the database and does not record anything -- callers own that,
- * because the provider must swallow a failed status write while the check route
- * wants to surface it.
+ * `periodEnd` in the past -- a month that has actually ended. The answer must
+ * be the balance dated EXACTLY on it. Substituting a nearby day would present,
+ * say, a 27 July figure as the July closing balance: plausible, undetectable,
+ * wrong, and about to be frozen into the close.
+ *
+ * `periodEnd` in the future -- the open month, which buildBalanceSheetFinancials
+ * live-computes on every page view by asking for the month's LAST day. On
+ * 12 August it asks for 31 August. There is no such balance yet, and demanding
+ * one made this account read as unsourced from the 1st to the close. The
+ * running balance as at today IS the answer to "where does this account stand
+ * this month", and nothing frozen or month-end-labelled is being claimed.
+ *
+ * Exported so the connect-time check exercises the EXACT path the snapshot
+ * takes. A check with its own lighter query could pass while the real read
+ * fails, which is the one outcome a validation exists to rule out.
+ *
+ * Touches no database and records nothing -- callers own that, because the
+ * provider must swallow a failed status write while the check route surfaces it.
  */
 export async function readRampBalance(
   connection: { externalId: string | null },
   periodEnd: string,
+  /** Today's calendar date in the brewery's zone. Passed in, never read here, so this stays testable. */
+  today: string,
 ): Promise<RampReadResult> {
   if (!connection.externalId) {
     return { ok: false, reason: "No Ramp account chosen for this connection yet." };
   }
 
+  // The open month: the period end has not arrived, so report where the
+  // account stands now rather than nothing at all.
+  const isOpenPeriod = periodEnd > today;
+  const windowEnd = isOpenPeriod ? today : periodEnd;
+
   let history;
   try {
     history = await getRampAccountBalanceHistory(
       connection.externalId,
-      daysBefore(periodEnd, WINDOW_DAYS),
-      periodEnd,
+      daysBefore(windowEnd, WINDOW_DAYS),
+      windowEnd,
     );
   } catch (err) {
     return { ok: false, reason: err instanceof Error ? err.message : String(err) };
   }
 
-  const onDate = history.find((row) => row.date === periodEnd);
-  if (!onDate) {
-    return { ok: false, reason: `Ramp reported no balance for ${periodEnd}.` };
+  let row;
+  if (isOpenPeriod) {
+    // Latest row at or before today. Ramp can lag a day on weekends and
+    // holidays, so the most recent available reading is the running balance.
+    row = history
+      .filter((r) => r.date <= today)
+      .sort((a, b) => (a.date < b.date ? 1 : -1))[0];
+    if (!row) {
+      return { ok: false, reason: `Ramp reported no balance in the days up to ${today}.` };
+    }
+  } else {
+    row = history.find((r) => r.date === periodEnd);
+    if (!row) {
+      return { ok: false, reason: `Ramp reported no balance for ${periodEnd}.` };
+    }
   }
 
   // A non-USD balance summed into a USD balance sheet would be wrong by
   // whatever the exchange rate happens to be, with nothing on screen to say so.
   // Refusing is the only safe answer until this app handles currency.
-  if (onDate.currency_code !== "USD") {
+  if (row.currency_code !== "USD") {
     return {
       ok: false,
-      reason: `Ramp reports this account in ${onDate.currency_code}; only USD balances can be used.`,
+      reason: `Ramp reports this account in ${row.currency_code}; only USD balances can be used.`,
     };
   }
 
-  return { ok: true, balanceCents: onDate.balance_cents };
+  return { ok: true, balanceCents: row.balance_cents, asOfDate: row.date };
 }
 
 /**
@@ -137,7 +170,7 @@ export const rampBalance: BalanceProvider = {
     // start it erroring.
     if (connection.status === "disabled") return null;
 
-    const result = await readRampBalance(connection, ctx.periodEnd);
+    const result = await readRampBalance(connection, ctx.periodEnd, todayLocalDate());
 
     if (!result.ok) {
       await note(ctx, connection.id, { ok: false, error: result.reason });

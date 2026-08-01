@@ -60,8 +60,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "That connection is not a Ramp connection." }, { status: 400 });
     }
 
-    const periodEnd = mostRecentlyEndedMonthEnd(todayLocalDate());
-    const result = await readRampBalance(connection, periodEnd);
+    const today = todayLocalDate();
+    const periodEnd = mostRecentlyEndedMonthEnd(today);
+    const result = await readRampBalance(connection, periodEnd, today);
 
     // Unlike the provider, this route lets a failed status write surface: the
     // operator is standing at the screen waiting for an answer, so "the check
@@ -74,7 +75,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(
       result.ok
-        ? { ok: true, periodEnd, balanceCents: result.balanceCents }
+        ? { ok: true, periodEnd, balanceCents: result.balanceCents, asOfDate: result.asOfDate }
         : { ok: false, periodEnd, reason: result.reason },
     );
   } catch (err) {
