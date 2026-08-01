@@ -266,15 +266,58 @@ by a failing sync. Calling `recordSyncResult` from those crons against the Ramp
 connection would close it — additive, no credential moves. Do it after the
 integrations land, when a real connection row exists to point at.
 
-Four month-end close guardrails, deliberately left out of the scaffolding:
+### Make closing a period a human act
 
-1. Do not freeze a period whose snapshot reported errors — the cron currently
-   freezes on schedule regardless.
-2. Editing a manual balance for a frozen period silently changes nothing. Needs
-   a block or an auto-unfreeze.
-3. Unfreeze exists as an endpoint with no UI.
-4. No historical backfill — only the most recently ended month is ever
-   snapshotted, so months before 2026-06 are blank.
+**Supersedes three separate guardrails that were previously listed here.** They
+were patches over a model that is wrong underneath, and should be built as one
+feature instead.
+
+Today the cron freezes a period when every task is done **OR the due date has
+passed**. The second condition turns "the deadline went by" into "these books
+are final," which are different claims and only one of them is decidable by
+software. June 2026 is frozen — marked final — with 6 accounts carrying a
+balance and 39 with no source at all. Nobody closed June; 5 July happened.
+
+The time-based fallback exists to stop months recomputing forever, which is a
+real problem: a late expense coded to July would otherwise change July's balance
+in October. But an unclosed month *should* keep recomputing, because it is not
+final. What is actually missing is visibility that it is still open.
+
+The shape:
+
+- The cron keeps snapshotting, creating tasks, reconciling and alerting, and
+  **stops freezing**.
+- A close action records `closed_by` and `closed_at`, refuses (or warns hard)
+  while the latest snapshot reported errors, and lists what is outstanding.
+- Outstanding tasks are explicitly **skipped with a reason** rather than ignored.
+  `balance_close_tasks.status` already has `'skipped'` and a `notes` column,
+  both currently unused.
+- **Reopen** is the symmetric, attributed inverse. `unfreezePeriod` already
+  exists in snapshot.ts and still has no UI.
+- Unclosed periods are surfaced loudly rather than silently force-closed.
+
+This absorbs: "do not freeze a period whose snapshot errored" (the close action
+refuses, and can say why, because a human is asking); "editing a manual balance
+for a frozen period silently changes nothing" (editing a closed period requires
+reopening it); and "unfreeze has no UI" (it is the close button's inverse).
+
+Open decisions before building:
+- Should an unclosed month ever hard-lock? Recommended no — keep recomputing and
+  make it visible. If a filed period needs a genuine cutoff, build that as a
+  separate and differently-named thing.
+- June 2026 is frozen and materially incomplete. It should be reopened and
+  closed properly once accounts have sources.
+
+### Independent of the above
+
+- Report Ramp sync health through the connection store (see the entry above this
+  section). Needs Ramp to have landed first.
+- No historical backfill — only the most recently ended month is ever
+  snapshotted, so months before 2026-06 are blank. **Needs a decision first:**
+  `openInvoiceAr` filters on `status = 'open'`, a CURRENT status, so backfilling
+  an earlier month counts only invoices still unpaid today and understates
+  historical A/R. Either exclude 1100 from backfill, reconstruct status from
+  payment dates, or accept and label the understatement.
 
 Also note **no account currently uses manual entry**, so zero close tasks have
 ever been created and no alert email has ever been sent. The month-end freeze is
