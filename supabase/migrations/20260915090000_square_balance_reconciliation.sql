@@ -8,12 +8,13 @@
 -- half is exact -- Square's payout totals are already net of processing fees
 -- and refunds and reconcile to the cent.
 --
--- The OUTFLOW half is invisible. Withdrawals from the Square balance to a bank
--- appear in no payout (this merchant has never had a BANK_ACCOUNT payout, only
--- stored-balance settlements), in no posting to 1040 (the account carries none
--- at all), and cannot be recovered from the bank side (the Ramp ledger's
--- uncoded "Deposit" rows are the right order of magnitude but match no
--- accumulation window).
+-- The OUTFLOW half is real but invisible. Square holds a VERIFIED Chase
+-- checking account for this merchant and sweeps to it happen; no available
+-- source reports them. Not the payouts feed -- transfers off the stored balance
+-- are not modelled as payouts at all, so all 1,755 payouts on record are
+-- settlements IN, and that absence is a limit of the API rather than evidence
+-- the money stayed put. Not the books -- 1040 carries no postings at all. Not
+-- the bank side -- GL 1020's Chase feed does not exist yet; Plaid owns it.
 --
 -- So each month end the operator re-anchors: they check Square, enter the real
 -- figure, and that becomes the new starting point. Re-anchoring is self-
@@ -22,8 +23,13 @@
 -- is the record of what got absorbed, so "the balance is always right by
 -- construction" cannot hide "the calculation has been wrong for four months".
 --
--- Expect a modest negative drift each month: that is ordinary sweeping to the
--- bank. Positive or erratic drift means the derivation is missing something.
+-- Expect drift to be LARGE and negative -- roughly a month of sweeping -- not a
+-- small residual. So a big negative number here is normal, and this log cannot
+-- yet separate "swept to the bank" from "the derivation is wrong". Positive
+-- drift, or drift wildly out of step with the month's takings, is not
+-- explainable as sweeping and wants investigating. Keeping the inputs means
+-- that once the Chase feed lands, recorded sweeps can be subtracted and the
+-- residual becomes a true error term.
 
 create table if not exists public.square_balance_reconciliations (
   id                   uuid        primary key default gen_random_uuid(),

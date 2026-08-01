@@ -6,15 +6,25 @@
  * out to a linked bank account, and a payout carries `destination.type =
  * BANK_ACCOUNT`. Under that model a payout is money LEAVING Square.
  *
- * This merchant does not use that model. Every one of the 1,752 payouts in the
- * account's entire history (2026-05-15 onward, verified live) has
- * `destination.type = SQUARE_STORED_BALANCE` and there has never been a single
- * BANK_ACCOUNT payout. Money settles INTO a Square-held balance and sits there.
- * So a payout here is an INFLOW, and summing payouts gives money in, not money
- * out.
+ * That is not what this feed reports. Every one of the 1,755 payouts the API
+ * will return -- queried back to 2021, across every location and every status --
+ * has `destination.type = SQUARE_STORED_BALANCE`. Card sales settle INTO a
+ * Square-held balance. So a payout here is an INFLOW, and summing payouts gives
+ * money in, not money out.
  *
  * That inversion is the whole reason this module exists rather than a generic
  * "payouts to bank" reader.
+ *
+ * ── Money DOES leave for the bank; this feed simply does not show it ─────────
+ * Do not read the above as "the balance only ever grows". Square holds a
+ * VERIFIED Chase checking account for this merchant (`ListBankAccounts`:
+ * routing 028000121, ending 077, creditable and debitable), and transfers out
+ * to it genuinely happen. They are absent from `ListPayouts` regardless --
+ * moving money off the stored balance is not modelled as a payout at all.
+ *
+ * So the outflow is INVISIBLE, not ABSENT. Anything built on this module must
+ * treat "no bank payouts" as a limit of the feed and never as evidence that the
+ * money stayed put.
  *
  * ── Why the payout total is trustworthy on its own ───────────────────────────
  * `amount_money.amount` is already net of everything. Verified against a full

@@ -4,15 +4,25 @@
  * When an operator closes a month by entering the real Square balance, that
  * figure replaces the derived one and becomes the next month's starting point.
  * The gap between the two is the drift, and it is the ONLY visibility anyone
- * gets into money that left the Square balance -- withdrawals appear in no feed
- * and in no posting (see providers/squareBalance.ts for the evidence).
+ * gets into money that left the Square balance -- sweeps to the bank appear in
+ * no feed and in no posting (see providers/squareBalance.ts for the evidence).
  *
- * Recording it turns a silent correction into a number someone can look at. A
- * drift that is small and negative each month is ordinary sweeping to the bank.
- * A drift that is large, or positive, or erratic, means the derivation is
- * missing something -- and without this table that discovery has nowhere to
- * happen, because re-anchoring is by construction self-healing and hides its
- * own errors.
+ * Recording it turns a silent correction into a number someone can look at,
+ * because re-anchoring is by construction self-healing and would otherwise hide
+ * its own errors completely.
+ *
+ * ── What this log can and cannot tell you, today ─────────────────────────────
+ * Be honest about the limit. Sweeps from the Square balance to the linked Chase
+ * account are real and regular, so the expected drift is LARGE and negative --
+ * roughly a month of sweeping -- not a small residual. That means a big
+ * negative number here is normal, and this log cannot presently separate "swept
+ * to the bank" from "the derivation is wrong".
+ *
+ * What it CAN do is establish the shape: drift that is positive, or wildly
+ * out of step with the month's takings, is not explainable as sweeping and
+ * wants investigating. And it preserves the inputs, so once GL 1020's Chase
+ * feed exists (Plaid's half, unbuilt) the recorded sweeps can be subtracted
+ * from these rows and the residual becomes a true error term.
  *
  * Deliberately not an adjusting journal entry. A correcting posting would have
  * to be coded somewhere, would flow into the P&L if coded wrongly, and would

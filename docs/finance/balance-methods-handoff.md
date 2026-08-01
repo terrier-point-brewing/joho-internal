@@ -273,11 +273,19 @@ Design shipped: **anchor plus movement, re-anchored at each close** — as agree
 The movement term is not what this section originally specified, because the
 live data contradicted the assumption behind it. Corrected below.
 
-**This merchant does not pay out to a bank.** All 1,752 payouts in the account's
-entire history carry `destination.type = SQUARE_STORED_BALANCE`; there has never
-been a single `BANK_ACCOUNT` payout, across every location. Money settles INTO a
-Square-held balance and stays there. So a payout here is an **inflow**, not the
-outbound leg this section assumed.
+**The payouts feed only reports money coming IN.** All 1,755 payouts the API
+will return — queried back to 2021, across every location and every status —
+carry `destination.type = SQUARE_STORED_BALANCE`. Card sales settle into a
+Square-held balance, so a payout here is an **inflow**, not the outbound leg
+this section assumed.
+
+**That does NOT mean money stays on Square.** It does leave: Square holds a
+VERIFIED Chase checking account for the business (`ListBankAccounts` — routing
+028000121, ending 077, creditable and debitable), and sweeps to it happen.
+Transfers off the stored balance are simply **not modelled as payouts**, so they
+are absent from the feed entirely. Read "no `BANK_ACCOUNT` payouts" as a limit
+of the API, never as evidence about where the money went — an earlier draft of
+this section drew exactly that wrong conclusion.
 
 That is good news for the hard half. `amount_money.amount` on a stored-balance
 payout is already net of processing fees and refunds, and Square's own totals
@@ -286,19 +294,28 @@ reconcile exactly — verified over July 2026: entries gross 4,332,371 − fees
 one clean number, not payments − refunds − fees assembled by hand. The drift
 source this section warned about is gone.
 
-The **outflow** is the unobservable half, and nothing available fixes that:
-- not in the payouts feed — no `BANK_ACCOUNT` payouts exist;
+The **outflow** is real, regular, and currently observable nowhere:
+- not in the payouts feed — sweeps are not payouts;
 - not in the books — GL 1040 carries **zero** postings across every source
   `transactionPostings` reads;
-- not from the bank side — the Ramp ledger's four uncoded "Deposit" rows total
-  $94,452.15 against $105,493.90 of settlements, the right order of magnitude,
-  but no cutoff or settlement lag makes any single deposit equal the payouts
-  accumulated since the previous one. Attributing them would be a guess dressed
-  as a reconciliation.
+- not from the bank side — **there is no Chase feed in this system yet.** GL
+  1020 has no rows of any kind. That is Plaid's half, unbuilt.
 
 So: **balance = last verified balance + net settlements since**, with the
 outflow absorbed by re-anchoring, and the drift logged in
 `square_balance_reconciliations` (migration `20260915090000`).
+
+**Expect drift to be large and negative** — roughly a month of sweeping, not a
+small residual. So the log cannot yet separate "swept to Chase" from "the
+derivation is wrong"; what it can flag is drift that is positive or wildly out
+of step with the month's takings, which sweeping does not explain. This is a
+stated limitation of the account, not an oversight.
+
+**Follow-up once Plaid lands GL 1020:** the Chase feed will contain these
+inbound transfers, which makes the outflow identifiable. At that point the
+sweeps can be subtracted from the drift rows — turning the residual into a true
+error term — and the account can move from re-anchoring toward derivation. The
+reconciliation table already stores every input needed to do it retroactively.
 
 **Why there is no `transactionPostings` step**, against the pattern every other
 composite method follows: 1040's section is `bank`, and for a bank-section

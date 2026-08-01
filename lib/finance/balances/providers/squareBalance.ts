@@ -15,23 +15,35 @@
  * to the cent (see lib/square/payouts.ts). So this is not an estimate that
  * happens to be close; the inflow term is Square's own arithmetic.
  *
- * The money-OUT half is not observable at all, and that is the honest reason
- * this design needs an operator. Withdrawals from the Square balance to a bank
- * appear in NO available source:
- *   * not in the payouts feed -- there has never been a BANK_ACCOUNT payout on
- *     this merchant, only stored-balance settlements;
- *   * not in the books -- GL 1040 carries zero postings of any kind, across
- *     every source the postings provider reads;
- *   * not derivable from the bank side -- the Ramp ledger's four uncoded
- *     "Deposit" rows total $94,452.15 against $105,493.90 of settlements, which
- *     is the right order of magnitude, but no cutoff or settlement lag makes
- *     any single deposit equal the payouts accumulated since the previous one.
- *     Attributing them would be a guess dressed as a reconciliation.
+ * The money-OUT half is real but currently unobservable, and that is the honest
+ * reason this design needs an operator.
+ *
+ * Money DOES move from the Square balance to the bank. Square holds a verified
+ * Chase checking account for this merchant (routing 028000121, ending 077,
+ * creditable and debitable) and sweeps to it happen. What is missing is any
+ * feed that reports them:
+ *   * not the payouts feed -- transfers off the stored balance are not modelled
+ *     as payouts at all. Queried back to 2021, across every location and every
+ *     status, all 1,755 payouts are stored-balance settlements. "No bank
+ *     payouts" is a limit of the API, NOT evidence the money stayed put;
+ *   * not the books -- GL 1040 carries zero postings of any kind, across every
+ *     source the postings provider reads;
+ *   * not the bank side -- there is no Chase feed in this system yet. GL 1020
+ *     has no rows of any kind, and Plaid owns building it. (The Ramp ledger's
+ *     uncoded "Deposit" rows are a different account's traffic and are not
+ *     evidence about Square either way.)
  *
  * So the outflow is absorbed by RE-ANCHORING: each month end an operator checks
  * Square and enters the real figure, that figure becomes the new anchor, and
  * the drift is recorded (see ../squareDrift.ts). Drift cannot compound, and the
  * derived calculation only ever has to be right for one month at a time.
+ *
+ * Expect that drift to be LARGE and negative -- roughly a month of sweeps --
+ * not incidental leakage. Until the Chase feed exists there is no way to
+ * separate "swept to the bank" from "the derivation is wrong", which is a real
+ * limitation of this account and is written down in ../squareDrift.ts rather
+ * than glossed. When Plaid lands GL 1020, those inbound transfers become
+ * identifiable and the outflow can move from re-anchoring to derivation.
  *
  * ── Why the postings provider is deliberately NOT a step here ────────────────
  * The obvious instinct is to add `transactionPostings` so that a withdrawal
