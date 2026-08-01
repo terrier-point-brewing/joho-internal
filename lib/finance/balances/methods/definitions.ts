@@ -90,9 +90,16 @@ const salesTaxPayable: BalanceMethod = {
       source: "Tax lines on Square sales and invoices",
       direction: "add",
     },
+    // Wording verified against the live postings on GL 2220: of the four
+    // payments there, two are to NC Dept Revenue and Wake County Tax
+    // Administration and two are to Argus Beverage Ventures LLC, who settled
+    // the tax on the brewery's behalf during an ownership transition. The
+    // coding is correct in both cases, so this copy must not promise the payee
+    // is the agency -- a reader who opened the expense list and saw a beverage
+    // distributor would otherwise conclude the account was miscoded.
     postingsStep(
-      "Tax already remitted",
-      "Payments to the tax agency coded to this account. These reduce what you still owe.",
+      "Tax already paid",
+      "Payments already made against this tax liability, which reduce what you still owe. The payee may be the agency itself or a third party settling on your behalf.",
       "subtract",
     ),
   ],
