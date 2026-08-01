@@ -72,16 +72,89 @@ export interface BalanceStep {
 }
 
 /**
- * Which external service a method reads from. Declaring this is the ONLY thing
- * an integration has to do to get connection handling: the Settings screen
- * shows a picker filtered to this provider, the API resolves the linked
- * connection and renders its health, and the source stores the chosen id under
- * `config.connectionId`. A method that omits it is purely internal.
+ * Which external service a connection field links to.
  *
  * Lives here rather than in connections.ts so that module can import from this
  * one without a cycle.
  */
 export type ConnectionProvider = "ramp" | "plaid" | "square";
+
+/**
+ * How an operator obtains something to connect.
+ *
+ *   discover  -- the server can list the candidates outright, because the app
+ *                is already authenticated to the service (Ramp's treasury
+ *                accounts, Square's locations).
+ *   authorize -- the operator must sign in at the third party first, in their
+ *                own browser, and only then does a candidate list exist
+ *                (Plaid Link, which is how a bank credential is minted).
+ */
+export type ConnectFlow = "discover" | "authorize";
+
+interface SetupFieldBase {
+  /**
+   * Where the answer is stored in `balance_sheet_account_sources.config`, and
+   * the field's identity in the UI. Treat it as a published contract for the
+   * same reason a step key is: renaming one silently unconfigures every account
+   * already using this method rather than failing loudly.
+   *
+   * `operatorBalance` is the one kind whose answer does NOT live in config --
+   * it is a `manual_entries` balance row, so an operator can edit it, the close
+   * workflow can chase it and the audit trail exists. Its key names the field,
+   * not a config slot.
+   */
+  key: string;
+  /** Short label for the setup panel, sentence case. */
+  label: string;
+  /**
+   * One plain-English sentence telling a non-technical operator what to supply
+   * and why the calculation cannot run without it. Held to the same standard as
+   * a step description, and enforced by the same conformance suite -- this copy
+   * is what someone reads at the moment they are stuck.
+   */
+  help: string;
+  /**
+   * Set when the method can still produce a balance without this answer.
+   * Defaults to required, because a setup field that does not block anything is
+   * usually a setting rather than a setup step.
+   */
+  optional?: boolean;
+}
+
+/**
+ * One thing an operator must supply before a method can compute.
+ *
+ * ── Why this is not "integration config" ─────────────────────────────────────
+ * The obvious shape is a flag saying "this method reads an external service",
+ * and that is what this layer had first. It does not survive contact with the
+ * next calculation: a straight-line depreciation method needs a useful life and
+ * an in-service date and no external service at all, and an opening-balance
+ * method needs one figure and nothing else. Modelling setup as "connections"
+ * would have sent each of those off to build its own screen, which is exactly
+ * how three integrations ended up with three different ones.
+ *
+ * So the unit here is a FIELD, not an integration. A connection is one kind of
+ * field. The Settings screen renders whatever a method declares, in order, and
+ * a new calculation with new prerequisites is a declaration rather than a new
+ * screen.
+ */
+export type SetupField =
+  | (SetupFieldBase & {
+      kind: "connection";
+      provider: ConnectionProvider;
+      connect: ConnectFlow;
+    })
+  /**
+   * A figure only a person can supply, stored as a `manual_entries` balance row
+   * dated to a month end. Declaring one is also what makes the month-end close
+   * raise a task for this account -- see closeTasks.ts.
+   */
+  | (SetupFieldBase & { kind: "operatorBalance" })
+  | (SetupFieldBase & { kind: "select"; options: { value: string; label: string }[] })
+  /** A plain number stored in config. `unit` drives how the input is formatted. */
+  | (SetupFieldBase & { kind: "number"; unit?: "cents" | "months" | "percent" | "plain" })
+  | (SetupFieldBase & { kind: "text" })
+  | (SetupFieldBase & { kind: "date" });
 
 /** Connection state for an integration-backed method, shown in Settings. */
 export interface ConnectionStatus {
@@ -106,25 +179,47 @@ export interface BalanceMethod {
   /** Ordered; rendered top to bottom in the panel. */
   steps: BalanceStep[];
   /**
-   * Set this when the method reads an external service. Everything else --
-   * the Settings picker, connection resolution, the health line -- follows
-   * from it generically; there is nothing per-integration to implement.
-   */
-  connectionProvider?: ConnectionProvider;
-  /**
-   * Set this when the method cannot produce a balance for a period until a
-   * person supplies a figure for it, so the month-end close raises a task the
-   * same way it does for manual entry.
+   * What an operator must supply before this method can compute, in the order
+   * they should be asked for it. Omit when the method needs nothing -- a
+   * postings roll-up works the moment it is selected.
    *
-   * `manualBalance` does not need the flag -- closeTasks.ts has always known
-   * that key by name. This exists for methods that are CALCULATIONS but still
-   * depend on a human input: the Square balance derives its movement
-   * automatically and still needs an operator to re-anchor it each month,
-   * because the outflow half is observable nowhere. Without the flag such an
-   * account drifts further from reality every month with nothing asking anyone
-   * to look.
+   * Declaring a field is the ONLY thing a method does to get its setup handled.
+   * From it, generically: Settings renders the field, stores the answer, tells
+   * the operator what is still outstanding, and refuses to call the account
+   * configured until every required field is answered. There is no
+   * per-integration screen to write, and deliberately no second place a method
+   * can be configured from.
    */
-  requiresCloseEntry?: boolean;
+  setup?: SetupField[];
+}
+
+/** The connection field a method declares, if it has one. At most one is meaningful. */
+export function connectionFieldOf(method: BalanceMethod): (SetupField & { kind: "connection" }) | undefined {
+  return method.setup?.find((f): f is SetupField & { kind: "connection" } => f.kind === "connection");
+}
+
+/**
+ * Which external service this method reads from, or undefined for a purely
+ * internal calculation.
+ *
+ * DERIVED from the declared connection field rather than declared separately.
+ * The two were once both spelled out, which is one fact in two places and
+ * therefore one fact that can disagree with itself.
+ */
+export function connectionProviderOf(method: BalanceMethod): ConnectionProvider | undefined {
+  return connectionFieldOf(method)?.provider;
+}
+
+/**
+ * Whether this method needs a person to supply a figure before a period can be
+ * called closed -- which is exactly the same question as "does it declare an
+ * operatorBalance field".
+ *
+ * This replaced a `requiresCloseEntry` flag plus a hard-coded check for the
+ * name "manualBalance". Both said the same thing the declaration now says once.
+ */
+export function requiresOperatorBalance(method: BalanceMethod): boolean {
+  return method.setup?.some((f) => f.kind === "operatorBalance") ?? false;
 }
 
 /** Resolved identity of a step — its key, defaulted from providerKey. */
@@ -170,6 +265,22 @@ export function registerMethod(m: BalanceMethod): void {
     }
     seen.add(key);
   }
+
+  const setupKeys = new Set<string>();
+  let connectionFields = 0;
+  for (const field of m.setup ?? []) {
+    if (setupKeys.has(field.key)) {
+      throw new Error(`Balance method "${m.key}" declares duplicate setup field "${field.key}"`);
+    }
+    setupKeys.add(field.key);
+    // More than one would make config.connectionId ambiguous, and the whole
+    // resolution path -- resolveConnection, the daily capture planner, the
+    // health line -- reads exactly that one key.
+    if (field.kind === "connection" && ++connectionFields > 1) {
+      throw new Error(`Balance method "${m.key}" declares more than one connection field`);
+    }
+  }
+
   methodRegistry.set(m.key, m);
 }
 

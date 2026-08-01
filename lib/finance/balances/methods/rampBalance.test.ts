@@ -8,7 +8,7 @@
  */
 import { describe, it, expect } from "vitest";
 import "./index";
-import { getMethod, stepKey } from "./registry";
+import { getMethod, stepKey, connectionProviderOf, connectionFieldOf } from "./registry";
 import type { CoaAccountRef } from "../../financials/types";
 
 const method = () => getMethod("rampBalance")!;
@@ -16,10 +16,23 @@ const coa = (statementSection: string) => ({ statementSection }) as CoaAccountRe
 
 describe("Ramp account balance method", () => {
   it("is registered and declares Ramp as its connection provider", () => {
-    // This one field is what makes the Settings picker, connection resolution
-    // and the health line all work. Dropping it silently strands the account
-    // with no way to link it.
-    expect(method().connectionProvider).toBe("ramp");
+    // This one field is what makes the setup panel, connection resolution and
+    // the health line all work. Dropping it silently strands the account with
+    // no way to link it.
+    expect(connectionProviderOf(method())).toBe("ramp");
+  });
+
+  it("connects by listing accounts rather than by signing in", () => {
+    // Ramp authenticates from app-level credentials that already exist, so
+    // there is nothing for an operator to sign in to. Declaring "authorize"
+    // here would make the panel wait for a handshake that never comes.
+    expect(connectionFieldOf(method())?.connect).toBe("discover");
+  });
+
+  it("needs no figure from a person", () => {
+    // Ramp reports the closing balance itself. An operatorBalance field would
+    // raise a month-end close task for an account that does not need one.
+    expect(method().setup?.some((f) => f.kind === "operatorBalance")).toBe(false);
   });
 
   it("stores its contribution under the provider key", () => {

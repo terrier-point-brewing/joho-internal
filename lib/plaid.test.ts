@@ -127,10 +127,10 @@ describe("createLinkToken", () => {
   });
 
   it("sends redirect_uri when configured, which OAuth banks such as Chase require", async () => {
-    process.env.PLAID_REDIRECT_URI = "https://app.terrierpoint.com/settings/finance/bank-connections";
+    process.env.PLAID_REDIRECT_URI = "https://internal.johobrewing.com/settings/finance/balance-sheet-accounts";
     const calls = stubFetch([{ ok: true, body: { link_token: "l", expiration: "e" } }]);
     await createLinkToken("user-1");
-    expect(calls[0].body.redirect_uri).toBe("https://app.terrierpoint.com/settings/finance/bank-connections");
+    expect(calls[0].body.redirect_uri).toBe("https://internal.johobrewing.com/settings/finance/balance-sheet-accounts");
   });
 
   it("targets the sandbox host when asked to", async () => {

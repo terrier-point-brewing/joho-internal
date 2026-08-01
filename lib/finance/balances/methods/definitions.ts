@@ -56,6 +56,18 @@ const manualEntry: BalanceMethod = {
       direction: "net",
     },
   ],
+  // The only setup this method has ever had, now declared rather than assumed.
+  // closeTasks.ts used to check for the literal string "manualBalance"; it now
+  // reads this field, so a future method needing a human figure gets the close
+  // task without that module learning its name.
+  setup: [
+    {
+      kind: "operatorBalance",
+      key: "operatorBalance",
+      label: "Balance for this month end",
+      help: "This account has no automatic source, so someone has to read the balance and enter it after each month ends.",
+    },
+  ],
 };
 
 // ── Transaction postings ─────────────────────────────────────────────────────
@@ -183,7 +195,19 @@ const rampAccountBalance: BalanceMethod = {
   kind: "calculation",
   summary: "Takes the balance Ramp itself reports for the connected account on the last day of the month.",
   appliesTo: isBank,
-  connectionProvider: "ramp",
+  setup: [
+    {
+      kind: "connection",
+      key: "connectionId",
+      provider: "ramp",
+      // Ramp authenticates from app-level credentials that already exist for
+      // the expense sync, so the account list can simply be fetched. Nothing to
+      // sign in to.
+      connect: "discover",
+      label: "Ramp account",
+      help: "Choose which of your Ramp accounts this general ledger account represents, so the right balance is read each month.",
+    },
+  ],
   steps: [
     {
       providerKey: "rampBalance",
@@ -218,8 +242,26 @@ const squareStoredBalance: BalanceMethod = {
   kind: "calculation",
   summary: "Your last checked Square balance, plus everything Square has paid in since.",
   appliesTo: isBank,
-  connectionProvider: "square",
-  requiresCloseEntry: true,
+  // Two fields, in the order an operator can actually do them: there is nothing
+  // to anchor until the account is linked. The operatorBalance field is also
+  // what raises this account's month-end close task, which is how the outflow
+  // half of the account gets corrected -- see providers/squareBalance.ts.
+  setup: [
+    {
+      kind: "connection",
+      key: "connectionId",
+      provider: "square",
+      connect: "discover",
+      label: "Square account",
+      help: "Choose which Square business this general ledger account holds the money for.",
+    },
+    {
+      kind: "operatorBalance",
+      key: "operatorBalance",
+      label: "Balance you read off Square",
+      help: "Square never publishes a running balance, so the calculation needs a figure a person has checked to start from. Enter it again after each month end to keep it accurate.",
+    },
+  ],
   steps: [
     {
       providerKey: "squareBalanceAnchor",
@@ -260,7 +302,18 @@ const plaidBankBalance: BalanceMethod = {
   kind: "calculation",
   summary: "Uses the balance your bank itself reports on the last day of the month.",
   appliesTo: isBank,
-  connectionProvider: "plaid",
+  setup: [
+    {
+      kind: "connection",
+      key: "connectionId",
+      provider: "plaid",
+      // The one flow that cannot be a plain list: the operator signs in at
+      // their own bank, and only that sign-in produces anything to choose from.
+      connect: "authorize",
+      label: "Bank account",
+      help: "Sign in at your bank to let this app read the balance, then choose which of your accounts this general ledger account represents.",
+    },
+  ],
   steps: [
     {
       providerKey: "plaidBalance",

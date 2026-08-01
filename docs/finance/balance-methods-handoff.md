@@ -54,13 +54,33 @@ is not linked yet — return `null` too, never throw.
 ### b. A method
 Add to `methods/definitions.ts`. `kind: "calculation"`. Give it an `appliesTo`
 so it is only offered on sensible accounts (bank accounts are
-`statementSection === "bank"`), and set `connectionProvider` to your service.
+`statementSection === "bank"`), and declare what it needs in `setup`.
 
-`connectionProvider` is the ONLY thing you implement for connection handling.
-From it, generically: the Settings screen shows a picker of that provider's
-connections, the chosen id is stored on the source as `config.connectionId`, the
-API resolves it, and the health line renders. There is no per-integration
+**`setup` is the ONLY thing you implement for configuration handling.** It is a
+list of fields, and a connection is just one kind of field:
+
+| Kind | For | Stored in |
+|---|---|---|
+| `connection` | Linking an external account. Declares `provider` and `connect: "discover" \| "authorize"` | `config.connectionId` |
+| `operatorBalance` | A figure only a person can supply | a `manual_entries` balance row |
+| `select` / `number` / `text` / `date` | Any other prerequisite — a rate, a term, an in-service date | `config.<key>` |
+
+From that declaration, generically: Settings renders the field inside the
+account's own row, stores the answer, says in plain English what is still
+outstanding, refuses to call the account configured until every required field
+is answered, and — for a `connection` — resolves it and renders its health.
+There is no per-integration screen, no per-integration route and no
 `describeConnection` to write.
+
+Two things are **derived** from `setup`, not declared separately:
+`connectionProviderOf(method)` (what the capture planner and the picker read)
+and `requiresOperatorBalance(method)` (what makes `closeTasks.ts` raise a
+month-end task). Both used to be their own flags; one fact in two places is one
+fact that can disagree with itself.
+
+Setup copy is held to the same editorial standard as step descriptions and is
+enforced by the same conformance suite. It is read by someone who is stuck, so
+it matters more, not less.
 
 ### c. A connection row
 `integration_connections` holds what you are connected to plus any
@@ -103,17 +123,32 @@ Already built and shared — do not rebuild any of it:
 | Need | Use |
 |---|---|
 | List / create / update / delete a connection | `PUT`,`GET`,`DELETE /api/finance/balance-connections` |
-| Attach one to a GL account | The picker on Settings > Balance Sheet Accounts |
+| List candidates, sign in, finish, test | `/api/finance/balance-connections/{provider}/{candidates\|authorize\|complete\|check}` |
+| Attach one to a GL account | The setup panel on Settings > Balance Sheet Accounts |
 | Read it inside `compute()` | `resolveConnection(supabase, ctx.config)` |
 | Store a secret | `writeCredentials()` — server-side only, unreachable by any route |
 | Report a read outcome | `recordSyncResult()` |
+| Write an operator figure | `setOperatorBalance()` / `POST /api/finance/balance-sources/operator-balance` |
 
-What you DO build is your provider's **setup flow** — listing Ramp treasury
-accounts to choose from, running Plaid Link and exchanging the public token,
-capturing Square's opening anchor. That flow ends by calling
-`PUT /api/finance/balance-connections`, and writing any secret server-side with
-`writeCredentials`. The generic route rejects `credentials` with a 400 rather
-than dropping it silently, so a live bank token never reaches a request log.
+What you DO build is one implementation of `SetupHandler`
+(`lib/finance/balances/setup/types.ts`), registered in `setup/index.ts`. It
+declares only what actually differs between services:
+
+* `readiness()` — can the app talk to this service at all? Must never throw and
+  never call the network. This is what makes an unconfigured integration say so
+  instead of surfacing a raw `Missing required environment variable`.
+* `candidates()` — for a `discover` flow.
+* `authorize()` / `complete()` — for an `authorize` flow. The credential is
+  minted inside `complete` and stored with `writeCredentials`; it is in no
+  request and no response, so it cannot reach a request log. The generic
+  connections route rejects `credentials` with a 400 for the same reason.
+* `check()` — optional, and should run the REAL read the provider does. A
+  lighter check can pass while the real read fails, which is the one outcome a
+  validation exists to rule out.
+
+**No new screen, no new route, no new nav entry.** Three integrations each built
+all three and the results looked nothing alike; that is what this shape exists
+to prevent.
 
 ### d. Daily capture, if the source cannot be asked about the past
 Ramp *can* return dated history. Plaid **cannot** — its balance endpoint answers
@@ -166,15 +201,22 @@ only one exercising both stored credentials and daily capture; Ramp exercises
 neither.
 
 **Do not edit the Settings page.** A registered method appears there
-automatically. If you believe you need to change
-`app/settings/finance/balance-sheet-accounts/page.tsx`, that is a signal the
-scaffolding is missing something — raise it rather than patching around it, or
-three branches will conflict on one file.
+automatically, and so does everything it declares in `setup`. If you believe you
+need to change `app/settings/finance/balance-sheet-accounts/`, that is a signal
+the scaffolding is missing something — raise it rather than patching around it.
+
+All three integrations honoured this, and it still cost them: each built its own
+Settings screen INSTEAD, so configuring one account meant two screens visited in
+the reverse of the order anyone thinks in. Those three screens are now gone and
+setup happens in a panel on the account's own row. Not editing this page is
+still the rule; the difference is that there is no longer anywhere else to go.
 
 **Shared modules Square has already changed** (merged or in review — rebase onto
 them rather than re-inventing):
 - `methods/registry.ts` — added an optional `requiresCloseEntry` flag to
   `BalanceMethod`. Purely additive; a method that omits it behaves as before.
+  **Superseded:** that flag is gone, replaced by an `operatorBalance` entry in
+  `setup`. See §3b.
 - `closeTasks.ts` — `ensureTasksForPeriod` now selects every active source and
   filters with `requiresOperatorBalance`, instead of querying
   `provider_key = "manualBalance"` directly. Same result for `manualBalance`;
@@ -224,11 +266,10 @@ safe.
 > `lib/finance/balances/providers/rampBalance.ts`, migration
 > `20260914090000_ramp_balance_gl_1030.sql`. Three things it settled that Plaid
 > and Square inherit rather than re-decide:
-> * A setup flow is a **per-integration** Settings page plus a GET route that
->   lists candidates — `/settings/finance/ramp-connection` and
->   `GET /api/finance/balance-connections/ramp`. The page then calls the shared
->   `PUT /api/finance/balance-connections` itself; no second write path exists.
->   Add a sibling nav entry in `app/settings/nav-config.ts` (one adjacent line).
+> * ~~A setup flow is a **per-integration** Settings page plus a GET route that
+>   lists candidates.~~ **Superseded.** All three did this and the results
+>   diverged; setup is now a `SetupHandler` rendered by the shared panel, and
+>   the three per-integration screens and nav entries are gone. See §3b/§3c2.
 > * `connections.ts` was **not** reshaped. Nothing to rebase around.
 > * `BUILT_IN_METHODS` in `methods/definitions.ts` now has seven entries.
 >   Appending an eighth is an adjacent-line conflict, not a logical one.
@@ -280,7 +321,7 @@ What shipped, and two decisions worth knowing:
 | Generic daily capture | `dailyCapture.ts` + `app/api/cron/balance-capture/` |
 | Plaid reader (the only user of a stored token) | `plaidCapture.ts` |
 | API client | `lib/plaid.ts` |
-| Link setup flow | `app/settings/finance/bank-connections/` + `app/api/finance/balance-connections/plaid/` |
+| Link setup flow | `lib/finance/balances/setup/plaid.ts`, rendered by the shared setup panel |
 
 **No schema change.** `integration_connections` and `gl_account_daily_balances`
 already carry everything Plaid needs, so the reserved `20260916090000` stamp was

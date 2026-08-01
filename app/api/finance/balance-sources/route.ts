@@ -25,10 +25,15 @@ import { apiError } from "@/lib/utils/api";
 // cron route need it among Task 5's additions -- balance-close and
 // manual-entries never touch the provider registry.
 import "@/lib/finance/balances/methods";
-import { getMethod, listMethods, stepKey } from "@/lib/finance/balances/methods/registry";
+import { getMethod, listMethods, stepKey, connectionProviderOf } from "@/lib/finance/balances/methods/registry";
+import { resolveSetupState, type SetupConnectionRef } from "@/lib/finance/balances/methods/setup";
+import { allProviderReadiness, allProviderCapabilities } from "@/lib/finance/balances/setup";
+import { latestOperatorBalance } from "@/lib/finance/balances/operatorBalance";
 import { listConnections, describeConnection } from "@/lib/finance/balances/connections";
+import { computeOpenMonthBalances } from "@/lib/finance/balances/liveBalances";
 import type { CoaAccountRef } from "@/lib/finance/financials/types";
 import { ACCOUNT_TYPE_SECTION } from "@/lib/finance/accountSections";
+import { todayLocalDate } from "@/lib/utils/datetime";
 
 export const dynamic = "force-dynamic";
 
@@ -151,12 +156,33 @@ export async function GET() {
 
     const methods = listMethods();
 
+    // Everything the setup state depends on, fetched once for the whole page.
+    //
+    // The live compute is the expensive one -- it runs every active source,
+    // which for integration methods means calling Ramp and Square. That is the
+    // same cost the balance sheet statement already pays on every view, and it
+    // buys the thing that was missing: this screen and that one now show the
+    // same number for the open month instead of a live figure on one and last
+    // month's snapshot on the other. A failure inside it is reported per
+    // account, never thrown, so a broken integration cannot blank this page.
+    const providerReadiness = allProviderReadiness();
+    const [operatorBalances, live] = await Promise.all([
+      latestOperatorBalance(supabase, coaIds),
+      computeOpenMonthBalances(supabase, todayLocalDate()).catch((err) => {
+        console.error("[balance-sources] live open-month compute failed", err);
+        return null;
+      }),
+    ]);
+
     // Connections are looked up once and matched to a source by its
     // config.connectionId, so the Settings row can say "Ramp · Operating ·
     // synced 1 Aug" rather than just naming the method. Never carries
     // credentials -- listConnections cannot select that column.
     const connections = await listConnections(supabase);
     const connectionById = new Map(connections.map((c) => [c.id, c]));
+    const setupConnections = new Map<string, SetupConnectionRef>(
+      connections.map((c) => [c.id, { id: c.id, provider: c.provider, label: c.label, status: c.status }]),
+    );
 
     const body = {
       accounts: accounts.map((a) => {
@@ -176,6 +202,7 @@ export async function GET() {
           sources: (sourcesByCoa.get(a.id) ?? []).map((s) => {
             const connectionId = (s.config ?? {}).connectionId;
             const connection = typeof connectionId === "string" ? connectionById.get(connectionId) : undefined;
+            const method = getMethod(s.provider_key);
             return {
               methodKey: s.provider_key,
               // Retained under its old name so an unmigrated row still renders
@@ -184,14 +211,23 @@ export async function GET() {
               config: s.config,
               active: s.active,
               updatedAt: s.updated_at,
+              // What this account still needs before the method can compute.
+              // Null for a legacy bare provider key, which has no declaration
+              // to resolve against and predates setup entirely.
+              setup: method
+                ? resolveSetupState(method, {
+                    config: s.config ?? {},
+                    connectionsById: setupConnections,
+                    operatorBalance: operatorBalances.get(a.id) ?? null,
+                    providerReadiness,
+                  })
+                : null,
               // Present only for methods that declare a connection, so the UI
               // can tell "no integration" apart from "integration, not linked".
               // Rendered only for methods that read an external service, so
               // the UI can tell "no integration" apart from "integration, not
               // linked yet".
-              connection: getMethod(s.provider_key)?.connectionProvider
-                ? describeConnection(connection ?? null)
-                : null,
+              connection: method && connectionProviderOf(method) ? describeConnection(connection ?? null) : null,
             };
           }),
           // Methods offerable for this account -- filtered server-side since
@@ -201,6 +237,22 @@ export async function GET() {
           currentBalance: latest
             ? { periodEnd: latest.period_end, cents: latest.balance_cents, contributions: latest.contributions }
             : null,
+          // Where the account stands today, for the month still in progress.
+          // Shown alongside the last closed month rather than instead of it:
+          // they answer different questions, and collapsing them into one
+          // "Current Balance" is what made this screen disagree with the
+          // statement.
+          liveBalance: live?.balances.get(a.id)
+            ? {
+                cents: live.balances.get(a.id)!.balanceCents,
+                contributions: live.balances.get(a.id)!.contributions,
+              }
+            : null,
+          // Set when this account's method threw while computing just now.
+          // Previously visible nowhere at all -- the account simply went blank.
+          liveError: live?.failedAccounts.has(a.id)
+            ? (live.errors.find((e) => e.includes(a.id)) ?? "This account's calculation failed.")
+            : null,
         };
       }),
       // Full step detail travels with the catalog so the "How is this
@@ -209,12 +261,22 @@ export async function GET() {
       // Connections are listed here rather than behind a second request: the
       // Settings picker needs them on first paint, and they carry no secrets.
       connections,
+      // App-level configuration state per integration, plus what each one can
+      // be asked to do. Lets the setup panel say "Plaid has not been set up for
+      // this app yet" instead of offering a picker with nothing in it and
+      // telling the operator to set one up first -- which is the dead end GL
+      // 1020 sat in.
+      providers: allProviderCapabilities(),
       methods: methods.map((m) => ({
         key: m.key,
         label: m.label,
         kind: m.kind,
         summary: m.summary,
-        connectionProvider: m.connectionProvider ?? null,
+        connectionProvider: connectionProviderOf(m) ?? null,
+        // The setup declaration travels with the catalog for the same reason
+        // the step detail does: the panel renders from the declaration the
+        // engine reads, so there is no second copy of this copy to drift.
+        setup: m.setup ?? [],
         steps: m.steps.map((s) => ({
           key: stepKey(s),
           label: s.label,

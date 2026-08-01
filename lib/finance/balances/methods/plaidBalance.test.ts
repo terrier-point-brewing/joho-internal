@@ -10,7 +10,7 @@
  */
 import { describe, it, expect } from "vitest";
 import "./index";
-import { getMethod, stepKey } from "./registry";
+import { getMethod, stepKey, connectionProviderOf, connectionFieldOf } from "./registry";
 import type { CoaAccountRef } from "../../financials/types";
 
 const method = () => getMethod("plaidBankBalance")!;
@@ -18,10 +18,18 @@ const coa = (statementSection: string) => ({ statementSection }) as CoaAccountRe
 
 describe("Plaid bank balance method", () => {
   it("is registered and declares Plaid as its connection provider", () => {
-    // This one field is what makes the Settings picker, connection resolution
-    // and the health line all work, and it is also what the capture cron plans
-    // off. Dropping it strands the account AND silently stops the daily read.
-    expect(method().connectionProvider).toBe("plaid");
+    // This one field is what makes the setup panel, connection resolution and
+    // the health line all work, and it is also what the capture cron plans off.
+    // Dropping it strands the account AND silently stops the daily read.
+    expect(connectionProviderOf(method())).toBe("plaid");
+  });
+
+  it("connects by signing in at the bank, not by listing accounts", () => {
+    // The one flow of the three that cannot be a plain list: no candidate
+    // exists until the operator has authenticated at their own bank. Declaring
+    // "discover" here would make the panel ask the server for accounts it has
+    // no credential to fetch.
+    expect(connectionFieldOf(method())?.connect).toBe("authorize");
   });
 
   it("stores its contribution under the provider key", () => {
