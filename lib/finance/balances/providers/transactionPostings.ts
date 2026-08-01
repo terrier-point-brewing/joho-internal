@@ -183,12 +183,25 @@ async function sumRefunds(supabase: SupabaseClient, coaId: string, periodEnd: st
   return { sum, count: rows.length };
 }
 
+/**
+ * ramp_bank_ledger carries more than one source. `include_in_gl` is what says
+ * whether a row is an accounting fact or merely an imported bank line.
+ *
+ * Ramp's rows default to true and are unaffected. Plaid's Chase rows are
+ * imported false, because they exist only so a Square transfer can be recognised
+ * from the receiving side (lib/finance/balances/bankTransactions.ts) and letting
+ * them into this sum would change the reported balance of every account they
+ * touch, across up to two years of imported history. Whether they ever should is
+ * a deliberate decision with a switch waiting for it; this predicate is the
+ * switch being off.
+ */
 async function sumBank(supabase: SupabaseClient, coaId: string, periodEnd: string, section: string): Promise<{ sum: number; count: number }> {
   const rows = await fetchAllRows<{ amount_cents: number | null }>(() =>
     supabase
       .from("ramp_bank_ledger")
       .select("amount_cents")
       .eq("chart_of_accounts_id", coaId)
+      .eq("include_in_gl", true)
       .lte("transaction_date", periodEnd)
       .order("id", { ascending: true }),
   );

@@ -44,7 +44,14 @@ import Card from "@/app/components/ui/Card";
 import Badge from "@/app/components/ui/Badge";
 import { Modal } from "@/app/components/ui/Modal";
 import MethodSetupPanel from "./MethodSetupPanel";
-import type { AccountRow, BalanceSourcesResponse, MethodKind, MethodMeta, SourceEntry } from "./types";
+import type {
+  AccountRow,
+  BalanceSourcesResponse,
+  MethodKind,
+  MethodMeta,
+  ReconciliationRow,
+  SourceEntry,
+} from "./types";
 
 const MANUAL_ENTRIES_HREF = "/finance/transactions/manual-entries";
 
@@ -85,6 +92,35 @@ async function deleteSource(coaId: string, providerKey: string) {
 /** Account name with GL number prefix, matching every other finance table's convention. */
 function accountLabel(a: AccountRow): string {
   return a.accountNumber ? `${a.accountNumber} · ${a.accountName}` : a.accountName;
+}
+
+/**
+ * One month's difference, in a sentence.
+ *
+ * Null and zero are worlds apart here and are never allowed to look alike. Null
+ * means the bank account the money moves to had no records for the month, so
+ * nothing was checked; zero means it was checked and nothing matched. Rendering
+ * the first as "$0.00 accounted for" would be a confident answer built on no
+ * evidence, which is the one failure this whole log exists to prevent.
+ */
+function explainReconciliation(row: ReconciliationRow): string {
+  if (row.unexplainedCents === null || row.sweptExactCents === null || row.sweptNameOnlyCents === null) {
+    return "There are no bank records for this month yet, so none of this difference has been accounted for.";
+  }
+
+  const matched = row.sweptExactCents + row.sweptNameOnlyCents;
+  const head =
+    row.unexplainedCents === 0
+      ? `Your bank records account for all of it — ${formatCurrencyCents(matched)} transferred out over ${row.sweptMatchCount ?? 0} payments.`
+      : `Your bank records account for ${formatCurrencyCents(matched)} of it, leaving ${formatCurrencyCents(Math.abs(row.unexplainedCents))} unaccounted for.`;
+
+  // Surfaced rather than folded in. A payment recognised only by the sender's
+  // name is weaker evidence than one carrying their bank identifier, and a
+  // reader deciding whether to trust the figure needs to know how much of it
+  // rests on the weaker rule.
+  return row.sweptNameOnlyCents > 0
+    ? `${head} ${formatCurrencyCents(row.sweptNameOnlyCents)} of that was recognised by the sender's name alone.`
+    : head;
 }
 
 /**
@@ -146,6 +182,33 @@ function MethodExplainer({
               {account?.liveBalance ? "Balance right now" : `Balance at ${account?.currentBalance?.periodEnd}`}
             </span>
             <span className="font-mono text-sm tabular-nums text-strong">{formatCurrencyCents(figure!.cents)}</span>
+          </div>
+        )}
+
+        {/* Shown whenever the account HAS month-end checks, not for a named
+            method. An account whose balance is reported by the service it lives
+            at has none and never will; one that is worked out from an entered
+            figure accumulates one per month end. */}
+        {(account?.reconciliations.length ?? 0) > 0 && (
+          <div className="border-t border-line pt-3 flex flex-col gap-2">
+            <div>
+              <p className="text-xs text-body">How each month end turned out</p>
+              <p className="text-2xs text-faint mt-0.5 leading-relaxed">
+                Each month end the balance someone reads off the service replaces the worked-out one. This is the
+                difference between the two, and how much of it the records from your bank account for.
+              </p>
+            </div>
+            {account!.reconciliations.map((row) => (
+              <div key={row.periodEnd} className="flex flex-col gap-0.5">
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="text-2xs text-muted">{row.periodEnd}</span>
+                  <span className="font-mono text-2xs tabular-nums text-body">
+                    {formatCurrencyCents(row.driftCents)}
+                  </span>
+                </div>
+                <p className="text-2xs text-faint leading-relaxed">{explainReconciliation(row)}</p>
+              </div>
+            ))}
           </div>
         )}
 

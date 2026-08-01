@@ -92,6 +92,23 @@ export interface BalanceFigure {
   contributions: Record<string, number>;
 }
 
+/**
+ * One month end on an account whose balance is DERIVED rather than reported.
+ *
+ * The swept figures are null when the bank account the money is transferred to
+ * had no imported transactions for the period. Null and zero mean different
+ * things here and must render differently: zero is "the bank was checked and no
+ * transfers were found", null is "there was nothing to check".
+ */
+export interface ReconciliationRow {
+  periodEnd: string;
+  driftCents: number;
+  sweptExactCents: number | null;
+  sweptNameOnlyCents: number | null;
+  sweptMatchCount: number | null;
+  unexplainedCents: number | null;
+}
+
 export interface AccountRow {
   id: string;
   accountName: string;
@@ -105,6 +122,8 @@ export interface AccountRow {
   liveBalance: BalanceFigure | null;
   /** Set when this account's calculation threw while computing just now. */
   liveError: string | null;
+  /** Month-end checks, newest first. Empty for a reported (non-derived) balance. */
+  reconciliations: ReconciliationRow[];
 }
 
 export interface BalanceSourcesResponse {

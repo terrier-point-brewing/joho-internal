@@ -259,3 +259,128 @@ export function balanceToCents(account: PlaidAccount): number | null {
 export function isDepository(account: PlaidAccount): boolean {
   return account.type === "depository";
 }
+
+// ── Transactions ─────────────────────────────────────────────────────────────
+
+/**
+ * One transaction as Plaid reports it.
+ *
+ * Only the fields this app actually reads are typed. The whole object is kept
+ * verbatim on the stored row, because the Square ACH descriptor turns up in a
+ * different field depending on how much addenda the institution passes through
+ * and a field we did not think to type is exactly the one that will carry it.
+ */
+export interface PlaidTransaction {
+  transaction_id: string;
+  account_id: string;
+  /** Posted date, or the authorised date while still pending. YYYY-MM-DD. */
+  date: string;
+  authorized_date?: string | null;
+  /** Dollars, and see amountToCents below before assuming which way. */
+  amount: number;
+  iso_currency_code: string | null;
+  unofficial_currency_code?: string | null;
+  /** The bank's own description. Usually where the ACH addenda lands. */
+  name: string;
+  /** Plaid's cleaned-up merchant, when it recognises one. */
+  merchant_name?: string | null;
+  /** The raw descriptor, only present when asked for at request time. */
+  original_description?: string | null;
+  pending: boolean;
+  pending_transaction_id?: string | null;
+  /** Plaid's enrichment, when the plan and institution supply it. */
+  counterparties?: { name?: string | null; type?: string | null }[] | null;
+}
+
+export interface TransactionsSyncPage {
+  added: PlaidTransaction[];
+  modified: PlaidTransaction[];
+  /** Removals carry only the id — the transaction itself is gone. */
+  removed: { transaction_id: string }[];
+  nextCursor: string;
+  hasMore: boolean;
+}
+
+/**
+ * True when Plaid refused a page because the item's data changed mid-pagination.
+ *
+ * The documented recovery is to throw away everything fetched in this pass and
+ * start again from the last cursor that was actually persisted — NOT from the
+ * cursor the failed page returned, which describes a state we never committed.
+ * Applying a half-walked set of pages would leave the stored cursor ahead of the
+ * stored transactions and the gap would never be revisited.
+ */
+export function isSyncMutationError(err: unknown): boolean {
+  return err instanceof PlaidError && err.errorCode === "TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION";
+}
+
+/**
+ * One page of the transactions feed.
+ *
+ * Cursor-based rather than date-ranged, which is what makes this safe to run
+ * daily forever: Plaid replays every change since the cursor, so a transaction
+ * that posts late, gets recategorised, or is reversed arrives as a `modified`
+ * or `removed` entry rather than being missed because the date window had
+ * already moved past it.
+ *
+ * `cursor` is null on the very first call for an item, which asks for the whole
+ * history the item was created with — up to two years here, since the link token
+ * requests `days_requested: 730`. That first walk is many pages; every one after
+ * it is normally one page of nothing.
+ *
+ * `include_original_description` is not optional for this application's purpose.
+ * The Square sweep is identified from its ACH descriptor, and the descriptor
+ * survives in `original_description` at institutions that clean up `name`.
+ */
+export async function syncTransactions(
+  accessToken: string,
+  cursor: string | null,
+  count = 500,
+): Promise<TransactionsSyncPage> {
+  const data = await plaidPost<{
+    added?: PlaidTransaction[];
+    modified?: PlaidTransaction[];
+    removed?: { transaction_id: string }[];
+    next_cursor: string;
+    has_more: boolean;
+  }>("/transactions/sync", {
+    access_token: accessToken,
+    // Plaid rejects an explicit null, so the first call simply omits it.
+    ...(cursor ? { cursor } : {}),
+    count,
+    options: { include_original_description: true },
+  });
+
+  return {
+    added: data.added ?? [],
+    modified: data.modified ?? [],
+    removed: data.removed ?? [],
+    nextCursor: data.next_cursor,
+    hasMore: data.has_more,
+  };
+}
+
+/**
+ * A transaction's amount in cents, in THIS application's direction.
+ *
+ * ── Read this before changing it ─────────────────────────────────────────────
+ * Plaid's sign is the opposite of the intuitive one. For a depository account a
+ * POSITIVE `amount` means money LEFT the account and a negative amount means
+ * money arrived: Plaid documents it as "positive values when money moves out of
+ * the account". Everything downstream here wants the cash direction a bookkeeper
+ * would write — a deposit is positive — so the sign is flipped exactly once,
+ * here, and never again.
+ *
+ * This matters beyond tidiness. classifySquareSweep ignores any line whose
+ * amount is not positive, on the grounds that a Square-originated debit is a
+ * chargeback rather than a payout. Leave Plaid's sign alone and every Square
+ * deposit is silently discarded as a chargeback, and the reconciliation reports
+ * a confident zero swept. There is no error state for getting this backwards,
+ * which is why it is tested explicitly rather than merely commented.
+ */
+export function transactionAmountToCents(txn: Pick<PlaidTransaction, "amount">): number {
+  const cents = Math.round(txn.amount * 100);
+  // `-0` is not `0` under Object.is, which is what a test comparison uses, and
+  // it would serialise into the database as an oddity nobody expects.
+  return cents === 0 ? 0 : -cents;
+}
