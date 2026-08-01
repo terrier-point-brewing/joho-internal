@@ -58,10 +58,37 @@ Settings row shows connection health.
 
 ### c. A connection row
 `integration_connections` holds what you are connected to plus any
-per-connection secret. Ramp needs no secret (env credentials); Plaid's
-`access_token` must live here. **Never** select `credentials` into a response —
+per-connection secret. **Never** select `credentials` into a response —
 `listConnections`/`getConnection` cannot, `getConnectionWithSecrets` is the
 deliberate exception.
+
+Every integration gets a row even when it has no secret to store, because the
+row is also what records *which* external account maps to the GL account and
+what the Settings status line reads.
+
+**Where a credential belongs — per-connection in the store, app-level in env.**
+
+| Secret | Home | Why |
+|---|---|---|
+| Plaid `access_token` | `credentials` | Minted per bank link at runtime. Cannot be an env var. |
+| Square access token | env | One token for the business. |
+| Ramp client id/secret | env | One OAuth client for the business. |
+
+Do **not** refactor Ramp's existing env credentials into this table. Three
+reasons, in order of weight:
+
+1. `lib/ramp.ts` has ten consumers and one of them is
+   `app/api/finance/pl/route.ts`. Changing how it authenticates means touching
+   the credential path under the P&L, which is settled and verified.
+2. An app-level secret in an env var is not in the database, not in backups and
+   not reachable by SQL. Moving it into a table is a downgrade, not a tidy-up.
+3. Sync health for `ramp-expenses-sync` and `finance-sync` already lands in
+   `cron_runs` via `runCronJob` and shows under Settings > Cron Jobs.
+   Duplicating it here would give two places to check and two to disagree.
+
+The Ramp balance method still gets a connection row — with an empty
+`credentials` object — so account selection and the Settings status line work
+the same way they do for the other two.
 
 ### d. Daily capture, if the source cannot be asked about the past
 Ramp *can* return dated history. Plaid **cannot** — its balance endpoint answers
