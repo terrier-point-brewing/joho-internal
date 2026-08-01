@@ -21,7 +21,15 @@ export async function PATCH(req: NextRequest) {
   const patch: Record<string, unknown> = {
     updated_at: new Date().toISOString(),
   };
-  if ("chart_of_accounts_id" in body) patch.chart_of_accounts_id = body.chart_of_accounts_id;
+  if ("chart_of_accounts_id" in body) {
+    patch.chart_of_accounts_id = body.chart_of_accounts_id;
+    // This route is the ONLY writer that marks a mapping as a person's choice —
+    // the Square sync and the auto-map pass both write chart_of_accounts_id
+    // from the catalog rule and leave the flag alone. Clearing the account
+    // clears the flag with it: an emptied line falls back to the catalog
+    // prefill at read time, which is a rule, not an override.
+    patch.gl_manually_set = body.chart_of_accounts_id != null;
+  }
   if ("notes" in body) patch.notes = body.notes ?? null;
 
   const { error } = await supabase

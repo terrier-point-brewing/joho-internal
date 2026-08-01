@@ -149,13 +149,14 @@ export async function fetchPos(supabase: SupabaseClient, range: DateRange): Prom
     quantity: number | null;
     variation_name: string | null;
     chart_of_accounts_id: string | null;
+    gl_manually_set: boolean | null;
     square_variation_id: string | null;
     square_orders: { transaction_date: string; invoice_id: string | null };
   }>(() => {
     let q = supabase
       .from("pos_line_items")
       .select(`
-        id, net_sales_cents, quantity, variation_name, chart_of_accounts_id, square_variation_id,
+        id, net_sales_cents, quantity, variation_name, chart_of_accounts_id, gl_manually_set, square_variation_id,
         square_orders!inner ( transaction_date, invoice_id )
       `)
       .lt("square_orders.transaction_date", range.end)
@@ -217,6 +218,7 @@ export async function fetchPos(supabase: SupabaseClient, range: DateRange): Prom
       netSalesCents: r.net_sales_cents ?? 0,
       transactionDate: r.square_orders.transaction_date,
       chartOfAccountsId: r.chart_of_accounts_id,
+      glManuallySet: r.gl_manually_set ?? false,
       prefillChartOfAccountsId: catalog?.chartOfAccountsId ?? null,
       invoiceId,
       isEventPour: itemName.toLowerCase().includes("event pour"),

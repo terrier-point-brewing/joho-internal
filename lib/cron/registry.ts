@@ -48,6 +48,15 @@ export const CRON_JOBS: CronJobMeta[] = [
     maxAgeHours:   25,
   },
   {
+    job:           "finance-gap-scan",
+    path:          "/api/cron/finance-gap-scan",
+    schedule:      "0 8 * * 1",
+    scheduleLabel: "Weekly · Mon 08:00 UTC",
+    description:   "Compares per-day Square order counts against persisted orders over a long lookback and re-syncs only the days that disagree — catches gaps the nightly window is too short to reach.",
+    // Weekly job: overdue only once a run has been missed outright (8 days).
+    maxAgeHours:   193,
+  },
+  {
     job:           "tax-tasks",
     path:          "/api/cron/tax-tasks",
     schedule:      "0 8 * * *",

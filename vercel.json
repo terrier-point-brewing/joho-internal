@@ -17,6 +17,10 @@
       "schedule": "30 7 * * *"
     },
     {
+      "path": "/api/cron/finance-gap-scan",
+      "schedule": "0 8 * * 1"
+    },
+    {
       "path": "/api/cron/tax-tasks",
       "schedule": "0 8 * * *"
     },

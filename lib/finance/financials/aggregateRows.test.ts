@@ -37,6 +37,7 @@ describe("aggregateRows", () => {
             transactionDate: "2026-01-15",
             chartOfAccountsId: null,
             prefillChartOfAccountsId: "coa-beer",
+            glManuallySet: false,
             invoiceId: null,
             isEventPour: false,
             exportChannel: null,
@@ -127,6 +128,7 @@ describe("aggregateRows", () => {
             transactionDate: "2026-01-20",
             chartOfAccountsId: null,
             prefillChartOfAccountsId: null,
+            glManuallySet: false,
             invoiceId: null,
             isEventPour: false,
             exportChannel: null,
@@ -155,6 +157,7 @@ describe("aggregateRows", () => {
             transactionDate: "2026-01-03",
             chartOfAccountsId: "coa-beer",
             prefillChartOfAccountsId: null,
+            glManuallySet: false,
             invoiceId: null,
             isEventPour: false,
             exportChannel: null,
@@ -168,6 +171,7 @@ describe("aggregateRows", () => {
             transactionDate: "2026-01-25",
             chartOfAccountsId: "coa-beer",
             prefillChartOfAccountsId: null,
+            glManuallySet: false,
             invoiceId: null,
             isEventPour: false,
             exportChannel: null,
@@ -197,6 +201,7 @@ describe("aggregateRows", () => {
             transactionDate: "2026-01-05",
             chartOfAccountsId: "coa-beer",
             prefillChartOfAccountsId: null,
+            glManuallySet: false,
             invoiceId: null,
             isEventPour: false,
             exportChannel: null,
@@ -224,6 +229,7 @@ describe("aggregateRows", () => {
             transactionDate: "2026-01-05",
             chartOfAccountsId: "coa-beer",
             prefillChartOfAccountsId: null,
+            glManuallySet: false,
             invoiceId: null,
             isEventPour: false,
             exportChannel: null,
@@ -237,6 +243,7 @@ describe("aggregateRows", () => {
             transactionDate: "2026-01-06",
             chartOfAccountsId: "coa-beer",
             prefillChartOfAccountsId: null,
+            glManuallySet: false,
             invoiceId: null,
             isEventPour: false,
             exportChannel: null,
@@ -267,6 +274,7 @@ describe("aggregateRows", () => {
             transactionDate: "2026-01-10",
             chartOfAccountsId: null,
             prefillChartOfAccountsId: "coa-beer",
+            glManuallySet: false,
             invoiceId: null,
             isEventPour: false,
             exportChannel: null,
@@ -281,6 +289,7 @@ describe("aggregateRows", () => {
             transactionDate: "2026-01-12",
             chartOfAccountsId: null,
             prefillChartOfAccountsId: "coa-beer",
+            glManuallySet: false,
             invoiceId: null,
             isEventPour: false,
             exportChannel: null,
@@ -308,6 +317,7 @@ describe("aggregateRows", () => {
             transactionDate: "2026-01-10",
             chartOfAccountsId: null,
             prefillChartOfAccountsId: "coa-beer",
+            glManuallySet: false,
             invoiceId: null,
             isEventPour: false,
             exportChannel: null,
@@ -322,6 +332,7 @@ describe("aggregateRows", () => {
             transactionDate: "2026-01-12",
             chartOfAccountsId: null,
             prefillChartOfAccountsId: "coa-beer",
+            glManuallySet: false,
             invoiceId: null,
             isEventPour: false,
             exportChannel: null,
@@ -346,6 +357,7 @@ describe("aggregateRows", () => {
             transactionDate: "2025-12-31",
             chartOfAccountsId: "coa-beer",
             prefillChartOfAccountsId: null,
+            glManuallySet: false,
             invoiceId: null,
             isEventPour: false,
             exportChannel: null,
@@ -635,5 +647,67 @@ describe("aggregateRows", () => {
     const row = rows.find((r) => r.coaId === "COA_TAX");
     expect(row?.amountCentsByMonth["2026-07"]).toBe(-288732);
     expect(row?.statementSection).toBe("other_current_liabilities");
+  });
+
+  // POS provenance keys off gl_manually_set, not off which column holds the
+  // account. The Square sync writes the catalog rule straight into
+  // chart_of_accounts_id, so classifying on that column's presence (as this did
+  // before the gl_manually_set migration) reported 99% of lines as "manual".
+  describe("POS mappingSource", () => {
+    function posRow(overrides: Partial<Parameters<typeof aggregateRows>[0]["pos"][number]>) {
+      return {
+        id: "pos-1",
+        netSalesCents: 10000,
+        transactionDate: "2026-06-15",
+        chartOfAccountsId: null,
+        glManuallySet: false,
+        prefillChartOfAccountsId: null,
+        invoiceId: null,
+        isEventPour: false,
+        exportChannel: null,
+        categoryId: null,
+        variationName: null,
+        quantity: 1,
+        ...overrides,
+      };
+    }
+    const coa = [{ id: "coa-beer", parentId: null, accountName: "Beer Sales", accountNumber: null, accountType: "Income", statementSection: null }];
+    const base = { invoiceLines: [], expenses: [], refunds: [], bank: [], tipAccruals: [], taxAccruals: [], coa, months: ["2026-06"] };
+
+    it("reports a sync-written catalog mapping as a rule, not a manual override", () => {
+      const rows = aggregateRows({ ...base, pos: [posRow({ chartOfAccountsId: "coa-beer" })] });
+      expect(rows[0].mappingSource).toBe("rule");
+    });
+
+    it("reports a hand-set mapping as manual", () => {
+      const rows = aggregateRows({ ...base, pos: [posRow({ chartOfAccountsId: "coa-beer", glManuallySet: true })] });
+      expect(rows[0].mappingSource).toBe("manual");
+    });
+
+    it("still resolves through the prefill, and calls that a rule", () => {
+      const rows = aggregateRows({ ...base, pos: [posRow({ prefillChartOfAccountsId: "coa-beer" })] });
+      expect(rows[0].coaId).toBe("coa-beer");
+      expect(rows[0].mappingSource).toBe("rule");
+    });
+
+    it("reports an account-less line as unmapped", () => {
+      const rows = aggregateRows({ ...base, pos: [posRow({})] });
+      expect(rows[0].mappingSource).toBe("unmapped");
+    });
+
+    // mappingSource is part of the grouping key, so a mixed batch must not
+    // collapse a human's override into the same row as the rule-derived lines.
+    it("keeps manual and rule lines on the same account in separate rows", () => {
+      const rows = aggregateRows({
+        ...base,
+        pos: [
+          posRow({ id: "pos-rule", chartOfAccountsId: "coa-beer" }),
+          posRow({ id: "pos-manual", chartOfAccountsId: "coa-beer", glManuallySet: true }),
+        ],
+      });
+      const beer = rows.filter((r) => r.coaId === "coa-beer");
+      expect(beer).toHaveLength(2);
+      expect(beer.map((r) => r.mappingSource).sort()).toEqual(["manual", "rule"]);
+    });
   });
 });

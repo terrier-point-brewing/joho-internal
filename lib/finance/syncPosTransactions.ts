@@ -130,6 +130,12 @@ export function buildOrderPayload(order: Order, invoiceId: string | null, nowIso
 export interface PriorLineItemState {
   chart_of_accounts_id: string | null;
   notes: string | null;
+  /**
+   * Whether that mapping was a person's choice rather than the catalog rule.
+   * Must ride along with the id: preserving the mapping but dropping this flag
+   * would silently reclassify a hand-set account as rule-derived.
+   */
+  gl_manually_set: boolean;
 }
 
 /**
@@ -169,6 +175,10 @@ export function buildPosLineItems(
       tax_cents: li.total_tax_money?.amount ?? 0,
       // Prior mapping wins over the catalog default — see `priorByUid` above.
       chart_of_accounts_id: prior?.chart_of_accounts_id ?? (varId ? getPosCoA(varId) : null),
+      // Only ever true by inheritance: this builder writes the catalog rule, so
+      // a row it maps is rule-derived by definition. The flag turns true solely
+      // through the Orders grid PATCH.
+      gl_manually_set: prior?.gl_manually_set ?? false,
       notes: prior?.notes ?? null,
       raw_data: li as object,
     };
@@ -329,7 +339,7 @@ export async function syncSquareOrders(
     const batchIds = rebuildPosDbIds.slice(i, i + BATCH_SIZE);
     const { data, error } = await supabase
       .from("pos_line_items")
-      .select("order_id, square_line_item_uid, chart_of_accounts_id, notes")
+      .select("order_id, square_line_item_uid, chart_of_accounts_id, gl_manually_set, notes")
       .in("order_id", batchIds);
 
     if (error) {
@@ -340,7 +350,7 @@ export async function syncSquareOrders(
 
     for (const row of data ?? []) {
       if (!row.square_line_item_uid) continue;
-      if (row.chart_of_accounts_id == null && row.notes == null) continue;
+      if (row.chart_of_accounts_id == null && row.notes == null && !row.gl_manually_set) continue;
       let uidMap = priorByOrderDbId.get(row.order_id);
       if (!uidMap) {
         uidMap = new Map();
@@ -348,6 +358,7 @@ export async function syncSquareOrders(
       }
       uidMap.set(row.square_line_item_uid, {
         chart_of_accounts_id: row.chart_of_accounts_id ?? null,
+        gl_manually_set: row.gl_manually_set ?? false,
         notes: row.notes ?? null,
       });
     }

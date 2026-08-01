@@ -109,7 +109,7 @@ describe("buildFinancials — pl / cash_flow", () => {
       pos: [
         {
           id: "pos-1", netSalesCents: 10000, transactionDate: "2026-06-15",
-          chartOfAccountsId: "coa-rev", prefillChartOfAccountsId: null, invoiceId: null,
+          chartOfAccountsId: "coa-rev", glManuallySet: false, prefillChartOfAccountsId: null, invoiceId: null,
           isEventPour: false, exportChannel: null, categoryId: null, variationName: null, quantity: 1,
         },
       ],

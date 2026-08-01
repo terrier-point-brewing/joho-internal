@@ -45,6 +45,8 @@ interface LineItem {
   net_sales_cents: number;
   tax_cents: number;
   chart_of_accounts_id: string | null;
+  /** True only when a person picked this account; the sync/auto-map leave it false. */
+  gl_manually_set: boolean;
   notes: string | null;
   chart_of_accounts: CoARef | null;
   effective_chart_of_accounts_id: string | null;
@@ -150,7 +152,10 @@ function LineItemRow({
   const [saving, setSaving] = useState(false);
 
   const effectiveCoa = accounts.find((a) => a.id === effectiveCoaId) ?? null;
-  const isManualOverride = !!item.chart_of_accounts_id;
+  // Not `!!item.chart_of_accounts_id` — the sync writes the catalog mapping into
+  // that column, so keying off it badged ~99% of lines as overrides and buried
+  // the few a human actually changed.
+  const isManualOverride = item.gl_manually_set;
   const isPrefilled = item.prefilled_from_mapping && !isManualOverride;
 
   async function handleChange(id: string | null) {
@@ -417,13 +422,17 @@ export default function SquareTransactionsPage() {
         pos_line_items: t.pos_line_items.map((li) => {
           if (li.id !== id) return li;
           const newCoa = accounts.find((a) => a.id === patch.chart_of_accounts_id) ?? null;
+          const isManual = patch.chart_of_accounts_id != null;
           return {
             ...li,
             chart_of_accounts_id:           patch.chart_of_accounts_id,
             chart_of_accounts:              newCoa,
             effective_chart_of_accounts_id: patch.chart_of_accounts_id ?? li.effective_chart_of_accounts_id,
             effective_chart_of_accounts:    newCoa ?? li.effective_chart_of_accounts,
-            prefilled_from_mapping:         false,
+            // Mirror the PATCH route: setting an account marks it a human
+            // choice, clearing it hands the line back to the catalog rule.
+            gl_manually_set:                isManual,
+            prefilled_from_mapping:         !isManual && !!li.effective_chart_of_accounts_id,
           };
         }),
       }))

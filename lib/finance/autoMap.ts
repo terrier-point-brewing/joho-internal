@@ -94,6 +94,11 @@ export function resolveInvoiceBackfill(
  * IO wrapper for `POST /api/finance/transactions/auto-map`. Reproduces the
  * route's query logic exactly, adding an optional `variationIds` narrowing
  * used by the rule-edit trigger (Tasks 6–7).
+ *
+ * Fills `chart_of_accounts_id` from the catalog mapping — a RULE, not a human
+ * decision. It must never set `pos_line_items.gl_manually_set`: that flag is
+ * what lets the financials tell a person's override apart from a rule, and the
+ * Orders grid PATCH is its only writer.
  */
 export async function autoMapPosLineItems(
   supabase: AdminClient,
