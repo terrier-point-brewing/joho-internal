@@ -64,4 +64,12 @@ export const CRON_JOBS: CronJobMeta[] = [
     description:   "Keeps tax_tasks in sync with active tax schedules and fires lead-time alert emails for tasks approaching their due date.",
     maxAgeHours:   25,
   },
+  {
+    job:           "balance-close",
+    path:          "/api/cron/balance-close",
+    schedule:      "0 9 * * *",
+    scheduleLabel: "Daily · 09:00 UTC",
+    description:   "Closes the most recently ended month: opens close tasks for manual-balance accounts, re-snapshots GL account balances, emails a reminder for balances still missing near their due date, and freezes the period once it's done or past due.",
+    maxAgeHours:   25,
+  },
 ];
