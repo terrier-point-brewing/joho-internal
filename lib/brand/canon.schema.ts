@@ -279,10 +279,32 @@ export const canonSchema = z.object({
 
   // ── Naming (Specification) ───────────────────────────────────────────────
   naming: z.object({
-    pattern: z.string(),
-    narrative: z.string(),
+    // There is no `pattern` string. It said "Story Title — Beer Style", which
+    // is the shape of an example's own two fields — migration 20260912100000
+    // split `name` into `storyTitle` and `beerStyle` and dropped the pattern,
+    // so the rule is now carried by the slots a writer types into rather than
+    // by a sentence above them repeating what those slots already are.
+    //
+    // The narrative is a TEMPLATE, not a paragraph: the same four slots a
+    // passing example fills, holding the instruction for each instead of the
+    // content. It was one long string until migration 20260912090000, which
+    // read as a wall of prose above four example cards that already carried
+    // those exact labels — the guide was explaining a card's fields somewhere
+    // other than on a card. Same keys as `passingExamples` so the Voice tab
+    // renders both through one component.
+    narrative: z.object({
+      /** One line above the template card, framing what the slots are for. */
+      intro: z.string(),
+      name: z.string(),
+      story: z.string(),
+      menuDescription: z.string(),
+      why: z.string(),
+      /** The read-it-aloud test, set apart at the foot of the card. */
+      footer: z.string(),
+    }),
     criteria: z.array(z.string()).length(5),
-    // Four required fields because the guide renders four lines per example.
+    // Five required fields because the guide renders five lines per example —
+    // the two halves of the name, then the three lines under it.
     // Optional keys would let a half-filled example publish and sit on the
     // brand guide as a card with one line beside a card with three — and the
     // published 1.7 document shows what happens without the slots: its first
@@ -296,7 +318,8 @@ export const canonSchema = z.object({
     // draft's business; the shape is the schema's.
     passingExamples: z.array(
       z.object({
-        name: z.string(),
+        storyTitle: z.string(),
+        beerStyle: z.string(),
         story: z.string(),
         menuDescription: z.string(),
         why: z.string(),

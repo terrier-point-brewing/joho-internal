@@ -13,6 +13,9 @@ import SpecCard from "./blocks/SpecCard";
  * practice (both applied to real copy). Each narrows from principle to example,
  * which is why vocabulary sits in the middle rather than trailing off the end
  * as the inline afterthought it used to be.
+ *
+ * Naming closes the tab on the same principle-to-example arc: the five gates,
+ * then the template card, then the releases that clear them.
  */
 export default function VoiceView({ canon }: { canon: BrandCanon }) {
   const { sliders, leanOnWords, neverWords, rewrites } = canon.voice;
@@ -21,6 +24,16 @@ export default function VoiceView({ canon }: { canon: BrandCanon }) {
   // nowhere, while the Releases workbench quietly gated every beer name on its
   // five criteria — a checklist whose source no reader could see.
   const naming = canon.naming;
+  // The narrative is the template for a release card, so it renders as one:
+  // same component, same labels, same order as the examples below it. A field
+  // with no instruction written yet drops out rather than showing a bare label.
+  const narrative = naming?.narrative;
+  const templateRows = [
+    { label: "Name", value: narrative?.name },
+    { label: "Story line", value: narrative?.story },
+    { label: "Menu description", value: narrative?.menuDescription },
+    { label: "Why it passes", value: narrative?.why },
+  ].flatMap((row) => (row.value ? [{ label: row.label, value: row.value }] : []));
 
   return (
     <GuideSection intro={resolveGuideIntro(canon, "voice")}>
@@ -78,22 +91,9 @@ export default function VoiceView({ canon }: { canon: BrandCanon }) {
 
       {naming && (
         <section className="mt-8">
-          <SubHead
-            title="Naming"
-            description="How a release earns its name. Every release is checked against the five criteria in Releases."
-          />
-          {naming.pattern && (
-            <p className="font-brand-display text-lg text-brand-high-contrast mb-2">
-              {naming.pattern}
-            </p>
-          )}
-          {naming.narrative && (
-            <p className="font-brand-body text-sm text-brand-content leading-relaxed mb-4">
-              {naming.narrative}
-            </p>
-          )}
+          <SubHead title="Naming" />
           {naming.criteria?.length > 0 && (
-            <ol className="flex flex-col gap-1.5 mb-4">
+            <ol className="flex flex-col gap-1.5 mb-6">
               {naming.criteria.map((criterion, i) => (
                 <li key={i} className="font-brand-body text-sm text-brand-content flex gap-2">
                   <span className="text-brand-content-muted tabular-nums shrink-0">{i + 1}.</span>
@@ -102,12 +102,28 @@ export default function VoiceView({ canon }: { canon: BrandCanon }) {
               ))}
             </ol>
           )}
+          {templateRows.length > 0 && (
+            <>
+              {narrative?.intro && (
+                <p className="font-brand-body text-sm text-brand-content leading-relaxed mb-3">
+                  {narrative.intro}
+                </p>
+              )}
+              <SpecCard
+                variant="template"
+                tag="Naming — narrative"
+                title="Writing a release card"
+                rows={templateRows}
+                footer={narrative?.footer}
+              />
+            </>
+          )}
           {naming.passingExamples?.length > 0 && (
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-3 sm:grid-cols-2 mt-4">
               {naming.passingExamples.map((example, i) => (
                 <SpecCard
                   key={i}
-                  title={example.name}
+                  title={[example.storyTitle, example.beerStyle].filter(Boolean).join(" — ")}
                   rows={[
                     // Story and menu line are optional in the canon — a card
                     // that has neither still reads as it always did.

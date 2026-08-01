@@ -159,7 +159,7 @@ describe("isSectionDirty / changedSections", () => {
 
   it("attributes a naming change to the voice subtab", () => {
     const next = structuredClone(base);
-    next.naming = { ...next.naming, pattern: "Something else" };
+    next.naming = { ...next.naming, criteria: ["a", "b", "c", "d", "e"] };
 
     expect(changedSections(base, next)).toEqual(["voice"]);
   });
