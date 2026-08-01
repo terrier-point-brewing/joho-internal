@@ -25,12 +25,16 @@ import { coaSection } from "./aggregateRows";
 import { buildKpis, buildDataQuality } from "./summaries";
 import { HREFS, coaAccountRefsOf } from "./statementCommon";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { fetchBalances, resolveSnapshotWrites } from "@/lib/finance/balances/snapshot";
-import { getProvider } from "@/lib/finance/balances/registry";
-// Side-effect import: registers every balance provider (mirrors
-// app/api/finance/balance-sources/route.ts's own import) so the live
-// open-month compute below has something to call.
-import "@/lib/finance/balances/providers";
+import {
+  fetchBalances,
+  fetchDeclaredSources,
+  expandSources,
+  resolveSnapshotWrites,
+} from "@/lib/finance/balances/snapshot";
+// Side-effect import: registers every provider AND every method (the methods
+// barrel pulls in the providers barrel first) so the live open-month compute
+// below has something to resolve against.
+import "@/lib/finance/balances/methods";
 import { monthEnd } from "@/lib/finance/manualEntries";
 import type { FinancialsResponse, FinancialsRow, CoaAccountRef } from "./types";
 
@@ -44,54 +48,29 @@ const BS_SECTIONS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Live-computes the CURRENT period's balances straight from the provider
- * registry -- no write. Mirrors lib/finance/balances/snapshot.ts's
- * snapshotPeriod exactly (same source read, same per-provider compute, same
- * pure resolveSnapshotWrites decision logic) but read-only, so a mid-month
- * page view never shows a stale/missing gl_account_balances row for the
- * still-open month. A provider throwing for one source is isolated (treated
- * like a null result) so one bad source can't blank the whole statement.
+ * Live-computes the CURRENT period's balances -- no write -- so a mid-month
+ * page view never shows a stale or missing gl_account_balances row for the
+ * still-open month.
+ *
+ * Shares expandSources and resolveSnapshotWrites with snapshotPeriod rather
+ * than restating the loop. These two paths produce the number the user reads
+ * on screen and the number that gets frozen into the close, and any drift
+ * between them is invisible until a month rolls over and the figure silently
+ * changes. One implementation is the only way that stays true.
+ *
+ * A failed account is dropped entirely instead of contributing a partial sum:
+ * a missing row reads as unsourced, which is visibly wrong rather than
+ * plausibly wrong.
  */
 async function computeLiveBalances(
   supabase: ReturnType<typeof createSupabaseAdminClient>,
   periodEnd: string,
 ): Promise<Map<string, { balanceCents: number; contributions: Record<string, number> }>> {
-  const { data: sourceRows, error } = await supabase
-    .from("balance_sheet_account_sources")
-    .select("chart_of_accounts_id, provider_key, config")
-    .eq("active", true);
-  if (error) throw new Error(error.message);
-
-  const sources = ((sourceRows ?? []) as { chart_of_accounts_id: string; provider_key: string; config: Record<string, unknown> | null }[]).map(
-    (r) => ({ coaId: r.chart_of_accounts_id, providerKey: r.provider_key, config: r.config ?? {} }),
-  );
-
-  const results = new Map<string, number | null>();
-  // Same hazard snapshot.ts guards on the write path, and it applies just as
-  // much here -- more, in fact, because this is the number the user actually
-  // looks at. resolveSnapshotWrites cannot distinguish "provider returned null"
-  // from "provider threw", so letting a failure fall through renders the
-  // SURVIVING providers' partial sum as if it were the whole balance: GL 2220
-  // would show -291,519 (accruals only) instead of 103,964, with no dash, no
-  // banner and no fallback. Drop the account entirely instead -- a missing row
-  // reads as unsourced, which is visibly wrong rather than plausibly wrong.
-  const failedAccounts = new Set<string>();
-  for (const source of sources) {
-    const provider = getProvider(source.providerKey);
-    if (!provider) {
-      failedAccounts.add(source.coaId);
-      continue;
-    }
-    try {
-      const value = await provider.compute({ supabase, periodEnd, coaId: source.coaId, config: source.config });
-      results.set(`${source.coaId}:${source.providerKey}`, value);
-    } catch {
-      failedAccounts.add(source.coaId);
-    }
-  }
+  const declared = await fetchDeclaredSources(supabase);
+  const { sources, results, failedAccounts } = await expandSources(supabase, periodEnd, declared);
 
   const writes = resolveSnapshotWrites(
-    sources.map(({ coaId, providerKey }) => ({ coaId, providerKey })),
+    sources,
     results,
     new Map(), // nothing frozen for a live, unwritten compute
   ).filter((w) => !failedAccounts.has(w.coaId));

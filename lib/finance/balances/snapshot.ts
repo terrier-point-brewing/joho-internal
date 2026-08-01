@@ -22,6 +22,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { monthEnd } from "@/lib/finance/manualEntries";
 import { getProvider } from "./registry";
+import { getMethod, runMethod } from "./methods/registry";
 
 type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
 
@@ -86,55 +87,93 @@ export function resolveSnapshotWrites(
   return writes;
 }
 
+/** One declared source, as stored in balance_sheet_account_sources. */
+export interface DeclaredSource {
+  coaId: string;
+  /** A METHOD key, or -- for rows written before the method migration -- a bare provider key. */
+  providerKey: string;
+  config: Record<string, unknown>;
+}
+
 /**
- * Computes and writes the monthly snapshot for `periodEnd`. Reads every
- * active balance_sheet_account_sources row, resolves each provider from the
- * registry, runs it, and applies resolveSnapshotWrites's decisions.
- * A source naming a provider key not in the registry is skipped (never
- * thrown) and reported in `errors`; a provider that throws mid-compute is
- * likewise isolated so one bad source can't abort the whole run.
+ * Everything resolveSnapshotWrites needs, with every method already expanded
+ * into its individual steps.
  */
-export async function snapshotPeriod(supabase: AdminClient, periodEnd: string): Promise<SnapshotResult> {
+export interface ExpandedSources {
+  /** One entry per STEP, keyed the way contributions are keyed. */
+  sources: { coaId: string; providerKey: string }[];
+  results: Map<string, number | null>;
+  /** Accounts that must not be written at all this run. */
+  failedAccounts: Set<string>;
+  errors: string[];
+}
+
+/**
+ * Resolves each declared source and flattens it to per-step values.
+ *
+ * ── Why methods expand into steps rather than replacing them ─────────────────
+ * A method (methods/registry.ts) is the unit a USER selects; a step is the unit
+ * a CONTRIBUTION is stored under. Expanding here means resolveSnapshotWrites --
+ * which is pure, well covered, and load-bearing -- needs no change at all, and
+ * gl_account_balances.contributions keeps exactly the keys it already has. See
+ * __fixtures__/goldenBalanceSheet.ts on why those keys are a contract.
+ *
+ * ── Legacy fallback, and why it makes deploy order irrelevant ────────────────
+ * A source row naming something that is not a registered method falls through
+ * to the provider registry. That is what lets the code ship before or after the
+ * data migration with identical results: pre-migration, GL 2220 still carries
+ * two rows ("taxAccrual", "transactionPostings") which resolve as one legacy
+ * provider and one single-step method; post-migration it carries one row
+ * ("salesTaxPayable") whose two steps produce the very same pair of
+ * contributions. Neither ordering has a window where the statement goes blank.
+ *
+ * ── Failure is per-account ───────────────────────────────────────────────────
+ * A step that throws, or a key matching neither a method nor a provider, marks
+ * the whole ACCOUNT failed. resolveSnapshotWrites cannot distinguish "returned
+ * null" from "blew up", so letting a failure through would write the surviving
+ * half as if it were the whole balance -- GL 2220 stored as -297,509 rather
+ * than 97,974, with nothing on screen to say it is half an answer. A
+ * stale-but-correct row beats a fresh-but-partial one.
+ */
+export async function expandSources(
+  supabase: AdminClient,
+  periodEnd: string,
+  declared: DeclaredSource[],
+): Promise<ExpandedSources> {
+  const sources: { coaId: string; providerKey: string }[] = [];
+  const results = new Map<string, number | null>();
+  const failedAccounts = new Set<string>();
   const errors: string[] = [];
 
-  const { data: sourceRows, error: sourcesError } = await supabase
-    .from("balance_sheet_account_sources")
-    .select("chart_of_accounts_id, provider_key, config")
-    .eq("active", true);
-  if (sourcesError) throw new Error(sourcesError.message);
+  for (const source of declared) {
+    const ctx = { supabase, periodEnd, coaId: source.coaId, config: source.config };
 
-  const sources = ((sourceRows ?? []) as SourceRow[]).map((r) => ({
-    coaId: r.chart_of_accounts_id,
-    providerKey: r.provider_key,
-    config: r.config ?? {},
-  }));
+    const method = getMethod(source.providerKey);
+    if (method) {
+      const outcome = await runMethod(method, ctx);
+      if (outcome.status === "failed") {
+        errors.push(...outcome.errors.map((e) => `${e} (account ${source.coaId})`));
+        failedAccounts.add(source.coaId);
+        continue;
+      }
+      if (outcome.status === "empty") continue;
+      for (const [key, cents] of Object.entries(outcome.breakdown)) {
+        sources.push({ coaId: source.coaId, providerKey: key });
+        results.set(`${source.coaId}:${key}`, cents);
+      }
+      continue;
+    }
 
-  const results = new Map<string, number | null>();
-  // Accounts where a provider THREW. These must not be written at all.
-  //
-  // A throw leaves its key absent from `results`, and resolveSnapshotWrites
-  // treats an absent key exactly like null -- so without this set, a transient
-  // 5xx on one provider silently writes the OTHER providers' partial sum over a
-  // previously-correct snapshot. GL 2220 is the worked example: if
-  // transactionPostings fails while taxAccrual succeeds, the account would be
-  // stored as -291,519 instead of 103,964, with nothing to indicate the figure
-  // is half a balance. A stale-but-correct row beats a fresh-but-partial one.
-  const failedAccounts = new Set<string>();
-
-  for (const source of sources) {
+    // Legacy: a bare provider key from before the method migration.
     const provider = getProvider(source.providerKey);
     if (!provider) {
-      errors.push(`Unknown balance provider "${source.providerKey}" for account ${source.coaId}`);
+      errors.push(`Unknown balance method or provider "${source.providerKey}" for account ${source.coaId}`);
       failedAccounts.add(source.coaId);
       continue;
     }
     try {
-      const value = await provider.compute({
-        supabase,
-        periodEnd,
-        coaId: source.coaId,
-        config: source.config,
-      });
+      const value = await provider.compute(ctx);
+      sources.push({ coaId: source.coaId, providerKey: source.providerKey });
       results.set(`${source.coaId}:${source.providerKey}`, value);
     } catch (err) {
       errors.push(
@@ -143,6 +182,35 @@ export async function snapshotPeriod(supabase: AdminClient, periodEnd: string): 
       failedAccounts.add(source.coaId);
     }
   }
+
+  return { sources, results, failedAccounts, errors };
+}
+
+/** Reads every active balance_sheet_account_sources row. */
+export async function fetchDeclaredSources(supabase: AdminClient): Promise<DeclaredSource[]> {
+  const { data, error } = await supabase
+    .from("balance_sheet_account_sources")
+    .select("chart_of_accounts_id, provider_key, config")
+    .eq("active", true);
+  if (error) throw new Error(error.message);
+
+  return ((data ?? []) as SourceRow[]).map((r) => ({
+    coaId: r.chart_of_accounts_id,
+    providerKey: r.provider_key,
+    config: r.config ?? {},
+  }));
+}
+
+/**
+ * Computes and writes the monthly snapshot for `periodEnd`. Reads every active
+ * source, expands each into its steps, and applies resolveSnapshotWrites's
+ * decisions. A source naming an unknown method or provider is reported rather
+ * than thrown, and a step that throws is isolated to its own account so one bad
+ * source cannot abort the whole run.
+ */
+export async function snapshotPeriod(supabase: AdminClient, periodEnd: string): Promise<SnapshotResult> {
+  const declared = await fetchDeclaredSources(supabase);
+  const { sources, results, failedAccounts, errors } = await expandSources(supabase, periodEnd, declared);
 
   const { data: existingRows, error: existingError } = await supabase
     .from("gl_account_balances")
@@ -154,15 +222,11 @@ export async function snapshotPeriod(supabase: AdminClient, periodEnd: string): 
     ((existingRows ?? []) as ExistingRow[]).map((r) => [r.chart_of_accounts_id, { isFrozen: r.is_frozen }]),
   );
 
-  const writes = resolveSnapshotWrites(
-    sources.map(({ coaId, providerKey }) => ({ coaId, providerKey })),
-    results,
-    existing,
-  );
+  const writes = resolveSnapshotWrites(sources, results, existing);
 
   let written = 0;
   for (const write of writes) {
-    // Skip any account whose providers did not all succeed -- writing it would
+    // Skip any account whose steps did not all succeed -- writing it would
     // persist a partial sum as if it were a whole balance. Already reported in
     // `errors` at the point of failure.
     if (failedAccounts.has(write.coaId)) continue;
@@ -183,7 +247,10 @@ export async function snapshotPeriod(supabase: AdminClient, periodEnd: string): 
     written++;
   }
 
-  const consideredAccounts = new Set(sources.map((s) => s.coaId)).size;
+  // Counted off DECLARED sources, not expanded steps: an account whose every
+  // step returned null contributes no step rows at all, and it is precisely
+  // that account -- considered but not written -- that "skipped" is reporting.
+  const consideredAccounts = new Set(declared.map((s) => s.coaId)).size;
   const skipped = Math.max(consideredAccounts - written, 0);
 
   return { written, skipped, errors };

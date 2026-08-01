@@ -24,7 +24,7 @@ import { apiError } from "@/lib/utils/api";
 // getProvider() below have something to return. Only this file and the
 // cron route need it among Task 5's additions -- balance-close and
 // manual-entries never touch the provider registry.
-import "@/lib/finance/balances/providers";
+import "@/lib/finance/balances/methods";
 import { getProvider, listProviders } from "@/lib/finance/balances/registry";
 import type { CoaAccountRef } from "@/lib/finance/financials/types";
 import { ACCOUNT_TYPE_SECTION } from "@/lib/finance/accountSections";

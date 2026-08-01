@@ -20,7 +20,7 @@
  * runCronJob wraps the whole thing so a run lands in cron_runs for the
  * Settings > Cron Jobs monitor, success or failure.
  */
-import "@/lib/finance/balances/providers";
+import "@/lib/finance/balances/methods";
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { runCronJob } from "@/lib/cron/runCronJob";
