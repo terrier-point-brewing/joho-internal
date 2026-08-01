@@ -15,6 +15,9 @@ function require(name: string): string {
   return v;
 }
 
+/** Base URL used when NEXT_PUBLIC_APP_URL is unset or blank. */
+export const APP_URL_FALLBACK = "http://localhost:3000";
+
 export const env = {
   /** Supabase service-role key (bypasses RLS). Server-side only. */
   supabaseServiceKey: () => require("SUPABASE_SERVICE_ROLE_KEY"),
@@ -55,8 +58,15 @@ export const env = {
   plaidRedirectUri: (): string | undefined => process.env.PLAID_REDIRECT_URI,
 
   /**
-   * Public base URL for the app (e.g. https://app.terrierpoint.com).
+   * Public base URL for the app (e.g. https://internal.johobrewing.com).
    * Used when constructing absolute links in emails.
+   *
+   * Every caller concatenates a path onto this, so a bad value does not fail
+   * loudly — it produces a dead link in someone's inbox. Guard accordingly:
+   * a blank or whitespace-only value counts as unset (`??` would have let the
+   * empty string through and yielded host-less paths), and a trailing slash
+   * is trimmed so `${appUrl()}/finance/...` never doubles up.
    */
-  appUrl: (): string => process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",
+  appUrl: (): string =>
+    process.env.NEXT_PUBLIC_APP_URL?.trim().replace(/\/+$/, "") || APP_URL_FALLBACK,
 } as const;
