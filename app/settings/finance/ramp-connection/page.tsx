@@ -25,11 +25,20 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import { fetchJson } from "@/app/production/hooks/queries";
+import { formatCurrencyCents } from "@/lib/format";
 import Banner from "@/app/components/ui/Banner";
 import Card from "@/app/components/ui/Card";
 import Badge from "@/app/components/ui/Badge";
 
 const BALANCE_ACCOUNTS_HREF = "/settings/finance/balance-sheet-accounts";
+
+/** Outcome of a live read, shown inline against the account it was run for. */
+interface CheckResult {
+  ok: boolean;
+  periodEnd: string;
+  balanceCents?: number;
+  reason?: string;
+}
 
 interface ConnectionRef {
   id: string;
@@ -58,6 +67,7 @@ export default function RampConnectionPage() {
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [checks, setChecks] = useState<Record<string, CheckResult>>({});
 
   const { data, isLoading, error: loadError } = useQuery({
     queryKey: queryKeys.finance.rampAccounts(),
@@ -76,6 +86,37 @@ export default function RampConnectionPage() {
     ]);
   }
 
+  /**
+   * Reads one month end from Ramp for real and shows the result.
+   *
+   * Run automatically the moment an account is connected, because a connection
+   * that has never been read proves nothing -- without this, the first real
+   * call to Ramp would be the month-end snapshot, weeks away, where a missing
+   * scope or a wrong account surfaces as a silently unsourced account during
+   * close.
+   */
+  async function runCheck(accountId: string, connectionId: string) {
+    try {
+      const res = await fetch("/api/finance/balance-connections/ramp/check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ connectionId }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body?.error ?? `Request failed (${res.status})`);
+      setChecks((c) => ({ ...c, [accountId]: body as CheckResult }));
+    } catch (err) {
+      setChecks((c) => ({
+        ...c,
+        [accountId]: {
+          ok: false,
+          periodEnd: "",
+          reason: err instanceof Error ? err.message : "The check could not be run.",
+        },
+      }));
+    }
+  }
+
   async function handleConnect(account: RampAccount) {
     setBusyId(account.id);
     setError(null);
@@ -89,13 +130,25 @@ export default function RampConnectionPage() {
           externalId: account.id,
         }),
       });
-      if (!res.ok) throw new Error((await res.json())?.error ?? `Request failed (${res.status})`);
+      const created = await res.json();
+      if (!res.ok) throw new Error(created?.error ?? `Request failed (${res.status})`);
+      // Prove the connection works before the operator walks away from it.
+      await runCheck(account.id, created.id);
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not connect that account.");
     } finally {
       setBusyId(null);
     }
+  }
+
+  async function handleCheck(account: RampAccount) {
+    if (!account.connection) return;
+    setBusyId(account.id);
+    setError(null);
+    await runCheck(account.id, account.connection.id);
+    await refresh();
+    setBusyId(null);
   }
 
   async function handleDisconnect(account: RampAccount) {
@@ -181,17 +234,39 @@ export default function RampConnectionPage() {
                       ) : (
                         <span className="text-2xs text-faint italic">Not connected</span>
                       )}
+                      {checks[account.id] && (
+                        <p className="text-2xs text-faint mt-1">
+                          {checks[account.id].ok ? (
+                            <>
+                              Read {formatCurrencyCents(checks[account.id].balanceCents ?? 0)} for{" "}
+                              {checks[account.id].periodEnd} — check this against Ramp.
+                            </>
+                          ) : (
+                            <span className="text-danger">{checks[account.id].reason}</span>
+                          )}
+                        </p>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-right">
                       {account.connection ? (
-                        <button
-                          type="button"
-                          className="btn-danger btn-xxs"
-                          disabled={busyId === account.id}
-                          onClick={() => handleDisconnect(account)}
-                        >
-                          Disconnect
-                        </button>
+                        <div className="flex gap-2 justify-end">
+                          <button
+                            type="button"
+                            className="btn-secondary btn-xxs"
+                            disabled={busyId === account.id}
+                            onClick={() => handleCheck(account)}
+                          >
+                            {busyId === account.id ? "Checking…" : "Check now"}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn-danger btn-xxs"
+                            disabled={busyId === account.id}
+                            onClick={() => handleDisconnect(account)}
+                          >
+                            Disconnect
+                          </button>
+                        </div>
                       ) : (
                         <button
                           type="button"

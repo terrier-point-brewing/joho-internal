@@ -47,6 +47,67 @@ function daysBefore(isoDate: string, days: number): string {
 }
 
 /**
+ * The outcome of one read, in the shape both callers need.
+ *
+ * `reason` is written to be shown to an operator verbatim on the Settings
+ * status line, so it says what is wrong in plain words rather than echoing an
+ * HTTP status.
+ */
+export type RampReadResult =
+  | { ok: true; balanceCents: number }
+  | { ok: false; reason: string };
+
+/**
+ * Reads one month end's balance for a connected Ramp account.
+ *
+ * Exported so the connect-time check (`POST
+ * /api/finance/balance-connections/ramp/check`) exercises the EXACT path the
+ * monthly snapshot will later take. A check that used its own lighter query
+ * would be worth very little: it could pass while the real read fails, which is
+ * the one outcome a validation exists to rule out.
+ *
+ * Does not touch the database and does not record anything -- callers own that,
+ * because the provider must swallow a failed status write while the check route
+ * wants to surface it.
+ */
+export async function readRampBalance(
+  connection: { externalId: string | null },
+  periodEnd: string,
+): Promise<RampReadResult> {
+  if (!connection.externalId) {
+    return { ok: false, reason: "No Ramp account chosen for this connection yet." };
+  }
+
+  let history;
+  try {
+    history = await getRampAccountBalanceHistory(
+      connection.externalId,
+      daysBefore(periodEnd, WINDOW_DAYS),
+      periodEnd,
+    );
+  } catch (err) {
+    return { ok: false, reason: err instanceof Error ? err.message : String(err) };
+  }
+
+  const onDate = history.find((row) => row.date === periodEnd);
+  if (!onDate) {
+    return { ok: false, reason: `Ramp reported no balance for ${periodEnd}.` };
+  }
+
+  // A non-USD balance summed into a USD balance sheet would be wrong by
+  // whatever the exchange rate happens to be, with nothing on screen to say so.
+  // Refusing is the only safe answer until this app handles currency.
+  if (onDate.currency_code !== "USD") {
+    return {
+      ok: false,
+      reason: `Ramp reports this account in ${onDate.currency_code}; only USD balances can be used.`,
+    };
+  }
+
+  return { ok: true, balanceCents: onDate.balance_cents };
+}
+
+/**
  * Records a read outcome without ever being able to fail the balance.
  * Connection health is telemetry; a failed status write must not turn a correct
  * balance into a skipped account.
@@ -76,48 +137,15 @@ export const rampBalance: BalanceProvider = {
     // start it erroring.
     if (connection.status === "disabled") return null;
 
-    const accountId = connection.externalId;
-    if (!accountId) {
-      await note(ctx, connection.id, { ok: false, error: "No Ramp account chosen for this connection yet." });
+    const result = await readRampBalance(connection, ctx.periodEnd);
+
+    if (!result.ok) {
+      await note(ctx, connection.id, { ok: false, error: result.reason });
       return null;
     }
 
-    try {
-      const history = await getRampAccountBalanceHistory(
-        accountId,
-        daysBefore(ctx.periodEnd, WINDOW_DAYS),
-        ctx.periodEnd,
-      );
-
-      const onDate = history.find((row) => row.date === ctx.periodEnd);
-      if (!onDate) {
-        await note(ctx, connection.id, {
-          ok: false,
-          error: `Ramp reported no balance for ${ctx.periodEnd}.`,
-        });
-        return null;
-      }
-
-      // A non-USD balance summed into a USD balance sheet would be wrong by
-      // whatever the exchange rate happens to be, with nothing on screen to say
-      // so. Refusing is the only safe answer until this app handles currency.
-      if (onDate.currency_code !== "USD") {
-        await note(ctx, connection.id, {
-          ok: false,
-          error: `Ramp reports this account in ${onDate.currency_code}; only USD balances can be used.`,
-        });
-        return null;
-      }
-
-      await note(ctx, connection.id, { ok: true });
-      return onDate.balance_cents;
-    } catch (err) {
-      await note(ctx, connection.id, {
-        ok: false,
-        error: err instanceof Error ? err.message : String(err),
-      });
-      return null;
-    }
+    await note(ctx, connection.id, { ok: true });
+    return result.balanceCents;
   },
 };
 
