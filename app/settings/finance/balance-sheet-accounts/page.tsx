@@ -566,6 +566,7 @@ export default function BalanceSheetAccountsPage() {
           method={setupMethod}
           account={setupAccount}
           source={setupSource}
+          allAccounts={accounts}
           providers={data?.providers ?? {}}
           onRefresh={refresh}
           onClose={() => setSettingUp(null)}

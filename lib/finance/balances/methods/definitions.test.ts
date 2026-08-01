@@ -186,6 +186,22 @@ describe("setup declarations", () => {
       .sort();
     expect(needing).toEqual(["manualBalance", "squareStoredBalance"]);
   });
+
+  it("keeps the Square sweep destination optional and restricted to bank accounts", () => {
+    // Optional because NOTHING READS IT YET -- the account it names has no
+    // transaction rows in this system to search, so requiring it would block an
+    // otherwise-ready account in exchange for nothing. Flipping it to required
+    // belongs with the feed that makes it useful, not before.
+    //
+    // Restricted to bank accounts because it names where cash physically lands.
+    // An unfiltered picker would offer expense and equity accounts, where the
+    // choice is meaningless but would still read as configured.
+    const field = getMethod("squareStoredBalance")!.setup!.find((f) => f.key === "sweepDestinationCoaId");
+    expect(field, "the Square method must declare where its payouts land").toBeDefined();
+    expect(field!.kind).toBe("account");
+    expect(field!.optional).toBe(true);
+    if (field!.kind === "account") expect(field!.sections).toEqual(["bank"]);
+  });
 });
 
 describe("parity with the frozen production capture", () => {

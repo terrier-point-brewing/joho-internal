@@ -44,6 +44,12 @@ export interface SetupFacts {
   operatorBalance: { asOfDate: string; cents: number } | null;
   /** Per-service app-level configuration state. A provider absent from the map is treated as unconfigured. */
   providerReadiness: Map<ConnectionProvider, ProviderReadiness>;
+  /**
+   * Display labels for chart-of-accounts rows, for `account` fields. An id
+   * missing from this map means the account was deleted, which the field
+   * surfaces rather than rendering a bare uuid at someone.
+   */
+  accountLabels?: Map<string, string>;
 }
 
 export interface SetupFieldState {
@@ -68,6 +74,8 @@ export interface SetupFieldState {
   connect?: "discover" | "authorize";
   /** Select fields only. */
   options?: { value: string; label: string }[];
+  /** Account fields only — which statement sections may be picked from. */
+  sections?: string[];
   /** Number fields only. */
   unit?: string;
 }
@@ -167,6 +175,24 @@ function fieldState(field: SetupField, facts: SetupFacts): SetupFieldState {
   };
   if (field.kind === "select") return { ...state, options: field.options };
   if (field.kind === "number") return { ...state, unit: field.unit ?? "plain" };
+
+  if (field.kind === "account") {
+    if (!answered) return { ...state, sections: field.sections };
+    // A stored id whose account has since been deleted. Rendering the raw uuid
+    // would be the code-identifier-at-a-bookkeeper failure this layer exists to
+    // avoid, and silently showing "set" would hide a broken reference.
+    const label = facts.accountLabels?.get(String(raw));
+    return label
+      ? { ...state, value: label, sections: field.sections }
+      : {
+          ...state,
+          satisfied: false,
+          value: null,
+          blocker: "The account this pointed at no longer exists. Choose another.",
+          sections: field.sections,
+        };
+  }
+
   return state;
 }
 

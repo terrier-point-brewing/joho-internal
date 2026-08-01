@@ -114,6 +114,11 @@ export async function GET() {
       .map((a) => ({ ...a, effectiveSection: a.statement_section ?? ACCOUNT_TYPE_SECTION[a.account_type] ?? "" }))
       .filter((a) => bsSections.has(a.effectiveSection));
     const coaIds = accounts.map((a) => a.id);
+    // Labels for `account` setup fields, so a field holding another account's
+    // id renders as "1020 · Chase Operating Account" rather than as a uuid.
+    const accountLabels = new Map(
+      accounts.map((a) => [a.id, a.account_number ? `${a.account_number} · ${a.account_name}` : a.account_name]),
+    );
 
     let sourceRows: SourceRow[] = [];
     // Read-only "current balance / as of" column (Settings holds rules, never
@@ -220,6 +225,7 @@ export async function GET() {
                     connectionsById: setupConnections,
                     operatorBalance: operatorBalances.get(a.id) ?? null,
                     providerReadiness,
+                    accountLabels,
                   })
                 : null,
               // Present only for methods that declare a connection, so the UI

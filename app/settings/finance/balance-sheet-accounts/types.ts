@@ -19,7 +19,7 @@ export interface StepMeta {
 
 /** One thing a method needs before it can compute, as declared. */
 export interface SetupFieldMeta {
-  kind: "connection" | "operatorBalance" | "select" | "number" | "text" | "date";
+  kind: "connection" | "operatorBalance" | "select" | "account" | "number" | "text" | "date";
   key: string;
   label: string;
   help: string;
@@ -27,6 +27,13 @@ export interface SetupFieldMeta {
   provider?: "ramp" | "plaid" | "square";
   connect?: "discover" | "authorize";
   options?: { value: string; label: string }[];
+  /**
+   * Account fields: which statement sections may be picked from. The options
+   * themselves are not sent — the screen already holds every balance-sheet
+   * account, so sending them again per field would be the same list repeated
+   * once per method.
+   */
+  sections?: string[];
   unit?: string;
 }
 
