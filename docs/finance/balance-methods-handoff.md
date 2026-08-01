@@ -4,8 +4,16 @@ Read this before building a balance-sheet integration. It is written so a fresh
 session needs nothing from the conversation that produced the scaffolding.
 
 **Scaffolding branch:** `claude/balance-method-scaffolding`
-**Migrations authored, NOT applied:** `20260912090000_balance_methods.sql`,
-`20260913090000_balance_integration_connections.sql`
+**Migrations, both APPLIED to production on 2026-08-01:**
+`20260912110000_balance_methods.sql`, `20260913090000_balance_integration_connections.sql`
+
+Note this repo's file stamps are an ordering convention only — Supabase records
+its own version when a migration is applied, so the two never match. Do not
+"fix" that. Do check `node scripts/check-migrations.mjs --strict` against a
+freshly fetched `main` before choosing a stamp: CI validates the MERGE result,
+so a stamp that is unique locally can still collide with something merged while
+you were working. Suggested free stamps: Ramp `20260914090000`, Square
+`20260915090000`, Plaid `20260916090000`.
 
 ---
 

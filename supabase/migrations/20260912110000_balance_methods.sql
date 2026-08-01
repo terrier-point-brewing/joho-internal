@@ -1,4 +1,4 @@
--- supabase/migrations/20260912090000_balance_methods.sql
+-- supabase/migrations/20260912110000_balance_methods.sql
 --
 -- Collapses the composite balance-sheet accounts from a PAIR of provider rows
 -- into a SINGLE method row, so the Settings dropdown offers one complete
