@@ -186,7 +186,10 @@ export async function GET() {
               updatedAt: s.updated_at,
               // Present only for methods that declare a connection, so the UI
               // can tell "no integration" apart from "integration, not linked".
-              connection: getMethod(s.provider_key)?.describeConnection
+              // Rendered only for methods that read an external service, so
+              // the UI can tell "no integration" apart from "integration, not
+              // linked yet".
+              connection: getMethod(s.provider_key)?.connectionProvider
                 ? describeConnection(connection ?? null)
                 : null,
             };
@@ -203,11 +206,15 @@ export async function GET() {
       // Full step detail travels with the catalog so the "How is this
       // calculated?" panel renders from the same declaration the engine runs.
       // There is no second copy of this copy anywhere.
+      // Connections are listed here rather than behind a second request: the
+      // Settings picker needs them on first paint, and they carry no secrets.
+      connections,
       methods: methods.map((m) => ({
         key: m.key,
         label: m.label,
         kind: m.kind,
         summary: m.summary,
+        connectionProvider: m.connectionProvider ?? null,
         steps: m.steps.map((s) => ({
           key: stepKey(s),
           label: s.label,

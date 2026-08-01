@@ -6,6 +6,7 @@ import {
   getConnectionWithSecrets,
   resolveConnection,
   readDailyBalance,
+  upsertConnection,
   type IntegrationConnection,
 } from "./connections";
 
@@ -149,5 +150,70 @@ describe("readDailyBalance", () => {
 
     await readDailyBalance(client, "coa-1", "2026-07-31");
     expect(eq).toHaveBeenCalledWith("as_of_date", "2026-07-31");
+  });
+});
+
+describe("upsertConnection", () => {
+  it("inserts without an id and updates with one", async () => {
+    const calls: string[] = [];
+    const builder: Record<string, unknown> = {};
+    Object.assign(builder, {
+      insert: (r: unknown) => { calls.push("insert"); void r; return builder; },
+      update: (r: unknown) => { calls.push("update"); void r; return builder; },
+      eq: () => builder,
+      select: () => builder,
+      single: async () => ({
+        data: { id: "c1", provider: "ramp", label: "Ramp · Operating", external_id: null,
+                config: {}, status: "active", last_synced_at: null, last_error: null },
+        error: null,
+      }),
+    });
+    const client = { from: () => builder } as unknown as AdminClient;
+
+    await upsertConnection(client, { provider: "ramp", label: "Ramp · Operating" });
+    await upsertConnection(client, { id: "c1", provider: "ramp", label: "Ramp · Operating" });
+
+    expect(calls).toEqual(["insert", "update"]);
+  });
+
+  it("never writes a credentials column even if one is smuggled in", async () => {
+    let written: Record<string, unknown> | null = null;
+    const builder: Record<string, unknown> = {};
+    Object.assign(builder, {
+      insert: (r: Record<string, unknown>) => { written = r; return builder; },
+      eq: () => builder,
+      select: () => builder,
+      single: async () => ({
+        data: { id: "c1", provider: "plaid", label: "Chase", external_id: null,
+                config: {}, status: "active", last_synced_at: null, last_error: null },
+        error: null,
+      }),
+    });
+    const client = { from: () => builder } as unknown as AdminClient;
+
+    await upsertConnection(
+      client,
+      { provider: "plaid", label: "Chase", credentials: { access_token: "secret" } } as never,
+    );
+
+    expect(written).not.toBeNull();
+    expect(Object.keys(written!)).not.toContain("credentials");
+  });
+
+  it("returns the safe shape, with no credentials field", async () => {
+    const { client } = stubClient({ data: null, error: null });
+    const builder = (client as unknown as { from: () => Record<string, unknown> }).from();
+    Object.assign(builder, {
+      insert: () => builder,
+      single: async () => ({
+        data: { id: "c1", provider: "ramp", label: "R", external_id: "x", config: {},
+                status: "active", last_synced_at: null, last_error: null, credentials: { leaked: true } },
+        error: null,
+      }),
+    });
+
+    const result = await upsertConnection(client, { provider: "ramp", label: "R" });
+    expect(result).not.toHaveProperty("credentials");
+    expect(result.id).toBe("c1");
   });
 });

@@ -53,8 +53,14 @@ is not linked yet — return `null` too, never throw.
 
 ### b. A method
 Add to `methods/definitions.ts`. `kind: "calculation"`. Give it an `appliesTo`
-so it is only offered on sensible accounts, and a `describeConnection` so the
-Settings row shows connection health.
+so it is only offered on sensible accounts (bank accounts are
+`statementSection === "bank"`), and set `connectionProvider` to your service.
+
+`connectionProvider` is the ONLY thing you implement for connection handling.
+From it, generically: the Settings screen shows a picker of that provider's
+connections, the chosen id is stored on the source as `config.connectionId`, the
+API resolves it, and the health line renders. There is no per-integration
+`describeConnection` to write.
 
 ### c. A connection row
 `integration_connections` holds what you are connected to plus any
@@ -90,15 +96,40 @@ The Ramp balance method still gets a connection row — with an empty
 `credentials` object — so account selection and the Settings status line work
 the same way they do for the other two.
 
+### c2. Wiring a connection up
+
+Already built and shared — do not rebuild any of it:
+
+| Need | Use |
+|---|---|
+| List / create / update / delete a connection | `PUT`,`GET`,`DELETE /api/finance/balance-connections` |
+| Attach one to a GL account | The picker on Settings > Balance Sheet Accounts |
+| Read it inside `compute()` | `resolveConnection(supabase, ctx.config)` |
+| Store a secret | `writeCredentials()` — server-side only, unreachable by any route |
+| Report a read outcome | `recordSyncResult()` |
+
+What you DO build is your provider's **setup flow** — listing Ramp treasury
+accounts to choose from, running Plaid Link and exchanging the public token,
+capturing Square's opening anchor. That flow ends by calling
+`PUT /api/finance/balance-connections`, and writing any secret server-side with
+`writeCredentials`. The generic route rejects `credentials` with a 400 rather
+than dropping it silently, so a live bank token never reaches a request log.
+
 ### d. Daily capture, if the source cannot be asked about the past
 Ramp *can* return dated history. Plaid **cannot** — its balance endpoint answers
 "right now" and takes no as-of date. For those, write a daily row with
 `recordDailyBalance` and have the provider read it with `readDailyBalance`.
-Lookup is exact-date only by design; falling back to an earlier capture would
-present a stale balance as a month-end figure.
 
-Record the balance under **the date it represents**, not the date you fetched
-it. A real-time read taken on the 1st is an intraday balance for the 1st.
+Lookup is exact-date only by design; falling back to an earlier capture would
+present a stale balance as a month-end figure. Record the balance under **the
+date it represents**, not the date you fetched it — a real-time read taken on
+the 1st is an intraday balance for the 1st.
+
+**Nothing calls `recordDailyBalance` yet — Plaid owns building the daily cron**
+(`app/api/cron/balance-capture/route.ts`, wrapped in `runCronJob` so it lands in
+`cron_runs`, registered in `vercel.json`). It was left unbuilt deliberately
+rather than guessed at without a real consumer. Square should reuse it if it
+needs one; Ramp does not.
 
 ### e. Tests
 Co-locate `*.test.ts`. The conformance suite in
@@ -227,6 +258,13 @@ Needs `PAYOUTS_READ`. A personal access token likely already has it; verify with
 a live call before committing to the design.
 
 ## 6. Still outstanding, unrelated to integrations
+
+Report Ramp sync health through the connection store. `ramp-expenses-sync` and
+`finance-sync` already land in `cron_runs`, but nothing ties that to the Ramp
+connection row, so a Settings reader cannot see that a stale balance is caused
+by a failing sync. Calling `recordSyncResult` from those crons against the Ramp
+connection would close it — additive, no credential moves. Do it after the
+integrations land, when a real connection row exists to point at.
 
 Four month-end close guardrails, deliberately left out of the scaffolding:
 

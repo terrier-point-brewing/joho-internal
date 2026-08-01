@@ -10,11 +10,11 @@
  * Backed by 20260913090000_balance_integration_connections.sql.
  */
 import type { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import type { ConnectionStatus } from "./methods/registry";
+import type { ConnectionStatus, ConnectionProvider } from "./methods/registry";
 
 type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
 
-export type ConnectionProvider = "ramp" | "plaid" | "square";
+export type { ConnectionProvider };
 export type ConnectionState = "active" | "needs_reauth" | "disabled" | "error";
 
 /**
@@ -127,6 +127,80 @@ export async function resolveConnection(
   const id = config.connectionId;
   if (typeof id !== "string" || id.length === 0) return null;
   return getConnectionWithSecrets(supabase, id);
+}
+
+// ── Writes ───────────────────────────────────────────────────────────────────
+
+export interface ConnectionInput {
+  /** Omit to create; supply to update in place. */
+  id?: string;
+  provider: ConnectionProvider;
+  label: string;
+  externalId?: string | null;
+  config?: Record<string, unknown>;
+  status?: ConnectionState;
+}
+
+/**
+ * Creates or updates a connection's NON-SECRET fields and returns the safe
+ * shape.
+ *
+ * `credentials` is deliberately not accepted. A secret must never arrive over a
+ * request body: Plaid's token is produced by exchanging a public token
+ * server-side, which is that integration's own job, and routing it through a
+ * generic endpoint would put a live bank credential in a request log. Use
+ * `writeCredentials` from server-side integration code instead.
+ */
+export async function upsertConnection(
+  supabase: AdminClient,
+  input: ConnectionInput,
+  actorId?: string,
+): Promise<IntegrationConnection> {
+  const row: Record<string, unknown> = {
+    provider: input.provider,
+    label: input.label,
+    external_id: input.externalId ?? null,
+    config: input.config ?? {},
+    updated_by: actorId ?? null,
+  };
+  if (input.status) row.status = input.status;
+
+  const query = input.id
+    ? supabase.from("integration_connections").update(row).eq("id", input.id)
+    : supabase.from("integration_connections").insert({ ...row, created_by: actorId ?? null });
+
+  const { data, error } = await query.select(SAFE_COLUMNS).single();
+  if (error) throw new Error(error.message);
+  return toConnection(data as ConnectionRow);
+}
+
+/**
+ * Stores a secret. Server-side integration code only -- there is deliberately
+ * no route that reaches this.
+ */
+export async function writeCredentials(
+  supabase: AdminClient,
+  id: string,
+  credentials: Record<string, unknown>,
+): Promise<void> {
+  const { error } = await supabase
+    .from("integration_connections")
+    .update({ credentials, status: "active", last_error: null })
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
+/**
+ * Removes a connection.
+ *
+ * `gl_account_daily_balances.connection_id` is ON DELETE SET NULL, so captured
+ * history survives and simply stops being attributed to a live feed. Any
+ * balance source still naming this id resolves to null and reads as unsourced,
+ * which is the correct visible outcome rather than a silent stale figure.
+ */
+export async function deleteConnection(supabase: AdminClient, id: string): Promise<void> {
+  const { error } = await supabase.from("integration_connections").delete().eq("id", id);
+  if (error) throw new Error(error.message);
 }
 
 /** Records the outcome of a read, driving the Settings status line. */

@@ -71,6 +71,18 @@ export interface BalanceStep {
   direction: StepDirection;
 }
 
+/**
+ * Which external service a method reads from. Declaring this is the ONLY thing
+ * an integration has to do to get connection handling: the Settings screen
+ * shows a picker filtered to this provider, the API resolves the linked
+ * connection and renders its health, and the source stores the chosen id under
+ * `config.connectionId`. A method that omits it is purely internal.
+ *
+ * Lives here rather than in connections.ts so that module can import from this
+ * one without a cycle.
+ */
+export type ConnectionProvider = "ramp" | "plaid" | "square";
+
 /** Connection state for an integration-backed method, shown in Settings. */
 export interface ConnectionStatus {
   connected: boolean;
@@ -93,8 +105,12 @@ export interface BalanceMethod {
   appliesTo?: (coa: CoaAccountRef) => boolean;
   /** Ordered; rendered top to bottom in the panel. */
   steps: BalanceStep[];
-  /** Integration-backed methods describe their connection for the Settings row. */
-  describeConnection?: (config: Record<string, unknown>) => ConnectionStatus;
+  /**
+   * Set this when the method reads an external service. Everything else --
+   * the Settings picker, connection resolution, the health line -- follows
+   * from it generically; there is nothing per-integration to implement.
+   */
+  connectionProvider?: ConnectionProvider;
 }
 
 /** Resolved identity of a step — its key, defaulted from providerKey. */

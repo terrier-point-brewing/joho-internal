@@ -49,7 +49,17 @@ interface MethodMeta {
   label: string;
   kind: MethodKind;
   summary: string;
+  /** Set when the method reads an external service; drives the connection picker. */
+  connectionProvider: "ramp" | "plaid" | "square" | null;
   steps: StepMeta[];
+}
+
+/** A configured external account, as offered in the picker. No secrets. */
+interface ConnectionOption {
+  id: string;
+  provider: string;
+  label: string;
+  status: string;
 }
 
 interface ConnectionMeta {
@@ -86,6 +96,7 @@ interface AccountRow {
 interface BalanceSourcesResponse {
   accounts: AccountRow[];
   methods: MethodMeta[];
+  connections: ConnectionOption[];
 }
 
 const MANUAL_ENTRIES_HREF = "/finance/transactions/manual-entries";
@@ -102,11 +113,15 @@ const DIRECTION_PREFIX: Record<StepMeta["direction"], string> = {
   net: "±",
 };
 
-async function putSource(coaId: string, providerKey: string, active?: boolean) {
+async function putSource(
+  coaId: string,
+  providerKey: string,
+  patch: { active?: boolean; config?: Record<string, unknown> } = {},
+) {
   const res = await fetch("/api/finance/balance-sources", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(active === undefined ? { coaId, providerKey } : { coaId, providerKey, active }),
+    body: JSON.stringify({ coaId, providerKey, ...patch }),
   });
   if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? "Could not save that source.");
 }
@@ -200,6 +215,52 @@ function MethodExplainer({
   );
 }
 
+/**
+ * Links a source to one of the configured external accounts, writing the choice
+ * to `config.connectionId`.
+ *
+ * This lives in the shared Settings screen rather than in each integration
+ * because all three need it identically, and three branches editing this file
+ * would collide. Creating a connection is still each integration's own job --
+ * picking a Ramp treasury account, running Plaid Link, entering a Square
+ * anchor. This only attaches an existing one to a GL account.
+ */
+function ConnectionPicker({
+  options,
+  value,
+  disabled,
+  onChange,
+}: {
+  options: ConnectionOption[];
+  value: string;
+  disabled: boolean;
+  onChange: (id: string) => void;
+}) {
+  if (options.length === 0) {
+    return (
+      <span className="text-2xs text-faint">
+        No account connected for this integration yet — set one up first.
+      </span>
+    );
+  }
+  return (
+    <select
+      value={value}
+      disabled={disabled}
+      onChange={(e) => onChange(e.target.value)}
+      className="inp-sm w-auto"
+    >
+      <option value="">— link an account —</option>
+      {options.map((c) => (
+        <option key={c.id} value={c.id}>
+          {c.label}
+          {c.status === "active" ? "" : ` (${c.status.replace("_", " ")})`}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 /** Connection state for an integration-backed source, or nothing for the rest. */
 function ConnectionLine({ connection }: { connection: ConnectionMeta }) {
   return (
@@ -267,10 +328,29 @@ export default function BalanceSheetAccountsPage() {
     setSavingKey(key);
     setError(null);
     try {
-      await putSource(account.id, source.methodKey, !source.active);
+      await putSource(account.id, source.methodKey, { active: !source.active });
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not update that source.");
+    } finally {
+      setSavingKey(null);
+    }
+  }
+
+  async function handleLinkConnection(account: AccountRow, source: SourceEntry, connectionId: string) {
+    const key = `${account.id}:${source.methodKey}`;
+    setSavingKey(key);
+    setError(null);
+    try {
+      // Merge rather than replace: the route stores config wholesale, so
+      // dropping the rest of it here would quietly discard provider settings a
+      // future integration keeps alongside connectionId.
+      await putSource(account.id, source.methodKey, {
+        config: { ...source.config, connectionId: connectionId || undefined },
+      });
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not link that account.");
     } finally {
       setSavingKey(null);
     }
@@ -397,7 +477,23 @@ export default function BalanceSheetAccountsPage() {
                                     <span className="text-2xs text-faint animate-pulse">saving…</span>
                                   )}
                                 </div>
-                                {source.connection && <ConnectionLine connection={source.connection} />}
+                                {source.connection && (
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <ConnectionPicker
+                                      options={(data?.connections ?? []).filter(
+                                        (c) => c.provider === methodOf(source.methodKey)?.connectionProvider,
+                                      )}
+                                      value={
+                                        typeof source.config.connectionId === "string"
+                                          ? source.config.connectionId
+                                          : ""
+                                      }
+                                      disabled={savingKey === key}
+                                      onChange={(id) => handleLinkConnection(account, source, id)}
+                                    />
+                                    <ConnectionLine connection={source.connection} />
+                                  </div>
+                                )}
                               </div>
                             );
                           })}
