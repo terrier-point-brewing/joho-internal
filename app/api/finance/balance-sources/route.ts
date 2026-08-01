@@ -20,12 +20,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { apiError } from "@/lib/utils/api";
-// Side-effect import: registers every balance provider so listProviders()/
-// getProvider() below have something to return. Only this file and the
+// Side-effect import: registers every provider AND every method so
+// listMethods()/getMethod() below have something to return. Only this file and the
 // cron route need it among Task 5's additions -- balance-close and
 // manual-entries never touch the provider registry.
-import "@/lib/finance/balances/providers";
-import { getProvider, listProviders } from "@/lib/finance/balances/registry";
+import "@/lib/finance/balances/methods";
+import { getMethod, listMethods, stepKey } from "@/lib/finance/balances/methods/registry";
+import { listConnections, describeConnection } from "@/lib/finance/balances/connections";
 import type { CoaAccountRef } from "@/lib/finance/financials/types";
 import { ACCOUNT_TYPE_SECTION } from "@/lib/finance/accountSections";
 
@@ -96,9 +97,17 @@ export async function GET() {
     if (coaError) throw coaError;
 
     const bsSections = new Set<string>(BALANCE_SHEET_SECTIONS);
-    const accounts = ((coaRows ?? []) as (CoaRow & { account_type: string })[]).filter((a) =>
-      bsSections.has(a.statement_section ?? ACCOUNT_TYPE_SECTION[a.account_type] ?? ""),
-    ) as CoaRow[];
+    // Resolve the EFFECTIVE section once and carry it forward.
+    //
+    // This previously resolved account_type here for the filter but then handed
+    // the raw `statement_section` override to the CoaAccountRef below. Every
+    // account in this chart of accounts has a NULL override, so that ref always
+    // carried "" and every appliesTo predicate matched nothing -- the dropdown
+    // would silently offer no calculation on any account, with no error to
+    // explain why. Filter and predicate must see the same value.
+    const accounts = ((coaRows ?? []) as (CoaRow & { account_type: string })[])
+      .map((a) => ({ ...a, effectiveSection: a.statement_section ?? ACCOUNT_TYPE_SECTION[a.account_type] ?? "" }))
+      .filter((a) => bsSections.has(a.effectiveSection));
     const coaIds = accounts.map((a) => a.id);
 
     let sourceRows: SourceRow[] = [];
@@ -140,7 +149,14 @@ export async function GET() {
       if (!latestBalanceByCoa.has(row.chart_of_accounts_id)) latestBalanceByCoa.set(row.chart_of_accounts_id, row);
     }
 
-    const providers = listProviders();
+    const methods = listMethods();
+
+    // Connections are looked up once and matched to a source by its
+    // config.connectionId, so the Settings row can say "Ramp · Operating ·
+    // synced 1 Aug" rather than just naming the method. Never carries
+    // credentials -- listConnections cannot select that column.
+    const connections = await listConnections(supabase);
+    const connectionById = new Map(connections.map((c) => [c.id, c]));
 
     const body = {
       accounts: accounts.map((a) => {
@@ -149,31 +165,64 @@ export async function GET() {
           parentId: a.parent_id,
           accountName: a.account_name,
           accountNumber: a.account_number,
-          statementSection: a.statement_section ?? "",
+          statementSection: a.effectiveSection,
         };
         const latest = latestBalanceByCoa.get(a.id);
         return {
           id: a.id,
           accountName: a.account_name,
           accountNumber: a.account_number,
-          statementSection: a.statement_section,
-          sources: (sourcesByCoa.get(a.id) ?? []).map((s) => ({
-            providerKey: s.provider_key,
-            config: s.config,
-            active: s.active,
-            updatedAt: s.updated_at,
-          })),
-          // Providers offerable in the "add a source" dropdown -- filtered
-          // server-side since appliesTo is a function, not JSON-serializable.
-          // A provider with no appliesTo (transactionPostings, manualBalance)
-          // applies to every account.
-          availableProviderKeys: providers.filter((p) => !p.appliesTo || p.appliesTo(coaRef)).map((p) => p.key),
+          statementSection: a.effectiveSection,
+          sources: (sourcesByCoa.get(a.id) ?? []).map((s) => {
+            const connectionId = (s.config ?? {}).connectionId;
+            const connection = typeof connectionId === "string" ? connectionById.get(connectionId) : undefined;
+            return {
+              methodKey: s.provider_key,
+              // Retained under its old name so an unmigrated row still renders
+              // rather than showing a blank method.
+              providerKey: s.provider_key,
+              config: s.config,
+              active: s.active,
+              updatedAt: s.updated_at,
+              // Present only for methods that declare a connection, so the UI
+              // can tell "no integration" apart from "integration, not linked".
+              // Rendered only for methods that read an external service, so
+              // the UI can tell "no integration" apart from "integration, not
+              // linked yet".
+              connection: getMethod(s.provider_key)?.connectionProvider
+                ? describeConnection(connection ?? null)
+                : null,
+            };
+          }),
+          // Methods offerable for this account -- filtered server-side since
+          // appliesTo is a function and not JSON-serializable. A method with no
+          // appliesTo (manual entry, transaction postings) applies everywhere.
+          availableMethodKeys: methods.filter((m) => !m.appliesTo || m.appliesTo(coaRef)).map((m) => m.key),
           currentBalance: latest
             ? { periodEnd: latest.period_end, cents: latest.balance_cents, contributions: latest.contributions }
             : null,
         };
       }),
-      providers: providers.map((p) => ({ key: p.key, label: p.label, kind: p.kind })),
+      // Full step detail travels with the catalog so the "How is this
+      // calculated?" panel renders from the same declaration the engine runs.
+      // There is no second copy of this copy anywhere.
+      // Connections are listed here rather than behind a second request: the
+      // Settings picker needs them on first paint, and they carry no secrets.
+      connections,
+      methods: methods.map((m) => ({
+        key: m.key,
+        label: m.label,
+        kind: m.kind,
+        summary: m.summary,
+        connectionProvider: m.connectionProvider ?? null,
+        steps: m.steps.map((s) => ({
+          key: stepKey(s),
+          label: s.label,
+          description: s.description,
+          source: s.source,
+          direction: s.direction,
+        })),
+      })),
     };
 
     return NextResponse.json(body);
@@ -202,8 +251,12 @@ export async function PUT(req: NextRequest) {
     if (typeof body.providerKey !== "string" || body.providerKey.trim() === "") {
       return NextResponse.json({ error: "providerKey is required" }, { status: 400 });
     }
-    if (!getProvider(body.providerKey)) {
-      return NextResponse.json({ error: `Unknown balance provider "${body.providerKey}"` }, { status: 400 });
+    // Writes may only ever assign a METHOD. A bare provider key stays readable
+    // (expandSources falls back for unmigrated rows) but must not be creatable,
+    // or the half-a-calculation state this whole layer exists to eliminate
+    // would be reachable again straight through the API.
+    if (!getMethod(body.providerKey)) {
+      return NextResponse.json({ error: `Unknown balance method "${body.providerKey}"` }, { status: 400 });
     }
 
     const supabase = createSupabaseAdminClient();
@@ -262,10 +315,10 @@ export async function DELETE(req: NextRequest) {
     if (typeof body.providerKey !== "string" || body.providerKey.trim() === "") {
       return NextResponse.json({ error: "providerKey is required" }, { status: 400 });
     }
-    if (!getProvider(body.providerKey)) {
-      return NextResponse.json({ error: `Unknown balance provider "${body.providerKey}"` }, { status: 400 });
-    }
-
+    // Deliberately NOT validated against the registry. A row naming a retired
+    // method, or a legacy provider key left behind by a partial migration, is
+    // exactly the row an operator most needs to be able to remove -- refusing
+    // to delete what we refuse to recognise would strand it permanently.
     const supabase = createSupabaseAdminClient();
     const { error } = await supabase
       .from("balance_sheet_account_sources")

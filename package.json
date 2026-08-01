@@ -9,7 +9,8 @@
     "lint": "eslint",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "verify": "npm run lint && npm run typecheck && npm run test",
+    "verify": "npm run check:statements && npm run lint && npm run typecheck && npm run test",
+    "check:statements": "node scripts/check-statement-isolation.mjs",
     "check:search-filter": "node scripts/check-search-filter.mjs",
     "check:permissions": "node scripts/check-permissions.mjs --strict",
     "check:migrations": "node scripts/check-migrations.mjs --strict"
