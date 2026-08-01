@@ -143,8 +143,14 @@ function FieldShell({
       </div>
       <p className="text-2xs text-faint leading-relaxed">{field.help}</p>
       {/* What is wrong right now, as opposed to what the field is for. Without
-          it an operator cannot tell whether they already did the thing. */}
-      {!field.satisfied && field.blocker && <p className="text-2xs text-danger">{field.blocker}</p>}
+          it an operator cannot tell whether they already did the thing.
+
+          Only a REQUIRED gap is coloured as a problem. An unanswered optional
+          field is a note, and putting it in danger red makes a ready account
+          look broken. */}
+      {!field.satisfied && field.blocker && (
+        <p className={`text-2xs ${field.required ? "text-danger" : "text-muted"}`}>{field.blocker}</p>
+      )}
       {field.satisfied && field.value && <p className="text-2xs text-muted">Currently: {field.value}</p>}
       <div className="mt-0.5">{children}</div>
     </div>
@@ -479,17 +485,39 @@ function ConfigField({
   field,
   account,
   source,
+  allAccounts,
   onDone,
   onError,
 }: {
   field: SetupFieldState;
   account: AccountRow;
   source: SourceEntry;
+  /** Every balance-sheet account, for `account` fields. */
+  allAccounts: AccountRow[];
   onDone: () => void | Promise<unknown>;
   onError: (message: string) => void;
 }) {
   const [value, setValue] = useState(() => String(source.config[field.key] ?? ""));
   const [busy, setBusy] = useState(false);
+
+  /**
+   * The choices for an `account` field, built from the accounts this screen
+   * already has rather than fetched again.
+   *
+   * The account itself is excluded: a sweep destination that is the source is
+   * not a destination, and offering it invites a self-reference that would read
+   * as configured while meaning nothing.
+   */
+  const accountOptions =
+    field.kind === "account"
+      ? allAccounts
+          .filter((a) => a.id !== account.id)
+          .filter((a) => !field.sections || (a.statementSection ? field.sections.includes(a.statementSection) : false))
+          .map((a) => ({
+            value: a.id,
+            label: a.accountNumber ? `${a.accountNumber} · ${a.accountName}` : a.accountName,
+          }))
+      : [];
 
   async function save() {
     setBusy(true);
@@ -511,10 +539,10 @@ function ConfigField({
   return (
     <FieldShell field={field}>
       <div className="flex items-center gap-2 flex-wrap">
-        {field.kind === "select" ? (
+        {field.kind === "select" || field.kind === "account" ? (
           <select value={value} onChange={(e) => setValue(e.target.value)} className="inp-sm w-auto">
             <option value="">— choose —</option>
-            {(field.options ?? []).map((o) => (
+            {(field.kind === "account" ? accountOptions : (field.options ?? [])).map((o) => (
               <option key={o.value} value={o.value}>{o.label}</option>
             ))}
           </select>
@@ -541,6 +569,7 @@ export default function MethodSetupPanel({
   method,
   account,
   source,
+  allAccounts,
   providers,
   onRefresh,
   onClose,
@@ -548,6 +577,8 @@ export default function MethodSetupPanel({
   method: MethodMeta;
   account: AccountRow;
   source: SourceEntry;
+  /** Every balance-sheet account, so an `account` field can offer them. */
+  allAccounts: AccountRow[];
   providers: Record<string, ProviderCapability>;
   onRefresh: () => Promise<unknown>;
   onClose: () => void;
@@ -587,7 +618,7 @@ export default function MethodSetupPanel({
               );
             }
             if (field.kind === "operatorBalance") return <OperatorBalanceField key={field.key} {...common} />;
-            return <ConfigField key={field.key} {...common} source={source} />;
+            return <ConfigField key={field.key} {...common} source={source} allAccounts={allAccounts} />;
           })}
         </div>
 

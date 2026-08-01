@@ -348,11 +348,36 @@ Design shipped: **anchor plus movement, re-anchored at each close** — as agree
 The movement term is not what this section originally specified, because the
 live data contradicted the assumption behind it. Corrected below.
 
-**The payouts feed only reports money coming IN.** All 1,755 payouts the API
-will return — queried back to 2021, across every location and every status —
-carry `destination.type = SQUARE_STORED_BALANCE`. Card sales settle into a
-Square-held balance, so a payout here is an **inflow**, not the outbound leg
-this section assumed.
+**The payouts feed only reports money coming IN.** Every payout the API will
+return — asked for from 2021, across every location and every status — carries
+`destination.type = SQUARE_STORED_BALANCE`. Card sales settle into a Square-held
+balance, so a payout here is an **inflow**, not the outbound leg this section
+assumed.
+
+**The feed is also much shorter than it looks.** Asking from 2021 does not mean
+five years came back: re-probed 2026-08-01, the earliest payout Square will
+return is **2026-05-15**, and there were 1,767 of them by then. So GL 1040 can
+never be derived for any month before May 2026 — not for want of a feature, but
+because the data does not exist to ask for. Do not plan a historical balance
+sheet for this account around it.
+
+Re-probed the same day, deliberately looking for a shape that would contradict
+the above rather than confirm it. Nothing did:
+
+| Checked | Found |
+|---|---|
+| `destination.type` over all 1,767 payouts | `SQUARE_STORED_BALANCE` ×1,767. No `BANK_ACCOUNT`. |
+| `payout.type` | `BATCH` ×1,767. No `SIMPLE`. |
+| `payout-entries.type`, sampled evenly across the whole history | only `CHARGE`, `REFUND`, `GIFT_CARD_LOAD_FEE` |
+| The 8 **negative** payouts | every one a single `REFUND` entry matching to the cent — refund days, not sweeps |
+| `/v2/bank-accounts` | metadata only; no balance, no movements |
+| `/v2/settlements` (the old endpoint) | `NOT_FOUND` — retired |
+
+Square's payout-entry vocabulary has ~30 values, several of which would
+represent money moving out. **None appear in this merchant's data at all.** The
+gap is structural: Square models a payout as card sales settling *to* a
+destination, and moving money *off* the stored balance is a banking action with
+no Connect v2 surface. It is Dashboard-only.
 
 **That does NOT mean money stays on Square.** It does leave: Square holds a
 VERIFIED Chase checking account for the business (`ListBankAccounts` — routing
@@ -385,6 +410,47 @@ small residual. So the log cannot yet separate "swept to Chase" from "the
 derivation is wrong"; what it can flag is drift that is positive or wildly out
 of step with the month's takings, which sweeping does not explain. This is a
 stated limitation of the account, not an oversight.
+
+### Where the money actually goes, and how to catch it
+
+Established 2026-08-01. The cash makes **two hops**, not one:
+
+```
+Square stored balance  ──sweep──▶  Chase ····4077  ──transfer──▶  Ramp Operating (GL 1030)
+     (GL 1040)                        (GL 1020)
+```
+
+The second hop is already visible: `ramp_bank_ledger` carries four `deposit`
+rows from `TPB OPERATING FUNDS (···· 4077)` — $46,468.51 in June, $47,983.64 in
+July, the same order as Square's monthly takings. That is Chase → Ramp, **not**
+Square → Chase, so it is not usable as the outflow term directly. It is
+corroboration that the first hop happens, nothing more.
+
+**The first hop is catchable by its ACH descriptor.** A Square deposit lands in
+a bank account looking like this:
+
+```
+ORIG CO NAME:Square Inc ORIG ID:9424300002 DESC DATE:260723
+CO ENTRY DESCR:SQ260723 SEC:PPD TRACE#:021000028611043 EED:260723
+IND ID: IND NAME:TERRIER POINT BREWING TRN: 2048611043TC
+```
+
+Match on **`ORIG ID:9424300002`** — Square's ACH company id, an exact numeric
+token — with `ORIG CO NAME:Square Inc` as the fallback. Do not match on
+`CO ENTRY DESCR:SQ…`, whose suffix is a date, nor on the trace number, which is
+per-transaction. See `lib/finance/balances/squareSweeps.ts`.
+
+**What is still missing is the feed, not the logic.** GL 1020 has balances only:
+the Plaid integration reads `/accounts/balance/get` and imports no transactions,
+even though Link is opened with the Transactions product and the entitlement
+therefore exists. Until GL 1020 has transaction rows, the matcher has nothing to
+run against and the drift stays undifferentiated.
+
+The order of work, then, is: import Chase transactions → the matcher identifies
+sweeps → the drift row splits into "swept" and "unexplained" → the account can
+move from re-anchoring toward derivation. Declaring the downstream account is
+already done (`sweepDestinationCoaId` on the method's setup), so no
+reconfiguration is needed when the feed lands.
 
 **Follow-up once Plaid lands GL 1020:** the Chase feed will contain these
 inbound transfers, which makes the outflow identifiable. At that point the

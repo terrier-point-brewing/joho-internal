@@ -242,10 +242,10 @@ const squareStoredBalance: BalanceMethod = {
   kind: "calculation",
   summary: "Your last checked Square balance, plus everything Square has paid in since.",
   appliesTo: isBank,
-  // Two fields, in the order an operator can actually do them: there is nothing
-  // to anchor until the account is linked. The operatorBalance field is also
-  // what raises this account's month-end close task, which is how the outflow
-  // half of the account gets corrected -- see providers/squareBalance.ts.
+  // Three fields, in the order an operator can actually do them: there is
+  // nothing to anchor until the account is linked. The operatorBalance field is
+  // also what raises this account's month-end close task, which is how the
+  // outflow half gets corrected today -- see providers/squareBalance.ts.
   setup: [
     {
       kind: "connection",
@@ -260,6 +260,20 @@ const squareStoredBalance: BalanceMethod = {
       key: "operatorBalance",
       label: "Balance you read off Square",
       help: "Square never publishes a running balance, so the calculation needs a figure a person has checked to start from. Enter it again after each month end to keep it accurate.",
+    },
+    {
+      // Optional on purpose. Nothing reads it yet -- the bank account it names
+      // has no transaction history in this system to search, so REQUIRING it
+      // would block an otherwise-ready account in exchange for nothing. It is
+      // asked for now because the operator knows the answer now, and because
+      // the month those transactions arrive should not also be a
+      // reconfiguration. See squareSweeps.ts for what will read it.
+      kind: "account",
+      key: "sweepDestinationCoaId",
+      sections: ["bank"],
+      optional: true,
+      label: "Bank account Square pays out to",
+      help: "Which of your bank accounts Square moves this money into. Square never reports those transfers, so naming the account here is what will let the monthly difference be explained from the bank's own records.",
     },
   ],
   steps: [

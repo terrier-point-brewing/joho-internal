@@ -135,6 +135,41 @@ describe("resolveSetupState", () => {
     expect(state.outstanding).toBe("Ramp account: No account is linked yet. (1 more to finish)");
   });
 
+  it("renders an account field as the account's name, never its id", () => {
+    const state = resolveSetupState(
+      method([{ kind: "account", key: "sweepDestinationCoaId", label: "Bank account", help: "Where it goes." }]),
+      facts({
+        config: { sweepDestinationCoaId: "coa-1020" },
+        accountLabels: new Map([["coa-1020", "1020 · Chase Operating Account"]]),
+      }),
+    );
+    expect(state.ready).toBe(true);
+    expect(state.fields[0].value).toBe("1020 · Chase Operating Account");
+  });
+
+  it("reports an account field pointing at a deleted account as unsatisfied", () => {
+    // Showing "set" would hide a broken reference; showing the raw id would put
+    // a uuid in front of a bookkeeper. Neither is acceptable, so it reads as
+    // needing attention with a sentence saying why.
+    const state = resolveSetupState(
+      method([{ kind: "account", key: "sweepDestinationCoaId", label: "Bank account", help: "Where it goes." }]),
+      facts({ config: { sweepDestinationCoaId: "coa-gone" }, accountLabels: new Map() }),
+    );
+    expect(state.ready).toBe(false);
+    expect(state.fields[0].value).toBeNull();
+    expect(state.fields[0].blocker).toContain("no longer exists");
+  });
+
+  it("passes an account field's section filter through for the picker", () => {
+    const state = resolveSetupState(
+      method([
+        { kind: "account", key: "sweepDestinationCoaId", sections: ["bank"], label: "Bank account", help: "Where." },
+      ]),
+      facts(),
+    );
+    expect(state.fields[0].sections).toEqual(["bank"]);
+  });
+
   it("does not let an optional field block readiness", () => {
     const state = resolveSetupState(
       method([{ kind: "text", key: "note", label: "Note", help: "Anything worth recording.", optional: true }]),
@@ -142,6 +177,35 @@ describe("resolveSetupState", () => {
     );
     expect(state.ready).toBe(true);
     expect(state.fields[0].satisfied).toBe(false);
+  });
+
+  it("stays ready when only an OPTIONAL account field is unanswered", () => {
+    // The shape the Square method now has: linked, anchored, and with a sweep
+    // destination nobody has filled in. It must still compute -- nothing reads
+    // that field yet, so blocking on it would cost a working account for
+    // nothing. (definitions.test.ts pins that the real declaration is optional.)
+    const state = resolveSetupState(
+      method([
+        connectionField,
+        operatorField,
+        {
+          kind: "account",
+          key: "sweepDestinationCoaId",
+          sections: ["bank"],
+          optional: true,
+          label: "Bank account",
+          help: "Where it goes.",
+        },
+      ]),
+      facts({
+        config: { connectionId: "conn-1" },
+        connectionsById: new Map([["conn-1", connection()]]),
+        operatorBalance: { asOfDate: "2026-07-31", cents: 100 },
+      }),
+    );
+    expect(state.fields[2].satisfied).toBe(false);
+    expect(state.ready).toBe(true);
+    expect(state.outstanding).toBeNull();
   });
 
   it("treats an empty string in config as unanswered", () => {

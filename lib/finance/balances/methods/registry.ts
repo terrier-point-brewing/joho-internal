@@ -151,6 +151,19 @@ export type SetupField =
    */
   | (SetupFieldBase & { kind: "operatorBalance" })
   | (SetupFieldBase & { kind: "select"; options: { value: string; label: string }[] })
+  /**
+   * Another general-ledger account this one relates to, stored as its coa id.
+   *
+   * Distinct from `select` because the options are not knowable when the method
+   * is written -- they are this business's own chart of accounts. `sections`
+   * narrows what may be picked to the statement sections that make sense (bank
+   * accounts for a sweep destination), so the field cannot be pointed at, say,
+   * an expense account.
+   *
+   * The first prerequisite here with nothing to do with an external service,
+   * and the reason setup is modelled as FIELDS rather than as connections.
+   */
+  | (SetupFieldBase & { kind: "account"; sections?: string[] })
   /** A plain number stored in config. `unit` drives how the input is formatted. */
   | (SetupFieldBase & { kind: "number"; unit?: "cents" | "months" | "percent" | "plain" })
   | (SetupFieldBase & { kind: "text" })
