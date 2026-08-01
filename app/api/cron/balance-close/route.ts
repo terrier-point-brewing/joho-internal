@@ -11,6 +11,10 @@
  *      row has since appeared (the manual-entries route also calls this
  *      immediately on write; this catches anything entered directly in the
  *      DB or between runs).
+ *   3b. recordSquareDrift    -- for any Square-derived account now closed,
+ *      log what the derivation predicted against what the operator actually
+ *      found. Re-anchoring silently absorbs its own errors; this is the only
+ *      record that it did.
  *   4. Alert -- one combined email for every task that has crossed its
  *      due_date - alert_lead_days threshold and hasn't been alerted yet.
  *   5. freezePeriod once the period is fully closed (every task completed/
@@ -35,6 +39,7 @@ import {
   dueDateForPeriod,
   readCloseConfig,
 } from "@/lib/finance/balances/closeTasks";
+import { recordSquareDrift, squareBalanceAccountIds } from "@/lib/finance/balances/squareDrift";
 import { renderBalanceCloseEmail } from "@/lib/finance/balances/alertEmail";
 import { sendEmail, ADMIN_EMAIL } from "@/lib/resend";
 import { todayLocalDate, addDaysStr } from "@/lib/utils/datetime";
@@ -62,6 +67,20 @@ export async function GET(req: NextRequest) {
     const tasksCreated = await ensureTasksForPeriod(supabase, periodEnd);
     const snapshot = await snapshotPeriod(supabase, periodEnd);
     const tasksClosed = await reconcileCloseTasks(supabase, periodEnd);
+
+    // Record what re-anchoring absorbed on any Square-derived account that has
+    // now been closed. Isolated from the rest of the run: this is an audit
+    // record, and losing it must never cost the freeze decision or the alert.
+    // It runs AFTER reconcileCloseTasks so a balance entered since the last run
+    // is already visible.
+    let driftsRecorded = 0;
+    try {
+      for (const coaId of await squareBalanceAccountIds(supabase)) {
+        if (await recordSquareDrift(supabase, coaId, periodEnd)) driftsRecorded++;
+      }
+    } catch (err) {
+      console.error("[balance-close] failed to record Square drift", { periodEnd, err });
+    }
 
     const tasks = await listTasksForPeriod(supabase, periodEnd);
 
@@ -116,6 +135,7 @@ export async function GET(req: NextRequest) {
       periodEnd,
       tasksCreated,
       tasksClosed,
+      driftsRecorded,
       alertsSent,
       frozen,
       snapshot,

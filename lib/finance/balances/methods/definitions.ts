@@ -196,6 +196,50 @@ const rampAccountBalance: BalanceMethod = {
   ],
 };
 
+/**
+ * GL 1040 Square Deposit Account.
+ *
+ * The opposite situation to Ramp above, and worth reading together. Ramp
+ * REPORTS a closing balance, so its method is one step and adding postings
+ * would double-count. Square publishes no balance at all, so its method has to
+ * build one -- and can only build the half Square actually reports.
+ *
+ * Two steps rather than three. The instinct -- and the pattern every other
+ * composite method here follows -- is to pair the inbound movement with a
+ * `transactionPostings` step so the settling side is never missing. That is
+ * wrong for this account specifically: 1040's section is "bank", and
+ * normalizeSign passes a bank-section cash direction through unchanged, so a
+ * sweep to the bank coded here would ADD to the balance it emptied. The outflow
+ * is absorbed by re-anchoring instead. See providers/squareBalance.ts.
+ */
+const squareStoredBalance: BalanceMethod = {
+  key: "squareStoredBalance",
+  label: "Square balance",
+  kind: "calculation",
+  summary: "Your last checked Square balance, plus everything Square has paid in since.",
+  appliesTo: isBank,
+  connectionProvider: "square",
+  requiresCloseEntry: true,
+  steps: [
+    {
+      providerKey: "squareBalanceAnchor",
+      label: "Last checked balance",
+      description:
+        "The balance someone read off Square and entered by hand, at the most recent month end up to this one. Square publishes no running balance of its own, so a figure a person has actually confirmed is the only solid starting point.",
+      source: "Manual entries",
+      direction: "add",
+    },
+    {
+      providerKey: "squarePayoutsSinceAnchor",
+      label: "Paid in by Square since then",
+      description:
+        "Everything Square has settled into the account since that checked figure, already after card processing fees and customer refunds. Money you moved out to your bank is not included, because Square does not report those transfers at all — that is what the month end check corrects.",
+      source: "Square payouts",
+      direction: "add",
+    },
+  ],
+};
+
 export const BUILT_IN_METHODS: BalanceMethod[] = [
   manualEntry,
   transactionPostings,
@@ -204,6 +248,7 @@ export const BUILT_IN_METHODS: BalanceMethod[] = [
   accountsReceivable,
   retainedEarnings,
   rampAccountBalance,
+  squareStoredBalance,
 ];
 
 for (const method of BUILT_IN_METHODS) registerMethod(method);
