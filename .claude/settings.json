@@ -4,5 +4,19 @@
     "opus",
     "haiku"
   ],
-  "disableClaudeAiConnectors": true
+  "disableClaudeAiConnectors": true,
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PROJECT_DIR:-.}/scripts/worktree-env.sh\"",
+            "timeout": 10,
+            "statusMessage": "Checking worktree .env.local…"
+          }
+        ]
+      }
+    ]
+  }
 }
