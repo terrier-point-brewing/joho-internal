@@ -76,18 +76,13 @@ export const FINANCE_SETTINGS_NAV: SettingsNavEntry[] = [
   // Expenses, Counterparties, Sales Tax. They were four names for one verb,
   // and the old "Account Mapping" label never said it meant revenue.
   { href: "/settings/finance/gl-mapping", label: "GL Mapping" },
+  // The single entry point for balance-sheet configuration. It absorbed the
+  // three per-integration screens that used to sit here ("Ramp Connection",
+  // "Square Connection", "Bank Connections"): connecting a service is now a
+  // panel opened from the account that needs it, so the workflow runs in the
+  // order an operator thinks in rather than in reverse across four screens.
+  // Adding a fourth integration adds no entry here.
   { href: "/settings/finance/balance-sheet-accounts", label: "Balance Sheet Accounts" },
-  // Ramp's balance setup flow. Plaid and Square each need their own, since
-  // running Plaid Link and capturing a Square anchor share nothing with picking
-  // a Ramp account — expect siblings here, and a consolidation once all three
-  // exist and their shape is known rather than guessed at.
-  { href: "/settings/finance/ramp-connection", label: "Ramp Connection" },
-  { href: "/settings/finance/square-connection", label: "Square Connection" },
-  // Plaid's, per the note above. Named for the bank rather than for Plaid,
-  // unlike its two siblings, because Plaid is the pipe and not where the money
-  // is -- the connection an operator makes here is to Chase. Worth settling one
-  // way or the other in the consolidation pass now that all three exist.
-  { href: "/settings/finance/bank-connections", label: "Bank Connections" },
   { href: "/settings/finance/backfill", label: "Backfill" },
 ];
 

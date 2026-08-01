@@ -4,10 +4,10 @@
  * active account whose source requires an operator figure and that lacks a
  * manual_entries balance row for that period_end.
  *
- * That set is `manualBalance` plus any method declaring requiresCloseEntry --
- * see requiresOperatorBalance. The second case is not hypothetical: the Square
- * balance method derives its own movement but still needs a person to re-anchor
- * it every month, because the outflow half of that account is observable in no
+ * That set is every method declaring an `operatorBalance` setup field -- see
+ * requiresOperatorBalance. It is not just manual entry: the Square balance
+ * method derives its own movement but still needs a person to re-anchor it
+ * every month, because the outflow half of that account is observable in no
  * feed at all.
  *
  * Mirrors lib/tax/tasks.ts's structure and idioms almost function-for-
@@ -25,7 +25,15 @@
 import type { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { resolveDueDate } from "@/lib/tax/dueDate";
 import { addDaysIso } from "@/lib/tax/period";
-import { getMethod } from "./methods/registry";
+// Side-effect registration, imported HERE rather than left to each caller.
+//
+// requiresOperatorBalance now asks the method registry instead of matching the
+// name "manualBalance", which is the right question but means an unpopulated
+// registry answers "no operator balances anywhere" -- and quietly creates zero
+// close tasks rather than failing. The old hard-coded name could not go wrong
+// that way, so this import is what replaces that safety.
+import "./methods";
+import { getMethod, requiresOperatorBalance as methodRequiresOperatorBalance } from "./methods/registry";
 
 type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
 
@@ -101,18 +109,19 @@ export async function readCloseConfig(supabase: AdminClient): Promise<CloseConfi
  * Whether a selected source needs a person to supply a figure before the period
  * can be called closed.
  *
- * "manualBalance" is matched by name because it predates the method layer and
- * appears in balance_sheet_account_sources as a bare provider key. Everything
- * else is asked of the method registry, so a method declaring
- * requiresCloseEntry gets a close task without this function learning its name.
+ * Asked entirely of the method declaration now: a method needs a close task
+ * exactly when it declares an `operatorBalance` setup field. This used to be a
+ * `requiresCloseEntry` flag PLUS a hard-coded check for the literal string
+ * "manualBalance" -- two extra ways of saying what the declaration already
+ * says, and two more places to update when a method needs a human figure.
  *
  * An unregistered key answers false rather than throwing: this runs first in
  * the close cron, and refusing to create ANY task because one source names
  * something unknown would be a worse failure than the unknown source itself.
  */
 export function requiresOperatorBalance(providerKey: string): boolean {
-  if (providerKey === "manualBalance") return true;
-  return getMethod(providerKey)?.requiresCloseEntry === true;
+  const method = getMethod(providerKey);
+  return method ? methodRequiresOperatorBalance(method) : false;
 }
 
 export async function ensureTasksForPeriod(supabase: AdminClient, periodEnd: string): Promise<number> {

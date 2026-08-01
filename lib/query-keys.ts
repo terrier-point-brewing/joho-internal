@@ -104,12 +104,11 @@ export const queryKeys = {
     balanceSources: () => ["finance", "balance-sources"] as const,
     /** Month-end close tasks + closed status for one period_end. */
     balanceClose: (periodEnd: string) => ["finance", "balance-close", periodEnd] as const,
-    /** Ramp treasury accounts available to connect (Settings > Finance > Ramp Connection). */
-    rampAccounts: () => ["finance", "ramp-accounts"] as const,
-    /** Square connection + per-account anchors (Settings > Finance > Square Connection). */
-    squareConnection: () => ["finance", "square-connection"] as const,
-    /** Integration connection rows (Settings > Finance > Bank Connections). */
-    balanceConnections: () => ["finance", "balance-connections"] as const,
+    // The three per-integration screens these keyed (Ramp Connection, Square
+    // Connection, Bank Connections) were folded into Balance Sheet Accounts.
+    // Setup now runs inside that screen's own panel and refetches
+    // `balanceSources`, which already carries connections and their state, so
+    // there is nothing separate left to cache.
   },
 
   // ─── Taproom ──────────────────────────────────────────────────────────────

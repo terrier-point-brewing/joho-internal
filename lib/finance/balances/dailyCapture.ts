@@ -31,7 +31,7 @@
 import type { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import type { DeclaredSource } from "./snapshot";
 import { fetchDeclaredSources } from "./snapshot";
-import { getMethod } from "./methods/registry";
+import { getMethod, connectionProviderOf } from "./methods/registry";
 import type { ConnectionProvider } from "./methods/registry";
 import {
   getConnectionWithSecrets,
@@ -78,7 +78,7 @@ export interface CaptureOutcome {
  * capture and therefore no way for the two lists to disagree.
  *
  * A source naming a bare provider key rather than a method is ignored. Only a
- * METHOD declares `connectionProvider`, and every integration source is written
+ * METHOD declares a connection field, and every integration source is written
  * as a method by the Settings screen; the legacy bare-key rows that
  * expandSources still tolerates all predate integrations entirely.
  */
@@ -86,7 +86,8 @@ export function planCaptures(declared: DeclaredSource[], provider: ConnectionPro
   const byConnection = new Map<string, string[]>();
 
   for (const source of declared) {
-    if (getMethod(source.providerKey)?.connectionProvider !== provider) continue;
+    const method = getMethod(source.providerKey);
+    if (!method || connectionProviderOf(method) !== provider) continue;
 
     const connectionId = source.config.connectionId;
     // Not yet linked to a connection. Nothing to read; the account already

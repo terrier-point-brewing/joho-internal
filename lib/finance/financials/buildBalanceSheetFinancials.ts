@@ -25,12 +25,11 @@ import { coaSection } from "./aggregateRows";
 import { buildKpis, buildDataQuality } from "./summaries";
 import { HREFS, coaAccountRefsOf } from "./statementCommon";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import {
-  fetchBalances,
-  fetchDeclaredSources,
-  expandSources,
-  resolveSnapshotWrites,
-} from "@/lib/finance/balances/snapshot";
+import { fetchBalances } from "@/lib/finance/balances/snapshot";
+// The open-month live compute now lives in the balances tree so the Settings
+// screen can show the SAME figure this statement does. It used to be a private
+// function here, which is why the two screens disagreed.
+import { computeLiveBalances } from "@/lib/finance/balances/liveBalances";
 // Side-effect import: registers every provider AND every method (the methods
 // barrel pulls in the providers barrel first) so the live open-month compute
 // below has something to resolve against.
@@ -46,39 +45,6 @@ const BS_SECTIONS: ReadonlySet<string> = new Set([
   "bank", "ar", "other_current_assets", "fixed_assets", "other_assets",
   "ap", "credit_card", "other_current_liabilities", "long_term_liabilities", "equity",
 ]);
-
-/**
- * Live-computes the CURRENT period's balances -- no write -- so a mid-month
- * page view never shows a stale or missing gl_account_balances row for the
- * still-open month.
- *
- * Shares expandSources and resolveSnapshotWrites with snapshotPeriod rather
- * than restating the loop. These two paths produce the number the user reads
- * on screen and the number that gets frozen into the close, and any drift
- * between them is invisible until a month rolls over and the figure silently
- * changes. One implementation is the only way that stays true.
- *
- * A failed account is dropped entirely instead of contributing a partial sum:
- * a missing row reads as unsourced, which is visibly wrong rather than
- * plausibly wrong.
- */
-async function computeLiveBalances(
-  supabase: ReturnType<typeof createSupabaseAdminClient>,
-  periodEnd: string,
-): Promise<Map<string, { balanceCents: number; contributions: Record<string, number> }>> {
-  const declared = await fetchDeclaredSources(supabase);
-  const { sources, results, failedAccounts } = await expandSources(supabase, periodEnd, declared);
-
-  const writes = resolveSnapshotWrites(
-    sources,
-    results,
-    new Map(), // nothing frozen for a live, unwritten compute
-  ).filter((w) => !failedAccounts.has(w.coaId));
-
-  const out = new Map<string, { balanceCents: number; contributions: Record<string, number> }>();
-  for (const w of writes) out.set(w.coaId, { balanceCents: w.balanceCents, contributions: w.contributions });
-  return out;
-}
 
 /** Every distinct balance-sheet-section CoA account with no active balance_sheet_account_sources row, for the Data Quality panel's unsourcedAccounts tile. */
 async function countUnsourcedAccounts(
@@ -115,11 +81,12 @@ export async function buildBalanceSheetFinancials(year: number): Promise<Financi
   const coaAccounts = coaAccountRefsOf(coa);
   const coaById = new Map(coa.map((c) => [c.id, c]));
 
-  const [liveContributions, unsourcedCount, exciseCoverage] = await Promise.all([
+  const [live, unsourcedCount, exciseCoverage] = await Promise.all([
     openMonth ? computeLiveBalances(supabase, monthEnd(`${openMonth}-01`)) : Promise.resolve(null),
     countUnsourcedAccounts(supabase, coaAccounts),
     fetchExciseCoverage(supabase, year),
   ]);
+  const liveContributions = live?.balances ?? null;
 
   const coaIds = new Set<string>(balances.keys());
   if (liveContributions) for (const id of liveContributions.keys()) coaIds.add(id);

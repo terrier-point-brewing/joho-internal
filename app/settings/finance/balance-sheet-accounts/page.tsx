@@ -1,28 +1,38 @@
 "use client";
-// Balance Sheet Accounts settings screen: declares which METHOD
-// (lib/finance/balances/methods/registry.ts) computes each balance-sheet
-// account's monthly balance. RULES ONLY -- no editable dollar value exists
-// anywhere on this screen. The "Current Balance" column is read-only, broken
-// out per step via gl_account_balances.contributions, so a balance is
-// explainable without leaving the page. A manual-entry account deep-links to
-// Finance > Transactions > Manual Entries instead of an inline dollar input:
-// Settings holds rules, Transactions holds values.
+// Balance Sheet Accounts: the ONE screen where a balance-sheet account is
+// configured, end to end.
 //
-// ── Methods, not raw calculations ────────────────────────────────────────────
-// The selector offers three things -- manual entry, transaction postings, or a
-// named calculation -- and a calculation is always COMPLETE. An accrual and the
-// postings that settle it are one choice, never two, because picking the
-// accrual alone produces a wrong balance silently. GL 2310 shipped in exactly
-// that state and read eight times its true liability.
+// ── The workflow, and why it is all here ─────────────────────────────────────
+// An operator thinks in three steps: pick an account, decide how it should be
+// worked out, then finish whatever that choice needs. Those three used to be
+// spread across four screens -- this one plus "Ramp Connection", "Square
+// Connection" and "Bank Connections" -- and had to be done in the reverse of
+// the order anyone would think of them, because a connection had to exist
+// before this screen would offer it. The picker here even said "set one up
+// first" without saying where. Those three screens are gone; step three now
+// happens in a panel opened from the row it belongs to.
 //
-// ── The explainer panel ──────────────────────────────────────────────────────
-// Every method can be opened before it is chosen, showing its steps in plain
-// English against this account's own figures. The copy is not written here: it
-// comes from the method declaration the engine actually runs, so the two cannot
-// drift apart. Nothing on this screen restates what a calculation does.
+// ── It is generic on purpose ─────────────────────────────────────────────────
+// Nothing in this file knows about Ramp, Plaid or Square. A method declares
+// what it still needs (lib/finance/balances/methods/registry.ts's SetupField)
+// and the panel renders it. A future calculation needing a rate and a date --
+// no external service at all -- gets the same three-step experience with no
+// change here.
 //
-// Gated on CAP.financeTransactionsManage via app/settings/finance/layout.tsx
-// (the whole /settings/finance/* group), same as every sibling page here.
+// ── Rules only. Dollar values live in Transactions ───────────────────────────
+// Still true, with one deliberate exception: an `operatorBalance` setup field
+// writes a manual_entries balance row, the same row Finance > Transactions >
+// Manual Entries writes. It is a shortcut to that store shown where it makes
+// sense, never a second copy of it.
+//
+// ── The two balances are different questions ─────────────────────────────────
+// "Last closed month" is the frozen snapshot. "Right now" is live-computed on
+// every load from the same code the balance sheet statement uses. They used to
+// be one column labelled "Current Balance" showing the snapshot, while the
+// statement showed the live figure -- the same account reading two ways on two
+// screens with nothing saying which was which.
+//
+// Gated on CAP.financeTransactionsManage via app/settings/finance/layout.tsx.
 
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -33,71 +43,8 @@ import Banner from "@/app/components/ui/Banner";
 import Card from "@/app/components/ui/Card";
 import Badge from "@/app/components/ui/Badge";
 import { Modal } from "@/app/components/ui/Modal";
-
-type MethodKind = "manual" | "postings" | "calculation";
-
-interface StepMeta {
-  key: string;
-  label: string;
-  description: string;
-  source: string;
-  direction: "add" | "subtract" | "net";
-}
-
-interface MethodMeta {
-  key: string;
-  label: string;
-  kind: MethodKind;
-  summary: string;
-  /** Set when the method reads an external service; drives the connection picker. */
-  connectionProvider: "ramp" | "plaid" | "square" | null;
-  steps: StepMeta[];
-}
-
-/** A configured external account, as offered in the picker. No secrets. */
-interface ConnectionOption {
-  id: string;
-  provider: string;
-  label: string;
-  status: string;
-}
-
-interface ConnectionMeta {
-  connected: boolean;
-  label: string;
-  lastSyncedAt?: string | null;
-  remedy?: string;
-}
-
-interface SourceEntry {
-  methodKey: string;
-  config: Record<string, unknown>;
-  active: boolean;
-  updatedAt: string;
-  connection: ConnectionMeta | null;
-}
-
-interface CurrentBalance {
-  periodEnd: string;
-  cents: number;
-  contributions: Record<string, number>;
-}
-
-interface AccountRow {
-  id: string;
-  accountName: string;
-  accountNumber: string | null;
-  statementSection: string | null;
-  sources: SourceEntry[];
-  availableMethodKeys: string[];
-  currentBalance: CurrentBalance | null;
-}
-
-interface BalanceSourcesResponse {
-  accounts: AccountRow[];
-  methods: MethodMeta[];
-  connections: ConnectionOption[];
-}
+import MethodSetupPanel from "./MethodSetupPanel";
+import type { AccountRow, BalanceSourcesResponse, MethodKind, MethodMeta, SourceEntry } from "./types";
 
 const MANUAL_ENTRIES_HREF = "/finance/transactions/manual-entries";
 
@@ -107,7 +54,7 @@ const KIND_LABEL: Record<MethodKind, string> = {
   calculation: "Calculation",
 };
 
-const DIRECTION_PREFIX: Record<StepMeta["direction"], string> = {
+const DIRECTION_PREFIX: Record<"add" | "subtract" | "net", string> = {
   add: "+",
   subtract: "−",
   net: "±",
@@ -142,8 +89,13 @@ function accountLabel(a: AccountRow): string {
 
 /**
  * "How is this calculated?" -- the method's declared steps, shown against this
- * account's real contributions where a snapshot exists so the arithmetic is
- * checkable rather than abstract.
+ * account's real figures where they exist so the arithmetic is checkable rather
+ * than abstract.
+ *
+ * Step LABELS, never step keys. The figures column on the main table used to
+ * print the raw key ("squarePayoutsSinceAnchor: $4,268.28"), which is a code
+ * identifier in the one place a bookkeeper is meant to be able to read a
+ * balance.
  */
 function MethodExplainer({
   method,
@@ -154,7 +106,8 @@ function MethodExplainer({
   account: AccountRow | null;
   onClose: () => void;
 }) {
-  const contributions = account?.currentBalance?.contributions ?? {};
+  const figure = account?.liveBalance ?? account?.currentBalance ?? null;
+  const contributions = figure?.contributions ?? {};
   const hasFigures = Object.keys(contributions).length > 0;
 
   return (
@@ -187,12 +140,12 @@ function MethodExplainer({
           ))}
         </div>
 
-        {hasFigures && account?.currentBalance && (
+        {hasFigures && (
           <div className="flex items-center justify-between border-t border-line pt-3">
-            <span className="text-xs text-body">Balance at {account.currentBalance.periodEnd}</span>
-            <span className="font-mono text-sm tabular-nums text-strong">
-              {formatCurrencyCents(account.currentBalance.cents)}
+            <span className="text-xs text-body">
+              {account?.liveBalance ? "Balance right now" : `Balance at ${account?.currentBalance?.periodEnd}`}
             </span>
+            <span className="font-mono text-sm tabular-nums text-strong">{formatCurrencyCents(figure!.cents)}</span>
           </div>
         )}
 
@@ -207,7 +160,7 @@ function MethodExplainer({
 
         {!hasFigures && (
           <p className="text-2xs text-faint">
-            No snapshot for this account yet, so there are no figures to show against the steps.
+            No figures for this account yet, so there is nothing to show against the steps.
           </p>
         )}
       </div>
@@ -215,73 +168,91 @@ function MethodExplainer({
   );
 }
 
-/**
- * Links a source to one of the configured external accounts, writing the choice
- * to `config.connectionId`.
- *
- * This lives in the shared Settings screen rather than in each integration
- * because all three need it identically, and three branches editing this file
- * would collide. Creating a connection is still each integration's own job --
- * picking a Ramp treasury account, running Plaid Link, entering a Square
- * anchor. This only attaches an existing one to a GL account.
- */
-function ConnectionPicker({
-  options,
-  value,
-  disabled,
-  onChange,
+/** One configured method on an account, with its state and its actions. */
+function SourceRow({
+  account,
+  source,
+  method,
+  saving,
+  onExplain,
+  onSetUp,
+  onToggle,
+  onRemove,
 }: {
-  options: ConnectionOption[];
-  value: string;
-  disabled: boolean;
-  onChange: (id: string) => void;
+  account: AccountRow;
+  source: SourceEntry;
+  method: MethodMeta | undefined;
+  saving: boolean;
+  onExplain: () => void;
+  onSetUp: () => void;
+  onToggle: () => void;
+  onRemove: () => void;
 }) {
-  if (options.length === 0) {
-    return (
-      <span className="text-2xs text-faint">
-        No account connected for this integration yet — set one up first.
-      </span>
-    );
-  }
-  return (
-    <select
-      value={value}
-      disabled={disabled}
-      onChange={(e) => onChange(e.target.value)}
-      className="inp-sm w-auto"
-    >
-      <option value="">— link an account —</option>
-      {options.map((c) => (
-        <option key={c.id} value={c.id}>
-          {c.label}
-          {c.status === "active" ? "" : ` (${c.status.replace("_", " ")})`}
-        </option>
-      ))}
-    </select>
-  );
-}
+  const needsSetup = (method?.setup.length ?? 0) > 0;
+  const ready = source.setup?.ready ?? true;
 
-/** Connection state for an integration-backed source, or nothing for the rest. */
-function ConnectionLine({ connection }: { connection: ConnectionMeta }) {
+  // Three states, not two. "Off" is a deliberate choice; "Needs setup" is
+  // unfinished work; "Calculating" is done. Collapsing the last two is what let
+  // an account with an active source produce nothing while looking configured.
+  // "info", not "danger": an unfinished setup is work outstanding, not a fault.
+  const tone = !source.active ? "neutral" : ready ? "success" : "info";
+  const label = !source.active ? "Off" : ready ? "Calculating" : "Needs setup";
+
   return (
-    <span className="text-2xs text-faint">
-      {connection.label}
-      {connection.connected && connection.lastSyncedAt
-        ? ` · synced ${connection.lastSyncedAt.slice(0, 10)}`
-        : connection.remedy
-          ? ` · ${connection.remedy}`
-          : ""}
-    </span>
+    <div className="flex flex-col gap-1">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-xs text-body">{method?.label ?? source.methodKey}</span>
+        <Badge tone={tone}>{label}</Badge>
+
+        {needsSetup && (
+          <button type="button" onClick={onSetUp} className={ready ? "btn-secondary btn-xxs" : "btn-primary btn-xxs"}>
+            {ready ? "Settings" : "Finish setup"}
+          </button>
+        )}
+        {method && (
+          <button type="button" onClick={onExplain} className="btn-secondary btn-xxs">
+            How is this calculated?
+          </button>
+        )}
+        <button type="button" onClick={onToggle} disabled={saving} className="btn-secondary btn-xxs">
+          {source.active ? "Disable" : "Enable"}
+        </button>
+        <button type="button" onClick={onRemove} disabled={saving} className="btn-danger btn-xxs">
+          Remove
+        </button>
+        {source.methodKey === "manualBalance" && (
+          <a href={MANUAL_ENTRIES_HREF} className="btn-secondary btn-xxs">
+            All manual entries →
+          </a>
+        )}
+        {saving && <span className="text-2xs text-faint animate-pulse">saving…</span>}
+      </div>
+
+      {/* One sentence naming the next thing to do, on the row itself, so the
+          panel does not have to be opened to find out whether it is needed. */}
+      {source.active && !ready && source.setup?.outstanding && (
+        <span className="text-2xs text-info">{source.setup.outstanding}</span>
+      )}
+      {source.active && ready && source.connection?.lastSyncedAt && (
+        <span className="text-2xs text-faint">
+          {source.connection.label} · read {source.connection.lastSyncedAt.slice(0, 10)}
+        </span>
+      )}
+      {account.liveError && source.active && <span className="text-2xs text-danger">{account.liveError}</span>}
+    </div>
   );
 }
 
 export default function BalanceSheetAccountsPage() {
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [savingKey, setSavingKey] = useState<string | null>(null);
+  const [recomputing, setRecomputing] = useState(false);
   const [pendingKind, setPendingKind] = useState<Record<string, MethodKind | "">>({});
   const [pendingMethod, setPendingMethod] = useState<Record<string, string>>({});
   const [explaining, setExplaining] = useState<{ methodKey: string; accountId: string | null } | null>(null);
+  const [settingUp, setSettingUp] = useState<{ accountId: string; methodKey: string } | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: queryKeys.finance.balanceSources(),
@@ -289,8 +260,8 @@ export default function BalanceSheetAccountsPage() {
   });
 
   const methods = data?.methods ?? [];
+  const accounts = data?.accounts ?? [];
   const methodOf = (key: string) => methods.find((m) => m.key === key);
-  const methodLabel = (key: string) => methodOf(key)?.label ?? key;
 
   async function refresh() {
     await queryClient.invalidateQueries({ queryKey: queryKeys.finance.balanceSources() });
@@ -302,10 +273,16 @@ export default function BalanceSheetAccountsPage() {
     if (!kind) return null;
     if (kind === "calculation") return pendingMethod[account.id] || null;
     // Manual and postings each have exactly one method, so the kind IS the choice.
-    const match = methods.find((m) => m.kind === kind && account.availableMethodKeys.includes(m.key));
-    return match?.key ?? null;
+    return methods.find((m) => m.kind === kind && account.availableMethodKeys.includes(m.key))?.key ?? null;
   }
 
+  /**
+   * Adding a method opens its setup immediately when it needs any.
+   *
+   * This is the whole point of the refactor: choosing a calculation and
+   * finishing what it needs are one continuous act, not two screens and a
+   * guess about which one to visit next.
+   */
   async function handleAdd(account: AccountRow) {
     const methodKey = chosenMethodKey(account);
     if (!methodKey) return;
@@ -316,6 +293,9 @@ export default function BalanceSheetAccountsPage() {
       setPendingKind((p) => ({ ...p, [account.id]: "" }));
       setPendingMethod((p) => ({ ...p, [account.id]: "" }));
       await refresh();
+      if ((methodOf(methodKey)?.setup.length ?? 0) > 0) {
+        setSettingUp({ accountId: account.id, methodKey });
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not add that source.");
     } finally {
@@ -323,75 +303,95 @@ export default function BalanceSheetAccountsPage() {
     }
   }
 
-  async function handleToggleActive(account: AccountRow, source: SourceEntry) {
-    const key = `${account.id}:${source.methodKey}`;
-    setSavingKey(key);
+  async function mutateSource(account: AccountRow, source: SourceEntry, run: () => Promise<void>, failure: string) {
+    setSavingKey(`${account.id}:${source.methodKey}`);
     setError(null);
     try {
-      await putSource(account.id, source.methodKey, { active: !source.active });
+      await run();
       await refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not update that source.");
+      setError(err instanceof Error ? err.message : failure);
     } finally {
       setSavingKey(null);
     }
   }
 
-  async function handleLinkConnection(account: AccountRow, source: SourceEntry, connectionId: string) {
-    const key = `${account.id}:${source.methodKey}`;
-    setSavingKey(key);
+  /**
+   * Recomputes and stores the last CLOSED month.
+   *
+   * The open month needs no button -- it is worked out fresh on every load of
+   * this screen and of the balance sheet. What could not be done before was
+   * making a finished month pick up a source configured after its snapshot ran,
+   * which meant waiting until 09:00 the next day to find out whether the setup
+   * had worked at all.
+   */
+  async function handleRecompute() {
+    setRecomputing(true);
     setError(null);
+    setNotice(null);
     try {
-      // Merge rather than replace: the route stores config wholesale, so
-      // dropping the rest of it here would quietly discard provider settings a
-      // future integration keeps alongside connectionId.
-      await putSource(account.id, source.methodKey, {
-        config: { ...source.config, connectionId: connectionId || undefined },
-      });
+      const res = await fetch("/api/finance/balance-sources/recompute", { method: "POST" });
+      const json = (await res.json().catch(() => ({}))) as {
+        periodEnd?: string;
+        written?: number;
+        skipped?: number;
+        errors?: string[];
+        error?: string;
+      };
+      if (!res.ok) throw new Error(json.error ?? "Could not recompute.");
       await refresh();
+      // Errors are reported alongside the count rather than instead of it:
+      // some accounts having succeeded is the normal partial outcome.
+      setNotice(
+        `Recomputed ${json.periodEnd}: ${json.written ?? 0} accounts written, ${json.skipped ?? 0} with nothing to report.` +
+          (json.errors?.length ? ` ${json.errors.length} failed — ${json.errors[0]}` : ""),
+      );
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not link that account.");
+      setError(err instanceof Error ? err.message : "Could not recompute.");
     } finally {
-      setSavingKey(null);
+      setRecomputing(false);
     }
   }
 
-  async function handleRemove(account: AccountRow, source: SourceEntry) {
-    const key = `${account.id}:${source.methodKey}`;
-    setSavingKey(key);
-    setError(null);
-    try {
-      await deleteSource(account.id, source.methodKey);
-      await refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not remove that source.");
-    } finally {
-      setSavingKey(null);
-    }
-  }
+  // Counted off READINESS, not off "a row exists". The old header counted rows
+  // and reported twelve configured accounts when two of them had no connection
+  // and no way to get one.
+  const calculating = accounts.filter((a) => a.sources.some((s) => s.active && (s.setup?.ready ?? true))).length;
+  const unfinished = accounts.filter((a) =>
+    a.sources.some((s) => s.active && s.setup && !s.setup.ready),
+  ).length;
 
-  const accounts = data?.accounts ?? [];
-  const sourcedCount = accounts.filter((a) => a.sources.some((s) => s.active)).length;
   const explainingMethod = explaining ? methodOf(explaining.methodKey) : undefined;
   const explainingAccount = explaining?.accountId
     ? (accounts.find((a) => a.id === explaining.accountId) ?? null)
     : null;
 
+  const setupAccount = settingUp ? (accounts.find((a) => a.id === settingUp.accountId) ?? null) : null;
+  const setupSource = setupAccount?.sources.find((s) => s.methodKey === settingUp?.methodKey) ?? null;
+  const setupMethod = settingUp ? methodOf(settingUp.methodKey) : undefined;
+
   return (
     <>
-      <div className="shrink-0 px-4 sm:px-6 pt-4 pb-2">
-        <p className="text-sm text-muted">
-          {accounts.length > 0
-            ? `${sourcedCount} of ${accounts.length} balance-sheet accounts have an active source`
-            : "Balance-sheet accounts appear here once the chart of accounts is mapped."}
-        </p>
-        <p className="text-2xs text-faint mt-1">
-          Rules only — declares how each account&apos;s monthly balance is worked out. Open any method to see its
-          steps in plain English before choosing it. Dollar values live in Finance → Transactions, never here.
-        </p>
+      <div className="shrink-0 px-4 sm:px-6 pt-4 pb-2 flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <p className="text-sm text-muted">
+            {accounts.length > 0
+              ? `${calculating} of ${accounts.length} balance-sheet accounts are calculating` +
+                (unfinished > 0 ? ` · ${unfinished} chosen but not finished` : "")
+              : "Balance-sheet accounts appear here once the chart of accounts is mapped."}
+          </p>
+          <p className="text-2xs text-faint mt-1">
+            Pick how each account is worked out, then finish whatever that choice needs — all on this screen. Dollar
+            values live in Finance → Transactions.
+          </p>
+        </div>
+        <button type="button" className="btn-secondary btn-xxs" disabled={recomputing} onClick={handleRecompute}>
+          {recomputing ? "Recomputing…" : "Recompute last month"}
+        </button>
       </div>
 
       {error && <Banner className="mx-4 sm:mx-6 my-2">{error}</Banner>}
+      {notice && <Banner tone="success" className="mx-4 sm:mx-6 my-2">{notice}</Banner>}
 
       {isLoading ? (
         <div className="flex-1 flex items-center justify-center"><p className="text-xs text-muted">Loading…</p></div>
@@ -410,7 +410,8 @@ export default function BalanceSheetAccountsPage() {
                 <tr className="border-b border-line">
                   <th className="px-4 py-2 text-left text-muted font-medium">Account</th>
                   <th className="px-4 py-2 text-left text-muted font-medium">How it is calculated</th>
-                  <th className="px-4 py-2 text-left text-muted font-medium">Current Balance</th>
+                  <th className="px-4 py-2 text-right text-muted font-medium">Right now</th>
+                  <th className="px-4 py-2 text-right text-muted font-medium">Last closed month</th>
                 </tr>
               </thead>
               <tbody>
@@ -435,68 +436,33 @@ export default function BalanceSheetAccountsPage() {
                           {account.sources.length === 0 && (
                             <span className="text-2xs text-faint italic">No method configured</span>
                           )}
-                          {account.sources.map((source) => {
-                            const key = `${account.id}:${source.methodKey}`;
-                            return (
-                              <div key={source.methodKey} className="flex flex-col gap-1">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <Badge tone={source.active ? "success" : "neutral"}>
-                                    {methodLabel(source.methodKey)}
-                                  </Badge>
-                                  {methodOf(source.methodKey) && (
-                                    <button
-                                      type="button"
-                                      onClick={() => setExplaining({ methodKey: source.methodKey, accountId: account.id })}
-                                      className="btn-secondary btn-xxs"
-                                    >
-                                      How is this calculated?
-                                    </button>
-                                  )}
-                                  <button
-                                    type="button"
-                                    onClick={() => handleToggleActive(account, source)}
-                                    disabled={savingKey === key}
-                                    className="btn-secondary btn-xxs"
-                                  >
-                                    {source.active ? "Disable" : "Enable"}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleRemove(account, source)}
-                                    disabled={savingKey === key}
-                                    className="btn-danger btn-xxs"
-                                  >
-                                    Remove
-                                  </button>
-                                  {source.methodKey === "manualBalance" && (
-                                    <a href={MANUAL_ENTRIES_HREF} className="btn-secondary btn-xxs">
-                                      Enter value in Manual Entries →
-                                    </a>
-                                  )}
-                                  {savingKey === key && (
-                                    <span className="text-2xs text-faint animate-pulse">saving…</span>
-                                  )}
-                                </div>
-                                {source.connection && (
-                                  <div className="flex items-center gap-2 flex-wrap">
-                                    <ConnectionPicker
-                                      options={(data?.connections ?? []).filter(
-                                        (c) => c.provider === methodOf(source.methodKey)?.connectionProvider,
-                                      )}
-                                      value={
-                                        typeof source.config.connectionId === "string"
-                                          ? source.config.connectionId
-                                          : ""
-                                      }
-                                      disabled={savingKey === key}
-                                      onChange={(id) => handleLinkConnection(account, source, id)}
-                                    />
-                                    <ConnectionLine connection={source.connection} />
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
+                          {account.sources.map((source) => (
+                            <SourceRow
+                              key={source.methodKey}
+                              account={account}
+                              source={source}
+                              method={methodOf(source.methodKey)}
+                              saving={savingKey === `${account.id}:${source.methodKey}`}
+                              onExplain={() => setExplaining({ methodKey: source.methodKey, accountId: account.id })}
+                              onSetUp={() => setSettingUp({ accountId: account.id, methodKey: source.methodKey })}
+                              onToggle={() =>
+                                mutateSource(
+                                  account,
+                                  source,
+                                  () => putSource(account.id, source.methodKey, { active: !source.active }),
+                                  "Could not update that source.",
+                                )
+                              }
+                              onRemove={() =>
+                                mutateSource(
+                                  account,
+                                  source,
+                                  () => deleteSource(account.id, source.methodKey),
+                                  "Could not remove that source.",
+                                )
+                              }
+                            />
+                          ))}
 
                           {addableKinds.length > 0 && (
                             <div className="flex items-center gap-2 flex-wrap">
@@ -517,16 +483,14 @@ export default function BalanceSheetAccountsPage() {
                               {kind === "calculation" && (
                                 <select
                                   value={pendingMethod[account.id] ?? ""}
-                                  onChange={(e) =>
-                                    setPendingMethod((p) => ({ ...p, [account.id]: e.target.value }))
-                                  }
+                                  onChange={(e) => setPendingMethod((p) => ({ ...p, [account.id]: e.target.value }))}
                                   className="inp-sm w-auto"
                                 >
                                   <option value="">— which calculation —</option>
                                   {addable
                                     .filter((key) => methodOf(key)?.kind === "calculation")
                                     .map((key) => (
-                                      <option key={key} value={key}>{methodLabel(key)}</option>
+                                      <option key={key} value={key}>{methodOf(key)?.label ?? key}</option>
                                     ))}
                                 </select>
                               )}
@@ -553,18 +517,23 @@ export default function BalanceSheetAccountsPage() {
                         </div>
                       </td>
 
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3 text-right">
+                        {account.liveBalance ? (
+                          <span className="font-mono text-sm tabular-nums text-strong">
+                            {formatCurrencyCents(account.liveBalance.cents)}
+                          </span>
+                        ) : (
+                          <span className="text-2xs text-faint">—</span>
+                        )}
+                      </td>
+
+                      <td className="px-4 py-3 text-right">
                         {account.currentBalance ? (
-                          <div className="flex flex-col gap-0.5">
-                            <span className="font-mono text-sm tabular-nums text-strong">
+                          <div className="flex flex-col gap-0.5 items-end">
+                            <span className="font-mono text-sm tabular-nums text-body">
                               {formatCurrencyCents(account.currentBalance.cents)}
                             </span>
-                            <span className="text-2xs text-faint">as of {account.currentBalance.periodEnd}</span>
-                            {Object.entries(account.currentBalance.contributions).map(([stepKey, cents]) => (
-                              <span key={stepKey} className="text-2xs text-muted">
-                                {stepKey}: {formatCurrencyCents(cents)}
-                              </span>
-                            ))}
+                            <span className="text-2xs text-faint">{account.currentBalance.periodEnd}</span>
                           </div>
                         ) : (
                           <span className="text-2xs text-faint">No snapshot yet</span>
@@ -579,20 +548,27 @@ export default function BalanceSheetAccountsPage() {
 
           <Card padding="p-3" className="mt-3">
             <p className="text-2xs text-faint">
-              Current Balance is read-only, computed by the monthly snapshot job (or live for the current,
-              still-open month) — it can never be edited here. To correct a manually-entered account&apos;s balance,
-              use <a href={MANUAL_ENTRIES_HREF} className="text-accent hover:text-accent-soft">Manual Entries</a>{" "}
-              instead.
+              &ldquo;Right now&rdquo; is worked out fresh every time this page loads, for the month still in progress —
+              it is never stored. &ldquo;Last closed month&rdquo; is the saved snapshot, and is what the balance sheet
+              reports for a finished month. Neither can be edited here; to correct a manually-entered figure use{" "}
+              <a href={MANUAL_ENTRIES_HREF} className="text-accent hover:text-accent-soft">Manual Entries</a>.
             </p>
           </Card>
         </div>
       )}
 
       {explaining && explainingMethod && (
-        <MethodExplainer
-          method={explainingMethod}
-          account={explainingAccount}
-          onClose={() => setExplaining(null)}
+        <MethodExplainer method={explainingMethod} account={explainingAccount} onClose={() => setExplaining(null)} />
+      )}
+
+      {settingUp && setupMethod && setupAccount && setupSource && (
+        <MethodSetupPanel
+          method={setupMethod}
+          account={setupAccount}
+          source={setupSource}
+          providers={data?.providers ?? {}}
+          onRefresh={refresh}
+          onClose={() => setSettingUp(null)}
         />
       )}
     </>

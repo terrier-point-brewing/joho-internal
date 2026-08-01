@@ -124,6 +124,68 @@ describe("explainer copy is readable by a non-technical operator", () => {
       expect(titled, `${m.key} label "${m.label}" looks title cased`).toEqual([]);
     }
   });
+
+  /**
+   * Setup copy is held to the same standard as step copy, and for a stronger
+   * reason: a step description is read by someone checking a number they already
+   * have, while this is read by someone who is STUCK. It is the sentence that
+   * has to explain why an account is blank.
+   */
+  it("every setup field has a full-sentence explanation in plain English", () => {
+    const allFields = listMethods().flatMap((m) => (m.setup ?? []).map((f) => ({ method: m.key, field: f })));
+    const providerKeys = listMethods().flatMap((m) => m.steps.map((s) => s.providerKey));
+
+    for (const { method, field } of allFields) {
+      const id = `${method}.${field.key}`;
+      expect(field.label.length, `${id} label`).toBeGreaterThan(3);
+      expect(field.help.length, `${id} help`).toBeGreaterThan(40);
+      expect(field.help.endsWith("."), `${id} help must end in a period`).toBe(true);
+
+      const prose = `${field.label} ${field.help}`;
+      expect(prose, `${id} contains a snake_case identifier`).not.toMatch(/[a-z]+_[a-z]+/);
+      expect(prose, `${id} contains a code call`).not.toMatch(/\(\)|=>|\{|\}/);
+      for (const key of providerKeys) {
+        expect(prose.includes(key), `${id} names the provider key "${key}" in prose`).toBe(false);
+      }
+    }
+  });
+});
+
+describe("setup declarations", () => {
+  it("declares a connect flow on every connection field", () => {
+    // Without it the panel cannot tell "ask the server for a list" from "send
+    // the operator to sign in", and would either fetch with no credential or
+    // wait for a handshake that never comes.
+    for (const m of listMethods()) {
+      for (const field of m.setup ?? []) {
+        if (field.kind === "connection") {
+          expect(["discover", "authorize"], `${m.key}.${field.key}`).toContain(field.connect);
+        }
+      }
+    }
+  });
+
+  it("stores every connection under the key the resolver actually reads", () => {
+    // resolveConnection, planCaptures and the health line all read
+    // config.connectionId by name. A field storing it anywhere else would
+    // configure an account that then computes nothing, with no error anywhere.
+    for (const m of listMethods()) {
+      for (const field of m.setup ?? []) {
+        if (field.kind === "connection") expect(field.key, m.key).toBe("connectionId");
+      }
+    }
+  });
+
+  it("is what decides whether an account raises a month-end close task", () => {
+    // The rule closeTasks.ts now applies. Manual entry and the Square balance
+    // both need a human figure; nothing else does, and a method gaining one by
+    // accident would start emailing about an account nobody has to touch.
+    const needing = listMethods()
+      .filter((m) => (m.setup ?? []).some((f) => f.kind === "operatorBalance"))
+      .map((m) => m.key)
+      .sort();
+    expect(needing).toEqual(["manualBalance", "squareStoredBalance"]);
+  });
 });
 
 describe("parity with the frozen production capture", () => {
