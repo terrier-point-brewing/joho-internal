@@ -129,6 +129,20 @@ export interface LinkTokenResult {
  * `redirectUri` must be supplied for OAuth institutions (Chase is one) and must
  * exactly match a URI registered in the Plaid dashboard. Omitted when unset so
  * a sandbox developer is not forced to register one.
+ *
+ * ── `days_requested` is set HERE or not at all ───────────────────────────────
+ * How much transaction history Plaid pulls is decided when the Item is created,
+ * and it defaults to 90 days. Linking Chase without this and then discovering
+ * later that a year of history was wanted means the history simply is not
+ * there -- the same shape of loss as the balance feed, where a month with no
+ * capture can never be filled in.
+ *
+ * 730 is Plaid's maximum. It costs nothing extra to ask for and the bank
+ * supplies whatever it actually holds, so asking for the maximum is the only
+ * choice that cannot be regretted. It matters for GL 1040 specifically: the
+ * Square sweeps are identifiable only from this account's transactions (see
+ * balances/squareSweeps.ts), so the history depth here bounds how far back that
+ * account's drift can ever be explained.
  */
 export async function createLinkToken(clientUserId: string): Promise<LinkTokenResult> {
   const redirectUri = env.plaidRedirectUri();
@@ -137,6 +151,7 @@ export async function createLinkToken(clientUserId: string): Promise<LinkTokenRe
     user: { client_user_id: clientUserId },
     client_name: "Terrier Point",
     products: ["transactions"],
+    transactions: { days_requested: 730 },
     country_codes: ["US"],
     language: "en",
     ...(redirectUri ? { redirect_uri: redirectUri } : {}),

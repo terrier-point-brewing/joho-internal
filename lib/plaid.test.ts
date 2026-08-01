@@ -120,6 +120,22 @@ describe("createLinkToken", () => {
     });
   });
 
+  it("asks for the maximum transaction history, because this cannot be redone later", () => {
+    // Plaid decides how far back to pull when the ITEM is created, and defaults
+    // to 90 days. Linking without this and wanting a year afterwards means the
+    // history is simply not there -- the same irreversible loss as a missed
+    // daily balance capture. 730 is Plaid's maximum, costs nothing extra, and
+    // the bank supplies whatever it actually holds.
+    //
+    // It bounds GL 1040 too: the Square sweeps are identifiable only from this
+    // account's transactions, so this number is how far back that account's
+    // drift can ever be explained.
+    const calls = stubFetch([{ ok: true, body: { link_token: "l", expiration: "e" } }]);
+    return createLinkToken("user-1").then(() => {
+      expect(calls[0].body.transactions).toEqual({ days_requested: 730 });
+    });
+  });
+
   it("omits redirect_uri when none is configured", async () => {
     const calls = stubFetch([{ ok: true, body: { link_token: "l", expiration: "e" } }]);
     await createLinkToken("user-1");
