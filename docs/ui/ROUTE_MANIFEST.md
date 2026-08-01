@@ -54,7 +54,7 @@ Every group layout is `requirePage(cap)` + `<SettingsGroupShell nav={…}>`.
 | `app/settings/environment/users/UserManagement.tsx` | C | **content** | User table + create/set-password modals. |
 | `app/settings/environment/requests/AccessRequests.tsx` | C | **content** | Access-request review table. |
 | `app/settings/environment/cron/CronMonitor.tsx` | C | **content** | Cron job run log. |
-| `app/settings/finance/**` | S | `finance.transactions:manage` | CoA, Account Mapping, Expense Accounts, Counterparty Accounts. |
+| `app/settings/finance/**` | S | `finance.transactions:manage` | Chart of Accounts, GL Mapping (Revenue/Expenses/Counterparties/Sales Tax), Balance Sheet Accounts, the three connection screens, Backfill. |
 | `app/settings/payroll/**` | S | `payroll:manage` | Payroll config, Departments. |
 | `app/settings/tax/**` | S | per-subtab | Tax Profile (`finance.tax`), Tax Filing (`finance.tax.filing`). |
 | `app/settings/production/**` | S | `production.settings:manage` | Deposit Settings, Export Settings. |

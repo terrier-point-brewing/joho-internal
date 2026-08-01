@@ -68,11 +68,14 @@ export const ENVIRONMENT_SETTINGS_NAV: SettingsNavEntry[] = [
 ];
 
 export const FINANCE_SETTINGS_NAV: SettingsNavEntry[] = [
+  // The accounts themselves, then the two things done with them: coding an
+  // external record to one (GL Mapping) and deciding how an account's own
+  // balance is computed (Balance Sheet Accounts).
   { href: "/settings/finance/chart-of-accounts", label: "Chart of Accounts" },
-  { href: "/settings/finance/account-mapping", label: "Account Mapping" },
-  { href: "/settings/finance/expense-accounts", label: "Expense Accounts" },
-  { href: "/settings/finance/counterparty-accounts", label: "Counterparty Accounts" },
-  { href: "/settings/finance/sales-tax-accounts", label: "Sales Tax Accounts" },
+  // Four sub-tabs collapsed into one screen with inner tabs -- Revenue,
+  // Expenses, Counterparties, Sales Tax. They were four names for one verb,
+  // and the old "Account Mapping" label never said it meant revenue.
+  { href: "/settings/finance/gl-mapping", label: "GL Mapping" },
   { href: "/settings/finance/balance-sheet-accounts", label: "Balance Sheet Accounts" },
   // Ramp's balance setup flow. Plaid and Square each need their own, since
   // running Plaid Link and capturing a Square anchor share nothing with picking

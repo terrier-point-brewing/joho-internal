@@ -11,36 +11,16 @@
  */
 
 import { normalizeStatus } from "@/lib/finance/classify";
+import { parseCsvRows } from "@/lib/finance/csv";
 import type { InvoiceImportPayload } from "@/types/finance";
 
-// ── Simple CSV parser ─────────────────────────────────────────────────────────
+// ── Header/body split ─────────────────────────────────────────────────────────
 
+// Tokenizing moved to lib/finance/csv.ts, shared with the chart-of-accounts
+// import. Behaviour here is unchanged except that a quoted field may now span
+// a line break -- the old line-at-a-time loop could not see past a newline.
 function parseCSV(text: string): { headers: string[]; rows: string[][] } {
-  const lines = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
-  const result: string[][] = [];
-
-  for (const line of lines) {
-    if (!line.trim()) continue;
-    const row: string[] = [];
-    let current = "";
-    let inQuote = false;
-
-    for (let i = 0; i < line.length; i++) {
-      const ch = line[i];
-      if (ch === '"') {
-        if (inQuote && line[i + 1] === '"') { current += '"'; i++; }
-        else                                 { inQuote = !inQuote; }
-      } else if (ch === "," && !inQuote) {
-        row.push(current.trim());
-        current = "";
-      } else {
-        current += ch;
-      }
-    }
-    row.push(current.trim());
-    result.push(row);
-  }
-
+  const result = parseCsvRows(text);
   if (result.length === 0) return { headers: [], rows: [] };
   return { headers: result[0], rows: result.slice(1) };
 }

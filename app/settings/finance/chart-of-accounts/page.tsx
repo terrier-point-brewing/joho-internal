@@ -1,7 +1,8 @@
 "use client";
-import { useState, useCallback, useEffect } from "react";
+import { Fragment, useState, useCallback, useEffect } from "react";
 import TabBar, { type TabDef } from "@/app/components/TabBar";
-import { ACCOUNT_TYPE_SECTION } from "@/lib/finance/accountSections";
+import { ACCOUNT_TYPE_SECTION, type StatementSection } from "@/lib/finance/accountSections";
+import { parseCoaCsv, type ParsedCoaRow } from "@/lib/finance/coaCsv";
 import ConfirmDialog from "@/app/components/ui/ConfirmDialog";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -24,11 +25,10 @@ const ACCOUNT_TYPES = [
   "Other Expense",
 ];
 
-type SectionKey =
-  | "revenue" | "other_income" | "cogs" | "expenses" | "other_expense"
-  | "bank" | "ar" | "other_current_assets" | "fixed_assets" | "other_assets"
-  | "ap" | "credit_card" | "other_current_liabilities" | "long_term_liabilities"
-  | "equity";
+// The same 15 keys the section map is built from. This was a second hand-kept
+// copy of that union; aliasing means a section added to accountSections.ts can
+// no longer go missing here.
+type SectionKey = StatementSection;
 
 const SECTION_LABELS: Record<SectionKey, string> = {
   revenue:                   "Revenue (Income)",
@@ -51,23 +51,6 @@ const SECTION_LABELS: Record<SectionKey, string> = {
 const PL_SECTIONS:  SectionKey[] = ["revenue","other_income","cogs","expenses","other_expense"];
 const BS_SECTIONS:  SectionKey[] = ["bank","ar","other_current_assets","fixed_assets","other_assets","ap","credit_card","other_current_liabilities","long_term_liabilities","equity"];
 
-// QBO standard export header aliases
-const HEADER_MAP: Record<string, keyof ParsedRow> = {
-  "name":           "account_name",
-  "account name":   "account_name",
-  "account":        "account_name",
-  "number":         "account_number",
-  "account number": "account_number",
-  "account no":     "account_number",
-  "account no.":    "account_number",
-  "type":           "account_type",
-  "account type":   "account_type",
-  "detail type":    "detail_type",
-  "subtype":        "detail_type",
-  "description":    "description",
-  "active":         "is_active",
-};
-
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface CoAAccount {
@@ -83,67 +66,22 @@ interface CoAAccount {
   statement_section: string | null;
 }
 
-interface ParsedRow {
-  account_name: string;
-  account_number: string | null;
-  account_type: string;
-  detail_type: string | null;
-  description: string | null;
-  is_active: boolean;
-}
-
-// ── CSV Parser ────────────────────────────────────────────────────────────────
-
-function parseCSV(text: string): { rows: ParsedRow[]; warnings: string[] } {
-  const lines = text.split(/\r?\n/).filter((l) => l.trim());
-  if (lines.length < 2) return { rows: [], warnings: ["CSV is empty or has no data rows."] };
-
-  const rawHeaders = lines[0].split(",").map((h) => h.replace(/^"|"$/g, "").trim().toLowerCase());
-  const colIndex: Partial<Record<keyof ParsedRow, number>> = {};
-  for (let i = 0; i < rawHeaders.length; i++) {
-    const mapped = HEADER_MAP[rawHeaders[i]];
-    if (mapped && !(mapped in colIndex)) colIndex[mapped] = i;
-  }
-
-  const warnings: string[] = [];
-  if (colIndex.account_name === undefined) warnings.push("Could not find an account name column.");
-  if (colIndex.account_type === undefined) warnings.push("Could not find an account type column.");
-
-  const rows: ParsedRow[] = [];
-  for (let r = 1; r < lines.length; r++) {
-    const cells = lines[r].split(",").map((c) => c.replace(/^"|"$/g, "").trim());
-    const get = (k: keyof ParsedRow) => colIndex[k] !== undefined ? (cells[colIndex[k]!] ?? "") : "";
-
-    const name = get("account_name");
-    const type = get("account_type");
-    if (!name || !type) continue;
-
-    const activeRaw = get("is_active").toLowerCase();
-    const is_active = activeRaw === "" || activeRaw === "yes" || activeRaw === "true" || activeRaw === "1";
-
-    rows.push({
-      account_name:   name,
-      account_number: get("account_number") || null,
-      account_type:   type,
-      detail_type:    get("detail_type") || null,
-      description:    get("description") || null,
-      is_active,
-    });
-  }
-
-  return { rows, warnings };
-}
-
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function fmt(dt: string) {
   return new Date(dt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
-function effectiveSection(a: CoAAccount): SectionKey {
+/**
+ * Which statement section an account renders under, or null when its type maps
+ * to nothing we know — those collect in the Uncategorized block at the bottom.
+ * Returning null beats the old `"other" as SectionKey` cast, which lied to the
+ * type system about a key that has no label and no section list.
+ */
+function effectiveSection(a: CoAAccount): SectionKey | null {
   if (a.statement_section && a.statement_section in SECTION_LABELS)
     return a.statement_section as SectionKey;
-  return ACCOUNT_TYPE_SECTION[a.account_type] ?? ("other" as SectionKey);
+  return ACCOUNT_TYPE_SECTION[a.account_type] ?? null;
 }
 
 // ── Inline Edit Row ───────────────────────────────────────────────────────────
@@ -530,9 +468,13 @@ function TypeViewTable({ accounts, allAccounts, editingId, onEdit, onSave, onClo
                 {rows.sort((a, b) => (a.account_number ?? "").localeCompare(b.account_number ?? "") || a.account_name.localeCompare(b.account_name)).map((a) => {
                   const sec = effectiveSection(a);
                   const hasOverride = !!a.statement_section;
+                  // Keyed on the Fragment, not on the inner <tr>: this is the
+                  // element the map returns, so it is the one React matches
+                  // across renders. With the key one level too deep, React had
+                  // no stable identity for the row + its open edit panel.
                   return (
-                    <>
-                      <tr key={a.id}
+                    <Fragment key={a.id}>
+                      <tr
                         onClick={() => onEdit(a.id)}
                         className={`border-t border-line/50 cursor-pointer hover:bg-surface-mid/40 transition-colors ${!a.is_active ? "opacity-40" : ""} ${editingId === a.id ? "bg-surface-mid/60" : ""}`}>
                         <td className="px-3 py-1.5 text-faint text-center">
@@ -542,14 +484,14 @@ function TypeViewTable({ accounts, allAccounts, editingId, onEdit, onSave, onClo
                         <td className="px-3 py-1.5 text-strong">{a.account_name}</td>
                         <td className="px-3 py-1.5 hidden sm:table-cell">
                           <span className={`text-2xs ${hasOverride ? "text-accent" : "text-faint"}`}>
-                            {SECTION_LABELS[sec] ?? sec}
+                            {sec ? SECTION_LABELS[sec] : "Uncategorized"}
                             {hasOverride && " ✎"}
                           </span>
                         </td>
                         <td className="px-3 py-1.5 text-muted hidden md:table-cell">{a.detail_type ?? "—"}</td>
                       </tr>
                       {editingId === a.id && (
-                        <tr key={`${a.id}-edit`}>
+                        <tr>
                           <td colSpan={5} className="p-0">
                             <EditPanel
                               account={a}
@@ -561,7 +503,7 @@ function TypeViewTable({ accounts, allAccounts, editingId, onEdit, onSave, onClo
                           </td>
                         </tr>
                       )}
-                    </>
+                    </Fragment>
                   );
                 })}
               </tbody>
@@ -591,7 +533,7 @@ export default function ChartOfAccountsPage() {
 
   // upload state
   const [step, setStep]           = useState<"idle" | "preview" | "done">("idle");
-  const [parsed, setParsed]       = useState<ParsedRow[]>([]);
+  const [parsed, setParsed]       = useState<ParsedCoaRow[]>([]);
   const [warnings, setWarnings]   = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -616,7 +558,7 @@ export default function ChartOfAccountsPage() {
     const reader = new FileReader();
     reader.onload = (ev) => {
       const text = ev.target?.result as string;
-      const { rows, warnings: w } = parseCSV(text);
+      const { rows, warnings: w } = parseCoaCsv(text);
       setParsed(rows);
       setWarnings(w);
       setUploadError(null);
@@ -694,10 +636,11 @@ export default function ChartOfAccountsPage() {
 
   const uploadedAt = accounts[0]?.uploaded_at;
 
-  // Build statement view data
-  const allSections = [...PL_SECTIONS, ...BS_SECTIONS];
+  // Build statement view data. PL_SECTIONS + BS_SECTIONS between them cover
+  // every SectionKey, so anything left over is an account whose type maps to
+  // no section at all — effectiveSection returns null for exactly those.
   const sectionAccounts = (key: SectionKey) => accounts.filter((a) => effectiveSection(a) === key);
-  const uncategorized   = accounts.filter((a) => !allSections.includes(effectiveSection(a)));
+  const uncategorized   = accounts.filter((a) => effectiveSection(a) === null);
 
   return (
     <>
@@ -758,13 +701,19 @@ export default function ChartOfAccountsPage() {
                   onChange={(e) => setAddForm((f) => ({ ...f, parent_id: e.target.value }))}
                   className="inp inp-sm w-full">
                   <option value="">— none (top-level) —</option>
-                  {accounts
-                    .sort((a, b) => (a.account_number ?? "").localeCompare(b.account_number ?? "") || a.account_name.localeCompare(b.account_name))
-                    .map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.account_number ? `${a.account_number} · ` : ""}{a.account_name}
-                      </option>
-                    ))}
+                  {/*
+                    Rendered straight off `accounts`, which the API already
+                    returns ordered by number then name. This used to call
+                    .sort() here, which sorts IN PLACE and so mutated the
+                    accounts state array every time the Add Account form
+                    rendered -- reordering the list behind the statement view
+                    without React being told anything had changed.
+                  */}
+                  {accounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.account_number ? `${a.account_number} · ` : ""}{a.account_name}
+                    </option>
+                  ))}
                 </select>
               </div>
               <div className="space-y-1">
@@ -826,7 +775,7 @@ export default function ChartOfAccountsPage() {
           const existingByName = new Map(accounts.map((a) => [a.account_name, a]));
           const csvNames       = new Set(parsed.map((a) => a.account_name));
 
-          function hasChanged(csv: ParsedRow, db: CoAAccount) {
+          function hasChanged(csv: ParsedCoaRow, db: CoAAccount) {
             return (
               (csv.account_number ?? null) !== (db.account_number ?? null) ||
               csv.account_type             !== db.account_type ||
@@ -837,7 +786,7 @@ export default function ChartOfAccountsPage() {
           }
 
           type RowStatus = "new" | "updated" | "unchanged";
-          const taggedRows: { row: ParsedRow; status: RowStatus }[] = parsed.map((row) => {
+          const taggedRows: { row: ParsedCoaRow; status: RowStatus }[] = parsed.map((row) => {
             const existing = existingByName.get(row.account_name);
             if (!existing) return { row, status: "new" };
             return { row, status: hasChanged(row, existing) ? "updated" : "unchanged" };

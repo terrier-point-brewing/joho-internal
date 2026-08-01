@@ -20,7 +20,7 @@ export const HREFS = {
   uncategorized: "/finance/transactions/orders?filter=uncategorized",
   unknownVolume: "/finance/transactions/orders?filter=unknown-volume",
   exciseCoverage: "/finance/transactions/invoices?filter=excise-coverage",
-  unmappedTaxes: "/settings/finance/sales-tax-accounts",
+  unmappedTaxes: "/settings/finance/gl-mapping?tab=sales-tax",
   unsourcedAccounts: "/settings/finance/balance-sheet-accounts",
 };
 
