@@ -1,3 +1,4 @@
+import { cache } from "react";
 import type { User } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "../supabase/server";
 import type { ScopeGrants } from "./resolve";
@@ -18,8 +19,13 @@ export interface Session {
  * own user_permission_grants rows; every other role resolves from its editable
  * bundle in role_permission_grants (cached, and falling back to the
  * ROLE_BUNDLES constant if that table cannot be read).
+ *
+ * Memoized per request with React `cache()`. A single page render calls this
+ * several times over — the root layout (to seed the nav), the section layout's
+ * admission gate, and each requirePage guard below it — and the session cannot
+ * change mid-render, so they should cost one auth round trip, not four.
  */
-export async function getSessionUser(): Promise<Session | null> {
+export const getSessionUser = cache(async function getSessionUser(): Promise<Session | null> {
   const supabase = await createSupabaseServerClient();
   const {
     data: { user },
@@ -48,4 +54,4 @@ export async function getSessionUser(): Promise<Session | null> {
   }
 
   return { user, role, grants: await getRoleBundle(role) };
-}
+});

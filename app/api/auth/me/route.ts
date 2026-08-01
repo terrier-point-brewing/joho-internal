@@ -1,14 +1,9 @@
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
+import { toAuthMe } from "@/lib/auth/me";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const session = await getSessionUser();
-  if (!session) return NextResponse.json({ user: null, role: null, grants: {} });
-  return NextResponse.json({
-    user: { id: session.user.id, email: session.user.email },
-    role: session.role,
-    grants: session.grants,
-  });
+  return NextResponse.json(toAuthMe(await getSessionUser()));
 }

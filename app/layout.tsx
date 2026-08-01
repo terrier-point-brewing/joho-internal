@@ -17,6 +17,8 @@ import NavBar from "./components/NavBar";
 import Providers from "./providers";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { THEME_COOKIE } from "@/lib/brand/theme";
+import { getSessionUser } from "@/lib/auth";
+import { toAuthMe } from "@/lib/auth/me";
 
 // Pre-hydration theme script: reads the brand-theme cookie and stamps
 // data-theme on <html> before first paint, so brand surfaces render in the
@@ -67,15 +69,28 @@ export const metadata: Metadata = {
   description: "Square sales reports for Terrier Point Brewing",
 };
 
-export default function RootLayout({
+// Resolving the session here is what lets NavBar render the same nav on the
+// server as on the client's first render. It costs no extra round trip — every
+// section layout below already calls getSessionUser, and that is memoized per
+// request — but it does opt the whole tree into dynamic rendering. Only "/",
+// /login, /auth/* and /_not-found were still static, and none of them show a
+// populated nav, so nothing meaningful was being prerendered.
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const initialAuth = toAuthMe(await getSessionUser());
+
   return (
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} ${marcellus.variable} ${lato.variable} ${jost.variable} ${notoSerifSC.variable} h-full antialiased`}
+      // themeScript stamps data-theme here before hydration, and the server
+      // deliberately can't know it (reading the cookie would force every route
+      // dynamic). That's a one-attribute difference React must be told to
+      // expect — it only suppresses <html>'s own attributes, not the tree below.
+      suppressHydrationWarning
     >
       <body className="min-h-screen flex flex-row bg-canvas">
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
@@ -84,7 +99,7 @@ export default function RootLayout({
         {/* When the "brand skin" setting is on, overrides ops --color-* with the
             brand palette app-wide; renders nothing when off (zinc/amber default). */}
         <BrandChrome />
-        <Providers>
+        <Providers initialAuth={initialAuth}>
           <Suspense>
             <NavBar />
           </Suspense>
