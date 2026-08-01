@@ -74,6 +74,11 @@ export const FINANCE_SETTINGS_NAV: SettingsNavEntry[] = [
   { href: "/settings/finance/counterparty-accounts", label: "Counterparty Accounts" },
   { href: "/settings/finance/sales-tax-accounts", label: "Sales Tax Accounts" },
   { href: "/settings/finance/balance-sheet-accounts", label: "Balance Sheet Accounts" },
+  // Ramp's balance setup flow. Plaid and Square each need their own, since
+  // running Plaid Link and capturing a Square anchor share nothing with picking
+  // a Ramp account — expect siblings here, and a consolidation once all three
+  // exist and their shape is known rather than guessed at.
+  { href: "/settings/finance/ramp-connection", label: "Ramp Connection" },
   { href: "/settings/finance/backfill", label: "Backfill" },
 ];
 

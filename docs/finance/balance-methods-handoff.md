@@ -201,6 +201,20 @@ safe.
 ## 5. The three integrations
 
 ### Ramp — GL 1030 Ramp Operating (do this one first)
+
+> **Built.** Method `rampBalance`, provider
+> `lib/finance/balances/providers/rampBalance.ts`, migration
+> `20260914090000_ramp_balance_gl_1030.sql`. Three things it settled that Plaid
+> and Square inherit rather than re-decide:
+> * A setup flow is a **per-integration** Settings page plus a GET route that
+>   lists candidates — `/settings/finance/ramp-connection` and
+>   `GET /api/finance/balance-connections/ramp`. The page then calls the shared
+>   `PUT /api/finance/balance-connections` itself; no second write path exists.
+>   Add a sibling nav entry in `app/settings/nav-config.ts` (one adjacent line).
+> * `connections.ts` was **not** reshaped. Nothing to rebase around.
+> * `BUILT_IN_METHODS` in `methods/definitions.ts` now has seven entries.
+>   Appending an eighth is an adjacent-line conflict, not a logical one.
+
 Simplest, and the reference implementation. `treasury:read` is **already** in
 `RAMP_SCOPES` in `lib/ramp.ts`; no dashboard change or new credential needed.
 

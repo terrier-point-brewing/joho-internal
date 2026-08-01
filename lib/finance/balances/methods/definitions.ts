@@ -20,6 +20,7 @@ import type { CoaAccountRef } from "../../financials/types";
 const isReceivable = (coa: CoaAccountRef) => coa.statementSection === "ar";
 const isEquity = (coa: CoaAccountRef) => coa.statementSection === "equity";
 const isCurrentLiability = (coa: CoaAccountRef) => coa.statementSection === "other_current_liabilities";
+const isBank = (coa: CoaAccountRef) => coa.statementSection === "bank";
 
 /**
  * The postings step, reused by three composite methods. Its label and
@@ -168,6 +169,33 @@ const retainedEarnings: BalanceMethod = {
   ],
 };
 
+// ── Integrations ─────────────────────────────────────────────────────────────
+
+/**
+ * GL 1030 Ramp Operating Account. Single-step on purpose: unlike the accrual
+ * pairs above, Ramp reports the account's actual closing balance, so there is
+ * no second half of the calculation that could be left off. Adding a postings
+ * step would double-count every Ramp movement already reflected in that figure.
+ */
+const rampAccountBalance: BalanceMethod = {
+  key: "rampBalance",
+  label: "Ramp account balance",
+  kind: "calculation",
+  summary: "Takes the balance Ramp itself reports for the connected account on the last day of the month.",
+  appliesTo: isBank,
+  connectionProvider: "ramp",
+  steps: [
+    {
+      providerKey: "rampBalance",
+      label: "Balance held at Ramp",
+      description:
+        "The balance Ramp shows for the connected account on this month end. It is the available balance, so it can read slightly differently from a statement if a payment was still pending on the last day.",
+      source: "Ramp treasury account",
+      direction: "net",
+    },
+  ],
+};
+
 export const BUILT_IN_METHODS: BalanceMethod[] = [
   manualEntry,
   transactionPostings,
@@ -175,6 +203,7 @@ export const BUILT_IN_METHODS: BalanceMethod[] = [
   undistributedTips,
   accountsReceivable,
   retainedEarnings,
+  rampAccountBalance,
 ];
 
 for (const method of BUILT_IN_METHODS) registerMethod(method);
