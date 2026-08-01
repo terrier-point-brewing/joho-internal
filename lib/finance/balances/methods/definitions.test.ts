@@ -31,15 +31,26 @@ const ACCOUNT_METHOD: Record<string, string> = {
 };
 
 describe("built-in method definitions", () => {
-  it("registers exactly the six expected methods", () => {
-    expect(listMethods().map((m) => m.key).sort()).toEqual([
+  it("registers the six built-in methods", () => {
+    // Containment, not equality. Integration methods land on separate branches
+    // (Ramp, Plaid, Square) and an exact list would mean the first one merged
+    // breaks the other two for a reason unrelated to their own work.
+    const keys = listMethods().map((m) => m.key);
+    for (const expected of [
       "accountsReceivable",
       "manualBalance",
       "retainedEarnings",
       "salesTaxPayable",
       "transactionPostings",
       "undistributedTips",
-    ]);
+    ]) {
+      expect(keys, `built-in method "${expected}" is missing`).toContain(expected);
+    }
+  });
+
+  it("registers no duplicate method keys", () => {
+    const keys = listMethods().map((m) => m.key);
+    expect(new Set(keys).size, "two methods share a key").toBe(keys.length);
   });
 
   it("covers all three dropdown options", () => {
