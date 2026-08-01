@@ -1,8 +1,14 @@
 /**
  * Month-end close checklist for balance-sheet accounts that need a human to
  * supply a balance before a period is final: one balance_close_tasks row per
- * active `manualBalance`-sourced account that lacks a manual_entries balance
- * row for that period_end.
+ * active account whose source requires an operator figure and that lacks a
+ * manual_entries balance row for that period_end.
+ *
+ * That set is `manualBalance` plus any method declaring requiresCloseEntry --
+ * see requiresOperatorBalance. The second case is not hypothetical: the Square
+ * balance method derives its own movement but still needs a person to re-anchor
+ * it every month, because the outflow half of that account is observable in no
+ * feed at all.
  *
  * Mirrors lib/tax/tasks.ts's structure and idioms almost function-for-
  * function: idempotent ensure via upsert(..., { ignoreDuplicates: true }),
@@ -19,6 +25,7 @@
 import type { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { resolveDueDate } from "@/lib/tax/dueDate";
 import { addDaysIso } from "@/lib/tax/period";
+import { getMethod } from "./methods/registry";
 
 type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
 
@@ -90,16 +97,37 @@ export async function readCloseConfig(supabase: AdminClient): Promise<CloseConfi
  * status untouched, and select("id") after an ignore-duplicates upsert
  * returns only the rows actually inserted.
  */
+/**
+ * Whether a selected source needs a person to supply a figure before the period
+ * can be called closed.
+ *
+ * "manualBalance" is matched by name because it predates the method layer and
+ * appears in balance_sheet_account_sources as a bare provider key. Everything
+ * else is asked of the method registry, so a method declaring
+ * requiresCloseEntry gets a close task without this function learning its name.
+ *
+ * An unregistered key answers false rather than throwing: this runs first in
+ * the close cron, and refusing to create ANY task because one source names
+ * something unknown would be a worse failure than the unknown source itself.
+ */
+export function requiresOperatorBalance(providerKey: string): boolean {
+  if (providerKey === "manualBalance") return true;
+  return getMethod(providerKey)?.requiresCloseEntry === true;
+}
+
 export async function ensureTasksForPeriod(supabase: AdminClient, periodEnd: string): Promise<number> {
   const { data: sourceRows, error: sourcesError } = await supabase
     .from("balance_sheet_account_sources")
-    .select("chart_of_accounts_id")
-    .eq("provider_key", "manualBalance")
+    .select("chart_of_accounts_id, provider_key")
     .eq("active", true);
   if (sourcesError) throw new Error(sourcesError.message);
 
   const coaIds = Array.from(
-    new Set(((sourceRows ?? []) as { chart_of_accounts_id: string }[]).map((r) => r.chart_of_accounts_id)),
+    new Set(
+      ((sourceRows ?? []) as { chart_of_accounts_id: string; provider_key: string }[])
+        .filter((r) => requiresOperatorBalance(r.provider_key))
+        .map((r) => r.chart_of_accounts_id),
+    ),
   );
   if (coaIds.length === 0) return 0;
 

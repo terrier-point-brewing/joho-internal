@@ -163,6 +163,16 @@ automatically. If you believe you need to change
 scaffolding is missing something — raise it rather than patching around it, or
 three branches will conflict on one file.
 
+**Shared modules Square has already changed** (merged or in review — rebase onto
+them rather than re-inventing):
+- `methods/registry.ts` — added an optional `requiresCloseEntry` flag to
+  `BalanceMethod`. Purely additive; a method that omits it behaves as before.
+- `closeTasks.ts` — `ensureTasksForPeriod` now selects every active source and
+  filters with `requiresOperatorBalance`, instead of querying
+  `provider_key = "manualBalance"` directly. Same result for `manualBalance`;
+  methods declaring the flag now also raise a close task.
+- `connections.ts` — **unchanged**, as hoped.
+
 Expect small mechanical conflicts in `providers/index.ts` (one import line each)
 and `methods/definitions.ts` (one method each). Those are adjacent-line
 conflicts, not logical ones. `definitions.test.ts` already asserts built-in
@@ -250,26 +260,81 @@ forces a fresh pull. Constraints:
   page load.
 - `access_token` is per-connection → `integration_connections.credentials`.
 
-### Square — GL 1040 Square Deposit
-**There is no balance endpoint.** Verified against the full v2 spec:
-`ListBankAccounts` returns metadata only, and the only `balance` fields anywhere
-belong to gift cards and loyalty. The balance must be derived.
+### Square — GL 1040 Square Deposit — BUILT
+**There is no balance endpoint.** Verified against the full v2 spec, and
+re-confirmed live: `ListBankAccounts` returns metadata only (13 fields, no
+balance), and the only `balance` fields anywhere belong to gift cards and
+loyalty. The balance must be derived.
 
-Agreed design: **anchor plus movement, re-anchored at each close.**
-- An operator-entered balance at a date is the anchor.
-- Balance = anchor + payments received − refunds − fees − payouts to bank.
-  `GET /v2/payouts` and `/v2/payouts/{id}/payout-entries` give the outbound side
-  cleanly (`status`, and a `BANK_ACCOUNT` destination type).
-- At month close, prompt the operator to check Square and enter the real figure.
-  That figure **becomes the new anchor**, and the drift is logged.
+`PAYOUTS_READ` is **confirmed present** on the env token — live 200s on both
+`/v2/payouts` and `/v2/payouts/{id}/payout-entries`.
 
-Re-anchoring rather than posting a correcting adjustment is deliberate: drift
-cannot compound, each month starts from a verified number, and the derived
-calculation only ever has to be right for one month at a time. Expect drift in
-the first months — money *in* is the hard half.
+Design shipped: **anchor plus movement, re-anchored at each close** — as agreed.
+The movement term is not what this section originally specified, because the
+live data contradicted the assumption behind it. Corrected below.
 
-Needs `PAYOUTS_READ`. A personal access token likely already has it; verify with
-a live call before committing to the design.
+**The payouts feed only reports money coming IN.** All 1,755 payouts the API
+will return — queried back to 2021, across every location and every status —
+carry `destination.type = SQUARE_STORED_BALANCE`. Card sales settle into a
+Square-held balance, so a payout here is an **inflow**, not the outbound leg
+this section assumed.
+
+**That does NOT mean money stays on Square.** It does leave: Square holds a
+VERIFIED Chase checking account for the business (`ListBankAccounts` — routing
+028000121, ending 077, creditable and debitable), and sweeps to it happen.
+Transfers off the stored balance are simply **not modelled as payouts**, so they
+are absent from the feed entirely. Read "no `BANK_ACCOUNT` payouts" as a limit
+of the API, never as evidence about where the money went — an earlier draft of
+this section drew exactly that wrong conclusion.
+
+That is good news for the hard half. `amount_money.amount` on a stored-balance
+payout is already net of processing fees and refunds, and Square's own totals
+reconcile exactly — verified over July 2026: entries gross 4,332,371 − fees
+64,092 = 4,268,279 = the sum of payout amounts, to the cent. So money *in* is
+one clean number, not payments − refunds − fees assembled by hand. The drift
+source this section warned about is gone.
+
+The **outflow** is real, regular, and currently observable nowhere:
+- not in the payouts feed — sweeps are not payouts;
+- not in the books — GL 1040 carries **zero** postings across every source
+  `transactionPostings` reads;
+- not from the bank side — **there is no Chase feed in this system yet.** GL
+  1020 has no rows of any kind. That is Plaid's half, unbuilt.
+
+So: **balance = last verified balance + net settlements since**, with the
+outflow absorbed by re-anchoring, and the drift logged in
+`square_balance_reconciliations` (migration `20260915090000`).
+
+**Expect drift to be large and negative** — roughly a month of sweeping, not a
+small residual. So the log cannot yet separate "swept to Chase" from "the
+derivation is wrong"; what it can flag is drift that is positive or wildly out
+of step with the month's takings, which sweeping does not explain. This is a
+stated limitation of the account, not an oversight.
+
+**Follow-up once Plaid lands GL 1020:** the Chase feed will contain these
+inbound transfers, which makes the outflow identifiable. At that point the
+sweeps can be subtracted from the drift rows — turning the residual into a true
+error term — and the account can move from re-anchoring toward derivation. The
+reconciliation table already stores every input needed to do it retroactively.
+
+**Why there is no `transactionPostings` step**, against the pattern every other
+composite method follows: 1040's section is `bank`, and for a bank-section
+account `normalizeSign.ts` passes the raw cash direction through unchanged, by
+design. A Square-to-bank sweep is a POSITIVE row on the bank side, so coded to
+1040 it would **increase** the balance it emptied. Making it work would mean
+changing `normalizeSign.ts`, which is shared with the P&L. Two steps that are
+both right beat three where the third is backwards.
+
+Both steps return null together — unlinked, or no anchor, means the account
+reads unsourced rather than as half an answer.
+
+**Anchors are ordinary `manual_entries` balance rows**, not a private store.
+That gets the existing operator UI, the unique-per-period constraint and the
+month-end close workflow for free. It also means Square is the **first account
+to use the close workflow at all** — see §6's note that no manual account was
+ever configured, so no close task has ever been created and no alert ever sent.
+A `requiresCloseEntry` flag on the method is what makes `closeTasks.ts` raise a
+task for a method that is a *calculation* but still needs a human figure.
 
 ## 6. Still outstanding, unrelated to integrations
 

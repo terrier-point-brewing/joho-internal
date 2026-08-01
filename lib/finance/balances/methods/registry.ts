@@ -111,6 +111,20 @@ export interface BalanceMethod {
    * from it generically; there is nothing per-integration to implement.
    */
   connectionProvider?: ConnectionProvider;
+  /**
+   * Set this when the method cannot produce a balance for a period until a
+   * person supplies a figure for it, so the month-end close raises a task the
+   * same way it does for manual entry.
+   *
+   * `manualBalance` does not need the flag -- closeTasks.ts has always known
+   * that key by name. This exists for methods that are CALCULATIONS but still
+   * depend on a human input: the Square balance derives its movement
+   * automatically and still needs an operator to re-anchor it each month,
+   * because the outflow half is observable nowhere. Without the flag such an
+   * account drifts further from reality every month with nothing asking anyone
+   * to look.
+   */
+  requiresCloseEntry?: boolean;
 }
 
 /** Resolved identity of a step — its key, defaulted from providerKey. */
