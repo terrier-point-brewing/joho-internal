@@ -33,7 +33,10 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { apiError } from "@/lib/utils/api";
 import { getConnection, recordSyncResult } from "@/lib/finance/balances/connections";
 import { readRampBalance } from "@/lib/finance/balances/providers/rampBalance";
-import { lastCompletedMonthEnd } from "./period";
+// The SAME helper the balance-close cron uses to pick its period, so the check
+// cannot validate a month the snapshot is not reading.
+import { mostRecentlyEndedMonthEnd } from "@/lib/finance/balances/periods";
+import { todayLocalDate } from "@/lib/utils/datetime";
 
 export const dynamic = "force-dynamic";
 
@@ -57,7 +60,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "That connection is not a Ramp connection." }, { status: 400 });
     }
 
-    const periodEnd = lastCompletedMonthEnd(new Date());
+    const periodEnd = mostRecentlyEndedMonthEnd(todayLocalDate());
     const result = await readRampBalance(connection, periodEnd);
 
     // Unlike the provider, this route lets a failed status write surface: the

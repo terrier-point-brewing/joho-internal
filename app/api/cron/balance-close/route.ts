@@ -42,16 +42,13 @@ import {
 import { recordSquareDrift, squareBalanceAccountIds } from "@/lib/finance/balances/squareDrift";
 import { renderBalanceCloseEmail } from "@/lib/finance/balances/alertEmail";
 import { sendEmail, ADMIN_EMAIL } from "@/lib/resend";
-import { todayLocalDate, addDaysStr } from "@/lib/utils/datetime";
+import { todayLocalDate } from "@/lib/utils/datetime";
 import { apiError } from "@/lib/utils/api";
+// Shared with the integration connect-time check, which must validate the SAME
+// period this cron reads. It previously had its own copy resolved in UTC.
+import { mostRecentlyEndedMonthEnd } from "@/lib/finance/balances/periods";
 
 export const dynamic = "force-dynamic";
-
-/** Last day (YYYY-MM-DD) of the month before `todayIso`'s month -- the current month is still open and never snapshotted. */
-function mostRecentlyEndedMonthEnd(todayIso: string): string {
-  const firstOfThisMonth = `${todayIso.slice(0, 7)}-01`;
-  return addDaysStr(firstOfThisMonth, -1);
-}
 
 export async function GET(req: NextRequest) {
   const auth = req.headers.get("authorization");
