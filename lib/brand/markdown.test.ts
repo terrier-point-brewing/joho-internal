@@ -108,15 +108,22 @@ describe("compileBrandMarkdown", () => {
   // nowhere — an agent asked to lay out a label or propose a name got the
   // never-words and nothing else. These are the regression guards for that.
   describe("the specs Phase A brought into the brief", () => {
-    it("states the naming pattern and all five criteria", () => {
+    it("states the release-card template, the two-part name and all five criteria", () => {
       const full = compile({
         naming: {
-          pattern: "Story Title — Plain Style Subtitle",
-          narrative: "A name earns its place.",
+          narrative: {
+            intro: "Each line has one job.",
+            name: "A picturable image of the feeling.",
+            story: "Found-text register, one soft turn.",
+            menuDescription: "What you taste, then a friend's advice.",
+            why: "One terse line, criteria one and two.",
+            footer: "Read it aloud.",
+          },
           criteria: ["Grounded in a real story", "Speakable", "Plain subtitle", "No never-words", "Said aloud"],
           passingExamples: [
             {
-              name: "Peach Blossom Spring",
+              storyTitle: "Peach Blossom Spring",
+              beerStyle: "Jasmine Peach Lager",
               story: "A fisherman follows the blossoms upstream.",
               menuDescription: "Soft, floral, gently sweet.",
               why: "Grounded in place",
@@ -125,14 +132,21 @@ describe("compileBrandMarkdown", () => {
         },
       }).full;
 
-      expect(full).toContain("Story Title — Plain Style Subtitle");
       expect(full).toContain("1. Grounded in a real story");
       expect(full).toContain("5. Said aloud");
-      expect(full).toContain("Peach Blossom Spring — Grounded in place");
+      // The name reaches the brief as the two halves an editor types, joined —
+      // there is no separate pattern line saying what that shape is.
+      expect(full).toContain("Peach Blossom Spring — Jasmine Peach Lager — Grounded in place");
+      expect(full).not.toContain("Pattern:");
       // An agent proposing a name needs the two pieces of writing that produce
       // the verdict, not just the verdict.
       expect(full).toContain("Story: A fisherman follows the blossoms upstream.");
       expect(full).toContain("Menu: Soft, floral, gently sweet.");
+      // The template's slots are labelled the way the examples are, so an agent
+      // writing a card can tell which rule governs which line.
+      expect(full).toContain("Name: A picturable image of the feeling.");
+      expect(full).toContain("Why it passes: One terse line, criteria one and two.");
+      expect(full).toContain("Read it aloud.");
     });
 
     it("states the label chassis, numbered in panel order", () => {

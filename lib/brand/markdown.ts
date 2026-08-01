@@ -99,14 +99,28 @@ function voice(canon: BrandCanon): string[] {
   const naming = canon.naming;
   if (naming) {
     lines.push("### Naming");
-    if (naming.pattern) lines.push(`- Pattern: ${naming.pattern}`);
-    if (naming.narrative) lines.push(`- ${naming.narrative}`);
+    // No pattern line: the canon dropped it (migration 20260912100000) because
+    // "Story Title — Beer Style" is just the two halves an example carries, and
+    // the examples below spell both out.
+    // The per-line instructions, labelled the way the examples below are, so an
+    // agent writing a card can see which rule governs which line. A flattened
+    // paragraph made the whole template read as background colour.
+    const narrative = naming.narrative;
+    if (narrative) {
+      if (narrative.intro) lines.push(`- ${narrative.intro}`);
+      if (narrative.name) lines.push(`  - Name: ${narrative.name}`);
+      if (narrative.story) lines.push(`  - Story line: ${narrative.story}`);
+      if (narrative.menuDescription) lines.push(`  - Menu description: ${narrative.menuDescription}`);
+      if (narrative.why) lines.push(`  - Why it passes: ${narrative.why}`);
+      if (narrative.footer) lines.push(`- ${narrative.footer}`);
+    }
     if (naming.criteria?.length) {
       lines.push("- A name must pass all five:");
       naming.criteria.forEach((c, i) => lines.push(`  ${i + 1}. ${c}`));
     }
     for (const ex of naming.passingExamples ?? []) {
-      lines.push(`- Passes: ${ex.name} — ${ex.why}`);
+      const title = [ex.storyTitle, ex.beerStyle].filter(Boolean).join(" — ");
+      lines.push(`- Passes: ${title} — ${ex.why}`);
       if (ex.story) lines.push(`  - Story: ${ex.story}`);
       if (ex.menuDescription) lines.push(`  - Menu: ${ex.menuDescription}`);
     }

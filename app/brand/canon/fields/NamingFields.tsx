@@ -4,10 +4,31 @@ import type { BrandCanon } from "@/lib/brand/canon.types";
 import ListField from "./ListField";
 
 type Example = BrandCanon["naming"]["passingExamples"][number];
+type Narrative = BrandCanon["naming"]["narrative"];
+
+const BLANK_NARRATIVE: Narrative = {
+  intro: "",
+  name: "",
+  story: "",
+  menuDescription: "",
+  why: "",
+  footer: "",
+};
+
+// The narrative's slots, labelled as the Voice tab labels them. Order matches
+// the card: intro above it, four fields inside it, the aloud test at its foot.
+const NARRATIVE_FIELDS: { key: keyof Narrative; label: string; hint: string }[] = [
+  { key: "intro", label: "Intro line", hint: "One sentence above the template card." },
+  { key: "name", label: "Name", hint: "What the name must do." },
+  { key: "story", label: "Story line", hint: "What the story line must do." },
+  { key: "menuDescription", label: "Menu description", hint: "What the menu line must do." },
+  { key: "why", label: "Why it passes", hint: "What the internal verdict must do." },
+  { key: "footer", label: "Closing test", hint: "The line at the foot of the card." },
+];
 
 /**
- * Editor for the naming law — pattern, narrative, the five criteria, and the
- * examples that pass them.
+ * Editor for the naming law — the release-card template, the five criteria, and
+ * the examples that pass them.
  *
  * On the Voice tab because naming is language. It was unowned before Phase A,
  * which was the sharpest of the three gaps: the Releases workbench builds its
@@ -28,11 +49,18 @@ export default function NamingFields({
   onChange: (next: BrandCanon) => void;
 }) {
   const naming = draft.naming ?? {
-    pattern: "",
-    narrative: "",
+    narrative: BLANK_NARRATIVE,
     criteria: ["", "", "", "", ""],
     passingExamples: [],
   };
+
+  // A document written before migration 20260912090000 holds a string here.
+  const narrative =
+    naming.narrative && typeof naming.narrative === "object" ? naming.narrative : BLANK_NARRATIVE;
+
+  function setNarrative(key: keyof Narrative, text: string) {
+    onChange({ ...draft, naming: { ...naming, narrative: { ...narrative, [key]: text } } });
+  }
 
   // Always render five, even if a stored document somehow holds fewer.
   const criteria = Array.from({ length: 5 }, (_, i) => naming.criteria?.[i] ?? "");
@@ -46,25 +74,26 @@ export default function NamingFields({
 
   return (
     <div className="flex flex-col gap-4">
-      <label className="flex flex-col gap-1">
-        <span className="text-2xs uppercase tracking-wide text-muted">Naming pattern</span>
-        <input
-          className="inp-sm"
-          value={naming.pattern ?? ""}
-          onChange={(e) => onChange({ ...draft, naming: { ...naming, pattern: e.target.value } })}
-          placeholder="Story Title — Plain Style Subtitle"
-        />
-      </label>
-
-      <label className="flex flex-col gap-1">
-        <span className="text-2xs uppercase tracking-wide text-muted">Naming — narrative</span>
-        <textarea
-          className="inp min-h-20 text-sm"
-          value={naming.narrative ?? ""}
-          onChange={(e) => onChange({ ...draft, naming: { ...naming, narrative: e.target.value } })}
-          placeholder="How a name earns its place."
-        />
-      </label>
+      <div className="flex flex-col gap-2">
+        <div>
+          <span className="text-2xs uppercase tracking-wide text-muted">Release card</span>
+          <p className="text-2xs text-faint mt-0.5">
+            The instruction for each line of a release card. The guide renders these as a template
+            card above the passing examples, under the same labels.
+          </p>
+        </div>
+        {NARRATIVE_FIELDS.map((field) => (
+          <label key={field.key} className="flex flex-col gap-1">
+            <span className="text-2xs uppercase tracking-wide text-muted">{field.label}</span>
+            <textarea
+              className="inp min-h-16 text-sm"
+              value={narrative[field.key] ?? ""}
+              onChange={(e) => setNarrative(field.key, e.target.value)}
+              placeholder={field.hint}
+            />
+          </label>
+        ))}
+      </div>
 
       <div className="flex flex-col gap-2">
         <div>
@@ -93,16 +122,29 @@ export default function NamingFields({
         addLabel="Add example"
         items={naming.passingExamples ?? []}
         onChange={(passingExamples) => onChange({ ...draft, naming: { ...naming, passingExamples } })}
-        blank={() => ({ name: "", story: "", menuDescription: "", why: "" })}
+        blank={() => ({ storyTitle: "", beerStyle: "", story: "", menuDescription: "", why: "" })}
         renderItem={(example, update) => (
           <div className="flex flex-col gap-2">
-            <input
-              className="inp-sm"
-              value={example.name}
-              onChange={(e) => update({ name: e.target.value })}
-              aria-label="Illustrative name — beer style"
-              placeholder="Peach Blossom Spring — Jasmine Peach Lager"
-            />
+            {/* Two inputs, not one string with an em dash in the middle: the
+                name pattern is Story Title — Beer Style, and typing it into a
+                single box left the halves unenforceable (and the guide with a
+                "Naming pattern" line whose only job was to restate them). */}
+            <div className="grid gap-2 sm:grid-cols-2">
+              <input
+                className="inp-sm"
+                value={example.storyTitle}
+                onChange={(e) => update({ storyTitle: e.target.value })}
+                aria-label="Story title"
+                placeholder="Story title — Peach Blossom Spring"
+              />
+              <input
+                className="inp-sm"
+                value={example.beerStyle}
+                onChange={(e) => update({ beerStyle: e.target.value })}
+                aria-label="Beer style"
+                placeholder="Beer style — Jasmine Peach Lager"
+              />
+            </div>
             <textarea
               className="inp min-h-16 text-sm"
               value={example.story}

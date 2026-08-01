@@ -116,9 +116,21 @@ export const seedCanon: BrandCanon = {
   },
 
   naming: {
-    pattern: "Story Title — Plain Style Subtitle",
-    narrative:
-      "The tap list coheres like an album tracklist — unified by sensibility, not grammar. A name must clear all five criteria.",
+    // Instructions for the four slots, in the slots themselves — the Voice tab
+    // renders this through the same card component as a passing example, so the
+    // rule for a line sits under the same label as the examples of it.
+    narrative: {
+      intro:
+        "Each line of a release card has one job. When every line does only its own, the card feels effortless; when one tries to do another's, it reads like marketing.",
+      name: "A single picturable image of the feeling the beer is for — the relief, the bloom, the warmth. Never the circumstances around the feeling, and never its category; the test is one glance, as a caption to a photograph in our magazine. (Ah-Mah's Stove, Still Warm passes. “First Cold Night” fails, because it points at the cold instead of the warmth.)",
+      story:
+        "One or two sentences in found-text register, as if torn from a travel magazine or a quiet novel. A real place, an observed moment, one soft turn at the end. This is the only line allowed to name geography — the name stays figurative because the story line does the anchoring.",
+      menuDescription:
+        "What you taste, in the order you taste it, closing on a short piece of friend's advice. Start here. Follow your nose. For the coldest walk home — five words or fewer, practical and warm.",
+      why: "One terse line for internal review, touching only criteria one and two: the story, then the flavor link. The other three are pass-or-fail hygiene and don't need restating.",
+      footer:
+        "Read the finished card aloud. If it sounds like something you'd say to a friend across the bar, it's ours.",
+    },
     criteria: [
       "Points to a specific story, place-moment, or sensory memory — never a category or mood.",
       "The beer's actual flavor connects to the referent.",
@@ -128,28 +140,32 @@ export const seedCanon: BrandCanon = {
     ],
     passingExamples: [
       {
-        name: "Peach Blossom Spring — Jasmine Peach Lager",
+        storyTitle: "Peach Blossom Spring",
+        beerStyle: "Jasmine Peach Lager",
         story:
           "A fisherman follows fallen peach blossoms upstream and finds a village that forgot the world outside. Sixteen centuries later, people are still looking for the place.",
         menuDescription: "Soft, floral, gently sweet — an easy first step.",
         why: "Tao Yuanming’s fable; jasmine and peach are in the glass",
       },
       {
-        name: "First Light at Alishan — High-Mountain Oolong Golden Ale",
+        storyTitle: "First Light at Alishan",
+        beerStyle: "High-Mountain Oolong Golden Ale",
         story:
           "The train climbs all night so you can stand above the clouds at five in the morning and watch the sun come up over the tea terraces.",
         menuDescription: "Toasted oolong and orchid, dry and clean at the finish.",
         why: "A specific experience; the mountain’s tea is in the beer",
       },
       {
-        name: "Convenience Store Rain — Milk Tea Stout",
+        storyTitle: "Convenience Store Rain",
+        beerStyle: "Milk Tea Stout",
         story:
           "Waiting out a downpour under a shop awning with a hot milk tea, in no particular hurry for it to stop.",
         menuDescription: "Black tea, malt and cream — dark, but not heavy.",
         why: "A remembered moment; milk tea is the flavor",
       },
       {
-        name: "Grandmother’s Kumquat Jar — Kumquat Sour",
+        storyTitle: "Grandmother’s Kumquat Jar",
+        beerStyle: "Kumquat Sour",
         story:
           "The jar kept on the back step — kumquats and rock sugar — opened by the spoonful whenever anyone had a cough.",
         menuDescription: "Bright, tart, honeyed citrus; a small sharp lift.",
