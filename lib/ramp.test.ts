@@ -1,5 +1,10 @@
-import { describe, it, expect } from "vitest";
-import { extractGlAccount, toRampDatetime, normalizeCounterparty } from "./ramp";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import {
+  extractGlAccount,
+  toRampDatetime,
+  normalizeCounterparty,
+  getRampAccountBalanceHistory,
+} from "./ramp";
 
 describe("toRampDatetime", () => {
   it("expands a bare date to an RFC 3339 datetime (start vs end of day)", () => {
@@ -110,5 +115,82 @@ describe("normalizeCounterparty", () => {
     expect(normalizeCounterparty("  ERIE   INSURANCE ")).toBe("erie insurance");
     expect(normalizeCounterparty("GUSTO")).toBe("gusto");
     expect(normalizeCounterparty(null)).toBe("");
+  });
+});
+
+describe("getRampAccountBalanceHistory", () => {
+  // Routes the token call and the balance call off the same stub so the
+  // module-level token cache behaves as it does in production.
+  function stubFetch(payload: unknown, status = 200) {
+    const calls: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      calls.push(String(url));
+      if (String(url).includes("/token")) {
+        return { ok: true, json: async () => ({ access_token: "tok", expires_in: 3600 }) };
+      }
+      return { ok: status < 400, status, json: async () => payload };
+    }));
+    return calls;
+  }
+
+  beforeEach(() => {
+    process.env.RAMP_CLIENT_ID = "id";
+    process.env.RAMP_CLIENT_SECRET = "secret";
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("returns cents, converting through the minor-unit rate rather than trusting it is 100", async () => {
+    stubFetch({
+      data: [
+        // USD: the rate IS 100, so `amount` already is cents and passes through.
+        { date: "2026-07-30", amount: { amount: 420537, currency_code: "USD", minor_unit_conversion_rate: 100 } },
+        // A currency with a different precision must not silently arrive off by
+        // a factor of ten. 4205 major units at rate 1 is 420,500 cents.
+        { date: "2026-07-31", amount: { amount: 4205, currency_code: "JPY", minor_unit_conversion_rate: 1 } },
+      ],
+    });
+
+    const history = await getRampAccountBalanceHistory("acct-1", "2026-07-25", "2026-07-31");
+
+    expect(history).toEqual([
+      { date: "2026-07-30", balance_cents: 420537, currency_code: "USD" },
+      { date: "2026-07-31", balance_cents: 420500, currency_code: "JPY" },
+    ]);
+  });
+
+  it("sends the window as bare dates on start_date/end_date", async () => {
+    const calls = stubFetch({ data: [] });
+
+    await getRampAccountBalanceHistory("acct-1", "2026-07-25", "2026-07-31");
+
+    const balanceCall = calls.find((u) => u.includes("balance-history"))!;
+    expect(balanceCall).toContain("/banking/accounts/acct-1/balance-history");
+    expect(balanceCall).toContain("start_date=2026-07-25");
+    expect(balanceCall).toContain("end_date=2026-07-31");
+  });
+
+  it("throws on a Ramp error envelope so the caller can report it", async () => {
+    stubFetch({ error_v2: { message: "insufficient scope" } });
+
+    await expect(getRampAccountBalanceHistory("acct-1", "2026-07-25", "2026-07-31")).rejects.toThrow(
+      /insufficient scope/,
+    );
+  });
+
+  it("throws on a non-OK response that carries no error envelope", async () => {
+    stubFetch({}, 503);
+
+    await expect(getRampAccountBalanceHistory("acct-1", "2026-07-25", "2026-07-31")).rejects.toThrow(/503/);
+  });
+
+  it("tolerates a bare array response and a missing amount", async () => {
+    stubFetch([{ date: "2026-07-31T00:00:00Z" }]);
+
+    expect(await getRampAccountBalanceHistory("acct-1", "2026-07-25", "2026-07-31")).toEqual([
+      { date: "2026-07-31", balance_cents: 0, currency_code: "USD" },
+    ]);
   });
 });

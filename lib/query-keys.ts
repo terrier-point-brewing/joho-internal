@@ -104,6 +104,8 @@ export const queryKeys = {
     balanceSources: () => ["finance", "balance-sources"] as const,
     /** Month-end close tasks + closed status for one period_end. */
     balanceClose: (periodEnd: string) => ["finance", "balance-close", periodEnd] as const,
+    /** Ramp treasury accounts available to connect (Settings > Finance > Ramp Connection). */
+    rampAccounts: () => ["finance", "ramp-accounts"] as const,
   },
 
   // ─── Taproom ──────────────────────────────────────────────────────────────

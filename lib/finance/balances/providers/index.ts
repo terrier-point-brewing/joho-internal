@@ -15,3 +15,4 @@ import "./accruals";
 import "./transactionPostings";
 import "./retainedEarnings";
 import "./manualBalance";
+import "./rampBalance";

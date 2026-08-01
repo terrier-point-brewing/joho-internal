@@ -342,6 +342,62 @@ export function normalizeCounterparty(name: string | null | undefined): string {
   return (name ?? "").trim().toLowerCase().replace(/\s+/g, " ");
 }
 
+/** One day's closing balance on a Ramp treasury (banking) account. */
+export interface RampDailyBalance {
+  date:          string;  // "YYYY-MM-DD", the day the balance is for
+  balance_cents: number;  // signed minor units, normalized to hundredths
+  currency_code: string;
+}
+
+/**
+ * Daily balance history for a Ramp treasury account, used by the GL 1030
+ * balance method. Needs `treasury:read`, already in RAMP_SCOPES above.
+ *
+ * Unlike Plaid's balance endpoint, this answers about the PAST, which is why
+ * the Ramp balance method needs no daily capture cron -- a month end can always
+ * be re-asked for.
+ *
+ * ── On the returned amount ───────────────────────────────────────────────────
+ * Ramp reports money as an integer in minor units plus the rate that converts
+ * it to major units, so for USD `amount` already IS cents. It is still divided
+ * through `minor_unit_conversion_rate` and re-scaled here rather than passed
+ * straight through, so a currency with different precision could not silently
+ * arrive off by a factor of ten. `parseAmount` above is not reused because it
+ * returns dollars and balances are stored in cents.
+ *
+ * This is the AVAILABLE balance. It can differ from a posted statement balance
+ * when something is still pending on the last day of the month -- the balance
+ * method's explainer copy says so to the operator.
+ */
+export async function getRampAccountBalanceHistory(
+  accountId: string,
+  startDate: string,  // "YYYY-MM-DD", inclusive
+  endDate:   string,  // "YYYY-MM-DD", inclusive
+): Promise<RampDailyBalance[]> {
+  const token  = await getRampToken();
+  const params = new URLSearchParams({ start_date: startDate, end_date: endDate });
+  const res    = await fetch(
+    `${RAMP_BASE}/banking/accounts/${encodeURIComponent(accountId)}/balance-history?${params}`,
+    { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" },
+  );
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const data: any = await res.json();
+  if (data?.error_v2) throw new Error(`Ramp balance history: ${data.error_v2.message}`);
+  if (!res.ok) throw new Error(`Ramp balance history: HTTP ${res.status}`);
+
+  const rows: Record<string, unknown>[] = Array.isArray(data) ? data : (data?.data ?? []);
+  return rows.map((r) => {
+    const amount = (r.amount ?? {}) as Record<string, unknown>;
+    const rate   = (amount.minor_unit_conversion_rate as number | undefined) ?? 100;
+    const minor  = (amount.amount as number | undefined) ?? 0;
+    return {
+      date:          String(r.date ?? "").slice(0, 10),
+      balance_cents: Math.round((minor / rate) * 100),
+      currency_code: (amount.currency_code as string | undefined) ?? "USD",
+    };
+  });
+}
+
 export async function getRampBankAccounts(): Promise<RampBankAccount[]> {
   const token = await getRampToken();
   const res   = await fetch(`${RAMP_BASE}/banking/accounts`, {
