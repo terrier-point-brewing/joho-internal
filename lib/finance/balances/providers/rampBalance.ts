@@ -8,13 +8,17 @@
  * gl_account_daily_balances and this one never touches it. Connecting Ramp in
  * September still yields a correct July figure.
  *
- * ── Exact date, never the nearest one ────────────────────────────────────────
- * A window of days is requested but only the row whose date IS the month end is
- * used. Falling back to the closest earlier day would present, say, a 27th-of-
- * the-month balance as the month-end figure: plausible, undetectable and wrong.
- * The window exists purely so an inclusive/exclusive quirk on `end_date` cannot
- * turn a working read into an empty one -- it is never used to substitute a
- * different day's balance. Same rule readDailyBalance encodes for Plaid.
+ * ── Exact date for a CLOSED month, running balance for the OPEN one ──────────
+ * For a month that has ended, a window of days is requested but only the row
+ * whose date IS the month end is used. Falling back to the closest earlier day
+ * would present, say, a 27th-of-the-month balance as the month-end figure:
+ * plausible, undetectable and wrong, and about to be frozen into the close. The
+ * window exists purely so an inclusive/exclusive quirk on `end_date` cannot turn
+ * a working read into an empty one.
+ *
+ * For the open month there is no such row and never will be until it ends, so
+ * the newest reading up to today is used instead. See ../periods.ts for why the
+ * two are different questions rather than one rule strictly and loosely applied.
  *
  * ── Sign ─────────────────────────────────────────────────────────────────────
  * A bank account is an asset, and the internal convention stores assets
@@ -33,6 +37,7 @@ import type { BalanceContext, BalanceProvider } from "../registry";
 import { resolveConnection, recordSyncResult } from "../connections";
 import { getRampAccountBalanceHistory } from "@/lib/ramp";
 import { todayLocalDate } from "@/lib/utils/datetime";
+import { isOpenPeriod } from "../periods";
 
 /**
  * How many days before the month end to ask for. Wide enough to survive an
@@ -95,9 +100,10 @@ export async function readRampBalance(
   }
 
   // The open month: the period end has not arrived, so report where the
-  // account stands now rather than nothing at all.
-  const isOpenPeriod = periodEnd > today;
-  const windowEnd = isOpenPeriod ? today : periodEnd;
+  // account stands now rather than nothing at all. Shared with the Plaid feed,
+  // which shipped with the same bug — see ../periods.ts.
+  const open = isOpenPeriod(periodEnd, today);
+  const windowEnd = open ? today : periodEnd;
 
   let history;
   try {
@@ -111,7 +117,7 @@ export async function readRampBalance(
   }
 
   let row;
-  if (isOpenPeriod) {
+  if (open) {
     // Latest row at or before today. Ramp can lag a day on weekends and
     // holidays, so the most recent available reading is the running balance.
     row = history
