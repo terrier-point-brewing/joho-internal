@@ -240,6 +240,39 @@ const squareStoredBalance: BalanceMethod = {
   ],
 };
 
+/**
+ * GL 1020 Chase Operating, fed from Plaid.
+ *
+ * One step, for the same reason Ramp's is: the bank's own balance IS the
+ * complete balance for the account, since it already reflects every deposit,
+ * payment and fee that has posted. Adding a postings step the way the liability
+ * methods do would count the same money twice, once as the bank saw it and once
+ * as the books recorded it. Where the two disagree, the answer is a
+ * reconciliation, not a sum.
+ *
+ * Where it differs from Ramp: the figure is captured daily rather than read on
+ * demand, because Plaid can only answer for right now. See
+ * providers/plaidBalance.ts.
+ */
+const plaidBankBalance: BalanceMethod = {
+  key: "plaidBankBalance",
+  label: "Bank balance from Plaid",
+  kind: "calculation",
+  summary: "Uses the balance your bank itself reports on the last day of the month.",
+  appliesTo: isBank,
+  connectionProvider: "plaid",
+  steps: [
+    {
+      providerKey: "plaidBalance",
+      label: "Closing balance at the bank",
+      description:
+        "The balance your bank reported on the last day of this month, read automatically once a day and saved at the time. Your bank cannot be asked for a past balance later, so a month with no reading that day stays blank rather than showing a nearby day's figure.",
+      source: "Chase, read through Plaid",
+      direction: "net",
+    },
+  ],
+};
+
 export const BUILT_IN_METHODS: BalanceMethod[] = [
   manualEntry,
   transactionPostings,
@@ -249,6 +282,7 @@ export const BUILT_IN_METHODS: BalanceMethod[] = [
   retainedEarnings,
   rampAccountBalance,
   squareStoredBalance,
+  plaidBankBalance,
 ];
 
 for (const method of BUILT_IN_METHODS) registerMethod(method);

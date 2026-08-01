@@ -16,6 +16,16 @@ export interface CronJobMeta {
 
 export const CRON_JOBS: CronJobMeta[] = [
   {
+    job:           "balance-capture",
+    path:          "/api/cron/balance-capture",
+    schedule:      "0 2 * * *",
+    // 02:00 UTC is late evening the PREVIOUS day at the brewery, which is the
+    // date the reading is filed under — see the route header.
+    scheduleLabel: "Daily · 02:00 UTC (late evening ET)",
+    description:   "Records each Plaid-linked bank account's balance for the day. Plaid cannot be asked for a past balance, so a month end with no capture stays unsourced rather than being approximated from a nearby day.",
+    maxAgeHours:   25,
+  },
+  {
     job:           "payroll-advance",
     path:          "/api/cron/payroll-advance",
     schedule:      "0 5 * * *",

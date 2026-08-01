@@ -17,3 +17,4 @@ import "./retainedEarnings";
 import "./manualBalance";
 import "./rampBalance";
 import "./squareBalance";
+import "./plaidBalance";

@@ -36,6 +36,25 @@ export const env = {
   rampClientSecret: () => require("RAMP_CLIENT_SECRET"),
 
   /**
+   * Plaid app-level credentials. The per-bank `access_token` is NOT here — it
+   * is minted per link at runtime and lives in
+   * integration_connections.credentials, which is the whole reason that column
+   * exists. See docs/finance/balance-methods-handoff.md § 3c.
+   */
+  plaidClientId: () => require("PLAID_CLIENT_ID"),
+  plaidSecret:   () => require("PLAID_SECRET"),
+
+  /** "production" (the Trial plan lives here too) or "sandbox". */
+  plaidEnv: (): string => process.env.PLAID_ENV ?? "production",
+
+  /**
+   * OAuth redirect URI, required by OAuth institutions — Chase is one — and it
+   * must match a URI registered in the Plaid dashboard character for
+   * character. Undefined when unset so a sandbox link still works.
+   */
+  plaidRedirectUri: (): string | undefined => process.env.PLAID_REDIRECT_URI,
+
+  /**
    * Public base URL for the app (e.g. https://app.terrierpoint.com).
    * Used when constructing absolute links in emails.
    */

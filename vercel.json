@@ -1,6 +1,10 @@
 {
   "crons": [
     {
+      "path": "/api/cron/balance-capture",
+      "schedule": "0 2 * * *"
+    },
+    {
       "path": "/api/cron/payroll-advance",
       "schedule": "0 5 * * *"
     },

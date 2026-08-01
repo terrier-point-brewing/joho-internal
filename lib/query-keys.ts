@@ -108,6 +108,8 @@ export const queryKeys = {
     rampAccounts: () => ["finance", "ramp-accounts"] as const,
     /** Square connection + per-account anchors (Settings > Finance > Square Connection). */
     squareConnection: () => ["finance", "square-connection"] as const,
+    /** Integration connection rows (Settings > Finance > Bank Connections). */
+    balanceConnections: () => ["finance", "balance-connections"] as const,
   },
 
   // ─── Taproom ──────────────────────────────────────────────────────────────
