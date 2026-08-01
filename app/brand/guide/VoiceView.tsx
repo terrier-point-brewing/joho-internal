@@ -111,7 +111,7 @@ export default function VoiceView({ canon }: { canon: BrandCanon }) {
               )}
               <SpecCard
                 variant="template"
-                tag="Naming — narrative"
+                tag="Release card"
                 title="Writing a release card"
                 rows={templateRows}
                 footer={narrative?.footer}
