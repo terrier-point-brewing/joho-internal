@@ -81,6 +81,37 @@ Co-locate `*.test.ts`. The conformance suite in
 - no description contains a snake_case identifier, a code call, or a provider key
 - the label is sentence case
 
+## 3b. Running Ramp, Plaid and Square in parallel
+
+All three are designed to run at once, on separate branches. Three rules keep
+that true.
+
+**Migration stamps.** Suggested: Ramp `20260914090000`, Square `20260915090000`,
+Plaid `20260916090000`. Re-check with `node scripts/check-migrations.mjs --strict`
+against a **freshly fetched main** before pushing. CI validates the merge result,
+so a stamp that is unique on your branch can still collide with something merged
+while you worked. This has already bitten once.
+
+**Do not reshape `connections.ts` silently.** If your integration needs the
+connection store changed, say so prominently in the PR description. Whoever
+merges first wins and the others rebase — cheap if it is visible, expensive if
+two branches quietly diverge. Plaid is the likeliest to need it, since it is the
+only one exercising both stored credentials and daily capture; Ramp exercises
+neither.
+
+**Do not edit the Settings page.** A registered method appears there
+automatically. If you believe you need to change
+`app/settings/finance/balance-sheet-accounts/page.tsx`, that is a signal the
+scaffolding is missing something — raise it rather than patching around it, or
+three branches will conflict on one file.
+
+Expect small mechanical conflicts in `providers/index.ts` (one import line each)
+and `methods/definitions.ts` (one method each). Those are adjacent-line
+conflicts, not logical ones. `definitions.test.ts` already asserts built-in
+methods by containment so your seventh method does not fail anyone else's build.
+
+Merge in whatever order they finish. There is no dependency between them.
+
 ## 4. Rules that are not negotiable
 
 **Sign convention.** Stored values are internal convention: assets positive,
