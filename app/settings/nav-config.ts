@@ -80,6 +80,11 @@ export const FINANCE_SETTINGS_NAV: SettingsNavEntry[] = [
   // exist and their shape is known rather than guessed at.
   { href: "/settings/finance/ramp-connection", label: "Ramp Connection" },
   { href: "/settings/finance/square-connection", label: "Square Connection" },
+  // Plaid's, per the note above. Named for the bank rather than for Plaid,
+  // unlike its two siblings, because Plaid is the pipe and not where the money
+  // is -- the connection an operator makes here is to Chase. Worth settling one
+  // way or the other in the consolidation pass now that all three exist.
+  { href: "/settings/finance/bank-connections", label: "Bank Connections" },
   { href: "/settings/finance/backfill", label: "Backfill" },
 ];
 

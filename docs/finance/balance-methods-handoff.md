@@ -125,11 +125,19 @@ present a stale balance as a month-end figure. Record the balance under **the
 date it represents**, not the date you fetched it — a real-time read taken on
 the 1st is an intraday balance for the 1st.
 
-**Nothing calls `recordDailyBalance` yet — Plaid owns building the daily cron**
-(`app/api/cron/balance-capture/route.ts`, wrapped in `runCronJob` so it lands in
-`cron_runs`, registered in `vercel.json`). It was left unbuilt deliberately
-rather than guessed at without a real consumer. Square should reuse it if it
-needs one; Ramp does not.
+**Built by the Plaid branch.** `app/api/cron/balance-capture/route.ts` runs
+daily at 02:00 UTC — late evening at the brewery on the day it records, so the
+month-end figure is a near-closing balance and lands seven hours before the
+09:00 `balance-close` run that reads it. Wrapped in `runCronJob`, registered in
+`vercel.json` and `lib/cron/registry.ts`.
+
+Its core, `lib/finance/balances/dailyCapture.ts`, is parameterised by connection
+provider and by a reader function, and imports nothing from `lib/plaid`.
+**Square should register a second reader there rather than build a second
+cron** — an anchor-plus-movement balance has the same "only evaluable as of
+now" property. Ramp needs none of it. The Plaid reader is
+`lib/finance/balances/plaidCapture.ts`, which is the only caller that touches a
+stored bank credential.
 
 ### e. Tests
 Co-locate `*.test.ts`. The conformance suite in
@@ -243,13 +251,16 @@ because the range query covers history.
 Bonus: GL 2110 Ramp Card can use `getRampStatements()`, which already returns
 `ending_balance`. Statement periods may not align to calendar month ends.
 
-### Plaid — GL 1020 Chase Operating
-**Confirm the free tier at signup before building.** Plaid's help centre
-describes a Trial plan: free, real production data, up to 10 Production Items,
-most OAuth institutions including Chase, for US teams created on or after
-2026-04-15. Plaid's pricing page separately says there is no free Production
-tier, so the Trial plan is the specific thing to verify. Some institutions need
-extra registration for OAuth.
+### Plaid — GL 1020 Chase Operating — BUILT
+**Trial plan confirmed 2026-08-01**, against Plaid's help centre article "What
+is the Plaid Trial plan?": free access to the production APIs with real
+financial accounts, Balance and Transactions both included, OAuth coverage
+naming Chase explicitly, 10 Production Items (this uses one). Eligibility is
+developers in the US or Canada with no pre-existing Production or Limited
+Production account — no Plaid account existed, so that holds. The pricing page's
+"no free Production tier" refers to the paid plans and does not contradict it.
+Two caveats that survive: OAuth access appears 6–24 hours after approval, and
+some institutions need extra registration.
 
 `/accounts/balance/get` returns real-time available and current balance and
 forces a fresh pull. Constraints:
@@ -259,6 +270,29 @@ forces a fresh pull. Constraints:
 - Synchronous against the bank; can take 30 seconds. Fine in a cron, not in a
   page load.
 - `access_token` is per-connection → `integration_connections.credentials`.
+
+What shipped, and two decisions worth knowing:
+
+| Piece | Where |
+|---|---|
+| Method `plaidBankBalance` | `methods/definitions.ts` |
+| Provider `plaidBalance` — reads the capture, never the API | `providers/plaidBalance.ts` |
+| Generic daily capture | `dailyCapture.ts` + `app/api/cron/balance-capture/` |
+| Plaid reader (the only user of a stored token) | `plaidCapture.ts` |
+| API client | `lib/plaid.ts` |
+| Link setup flow | `app/settings/finance/bank-connections/` + `app/api/finance/balance-connections/plaid/` |
+
+**No schema change.** `integration_connections` and `gl_account_daily_balances`
+already carry everything Plaid needs, so the reserved `20260916090000` stamp was
+not used and is free for whoever wants it.
+
+**`connections.ts` was not modified.** It was expected to be the branch most
+likely to need reshaping — it exercises both stored credentials and daily
+capture — and it did not. Ramp and Square do not need to rebase for it.
+
+`current` is stored, not `available`: available nets off holds and pending
+debits that have not posted and are not in the books either, so it would open a
+difference against the ledger that no reconciliation could explain.
 
 ### Square — GL 1040 Square Deposit — BUILT
 **There is no balance endpoint.** Verified against the full v2 spec, and
