@@ -79,6 +79,7 @@ export const FINANCE_SETTINGS_NAV: SettingsNavEntry[] = [
   // a Ramp account — expect siblings here, and a consolidation once all three
   // exist and their shape is known rather than guessed at.
   { href: "/settings/finance/ramp-connection", label: "Ramp Connection" },
+  { href: "/settings/finance/square-connection", label: "Square Connection" },
   { href: "/settings/finance/backfill", label: "Backfill" },
 ];
 
