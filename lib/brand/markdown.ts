@@ -107,6 +107,8 @@ function voice(canon: BrandCanon): string[] {
     }
     for (const ex of naming.passingExamples ?? []) {
       lines.push(`- Passes: ${ex.name} — ${ex.why}`);
+      if (ex.story) lines.push(`  - Story: ${ex.story}`);
+      if (ex.menuDescription) lines.push(`  - Menu: ${ex.menuDescription}`);
     }
     lines.push("");
   }

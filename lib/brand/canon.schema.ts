@@ -282,7 +282,26 @@ export const canonSchema = z.object({
     pattern: z.string(),
     narrative: z.string(),
     criteria: z.array(z.string()).length(5),
-    passingExamples: z.array(z.object({ name: z.string(), why: z.string() })),
+    // Four required fields because the guide renders four lines per example.
+    // Optional keys would let a half-filled example publish and sit on the
+    // brand guide as a card with one line beside a card with three — and the
+    // published 1.7 document shows what happens without the slots: its first
+    // example had a story line ("In Pingxi, they say a wish doesn't count
+    // until you lose sight of it") stuffed into `why`, because there was
+    // nowhere else to put it. Migration 20260910090000 backfills every row.
+    //
+    // Required, but not `.min(1)`: nothing in this schema forbids the empty
+    // string, and saveDraftSection parses on every tab save, so a length gate
+    // would block saving a half-written example mid-edit. Emptiness is the
+    // draft's business; the shape is the schema's.
+    passingExamples: z.array(
+      z.object({
+        name: z.string(),
+        story: z.string(),
+        menuDescription: z.string(),
+        why: z.string(),
+      }),
+    ),
   }),
 
   // ── Color (Specification) ────────────────────────────────────────────────

@@ -89,19 +89,33 @@ export default function NamingFields({
 
       <ListField<Example>
         label="Passing examples"
-        description="Names that clear all five, and the reason each one does."
+        description="Illustrative names that clear all five — the story each one points to, the line it would carry on a menu, and why it passes."
         addLabel="Add example"
         items={naming.passingExamples ?? []}
         onChange={(passingExamples) => onChange({ ...draft, naming: { ...naming, passingExamples } })}
-        blank={() => ({ name: "", why: "" })}
+        blank={() => ({ name: "", story: "", menuDescription: "", why: "" })}
         renderItem={(example, update) => (
           <div className="flex flex-col gap-2">
             <input
               className="inp-sm"
               value={example.name}
               onChange={(e) => update({ name: e.target.value })}
-              aria-label="Name"
+              aria-label="Illustrative name — beer style"
               placeholder="Peach Blossom Spring — Jasmine Peach Lager"
+            />
+            <textarea
+              className="inp min-h-16 text-sm"
+              value={example.story}
+              onChange={(e) => update({ story: e.target.value })}
+              aria-label="Story line"
+              placeholder="Story line — the moment or story the name points to"
+            />
+            <input
+              className="inp-sm"
+              value={example.menuDescription}
+              onChange={(e) => update({ menuDescription: e.target.value })}
+              aria-label="Menu description"
+              placeholder="Menu description — how it reads on the tap list"
             />
             <input
               className="inp-sm"

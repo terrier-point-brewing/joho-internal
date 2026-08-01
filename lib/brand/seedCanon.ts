@@ -127,10 +127,34 @@ export const seedCanon: BrandCanon = {
       "No beer-world clichés (haze, juice, dank, slam, crusher).",
     ],
     passingExamples: [
-      { name: "Peach Blossom Spring — Jasmine Peach Lager", why: "Tao Yuanming’s fable; jasmine and peach are in the glass" },
-      { name: "First Light at Alishan — High-Mountain Oolong Golden Ale", why: "A specific experience; the mountain’s tea is in the beer" },
-      { name: "Convenience Store Rain — Milk Tea Stout", why: "A remembered moment; milk tea is the flavor" },
-      { name: "Grandmother’s Kumquat Jar — Kumquat Sour", why: "A specific sensory memory; kumquat is in the glass" },
+      {
+        name: "Peach Blossom Spring — Jasmine Peach Lager",
+        story:
+          "A fisherman follows fallen peach blossoms upstream and finds a village that forgot the world outside. Sixteen centuries later, people are still looking for the place.",
+        menuDescription: "Soft, floral, gently sweet — an easy first step.",
+        why: "Tao Yuanming’s fable; jasmine and peach are in the glass",
+      },
+      {
+        name: "First Light at Alishan — High-Mountain Oolong Golden Ale",
+        story:
+          "The train climbs all night so you can stand above the clouds at five in the morning and watch the sun come up over the tea terraces.",
+        menuDescription: "Toasted oolong and orchid, dry and clean at the finish.",
+        why: "A specific experience; the mountain’s tea is in the beer",
+      },
+      {
+        name: "Convenience Store Rain — Milk Tea Stout",
+        story:
+          "Waiting out a downpour under a shop awning with a hot milk tea, in no particular hurry for it to stop.",
+        menuDescription: "Black tea, malt and cream — dark, but not heavy.",
+        why: "A remembered moment; milk tea is the flavor",
+      },
+      {
+        name: "Grandmother’s Kumquat Jar — Kumquat Sour",
+        story:
+          "The jar kept on the back step — kumquats and rock sugar — opened by the spoonful whenever anyone had a cough.",
+        menuDescription: "Bright, tart, honeyed citrus; a small sharp lift.",
+        why: "A specific sensory memory; kumquat is in the glass",
+      },
     ],
   },
 

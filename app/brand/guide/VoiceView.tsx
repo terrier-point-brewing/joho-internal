@@ -108,7 +108,15 @@ export default function VoiceView({ canon }: { canon: BrandCanon }) {
                 <SpecCard
                   key={i}
                   title={example.name}
-                  rows={[{ label: "Why it passes", value: example.why }]}
+                  rows={[
+                    // Story and menu line are optional in the canon — a card
+                    // that has neither still reads as it always did.
+                    ...(example.story ? [{ label: "Story line", value: example.story }] : []),
+                    ...(example.menuDescription
+                      ? [{ label: "Menu description", value: example.menuDescription }]
+                      : []),
+                    { label: "Why it passes", value: example.why },
+                  ]}
                 />
               ))}
             </div>
