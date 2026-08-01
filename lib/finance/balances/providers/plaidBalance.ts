@@ -13,11 +13,21 @@
  * records each day's figure under the date it represents, and this provider
  * reads that capture back. See ../dailyCapture.ts.
  *
- * The lookup is exact-date only (readDailyBalance enforces it). If nothing was
- * captured on the month end, this returns null and the account reads as
- * unsourced -- which is the correct visible outcome. Falling back to the
- * nearest earlier capture would present a stale bank balance as a month-end
- * figure: plausible, undetectable, and wrong.
+ * ── A closed month and the open month are different questions ────────────────
+ * For a month that has ENDED the lookup is exact-date only (readDailyBalance
+ * enforces it). If nothing was captured on the month end, this returns null and
+ * the account reads as unsourced -- the correct visible outcome. Falling back
+ * to the nearest earlier capture would present a stale bank balance as a
+ * month-end figure: plausible, undetectable, and wrong.
+ *
+ * For the OPEN month that rule was not merely strict, it was wrong. The balance
+ * sheet live-computes the current month by asking for that month's LAST day, so
+ * on 12 August it asks for 31 August -- a date nothing has captured, or ever
+ * could. GL 1020 therefore read as unsourced from the 1st of every month until
+ * the close, which is most of the time anyone actually looks at it. The open
+ * month is now answered with the newest capture within
+ * RUNNING_BALANCE_MAX_AGE_DAYS, so a feed that lags a weekend still reports and
+ * a feed that stopped weeks ago does not.
  *
  * Sign: a bank account is an asset, and the internal convention stores assets
  * positive. A depository balance from Plaid is already positive (and negative
@@ -25,7 +35,9 @@
  */
 import { registerProvider } from "../registry";
 import type { BalanceContext, BalanceProvider } from "../registry";
-import { resolveConnection, readDailyBalance } from "../connections";
+import { resolveConnection, readDailyBalance, readLatestDailyBalance } from "../connections";
+import { isOpenPeriod, RUNNING_BALANCE_MAX_AGE_DAYS } from "../periods";
+import { todayLocalDate } from "@/lib/utils/datetime";
 import type { CoaAccountRef } from "../../financials/types";
 
 export const plaidBalance: BalanceProvider = {
@@ -42,7 +54,10 @@ export const plaidBalance: BalanceProvider = {
       const connection = await resolveConnection(ctx.supabase, ctx.config);
       if (!connection) return null;
 
-      return await readDailyBalance(ctx.supabase, ctx.coaId, ctx.periodEnd);
+      const today = todayLocalDate();
+      return isOpenPeriod(ctx.periodEnd, today)
+        ? await readLatestDailyBalance(ctx.supabase, ctx.coaId, today, RUNNING_BALANCE_MAX_AGE_DAYS)
+        : await readDailyBalance(ctx.supabase, ctx.coaId, ctx.periodEnd);
     } catch (err) {
       // Degrade rather than throw. A throw fails the whole METHOD, which skips
       // the account for the run -- correct when a figure is half-computed, but

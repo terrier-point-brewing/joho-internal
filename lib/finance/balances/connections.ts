@@ -270,6 +270,44 @@ export async function readDailyBalance(
 }
 
 /**
+ * Reads the most recent capture dated at or before `onOrBefore`, but no older
+ * than `maxAgeDays`.
+ *
+ * The deliberate counterpart to `readDailyBalance`, NOT a relaxation of it.
+ * That function is exact-date because its answer gets frozen into a month-end
+ * close. This one answers a different question -- "where does this account
+ * stand right now", for the open month the balance sheet live-computes on every
+ * page view -- where the newest available reading is the correct answer and
+ * demanding an exact date produces a blank account for weeks at a time.
+ *
+ * The age bound is what keeps the two honest. A feed lags a day over a weekend,
+ * which is fine; a feed that stopped three weeks ago must not keep publishing
+ * its last figure as the current balance. Past the bound the account reads as
+ * unsourced, which is visibly wrong rather than plausibly wrong.
+ */
+export async function readLatestDailyBalance(
+  supabase: AdminClient,
+  coaId: string,
+  onOrBefore: string,
+  maxAgeDays: number,
+): Promise<number | null> {
+  const oldest = new Date(`${onOrBefore}T00:00:00Z`);
+  oldest.setUTCDate(oldest.getUTCDate() - maxAgeDays);
+
+  const { data, error } = await supabase
+    .from("gl_account_daily_balances")
+    .select("balance_cents")
+    .eq("chart_of_accounts_id", coaId)
+    .lte("as_of_date", onOrBefore)
+    .gte("as_of_date", oldest.toISOString().slice(0, 10))
+    .order("as_of_date", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) return null;
+  return data ? (data as { balance_cents: number }).balance_cents : null;
+}
+
+/**
  * Records the balance for a date, overwriting any existing capture for it.
  *
  * `asOfDate` is what the figure REPRESENTS, which is not always the day it was
