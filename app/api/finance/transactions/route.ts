@@ -58,6 +58,7 @@ export async function GET(req: NextRequest) {
         net_sales_cents,
         tax_cents,
         chart_of_accounts_id,
+        gl_manually_set,
         notes,
         chart_of_accounts ( id, account_name, account_number, account_type )
       )
@@ -98,12 +99,16 @@ export async function GET(req: NextRequest) {
     voided_line_items: [] as VoidedLineItem[],
     pos_line_items: (txn.pos_line_items ?? []).map((li) => {
       const prefill = li.square_variation_id ? mappingLookup[li.square_variation_id] : null;
+      const effectiveId = li.chart_of_accounts_id ?? prefill?.id ?? null;
       return {
         ...li,
-        // effective_coa = manual override > account mapping prefill
-        effective_chart_of_accounts_id:   li.chart_of_accounts_id ?? prefill?.id ?? null,
+        // effective_coa = the line's own account > account mapping prefill
+        effective_chart_of_accounts_id:   effectiveId,
         effective_chart_of_accounts:       li.chart_of_accounts ?? prefill ?? null,
-        prefilled_from_mapping:            !li.chart_of_accounts_id && !!prefill,
+        // "Came from a rule, not a person." The sync writes the catalog mapping
+        // into chart_of_accounts_id, so a populated column is NOT evidence of a
+        // human choice — gl_manually_set is the only thing that is.
+        prefilled_from_mapping:            !li.gl_manually_set && !!effectiveId,
       };
     }),
   }));

@@ -30,8 +30,15 @@ export interface PosLineRecord {
   netSalesCents: number;
   /** square_orders.transaction_date (or pos_line_items' own date), "YYYY-MM-DD..." */
   transactionDate: string;
-  /** pos_line_items.chart_of_accounts_id — manual override. */
+  /**
+   * pos_line_items.chart_of_accounts_id — the resolved account, whoever set it.
+   * NOT a manual-override signal: the Square sync and the auto-map pass both
+   * write the catalog rule into this column, so presence says nothing about
+   * provenance. Use `glManuallySet` for that.
+   */
   chartOfAccountsId: string | null;
+  /** pos_line_items.gl_manually_set — true only when a person chose the account. */
+  glManuallySet: boolean;
   /** square_catalog_variations.chart_of_accounts_id prefill, looked up by variation id upstream. */
   prefillChartOfAccountsId: string | null;
   /** square_orders.invoice_id — null for a plain POS sale. */
@@ -192,9 +199,13 @@ function resolvePos(row: PosLineRecord, coaMap: Map<string, CoaRecord>): Resolve
   if (!monthKey) return null;
 
   const coaId = row.chartOfAccountsId ?? row.prefillChartOfAccountsId ?? null;
-  const mappingSource: MappingSource = row.chartOfAccountsId
+  // Provenance comes from the flag, not from which column the account sits in.
+  // Classifying on `chartOfAccountsId` presence (as this did before the
+  // gl_manually_set migration) reported 99% of lines as "manual", because the
+  // sync writes the catalog rule into that same column.
+  const mappingSource: MappingSource = row.glManuallySet
     ? "manual"
-    : row.prefillChartOfAccountsId
+    : coaId
       ? "rule"
       : "unmapped";
 

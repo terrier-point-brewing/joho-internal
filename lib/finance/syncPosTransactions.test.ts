@@ -172,29 +172,44 @@ describe("buildPosLineItems", () => {
   // on the old row has to be carried forward explicitly or it is silently lost.
   it("keeps a prior manual mapping instead of reverting to the catalog default", () => {
     const prior = new Map([
-      ["LI_1", { chart_of_accounts_id: "COA_HAND_SET", notes: "reclassed for the taproom split" }],
+      ["LI_1", { chart_of_accounts_id: "COA_HAND_SET", gl_manually_set: true, notes: "reclassed for the taproom split" }],
     ]);
     const items = buildPosLineItems("DBID_1", order, () => "COA_CATALOG", prior);
     expect(items[0].chart_of_accounts_id).toBe("COA_HAND_SET");
     expect(items[0].notes).toBe("reclassed for the taproom split");
+    // The flag has to ride along with the id — preserving the account but
+    // dropping the flag would silently reclassify it as rule-derived.
+    expect(items[0].gl_manually_set).toBe(true);
   });
 
   it("falls back to the catalog mapping for lines with no prior state", () => {
     const prior = new Map([
-      ["SOME_OTHER_UID", { chart_of_accounts_id: "COA_HAND_SET", notes: null }],
+      ["SOME_OTHER_UID", { chart_of_accounts_id: "COA_HAND_SET", gl_manually_set: true, notes: null }],
     ]);
     const items = buildPosLineItems("DBID_1", order, () => "COA_CATALOG", prior);
     expect(items[0].chart_of_accounts_id).toBe("COA_CATALOG");
+    expect(items[0].gl_manually_set).toBe(false);
     expect(items[0].notes).toBeNull();
   });
 
   it("carries a prior note even when the mapping itself was never set", () => {
-    const prior = new Map([["LI_1", { chart_of_accounts_id: null, notes: "check with Will" }]]);
+    const prior = new Map([
+      ["LI_1", { chart_of_accounts_id: null, gl_manually_set: false, notes: "check with Will" }],
+    ]);
     const items = buildPosLineItems("DBID_1", order, () => "COA_CATALOG", prior);
     // Null prior mapping must not shadow the catalog default...
     expect(items[0].chart_of_accounts_id).toBe("COA_CATALOG");
     // ...but the note still survives the rebuild.
     expect(items[0].notes).toBe("check with Will");
+    expect(items[0].gl_manually_set).toBe(false);
+  });
+
+  // The catalog mapping is a rule. Only the Orders grid PATCH promotes a line to
+  // "manual", so a freshly synced row must never claim to be one.
+  it("never marks a rule-derived mapping as manually set", () => {
+    const items = buildPosLineItems("DBID_1", order, () => "COA_CATALOG");
+    expect(items[0].chart_of_accounts_id).toBe("COA_CATALOG");
+    expect(items[0].gl_manually_set).toBe(false);
   });
 
   it("behaves exactly as before when no prior state is passed", () => {

@@ -20,7 +20,21 @@ import { apiError } from "@/lib/utils/api";
 
 export const dynamic = "force-dynamic";
 
-const WINDOW_DAYS = 3;
+/**
+ * How far back each nightly run re-syncs. Widened from 3 once re-syncs stopped
+ * clobbering hand-set GL mappings (PR #315) — before that, a wider window meant
+ * a wider nightly *destructive* rebuild, so 3 days was a cap on the blast
+ * radius rather than a judgement about coverage.
+ *
+ * Still deliberately short. Every invoice-backed order in the window has its
+ * invoice_line_items deleted and rebuilt through the non-canonical path flagged
+ * in lib/finance/syncPosTransactions.ts (different sort_order convention, can
+ * orphan invoice tax rows), so the window is bounded by that hazard, not by
+ * cost. A week covers a long weekend of failed webhook deliveries; anything
+ * older is the gap scan's job (app/api/cron/finance-gap-scan), which re-syncs
+ * only the days that actually disagree with Square.
+ */
+const WINDOW_DAYS = 7;
 
 export async function GET(req: NextRequest) {
   const auth = req.headers.get("authorization");
