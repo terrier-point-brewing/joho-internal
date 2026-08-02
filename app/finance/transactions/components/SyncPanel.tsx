@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
+import RunJobButton from "@/app/components/RunJobButton";
 
 /** Whole days elapsed since an ISO timestamp. */
 export function daysSince(isoStr: string): number {
@@ -156,6 +157,11 @@ export default function SyncPanel<T>({
           ? `Syncing${scope ? " " + scope : ""}…`
           : `Sync ${scope ? scope + " " : ""}${label}`}
       </button>
+      {/* Beside the targeted sync, not instead of it. The button to its left
+          pulls the range someone chose; this one repeats the scheduled job
+          exactly, which is what to reach for when the badge above says the
+          automatic run is late or failed. */}
+      <RunJobButton job={cronJob} label="Run scheduled sync" onFinished={onSynced} />
       {error && <span className="text-xs text-danger">{error}</span>}
       {result && renderResult && <span className="text-xs text-secondary">{renderResult(result)}</span>}
     </div>

@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 import Card from "@/app/components/ui/Card";
 import Badge from "@/app/components/ui/Badge";
 import Banner from "@/app/components/ui/Banner";
+import RunJobButton from "@/app/components/RunJobButton";
 
 interface CronJobMeta {
   job: string;
@@ -11,6 +12,7 @@ interface CronJobMeta {
   scheduleLabel: string;
   description: string;
   maxAgeHours: number;
+  /** Absent on a job that has run but is no longer registered — those cannot be started here. */
 }
 
 interface CronRun {
@@ -149,11 +151,17 @@ export default function CronMonitor() {
                         {job.scheduleLabel}{job.schedule ? ` · ${job.schedule}` : ""}{job.path !== "—" ? ` · ${job.path}` : ""}
                       </p>
                     </div>
-                    {jobRuns.length > 0 && (
-                      <button onClick={() => toggle(job.job)} className="text-[11px] text-muted hover:text-body shrink-0">
-                        {isOpen ? "Hide runs" : `${jobRuns.length} run${jobRuns.length === 1 ? "" : "s"}`}
-                      </button>
-                    )}
+                    <div className="flex items-center gap-3 shrink-0">
+                      {jobRuns.length > 0 && (
+                        <button onClick={() => toggle(job.job)} className="text-[11px] text-muted hover:text-body">
+                          {isOpen ? "Hide runs" : `${jobRuns.length} run${jobRuns.length === 1 ? "" : "s"}`}
+                        </button>
+                      )}
+                      {/* Renders nothing for a job that has runs in the history
+                          but is no longer registered — there is nothing behind
+                          it to start. */}
+                      <RunJobButton job={job.job} onFinished={load} />
+                    </div>
                   </div>
 
                   {last && (
@@ -190,6 +198,8 @@ export default function CronMonitor() {
           <p className="text-[10px] text-faint mt-1">
             Runs are recorded by the jobs themselves. A job with no runs has either never fired or predates run logging.
             Vercel triggers these on the schedules in <span className="font-mono">vercel.json</span>.
+            Running a job here does exactly what the schedule does, and is recorded in the same history.
+            A job that is already running will say so rather than starting a second time.
           </p>
         </div>
       )}

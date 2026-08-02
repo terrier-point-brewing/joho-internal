@@ -18,13 +18,18 @@
  * production use. A Chase row reaching that aggregation would silently change
  * reported figures across up to two years of history.
  *
- * So every row this module writes carries `include_in_gl: false`, and every one
+ * So every row this module IMPORTS carries `include_in_gl: false`, and every one
  * of those readers filters on it. Two further properties make the same promise
  * independently: the rows land with no chart_of_accounts_id, which the
  * balance-sheet reader matches on, and with `affects_pl: false`, which the P&L
  * and cash-flow reader filters on. Whether Chase transactions SHOULD feed the
  * general ledger, and which counterparties map where, is separate work that has
  * a switch to throw because of this; throwing it is not this module's job.
+ *
+ * Which is the same reason a re-import does not undo that switch once it HAS
+ * been thrown. A transaction the feed has seen before keeps whatever a person
+ * decided about it; only a first-time import gets the defaults above. See
+ * preserveOperatorCoding.
  *
  * ── Why the cursor feed rather than a date range ─────────────────────────────
  * /transactions/sync replays every CHANGE since a cursor, so a transaction that
@@ -114,7 +119,12 @@ export interface LedgerRow {
   flow_type: string;
   affects_pl: boolean;
   include_in_gl: boolean;
-  chart_of_accounts_id: null;
+  /**
+   * Null on a freshly imported transaction. Widened from `null` because a row
+   * that already exists keeps whatever account a person gave it — see
+   * preserveOperatorCoding.
+   */
+  chart_of_accounts_id: string | null;
   mapping_source: string;
   transaction_date: string;
   pending: boolean;
@@ -151,8 +161,10 @@ export function counterpartyNameOf(txn: PlaidTransaction): string | null {
  * reports a confident zero explained with no error anywhere.
  *
  * ── Everything that keeps it out of the books ────────────────────────────────
- * Three independent properties, because one of them being edited away by
- * accident must not be enough:
+ * Three independent properties on a FIRST import, because one of them being
+ * edited away by accident must not be enough. On a transaction the feed has
+ * seen before, preserveOperatorCoding replaces all three with whatever the row
+ * already holds:
  *   * `include_in_gl: false` — the explicit gate every general-ledger reader
  *     filters on.
  *   * `chart_of_accounts_id: null` — the balance-sheet reader matches on
@@ -190,6 +202,87 @@ export function toLedgerRow(
   };
 }
 
+/** The columns on an existing ledger row that a person, or a rule, may own. */
+export interface PriorLedgerCoding {
+  flow_type: string;
+  affects_pl: boolean;
+  include_in_gl: boolean;
+  chart_of_accounts_id: string | null;
+  mapping_source: string;
+}
+
+/**
+ * Pure. Keeps a decision somebody already made about a transaction.
+ *
+ * The feed replays a transaction as `modified` whenever the bank touches it —
+ * a pending charge posting, a descriptor being cleaned up, a recategorisation.
+ * Those are routine, and each one arrives as a full row from toLedgerRow, whose
+ * defaults are the defaults for a transaction NOBODY HAS LOOKED AT YET. Writing
+ * them over a row that has since been switched into the general ledger and given
+ * an account would undo that silently, days later, with no error anywhere —
+ * which is precisely what makes a "Run now" button on this feed dangerous
+ * without this function.
+ *
+ * So: with no prior row the fresh defaults stand, and a newly imported Chase
+ * transaction still lands excluded from the general ledger with no account, as
+ * the module header promises. With a prior row, every field the sync has no
+ * opinion about is carried forward. The sync only ever writes 'unclassified' /
+ * 'unmapped' / excluded, so any other value on the existing row came from a
+ * person or from a bank-feed rule, and there is nothing for the feed to
+ * re-derive. This mirrors what the Ramp writer has always done in
+ * lib/finance/bankLedger.ts.
+ *
+ * The bank still owns what the bank knows: amount, date, description,
+ * counterparty, pending, and the raw payload all come from the fresh row.
+ */
+export function preserveOperatorCoding(row: LedgerRow, prior: PriorLedgerCoding | undefined): LedgerRow {
+  if (!prior) return row;
+  return {
+    ...row,
+    flow_type:            prior.flow_type,
+    affects_pl:           prior.affects_pl,
+    include_in_gl:        prior.include_in_gl,
+    chart_of_accounts_id: prior.chart_of_accounts_id,
+    mapping_source:       prior.mapping_source,
+  };
+}
+
+/**
+ * Existing coding for the transactions in one page, keyed by transaction id.
+ *
+ * Scoped to this source, so a Ramp row can never be read as a Plaid one — the
+ * ledger's unique key is the pair, not the id alone.
+ */
+async function loadPriorCoding(
+  supabase: AdminClient,
+  transactionIds: string[],
+): Promise<Map<string, PriorLedgerCoding>> {
+  const out = new Map<string, PriorLedgerCoding>();
+  if (transactionIds.length === 0) return out;
+
+  const { data, error } = await supabase
+    .from("ramp_bank_ledger")
+    .select("source_transaction_id, flow_type, affects_pl, include_in_gl, chart_of_accounts_id, mapping_source")
+    .eq("source", PLAID_LEDGER_SOURCE)
+    .in("source_transaction_id", transactionIds);
+  // Thrown, not swallowed. Carrying on with an empty map would look like a page
+  // of first-time imports and quietly reset every row it touched, which is the
+  // exact outcome this read exists to prevent. The cursor has not moved, so the
+  // page simply replays on the next run.
+  if (error) throw new Error(`could not read existing bank ledger coding: ${error.message}`);
+
+  for (const r of data ?? []) {
+    out.set(r.source_transaction_id as string, {
+      flow_type:            r.flow_type as string,
+      affects_pl:           r.affects_pl as boolean,
+      include_in_gl:        r.include_in_gl as boolean,
+      chart_of_accounts_id: r.chart_of_accounts_id as string | null,
+      mapping_source:       r.mapping_source as string,
+    });
+  }
+  return out;
+}
+
 async function writePage(
   supabase: AdminClient,
   connection: ConnectionWithSecrets,
@@ -198,7 +291,9 @@ async function writePage(
   // added and modified are written the same way. Plaid distinguishes them, but
   // an upsert keyed on the transaction id makes the distinction irrelevant here
   // and immune to a replay landing a row in the other bucket.
-  const rows = [...page.added, ...page.modified].map((t) => toLedgerRow(connection, t));
+  const fresh = [...page.added, ...page.modified].map((t) => toLedgerRow(connection, t));
+  const prior = await loadPriorCoding(supabase, fresh.map((r) => r.source_transaction_id));
+  const rows = fresh.map((r) => preserveOperatorCoding(r, prior.get(r.source_transaction_id)));
 
   if (rows.length > 0) {
     // Matches the table's own unique constraint, which was already

@@ -1,0 +1,343 @@
+/**
+ * One question, asked of every job: if somebody runs this again, does the work
+ * a person did by hand survive?
+ *
+ * The question is new. Until now these jobs ran once a night on a narrow recent
+ * window, at an hour when nobody was correcting anything. A button that starts
+ * one at any moment points them at data a person has since coded, split,
+ * excluded or reconciled — so "is it idempotent" is no longer the whole test.
+ * A sync can be perfectly idempotent and still be destructive, by converging on
+ * the source's answer instead of the operator's.
+ *
+ * There is prior art proving the failure is real rather than theoretical: the
+ * migration 20260911090000_pos_line_items_gl_manually_set.sql exists because a
+ * re-sync was overwriting hand-assigned accounts on order lines.
+ *
+ * The per-module tests already cover the mechanics. What this file adds is the
+ * cross-job answer in one place, including the two jobs whose answer is NO —
+ * pinned here deliberately, so that changing the behaviour has to come with
+ * changing this file, and so the finding cannot quietly stop being true.
+ */
+import { describe, it, expect } from "vitest";
+import { buildPosLineItems, buildInvoiceLineItems } from "@/lib/finance/syncPosTransactions";
+import { resolveExpenseMapping, type RuleRef, type CounterpartyRuleRef } from "@/lib/finance/expenses";
+import { preserveOperatorCoding } from "@/lib/finance/balances/plaidTransactionSync";
+import { remainingDelta } from "@/lib/production/taproomConsumptionSync";
+import { resolveSnapshotWrites } from "@/lib/finance/balances/snapshot";
+import { ensureTasksForSchedule } from "@/lib/tax/tasks";
+import { registerParty } from "@/lib/tax/registry";
+import { periodContaining, lastDayOfFollowingMonth } from "@/lib/tax/period";
+import type { TaxPartyTemplate, TaxSchedule } from "@/lib/tax/types";
+import { runPayrollAdvance } from "@/lib/cron/jobs/payrollAdvance";
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+/**
+ * Runs one job's write path against a client that answers every read with a
+ * single plausible row, and reports the options its upsert was given.
+ *
+ * The property under test is `ignoreDuplicates`, which is what makes these three
+ * jobs leave an existing row alone. It is one word, it is invisible at the call
+ * site, and dropping it turns each of them into a job that overwrites a person's
+ * work on every run — so it is worth a test of its own.
+ */
+async function captureUpsertOptions(
+  run: (client: SupabaseClient) => Promise<unknown>,
+  /** Tables that must answer with nothing, so the job finds work left to do. */
+  emptyTables: string[] = [],
+): Promise<Record<string, unknown> | null> {
+  let captured: Record<string, unknown> | null = null;
+  // One row broad enough to satisfy every read these three jobs make; each of
+  // them ignores the columns it does not recognise.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const row: any = {
+    id: "row-1", chart_of_accounts_id: "coa-1",
+    start_date: "2026-06-01", end_date: "2026-06-14",
+    pay_period_frequency: "biweekly", due_date_days_after_end: 3,
+    method_key: "manualBalance", due_days_after_month_end: null, is_active: true,
+    responsible_user_id: null, close_due_day: 15,
+  };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const builder = (table: string): any => {
+    const rows = emptyTables.includes(table) ? [] : [row];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const b: any = {};
+    for (const m of ["select", "eq", "in", "is", "not", "order", "limit", "gte", "lte", "neq"]) b[m] = () => b;
+    b.single = async () => ({ data: rows[0] ?? null, error: null });
+    b.maybeSingle = async () => ({ data: rows[0] ?? null, error: null });
+    b.upsert = (_payload: unknown, opts: Record<string, unknown>) => {
+      captured = opts;
+      return b;
+    };
+    b.then = (resolve: (v: { data: unknown; error: unknown }) => unknown) =>
+      Promise.resolve({ data: rows, error: null }).then(resolve);
+    return b;
+  };
+  await run({ from: builder } as unknown as SupabaseClient);
+  return captured;
+}
+
+/** A tax party with no dependency on a real filing template. */
+const stubTaxParty: TaxPartyTemplate = {
+  key: "rerun-stub-party",
+  label: "Stub Party",
+  supportedFrequencies: ["monthly", "quarterly", "annual"],
+  computePeriod: (freq, ref) => {
+    const { start, end } = periodContaining(freq, ref);
+    return { start, end, due: lastDayOfFollowingMonth(end) };
+  },
+  defaultDueRule: () => ({ monthOffset: 1, day: 20 }),
+  computeWorksheet: async () => ({ fields: {} }),
+  fieldOwnership: {},
+  mergeWorksheet: (current) => current,
+  settingsSchema: [],
+  scheduleConfigSchema: [],
+  requiredRegistrations: [],
+  buildReferenceView: () => ({ tables: [] }),
+  worksheetComponent: "Stub",
+};
+
+function stubSchedule(): TaxSchedule {
+  return {
+    id: "sched-1",
+    party_key: stubTaxParty.key,
+    frequency: "monthly",
+    lead_days: 7,
+    active: true,
+    config: {},
+    created_at: "2026-01-01T00:00:00Z",
+    updated_at: "2026-01-01T00:00:00Z",
+  };
+}
+
+/** One Square line, invoice-backed or not depending on who reads it. */
+function squareOrder() {
+  return {
+    line_items: [
+      {
+        uid: "line-1",
+        catalog_object_id: "var-hazy",
+        name: "Hazy IPA",
+        quantity: "2",
+        base_price_money: { amount: 800 },
+        gross_sales_money: { amount: 1600 },
+        total_discount_money: { amount: 0 },
+        total_tax_money: { amount: 0 },
+      },
+    ],
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any;
+}
+
+/** The catalogue's answer, which is what a re-sync reaches for by default. */
+const catalogSaysTaproom = () => "coa-taproom-sales";
+
+describe("finance-sync and finance-gap-scan: an order line", () => {
+  it("keeps an account somebody set by hand, instead of reverting to the catalogue", () => {
+    const prior = new Map([
+      ["line-1", { chart_of_accounts_id: "coa-chosen-by-hand", gl_manually_set: true, notes: null }],
+    ]);
+
+    const [row] = buildPosLineItems("order-1", squareOrder(), catalogSaysTaproom, prior);
+
+    expect(row.chart_of_accounts_id).toBe("coa-chosen-by-hand");
+  });
+
+  it("keeps the mark saying a person chose it, not a rule", () => {
+    // Preserving the account while dropping the mark would silently reclassify
+    // a person's decision as rule-derived, which is exactly what the Orders grid
+    // uses to show an override.
+    const prior = new Map([
+      ["line-1", { chart_of_accounts_id: "coa-chosen-by-hand", gl_manually_set: true, notes: null }],
+    ]);
+
+    const [row] = buildPosLineItems("order-1", squareOrder(), catalogSaysTaproom, prior);
+
+    expect(row.gl_manually_set).toBe(true);
+  });
+
+  it("keeps a note left on the line", () => {
+    const prior = new Map([
+      ["line-1", { chart_of_accounts_id: null, gl_manually_set: false, notes: "billed to the wedding deposit" }],
+    ]);
+
+    const [row] = buildPosLineItems("order-1", squareOrder(), catalogSaysTaproom, prior);
+
+    expect(row.notes).toBe("billed to the wedding deposit");
+  });
+
+  it("still applies the catalogue to a line nobody has touched", () => {
+    const [row] = buildPosLineItems("order-1", squareOrder(), catalogSaysTaproom, new Map());
+
+    expect(row.chart_of_accounts_id).toBe("coa-taproom-sales");
+    expect(row.gl_manually_set).toBe(false);
+  });
+});
+
+describe("finance-sync and finance-gap-scan: an INVOICE line does NOT survive", () => {
+  /**
+   * The finding. Re-syncing an order raised from an invoice rebuilds that
+   * invoice's lines from the catalogue with no read-before-write at all, so a
+   * hand-set account on an invoice line is replaced — the opposite of what the
+   * order-line path two functions above does.
+   *
+   * Not fixed here on purpose. invoice_line_items feeds the profit and loss,
+   * the cash-flow statement and the transactions grid, all verified and in
+   * production use, and the fix has a second half: this builder numbers its
+   * lines from one while the canonical writer numbers from zero and skips
+   * excise, so the two disagree about which line is which. Changing that is a
+   * write-path change and belongs in its own piece of work.
+   *
+   * What IS done about it: the jobs that can reach this path carry a warning a
+   * person sees before pressing the button, and the nightly finance-sync still
+   * runs the canonical invoice sync afterwards, which does preserve.
+   */
+  it("takes no prior state, so there is nothing for it to preserve", () => {
+    expect(buildInvoiceLineItems.length).toBe(3);
+  });
+
+  it("writes the catalogue's account over whatever was there", () => {
+    const [row] = buildInvoiceLineItems("invoice-1", squareOrder(), () => "coa-from-catalogue");
+
+    expect(row.chart_of_accounts_id).toBe("coa-from-catalogue");
+  });
+
+  it("writes no account at all for a product the catalogue does not map", () => {
+    // Which is the damaging case: a hand-coded line on an unmapped product comes
+    // back empty rather than merely reclassified.
+    const [row] = buildInvoiceLineItems("invoice-1", squareOrder(), () => null);
+
+    expect(row.chart_of_accounts_id).toBeNull();
+  });
+});
+
+describe("ramp-expenses-sync: an expense", () => {
+  const noCounterpartyRules = new Map<string, CounterpartyRuleRef>();
+  const accountRule = new Map<string, RuleRef>([
+    ["ramp-acct", { external_account_id: "ramp-acct", chart_of_accounts_id: "coa-rule" }],
+  ]);
+
+  it("keeps an account somebody pinned, over any rule that would say otherwise", () => {
+    const result = resolveExpenseMapping(
+      { external_account_id: "ramp-acct", counterparty_key: "gusto", mapping_source: "manual", chart_of_accounts_id: "coa-pinned" },
+      accountRule,
+      new Map([["gusto", { counterparty_key: "gusto", chart_of_accounts_id: "coa-counterparty", routing: "single_account" as const }]]),
+    );
+
+    expect(result).toEqual({ chart_of_accounts_id: "coa-pinned", mapping_source: "manual" });
+  });
+
+  it("keeps a pin even when it deliberately points at nothing", () => {
+    const result = resolveExpenseMapping(
+      { external_account_id: "ramp-acct", counterparty_key: null, mapping_source: "manual", chart_of_accounts_id: null },
+      accountRule,
+      noCounterpartyRules,
+    );
+
+    expect(result).toEqual({ chart_of_accounts_id: null, mapping_source: "manual" });
+  });
+
+  it("still applies a rule to an expense nobody has coded", () => {
+    const result = resolveExpenseMapping(
+      { external_account_id: "ramp-acct", counterparty_key: null, mapping_source: "unmapped", chart_of_accounts_id: null },
+      accountRule,
+      noCounterpartyRules,
+    );
+
+    expect(result).toEqual({ chart_of_accounts_id: "coa-rule", mapping_source: "rule" });
+  });
+});
+
+describe("bank-transactions-sync: a bank transaction", () => {
+  const bankSaysFresh = {
+    source: "plaid", source_transaction_id: "txn-1", connection_id: "conn-1",
+    external_account_id: "acct", amount_cents: 1000, currency_code: "USD",
+    description: "ACH CREDIT", original_description: null, counterparty_name: null,
+    flow_type: "unclassified", affects_pl: false, include_in_gl: false,
+    chart_of_accounts_id: null, mapping_source: "unmapped",
+    transaction_date: "2026-07-23", pending: false,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    raw: {} as any,
+  };
+
+  it("keeps every decision made about a transaction the feed has seen before", () => {
+    const kept = preserveOperatorCoding(bankSaysFresh, {
+      flow_type: "deposit", affects_pl: true, include_in_gl: true,
+      chart_of_accounts_id: "coa-sales", mapping_source: "manual",
+    });
+
+    expect(kept).toMatchObject({
+      flow_type: "deposit", affects_pl: true, include_in_gl: true,
+      chart_of_accounts_id: "coa-sales", mapping_source: "manual",
+    });
+  });
+
+  it("leaves a first-time import outside the books, which is what keeps Chase out of the statements", () => {
+    expect(preserveOperatorCoding(bankSaysFresh, undefined)).toMatchObject({
+      include_in_gl: false, chart_of_accounts_id: null, affects_pl: false,
+    });
+  });
+});
+
+describe("taproom-consumption-sync: a pour", () => {
+  it("records only what has not been recorded, so running it again drains nothing twice", () => {
+    expect(remainingDelta(6, 6)).toBe(0);
+    expect(remainingDelta(6, 4)).toBe(2);
+  });
+
+  it("never takes stock back when more was recorded than the source now reports", () => {
+    expect(remainingDelta(4, 6)).toBe(0);
+  });
+});
+
+describe("balance-close: a month", () => {
+  it("leaves a frozen account's balance exactly as it was closed", () => {
+    // Re-running the close on a month that has already been signed off must not
+    // recompute it. This is the operator decision in that job: freezing is how a
+    // month stops moving.
+    const writes = resolveSnapshotWrites(
+      [{ coaId: "coa-1", providerKey: "manualBalance" }],
+      new Map<string, number | null>([["coa-1:manualBalance", 500]]),
+      new Map([["coa-1", { isFrozen: true }]]),
+    );
+
+    expect(writes).toEqual([]);
+  });
+
+  it("does recompute a month still open, which is what the job is for", () => {
+    const writes = resolveSnapshotWrites(
+      [{ coaId: "coa-1", providerKey: "manualBalance" }],
+      new Map<string, number | null>([["coa-1:manualBalance", 500]]),
+      new Map([["coa-1", { isFrozen: false }]]),
+    );
+
+    expect(writes).toHaveLength(1);
+  });
+
+  // The other half of this job's answer — that re-running it leaves an existing
+  // close task's status, notes and completion untouched — is already proved
+  // across two calls against a stateful fake in
+  // lib/finance/balances/closeTasks.test.ts, which is a stronger test than
+  // anything this file would add.
+});
+
+describe("tax-tasks: a filing", () => {
+  it("leaves a filing already being worked on exactly as it was", async () => {
+    // tax_tasks holds a worksheet, a confirmation number, an amount paid and a
+    // completion — none of which the job knows how to reproduce. A re-run must
+    // create the periods that are missing and stop there.
+    registerParty(stubTaxParty);
+    const options = await captureUpsertOptions((client) =>
+      ensureTasksForSchedule(client, stubSchedule(), new Date("2026-07-05T12:00:00Z"), 45),
+    );
+
+    expect(options).toMatchObject({ ignoreDuplicates: true });
+  });
+});
+
+describe("payroll-advance: a pay period", () => {
+  it("declines to create a period that already exists", async () => {
+    const options = await captureUpsertOptions((client) => runPayrollAdvance(client));
+
+    expect(options).toMatchObject({ ignoreDuplicates: true });
+  });
+});
