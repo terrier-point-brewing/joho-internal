@@ -23,6 +23,14 @@ describe("wakeCountyFoodBeverageTemplate", () => {
     });
   });
 
+  it("declares the required on-premise NC ABC permit registration, distinct from the brewery's wholesaler permit", () => {
+    expect(t.requiredRegistrations).toContainEqual({
+      authorityKey: "nc_abc",
+      registrationKey: "abc_permit_number_onpremise",
+      label: "NC ABC On-Premise Permit Number",
+    });
+  });
+
   it("exposes the two Square-tax selects and the sensitive PIN in settingsSchema", () => {
     const keys = t.settingsSchema.map((f) => f.key);
     expect(keys).toEqual(["food_beverage_tax_id", "general_sales_tax_id", "filing_pin"]);

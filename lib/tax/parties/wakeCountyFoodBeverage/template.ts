@@ -7,8 +7,9 @@
  * (no manual inputs), so mergeWorksheet fully replaces the field set with the
  * recompute. Filer identity (contact person, address) comes from the shared
  * Tax Profile (tax_legal_representative / tax_entity_profile) via
- * TaxWorksheetShell's IdentityHeader; the Wake County account # is a required
- * registration and the 4-digit PIN is a sensitive settings field.
+ * TaxWorksheetShell's IdentityHeader; the Wake County account # and the
+ * taproom's on-premise NC ABC permit # are required registrations, and the
+ * 4-digit PIN is a sensitive settings field.
  */
 import type {
   ComputeContext,
@@ -100,6 +101,14 @@ const requiredRegistrations: RequiredRegistration[] = [
     authorityKey: "wake_county",
     registrationKey: "wake_county_account_id",
     label: "Wake County Gross Receipts Account Number",
+  },
+  // Taproom's on-premise alcohol sales permit — distinct from the brewery's
+  // wholesaler permit (see ncDorBeerExcise/template.ts), same `nc_abc`
+  // authority, so both can be on file at once under their own registrationKey.
+  {
+    authorityKey: "nc_abc",
+    registrationKey: "abc_permit_number_onpremise",
+    label: "NC ABC On-Premise Permit Number",
   },
 ];
 
