@@ -17,6 +17,7 @@ const CANON_SECTIONS: readonly TabKey[] = [
   "color",
   "type",
   "marks",
+  "release",
   "agent",
 ];
 
@@ -27,7 +28,7 @@ function isCanonSection(tab: TabKey): tab is CanonSection {
 /**
  * In-page tabs for the Brand Guide. Every authenticated user gets read-only
  * View mode across Ethos / Voice / Visual Identity / Color / Type / Marks /
- * Agent Rules. Admins additionally get a single View/Edit toggle and a History
+ * Release Design / Agent Rules. Admins additionally get a single View/Edit toggle and a History
  * tab: in Edit mode each tab swaps its rendered content for the matching canon
  * editor (every tab → its own introduction, plus its own slice; color→Palette
  * +Theme, type→Type+use cases, marks→artwork upload + spec sheets).
@@ -51,6 +52,7 @@ export default function BrandGuideTabs({
     color: ReactNode;
     type: ReactNode;
     marks: ReactNode;
+    release: ReactNode;
   };
 }) {
   const [active, setActive] = useState<TabKey>("ethos");
@@ -64,6 +66,7 @@ export default function BrandGuideTabs({
     { key: "color", label: "Color" },
     { key: "type", label: "Type" },
     { key: "marks", label: "Marks" },
+    { key: "release", label: "Release Design" },
     { key: "agent", label: "Agent Rules" },
     ...(isAdmin ? [{ key: "history" as TabKey, label: "History" }] : []),
   ];
@@ -116,6 +119,7 @@ export default function BrandGuideTabs({
         <div className={!editing && active === "color" ? "" : "hidden"}>{views.color}</div>
         <div className={!editing && active === "type" ? "" : "hidden"}>{views.type}</div>
         <div className={!editing && active === "marks" ? "" : "hidden"}>{views.marks}</div>
+        <div className={!editing && active === "release" ? "" : "hidden"}>{views.release}</div>
         <div className={!editing && active === "agent" ? "" : "hidden"}>{views.agent}</div>
 
         {/* Edit mode — canon editor (kept mounted once opened) */}

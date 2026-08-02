@@ -19,20 +19,21 @@ import type { GuideSectionKey } from "./guideIntros";
  * every subtab owns its own entry in that record, so it's handled as a special
  * case in saveDraftSection rather than being assigned to one section here.
  *
- * `naming`, `chop` and `labelChassis` joined this table in Phase A. Before that
- * they were unowned, which meant three of the canon's most load-bearing specs —
- * the naming pattern the Releases workbench checks against, the chop's placement
- * rules, and the label chassis itself — were stored, editable nowhere, and
- * rendered nowhere. Ownership follows subject matter: the chop is a mark, the
- * chassis is visual law, and naming is language.
+ * `naming`, `chop` and `labelChassis` joined this table in Phase A, owned by
+ * subject matter: the chop is a mark, the chassis was visual law, naming was
+ * language. `naming` and `labelChassis` have since moved to `release` — they
+ * were never two subjects, but the two halves of one spec for designing a new
+ * release: the card that names it and the chassis it is poured into. The data
+ * keys themselves never moved; only which subtab edits them.
  */
 export const SECTION_KEYS: Record<GuideSectionKey, readonly (keyof BrandCanon)[]> = {
   ethos: ["values"],
-  voice: ["voice", "naming"],
-  visual: ["illustrationLaw", "labelChassis"],
+  voice: ["voice"],
+  visual: ["illustrationLaw"],
   color: ["palette", "roleMap", "usageRatios", "colorForbidden"],
   type: ["fonts", "typeUseCases"],
   marks: ["marks", "chop"],
+  release: ["naming", "labelChassis"],
   agent: ["neverList", "precedence", "hardRules", "agentTechnical"],
 };
 

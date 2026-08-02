@@ -55,6 +55,7 @@ export const guideSectionSchema = z.enum([
   "color",
   "type",
   "marks",
+  "release",
   "agent",
 ]);
 

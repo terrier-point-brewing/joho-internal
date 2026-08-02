@@ -96,7 +96,7 @@ describe("diffCanon", () => {
     expect(entries.length).toBeGreaterThan(0);
     expect(entries.every((e) => e.kind === "added")).toBe(true);
     // One per section, not one per field.
-    expect(entries.length).toBeLessThanOrEqual(7);
+    expect(entries.length).toBeLessThanOrEqual(8);
     expect(new Set(entries.map((e) => e.section)).size).toBe(entries.length);
   });
 

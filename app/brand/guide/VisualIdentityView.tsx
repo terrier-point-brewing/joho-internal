@@ -4,12 +4,10 @@ import { resolveGuideIntro } from "@/lib/brand/guideIntros";
 import { normalizePairs, type RulePanel } from "@/lib/brand/rulePairs";
 import GuideSection from "./GuideSection";
 import RulePairCard from "./blocks/RulePairCard";
-import SubHead from "./blocks/SubHead";
-import SpecCard from "./blocks/SpecCard";
 
 /**
- * Visual Identity view: the introduction, the rules as paired do/don't cards,
- * then the label chassis.
+ * Visual Identity view: the introduction, then the rules as paired do/don't
+ * cards.
  *
  * The rules were two independent columns — six dos on the left, three don'ts on
  * the right — but they were never independent rules. "Flat vector rendering"
@@ -18,9 +16,12 @@ import SpecCard from "./blocks/SpecCard";
  * them. Each rule is now ONE card holding both halves, so the failure a rule
  * prevents is always level with the rule itself.
  *
- * The chassis appears here for the first time in Phase A. It was stored in the
- * canon and rendered nowhere, which meant the one spec every beer label is built
- * against could not be read by anyone using the guide.
+ * Style homage used to sit here as a permission with no failure opposite it;
+ * it's gone now that each rule's own nuance carries that kind of caveat.
+ *
+ * The label chassis rendered here through Phase A, but it is the frame a
+ * release is designed into rather than a law of illustration — it now anchors
+ * the Release Design tab, drawn as an annotated label.
  */
 export default function VisualIdentityView({
   canon,
@@ -32,8 +33,6 @@ export default function VisualIdentityView({
 }) {
   const law = canon.illustrationLaw;
   const pairs = normalizePairs(law);
-  const chassis = canon.labelChassis;
-  const elements = chassis?.elements ?? [];
 
   // The asset row travels with the panel so the card block stays dumb about
   // where assets come from.
@@ -58,32 +57,6 @@ export default function VisualIdentityView({
             />
           ))}
         </div>
-      )}
-
-      {(chassis?.narrative || elements.length > 0) && (
-        <section className="mt-8">
-          <SubHead
-            title="The label chassis"
-            description="The fixed frame every release is poured into. The illustration roams; the chassis is home."
-          />
-          {chassis?.narrative && (
-            <p className="font-brand-body text-sm text-brand-content leading-relaxed mb-4">
-              {chassis.narrative}
-            </p>
-          )}
-          {elements.length > 0 && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {elements.map((element, i) => (
-                <SpecCard
-                  key={i}
-                  eyebrow={element.n}
-                  title={element.title}
-                  rows={[{ label: "Rule", value: element.desc }]}
-                />
-              ))}
-            </div>
-          )}
-        </section>
       )}
     </GuideSection>
   );

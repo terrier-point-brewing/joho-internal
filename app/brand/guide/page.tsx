@@ -14,13 +14,14 @@ import AgentRulesView from "./AgentRulesView";
 import ColorView from "./ColorView";
 import TypeView from "./TypeView";
 import MarksView from "./MarksView";
+import ReleaseView from "./ReleaseView";
 
 /**
  * Brand Guide — the one brand page. Its in-page tabs (BrandGuideTabs) split the
- * guide into Ethos / Voice / Visual Identity / Color / Type / Marks / Agent
- * Rules (+ admin History), each with a read-only view built here and, for
- * admins, an Edit mode. All view content is server-built and handed to the
- * client tab shell as ReactNodes.
+ * guide into Ethos / Voice / Visual Identity / Color / Type / Marks / Release
+ * Design / Agent Rules (+ admin History), each with a read-only view built here
+ * and, for admins, an Edit mode. All view content is server-built and handed to
+ * the client tab shell as ReactNodes.
  */
 export default async function BrandGuidePage() {
   const session = await getSessionUser();
@@ -71,6 +72,7 @@ export default async function BrandGuidePage() {
             chop={canon.chop}
           />
         ),
+        release: <ReleaseView canon={canon} />,
       }}
     />
   );
