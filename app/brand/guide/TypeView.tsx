@@ -47,7 +47,7 @@ export default function TypeView({ canon }: { canon: BrandCanon }) {
   })).filter((g) => g.rows.length > 0);
 
   return (
-    <GuideSection intro={resolveGuideIntro(canon, "type")}>
+    <GuideSection section="type" intro={resolveGuideIntro(canon, "type")}>
       <section className="mb-8">
         <SubHead
           title="Faces"

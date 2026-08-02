@@ -36,7 +36,7 @@ export default function VisualIdentityView({
   const elements = chassis?.elements ?? [];
 
   return (
-    <GuideSection intro={resolveGuideIntro(canon, "visual")}>
+    <GuideSection section="visual" intro={resolveGuideIntro(canon, "visual")}>
       <RuleGrid rules={rules} assetsById={assetsById} />
 
       {(chassis?.narrative || elements.length > 0) && (

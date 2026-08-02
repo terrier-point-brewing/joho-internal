@@ -36,7 +36,7 @@ export default function VoiceView({ canon }: { canon: BrandCanon }) {
   ].flatMap((row) => (row.value ? [{ label: row.label, value: row.value }] : []));
 
   return (
-    <GuideSection intro={resolveGuideIntro(canon, "voice")}>
+    <GuideSection section="voice" intro={resolveGuideIntro(canon, "voice")}>
       {sliders.length > 0 && (
         <section className="mb-8">
           <SubHead
