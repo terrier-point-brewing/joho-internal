@@ -8,8 +8,8 @@ export interface ResolvedPanel extends RulePanel {
 }
 
 /**
- * One rule, shown as the pair it actually is: the thing to do beside the
- * specific failure it exists to prevent, then why the rule exists at all.
+ * One rule, shown as the pair it actually is: why the rule exists first,
+ * then the thing to do beside the specific failure it exists to prevent.
  *
  * The pair is a two-column GRID, not two floated cards, and each panel is
  * `h-full`. That is the whole reason this component exists: as two independent
@@ -35,7 +35,7 @@ export default function RulePairCard({
   title: string;
   doPanel: ResolvedPanel;
   dontPanel: ResolvedPanel;
-  /** Why the rule exists — full card width, beneath both panels. */
+  /** Why the rule exists — full card width, above both panels. */
   nuance?: string;
 }) {
   return (
@@ -44,16 +44,16 @@ export default function RulePairCard({
         {title}
       </h3>
 
+      {nuance && (
+        <p className="mt-3 font-brand-body text-sm text-brand-content leading-relaxed">
+          {nuance}
+        </p>
+      )}
+
       <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
         <Panel tone="do" label="Do" panel={doPanel} title={title} />
         <Panel tone="dont" label="Don't" panel={dontPanel} title={title} />
       </div>
-
-      {nuance && (
-        <p className="mt-3 pt-3 border-t border-brand-line font-brand-body text-sm text-brand-content leading-relaxed">
-          {nuance}
-        </p>
-      )}
     </article>
   );
 }
