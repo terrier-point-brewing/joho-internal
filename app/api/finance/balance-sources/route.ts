@@ -30,11 +30,9 @@ import { resolveSetupState, type SetupConnectionRef } from "@/lib/finance/balanc
 import { allProviderReadiness, allProviderCapabilities } from "@/lib/finance/balances/setup";
 import { latestOperatorBalance } from "@/lib/finance/balances/operatorBalance";
 import { listConnections, describeConnection } from "@/lib/finance/balances/connections";
-import { computeOpenMonthBalances } from "@/lib/finance/balances/liveBalances";
 import { listReconciliations } from "@/lib/finance/balances/squareDrift";
 import type { CoaAccountRef } from "@/lib/finance/financials/types";
 import { ACCOUNT_TYPE_SECTION } from "@/lib/finance/accountSections";
-import { todayLocalDate } from "@/lib/utils/datetime";
 
 export const dynamic = "force-dynamic";
 
@@ -165,20 +163,15 @@ export async function GET() {
 
     // Everything the setup state depends on, fetched once for the whole page.
     //
-    // The live compute is the expensive one -- it runs every active source,
-    // which for integration methods means calling Ramp and Square. That is the
-    // same cost the balance sheet statement already pays on every view, and it
-    // buys the thing that was missing: this screen and that one now show the
-    // same number for the open month instead of a live figure on one and last
-    // month's snapshot on the other. A failure inside it is reported per
-    // account, never thrown, so a broken integration cannot blank this page.
+    // The live open-month compute -- runs every active source, which for
+    // integration methods means calling Ramp and Square -- deliberately does
+    // NOT live here. It is its own endpoint (GET .../live, merged in
+    // client-side) so that saving a setting only ever has to wait on this
+    // fast, DB-only fetch, not on a live recompute of every account. See
+    // queryKeys.finance.balanceSourcesLive's comment for the rest of why.
     const providerReadiness = allProviderReadiness();
-    const [operatorBalances, live, profilesRes, reconciliations] = await Promise.all([
+    const [operatorBalances, profilesRes, reconciliations] = await Promise.all([
       latestOperatorBalance(supabase, coaIds),
-      computeOpenMonthBalances(supabase, todayLocalDate()).catch((err) => {
-        console.error("[balance-sources] live open-month compute failed", err);
-        return null;
-      }),
       // Everyone who could be named responsible for an account, for `user`
       // setup fields. Sign-in address only -- that is the identity a person is
       // known by here and the address an alert goes to, and nothing on this
@@ -274,22 +267,9 @@ export async function GET() {
           currentBalance: latest
             ? { periodEnd: latest.period_end, cents: latest.balance_cents, contributions: latest.contributions }
             : null,
-          // Where the account stands today, for the month still in progress.
-          // Shown alongside the last closed month rather than instead of it:
-          // they answer different questions, and collapsing them into one
-          // "Current Balance" is what made this screen disagree with the
-          // statement.
-          liveBalance: live?.balances.get(a.id)
-            ? {
-                cents: live.balances.get(a.id)!.balanceCents,
-                contributions: live.balances.get(a.id)!.contributions,
-              }
-            : null,
-          // Set when this account's method threw while computing just now.
-          // Previously visible nowhere at all -- the account simply went blank.
-          liveError: live?.failedAccounts.has(a.id)
-            ? (live.errors.find((e) => e.includes(a.id)) ?? "This account's calculation failed.")
-            : null,
+          // liveBalance/liveError -- where the account stands today, for the
+          // month still in progress -- are NOT sent from here. They come from
+          // GET .../live and are merged onto this row client-side.
           // Empty for every account whose balance is reported rather than
           // derived, which is most of them.
           reconciliations: reconciliationsByCoa.get(a.id) ?? [],

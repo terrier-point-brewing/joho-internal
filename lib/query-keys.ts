@@ -102,6 +102,14 @@ export const queryKeys = {
     manualEntries: (kind: string, year: number) => ["finance", "manual-entries", kind, year] as const,
     /** Balance-sheet account → provider source declarations (Settings > Finance > Balance Sheet Accounts). */
     balanceSources: () => ["finance", "balance-sources"] as const,
+    /**
+     * Live open-month balances for the same screen -- split from `balanceSources`
+     * because it is the expensive half (runs every active source, including
+     * calls to Ramp and Square). Saving a setting invalidates `balanceSources`
+     * alone so the save itself stays fast; this refreshes separately, in the
+     * background.
+     */
+    balanceSourcesLive: () => ["finance", "balance-sources-live"] as const,
     /** Month-end close tasks + closed status for one period_end. */
     balanceClose: (periodEnd: string) => ["finance", "balance-close", periodEnd] as const,
     // The three per-integration screens these keyed (Ramp Connection, Square
