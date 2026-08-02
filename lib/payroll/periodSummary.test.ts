@@ -19,7 +19,7 @@ describe("computePeriodBasis", () => {
       { hours_worked: 10, paycheck_tips_cents: 500, cash_tips_cents: 100, bonus_cents: 50 },
     ];
     // base = round(10 * 700) = 7000; wages = 7000 + 500 + 50 = 7550; total = 7550 + 100 = 7650
-    expect(computePeriodBasis(entries, 700)).toEqual({ wagesCents: 7550, totalCompCents: 7650 });
+    expect(computePeriodBasis(entries, 700)).toEqual({ wagesCents: 7550, totalCompCents: 7650, cashTipsCents: 100 });
   });
 
   it("rounds base pay per entry (mirrors the lock-time per-employee snapshot)", () => {
@@ -29,14 +29,14 @@ describe("computePeriodBasis", () => {
     ];
     // per entry: round(1.5 * 101) = round(151.5) = 152; total base = 304
     // (a single round(3.0 * 101) = round(303) = 303 would differ — proving per-entry rounding)
-    expect(computePeriodBasis(entries, 101)).toEqual({ wagesCents: 304, totalCompCents: 304 });
+    expect(computePeriodBasis(entries, 101)).toEqual({ wagesCents: 304, totalCompCents: 304, cashTipsCents: 0 });
   });
 
   it("treats null money/hours fields as zero", () => {
     const entries: BasisEntry[] = [
       { hours_worked: null, paycheck_tips_cents: null, cash_tips_cents: null, bonus_cents: null },
     ];
-    expect(computePeriodBasis(entries, 700)).toEqual({ wagesCents: 0, totalCompCents: 0 });
+    expect(computePeriodBasis(entries, 700)).toEqual({ wagesCents: 0, totalCompCents: 0, cashTipsCents: 0 });
   });
 });
 
@@ -161,8 +161,10 @@ describe("getPeriodSummaries", () => {
       entryCount: 2,
       appWagesCents: 15700, // 15000 base + 500 paycheck + 200 bonus
       appBasisCents: 15800, // + 100 cash tips
+      appCashTipsCents: 100,
       gustoTotalCents: 18650, // 15650 + 3000
       gustoWagesCents: 15650, // taxes account excluded
+      gustoEmployerTaxCents: 3000, // the coa-tax bucket
       driftCents: 50, // 15700 − 15650
       matchedCount: 2,
       matchedSumCents: 18700, // |−18000| + |−700|
@@ -175,8 +177,10 @@ describe("getPeriodSummaries", () => {
       entryCount: 0,
       appBasisCents: null,
       appWagesCents: null,
+      appCashTipsCents: null,
       gustoTotalCents: null,
       gustoWagesCents: null,
+      gustoEmployerTaxCents: null,
       driftCents: null,
       matchedCount: 0,
       matchedSumCents: 0,
@@ -215,5 +219,6 @@ describe("getPeriodSummaries", () => {
     const a = summaries.find((s) => s.id === "A")!;
     expect(a.gustoWagesCents).toBe(15650); // tips excluded despite not being the taxes account
     expect(a.driftCents).toBe(50); // 15700 − 15650, unaffected by the $900 tips bucket
+    expect(a.gustoEmployerTaxCents).toBe(3000); // only the coa-tax bucket, not the tips bucket
   });
 });

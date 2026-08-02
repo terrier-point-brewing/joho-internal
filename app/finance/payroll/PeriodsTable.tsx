@@ -48,21 +48,23 @@ export default function PeriodsTable({
       head={
         <>
           <SortableTh label="Period" sortKey="period" sort={sort} onSort={onSort} className="!px-4 !py-2 !text-muted" />
-          <SortableTh label="Due" sortKey="due" sort={sort} onSort={onSort} className="!px-4 !py-2 !text-muted" />
+          <SortableTh label="Due Date" sortKey="due" sort={sort} onSort={onSort} className="!px-4 !py-2 !text-muted" />
           <Th label="Status" />
           <Th label="Employees" align="right" />
-          <SortableTh label="App basis" sortKey="basis" sort={sort} onSort={onSort} align="right" className="!px-4 !py-2 !text-muted" />
-          <SortableTh label="Gusto result" sortKey="gusto" sort={sort} onSort={onSort} align="right" className="!px-4 !py-2 !text-muted" />
+          <SortableTh label="App Wages" sortKey="basis" sort={sort} onSort={onSort} align="right" className="!px-4 !py-2 !text-muted" />
+          <Th label="Cash Tips" align="right" />
+          <SortableTh label="Gusto Wages" sortKey="gusto" sort={sort} onSort={onSort} align="right" className="!px-4 !py-2 !text-muted" />
+          <Th label="Employer Taxes" align="right" />
           <Th label="Drift" align="right" />
-          <Th label="Matched txns" align="right" />
+          <Th label="Matched Transactions" align="right" />
           <Th label="Reconciliation" align="right" />
-          <Th label="Splits" align="center" />
+          <Th label="Split Status" align="center" />
         </>
       }
     >
       {rows.length === 0 ? (
         <tr>
-          <td colSpan={10} className="py-6 text-center text-faint">
+          <td colSpan={12} className="py-6 text-center text-faint">
             No pay periods yet.
           </td>
         </tr>
@@ -83,16 +85,22 @@ export default function PeriodsTable({
             <td className="px-4 py-2 text-right tabular-nums">
               {p.entryCount > 0 ? p.entryCount : DASH}
             </td>
-            <td className="px-4 py-2 text-right" title={p.status === "locked" ? undefined : "Basis is snapshotted when the period is locked"}>
-              <Money cents={p.appBasisCents} />
+            <td className="px-4 py-2 text-right" title={p.status === "locked" ? undefined : "Wages are snapshotted when the period is locked"}>
+              <Money cents={p.appWagesCents} />
+            </td>
+            <td className="px-4 py-2 text-right" title="Kept by staff directly — never disbursed by Gusto">
+              <Money cents={p.appCashTipsCents} />
             </td>
             <td className="px-4 py-2 text-right" title={p.reportFilename ?? undefined}>
               <div className="flex flex-col items-end leading-tight">
-                <Money cents={p.gustoTotalCents} />
+                <Money cents={p.gustoWagesCents} />
                 {p.reportUploadedAt && (
                   <span className="text-2xs text-faint">{fmtDate(p.reportUploadedAt)}</span>
                 )}
               </div>
+            </td>
+            <td className="px-4 py-2 text-right">
+              <Money cents={p.gustoEmployerTaxCents} />
             </td>
             <td className="px-4 py-2 text-right">
               <Variance cents={p.driftCents} />

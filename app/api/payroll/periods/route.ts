@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { apiError } from "@/lib/utils/api";
 import { computeNextPeriodDates, addDays } from "@/lib/payroll/periodUtils";
 import type { PayPeriodFrequency } from "@/lib/payroll/periodUtils";
@@ -11,9 +12,11 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   try { await requirePermission(CAP.payrollRead); } catch (res) { return res as Response; }
 
-  const supabase = await createSupabaseServerClient();
+  // payroll_period_expense_matches / expense_gl_splits are service-role-only
+  // (see 20260709_rls_phase3_tighten_sensitive.sql) — the permission check
+  // above is the access gate, so it's safe to read them via the admin client.
   try {
-    const summaries = await getPeriodSummaries(supabase);
+    const summaries = await getPeriodSummaries(createSupabaseAdminClient());
     return NextResponse.json(summaries);
   } catch (err) {
     return apiError(err instanceof Error ? err.message : String(err));

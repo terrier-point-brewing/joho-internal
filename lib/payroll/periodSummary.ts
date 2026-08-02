@@ -38,7 +38,7 @@ export interface BasisEntry {
 export function computePeriodBasis(
   entries: BasisEntry[],
   baseRateCents: number,
-): { totalCompCents: number; wagesCents: number } | null {
+): { totalCompCents: number; wagesCents: number; cashTipsCents: number } | null {
   if (entries.length === 0) return null;
   let basePay = 0;
   let paycheckTips = 0;
@@ -51,7 +51,7 @@ export function computePeriodBasis(
     bonus += e.bonus_cents ?? 0;
   }
   const wagesCents = basePay + paycheckTips + bonus;
-  return { wagesCents, totalCompCents: wagesCents + cashTips };
+  return { wagesCents, totalCompCents: wagesCents + cashTips, cashTipsCents: cashTips };
 }
 
 /** base_rate from the payroll_config effective at startDate (latest effective_from ≤ startDate);
@@ -184,6 +184,13 @@ export async function getPeriodSummaries(sb: SupabaseClient): Promise<PayPeriodS
           .filter((t) => t.chart_of_accounts_id !== taxesAccountId && t.bucket_kind !== "tips")
           .reduce((s, t) => s + t.amount_cents, 0)
       : null;
+    // Employer taxes reported, isolated the same way gustoWagesCents excludes
+    // them: by chart_of_accounts_id, not bucket_kind (see note above — the
+    // 20260824 migration default makes bucket_kind unreliable for these rows).
+    const employerTaxCents =
+      report && taxesAccountId
+        ? totals.filter((t) => t.chart_of_accounts_id === taxesAccountId).reduce((s, t) => s + t.amount_cents, 0)
+        : null;
 
     const matchedIds = matchedByPeriod.get(p.id) ?? [];
     const matchedSumCents = matchedIds.reduce((s, id) => s + (amountByExpense.get(id) ?? 0), 0);
@@ -198,8 +205,10 @@ export async function getPeriodSummaries(sb: SupabaseClient): Promise<PayPeriodS
       entryCount: entries.length,
       appBasisCents: basis?.totalCompCents ?? null,
       appWagesCents: basis?.wagesCents ?? null,
+      appCashTipsCents: basis?.cashTipsCents ?? null,
       gustoTotalCents,
       gustoWagesCents,
+      gustoEmployerTaxCents: employerTaxCents,
       reportUploadedAt: report?.uploaded_at ?? null,
       reportFilename: report?.original_filename ?? null,
       driftCents,
