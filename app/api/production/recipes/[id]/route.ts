@@ -14,12 +14,14 @@ export async function PATCH(
   const supabase = await createSupabaseServerClient();
 
   const { id } = await params;
-  const { beer_name, partner_id, expected_yield_bbl, days_brewhouse, days_fermenter, days_brite, notes, ingredients: lines } = await req.json();
+  const { beer_name, style, abv, partner_id, expected_yield_bbl, days_brewhouse, days_fermenter, days_brite, notes, ingredients: lines } = await req.json();
 
   const { error: recipeErr } = await supabase
     .from("recipes")
     .update({
       beer_name,
+      style: style || null,
+      abv: abv ?? null,
       partner_id: partner_id || null,
       expected_yield_bbl: expected_yield_bbl || null,
       days_brewhouse: days_brewhouse || null,

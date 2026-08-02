@@ -638,7 +638,7 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
     return q.desired_delivery_date ? fmtDateLong(q.desired_delivery_date) : "—";
   }
 
-  const uniqueStyles = Array.from(new Set(rows.map((r) => r.recipes?.beer_name).filter(Boolean))).sort() as string[];
+  const uniqueStyles = Array.from(new Set(rows.map((r) => r.recipes?.style ?? r.recipes?.beer_name).filter(Boolean))).sort() as string[];
   const uniquePartners = Array.from(
     new Map(
       rows
@@ -653,7 +653,7 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
       partner_name: q.contract_brewing_partners?.company_name ?? "",
       packaging_total_bbl: packagingTotalBbl(q),
       schedule_sort: q.cadence === "recurring" ? (q.start_date ?? "") : (q.desired_delivery_date ?? ""),
-      beer_style: q.recipes?.beer_name ?? "",
+      beer_style: q.recipes?.style ?? q.recipes?.beer_name ?? "",
     })),
     [rows],
   );

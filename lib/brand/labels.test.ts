@@ -4,7 +4,11 @@ import {
   archiveLabel,
   createLabel,
   getLabel,
+  illustrationStatus,
+  labelComponentStatus,
   listLabels,
+  printOrderStatus,
+  regulatoryStatus,
   resolveApprovedLabels,
   syncNamingCheck,
   updateLabel,
@@ -125,6 +129,7 @@ function fakeClient(initialRows: Row[]) {
 
 const baseRow = (overrides: Partial<Row>): Row => ({
   id: overrides.id ?? "l1",
+  release_id: overrides.release_id ?? "r1",
   name: overrides.name ?? "Fortnight",
   subtitle: overrides.subtitle ?? null,
   description: overrides.description ?? null,
@@ -133,6 +138,10 @@ const baseRow = (overrides: Partial<Row>): Row => ({
   tier2_palette: overrides.tier2_palette ?? { colors: [] },
   naming_check: overrides.naming_check ?? { results: [] },
   chop_glyph_asset_id: overrides.chop_glyph_asset_id ?? null,
+  illustration: overrides.illustration ?? {},
+  regulatory: overrides.regulatory ?? {},
+  print_order: overrides.print_order ?? {},
+  packaging_item_id: overrides.packaging_item_id ?? null,
   ...overrides,
 });
 
@@ -165,13 +174,55 @@ describe("getLabel", () => {
 });
 
 describe("createLabel", () => {
-  it("inserts a new row with status draft and empty palette/naming-check", async () => {
+  it("inserts a new row attached to its release, with empty stage blocks", async () => {
     const client = fakeClient([]);
-    const created = await createLabel(client as never, { name: "New Label" });
+    const created = await createLabel(client as never, { release_id: "r9", name: "New Label" });
     expect(created.status).toBe("draft");
+    expect(created.release_id).toBe("r9");
     expect(created.tier2_palette).toEqual({ colors: [] });
     expect(created.naming_check).toEqual({ results: [] });
+    expect(created.illustration).toEqual({});
+    expect(created.regulatory).toEqual({});
+    expect(created.print_order).toEqual({});
     expect(client.rows).toHaveLength(1);
+  });
+});
+
+describe("stage status rollups", () => {
+  it("illustrationStatus: not started → in progress on any field → done on uploaded art", () => {
+    expect(illustrationStatus({})).toBe("not_started");
+    expect(illustrationStatus(null)).toBe("not_started");
+    expect(illustrationStatus({ artist_name: "Mei" })).toBe("in_progress");
+    expect(illustrationStatus({ request_brief: "…" })).toBe("in_progress");
+    expect(illustrationStatus({ asset_ids: ["a1"] })).toBe("done");
+  });
+
+  it("regulatoryStatus: done only on approval", () => {
+    expect(regulatoryStatus({})).toBe("not_started");
+    expect(regulatoryStatus({ submitted_at: "2026-08-01" })).toBe("in_progress");
+    expect(regulatoryStatus({ approved: true })).toBe("done");
+  });
+
+  it("printOrderStatus: done once the order went out", () => {
+    expect(printOrderStatus({})).toBe("not_started");
+    expect(printOrderStatus({ printer: "CanCo", quantity: 5000 })).toBe("in_progress");
+    expect(printOrderStatus({ ordered_at: "2026-08-01" })).toBe("done");
+  });
+
+  it("labelComponentStatus: aggregates the three stages", () => {
+    expect(labelComponentStatus(baseRow({}))).toBe("not_started");
+    expect(labelComponentStatus(baseRow({ illustration: { artist_name: "Mei" } }))).toBe("in_progress");
+    // Design inputs alone count as started.
+    expect(labelComponentStatus(baseRow({ chop_glyph_asset_id: "a1" }))).toBe("in_progress");
+    expect(
+      labelComponentStatus(
+        baseRow({
+          illustration: { asset_ids: ["a1"] },
+          regulatory: { approved: true },
+          print_order: { ordered_at: "2026-08-01" },
+        }),
+      ),
+    ).toBe("done");
   });
 });
 

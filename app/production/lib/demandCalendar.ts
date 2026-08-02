@@ -294,7 +294,9 @@ export function buildDemandCalendar(input: BuildDemandCalendarInput): DemandRow[
 
     rows.push({
       recipe_id: recipeId,
-      style: recipe.beer_name,
+      // The display style — falls back to the recipe name for recipes that
+      // haven't declared a plain style yet.
+      style: recipe.style ?? recipe.beer_name,
       lead_time_days: leadTime,
       current_bbl: Math.round(startBbl * 100) / 100,
       safety_floor_bbl: Math.round(floorBbl * 100) / 100,

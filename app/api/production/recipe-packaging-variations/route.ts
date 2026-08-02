@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
     // No consumer (Recipes tab, kegging/canning dropdowns, brew status,
     // commitments) should offer or display an inactive variation.
     .select(`
-      id, recipe_id, variation_id, created_at,
+      id, recipe_id, variation_id, product_code, created_at,
       packaging_variations!inner(${PACKAGING_VARIATION_SELECT})
     `)
     .eq("packaging_variations.is_active", true);
@@ -55,6 +55,24 @@ export async function POST(req: NextRequest) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data, { status: 201 });
+}
+
+// Sets the per-sellable-unit product code on a recipe↔variation link. Codes
+// live on the link (not the recipe) because a 4-pack and a keg of the same
+// beer carry different codes.
+export async function PATCH(req: NextRequest) {
+  try { await requirePermission(CAP.recipesOperate); } catch (res) { return res as Response; }
+
+  const supabase = await createSupabaseServerClient();
+  const { id, product_code } = await req.json();
+  if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+
+  const { error } = await supabase
+    .from("recipe_packaging_variations")
+    .update({ product_code: product_code || null })
+    .eq("id", id);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ ok: true });
 }
 
 export async function DELETE(req: NextRequest) {
