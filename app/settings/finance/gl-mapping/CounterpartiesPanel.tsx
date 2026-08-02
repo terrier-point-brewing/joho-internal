@@ -249,6 +249,7 @@ export default function CounterpartiesPanel() {
         const feedOff = feedIncluded.get(rule.source) === false;
         const included = counterpartyIncluded.get(key) ?? true;
         const handled = effectiveHandler(rule);
+        const excluded = isExcluded(rule);
         return (
           <tr key={key} className="border-t border-line/40 hover:bg-surface-mid/20">
             {showFeed && <td className="px-4 py-2 text-secondary whitespace-nowrap">{feedName(rule.source)}</td>}
@@ -274,7 +275,11 @@ export default function CounterpartiesPanel() {
               )}
             </td>
             <td className="px-4 py-2">
-              {rule.claim ? (
+              {excluded ? (
+                <span className="text-2xs text-faint" title="This counterparty is out of the books, so nothing needs to be routed">
+                  excluded
+                </span>
+              ) : rule.claim ? (
                 // No dropdown at all, not a disabled one. A disabled control
                 // still reads as "a choice you are not allowed to make", when
                 // the truth is that the choice was already made on another
@@ -299,7 +304,11 @@ export default function CounterpartiesPanel() {
               )}
             </td>
             <td className="px-4 py-2">
-              {handled ? (
+              {excluded ? (
+                <span className="text-2xs text-faint" title="This counterparty is out of the books">
+                  excluded
+                </span>
+              ) : handled ? (
                 <div className="flex items-center gap-2">
                   <Badge tone="accent">{handled.badge}</Badge>
                   {handled.manageHref && (
