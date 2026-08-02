@@ -9,6 +9,7 @@
 import type { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { normalizeCounterparty, type RampBankLine } from "@/lib/ramp";
 import { dollarsToCents, type ExpenseRecord } from "./expenses";
+import { counterpartyRuleKey } from "./autoMap";
 import { chunk } from "@/lib/utils/chunk";
 
 type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
@@ -275,14 +276,17 @@ export async function syncBankLedger(
   }
 
   // Counterparty rules — the same table bank-sourced expenses resolve against.
+  // Keyed by (feed, counterparty) rather than counterparty alone: the rule table
+  // is unique on that pair, so "GUSTO on the Ramp account" and "GUSTO on the
+  // Chase account" are two rules with two accounts. Every record here is Ramp's,
+  // so this is the same lookup it always was — but the key now says why.
   const { data: cpRuleRows, error: cpRuleErr } = await supabase
     .from("expense_counterparty_mappings")
-    .select("counterparty_key, chart_of_accounts_id")
-    .eq("source", "ramp")
+    .select("source, counterparty_key, chart_of_accounts_id")
     .not("chart_of_accounts_id", "is", null);
   if (cpRuleErr) throw new Error(`Load counterparty mappings failed: ${cpRuleErr.message}`);
   const coaByCounterparty = new Map<string, string>(
-    (cpRuleRows ?? []).map((r) => [r.counterparty_key as string, r.chart_of_accounts_id as string]),
+    (cpRuleRows ?? []).map((r) => [counterpartyRuleKey(r.source as string, r.counterparty_key as string), r.chart_of_accounts_id as string]),
   );
 
   const syncedAt = new Date().toISOString();
@@ -305,7 +309,7 @@ export async function syncBankLedger(
       chart_of_accounts_id = prior.chart_of_accounts_id;
       mapping_source = prior.mapping_source;
     } else {
-      const ruleCoa = rec.counterparty_key ? coaByCounterparty.get(rec.counterparty_key) ?? null : null;
+      const ruleCoa = rec.counterparty_key ? coaByCounterparty.get(counterpartyRuleKey(rec.source, rec.counterparty_key)) ?? null : null;
       chart_of_accounts_id = ruleCoa;
       mapping_source = ruleCoa ? "rule" : "unmapped";
     }

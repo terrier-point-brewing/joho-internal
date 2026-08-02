@@ -196,6 +196,7 @@ import { syncBankLedger, type BankLedgerRecord } from "./bankLedger";
 
 function fakeSupabase(
   existing: Record<string, { mapping_source: string; chart_of_accounts_id: string | null; flow_type?: string; affects_pl?: boolean }> = {},
+  /** "<feed> <counterparty>" -> account id. A rule belongs to one bank feed. */
   counterpartyRules: Record<string, string> = {},
 ) {
   const upserts: BankLedgerRecord[] = [];
@@ -206,14 +207,15 @@ function fakeSupabase(
         return {
           select() {
             return {
-              eq() {
-                return {
-                  not: async () => ({
-                    data: Object.entries(counterpartyRules).map(([counterparty_key, chart_of_accounts_id]) => ({ counterparty_key, chart_of_accounts_id })),
-                    error: null,
-                  }),
-                };
-              },
+              // No .eq("source", ...) any more: rules are fetched for every feed
+              // and matched to a record by (feed, counterparty).
+              not: async () => ({
+                data: Object.entries(counterpartyRules).map(([id, chart_of_accounts_id]) => {
+                  const [source, ...rest] = id.split(" ");
+                  return { source, counterparty_key: rest.join(" "), chart_of_accounts_id };
+                }),
+                error: null,
+              }),
             };
           },
         };
@@ -255,13 +257,22 @@ describe("syncBankLedger", () => {
   });
 
   it("resolves chart_of_accounts_id from a counterparty rule for a fresh unmapped row", async () => {
-    const sb = fakeSupabase({}, { interest: "coa-interest-income" });
+    const sb = fakeSupabase({}, { "ramp interest": "coa-interest-income" });
     await syncBankLedger(sb as never, [rec]);
     expect(sb.upserts[0]).toMatchObject({ mapping_source: "rule", chart_of_accounts_id: "coa-interest-income" });
   });
 
   it("leaves a row unmapped when no counterparty rule matches", async () => {
-    const sb = fakeSupabase({}, { gusto: "coa-payroll" });
+    const sb = fakeSupabase({}, { "ramp gusto": "coa-payroll" });
+    await syncBankLedger(sb as never, [rec]);
+    expect(sb.upserts[0]).toMatchObject({ mapping_source: "unmapped", chart_of_accounts_id: null });
+  });
+
+  it("ignores another bank feed's rule for the same counterparty name", async () => {
+    // A rule belongs to one feed. Matching on the name alone would code this Ramp
+    // interest line to whatever account somebody chose for a Chase payee that
+    // happens to share the name.
+    const sb = fakeSupabase({}, { "plaid interest": "coa-somebody-elses-choice" });
     await syncBankLedger(sb as never, [rec]);
     expect(sb.upserts[0]).toMatchObject({ mapping_source: "unmapped", chart_of_accounts_id: null });
   });

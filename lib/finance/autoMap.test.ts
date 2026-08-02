@@ -1,12 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { resolveBankBackfill, resolvePosBackfill, resolveInvoiceBackfill } from "./autoMap";
+import { resolveBankBackfill, resolvePosBackfill, resolveInvoiceBackfill, counterpartyRuleKey } from "./autoMap";
 
 describe("resolveBankBackfill", () => {
-  const rules = new Map<string, string>([["gusto", "coa-payroll"]]);
+  const rules = new Map<string, string>([[counterpartyRuleKey("ramp", "gusto"), "coa-payroll"]]);
 
   it("maps an unmapped row whose counterparty has a rule", () => {
     const out = resolveBankBackfill(
-      [{ id: "r1", counterparty_key: "gusto", mapping_source: "unmapped", chart_of_accounts_id: null }],
+      [{ id: "r1", source: "ramp", counterparty_key: "gusto", mapping_source: "unmapped", chart_of_accounts_id: null }],
       rules,
     );
     expect(out).toEqual([{ id: "r1", chart_of_accounts_id: "coa-payroll" }]);
@@ -14,7 +14,7 @@ describe("resolveBankBackfill", () => {
 
   it("never overwrites a manual pin", () => {
     const out = resolveBankBackfill(
-      [{ id: "r1", counterparty_key: "gusto", mapping_source: "manual", chart_of_accounts_id: "coa-x" }],
+      [{ id: "r1", source: "ramp", counterparty_key: "gusto", mapping_source: "manual", chart_of_accounts_id: "coa-x" }],
       rules,
     );
     expect(out).toEqual([]);
@@ -22,7 +22,7 @@ describe("resolveBankBackfill", () => {
 
   it("never overwrites an already-mapped row (fill-nulls-only)", () => {
     const out = resolveBankBackfill(
-      [{ id: "r1", counterparty_key: "gusto", mapping_source: "rule", chart_of_accounts_id: "coa-old" }],
+      [{ id: "r1", source: "ramp", counterparty_key: "gusto", mapping_source: "rule", chart_of_accounts_id: "coa-old" }],
       rules,
     );
     expect(out).toEqual([]);
@@ -30,7 +30,7 @@ describe("resolveBankBackfill", () => {
 
   it("skips rows whose counterparty has no rule", () => {
     const out = resolveBankBackfill(
-      [{ id: "r1", counterparty_key: "unknown", mapping_source: "unmapped", chart_of_accounts_id: null }],
+      [{ id: "r1", source: "ramp", counterparty_key: "unknown", mapping_source: "unmapped", chart_of_accounts_id: null }],
       rules,
     );
     expect(out).toEqual([]);
@@ -38,10 +38,39 @@ describe("resolveBankBackfill", () => {
 
   it("skips rows with a null counterparty_key", () => {
     const out = resolveBankBackfill(
-      [{ id: "r1", counterparty_key: null, mapping_source: "unmapped", chart_of_accounts_id: null }],
+      [{ id: "r1", source: "ramp", counterparty_key: null, mapping_source: "unmapped", chart_of_accounts_id: null }],
       rules,
     );
     expect(out).toEqual([]);
+  });
+
+  it("does not lend one bank's rule to another bank's counterparty of the same name", () => {
+    // The whole reason a rule is keyed by (feed, counterparty): a Chase payee
+    // called GUSTO is a different relationship from the Ramp payee called GUSTO,
+    // and inheriting the Ramp account would post real money to it unasked.
+    const out = resolveBankBackfill(
+      [{ id: "r1", source: "plaid", counterparty_key: "gusto", mapping_source: "unmapped", chart_of_accounts_id: null }],
+      rules,
+    );
+    expect(out).toEqual([]);
+  });
+
+  it("uses each feed's own rule when both feeds have one for the same name", () => {
+    const both = new Map<string, string>([
+      [counterpartyRuleKey("ramp", "gusto"), "coa-payroll"],
+      [counterpartyRuleKey("plaid", "gusto"), "coa-other"],
+    ]);
+    const out = resolveBankBackfill(
+      [
+        { id: "r1", source: "ramp",  counterparty_key: "gusto", mapping_source: "unmapped", chart_of_accounts_id: null },
+        { id: "r2", source: "plaid", counterparty_key: "gusto", mapping_source: "unmapped", chart_of_accounts_id: null },
+      ],
+      both,
+    );
+    expect(out).toEqual([
+      { id: "r1", chart_of_accounts_id: "coa-payroll" },
+      { id: "r2", chart_of_accounts_id: "coa-other" },
+    ]);
   });
 });
 

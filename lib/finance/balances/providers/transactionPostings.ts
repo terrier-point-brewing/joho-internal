@@ -11,6 +11,8 @@ import { fetchAllRows } from "@/lib/supabase/paginate";
 import { normalizeSignedCents } from "@/lib/finance/financials/normalizeSign";
 import { coaSection } from "@/lib/finance/financials/aggregateRows";
 import { applyExpenseStatementFilters } from "@/lib/finance/financials/expenseFilters";
+import { loadBankLedgerInclusion, INCLUSION_COLUMNS } from "@/lib/finance/bankLedgerInclusion";
+import type { BankLedgerInclusion, InclusionFacts } from "@/lib/finance/bankLedgerInclusion";
 import type { CoaRecord } from "@/lib/finance/financials/aggregateRows";
 import { registerProvider } from "../registry";
 import type { BalanceContext, BalanceProvider } from "../registry";
@@ -194,19 +196,27 @@ async function sumRefunds(supabase: SupabaseClient, coaId: string, periodEnd: st
  * touch, across up to two years of imported history. Whether they ever should is
  * a deliberate decision with a switch waiting for it; this predicate is the
  * switch being off.
+ *
+ * That switch now exists (lib/finance/bankLedgerInclusion.ts) and is what
+ * `inclusion` carries: a standing rule an operator made about a whole feed or a
+ * single counterparty, which overrides the row's own flag. Until someone makes
+ * one, applyTo() emits the same `.eq("include_in_gl", true)` this had before and
+ * allows() accepts every row it returns, so the figure is unchanged.
  */
-async function sumBank(supabase: SupabaseClient, coaId: string, periodEnd: string, section: string): Promise<{ sum: number; count: number }> {
-  const rows = await fetchAllRows<{ amount_cents: number | null }>(() =>
-    supabase
-      .from("ramp_bank_ledger")
-      .select("amount_cents")
-      .eq("chart_of_accounts_id", coaId)
-      .eq("include_in_gl", true)
-      .lte("transaction_date", periodEnd)
-      .order("id", { ascending: true }),
+async function sumBank(supabase: SupabaseClient, coaId: string, periodEnd: string, section: string, inclusion: BankLedgerInclusion): Promise<{ sum: number; count: number }> {
+  const rows = await fetchAllRows<{ amount_cents: number | null } & InclusionFacts>(() =>
+    inclusion.applyTo(
+      supabase
+        .from("ramp_bank_ledger")
+        .select(`amount_cents, ${INCLUSION_COLUMNS}`)
+        .eq("chart_of_accounts_id", coaId)
+        .lte("transaction_date", periodEnd)
+        .order("id", { ascending: true }),
+    ),
   );
-  const sum = rows.reduce((s, r) => s + normalizeSignedCents(r.amount_cents ?? 0, section, "bank"), 0);
-  return { sum, count: rows.length };
+  const counted = rows.filter((r) => inclusion.allows(r));
+  const sum = counted.reduce((s, r) => s + normalizeSignedCents(r.amount_cents ?? 0, section, "bank"), 0);
+  return { sum, count: counted.length };
 }
 
 export const transactionPostings: BalanceProvider = {
@@ -220,12 +230,14 @@ export const transactionPostings: BalanceProvider = {
     if (!coa) return null;
     const section = coaSection(coa);
 
+    const inclusion = await loadBankLedgerInclusion(supabase);
+
     const [pos, invoiceLines, expenses, splits, bank, refunds] = await Promise.all([
       sumPos(supabase, coaId, periodEnd, section),
       sumInvoiceLines(supabase, coaId, periodEnd, section),
       sumExpenses(supabase, coaId, periodEnd, section),
       sumExpenseSplits(supabase, coaId, periodEnd, section),
-      sumBank(supabase, coaId, periodEnd, section),
+      sumBank(supabase, coaId, periodEnd, section, inclusion),
       sumRefunds(supabase, coaId, periodEnd, section),
     ]);
 
