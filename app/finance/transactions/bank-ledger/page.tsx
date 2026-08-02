@@ -16,6 +16,7 @@ import SearchInput from "@/app/components/ui/SearchInput";
 import FilterBar from "@/app/components/ui/FilterBar";
 import FilterSelect from "@/app/components/ui/FilterSelect";
 import GlAccountFilter from "../components/GlAccountFilter";
+import RunJobButton from "@/app/components/RunJobButton";
 import QbSyncBadge, { qbSyncFilterValue, QB_SYNC_FILTER_OPTIONS } from "../components/QbSyncBadge";
 import { normalizeQbSyncStatus } from "@/lib/finance/qbSyncStatus";
 import { useTableControls } from "@/app/components/ui/useTableControls";
@@ -143,6 +144,11 @@ export default function BankLedgerPage() {
             onChange={(v) => setFilter("qbsync", v)} />
           <GlAccountFilter accounts={accounts} value={filters.gl?.[0] ?? null}
             onChange={(id) => setFilter("gl", id ? [id] : [])} />
+          {/* Two feeds land in this ledger and neither can refresh the other, so
+              both are offered here rather than sending someone to the Expenses
+              tab for one of them. */}
+          <RunJobButton job="ramp-expenses-sync" label="Refresh Ramp" onFinished={() => loadAll(from, to)} />
+          <RunJobButton job="bank-transactions-sync" label="Refresh bank feed" onFinished={() => loadAll(from, to)} />
         </FilterBar>
       </div>
       {rows.length > 0 && (
@@ -158,7 +164,7 @@ export default function BankLedgerPage() {
         <div className="flex-1 flex items-center justify-center"><p className="text-xs text-muted">Loading…</p></div>
       ) : rows.length === 0 ? (
         <div className="flex-1 flex items-center justify-center text-center px-6">
-          <p className="text-sm text-secondary">No bank-account activity for {from} – {to}. Click &ldquo;Sync Ramp&rdquo; on the Expenses tab to import.</p>
+          <p className="text-sm text-secondary">No bank-account activity for {from} – {to}. Use the refresh buttons above to import it.</p>
         </div>
       ) : (
         <>

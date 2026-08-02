@@ -63,11 +63,19 @@ function connection(config: Record<string, unknown> = {}): ConnectionWithSecrets
 /**
  * A fake admin client recording every write, so the ORDER of writes can be
  * asserted -- which is the property that actually matters here.
+ *
+ * `priorRows` stands in for coding that already exists on a transaction the feed
+ * has seen before; the sync reads it back before writing so a replay does not
+ * undo it. `priorError` makes that read fail, which must stop the page rather
+ * than let it look like a batch of first-time imports.
  */
-function fakeClient() {
+function fakeClient(
+  opts: { priorRows?: Record<string, unknown>[]; priorError?: string } = {},
+) {
   const upserts: LedgerRow[][] = [];
   const deletes: string[][] = [];
   const deleteFilters: string[] = [];
+  const priorReads: string[][] = [];
   const cursorWrites: string[] = [];
   const order: string[] = [];
 
@@ -85,6 +93,18 @@ function fakeClient() {
         };
       }
       return {
+        select: () => {
+          const chain: Record<string, unknown> = {
+            eq: () => chain,
+            in: async (_col: string, ids: string[]) => {
+              order.push("prior");
+              priorReads.push(ids);
+              if (opts.priorError) return { data: null, error: { message: opts.priorError } };
+              return { data: opts.priorRows ?? [], error: null };
+            },
+          };
+          return chain;
+        },
         upsert: async (rows: LedgerRow[]) => {
           order.push("rows");
           upserts.push(rows);
@@ -105,7 +125,7 @@ function fakeClient() {
     },
   } as never;
 
-  return { supabase, upserts, deletes, deleteFilters, cursorWrites, order };
+  return { supabase, upserts, deletes, deleteFilters, priorReads, cursorWrites, order };
 }
 
 beforeEach(() => {
@@ -233,7 +253,7 @@ describe("syncConnection", () => {
     const client = fakeClient();
     await syncConnection(client.supabase, connection());
 
-    expect(client.order).toEqual(["rows", "cursor"]);
+    expect(client.order).toEqual(["prior", "rows", "cursor"]);
   });
 
   it("sends the stored cursor, and then each page's own", async () => {
@@ -335,5 +355,134 @@ describe("syncConnection", () => {
 
     expect(result.incomplete).toBe(true);
     expect(client.cursorWrites.length).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * Re-running this feed must not undo somebody's work.
+ *
+ * The feed replays a transaction as `modified` whenever the bank touches it, and
+ * a "Run now" button makes a replay something a person can ask for at any
+ * moment, over data that has since been coded by hand. Before
+ * preserveOperatorCoding, every replay reset the account, the classification and
+ * the general-ledger switch back to the defaults for a transaction nobody had
+ * looked at yet -- silently, with no error anywhere.
+ */
+describe("a re-run keeps what a person decided", () => {
+  /** As the row looks after somebody has switched the feed on and coded it. */
+  function codedByHand(over: Record<string, unknown> = {}) {
+    return {
+      source_transaction_id: "txn-1",
+      flow_type: "deposit",
+      affects_pl: true,
+      include_in_gl: true,
+      chart_of_accounts_id: "coa-sales",
+      mapping_source: "manual",
+      ...over,
+    };
+  }
+
+  it("keeps a hand-picked account when the bank re-sends the transaction", async () => {
+    syncTransactions.mockResolvedValueOnce({
+      added: [], modified: [txn()], removed: [], nextCursor: "c1", hasMore: false,
+    });
+
+    const client = fakeClient({ priorRows: [codedByHand()] });
+    await syncConnection(client.supabase, connection());
+
+    expect(client.upserts[0][0]).toMatchObject({
+      chart_of_accounts_id: "coa-sales",
+      mapping_source: "manual",
+    });
+  });
+
+  it("keeps the general-ledger switch on once somebody has turned it on", async () => {
+    // The single most damaging field to reset: it is what every statement reader
+    // filters on, so flipping it back to false removes the row from the books
+    // without removing the row.
+    syncTransactions.mockResolvedValueOnce({
+      added: [], modified: [txn()], removed: [], nextCursor: "c1", hasMore: false,
+    });
+
+    const client = fakeClient({ priorRows: [codedByHand()] });
+    await syncConnection(client.supabase, connection());
+
+    expect(client.upserts[0][0].include_in_gl).toBe(true);
+  });
+
+  it("keeps a classification the feed itself never produces", async () => {
+    syncTransactions.mockResolvedValueOnce({
+      added: [], modified: [txn()], removed: [], nextCursor: "c1", hasMore: false,
+    });
+
+    const client = fakeClient({ priorRows: [codedByHand()] });
+    await syncConnection(client.supabase, connection());
+
+    expect(client.upserts[0][0]).toMatchObject({ flow_type: "deposit", affects_pl: true });
+  });
+
+  it("still takes the bank's own facts from the fresh transaction", async () => {
+    // Preserving a decision must not mean freezing the transaction. What the
+    // bank knows -- the amount, the date, the description -- is always the new
+    // one, which is the whole reason a `modified` entry is worth writing.
+    syncTransactions.mockResolvedValueOnce({
+      added: [],
+      modified: [txn({ amount: -99.5, name: "ACH CREDIT (corrected)", date: "2026-07-24" })],
+      removed: [], nextCursor: "c1", hasMore: false,
+    });
+
+    const client = fakeClient({ priorRows: [codedByHand()] });
+    await syncConnection(client.supabase, connection());
+
+    expect(client.upserts[0][0]).toMatchObject({
+      amount_cents: 9950,
+      description: "ACH CREDIT (corrected)",
+      transaction_date: "2026-07-24",
+    });
+  });
+
+  it("still imports a transaction nobody has seen before as excluded and uncoded", async () => {
+    // The other half of the promise. A first import must land outside the books,
+    // which is what keeps Chase out of the statements until the switch is thrown.
+    syncTransactions.mockResolvedValueOnce({
+      added: [txn({ transaction_id: "txn-new" })], modified: [], removed: [], nextCursor: "c1", hasMore: false,
+    });
+
+    const client = fakeClient({ priorRows: [codedByHand()] });
+    await syncConnection(client.supabase, connection());
+
+    expect(client.upserts[0][0]).toMatchObject({
+      include_in_gl: false,
+      chart_of_accounts_id: null,
+      mapping_source: "unmapped",
+      flow_type: "unclassified",
+      affects_pl: false,
+    });
+  });
+
+  it("looks up only this feed's rows, so a Ramp transaction cannot be read as one of ours", async () => {
+    syncTransactions.mockResolvedValueOnce({
+      added: [txn()], modified: [], removed: [], nextCursor: "c1", hasMore: false,
+    });
+
+    const client = fakeClient();
+    await syncConnection(client.supabase, connection());
+
+    expect(client.priorReads[0]).toEqual(["txn-1"]);
+  });
+
+  it("stops the page rather than writing over coding it could not read", async () => {
+    // Carrying on with nothing read looks exactly like a page of first-time
+    // imports, which is the one outcome the read exists to prevent. The cursor
+    // has not moved, so the page simply replays on the next run.
+    syncTransactions.mockResolvedValueOnce({
+      added: [], modified: [txn()], removed: [], nextCursor: "c1", hasMore: false,
+    });
+
+    const client = fakeClient({ priorError: "connection reset" });
+
+    await expect(syncConnection(client.supabase, connection())).rejects.toThrow(/existing bank ledger coding/);
+    expect(client.upserts).toHaveLength(0);
+    expect(client.cursorWrites).toHaveLength(0);
   });
 });
