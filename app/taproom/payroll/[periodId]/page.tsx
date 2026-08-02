@@ -4,6 +4,7 @@ import { useParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import SubNav from "@/app/components/SubNav";
 import PageHeader from "@/app/components/PageHeader";
+import StickyHeader from "@/app/components/StickyHeader";
 import { TAPROOM_NAV } from "@/app/taproom/nav-config";
 import { PayrollPeriodView } from "@/app/components/payroll/PayrollPeriodView";
 import { PeriodSelector } from "@/app/components/payroll/PeriodSelector";
@@ -19,16 +20,20 @@ export default function TaproomPayrollPage() {
   });
 
   return (
-    <main className="px-4 sm:px-6 py-4 sm:py-8">
-      <SubNav entries={TAPROOM_NAV} mobile />
-      <div className="flex items-center justify-between gap-4 mb-4">
-        <PageHeader title="Payroll" description="Bartender hours, tips, and pay by pay period" />
-        {periods && (
-          <PeriodSelector periods={periods} currentId={periodId} basePath="/taproom/payroll" />
-        )}
-      </div>
+    <main className="px-4 sm:px-6">
+      <StickyHeader>
+        <SubNav entries={TAPROOM_NAV} mobile />
+        <div className="flex items-center justify-between gap-4">
+          <PageHeader title="Payroll" description="Bartender hours, tips, and pay by pay period" />
+          {periods && (
+            <PeriodSelector periods={periods} currentId={periodId} basePath="/taproom/payroll" />
+          )}
+        </div>
+      </StickyHeader>
       {/* Read-only operational view. Overrides + locking live in Finance › Payroll. */}
-      <PayrollPeriodView periodId={periodId} editable={false} />
+      <div className="mt-4 pb-4 sm:pb-8">
+        <PayrollPeriodView periodId={periodId} editable={false} />
+      </div>
     </main>
   );
 }

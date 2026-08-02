@@ -5,6 +5,7 @@ import { useState } from "react";
 import FinanceNav from "../FinanceNav";
 import PeriodsTable from "./PeriodsTable";
 import PageHeader from "@/app/components/PageHeader";
+import StickyHeader from "@/app/components/StickyHeader";
 import Banner from "@/app/components/ui/Banner";
 import FilterBar from "@/app/components/ui/FilterBar";
 import FilterSelect from "@/app/components/ui/FilterSelect";
@@ -63,17 +64,20 @@ export default function FinancePayrollPage() {
   });
 
   return (
-    <main className="px-4 sm:px-6 py-4 sm:py-8">
-      <FinanceNav mobile />
-      <div className="flex items-center justify-between gap-4 mb-4">
-        <PageHeader title="Payroll" description="Pay periods, payroll basis, and Gusto reconciliation." />
-        {!showForm && (
-          <button onClick={() => setShowForm(true)} className="btn-secondary">
-            + New Period
-          </button>
-        )}
-      </div>
+    <main className="px-4 sm:px-6">
+      <StickyHeader>
+        <FinanceNav mobile />
+        <div className="flex items-center justify-between gap-4">
+          <PageHeader title="Payroll" description="Pay periods, payroll basis, and Gusto reconciliation." />
+          {!showForm && (
+            <button onClick={() => setShowForm(true)} className="btn-secondary">
+              + New Period
+            </button>
+          )}
+        </div>
+      </StickyHeader>
 
+      <div className="mt-4 pb-4 sm:pb-8">
       {showForm && (
         <div className="mt-4 mb-6 p-4 bg-surface border border-line-strong rounded-lg flex flex-wrap items-end gap-3">
           <label className="block">
@@ -115,7 +119,7 @@ export default function FinancePayrollPage() {
       ) : (
         <PeriodsTable rows={controls.rows} sort={controls.sort} onSort={controls.toggleSort} />
       )}
-
+      </div>
     </main>
   );
 }
