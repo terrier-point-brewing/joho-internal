@@ -31,7 +31,7 @@ export default function SwatchCard({
 }) {
   return (
     <div className="rounded-lg border border-brand-line overflow-hidden">
-      <div className="h-16" style={{ background: color.hex }} />
+      <div className="h-16 border-b border-brand-line" style={{ background: color.hex }} />
 
       <div className="p-3">
         <div className="flex items-baseline justify-between gap-2">
