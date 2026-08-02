@@ -174,20 +174,18 @@ export async function PUT(req: NextRequest) {
 
   const supabase = createSupabaseAdminClient();
 
-  const { data, error } = await supabase
-    .from(BANK_LEDGER_GL_RULES_TABLE)
-    .upsert(
-      {
-        scope,
-        source,
-        counterparty_key: counterpartyKey,
-        counterparty_label: body.counterparty_label ?? null,
-        included: body.included,
-      },
-      { onConflict: counterpartyKey ? "source,counterparty_key" : "source" },
-    )
-    .select("scope, source, counterparty_key, included")
-    .single();
+  // Not a plain .upsert(): both of this table's unique indexes are partial
+  // (one per scope, see the table's migration), and PostgREST's upsert can
+  // only emit `ON CONFLICT (columns)` with no WHERE, which Postgres refuses
+  // to match against a partial index. upsert_bank_ledger_gl_rule spells out
+  // the matching WHERE on each arm's own ON CONFLICT instead.
+  const { data, error } = await supabase.rpc("upsert_bank_ledger_gl_rule", {
+    p_scope: scope,
+    p_source: source,
+    p_counterparty_key: counterpartyKey ?? null,
+    p_counterparty_label: body.counterparty_label ?? null,
+    p_included: body.included,
+  });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   // Switching a feed on makes its transactions accounting facts, and an
