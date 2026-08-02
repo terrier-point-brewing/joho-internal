@@ -90,12 +90,29 @@ export interface PruneCandidate {
   id:                    string;
   source_transaction_id: string;
   excluded_at:           string | null;
+  /** 'manual' means a person pinned this row's account -- including pinning it at null. */
+  mapping_source:        string | null;
+  /** A person ticked "this doesn't need a GL mapping", which is the same kind of decision. */
+  unmapped_accepted:     boolean | null;
+}
+
+/** A row kept for its coding but taken out of the statements. Both ids: one to update, one to report. */
+export interface SetAsideCandidate {
+  id:                    string;
+  source_transaction_id: string;
+}
+
+/** Whether a person has said something about this row's GL coding, either by pinning an account or by accepting that it has none. */
+function isCodedByHand(c: PruneCandidate): boolean {
+  return c.mapping_source === "manual" || c.unmapped_accepted === true;
 }
 
 /**
- * Partition reclassified bank expenses into those safe to delete and those to
- * leave alone. A row carrying manual work -- a GL split, a payroll match, or a
- * manual exclusion -- is never deleted. Both `expense_gl_splits.expense_id` and
+ * Partition reclassified bank expenses three ways: safe to delete, to leave
+ * alone, and to keep but take out of the statements.
+ *
+ * A row carrying manual work -- a GL split, a payroll match, or a manual
+ * exclusion -- is never deleted. Both `expense_gl_splits.expense_id` and
  * `payroll_period_expense_matches.expense_id` reference `expenses(id)`, but only
  * the former cascades on delete (`on delete cascade`); the latter has NO `on
  * delete` clause (NO ACTION per supabase/migrations/20260714_payroll_gl_split.sql),
@@ -103,18 +120,51 @@ export interface PruneCandidate {
  * it raises a foreign-key violation that fails the whole delete batch. Either
  * way the row must never be picked for deletion, so both tables feed the same
  * skip set.
+ *
+ * The third bucket resolves a genuine conflict. The feed now says this line is
+ * not an expense at all, and its cash is already carried by the ramp_bank_ledger
+ * row -- but a person coded it, and resolveExpenseMapping treats that pin as
+ * authoritative over every rule (including a pin that deliberately points at
+ * nothing). Deleting would discard the decision; keeping it live would
+ * double-count the money the prune exists to de-duplicate. So the row is set
+ * aside instead: excluded_at is stamped, which is exactly what a person does
+ * from the Expenses tab when they find a duplicate, and which drops it from
+ * every statement (lib/finance/financials/expenseFilters.ts) while leaving the
+ * row, its account and its history intact and one click from being restored.
+ * Split and payroll-matched rows stay in `skipped` rather than joining it --
+ * app/api/finance/expenses/[id]/exclude/route.ts refuses to exclude those for
+ * reasons that apply just as much to an automatic exclusion.
  */
 export function selectPrunableExpenseIds(
   candidates: PruneCandidate[],
   expenseIdsWithManualWork: Set<string>,
-): { deletable: string[]; skipped: string[] } {
+): { deletable: string[]; skipped: string[]; setAside: SetAsideCandidate[] } {
   const deletable: string[] = [];
   const skipped:   string[] = [];
+  const setAside:  SetAsideCandidate[] = [];
   for (const c of candidates) {
     if (expenseIdsWithManualWork.has(c.id) || c.excluded_at !== null) skipped.push(c.source_transaction_id);
+    else if (isCodedByHand(c)) setAside.push({ id: c.id, source_transaction_id: c.source_transaction_id });
     else deletable.push(c.id);
   }
-  return { deletable, skipped };
+  return { deletable, skipped, setAside };
+}
+
+/** How each flow reads in a sentence. Exhaustive by type, so a new FlowType has to be given words here. */
+const FLOW_TYPE_PHRASE: Record<FlowType, string> = {
+  operating_expense: "an operating expense",
+  interest_income:   "interest income",
+  internal_transfer: "an internal transfer",
+  bill_settlement:   "a bill settlement",
+  card_settlement:   "a card statement payment",
+  deposit:           "a deposit",
+  unclassified:      "a bank flow, not an expense",
+};
+
+/** The sentence a bookkeeper reads on the excluded row, so the automatic decision explains itself. */
+export function setAsideReason(flowType: FlowType | null): string {
+  const what = flowType ? FLOW_TYPE_PHRASE[flowType] : FLOW_TYPE_PHRASE.unclassified;
+  return `Ramp now reports this as ${what}, already recorded in the bank ledger. Set aside rather than deleted because it was coded by hand — include it again if that is wrong.`;
 }
 
 /** Whether a bank-ledger flow_type affects the P&L. In the ledger table only interest is income; transfers/settlements/deposits/unclassified are non-P&L. */

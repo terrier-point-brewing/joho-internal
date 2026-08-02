@@ -35,7 +35,17 @@ export async function runRampExpensesSync(supabase: SupabaseClient) {
   try {
     const result = await syncAllRamp(supabase, fromStr, toStr);
     const connectionsReported = await recordProviderSyncResult(supabase, "ramp", { ok: true });
-    return { ...result, window: { from: fromStr, to: toStr }, connectionsReported };
+    return {
+      ...result,
+      // Lifted out of `pruned`, which is nested: the Cron Jobs history summarises
+      // a run from its scalar fields only, and "this run touched N rows somebody
+      // had coded by hand" is the one number nobody should have to dig for. The
+      // ids stay in `pruned` on the same cron_runs row.
+      expensesPruned:  result.pruned.deleted,
+      expensesSetAside: result.pruned.setAside.length,
+      window: { from: fromStr, to: toStr },
+      connectionsReported,
+    };
   } catch (err) {
     // Recorded and then rethrown: the connection needs to say what went wrong,
     // and the run still needs to be marked failed.

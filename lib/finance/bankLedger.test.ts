@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { classifyBankLine, partitionBankLines, buildBillTotals, selectPrunableExpenseIds } from "./bankLedger";
+import { classifyBankLine, partitionBankLines, buildBillTotals, selectPrunableExpenseIds, setAsideReason } from "./bankLedger";
 import { normalizeCounterparty, type RampBankLine } from "@/lib/ramp";
 
 const OWN = new Set(["operating account", "investment account"].map(normalizeCounterparty));
@@ -300,10 +300,12 @@ describe("syncBankLedger", () => {
 });
 
 describe("selectPrunableExpenseIds", () => {
-  const plain = { id: "e1", source_transaction_id: "s1", excluded_at: null };
-  const withSplit = { id: "e2", source_transaction_id: "s2", excluded_at: null };
-  const excluded = { id: "e3", source_transaction_id: "s3", excluded_at: "2026-07-20T00:00:00Z" };
-  const withPayrollMatch = { id: "e4", source_transaction_id: "s4", excluded_at: null };
+  const uncoded = { mapping_source: "unmapped", unmapped_accepted: false };
+  const plain = { id: "e1", source_transaction_id: "s1", excluded_at: null, ...uncoded };
+  const withSplit = { id: "e2", source_transaction_id: "s2", excluded_at: null, ...uncoded };
+  const excluded = { id: "e3", source_transaction_id: "s3", excluded_at: "2026-07-20T00:00:00Z", ...uncoded };
+  const withPayrollMatch = { id: "e4", source_transaction_id: "s4", excluded_at: null, ...uncoded };
+  const pinned = { id: "e5", source_transaction_id: "s5", excluded_at: null, mapping_source: "manual", unmapped_accepted: false };
 
   it("deletes a reclassified row carrying no manual work", () => {
     const r = selectPrunableExpenseIds([plain], new Set());
@@ -329,13 +331,48 @@ describe("selectPrunableExpenseIds", () => {
     expect(r.skipped).toEqual(["s4"]);
   });
 
+  // Note what a pinned candidate does NOT carry: chart_of_accounts_id. The
+  // partition cannot see what the pin points at, so a pin at an account and a
+  // pin deliberately at nothing are the same decision and get the same answer.
+  it("sets aside a row somebody pinned instead of deleting it", () => {
+    const r = selectPrunableExpenseIds([pinned], new Set());
+    expect(r.deletable).toEqual([]);
+    expect(r.setAside).toEqual([{ id: "e5", source_transaction_id: "s5" }]);
+  });
+
+  it("sets aside a row accepted as needing no mapping, for the same reason", () => {
+    const r = selectPrunableExpenseIds(
+      [{ id: "e6", source_transaction_id: "s6", excluded_at: null, mapping_source: "unmapped", unmapped_accepted: true }],
+      new Set(),
+    );
+    expect(r.deletable).toEqual([]);
+    expect(r.setAside).toEqual([{ id: "e6", source_transaction_id: "s6" }]);
+  });
+
+  it("leaves a pinned row that also has a split alone entirely, because excluding a split row would strand its lines", () => {
+    const r = selectPrunableExpenseIds([pinned], new Set(["e5"]));
+    expect(r).toEqual({ deletable: [], skipped: ["s5"], setAside: [] });
+  });
+
   it("partitions a mixed batch", () => {
-    const r = selectPrunableExpenseIds([plain, withSplit, excluded], new Set(["e2"]));
+    const r = selectPrunableExpenseIds([plain, withSplit, excluded, pinned], new Set(["e2"]));
     expect(r.deletable).toEqual(["e1"]);
     expect(r.skipped).toEqual(["s2", "s3"]);
+    expect(r.setAside).toEqual([{ id: "e5", source_transaction_id: "s5" }]);
   });
 
   it("handles an empty batch", () => {
-    expect(selectPrunableExpenseIds([], new Set())).toEqual({ deletable: [], skipped: [] });
+    expect(selectPrunableExpenseIds([], new Set())).toEqual({ deletable: [], skipped: [], setAside: [] });
+  });
+});
+
+describe("setAsideReason", () => {
+  it("names the flow the line was reclassified to, so the exclusion explains itself", () => {
+    expect(setAsideReason("bill_settlement")).toContain("a bill settlement");
+    expect(setAsideReason("bill_settlement")).toContain("coded by hand");
+  });
+
+  it("still reads as a sentence when the flow is unknown", () => {
+    expect(setAsideReason(null)).toContain("a bank flow, not an expense");
   });
 });
