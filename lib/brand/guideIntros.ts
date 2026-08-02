@@ -24,6 +24,24 @@ export function resolveGuideIntro(canon: BrandCanon, section: GuideSectionKey): 
   return canon.guideIntros?.[section]?.trim() || seedCanon.guideIntros?.[section] || "";
 }
 
+/**
+ * What each subtab is for, in a few words — the label on its introduction card.
+ *
+ * Deliberately not in the canon and not editable: this is structural chrome,
+ * the same kind of thing as the subtab labels in BrandGuideTabs, and it has to
+ * stay parallel across all seven to read as a set. The prose that IS the
+ * brand's own words lives in `guideIntros`, which admins own.
+ */
+export const GUIDE_SECTION_PURPOSE: Record<GuideSectionKey, string> = {
+  ethos: "What we're for",
+  voice: "How we sound",
+  visual: "How we look",
+  color: "How color works",
+  type: "How type works",
+  marks: "The fixed marks",
+  agent: "For agents",
+};
+
 /** Splits intro prose into paragraphs on blank lines, dropping empties. */
 export function splitParagraphs(text: string): string[] {
   return text

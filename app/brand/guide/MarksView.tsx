@@ -195,7 +195,7 @@ export default function MarksView({
 
   if (sections.length === 0) {
     return (
-      <GuideSection intro={intro}>
+      <GuideSection section="marks" intro={intro}>
         {chopBlock || (
           <p className="font-brand-body text-sm text-brand-content-muted">
             No marks yet. In Edit mode, admins can define a wordmark, chop or logo and attach its
@@ -207,7 +207,7 @@ export default function MarksView({
   }
 
   return (
-    <GuideSection intro={intro}>
+    <GuideSection section="marks" intro={intro}>
       <div className="flex flex-col gap-8">
         {chopBlock}
         {sections.map((section) => (

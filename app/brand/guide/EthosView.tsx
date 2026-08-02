@@ -12,7 +12,7 @@ import SpecCard from "./blocks/SpecCard";
  */
 export default function EthosView({ canon }: { canon: BrandCanon }) {
   return (
-    <GuideSection intro={resolveGuideIntro(canon, "ethos")}>
+    <GuideSection section="ethos" intro={resolveGuideIntro(canon, "ethos")}>
       {canon.values?.length > 0 && (
         <div className="grid gap-3 sm:grid-cols-2">
           {canon.values.map((v) => (
