@@ -24,8 +24,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchJson } from "@/app/production/hooks/queries";
 import { queryKeys } from "@/lib/query-keys";
-import { formatCurrencyCents } from "@/lib/format";
-import { formatAmountInput, parseAmountInputCents } from "@/lib/finance/manualEntryAmount";
+import { formatAmountInput, formatEnteredAmountCents, parseAmountInputCents } from "@/lib/finance/manualEntryAmount";
 import { formatPeriodLabel, recentMonthEnds, type CloseTaskDetail, type CloseTasksResponse } from "../../closeTasks";
 import Badge from "@/app/components/ui/Badge";
 import Banner from "@/app/components/ui/Banner";
@@ -135,7 +134,7 @@ function OutstandingRow({
 
       <p className="text-2xs text-faint">
         {task.previousBalance
-          ? `Last entered ${formatCurrencyCents(task.previousBalance.cents)} as at ${fmtDate(task.previousBalance.asOfDate)}.`
+          ? `Last entered ${formatEnteredAmountCents(task.previousBalance.cents)} as at ${fmtDate(task.previousBalance.asOfDate)}.`
           : "No balance has ever been entered for this account."}
       </p>
 
@@ -278,12 +277,24 @@ export default function MonthEndClosePanel({
             gap in it. */}
         {(completed.length > 0 || skipped.length > 0) && (
           <div className="mt-3 pt-3 border-t border-line/40 flex flex-col gap-1">
+            {/* The amount sits in its own column rather than after a dash. It
+                previously read "Entered 1010 · Cash on Hand — —": one em dash
+                was the separator and the other was formatCurrencyCents
+                rendering a stored zero, and nothing on screen distinguished
+                them. Separating the figure from the name removes the ambiguity
+                whatever the figure turns out to be. */}
             {completed.map((t) => (
-              <p key={t.id} className="text-2xs text-muted">
-                <span className="text-success mr-1.5">Entered</span>
-                {t.accountNumber ? `${t.accountNumber} · ` : ""}
-                {t.accountName}
-                {t.enteredCents !== null ? ` — ${formatCurrencyCents(t.enteredCents)}` : ""}
+              <p key={t.id} className="text-2xs text-muted flex items-baseline gap-1.5">
+                <span className="text-success">Entered</span>
+                <span className="truncate">
+                  {t.accountNumber ? `${t.accountNumber} · ` : ""}
+                  {t.accountName}
+                </span>
+                {t.enteredCents !== null && (
+                  <span className="ml-auto font-mono tabular-nums text-body shrink-0">
+                    {formatEnteredAmountCents(t.enteredCents)}
+                  </span>
+                )}
               </p>
             ))}
             {skipped.map((t) => (

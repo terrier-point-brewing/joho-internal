@@ -276,6 +276,30 @@ describe("resolveSetupState", () => {
     });
   });
 
+  describe("an operator balance of zero", () => {
+    // Square's anchor, and the same trap the entries table had: a confirmed
+    // zero reading is an ANSWER. Rendering it the way "no reading" is rendered
+    // puts an em dash directly above a blocker that says "No balance has been
+    // entered yet", which is a screen contradicting itself.
+    it("satisfies the field", () => {
+      const state = resolveSetupState(
+        method([operatorField]),
+        facts({ operatorBalance: { asOfDate: "2026-07-31", cents: 0 } }),
+      );
+      expect(state.ready).toBe(true);
+      expect(state.fields[0].blocker).toBeNull();
+    });
+
+    it("shows a figure rather than the em-dash sentinel", () => {
+      const state = resolveSetupState(
+        method([operatorField]),
+        facts({ operatorBalance: { asOfDate: "2026-07-31", cents: 0 } }),
+      );
+      expect(state.fields[0].value).toBe("$0.00 as at 2026-07-31");
+      expect(state.fields[0].value).not.toContain("—");
+    });
+  });
+
   it("counts a zero number as answered", () => {
     // The falsy-zero trap: 0 is a legitimate rate, term or opening figure.
     const state = resolveSetupState(

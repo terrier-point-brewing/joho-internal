@@ -21,7 +21,13 @@ import {
   type ManualEntryInput,
 } from "@/lib/finance/manualEntries";
 import { buildManualEntryPatch } from "@/lib/finance/manualEntryPatch";
-import { formatAmountInput, parseAmountInputCents, daysInclusive, perDayCents } from "@/lib/finance/manualEntryAmount";
+import {
+  formatAmountInput,
+  formatEnteredAmountCents,
+  parseAmountInputCents,
+  daysInclusive,
+  perDayCents,
+} from "@/lib/finance/manualEntryAmount";
 import { ACCOUNT_TYPE_SECTION } from "@/lib/finance/accountSections";
 import Badge from "@/app/components/ui/Badge";
 import Banner from "@/app/components/ui/Banner";
@@ -273,7 +279,13 @@ function ManualEntryRow({
           fmtDate(entry.asOfDate)
         )}
       </td>
-      <td className="px-4 py-2 text-right font-mono tabular-nums text-strong">{formatCurrencyCents(entry.amountCents)}</td>
+      {/* Every row in this table is a figure a person typed, so a stored zero
+          must not render as the em-dash sentinel the shared money formatter
+          uses for "nothing here" -- that is what made a legitimately empty
+          cash tin indistinguishable on screen from an account nobody had
+          touched. Both kinds, not just balances: a zero flow is a deliberate
+          correction and reads the same way. */}
+      <td className="px-4 py-2 text-right font-mono tabular-nums text-strong">{formatEnteredAmountCents(entry.amountCents)}</td>
       <td className="px-4 py-2 text-right font-mono text-muted">
         {isFlow && days ? formatCurrencyCents(perDayCents(entry.amountCents, days)) : <span className="text-disabled">—</span>}
       </td>
