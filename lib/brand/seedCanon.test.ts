@@ -65,7 +65,7 @@ describe("seedCanon", () => {
     expect(seedCanon.voice.rewrites.length).toBeGreaterThanOrEqual(1);
     expect(seedCanon.chop.specs.length).toBeGreaterThanOrEqual(1);
     expect(seedCanon.labelChassis.elements.length).toBeGreaterThanOrEqual(1);
-    expect(seedCanon.illustrationLaw.rules.length).toBeGreaterThanOrEqual(1);
+    expect(seedCanon.illustrationLaw.pairs?.length).toBeGreaterThanOrEqual(1);
     expect(seedCanon.colorForbidden.length).toBeGreaterThanOrEqual(1);
   });
 

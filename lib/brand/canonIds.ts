@@ -57,6 +57,15 @@ const LISTS: ListSpec[] = [
       c.marks = next as BrandCanon["marks"];
     },
   },
+  {
+    read: (c) => c.illustrationLaw?.pairs,
+    write: (c, next) => {
+      c.illustrationLaw = {
+        ...c.illustrationLaw,
+        pairs: next as NonNullable<BrandCanon["illustrationLaw"]["pairs"]>,
+      };
+    },
+  },
 ];
 
 function assignIds(items: { id?: string }[]): { items: { id?: string }[]; changed: boolean } {
