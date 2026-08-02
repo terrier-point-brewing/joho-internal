@@ -14,6 +14,8 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { fetchAllRows } from "@/lib/supabase/paginate";
 import { buildInvoiceSalesReport } from "@/lib/finance/invoiceSalesReport";
 import { applyExpenseStatementFilters } from "./expenseFilters";
+import { loadBankLedgerInclusion, INCLUSION_COLUMNS } from "@/lib/finance/bankLedgerInclusion";
+import type { InclusionFacts } from "@/lib/finance/bankLedgerInclusion";
 import type { StatementKind } from "./types";
 import type {
   PosLineRecord,
@@ -424,13 +426,20 @@ export async function fetchExpenses(supabase: SupabaseClient, range: DateRange, 
 }
 
 export async function fetchBank(supabase: SupabaseClient, range: DateRange, statement: StatementKind): Promise<BankLedgerRecord[]> {
+  // The standing rules an operator made about whole feeds and individual
+  // counterparties. Read once per fetch rather than threaded in as an argument,
+  // so no caller of this long-standing signature has to change. While the rule
+  // table is empty -- and it is, until someone uses the GL Mapping screen -- the
+  // pair below reduces to exactly the predicate that was here before.
+  const inclusion = await loadBankLedgerInclusion(supabase);
+
   const data = await fetchAllRows<{
     id: string;
     chart_of_accounts_id: string | null;
     amount_cents: number | null;
     transaction_date: string;
     mapping_source: string | null;
-  }>(() => {
+  } & InclusionFacts>(() => {
     // ramp_bank_ledger rows are settled bank-account movement by definition --
     // there is no separate "cleared" concept to filter on for cash_flow mode.
     //
@@ -439,12 +448,14 @@ export async function fetchBank(supabase: SupabaseClient, range: DateRange, stat
     // rows exist so a Square transfer can be recognised from the receiving side,
     // and they are written false. Ramp's rows default true and are unaffected,
     // so this predicate changes nothing that was reported before it existed.
-    let q = supabase
-      .from("ramp_bank_ledger")
-      .select("id, chart_of_accounts_id, amount_cents, transaction_date, mapping_source")
-      .eq("include_in_gl", true)
-      .lte("transaction_date", range.endDateStr)
-      .order("id", { ascending: true });
+    // inclusion.applyTo widens it to a feed an operator has since switched on.
+    let q = inclusion.applyTo(
+      supabase
+        .from("ramp_bank_ledger")
+        .select(`id, chart_of_accounts_id, amount_cents, transaction_date, mapping_source, ${INCLUSION_COLUMNS}`)
+        .lte("transaction_date", range.endDateStr)
+        .order("id", { ascending: true }),
+    );
     if (range.startDateStr) q = q.gte("transaction_date", range.startDateStr);
 
     // ramp_bank_ledger mixes true P&L movement (interest_income) with rows that
@@ -461,7 +472,10 @@ export async function fetchBank(supabase: SupabaseClient, range: DateRange, stat
     }
     return q;
   });
-  return data.map((r) => ({
+  // The counterparty half of the rules -- "leave the transfers between our own
+  // accounts out" -- is applied here rather than in the query, because a
+  // counterparty name is prose and PostgREST filter syntax is not.
+  return data.filter((r) => inclusion.allows(r)).map((r) => ({
     id: r.id,
     chartOfAccountsId: r.chart_of_accounts_id,
     amountCents: r.amount_cents ?? 0,

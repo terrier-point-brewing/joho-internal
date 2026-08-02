@@ -4,7 +4,7 @@
 // buildFinancials.test.ts, which mocks fetchFinancialsSources wholesale).
 import { describe, it, expect } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { fetchExpenses, fetchInvoiceLines } from "./fetchSources";
+import { fetchExpenses, fetchInvoiceLines, fetchBank } from "./fetchSources";
 
 interface ExpensesRow {
   id: string;
@@ -344,5 +344,97 @@ describe("fetchInvoiceLines", () => {
     // phantom row is read at all (not dropped) and its volume flows through.
     expect(row.exportChannel).toBeNull();
     expect(row.volumeBbl).toBe(0.5);
+  });
+});
+
+/**
+ * fetchBank and the operator's bank-feed rules.
+ *
+ * This is the read behind the profit and loss, the cash-flow statement and the
+ * transactions grid, all of which are verified and in production use. So the
+ * first test is the one that matters: with no rules stored -- which is the
+ * production state, and stays the production state until somebody uses the GL
+ * Mapping screen -- the query built is the SAME `.eq("include_in_gl", true)`
+ * that was here before, and every row it returns is kept.
+ */
+interface BankRow {
+  id: string;
+  chart_of_accounts_id: string | null;
+  amount_cents: number | null;
+  transaction_date: string;
+  mapping_source: string | null;
+  source: string;
+  counterparty_key: string | null;
+  counterparty_name: string | null;
+  include_in_gl: boolean;
+}
+
+function fakeBankClient(rows: Partial<BankRow>[], glRules: unknown[] = []) {
+  const calls: string[] = [];
+  // The DB gives every row a source and an include_in_gl (default true);
+  // fixtures say so only when the test is about one of them.
+  const full = rows.map((r, i) => ({
+    id: `b${i}`, chart_of_accounts_id: "coa-1", amount_cents: 100, transaction_date: "2026-06-01",
+    mapping_source: "rule", source: "ramp", counterparty_key: null, counterparty_name: null, include_in_gl: true, ...r,
+  }));
+
+  const chain: Record<string, unknown> = {
+    select: () => chain,
+    eq: (c: string, v: unknown) => { calls.push(`eq(${c},${String(v)})`); return chain; },
+    or: (f: string) => { calls.push(`or(${f})`); return chain; },
+    lte: () => chain,
+    gte: () => chain,
+    order: () => chain,
+    range: async (from: number, to: number) => ({ data: full.slice(from, to + 1), error: null }),
+  };
+
+  const client = {
+    calls,
+    from(table: string) {
+      if (table === "bank_ledger_gl_rules") return { select: async () => ({ data: glRules, error: null }) };
+      return chain;
+    },
+  };
+  return client as unknown as SupabaseClient & { calls: string[] };
+}
+
+describe("fetchBank", () => {
+  it("builds the pre-existing query and keeps every row while no rule has been made", async () => {
+    const client = fakeBankClient([{ id: "b0" }, { id: "b1" }]);
+    const rows = await fetchBank(client, RANGE, "balance_sheet");
+    expect(rows.map((r) => r.id)).toEqual(["b0", "b1"]);
+    expect(client.calls).toContain("eq(include_in_gl,true)");
+    expect(client.calls.some((c) => c.startsWith("or("))).toBe(false);
+  });
+
+  it("still drops the rows the importer excluded", async () => {
+    const client = fakeBankClient([{ id: "b0" }, { id: "b1", source: "plaid", include_in_gl: false }]);
+    const rows = await fetchBank(client, RANGE, "balance_sheet");
+    expect(rows.map((r) => r.id)).toEqual(["b0"]);
+  });
+
+  it("widens the query and keeps the rows once a feed is switched on", async () => {
+    const client = fakeBankClient(
+      [{ id: "b0" }, { id: "b1", source: "plaid", include_in_gl: false }],
+      [{ scope: "source", source: "plaid", counterparty_key: null, included: true }],
+    );
+    const rows = await fetchBank(client, RANGE, "balance_sheet");
+    expect(rows.map((r) => r.id)).toEqual(["b0", "b1"]);
+    expect(client.calls).toContain("or(include_in_gl.eq.true,source.in.(plaid))");
+  });
+
+  it("drops a counterparty switched out of the books", async () => {
+    const client = fakeBankClient(
+      [{ id: "b0", counterparty_key: "gusto" }, { id: "b1", counterparty_name: "TPB OPERATING FUNDS (···· 4077)" }],
+      [{ scope: "counterparty", source: "ramp", counterparty_key: "tpb operating funds (···· 4077)", included: false }],
+    );
+    const rows = await fetchBank(client, RANGE, "balance_sheet");
+    expect(rows.map((r) => r.id)).toEqual(["b0"]);
+  });
+
+  it("keeps the P&L's own affects_pl predicate alongside the rules", async () => {
+    const client = fakeBankClient([{ id: "b0" }]);
+    await fetchBank(client, RANGE, "pl");
+    expect(client.calls).toContain("eq(affects_pl,true)");
   });
 });

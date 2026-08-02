@@ -37,9 +37,20 @@ async function applyLineItemUpdates(
   return { mapped, errors: errors.length ? errors : undefined };
 }
 
+/**
+ * The key a counterparty rule is looked up by. A rule belongs to ONE bank feed:
+ * expense_counterparty_mappings is unique on (source, counterparty_key), and the
+ * same payee name arriving on two accounts is two rules with two accounts. Look
+ * a row up by its name alone and a Chase transaction silently inherits the
+ * account someone chose for the Ramp payee of the same name.
+ */
+export function counterpartyRuleKey(source: string, counterpartyKey: string): string {
+  return `${source} ${counterpartyKey}`;
+}
+
 /** Bank-ledger rows: map from counterparty rules, preserving manual + existing. */
 export function resolveBankBackfill(
-  rows: { id: string; counterparty_key: string | null; mapping_source: string; chart_of_accounts_id: string | null }[],
+  rows: { id: string; source: string; counterparty_key: string | null; mapping_source: string; chart_of_accounts_id: string | null }[],
   counterpartyRules: Map<string, string>,
 ): { id: string; chart_of_accounts_id: string }[] {
   const updates: { id: string; chart_of_accounts_id: string }[] = [];
@@ -47,7 +58,7 @@ export function resolveBankBackfill(
     if (row.mapping_source === "manual") continue;
     if (row.chart_of_accounts_id) continue;
     if (!row.counterparty_key) continue;
-    const coaId = counterpartyRules.get(row.counterparty_key);
+    const coaId = counterpartyRules.get(counterpartyRuleKey(row.source, row.counterparty_key));
     if (coaId) updates.push({ id: row.id, chart_of_accounts_id: coaId });
   }
   return updates;
@@ -250,7 +261,7 @@ export async function autoMapExpenses(
  */
 export async function autoMapBankLedger(
   supabase: AdminClient,
-  opts: { from: string; to: string; counterpartyKey?: string },
+  opts: { from: string; to: string; counterpartyKey?: string; source?: string },
 ): Promise<{ mapped: number; errors?: string[] }> {
   // include_in_gl: a row the books deliberately ignore must not be quietly
   // given an account by a counterparty rule. Coding it would change nothing
@@ -259,27 +270,35 @@ export async function autoMapBankLedger(
   // be mapped by a rule nobody applied to them on purpose.
   let rowQuery = supabase
     .from("ramp_bank_ledger")
-    .select("id, counterparty_key, mapping_source, chart_of_accounts_id")
+    .select("id, source, counterparty_key, mapping_source, chart_of_accounts_id")
     .is("chart_of_accounts_id", null)
     .eq("include_in_gl", true)
     .neq("mapping_source", "manual")
     .gte("transaction_date", opts.from)
     .lte("transaction_date", opts.to);
   if (opts.counterpartyKey) rowQuery = rowQuery.eq("counterparty_key", opts.counterpartyKey);
+  if (opts.source)          rowQuery = rowQuery.eq("source", opts.source);
   const { data: rows, error } = await rowQuery;
   if (error) throw new Error(error.message);
   if (!rows || rows.length === 0) return { mapped: 0 };
 
+  // Rules are fetched for every feed, not just Ramp, and matched to a row by
+  // (feed, counterparty). The old `.eq("source","ramp")` was correct only while
+  // Ramp was the sole writer of this table: it would have handed a Chase row the
+  // account a bookkeeper chose for the Ramp payee of the same name, which is the
+  // one conflation the (source, counterparty_key) rule identity exists to stop.
   let cpQuery = supabase
     .from("expense_counterparty_mappings")
-    .select("counterparty_key, chart_of_accounts_id")
-    .eq("source", "ramp")
+    .select("source, counterparty_key, chart_of_accounts_id")
     .not("chart_of_accounts_id", "is", null);
   if (opts.counterpartyKey) cpQuery = cpQuery.eq("counterparty_key", opts.counterpartyKey);
+  if (opts.source)          cpQuery = cpQuery.eq("source", opts.source);
   const { data: cpRules, error: cpErr } = await cpQuery;
   if (cpErr) throw new Error(cpErr.message);
 
-  const rules = new Map<string, string>((cpRules ?? []).map((r) => [r.counterparty_key as string, r.chart_of_accounts_id as string]));
+  const rules = new Map<string, string>(
+    (cpRules ?? []).map((r) => [counterpartyRuleKey(r.source as string, r.counterparty_key as string), r.chart_of_accounts_id as string]),
+  );
   const updates = resolveBankBackfill(rows, rules);
   return applyLineItemUpdates(supabase, "ramp_bank_ledger", updates, { mapping_source: "rule" });
 }

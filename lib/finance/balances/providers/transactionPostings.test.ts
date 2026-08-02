@@ -31,7 +31,10 @@ function fakeClient(opts: {
   /** Records every filter call, so a test can assert a filter is actually applied. */
   calls?: string[];
   refundRows?: { amount_cents: number | null }[];
-  bankRows?: { amount_cents: number | null }[];
+  /** Partial rows; the inclusion columns default to what an ordinary Ramp row carries. */
+  bankRows?: ({ amount_cents: number | null } & Partial<{ source: string; counterparty_key: string | null; counterparty_name: string | null; include_in_gl: boolean }>)[];
+  /** Rows of bank_ledger_gl_rules — the operator's standing decisions. Empty is the production state. */
+  glRules?: { scope: string; source: string; counterparty_key: string | null; included: boolean }[];
 }): SupabaseClient {
   const rec = (m: string, a: unknown[]) => opts.calls?.push(`${m}(${a.map(String).join(",")})`);
   const paginated = (rows: unknown[], table = "") => {
@@ -77,7 +80,18 @@ function fakeClient(opts: {
         return chain;
       }
       if (table === "square_refunds") return paginated(opts.refundRows ?? [], table);
-      if (table === "ramp_bank_ledger") return paginated(opts.bankRows ?? [], table);
+      if (table === "ramp_bank_ledger") {
+        // The DB gives every row a source and an include_in_gl (default true);
+        // fixtures say so only when the test is about one of them.
+        return paginated(
+          (opts.bankRows ?? []).map((r) => ({ source: "ramp", counterparty_key: null, counterparty_name: null, include_in_gl: true, ...r })),
+          table,
+        );
+      }
+      if (table === "bank_ledger_gl_rules") {
+        const chain: Record<string, unknown> = { select: async () => ({ data: opts.glRules ?? [], error: null }) };
+        return chain;
+      }
       throw new Error(`unexpected table: ${table}`);
     },
   } as unknown as SupabaseClient;
@@ -197,6 +211,58 @@ describe("transactionPostings — the filters are actually applied", () => {
     // figure that was ever reported.
     const calls = await callsFor({ coa: LIABILITY_COA, bankRows: [{ amount_cents: -1 }] });
     expect(calls).toContain("ramp_bank_ledger.eq(include_in_gl,true)");
+  });
+});
+
+/**
+ * The operator's standing rules about bank feeds and counterparties.
+ *
+ * This provider feeds the balance sheet, so the property that has to hold is
+ * that a rule table nobody has written to leaves every figure exactly where it
+ * was -- same query, same rows, same sum. Only a decision somebody made can move
+ * one, which is also the whole point of the feature.
+ */
+describe("transactionPostings — bank-feed and counterparty rules", () => {
+  it("changes neither the query nor the sum while nobody has decided anything", async () => {
+    const calls: string[] = [];
+    const supabase = fakeClient({ coa: LIABILITY_COA, bankRows: [{ amount_cents: -30 }], glRules: [], calls });
+    expect(await transactionPostings.compute(ctx(supabase))).toBe(30);
+    expect(calls).toContain("ramp_bank_ledger.eq(include_in_gl,true)");
+    expect(calls.some((c) => c.startsWith("ramp_bank_ledger.or("))).toBe(false);
+  });
+
+  it("counts a feed somebody switched on, despite the importer having excluded its rows", async () => {
+    const supabase = fakeClient({
+      coa: LIABILITY_COA,
+      bankRows: [{ amount_cents: -30, source: "plaid", include_in_gl: false }],
+      glRules: [{ scope: "source", source: "plaid", counterparty_key: null, included: true }],
+    });
+    expect(await transactionPostings.compute(ctx(supabase))).toBe(30);
+  });
+
+  it("drops a counterparty somebody switched out of the books", async () => {
+    // The live case: transfers in from the business's own other account, which
+    // moved the bank balance but are neither income nor expense.
+    const supabase = fakeClient({
+      coa: LIABILITY_COA,
+      bankRows: [
+        { amount_cents: -30, counterparty_key: "gusto" },
+        { amount_cents: -70, counterparty_key: "tpb operating funds (···· 4077)" },
+      ],
+      glRules: [{ scope: "counterparty", source: "ramp", counterparty_key: "tpb operating funds (···· 4077)", included: false }],
+    });
+    expect(await transactionPostings.compute(ctx(supabase))).toBe(30);
+  });
+
+  it("returns null rather than zero when every bank row was ruled out and nothing else posts", async () => {
+    // An account with no contribution must produce NO figure at all, not a
+    // confident $0 -- the excluded rows must not be counted as rows either.
+    const supabase = fakeClient({
+      coa: LIABILITY_COA,
+      bankRows: [{ amount_cents: -30, counterparty_key: "gusto" }],
+      glRules: [{ scope: "counterparty", source: "ramp", counterparty_key: "gusto", included: false }],
+    });
+    expect(await transactionPostings.compute(ctx(supabase))).toBe(null);
   });
 });
 
