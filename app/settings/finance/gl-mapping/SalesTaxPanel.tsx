@@ -13,6 +13,7 @@ import { useState } from "react";
 import AccountSelect, { type CoARef } from "@/app/finance/AccountSelect";
 import SaveHint from "@/app/components/ui/SaveHint";
 import ToggleChip from "@/app/components/ui/ToggleChip";
+import type { Tone } from "@/app/components/ui/tone";
 import MappingFrame from "./MappingFrame";
 import { useMappingData } from "./useMappingData";
 
@@ -73,6 +74,11 @@ export default function SalesTaxPanel() {
   const needsMapping = rows.length - excludedCount;
   const mapped = rows.filter((t) => t.chart_of_accounts_id && !t.excluded).length;
   const liabilityAccounts = accounts.filter((a) => LIABILITY_ACCOUNT_TYPES.has(a.account_type));
+  // Danger draws the eye when something still needs a decision; success confirms
+  // there's nothing left to do; neutral covers "no data yet" / "all excluded".
+  const summaryTone: Tone = rows.length === 0 || needsMapping === 0
+    ? "neutral"
+    : mapped === needsMapping ? "success" : "danger";
 
   return (
     <MappingFrame
@@ -86,6 +92,7 @@ export default function SalesTaxPanel() {
         ? `All ${rows.length} Square taxes excluded from mapping`
         : `${mapped} of ${needsMapping} Square taxes mapped to a liability account`
           + (excludedCount > 0 ? ` (${excludedCount} excluded)` : "")}
+      summaryTone={summaryTone}
       emptyRows={{
         title: "No Square taxes yet.",
         hint: "Sync orders on the Transactions → Orders tab to import them.",

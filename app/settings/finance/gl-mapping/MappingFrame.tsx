@@ -16,6 +16,7 @@
  */
 import type { ReactNode } from "react";
 import Banner from "@/app/components/ui/Banner";
+import type { Tone } from "@/app/components/ui/tone";
 
 const CHART_OF_ACCOUNTS_HREF = "/settings/finance/chart-of-accounts";
 
@@ -36,6 +37,7 @@ export default function MappingFrame({
   hasAccounts,
   rowCount,
   summary,
+  summaryTone = "neutral",
   emptyRows,
   headers,
   footer,
@@ -48,6 +50,8 @@ export default function MappingFrame({
   rowCount: number;
   /** The "N of M mapped" line, which doubles as the seed hint when there are no rows. */
   summary: ReactNode;
+  /** `danger` when something still needs resolving, `success` when fully mapped, `neutral` otherwise. */
+  summaryTone?: Tone;
   emptyRows: { title: string; hint: ReactNode };
   headers: string[];
   footer: ReactNode;
@@ -57,7 +61,7 @@ export default function MappingFrame({
   return (
     <>
       <div className="shrink-0 px-4 sm:px-6 pt-4 pb-2">
-        <p className="text-sm text-muted">{summary}</p>
+        <Banner tone={summaryTone}>{summary}</Banner>
       </div>
 
       {error && <Banner className="mx-4 sm:mx-6 my-2">{error}</Banner>}

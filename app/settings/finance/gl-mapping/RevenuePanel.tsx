@@ -12,6 +12,7 @@
 import { useState, useEffect, useCallback } from "react";
 import AccountSelect from "@/app/finance/AccountSelect";
 import Banner from "@/app/components/ui/Banner";
+import type { Tone } from "@/app/components/ui/tone";
 import SaveHint from "@/app/components/ui/SaveHint";
 import ToggleChip from "@/app/components/ui/ToggleChip";
 import ConfirmDialog from "@/app/components/ui/ConfirmDialog";
@@ -166,7 +167,7 @@ function VariationMappingRow({
               type="button"
               onClick={() => setSplitOpen((o) => !o)}
               title={splitOpen ? "Hide POS/Invoice overrides" : "Split by POS / Invoice source"}
-              className={`px-2 py-1.5 text-2xs rounded border transition-colors ${
+              className={`px-2 py-1 text-2xs rounded border transition-colors ${
                 hasSplit
                   ? "bg-info-surface/40 border-info-border text-info hover:bg-info-surface/60"
                   : "bg-surface border-line-strong text-muted hover:text-body hover:border-line-subtle"
@@ -301,7 +302,7 @@ function BulkSourceMapper({
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className={`shrink-0 px-1.5 py-1 text-2xs rounded border transition-colors ${
+        className={`shrink-0 px-2 py-1 text-2xs rounded border transition-colors ${
           open
             ? "bg-info-surface/60 border-info-emphasis text-info"
             : hasSplits
@@ -359,6 +360,74 @@ function BulkSourceMapper({
         </div>
       )}
     </>
+  );
+}
+
+function BulkExcluder({
+  unresolvedCount,
+  totalCount,
+  onApply,
+}: {
+  unresolvedCount: number;
+  totalCount: number;
+  onApply: (overwrite: boolean) => Promise<void>;
+}) {
+  const [open, setOpen]         = useState(false);
+  const [applying, setApplying] = useState(false);
+  const [confirmOverwrite, setConfirmOverwrite] = useState(false);
+
+  async function apply(ow: boolean) {
+    setApplying(true);
+    await onApply(ow);
+    setApplying(false);
+    setOpen(false);
+  }
+
+  return (
+    <div className="flex items-center gap-1.5 shrink-0">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        disabled={totalCount === 0}
+        title="Bulk exclude from mapping"
+        className={`px-2 py-1 text-2xs rounded border transition-colors ${
+          open
+            ? "bg-danger-surface/60 border-danger-border text-danger"
+            : "bg-surface border-line-strong text-muted hover:text-body hover:border-line-subtle"
+        }`}
+      >
+        {open ? "▴ exclude" : "exclude ▾"}
+      </button>
+      {open && (
+        <>
+          <button
+            onClick={() => apply(false)}
+            disabled={applying || unresolvedCount === 0}
+            title={`Exclude ${unresolvedCount} unresolved`}
+            className="btn-primary whitespace-nowrap">
+            {applying ? "…" : `Exclude ${unresolvedCount}`}
+          </button>
+          <button
+            onClick={() => setConfirmOverwrite(true)}
+            disabled={applying}
+            title="Exclude all, including already-mapped"
+            className="btn-secondary whitespace-nowrap">
+            Exclude all
+          </button>
+        </>
+      )}
+      {confirmOverwrite && (
+        <ConfirmDialog
+          title="Exclude all variations?"
+          message="This marks every variation in this group as excluded, including ones that already have a GL mapping. Existing mappings are kept, just hidden from revenue coding — undo any one row from its own toggle."
+          confirmLabel="Exclude all"
+          tone="danger"
+          busy={applying}
+          onConfirm={() => { apply(true); setConfirmOverwrite(false); }}
+          onCancel={() => setConfirmOverwrite(false)}
+        />
+      )}
+    </div>
   );
 }
 
@@ -476,6 +545,56 @@ export default function RevenuePanel() {
       (v) => v.square_catalog_items?.id === catalogItemId,
       accountId, overwrite
     );
+  }
+
+  function applyExcludedToVariations(predicate: (v: VariationRow) => boolean, overwrite: boolean) {
+    setVariations((vs) =>
+      vs.map((v) => {
+        if (!predicate(v)) return v;
+        if (v.excluded) return v;
+        // Fill only reaches truly-unresolved rows; overwrite reaches every row in
+        // scope, mapped or not — mirrors the server-side filter in the bulk route.
+        if (!overwrite && v.chart_of_accounts_id) return v;
+        return { ...v, excluded: true };
+      })
+    );
+  }
+
+  async function handleBulkExcludeParent(parentGroupId: string | null, overwrite: boolean) {
+    const res = await fetch("/api/finance/account-mappings/bulk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ parent_group_id: parentGroupId, excluded: true, overwrite }),
+    });
+    if (!res.ok) return;
+    applyExcludedToVariations((v) => {
+      const item = v.square_catalog_items;
+      if (!item) return false;
+      return (item.parent_category_id ?? item.category_id ?? null) === parentGroupId;
+    }, overwrite);
+  }
+
+  async function handleBulkExcludeCategory(categoryId: string | null, overwrite: boolean) {
+    const res = await fetch("/api/finance/account-mappings/bulk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ category_id: categoryId, excluded: true, overwrite }),
+    });
+    if (!res.ok) return;
+    applyExcludedToVariations(
+      (v) => categoryId === null ? !v.square_catalog_items?.category_id : v.square_catalog_items?.category_id === categoryId,
+      overwrite
+    );
+  }
+
+  async function handleBulkExcludeItem(catalogItemId: string, overwrite: boolean) {
+    const res = await fetch("/api/finance/account-mappings/bulk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ catalog_item_id: catalogItemId, excluded: true, overwrite }),
+    });
+    if (!res.ok) return;
+    applyExcludedToVariations((v) => v.square_catalog_items?.id === catalogItemId, overwrite);
   }
 
   function applySourceToVariations(
@@ -642,6 +761,11 @@ export default function RevenuePanel() {
   const excludedVariations = variations.filter((v) => v.excluded).length;
   const variationsNeedingMapping = totalVariations - excludedVariations;
   const mappedVariations = variations.filter((v) => v.chart_of_accounts_id && !v.excluded).length;
+  // Danger draws the eye when something still needs a decision; success confirms
+  // there's nothing left to do; neutral covers "no data yet" / "all excluded".
+  const summaryTone: Tone = totalVariations === 0 || variationsNeedingMapping === 0
+    ? "neutral"
+    : mappedVariations === variationsNeedingMapping ? "success" : "danger";
 
   function toggleCategory(key: string) {
     setExpandedCategories((s) => { const n = new Set(s); if (n.has(key)) { n.delete(key); } else { n.add(key); } return n; });
@@ -657,14 +781,14 @@ export default function RevenuePanel() {
   return (
     <>
       <div className="shrink-0 px-4 sm:px-6 pt-4 pb-2 flex items-start justify-between gap-4">
-        <p className="text-sm text-muted">
+        <Banner tone={summaryTone} className="flex-1">
           {totalVariations === 0
             ? "Sync the catalog first to load variations."
             : variationsNeedingMapping === 0
             ? `All ${totalVariations} variations excluded from mapping`
             : `${mappedVariations} of ${variationsNeedingMapping} variations mapped`
               + (excludedVariations > 0 ? ` (${excludedVariations} excluded)` : "")}
-        </p>
+        </Banner>
         <div className="flex items-center gap-2 shrink-0">
           {syncResult && (
             <span className="text-xs text-success">{syncResult.items} items · {syncResult.variations} variations synced</span>
@@ -733,6 +857,11 @@ export default function RevenuePanel() {
                           hasSplits={parentHasSplit}
                           onApply={(field, accountId, overwrite) => handleBulkSourceParent(parent.parent_id, field, accountId, overwrite)}
                         />
+                        <BulkExcluder
+                          unresolvedCount={parentTotal - parentMapped}
+                          totalCount={parentTotal}
+                          onApply={(overwrite) => handleBulkExcludeParent(parent.parent_id, overwrite)}
+                        />
                       </div>
                     </div>
                   </div>
@@ -780,6 +909,11 @@ export default function RevenuePanel() {
                                     accounts={accounts}
                                     hasSplits={catHasSplit}
                                     onApply={(field, accountId, overwrite) => handleBulkSourceCategory(cat.category_id, field, accountId, overwrite)}
+                                  />
+                                  <BulkExcluder
+                                    unresolvedCount={catTotal - catMapped}
+                                    totalCount={catTotal}
+                                    onApply={(overwrite) => handleBulkExcludeCategory(cat.category_id, overwrite)}
                                   />
                                 </div>
                               </div>
@@ -831,6 +965,11 @@ export default function RevenuePanel() {
                                       accounts={accounts}
                                       hasSplits={itemHasSplit}
                                       onApply={(field, accountId, overwrite) => handleBulkSourceItem(catalogItemId, field, accountId, overwrite)}
+                                    />
+                                    <BulkExcluder
+                                      unresolvedCount={item.variations.length - itemMapped}
+                                      totalCount={item.variations.length}
+                                      onApply={(overwrite) => handleBulkExcludeItem(catalogItemId, overwrite)}
                                     />
                                   </div>
                                 )}
