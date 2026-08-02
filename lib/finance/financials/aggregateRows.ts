@@ -151,6 +151,8 @@ export interface CoaRecord {
   accountType: string;
   /** Explicit override; null = infer from accountType via ACCOUNT_TYPE_SECTION. */
   statementSection: string | null;
+  /** True for a grouping account whose balance is deliberately left to the sum of its sub-accounts -- see buildBalanceSheetFinancials.ts's countUnsourcedAccounts. Optional so existing fixtures/callers that predate this flag don't need updating; absent means false. */
+  excluded?: boolean;
 }
 
 export interface AggregateRowsInput {

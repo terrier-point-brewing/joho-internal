@@ -62,6 +62,7 @@ interface CoaRow {
   account_name: string;
   account_number: string | null;
   statement_section: string | null;
+  excluded: boolean;
 }
 
 interface SourceRow {
@@ -98,7 +99,7 @@ export async function GET() {
     // coaSection does, then filter in JS.
     const { data: coaRows, error: coaError } = await supabase
       .from("chart_of_accounts")
-      .select("id, parent_id, account_name, account_number, account_type, statement_section")
+      .select("id, parent_id, account_name, account_number, account_type, statement_section, excluded")
       .order("account_number", { ascending: true, nullsFirst: false });
     if (coaError) throw coaError;
 
@@ -228,9 +229,11 @@ export async function GET() {
         const latest = latestBalanceByCoa.get(a.id);
         return {
           id: a.id,
+          parentId: a.parent_id,
           accountName: a.account_name,
           accountNumber: a.account_number,
           statementSection: a.effectiveSection,
+          excluded: a.excluded,
           sources: (sourcesByCoa.get(a.id) ?? []).map((s) => {
             const connectionId = (s.config ?? {}).connectionId;
             const connection = typeof connectionId === "string" ? connectionById.get(connectionId) : undefined;

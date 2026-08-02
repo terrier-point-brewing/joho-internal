@@ -21,7 +21,7 @@
 // Square-independent.
 
 import { fetchCoa, fetchExciseCoverage, trailingMonths } from "./fetchSources";
-import { coaSection } from "./aggregateRows";
+import { coaSection, type CoaRecord } from "./aggregateRows";
 import { buildKpis, buildDataQuality } from "./summaries";
 import { HREFS, coaAccountRefsOf } from "./statementCommon";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
@@ -35,7 +35,7 @@ import { computeLiveBalances } from "@/lib/finance/balances/liveBalances";
 // below has something to resolve against.
 import "@/lib/finance/balances/methods";
 import { monthEnd } from "@/lib/finance/manualEntries";
-import type { FinancialsResponse, FinancialsRow, CoaAccountRef } from "./types";
+import type { FinancialsResponse, FinancialsRow } from "./types";
 
 // Mirrors app/api/finance/balance-sources/route.ts's BALANCE_SHEET_SECTIONS
 // (every non-P&L statement_section) -- kept local for the same reason that
@@ -46,12 +46,23 @@ const BS_SECTIONS: ReadonlySet<string> = new Set([
   "ap", "credit_card", "other_current_liabilities", "long_term_liabilities", "equity",
 ]);
 
-/** Every distinct balance-sheet-section CoA account with no active balance_sheet_account_sources row, for the Data Quality panel's unsourcedAccounts tile. */
+/**
+ * Every distinct balance-sheet-section CoA account with no active
+ * balance_sheet_account_sources row, for the Data Quality panel's
+ * unsourcedAccounts tile.
+ *
+ * A grouping account marked `excluded` has deliberately opted out of being
+ * sourced on its own -- its balance is already the sum of its sub-accounts on
+ * this same statement (buildTree.ts rolls that up) -- so it is dropped from
+ * the candidate set entirely rather than counted as a permanent gap.
+ */
 async function countUnsourcedAccounts(
   supabase: ReturnType<typeof createSupabaseAdminClient>,
-  coaAccounts: CoaAccountRef[],
+  coa: CoaRecord[],
 ): Promise<number> {
-  const bsAccountIds = new Set(coaAccounts.filter((c) => BS_SECTIONS.has(c.statementSection)).map((c) => c.id));
+  const bsAccountIds = new Set(
+    coa.filter((c) => !c.excluded && BS_SECTIONS.has(coaSection(c))).map((c) => c.id),
+  );
   if (bsAccountIds.size === 0) return 0;
 
   const { data, error } = await supabase
@@ -83,7 +94,7 @@ export async function buildBalanceSheetFinancials(year: number): Promise<Financi
 
   const [live, unsourcedCount, exciseCoverage] = await Promise.all([
     openMonth ? computeLiveBalances(supabase, monthEnd(`${openMonth}-01`)) : Promise.resolve(null),
-    countUnsourcedAccounts(supabase, coaAccounts),
+    countUnsourcedAccounts(supabase, coa),
     fetchExciseCoverage(supabase, year),
   ]);
   const liveContributions = live?.balances ?? null;

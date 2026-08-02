@@ -93,12 +93,13 @@ export async function PATCH(req: NextRequest) {
     is_active?: boolean;
     parent_id?: string | null;
     statement_section?: string | null;
+    excluded?: boolean;
   };
 
   if (!body.id) return NextResponse.json({ error: "id required" }, { status: 400 });
 
   const updates: Record<string, unknown> = {};
-  const fields = ["account_name","account_number","account_type","detail_type","description","is_active","parent_id","statement_section"] as const;
+  const fields = ["account_name","account_number","account_type","detail_type","description","is_active","parent_id","statement_section","excluded"] as const;
   for (const f of fields) {
     if (f in body) updates[f] = (body as Record<string, unknown>)[f];
   }
