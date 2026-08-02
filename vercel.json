@@ -5,6 +5,10 @@
       "schedule": "0 2 * * *"
     },
     {
+      "path": "/api/cron/bank-transactions-sync",
+      "schedule": "0 3 * * *"
+    },
+    {
       "path": "/api/cron/payroll-advance",
       "schedule": "0 5 * * *"
     },

@@ -281,18 +281,19 @@ const squareStoredBalance: BalanceMethod = {
       help: "Square never publishes a running balance, so the calculation needs a figure a person has checked to start from. This one is only the starting point — each month end asks for it again under Finance, Transactions, Manual Entries.",
     },
     {
-      // Optional on purpose. Nothing reads it yet -- the bank account it names
-      // has no transaction history in this system to search, so REQUIRING it
-      // would block an otherwise-ready account in exchange for nothing. It is
-      // asked for now because the operator knows the answer now, and because
-      // the month those transactions arrive should not also be a
-      // reconfiguration. See squareSweeps.ts for what will read it.
+      // Read by squareDrift.ts, which uses the named account's imported bank
+      // lines to split the month-end difference into transfers it can see and a
+      // remainder it cannot. Still OPTIONAL: an account without it reconciles
+      // exactly as it did before the bank feed existed -- one undifferentiated
+      // figure -- which is a lesser answer but a correct one. Requiring it would
+      // turn a working account into an unconfigured one for the sake of an
+      // improvement it can live without.
       kind: "account",
       key: "sweepDestinationCoaId",
       sections: ["bank"],
       optional: true,
       label: "Bank account Square pays out to",
-      help: "Which of your bank accounts Square moves this money into. Square never reports those transfers, so naming the account here is what will let the monthly difference be explained from the bank's own records.",
+      help: "Which of your bank accounts Square moves this money into. Square never reports those transfers, so naming the account here is what lets the monthly difference be explained from the bank's own records instead of being left as one unexplained figure.",
     },
   ],
   steps: [

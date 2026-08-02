@@ -433,9 +433,16 @@ export async function fetchBank(supabase: SupabaseClient, range: DateRange, stat
   }>(() => {
     // ramp_bank_ledger rows are settled bank-account movement by definition --
     // there is no separate "cleared" concept to filter on for cash_flow mode.
+    //
+    // include_in_gl separates an accounting fact from a bank line that was
+    // merely imported. The table carries more than one source now: Plaid's Chase
+    // rows exist so a Square transfer can be recognised from the receiving side,
+    // and they are written false. Ramp's rows default true and are unaffected,
+    // so this predicate changes nothing that was reported before it existed.
     let q = supabase
       .from("ramp_bank_ledger")
       .select("id, chart_of_accounts_id, amount_cents, transaction_date, mapping_source")
+      .eq("include_in_gl", true)
       .lte("transaction_date", range.endDateStr)
       .order("id", { ascending: true });
     if (range.startDateStr) q = q.gte("transaction_date", range.startDateStr);

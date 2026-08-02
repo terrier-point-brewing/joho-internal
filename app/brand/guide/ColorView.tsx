@@ -134,7 +134,7 @@ export default function ColorView({
   ].filter((g) => g.colors.length > 0);
 
   return (
-    <GuideSection intro={resolveGuideIntro(canon, "color")}>
+    <GuideSection section="color" intro={resolveGuideIntro(canon, "color")}>
       {groups.map((group) => (
         <section key={group.key} className="mb-8">
           <SubHead

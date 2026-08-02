@@ -31,6 +31,7 @@ import { allProviderReadiness, allProviderCapabilities } from "@/lib/finance/bal
 import { latestOperatorBalance } from "@/lib/finance/balances/operatorBalance";
 import { listConnections, describeConnection } from "@/lib/finance/balances/connections";
 import { computeOpenMonthBalances } from "@/lib/finance/balances/liveBalances";
+import { listReconciliations } from "@/lib/finance/balances/squareDrift";
 import type { CoaAccountRef } from "@/lib/finance/financials/types";
 import { ACCOUNT_TYPE_SECTION } from "@/lib/finance/accountSections";
 import { todayLocalDate } from "@/lib/utils/datetime";
@@ -171,7 +172,7 @@ export async function GET() {
     // month's snapshot on the other. A failure inside it is reported per
     // account, never thrown, so a broken integration cannot blank this page.
     const providerReadiness = allProviderReadiness();
-    const [operatorBalances, live, profilesRes] = await Promise.all([
+    const [operatorBalances, live, profilesRes, reconciliations] = await Promise.all([
       latestOperatorBalance(supabase, coaIds),
       computeOpenMonthBalances(supabase, todayLocalDate()).catch((err) => {
         console.error("[balance-sources] live open-month compute failed", err);
@@ -183,6 +184,13 @@ export async function GET() {
       // screen needs anything else about them. Sent with the catalog, like
       // connections, because the picker needs it on first paint.
       supabase.from("profiles").select("id, email").order("email", { ascending: true }),
+      // The month-end record for accounts whose balance is DERIVED rather than
+      // reported -- what the derivation predicted, what a person actually found,
+      // and how much of the difference the bank can account for. Nothing else on
+      // this screen can say whether a re-anchored figure was a small correction
+      // or a month of transfers, because re-anchoring is self-healing and hides
+      // its own errors by construction.
+      listReconciliations(supabase, coaIds),
     ]);
     if (profilesRes.error) throw profilesRes.error;
 
@@ -190,6 +198,13 @@ export async function GET() {
       .filter((p): p is { id: string; email: string } => Boolean(p.email))
       .map((p) => ({ id: p.id, email: p.email }));
     const userLabels = new Map(users.map((u) => [u.id, u.email]));
+
+    const reconciliationsByCoa = new Map<string, typeof reconciliations>();
+    for (const row of reconciliations) {
+      const bucket = reconciliationsByCoa.get(row.coaId);
+      if (bucket) bucket.push(row);
+      else reconciliationsByCoa.set(row.coaId, [row]);
+    }
 
     // Connections are looked up once and matched to a source by its
     // config.connectionId, so the Settings row can say "Ramp · Operating ·
@@ -272,6 +287,9 @@ export async function GET() {
           liveError: live?.failedAccounts.has(a.id)
             ? (live.errors.find((e) => e.includes(a.id)) ?? "This account's calculation failed.")
             : null,
+          // Empty for every account whose balance is reported rather than
+          // derived, which is most of them.
+          reconciliations: reconciliationsByCoa.get(a.id) ?? [],
         };
       }),
       // Full step detail travels with the catalog so the "How is this

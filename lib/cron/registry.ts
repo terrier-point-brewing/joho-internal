@@ -26,6 +26,14 @@ export const CRON_JOBS: CronJobMeta[] = [
     maxAgeHours:   25,
   },
   {
+    job:           "bank-transactions-sync",
+    path:          "/api/cron/bank-transactions-sync",
+    schedule:      "0 3 * * *",
+    scheduleLabel: "Daily · 03:00 UTC",
+    description:   "Imports bank transactions from Plaid so Square's transfers out of its own balance can be recognised on the receiving side. These are not ledger postings and do not affect the profit and loss.",
+    maxAgeHours:   25,
+  },
+  {
     job:           "payroll-advance",
     path:          "/api/cron/payroll-advance",
     schedule:      "0 5 * * *",

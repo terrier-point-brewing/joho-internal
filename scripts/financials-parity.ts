@@ -231,6 +231,9 @@ async function computeGroundTruth(supabase: SupabaseClient, months: string[]) {
       supabase
         .from("ramp_bank_ledger")
         .select("id, amount_cents, chart_of_accounts_id, transaction_date")
+        // Mirrors fetchSources' own predicate. This script exists to prove the
+        // two paths agree, so it has to filter on exactly what the real one does.
+        .eq("include_in_gl", true)
         .eq("affects_pl", true)
         .gte("transaction_date", startDate)
         .lte("transaction_date", endDateInclusive)

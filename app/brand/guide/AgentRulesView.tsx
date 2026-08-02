@@ -28,7 +28,7 @@ export default function AgentRulesView({ canon }: { canon: BrandCanon }) {
   const { sections, full } = compileBrandMarkdown(canon);
 
   return (
-    <GuideSection intro={resolveGuideIntro(canon, "agent")}>
+    <GuideSection section="agent" intro={resolveGuideIntro(canon, "agent")}>
       <section className="mb-8">
         <SubHead
           title="Full brief"
