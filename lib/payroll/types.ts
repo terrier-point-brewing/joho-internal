@@ -58,10 +58,14 @@ export interface PayPeriodSummary extends PayPeriod {
   appBasisCents: number | null;
   /** Wage-only basis (excludes cash tips) — the figure comparable to Gusto wage buckets. */
   appWagesCents: number | null;
+  /** Cash tips portion of appBasisCents — kept by staff directly, never disbursed by Gusto. appWagesCents + appCashTipsCents = appBasisCents. */
+  appCashTipsCents: number | null;
   /** Σ of the active Gusto report's GL totals (wages + employer taxes); null if no report. */
   gustoTotalCents: number | null;
   /** Gusto GL totals excluding the payroll-taxes account — comparable to appWagesCents. */
   gustoWagesCents: number | null;
+  /** Employer payroll-tax total from the active Gusto report — the bucket excluded from gustoWagesCents; null if no report or no taxes account configured. */
+  gustoEmployerTaxCents: number | null;
   reportUploadedAt: string | null;
   reportFilename: string | null;
   /** appWagesCents − gustoWagesCents; null if either side is missing. */
