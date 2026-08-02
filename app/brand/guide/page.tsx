@@ -4,7 +4,8 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getCanon } from "@/lib/brand/getCanon";
 import { seedCanon } from "@/lib/brand/seedCanon";
 import { resolveGuideIntro } from "@/lib/brand/guideIntros";
-import { listAssets, type SupabaseLikeClient } from "@/lib/brand/assets";
+import { assetFileUrl, listAssets, type BrandAsset, type SupabaseLikeClient } from "@/lib/brand/assets";
+import type { BrandCanon } from "@/lib/brand/canon.types";
 import { groundsForAssets } from "@/lib/brand/artworkGround";
 import BrandGuideTabs from "./BrandGuideTabs";
 import EthosView from "./EthosView";
@@ -72,8 +73,41 @@ export default async function BrandGuidePage() {
             chop={canon.chop}
           />
         ),
-        release: <ReleaseView canon={canon} />,
+        release: <ReleaseView canon={canon} wordmarkUrl={resolveWordmarkUrl(markSpecs, approvedAssets)} />,
       }}
     />
   );
+}
+
+/**
+ * The wordmark artwork the chassis diagram renders in its top band.
+ *
+ * Resolution follows the marks model rather than a raw kind lookup: the
+ * wordmark mark's own variants are consulted first (vertical cuts ahead of
+ * horizontal — the front panel is a tall band), preferring SVG within a cut.
+ * Any approved wordmark upload no spec references yet is the fallback, so a
+ * fresh library still shows real artwork; with nothing approved the diagram
+ * keeps its typed stand-in.
+ */
+function resolveWordmarkUrl(
+  markSpecs: NonNullable<BrandCanon["marks"]>,
+  approvedAssets: BrandAsset[],
+): string | null {
+  const approvedById = new Map(approvedAssets.map((a) => [a.id, a]));
+  const wordmarkMark = markSpecs.find((m) => m.kind === "wordmark");
+  const variants = [...(wordmarkMark?.variants ?? [])].sort(
+    (a, b) => Number(b.orientation === "vertical") - Number(a.orientation === "vertical"),
+  );
+
+  for (const variant of variants) {
+    const cutAssets = (variant.assetIds ?? [])
+      .map((id) => approvedById.get(id))
+      .filter((a): a is BrandAsset => Boolean(a));
+    const chosen = cutAssets.find((a) => a.format === "svg") ?? cutAssets[0];
+    if (chosen) return assetFileUrl(chosen.id);
+  }
+
+  const uploads = approvedAssets.filter((a) => a.kind === "wordmark");
+  const fallback = uploads.find((a) => a.format === "svg") ?? uploads[0];
+  return fallback ? assetFileUrl(fallback.id) : null;
 }

@@ -263,7 +263,7 @@ export const seedCanon: BrandCanon = {
       "The brand's second signature and the designated home for script and symbol. The glyph rotates per motif family; position, footprint, color, and rendering never change. Founder approval required for every new glyph.",
     specs: [
       { key: "Color", value: "Vermillion #AD1A2D, always" },
-      { key: "Position (labels)", value: "Bottom-right of art window; offset 4% of art-window width from edges" },
+      { key: "Position (labels)", value: "Bottom center of the front text panel, beneath the title block, above the season/episode mark" },
       { key: "Footprint", value: "Square, ratio 1:1 to 1:1.15; height 8–10% of art-window height" },
       { key: "Rendering", value: "Carved / stamped style with authentic seal-carving texture" },
       { key: "Content", value: "Glyph only — script or symbol per active motif family. Never Latin text. Never the wordmark." },
@@ -272,11 +272,21 @@ export const seedCanon: BrandCanon = {
   labelChassis: {
     narrative:
       "Every can is a different place, era, and palette — so the brand lives in a fixed chassis that never changes. The illustration roams the world; the chassis is home. The label is not a poster: it borrows travel-poster illustration grammar but carries no title-in-art typography.",
+    // Order is load-bearing: LabelDiagram pairs zones to elements by position,
+    // and the first four keep their original slots so a canon published before
+    // the list grew still badges them correctly. New elements only append.
     elements: [
-      { n: "1", title: "Wordmark", desc: "Same asset, same position — the top band of the front panel. Never re-typeset." },
+      { n: "1", title: "Wordmark", desc: "The uploaded wordmark SVG — same asset, same position, the top band of the front panel. Never re-typeset." },
       { n: "2", title: "Bordered art window", desc: "The illustration lives in a frame with a consistent Paper margin (4% of panel width)." },
-      { n: "3", title: "Title slot", desc: "Beer name (Marcellus) + style subtitle (Lato), fixed position, Tier 1 colors — outside/over the art, never as poster lettering inside it." },
-      { n: "4", title: "The chop", desc: "Active family glyph, Seal Red, bottom-right of the art window." },
+      { n: "3", title: "Illustrative name", desc: "The release's illustrative name alone (Marcellus), fixed position, Tier 1 colors — outside/over the art, never as poster lettering inside it." },
+      { n: "4", title: "The chop", desc: "Active family glyph, Seal Red, bottom center of the front text panel." },
+      { n: "5", title: "Beer style name", desc: "The plain style of the beer (Lato bold, all caps) under the rule line beneath the illustrative name." },
+      { n: "6", title: "Season & episode", desc: "Beneath the chop: the release's place in its season, set S# | E#." },
+      { n: "7", title: "Story line", desc: "Bottom-left of the art window, Lato regular, all caps — the release card's story line, verbatim. Set narrow so it stacks up to four lines rather than running wide." },
+      { n: "8", title: "Artist credit", desc: "Directly beneath the story line, Lato bold, all caps — credits the commissioned artist by name." },
+      { n: "9", title: "Additional logos & emblems", desc: "Reserved space at the foot of the fine-print band for collaboration logos and guild emblems; empty when a release carries none." },
+      { n: "10", title: "Barcode", desc: "Below the additional logos at the foot of the fine-print band. UPC-A at a scannable magnification." },
+      { n: "11", title: "Seasonal colors & motifs", desc: "The whole label: the background defaults to Paper, but a season that declares its own coloring recolors it for that season's releases." },
     ],
   },
   // Each rule paired with the specific failure it prevents. Every `brief` is

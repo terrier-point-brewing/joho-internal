@@ -16,7 +16,14 @@ import LabelDiagram from "./blocks/LabelDiagram";
  * then the chassis, drawn as an annotated label rather than only listed as
  * spec cards, so the one fixed frame can be seen and not just read about.
  */
-export default function ReleaseView({ canon }: { canon: BrandCanon }) {
+export default function ReleaseView({
+  canon,
+  wordmarkUrl,
+}: {
+  canon: BrandCanon;
+  /** Approved wordmark artwork for the chassis diagram's top band. */
+  wordmarkUrl?: string | null;
+}) {
   const naming = canon.naming;
   // The narrative is the template for a release card, so it renders as one:
   // same component, same labels, same order as the examples below it. A field
@@ -101,7 +108,7 @@ export default function ReleaseView({ canon }: { canon: BrandCanon }) {
           )}
           {elements.length > 0 && (
             <div className="mb-4">
-              <LabelDiagram elements={elements} />
+              <LabelDiagram elements={elements} wordmarkUrl={wordmarkUrl} />
             </div>
           )}
           {elements.length > 0 && (
