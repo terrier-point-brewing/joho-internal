@@ -87,13 +87,19 @@ describe("validateManualEntry — rejects", () => {
     expectInvalid({ ...validBalance, asOfDate: "2026-02-29" } as ManualEntryInput, /asOfDate/);
   });
 
-  it("rejects amountCents of zero", () => {
-    expectInvalid({ ...validFlow, amountCents: 0 } as ManualEntryInput, /amountCents/);
-    expectInvalid({ ...validBalance, amountCents: 0 } as ManualEntryInput, /amountCents/);
+  it("ACCEPTS amountCents of zero, for both kinds", () => {
+    // GL 1010 Cash on Hand is the case: someone counts the till and it is
+    // empty. Rejecting that forced a real answer to be recorded as no answer,
+    // which is the exact confusion the "null, not zero" rule exists to prevent
+    // — the balance provider already returns null when no row exists, so an
+    // entered 0 and an unentered account were never ambiguous. The table never
+    // carried a non-zero CHECK either; only this validator did.
+    expect(validateManualEntry({ ...validFlow, amountCents: 0 } as ManualEntryInput).ok).toBe(true);
+    expect(validateManualEntry({ ...validBalance, amountCents: 0 } as ManualEntryInput).ok).toBe(true);
   });
 
-  it("rejects amountCents of negative zero", () => {
-    expectInvalid({ ...validFlow, amountCents: -0 } as ManualEntryInput, /amountCents/);
+  it("accepts negative zero, which is the same integer", () => {
+    expect(validateManualEntry({ ...validFlow, amountCents: -0 } as ManualEntryInput).ok).toBe(true);
   });
 
   it("rejects a non-integer amountCents", () => {

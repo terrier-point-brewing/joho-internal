@@ -13,7 +13,7 @@
  * all. Only the four genuinely composite accounts (2220, 2250, 2310, 1100) need
  * their provider pairs collapsed into a single method key.
  */
-import { registerMethod } from "./registry";
+import { registerMethod, CLOSE_DUE_DAYS_KEY } from "./registry";
 import type { BalanceMethod } from "./registry";
 import type { CoaAccountRef } from "../../financials/types";
 
@@ -56,16 +56,35 @@ const manualEntry: BalanceMethod = {
       direction: "net",
     },
   ],
-  // The only setup this method has ever had, now declared rather than assumed.
-  // closeTasks.ts used to check for the literal string "manualBalance"; it now
-  // reads this field, so a future method needing a human figure gets the close
-  // task without that module learning its name.
+  /**
+   * Setup here is about the ARRANGEMENT, not the figure.
+   *
+   * This method used to declare an `operatorBalance` field, which put a dollar
+   * input on the Settings screen and broke that screen's own rule: Settings
+   * holds rules, Transactions holds values. For Square that field is right --
+   * its anchor is a genuine one-off, asked for once because Square publishes no
+   * running balance to start from. For manual entry it is wrong, because typing
+   * the balance is not something you finish. It is the job, every month,
+   * forever. Setting the account up means deciding WHO does that job and BY
+   * WHEN; doing it happens under Finance > Transactions > Month-End Close.
+   */
   setup: [
     {
-      kind: "operatorBalance",
-      key: "operatorBalance",
-      label: "Balance for this month end",
-      help: "This account has no automatic source, so someone has to read the balance and enter it after each month ends.",
+      kind: "user",
+      key: "responsibleUserId",
+      label: "Person responsible for this balance",
+      help: "Whoever checks this account and enters its balance each month. They are the one emailed when the balance is due, so name a person rather than leaving it to whoever notices.",
+    },
+    {
+      // Optional because there is already a business-wide close deadline, and
+      // an account that says nothing should inherit it rather than sit
+      // unconfigured. Set it where an account genuinely runs on its own clock.
+      kind: "number",
+      key: CLOSE_DUE_DAYS_KEY,
+      unit: "days",
+      optional: true,
+      label: "Days after month end this is due",
+      help: "How long after a month ends this balance should be entered. Leave it blank to use the deadline set for the business as a whole, and fill it in only for an account that genuinely takes longer, such as one waiting on a statement in the post.",
     },
   ],
 };
@@ -259,7 +278,7 @@ const squareStoredBalance: BalanceMethod = {
       kind: "operatorBalance",
       key: "operatorBalance",
       label: "Balance you read off Square",
-      help: "Square never publishes a running balance, so the calculation needs a figure a person has checked to start from. Enter it again after each month end to keep it accurate.",
+      help: "Square never publishes a running balance, so the calculation needs a figure a person has checked to start from. This one is only the starting point — each month end asks for it again under Finance, Transactions, Manual Entries.",
     },
     {
       // Optional on purpose. Nothing reads it yet -- the bank account it names

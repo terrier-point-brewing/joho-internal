@@ -62,8 +62,24 @@ list of fields, and a connection is just one kind of field:
 | Kind | For | Stored in |
 |---|---|---|
 | `connection` | Linking an external account. Declares `provider` and `connect: "discover" \| "authorize"` | `config.connectionId` |
-| `operatorBalance` | A figure only a person can supply | a `manual_entries` balance row |
+| `operatorBalance` | A figure only a person can supply, asked for **once** at setup | a `manual_entries` balance row |
+| `account` | Another chart-of-accounts row, narrowed by `sections` | `config.<key>` |
+| `user` | A person in this business — who is responsible for something | `config.<key>` |
 | `select` / `number` / `text` / `date` | Any other prerequisite — a rate, a term, an in-service date | `config.<key>` |
+
+`operatorBalance` is narrower than it looks and is easy to reach for wrongly.
+It means "ask a person for a figure ONCE, because the calculation cannot start
+without it" — Square's anchor, which has nowhere else to come from. It does
+**not** mean "a person supplies this every month". Manual entry needs a figure
+every month and declares no `operatorBalance` at all, because typing that
+figure is the recurring job, not a setup step: a dollar input on the Settings
+screen breaks that screen's own rule that Settings holds rules and Transactions
+holds values.
+
+Two config keys are reserved and read **by name** outside the panel:
+`connectionId` (every connection resolver) and `dueDaysAfterMonthEnd`
+(`CLOSE_DUE_DAYS_KEY`, a per-account close deadline read by `closeTasks.ts`).
+Both are held to their name and shape by the conformance suite.
 
 From that declaration, generically: Settings renders the field inside the
 account's own row, stores the answer, says in plain English what is still
@@ -72,11 +88,20 @@ is answered, and — for a `connection` — resolves it and renders its health.
 There is no per-integration screen, no per-integration route and no
 `describeConnection` to write.
 
-Two things are **derived** from `setup`, not declared separately:
-`connectionProviderOf(method)` (what the capture planner and the picker read)
-and `requiresOperatorBalance(method)` (what makes `closeTasks.ts` raise a
-month-end task). Both used to be their own flags; one fact in two places is one
-fact that can disagree with itself.
+Things are **derived** from the declaration, never flagged separately — one
+fact in two places is one fact that can disagree with itself:
+
+- `connectionProviderOf(method)` — from the `connection` field. What the
+  capture planner and the picker read.
+- `responsibleUserIdOf(method, config)` — from the `user` field. Who the
+  month-end alert is addressed to.
+- `requiresMonthEndBalance(method)` — from the **steps**, not the setup: a
+  method raises a month-end close task exactly when one of its steps runs a
+  provider with `kind: "manual"`, because that provider reads a
+  `manual_entries` balance dated to the month being computed and returns null
+  until somebody types one. This was read off `operatorBalance`'s presence
+  until manual entry stopped declaring one; had it not moved, every manual
+  account would have silently stopped being chased.
 
 Setup copy is held to the same editorial standard as step descriptions and is
 enforced by the same conformance suite. It is read by someone who is stuck, so
@@ -510,8 +535,10 @@ The shape:
 - A close action records `closed_by` and `closed_at`, refuses (or warns hard)
   while the latest snapshot reported errors, and lists what is outstanding.
 - Outstanding tasks are explicitly **skipped with a reason** rather than ignored.
-  `balance_close_tasks.status` already has `'skipped'` and a `notes` column,
-  both currently unused.
+  **BUILT** — `skipTask`/`reopenTask` in `closeTasks.ts` write
+  `balance_close_tasks.status = 'skipped'` and `notes`, surfaced on
+  Finance > Transactions > Manual Entries. The reason is mandatory: a skip
+  without one is indistinguishable from ignoring the account.
 - **Reopen** is the symmetric, attributed inverse. `unfreezePeriod` already
   exists in snapshot.ts and still has no UI.
 - Unclosed periods are surfaced loudly rather than silently force-closed.
@@ -539,7 +566,23 @@ Open decisions before building:
   historical A/R. Either exclude 1100 from backfill, reconstruct status from
   payment dates, or accept and label the understatement.
 
-Also note **no account currently uses manual entry**, so zero close tasks have
-ever been created and no alert email has ever been sent. The month-end freeze is
-presently a calendar event rather than a completeness check. Configuring manual
-accounts is the highest-value non-code fix available.
+Also note **no account has ever used manual entry in production**, so zero close
+tasks have ever been created and no alert email has ever been sent. The
+month-end freeze is presently a calendar event rather than a completeness check.
+Configuring manual accounts is the highest-value non-code fix available, and
+manual entry's setup now asks only for that: a responsible person, and
+optionally how many days after month end their balance is due.
+
+The work itself lives in **Finance > Transactions > Manual Entries**, which
+opens on the outstanding accounts for a period before its ledger. Entering a
+balance there writes the ordinary `manual_entries` row and the task closes
+itself via `reconcileCloseTasks`. There is deliberately no "mark done" anywhere:
+a completed task always has a real balance behind it, or it is a skip with a
+reason.
+
+Alerts go to each account's responsible person, falling back to `ADMIN_EMAIL`
+when nobody is named — and saying in the email that nobody is, since that is a
+settings gap the recipient would otherwise have no reason to know about.
+`NEXT_PUBLIC_APP_URL` is still blank in the deployment, so the email prints
+directions rather than an anchor at `localhost`; setting that variable turns the
+link back on with no code change.

@@ -19,10 +19,18 @@ describe("parseAmountInputCents", () => {
     expect(parseAmountInputCents("1.129")).toBe(113);
   });
 
-  it("treats zero as invalid (amountCents must not be zero)", () => {
-    expect(parseAmountInputCents("0")).toBeNull();
-    expect(parseAmountInputCents("0.00")).toBeNull();
-    expect(parseAmountInputCents("-0")).toBeNull();
+  it("parses zero as a real amount, not as invalid", () => {
+    // Zero used to map to null so a form could reuse one check for "blank" and
+    // "not allowed to be zero". Zero IS allowed (see the sign-convention note
+    // in manualEntries.ts) — a counted-and-empty cash tin is a real balance —
+    // and collapsing it into the unparseable case is what produced the "Enter
+    // the balance as a number" error on an input that already was one.
+    expect(parseAmountInputCents("0")).toBe(0);
+    expect(parseAmountInputCents("0.00")).toBe(0);
+    // Object.is distinguishes -0 from 0, so the sign has to be collapsed or a
+    // strict equality check in a caller would fail on a legitimate input.
+    expect(Object.is(parseAmountInputCents("-0"), 0)).toBe(true);
+    expect(parseAmountInputCents("-0.00")).toBe(0);
   });
 
   it("returns null for empty/unparseable input", () => {

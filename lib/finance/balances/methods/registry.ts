@@ -102,6 +102,11 @@ interface SetupFieldBase {
    * it is a `manual_entries` balance row, so an operator can edit it, the close
    * workflow can chase it and the audit trail exists. Its key names the field,
    * not a config slot.
+   *
+   * Two keys are read BY NAME outside the panel and are therefore reserved.
+   * `connectionId` is where every connection resolver looks; CLOSE_DUE_DAYS_KEY
+   * is where the month-end close reads a per-account deadline. Both are held to
+   * their name by the conformance suite.
    */
   key: string;
   /** Short label for the setup panel, sentence case. */
@@ -164,8 +169,19 @@ export type SetupField =
    * and the reason setup is modelled as FIELDS rather than as connections.
    */
   | (SetupFieldBase & { kind: "account"; sections?: string[] })
+  /**
+   * A person in this business, stored as their user id.
+   *
+   * Same shape as `account` and for the same reason: the options are this
+   * business's own staff and are unknowable when the method is written. It
+   * exists because some accounts have no automatic source at all, and the only
+   * thing setup can usefully record about those is WHO is on the hook for
+   * supplying the figure -- see the manual entry method, and the per-person
+   * alert the month-end close sends.
+   */
+  | (SetupFieldBase & { kind: "user" })
   /** A plain number stored in config. `unit` drives how the input is formatted. */
-  | (SetupFieldBase & { kind: "number"; unit?: "cents" | "months" | "percent" | "plain" })
+  | (SetupFieldBase & { kind: "number"; unit?: "cents" | "months" | "percent" | "plain" | "days" })
   | (SetupFieldBase & { kind: "text" })
   | (SetupFieldBase & { kind: "date" });
 
@@ -224,15 +240,74 @@ export function connectionProviderOf(method: BalanceMethod): ConnectionProvider 
 }
 
 /**
- * Whether this method needs a person to supply a figure before a period can be
- * called closed -- which is exactly the same question as "does it declare an
- * operatorBalance field".
+ * Whether this method needs a person to supply a figure FOR EACH MONTH before
+ * that month can be called closed -- which is what raises a close task.
  *
- * This replaced a `requiresCloseEntry` flag plus a hard-coded check for the
- * name "manualBalance". Both said the same thing the declaration now says once.
+ * ── Derived from the steps, not from the setup fields ────────────────────────
+ * A step whose provider is `kind: "manual"` reads a `manual_entries` balance
+ * dated to the exact month end being computed, and returns null until somebody
+ * types one. That is the whole definition of "a human still owes this month a
+ * number", and it is already declared -- once, on the provider.
+ *
+ * This previously asked whether the method declared an `operatorBalance` setup
+ * field. That gave the right answer for the wrong reason, and the reason
+ * mattered the moment manual entry stopped declaring one. `operatorBalance`
+ * means "ask a person for a figure ONCE, during setup" -- which is genuinely
+ * what Square needs, because its anchor has nowhere else to come from. Manual
+ * entry's figure is not a setup step at all; it is the recurring monthly job.
+ * Reading the close rule off a setup field therefore coupled "we asked at
+ * setup" to "we must chase every month", and removing the field from manual
+ * entry would have silently switched off the month-end chase for exactly the
+ * accounts that exist to be chased -- no error, no task, no email.
+ *
+ * An unregistered provider answers false rather than throwing: this runs first
+ * in the close cron, and refusing to create ANY task because one step names
+ * something unknown is a worse failure than the unknown step.
  */
-export function requiresOperatorBalance(method: BalanceMethod): boolean {
-  return method.setup?.some((f) => f.kind === "operatorBalance") ?? false;
+export function requiresMonthEndBalance(method: BalanceMethod): boolean {
+  return method.steps.some((step) => getProvider(step.providerKey)?.kind === "manual");
+}
+
+/**
+ * Where a per-account close deadline is stored, read BY NAME by closeTasks.ts.
+ *
+ * A method offers the override by declaring a number field under this key; an
+ * account that leaves it blank falls back to the one global due day in
+ * system_settings. Same arrangement as `connectionId`: one reserved key, held
+ * to its name and its shape by the conformance suite, so the reader and the
+ * declaration cannot drift apart.
+ */
+export const CLOSE_DUE_DAYS_KEY = "dueDaysAfterMonthEnd";
+
+/**
+ * The per-account close deadline an operator entered, in days after the month
+ * end, or null to use the global default.
+ *
+ * Rejects anything that is not a positive whole number of days. A stored 0, a
+ * negative, or a string that arrived from a form and never got parsed would
+ * each produce a due date in or before the month being closed, which reads as
+ * permanently overdue and alerts immediately.
+ */
+export function closeDueDaysOf(config: Record<string, unknown>): number | null {
+  const raw = config[CLOSE_DUE_DAYS_KEY];
+  const days = typeof raw === "string" ? Number(raw) : raw;
+  if (typeof days !== "number" || !Number.isInteger(days) || days < 1) return null;
+  return days;
+}
+
+/**
+ * The person this account's balance is chased from, or null when nobody has
+ * been named yet.
+ *
+ * Derived from the declared `user` field rather than from a key this module
+ * knows, so a second method needing a responsible person gets alerts routed
+ * without the alert code learning its name.
+ */
+export function responsibleUserIdOf(method: BalanceMethod, config: Record<string, unknown>): string | null {
+  const field = method.setup?.find((f) => f.kind === "user");
+  if (!field) return null;
+  const id = config[field.key];
+  return typeof id === "string" && id.length > 0 ? id : null;
 }
 
 /** Resolved identity of a step — its key, defaulted from providerKey. */

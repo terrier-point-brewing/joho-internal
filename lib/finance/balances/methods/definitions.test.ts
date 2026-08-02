@@ -10,7 +10,14 @@
  */
 import { describe, it, expect } from "vitest";
 import "./index";
-import { getMethod, listMethods, stepKey, type MethodKind } from "./registry";
+import {
+  CLOSE_DUE_DAYS_KEY,
+  getMethod,
+  listMethods,
+  requiresMonthEndBalance,
+  stepKey,
+  type MethodKind,
+} from "./registry";
 import { getProvider } from "../registry";
 import { GOLDEN_BALANCE_SHEET, GOLDEN_STEP_KEYS } from "../__fixtures__/goldenBalanceSheet";
 
@@ -149,6 +156,41 @@ describe("explainer copy is readable by a non-technical operator", () => {
       }
     }
   });
+
+  /**
+   * Held to the standard above and then one further, for the kinds whose whole
+   * job is to name a THING the reader has to go and find.
+   *
+   * A picker with a vague label is worse than a missing field: it offers a list
+   * of real people, or a real number of days, and gives no way to tell which
+   * answer is the right one. Setup copy is the only explanation a bookkeeper
+   * gets, and these two kinds are the ones where a wrong answer looks
+   * completely configured.
+   */
+  it("says who or what a picker is asking for, in the field's own words", () => {
+    for (const m of listMethods()) {
+      for (const field of m.setup ?? []) {
+        if (field.kind !== "user" && field.kind !== "account") continue;
+        const id = `${m.key}.${field.key}`;
+        // Naming a person or an account has consequences a reader cannot see
+        // from the picker -- an alert goes somewhere, a balance is read from
+        // somewhere -- so the help has to say what those are.
+        expect(field.help.length, `${id} help must explain what naming this does`).toBeGreaterThan(60);
+        expect(field.label.toLowerCase(), `${id} label must not be bare "user"`).not.toBe("user");
+      }
+    }
+  });
+
+  it("gives every number field a unit, so nobody has to guess what 10 means", () => {
+    // "10" is ten days, ten months, ten percent or ten dollars depending on a
+    // property that is not on screen. The unit drives how the input renders,
+    // and an unset one silently falls back to a bare number.
+    for (const m of listMethods()) {
+      for (const field of m.setup ?? []) {
+        if (field.kind === "number") expect(field.unit, `${m.key}.${field.key}`).toBeDefined();
+      }
+    }
+  });
 });
 
 describe("setup declarations", () => {
@@ -176,15 +218,66 @@ describe("setup declarations", () => {
     }
   });
 
+  /**
+   * The rule closeTasks.ts applies, asserted against the declarations
+   * themselves.
+   *
+   * This assertion once read `(m.setup ?? []).some((f) => f.kind ===
+   * "operatorBalance")`, and it caught the exact regression it was written for:
+   * manual entry's setup was redesigned to name a responsible person instead of
+   * taking a dollar figure, the operatorBalance field went away, and this test
+   * failed with only Square left. Without the derivation moving to the steps,
+   * every manual account would have gone unchased in silence -- no task, no
+   * alert, no error. Both methods, and only these two, need a person's figure
+   * every month.
+   */
   it("is what decides whether an account raises a month-end close task", () => {
-    // The rule closeTasks.ts now applies. Manual entry and the Square balance
-    // both need a human figure; nothing else does, and a method gaining one by
-    // accident would start emailing about an account nobody has to touch.
-    const needing = listMethods()
-      .filter((m) => (m.setup ?? []).some((f) => f.kind === "operatorBalance"))
-      .map((m) => m.key)
-      .sort();
+    const needing = listMethods().filter(requiresMonthEndBalance).map((m) => m.key).sort();
     expect(needing).toEqual(["manualBalance", "squareStoredBalance"]);
+  });
+
+  it("derives that from the steps, not from a setup field", () => {
+    // The two questions are genuinely different and used to be conflated.
+    // `operatorBalance` means "ask a person ONCE, at setup" -- Square's anchor,
+    // which has nowhere else to come from. Needing a figure EVERY month is a
+    // property of what the calculation reads. Manual entry is now the case that
+    // proves they are not the same question.
+    const manual = getMethod("manualBalance")!;
+    expect(manual.setup!.some((f) => f.kind === "operatorBalance")).toBe(false);
+    expect(requiresMonthEndBalance(manual)).toBe(true);
+  });
+
+  it("keeps the Square anchor asking for a figure at setup", () => {
+    // Square is the one method for which a dollar input on the Settings screen
+    // is correct: it publishes no running balance, so the calculation cannot
+    // start without a figure a person has confirmed. Removing manual entry's
+    // must not have taken this one with it.
+    const square = getMethod("squareStoredBalance")!;
+    expect(square.setup!.some((f) => f.kind === "operatorBalance")).toBe(true);
+  });
+
+  it("asks manual entry for a responsible person and nothing priced in dollars", () => {
+    // Settings holds rules, Transactions holds values. Entering the balance is
+    // the recurring monthly job, not a setup step, and putting an amount box
+    // here is what made the two screens confusable in the first place.
+    const setup = getMethod("manualBalance")!.setup!;
+    expect(setup.map((f) => f.kind).sort()).toEqual(["number", "user"]);
+    expect(setup.find((f) => f.kind === "user")!.optional).toBeUndefined();
+  });
+
+  it("stores any per-account close deadline under the key closeTasks reads", () => {
+    // Same arrangement as connectionId: one reserved key, so the reader and the
+    // declaration cannot drift. A deadline saved anywhere else would configure
+    // an account that then silently keeps the global due date.
+    for (const m of listMethods()) {
+      const field = (m.setup ?? []).find((f) => f.key === CLOSE_DUE_DAYS_KEY);
+      if (!field) continue;
+      expect(field.kind, m.key).toBe("number");
+      if (field.kind === "number") expect(field.unit, m.key).toBe("days");
+      // Required would mean an account is unconfigured until it repeats a
+      // deadline the business has already set once.
+      expect(field.optional, m.key).toBe(true);
+    }
   });
 
   it("keeps the Square sweep destination optional and restricted to bank accounts", () => {

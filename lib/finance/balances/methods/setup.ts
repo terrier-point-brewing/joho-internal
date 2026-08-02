@@ -50,6 +50,13 @@ export interface SetupFacts {
    * surfaces rather than rendering a bare uuid at someone.
    */
   accountLabels?: Map<string, string>;
+  /**
+   * Display labels for people, for `user` fields. Same contract as
+   * accountLabels: an id missing from the map means that person's account is
+   * gone, which the field says out loud rather than leaving an account looking
+   * configured while its alerts go nowhere.
+   */
+  userLabels?: Map<string, string>;
 }
 
 export interface SetupFieldState {
@@ -175,6 +182,23 @@ function fieldState(field: SetupField, facts: SetupFacts): SetupFieldState {
   };
   if (field.kind === "select") return { ...state, options: field.options };
   if (field.kind === "number") return { ...state, unit: field.unit ?? "plain" };
+
+  // A named person whose login has since been removed. Identical treatment to
+  // a deleted account below, and it matters more: the field would otherwise
+  // read as satisfied while every alert for this account went to a user who
+  // cannot act on it.
+  if (field.kind === "user") {
+    if (!answered) return { ...state, blocker: "Nobody has been named yet." };
+    const label = facts.userLabels?.get(String(raw));
+    return label
+      ? { ...state, value: label }
+      : {
+          ...state,
+          satisfied: false,
+          value: null,
+          blocker: "The person named here no longer has an account. Choose someone else.",
+        };
+  }
 
   if (field.kind === "account") {
     if (!answered) return { ...state, sections: field.sections };

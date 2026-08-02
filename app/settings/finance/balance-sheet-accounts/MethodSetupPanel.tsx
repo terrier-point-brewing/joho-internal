@@ -28,7 +28,7 @@ import Banner from "@/app/components/ui/Banner";
 import Card from "@/app/components/ui/Card";
 import Badge from "@/app/components/ui/Badge";
 import { Modal } from "@/app/components/ui/Modal";
-import type { AccountRow, MethodMeta, ProviderCapability, SetupFieldState, SourceEntry } from "./types";
+import type { AccountRow, MethodMeta, ProviderCapability, SetupFieldState, SourceEntry, UserRef } from "./types";
 import { PLAID_RESUME_KEY, type PlaidResumeState } from "./types";
 
 const PLAID_LINK_SRC = "https://cdn.plaid.com/link/v2/stable/link-initialize.js";
@@ -428,8 +428,16 @@ function OperatorBalanceField({
 
   async function save() {
     const cents = parseAmountInputCents(amount);
+    // Two different failures, said differently. Typing "0" used to land here and
+    // be told to "enter the balance as a number" — which it was, and which is
+    // the error the owner hit. Zero is now a saveable balance, and the only
+    // input left that cannot be read is one with no digits in it at all.
     if (cents === null) {
-      onError("Enter the balance as a number, for example 4268.28.");
+      onError(
+        amount.trim() === ""
+          ? "Enter a balance before saving."
+          : "That is not an amount this can read. Type it like 4268.28, or -4268.28 for a negative balance.",
+      );
       return;
     }
     setBusy(true);
@@ -486,6 +494,7 @@ function ConfigField({
   account,
   source,
   allAccounts,
+  users,
   onDone,
   onError,
 }: {
@@ -494,6 +503,8 @@ function ConfigField({
   source: SourceEntry;
   /** Every balance-sheet account, for `account` fields. */
   allAccounts: AccountRow[];
+  /** Everyone who can be named, for `user` fields. */
+  users: UserRef[];
   onDone: () => void | Promise<unknown>;
   onError: (message: string) => void;
 }) {
@@ -519,6 +530,20 @@ function ConfigField({
           }))
       : [];
 
+  /**
+   * The choices for a `user` field. Deliberately every account rather than a
+   * role-filtered subset: who counts a till or reads a loan statement is not a
+   * question the permission model has an opinion about, and guessing wrong
+   * would hide the one person the operator was looking for.
+   */
+  const userOptions = field.kind === "user" ? users.map((u) => ({ value: u.id, label: u.email })) : [];
+
+  // A dropdown is a dropdown regardless of where its rows come from, so all
+  // three kinds share one control and differ only in the list handed to it.
+  const options =
+    field.kind === "account" ? accountOptions : field.kind === "user" ? userOptions : (field.options ?? []);
+  const isPicker = field.kind === "select" || field.kind === "account" || field.kind === "user";
+
   async function save() {
     setBusy(true);
     try {
@@ -539,10 +564,10 @@ function ConfigField({
   return (
     <FieldShell field={field}>
       <div className="flex items-center gap-2 flex-wrap">
-        {field.kind === "select" || field.kind === "account" ? (
+        {isPicker ? (
           <select value={value} onChange={(e) => setValue(e.target.value)} className="inp-sm w-auto">
             <option value="">— choose —</option>
-            {(field.kind === "account" ? accountOptions : (field.options ?? [])).map((o) => (
+            {options.map((o) => (
               <option key={o.value} value={o.value}>{o.label}</option>
             ))}
           </select>
@@ -570,6 +595,7 @@ export default function MethodSetupPanel({
   account,
   source,
   allAccounts,
+  users,
   providers,
   onRefresh,
   onClose,
@@ -579,6 +605,8 @@ export default function MethodSetupPanel({
   source: SourceEntry;
   /** Every balance-sheet account, so an `account` field can offer them. */
   allAccounts: AccountRow[];
+  /** Everyone who can be named, so a `user` field can offer them. */
+  users: UserRef[];
   providers: Record<string, ProviderCapability>;
   onRefresh: () => Promise<unknown>;
   onClose: () => void;
@@ -618,7 +646,7 @@ export default function MethodSetupPanel({
               );
             }
             if (field.kind === "operatorBalance") return <OperatorBalanceField key={field.key} {...common} />;
-            return <ConfigField key={field.key} {...common} source={source} allAccounts={allAccounts} />;
+            return <ConfigField key={field.key} {...common} source={source} allAccounts={allAccounts} users={users} />;
           })}
         </div>
 

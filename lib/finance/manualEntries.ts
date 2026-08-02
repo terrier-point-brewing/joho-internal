@@ -13,6 +13,16 @@
 // A negative flow is a legitimate correction; a negative balance is legitimate
 // for contra-accounts (e.g. Accumulated Depreciation) and for credit-side
 // accounts, which this codebase stores negative. Do not add a positivity check.
+//
+// ZERO IS ALSO LEGITIMATE, and was rejected here until it blocked GL 1010 Cash
+// on Hand -- an account whose whole point is that a person counts a till, and
+// which can honestly count nothing. Refusing zero forced that real answer to be
+// represented as no answer, which is the exact confusion this codebase's
+// "null, not zero" rule exists to prevent: the balance provider returns null
+// when no row exists, so an entered 0 and an unentered account were already
+// distinguishable, and only the validator was collapsing them. Note the table
+// never carried a non-zero CHECK -- see 20260904120000_manual_entries.sql --
+// so the comments that claimed this mirrored the database were simply wrong.
 
 export type ManualEntryKind = "flow" | "balance";
 
@@ -117,9 +127,7 @@ export function validateManualEntry(input: ManualEntryInput): ValidationResult {
   if (typeof amount !== "number" || !Number.isInteger(amount)) {
     return fail("amountCents must be an integer number of cents");
   }
-  if (amount === 0) {
-    return fail("amountCents must not be zero");
-  }
+  // No zero check -- see the SIGN CONVENTION note at the top of this file.
 
   if (raw.entryKind === "flow") {
     if (!isIsoDate(raw.startDate)) {

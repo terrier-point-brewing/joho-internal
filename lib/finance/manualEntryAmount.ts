@@ -30,11 +30,16 @@ export function formatAmountInput(raw: string): string {
 }
 
 /**
- * Parses a formatted (or raw) amount-input string into signed integer
- * cents. Returns `null` for empty/unparseable input AND for zero —
- * `amountCents` must not be zero (matches the DB CHECK / validateManualEntry
- * in ./manualEntries.ts), so treating zero as "invalid" here lets the form
- * reuse one null-check for both cases.
+ * Parses a formatted (or raw) amount-input string into signed integer cents.
+ * Returns `null` only when there is no number in the input at all.
+ *
+ * Zero parses to 0, not to null. It used to map to null so a form could reuse
+ * one check for "empty" and "not allowed to be zero" — but zero IS allowed
+ * (see the SIGN CONVENTION note in ./manualEntries.ts), and folding a real
+ * $0.00 balance in with unparseable junk is what produced the reported "Enter
+ * the balance as a number" error on an input that already was one. Callers now
+ * have to tell blank apart from unreadable themselves, which is the distinction
+ * their error messages needed to make anyway.
  */
 export function parseAmountInputCents(raw: string): number | null {
   const trimmed = raw.trim();
@@ -45,7 +50,10 @@ export function parseAmountInputCents(raw: string): number | null {
   const n = parseFloat(digits);
   if (isNaN(n)) return null;
   const cents = Math.round(n * 100) * (negative ? -1 : 1);
-  return cents === 0 ? null : cents;
+  // `|| 0` collapses negative zero. "-0" is now a parseable input rather than a
+  // rejected one, and -0 compares unequal to 0 under Object.is — which is what
+  // a strict equality check in a caller or a test would use.
+  return cents || 0;
 }
 
 /** Whole days spanned by [startDate, endDate], inclusive of both ends. */
