@@ -3,6 +3,8 @@ import { useState, useEffect, useCallback } from "react";
 import AccountSelect, { type CoARef } from "@/app/finance/AccountSelect";
 import Card from "@/app/components/ui/Card";
 import Banner from "@/app/components/ui/Banner";
+import PageHeader from "@/app/components/PageHeader";
+import StickyHeader from "@/app/components/StickyHeader";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -127,10 +129,13 @@ export default function PayrollDepartmentMappingsPage() {
 
   return (
     <>
-      <div className="shrink-0 px-4 sm:px-6 pt-4 pb-2">
-        <p className="text-sm text-muted">
-          Maps each Gusto payroll journal department to a wage GL account, plus the single account that receives all employer payroll taxes. Used when a Gusto report is uploaded on a pay period.
-        </p>
+      <div className="shrink-0 px-4 sm:px-6">
+        <StickyHeader>
+          <PageHeader
+            title="Departments"
+            description="Maps each Gusto payroll journal department to a wage GL account, plus the single account that receives all employer payroll taxes. Used when a Gusto report is uploaded on a pay period."
+          />
+        </StickyHeader>
       </div>
 
       {error && <Banner className="mx-4 sm:mx-6 my-2">{error}</Banner>}

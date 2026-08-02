@@ -4,6 +4,8 @@ import Card from "@/app/components/ui/Card";
 import Badge from "@/app/components/ui/Badge";
 import Banner from "@/app/components/ui/Banner";
 import RunJobButton from "@/app/components/RunJobButton";
+import PageHeader from "@/app/components/PageHeader";
+import StickyHeader from "@/app/components/StickyHeader";
 
 interface CronJobMeta {
   job: string;
@@ -108,17 +110,17 @@ export default function CronMonitor() {
   }
 
   return (
-    <div className="flex-1 overflow-auto px-4 sm:px-6 py-4 sm:py-6">
+    <div className="flex-1 overflow-auto px-4 sm:px-6">
     <div className="max-w-3xl">
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h2 className="text-sm font-semibold text-strong">Cron Jobs</h2>
-          <p className="text-xs text-muted mt-0.5">Scheduled jobs and their recent run history. Schedules run in UTC.</p>
+      <StickyHeader>
+        <div className="flex items-center justify-between gap-4">
+          <PageHeader title="Cron Jobs" description="Scheduled jobs and their recent run history. Schedules run in UTC." />
+          <button onClick={load} disabled={loading} className="btn-secondary">
+            {loading ? "Loading…" : "Refresh"}
+          </button>
         </div>
-        <button onClick={load} disabled={loading} className="btn-secondary">
-          {loading ? "Loading…" : "Refresh"}
-        </button>
-      </div>
+      </StickyHeader>
+      <div className="pb-4 sm:pb-8">
 
       {error && <Banner className="mb-3">{error}</Banner>}
 
@@ -203,6 +205,7 @@ export default function CronMonitor() {
           </p>
         </div>
       )}
+      </div>
     </div>
     </div>
   );

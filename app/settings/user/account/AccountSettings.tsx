@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import PageHeader from "@/app/components/PageHeader";
+import StickyHeader from "@/app/components/StickyHeader";
 import Banner from "@/app/components/ui/Banner";
 
 export default function AccountSettings() {
@@ -44,10 +45,12 @@ export default function AccountSettings() {
   }
 
   return (
-    <div className="flex-1 overflow-auto px-4 sm:px-6 py-4 sm:py-6">
+    <div className="flex-1 overflow-auto px-4 sm:px-6">
     <div className="max-w-md">
-      <PageHeader title="Change Password" description="Set a new password for your account." />
-
+      <StickyHeader>
+        <PageHeader title="Change Password" description="Set a new password for your account." />
+      </StickyHeader>
+      <div className="pb-4 sm:pb-8">
       {error && <Banner tone="danger" className="mb-4">{error}</Banner>}
       {success && (
         <Banner tone="success" className="mb-4">Password updated successfully.</Banner>
@@ -82,6 +85,7 @@ export default function AccountSettings() {
           </button>
         </div>
       </form>
+      </div>
     </div>
     </div>
   );

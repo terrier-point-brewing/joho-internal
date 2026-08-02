@@ -1,6 +1,8 @@
 "use client";
 import { Fragment, useState, useCallback, useEffect } from "react";
 import TabBar, { type TabDef } from "@/app/components/TabBar";
+import PageHeader from "@/app/components/PageHeader";
+import StickyHeader from "@/app/components/StickyHeader";
 import { ACCOUNT_TYPE_SECTION, type StatementSection } from "@/lib/finance/accountSections";
 import { parseCoaCsv, type ParsedCoaRow } from "@/lib/finance/coaCsv";
 import ConfirmDialog from "@/app/components/ui/ConfirmDialog";
@@ -644,25 +646,30 @@ export default function ChartOfAccountsPage() {
 
   return (
     <>
-      <div className="shrink-0 px-4 sm:px-6 pt-4 pb-2 flex items-start justify-between gap-4">
-        <p className="text-sm text-muted">
-          {uploadedAt && !loading ? `${accounts.length} accounts · last uploaded ${fmt(uploadedAt)}` : ""}
-        </p>
-        <div className="flex items-center gap-2 shrink-0">
-          {step === "idle" && (
-            <>
-              <button
-                onClick={() => { setShowAddForm((v) => !v); setAddError(null); setEditingId(null); }}
-                className="btn-secondary">
-                {showAddForm ? "Cancel" : "Add Account"}
-              </button>
-              <label className="btn-primary cursor-pointer">
-                Upload CSV
-                <input type="file" accept=".csv,text/csv" className="sr-only" onChange={handleFile} />
-              </label>
-            </>
-          )}
-        </div>
+      <div className="shrink-0 px-4 sm:px-6">
+        <StickyHeader>
+          <div className="flex items-start justify-between gap-4">
+            <PageHeader
+              title="Chart of Accounts"
+              description={uploadedAt && !loading ? `${accounts.length} accounts · last uploaded ${fmt(uploadedAt)}` : undefined}
+            />
+            <div className="flex items-center gap-2 shrink-0 mt-4">
+              {step === "idle" && (
+                <>
+                  <button
+                    onClick={() => { setShowAddForm((v) => !v); setAddError(null); setEditingId(null); }}
+                    className="btn-secondary">
+                    {showAddForm ? "Cancel" : "Add Account"}
+                  </button>
+                  <label className="btn-primary cursor-pointer">
+                    Upload CSV
+                    <input type="file" accept=".csv,text/csv" className="sr-only" onChange={handleFile} />
+                  </label>
+                </>
+              )}
+            </div>
+          </div>
+        </StickyHeader>
       </div>
 
       <div className="flex-1 overflow-auto px-4 sm:px-6 py-4 sm:py-6 max-w-4xl space-y-6">

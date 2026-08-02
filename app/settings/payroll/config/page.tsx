@@ -1,9 +1,11 @@
 "use client";
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState, useEffect } from "react";
+import { Fragment, useState, useEffect } from "react";
 import Banner from "@/app/components/ui/Banner";
 import ConfirmDialog from "@/app/components/ui/ConfirmDialog";
+import PageHeader from "@/app/components/PageHeader";
+import StickyHeader from "@/app/components/StickyHeader";
 import { queryKeys } from "@/lib/query-keys";
 import type { Employee, PayrollConfig } from "@/lib/payroll/types";
 
@@ -194,7 +196,14 @@ export default function PayrollSettingsPage() {
 
   return (
     <>
-      <div className="flex-1 overflow-auto px-4 sm:px-6 py-4 sm:py-6 max-w-3xl">
+      <div className="flex-1 overflow-auto px-4 sm:px-6 max-w-3xl">
+      <StickyHeader>
+        <PageHeader
+          title="Payroll Config"
+          description="Pay periods, tip pool frequency, and per-employee job title, wage, and employment type."
+        />
+      </StickyHeader>
+      <div className="pb-4 sm:pb-8">
       {/* ── Pay Schedule ─────────────────────────────────────────────────── */}
       <section className="mt-6 mb-10">
         <div className="flex items-center gap-3 mb-4">
@@ -434,8 +443,8 @@ export default function PayrollSettingsPage() {
           </thead>
           <tbody>
             {(employees ?? []).map(emp => (
-              <>
-                <tr key={emp.id} className="border-b border-line">
+              <Fragment key={emp.id}>
+                <tr className="border-b border-line">
                   <td className="py-2 px-3 text-strong">{emp.first_name} {emp.last_name}</td>
                   <td className="py-2 px-3 text-secondary text-xs">{emp.job_title}</td>
                   <td className="py-2 px-3 text-secondary text-xs">{EMP_TYPE_LABELS[emp.employment_type] ?? emp.employment_type}</td>
@@ -545,7 +554,7 @@ export default function PayrollSettingsPage() {
                     </td>
                   </tr>
                 )}
-              </>
+              </Fragment>
             ))}
             {(employees ?? []).length === 0 && (
               <tr>
@@ -557,6 +566,7 @@ export default function PayrollSettingsPage() {
           </tbody>
         </table>
       </section>
+      </div>
       </div>
       {deactivating && (
         <ConfirmDialog

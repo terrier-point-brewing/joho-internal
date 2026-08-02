@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchJson } from "@/app/production/hooks/queries";
 import PageHeader from "@/app/components/PageHeader";
+import StickyHeader from "@/app/components/StickyHeader";
 import Banner from "@/app/components/ui/Banner";
 import Card from "@/app/components/ui/Card";
 import { Modal, Field, ModalActions } from "@/app/components/ui/Modal";
@@ -144,10 +145,12 @@ export default function UserManagement() {
   const displayError = apiError ?? (error as Error)?.message ?? null;
 
   return (
-    <div className="flex-1 overflow-auto px-4 sm:px-6 py-4 sm:py-6">
+    <div className="flex-1 overflow-auto px-4 sm:px-6">
     <div className="max-w-4xl">
-      <PageHeader title="Users" />
-
+      <StickyHeader>
+        <PageHeader title="Users" />
+      </StickyHeader>
+      <div className="pb-4 sm:pb-8">
       {isLoading && <p className="text-sm text-muted">Loading…</p>}
       {displayError && (
         <Banner tone="danger" className="mb-4">{displayError}</Banner>
@@ -368,6 +371,7 @@ export default function UserManagement() {
           </form>
         </Modal>
       )}
+      </div>
     </div>
     </div>
   );
