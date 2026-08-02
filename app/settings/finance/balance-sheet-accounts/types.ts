@@ -111,9 +111,13 @@ export interface ReconciliationRow {
 
 export interface AccountRow {
   id: string;
+  /** Self-referencing chart_of_accounts.parent_id, for the hierarchy display. */
+  parentId: string | null;
   accountName: string;
   accountNumber: string | null;
   statementSection: string | null;
+  /** True for a grouping account whose balance is deliberately left to the sum of its sub-accounts. */
+  excluded: boolean;
   sources: SourceEntry[];
   availableMethodKeys: string[];
   /** The last month that has CLOSED. Null until one has been snapshotted. */

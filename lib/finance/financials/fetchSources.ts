@@ -128,10 +128,11 @@ export async function fetchCoa(supabase: SupabaseClient): Promise<CoaRecord[]> {
     account_number: string | null;
     account_type: string;
     statement_section: string | null;
+    excluded: boolean;
   }>(() =>
     supabase
       .from("chart_of_accounts")
-      .select("id, parent_id, account_name, account_number, account_type, statement_section")
+      .select("id, parent_id, account_name, account_number, account_type, statement_section, excluded")
       .order("id", { ascending: true }),
   );
   return data.map((r) => ({
@@ -141,6 +142,7 @@ export async function fetchCoa(supabase: SupabaseClient): Promise<CoaRecord[]> {
     accountNumber: r.account_number,
     accountType: r.account_type,
     statementSection: r.statement_section ?? null,
+    excluded: r.excluded,
   }));
 }
 

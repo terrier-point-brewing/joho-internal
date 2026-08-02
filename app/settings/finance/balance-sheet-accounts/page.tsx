@@ -42,6 +42,7 @@ import { EM_DASH, formatBalanceCents } from "@/lib/format";
 import Banner from "@/app/components/ui/Banner";
 import Card from "@/app/components/ui/Card";
 import Badge from "@/app/components/ui/Badge";
+import ToggleChip from "@/app/components/ui/ToggleChip";
 import { Modal } from "@/app/components/ui/Modal";
 import MethodSetupPanel from "./MethodSetupPanel";
 import type {
@@ -92,6 +93,59 @@ async function deleteSource(coaId: string, providerKey: string) {
 /** Account name with GL number prefix, matching every other finance table's convention. */
 function accountLabel(a: AccountRow): string {
   return a.accountNumber ? `${a.accountNumber} · ${a.accountName}` : a.accountName;
+}
+
+/**
+ * Re-orders the flat, GL-number-sorted account list into parent-then-children
+ * order with a depth per row, so the table can indent sub-accounts under their
+ * parent -- same "root = no parent, or parent outside this set" rule
+ * chart-of-accounts/page.tsx's renderAccountTree uses, flattened instead of
+ * recursive since this table is one flat tbody rather than section blocks.
+ * Iterating the already-sorted array preserves each sibling bucket's relative
+ * GL-number order, so no extra sort is needed.
+ */
+function orderHierarchically(accounts: AccountRow[]): { account: AccountRow; depth: number }[] {
+  const ids = new Set(accounts.map((a) => a.id));
+  const childrenOf = new Map<string, AccountRow[]>();
+  const roots: AccountRow[] = [];
+  for (const a of accounts) {
+    if (a.parentId && ids.has(a.parentId)) {
+      const bucket = childrenOf.get(a.parentId);
+      if (bucket) bucket.push(a);
+      else childrenOf.set(a.parentId, [a]);
+    } else {
+      roots.push(a);
+    }
+  }
+  const out: { account: AccountRow; depth: number }[] = [];
+  function walk(list: AccountRow[], depth: number) {
+    for (const a of list) {
+      out.push({ account: a, depth });
+      const kids = childrenOf.get(a.id);
+      if (kids) walk(kids, depth + 1);
+    }
+  }
+  walk(roots, 0);
+  return out;
+}
+
+/** Ids of accounts that have at least one child in this set -- the only accounts for which "excluded" (calculated by summing sub-accounts) makes sense. */
+function accountsWithChildren(accounts: AccountRow[]): Set<string> {
+  const ids = new Set(accounts.map((a) => a.id));
+  const withChildren = new Set<string>();
+  for (const a of accounts) {
+    if (a.parentId && ids.has(a.parentId)) withChildren.add(a.parentId);
+  }
+  return withChildren;
+}
+
+async function patchExcluded(coaId: string, excluded: boolean) {
+  const res = await fetch("/api/finance/chart-of-accounts", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id: coaId, excluded }),
+  });
+  if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? "Could not update that account.");
 }
 
 /**
@@ -383,6 +437,26 @@ export default function BalanceSheetAccountsPage() {
   }
 
   /**
+   * A grouping account's balance is already the sum of its sub-accounts on the
+   * real Balance Sheet statement (buildTree.ts rolls that up automatically) --
+   * excluding it here just stops this screen and the Financials data-quality
+   * tile from nagging it to be sourced directly, same as GL Mapping's
+   * `excluded` toggles.
+   */
+  async function handleSetExcluded(account: AccountRow, excluded: boolean) {
+    setSavingKey(`${account.id}:excluded`);
+    setError(null);
+    try {
+      await patchExcluded(account.id, excluded);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not update that account.");
+    } finally {
+      setSavingKey(null);
+    }
+  }
+
+  /**
    * Recomputes and stores the last CLOSED month.
    *
    * The open month needs no button -- it is worked out fresh on every load of
@@ -419,13 +493,23 @@ export default function BalanceSheetAccountsPage() {
     }
   }
 
+  // A grouping account marked excluded has deliberately opted out of being
+  // sourced directly (its balance is the sum of its children instead), so it
+  // drops out of the denominator rather than reading as a permanent gap --
+  // same "needsMapping = total - excludedCount" shape GL Mapping's panels use.
+  const excludedCount = accounts.filter((a) => a.excluded).length;
+  const relevantAccounts = accounts.filter((a) => !a.excluded);
+
   // Counted off READINESS, not off "a row exists". The old header counted rows
   // and reported twelve configured accounts when two of them had no connection
   // and no way to get one.
-  const calculating = accounts.filter((a) => a.sources.some((s) => s.active && (s.setup?.ready ?? true))).length;
-  const unfinished = accounts.filter((a) =>
+  const calculating = relevantAccounts.filter((a) => a.sources.some((s) => s.active && (s.setup?.ready ?? true))).length;
+  const unfinished = relevantAccounts.filter((a) =>
     a.sources.some((s) => s.active && s.setup && !s.setup.ready),
   ).length;
+
+  const parentIds = accountsWithChildren(accounts);
+  const orderedAccounts = orderHierarchically(accounts);
 
   const explainingMethod = explaining ? methodOf(explaining.methodKey) : undefined;
   const explainingAccount = explaining?.accountId
@@ -442,8 +526,9 @@ export default function BalanceSheetAccountsPage() {
         <div>
           <p className="text-sm text-muted">
             {accounts.length > 0
-              ? `${calculating} of ${accounts.length} balance-sheet accounts are calculating` +
-                (unfinished > 0 ? ` · ${unfinished} chosen but not finished` : "")
+              ? `${calculating} of ${relevantAccounts.length} balance-sheet accounts are calculating` +
+                (unfinished > 0 ? ` · ${unfinished} chosen but not finished` : "") +
+                (excludedCount > 0 ? ` · ${excludedCount} excluded` : "")
               : "Balance-sheet accounts appear here once the chart of accounts is mapped."}
           </p>
           <p className="text-2xs text-faint mt-1">
@@ -481,7 +566,7 @@ export default function BalanceSheetAccountsPage() {
                 </tr>
               </thead>
               <tbody>
-                {accounts.map((account) => {
+                {orderedAccounts.map(({ account, depth }) => {
                   const addable = account.availableMethodKeys.filter(
                     (key) => !account.sources.some((s) => s.methodKey === key),
                   );
@@ -490,14 +575,30 @@ export default function BalanceSheetAccountsPage() {
                   );
                   const kind = pendingKind[account.id] ?? "";
                   const chosen = chosenMethodKey(account);
+                  const canExclude = parentIds.has(account.id);
 
                   return (
                     <tr key={account.id} className="border-t border-line/40 align-top hover:bg-surface-mid/20">
                       <td className="px-4 py-3">
-                        <span className="text-body">{accountLabel(account)}</span>
+                        <div className="flex items-center gap-2 flex-wrap" style={depth > 0 ? { paddingLeft: `${depth * 1.25}rem` } : undefined}>
+                          {depth > 0 && (
+                            <span className="text-disabled shrink-0 font-mono text-2xs">{"·".repeat(depth)}└</span>
+                          )}
+                          <span className="text-body">{accountLabel(account)}</span>
+                          {canExclude && (
+                            <ToggleChip active={account.excluded} onClick={() => handleSetExcluded(account, !account.excluded)}>
+                              {account.excluded ? "Excluded" : "Exclude"}
+                            </ToggleChip>
+                          )}
+                        </div>
                       </td>
 
                       <td className="px-4 py-3">
+                        {account.excluded ? (
+                          <span className="text-2xs text-faint" title="This account was marked excluded — its balance comes only from summing its sub-accounts">
+                            Excluded — calculated by summing its sub-accounts
+                          </span>
+                        ) : (
                         <div className="flex flex-col gap-2">
                           {account.sources.length === 0 && (
                             <span className="text-2xs text-faint italic">No method configured</span>
@@ -581,6 +682,7 @@ export default function BalanceSheetAccountsPage() {
                             </div>
                           )}
                         </div>
+                        )}
                       </td>
 
                       {/* formatBalanceCents, never formatCurrencyCents: the em dash in
