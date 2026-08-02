@@ -3,12 +3,14 @@
 //
 // Lifted out of the Financials page, where it was the only place this ever
 // appeared. That was the wrong single home for it. The work it describes is
-// done under Finance > Transactions, and the alert email sends people there --
+// done under Finance > Period Close, and the alert email sends people there --
 // so the one screen someone lands on with this outstanding was the one screen
 // that never mentioned it.
 //
 // It renders nothing at all when nothing is outstanding, which is the normal
-// state, so it costs a reader nothing to have it on more than one surface.
+// state, so it costs a reader nothing to have it on more than one surface --
+// including Manual Entries now, which used to be this banner's one silent
+// exception because the checklist lived there. It doesn't anymore.
 
 import { useMemo } from "react";
 import { usePathname } from "next/navigation";
@@ -18,7 +20,7 @@ import { queryKeys } from "@/lib/query-keys";
 import Banner from "@/app/components/ui/Banner";
 import { priorMonthEnd, formatPeriodLabel, type CloseTasksResponse } from "./closeTasks";
 
-const ENTRY_PATH = "/finance/transactions/manual-entries";
+const ENTRY_PATH = "/finance/period-close";
 
 export default function CloseTasksBanner() {
   const pathname = usePathname();
@@ -46,9 +48,10 @@ export default function CloseTasksBanner() {
 
   if (open.length === 0 && !readyAndDue) return null;
 
-  // Silent on the screen it points at, where the full checklist is already on
-  // display. A banner telling you to go where you are is noise.
-  if (pathname === ENTRY_PATH) return null;
+  // Silent on Period Close itself (index and per-period alike), where the full
+  // checklist is already on display. A banner telling you to go where you are
+  // is noise.
+  if (pathname.startsWith(ENTRY_PATH)) return null;
 
   const label = formatPeriodLabel(periodEnd);
 
@@ -57,8 +60,8 @@ export default function CloseTasksBanner() {
       <Banner tone="info" className="mx-4 sm:mx-6 mb-4 mt-4">
         Every account has been answered for {label}, but nobody has closed the month — its balances are still
         recomputing.{" "}
-        <a href={`${ENTRY_PATH}?periodEnd=${periodEnd}`} className="underline">
-          Close it in Manual Entries
+        <a href={`${ENTRY_PATH}/${periodEnd}`} className="underline">
+          Close it in Period Close
         </a>
         .
       </Banner>
@@ -74,8 +77,8 @@ export default function CloseTasksBanner() {
     <Banner tone="info" className="mx-4 sm:mx-6 mb-4 mt-4">
       {open.length} balance-sheet account{open.length === 1 ? "" : "s"} still need
       {open.length === 1 ? "s" : ""} a {label} balance, from {soonest}.{" "}
-      <a href={`${ENTRY_PATH}?periodEnd=${periodEnd}`} className="underline">
-        Enter them in Manual Entries
+      <a href={`${ENTRY_PATH}/${periodEnd}`} className="underline">
+        Enter them in Period Close
       </a>
       .
     </Banner>

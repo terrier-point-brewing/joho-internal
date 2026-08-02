@@ -42,7 +42,7 @@ describe("renderBalanceCloseEmail", () => {
     // A month-old alert opening on the current month is how somebody enters
     // the right figure against the wrong period end.
     const { html } = renderBalanceCloseEmail([account()], "2026-07-31");
-    expect(html).toContain("/finance/transactions/manual-entries?periodEnd=2026-07-31");
+    expect(html).toContain("/finance/period-close/2026-07-31");
   });
 
   describe("when the app's public address has not been configured", () => {
@@ -57,7 +57,7 @@ describe("renderBalanceCloseEmail", () => {
       const { html } = renderBalanceCloseEmail([account()], "2026-07-31");
       expect(html).not.toContain(APP_URL_FALLBACK);
       expect(html).not.toContain("<a href");
-      expect(html).toContain("Manual Entries");
+      expect(html).toContain("Period Close");
     });
   });
 

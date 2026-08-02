@@ -40,7 +40,7 @@ export function renderBalanceCloseEmail(
   // email is about rather than on whichever month happens to be current when it
   // is eventually read.
   const base = env.appUrl();
-  const entryUrl = `${base}/finance/transactions/manual-entries?periodEnd=${periodEnd}`;
+  const entryUrl = `${base}/finance/period-close/${periodEnd}`;
   const subject = `Balance sheet close ${periodEnd} — ${tasks.length} account${tasks.length === 1 ? "" : "s"} need a balance`;
 
   const items = tasks
@@ -61,7 +61,7 @@ export function renderBalanceCloseEmail(
    */
   const link =
     base === APP_URL_FALLBACK
-      ? `<p>Open the app and go to <strong>Finance &rarr; Transactions &rarr; Manual Entries</strong> to enter them.
+      ? `<p>Open the app and go to <strong>Finance &rarr; Period Close</strong> to enter them.
          (A direct link could not be included: this app's public web address has not been configured.)</p>`
       : `<p><a href="${entryUrl}">Enter balances</a></p>`;
 

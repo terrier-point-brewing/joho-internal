@@ -1,5 +1,5 @@
 // Shapes returned by GET /api/finance/balance-close, shared by the nudge banner
-// and the month-end close panel it links to.
+// and the Period Close surfaces it links to.
 //
 // Both surfaces render the SAME task list, one as a count and one as a piece of
 // work, so they must agree on what a task is. They previously did not: the
