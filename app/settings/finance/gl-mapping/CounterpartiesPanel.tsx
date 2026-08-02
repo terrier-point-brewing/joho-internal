@@ -29,6 +29,7 @@ import AccountSelect, { type CoARef } from "@/app/finance/AccountSelect";
 import Badge from "@/app/components/ui/Badge";
 import SaveHint from "@/app/components/ui/SaveHint";
 import ToggleChip from "@/app/components/ui/ToggleChip";
+import type { Tone } from "@/app/components/ui/tone";
 import MappingFrame from "./MappingFrame";
 import { useMappingData } from "./useMappingData";
 import { useBankFeedRules } from "./useBankFeedRules";
@@ -148,6 +149,11 @@ export default function CounterpartiesPanel() {
   const excludedCount = rows.filter(isExcluded).length;
   const needsMapping = rows.length - excludedCount;
   const mapped = rows.filter((r) => r.chart_of_accounts_id && !isExcluded(r)).length;
+  // Danger draws the eye when something still needs a decision; success confirms
+  // there's nothing left to do; neutral covers "no data yet" / "all out of the books".
+  const summaryTone: Tone = rows.length === 0 || needsMapping === 0
+    ? "neutral"
+    : mapped === needsMapping ? "success" : "danger";
 
   return (
     <MappingFrame
@@ -161,6 +167,7 @@ export default function CounterpartiesPanel() {
         ? `All ${rows.length} counterparties out of the books`
         : `${mapped} of ${needsMapping} counterparties mapped to the chart of accounts`
           + (excludedCount > 0 ? ` (${excludedCount} out of the books)` : "")}
+      summaryTone={summaryTone}
       emptyRows={{
         title: "No counterparties yet.",
         hint: "Sync a bank account on the Transactions → Bank Ledger tab to import them.",

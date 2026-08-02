@@ -17,6 +17,7 @@
 import { useState } from "react";
 import ToggleChip from "@/app/components/ui/ToggleChip";
 import Badge from "@/app/components/ui/Badge";
+import type { Tone } from "@/app/components/ui/tone";
 import MappingFrame from "./MappingFrame";
 import { useBankFeedRules, type FeedRule } from "./useBankFeedRules";
 import { feedName, transactionCount, dateSpan } from "./bankFeeds";
@@ -34,6 +35,11 @@ export default function BankFeedsPanel() {
   }
 
   const included = feeds.filter((f) => f.included).length;
+  // A feed defaults to "off" purely from how it arrived — until somebody flips the
+  // switch (decided), that default hasn't actually been chosen, so it's the
+  // equivalent of an unmapped row elsewhere on this page.
+  const undecided = feeds.filter((f) => !f.decided).length;
+  const summaryTone: Tone = feeds.length === 0 ? "neutral" : undecided > 0 ? "danger" : "success";
 
   return (
     <MappingFrame
@@ -45,7 +51,9 @@ export default function BankFeedsPanel() {
       rowCount={feeds.length}
       summary={feeds.length > 0
         ? `${included} of ${feeds.length} bank feeds count towards the books`
+          + (undecided > 0 ? ` (${undecided} not yet decided)` : "")
         : "Bank feeds appear here once a bank account has been connected and synced."}
+      summaryTone={summaryTone}
       emptyRows={{
         title: "No bank feeds yet.",
         hint: "Connect a bank account and sync it, and it will appear here.",
