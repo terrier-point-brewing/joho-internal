@@ -17,19 +17,20 @@ import {
  *
  * So the card does two things. Its label names what the subtab is FOR, which
  * the subtab label alone never said. And its body splits at the first
- * paragraph: the opening line is the lede, set in the display face at a capped
- * measure, and any remaining paragraphs flow beneath it in two columns at body
- * size. Nothing is hidden or collapsed — this is a reference document, and a
- * reader should never have to click to find out what a section says. The
- * columns spend horizontal room the tab was already wasting instead of vertical
- * room it can't spare.
+ * paragraph: the opening line is the lede, set in the display face, with any
+ * remaining paragraphs BESIDE it at body size. Nothing is hidden or collapsed —
+ * this is a reference document, and a reader should never have to click to find
+ * out what a section says. The second column spends horizontal room the tab was
+ * already wasting instead of vertical room it can't spare.
  *
- * The lede is full-width rather than a column of its own: measured at 1280px, a
- * short lede beside a long body left its own column half empty and made the
- * whole block TALLER than the flat stack it replaced. Columns only pay for
- * themselves on the paragraphs there are several of.
+ * The 4:7 split is load-bearing. An even-ish 5:6 leaves the lede column half
+ * empty next to three body paragraphs, and the block ends up TALLER than the
+ * flat stack it replaced — the short side sets the height while the long side
+ * sets the line count. Giving the lede the narrower column makes it run deeper
+ * at large type while the body runs shallower, so the two columns land close to
+ * level and the card is shorter than either the even split or the flat stack.
  *
- * A single-paragraph intro has no columns at all and renders as one measure-
+ * A single-paragraph intro has no second column and renders as one measure-
  * capped lede, so the five short subtabs look the same as they always did.
  */
 export default function GuideSection({
@@ -55,21 +56,27 @@ export default function GuideSection({
           <p className="font-brand-body text-2xs uppercase tracking-wide text-brand-content-muted">
             {GUIDE_SECTION_PURPOSE[section]}
           </p>
-          <p className="font-brand-display text-lg text-brand-high-contrast leading-relaxed max-w-3xl mt-2">
-            {lede}
-          </p>
-          {hasBody && (
-            <div className="mt-3 lg:columns-2 lg:gap-10">
-              {rest.map((p, i) => (
-                <p
-                  key={i}
-                  className="font-brand-body text-sm text-brand-content leading-relaxed break-inside-avoid mb-3 last:mb-0"
-                >
-                  {p}
-                </p>
-              ))}
-            </div>
-          )}
+          <div
+            className={`mt-2 gap-x-10 ${
+              hasBody ? "lg:grid lg:grid-cols-[minmax(0,4fr)_minmax(0,7fr)]" : ""
+            }`}
+          >
+            <p className="font-brand-display text-lg text-brand-high-contrast leading-relaxed max-w-3xl">
+              {lede}
+            </p>
+            {hasBody && (
+              <div className="flex flex-col gap-3 mt-3 lg:mt-0">
+                {rest.map((p, i) => (
+                  <p
+                    key={i}
+                    className="font-brand-body text-sm text-brand-content leading-relaxed"
+                  >
+                    {p}
+                  </p>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
       {children}
