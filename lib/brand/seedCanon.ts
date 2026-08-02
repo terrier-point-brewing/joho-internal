@@ -385,7 +385,7 @@ export const seedCanon: BrandCanon = {
   //
   // These are the WRITTEN rules only. The artwork and the facets that tell one
   // variation from the next live on the assets themselves — see
-  // lib/brand/marks.ts and migration 20260913090000.
+  // lib/brand/marks.ts and migration 20260922090000.
   marks: [
     {
       kind: "wordmark",

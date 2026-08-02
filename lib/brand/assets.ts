@@ -35,7 +35,7 @@ export interface BrandAsset {
   /** Required for accessible do/don't imagery. Null on older rows. */
   alt_text?: string | null;
 
-  // ── Mark facets (migration 20260913090000) ────────────────────────────────
+  // ── Mark facets (migration 20260922090000) ────────────────────────────────
   // Null on every row predating that migration, and on every kind that isn't a
   // mark. The Marks tab builds its cards out of these.
   /** Chops only: the season this chop belongs to. Null = the generic chop. */
@@ -162,7 +162,7 @@ export async function createAsset(
 // approved rows per (kind,variant,format), so approve-then-archive would violate
 // the index on every re-approve after the first.
 //
-// `format` joined that key in migration 20260913090000. Without it, approving a
+// `format` joined that key in migration 20260922090000. Without it, approving a
 // variation's PNG archived its SVG — the two are the same variation shipped in
 // two files, and a mark card offers both.
 export async function approveAsset(client: SupabaseLikeClient, id: string): Promise<void> {
