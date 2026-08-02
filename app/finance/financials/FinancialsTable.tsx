@@ -131,7 +131,10 @@ function GlNumberBadge({ coaId, glNumberByCoaId }: { coaId: string | null; glNum
 
 // Frozen label column: shared by the header th and every row's first td so the
 // account name stays put while month/total columns scroll horizontally.
-const STICKY_LABEL_CELL = "sticky left-0 z-10";
+// Narrower on mobile (w-36) so the frozen column doesn't crowd out the
+// scrolling month/total data on a phone-width viewport; full w-64 from `sm:`
+// up, matching the pre-consolidation SalesTable's mobile fix.
+const STICKY_LABEL_CELL = "sticky left-0 z-10 w-36 sm:w-64";
 
 // Fixed-size, non-growing, centered expand/collapse slot -- shared by every
 // row type (caret-bearing or not) so a row's own label always starts at the
@@ -158,6 +161,10 @@ function AccountRow({ node, path, ...rest }: RowCommonProps & { node: TreeNode; 
   return (
     <>
       <tr className={`border-t border-line/40 hover:bg-surface/20 ${rowStyle}`}>
+        {/* line-clamp-2 (not truncate) below w-64: on a 144px mobile column, a
+            deeply-nested account plus its indent margin can leave under 80px
+            for the label, so a single-line truncation loses too much -- and a
+            title-tooltip fallback doesn't work on a touch screen anyway. */}
         <td className={`py-1.5 pr-3 text-xs bg-surface ${STICKY_LABEL_CELL} ${ACCOUNT_CELL_BASE}`}>
           {hasChildren ? (
             <button
@@ -167,14 +174,14 @@ function AccountRow({ node, path, ...rest }: RowCommonProps & { node: TreeNode; 
             >
               <span className={`${EXPAND_SLOT} text-faint text-xs`}>{expanded ? "▾" : "▸"}</span>
               <GlNumberBadge coaId={node.row?.coaId ?? null} glNumberByCoaId={glNumberByCoaId} />
-              <span className="truncate font-medium text-strong">{node.label}</span>
+              <span className="line-clamp-2 sm:truncate font-medium text-strong">{node.label}</span>
               {showChannelChip && node.row && <ChannelChip channel={node.row.channel} />}
             </button>
           ) : (
             <div className={`flex items-center gap-1.5 min-w-0 ${indentClass(node.depth)}`}>
               <span className={EXPAND_SLOT} />
               <GlNumberBadge coaId={node.row?.coaId ?? null} glNumberByCoaId={glNumberByCoaId} />
-              <span className="truncate text-secondary">{node.label}</span>
+              <span className="line-clamp-2 sm:truncate text-secondary">{node.label}</span>
               {showChannelChip && node.row && <ChannelChip channel={node.row.channel} />}
             </div>
           )}
@@ -261,7 +268,7 @@ function TableHead({ months, sort, onSort, totalMode }: { months: string[]; sort
   return (
     <thead>
       <tr className="bg-surface border-b border-line sticky top-0 z-10">
-        <th className="py-2 px-4 text-left text-xs text-muted uppercase tracking-wide font-semibold w-64 sticky left-0 z-20 bg-surface">Account</th>
+        <th className="py-2 px-4 text-left text-xs text-muted uppercase tracking-wide font-semibold w-36 sm:w-64 sticky left-0 z-20 bg-surface">Account</th>
         {months.map((m) =>
           onSort ? (
             <SortableTh
