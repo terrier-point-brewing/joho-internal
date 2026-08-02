@@ -49,4 +49,9 @@ describe("emitBrandCss", () => {
     expect(css).toContain('[data-theme="dark"]');
     expect(css).toContain("@media (prefers-color-scheme:dark)");
   });
+
+  it("emits a brand-print scope pinning the light palette in both themes", () => {
+    const css = emitBrandCss(resolveTokens(seedCanon));
+    expect(css).toContain(".brand-print{ --color-brand-canvas:#f5f0e6");
+  });
 });

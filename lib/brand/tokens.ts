@@ -101,6 +101,12 @@ export function emitBrandCss(t: ResolvedTokens): string {
   return (
     `:root{ ${lightDecls} ${fontDecls} }\n` +
     `:root[data-theme="dark"]{ ${darkDecls} }\n` +
-    `@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){ ${darkDecls} }}`
+    `@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){ ${darkDecls} }}\n` +
+    // Print artifacts don't theme: a label is ink on Paper whatever the app's
+    // theme, and embedded artwork (an uploaded wordmark SVG) carries fixed
+    // colors that only the light palette can sit behind. Declared on the
+    // wrapper element, so it beats the :root dark overrides by inheritance
+    // proximity, not specificity.
+    `.brand-print{ ${lightDecls} }`
   );
 }

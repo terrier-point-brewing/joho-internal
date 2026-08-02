@@ -13,9 +13,11 @@ type Element = BrandCanon["labelChassis"]["elements"][number];
  * and not in the Agent Rules brief. An agent asked to lay out a label was given
  * nothing about the chassis it had to respect.
  *
- * Elements are ordered and numbered because the numbering is the diagram — "1
- * Wordmark, 2 Bordered art window, 3 Title slot, 4 The chop" reads top-down the
- * way the panel does.
+ * Elements are ordered and numbered because the numbering is the diagram — the
+ * guide's LabelDiagram pairs its fixed zones to this list by position, so
+ * reordering entries moves their badges. The first four (wordmark, art window,
+ * illustrative name, chop) predate the eleven-element expansion and keep their
+ * slots; new elements append.
  */
 export default function ChassisFields({
   draft,
