@@ -55,6 +55,45 @@ export function formatCurrencyCents(cents: Numeric, decimals = 2): string {
 }
 
 /**
+ * Format a **determined balance** in integer cents — a figure that was worked
+ * out and came back with an answer, where that answer may legitimately be zero.
+ *
+ * Identical to {@link formatCurrencyCents} in every case but exact zero, which
+ * renders `$0.00` instead of the em-dash sentinel. Both exist because they
+ * answer different questions:
+ *
+ *   • {@link formatCurrencyCents} — a line on a statement. Zero means nothing
+ *     landed on that line, and a page of `$0.00` rows is the noise the sentinel
+ *     was written to remove. Used by the P&L, cash-flow and tax statements.
+ *   • `formatBalanceCents` — what an account holds, or a figure a person typed.
+ *     Zero means it was checked and it is empty, which is a real finding.
+ *     Blanking it makes a determined balance indistinguishable from an account
+ *     with no row at all, which is the "null, not zero" rule
+ *     (docs/finance/balance-methods-handoff.md §4) collapsing at the point of
+ *     display rather than in the data. Someone who counts an empty till, saves
+ *     0 and is shown an em dash sees exactly what they saw before they entered
+ *     anything.
+ *
+ * Null / undefined / NaN still return the sentinel: nothing was determined
+ * there, which is exactly what a blank is meant to say.
+ */
+export function formatBalanceCents(cents: Numeric, decimals = 2): string {
+  if (!isFiniteNumber(cents)) return EM_DASH;
+  // Formats the literal 0, not `cents`, so a negative zero — which compares
+  // equal here — cannot render as "-$0.00". Keyed identically to
+  // formatCurrency's formatter, so the memoized instance is shared.
+  if (cents === 0) {
+    return getFormatter(`currency:${decimals}`, {
+      style: "currency",
+      currency: CURRENCY,
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+    }).format(0);
+  }
+  return formatCurrencyCents(cents, decimals);
+}
+
+/**
  * Format a money value already expressed in **dollars** (the unit of `*_usd`
  * and per-unit cost columns). Pass `15.99` to render `$15.99`. Do NOT pass
  * cents here — `1599` would render `$1,599.00`. For a value in integer cents

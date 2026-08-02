@@ -17,7 +17,7 @@
  * pointing at no connection, on an app with no Plaid credentials. Three
  * different reasons it produces nothing, none of them visible from the row.
  */
-import { formatEnteredAmountCents } from "../../manualEntryAmount";
+import { formatBalanceCents } from "@/lib/format";
 import type { BalanceMethod, ConnectionProvider, SetupField } from "./registry";
 
 /** A connection as the setup panel needs to see it. No secrets, by construction. */
@@ -168,12 +168,12 @@ function fieldState(field: SetupField, facts: SetupFacts): SetupFieldState {
     return {
       ...base,
       satisfied: entered !== null,
-      // Rendered through the entered-amount formatter, not the shared money
+      // Rendered through the determined-balance formatter, not the statement
       // one: a confirmed zero has to look different from an account nobody has
       // answered, and this line sits directly above a blocker that says exactly
       // that. `entered &&` would be the same trap one level up -- a zero-cents
       // reading is a reading.
-      value: entered ? `${formatEnteredAmountCents(entered.cents)} as at ${entered.asOfDate}` : null,
+      value: entered ? `${formatBalanceCents(entered.cents)} as at ${entered.asOfDate}` : null,
       blocker: entered ? null : "No balance has been entered yet.",
     };
   }

@@ -13,7 +13,7 @@ import { fetchJson } from "@/app/production/hooks/queries";
 import { usePermissions } from "@/lib/hooks/useUserRole";
 import { CAP } from "@/lib/auth/capabilities";
 import { queryKeys } from "@/lib/query-keys";
-import { formatCurrencyCents } from "@/lib/format";
+import { formatBalanceCents, formatCurrencyCents } from "@/lib/format";
 import {
   monthEnd,
   type ManualEntryKind,
@@ -23,7 +23,6 @@ import {
 import { buildManualEntryPatch } from "@/lib/finance/manualEntryPatch";
 import {
   formatAmountInput,
-  formatEnteredAmountCents,
   parseAmountInputCents,
   daysInclusive,
   perDayCents,
@@ -285,7 +284,7 @@ function ManualEntryRow({
           cash tin indistinguishable on screen from an account nobody had
           touched. Both kinds, not just balances: a zero flow is a deliberate
           correction and reads the same way. */}
-      <td className="px-4 py-2 text-right font-mono tabular-nums text-strong">{formatEnteredAmountCents(entry.amountCents)}</td>
+      <td className="px-4 py-2 text-right font-mono tabular-nums text-strong">{formatBalanceCents(entry.amountCents)}</td>
       <td className="px-4 py-2 text-right font-mono text-muted">
         {isFlow && days ? formatCurrencyCents(perDayCents(entry.amountCents, days)) : <span className="text-disabled">—</span>}
       </td>
