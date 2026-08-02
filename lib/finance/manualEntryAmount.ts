@@ -4,8 +4,10 @@
 // Unlike a typical currency input, this one must accept — not clamp or
 // reject — a leading "-": contra-accounts and credit-side balances are
 // legitimately negative in this codebase's stored convention.
-
-import { formatCurrencyCents } from "@/lib/format";
+//
+// Rendering lives in @/lib/format: these entries display through
+// `formatBalanceCents`, which shows a stored zero as "$0.00" rather than the
+// em-dash sentinel `formatCurrencyCents` reserves for a figure nobody supplied.
 
 /**
  * Live-formats a raw amount-input string with thousands separators, keeping
@@ -56,30 +58,6 @@ export function parseAmountInputCents(raw: string): number | null {
   // rejected one, and -0 compares unequal to 0 under Object.is — which is what
   // a strict equality check in a caller or a test would use.
   return cents || 0;
-}
-
-/**
- * Renders an amount somebody actually TYPED, as opposed to one a statement
- * computed.
- *
- * ── Why this exists rather than calling formatCurrencyCents ──────────────────
- * `formatCurrencyCents` renders exact zero as the em-dash sentinel, and that is
- * correct where it is used: a profit-and-loss statement full of `$0.00` rows is
- * unreadable, and on a computed line a zero and a nothing really are the same
- * uninteresting fact. It is shared with the verified statements and must not be
- * changed.
- *
- * An entered balance is the opposite case, and it defeated the whole point of
- * allowing zero. Someone counts an empty till, enters 0, and the screen shows
- * them the same em dash it showed before they entered anything -- so the app
- * still says "nothing entered" about a figure a person checked and recorded.
- * Here a zero is the answer, and it has to look different from its absence.
- *
- * Negatives keep the accounting parentheses, because a contra or credit-side
- * balance means the same thing on this screen as on any other.
- */
-export function formatEnteredAmountCents(cents: number): string {
-  return cents === 0 ? "$0.00" : formatCurrencyCents(cents);
 }
 
 /** Whole days spanned by [startDate, endDate], inclusive of both ends. */

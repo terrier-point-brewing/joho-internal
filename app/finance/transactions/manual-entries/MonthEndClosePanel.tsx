@@ -24,7 +24,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchJson } from "@/app/production/hooks/queries";
 import { queryKeys } from "@/lib/query-keys";
-import { formatAmountInput, formatEnteredAmountCents, parseAmountInputCents } from "@/lib/finance/manualEntryAmount";
+import { formatBalanceCents } from "@/lib/format";
+import { formatAmountInput, parseAmountInputCents } from "@/lib/finance/manualEntryAmount";
 import { formatPeriodLabel, recentMonthEnds, type CloseTaskDetail, type CloseTasksResponse } from "../../closeTasks";
 import Badge from "@/app/components/ui/Badge";
 import Banner from "@/app/components/ui/Banner";
@@ -134,7 +135,7 @@ function OutstandingRow({
 
       <p className="text-2xs text-faint">
         {task.previousBalance
-          ? `Last entered ${formatEnteredAmountCents(task.previousBalance.cents)} as at ${fmtDate(task.previousBalance.asOfDate)}.`
+          ? `Last entered ${formatBalanceCents(task.previousBalance.cents)} as at ${fmtDate(task.previousBalance.asOfDate)}.`
           : "No balance has ever been entered for this account."}
       </p>
 
@@ -292,7 +293,7 @@ export default function MonthEndClosePanel({
                 </span>
                 {t.enteredCents !== null && (
                   <span className="ml-auto font-mono tabular-nums text-body shrink-0">
-                    {formatEnteredAmountCents(t.enteredCents)}
+                    {formatBalanceCents(t.enteredCents)}
                   </span>
                 )}
               </p>

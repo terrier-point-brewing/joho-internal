@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   EM_DASH,
+  formatBalanceCents,
   formatCurrency,
   formatCurrencyCents,
   formatNumber,
@@ -49,6 +50,53 @@ describe("formatCurrencyCents", () => {
 
   it("returns EM_DASH for Infinity", () => {
     expect(formatCurrencyCents(Infinity)).toBe(EM_DASH);
+  });
+});
+
+describe("formatBalanceCents", () => {
+  it("renders exact zero as $0.00, NOT the em-dash sentinel", () => {
+    // The whole reason this formatter exists. A balance of zero was determined;
+    // the sentinel is reserved for balances that were not.
+    expect(formatBalanceCents(0)).toBe("$0.00");
+    expect(formatBalanceCents(0)).not.toBe(EM_DASH);
+  });
+
+  it("renders negative zero as $0.00, never -$0.00", () => {
+    expect(formatBalanceCents(-0)).toBe("$0.00");
+  });
+
+  it("keeps the sentinel for a balance that was never determined", () => {
+    expect(formatBalanceCents(null)).toBe(EM_DASH);
+    expect(formatBalanceCents(undefined)).toBe(EM_DASH);
+    expect(formatBalanceCents(NaN)).toBe(EM_DASH);
+    expect(formatBalanceCents(Infinity)).toBe(EM_DASH);
+  });
+
+  it("matches formatCurrencyCents everywhere except zero", () => {
+    // Pins the divergence to zero alone. Anything else drifting apart would
+    // mean a manual-entries screen quietly disagreeing with the balance sheet
+    // about what a number looks like.
+    for (const cents of [1599, -2500, 123456789, 1, -1, 0.5]) {
+      expect(formatBalanceCents(cents), String(cents)).toBe(formatCurrencyCents(cents));
+    }
+    expect(formatBalanceCents(0)).not.toBe(formatCurrencyCents(0));
+  });
+
+  it("renders negatives in parentheses (accounting style)", () => {
+    // Contra-accounts and credit-side balances are stored negative here, and
+    // they mean the same thing on this screen as on any other.
+    expect(formatBalanceCents(-2500)).toBe("($25.00)");
+  });
+
+  it("honours the decimal count at zero too", () => {
+    expect(formatBalanceCents(0, 0)).toBe("$0");
+    expect(formatBalanceCents(0, 3)).toBe("$0.000");
+  });
+
+  it("leaves formatCurrencyCents' zero behaviour alone", () => {
+    // The statement formatter is shared with the verified P&L, cash-flow and
+    // tax statements. Its zero-as-blank is deliberate and must not drift.
+    expect(formatCurrencyCents(0)).toBe(EM_DASH);
   });
 });
 

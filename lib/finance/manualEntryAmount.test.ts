@@ -1,12 +1,6 @@
 import { describe, it, expect } from "vitest";
-import {
-  formatAmountInput,
-  formatEnteredAmountCents,
-  parseAmountInputCents,
-  daysInclusive,
-  perDayCents,
-} from "./manualEntryAmount";
-import { formatCurrencyCents, EM_DASH } from "@/lib/format";
+import { formatAmountInput, parseAmountInputCents, daysInclusive, perDayCents } from "./manualEntryAmount";
+import { formatBalanceCents, EM_DASH } from "@/lib/format";
 
 /**
  * The read half of allowing zero, and the half that was missed.
@@ -19,35 +13,34 @@ import { formatCurrencyCents, EM_DASH } from "@/lib/format";
  *
  * `formatCurrencyCents` is right to do that and must not change: it is shared
  * with the verified statements, where a page of $0.00 rows is the problem it
- * was written to solve. The distinction is the SURFACE, not the number.
+ * was written to solve. The distinction is the SURFACE, not the number, so
+ * these screens render through `formatBalanceCents` instead.
+ *
+ * `formatBalanceCents` is specified in lib/format.test.ts. What is pinned here
+ * is the join: the number this module's parser produces for "0" has to survive
+ * all the way to a figure on screen. Either half alone leaves the feature
+ * half-built, which is exactly what shipped.
  */
-describe("formatEnteredAmountCents", () => {
-  it("renders a stored zero as a real figure, never as the em-dash sentinel", () => {
-    expect(formatEnteredAmountCents(0)).toBe("$0.00");
-    expect(formatEnteredAmountCents(0)).not.toBe(EM_DASH);
-    expect(formatEnteredAmountCents(0)).not.toContain(EM_DASH);
+describe("a saved zero, end to end", () => {
+  it("renders as a real figure, never as the em-dash sentinel", () => {
+    const saved = parseAmountInputCents("0");
+    expect(saved).toBe(0);
+    expect(formatBalanceCents(saved)).toBe("$0.00");
+    expect(formatBalanceCents(saved)).not.toBe(EM_DASH);
+    expect(formatBalanceCents(saved)).not.toContain(EM_DASH);
   });
 
-  it("differs from the shared money formatter on exactly one input", () => {
-    // Pins the divergence to zero alone. Anything else drifting apart would
-    // mean a manual-entries screen quietly disagreeing with the balance sheet
-    // about what a number looks like.
-    for (const cents of [-125000, -1, 1, 1599, 2042913]) {
-      expect(formatEnteredAmountCents(cents), String(cents)).toBe(formatCurrencyCents(cents));
-    }
-    expect(formatEnteredAmountCents(0)).not.toBe(formatCurrencyCents(0));
+  it("survives the round trip from a typed \"-0\" too", () => {
+    // parseAmountInputCents collapses -0 to 0; the formatter independently
+    // refuses to render "-$0.00". Neither may start relying on the other.
+    expect(formatBalanceCents(parseAmountInputCents("-0"))).toBe("$0.00");
   });
 
-  it("keeps accounting parentheses on a negative balance", () => {
-    // Contra-accounts and credit-side balances are stored negative here, and
-    // they mean the same thing on this screen as on any other.
-    expect(formatEnteredAmountCents(-125000)).toBe("($1,250.00)");
-  });
-
-  it("round-trips what the input parser produced for zero", () => {
-    // The two halves have to agree: parse "0" to 0, then render 0 visibly.
-    // Either one alone leaves the feature half-built, which is what shipped.
-    expect(formatEnteredAmountCents(parseAmountInputCents("0")!)).toBe("$0.00");
+  it("still shows the sentinel when nothing was entered at all", () => {
+    // The distinction the whole change exists to preserve: a blank input
+    // parses to null, and null is what a blank on screen is meant to mean.
+    expect(parseAmountInputCents("")).toBeNull();
+    expect(formatBalanceCents(parseAmountInputCents(""))).toBe(EM_DASH);
   });
 });
 
