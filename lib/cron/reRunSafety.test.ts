@@ -14,12 +14,22 @@
  * re-sync was overwriting hand-assigned accounts on order lines.
  *
  * The per-module tests already cover the mechanics. What this file adds is the
- * cross-job answer in one place, including the two jobs whose answer is NO —
- * pinned here deliberately, so that changing the behaviour has to come with
- * changing this file, and so the finding cannot quietly stop being true.
+ * cross-job answer in one place, so that changing any job's answer has to come
+ * with changing this file.
+ *
+ * It has already earned that. The invoice-line block below was written to pin
+ * an answer of NO — finance-sync and finance-gap-scan rebuilt an invoice's
+ * lines from the catalogue with no read-before-write at all — and inverting it
+ * is what closed that finding.
  */
-import { describe, it, expect } from "vitest";
-import { buildPosLineItems, buildInvoiceLineItems } from "@/lib/finance/syncPosTransactions";
+import { describe, it, expect, vi } from "vitest";
+
+// The invoice half of syncSquareOrders builds its line-item indexes from the
+// Square catalog. None of these tests turn on a real catalog item.
+vi.mock("@/lib/square/catalog", () => ({ fetchCatalogItems: async () => [] }));
+
+import { buildPosLineItems, syncSquareOrders } from "@/lib/finance/syncPosTransactions";
+import { financeSyncDb } from "@/lib/finance/__fixtures__/financeSyncDb";
 import { resolveExpenseMapping, type RuleRef, type CounterpartyRuleRef } from "@/lib/finance/expenses";
 import { pruneReclassifiedBankExpenses } from "@/lib/finance/rampSync";
 import { preserveOperatorCoding } from "@/lib/finance/balances/plaidTransactionSync";
@@ -129,6 +139,17 @@ function squareOrder() {
   } as any;
 }
 
+/** The same order as syncSquareOrders receives it: identified and completed. */
+function invoiceOrder() {
+  return {
+    ...squareOrder(),
+    id: "order-1",
+    location_id: "loc-1",
+    state: "COMPLETED",
+    created_at: "2026-07-23T10:00:00Z",
+  };
+}
+
 /** The catalogue's answer, which is what a re-sync reaches for by default. */
 const catalogSaysTaproom = () => "coa-taproom-sales";
 
@@ -174,40 +195,79 @@ describe("finance-sync and finance-gap-scan: an order line", () => {
   });
 });
 
-describe("finance-sync and finance-gap-scan: an INVOICE line does NOT survive", () => {
+describe("finance-sync and finance-gap-scan: an INVOICE line", () => {
   /**
-   * The finding. Re-syncing an order raised from an invoice rebuilds that
-   * invoice's lines from the catalogue with no read-before-write at all, so a
-   * hand-set account on an invoice line is replaced — the opposite of what the
-   * order-line path two functions above does.
+   * This block used to pin the opposite answer. Re-syncing an order raised from
+   * an invoice rebuilt that invoice's lines from the catalogue with no
+   * read-before-write at all, so a hand-set account was replaced — and on a
+   * product the catalogue does not map, replaced with nothing.
    *
-   * Not fixed here on purpose. invoice_line_items feeds the profit and loss,
-   * the cash-flow statement and the transactions grid, all verified and in
-   * production use, and the fix has a second half: this builder numbers its
-   * lines from one while the canonical writer numbers from zero and skips
-   * excise, so the two disagree about which line is which. Changing that is a
-   * write-path change and belongs in its own piece of work.
+   * The fix was not to add a prior-state argument to the builder that did it.
+   * That builder numbered lines from one while the canonical writer numbers
+   * from zero and drops carve-out excise lines, so the two disagreed about
+   * which row is which and any preservation keyed on a line number would have
+   * matched the wrong row. There is now a single writer: syncSquareOrders calls
+   * buildInvoiceLineItemRows + persistInvoiceLineItems, the same pair the
+   * invoice sync and the export routes use.
    *
-   * What IS done about it: the jobs that can reach this path carry a warning a
-   * person sees before pressing the button, and the nightly finance-sync still
-   * runs the canonical invoice sync afterwards, which does preserve.
+   * These run the real sync against a stub that remembers, because that is
+   * where the damage was — in the relationship between a builder and a writer,
+   * not inside either one.
    */
-  it("takes no prior state, so there is nothing for it to preserve", () => {
-    expect(buildInvoiceLineItems.length).toBe(3);
+  const seed = {
+    invoices: [{ id: "invoice-1", raw_data: { square_order_id: "order-1" } }],
+    square_catalog_variations: [{
+      square_variation_id: "var-hazy",
+      chart_of_accounts_id: "coa-taproom-sales",
+      chart_of_accounts_id_pos: null,
+      chart_of_accounts_id_invoice: null,
+    }],
+  };
+
+  /** One stored line, as a previous sync left it. */
+  const handCoded = (coa: string | null) => [{
+    invoice_id: "invoice-1", sort_order: 0, description: "Hazy IPA",
+    square_line_item_uid: "line-1", chart_of_accounts_id: coa,
+  }];
+
+  it("keeps an account somebody set by hand, instead of reverting to the catalogue", async () => {
+    const db = financeSyncDb({ ...seed, invoice_line_items: handCoded("coa-chosen-by-hand") });
+
+    await syncSquareOrders(db.client, [invoiceOrder()]);
+
+    expect(db.rows("invoice_line_items").map((r) => r.chart_of_accounts_id)).toEqual(["coa-chosen-by-hand"]);
   });
 
-  it("writes the catalogue's account over whatever was there", () => {
-    const [row] = buildInvoiceLineItems("invoice-1", squareOrder(), () => "coa-from-catalogue");
+  it("keeps it even on a product the catalogue does not map", async () => {
+    // The damaging case: this line used to come back empty rather than merely
+    // reclassified, so the coding was gone rather than wrong.
+    const db = financeSyncDb({
+      invoices: seed.invoices,
+      square_catalog_variations: [],
+      invoice_line_items: handCoded("coa-chosen-by-hand"),
+    });
 
-    expect(row.chart_of_accounts_id).toBe("coa-from-catalogue");
+    await syncSquareOrders(db.client, [invoiceOrder()]);
+
+    expect(db.rows("invoice_line_items").map((r) => r.chart_of_accounts_id)).toEqual(["coa-chosen-by-hand"]);
   });
 
-  it("writes no account at all for a product the catalogue does not map", () => {
-    // Which is the damaging case: a hand-coded line on an unmapped product comes
-    // back empty rather than merely reclassified.
-    const [row] = buildInvoiceLineItems("invoice-1", squareOrder(), () => null);
+  it("still applies the catalogue to a line nobody has touched", async () => {
+    const db = financeSyncDb(seed);
 
-    expect(row.chart_of_accounts_id).toBeNull();
+    await syncSquareOrders(db.client, [invoiceOrder()]);
+
+    expect(db.rows("invoice_line_items").map((r) => r.chart_of_accounts_id)).toEqual(["coa-taproom-sales"]);
+  });
+
+  it("leaves the invoice untouched when it cannot read what is already there", async () => {
+    const db = financeSyncDb({ ...seed, invoice_line_items: handCoded("coa-chosen-by-hand") });
+    db.failSelectsOn("invoice_line_items");
+
+    const result = await syncSquareOrders(db.client, [invoiceOrder()]);
+
+    expect(db.rows("invoice_line_items").map((r) => r.chart_of_accounts_id)).toEqual(["coa-chosen-by-hand"]);
+    expect(result.synced).toBe(0);
   });
 });
 

@@ -5,7 +5,7 @@ import { buildKegIndex } from "@/lib/reports/kegs";
 import { canOzPerUnit } from "@/lib/reports/bbl-tracker";
 import { CATEGORY_IDS } from "@/lib/constants/categories";
 import { classifyLineItem } from "@/lib/finance/classify";
-import { buildLineItemTaxRows } from "@/lib/finance/syncPosTransactions";
+import { buildLineItemTaxRows } from "@/lib/finance/lineItemTaxRows";
 
 export interface LineItemCoa {
   chart_of_accounts_id: string | null;
@@ -48,12 +48,15 @@ export interface CanonicalLineItemRow {
   total_cents: number;
   square_catalog_variation_id: string | null;
   /**
-   * Square's per-line uid. MUST be written here rather than left to
-   * syncPosTransactions.ts's buildInvoiceLineItems: persistInvoiceLineItems
-   * upserts on (invoice_id, sort_order), so a column absent from this type is
-   * never overwritten. That let a 1-based uid from the other writer survive
-   * under this builder's 0-based, excise-skipping sort_order -- corrupting 60
-   * of 64 populated uids before this fix.
+   * Square's per-line uid. MUST be written here rather than left to another
+   * writer: persistInvoiceLineItems upserts on (invoice_id, sort_order), so a
+   * column absent from this type is never overwritten. syncPosTransactions.ts
+   * used to write invoice lines itself, numbering them from 1 across every
+   * order line, and its uids survived underneath this builder's 0-based,
+   * excise-skipping sort_order -- corrupting 60 of 64 populated uids. That
+   * second writer is gone (it also destroyed hand-set accounts, which is why),
+   * but the column stays here: correct by construction beats correct by
+   * agreement between two files.
    */
   square_line_item_uid: string | null;
   chart_of_accounts_id: string | null;

@@ -33,13 +33,15 @@ import { recordProviderSyncResult } from "@/lib/finance/balances/connections";
  * a wider nightly *destructive* rebuild, so 3 days was a cap on the blast
  * radius rather than a judgement about coverage.
  *
- * Still deliberately short. Every invoice-backed order in the window has its
- * invoice_line_items deleted and rebuilt through the non-canonical path flagged
- * in lib/finance/syncPosTransactions.ts (different sort_order convention, can
- * orphan invoice tax rows), so the window is bounded by that hazard, not by
- * cost. A week covers a long weekend of failed webhook deliveries; anything
- * older is the gap scan's job (lib/cron/jobs/financeGapScan.ts), which re-syncs
- * only the days that actually disagree with Square.
+ * Still deliberately short, but no longer because a wider window would do
+ * damage. Invoice-backed orders in the window used to have their
+ * invoice_line_items rebuilt through a second, non-canonical writer that
+ * numbered rows differently from the canonical one; that writer is gone and
+ * this path now preserves hand-set accounts on both kinds of line. What bounds
+ * the window now is plain cost: a week covers a long weekend of failed webhook
+ * deliveries, and anything older is the gap scan's job
+ * (lib/cron/jobs/financeGapScan.ts), which re-syncs only the days that actually
+ * disagree with Square.
  *
  * The window is fixed rather than chosen by the caller for a reason: a manual
  * run has to mean the same thing as a scheduled one, or the monitor's history

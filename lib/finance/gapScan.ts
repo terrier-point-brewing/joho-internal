@@ -7,11 +7,10 @@
  * how May 2026's refunds went missing for two and a half months: refund sync
  * did not exist when May was backfilled, and nothing ever reached back.
  *
- * Widening the nightly window would fix it by brute force, but every
- * invoice-backed order in the window gets its invoice_line_items rebuilt
- * through the non-canonical path flagged in syncPosTransactions.ts. So instead
- * of rebuilding months of orders nightly, this compares cheap per-day COUNTS
- * and re-syncs only the days that actually disagree — usually none.
+ * Widening the nightly window would fix it by brute force, at the cost of
+ * re-pulling and rewriting months of orders every night. So instead this
+ * compares cheap per-day COUNTS and re-syncs only the days that actually
+ * disagree — usually none.
  *
  * Pure: the caller supplies the already-fetched orders and rows.
  */

@@ -1,14 +1,21 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+
+// syncSquareOrders reaches the catalog to build the canonical invoice-line
+// indexes. Nothing in these tests depends on a real catalog item, so an empty
+// one keeps the sync entirely in-memory.
+vi.mock("@/lib/square/catalog", () => ({ fetchCatalogItems: async () => [] }));
+
 import {
   classifyOrderForSync,
   buildCoaResolvers,
   buildInvoiceLookup,
   buildOrderPayload,
   buildPosLineItems,
-  buildInvoiceLineItems,
   buildLineItemTaxRows,
+  syncSquareOrders,
   type CatalogCoaMapping,
 } from "./syncPosTransactions";
+import { financeSyncDb, type Row } from "./__fixtures__/financeSyncDb";
 import type { Order } from "@/types/square";
 
 const order: Order = {
@@ -272,28 +279,175 @@ describe("buildLineItemTaxRows", () => {
   });
 });
 
-describe("buildInvoiceLineItems", () => {
-  it("builds invoice rows with a 1-based sort order and joined description", () => {
-    const items = buildInvoiceLineItems("INV_1", order, () => "COA_INV");
-    expect(items).toHaveLength(1);
-    expect(items[0]).toMatchObject({
+/**
+ * The invoice half of syncSquareOrders, end to end against a stub that
+ * remembers.
+ *
+ * This used to be a pure-builder test, and that is exactly why the defect it
+ * now pins went unseen: the damage lived in the relationship between a builder
+ * that numbered invoice lines from 1 and the writer that keys them from 0, not
+ * inside either one. So these run the real function and assert on the rows that
+ * end up stored.
+ */
+describe("syncSquareOrders — invoice-backed orders", () => {
+  const INVOICE_ORDER_SEED = {
+    invoices: [{ id: "INV_1", raw_data: { square_order_id: "ORDER_1" } }],
+    square_catalog_variations: [
+      {
+        square_variation_id: "VAR_A",
+        chart_of_accounts_id: "COA_CATALOGUE",
+        chart_of_accounts_id_pos: null,
+        chart_of_accounts_id_invoice: null,
+      },
+    ],
+  };
+
+  function db(existingLines: Row[] = []) {
+    return financeSyncDb({ ...INVOICE_ORDER_SEED, invoice_line_items: existingLines });
+  }
+
+  const lines = (d: ReturnType<typeof db>) =>
+    d.rows("invoice_line_items").sort((a, b) => (a.sort_order as number) - (b.sort_order as number));
+
+  /** A stored line as the canonical writer leaves it, for seeding a re-sync. */
+  const storedLine = (over: Row = {}): Row => ({
+    invoice_id: "INV_1",
+    sort_order: 0,
+    description: "Hazy IPA — Pint",
+    square_line_item_uid: "LI_1",
+    chart_of_accounts_id: null,
+    ...over,
+  });
+
+  it("numbers lines from zero, the same way every other invoice writer does", async () => {
+    const d = db();
+
+    await syncSquareOrders(d.client, [order]);
+
+    expect(lines(d).map((r) => r.sort_order)).toEqual([0]);
+  });
+
+  it("keeps an account somebody set by hand, instead of reverting to the catalogue", async () => {
+    const d = db([storedLine({ chart_of_accounts_id: "COA_CHOSEN_BY_HAND" })]);
+
+    await syncSquareOrders(d.client, [order]);
+
+    expect(lines(d).map((r) => r.chart_of_accounts_id)).toEqual(["COA_CHOSEN_BY_HAND"]);
+  });
+
+  // The damaging case: before this fix a hand-coded line on a product the
+  // catalogue does not map came back empty, not merely reclassified.
+  it("keeps a hand-set account on a line the catalogue does not map", async () => {
+    const uncatalogued: Order = {
+      ...order,
+      line_items: [{ uid: "LI_1", quantity: "1", name: "Custom Build", gross_sales_money: { amount: 5000, currency: "USD" } }],
+    };
+    const d = db([storedLine({ description: "Custom Build", chart_of_accounts_id: "COA_CHOSEN_BY_HAND" })]);
+
+    await syncSquareOrders(d.client, [uncatalogued]);
+
+    expect(lines(d).map((r) => r.chart_of_accounts_id)).toEqual(["COA_CHOSEN_BY_HAND"]);
+  });
+
+  it("still applies the catalogue to a line nobody has touched", async () => {
+    const d = db();
+
+    await syncSquareOrders(d.client, [order]);
+
+    expect(lines(d)[0].chart_of_accounts_id).toBe("COA_CATALOGUE");
+  });
+
+  it("writes the money columns tax-free, exactly as the canonical writer does", async () => {
+    const d = db();
+
+    await syncSquareOrders(d.client, [order]);
+
+    // Square's line total_money is 1450 (tax-inclusive); revenue is 1400 - 50.
+    expect(lines(d)[0]).toMatchObject({
       invoice_id: "INV_1",
-      sort_order: 1,
-      description: "Hazy IPA – Pint",
       quantity: 2,
       unit_price_cents: 700,
-      total_cents: 1350,
       gross_sales_cents: 1400,
+      discount_cents: 50,
       net_sales_cents: 1350,
+      total_cents: 1350,
+      tax_cents: 100,
       square_catalog_variation_id: "VAR_A",
-      chart_of_accounts_id: "COA_INV",
+      square_line_item_uid: "LI_1",
     });
   });
 
-  it("excludes tax from total_cents and net_sales_cents", () => {
-    const items = buildInvoiceLineItems("INV_1", order, () => null);
-    // Square line total_money is 1450 (tax-inclusive); revenue is 1400-50.
-    expect(items[0].total_cents).toBe(1350);
-    expect(items[0].net_sales_cents).toBe(1350);
+  // Columns the old builder never wrote at all, so a re-synced invoice lost its
+  // categories until the nightly canonical sync put them back.
+  it("writes the category and catalogue name the old builder left empty", async () => {
+    const d = db();
+
+    await syncSquareOrders(d.client, [order]);
+
+    expect(lines(d)[0]).toMatchObject({ category: "other", line_item_name: "Hazy IPA", variation_name: "Pint" });
+  });
+
+  it("drops a carve-out excise line and renumbers the survivors contiguously", async () => {
+    const withCarveOut: Order = {
+      ...order,
+      discounts: [{ uid: "d1", name: "Excise carve out", scope: "LINE_ITEM", applied_money: { amount: 525, currency: "USD" } }],
+      line_items: [
+        { uid: "a", quantity: "1", name: "Packaging Fee", gross_sales_money: { amount: 1200, currency: "USD" } },
+        { uid: "b", quantity: "1", name: "Barrel Excise Tax", gross_sales_money: { amount: 525, currency: "USD" } },
+        { uid: "c", quantity: "1", name: "Delivery Fee", gross_sales_money: { amount: 3000, currency: "USD" } },
+      ],
+    };
+    const d = db();
+
+    await syncSquareOrders(d.client, [withCarveOut]);
+
+    expect(lines(d).map((r) => [r.sort_order, r.description])).toEqual([[0, "Packaging Fee"], [1, "Delivery Fee"]]);
+  });
+
+  it("rebuilds the invoice's tax rows, which this path used to leave to somebody else", async () => {
+    const taxed: Order = {
+      ...order,
+      taxes: [{ uid: "t1", catalog_object_id: "TAX_GEN", name: "General Sales Tax", percentage: "7.25" }],
+      line_items: [{ ...order.line_items![0], applied_taxes: [{ uid: "at1", tax_uid: "t1", applied_money: { amount: 100, currency: "USD" } }] }],
+    };
+    const d = db();
+
+    await syncSquareOrders(d.client, [taxed]);
+
+    expect(d.rows("invoice_line_item_taxes")).toEqual([
+      { id: expect.any(String), line_item_id: lines(d)[0].id, square_tax_id: "TAX_GEN", tax_name: "General Sales Tax", tax_pct: 7.25, amount_cents: 100 },
+    ]);
+  });
+
+  // The order-line path's fail-safe, now on the invoice side too: if we cannot
+  // read what is there, we do not get to replace it.
+  it("leaves the invoice completely alone when its prior lines cannot be read", async () => {
+    const d = db([storedLine({ chart_of_accounts_id: "COA_CHOSEN_BY_HAND" })]);
+    d.failSelectsOn("invoice_line_items");
+
+    const result = await syncSquareOrders(d.client, [order]);
+
+    expect(lines(d).map((r) => r.chart_of_accounts_id)).toEqual(["COA_CHOSEN_BY_HAND"]);
+    expect(result.synced).toBe(0);
+    expect(result.errors?.some((e) => e.includes("Prior invoice line state"))).toBe(true);
+  });
+
+  it("withdraws the lines of an invoice whose order was canceled", async () => {
+    const d = db([storedLine({ chart_of_accounts_id: "COA_CHOSEN_BY_HAND" })]);
+
+    const result = await syncSquareOrders(d.client, [{ ...order, state: "CANCELED" }]);
+
+    expect(lines(d)).toEqual([]);
+    expect(result.canceled).toBe(1);
+  });
+
+  it("converges: a second run over the same order changes nothing", async () => {
+    const d = db();
+    await syncSquareOrders(d.client, [order]);
+    const first = lines(d);
+
+    await syncSquareOrders(d.client, [order]);
+
+    expect(lines(d)).toEqual(first);
   });
 });
