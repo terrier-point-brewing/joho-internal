@@ -17,6 +17,11 @@ const SHAPE_LABEL: Record<NonNullable<BrandAsset["shape"]>, string> = {
   other: "Irregular",
 };
 
+const ORIENTATION_LABEL: Record<NonNullable<BrandAsset["orientation"]>, string> = {
+  horizontal: "Horizontal",
+  vertical: "Vertical",
+};
+
 /** A facet, shown only when the uploader declared one. */
 function Facet({ label, value }: { label: string; value: string | null | undefined }) {
   if (!value) return null;
@@ -38,14 +43,14 @@ function Facet({ label, value }: { label: string; value: string | null | undefin
  */
 function MarkRules({ spec }: { spec: MarkSpec }) {
   const { dos, donts } = splitByPolarity(normalizeRules(spec.usage, "do"));
+  const specRows = spec.specs ?? [];
   const hasBody =
     dos.length > 0 ||
     donts.length > 0 ||
     (spec.clearspace?.length ?? 0) > 0 ||
     (spec.oneRule?.length ?? 0) > 0;
-  const specSheets = spec.variants.filter((v) => v.specs.length > 0);
 
-  if (!hasBody && specSheets.length === 0 && !spec.note) return null;
+  if (!hasBody && specRows.length === 0 && !spec.note) return null;
 
   return (
     <div className="flex flex-col gap-3 mb-4">
@@ -106,20 +111,16 @@ function MarkRules({ spec }: { spec: MarkSpec }) {
         </div>
       )}
 
-      {/* Cut-level written specs — typeface, tracking, terminal. These describe
-          the drawing, so they sit with the rules rather than on a variation
-          card: every variation below is the same drawing. */}
-      {specSheets.length > 0 && (
-        <div className="grid gap-3 sm:grid-cols-2">
-          {specSheets.map((variant, i) => (
-            <SpecCard
-              key={variant.id ?? i}
-              title={variant.code}
-              rows={variant.specs.map((s) => ({ label: s.key, value: s.value }))}
-              footer={variant.cut}
-            />
-          ))}
-        </div>
+      {/* The mark's own spec sheet — the boundaries every cut is chosen
+          within (frame, orientation, valid color combinations). One card,
+          same as the chop's: a wordmark is largely fixed, so what a reader
+          needs is the short list of what varies, not a sheet per cut. */}
+      {specRows.length > 0 && (
+        <SpecCard
+          title={spec.kind === "wordmark" ? "Wordmark specification" : "Mark specification"}
+          tag={spec.kind === "wordmark" ? "Every wordmark" : undefined}
+          rows={specRows.map((s) => ({ label: s.key, value: s.value }))}
+        />
       )}
 
       {spec.note && (
@@ -134,8 +135,8 @@ function MarkRules({ spec }: { spec: MarkSpec }) {
  *
  * Every variation is the same wordmark; what a reader has to be able to tell at
  * a glance is which one to reach for. So the card leads with the artwork, names
- * the variation, states the three ways it differs, and closes with the sentence
- * saying when to use it.
+ * the variation, states the ways it differs (orientation, shape, ink, ground),
+ * and closes with the sentence saying when to use it.
  */
 function VariationCard({
   variation,
@@ -152,8 +153,15 @@ function VariationCard({
         <p className="font-brand-body text-sm font-semibold text-brand-high-contrast">
           {variation.label}
         </p>
-        {(variation.shape || variation.colorTreatment || variation.background) && (
+        {(variation.orientation ||
+          variation.shape ||
+          variation.colorTreatment ||
+          variation.background) && (
           <div className="flex flex-wrap gap-1 mt-1.5">
+            <Facet
+              label="Orientation"
+              value={variation.orientation ? ORIENTATION_LABEL[variation.orientation] : null}
+            />
             <Facet label="Shape" value={variation.shape ? SHAPE_LABEL[variation.shape] : null} />
             <Facet label="Ink" value={variation.colorTreatment} />
             <Facet
@@ -236,9 +244,11 @@ function ChopCard({
 /**
  * Marks view: the wordmark and the chop, each shown the way it actually varies.
  *
- * A wordmark is one drawing shipped in variations — square or rectangular, one
- * ink or another, on a ground or on nothing — so it is a grid of variation
- * cards, each naming its three facets and saying when to reach for it.
+ * A wordmark is one drawing shipped in variations — horizontal or vertical,
+ * square or rectangular, one ink or another, on a ground or on nothing — so it
+ * is a grid of variation cards, each naming its facets and saying when to
+ * reach for it. Above the grid sits the wordmark's own specification: the
+ * short list of what is allowed to vary, since a wordmark is otherwise fixed.
  *
  * A chop is cut per season against a fixed specification: same color, same
  * frame, different content. So the specification comes first, and the chops

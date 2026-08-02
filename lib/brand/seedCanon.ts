@@ -393,6 +393,11 @@ export const seedCanon: BrandCanon = {
       status: "Final specification",
       approved: "Approved 22 Jul 2026",
       summary: ["Horizontal 4a · Vertical 5e"],
+      specs: [
+        { key: "Frame", value: "Square or rectangular, matched to where it sits — a can panel, a wide header, a square app icon. Never a third proportion." },
+        { key: "Orientation", value: "Two cuts, one per orientation — horizontal (descending J, primary) and vertical (stacked, cap-height J). Pick by the space available." },
+        { key: "Color", value: "Indigo on Cream, or Cream on Indigo, for two-color use. Single-ink Chop red or Brass only on an approved ground." },
+      ],
       variants: [
         {
           code: "Primary · Horizontal · 4A",

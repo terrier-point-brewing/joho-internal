@@ -67,6 +67,13 @@ describe("groupVariations", () => {
     expect(cards[0].description).toBe("Use on dark ground");
   });
 
+  it("carries the orientation facet through, same as shape/ink/ground", () => {
+    const cards = groupVariations([
+      asset({ id: "a", variant: "v", orientation: "vertical" }),
+    ]);
+    expect(cards[0].orientation).toBe("vertical");
+  });
+
   it("names the card by its title, falling back to the variant slug", () => {
     const cards = groupVariations([
       asset({ id: "a", variant: "square-paper", title: "Square · Paper" }),

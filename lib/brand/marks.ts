@@ -53,6 +53,7 @@ export interface MarkVariation {
   shape: BrandAsset["shape"];
   colorTreatment: string | null;
   background: string | null;
+  orientation: BrandAsset["orientation"];
   /** When to reach for this variation. */
   description: string | null;
 }
@@ -99,6 +100,7 @@ export function groupVariations(assets: BrandAsset[]): MarkVariation[] {
       shape: firstDefined(files, (a) => a.shape),
       colorTreatment: firstDefined(files, (a) => a.color_treatment),
       background: firstDefined(files, (a) => a.background),
+      orientation: firstDefined(files, (a) => a.orientation),
       description: firstDefined(files, (a) => a.description),
     };
   });

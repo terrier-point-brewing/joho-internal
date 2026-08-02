@@ -9,10 +9,12 @@ import type { BrandCanon } from "@/lib/brand/canon.types";
 import {
   assetFileUrl,
   MARK_SHAPES,
+  MARK_ORIENTATIONS,
   type BrandAsset,
   type BrandAssetKind,
   type MarkFacets,
   type MarkShape,
+  type MarkOrientation,
 } from "@/lib/brand/assets";
 import { useSeasons } from "@/app/brand/templates/useTemplates";
 import {
@@ -35,6 +37,11 @@ const SHAPE_LABEL: Record<MarkShape, string> = {
   other: "Irregular",
 };
 
+const ORIENTATION_LABEL: Record<MarkOrientation, string> = {
+  horizontal: "Horizontal",
+  vertical: "Vertical",
+};
+
 /** The facet fields, empty. Shared by the upload form and the per-asset editor. */
 const BLANK_FACETS: Required<MarkFacets> = {
   season_id: null,
@@ -42,6 +49,7 @@ const BLANK_FACETS: Required<MarkFacets> = {
   shape: null,
   color_treatment: null,
   background: null,
+  orientation: null,
 };
 
 type Draft = {
@@ -286,6 +294,7 @@ function MarkKindEditor({
                 {isChop
                   ? (seasonName(asset.season_id) ?? "Generic")
                   : [
+                      asset.orientation ? ORIENTATION_LABEL[asset.orientation] : null,
                       asset.shape ? SHAPE_LABEL[asset.shape] : null,
                       asset.color_treatment,
                       asset.background?.toLowerCase() === "none" ? "no ground" : asset.background,
@@ -373,6 +382,7 @@ function AssetDetailsForm({
     shape: asset.shape ?? null,
     color_treatment: asset.color_treatment ?? null,
     background: asset.background ?? null,
+    orientation: asset.orientation ?? null,
   });
 
   return (
@@ -421,6 +431,7 @@ function AssetDetailsForm({
             shape: draft.shape,
             color_treatment: draft.color_treatment,
             background: draft.background,
+            orientation: draft.orientation,
           })
         }
       >
@@ -480,6 +491,23 @@ function FacetFields({
           </Field>
         ) : (
           <>
+            <Field label="Orientation" htmlFor={`${idPrefix}-orientation`}>
+              <select
+                id={`${idPrefix}-orientation`}
+                className="inp-sm"
+                value={draft.orientation ?? ""}
+                onChange={(e) =>
+                  onChange({ orientation: (e.target.value || null) as MarkOrientation | null })
+                }
+              >
+                <option value="">—</option>
+                {MARK_ORIENTATIONS.map((o) => (
+                  <option key={o} value={o}>
+                    {ORIENTATION_LABEL[o]}
+                  </option>
+                ))}
+              </select>
+            </Field>
             <Field label="Shape" htmlFor={`${idPrefix}-shape`}>
               <select
                 id={`${idPrefix}-shape`}

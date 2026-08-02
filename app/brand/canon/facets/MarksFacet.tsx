@@ -3,11 +3,13 @@
 import type { BrandCanon } from "@/lib/brand/canon.types";
 import { seedCanon } from "@/lib/brand/seedCanon";
 import RuleListField from "../fields/RuleListField";
+import ListField from "../fields/ListField";
 
 type MarkSpec = NonNullable<BrandCanon["marks"]>[number];
 type MarkVariant = MarkSpec["variants"][number];
 type MarkKind = MarkSpec["kind"];
 type Orientation = NonNullable<MarkVariant["orientation"]>;
+type Spec = NonNullable<MarkSpec["specs"]>[number];
 
 // No "logo": the guide's Marks tab shows wordmarks and chops only. A document
 // that already holds a logo mark keeps it — see kindOptionsFor — rather than
@@ -318,6 +320,35 @@ export default function MarksFacet({
               Add cut
             </button>
           </div>
+
+          {/* The mark's own spec sheet — the boundaries every cut is chosen
+              within, shown on the guide as a single card (mirrors the chop's). */}
+          <ListField<Spec>
+            label="Specification"
+            description="The rules every cut of this mark is chosen within — frame, orientation, valid color combinations. Shown on the guide as one card, same as the chop's."
+            addLabel="Add spec row"
+            items={mark.specs ?? []}
+            onChange={(specs) => patchMark(mi, { specs })}
+            blank={() => ({ key: "", value: "" })}
+            renderItem={(spec, update) => (
+              <div className="flex items-start gap-2">
+                <input
+                  className="inp-sm w-32 shrink-0"
+                  value={spec.key}
+                  onChange={(e) => update({ key: e.target.value })}
+                  aria-label="Spec name"
+                  placeholder="Frame"
+                />
+                <input
+                  className="inp-sm flex-1"
+                  value={spec.value}
+                  onChange={(e) => update({ value: e.target.value })}
+                  aria-label="Spec value"
+                  placeholder="Square or rectangular, matched to where it sits"
+                />
+              </div>
+            )}
+          />
 
           {/* Colours */}
           <div className="flex flex-col gap-1.5">
