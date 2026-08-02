@@ -20,7 +20,14 @@
  * "completed", and it does so exclusively because the corresponding
  * manual_entries balance row now exists (see manualBalance.ts and
  * app/api/finance/manual-entries/route.ts, which calls this after every
- * successful balance-kind write so a task clears immediately).
+ * successful balance-kind write so a task clears immediately). It reverses
+ * itself too: delete that balance row and the task goes back on the list,
+ * because a completed task that points at nothing is the one lie this
+ * checklist cannot afford.
+ *
+ * Whether a PERIOD is closed is a separate question this module does not
+ * answer -- see periodClose.ts. A finished checklist means the work is done;
+ * only a person can say the books are final.
  *
  * `skipTask` is the ONE other status write, and it is deliberately not a
  * shortcut to the same place: a skipped task records a REASON and never claims
@@ -303,24 +310,43 @@ export async function markAlerted(supabase: AdminClient, ids: string[]): Promise
   if (error) throw new Error(error.message);
 }
 
+export interface ReconcileResult {
+  /** Open tasks whose balance has now appeared. */
+  completed: number;
+  /** Completed tasks whose balance has since been deleted. */
+  reopened: number;
+}
+
 /**
- * Closes every open balance_close_tasks row for `periodEnd` whose account
- * now has a manual_entries balance row for that same period_end. The ONLY
- * write path that ever marks a task completed -- see this module's header.
- * Returns the number of tasks closed.
+ * Makes each task agree with whether its account actually has a balance for
+ * the period. The ONLY write path that ever marks a task completed -- see this
+ * module's header -- and now the only one that takes it back.
+ *
+ * ── Why it has to run in both directions ─────────────────────────────────────
+ * It only ever closed tasks. A balance entered by mistake and then deleted left
+ * its task sitting at "completed" forever: nothing on the checklist, nothing in
+ * the banner, no alert, and a period that would report itself ready to close
+ * with an account behind it that has no figure at all. The task claimed a
+ * balance existed and pointed at nothing -- which is the single claim this
+ * whole checklist exists to make honestly.
+ *
+ * A SKIPPED task is deliberately left alone. It never asserted a balance; it
+ * asserts there is none, with a reason, and that stays true whether or not a
+ * row exists. Reopening it would erase the reason (see reopenTask) and
+ * re-raise work somebody has already answered.
  */
-export async function reconcileCloseTasks(supabase: AdminClient, periodEnd: string): Promise<number> {
-  const { data: openRows, error: openError } = await supabase
+export async function reconcileCloseTasks(supabase: AdminClient, periodEnd: string): Promise<ReconcileResult> {
+  const { data: taskRows, error: tasksError } = await supabase
     .from("balance_close_tasks")
-    .select("id, chart_of_accounts_id")
+    .select("id, chart_of_accounts_id, status")
     .eq("period_end", periodEnd)
-    .eq("status", "open");
-  if (openError) throw new Error(openError.message);
+    .in("status", ["open", "completed"]);
+  if (tasksError) throw new Error(tasksError.message);
 
-  const openTasks = (openRows ?? []) as { id: string; chart_of_accounts_id: string }[];
-  if (openTasks.length === 0) return 0;
+  const tasks = (taskRows ?? []) as { id: string; chart_of_accounts_id: string; status: CloseTaskStatus }[];
+  if (tasks.length === 0) return { completed: 0, reopened: 0 };
 
-  const coaIds = openTasks.map((t) => t.chart_of_accounts_id);
+  const coaIds = tasks.map((t) => t.chart_of_accounts_id);
   const { data: entryRows, error: entriesError } = await supabase
     .from("manual_entries")
     .select("chart_of_accounts_id")
@@ -330,43 +356,64 @@ export async function reconcileCloseTasks(supabase: AdminClient, periodEnd: stri
   if (entriesError) throw new Error(entriesError.message);
 
   const covered = new Set(((entryRows ?? []) as { chart_of_accounts_id: string }[]).map((r) => r.chart_of_accounts_id));
-  const toClose = openTasks.filter((t) => covered.has(t.chart_of_accounts_id)).map((t) => t.id);
-  if (toClose.length === 0) return 0;
 
-  const { error: updateError } = await supabase
-    .from("balance_close_tasks")
-    .update({ status: "completed", completed_at: new Date().toISOString() })
-    .in("id", toClose);
-  if (updateError) throw new Error(updateError.message);
+  const toComplete = tasks.filter((t) => t.status === "open" && covered.has(t.chart_of_accounts_id)).map((t) => t.id);
+  const toReopen = tasks.filter((t) => t.status === "completed" && !covered.has(t.chart_of_accounts_id)).map((t) => t.id);
 
-  return toClose.length;
+  if (toComplete.length > 0) {
+    const { error } = await supabase
+      .from("balance_close_tasks")
+      .update({ status: "completed", completed_at: new Date().toISOString() })
+      .in("id", toComplete);
+    if (error) throw new Error(error.message);
+  }
+
+  if (toReopen.length > 0) {
+    // completed_at is cleared with the status, and alert_sent_at is NOT: the
+    // account genuinely was chased for this period, and re-alerting somebody
+    // who already had the email is how a real notice becomes noise. The
+    // checklist and the banner both surface it immediately regardless.
+    const { error } = await supabase
+      .from("balance_close_tasks")
+      .update({ status: "open", completed_at: null })
+      .in("id", toReopen);
+    if (error) throw new Error(error.message);
+  }
+
+  return { completed: toComplete.length, reopened: toReopen.length };
 }
 
 /**
- * Pure. True when tasks EXIST and every one is completed or skipped.
+ * Pure. True when no task is still open -- every account has either a balance
+ * or a recorded reason it has none.
  *
- * The empty case returns FALSE, deliberately, and `Array.every`'s vacuous truth
- * is exactly the trap. Nothing seeds a `manualBalance` source on a fresh
- * install, so `ensureTasksForPeriod` legitimately produces zero tasks -- and
- * with a vacuously-true reading the very first cron run froze the previous
- * month on day one, before its due date, permanently. "No tasks were generated"
- * is not the same statement as "all the work is done".
+ * ── The empty case returns TRUE now, and that used to be a bug ───────────────
+ * This was `isPeriodClosed`, and its empty case returned FALSE on purpose:
+ * `Array.every`'s vacuous truth was a trap while the CRON used this to decide
+ * whether to freeze. Nothing seeds a manual source on a fresh install, so
+ * `ensureTasksForPeriod` legitimately produces zero tasks, and a vacuously-true
+ * reading froze the previous month on day one, permanently.
  *
- * A period with genuinely no manual accounts still freezes, via the caller's
- * past-due-date branch. That path is time-based and safe; this one is not.
+ * The cron no longer freezes anything (see periodClose.ts), so nothing acts on
+ * this answer unattended. Its only consumer is a readiness hint on a screen a
+ * person is looking at, and there "nobody owes a balance this month" genuinely
+ * is ready. The safety that mattered moved to where the decision moved: closing
+ * requires a person, and a person is shown the coverage they are signing off.
+ *
+ * Renamed with it, because "is the period closed" is no longer a question the
+ * task list can answer -- only `balance_period_closes` can.
  */
-export function isPeriodClosed(tasks: CloseTask[]): boolean {
-  if (tasks.length === 0) return false;
+export function everyTaskAnswered(tasks: CloseTask[]): boolean {
   return tasks.every((task) => task.status === "completed" || task.status === "skipped");
 }
 
 /**
  * The close due date for a period, derived from configuration ALONE.
  *
- * The cron previously read `tasks[0].dueDate`, which is unavailable in exactly
- * the situation that matters -- zero tasks -- leaving the freeze decision to
- * isPeriodClosed's vacuous truth. Deriving it here means the past-due branch
- * works whether or not any task exists.
+ * Drives the alert lead time and the "the period is due the 5th" line on the
+ * close screen. It is no longer a freeze trigger: a deadline passing says the
+ * books are LATE, which is worth an email, and says nothing whatever about
+ * whether they are finished.
  */
 export function dueDateForPeriod(periodEnd: string, dueDay: number): string {
   return resolveDueDate(periodEnd, { monthOffset: 1, day: dueDay });

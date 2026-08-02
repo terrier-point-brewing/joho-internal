@@ -17,6 +17,23 @@ export interface BalanceProvider {
   kind: ProviderKind;
   /** Filters which accounts this provider is offerable for in the Settings dropdown. */
   appliesTo?: (coa: CoaAccountRef) => boolean;
+  /**
+   * True when this provider's answer depends on how things stand TODAY rather
+   * than on how they stood at `periodEnd`, so it cannot be asked honestly about
+   * an older month.
+   *
+   * `openInvoiceAr` is the case that named this: it sums invoices whose status
+   * is 'open' NOW. Run it against March and it counts only the March invoices
+   * still unpaid today, which is not March's receivables -- it is a subset of
+   * them, silently, with no way to tell from the figure. Every invoice
+   * subsequently paid simply vanishes.
+   *
+   * Providers so marked are excluded from any snapshot of a month older than
+   * the one currently being closed, and -- because a partial sum is worse than
+   * no answer at all (see snapshot.ts's per-account failure rule) -- they take
+   * their whole account out with them.
+   */
+  dependsOnCurrentState?: boolean;
   /** Internal-convention cents (assets positive, liabilities/equity negative), or null when the balance cannot be determined. */
   compute(ctx: BalanceContext): Promise<number | null>;
 }

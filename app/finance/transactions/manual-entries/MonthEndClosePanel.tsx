@@ -27,6 +27,7 @@ import { queryKeys } from "@/lib/query-keys";
 import { formatBalanceCents } from "@/lib/format";
 import { formatAmountInput, parseAmountInputCents } from "@/lib/finance/manualEntryAmount";
 import { formatPeriodLabel, recentMonthEnds, type CloseTaskDetail, type CloseTasksResponse } from "../../closeTasks";
+import ClosePeriodFooter from "./ClosePeriodFooter";
 import Badge from "@/app/components/ui/Badge";
 import Banner from "@/app/components/ui/Banner";
 import Card from "@/app/components/ui/Card";
@@ -42,6 +43,17 @@ async function postJson(url: string, body: unknown): Promise<void> {
     const json = (await res.json().catch(() => ({}))) as { error?: string };
     throw new Error(json.error ?? "That did not save — please try again.");
   }
+}
+
+/** "2 Aug 2026, 4:12 pm" — a close is an event, so the time matters as much as the day. */
+function fmtMoment(iso: string): string {
+  return new Date(iso).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 function fmtDate(iso: string): string {
@@ -323,6 +335,18 @@ export default function MonthEndClosePanel({
             ))}
           </div>
         )}
+
+        {/* The act itself. Deliberately the last thing on the card: the
+            checklist above is what makes it possible, and a close button above
+            the outstanding work would invite pressing it without reading. */}
+        <ClosePeriodFooter
+          periodEnd={periodEnd}
+          data={data}
+          openCount={open.length}
+          canManage={canManage}
+          fmtMoment={fmtMoment}
+          onDone={refresh}
+        />
       </Card>
 
       {skipTarget && (

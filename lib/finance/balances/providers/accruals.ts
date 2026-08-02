@@ -50,6 +50,13 @@ export const openInvoiceAr: BalanceProvider = {
   label: "Open invoice A/R",
   kind: "derived",
   appliesTo: (coa) => coa.accountNumber === "1100",
+  // `status = 'open'` is a CURRENT status, not an as-at-period-end one, and
+  // `invoices` carries no payment date to reconstruct one from. Asked about
+  // March, this returns only the March invoices still unpaid today -- a subset
+  // of March's receivables, understated by every invoice since paid, with
+  // nothing in the figure to say so. So it is not asked about older months at
+  // all; see BalanceProvider.dependsOnCurrentState.
+  dependsOnCurrentState: true,
   async compute(ctx: BalanceContext): Promise<number | null> {
     const cents = await fetchOpenInvoiceArCents(ctx.supabase, ctx.periodEnd);
     // Guarded on > 0 like the original injectOpenInvoiceAr -- a zero/negative

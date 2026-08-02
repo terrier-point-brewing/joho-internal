@@ -27,6 +27,21 @@ function fakeInvoicesClient(rows: { total_cents: number | null }[]) {
 }
 
 describe("openInvoiceAr", () => {
+  /**
+   * The declaration that keeps this provider out of historical backfills.
+   *
+   * It filters on `status = 'open'`, a CURRENT status, and `invoices` carries
+   * no payment date to reconstruct an as-at-March one from. Backfilling March
+   * with it would count only the March invoices still unpaid today — plausible,
+   * lower than the truth, and indistinguishable from a correct figure. Losing
+   * this flag in a refactor would restore that silently, so it is asserted
+   * rather than left to the comment beside it. See
+   * `BalanceProvider.dependsOnCurrentState`.
+   */
+  it("declares that it can only answer about today", () => {
+    expect(openInvoiceAr.dependsOnCurrentState).toBe(true);
+  });
+
   it("sums total_cents of open invoices dated on or before periodEnd", async () => {
     const supabase = fakeInvoicesClient([{ total_cents: 10000 }, { total_cents: 2500 }]);
 
