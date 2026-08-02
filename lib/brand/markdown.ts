@@ -1,6 +1,7 @@
 import type { BrandCanon } from "./canon.types";
 import { GUIDE_SECTIONS, resolveGuideIntro, type GuideSectionKey } from "./guideIntros";
 import { normalizeRules, splitByPolarity, type GuideRule } from "./guideRules";
+import { normalizePairs } from "./rulePairs";
 import { sourceOf } from "./fontRegistry";
 
 /**
@@ -131,8 +132,23 @@ function voice(canon: BrandCanon): string[] {
 }
 
 function visual(canon: BrandCanon): string[] {
+  const law = canon.illustrationLaw;
   const lines = intro(canon, "visual");
-  lines.push(...rulesBlock(normalizeRules(canon.illustrationLaw?.rules, "do")), "");
+
+  if (law?.homage) lines.push(law.homage, "");
+
+  // Each rule as its pair, not as two lists. An agent given "ALWAYS flat
+  // vector" and "NEVER photorealism" ten lines apart has to work out that they
+  // are one rule; stated together it can't miss which failure a rule guards
+  // against — and the `why` is the line that stops it applying the rule
+  // literally in a case the founder never wrote down.
+  for (const pair of normalizePairs(law)) {
+    lines.push(`### ${pair.title}`);
+    if (pair.do.caption) lines.push(`- ALWAYS: ${pair.do.caption}`);
+    if (pair.dont.caption) lines.push(`- NEVER: ${pair.dont.caption}`);
+    if (pair.nuance) lines.push(`- Why: ${pair.nuance}`);
+    lines.push("");
+  }
 
   // The chassis is the single most load-bearing spec for anything that lays out
   // a label, and it reached this brief nowhere before Phase A.

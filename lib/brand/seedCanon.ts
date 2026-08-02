@@ -277,14 +277,92 @@ export const seedCanon: BrandCanon = {
       { n: "4", title: "The chop", desc: "Active family glyph, Seal Red, bottom-right of the art window." },
     ],
   },
+  // Each rule paired with the specific failure it prevents. Every `brief` is
+  // art direction for an illustration that does not exist yet — none of these
+  // are commissioned — so the guide shows the brief in the empty slot.
   illustrationLaw: {
-    rules: [
-      "Flat, screen-print-style vector rendering. Gradients only for atmospheric skies / light.",
-      "Palette capped at 7 colors per label (excluding the permitted sky gradient).",
-      "Light and time of day are always specified in the art brief. Flat noon lighting is forbidden.",
-      "Human figures, when present, are small and anonymous — the viewer enters the scene.",
-      "Style homage permitted — including Ghibli-adjacent — when it serves the story and stays within the rules.",
-      "Forbidden: photorealism; landmark-medley compositions; AI-artifact incoherence. Scenes must have clean vector logic.",
+    homage:
+      "Style homage is permitted, including Ghibli-adjacent, when it serves the story and stays within the rules above.",
+    pairs: [
+      {
+        title: "Illustrate the moment the name points to",
+        do: {
+          caption: "The brick stove, the kettle, low light.",
+          brief: "Ah-Mah's Stove label",
+        },
+        dont: {
+          caption: "The whole night-market crowd, narrated.",
+          brief: "Story line painted literally",
+        },
+        nuance:
+          "The name is one picturable image of a feeling. The illustration is that image, rendered. If the scene could belong to a different beer, it isn't the one yet.",
+      },
+      {
+        title: "Flat, screen-print vector rendering",
+        do: {
+          caption: "Hard-edged flats, gradient only in the sky.",
+          brief: "Dusk sky over flat rooftops",
+        },
+        dont: { caption: "Photorealism.", brief: "Photographic street scene" },
+        nuance:
+          "Flat color survives a can, a shirt, and a phone screen. Realism makes the place a record instead of a memory. Sky is the one exception, because atmosphere is what flat color can't do.",
+      },
+      {
+        title: "One real place, not five famous ones",
+        do: {
+          caption: "The alley behind the stall, at one hour.",
+          brief: "Single lit corner",
+        },
+        dont: {
+          caption: "Landmark medley.",
+          brief: "Pagoda, torii, skyline stacked",
+        },
+        nuance:
+          "A greatest-hits skyline is a category, not a place. Same failure as naming a beer after a mood.",
+      },
+      {
+        title: "Seven colors, sky gradient excluded",
+        do: {
+          caption: "Seven flat chips, one composed scene.",
+          brief: "Palette beside its label",
+        },
+        dont: {
+          caption: "Reaching for the twelfth color.",
+          brief: "Over-saturated accumulated scene",
+        },
+        nuance:
+          "The cap forces a scene to be composed rather than accumulated, and it's why our labels read from across a room. When a piece needs an eighth color, it usually needs a simpler scene.",
+      },
+      {
+        title: "Name the light and the hour",
+        do: {
+          caption: "Dawn, dusk, or lamplight, specified in the brief.",
+          brief: "One street at three hours",
+        },
+        dont: { caption: "Flat noon.", brief: "Same street, no hour to it" },
+        nuance:
+          "Light is how a scene gets a feeling, and the feeling is the whole point of the name. Noon is a lighting condition, not a moment someone would remember.",
+      },
+      {
+        title: "Figures small and anonymous",
+        do: {
+          caption: "Distant silhouettes, faces unreadable.",
+          brief: "Two figures under lantern light",
+        },
+        dont: { caption: "A face front and center.", brief: "Someone else's evening" },
+        nuance:
+          "Nobody should recognize a stranger on the label. They should recognize a position they could occupy. Distance keeps the scene theirs.",
+      },
+      {
+        title: "Clean vector logic",
+        do: { caption: "Every shape explainable.", brief: "Clean railing, correct hands" },
+        dont: {
+          caption: "AI-artifact incoherence.",
+          brief: "Melting railing, extra fingers",
+        },
+        nuance:
+          "Broken geometry reads as carelessness, and carelessness is the one thing the brand can't afford when its whole claim is that the care goes into everything around the beer too.",
+      },
     ],
   },
 

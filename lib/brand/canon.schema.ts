@@ -196,6 +196,35 @@ export const guideRuleSchema = z.object({
 // normalizes on read; migration 20260904 rewrites stored rows to the rich shape.
 const ruleListSchema = z.array(z.union([z.string(), guideRuleSchema]));
 
+// One side of a paired rule. A panel is what the rule looks like when it is
+// obeyed (or broken): a one-line caption, and the artwork that shows it.
+//
+// `brief` is the art direction — what the illustration must depict. It is
+// authored BEFORE the illustration exists (none are commissioned yet), so it
+// doubles as the line in the empty image slot and as the alt text until an
+// uploaded asset carries its own.
+const rulePanelSchema = z.object({
+  caption: z.string().optional(),
+  brief: z.string().optional(),
+  assetId: z.string().optional(),
+});
+
+// Visual Identity's rules are PAIRS, not two independent columns.
+//
+// Every rule the founder wrote has the same shape: here is the thing to do,
+// here is the specific failure it exists to prevent. Storing that as one row
+// with two sides makes the relationship the data — a reader sees "flat vector"
+// opposite "photorealism" instead of having to find the matching prohibition
+// three bullets down a separate list. `nuance` is why the rule exists, which is
+// the half a bare do/don't always loses.
+export const rulePairSchema = z.object({
+  id: idSchema,
+  title: z.string(),
+  do: rulePanelSchema,
+  dont: rulePanelSchema,
+  nuance: z.string().optional(),
+});
+
 // A single identity mark (wordmark / logo / chop) and its specification sheet.
 // A mark can carry several "cuts"/variants (e.g. the wordmark's horizontal 4A
 // and vertical 5E). Optional throughout so a mark can be added with only an
@@ -365,7 +394,22 @@ export const canonSchema = z.object({
   // deliberately: renaming it would need the migration to land in lockstep with
   // the deploy, since getCanon() doesn't validate on read and a moved key would
   // render an empty subtab silently. Widening the element type cannot break.
-  illustrationLaw: z.object({ rules: ruleListSchema }),
+  illustrationLaw: z.object({
+    pairs: z.array(rulePairSchema).optional(),
+    /**
+     * The pre-pairing shape: one flat list of rules, each carrying a polarity.
+     * Kept optional and still accepted because every archived version holds it,
+     * and because a draft written before the pairing must still validate at
+     * publish. lib/brand/rulePairs.ts folds it into pairs on read, so nothing
+     * downstream has two shapes to think about.
+     */
+    rules: ruleListSchema.optional(),
+    /**
+     * Permission, not a rule — so it sits beneath the introduction rather than
+     * in the card set, where it was the one entry with no failure opposite it.
+     */
+    homage: z.string().optional(),
+  }),
 
   // ── Rules & precedence ───────────────────────────────────────────────────
   hardRules: z.array(z.string()),
