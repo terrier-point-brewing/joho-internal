@@ -308,25 +308,26 @@ export default function TaxWorksheetShell({ taskId }: { taskId: string }) {
 
 /**
  * Party-agnostic "who is filing" header shown above every party's
- * worksheet, in display order:
- *  1. `requiredRegistrations` — already fully resolved server-side by
- *     `GET /api/tax/parties` (base + this party's own requirements, matched
- *     by (authority_key, key) — never "first row for this authority").
- *  2. `entity` (tax_entity_profile) — legal name, trade name, address.
- *     Business-level, shared across every party.
- *  3. `representative` (tax_legal_representative) — Name of Contact Person
- *     and State of Domicile (this person's `state`, read directly — never a
- *     separate stored field).
- *  4. `entity` again — Phone Number, Fax Number. Business-level, per an
- *     explicit product decision (NOT the representative's own phone/fax).
- *  5. `bankAccount` (tax_bank_account) — Name of Account, Account Type,
- *     Account Holder, plus a single on-file/not-on-file status row for the
- *     `sensitive` routing/account numbers (never the real digits — same as
- *     the representative's SSN, those are Tax Profile-only).
- *  6. `schema`/`values` (the party's own `settingsSchema` /
- *     `tax_filing_profiles`) — whatever extra identity-ish fields a party
+ * worksheet, grouped by what the metadata actually describes rather than as
+ * one flat list — each group renders only if it has rows, in this order:
+ *  1. Registrations & Permits — `requiredRegistrations`, already fully
+ *     resolved server-side by `GET /api/tax/parties` (base + this party's
+ *     own requirements, matched by (authority_key, key) — never "first row
+ *     for this authority"; e.g. the brewery's ABC wholesaler permit vs. the
+ *     taproom's ABC on-premise permit are distinct rows here).
+ *  2. Business Identity — `entity` (tax_entity_profile): legal name, trade
+ *     name, address, phone, fax. Business-level, shared across every party.
+ *  3. Representative — `representative` (tax_legal_representative): Name of
+ *     Contact Person and State of Domicile (this person's `state`, read
+ *     directly — never a separate stored field).
+ *  4. Bank Account — `bankAccount` (tax_bank_account): Name of Account,
+ *     Account Type, Account Holder, plus a single on-file/not-on-file status
+ *     row for the `sensitive` routing/account numbers (never the real
+ *     digits — same as the representative's SSN, those are Tax Profile-only).
+ *  5. Filing Settings — `schema`/`values` (the party's own `settingsSchema` /
+ *     `tax_filing_profiles`): whatever extra identity-ish fields a party
  *     still declares for itself (e.g. NC DOR Sales & Use's Square mapping
- *     fields). Empty for beer excise.
+ *     fields). Empty for beer excise and Wake County F&B.
  * The representative's `title`, `ssn`, and street address are captured in
  * Tax Profile but intentionally NOT rendered here — the worksheet header
  * only shows what the paper form actually asks for.
@@ -355,11 +356,13 @@ function IdentityHeader({
     value: req.number || "—",
   }));
 
-  const entityRows = entity
+  const businessIdentityRows = entity
     ? [
         { label: "Legal Entity Name", value: entity.legal_name || "—" },
         { label: "Trade Name", value: entity.trade_name || "—" },
         { label: "Address", value: formatEntityAddress(entity) },
+        { label: "Phone Number", value: entity.contact_phone || "—" },
+        { label: "Fax Number", value: entity.fax_number || "—" },
       ]
     : [];
 
@@ -367,13 +370,6 @@ function IdentityHeader({
     ? [
         { label: "Name of Contact Person", value: representative.name || "—" },
         { label: "State of Domicile", value: representative.state || "—" },
-      ]
-    : [];
-
-  const entityContactRows = entity
-    ? [
-        { label: "Phone Number", value: entity.contact_phone || "—" },
-        { label: "Fax Number", value: entity.fax_number || "—" },
       ]
     : [];
 
@@ -398,27 +394,33 @@ function IdentityHeader({
 
   const schemaRows = schema.map((field) => ({ label: field.label, value: values?.[field.key] || "—" }));
 
-  const rows = [
-    ...registrationRows,
-    ...entityRows,
-    ...representativeRows,
-    ...entityContactRows,
-    ...bankAccountRows,
-    ...schemaRows,
-  ];
-  if (rows.length === 0) return null;
+  const groups = [
+    { title: "Registrations & Permits", rows: registrationRows },
+    { title: "Business Identity", rows: businessIdentityRows },
+    { title: "Representative", rows: representativeRows },
+    { title: "Bank Account", rows: bankAccountRows },
+    { title: "Filing Settings", rows: schemaRows },
+  ].filter((group) => group.rows.length > 0);
+  if (groups.length === 0) return null;
 
   return (
     <Card className="mt-2" padding="p-3">
       <p className="text-xs font-semibold uppercase tracking-wide text-faint mb-2">Filing Identity</p>
-      <dl className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1.5 text-sm">
-        {rows.map((row) => (
-          <div key={row.label} className="min-w-0">
-            <dt className="text-xs text-faint">{row.label}</dt>
-            <dd className="text-body truncate">{row.value}</dd>
+      <div className="space-y-3">
+        {groups.map((group) => (
+          <div key={group.title}>
+            <p className="text-xs font-medium text-secondary mb-1">{group.title}</p>
+            <dl className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1.5 text-sm">
+              {group.rows.map((row) => (
+                <div key={row.label} className="min-w-0">
+                  <dt className="text-xs text-faint">{row.label}</dt>
+                  <dd className="text-body truncate">{row.value}</dd>
+                </div>
+              ))}
+            </dl>
           </div>
         ))}
-      </dl>
+      </div>
     </Card>
   );
 }
