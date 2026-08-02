@@ -180,19 +180,6 @@ export async function listCloseAssignments(supabase: AdminClient): Promise<Close
 }
 
 /**
- * Idempotently creates a balance_close_tasks row for every active account that
- * owes a hand-entered balance and has no manual_entries balance row for
- * `periodEnd` yet.
- *
- * Idempotency comes from upsert(..., { onConflict: "chart_of_accounts_id,
- * period_end", ignoreDuplicates: true }): a re-run leaves an existing task's
- * status untouched, and select("id") after an ignore-duplicates upsert
- * returns only the rows actually inserted. That is what makes it safe to call
- * on demand from the close screen as well as from the daily cron -- somebody
- * landing there from an alert must see the outstanding work whether or not a
- * cron has run since the account was configured.
- */
-/**
  * Who to email about each account, by account id.
  *
  * An account is absent from the map when nobody has been named OR when the
@@ -234,6 +221,19 @@ export async function resolveResponsibleEmails(
   return out;
 }
 
+/**
+ * Idempotently creates a balance_close_tasks row for every active account that
+ * owes a hand-entered balance and has no manual_entries balance row for
+ * `periodEnd` yet.
+ *
+ * Idempotency comes from upsert(..., { onConflict: "chart_of_accounts_id,
+ * period_end", ignoreDuplicates: true }): a re-run leaves an existing task's
+ * status untouched, and select("id") after an ignore-duplicates upsert returns
+ * only the rows actually inserted. That is what makes it safe to call on demand
+ * from the close screen as well as from the daily cron -- somebody landing
+ * there from an alert must see the outstanding work whether or not a cron has
+ * run since the account was configured.
+ */
 export async function ensureTasksForPeriod(supabase: AdminClient, periodEnd: string): Promise<number> {
   const assignments = await listCloseAssignments(supabase);
   const coaIds = assignments.map((a) => a.coaId);
