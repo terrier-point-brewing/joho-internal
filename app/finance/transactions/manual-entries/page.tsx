@@ -4,10 +4,12 @@
 // manual_entries table (lib/finance/manualEntries.ts, app/api/finance/
 // manual-entries/route.ts). Replaces app/taproom/components/ManualEntriesTab.tsx
 // (retired in Task 5): a "flow" entry prorates onto the P&L by day overlap; a
-// "balance" entry feeds the Balance Sheet as of a month end.
+// "balance" entry feeds the Balance Sheet as of a month end. The month-end
+// close checklist that used to sit on top of this ledger now lives at its own
+// address, Finance > Period Close -- this page is purely the ledger.
 
-import { useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchJson } from "@/app/production/hooks/queries";
 import { usePermissions } from "@/lib/hooks/useUserRole";
@@ -40,8 +42,6 @@ import GlAccountFilter from "../components/GlAccountFilter";
 import SummaryStatBar from "../components/SummaryStatBar";
 import { LedgerTable, Th } from "../components/LedgerTable";
 import AccountSelect, { type CoARef } from "../../AccountSelect";
-import MonthEndClosePanel from "./MonthEndClosePanel";
-import { priorMonthEnd } from "../../closeTasks";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -320,15 +320,19 @@ export default function ManualEntriesPage() {
   const canManage = can(CAP.financeTransactionsManage);
   const qc = useQueryClient();
 
-  // The alert email deep-links here with the month it is chasing, so the
-  // checklist opens on that month rather than on whichever one is current when
-  // the mail is finally read. Anything unparseable falls back to the month the
-  // close workflow is actually working on.
+  // Alert emails sent before Period Close existed deep-link here with
+  // `?periodEnd=`, expecting the old on-page checklist. That checklist now
+  // lives at /finance/period-close/<period>, so honour the old link by
+  // bouncing it there client-side rather than leaving it dead. Anything that
+  // isn't a real month end is left alone -- there is nothing to redirect to.
+  const router = useRouter();
   const searchParams = useSearchParams();
-  const [closePeriodEnd, setClosePeriodEnd] = useState(() => {
+  useEffect(() => {
     const requested = searchParams.get("periodEnd");
-    return requested && requested === monthEnd(requested) ? requested : priorMonthEnd();
-  });
+    if (requested && requested === monthEnd(requested)) {
+      router.replace(`/finance/period-close/${requested}`);
+    }
+  }, [searchParams, router]);
 
   const [kindFilter, setKindFilter] = useState<ManualEntryKind | null>(null);
   const [year, setYear] = useState(() => new Date().getFullYear());
@@ -404,11 +408,6 @@ export default function ManualEntriesPage() {
 
   return (
     <>
-      {/* Outstanding work first, the ledger second. This page is where the
-          month-end alert email lands, and a generic list of every manual entry
-          ever made is not an answer to "three accounts need a July balance". */}
-      <MonthEndClosePanel periodEnd={closePeriodEnd} onPeriodChange={setClosePeriodEnd} canManage={canManage} />
-
       <div className="shrink-0 px-4 sm:px-6 py-3 border-b border-line">
         <FilterBar>
           <FilterSelect

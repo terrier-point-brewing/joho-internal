@@ -29,7 +29,7 @@ import { useState } from "react";
 import Badge from "@/app/components/ui/Badge";
 import Banner from "@/app/components/ui/Banner";
 import { Modal, Field, ModalActions } from "@/app/components/ui/Modal";
-import { formatPeriodLabel, type CloseTasksResponse } from "../../closeTasks";
+import { formatPeriodLabel, type CloseTasksResponse } from "../closeTasks";
 
 async function post(body: unknown): Promise<void> {
   const res = await fetch("/api/finance/balance-close", {

@@ -1,19 +1,19 @@
 "use client";
-// Finance > Transactions > Manual Entries — the month-end close checklist.
+// Finance > Period Close — the checklist that does the actual month-end work.
 //
-// ── Why this sits on top of the Manual Entries list ──────────────────────────
+// ── Why this got its own section ──────────────────────────────────────────
 // The loop already existed and had a hole in the middle of it. The cron raises
 // a task per account missing a balance, a banner counts them, the alert email
-// says "3 accounts need a balance for July" — and then dropped the reader onto
+// says "3 accounts need a balance for July" — and used to drop the reader onto
 // a generic year-filtered ledger of every manual entry ever made, which never
 // said WHICH accounts were being asked for, by WHEN, or what any of them read
-// last month. The answer to the email was on the screen the email pointed at
-// only in the sense that a blank form is an answer to a question.
+// last month. This panel is what the email actually points at now: the same
+// work, with the outstanding accounts stated first, one period at a time.
 //
-// So this is the same screen, with the outstanding work stated first. Entering
-// a balance here writes the ordinary manual_entries row it always would; the
-// task closes itself because reconcileCloseTasks sees that row appear. There is
-// no "mark done" button and there must never be one — see the close route.
+// Entering a balance here writes an ordinary manual_entries row — the exact
+// row visible afterward in Finance > Transactions > Manual Entries. The task
+// closes itself because reconcileCloseTasks sees that row appear. There is no
+// "mark done" button and there must never be one — see the close route.
 //
 // ── Setup lives in Settings, work lives here ─────────────────────────────────
 // Settings > Balance Sheet Accounts declares WHO is responsible and BY WHEN.
@@ -26,11 +26,10 @@ import { fetchJson } from "@/app/production/hooks/queries";
 import { queryKeys } from "@/lib/query-keys";
 import { formatBalanceCents } from "@/lib/format";
 import { formatAmountInput, parseAmountInputCents } from "@/lib/finance/manualEntryAmount";
-import { formatPeriodLabel, recentMonthEnds, type CloseTaskDetail, type CloseTasksResponse } from "../../closeTasks";
+import { formatPeriodLabel, type CloseTaskDetail, type CloseTasksResponse } from "../closeTasks";
 import ClosePeriodFooter from "./ClosePeriodFooter";
 import Badge from "@/app/components/ui/Badge";
 import Banner from "@/app/components/ui/Banner";
-import Card from "@/app/components/ui/Card";
 import { Modal, Field, ModalActions } from "@/app/components/ui/Modal";
 
 async function postJson(url: string, body: unknown): Promise<void> {
@@ -176,21 +175,23 @@ function OutstandingRow({
 }
 
 // ── Panel ────────────────────────────────────────────────────────────────────
+//
+// The period comes from the route now (Finance > Period Close > <period>);
+// picking a different one happens by going back to the periods index rather
+// than by a `<select>` on this page, so this component takes `periodEnd` as a
+// prop instead of owning it.
 
-export default function MonthEndClosePanel({
+export default function PeriodClosePanel({
   periodEnd,
-  onPeriodChange,
   canManage,
 }: {
   periodEnd: string;
-  onPeriodChange: (periodEnd: string) => void;
   canManage: boolean;
 }) {
   const qc = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const [skipTarget, setSkipTarget] = useState<CloseTaskDetail | null>(null);
   const todayIso = useMemo(() => new Date().toISOString().slice(0, 10), []);
-  const periods = useMemo(() => recentMonthEnds(6), []);
 
   const { data } = useQuery({
     queryKey: queryKeys.finance.balanceClose(periodEnd),
@@ -232,40 +233,9 @@ export default function MonthEndClosePanel({
   const skipped = tasks.filter((t) => t.status === "skipped");
   const completed = tasks.filter((t) => t.status === "completed");
 
-  // Nothing was ever asked for in this period. Saying so beats an empty box,
-  // because "no tasks" and "all done" are different states and only one of them
-  // is worth feeling good about.
-  const nothingAsked = tasks.length === 0;
-
   return (
     <>
-      <Card className="mx-4 sm:mx-6 mt-4">
-        <div className="flex items-center justify-between gap-3 flex-wrap mb-2">
-          <div className="flex items-baseline gap-2 flex-wrap">
-            <h2 className="text-sm text-strong">Month-end close</h2>
-            <span className="text-2xs text-faint">
-              {nothingAsked
-                ? "No account is set to need a hand-entered balance for this month."
-                : open.length > 0
-                  ? `${open.length} account${open.length === 1 ? "" : "s"} still need${open.length === 1 ? "s" : ""} a balance.`
-                  : "Every account has been answered."}
-              {data?.dueDate && !nothingAsked ? ` The period is due ${fmtDate(data.dueDate)}.` : ""}
-            </span>
-          </div>
-          <select
-            value={periodEnd}
-            onChange={(e) => onPeriodChange(e.target.value)}
-            className="inp-sm w-auto"
-            aria-label="Month being closed"
-          >
-            {periods.map((p) => (
-              <option key={p} value={p}>
-                {formatPeriodLabel(p)}
-              </option>
-            ))}
-          </select>
-        </div>
-
+      <div className="flex flex-col">
         {error && <Banner className="mb-2">{error}</Banner>}
 
         {open.length > 0 && (
@@ -336,7 +306,7 @@ export default function MonthEndClosePanel({
           </div>
         )}
 
-        {/* The act itself. Deliberately the last thing on the card: the
+        {/* The act itself. Deliberately the last thing on the page: the
             checklist above is what makes it possible, and a close button above
             the outstanding work would invite pressing it without reading. */}
         <ClosePeriodFooter
@@ -347,7 +317,7 @@ export default function MonthEndClosePanel({
           fmtMoment={fmtMoment}
           onDone={refresh}
         />
-      </Card>
+      </div>
 
       {skipTarget && (
         <SkipModal

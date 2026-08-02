@@ -66,7 +66,7 @@ const manualEntry: BalanceMethod = {
    * running balance to start from. For manual entry it is wrong, because typing
    * the balance is not something you finish. It is the job, every month,
    * forever. Setting the account up means deciding WHO does that job and BY
-   * WHEN; doing it happens under Finance > Transactions > Month-End Close.
+   * WHEN; doing it happens under Finance > Period Close.
    */
   setup: [
     {
