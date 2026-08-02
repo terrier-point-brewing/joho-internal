@@ -2,7 +2,8 @@
   "availableModels": [
     "sonnet",
     "opus",
-    "haiku"
+    "haiku",
+    "fable"
   ],
   "disableClaudeAiConnectors": true,
   "hooks": {
