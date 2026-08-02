@@ -113,14 +113,19 @@ export default function ReleaseView({
           )}
           {elements.length > 0 && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {elements.map((element, i) => (
-                <SpecCard
-                  key={i}
-                  eyebrow={element.n}
-                  title={element.title}
-                  rows={[{ label: "Rule", value: element.desc }]}
-                />
-              ))}
+              {/* Storage order pairs elements to diagram zones by position (see
+                  LabelDiagram) and can't be reordered; `n` carries the reading
+                  order instead, so the cards are sorted by it here. */}
+              {[...elements]
+                .sort((a, b) => Number(a.n) - Number(b.n))
+                .map((element) => (
+                  <SpecCard
+                    key={element.n}
+                    eyebrow={element.n}
+                    title={element.title}
+                    rows={[{ label: "Rule", value: element.desc }]}
+                  />
+                ))}
             </div>
           )}
         </section>

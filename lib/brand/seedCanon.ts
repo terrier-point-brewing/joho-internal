@@ -272,21 +272,26 @@ export const seedCanon: BrandCanon = {
   labelChassis: {
     narrative:
       "Every can is a different place, era, and palette — so the brand lives in a fixed chassis that never changes. The illustration roams the world; the chassis is home. The label is not a poster: it borrows travel-poster illustration grammar but carries no title-in-art typography.",
-    // Order is load-bearing: LabelDiagram pairs zones to elements by position,
-    // and the first four keep their original slots so a canon published before
-    // the list grew still badges them correctly. New elements only append.
+    // Array order is load-bearing: LabelDiagram pairs zones to elements by
+    // position, and the first four keep their original slots so a canon
+    // published before the list grew still badges them correctly. New
+    // elements only append here, at the end of the array — but `n` is just
+    // the number printed in the badge, and is kept in left-to-right,
+    // top-to-bottom reading order independent of storage position (see
+    // ReleaseView, which sorts by `n` before rendering the spec-card grid).
     elements: [
       { n: "1", title: "Wordmark", desc: "The uploaded wordmark SVG — same asset, same position, the top band of the front panel. Never re-typeset." },
       { n: "2", title: "Bordered art window", desc: "The illustration lives in a frame with a consistent Paper margin (4% of panel width)." },
-      { n: "3", title: "Illustrative name", desc: "The release's illustrative name alone (Marcellus), fixed position, Tier 1 colors — outside/over the art, never as poster lettering inside it." },
-      { n: "4", title: "The chop", desc: "Active family glyph, Seal Red, bottom center of the front text panel." },
+      { n: "4", title: "Illustrative name", desc: "The release's illustrative name alone (Marcellus), fixed position, Tier 1 colors — outside/over the art, never as poster lettering inside it." },
+      { n: "7", title: "The chop", desc: "Active family glyph, Seal Red, bottom center of the front text panel." },
       { n: "5", title: "Beer style name", desc: "The plain style of the beer (Lato bold, all caps) under the rule line beneath the illustrative name." },
-      { n: "6", title: "Season & episode", desc: "Beneath the chop: the release's place in its season, set S# | E#." },
-      { n: "7", title: "Story line", desc: "Bottom-left of the art window, Lato regular, all caps — the release card's story line, verbatim. Set narrow so it stacks up to four lines rather than running wide." },
-      { n: "8", title: "Artist credit", desc: "Directly beneath the story line, Lato bold, all caps — credits the commissioned artist by name." },
-      { n: "9", title: "Additional logos & emblems", desc: "Reserved space at the foot of the fine-print band for collaboration logos and guild emblems; empty when a release carries none." },
-      { n: "10", title: "Barcode", desc: "Below the additional logos at the foot of the fine-print band. UPC-A at a scannable magnification." },
-      { n: "11", title: "Seasonal colors & motifs", desc: "The whole label: the background defaults to Paper, but a season that declares its own coloring recolors it for that season's releases." },
+      { n: "8", title: "Season & episode", desc: "Beneath the chop: the release's place in its season, set S# | E#." },
+      { n: "9", title: "Story line", desc: "Bottom-left of the art window, Lato regular, all caps — the release card's story line, verbatim. Set narrow so it stacks up to four lines rather than running wide." },
+      { n: "10", title: "Artist credit", desc: "Directly beneath the story line, Lato bold, all caps — credits the commissioned artist by name." },
+      { n: "6", title: "Additional logos & emblems", desc: "Reserved space at the foot of the fine-print band for collaboration logos and guild emblems; empty when a release carries none." },
+      { n: "11", title: "Barcode", desc: "Below the additional logos at the foot of the fine-print band. UPC-A at a scannable magnification." },
+      { n: "12", title: "Seasonal colors & motifs", desc: "The whole label: the background defaults to Paper, but a season that declares its own coloring recolors it for that season's releases." },
+      { n: "3", title: "Fine-print warning & contact text", desc: "Rotated vertical lines at the head of the fine-print band, above the logos box — johobrewing.com/social first, brewer attribution next, government warning last, always in that order." },
     ],
   },
   // Each rule paired with the specific failure it prevents. Every `brief` is

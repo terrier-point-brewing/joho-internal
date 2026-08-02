@@ -16,11 +16,13 @@ type ChassisElement = NonNullable<BrandCanon["labelChassis"]>["elements"][number
  * Zones pair with elements by position in the canonical order the canon states
  * them. The first four positions are frozen at their pre-expansion meaning —
  * wordmark, art window, illustrative name (né title slot), chop — so a canon
- * published before the list grew to eleven still badges its four correctly;
- * the newer zones simply go unbadged until the longer list is published. An
- * element added beyond the eleventh gets a spec card but no badge, because a
- * new zone's geometry can't be inferred from prose; extending the drawing is a
- * deliberate code change.
+ * published before the list grew still badges its four correctly; the newer
+ * zones simply go unbadged until the longer list is published. Each element's
+ * `n` is the number printed in its badge, kept in left-to-right,
+ * top-to-bottom reading order — independent of storage position, since the
+ * first four positions can't move. An element added beyond the twelfth gets a
+ * spec card but no badge, because a new zone's geometry can't be inferred
+ * from prose; extending the drawing is a deliberate code change.
  *
  * Colors and faces are the brand token utilities, so the diagram follows the
  * published canon rather than freezing today's hexes — but inside the
@@ -28,7 +30,7 @@ type ChassisElement = NonNullable<BrandCanon["labelChassis"]>["elements"][number
  * both app themes: a label is ink on Paper whatever the screen around it is
  * doing, and the uploaded wordmark artwork carries fixed colors that only the
  * light palette can sit behind. The one background the tokens don't decide is
- * the label's own: it defaults to Paper, but the seasonal-colors element (11)
+ * the label's own: it defaults to Paper, but the seasonal-colors element (12)
  * reserves the right for a season to recolor it — the diagram documents that
  * value rather than tracking the active season live.
  */
@@ -51,6 +53,7 @@ export default function LabelDiagram({
     additionalLogos,
     barcode,
     seasonal,
+    warningText,
   ] = elements;
 
   return (
@@ -65,7 +68,7 @@ export default function LabelDiagram({
           {/* Wordmark band — the uploaded artwork itself; typed stand-in only
               until a wordmark is approved, so the band never renders empty. */}
           <div className="relative">
-            <Badge element={wordmark} className="-top-1 right-0" />
+            <Badge element={wordmark} className="-top-2 -left-2" />
             {wordmarkUrl ? (
               // eslint-disable-next-line @next/next/no-img-element -- session-gated brand asset from the proxy route
               <img src={wordmarkUrl} alt="Wordmark" className="w-full" />
@@ -83,7 +86,7 @@ export default function LabelDiagram({
 
           {/* Illustrative name — the release's name alone, in the display face. */}
           <div className="relative mt-[16%]">
-            <Badge element={illustrativeName} className="-top-1 right-0" />
+            <Badge element={illustrativeName} className="-top-2 -left-2" />
             <p className="font-brand-display text-lg uppercase leading-snug text-brand-primary sm:text-2xl">
               Illustrative
               <br />
@@ -93,7 +96,7 @@ export default function LabelDiagram({
 
           {/* Beer style name — the plain style, under the rule line. */}
           <div className="relative mt-[8%] border-t border-brand-primary pt-[7%]">
-            <Badge element={beerStyle} className="-top-1 right-0" />
+            <Badge element={beerStyle} className="-top-2 -left-2" />
             <p className="font-brand-body text-2xs font-bold uppercase tracking-[0.2em] text-brand-primary">
               Beer Style Name
             </p>
@@ -111,7 +114,7 @@ export default function LabelDiagram({
               <div className="aspect-square w-full rounded-[2px] bg-brand-accent ring-2 ring-inset ring-brand-on-accent/40" />
             </div>
             <div className="relative mt-[5%]">
-              <Badge element={seasonEpisode} className="-right-7 top-1/2 -translate-y-1/2" />
+              <Badge element={seasonEpisode} className="-left-7 top-1/2 -translate-y-1/2" />
               <p className="font-brand-body text-2xs uppercase tracking-[0.2em] text-brand-content-muted">
                 S#&nbsp;|&nbsp;E#
               </p>
@@ -122,7 +125,7 @@ export default function LabelDiagram({
         {/* ── Bordered art window — the Paper margin is the parent's padding. ── */}
         <div className="relative min-w-0 flex-1 p-[2.5%]">
           <div className="relative h-full w-full overflow-hidden rounded-[2px] border border-brand-line-strong bg-gradient-to-b from-brand-primary via-brand-secondary to-brand-canvas">
-            <Badge element={artWindow} className="left-2 top-2" />
+            <Badge element={artWindow} className="-left-2 -top-2" />
             <p className="absolute inset-x-0 top-[38%] text-center font-brand-body text-2xs uppercase tracking-[0.2em] text-brand-canvas/90">
               The illustration roams here
             </p>
@@ -134,13 +137,13 @@ export default function LabelDiagram({
                 width for. */}
             <div className="absolute bottom-[4%] left-[4%] right-[4%]">
               <div className="relative w-fit max-w-[55%]">
-                <Badge element={storyLine} className="-right-6 top-1/2 -translate-y-1/2" />
+                <Badge element={storyLine} className="-left-6 top-1/2 -translate-y-1/2" />
                 <p className="font-brand-body text-2xs uppercase leading-snug tracking-wide text-brand-content-muted">
                   The story line, one or two sentences.
                 </p>
               </div>
               <div className="relative mt-1.5">
-                <Badge element={artistCredit} className="right-0 top-1/2 -translate-y-1/2" />
+                <Badge element={artistCredit} className="-left-6 top-1/2 -translate-y-1/2" />
                 <p className="font-brand-body text-xs font-bold uppercase tracking-wide text-brand-content-muted">
                   Art by the Artist
                 </p>
@@ -153,19 +156,22 @@ export default function LabelDiagram({
             line flush to the top; the band's foot is reserved for the logo
             block and the barcode. ── */}
         <div className="flex w-[15%] shrink-0 flex-col border-l border-brand-line px-[1.5%] py-[2.5%]">
-          <div className="flex min-h-0 flex-1 flex-row-reverse items-start justify-center gap-[14%]">
+          <div className="relative flex min-h-0 flex-1 flex-row-reverse items-start justify-center gap-[14%]">
+            <Badge element={warningText} className="-top-2 right-0" />
             {/* rotate-180 on top of vertical-rl, not vertical-rl alone: mixed
                 orientation alone reads top-to-bottom (tilt your head right to
                 read it upright); the 180 flips that so the correct reading
-                order runs bottom-to-top instead, as printed. */}
-            <p className="max-h-full rotate-180 truncate font-brand-body text-2xs font-bold uppercase tracking-[0.18em] text-brand-primary [writing-mode:vertical-rl]">
-              johobrewing.com&nbsp;|&nbsp;@johobrewing
+                order runs bottom-to-top instead, as printed. DOM order is
+                reversed by flex-row-reverse, so the last line here renders
+                leftmost: johobrewing.com first, government warning last. */}
+            <p className="max-h-full rotate-180 truncate font-brand-body text-2xs text-brand-content-muted [writing-mode:vertical-rl]">
+              Government warning — required legal text
             </p>
             <p className="max-h-full rotate-180 truncate font-brand-body text-2xs text-brand-content-muted [writing-mode:vertical-rl]">
               Brewed and canned by Terrier Point Brewing LLC
             </p>
-            <p className="max-h-full rotate-180 truncate font-brand-body text-2xs text-brand-content-muted [writing-mode:vertical-rl]">
-              Government warning — required legal text
+            <p className="max-h-full rotate-180 truncate font-brand-body text-2xs font-bold uppercase tracking-[0.18em] text-brand-primary [writing-mode:vertical-rl]">
+              johobrewing.com&nbsp;|&nbsp;@johobrewing
             </p>
           </div>
           <div className="relative mt-[12%] flex aspect-[4/3] items-center justify-center rounded-[2px] border border-dashed border-brand-line-strong">
