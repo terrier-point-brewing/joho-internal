@@ -12,6 +12,7 @@ import {
   archiveAsset,
   updateAssetMeta,
   MARK_SHAPES,
+  MARK_ORIENTATIONS,
   type MarkFacets,
   type SupabaseLikeClient,
 } from "@/lib/brand/assets";
@@ -27,6 +28,7 @@ const META_FIELDS = [
   "shape",
   "color_treatment",
   "background",
+  "orientation",
 ] as const;
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -56,6 +58,15 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       if (body.shape != null && !(MARK_SHAPES as readonly string[]).includes(body.shape)) {
         return NextResponse.json(
           { error: `shape must be one of: ${MARK_SHAPES.join(", ")}` },
+          { status: 400 },
+        );
+      }
+      if (
+        body.orientation != null &&
+        !(MARK_ORIENTATIONS as readonly string[]).includes(body.orientation)
+      ) {
+        return NextResponse.json(
+          { error: `orientation must be one of: ${MARK_ORIENTATIONS.join(", ")}` },
           { status: 400 },
         );
       }

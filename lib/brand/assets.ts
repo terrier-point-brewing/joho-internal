@@ -18,9 +18,13 @@ export const BRAND_ASSET_KINDS = [
 ] as const;
 export type BrandAssetKind = (typeof BRAND_ASSET_KINDS)[number];
 
-/** The three axes a wordmark variation varies on. See MARK_FACETS below. */
+/** The four axes a wordmark variation varies on. See MARK_FACETS below. */
 export type MarkShape = "square" | "rectangular" | "other";
 export const MARK_SHAPES: readonly MarkShape[] = ["square", "rectangular", "other"];
+
+/** Wordmarks: which of the two cuts the file is — descending-J horizontal, or stacked cap-height vertical. */
+export type MarkOrientation = "horizontal" | "vertical";
+export const MARK_ORIENTATIONS: readonly MarkOrientation[] = ["horizontal", "vertical"];
 
 export interface BrandAsset {
   id: string;
@@ -52,6 +56,8 @@ export interface BrandAsset {
   color_treatment?: string | null;
   /** Wordmarks: the ground it ships on — "none", or a palette color name. */
   background?: string | null;
+  /** Wordmarks: the cut's orientation. */
+  orientation?: MarkOrientation | null;
 }
 
 /** The facet columns, as accepted by create and update. */
@@ -61,6 +67,7 @@ export interface MarkFacets {
   shape?: MarkShape | null;
   color_treatment?: string | null;
   background?: string | null;
+  orientation?: MarkOrientation | null;
 }
 
 // Same injected-client testability pattern as canonWorkflow.ts: callers pass
@@ -221,6 +228,7 @@ export async function updateAssetMeta(
     patch.color_treatment = meta.color_treatment?.trim() || null;
   if (meta.background !== undefined) patch.background = meta.background?.trim() || null;
   if (meta.shape !== undefined) patch.shape = meta.shape ?? null;
+  if (meta.orientation !== undefined) patch.orientation = meta.orientation ?? null;
   if (meta.season_id !== undefined) patch.season_id = meta.season_id ?? null;
   if (Object.keys(patch).length === 0) return;
 

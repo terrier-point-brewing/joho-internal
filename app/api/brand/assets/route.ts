@@ -16,8 +16,10 @@ import {
   createAsset,
   BRAND_ASSET_KINDS,
   MARK_SHAPES,
+  MARK_ORIENTATIONS,
   type BrandAssetKind,
   type MarkShape,
+  type MarkOrientation,
   type SupabaseLikeClient,
 } from "@/lib/brand/assets";
 
@@ -93,6 +95,13 @@ export async function POST(req: NextRequest) {
         { status: 400 },
       );
     }
+    const orientationRaw = text(formData, "orientation");
+    if (orientationRaw && !(MARK_ORIENTATIONS as readonly string[]).includes(orientationRaw)) {
+      return NextResponse.json(
+        { error: `orientation must be one of: ${MARK_ORIENTATIONS.join(", ")}` },
+        { status: 400 },
+      );
+    }
 
     // Derive a format/extension from the file name, falling back to the MIME
     // subtype (e.g. "image/svg+xml" -> "svg") when the name has none.
@@ -118,6 +127,7 @@ export async function POST(req: NextRequest) {
       shape: shapeRaw as MarkShape | null,
       color_treatment: text(formData, "color_treatment"),
       background: text(formData, "background"),
+      orientation: orientationRaw as MarkOrientation | null,
     });
     return NextResponse.json(asset, { status: 201 });
   } catch (err) {

@@ -254,6 +254,15 @@ const markSchema = z.object({
   approved: z.string().optional(), // "Approved 22 Jul 2026"
   summary: z.array(z.string()).optional(), // header right-meta lines
   variants: z.array(markVariantSchema),
+  /**
+   * The mark's own written spec sheet — the boundaries every cut is chosen
+   * within (frame, orientation, valid color combinations), as opposed to a
+   * per-cut production detail like tracking or a terminal, which lives on the
+   * variant instead. Same shape as `chop.specs`, for the same reason: free-form
+   * key/value rather than fixed fields, so a new row is a data change, not a
+   * code change.
+   */
+  specs: z.array(keyValSchema).optional(),
   colors: z.array(z.object({ name: z.string(), hex: hexColorSchema })).optional(),
   /** The human statement of clearspace, one rule per line. */
   clearspace: z.array(z.string()).optional(),
