@@ -56,6 +56,24 @@ export function isOpenPeriod(periodEnd: string, todayIso: string): boolean {
 }
 
 /**
+ * "2026-07-31" -> "July 2026". A month end is named for the month it closes.
+ *
+ * Lives here rather than beside the close UI because the close REFUSAL
+ * sentences are written server-side and shown to a bookkeeper verbatim ("July
+ * 2026 has not ended yet"), so the label had to be reachable from lib/. Two
+ * copies would eventually disagree about which month a period end names, which
+ * is the one thing a close message must not get wrong.
+ */
+export function formatPeriodLabel(periodEnd: string): string {
+  const [y, m] = periodEnd.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString("en-US", {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+/**
  * How stale a reading may be and still count as "where this account stands
  * now". Feeds lag over weekends and holidays, so the latest available day is
  * the honest answer -- but a capture from three weeks ago presented as the

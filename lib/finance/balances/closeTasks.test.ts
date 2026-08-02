@@ -1,4 +1,4 @@
-// Pure-logic tests (tasksNeedingAlert, isPeriodClosed) plus IO tests
+// Pure-logic tests (tasksNeedingAlert, everyTaskAnswered) plus IO tests
 // (ensureTasksForPeriod, reconcileCloseTasks) against a small stateful fake
 // Supabase double -- same "generic table->rows fake stands in for Supabase"
 // idiom as lib/finance/balances/providers/transactionPostings.test.ts, but
@@ -9,7 +9,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   ensureTasksForPeriod,
   tasksNeedingAlert,
-  isPeriodClosed,
+  everyTaskAnswered,
   reconcileCloseTasks,
   dueDateForPeriod,
   dueDateForAccount,
@@ -337,23 +337,31 @@ describe("tasksNeedingAlert", () => {
   });
 });
 
-describe("isPeriodClosed", () => {
+describe("everyTaskAnswered", () => {
   it("is true when every task is completed or skipped", () => {
     const tasks = [task({ status: "completed" }), task({ id: "t2", status: "skipped" })];
-    expect(isPeriodClosed(tasks)).toBe(true);
+    expect(everyTaskAnswered(tasks)).toBe(true);
   });
 
   it("is false when any task is open", () => {
     const tasks = [task({ status: "completed" }), task({ id: "t2", status: "open" })];
-    expect(isPeriodClosed(tasks)).toBe(false);
+    expect(everyTaskAnswered(tasks)).toBe(false);
   });
 
-  it("is FALSE for an empty list — Array.every's vacuous truth was the day-one freeze bug", () => {
-    // This assertion previously read `.toBe(true)`, encoding the defect: with
-    // no manualBalance source seeded, ensureTasksForPeriod returns zero tasks,
-    // so the first cron run froze the prior month before its due date and
-    // nothing could unfreeze it. "No tasks generated" != "all work done".
-    expect(isPeriodClosed([])).toBe(false);
+  it("is TRUE for an empty list, which is safe only because nothing acts on it unattended", () => {
+    // As `isPeriodClosed` this had to answer FALSE here, and the comment said
+    // why: Array.every's vacuous truth met a cron that froze on the answer, so
+    // with no manual source seeded the first run froze the prior month before
+    // its due date, permanently.
+    //
+    // The cron no longer freezes anything -- closing is a human act, see
+    // periodClose.ts -- and this now feeds a readiness hint on a screen
+    // somebody is reading. There, "no account owes a balance this month"
+    // genuinely is ready, and answering false would have shown a finished
+    // month as unfinished forever. The safety moved with the decision rather
+    // than being dropped: closePeriod still refuses on open tasks, on a
+    // recalculation that errored, and on a month that has not ended.
+    expect(everyTaskAnswered([])).toBe(true);
   });
 });
 
@@ -386,9 +394,9 @@ describe("reconcileCloseTasks", () => {
     };
     const supabase = makeFakeSupabase(db);
 
-    const closed = await reconcileCloseTasks(supabase, "2026-06-30");
+    const result = await reconcileCloseTasks(supabase, "2026-06-30");
 
-    expect(closed).toBe(1);
+    expect(result).toEqual({ completed: 1, reopened: 0 });
     expect(db.closeTasks.find((t) => t.id === "t1")?.status).toBe("completed");
     expect(db.closeTasks.find((t) => t.id === "t2")?.status).toBe("open");
   });
@@ -412,20 +420,73 @@ describe("reconcileCloseTasks", () => {
     };
     const supabase = makeFakeSupabase(db);
 
-    const closed = await reconcileCloseTasks(supabase, "2026-06-30");
+    const result = await reconcileCloseTasks(supabase, "2026-06-30");
 
-    expect(closed).toBe(0);
+    expect(result).toEqual({ completed: 0, reopened: 0 });
     expect(db.closeTasks[0].status).toBe("open");
   });
-});
 
-describe("isPeriodClosed — the empty case is the whole bug", () => {
-  // Array.every is vacuously true, and nothing seeds a manualBalance source on
-  // a fresh install, so ensureTasksForPeriod legitimately returns zero tasks.
-  // The first cron run therefore froze the previous month on day one, before
-  // its due date, with no unfreeze path anywhere.
-  it("returns FALSE for an empty task list, not vacuously true", () => {
-    expect(isPeriodClosed([])).toBe(false);
+  /**
+   * The defect this pair pins: reconciliation only ever ran one way, so a
+   * balance entered and then deleted left its task at "completed" forever. The
+   * account vanished from the checklist, no alert was ever sent again, and the
+   * period reported itself ready to close with nothing behind that account.
+   */
+  it("puts a completed task back on the list when its balance has been deleted", async () => {
+    const db: FakeDb = {
+      sources: [],
+      manualEntries: [],
+      settings: [],
+      closeTasks: [
+        {
+          id: "t1",
+          chart_of_accounts_id: "coa-1",
+          period_end: "2026-06-30",
+          due_date: "2026-07-05",
+          status: "completed",
+          alert_sent_at: "2026-07-05T09:00:00.000Z",
+          completed_at: "2026-07-06T09:00:00.000Z",
+        },
+      ],
+    };
+    const supabase = makeFakeSupabase(db);
+
+    const result = await reconcileCloseTasks(supabase, "2026-06-30");
+
+    expect(result).toEqual({ completed: 0, reopened: 1 });
+    expect(db.closeTasks[0].status).toBe("open");
+    expect(db.closeTasks[0].completed_at).toBeNull();
+    // Not cleared: the account genuinely was chased for this period, and
+    // re-alerting somebody who already had the email turns a real notice into
+    // noise. The checklist and banner surface it immediately regardless.
+    expect(db.closeTasks[0].alert_sent_at).toBe("2026-07-05T09:00:00.000Z");
+  });
+
+  it("leaves a SKIPPED task alone when there is no balance — that is what a skip asserts", async () => {
+    const db: FakeDb = {
+      sources: [],
+      manualEntries: [],
+      settings: [],
+      closeTasks: [
+        {
+          id: "t1",
+          chart_of_accounts_id: "coa-1",
+          period_end: "2026-06-30",
+          due_date: "2026-07-05",
+          status: "skipped",
+          alert_sent_at: null,
+          completed_at: null,
+          notes: "the till was emptied and the account closed in June",
+        },
+      ],
+    };
+    const supabase = makeFakeSupabase(db);
+
+    const result = await reconcileCloseTasks(supabase, "2026-06-30");
+
+    expect(result).toEqual({ completed: 0, reopened: 0 });
+    expect(db.closeTasks[0].status).toBe("skipped");
+    expect(db.closeTasks[0].notes).toBe("the till was emptied and the account closed in June");
   });
 });
 

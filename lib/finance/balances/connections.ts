@@ -217,6 +217,51 @@ export async function recordSyncResult(
   if (error) throw new Error(error.message);
 }
 
+/**
+ * Reports a nightly sync's outcome against every connection for a provider.
+ *
+ * ── Why a cron writes here at all ────────────────────────────────────────────
+ * A connection's status line already reflects the BALANCE read, because each
+ * provider records its own outcome. It said nothing about the feeds those
+ * balances sit on. `ramp-expenses-sync` and `finance-sync` land in `cron_runs`
+ * and show under Settings > Cron Jobs, but nothing tied either to a connection
+ * row -- so Balance Sheet Accounts could show Ramp as healthy while the expense
+ * sync behind half its figures had been failing for a week. Two screens, and
+ * only one of them knew.
+ *
+ * ── Never throws, and never fails the run ────────────────────────────────────
+ * This is health reporting about a job, not part of the job. A sync that
+ * succeeded must not be recorded as failed because the reporting of it did.
+ *
+ * ── On the crons overwriting each other ──────────────────────────────────────
+ * `recordSyncResult` is last-writer-wins on one status line, and a successful
+ * sync clears an error the balance read set. That is bounded rather than
+ * ignored: balance-close runs at 09:00, after ramp-expenses-sync (06:30) and
+ * finance-sync (07:30), so the balance read has the last word every morning and
+ * a genuine balance failure reappears within hours. The alternative -- only
+ * ever recording failures -- leaves a fixed sync showing an error indefinitely
+ * on any connection no account currently reads a balance from.
+ */
+export async function recordProviderSyncResult(
+  supabase: AdminClient,
+  provider: ConnectionProvider,
+  outcome: { ok: true } | { ok: false; error: string },
+): Promise<number> {
+  try {
+    const connections = await listConnections(supabase, provider);
+    // A disabled connection is switched off deliberately; reporting a sync
+    // against it would flip it back to active and undo somebody's decision.
+    const live = connections.filter((c) => c.status !== "disabled");
+    for (const connection of live) {
+      await recordSyncResult(supabase, connection.id, outcome);
+    }
+    return live.length;
+  } catch (err) {
+    console.error("[connections] failed to record sync health", { provider, err });
+    return 0;
+  }
+}
+
 /** Renders a connection for the Settings row. Pure. */
 export function describeConnection(connection: IntegrationConnection | null): ConnectionStatus {
   if (!connection) {

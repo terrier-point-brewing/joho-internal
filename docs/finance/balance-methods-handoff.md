@@ -525,81 +525,103 @@ task for a method that is a *calculation* but still needs a human figure.
 
 ## 6. Still outstanding, unrelated to integrations
 
-Report Ramp sync health through the connection store. `ramp-expenses-sync` and
-`finance-sync` already land in `cron_runs`, but nothing ties that to the Ramp
-connection row, so a Settings reader cannot see that a stale balance is caused
-by a failing sync. Calling `recordSyncResult` from those crons against the Ramp
-connection would close it — additive, no credential moves. Do it after the
-integrations land, when a real connection row exists to point at.
+Sync health now reaches the connection store. **BUILT** —
+`recordProviderSyncResult` in `connections.ts`; `ramp-expenses-sync` reports
+against the Ramp connection and `finance-sync` against the **Square** one. That
+second pairing is a correction to what this section used to say: `finance-sync`
+touches no Ramp data at all — it syncs Square orders, refunds and invoices, and
+what goes stale when it fails is the Square-derived balance on GL 1040.
+Recording it against Ramp would have put a true failure on the wrong
+integration.
 
-### Make closing a period a human act
+Both record success as well as failure, so a fixed sync clears itself. The
+status line is last-writer-wins between the crons and the balance read, which is
+bounded rather than ignored: `balance-close` runs at 09:00, after both syncs, so
+a genuine balance failure reappears the same morning.
 
-**Supersedes three separate guardrails that were previously listed here.** They
-were patches over a model that is wrong underneath, and should be built as one
+### Make closing a period a human act — BUILT
+
+**Superseded three separate guardrails that were previously listed here.** They
+were patches over a model that was wrong underneath, and were built as one
 feature instead.
 
-Today the cron freezes a period when every task is done **OR the due date has
+The cron used to freeze a period when every task was done **OR the due date had
 passed**. The second condition turns "the deadline went by" into "these books
 are final," which are different claims and only one of them is decidable by
-software. June 2026 is frozen — marked final — with 6 accounts carrying a
+software. June 2026 was frozen — marked final — with 6 accounts carrying a
 balance and 39 with no source at all. Nobody closed June; 5 July happened.
 
-The time-based fallback exists to stop months recomputing forever, which is a
-real problem: a late expense coded to July would otherwise change July's balance
-in October. But an unclosed month *should* keep recomputing, because it is not
-final. What is actually missing is visibility that it is still open.
+What shipped, in `lib/finance/balances/periodClose.ts` and
+`20260918090000_period_close_is_a_human_act.sql`:
 
-The shape:
+- The cron still snapshots, creates tasks, reconciles and alerts, and **no
+  longer freezes**. It reports `readyToClose` instead. `freezePeriod` has
+  exactly one caller now, and it is the close action.
+- **`balance_period_closes`** is an event log — one row per close or reopen,
+  with `actor_id`, `created_at` and a reason. Current state is the newest row,
+  so a month closed, reopened and closed again keeps every name rather than the
+  last one. `closed_by`/`closed_at` are that row's actor and timestamp.
+- **`closePeriod`** recalculates first, then refuses on the two things software
+  genuinely knows: an account with an open task (named in the message), or a
+  recalculation that did not finish cleanly. No override, and no "close anyway".
+  Accounts with no source at all do **not** block — there are always some — and
+  are reported as coverage instead: "6 of 12 configured accounts produced a
+  balance."
+- **`reopenPeriod`** is the symmetric inverse, reason mandatory, and is the only
+  caller of `unfreezePeriod`.
+- **`snapshotPeriod` refuses a closed period whole**, before reading anything.
+  `is_frozen` is per row, so on its own it would let an account configured after
+  the close acquire a fresh row inside a month already signed off.
+- Writing a manual balance into a closed month is **refused with a sentence**
+  rather than saved and ignored, on all three of POST/PATCH/DELETE.
+- The nudge banner says when a finished month is still unclosed, from its due
+  date onwards.
 
-- The cron keeps snapshotting, creating tasks, reconciling and alerting, and
-  **stops freezing**.
-- A close action records `closed_by` and `closed_at`, refuses (or warns hard)
-  while the latest snapshot reported errors, and lists what is outstanding.
-- Outstanding tasks are explicitly **skipped with a reason** rather than ignored.
-  **BUILT** — `skipTask`/`reopenTask` in `closeTasks.ts` write
-  `balance_close_tasks.status = 'skipped'` and `notes`, surfaced on
-  Finance > Transactions > Manual Entries. The reason is mandatory: a skip
-  without one is indistinguishable from ignoring the account.
-- **Reopen** is the symmetric, attributed inverse. `unfreezePeriod` already
-  exists in snapshot.ts and still has no UI.
-- Unclosed periods are surfaced loudly rather than silently force-closed.
+Settled while building:
+- **An unclosed month never hard-locks.** `is_frozen` means one thing only: a
+  named person called these books final. If a filed period ever needs a genuine
+  cutoff, build that as a separate and differently-named thing.
+- **June 2026** — the migration unfreezes every currently-frozen row, because no
+  person has ever closed a period and so every one of them was a calendar
+  event. It should be closed properly once its accounts have sources.
 
-This absorbs: "do not freeze a period whose snapshot errored" (the close action
-refuses, and can say why, because a human is asking); "editing a manual balance
-for a frozen period silently changes nothing" (editing a closed period requires
-reopening it); and "unfreeze has no UI" (it is the close button's inverse).
+### Historical backfill — BUILT, and it excludes GL 1100
 
-Open decisions before building:
-- Should an unclosed month ever hard-lock? Recommended no — keep recomputing and
-  make it visible. If a filed period needs a genuine cutoff, build that as a
-  separate and differently-named thing.
-- June 2026 is frozen and materially incomplete. It should be reopened and
-  closed properly once accounts have sources.
+Only the most recently ended month was ever snapshotted, so months before
+2026-06 are blank. Filling one in is just `POST
+/api/finance/balance-sources/recompute { periodEnd }` with an older month — the
+same operation, no separate route or flag.
 
-### Independent of the above
+The decision this needed: `openInvoiceAr` filters on `status = 'open'`, a
+CURRENT status, and `invoices` carries no payment date to reconstruct an
+as-at-date one from. **GL 1100 is excluded from backfill** and left with no row,
+so it reads as unsourced for that month rather than carrying an understatement
+that looks exactly like a real figure. Reconstructing status from payment dates
+is a separate piece of work (it needs a `paid_at` source that does not exist
+yet), not a flag here.
 
-- Report Ramp sync health through the connection store (see the entry above this
-  section). Needs Ramp to have landed first.
-- No historical backfill — only the most recently ended month is ever
-  snapshotted, so months before 2026-06 are blank. **Needs a decision first:**
-  `openInvoiceAr` filters on `status = 'open'`, a CURRENT status, so backfilling
-  an earlier month counts only invoices still unpaid today and understates
-  historical A/R. Either exclude 1100 from backfill, reconstruct status from
-  payment dates, or accept and label the understatement.
+The mechanism is a declaration, not a special case:
+`BalanceProvider.dependsOnCurrentState` marks a provider that can only answer
+about today, and a month older than the current close period leaves out the
+**whole account** any such step belongs to — dropping only the step would write
+the surviving half as a whole balance, which is the GL 2220 partial-sum failure
+in a month nobody is watching.
 
-Also note **no account has ever used manual entry in production**, so zero close
-tasks have ever been created and no alert email has ever been sent. The
-month-end freeze is presently a calendar event rather than a completeness check.
-Configuring manual accounts is the highest-value non-code fix available, and
-manual entry's setup now asks only for that: a responsible person, and
-optionally how many days after month end their balance is due.
+Configuring manual accounts remains the highest-value non-code work available;
+GL 1010 is the first account to have it, with an open July task, and is the
+first live exercise of the close workflow. Manual entry's setup asks only for
+what a rule needs: a responsible person, and optionally how many days after
+month end their balance is due.
 
 The work itself lives in **Finance > Transactions > Manual Entries**, which
-opens on the outstanding accounts for a period before its ledger. Entering a
-balance there writes the ordinary `manual_entries` row and the task closes
-itself via `reconcileCloseTasks`. There is deliberately no "mark done" anywhere:
-a completed task always has a real balance behind it, or it is a skip with a
-reason.
+opens on the outstanding accounts for a period before its ledger, and now ends
+on the close itself. Entering a balance there writes the ordinary
+`manual_entries` row and the task closes itself via `reconcileCloseTasks`.
+Delete that balance and the task goes **back on the list** — reconciliation runs
+in both directions, which it did not before; a completed task pointing at a
+figure that no longer existed was invisible to the checklist, the banner and the
+alert alike. There is deliberately no "mark done" anywhere: a completed task
+always has a real balance behind it, or it is a skip with a reason.
 
 Alerts go to each account's responsible person, falling back to `ADMIN_EMAIL`
 when nobody is named — and saying in the email that nobody is, since that is a

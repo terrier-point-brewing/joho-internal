@@ -7,6 +7,17 @@
  * statements self-heal within a day. Idempotent (upsert per square_order_id /
  * square_refund_id), so overlap with the webhook is harmless. The run summary
  * lands in cron_runs.detail for the Settings → Cron Jobs monitor.
+ *
+ * ── Which connection this reports against ────────────────────────────────────
+ * The Square one. §6 of docs/finance/balance-methods-handoff.md lists this cron
+ * alongside ramp-expenses-sync under "report sync health through the connection
+ * store", but this job touches no Ramp data at all — it syncs Square orders,
+ * refunds and invoices, and what goes stale when it fails is the Square-derived
+ * balance on GL 1040. Recording it against the Ramp row would put a true
+ * failure on the wrong integration, which is worse than not recording it.
+ *
+ * Reported from HERE rather than from the route, so a "Run now" tells the
+ * connection the same thing the schedule does.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { syncPosTransactionsForRange } from "@/lib/finance/syncPosTransactions";
@@ -14,6 +25,7 @@ import { syncRefundsForRange } from "@/lib/finance/syncRefunds";
 import { reconcileInvoiceStatus } from "@/lib/finance/reconcileInvoiceStatus";
 import { syncSquareInvoicesForYear } from "@/lib/finance/syncSquareInvoices";
 import { autoMapInvoiceLineItems } from "@/lib/finance/autoMap";
+import { recordProviderSyncResult } from "@/lib/finance/balances/connections";
 
 /**
  * How far back each run re-syncs. Widened from 3 once re-syncs stopped
@@ -36,6 +48,22 @@ import { autoMapInvoiceLineItems } from "@/lib/finance/autoMap";
 const WINDOW_DAYS = 7;
 
 export async function runFinanceSync(supabase: SupabaseClient) {
+  try {
+    return await syncEverything(supabase);
+  } catch (err) {
+    // Recorded and then rethrown: the Square connection needs to say what went
+    // wrong, and the run still needs to be marked failed.
+    const message = err instanceof Error ? err.message : String(err);
+    await recordProviderSyncResult(supabase, "square", { ok: false, error: `Square sync failed: ${message}` });
+    throw err;
+  }
+}
+
+/**
+ * The run itself, lifted out so the failure path has one place to catch rather
+ * than eighty lines wrapped in a try block.
+ */
+async function syncEverything(supabase: SupabaseClient) {
   const now = new Date();
   const endDate = now.toISOString().slice(0, 10);
   const startDate = new Date(now.getTime() - WINDOW_DAYS * 86_400_000).toISOString().slice(0, 10);

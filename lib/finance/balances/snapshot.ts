@@ -16,13 +16,21 @@
 // non-frozen row is updated in place. A frozen row (is_frozen = true) is
 // NEVER rewritten.
 //
+// A month somebody has CLOSED is refused whole, before any of that: see
+// periodClose.ts. is_frozen is per row, so on its own it would let an account
+// configured after the close acquire a brand-new row inside a month already
+// called final.
+//
 // The decision logic lives entirely in the pure resolveSnapshotWrites; the
 // IO wrapper (snapshotPeriod) only fetches, calls providers, and writes.
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { monthEnd } from "@/lib/finance/manualEntries";
+import { todayLocalDate } from "@/lib/utils/datetime";
 import { getProvider } from "./registry";
 import { getMethod, runMethod } from "./methods/registry";
+import { mostRecentlyEndedMonthEnd } from "./periods";
+import { readPeriodClose } from "./periodCloseState";
 
 type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
 
@@ -30,6 +38,14 @@ export interface SnapshotResult {
   written: number;
   skipped: number;
   errors: string[];
+  /**
+   * Accounts deliberately left out because this is an older month and one of
+   * their steps can only answer about today. Not errors -- see
+   * `dependsOnCurrentState` in registry.ts -- but reported so a blank row on a
+   * backfilled month reads as "we declined to guess" rather than "nothing was
+   * configured".
+   */
+  excluded: string[];
 }
 
 interface SourceRow {
@@ -106,6 +122,22 @@ export interface ExpandedSources {
   /** Accounts that must not be written at all this run. */
   failedAccounts: Set<string>;
   errors: string[];
+  /** Accounts left out because a step of theirs cannot answer about a past month. */
+  excluded: string[];
+}
+
+/**
+ * Pure. Does this method reach for something only today can answer?
+ *
+ * Asked of the whole method rather than the failing step, because excluding
+ * just the step would write the surviving half as if it were the whole balance
+ * -- the exact GL 2220 failure this file's per-account rule exists to stop. GL
+ * 1100 is the live case: `openInvoiceAr` plus `transactionPostings`, and
+ * dropping only the first would report a historical A/R of whatever happened to
+ * be posted directly, which for this business is usually nothing.
+ */
+function stepsDependOnCurrentState(stepKeys: string[]): boolean {
+  return stepKeys.some((key) => getProvider(key)?.dependsOnCurrentState === true);
 }
 
 /**
@@ -139,17 +171,26 @@ export async function expandSources(
   supabase: AdminClient,
   periodEnd: string,
   declared: DeclaredSource[],
+  /** True when `periodEnd` is older than the month currently being closed. */
+  historical = false,
 ): Promise<ExpandedSources> {
   const sources: { coaId: string; providerKey: string }[] = [];
   const results = new Map<string, number | null>();
   const failedAccounts = new Set<string>();
   const errors: string[] = [];
+  const excluded: string[] = [];
 
   for (const source of declared) {
     const ctx = { supabase, periodEnd, coaId: source.coaId, config: source.config };
 
     const method = getMethod(source.providerKey);
     if (method) {
+      // Checked before the method runs, not after: the point is not to ask.
+      if (historical && stepsDependOnCurrentState(method.steps.map((s) => s.providerKey))) {
+        excluded.push(source.coaId);
+        failedAccounts.add(source.coaId);
+        continue;
+      }
       const outcome = await runMethod(method, ctx);
       if (outcome.status === "failed") {
         errors.push(...outcome.errors.map((e) => `${e} (account ${source.coaId})`));
@@ -171,6 +212,11 @@ export async function expandSources(
       failedAccounts.add(source.coaId);
       continue;
     }
+    if (historical && provider.dependsOnCurrentState) {
+      excluded.push(source.coaId);
+      failedAccounts.add(source.coaId);
+      continue;
+    }
     try {
       const value = await provider.compute(ctx);
       sources.push({ coaId: source.coaId, providerKey: source.providerKey });
@@ -183,7 +229,7 @@ export async function expandSources(
     }
   }
 
-  return { sources, results, failedAccounts, errors };
+  return { sources, results, failedAccounts, errors, excluded: Array.from(new Set(excluded)) };
 }
 
 /** Reads every active balance_sheet_account_sources row. */
@@ -207,10 +253,51 @@ export async function fetchDeclaredSources(supabase: AdminClient): Promise<Decla
  * decisions. A source naming an unknown method or provider is reported rather
  * than thrown, and a step that throws is isolated to its own account so one bad
  * source cannot abort the whole run.
+ *
+ * ── Backfilling an older month asks fewer questions ──────────────────────────
+ * Only the most recently ended month was ever snapshotted, so anything before
+ * 2026-06 is blank. Filling those in is safe for almost every provider -- they
+ * filter by date and answer about the month asked for -- but not for one that
+ * reads a CURRENT status. `openInvoiceAr` sums invoices open TODAY, so asked
+ * about March it returns March's invoices still unpaid now: an understatement
+ * with nothing in the number to reveal it.
+ *
+ * Whether this is a backfill is derived here rather than passed in, so no
+ * caller can forget it and quietly write a wrong figure into a month nobody is
+ * looking at. `todayIso` is injectable for tests only.
  */
-export async function snapshotPeriod(supabase: AdminClient, periodEnd: string): Promise<SnapshotResult> {
+export async function snapshotPeriod(
+  supabase: AdminClient,
+  periodEnd: string,
+  opts: { todayIso?: string } = {},
+): Promise<SnapshotResult> {
+  const todayIso = opts.todayIso ?? todayLocalDate();
+
+  // A closed month is refused whole, before anything is read.
+  //
+  // is_frozen alone was not enough. It is per ROW, and an account that gains a
+  // source after the close has no row yet -- so it would be computed and
+  // written into a month somebody had already signed off, silently changing a
+  // balance sheet that had been called final. Checking the period first means
+  // the close covers the accounts nobody had configured as well as the ones
+  // they had, which is what "these books are final" actually claims.
+  const closeState = await readPeriodClose(supabase, periodEnd);
+  if (closeState?.closed) {
+    return { written: 0, skipped: 0, errors: [], excluded: [] };
+  }
+
+  // Strictly older than the month being closed. The current close period is
+  // handled exactly as it always has been -- this changes nothing about the
+  // figures the balance sheet shows today.
+  const historical = periodEnd < mostRecentlyEndedMonthEnd(todayIso);
+
   const declared = await fetchDeclaredSources(supabase);
-  const { sources, results, failedAccounts, errors } = await expandSources(supabase, periodEnd, declared);
+  const { sources, results, failedAccounts, errors, excluded } = await expandSources(
+    supabase,
+    periodEnd,
+    declared,
+    historical,
+  );
 
   const { data: existingRows, error: existingError } = await supabase
     .from("gl_account_balances")
@@ -253,7 +340,7 @@ export async function snapshotPeriod(supabase: AdminClient, periodEnd: string): 
   const consideredAccounts = new Set(declared.map((s) => s.coaId)).size;
   const skipped = Math.max(consideredAccounts - written, 0);
 
-  return { written, skipped, errors };
+  return { written, skipped, errors, excluded };
 }
 
 /**
@@ -287,7 +374,6 @@ export async function fetchBalances(
   return map;
 }
 
-/** Sets is_frozen = true for every gl_account_balances row of `periodEnd`. A frozen row is never recomputed by snapshotPeriod again. */
 /**
  * Reopen a frozen period so its balances recompute on the next snapshot run.
  *
@@ -296,6 +382,10 @@ export async function fetchBalances(
  * preceded the first cron run -- stayed wrong forever, with resolveSnapshotWrites
  * skipping it on every subsequent pass. An operation that can be performed by
  * accident needs an inverse.
+ *
+ * Call it through `reopenPeriod` (periodClose.ts) rather than directly: the
+ * unfreeze is the mechanism, and the record of who reopened the month and why
+ * is the part somebody reading the balance sheet next month actually needs.
  */
 export async function unfreezePeriod(supabase: AdminClient, periodEnd: string): Promise<void> {
   const { error } = await supabase
@@ -305,6 +395,14 @@ export async function unfreezePeriod(supabase: AdminClient, periodEnd: string): 
   if (error) throw new Error(error.message);
 }
 
+/**
+ * Sets is_frozen = true for every gl_account_balances row of `periodEnd`.
+ *
+ * Only `closePeriod` calls this. It used to be reachable from the nightly cron
+ * on a due date, which is how a month came to be marked final with nobody's
+ * name on it; freezing is now a consequence of somebody closing the month, and
+ * has no other trigger anywhere.
+ */
 export async function freezePeriod(supabase: AdminClient, periodEnd: string): Promise<void> {
   const { error } = await supabase
     .from("gl_account_balances")

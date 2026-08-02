@@ -28,6 +28,7 @@ import { parseManualEntryFilter } from "@/lib/finance/manualEntryFilters";
 // user's data, the task is derived bookkeeping that the next
 // balance-close cron run will catch regardless.
 import { reconcileCloseTasks } from "@/lib/finance/balances/closeTasks";
+import { closedPeriodRefusal } from "@/lib/finance/balances/periodClose";
 
 export const dynamic = "force-dynamic";
 
@@ -81,6 +82,12 @@ function isDuplicateBalanceError(error: { code?: string; message?: string }): bo
  * task clears immediately instead of waiting for the next balance-close
  * cron run. A reconciler failure is logged and swallowed -- it must never
  * fail the entry write that already succeeded.
+ *
+ * Runs on DELETE as well as on write, and that is the point of the change that
+ * introduced it: reconcileCloseTasks now REOPENS a task whose balance has
+ * disappeared, so a figure entered by mistake and then removed puts the account
+ * back on the checklist immediately rather than leaving a completed task
+ * pointing at nothing.
  */
 async function reconcileAfterWrite(
   supabase: ReturnType<typeof createSupabaseAdminClient>,
@@ -92,6 +99,27 @@ async function reconcileAfterWrite(
   } catch (err) {
     console.error("[manual-entries] reconcileCloseTasks failed", { asOfDate: record.asOfDate, err });
   }
+}
+
+/**
+ * 409s a balance write that lands in a month somebody has closed.
+ *
+ * A closed period's gl_account_balances rows are frozen, so the snapshot skips
+ * them: the entry saved perfectly and the balance sheet never moved. Somebody
+ * correcting a June figure in August would watch it save and then not change.
+ * Refusing says so, and names the way out -- reopening June is a button now.
+ *
+ * Flow entries are unaffected: they feed the P&L, which the balance-sheet close
+ * says nothing about.
+ */
+async function refuseClosedPeriod(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  entryKind: ManualEntryKind | undefined,
+  asOfDate: string | null | undefined,
+): Promise<NextResponse | null> {
+  if (entryKind !== "balance" || !asOfDate) return null;
+  const refusal = await closedPeriodRefusal(supabase, asOfDate);
+  return refusal ? NextResponse.json({ error: refusal }, { status: 409 }) : null;
 }
 
 /**
@@ -167,6 +195,9 @@ export async function POST(req: NextRequest) {
     if (!validation.ok) {
       return NextResponse.json({ error: validation.error }, { status: 400 });
     }
+
+    const closed = await refuseClosedPeriod(supabase, body.entryKind, body.entryKind === "balance" ? body.asOfDate : null);
+    if (closed) return closed;
 
     const row = toRow(body, { created_by: session.user.id });
 
@@ -270,6 +301,18 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: validation.error }, { status: 400 });
     }
 
+    // Both ends of the edit, because moving a balance INTO or OUT OF a closed
+    // month changes that month's books just as much as editing one already in
+    // it. Checking only the merged date would let a July figure be dragged back
+    // into a closed June, silently.
+    for (const [kind, date] of [
+      [existing.entryKind, existing.asOfDate],
+      [merged.entryKind, merged.entryKind === "balance" ? merged.asOfDate : null],
+    ] as const) {
+      const closed = await refuseClosedPeriod(supabase, kind, date);
+      if (closed) return closed;
+    }
+
     const mergedRow = toRow(merged, { updated_by: session.user.id });
 
     // Update only the columns actually supplied in the patch (plus updated_by).
@@ -323,8 +366,28 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "id is required" }, { status: 400 });
     }
 
+    // Read before deleting: the row is what says which period this touches, and
+    // deleting a balance is exactly what has to put its close task back on the
+    // list. Both were missing here -- a deleted balance left a completed task
+    // asserting a figure that no longer existed.
+    const { data: existingRow, error: fetchError } = await supabase
+      .from("manual_entries")
+      .select(SELECT_COLUMNS)
+      .eq("id", id)
+      .maybeSingle();
+    if (fetchError) throw fetchError;
+    if (!existingRow) {
+      return NextResponse.json({ error: "Manual entry not found" }, { status: 404 });
+    }
+    const existing = toRecord(existingRow as ManualEntryRow);
+
+    const closed = await refuseClosedPeriod(supabase, existing.entryKind, existing.asOfDate);
+    if (closed) return closed;
+
     const { error } = await supabase.from("manual_entries").delete().eq("id", id);
     if (error) throw error;
+
+    await reconcileAfterWrite(supabase, existing);
 
     return NextResponse.json({ ok: true });
   } catch (err) {
