@@ -5,9 +5,8 @@
  * The nightly finance-sync covers a trailing week. Anything that falls out of
  * that window is stranded permanently — May 2026's refunds sat missing for two
  * and a half months for exactly this reason. Widening the nightly window would
- * fix it by brute force, but it would also push every invoice-backed order in
- * that window through the non-canonical invoice-line rebuild flagged in
- * lib/finance/syncPosTransactions.ts, nightly.
+ * fix it by brute force, at the cost of re-pulling and rewriting months of
+ * orders every night.
  *
  * So this compares per-day COUNTS across a long lookback and re-syncs only the
  * days that actually differ — normally none, in which case it writes a

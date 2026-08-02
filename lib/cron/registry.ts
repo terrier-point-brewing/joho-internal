@@ -96,7 +96,7 @@ export const CRON_JOBS: CronJobMeta[] = [
     description:   "Safety net for the Square webhook: re-syncs a trailing window of orders, refunds, and invoices into the finance transactions grid.",
     maxAgeHours:   25,
     manualRun:     "start",
-    manualNote:    "An account set by hand on an order line is kept. An account set by hand on an INVOICE line is not: re-syncing an order that came from an invoice rebuilds that invoice's lines from the product catalogue.",
+    manualNote:    "An account set by hand is kept, on order lines and on invoice lines alike. What re-syncing changes is the money and the line details, which come from Square.",
   },
   {
     job:           "finance-gap-scan",
@@ -107,7 +107,7 @@ export const CRON_JOBS: CronJobMeta[] = [
     // Weekly job: overdue only once a run has been missed outright (8 days).
     maxAgeHours:   193,
     manualRun:     "start",
-    manualNote:    "On a healthy set of books this finds nothing and changes nothing. Where it does find a missing day, re-syncing it rebuilds any invoice lines on that day from the product catalogue, so an account set by hand on an invoice line can be replaced.",
+    manualNote:    "On a healthy set of books this finds nothing and changes nothing. Where it does find a missing day it re-syncs that day, keeping any account set by hand on the lines it rebuilds.",
   },
   {
     job:           "tax-tasks",

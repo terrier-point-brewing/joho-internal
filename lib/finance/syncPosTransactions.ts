@@ -4,9 +4,12 @@
  * Pulls completed Square orders and upserts them into `square_orders`, then
  * (re)builds their line items:
  *   - POS orders            → `pos_line_items`
- *   - Invoice-backed orders → `invoice_line_items` (linked to the `invoices` table)
+ *   - Invoice-backed orders → `invoice_line_items`, written through the canonical
+ *     writer in lib/finance/invoiceLineItems.ts rather than by this module
  *
- * Idempotent per `square_order_id` — re-running an order refreshes it in place.
+ * Idempotent per `square_order_id` — re-running an order refreshes it in place,
+ * and non-destructive: a chart-of-accounts mapping a person set by hand on
+ * either kind of line survives the rebuild.
  *
  * Two entry points share the same core so the manual month/year sync route, the
  * daily cron, and the near-real-time Square webhook all write identical rows:
@@ -14,9 +17,22 @@
  *   - `syncPosOrdersByIds`          — fetch specific orders (webhook, per event)
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Order } from "@/types/square";
+import type { CatalogItem, Order } from "@/types/square";
 import { fetchCompletedOrders, fetchCanceledOrders, fetchOrdersByIds } from "@/lib/square/orders";
+import { fetchCatalogItems } from "@/lib/square/catalog";
 import { isReturnOrder } from "@/lib/square/returnOrders";
+import { buildLineItemTaxRows, type LineItemTaxRow } from "@/lib/finance/lineItemTaxRows";
+import {
+  buildLineItemIndexes,
+  buildInvoiceLineItemRows,
+  persistInvoiceLineItems,
+  type LineItemCoa,
+} from "@/lib/finance/invoiceLineItems";
+
+// Canonical home is ./lineItemTaxRows; re-exported so existing importers
+// (lib/tax/backfillLineItemTaxes.ts, syncPosTransactions.test.ts) keep
+// resolving them from here.
+export { buildLineItemTaxRows, type LineItemTaxRow };
 
 const BATCH_SIZE = 100;
 
@@ -186,77 +202,59 @@ export function buildPosLineItems(
 }
 
 /**
- * One row for `pos_line_item_taxes` or its invoice-side sibling table — the
- * two tables are structurally identical, so one builder serves both. The
- * caller decides which table to insert into by which db-id map it passes.
- * (The invoice-side insert itself lives in lib/finance/invoiceLineItems.ts,
- * the canonical writer for that table — see the note below.)
+ * GL state already sitting on an invoice line — the chart-of-accounts mapping a
+ * person set in the Invoices grid, or the auto-map pass materialized. Read off
+ * the rows an invoice rebuild is about to replace, keyed by the DB `sort_order`
+ * the canonical writer assigned them, and handed straight to
+ * `buildInvoiceLineItemRows` so a re-sync never reverts it.
  */
-export interface LineItemTaxRow {
-  line_item_id: string;
-  square_tax_id: string;
-  tax_name: string | null;
-  tax_pct: number | null;
-  amount_cents: number;
-}
+type ExistingInvoiceCoa = Map<string, Map<number, LineItemCoa>>;
 
 /**
- * `pos_line_item_taxes` rows for one POS order. Pure. Resolves each line's
- * `applied_taxes[].tax_uid` against the order's `taxes[]` (catalog tax id +
- * name + rate) and looks up the line's already-inserted db id via
- * `lineItemDbIdByUid` (keyed by `square_line_item_uid`, scoped to this order —
- * uids are only unique within a single order's line_items).
+ * Read the CoA already on the line items an invoice rebuild will replace.
+ *
+ * The invoice-side counterpart of the `pos_line_items` prior-state read below,
+ * and it carries the same fail-safe: an invoice whose read errors is returned in
+ * `failed` and left completely alone this run, because rebuilding from a blank
+ * slate is exactly how a hand-set account gets silently reverted.
+ *
+ * Keyed by `sort_order` rather than by `square_line_item_uid` because that is
+ * the key `persistInvoiceLineItems` upserts on — see the note in
+ * `syncSquareOrders` about the two writers that used to disagree about it.
  */
-export function buildLineItemTaxRows(
-  order: Order,
-  lineItemDbIdByUid: Map<string, string>,
-): LineItemTaxRow[] {
-  const taxByUid = new Map((order.taxes ?? []).map((t) => [t.uid, t]));
-  const rows: LineItemTaxRow[] = [];
-  for (const li of order.line_items ?? []) {
-    const lineItemDbId = li.uid ? lineItemDbIdByUid.get(li.uid) : undefined;
-    if (!lineItemDbId) continue;
-    for (const at of li.applied_taxes ?? []) {
-      const tax = taxByUid.get(at.tax_uid);
-      if (!tax) continue;
-      rows.push({
-        line_item_id: lineItemDbId,
-        square_tax_id: tax.catalog_object_id ?? tax.uid,
-        tax_name: tax.name ?? null,
-        tax_pct: tax.percentage != null ? parseFloat(tax.percentage) : null,
-        amount_cents: at.applied_money?.amount ?? 0,
-      });
+async function readExistingInvoiceCoa(
+  supabase: SupabaseClient,
+  invoiceIds: string[],
+): Promise<{ byInvoice: ExistingInvoiceCoa; failed: Set<string>; errors: string[] }> {
+  const byInvoice: ExistingInvoiceCoa = new Map();
+  const failed = new Set<string>();
+  const errors: string[] = [];
+
+  for (let i = 0; i < invoiceIds.length; i += BATCH_SIZE) {
+    const batchIds = invoiceIds.slice(i, i + BATCH_SIZE);
+    const { data, error } = await supabase
+      .from("invoice_line_items")
+      .select("invoice_id, sort_order, chart_of_accounts_id")
+      .in("invoice_id", batchIds);
+
+    if (error) {
+      errors.push(`Prior invoice line state ${i}–${i + batchIds.length}: ${error.message}`);
+      for (const id of batchIds) failed.add(id);
+      continue;
+    }
+
+    for (const row of (data ?? []) as { invoice_id: string; sort_order: number; chart_of_accounts_id: string | null }[]) {
+      if (row.chart_of_accounts_id == null) continue;
+      let bySort = byInvoice.get(row.invoice_id);
+      if (!bySort) {
+        bySort = new Map();
+        byInvoice.set(row.invoice_id, bySort);
+      }
+      bySort.set(row.sort_order, { chart_of_accounts_id: row.chart_of_accounts_id });
     }
   }
-  return rows;
-}
 
-/** `invoice_line_items` rows for one invoice-backed order. Pure. */
-export function buildInvoiceLineItems(
-  invoiceId: string,
-  order: Order,
-  getInvoiceCoA: (variationId: string) => string | null,
-) {
-  return (order.line_items ?? []).map((li, idx) => {
-    const varId = li.catalog_object_id ?? null;
-    return {
-      invoice_id: invoiceId,
-      sort_order: idx + 1,
-      description: [li.name, li.variation_name].filter(Boolean).join(" – "),
-      quantity: parseFloat(li.quantity ?? "1"),
-      unit_price_cents: li.base_price_money?.amount ?? 0,
-      // Tax-free, matching lib/finance/invoiceLineItems.ts's canonical builder.
-      // Square's line `total_money` includes tax on invoice orders too
-      // (verified in raw_data: 10000 - 724 + 673 = 9949).
-      total_cents: (li.gross_sales_money?.amount ?? 0) - (li.total_discount_money?.amount ?? 0),
-      gross_sales_cents: li.gross_sales_money?.amount ?? 0,
-      discount_cents: li.total_discount_money?.amount ?? 0,
-      net_sales_cents: (li.gross_sales_money?.amount ?? 0) - (li.total_discount_money?.amount ?? 0),
-      square_catalog_variation_id: varId,
-      square_line_item_uid: li.uid ?? null,
-      chart_of_accounts_id: varId ? getInvoiceCoA(varId) : null,
-    };
-  });
+  return { byInvoice, failed, errors };
 }
 
 /**
@@ -284,7 +282,11 @@ export async function syncSquareOrders(
     supabase.from("invoices").select("id, raw_data").not("raw_data->square_order_id", "is", null),
   ]);
 
-  const { getPosCoA, getInvoiceCoA } = buildCoaResolvers(mappingsRes.data ?? []);
+  // Only the POS resolver is used here. The invoice side's CoA prefill comes
+  // from `buildLineItemIndexes`, part of the canonical invoice writer — the same
+  // `chart_of_accounts_id_invoice ?? chart_of_accounts_id` priority, resolved in
+  // one place instead of two.
+  const { getPosCoA } = buildCoaResolvers(mappingsRes.data ?? []);
   const invoiceIdByOrderId = buildInvoiceLookup(invoiceRes.data ?? []);
 
   const nowIso = new Date().toISOString();
@@ -364,6 +366,18 @@ export async function syncSquareOrders(
     }
   }
 
+  // Same read, same fail-safe, for the invoice-backed orders about to be
+  // rebuilt. Canceled ones are excluded: their lines are withdrawn, not rebuilt.
+  const rebuildInvoiceIds: string[] = [];
+  for (const order of orders) {
+    if (!upsertedIds.has(order.id)) continue;
+    if (actionByOrderId.get(order.id) === "cancel") continue;
+    const invoiceId = invoiceIdByOrderId.get(order.id);
+    if (invoiceId) rebuildInvoiceIds.push(invoiceId);
+  }
+  const existingInvoiceCoa = await readExistingInvoiceCoa(supabase, rebuildInvoiceIds);
+  errors.push(...existingInvoiceCoa.errors);
+
   // Rebuild POS line items: delete existing for these orders, then insert fresh.
   const posDbIdsToClear = [
     ...canceledPosDbIds,
@@ -377,7 +391,8 @@ export async function syncSquareOrders(
   let canceled = 0;
   const posLineItems: object[] = [];
   const posOrdersByDbId = new Map<string, Order>(); // for tax-row building, after ids are known
-  const invoiceLineItemsToInsert: { invoiceId: string; items: object[] }[] = [];
+  const invoiceIdsToClear: string[] = [];
+  const invoiceRebuilds: { invoiceId: string; order: Order }[] = [];
 
   for (const order of orders) {
     const dbId = upsertedIds.get(order.id);
@@ -387,25 +402,22 @@ export async function syncSquareOrders(
 
     // Canceled: the order row stays (status now CANCELED, an audit trail) but its
     // line items are withdrawn so it contributes nothing to statements. POS lines
-    // were already deleted above; for invoice-backed orders, clear them here by
-    // queueing an empty item set (delete-then-insert-nothing).
+    // were already deleted above; for invoice-backed orders, clear them below.
     if (actionByOrderId.get(order.id) === "cancel") {
       canceled++;
-      if (invoiceId) invoiceLineItemsToInsert.push({ invoiceId, items: [] });
+      if (invoiceId) invoiceIdsToClear.push(invoiceId);
       continue;
     }
 
-    // Prior line items unreadable ⇒ they were never deleted above. Leave the
-    // order exactly as it stands rather than rebuild it from a blank slate, and
-    // don't count it as synced — nothing about it changed.
-    if (!invoiceId && priorReadFailed.has(dbId)) continue;
+    // Prior line state unreadable ⇒ leave the order exactly as it stands rather
+    // than rebuild it from a blank slate, and don't count it as synced — nothing
+    // about it changed. (POS lines were never deleted above for these; invoice
+    // lines are never deleted ahead of their rebuild at all.)
+    if (invoiceId ? existingInvoiceCoa.failed.has(invoiceId) : priorReadFailed.has(dbId)) continue;
 
     synced++;
     if (invoiceId) {
-      invoiceLineItemsToInsert.push({
-        invoiceId,
-        items: buildInvoiceLineItems(invoiceId, order, getInvoiceCoA),
-      });
+      invoiceRebuilds.push({ invoiceId, order });
     } else {
       posLineItems.push(...buildPosLineItems(dbId, order, getPosCoA, priorByOrderDbId.get(dbId)));
       posOrdersByDbId.set(dbId, order);
@@ -450,25 +462,47 @@ export async function syncSquareOrders(
     if (error) errors.push(`POS line item taxes batch ${i}: ${error.message}`);
   }
 
-  // NOTE: this path does NOT own the invoice-side line-item tax table. The
-  // canonical writer (buildInvoiceLineItemRows + persistInvoiceLineItems in
-  // lib/finance/invoiceLineItems.ts) upserts on (invoice_id, sort_order) using
-  // a DIFFERENT (0-based, excise-skipping) sort_order than this builder's
-  // 1-based one, so a tax-row write keyed to THIS insert's row ids would be
-  // silently orphaned or misattributed the moment the canonical sync runs
-  // over the same invoice. Rebuilding tax rows is that writer's job alone.
-  for (const { invoiceId, items } of invoiceLineItemsToInsert) {
-    // The delete cascades to the invoice-side line-item tax rows (ON DELETE
-    // CASCADE), so a re-sync converges without a separate tax-row cleanup.
-    await supabase.from("invoice_line_items").delete().eq("invoice_id", invoiceId);
+  // Invoice-backed orders are written through the CANONICAL invoice-line writer
+  // (buildInvoiceLineItemRows + persistInvoiceLineItems in
+  // lib/finance/invoiceLineItems.ts) — the same pair syncSquareInvoices, the
+  // export routes and the deposit generate read-backs use.
+  //
+  // This path used to carry an invoice builder of its own, and the two writers
+  // disagreed about which row is which: it numbered sort_order from 1 across
+  // every order line, while the canonical writer numbers from 0 and drops
+  // carve-out excise lines. Since persistInvoiceLineItems upserts on
+  // (invoice_id, sort_order), a nightly re-sync first deleted whatever account
+  // a person had set, then handed the canonical sync a set of rows shifted by a
+  // position — so the preservation that sync does honestly perform preserved
+  // the neighbouring line's account onto this one. Aligning the two numbering
+  // schemes would have left that agreement resting on a convention that has
+  // already drifted once (see CanonicalLineItemRow.square_line_item_uid). There
+  // is now one writer, so there is nothing left to agree.
+  for (const invoiceId of invoiceIdsToClear) {
+    // No rows = delete every line for the invoice, which cascades to the
+    // invoice-side line-item tax rows (ON DELETE CASCADE).
+    const { error } = await persistInvoiceLineItems(supabase, invoiceId, []);
+    if (error) errors.push(`Invoice line items (${invoiceId}) clear: ${error}`);
+  }
 
-    for (let i = 0; i < items.length; i += BATCH_SIZE) {
-      const { error } = await supabase
-        .from("invoice_line_items")
-        .insert(items.slice(i, i + BATCH_SIZE));
-      if (error) {
-        errors.push(`Invoice line items (${invoiceId}) batch ${i}: ${error.message}`);
-      }
+  if (invoiceRebuilds.length > 0) {
+    // Fetched only when there is an invoice to rebuild, so a POS-only window —
+    // the common case for the webhook — makes no catalog call at all.
+    const catalogItems = (await fetchCatalogItems()) as CatalogItem[];
+    const indexes = await buildLineItemIndexes(supabase, catalogItems);
+
+    for (const { invoiceId, order } of invoiceRebuilds) {
+      const rows = buildInvoiceLineItemRows(
+        invoiceId,
+        order,
+        indexes,
+        existingInvoiceCoa.byInvoice.get(invoiceId) ?? new Map(),
+      );
+      // Passing `order` also rebuilds invoice_line_item_taxes off the row ids
+      // read back afterwards — safe now that this path and the canonical sync
+      // key rows the same way.
+      const { error } = await persistInvoiceLineItems(supabase, invoiceId, rows, order);
+      if (error) errors.push(`Invoice line items (${invoiceId}): ${error}`);
     }
   }
 
