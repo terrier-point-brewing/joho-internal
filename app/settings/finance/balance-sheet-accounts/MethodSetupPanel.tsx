@@ -23,7 +23,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { formatAmountInput, parseAmountInputCents } from "@/lib/finance/manualEntryAmount";
 import { monthEnd } from "@/lib/finance/manualEntries";
-import { formatCurrencyCents } from "@/lib/format";
+import { formatBalanceCents } from "@/lib/format";
 import Banner from "@/app/components/ui/Banner";
 import Card from "@/app/components/ui/Card";
 import Badge from "@/app/components/ui/Badge";
@@ -655,7 +655,7 @@ export default function MethodSetupPanel({
           <div className="flex items-center justify-between border-t border-line pt-3">
             <span className="text-xs text-body">This account right now</span>
             <span className="font-mono text-sm tabular-nums text-strong">
-              {formatCurrencyCents(account.liveBalance.cents)}
+              {formatBalanceCents(account.liveBalance.cents)}
             </span>
           </div>
         )}
