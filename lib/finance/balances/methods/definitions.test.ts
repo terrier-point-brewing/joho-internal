@@ -188,10 +188,11 @@ describe("setup declarations", () => {
   });
 
   it("keeps the Square sweep destination optional and restricted to bank accounts", () => {
-    // Optional because NOTHING READS IT YET -- the account it names has no
-    // transaction rows in this system to search, so requiring it would block an
-    // otherwise-ready account in exchange for nothing. Flipping it to required
-    // belongs with the feed that makes it useful, not before.
+    // Optional even now that squareDrift.ts reads it. An account that does not
+    // name a destination still reconciles -- it just gets one undifferentiated
+    // difference instead of a split one, which is exactly the behaviour that
+    // existed before the bank feed. Requiring it would turn a working account
+    // into an unconfigured one over an improvement it can live without.
     //
     // Restricted to bank accounts because it names where cash physically lands.
     // An unfiltered picker would offer expense and equity accounts, where the

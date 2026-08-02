@@ -184,6 +184,20 @@ describe("transactionPostings — the filters are actually applied", () => {
     const calls = await callsFor({ coa: LIABILITY_COA, splitRows: [{ amount_cents: -1 }] });
     expect(calls).toContain("expense_gl_splits.is(expenses.excluded_at,null)");
   });
+
+  it("counts only bank lines the ledger includes in the general ledger", async () => {
+    // ramp_bank_ledger carries more than one source now. Plaid's Chase rows are
+    // imported with include_in_gl false, because they exist so a Square transfer
+    // can be recognised from the receiving side, not as postings. Without this
+    // predicate they would land in this sum and change the reported balance of
+    // every account they touch, across up to two years of imported history,
+    // with nothing on screen to say so.
+    //
+    // Existing Ramp rows default to true, so adding the filter changes no
+    // figure that was ever reported.
+    const calls = await callsFor({ coa: LIABILITY_COA, bankRows: [{ amount_cents: -1 }] });
+    expect(calls).toContain("ramp_bank_ledger.eq(include_in_gl,true)");
+  });
 });
 
 describe("transactionPostings — split precedence", () => {

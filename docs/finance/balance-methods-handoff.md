@@ -440,23 +440,44 @@ token — with `ORIG CO NAME:Square Inc` as the fallback. Do not match on
 `CO ENTRY DESCR:SQ…`, whose suffix is a date, nor on the trace number, which is
 per-transaction. See `lib/finance/balances/squareSweeps.ts`.
 
-**What is still missing is the feed, not the logic.** GL 1020 has balances only:
-the Plaid integration reads `/accounts/balance/get` and imports no transactions,
-even though Link is opened with the Transactions product and the entitlement
-therefore exists. Until GL 1020 has transaction rows, the matcher has nothing to
-run against and the drift stays undifferentiated.
+**The feed is now BUILT.** `/transactions/sync` in `lib/plaid.ts` (cursor-based,
+per-page commit, cursor in `integration_connections.config`), imported by
+`balances/plaidTransactionSync.ts` from the `bank-transactions-sync` cron at
+03:00 UTC, read back by `balances/bankTransactions.ts`, and split into the
+reconciliation by `squareDrift.ts`. Migration
+`20260916090000_bank_ledger_plaid_source.sql`.
 
-The order of work, then, is: import Chase transactions → the matcher identifies
-sweeps → the drift row splits into "swept" and "unexplained" → the account can
-move from re-anchoring toward derivation. Declaring the downstream account is
-already done (`sweepDestinationCoaId` on the method's setup), so no
-reconfiguration is needed when the feed lands.
+Three things it settled that anything touching bank data inherits:
 
-**Follow-up once Plaid lands GL 1020:** the Chase feed will contain these
-inbound transfers, which makes the outflow identifiable. At that point the
-sweeps can be subtracted from the drift rows — turning the residual into a true
-error term — and the account can move from re-anchoring toward derivation. The
-reconciliation table already stores every input needed to do it retroactively.
+**Chase rows live in `ramp_bank_ledger`, discriminated by `source`.** Not a
+parallel table. The table already carried `source` and `source_transaction_id`
+with a unique constraint across the pair. The name stays — ten modules read it,
+one under the verified P&L, and a rename buys nothing `source` does not.
+
+**They are imported EXCLUDED from the general ledger.** `include_in_gl` defaults
+to true, so every pre-existing row is unaffected and applying the migration
+changes no reported figure. Plaid rows are written `false`, and
+`transactionPostings.ts`, `fetchSources.ts`, the bank-ledger grid route and
+`autoMapBankLedger` all filter on it. Two further properties say the same thing
+independently: the rows carry no `chart_of_accounts_id`, and `affects_pl` is
+false. Whether Chase transactions should ever feed the books is a real question
+and is **not** answered by this work — the switch exists; nobody has thrown it.
+
+**Plaid's amount sign is the opposite of the intuitive one.** A deposit is
+NEGATIVE on a depository account. It is flipped exactly once, in
+`transactionAmountToCents`, because `classifySquareSweep` ignores non-positive
+lines — get it backwards and every sweep is silently discarded and the drift
+reports a confident zero explained, with no error anywhere.
+
+The drift split is null-not-zero: `swept_*` and `unexplained_cents` stay NULL
+when the destination account has no lines for the period, so a missing feed can
+never look like a finding. Declaring the destination
+(`sweepDestinationCoaId`) stays optional — an account without one reconciles
+exactly as it did before.
+
+**Still outstanding:** GL Mapping in Finance Settings needs to grow Chase
+counterparty mapping and per-source/per-counterparty inclusion toggles. That is
+what `include_in_gl` is waiting for.
 
 **Why there is no `transactionPostings` step**, against the pattern every other
 composite method follows: 1040's section is `bank`, and for a bank-section

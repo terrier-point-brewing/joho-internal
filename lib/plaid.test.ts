@@ -5,6 +5,9 @@ import {
   createLinkToken,
   exchangePublicToken,
   getAccountBalances,
+  syncTransactions,
+  transactionAmountToCents,
+  isSyncMutationError,
   PlaidError,
   type PlaidAccount,
 } from "./plaid";
@@ -208,5 +211,115 @@ describe("getAccountBalances", () => {
     await expect(getAccountBalances("access-live")).rejects.toSatisfy(
       (err: unknown) => err instanceof PlaidError && err.needsReauth,
     );
+  });
+});
+
+/**
+ * ── The sign convention ──────────────────────────────────────────────────────
+ * The single most error-prone thing in the Chase import. Plaid reports a DEPOSIT
+ * as a NEGATIVE amount on a depository account -- "positive values when money
+ * moves out of the account" -- which is the opposite of what everyone assumes.
+ *
+ * Getting it backwards raises no error anywhere. classifySquareSweep ignores any
+ * line whose amount is not positive, on the grounds that a Square-originated
+ * debit is a chargeback rather than a payout, so an unflipped feed silently
+ * discards every sweep and the reconciliation reports a confident zero
+ * explained. Hence these tests rather than a comment.
+ */
+describe("transactionAmountToCents", () => {
+  it("turns Plaid's negative deposit into a POSITIVE amount", () => {
+    // A real Square payout of $27,456.35 arrives from Plaid as -27456.35.
+    expect(transactionAmountToCents({ amount: -27456.35 })).toBe(2745635);
+  });
+
+  it("turns Plaid's positive withdrawal into a NEGATIVE amount", () => {
+    expect(transactionAmountToCents({ amount: 1234.56 })).toBe(-123456);
+  });
+
+  it("keeps zero as zero rather than negative zero", () => {
+    // -0 is not 0 under Object.is, which is what an equality comparison uses.
+    expect(Object.is(transactionAmountToCents({ amount: 0 }), 0)).toBe(true);
+  });
+
+  it("rounds to whole cents rather than trusting binary floating point", () => {
+    expect(transactionAmountToCents({ amount: -0.07 })).toBe(7);
+    expect(transactionAmountToCents({ amount: -19.99 })).toBe(1999);
+    expect(transactionAmountToCents({ amount: -(0.1 + 0.2) })).toBe(30);
+  });
+
+  it("does NOT share a convention with the balance reader, whose sign is already intuitive", () => {
+    // Pinned together so a future tidy-up cannot "unify" two conventions that
+    // are genuinely different: a Plaid BALANCE is positive for money held, a
+    // Plaid TRANSACTION is positive for money leaving.
+    expect(balanceToCents(account({ current: 150.25 }))).toBe(15025);
+    expect(transactionAmountToCents({ amount: 150.25 })).toBe(-15025);
+  });
+});
+
+describe("isSyncMutationError", () => {
+  it("recognises the mid-pagination mutation Plaid asks callers to restart on", () => {
+    const err = new PlaidError("changed", "TRANSACTIONS_ERROR", "TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION");
+    expect(isSyncMutationError(err)).toBe(true);
+  });
+
+  it("does not treat an expired credential as a restartable pagination fault", () => {
+    // Restarting on this would loop against a bank that will never answer.
+    expect(isSyncMutationError(new PlaidError("relink", "ITEM_ERROR", "ITEM_LOGIN_REQUIRED"))).toBe(false);
+    expect(isSyncMutationError(new Error("network down"))).toBe(false);
+    expect(isSyncMutationError(null)).toBe(false);
+  });
+});
+
+describe("syncTransactions", () => {
+  const page = {
+    added: [{ transaction_id: "t1" }],
+    modified: [],
+    removed: [],
+    next_cursor: "cursor-2",
+    has_more: false,
+  };
+
+  it("omits the cursor entirely on a first sync, which asks for the full history", async () => {
+    // Plaid rejects an explicit null, and this is the call that pulls the two
+    // years the link token asked for.
+    const calls = stubFetch([{ ok: true, body: page }]);
+    const result = await syncTransactions("access-live", null);
+
+    expect(calls[0].url).toBe("https://production.plaid.com/transactions/sync");
+    expect(calls[0].body).not.toHaveProperty("cursor");
+    expect(result).toEqual({
+      added: [{ transaction_id: "t1" }],
+      modified: [],
+      removed: [],
+      nextCursor: "cursor-2",
+      hasMore: false,
+    });
+  });
+
+  it("sends a stored cursor so only changes since it come back", async () => {
+    const calls = stubFetch([{ ok: true, body: page }]);
+    await syncTransactions("access-live", "cursor-1");
+    expect(calls[0].body.cursor).toBe("cursor-1");
+    expect(calls[0].body.access_token).toBe("access-live");
+  });
+
+  it("asks for the original description, which is where the ACH addenda survives", async () => {
+    // The Square sweep is recognised from its ACH originator id, and some banks
+    // only keep it in original_description. Without this option the exact match
+    // degrades to the weaker name rule with nothing to say why.
+    const calls = stubFetch([{ ok: true, body: page }]);
+    await syncTransactions("access-live", null);
+    expect(calls[0].body.options).toEqual({ include_original_description: true });
+  });
+
+  it("returns empty lists rather than undefined when Plaid omits a bucket", async () => {
+    stubFetch([{ ok: true, body: { next_cursor: "c", has_more: false } }]);
+    expect(await syncTransactions("access-live", "c")).toEqual({
+      added: [],
+      modified: [],
+      removed: [],
+      nextCursor: "c",
+      hasMore: false,
+    });
   });
 });

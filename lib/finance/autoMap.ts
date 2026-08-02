@@ -252,10 +252,16 @@ export async function autoMapBankLedger(
   supabase: AdminClient,
   opts: { from: string; to: string; counterpartyKey?: string },
 ): Promise<{ mapped: number; errors?: string[] }> {
+  // include_in_gl: a row the books deliberately ignore must not be quietly
+  // given an account by a counterparty rule. Coding it would change nothing
+  // today, since every general-ledger reader filters the same flag, but it would
+  // mean the moment anyone opted a source in, a backlog of rows would already
+  // be mapped by a rule nobody applied to them on purpose.
   let rowQuery = supabase
     .from("ramp_bank_ledger")
     .select("id, counterparty_key, mapping_source, chart_of_accounts_id")
     .is("chart_of_accounts_id", null)
+    .eq("include_in_gl", true)
     .neq("mapping_source", "manual")
     .gte("transaction_date", opts.from)
     .lte("transaction_date", opts.to);

@@ -11,9 +11,15 @@ export async function GET(req: NextRequest) {
   const to   = req.nextUrl.searchParams.get("to");
 
   const supabase = createSupabaseAdminClient();
+  // include_in_gl keeps this grid showing what it showed before the ledger
+  // carried a second source. Plaid's Chase rows are imported excluded, and this
+  // grid is where a row is coded to an account — offering thousands of bank
+  // lines that are deliberately not accounting facts would make the real work
+  // unfindable. Surfacing and mapping them is the separate GL Mapping work.
   let query = supabase
     .from("ramp_bank_ledger")
     .select(`id, source_transaction_id, amount_cents, currency_code, description, counterparty_name, source_account_name, destination_account_name, flow_type, affects_pl, transaction_date, qb_sync_status, qb_synced_at, qb_remote_id, chart_of_accounts_id, mapping_source, unmapped_accepted`)
+    .eq("include_in_gl", true)
     .order("transaction_date", { ascending: false, nullsFirst: false });
   if (from) query = query.gte("transaction_date", from);
   if (to)   query = query.lte("transaction_date", to);
