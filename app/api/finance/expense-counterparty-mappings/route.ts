@@ -4,6 +4,8 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { fetchAllRows } from "@/lib/supabase/paginate";
 import { autoMapBankLedger } from "@/lib/finance/autoMap";
 import { counterpartyKeyOf } from "@/lib/finance/bankLedgerInclusion";
+import { isSelectableHandler, SINGLE_ACCOUNT } from "@/lib/finance/counterpartyHandlers";
+import { resolveCounterpartyClaims, claimKey, type CounterpartyClaim } from "@/lib/finance/balances/counterpartyClaims";
 
 export const dynamic = "force-dynamic";
 
@@ -18,8 +20,15 @@ interface CounterpartyRow {
   counterparty_label: string;
   chart_of_accounts_id: string | null;
   auto_matched: boolean;
-  routing: "single_account" | "payroll_split";
+  /** The STORED handler. Not necessarily the effective one — a claim overrides it. */
+  routing: string;
   chart_of_accounts: CoaJoin | null;
+  /**
+   * Set when something else already accounts for this counterparty (see
+   * lib/finance/balances/counterpartyClaims.ts). The client renders these rows
+   * read-only; PATCH refuses to write them.
+   */
+  claim: CounterpartyClaim | null;
 }
 
 /**
@@ -56,8 +65,9 @@ export async function GET() {
     counterparty_label: r.counterparty_label as string,
     chart_of_accounts_id: r.chart_of_accounts_id as string | null,
     auto_matched: r.auto_matched as boolean,
-    routing: r.routing as CounterpartyRow["routing"],
+    routing: r.routing as string,
     chart_of_accounts: (r.chart_of_accounts as unknown as CoaJoin | null) ?? null,
+    claim: null,
   }));
   const seen = new Set(rows.map((r) => `${r.source} ${r.counterparty_key}`));
 
@@ -82,10 +92,17 @@ export async function GET() {
       counterparty_label: row.counterparty_name ?? key,
       chart_of_accounts_id: null,
       auto_matched: false,
-      routing: "single_account",
+      routing: SINGLE_ACCOUNT,
       chart_of_accounts: null,
+      claim: null,
     });
   }
+
+  // Anything already accounted for elsewhere. Resolved AFTER the union above so
+  // a claim can cover a ledger-only counterparty that has never had a rule row
+  // — which is exactly the Square case, since nothing ever seeded one.
+  const claims = await resolveCounterpartyClaims(supabase, rows);
+  for (const row of rows) row.claim = claims.get(claimKey(row)) ?? null;
 
   rows.sort((a, b) => a.source.localeCompare(b.source) || a.counterparty_label.localeCompare(b.counterparty_label));
   return NextResponse.json(rows);
@@ -98,13 +115,38 @@ export async function PATCH(req: NextRequest) {
     counterparty_key?: string;
     counterparty_label?: string;
     chart_of_accounts_id?: string | null;
-    routing?: "single_account" | "payroll_split";
+    routing?: string;
   };
   const source = body.source?.trim();
   const counterpartyKey = body.counterparty_key?.trim();
   if (!source || !counterpartyKey) return NextResponse.json({ error: "source and counterparty_key required" }, { status: 400 });
 
+  // The registry replaced the DB check constraint (20260921090000), so it is
+  // the only thing standing between a typo and a counterparty that silently
+  // stops coding. Non-selectable handlers are refused here too: a claimed mode
+  // is derived, never chosen, and letting one be written by hand would put back
+  // the second source of truth claims exist to remove.
+  if (body.routing !== undefined && !isSelectableHandler(body.routing)) {
+    return NextResponse.json({ error: `Unknown routing '${body.routing}'.` }, { status: 400 });
+  }
+
   const supabase = createSupabaseAdminClient();
+
+  // A counterparty something else already accounts for cannot be assigned here.
+  // The panel renders these read-only, so reaching this is either a stale tab or
+  // a direct call; both want the same answer rather than a silent write that the
+  // next page load visibly discards.
+  const label = body.counterparty_label ?? counterpartyKey;
+  const claims = await resolveCounterpartyClaims(supabase, [
+    { source, counterparty_key: counterpartyKey, counterparty_label: label },
+  ]);
+  const claimed = claims.get(claimKey({ source, counterparty_key: counterpartyKey }));
+  if (claimed) {
+    return NextResponse.json(
+      { error: `${label} is already accounted for — ${claimed.badge}. Change it where it is set up.` },
+      { status: 409 },
+    );
+  }
 
   // Identified by (feed, counterparty) rather than by row id, because the row
   // may not exist yet: a counterparty seen only in the bank ledger is listed
@@ -118,7 +160,7 @@ export async function PATCH(req: NextRequest) {
   const patch: Record<string, unknown> = {
     source,
     counterparty_key: counterpartyKey,
-    counterparty_label: body.counterparty_label ?? counterpartyKey,
+    counterparty_label: label,
   };
   if (isAccountUpdate) {
     patch.chart_of_accounts_id = body.chart_of_accounts_id ?? null;

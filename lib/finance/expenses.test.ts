@@ -144,3 +144,48 @@ describe("resolveExpenseMapping with a payroll_split-routed counterparty rule", 
     expect(r).toEqual({ chart_of_accounts_id: "coa-payroll", mapping_source: "rule" });
   });
 });
+
+/**
+ * The resolver stopped naming payroll_split and now asks the handler registry
+ * whether a routing value codes from the rule's own account. These cover the
+ * property that makes adding a handler free here: anything that is not
+ * "account" is left for whoever does own it, with no branch of its own.
+ */
+describe("resolveExpenseMapping with a counterparty handled somewhere other than this rule", () => {
+  const emptyGl = new Map<string, RuleRef>();
+
+  function resolve(routing: string, chart_of_accounts_id: string | null = "coa-stale") {
+    return resolveExpenseMapping(
+      { external_account_id: null, counterparty_key: "square", mapping_source: "unmapped", chart_of_accounts_id: null },
+      emptyGl,
+      new Map<string, CounterpartyRuleRef>([["square", { counterparty_key: "square", chart_of_accounts_id, routing }]]),
+    );
+  }
+
+  it("leaves a balance-sheet-handled counterparty unmapped, even with an account still on the row", () => {
+    // Coding a Square deposit to the Square account would ADD to the balance it
+    // emptied — 1040 is a bank-section account, so its cash direction passes
+    // through unchanged. The account on the row is a decision taken before the
+    // calculation existed and must not be honoured.
+    expect(resolve("balance_sheet")).toEqual({ chart_of_accounts_id: null, mapping_source: "unmapped" });
+  });
+
+  it("leaves a counterparty routed to an unrecognised handler unmapped rather than coding it", () => {
+    // A handler removed in a rollback, or a row written by a newer deploy.
+    // Unmapped surfaces it for a human; the alternative codes real money to
+    // whatever account happened to be sitting there.
+    expect(resolve("handler_from_a_later_deploy")).toEqual({ chart_of_accounts_id: null, mapping_source: "unmapped" });
+  });
+
+  it("still lets a GL-account rule win, because that is coding the expense already carried", () => {
+    // The counterparty rule is the fallback for bank lines, which have no GL of
+    // their own. A card or bill that came in already coded is not affected by
+    // who handles the payee.
+    const r = resolveExpenseMapping(
+      { external_account_id: "ext-1", counterparty_key: "square", mapping_source: "unmapped", chart_of_accounts_id: null },
+      new Map<string, RuleRef>([["ext-1", { external_account_id: "ext-1", chart_of_accounts_id: "coa-fees" }]]),
+      new Map<string, CounterpartyRuleRef>([["square", { counterparty_key: "square", chart_of_accounts_id: null, routing: "balance_sheet" }]]),
+    );
+    expect(r).toEqual({ chart_of_accounts_id: "coa-fees", mapping_source: "rule" });
+  });
+});

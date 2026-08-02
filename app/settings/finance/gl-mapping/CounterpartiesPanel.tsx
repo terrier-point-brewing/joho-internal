@@ -5,10 +5,22 @@
  * counterparty is synced; this panel assigns each one an account, and decides
  * whether its transactions belong in the books at all.
  *
- * Routing decides whether a counterparty maps to a single account (default) or
- * is handed to payroll period matching instead — see resolveExpenseMapping in
- * lib/finance/expenses.ts. A payroll-split counterparty has no single account
- * to pick, so the picker is replaced rather than disabled.
+ * Routing decides WHO codes a counterparty: this screen, or something else —
+ * see lib/finance/counterpartyHandlers.ts for the registry and
+ * resolveExpenseMapping in lib/finance/expenses.ts for what the ledger does
+ * with it. A counterparty handled elsewhere has no single account to pick, so
+ * the picker is replaced rather than disabled.
+ *
+ * Two shapes of "elsewhere", and the difference is visible on screen:
+ *
+ *   chosen   -- the operator picks it from the dropdown, because nothing
+ *               upstream knows about this counterparty. Payroll split: nothing
+ *               in payroll settings names Gusto.
+ *   claimed  -- the row arrives already answered and read-only, because the
+ *               fact was stated elsewhere. Square: GL 1040's method already
+ *               names the bank account Square pays into. Offering a dropdown
+ *               here would ask for the same fact twice with nothing keeping the
+ *               two agreed.
  *
  * ── Why a counterparty is identified by its bank feed as well as its name ────
  * The same name on two bank accounts is not necessarily the same relationship,
@@ -34,13 +46,22 @@ import MappingFrame from "./MappingFrame";
 import { useMappingData } from "./useMappingData";
 import { useBankFeedRules } from "./useBankFeedRules";
 import { feedName } from "./bankFeeds";
+import {
+  SELECTABLE_HANDLERS,
+  getCounterpartyHandler,
+  codesFromRuleAccount,
+} from "@/lib/finance/counterpartyHandlers";
 
 const RULES_URL = "/api/finance/expense-counterparty-mappings";
-const PAYROLL_DEPARTMENTS_HREF = "/settings/payroll/departments";
 
 interface CoaJoin { account_name: string; account_number: string | null }
 
-type CounterpartyRouting = "single_account" | "payroll_split";
+/** Set by the server when something else already accounts for this counterparty. */
+interface Claim {
+  handler: string;
+  badge: string;
+  manageHref: string;
+}
 
 interface RuleRow {
   /** Null for a counterparty seen only in the bank ledger — no rule has been saved for it yet. */
@@ -51,7 +72,21 @@ interface RuleRow {
   chart_of_accounts_id: string | null;
   auto_matched: boolean;
   chart_of_accounts: CoaJoin | null;
-  routing: CounterpartyRouting;
+  routing: string;
+  claim: Claim | null;
+}
+
+/**
+ * What actually governs this row: a claim if there is one, else what was
+ * stored. A claim wins outright — the stored value is a decision somebody took
+ * before the calculation existed, and honouring it would be honouring an
+ * out-of-date answer.
+ */
+function effectiveHandler(rule: RuleRow): { key: string; badge: string; manageHref: string } | null {
+  if (rule.claim) return { key: rule.claim.handler, ...rule.claim };
+  const handler = getCounterpartyHandler(rule.routing);
+  if (!handler || handler.glEffect === "account") return null;
+  return { key: handler.key, badge: handler.badge, manageHref: handler.manageHref };
 }
 
 /** (bank feed, counterparty) is the identity — see the note at the top of this file. */
@@ -91,7 +126,15 @@ export default function CounterpartiesPanel() {
       }),
     });
     setSavingKey(null);
-    if (!res.ok) { setError("Could not save that change."); return false; }
+    if (!res.ok) {
+      // The server's own sentence, when it has one. A refusal here is not a
+      // failure — it is "something else already accounts for this, go and
+      // change it there" — and flattening that to "could not save" would leave
+      // the operator retrying a click that will never work.
+      const body = await res.json().catch(() => null) as { error?: string } | null;
+      setError(body?.error ?? "Could not save that change.");
+      return false;
+    }
     // The rule row may have just been created, so adopt whatever id came back.
     const saved = await res.json().catch(() => null) as { id?: string } | null;
     if (saved?.id) setRows((rs) => rs.map((r) => (rowKey(r) === rowKey(rule) ? { ...r, id: saved.id ?? null } : r)));
@@ -109,7 +152,7 @@ export default function CounterpartiesPanel() {
       : r)));
   }
 
-  async function handleSetRouting(rule: RuleRow, routing: CounterpartyRouting) {
+  async function handleSetRouting(rule: RuleRow, routing: string) {
     if (!(await patch(rule, { routing }))) return;
     setRows((rs) => rs.map((r) => (rowKey(r) === rowKey(rule) ? { ...r, routing } : r)));
   }
@@ -146,11 +189,25 @@ export default function CounterpartiesPanel() {
     if (feedIncluded.get(r.source) === false) return true;
     return (counterpartyIncluded.get(rowKey(r)) ?? true) === false;
   }
+  // A counterparty something else codes has no account to pick either, so it
+  // leaves the denominator for the same reason an excluded one does. Without
+  // this the screen reports a shortfall that no amount of work can close, and
+  // every balance-sheet calculation added would make the shortfall look worse.
+  function isHandledElsewhere(r: RuleRow): boolean {
+    return effectiveHandler(r) !== null;
+  }
   const excludedCount = rows.filter(isExcluded).length;
-  const needsMapping = rows.length - excludedCount;
-  const mapped = rows.filter((r) => r.chart_of_accounts_id && !isExcluded(r)).length;
+  const handledCount = rows.filter((r) => !isExcluded(r) && isHandledElsewhere(r)).length;
+  const needsMapping = rows.length - excludedCount - handledCount;
+  const mapped = rows.filter((r) => r.chart_of_accounts_id && !isExcluded(r) && !isHandledElsewhere(r)).length;
+  const asides = [
+    excludedCount > 0 ? `${excludedCount} out of the books` : null,
+    handledCount > 0 ? `${handledCount} handled elsewhere` : null,
+  ].filter(Boolean);
   // Danger draws the eye when something still needs a decision; success confirms
-  // there's nothing left to do; neutral covers "no data yet" / "all out of the books".
+  // there's nothing left to do; neutral covers "no data yet" / "nothing left to
+  // map". A claimed counterparty is already out of needsMapping, so a screen
+  // whose only gaps are claims reads as done rather than as work outstanding.
   const summaryTone: Tone = rows.length === 0 || needsMapping === 0
     ? "neutral"
     : mapped === needsMapping ? "success" : "danger";
@@ -164,9 +221,9 @@ export default function CounterpartiesPanel() {
       summary={rows.length === 0
         ? "Counterparties appear here after syncing bank-account lines on the Transactions → Bank Ledger tab."
         : needsMapping === 0
-        ? `All ${rows.length} counterparties out of the books`
+        ? `No counterparties left to map${asides.length > 0 ? ` (${asides.join(", ")})` : ""}`
         : `${mapped} of ${needsMapping} counterparties mapped to the chart of accounts`
-          + (excludedCount > 0 ? ` (${excludedCount} out of the books)` : "")}
+          + (asides.length > 0 ? ` (${asides.join(", ")})` : "")}
       summaryTone={summaryTone}
       emptyRows={{
         title: "No counterparties yet.",
@@ -179,7 +236,9 @@ export default function CounterpartiesPanel() {
           payroll, Erie insurance). Rows are seeded automatically the first time that counterparty
           appears in a sync. Switching one out of the books leaves its transactions imported and
           visible but keeps them off every report — use that for transfers between accounts the
-          business already owns, which are neither income nor expense.
+          business already owns, which are neither income nor expense. A counterparty marked
+          &ldquo;set elsewhere&rdquo; is already accounted for by a balance sheet calculation, so there is
+          nothing to map here — follow its Manage link to see where it is set up.
         </>
       }
     >
@@ -189,6 +248,7 @@ export default function CounterpartiesPanel() {
         // whole bank account it belongs to is out of them.
         const feedOff = feedIncluded.get(rule.source) === false;
         const included = counterpartyIncluded.get(key) ?? true;
+        const handled = effectiveHandler(rule);
         return (
           <tr key={key} className="border-t border-line/40 hover:bg-surface-mid/20">
             {showFeed && <td className="px-4 py-2 text-secondary whitespace-nowrap">{feedName(rule.source)}</td>}
@@ -214,22 +274,39 @@ export default function CounterpartiesPanel() {
               )}
             </td>
             <td className="px-4 py-2">
-              <select
-                className="inp-sm"
-                value={rule.routing}
-                onChange={(e) => handleSetRouting(rule, e.target.value as CounterpartyRouting)}
-              >
-                <option value="single_account">Single account</option>
-                <option value="payroll_split">Payroll split</option>
-              </select>
+              {rule.claim ? (
+                // No dropdown at all, not a disabled one. A disabled control
+                // still reads as "a choice you are not allowed to make", when
+                // the truth is that the choice was already made on another
+                // screen and this is a report of it.
+                <span className="text-2xs text-faint" title={`Set up under ${rule.claim.badge.replace(/^Handled by /, "")}`}>
+                  set elsewhere
+                </span>
+              ) : (
+                <select
+                  className="inp-sm"
+                  value={codesFromRuleAccount(rule.routing) || getCounterpartyHandler(rule.routing) ? rule.routing : ""}
+                  onChange={(e) => handleSetRouting(rule, e.target.value)}
+                >
+                  {/* A stored value this build does not know: shown rather than
+                      silently re-reading as "Single account", which would look
+                      like the counterparty had been quietly re-routed. */}
+                  {!getCounterpartyHandler(rule.routing) && <option value="">{rule.routing} (unknown)</option>}
+                  {SELECTABLE_HANDLERS.map((h) => (
+                    <option key={h.key} value={h.key}>{h.label}</option>
+                  ))}
+                </select>
+              )}
             </td>
             <td className="px-4 py-2">
-              {rule.routing === "payroll_split" ? (
+              {handled ? (
                 <div className="flex items-center gap-2">
-                  <Badge tone="accent">Split by GL account — matched per pay period</Badge>
-                  <a href={PAYROLL_DEPARTMENTS_HREF} className="text-2xs text-accent hover:underline shrink-0">
-                    Manage →
-                  </a>
+                  <Badge tone="accent">{handled.badge}</Badge>
+                  {handled.manageHref && (
+                    <a href={handled.manageHref} className="text-2xs text-accent hover:underline shrink-0">
+                      Manage →
+                    </a>
+                  )}
                 </div>
               ) : (
                 <div className="flex items-center gap-2">

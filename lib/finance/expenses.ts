@@ -4,6 +4,7 @@
  * and the external account it was coded against. No IO here; per-source
  * adapters (e.g. ./rampExpenses) convert their raw records into ExpenseRecord.
  */
+import { codesFromRuleAccount } from "./counterpartyHandlers";
 
 /** Known spend sources. Extend the union (and the DB check) to add another. */
 export type ExpenseSource = "ramp" | "square" | "manual";
@@ -103,17 +104,22 @@ export interface RuleRef {
 export interface CounterpartyRuleRef {
   counterparty_key:     string;
   chart_of_accounts_id: string | null;
-  // 'payroll_split' counterparties (e.g. Gusto) never auto-map through this
-  // resolver -- their expenses stay unmapped here so they surface for payroll
-  // period matching (lib/finance/payrollMatching.ts) instead.
-  routing:              "single_account" | "payroll_split";
+  /**
+   * Which handler codes this counterparty -- see lib/finance/counterpartyHandlers.
+   * Plain `string` rather than a union on purpose: the handler set is data, and
+   * every value except the ones whose glEffect is "account" is treated the same
+   * way here, so this resolver never needs editing when one is added.
+   */
+  routing:              string;
 }
 
 /**
  * Resolve the effective CoA + source for an expense. Priority: a manual pin wins;
  * else a GL-account rule (card/bill coding); else a counterparty rule (bank
- * lines, which carry no GL) -- unless that counterparty rule is routed to
- * payroll_split, in which case it's deliberately left unmapped; else unmapped.
+ * lines, which carry no GL) -- unless that counterparty is handled by something
+ * other than its own account, in which case it is deliberately left unmapped so
+ * the owning feature picks it up (payroll period matching, a balance-sheet
+ * calculation); else unmapped.
  */
 export function resolveExpenseMapping(
   expense: { external_account_id: string | null; counterparty_key: string | null; mapping_source: MappingSource; chart_of_accounts_id: string | null },
@@ -129,7 +135,7 @@ export function resolveExpenseMapping(
   }
   if (expense.counterparty_key) {
     const rule = counterpartyRules.get(expense.counterparty_key);
-    if (rule?.routing === "payroll_split") return { chart_of_accounts_id: null, mapping_source: "unmapped" };
+    if (rule && !codesFromRuleAccount(rule.routing)) return { chart_of_accounts_id: null, mapping_source: "unmapped" };
     if (rule?.chart_of_accounts_id) return { chart_of_accounts_id: rule.chart_of_accounts_id, mapping_source: "rule" };
   }
   return { chart_of_accounts_id: null, mapping_source: "unmapped" };

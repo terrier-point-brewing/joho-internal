@@ -83,14 +83,34 @@ export function classifySquareSweep(line: BankLine): SweepMatch {
   // A Square-originated debit is a chargeback or a reversal, not a payout.
   if (line.amountCents <= 0) return { matched: false };
 
-  const haystack = `${line.description ?? ""} ${line.counterpartyName ?? ""}`;
+  const confidence = matchSquareOriginator(line.description, line.counterpartyName);
+  return confidence ? { matched: true, confidence } : { matched: false };
+}
 
-  if (ORIG_ID.test(haystack)) return { matched: true, confidence: "exact" };
-  if (ORIG_CO_NAME.test(haystack)) return { matched: true, confidence: "name" };
-  if (line.counterpartyName && BARE_COUNTERPARTY.test(line.counterpartyName)) {
-    return { matched: true, confidence: "name" };
-  }
-  return { matched: false };
+/**
+ * Is Square the ORIGINATOR of this line, ignoring amount and direction?
+ *
+ * Split out of classifySquareSweep so the identity question can be asked
+ * without the money question. The sweep total needs both -- a debit from Square
+ * is a chargeback, not a payout, so it must not count. But deciding whether a
+ * COUNTERPARTY is Square (counterpartyClaims.ts, which is looking at a name and
+ * has no single amount to speak of) needs only the identity half, and passing a
+ * sentinel amount in to get at it would be a lie that later reads as a rule.
+ *
+ * Null means not Square. Everything about which rule matched, and why the
+ * cleaned-up counterparty is checked separately from the descriptor, is in the
+ * file header.
+ */
+export function matchSquareOriginator(
+  description?: string | null,
+  counterpartyName?: string | null,
+): "exact" | "name" | null {
+  const haystack = `${description ?? ""} ${counterpartyName ?? ""}`;
+
+  if (ORIG_ID.test(haystack)) return "exact";
+  if (ORIG_CO_NAME.test(haystack)) return "name";
+  if (counterpartyName && BARE_COUNTERPARTY.test(counterpartyName)) return "name";
+  return null;
 }
 
 export interface SweepTotals {
