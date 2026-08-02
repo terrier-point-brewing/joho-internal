@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import Banner from "@/app/components/ui/Banner";
 
-type View = "login" | "request";
+type View = "login" | "request" | "recover";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -25,6 +25,12 @@ export default function LoginPage() {
   const [reqDone, setReqDone] = useState(false);
   const [requesting, setRequesting] = useState(false);
 
+  // Password recovery state
+  const [recoverEmail, setRecoverEmail] = useState("");
+  const [recoverError, setRecoverError] = useState<string | null>(null);
+  const [recoverDone, setRecoverDone] = useState(false);
+  const [recovering, setRecovering] = useState(false);
+
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
     setLoginError(null);
@@ -38,6 +44,28 @@ export default function LoginPage() {
       setLoggingIn(false);
     } else {
       window.location.href = "/";
+    }
+  }
+
+  async function handleRecover(e: React.FormEvent) {
+    e.preventDefault();
+    setRecoverError(null);
+    setRecovering(true);
+
+    // Pass redirectTo explicitly rather than relying on the Supabase project's
+    // Site URL fallback — /auth/set-password is the only page that knows how
+    // to exchange the recovery token into a session.
+    const supabase = createSupabaseBrowserClient();
+    const { error } = await supabase.auth.resetPasswordForEmail(recoverEmail, {
+      redirectTo: `${window.location.origin}/auth/set-password`,
+    });
+
+    if (error) {
+      setRecoverError(error.message);
+      setRecovering(false);
+    } else {
+      setRecoverDone(true);
+      setRecovering(false);
     }
   }
 
@@ -110,14 +138,81 @@ export default function LoginPage() {
               {loggingIn ? "Signing in…" : "Sign in"}
             </button>
 
-            <button
-              type="button"
-              onClick={() => setView("request")}
-              className="text-xs text-faint hover:text-secondary transition-colors text-center"
-            >
-              Don&apos;t have an account? Request access
-            </button>
+            <div className="flex flex-col gap-2 items-center">
+              <button
+                type="button"
+                onClick={() => setView("recover")}
+                className="text-xs text-faint hover:text-secondary transition-colors text-center"
+              >
+                Forgot your password?
+              </button>
+              <button
+                type="button"
+                onClick={() => setView("request")}
+                className="text-xs text-faint hover:text-secondary transition-colors text-center"
+              >
+                Don&apos;t have an account? Request access
+              </button>
+            </div>
           </form>
+        ) : view === "recover" ? (
+          recoverDone ? (
+            <div className="bg-surface border border-line rounded-lg p-6 flex flex-col gap-4 text-center">
+              <div className="text-success mx-auto">
+                <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+                  <circle cx="16" cy="16" r="15" stroke="currentColor" strokeWidth="1.5"/>
+                  <path d="M10 16l4 4 8-8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </div>
+              <p className="text-sm text-body">
+                If an account exists for that email, a password reset link is on its way.
+              </p>
+              <button
+                onClick={() => { setView("login"); setRecoverDone(false); setRecoverEmail(""); }}
+                className="text-xs text-muted hover:text-body transition-colors"
+              >
+                Back to sign in
+              </button>
+            </div>
+          ) : (
+            <form
+              onSubmit={handleRecover}
+              className="bg-surface border border-line rounded-lg p-6 flex flex-col gap-4"
+            >
+              <h1 className="text-base font-semibold text-primary">Reset your password</h1>
+              <p className="text-xs text-muted">
+                Enter your email and we&apos;ll send you a link to set a new password.
+              </p>
+
+              {recoverError && <Banner tone="danger">{recoverError}</Banner>}
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-medium text-secondary">Email</label>
+                <input
+                  type="email"
+                  autoComplete="email"
+                  required
+                  value={recoverEmail}
+                  onChange={(e) => setRecoverEmail(e.target.value)}
+                  className="inp"
+                  placeholder="you@example.com"
+                />
+              </div>
+
+              <div className="flex gap-2 mt-1">
+                <button
+                  type="button"
+                  onClick={() => setView("login")}
+                  className="btn-secondary flex-1"
+                >
+                  Back
+                </button>
+                <button type="submit" disabled={recovering} className="btn-primary flex-1">
+                  {recovering ? "Sending…" : "Send reset link"}
+                </button>
+              </div>
+            </form>
+          )
         ) : reqDone ? (
           <div className="bg-surface border border-line rounded-lg p-6 flex flex-col gap-4 text-center">
             <div className="text-success mx-auto">

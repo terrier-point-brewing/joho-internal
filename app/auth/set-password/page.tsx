@@ -5,6 +5,24 @@ import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import Banner from "@/app/components/ui/Banner";
 
+function EyeIcon({ open }: { open: boolean }) {
+  if (open) {
+    return (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
+        <circle cx="12" cy="12" r="3" />
+      </svg>
+    );
+  }
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 3l18 18" />
+      <path d="M10.58 10.58a3 3 0 0 0 4.24 4.24" />
+      <path d="M9.88 5.09A10.7 10.7 0 0 1 12 5c6.5 0 10 7 10 7a13.2 13.2 0 0 1-3.17 3.88M6.61 6.61C4.06 8.3 2 12 2 12s3.5 7 10 7a10.4 10.4 0 0 0 3.39-.56" />
+    </svg>
+  );
+}
+
 function SetPasswordForm() {
   const router = useRouter();
   const [password, setPassword] = useState("");
@@ -12,6 +30,8 @@ function SetPasswordForm() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [ready, setReady] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
 
   useEffect(() => {
     const supabase = createSupabaseBrowserClient();
@@ -124,28 +144,48 @@ function SetPasswordForm() {
 
       <div className="flex flex-col gap-1.5">
         <label className="text-xs font-medium text-secondary">New password</label>
-        <input
-          type="password"
-          required
-          minLength={8}
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          className="inp"
-          placeholder="At least 8 characters"
-        />
+        <div className="relative">
+          <input
+            type={showPassword ? "text" : "password"}
+            required
+            minLength={8}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="inp pr-9"
+            placeholder="At least 8 characters"
+          />
+          <button
+            type="button"
+            onClick={() => setShowPassword((v) => !v)}
+            aria-label={showPassword ? "Hide password" : "Show password"}
+            className="absolute inset-y-0 right-0 flex items-center px-2.5 text-faint hover:text-secondary transition-colors"
+          >
+            <EyeIcon open={showPassword} />
+          </button>
+        </div>
       </div>
 
       <div className="flex flex-col gap-1.5">
         <label className="text-xs font-medium text-secondary">Confirm password</label>
-        <input
-          type="password"
-          required
-          minLength={8}
-          value={confirm}
-          onChange={(e) => setConfirm(e.target.value)}
-          className="inp"
-          placeholder="Re-enter password"
-        />
+        <div className="relative">
+          <input
+            type={showConfirm ? "text" : "password"}
+            required
+            minLength={8}
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+            className="inp pr-9"
+            placeholder="Re-enter password"
+          />
+          <button
+            type="button"
+            onClick={() => setShowConfirm((v) => !v)}
+            aria-label={showConfirm ? "Hide password" : "Show password"}
+            className="absolute inset-y-0 right-0 flex items-center px-2.5 text-faint hover:text-secondary transition-colors"
+          >
+            <EyeIcon open={showConfirm} />
+          </button>
+        </div>
       </div>
 
       <button type="submit" disabled={submitting} className="btn-primary mt-1 w-full">
