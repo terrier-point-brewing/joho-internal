@@ -13,6 +13,7 @@ import SearchInput from "@/app/components/ui/SearchInput";
 import FilterChips from "@/app/components/ui/FilterChips";
 import FilterBar from "@/app/components/ui/FilterBar";
 import RecipeVariationPicker from "./RecipeVariationPicker";
+import ProductCodeInput from "./ProductCodeInput";
 import type { ControlsConfig } from "@/lib/table/types";
 
 interface BrewStepTemplateData {
@@ -43,7 +44,7 @@ interface ActivityFormLine {
   vsp: string;
 }
 
-const RECIPE_EMPTY = { beer_name: "", partner_id: "", expected_yield_bbl: "", days_brewhouse: "", days_fermenter: "", days_brite: "", notes: "" };
+const RECIPE_EMPTY = { beer_name: "", style: "", abv: "", partner_id: "", expected_yield_bbl: "", days_brewhouse: "", days_fermenter: "", days_brite: "", notes: "" };
 
 const STAGE_BADGES: Record<"brewhouse" | "fermenter" | "brite", { label: string; badge: string }> = {
   brewhouse: { label: EQ.brewhouse.label, badge: EQ.brewhouse.badge },
@@ -63,7 +64,7 @@ function recipeCostPerTurn(r: Recipe): number {
 const PARTNER_HOUSE = "House brew";
 
 const RECIPE_CONTROLS: ControlsConfig<Recipe> = {
-  search: [{ param: "q", accessor: (r) => [r.beer_name, r.partner?.company_name] }],
+  search: [{ param: "q", accessor: (r) => [r.beer_name, r.style, r.partner?.company_name] }],
   filters: [{ param: "partner", accessor: (r) => r.partner?.company_name ?? PARTNER_HOUSE }],
   sort: {
     columns: [
@@ -135,6 +136,8 @@ export default function RecipesTab() {
     const yld = r.expected_yield_bbl ?? 1;
     setForm({
       beer_name: r.beer_name,
+      style: r.style ?? "",
+      abv: r.abv != null ? String(r.abv) : "",
       partner_id: r.partner_id ?? "",
       expected_yield_bbl: r.expected_yield_bbl != null ? String(r.expected_yield_bbl) : "",
       days_brewhouse: r.days_brewhouse != null ? String(r.days_brewhouse) : "",
@@ -164,6 +167,8 @@ export default function RecipesTab() {
     const yld = r.expected_yield_bbl ?? 1;
     setForm({
       beer_name: "",
+      style: r.style ?? "",
+      abv: r.abv != null ? String(r.abv) : "",
       partner_id: r.partner_id ?? "",
       expected_yield_bbl: r.expected_yield_bbl != null ? String(r.expected_yield_bbl) : "",
       days_brewhouse: r.days_brewhouse != null ? String(r.days_brewhouse) : "",
@@ -221,6 +226,8 @@ export default function RecipesTab() {
     try {
       const payload = {
         beer_name: form.beer_name,
+        style: form.style || null,
+        abv: form.abv ? parseFloat(form.abv) : null,
         partner_id: form.partner_id || null,
         expected_yield_bbl: form.expected_yield_bbl ? parseFloat(form.expected_yield_bbl) : null,
         days_brewhouse: form.days_brewhouse ? parseInt(form.days_brewhouse) : null,
@@ -373,6 +380,12 @@ export default function RecipesTab() {
                   </div>
                   {/* Metadata row — wraps freely on mobile */}
                   <div className="flex items-center gap-x-3 gap-y-1 flex-wrap">
+                    {r.style && r.style !== r.beer_name && (
+                      <span className="text-xs text-secondary">{r.style}</span>
+                    )}
+                    {r.abv != null && (
+                      <span className="text-xs text-muted tabular-nums">{r.abv}% ABV</span>
+                    )}
                     {r.partner?.company_name && (
                       <span className="text-xs text-muted bg-surface-mid px-2 py-0.5 rounded">
                         {r.partner.company_name}
@@ -555,12 +568,18 @@ export default function RecipesTab() {
                     <div className="px-4 py-3 border-t border-line">
                       <p className="text-xs font-medium text-muted mb-2">Packaging Variations</p>
                       {variationsFor(r.id).length > 0 ? (
-                        <div className="flex flex-wrap gap-2 mb-2">
+                        <div className="flex flex-col gap-1.5 mb-2">
                           {variationsFor(r.id).map((link) => (
-                            <span key={link.id} className="inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded border border-line-strong text-body">
-                              {link.packaging_variations?.name ?? "—"}
-                              <button onClick={() => unlinkVariation(link.id)} className="text-faint hover:text-danger leading-none">×</button>
-                            </span>
+                            <div key={link.id} className="flex items-center gap-2 flex-wrap">
+                              <span className="inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded border border-line-strong text-body">
+                                {link.packaging_variations?.name ?? "—"}
+                                <button onClick={() => unlinkVariation(link.id)} className="text-faint hover:text-danger leading-none">×</button>
+                              </span>
+                              <ProductCodeInput
+                                link={link}
+                                onSaved={() => qc.invalidateQueries({ queryKey: productionKeys.recipePackagingVariations })}
+                              />
+                            </div>
                           ))}
                         </div>
                       ) : (
@@ -642,6 +661,18 @@ export default function RecipesTab() {
                     <option key={p.id} value={p.id}>{p.company_name}</option>
                   ))}
                 </select>
+              </Field>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Field label="Beer Style" hint="the plain style, as printed on the label">
+                <input className="inp" placeholder="e.g. Jasmine Peach Lager" value={form.style}
+                  onChange={(e) => setForm((f) => ({ ...f, style: e.target.value }))} />
+              </Field>
+              <Field label="ABV (%)">
+                <input type="number" step="0.1" min="0" max="99.9" className="inp" placeholder="e.g. 5.2"
+                  value={form.abv}
+                  onChange={(e) => setForm((f) => ({ ...f, abv: e.target.value }))} />
               </Field>
             </div>
 

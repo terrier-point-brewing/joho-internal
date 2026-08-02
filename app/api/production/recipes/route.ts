@@ -24,12 +24,14 @@ export async function POST(req: NextRequest) {
   const supabase = await createSupabaseServerClient();
 
   const body = await req.json();
-  const { beer_name, partner_id, expected_yield_bbl, days_brewhouse, days_fermenter, days_brite, notes, ingredients: lines } = body;
+  const { beer_name, style, abv, partner_id, expected_yield_bbl, days_brewhouse, days_fermenter, days_brite, notes, ingredients: lines } = body;
 
   const { data: recipe, error: recipeErr } = await supabase
     .from("recipes")
     .insert({
       beer_name,
+      style: style || null,
+      abv: abv ?? null,
       partner_id: partner_id || null,
       expected_yield_bbl: expected_yield_bbl || null,
       days_brewhouse: days_brewhouse || null,

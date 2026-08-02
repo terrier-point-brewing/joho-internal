@@ -887,7 +887,7 @@ export default function BatchSchedulerTab({
                         const relevant = commitments.filter(
                           (c) => c.recipe_id === e.target.value && (c.status === "open" || c.status === "in_progress")
                         );
-                        const updated = { ...activeRow, recipe_id: e.target.value, style: r?.beer_name ?? activeRow.style, volume_bbl: newVol, expected_delivery_date: calcDeliveryDate(activeRow.brew_date, r), allocations: buildAutoAllocations(relevant, newVol) };
+                        const updated = { ...activeRow, recipe_id: e.target.value, style: r?.style ?? r?.beer_name ?? activeRow.style, volume_bbl: newVol, expected_delivery_date: calcDeliveryDate(activeRow.brew_date, r), allocations: buildAutoAllocations(relevant, newVol) };
                         updateRow(updated);
                         suggestEquipment(updated);
                       }}

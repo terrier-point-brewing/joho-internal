@@ -38,23 +38,16 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const body = (await req.json()) as {
-      name?: string;
-      subtitle?: string;
-      description?: string;
-      motif_family?: string;
-    };
-    if (!body.name) {
-      return NextResponse.json({ error: "name is required" }, { status: 400 });
+    const body = (await req.json()) as { release_id?: string; name?: string };
+    // A label only exists as the label component of a release. Normally the
+    // releases POST creates it; this path is the recovery route for a release
+    // that somehow lacks one.
+    if (!body.release_id || !body.name) {
+      return NextResponse.json({ error: "release_id and name are required" }, { status: 400 });
     }
 
     const supabase = createSupabaseAdminClient() as unknown as SupabaseLikeClient;
-    const label = await createLabel(supabase, {
-      name: body.name,
-      subtitle: body.subtitle,
-      description: body.description,
-      motif_family: body.motif_family,
-    });
+    const label = await createLabel(supabase, { release_id: body.release_id, name: body.name });
     return NextResponse.json(label, { status: 201 });
   } catch (err) {
     return apiError(err);

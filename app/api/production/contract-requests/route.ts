@@ -26,7 +26,7 @@ async function replacePackagingPreferences(supabase: SupabaseClient, commitmentI
   );
 }
 
-const COMMITMENT_SELECT = `*, recipes(beer_name), contract_brewing_partners(company_name),
+const COMMITMENT_SELECT = `*, recipes(beer_name, style), contract_brewing_partners(company_name),
   commitment_packaging_preferences(id, commitment_id, variation_id, qty, created_at, packaging_variations(id, name, total_volume_fl_oz, container_id, format))`;
 
 export async function GET(req: NextRequest) {

@@ -34,7 +34,7 @@ export function useLabels(status?: string) {
 export function useCreateLabel() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: { name: string; subtitle?: string; motif_family?: string }) =>
+    mutationFn: (input: { release_id: string; name: string }) =>
       requestJson<BrandLabel>("/api/brand/labels", {
         method: "POST",
         body: JSON.stringify(input),

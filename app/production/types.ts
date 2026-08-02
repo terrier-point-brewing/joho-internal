@@ -74,6 +74,9 @@ export interface RecipePackagingVariation {
   id: string;
   recipe_id: string;
   variation_id: string;
+  /** Per sellable unit (a 4-pack and a keg of the same beer differ), which is
+   * why it sits on the link rather than the recipe. */
+  product_code: string | null;
   created_at: string;
   /** Joined */
   packaging_variations?: PackagingVariation | null;
@@ -241,6 +244,11 @@ export interface RecipeBrewActivityTemplate {
 export interface Recipe {
   id: string;
   beer_name: string;
+  /** The plain beer style ("Jasmine Peach Lager"). Distinct from beer_name —
+   * a recipe may be named differently from the style that describes it. */
+  style: string | null;
+  /** % alcohol by volume — a fact of the liquid, owned by Production. */
+  abv: number | null;
   partner_id: string | null;
   expected_yield_bbl: number | null;
   days_brewhouse: number | null;
@@ -340,7 +348,7 @@ export interface Commitment {
   last_edited_on: string | null;
   locked_on: string | null;
   created_at: string;
-  recipes?: { beer_name: string } | null;
+  recipes?: { beer_name: string; style?: string | null } | null;
   contract_brewing_partners?: { company_name: string } | null;
   packaging_preferences?: CommitmentPackagingPreference[];
   /** Sum of (batch volume x allocated %) across all allocations referencing this commitment. */

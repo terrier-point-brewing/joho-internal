@@ -93,7 +93,7 @@ export default function SafetyStockTab({
                 const below = floor != null && onHand < floor.floor_quantity;
                 return (
                   <tr key={recipe.id} className={`border-b border-line/60 last:border-0 ${i % 2 !== 0 ? "bg-surface/30" : ""}`}>
-                    <td className="px-4 py-2.5 text-primary font-medium">{recipe.beer_name}</td>
+                    <td className="px-4 py-2.5 text-primary font-medium">{recipe.style ?? recipe.beer_name}</td>
                     <td className={`px-4 py-2.5 text-right tabular-nums ${below ? "text-danger" : onHand > 0 ? "text-success" : "text-faint"}`}>
                       {onHand.toFixed(2)}
                     </td>

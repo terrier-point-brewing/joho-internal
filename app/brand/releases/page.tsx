@@ -2,12 +2,12 @@ import { redirect } from "next/navigation";
 import { getSessionUser } from "@/lib/auth";
 import { CAP, can } from "@/lib/auth";
 import { getCanon } from "@/lib/brand/getCanon";
-import LabelsWorkbench from "./LabelsWorkbench";
+import ReleasesWorkbench from "./ReleasesWorkbench";
 
-// Releases — the beer label workbench. Admin-only. The naming check
-// reconciles against the published canon's 5 criteria, so we read them
-// server-side and hand them to the client workbench (keeps the criteria in
-// one source — the canon — rather than duplicated in UI).
+// Releases — the release workflow frame. Admin-only. Two things come from
+// the published canon server-side so the client never duplicates them: the
+// naming criteria (the release card reconciles against them) and the label
+// chassis / homage copy the artist-brief composer quotes.
 export default async function ReleasesPage() {
   const session = await getSessionUser();
   if (!session || !can(session.grants, CAP.brandReleasesManage.scope, CAP.brandReleasesManage.level)) {
@@ -15,5 +15,13 @@ export default async function ReleasesPage() {
   }
 
   const canon = await getCanon();
-  return <LabelsWorkbench criteria={canon.naming.criteria} />;
+  return (
+    <ReleasesWorkbench
+      criteria={canon.naming.criteria}
+      brief={{
+        chassisNarrative: canon.labelChassis?.narrative ?? "",
+        homage: canon.illustrationLaw?.homage ?? "",
+      }}
+    />
+  );
 }
