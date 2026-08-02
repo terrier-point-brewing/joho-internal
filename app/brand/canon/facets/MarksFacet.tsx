@@ -1,9 +1,7 @@
 "use client";
 
-import { useMemo } from "react";
 import type { BrandCanon } from "@/lib/brand/canon.types";
 import { seedCanon } from "@/lib/brand/seedCanon";
-import { useAssets } from "@/app/brand/assets/useAssets";
 import RuleListField from "../fields/RuleListField";
 
 type MarkSpec = NonNullable<BrandCanon["marks"]>[number];
@@ -11,7 +9,12 @@ type MarkVariant = MarkSpec["variants"][number];
 type MarkKind = MarkSpec["kind"];
 type Orientation = NonNullable<MarkVariant["orientation"]>;
 
-const KIND_OPTIONS: MarkKind[] = ["wordmark", "logo", "chop"];
+// No "logo": the guide's Marks tab shows wordmarks and chops only. A document
+// that already holds a logo mark keeps it — see kindOptionsFor — rather than
+// having its kind silently blanked by a select that can't represent it.
+const KIND_OPTIONS: MarkKind[] = ["wordmark", "chop"];
+const kindOptionsFor = (kind: MarkKind): MarkKind[] =>
+  KIND_OPTIONS.includes(kind) ? KIND_OPTIONS : [...KIND_OPTIONS, kind];
 const ORIENTATIONS: Orientation[] = ["horizontal", "vertical"];
 
 const HEX_RE = /^#[0-9a-fA-F]{6}$/;
@@ -78,17 +81,6 @@ export default function MarksFacet({
 }) {
   const marks = draft.marks ?? [];
 
-  // Identity artwork only — a texture or a do/don't example in a mark slot
-  // would be a mistake, and filtering is cheaper than explaining it.
-  const { data: allAssets } = useAssets();
-  const markAssets = useMemo(
-    () =>
-      (allAssets ?? []).filter((a) =>
-        ["wordmark", "logo", "chop_glyph"].includes(a.kind),
-      ),
-    [allAssets],
-  );
-
   const setMarks = (next: MarkSpec[]) => onChange({ ...draft, marks: next });
   const patchMark = (mi: number, patch: Partial<MarkSpec>) =>
     setMarks(marks.map((m, i) => (i === mi ? { ...m, ...patch } : m)));
@@ -145,7 +137,7 @@ export default function MarksFacet({
                 value={mark.kind}
                 onChange={(e) => patchMark(mi, { kind: e.target.value as MarkKind })}
               >
-                {KIND_OPTIONS.map((k) => (
+                {kindOptionsFor(mark.kind).map((k) => (
                   <option key={k} value={k}>
                     {k}
                   </option>
@@ -252,38 +244,6 @@ export default function MarksFacet({
                   </button>
                 </div>
 
-                {/* Artwork. One cut ships in several formats — SVG for screen,
-                    PNG for anything that can't take a vector, PDF for print —
-                    so this is a multi-select rather than a single file. */}
-                <label className="flex flex-col gap-1">
-                  <span className={SUBLABEL}>
-                    Artwork files{" "}
-                    <span className="text-faint">
-                      ({(variant.assetIds ?? []).length} attached · ⌘-click to multi-select)
-                    </span>
-                  </span>
-                  <select
-                    multiple
-                    className="inp-sm min-h-20"
-                    value={variant.assetIds ?? []}
-                    onChange={(e) =>
-                      patchVariant(mi, vi, {
-                        assetIds: Array.from(e.target.selectedOptions, (o) => o.value),
-                      })
-                    }
-                  >
-                    {markAssets.map((asset) => (
-                      <option key={asset.id} value={asset.id}>
-                        {asset.title || asset.variant} · {asset.format} · {asset.status}
-                      </option>
-                    ))}
-                  </select>
-                  {markAssets.length === 0 && (
-                    <span className="text-2xs text-faint">
-                      No wordmark, logo or chop assets uploaded yet — add them above.
-                    </span>
-                  )}
-                </label>
                 <label className="flex flex-col gap-1">
                   <span className={SUBLABEL}>Cut description</span>
                   <input

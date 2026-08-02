@@ -5,7 +5,8 @@ import { getCanon } from "@/lib/brand/getCanon";
 import { seedCanon } from "@/lib/brand/seedCanon";
 import { resolveGuideIntro } from "@/lib/brand/guideIntros";
 import { assetFileUrl, listAssets, type BrandAsset, type SupabaseLikeClient } from "@/lib/brand/assets";
-import type { BrandCanon } from "@/lib/brand/canon.types";
+import { listSeasons, type SupabaseLikeClient as SeasonClient } from "@/lib/brand/seasons";
+import { pickDisplayAsset } from "@/lib/brand/marks";
 import { groundsForAssets } from "@/lib/brand/artworkGround";
 import BrandGuideTabs from "./BrandGuideTabs";
 import EthosView from "./EthosView";
@@ -36,17 +37,24 @@ export default async function BrandGuidePage() {
   // approved assets anonymously — a capability that no longer exists.
   const assetClient = createSupabaseAdminClient() as unknown as SupabaseLikeClient;
 
-  // Every approved asset, once. Mark variants reference these by id, which
-  // replaced three hardcoded kind+variant="default" lookups — those allowed
-  // exactly one file per mark kind, so a second wordmark cut or a PNG beside
-  // the SVG was a code change rather than an upload.
+  // Every approved asset, once. The Marks cards are built from these directly,
+  // grouped by what each family actually varies on — see lib/brand/marks.ts.
   const approvedAssets = (await listAssets(assetClient)).filter((a) => a.status === "approved");
 
   // Which background keeps each SVG legible, read from the artwork itself. A
   // pale mark on a transparent background renders as an empty box on the
   // default pale surface, which reads as a broken upload.
-  const assetGrounds = await groundsForAssets(approvedAssets);
+  //
+  // A plain object, not the Map: the Marks cards toggle between an SVG and a
+  // PNG, which makes them client components, and the grounds have to cross that
+  // boundary with them.
+  const assetGrounds = Object.fromEntries(await groundsForAssets(approvedAssets));
   const assetsById = new Map(approvedAssets.map((a) => [a.id, a]));
+
+  // Chops are grouped by the season that claims them. Read here rather than in
+  // the client: /api/brand/seasons is gated on brand.templates, and a brand
+  // guide reader has no business needing that grant to read the guide.
+  const seasons = await listSeasons(assetClient as unknown as SeasonClient);
 
   // Fall back to the seed's mark specs when the published canon has none — the
   // published row predates the `marks` field, so its spec sheets live only in
@@ -67,13 +75,15 @@ export default async function BrandGuidePage() {
         marks: (
           <MarksView
             specs={markSpecs}
-            assets={approvedAssets}
+            wordmarks={approvedAssets.filter((a) => a.kind === "wordmark")}
+            chops={approvedAssets.filter((a) => a.kind === "chop_glyph")}
+            seasons={seasons}
             grounds={assetGrounds}
             intro={resolveGuideIntro(canon, "marks")}
             chop={canon.chop}
           />
         ),
-        release: <ReleaseView canon={canon} wordmarkUrl={resolveWordmarkUrl(markSpecs, approvedAssets)} />,
+        release: <ReleaseView canon={canon} wordmarkUrl={resolveWordmarkUrl(approvedAssets)} />,
       }}
     />
   );
@@ -82,32 +92,18 @@ export default async function BrandGuidePage() {
 /**
  * The wordmark artwork the chassis diagram renders in its top band.
  *
- * Resolution follows the marks model rather than a raw kind lookup: the
- * wordmark mark's own variants are consulted first (vertical cuts ahead of
- * horizontal — the front panel is a tall band), preferring SVG within a cut.
- * Any approved wordmark upload no spec references yet is the fallback, so a
- * fresh library still shows real artwork; with nothing approved the diagram
- * keeps its typed stand-in.
+ * Resolved straight from the approved wordmark uploads, vector first — the same
+ * preference the Marks cards use, so the diagram and the cards can never
+ * disagree about which file is "the" wordmark.
+ *
+ * This used to consult the canon wordmark's `variants[].assetIds` first, and
+ * fall back to the uploads only when no cut claimed one. The Marks rework moved
+ * artwork off canon variants and onto the assets themselves, so nothing
+ * populates `assetIds` any more — that path could only ever come back empty,
+ * and the fallback was already doing all the work. With no wordmark approved,
+ * the diagram keeps its typed stand-in.
  */
-function resolveWordmarkUrl(
-  markSpecs: NonNullable<BrandCanon["marks"]>,
-  approvedAssets: BrandAsset[],
-): string | null {
-  const approvedById = new Map(approvedAssets.map((a) => [a.id, a]));
-  const wordmarkMark = markSpecs.find((m) => m.kind === "wordmark");
-  const variants = [...(wordmarkMark?.variants ?? [])].sort(
-    (a, b) => Number(b.orientation === "vertical") - Number(a.orientation === "vertical"),
-  );
-
-  for (const variant of variants) {
-    const cutAssets = (variant.assetIds ?? [])
-      .map((id) => approvedById.get(id))
-      .filter((a): a is BrandAsset => Boolean(a));
-    const chosen = cutAssets.find((a) => a.format === "svg") ?? cutAssets[0];
-    if (chosen) return assetFileUrl(chosen.id);
-  }
-
-  const uploads = approvedAssets.filter((a) => a.kind === "wordmark");
-  const fallback = uploads.find((a) => a.format === "svg") ?? uploads[0];
-  return fallback ? assetFileUrl(fallback.id) : null;
+function resolveWordmarkUrl(approvedAssets: BrandAsset[]): string | null {
+  const chosen = pickDisplayAsset(approvedAssets.filter((a) => a.kind === "wordmark"));
+  return chosen ? assetFileUrl(chosen.id) : null;
 }
