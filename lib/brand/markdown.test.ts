@@ -60,6 +60,33 @@ describe("compileBrandMarkdown", () => {
     expect(full).toContain("NEVER: Drop shadows");
   });
 
+  it("gives an agent each visual rule with the failure it prevents, and why", () => {
+    // Stated as two lists, "flat vector" and "no photorealism" are one rule ten
+    // lines apart and an agent has to work out that they're related. Together,
+    // it can't miss which failure the rule guards against — and the reason is
+    // what stops it applying the rule literally to a case nobody wrote down.
+    const full = compile({
+      illustrationLaw: {
+        homage: "Style homage is permitted when it serves the story.",
+        pairs: [
+          {
+            id: "p1",
+            title: "Flat, screen-print vector rendering",
+            do: { caption: "Hard-edged flats." },
+            dont: { caption: "Photorealism." },
+            nuance: "Realism makes the place a record instead of a memory.",
+          },
+        ],
+      },
+    }).full;
+
+    expect(full).toContain("### Flat, screen-print vector rendering");
+    expect(full).toContain("ALWAYS: Hard-edged flats.");
+    expect(full).toContain("NEVER: Photorealism.");
+    expect(full).toContain("Why: Realism makes the place a record instead of a memory.");
+    expect(full).toContain("Style homage is permitted when it serves the story.");
+  });
+
   it("never renders an object as [object Object]", () => {
     expect(compile().full).not.toContain("[object Object]");
   });

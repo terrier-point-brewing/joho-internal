@@ -18,6 +18,7 @@ import IntroFacet from "./facets/IntroFacet";
 import EthosFields from "./fields/EthosFields";
 import VoiceFields from "./fields/VoiceFields";
 import RuleListField from "./fields/RuleListField";
+import VisualLawFields from "./fields/VisualLawFields";
 import TypeUseCaseField from "./fields/TypeUseCaseField";
 import AgentFields from "./fields/AgentFields";
 import MarksEditor from "@/app/brand/guide/MarksEditor";
@@ -192,13 +193,7 @@ export default function CanonEditor({
           )}
           {section === "visual" && (
             <>
-              <RuleListField
-                label="Visual identity rules"
-                description="What the brand's imagery must and must not do. Each rule can carry an example."
-                rules={draft.illustrationLaw?.rules}
-                defaultPolarity="do"
-                onChange={(rules) => setDraft({ ...draft, illustrationLaw: { rules } })}
-              />
+              <VisualLawFields draft={draft} onChange={setDraft} />
               <ChassisFields draft={draft} onChange={setDraft} />
             </>
           )}
