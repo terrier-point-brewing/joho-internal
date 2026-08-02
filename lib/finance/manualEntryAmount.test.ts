@@ -1,5 +1,55 @@
 import { describe, it, expect } from "vitest";
-import { formatAmountInput, parseAmountInputCents, daysInclusive, perDayCents } from "./manualEntryAmount";
+import {
+  formatAmountInput,
+  formatEnteredAmountCents,
+  parseAmountInputCents,
+  daysInclusive,
+  perDayCents,
+} from "./manualEntryAmount";
+import { formatCurrencyCents, EM_DASH } from "@/lib/format";
+
+/**
+ * The read half of allowing zero, and the half that was missed.
+ *
+ * Saving 0 worked -- the row landed in the database with amount_cents = 0 --
+ * and every surface then rendered it as the em dash that means "nothing here",
+ * because `formatCurrencyCents` maps exact zero to that sentinel. So somebody
+ * who counted an empty till and entered 0 saw exactly what they saw before they
+ * entered anything, which is the confusion allowing zero was meant to end.
+ *
+ * `formatCurrencyCents` is right to do that and must not change: it is shared
+ * with the verified statements, where a page of $0.00 rows is the problem it
+ * was written to solve. The distinction is the SURFACE, not the number.
+ */
+describe("formatEnteredAmountCents", () => {
+  it("renders a stored zero as a real figure, never as the em-dash sentinel", () => {
+    expect(formatEnteredAmountCents(0)).toBe("$0.00");
+    expect(formatEnteredAmountCents(0)).not.toBe(EM_DASH);
+    expect(formatEnteredAmountCents(0)).not.toContain(EM_DASH);
+  });
+
+  it("differs from the shared money formatter on exactly one input", () => {
+    // Pins the divergence to zero alone. Anything else drifting apart would
+    // mean a manual-entries screen quietly disagreeing with the balance sheet
+    // about what a number looks like.
+    for (const cents of [-125000, -1, 1, 1599, 2042913]) {
+      expect(formatEnteredAmountCents(cents), String(cents)).toBe(formatCurrencyCents(cents));
+    }
+    expect(formatEnteredAmountCents(0)).not.toBe(formatCurrencyCents(0));
+  });
+
+  it("keeps accounting parentheses on a negative balance", () => {
+    // Contra-accounts and credit-side balances are stored negative here, and
+    // they mean the same thing on this screen as on any other.
+    expect(formatEnteredAmountCents(-125000)).toBe("($1,250.00)");
+  });
+
+  it("round-trips what the input parser produced for zero", () => {
+    // The two halves have to agree: parse "0" to 0, then render 0 visibly.
+    // Either one alone leaves the feature half-built, which is what shipped.
+    expect(formatEnteredAmountCents(parseAmountInputCents("0")!)).toBe("$0.00");
+  });
+});
 
 describe("parseAmountInputCents", () => {
   it("parses a plain positive amount", () => {
@@ -19,10 +69,18 @@ describe("parseAmountInputCents", () => {
     expect(parseAmountInputCents("1.129")).toBe(113);
   });
 
-  it("treats zero as invalid (amountCents must not be zero)", () => {
-    expect(parseAmountInputCents("0")).toBeNull();
-    expect(parseAmountInputCents("0.00")).toBeNull();
-    expect(parseAmountInputCents("-0")).toBeNull();
+  it("parses zero as a real amount, not as invalid", () => {
+    // Zero used to map to null so a form could reuse one check for "blank" and
+    // "not allowed to be zero". Zero IS allowed (see the sign-convention note
+    // in manualEntries.ts) — a counted-and-empty cash tin is a real balance —
+    // and collapsing it into the unparseable case is what produced the "Enter
+    // the balance as a number" error on an input that already was one.
+    expect(parseAmountInputCents("0")).toBe(0);
+    expect(parseAmountInputCents("0.00")).toBe(0);
+    // Object.is distinguishes -0 from 0, so the sign has to be collapsed or a
+    // strict equality check in a caller would fail on a legitimate input.
+    expect(Object.is(parseAmountInputCents("-0"), 0)).toBe(true);
+    expect(parseAmountInputCents("-0.00")).toBe(0);
   });
 
   it("returns null for empty/unparseable input", () => {

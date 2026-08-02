@@ -12,7 +12,6 @@ import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import { fetchJson } from "@/app/production/hooks/queries";
-import { monthEnd } from "@/lib/finance/manualEntries";
 import { formatCurrencyCents, formatPercent, EM_DASH } from "@/lib/format";
 import type { FinancialsResponse, FinancialsRow, Measure, StatementKind } from "@/lib/finance/financials/types";
 import type { StatementSection } from "@/lib/finance/accountSections";
@@ -26,6 +25,7 @@ import FilterChips from "@/app/components/ui/FilterChips";
 import FilterSelect from "@/app/components/ui/FilterSelect";
 import FilterBar from "@/app/components/ui/FilterBar";
 import FinanceNav from "../FinanceNav";
+import CloseTasksBanner from "../CloseTasksBanner";
 import FinancialsTable from "./FinancialsTable";
 import DataQualityPanel from "./DataQualityPanel";
 import { buildTree } from "./buildTree";
@@ -131,46 +131,6 @@ function MeasureChips({ value, onChange }: { value: Measure; onChange: (v: Measu
         </button>
       ))}
     </div>
-  );
-}
-
-interface CloseTasksResponse {
-  periodEnd: string;
-  tasks: { id: string; status: "open" | "completed" | "skipped" }[];
-  closed: boolean;
-}
-
-/**
- * Balance-sheet month-end close nudge (spec §4.5): shown whenever the
- * current period has open balance_close_tasks (a manualBalance-sourced
- * account with no manual_entries balance row yet for this month), regardless
- * of which statement tab is active -- the close workflow is a
- * balance-sheet-wide concept, not scoped to whichever tab happens to be open.
- */
-function CloseTasksBanner() {
-  // The PRIOR month end, not the current one. The cron only ever creates tasks
-  // for the most recently ENDED month (app/api/cron/balance-close/route.ts),
-  // so querying the current month end matched nothing on every possible date
-  // and this banner could never render.
-  const periodEnd = useMemo(() => {
-    const now = new Date();
-    const priorMonthEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 0));
-    return priorMonthEnd.toISOString().slice(0, 10);
-  }, []);
-  const { data } = useQuery({
-    queryKey: queryKeys.finance.balanceClose(periodEnd),
-    queryFn: () => fetchJson<CloseTasksResponse>(`/api/finance/balance-close?periodEnd=${periodEnd}`),
-  });
-
-  const openCount = data?.tasks.filter((t) => t.status === "open").length ?? 0;
-  if (openCount === 0) return null;
-
-  return (
-    <Banner tone="info" className="mx-4 sm:mx-6 mb-4 mt-4">
-      {openCount} balance-sheet account{openCount === 1 ? "" : "s"} need{openCount === 1 ? "s" : ""} a month-end
-      balance for {periodEnd}.{" "}
-      <a href="/finance/transactions/manual-entries" className="underline">Enter it in Manual Entries</a>.
-    </Banner>
   );
 }
 

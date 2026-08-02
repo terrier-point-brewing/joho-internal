@@ -217,6 +217,89 @@ describe("resolveSetupState", () => {
     expect(state.ready).toBe(false);
   });
 
+  /**
+   * The shape manual entry now has: name a person, optionally give them longer
+   * than the business-wide deadline.
+   */
+  describe("a user field", () => {
+    const userField = {
+      kind: "user" as const,
+      key: "responsibleUserId",
+      label: "Person responsible for this balance",
+      help: "Whoever checks this account and enters its balance each month.",
+    };
+
+    it("blocks the account until somebody is named", () => {
+      // An unassigned manual account still gets chased, but the alert goes to
+      // the admin address by fallback rather than to anyone who can act on it.
+      // Reading as unconfigured is how that gap becomes visible before a month
+      // quietly goes unentered.
+      const state = resolveSetupState(method([userField]), facts());
+      expect(state.ready).toBe(false);
+      expect(state.fields[0].blocker).toMatch(/nobody/i);
+    });
+
+    it("shows the person by the address their alert goes to", () => {
+      const state = resolveSetupState(
+        method([userField]),
+        facts({
+          config: { responsibleUserId: "user-1" },
+          userLabels: new Map([["user-1", "bookkeeper@example.com"]]),
+        }),
+      );
+      expect(state.ready).toBe(true);
+      expect(state.fields[0].value).toBe("bookkeeper@example.com");
+    });
+
+    it("unconfigures the account when the named person's login is gone", () => {
+      // The same treatment a deleted chart-of-accounts row gets, and it matters
+      // more: without it the field reads as satisfied while every alert for this
+      // account is addressed to somebody who cannot act on it.
+      const state = resolveSetupState(
+        method([userField]),
+        facts({ config: { responsibleUserId: "user-gone" }, userLabels: new Map() }),
+      );
+      expect(state.ready).toBe(false);
+      expect(state.fields[0].value).toBeNull();
+      expect(state.fields[0].blocker).toMatch(/no longer has an account/i);
+    });
+
+    it("never renders a bare id at a reader", () => {
+      // The failure this shares with `account` fields: a uuid on screen is the
+      // code-identifier-at-a-bookkeeper problem this whole layer exists to
+      // avoid, and it is what an un-labelled lookup silently produces.
+      const state = resolveSetupState(
+        method([userField]),
+        facts({ config: { responsibleUserId: "0f8b-uuid-like" }, userLabels: new Map() }),
+      );
+      expect(state.fields[0].value ?? "").not.toContain("0f8b");
+    });
+  });
+
+  describe("an operator balance of zero", () => {
+    // Square's anchor, and the same trap the entries table had: a confirmed
+    // zero reading is an ANSWER. Rendering it the way "no reading" is rendered
+    // puts an em dash directly above a blocker that says "No balance has been
+    // entered yet", which is a screen contradicting itself.
+    it("satisfies the field", () => {
+      const state = resolveSetupState(
+        method([operatorField]),
+        facts({ operatorBalance: { asOfDate: "2026-07-31", cents: 0 } }),
+      );
+      expect(state.ready).toBe(true);
+      expect(state.fields[0].blocker).toBeNull();
+    });
+
+    it("shows a figure rather than the em-dash sentinel", () => {
+      const state = resolveSetupState(
+        method([operatorField]),
+        facts({ operatorBalance: { asOfDate: "2026-07-31", cents: 0 } }),
+      );
+      expect(state.fields[0].value).toBe("$0.00 as at 2026-07-31");
+      expect(state.fields[0].value).not.toContain("—");
+    });
+  });
+
   it("counts a zero number as answered", () => {
     // The falsy-zero trap: 0 is a legitimate rate, term or opening figure.
     const state = resolveSetupState(

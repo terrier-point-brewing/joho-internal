@@ -7,6 +7,7 @@
 // "balance" entry feeds the Balance Sheet as of a month end.
 
 import { useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchJson } from "@/app/production/hooks/queries";
 import { usePermissions } from "@/lib/hooks/useUserRole";
@@ -20,7 +21,13 @@ import {
   type ManualEntryInput,
 } from "@/lib/finance/manualEntries";
 import { buildManualEntryPatch } from "@/lib/finance/manualEntryPatch";
-import { formatAmountInput, parseAmountInputCents, daysInclusive, perDayCents } from "@/lib/finance/manualEntryAmount";
+import {
+  formatAmountInput,
+  formatEnteredAmountCents,
+  parseAmountInputCents,
+  daysInclusive,
+  perDayCents,
+} from "@/lib/finance/manualEntryAmount";
 import { ACCOUNT_TYPE_SECTION } from "@/lib/finance/accountSections";
 import Badge from "@/app/components/ui/Badge";
 import Banner from "@/app/components/ui/Banner";
@@ -34,6 +41,8 @@ import GlAccountFilter from "../components/GlAccountFilter";
 import SummaryStatBar from "../components/SummaryStatBar";
 import { LedgerTable, Th } from "../components/LedgerTable";
 import AccountSelect, { type CoARef } from "../../AccountSelect";
+import MonthEndClosePanel from "./MonthEndClosePanel";
+import { priorMonthEnd } from "../../closeTasks";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -127,7 +136,9 @@ function ManualEntryFormModal({
     }
     const amountCents = parseAmountInputCents(amountInput);
     if (amountCents === null) {
-      setFormError("Enter a valid, non-zero amount.");
+      // Zero is a legitimate amount now (see manualEntries.ts's sign note), so
+      // the only thing left to reject is an input with no number in it.
+      setFormError(amountInput.trim() === "" ? "Enter an amount." : "That amount could not be read — type it like 1250.00.");
       return;
     }
     if (entryKind === "flow" && startDate > endDate) {
@@ -268,7 +279,13 @@ function ManualEntryRow({
           fmtDate(entry.asOfDate)
         )}
       </td>
-      <td className="px-4 py-2 text-right font-mono tabular-nums text-strong">{formatCurrencyCents(entry.amountCents)}</td>
+      {/* Every row in this table is a figure a person typed, so a stored zero
+          must not render as the em-dash sentinel the shared money formatter
+          uses for "nothing here" -- that is what made a legitimately empty
+          cash tin indistinguishable on screen from an account nobody had
+          touched. Both kinds, not just balances: a zero flow is a deliberate
+          correction and reads the same way. */}
+      <td className="px-4 py-2 text-right font-mono tabular-nums text-strong">{formatEnteredAmountCents(entry.amountCents)}</td>
       <td className="px-4 py-2 text-right font-mono text-muted">
         {isFlow && days ? formatCurrencyCents(perDayCents(entry.amountCents, days)) : <span className="text-disabled">—</span>}
       </td>
@@ -303,6 +320,16 @@ export default function ManualEntriesPage() {
   const { can } = usePermissions();
   const canManage = can(CAP.financeTransactionsManage);
   const qc = useQueryClient();
+
+  // The alert email deep-links here with the month it is chasing, so the
+  // checklist opens on that month rather than on whichever one is current when
+  // the mail is finally read. Anything unparseable falls back to the month the
+  // close workflow is actually working on.
+  const searchParams = useSearchParams();
+  const [closePeriodEnd, setClosePeriodEnd] = useState(() => {
+    const requested = searchParams.get("periodEnd");
+    return requested && requested === monthEnd(requested) ? requested : priorMonthEnd();
+  });
 
   const [kindFilter, setKindFilter] = useState<ManualEntryKind | null>(null);
   const [year, setYear] = useState(() => new Date().getFullYear());
@@ -378,6 +405,11 @@ export default function ManualEntriesPage() {
 
   return (
     <>
+      {/* Outstanding work first, the ledger second. This page is where the
+          month-end alert email lands, and a generic list of every manual entry
+          ever made is not an answer to "three accounts need a July balance". */}
+      <MonthEndClosePanel periodEnd={closePeriodEnd} onPeriodChange={setClosePeriodEnd} canManage={canManage} />
+
       <div className="shrink-0 px-4 sm:px-6 py-3 border-b border-line">
         <FilterBar>
           <FilterSelect

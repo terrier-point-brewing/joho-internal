@@ -17,6 +17,7 @@
  * pointing at no connection, on an app with no Plaid credentials. Three
  * different reasons it produces nothing, none of them visible from the row.
  */
+import { formatEnteredAmountCents } from "../../manualEntryAmount";
 import type { BalanceMethod, ConnectionProvider, SetupField } from "./registry";
 
 /** A connection as the setup panel needs to see it. No secrets, by construction. */
@@ -50,6 +51,13 @@ export interface SetupFacts {
    * surfaces rather than rendering a bare uuid at someone.
    */
   accountLabels?: Map<string, string>;
+  /**
+   * Display labels for people, for `user` fields. Same contract as
+   * accountLabels: an id missing from the map means that person's account is
+   * gone, which the field says out loud rather than leaving an account looking
+   * configured while its alerts go nowhere.
+   */
+  userLabels?: Map<string, string>;
 }
 
 export interface SetupFieldState {
@@ -160,7 +168,12 @@ function fieldState(field: SetupField, facts: SetupFacts): SetupFieldState {
     return {
       ...base,
       satisfied: entered !== null,
-      value: entered ? `${(entered.cents / 100).toFixed(2)} as at ${entered.asOfDate}` : null,
+      // Rendered through the entered-amount formatter, not the shared money
+      // one: a confirmed zero has to look different from an account nobody has
+      // answered, and this line sits directly above a blocker that says exactly
+      // that. `entered &&` would be the same trap one level up -- a zero-cents
+      // reading is a reading.
+      value: entered ? `${formatEnteredAmountCents(entered.cents)} as at ${entered.asOfDate}` : null,
       blocker: entered ? null : "No balance has been entered yet.",
     };
   }
@@ -175,6 +188,23 @@ function fieldState(field: SetupField, facts: SetupFacts): SetupFieldState {
   };
   if (field.kind === "select") return { ...state, options: field.options };
   if (field.kind === "number") return { ...state, unit: field.unit ?? "plain" };
+
+  // A named person whose login has since been removed. Identical treatment to
+  // a deleted account below, and it matters more: the field would otherwise
+  // read as satisfied while every alert for this account went to a user who
+  // cannot act on it.
+  if (field.kind === "user") {
+    if (!answered) return { ...state, blocker: "Nobody has been named yet." };
+    const label = facts.userLabels?.get(String(raw));
+    return label
+      ? { ...state, value: label }
+      : {
+          ...state,
+          satisfied: false,
+          value: null,
+          blocker: "The person named here no longer has an account. Choose someone else.",
+        };
+  }
 
   if (field.kind === "account") {
     if (!answered) return { ...state, sections: field.sections };

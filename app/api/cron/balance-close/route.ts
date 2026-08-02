@@ -3,8 +3,9 @@
  * one the run date falls in -- the current month is still in progress and
  * shouldn't be snapshotted yet). In order:
  *
- *   1. ensureTasksForPeriod  -- create a close task for every active
- *      manualBalance-sourced account still missing a balance for the period.
+ *   1. ensureTasksForPeriod  -- create a close task for every active account
+ *      whose method needs a hand-entered figure and is still missing one for
+ *      the period.
  *   2. snapshotPeriod        -- recompute every non-frozen gl_account_balances
  *      row for the period from the registered providers.
  *   3. reconcileCloseTasks   -- close any task whose manual_entries balance
@@ -15,8 +16,10 @@
  *      log what the derivation predicted against what the operator actually
  *      found. Re-anchoring silently absorbs its own errors; this is the only
  *      record that it did.
- *   4. Alert -- one combined email for every task that has crossed its
- *      due_date - alert_lead_days threshold and hasn't been alerted yet.
+ *   4. Alert -- for every task that has crossed its due_date -
+ *      alert_lead_days threshold and hasn't been alerted yet, one email to
+ *      each responsible person listing their own accounts. Anything with
+ *      nobody named still goes to the admin address.
  *   5. freezePeriod once the period is fully closed (every task completed/
  *      skipped) OR its due date has passed -- a period must eventually stop
  *      accepting recomputation even if a task was never fulfilled.
@@ -38,6 +41,7 @@ import {
   isPeriodClosed,
   dueDateForPeriod,
   readCloseConfig,
+  resolveResponsibleEmails,
 } from "@/lib/finance/balances/closeTasks";
 import { recordSquareDrift, squareBalanceAccountIds } from "@/lib/finance/balances/squareDrift";
 import { renderBalanceCloseEmail } from "@/lib/finance/balances/alertEmail";
@@ -88,10 +92,10 @@ export async function GET(req: NextRequest) {
     if (alertCandidates.length > 0) {
       try {
         const coaIds = alertCandidates.map((t) => t.coaId);
-        const { data: coaRows, error: coaError } = await supabase
-          .from("chart_of_accounts")
-          .select("id, account_name, account_number")
-          .in("id", coaIds);
+        const [{ data: coaRows, error: coaError }, responsibleEmails] = await Promise.all([
+          supabase.from("chart_of_accounts").select("id, account_name, account_number").in("id", coaIds),
+          resolveResponsibleEmails(supabase, coaIds),
+        ]);
         if (coaError) throw new Error(coaError.message);
 
         const coaById = new Map(
@@ -101,16 +105,34 @@ export async function GET(req: NextRequest) {
           ]),
         );
 
-        const missing = alertCandidates.map((t) => ({
-          accountName: coaById.get(t.coaId)?.accountName ?? t.coaId,
-          accountNumber: coaById.get(t.coaId)?.accountNumber ?? null,
-          dueDate: t.dueDate,
-        }));
+        // Grouped by recipient, so each person gets ONE email listing their own
+        // accounts -- the same shape as the single combined email this replaces,
+        // addressed to whoever actually has to act on it. An account with nobody
+        // named still lands at the admin address rather than going nowhere.
+        const byRecipient = new Map<string, typeof alertCandidates>();
+        for (const t of alertCandidates) {
+          const to = responsibleEmails.get(t.coaId) ?? ADMIN_EMAIL;
+          const bucket = byRecipient.get(to);
+          if (bucket) bucket.push(t);
+          else byRecipient.set(to, [t]);
+        }
 
-        const { subject, html } = renderBalanceCloseEmail(missing, periodEnd);
-        await sendEmail(ADMIN_EMAIL, subject, html);
-        await markAlerted(supabase, alertCandidates.map((t) => t.id));
-        alertsSent = alertCandidates.length;
+        for (const [to, tasksForPerson] of byRecipient) {
+          const missing = tasksForPerson.map((t) => ({
+            accountName: coaById.get(t.coaId)?.accountName ?? t.coaId,
+            accountNumber: coaById.get(t.coaId)?.accountNumber ?? null,
+            dueDate: t.dueDate,
+          }));
+          const unassigned = tasksForPerson.every((t) => !responsibleEmails.has(t.coaId));
+          const { subject, html } = renderBalanceCloseEmail(missing, periodEnd, unassigned);
+
+          // Marked per recipient, inside the loop: a send that failed for one
+          // person must stay unmarked so the next run retries it, without
+          // re-alerting everybody who already received theirs.
+          await sendEmail(to, subject, html);
+          await markAlerted(supabase, tasksForPerson.map((t) => t.id));
+          alertsSent += tasksForPerson.length;
+        }
       } catch (err) {
         // Isolate an alert failure (e.g. a Resend outage) so it never blocks
         // the freeze decision below -- unalerted tasks simply retry next run.

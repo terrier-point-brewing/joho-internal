@@ -172,12 +172,18 @@ export async function GET() {
     // month's snapshot on the other. A failure inside it is reported per
     // account, never thrown, so a broken integration cannot blank this page.
     const providerReadiness = allProviderReadiness();
-    const [operatorBalances, live, reconciliations] = await Promise.all([
+    const [operatorBalances, live, profilesRes, reconciliations] = await Promise.all([
       latestOperatorBalance(supabase, coaIds),
       computeOpenMonthBalances(supabase, todayLocalDate()).catch((err) => {
         console.error("[balance-sources] live open-month compute failed", err);
         return null;
       }),
+      // Everyone who could be named responsible for an account, for `user`
+      // setup fields. Sign-in address only -- that is the identity a person is
+      // known by here and the address an alert goes to, and nothing on this
+      // screen needs anything else about them. Sent with the catalog, like
+      // connections, because the picker needs it on first paint.
+      supabase.from("profiles").select("id, email").order("email", { ascending: true }),
       // The month-end record for accounts whose balance is DERIVED rather than
       // reported -- what the derivation predicted, what a person actually found,
       // and how much of the difference the bank can account for. Nothing else on
@@ -186,6 +192,12 @@ export async function GET() {
       // its own errors by construction.
       listReconciliations(supabase, coaIds),
     ]);
+    if (profilesRes.error) throw profilesRes.error;
+
+    const users = ((profilesRes.data ?? []) as { id: string; email: string | null }[])
+      .filter((p): p is { id: string; email: string } => Boolean(p.email))
+      .map((p) => ({ id: p.id, email: p.email }));
+    const userLabels = new Map(users.map((u) => [u.id, u.email]));
 
     const reconciliationsByCoa = new Map<string, typeof reconciliations>();
     for (const row of reconciliations) {
@@ -241,6 +253,7 @@ export async function GET() {
                     operatorBalance: operatorBalances.get(a.id) ?? null,
                     providerReadiness,
                     accountLabels,
+                    userLabels,
                   })
                 : null,
               // Present only for methods that declare a connection, so the UI
@@ -291,6 +304,7 @@ export async function GET() {
       // telling the operator to set one up first -- which is the dead end GL
       // 1020 sat in.
       providers: allProviderCapabilities(),
+      users,
       methods: methods.map((m) => ({
         key: m.key,
         label: m.label,

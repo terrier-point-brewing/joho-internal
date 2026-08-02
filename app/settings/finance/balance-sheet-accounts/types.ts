@@ -19,7 +19,7 @@ export interface StepMeta {
 
 /** One thing a method needs before it can compute, as declared. */
 export interface SetupFieldMeta {
-  kind: "connection" | "operatorBalance" | "select" | "account" | "number" | "text" | "date";
+  kind: "connection" | "operatorBalance" | "select" | "account" | "user" | "number" | "text" | "date";
   key: string;
   label: string;
   help: string;
@@ -126,10 +126,23 @@ export interface AccountRow {
   reconciliations: ReconciliationRow[];
 }
 
+/**
+ * Someone who can be named responsible for an account, for `user` setup fields.
+ *
+ * Sent with the catalog for the same reason connections are: the picker needs
+ * them on first paint. Id and sign-in address only — this is a "who", not a
+ * profile, and nothing here needs to know anything else about them.
+ */
+export interface UserRef {
+  id: string;
+  email: string;
+}
+
 export interface BalanceSourcesResponse {
   accounts: AccountRow[];
   methods: MethodMeta[];
   providers: Record<string, ProviderCapability>;
+  users: UserRef[];
 }
 
 /**
