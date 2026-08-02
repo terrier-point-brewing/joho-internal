@@ -193,6 +193,19 @@ describe("compileBrandMarkdown", () => {
       expect(full).toContain("- 4. The chop: Bottom-right of the art window.");
     });
 
+    // The two halves of the release spec sit in ONE section. When they trailed
+    // Voice and Visual Identity, an agent designing a release had to know to
+    // read the tail of two other sections to assemble one instruction.
+    it("groups naming and the chassis under Release Design, not Voice/Visual", () => {
+      const { sections } = compile();
+      const byKey = new Map(sections.map((s) => [s.key, s.markdown]));
+
+      expect(byKey.get("release")).toContain("### Naming");
+      expect(byKey.get("release")).toContain("### Label chassis");
+      expect(byKey.get("voice")).not.toContain("### Naming");
+      expect(byKey.get("visual")).not.toContain("### Label chassis");
+    });
+
     it("states the chop's placement spec", () => {
       const full = compile({
         chop: {

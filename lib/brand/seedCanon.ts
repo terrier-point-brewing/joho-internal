@@ -24,6 +24,8 @@ export const seedCanon: BrandCanon = {
     type: "One family per role. Edit mode assigns the loaded families (admins only).",
     marks:
       "The fixed identity artifacts and their specifications — the wordmark, logo, and chop.",
+    release:
+      "How a new release is designed, with the label as the frame. First the card that names it — story, name, menu line — then the fixed chassis every illustration is poured into.",
     agent: "The machine-facing brand rules — reference for agents building on the brand.",
   },
 

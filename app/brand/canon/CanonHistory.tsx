@@ -15,6 +15,7 @@ const SECTION_TITLES: Record<GuideSectionKey | "other", string> = {
   color: "Color",
   type: "Type",
   marks: "Marks",
+  release: "Release Design",
   agent: "Agent Rules",
   other: "Other",
 };

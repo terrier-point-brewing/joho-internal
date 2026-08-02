@@ -204,9 +204,9 @@ describe("validateCanonForPublish", () => {
     expect(result.issues[0].section).toBe("other");
   });
 
-  // Phase A moved `naming` under voice, so a bad criteria count now routes to
-  // the subtab that edits it instead of falling through to 'other'.
-  it("attributes a naming issue to the voice subtab", () => {
+  // `naming` routes to the subtab that edits it (release, since the Release
+  // Design extraction) instead of falling through to 'other'.
+  it("attributes a naming issue to the release subtab", () => {
     const broken = {
       ...seedCanon,
       naming: { ...seedCanon.naming, criteria: ["one", "two", "three"] },
@@ -216,7 +216,7 @@ describe("validateCanonForPublish", () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.issues[0].path).toBe("naming.criteria");
-    expect(result.issues[0].section).toBe("voice");
+    expect(result.issues[0].section).toBe("release");
   });
 
   it("attributes a color-section issue to the color subtab", () => {
@@ -241,7 +241,7 @@ describe("validateCanonForPublish", () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.issues.length).toBeGreaterThanOrEqual(2);
-    expect(new Set(result.issues.map((i) => i.section))).toEqual(new Set(["color", "voice"]));
+    expect(new Set(result.issues.map((i) => i.section))).toEqual(new Set(["color", "release"]));
   });
 
   it("gives each issue a human-readable message", () => {

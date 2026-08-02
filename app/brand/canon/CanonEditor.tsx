@@ -44,6 +44,7 @@ const SECTION_LABEL: Record<GuideSectionKey, string> = {
   color: "Color",
   type: "Type",
   marks: "Marks",
+  release: "Release Design",
   agent: "Agent Rules",
 };
 
@@ -185,15 +186,14 @@ export default function CanonEditor({
         <div className="flex flex-col gap-6">
           <IntroFacet section={section} draft={draft} onChange={setDraft} />
           {section === "ethos" && <EthosFields draft={draft} onChange={setDraft} />}
-          {section === "voice" && (
+          {section === "voice" && <VoiceFields draft={draft} onChange={setDraft} />}
+          {section === "visual" && <VisualLawFields draft={draft} onChange={setDraft} />}
+          {/* Release Design edits the two halves of the release spec in the
+              order a release is made: name the beer, then pour it into the
+              chassis. Both fields moved here from Voice and Visual Identity. */}
+          {section === "release" && (
             <>
-              <VoiceFields draft={draft} onChange={setDraft} />
               <NamingFields draft={draft} onChange={setDraft} />
-            </>
-          )}
-          {section === "visual" && (
-            <>
-              <VisualLawFields draft={draft} onChange={setDraft} />
               <ChassisFields draft={draft} onChange={setDraft} />
             </>
           )}

@@ -76,11 +76,11 @@ describe("sectionOf", () => {
     expect(sectionOf("version")).toBeNull();
   });
 
-  // Phase A gave these three owners. They were stored, editable nowhere, and
-  // rendered nowhere — including in the Agent Rules brief.
+  // Phase A gave these three owners; naming and the chassis have since moved
+  // together to the release subtab — one spec, one home.
   it("owns the keys Phase A adopted", () => {
-    expect(sectionOf("naming")).toBe("voice");
-    expect(sectionOf("labelChassis")).toBe("visual");
+    expect(sectionOf("naming")).toBe("release");
+    expect(sectionOf("labelChassis")).toBe("release");
     expect(sectionOf("chop")).toBe("marks");
   });
 });
@@ -157,11 +157,11 @@ describe("isSectionDirty / changedSections", () => {
     expect(changedSections(base, next)).toEqual([]);
   });
 
-  it("attributes a naming change to the voice subtab", () => {
+  it("attributes a naming change to the release subtab", () => {
     const next = structuredClone(base);
     next.naming = { ...next.naming, criteria: ["a", "b", "c", "d", "e"] };
 
-    expect(changedSections(base, next)).toEqual(["voice"]);
+    expect(changedSections(base, next)).toEqual(["release"]);
   });
 
   it("treats a null document as not dirty rather than throwing", () => {

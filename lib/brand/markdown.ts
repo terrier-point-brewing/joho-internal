@@ -32,6 +32,7 @@ const HEADINGS: Record<BrandMarkdownKey, string> = {
   color: "Color",
   type: "Type",
   marks: "Marks",
+  release: "Release Design",
   agent: "Precedence & hard rules",
   technical: "Technical rules for agents",
 };
@@ -94,9 +95,38 @@ function voice(canon: BrandCanon): string[] {
     lines.push("");
   }
 
-  // Naming was absent from this brief entirely until Phase A, so an agent asked
-  // to propose a beer name was given the never-words and nothing about the
-  // pattern or the five criteria its proposal would actually be judged against.
+  return lines;
+}
+
+function visual(canon: BrandCanon): string[] {
+  const law = canon.illustrationLaw;
+  const lines = intro(canon, "visual");
+
+  if (law?.homage) lines.push(law.homage, "");
+
+  // Each rule as its pair, not as two lists. An agent given "ALWAYS flat
+  // vector" and "NEVER photorealism" ten lines apart has to work out that they
+  // are one rule; stated together it can't miss which failure a rule guards
+  // against — and the `why` is the line that stops it applying the rule
+  // literally in a case the founder never wrote down.
+  for (const pair of normalizePairs(law)) {
+    lines.push(`### ${pair.title}`);
+    if (pair.do.caption) lines.push(`- ALWAYS: ${pair.do.caption}`);
+    if (pair.dont.caption) lines.push(`- NEVER: ${pair.dont.caption}`);
+    if (pair.nuance) lines.push(`- Why: ${pair.nuance}`);
+    lines.push("");
+  }
+
+  return lines;
+}
+
+// The release spec in one section: how a beer is named, and the chassis its
+// label is built in. Naming and the chassis were split across Voice and Visual
+// Identity, so an agent designing a release had to know to read the tail of
+// two other sections to find the two halves of one instruction.
+function release(canon: BrandCanon): string[] {
+  const lines = intro(canon, "release");
+
   const naming = canon.naming;
   if (naming) {
     lines.push("### Naming");
@@ -125,28 +155,6 @@ function voice(canon: BrandCanon): string[] {
       if (ex.story) lines.push(`  - Story: ${ex.story}`);
       if (ex.menuDescription) lines.push(`  - Menu: ${ex.menuDescription}`);
     }
-    lines.push("");
-  }
-
-  return lines;
-}
-
-function visual(canon: BrandCanon): string[] {
-  const law = canon.illustrationLaw;
-  const lines = intro(canon, "visual");
-
-  if (law?.homage) lines.push(law.homage, "");
-
-  // Each rule as its pair, not as two lists. An agent given "ALWAYS flat
-  // vector" and "NEVER photorealism" ten lines apart has to work out that they
-  // are one rule; stated together it can't miss which failure a rule guards
-  // against — and the `why` is the line that stops it applying the rule
-  // literally in a case the founder never wrote down.
-  for (const pair of normalizePairs(law)) {
-    lines.push(`### ${pair.title}`);
-    if (pair.do.caption) lines.push(`- ALWAYS: ${pair.do.caption}`);
-    if (pair.dont.caption) lines.push(`- NEVER: ${pair.dont.caption}`);
-    if (pair.nuance) lines.push(`- Why: ${pair.nuance}`);
     lines.push("");
   }
 
@@ -301,6 +309,7 @@ const BUILDERS: Record<BrandMarkdownKey, (canon: BrandCanon) => string[]> = {
   color,
   type,
   marks,
+  release,
   agent,
   technical,
 };

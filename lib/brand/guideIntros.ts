@@ -39,6 +39,7 @@ export const GUIDE_SECTION_PURPOSE: Record<GuideSectionKey, string> = {
   color: "How color works",
   type: "How type works",
   marks: "The fixed marks",
+  release: "How a release is built",
   agent: "For agents",
 };
 
