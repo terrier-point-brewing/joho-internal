@@ -21,6 +21,7 @@
 import { describe, it, expect } from "vitest";
 import { buildPosLineItems, buildInvoiceLineItems } from "@/lib/finance/syncPosTransactions";
 import { resolveExpenseMapping, type RuleRef, type CounterpartyRuleRef } from "@/lib/finance/expenses";
+import { pruneReclassifiedBankExpenses } from "@/lib/finance/rampSync";
 import { preserveOperatorCoding } from "@/lib/finance/balances/plaidTransactionSync";
 import { remainingDelta } from "@/lib/production/taproomConsumptionSync";
 import { resolveSnapshotWrites } from "@/lib/finance/balances/snapshot";
@@ -245,7 +246,101 @@ describe("ramp-expenses-sync: an expense", () => {
 
     expect(result).toEqual({ chart_of_accounts_id: "coa-rule", mapping_source: "rule" });
   });
+
+  // The three above are about the upsert, which honours a pin. The prune that
+  // runs after it is a second, separate way the same row can lose the same
+  // decision -- it deletes outright, so no amount of care in resolveExpenseMapping
+  // protects a row it picks. That is the shape of the bug these two pin.
+  it("survives the prune when the feed reclassifies it, keeping the account somebody pinned", async () => {
+    const fake = fakePruneClient([
+      { id: "e-pinned", source_transaction_id: "bank-1", excluded_at: null, mapping_source: "manual", unmapped_accepted: false },
+    ]);
+
+    const result = await pruneReclassifiedBankExpenses(fake.client, [
+      { source_transaction_id: "bank-1", flow_type: "bill_settlement" },
+    ]);
+
+    // Not deleted, and reported rather than done quietly.
+    expect(fake.deleted).toEqual([]);
+    expect(result.deleted).toBe(0);
+    expect(result.setAside).toEqual(["bank-1"]);
+
+    // Kept out of the statements, with a reason a bookkeeper can act on, and
+    // with the coding itself untouched -- excluding is reversible, deleting is not.
+    const [update] = fake.updates;
+    expect(update.id).toBe("e-pinned");
+    expect(update.patch.excluded_at).toBeTruthy();
+    expect(String(update.patch.excluded_reason)).toContain("a bill settlement");
+    expect(String(update.patch.excluded_reason)).toContain("coded by hand");
+    expect(update.patch).not.toHaveProperty("chart_of_accounts_id");
+    expect(update.patch).not.toHaveProperty("mapping_source");
+  });
+
+  it("survives the prune even when the pin deliberately points at nothing", async () => {
+    // The other half of "keeps a pin even when it deliberately points at
+    // nothing", above: the upsert honours that pin, and now so does the prune.
+    const fake = fakePruneClient([
+      { id: "e-null-pin", source_transaction_id: "bank-3", excluded_at: null, mapping_source: "manual", chart_of_accounts_id: null, unmapped_accepted: false },
+    ]);
+
+    const result = await pruneReclassifiedBankExpenses(fake.client, [
+      { source_transaction_id: "bank-3", flow_type: "internal_transfer" },
+    ]);
+
+    expect(fake.deleted).toEqual([]);
+    expect(result.setAside).toEqual(["bank-3"]);
+  });
+
+  it("is still deleted when nobody has coded it, which is what the prune is for", async () => {
+    const fake = fakePruneClient([
+      { id: "e-plain", source_transaction_id: "bank-2", excluded_at: null, mapping_source: "rule", unmapped_accepted: false },
+    ]);
+
+    const result = await pruneReclassifiedBankExpenses(fake.client, [
+      { source_transaction_id: "bank-2", flow_type: "bill_settlement" },
+    ]);
+
+    expect(fake.deleted).toEqual(["e-plain"]);
+    expect(result).toMatchObject({ deleted: 1, setAside: [] });
+    expect(fake.updates).toEqual([]);
+  });
 });
+
+/**
+ * A client just real enough to run the prune: it answers the candidate read with
+ * the given expenses rows, reports no splits and no payroll matches, and records
+ * what the prune tried to delete and update.
+ */
+function fakePruneClient(rows: Array<Record<string, unknown>>) {
+  const deleted: string[] = [];
+  const updates: Array<{ id: string | null; patch: Record<string, unknown> }> = [];
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const from = (table: string): any => {
+    let mode: "select" | "update" | "delete" = "select";
+    let patch: Record<string, unknown> = {};
+    let targetId: string | null = null;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const b: any = {
+      select: () => b,
+      update: (p: Record<string, unknown>) => { mode = "update"; patch = p; return b; },
+      delete: () => { mode = "delete"; return b; },
+      eq: (col: string, val: string) => { if (col === "id") targetId = val; return b; },
+      in: (_col: string, vals: string[]) => { if (mode === "delete") deleted.push(...vals); return b; },
+      // Thenable, because every one of these chains is awaited directly.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      then: (resolve: (v: any) => unknown) => {
+        if (mode === "update") { updates.push({ id: targetId, patch }); return resolve({ data: null, error: null }); }
+        if (mode === "delete") return resolve({ error: null });
+        // Only `expenses` has candidates; the two manual-work tables answer empty.
+        return resolve({ data: table === "expenses" ? rows : [], error: null });
+      },
+    };
+    return b;
+  };
+
+  return { client: { from } as never, deleted, updates };
+}
 
 describe("bank-transactions-sync: a bank transaction", () => {
   const bankSaysFresh = {

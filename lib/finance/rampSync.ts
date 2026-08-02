@@ -8,7 +8,7 @@
  */
 import { getRampTransactions, getRampBills, getRampBankTransactions, getRampBankAccounts, getRampTransfers, getRampStatements, normalizeCounterparty } from "@/lib/ramp";
 import { rampTxnToExpenseRecord, rampBillToExpenseRecords, syncExpenseRecords } from "./rampExpenses";
-import { partitionBankLines, syncBankLedger, buildBillTotals, selectPrunableExpenseIds, type PruneCandidate } from "./bankLedger";
+import { partitionBankLines, syncBankLedger, buildBillTotals, selectPrunableExpenseIds, setAsideReason, type PruneCandidate, type FlowType } from "./bankLedger";
 import { classifyTransfers, transferToLedgerRecord } from "./transferLedger";
 import type { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { chunk } from "@/lib/utils/chunk";
@@ -52,11 +52,11 @@ export async function syncAllRamp(supabase: ReturnType<typeof createSupabaseAdmi
   // Best-effort: prune failures must never fail an otherwise-successful sync
   // (e.g. `excluded_at` from a not-yet-applied migration would 42703 here and
   // must not take down every Ramp sync path with it).
-  let pruned: { deleted: number; skipped: string[]; error?: string };
+  let pruned: { deleted: number; skipped: string[]; setAside: string[]; error?: string };
   try {
-    pruned = await pruneReclassifiedBankExpenses(supabase, ledgerRecords.map((r) => r.source_transaction_id));
+    pruned = await pruneReclassifiedBankExpenses(supabase, ledgerRecords);
   } catch (err) {
-    pruned = { deleted: 0, skipped: [], error: err instanceof Error ? err.message : String(err) };
+    pruned = { deleted: 0, skipped: [], setAside: [], error: err instanceof Error ? err.message : String(err) };
   }
   return { ...expenses, bank, pruned };
 }
@@ -66,21 +66,27 @@ export async function syncAllRamp(supabase: ReturnType<typeof createSupabaseAdmi
  * flows. syncExpenseRecords only upserts what it is handed and never prunes, so
  * a line that used to be an operating_expense and is now (say) a bill_settlement
  * would otherwise persist forever as a phantom second expense -- the Duke Energy
- * double-count. Rows carrying manual work are skipped, not deleted. This is
- * best-effort housekeeping -- callers should catch failures rather than let a
- * prune error fail the sync it follows.
+ * double-count. Rows carrying manual work are never deleted: a split, a payroll
+ * match or an existing exclusion is skipped untouched, and a row somebody coded
+ * by hand is set aside (excluded, with a reason) so the coding survives without
+ * double-counting the money. See selectPrunableExpenseIds for why that is the
+ * resolution. This is best-effort housekeeping -- callers should catch failures
+ * rather than let a prune error fail the sync it follows.
  */
 export async function pruneReclassifiedBankExpenses(
   supabase: ReturnType<typeof createSupabaseAdminClient>,
-  ledgerSourceIds: string[],
-): Promise<{ deleted: number; skipped: string[] }> {
+  /** The lines that moved to the ledger. flow_type is carried so an exclusion can say what reclassified it. */
+  ledgerLines: { source_transaction_id: string; flow_type: FlowType }[],
+): Promise<{ deleted: number; skipped: string[]; setAside: string[] }> {
   let deleted = 0;
-  const skipped: string[] = [];
+  const skipped:  string[] = [];
+  const setAside: string[] = [];
+  const flowBySourceId = new Map(ledgerLines.map((l) => [l.source_transaction_id, l.flow_type]));
 
-  for (const ids of chunk(ledgerSourceIds, 500)) {
+  for (const ids of chunk(ledgerLines.map((l) => l.source_transaction_id), 500)) {
     const { data: candidates, error: candErr } = await supabase
       .from("expenses")
-      .select("id, source_transaction_id, excluded_at")
+      .select("id, source_transaction_id, excluded_at, mapping_source, unmapped_accepted")
       .eq("source", "ramp").eq("ramp_object", "bank")
       .in("source_transaction_id", ids);
     if (candErr) throw new Error(`Load reclassified bank expenses failed: ${candErr.message}`);
@@ -100,6 +106,33 @@ export async function pruneReclassifiedBankExpenses(
     ]);
     const picked = selectPrunableExpenseIds(candidates as PruneCandidate[], withManualWork);
     skipped.push(...picked.skipped);
+
+    // Set aside before deleting. The two sets are disjoint, so the order does not
+    // change the outcome -- but a failure to preserve somebody's work should stop
+    // the batch before anything else in it is removed.
+    for (const row of picked.setAside) {
+      // Row by row, because the reason names the flow the line was reclassified
+      // to and that differs per row. A handful at most on any given run.
+      const { error: exclErr } = await supabase
+        .from("expenses")
+        .update({
+          excluded_at:     new Date().toISOString(),
+          excluded_reason: setAsideReason(flowBySourceId.get(row.source_transaction_id) ?? null),
+          // Deliberately left null: no person did this, and excluded_by is who did.
+          excluded_by:     null,
+        })
+        .eq("id", row.id);
+      if (exclErr) throw new Error(`Set aside hand-coded reclassified bank expense failed: ${exclErr.message}`);
+      setAside.push(row.source_transaction_id);
+    }
+    if (picked.setAside.length > 0) {
+      // The counts reach Settings > Cron Jobs; this reaches the runtime log, so a
+      // change to a hand-coded row is never something you have to go looking for.
+      console.warn("[rampSync] set aside hand-coded expenses reclassified as bank flows", {
+        source_transaction_ids: picked.setAside.map((r) => r.source_transaction_id),
+      });
+    }
+
     if (picked.deletable.length === 0) continue;
 
     const { error: delErr } = await supabase.from("expenses").delete().in("id", picked.deletable);
@@ -107,5 +140,5 @@ export async function pruneReclassifiedBankExpenses(
     deleted += picked.deletable.length;
   }
 
-  return { deleted, skipped };
+  return { deleted, skipped, setAside };
 }
