@@ -13,8 +13,14 @@ import { useState, useEffect, useCallback } from "react";
 import AccountSelect from "@/app/finance/AccountSelect";
 import Banner from "@/app/components/ui/Banner";
 import SaveHint from "@/app/components/ui/SaveHint";
+import ToggleChip from "@/app/components/ui/ToggleChip";
 import ConfirmDialog from "@/app/components/ui/ConfirmDialog";
 import { SPLIT_CATEGORY_CLS } from "@/app/finance/lib/categoryColors";
+
+/** Mapped, or intentionally excluded — either way there is nothing left to do here. */
+function isResolved(v: { chart_of_accounts_id: string | null; excluded: boolean }): boolean {
+  return !!v.chart_of_accounts_id || v.excluded;
+}
 
 interface CoAAccount {
   id: string;
@@ -35,6 +41,7 @@ interface VariationRow {
   chart_of_accounts_id: string | null;
   chart_of_accounts_id_pos: string | null;
   chart_of_accounts_id_invoice: string | null;
+  excluded: boolean;
   chart_of_accounts: { account_name: string; account_number: string | null; account_type: string } | null;
   coa_pos: { account_name: string; account_number: string | null; account_type: string } | null;
   coa_invoice: { account_name: string; account_number: string | null; account_type: string } | null;
@@ -82,11 +89,13 @@ function VariationMappingRow({
   accounts,
   onSave,
   onSaveSource,
+  onSaveExcluded,
 }: {
   variation: VariationRow;
   accounts: CoAAccount[];
   onSave: (squareVariationId: string, accountId: string | null) => Promise<void>;
   onSaveSource: (squareVariationId: string, field: "chart_of_accounts_id_pos" | "chart_of_accounts_id_invoice", accountId: string | null) => Promise<void>;
+  onSaveExcluded: (squareVariationId: string, excluded: boolean) => Promise<void>;
 }) {
   const [saving, setSaving] = useState(false);
   const hasSplit   = !!(variation.chart_of_accounts_id_pos || variation.chart_of_accounts_id_invoice);
@@ -95,6 +104,12 @@ function VariationMappingRow({
   async function handleChange(accountId: string | null) {
     setSaving(true);
     await onSave(variation.square_variation_id, accountId);
+    setSaving(false);
+  }
+
+  async function handleExcludedChange(excluded: boolean) {
+    setSaving(true);
+    await onSaveExcluded(variation.square_variation_id, excluded);
     setSaving(false);
   }
 
@@ -126,34 +141,45 @@ function VariationMappingRow({
         {/* Middle: default GL account */}
         <div className="flex-1 min-w-0 flex items-center gap-2">
           <SaveHint saving={saving} />
-          <AccountSelect
-            value={variation.chart_of_accounts_id}
-            onChange={handleChange}
-            accounts={accounts}
-            placeholder="— no mapping —"
-            shortLabel
-            className="w-full max-w-[360px]"
-          />
+          {variation.excluded ? (
+            <span className="text-2xs text-faint" title="This variation was marked excluded from mapping">
+              excluded
+            </span>
+          ) : (
+            <AccountSelect
+              value={variation.chart_of_accounts_id}
+              onChange={handleChange}
+              accounts={accounts}
+              placeholder="— no mapping —"
+              shortLabel
+              className="w-full max-w-[360px]"
+            />
+          )}
         </div>
         {/* Right: toggles */}
         <div className="flex items-center gap-1.5 shrink-0">
-          <button
-            type="button"
-            onClick={() => setSplitOpen((o) => !o)}
-            title={splitOpen ? "Hide POS/Invoice overrides" : "Split by POS / Invoice source"}
-            className={`px-2 py-1.5 text-2xs rounded border transition-colors ${
-              hasSplit
-                ? "bg-info-surface/40 border-info-border text-info hover:bg-info-surface/60"
-                : "bg-surface border-line-strong text-muted hover:text-body hover:border-line-subtle"
-            }`}
-          >
-            {splitOpen ? "▴ split" : "split ▾"}
-          </button>
+          <ToggleChip active={variation.excluded} onClick={() => handleExcludedChange(!variation.excluded)}>
+            excluded
+          </ToggleChip>
+          {!variation.excluded && (
+            <button
+              type="button"
+              onClick={() => setSplitOpen((o) => !o)}
+              title={splitOpen ? "Hide POS/Invoice overrides" : "Split by POS / Invoice source"}
+              className={`px-2 py-1.5 text-2xs rounded border transition-colors ${
+                hasSplit
+                  ? "bg-info-surface/40 border-info-border text-info hover:bg-info-surface/60"
+                  : "bg-surface border-line-strong text-muted hover:text-body hover:border-line-subtle"
+              }`}
+            >
+              {splitOpen ? "▴ split" : "split ▾"}
+            </button>
+          )}
         </div>
       </div>
 
       {/* Source override rows (POS / Invoice) */}
-      {splitOpen && (
+      {!variation.excluded && splitOpen && (
         <div className="pl-6 pr-4 pb-3 pt-2 flex flex-col gap-2 bg-info-surface/10 border-t border-info-border/20">
           <div className="flex items-center gap-3">
             <span className="text-2xs text-muted w-16 shrink-0 text-right">POS</span>
@@ -395,6 +421,9 @@ export default function RevenuePanel() {
     setVariations((vs) =>
       vs.map((v) => {
         if (!predicate(v)) return v;
+        // Excluded rows are skipped server-side too (see the bulk route) — kept
+        // in sync here so the optimistic update doesn't briefly show otherwise.
+        if (v.excluded) return v;
         if (!overwrite && v.chart_of_accounts_id) return v;
         return {
           ...v,
@@ -460,6 +489,7 @@ export default function RevenuePanel() {
     setVariations((vs) =>
       vs.map((v) => {
         if (!predicate(v)) return v;
+        if (v.excluded) return v;
         if (!overwrite && v[field]) return v;
         return { ...v, [field]: accountId, [coaField]: acct ? { account_name: acct.account_name, account_number: acct.account_number, account_type: acct.account_type } : null };
       })
@@ -540,6 +570,17 @@ export default function RevenuePanel() {
     );
   }
 
+  async function handleSaveExcluded(squareVariationId: string, excluded: boolean) {
+    await fetch("/api/finance/account-mappings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ square_variation_id: squareVariationId, excluded }),
+    });
+    setVariations((vs) =>
+      vs.map((v) => (v.square_variation_id === squareVariationId ? { ...v, excluded } : v))
+    );
+  }
+
   async function handleSaveSource(
     squareVariationId: string,
     field: "chart_of_accounts_id_pos" | "chart_of_accounts_id_invoice",
@@ -595,7 +636,12 @@ export default function RevenuePanel() {
 
   const groups = [...parentMap.values()].sort((a, b) => a.parent_name.localeCompare(b.parent_name));
   const totalVariations = variations.length;
-  const mappedVariations = variations.filter((v) => v.chart_of_accounts_id).length;
+  // Excluded variations will never get a GL account — a person already
+  // decided that — so they drop out of the denominator instead of reading as
+  // permanently unmapped.
+  const excludedVariations = variations.filter((v) => v.excluded).length;
+  const variationsNeedingMapping = totalVariations - excludedVariations;
+  const mappedVariations = variations.filter((v) => v.chart_of_accounts_id && !v.excluded).length;
 
   function toggleCategory(key: string) {
     setExpandedCategories((s) => { const n = new Set(s); if (n.has(key)) { n.delete(key); } else { n.add(key); } return n; });
@@ -612,9 +658,12 @@ export default function RevenuePanel() {
     <>
       <div className="shrink-0 px-4 sm:px-6 pt-4 pb-2 flex items-start justify-between gap-4">
         <p className="text-sm text-muted">
-          {totalVariations > 0
-            ? `${mappedVariations} of ${totalVariations} variations mapped`
-            : "Sync the catalog first to load variations."}
+          {totalVariations === 0
+            ? "Sync the catalog first to load variations."
+            : variationsNeedingMapping === 0
+            ? `All ${totalVariations} variations excluded from mapping`
+            : `${mappedVariations} of ${variationsNeedingMapping} variations mapped`
+              + (excludedVariations > 0 ? ` (${excludedVariations} excluded)` : "")}
         </p>
         <div className="flex items-center gap-2 shrink-0">
           {syncResult && (
@@ -649,7 +698,8 @@ export default function RevenuePanel() {
               const parentKey     = parent.parent_id ?? "__uncategorized__";
               const isParentExpanded = expandedCategories.has(parentKey);
               const allVars        = parent.subcategories.flatMap((s) => s.items.flatMap((i) => i.variations));
-              const parentMapped   = allVars.filter((v) => v.chart_of_accounts_id).length;
+              // "Mapped" here means resolved — has an account, or was marked excluded.
+              const parentMapped   = allVars.filter(isResolved).length;
               const parentTotal    = allVars.length;
               const parentHasSplit   = allVars.some((v) => v.chart_of_accounts_id_pos || v.chart_of_accounts_id_invoice);
 
@@ -693,7 +743,7 @@ export default function RevenuePanel() {
                       const catKey       = cat.category_id ?? "__uncategorized__";
                       const isCatExpanded = expandedCategories.has(catKey);
                       const catVars       = cat.items.flatMap((i) => i.variations);
-                      const catMapped     = catVars.filter((v) => v.chart_of_accounts_id).length;
+                      const catMapped     = catVars.filter(isResolved).length;
                       const catTotal      = catVars.length;
                       const catHasSplit    = catVars.some((v) => v.chart_of_accounts_id_pos || v.chart_of_accounts_id_invoice);
 
@@ -741,7 +791,7 @@ export default function RevenuePanel() {
                             .map((item) => {
                             const itemKey = item.square_item_id;
                             const isItemExpanded = expandedItems.has(itemKey);
-                            const itemMapped     = item.variations.filter((v) => v.chart_of_accounts_id).length;
+                            const itemMapped     = item.variations.filter(isResolved).length;
                             const itemHasSplit   = item.variations.some((v) => v.chart_of_accounts_id_pos || v.chart_of_accounts_id_invoice);
 
                             return (
@@ -804,6 +854,7 @@ export default function RevenuePanel() {
                                 accounts={accounts}
                                 onSave={handleSave}
                                 onSaveSource={handleSaveSource}
+                                onSaveExcluded={handleSaveExcluded}
                               />
                             ))}
                           </>

@@ -45,10 +45,14 @@ export async function POST(req: NextRequest) {
 
   async function updateVariations(itemIds: string[]): Promise<string[]> {
     if (!itemIds.length) return [];
+    // Excluded variations are a deliberate per-row decision, the same way a
+    // manually-pinned expense survives a rule cascade — a bulk category/item
+    // mapper must not sweep over one, even with overwrite=true.
     let q = supabase
       .from("square_catalog_variations")
       .update(patch)
-      .in("catalog_item_id", itemIds);
+      .in("catalog_item_id", itemIds)
+      .eq("excluded", false);
     if (!overwrite) q = q.is(primaryField, null);
     const { data, error } = await q.select("id, square_variation_id");
     if (error) throw error;

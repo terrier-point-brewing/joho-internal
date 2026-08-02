@@ -23,11 +23,14 @@ export async function GET() {
 export async function PATCH(req: NextRequest) {
   try { await requirePermission(CAP.financeTransactionsManage); } catch (res) { return res as Response; }
   try {
-    const body = await req.json() as { square_tax_id?: string; chart_of_accounts_id?: string | null };
+    const body = await req.json() as { square_tax_id?: string; chart_of_accounts_id?: string | null; excluded?: boolean };
     if (!body.square_tax_id) {
       return NextResponse.json({ error: "square_tax_id required" }, { status: 400 });
     }
-    await setSalesTaxAccount(createSupabaseAdminClient(), body.square_tax_id, body.chart_of_accounts_id ?? null);
+    const patch: { chartOfAccountsId?: string | null; excluded?: boolean } = {};
+    if ("chart_of_accounts_id" in body) patch.chartOfAccountsId = body.chart_of_accounts_id ?? null;
+    if ("excluded" in body) patch.excluded = body.excluded;
+    await setSalesTaxAccount(createSupabaseAdminClient(), body.square_tax_id, patch);
     return NextResponse.json({ ok: true });
   } catch (err) {
     return apiError(err);

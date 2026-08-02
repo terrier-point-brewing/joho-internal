@@ -8,6 +8,7 @@
  */
 import AccountSelect, { type CoARef } from "@/app/finance/AccountSelect";
 import SaveHint from "@/app/components/ui/SaveHint";
+import ToggleChip from "@/app/components/ui/ToggleChip";
 import MappingFrame from "./MappingFrame";
 import { useMappingData } from "./useMappingData";
 import { useState } from "react";
@@ -24,6 +25,7 @@ interface RuleRow {
   external_account_code: string | null;
   chart_of_accounts_id: string | null;
   auto_matched: boolean;
+  excluded: boolean;
   chart_of_accounts: CoaJoin | null;
 }
 
@@ -54,7 +56,24 @@ export default function ExpensesPanel() {
       : r)));
   }
 
-  const mapped = rows.filter((r) => r.chart_of_accounts_id).length;
+  async function handleSetExcluded(rule: RuleRow, excluded: boolean) {
+    setSavingId(rule.id);
+    const res = await fetch(RULES_URL, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ source: rule.source, external_account_id: rule.external_account_id, excluded }),
+    });
+    setSavingId(null);
+    if (!res.ok) { setError("Could not save that change."); return; }
+    setRows((rs) => rs.map((r) => (r.id === rule.id ? { ...r, excluded } : r)));
+  }
+
+  // An excluded source account will never get a blanket rule — a person
+  // already decided that — so it drops out of the denominator instead of
+  // reading as a permanently unmapped account.
+  const excludedCount = rows.filter((r) => r.excluded).length;
+  const needsMapping = rows.length - excludedCount;
+  const mapped = rows.filter((r) => r.chart_of_accounts_id && !r.excluded).length;
 
   return (
     <MappingFrame
@@ -62,19 +81,24 @@ export default function ExpensesPanel() {
       error={error}
       hasAccounts={accounts.length > 0}
       rowCount={rows.length}
-      summary={rows.length > 0
-        ? `${mapped} of ${rows.length} source accounts mapped to the chart of accounts`
-        : "Source accounts appear here after importing expenses on the Transactions → Expenses tab."}
+      summary={rows.length === 0
+        ? "Source accounts appear here after importing expenses on the Transactions → Expenses tab."
+        : needsMapping === 0
+        ? `All ${rows.length} source accounts excluded from mapping`
+        : `${mapped} of ${needsMapping} source accounts mapped to the chart of accounts`
+          + (excludedCount > 0 ? ` (${excludedCount} excluded)` : "")}
       emptyRows={{
         title: "No expense source accounts yet.",
         hint: "Sync Ramp on the Transactions → Expenses tab to import them.",
       }}
-      headers={["Source account", "Chart of Accounts"]}
+      headers={["Source account", "Excluded", "Chart of Accounts"]}
       footer={
         <>
           Mapping a source account here codes every expense on it (except manually-pinned rows).
           Use <span className="text-body">Auto-map all</span> on the Expenses tab to re-apply these
-          rules to unmapped expenses.
+          rules to unmapped expenses. Mark a source account excluded when it should never get a
+          blanket rule (e.g. a catch-all account coded line by line) — excluded accounts stop
+          counting toward the summary above.
         </>
       }
     >
@@ -94,15 +118,26 @@ export default function ExpensesPanel() {
             </div>
           </td>
           <td className="px-4 py-2">
+            <ToggleChip active={rule.excluded} onClick={() => handleSetExcluded(rule, !rule.excluded)}>
+              {rule.excluded ? "Yes" : "No"}
+            </ToggleChip>
+          </td>
+          <td className="px-4 py-2">
             <div className="flex items-center gap-2">
-              <AccountSelect
-                value={rule.chart_of_accounts_id}
-                onChange={(id) => handleSetRule(rule, id)}
-                accounts={accounts as CoARef[]}
-                placeholder="— map this account —"
-                shortLabel
-                className="w-full max-w-[360px]"
-              />
+              {rule.excluded ? (
+                <span className="text-2xs text-faint" title="This source account was marked excluded from mapping">
+                  excluded
+                </span>
+              ) : (
+                <AccountSelect
+                  value={rule.chart_of_accounts_id}
+                  onChange={(id) => handleSetRule(rule, id)}
+                  accounts={accounts as CoARef[]}
+                  placeholder="— map this account —"
+                  shortLabel
+                  className="w-full max-w-[360px]"
+                />
+              )}
               <SaveHint saving={savingId === rule.id} />
             </div>
           </td>

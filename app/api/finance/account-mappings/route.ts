@@ -24,6 +24,7 @@ export async function GET() {
       chart_of_accounts_id,
       chart_of_accounts_id_pos,
       chart_of_accounts_id_invoice,
+      excluded,
       chart_of_accounts!square_catalog_variations_chart_of_accounts_id_fkey ( account_name, account_number, account_type ),
       square_catalog_items (
         id,
@@ -78,16 +79,18 @@ export async function PATCH(req: NextRequest) {
     chart_of_accounts_id?: string | null;
     chart_of_accounts_id_pos?: string | null;
     chart_of_accounts_id_invoice?: string | null;
+    excluded?: boolean;
   };
 
   if (!body.square_variation_id) {
     return NextResponse.json({ error: "square_variation_id required" }, { status: 400 });
   }
 
-  const patch: Record<string, string | null> = {};
+  const patch: Record<string, string | null | boolean> = {};
   if ("chart_of_accounts_id" in body)         patch.chart_of_accounts_id         = body.chart_of_accounts_id ?? null;
   if ("chart_of_accounts_id_pos" in body)     patch.chart_of_accounts_id_pos     = body.chart_of_accounts_id_pos ?? null;
   if ("chart_of_accounts_id_invoice" in body) patch.chart_of_accounts_id_invoice = body.chart_of_accounts_id_invoice ?? null;
+  if ("excluded" in body)                     patch.excluded                     = body.excluded ?? false;
 
   if (Object.keys(patch).length === 0) {
     return NextResponse.json({ error: "No fields to update" }, { status: 400 });
@@ -98,25 +101,30 @@ export async function PATCH(req: NextRequest) {
     .from("square_catalog_variations")
     .update(patch)
     .eq("square_variation_id", body.square_variation_id)
-    .select("id, chart_of_accounts_id, chart_of_accounts_id_pos, chart_of_accounts_id_invoice")
+    .select("id, chart_of_accounts_id, chart_of_accounts_id_pos, chart_of_accounts_id_invoice, excluded")
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   // Back-fill already-ingested unmapped line items for this variation so the user
   // doesn't have to click "Auto-map all". Current + prior year covers open books.
-  after(async () => {
-    const currentYear = new Date().getFullYear();
-    const years = [currentYear, currentYear - 1];
-    for (const year of years) {
-      try {
-        await autoMapPosLineItems(supabase, { year, variationIds: [body.square_variation_id] });
-        await autoMapInvoiceLineItems(supabase, { year, variationIds: [body.square_variation_id] });
-      } catch (e) {
-        console.error("[account-mappings] cascade auto-map failed", { variationId: body.square_variation_id, year, error: e });
+  // Skipped for an excluded-only toggle: no account field changed, so there is
+  // nothing new for the auto-map pass to backfill.
+  const touchedAccount = "chart_of_accounts_id" in body || "chart_of_accounts_id_pos" in body || "chart_of_accounts_id_invoice" in body;
+  if (touchedAccount) {
+    after(async () => {
+      const currentYear = new Date().getFullYear();
+      const years = [currentYear, currentYear - 1];
+      for (const year of years) {
+        try {
+          await autoMapPosLineItems(supabase, { year, variationIds: [body.square_variation_id] });
+          await autoMapInvoiceLineItems(supabase, { year, variationIds: [body.square_variation_id] });
+        } catch (e) {
+          console.error("[account-mappings] cascade auto-map failed", { variationId: body.square_variation_id, year, error: e });
+        }
       }
-    }
-  });
+    });
+  }
 
   return NextResponse.json(data);
 }

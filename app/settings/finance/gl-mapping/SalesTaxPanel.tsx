@@ -12,6 +12,7 @@
 import { useState } from "react";
 import AccountSelect, { type CoARef } from "@/app/finance/AccountSelect";
 import SaveHint from "@/app/components/ui/SaveHint";
+import ToggleChip from "@/app/components/ui/ToggleChip";
 import MappingFrame from "./MappingFrame";
 import { useMappingData } from "./useMappingData";
 
@@ -26,6 +27,7 @@ interface TaxRow {
   tax_name: string | null;
   tax_pct: number | null;
   chart_of_accounts_id: string | null;
+  excluded: boolean;
   chart_of_accounts: CoaJoin | null;
 }
 
@@ -52,7 +54,24 @@ export default function SalesTaxPanel() {
       : t)));
   }
 
-  const mapped = rows.filter((t) => t.chart_of_accounts_id).length;
+  async function handleSetExcluded(row: TaxRow, excluded: boolean) {
+    setSavingId(row.square_tax_id);
+    const res = await fetch(TAXES_URL, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ square_tax_id: row.square_tax_id, excluded }),
+    });
+    setSavingId(null);
+    if (!res.ok) { setError("Could not save that change."); return; }
+    setRows((ts) => ts.map((t) => (t.square_tax_id === row.square_tax_id ? { ...t, excluded } : t)));
+  }
+
+  // Excluded rows will never get a liability account — a person already
+  // decided that — so they drop out of the denominator instead of reading as
+  // a permanently unmapped tax.
+  const excludedCount = rows.filter((t) => t.excluded).length;
+  const needsMapping = rows.length - excludedCount;
+  const mapped = rows.filter((t) => t.chart_of_accounts_id && !t.excluded).length;
   const liabilityAccounts = accounts.filter((a) => LIABILITY_ACCOUNT_TYPES.has(a.account_type));
 
   return (
@@ -61,20 +80,24 @@ export default function SalesTaxPanel() {
       error={error}
       hasAccounts={accounts.length > 0}
       rowCount={rows.length}
-      summary={rows.length > 0
-        ? `${mapped} of ${rows.length} Square taxes mapped to a liability account`
-        : "Taxes appear here after syncing orders that collected sales tax."}
+      summary={rows.length === 0
+        ? "Taxes appear here after syncing orders that collected sales tax."
+        : needsMapping === 0
+        ? `All ${rows.length} Square taxes excluded from mapping`
+        : `${mapped} of ${needsMapping} Square taxes mapped to a liability account`
+          + (excludedCount > 0 ? ` (${excludedCount} excluded)` : "")}
       emptyRows={{
         title: "No Square taxes yet.",
         hint: "Sync orders on the Transactions → Orders tab to import them.",
       }}
-      headers={["Tax", "Rate", "Liability Account"]}
+      headers={["Tax", "Rate", "Excluded", "Liability Account"]}
       footer={
         <>
           Collected sales tax is credited to the account mapped here instead of being recognized as
           revenue. An unmapped tax contributes nothing to the balance sheet — its collections are
           simply omitted. Only balance-sheet liability accounts are selectable, so a tax can never be
-          mapped back into revenue.
+          mapped back into revenue. Mark a tax excluded when it should never get a liability
+          account (e.g. a $0 test tax) — excluded taxes stop counting toward the summary above.
         </>
       }
     >
@@ -87,17 +110,28 @@ export default function SalesTaxPanel() {
             {row.tax_pct != null ? `${row.tax_pct}%` : "—"}
           </td>
           <td className="px-4 py-2">
-            <div className="flex items-center gap-2">
-              <AccountSelect
-                value={row.chart_of_accounts_id}
-                onChange={(id) => handleSet(row, id)}
-                accounts={liabilityAccounts as CoARef[]}
-                placeholder="— map this tax —"
-                shortLabel
-                className="w-full max-w-[360px]"
-              />
-              <SaveHint saving={savingId === row.square_tax_id} />
-            </div>
+            <ToggleChip active={row.excluded} onClick={() => handleSetExcluded(row, !row.excluded)}>
+              {row.excluded ? "Yes" : "No"}
+            </ToggleChip>
+          </td>
+          <td className="px-4 py-2">
+            {row.excluded ? (
+              <span className="text-2xs text-faint" title="This tax was marked excluded from mapping">
+                excluded
+              </span>
+            ) : (
+              <div className="flex items-center gap-2">
+                <AccountSelect
+                  value={row.chart_of_accounts_id}
+                  onChange={(id) => handleSet(row, id)}
+                  accounts={liabilityAccounts as CoARef[]}
+                  placeholder="— map this tax —"
+                  shortLabel
+                  className="w-full max-w-[360px]"
+                />
+              </div>
+            )}
+            <SaveHint saving={savingId === row.square_tax_id} />
           </td>
         </tr>
       ))}
