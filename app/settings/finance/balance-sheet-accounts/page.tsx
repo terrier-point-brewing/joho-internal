@@ -48,6 +48,7 @@ import MethodSetupPanel from "./MethodSetupPanel";
 import type {
   AccountRow,
   BalanceSourcesResponse,
+  LiveBalancesResponse,
   MethodKind,
   MethodMeta,
   ReconciliationRow,
@@ -378,12 +379,38 @@ export default function BalanceSheetAccountsPage() {
     queryKey: queryKeys.finance.balanceSources(),
     queryFn: () => fetchJson<BalanceSourcesResponse>("/api/finance/balance-sources"),
   });
+  // Split from `data` because it is the expensive half -- see this query key's
+  // own comment. Fetched in parallel with `data` on first load, but never
+  // blocks a save: `refresh()` below only waits on the settings query.
+  const { data: liveData } = useQuery({
+    queryKey: queryKeys.finance.balanceSourcesLive(),
+    queryFn: () => fetchJson<LiveBalancesResponse>("/api/finance/balance-sources/live"),
+  });
 
   const methods = data?.methods ?? [];
-  const accounts = data?.accounts ?? [];
+  // Merged here, not sent as one payload -- a save only ever needs `data` to
+  // reflect what changed, so liveBalance/liveError catch up on their own
+  // schedule instead of making every save wait for them.
+  const accounts: AccountRow[] = (data?.accounts ?? []).map((a) => ({
+    ...a,
+    liveBalance: liveData?.balances[a.id] ?? null,
+    liveError: liveData?.failedAccounts.includes(a.id)
+      ? (liveData.errors.find((e) => e.includes(a.id)) ?? "This account's calculation failed.")
+      : null,
+  }));
   const methodOf = (key: string) => methods.find((m) => m.key === key);
 
+  /**
+   * Refreshes the settings a save just changed. Deliberately does NOT wait on
+   * the live balances query -- that one hits Ramp and Square per account and
+   * can take several seconds, which used to make every save on this screen
+   * feel that slow even though the save itself was one row. It is still
+   * invalidated here, just not awaited, so the "Right now" column and the
+   * setup panel's proof-it-worked figure catch up in the background instead of
+   * blocking the button that triggered them.
+   */
   async function refresh() {
+    void queryClient.invalidateQueries({ queryKey: queryKeys.finance.balanceSourcesLive() });
     await queryClient.invalidateQueries({ queryKey: queryKeys.finance.balanceSources() });
   }
 

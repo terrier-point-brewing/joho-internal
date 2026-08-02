@@ -142,11 +142,25 @@ export interface UserRef {
   email: string;
 }
 
+/**
+ * What GET /api/finance/balance-sources sends over the wire. `liveBalance` and
+ * `liveError` are missing on purpose -- they come from the separate, slower
+ * `/live` endpoint and are merged in client-side. See queryKeys.finance.balanceSourcesLive.
+ */
+export type WireAccountRow = Omit<AccountRow, "liveBalance" | "liveError">;
+
 export interface BalanceSourcesResponse {
-  accounts: AccountRow[];
+  accounts: WireAccountRow[];
   methods: MethodMeta[];
   providers: Record<string, ProviderCapability>;
   users: UserRef[];
+}
+
+/** GET /api/finance/balance-sources/live's response. */
+export interface LiveBalancesResponse {
+  balances: Record<string, BalanceFigure>;
+  errors: string[];
+  failedAccounts: string[];
 }
 
 /**
