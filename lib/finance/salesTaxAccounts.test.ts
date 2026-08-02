@@ -95,7 +95,7 @@ describe("setSalesTaxAccount", () => {
       existing: [], observedPos: [],
       onUpdate: (patch, id) => seen.push({ patch: patch as Record<string, unknown>, id }),
     });
-    await setSalesTaxAccount(sb, "TAX_GEN", "COA_1");
+    await setSalesTaxAccount(sb, "TAX_GEN", { chartOfAccountsId: "COA_1" });
     expect(seen).toHaveLength(1);
     expect(seen[0].id).toBe("TAX_GEN");
     expect(seen[0].patch.chart_of_accounts_id).toBe("COA_1");
@@ -108,12 +108,23 @@ describe("setSalesTaxAccount", () => {
       existing: [], observedPos: [],
       onUpdate: (patch, id) => seen.push({ patch: patch as Record<string, unknown>, id }),
     });
-    await setSalesTaxAccount(sb, "TAX_GEN", null);
+    await setSalesTaxAccount(sb, "TAX_GEN", { chartOfAccountsId: null });
     expect(seen[0].patch.chart_of_accounts_id).toBeNull();
   });
 
   it("throws when the update matches zero rows instead of silently reporting success", async () => {
     const sb = stubSb({ existing: [], observedPos: [], updateMatchesZeroRows: true });
-    await expect(setSalesTaxAccount(sb, "TAX_UNKNOWN", "COA_1")).rejects.toThrow(/unknown square_tax_id/);
+    await expect(setSalesTaxAccount(sb, "TAX_UNKNOWN", { chartOfAccountsId: "COA_1" })).rejects.toThrow(/unknown square_tax_id/);
+  });
+
+  it("updates only excluded, leaving the account untouched", async () => {
+    const seen: { patch: Record<string, unknown>; id: string }[] = [];
+    const sb = stubSb({
+      existing: [], observedPos: [],
+      onUpdate: (patch, id) => seen.push({ patch: patch as Record<string, unknown>, id }),
+    });
+    await setSalesTaxAccount(sb, "TAX_GEN", { excluded: true });
+    expect(seen[0].patch.excluded).toBe(true);
+    expect("chart_of_accounts_id" in seen[0].patch).toBe(false);
   });
 });

@@ -137,7 +137,17 @@ export default function CounterpartiesPanel() {
     });
   }
 
-  const mapped = rows.filter((r) => r.chart_of_accounts_id).length;
+  // A counterparty switched out of the books (or whose whole feed is off)
+  // will never need a CoA account — that switch already lives in
+  // bank_ledger_gl_rules via useBankFeedRules — so it drops out of the
+  // denominator instead of reading as a permanently unmapped counterparty.
+  function isExcluded(r: RuleRow): boolean {
+    if (feedIncluded.get(r.source) === false) return true;
+    return (counterpartyIncluded.get(rowKey(r)) ?? true) === false;
+  }
+  const excludedCount = rows.filter(isExcluded).length;
+  const needsMapping = rows.length - excludedCount;
+  const mapped = rows.filter((r) => r.chart_of_accounts_id && !isExcluded(r)).length;
 
   return (
     <MappingFrame
@@ -145,9 +155,12 @@ export default function CounterpartiesPanel() {
       error={error}
       hasAccounts={accounts.length > 0}
       rowCount={rows.length}
-      summary={rows.length > 0
-        ? `${mapped} of ${rows.length} counterparties mapped to the chart of accounts`
-        : "Counterparties appear here after syncing bank-account lines on the Transactions → Bank Ledger tab."}
+      summary={rows.length === 0
+        ? "Counterparties appear here after syncing bank-account lines on the Transactions → Bank Ledger tab."
+        : needsMapping === 0
+        ? `All ${rows.length} counterparties out of the books`
+        : `${mapped} of ${needsMapping} counterparties mapped to the chart of accounts`
+          + (excludedCount > 0 ? ` (${excludedCount} out of the books)` : "")}
       emptyRows={{
         title: "No counterparties yet.",
         hint: "Sync a bank account on the Transactions → Bank Ledger tab to import them.",

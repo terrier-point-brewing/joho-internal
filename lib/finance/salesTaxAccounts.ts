@@ -20,6 +20,7 @@ export interface SalesTaxAccountRow {
   tax_name: string | null;
   tax_pct: number | null;
   chart_of_accounts_id: string | null;
+  excluded: boolean;
   chart_of_accounts: { account_name: string; account_number: string | null } | null;
 }
 
@@ -82,21 +83,30 @@ export async function listSalesTaxAccounts(sb: SupabaseClient): Promise<SalesTax
   const rows = await fetchAllRows<SalesTaxAccountRow>(() =>
     sb
       .from("square_tax_accounts")
-      .select("square_tax_id, tax_name, tax_pct, chart_of_accounts_id, chart_of_accounts ( account_name, account_number )")
+      .select("square_tax_id, tax_name, tax_pct, chart_of_accounts_id, excluded, chart_of_accounts ( account_name, account_number )")
       .order("square_tax_id", { ascending: true }),
   );
   return rows.sort((a, b) => (a.tax_name ?? a.square_tax_id).localeCompare(b.tax_name ?? b.square_tax_id));
 }
 
-/** Points one tax at a liability account, or clears it with null. */
+/**
+ * Updates one tax's liability account and/or its excluded flag. Only the
+ * fields present in `patch` are touched, so a settings-page toggle of one
+ * never clobbers the other -- see the counterparty-mappings PATCH route,
+ * which has the same "in body" split for the same reason.
+ */
 export async function setSalesTaxAccount(
   sb: SupabaseClient,
   squareTaxId: string,
-  chartOfAccountsId: string | null,
+  patch: { chartOfAccountsId?: string | null; excluded?: boolean },
 ): Promise<void> {
+  const update: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if ("chartOfAccountsId" in patch) update.chart_of_accounts_id = patch.chartOfAccountsId;
+  if ("excluded" in patch) update.excluded = patch.excluded;
+
   const { data, error } = await sb
     .from("square_tax_accounts")
-    .update({ chart_of_accounts_id: chartOfAccountsId, updated_at: new Date().toISOString() })
+    .update(update)
     .eq("square_tax_id", squareTaxId)
     .select("square_tax_id");
   if (error) throw new Error(error.message);
