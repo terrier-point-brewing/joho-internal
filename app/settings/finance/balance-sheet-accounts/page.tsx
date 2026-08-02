@@ -38,7 +38,7 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import { fetchJson } from "@/app/production/hooks/queries";
-import { formatCurrencyCents } from "@/lib/format";
+import { EM_DASH, formatBalanceCents } from "@/lib/format";
 import Banner from "@/app/components/ui/Banner";
 import Card from "@/app/components/ui/Card";
 import Badge from "@/app/components/ui/Badge";
@@ -111,15 +111,15 @@ function explainReconciliation(row: ReconciliationRow): string {
   const matched = row.sweptExactCents + row.sweptNameOnlyCents;
   const head =
     row.unexplainedCents === 0
-      ? `Your bank records account for all of it — ${formatCurrencyCents(matched)} transferred out over ${row.sweptMatchCount ?? 0} payments.`
-      : `Your bank records account for ${formatCurrencyCents(matched)} of it, leaving ${formatCurrencyCents(Math.abs(row.unexplainedCents))} unaccounted for.`;
+      ? `Your bank records account for all of it — ${formatBalanceCents(matched)} transferred out over ${row.sweptMatchCount ?? 0} payments.`
+      : `Your bank records account for ${formatBalanceCents(matched)} of it, leaving ${formatBalanceCents(Math.abs(row.unexplainedCents))} unaccounted for.`;
 
   // Surfaced rather than folded in. A payment recognised only by the sender's
   // name is weaker evidence than one carrying their bank identifier, and a
   // reader deciding whether to trust the figure needs to know how much of it
   // rests on the weaker rule.
   return row.sweptNameOnlyCents > 0
-    ? `${head} ${formatCurrencyCents(row.sweptNameOnlyCents)} of that was recognised by the sender's name alone.`
+    ? `${head} ${formatBalanceCents(row.sweptNameOnlyCents)} of that was recognised by the sender's name alone.`
     : head;
 }
 
@@ -167,9 +167,12 @@ function MethodExplainer({
               </div>
               {hasFigures && (
                 <span className="shrink-0 font-mono text-xs tabular-nums text-body">
+                  {/* A step absent from `contributions` did not run — the em dash is
+                      that, and only that. A step that ran and contributed nothing
+                      reads "+ $0.00", which is a different statement about the month. */}
                   {contributions[step.key] === undefined
-                    ? "—"
-                    : `${DIRECTION_PREFIX[step.direction]} ${formatCurrencyCents(Math.abs(contributions[step.key]))}`}
+                    ? EM_DASH
+                    : `${DIRECTION_PREFIX[step.direction]} ${formatBalanceCents(Math.abs(contributions[step.key]))}`}
                 </span>
               )}
             </div>
@@ -181,7 +184,7 @@ function MethodExplainer({
             <span className="text-xs text-body">
               {account?.liveBalance ? "Balance right now" : `Balance at ${account?.currentBalance?.periodEnd}`}
             </span>
-            <span className="font-mono text-sm tabular-nums text-strong">{formatCurrencyCents(figure!.cents)}</span>
+            <span className="font-mono text-sm tabular-nums text-strong">{formatBalanceCents(figure!.cents)}</span>
           </div>
         )}
 
@@ -203,7 +206,7 @@ function MethodExplainer({
                 <div className="flex items-baseline justify-between gap-3">
                   <span className="text-2xs text-muted">{row.periodEnd}</span>
                   <span className="font-mono text-2xs tabular-nums text-body">
-                    {formatCurrencyCents(row.driftCents)}
+                    {formatBalanceCents(row.driftCents)}
                   </span>
                 </div>
                 <p className="text-2xs text-faint leading-relaxed">{explainReconciliation(row)}</p>
@@ -580,13 +583,20 @@ export default function BalanceSheetAccountsPage() {
                         </div>
                       </td>
 
+                      {/* formatBalanceCents, never formatCurrencyCents: the em dash in
+                          the else-branch is this screen's "no balance could be worked
+                          out" and must stay the only thing that renders it. The
+                          statement formatter blanks an exact zero, which would make a
+                          checked-and-empty account read as an unsourced one — the
+                          "null, not zero" rule failing at the display instead of in
+                          the data. Same reasoning for every figure on this screen. */}
                       <td className="px-4 py-3 text-right">
                         {account.liveBalance ? (
                           <span className="font-mono text-sm tabular-nums text-strong">
-                            {formatCurrencyCents(account.liveBalance.cents)}
+                            {formatBalanceCents(account.liveBalance.cents)}
                           </span>
                         ) : (
-                          <span className="text-2xs text-faint">—</span>
+                          <span className="text-2xs text-faint">{EM_DASH}</span>
                         )}
                       </td>
 
@@ -594,7 +604,7 @@ export default function BalanceSheetAccountsPage() {
                         {account.currentBalance ? (
                           <div className="flex flex-col gap-0.5 items-end">
                             <span className="font-mono text-sm tabular-nums text-body">
-                              {formatCurrencyCents(account.currentBalance.cents)}
+                              {formatBalanceCents(account.currentBalance.cents)}
                             </span>
                             <span className="text-2xs text-faint">{account.currentBalance.periodEnd}</span>
                           </div>
