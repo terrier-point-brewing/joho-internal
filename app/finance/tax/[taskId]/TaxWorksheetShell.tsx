@@ -19,6 +19,7 @@ import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import FinanceNav from "../../FinanceNav";
 import PageHeader from "@/app/components/PageHeader";
+import StickyHeader from "@/app/components/StickyHeader";
 import BackLink from "@/app/components/ui/BackLink";
 import Card from "@/app/components/ui/Card";
 import Banner from "@/app/components/ui/Banner";
@@ -208,20 +209,24 @@ export default function TaxWorksheetShell({ taskId }: { taskId: string }) {
 
   if (taskQuery.isLoading || partiesQuery.isLoading) {
     return (
-      <main className="px-4 sm:px-6 py-4 sm:py-8">
-        <FinanceNav mobile />
-        <BackLink href="/finance/tax" label="Tax" />
-        <p className="text-sm text-faint mt-4">Loading…</p>
+      <main className="px-4 sm:px-6">
+        <StickyHeader>
+          <FinanceNav mobile />
+          <BackLink href="/finance/tax" label="Tax" />
+        </StickyHeader>
+        <p className="text-sm text-faint mt-4 pb-4 sm:pb-8">Loading…</p>
       </main>
     );
   }
 
   if (taskQuery.isError || !task) {
     return (
-      <main className="px-4 sm:px-6 py-4 sm:py-8">
-        <FinanceNav mobile />
-        <BackLink href="/finance/tax" label="Tax" />
-        <Banner tone="danger" className="mt-4">
+      <main className="px-4 sm:px-6">
+        <StickyHeader>
+          <FinanceNav mobile />
+          <BackLink href="/finance/tax" label="Tax" />
+        </StickyHeader>
+        <Banner tone="danger" className="mt-4 pb-4 sm:pb-8">
           {taskQuery.error instanceof Error ? taskQuery.error.message : "Task not found."}
         </Banner>
       </main>
@@ -233,74 +238,78 @@ export default function TaxWorksheetShell({ taskId }: { taskId: string }) {
   const computedAt = typeof worksheet.meta?.computedAt === "string" ? worksheet.meta.computedAt : undefined;
 
   return (
-    <main className="px-4 sm:px-6 py-4 sm:py-8">
-      <FinanceNav mobile />
-      <BackLink href="/finance/tax" label="Tax" />
-      <PageHeader
-        title={party?.label ?? task.party_key}
-        description={`Period ${fmtDateLong(task.period_start)} – ${fmtDateLong(task.period_end)} · Due ${fmtDateLong(task.due_date)}`}
-      />
+    <main className="px-4 sm:px-6">
+      <StickyHeader>
+        <FinanceNav mobile />
+        <BackLink href="/finance/tax" label="Tax" />
+        <PageHeader
+          title={party?.label ?? task.party_key}
+          description={`Period ${fmtDateLong(task.period_start)} – ${fmtDateLong(task.period_end)} · Due ${fmtDateLong(task.due_date)}`}
+        />
+      </StickyHeader>
 
-      <IdentityHeader
-        schema={party?.settingsSchema ?? []}
-        values={profileQuery.data}
-        entity={entityProfileQuery.data}
-        representative={representativeQuery.data}
-        bankAccount={bankAccountQuery.data}
-        requiredRegistrations={party?.requiredRegistrations ?? []}
-        isLoading={
-          profileQuery.isLoading || entityProfileQuery.isLoading || representativeQuery.isLoading || bankAccountQuery.isLoading
-        }
-      />
+      <div className="pb-4 sm:pb-8">
+        <IdentityHeader
+          schema={party?.settingsSchema ?? []}
+          values={profileQuery.data}
+          entity={entityProfileQuery.data}
+          representative={representativeQuery.data}
+          bankAccount={bankAccountQuery.data}
+          requiredRegistrations={party?.requiredRegistrations ?? []}
+          isLoading={
+            profileQuery.isLoading || entityProfileQuery.isLoading || representativeQuery.isLoading || bankAccountQuery.isLoading
+          }
+        />
 
-      {worksheet.warnings && worksheet.warnings.length > 0 && (
-        <Banner tone="info" className="mt-4">
-          <ul className="list-disc pl-4 space-y-1">
-            {worksheet.warnings.map((w, i) => (
-              <li key={i}>{w}</li>
-            ))}
-          </ul>
-        </Banner>
-      )}
-      {recomputeError && (
-        <Banner tone="danger" className="mt-4">
-          {recomputeError}
-        </Banner>
-      )}
-
-      {!isCompleted && (
-        <div className="flex items-center justify-between mt-4 mb-2">
-          <SaveStatus state={saveState} />
-          <button className="btn-secondary" onClick={handleRecompute} disabled={recomputing}>
-            {recomputing ? "Recomputing…" : (party?.recomputeLabel ?? "Recompute")}
-          </button>
-        </div>
-      )}
-
-      <Card className={isCompleted ? "mt-4" : undefined}>
-        {worksheetModule ? (
-          <worksheetModule.Worksheet
-            fields={worksheet.fields}
-            computedAt={computedAt}
-            onFieldsChange={handleFieldsChange}
-            readOnly={isCompleted}
-          />
-        ) : (
-          <p className="text-sm text-faint">No worksheet UI registered for &ldquo;{task.party_key}&rdquo;.</p>
+        {worksheet.warnings && worksheet.warnings.length > 0 && (
+          <Banner tone="info" className="mt-4">
+            <ul className="list-disc pl-4 space-y-1">
+              {worksheet.warnings.map((w, i) => (
+                <li key={i}>{w}</li>
+              ))}
+            </ul>
+          </Banner>
         )}
-      </Card>
+        {recomputeError && (
+          <Banner tone="danger" className="mt-4">
+            {recomputeError}
+          </Banner>
+        )}
 
-      <div className="flex items-center justify-between mt-4 mb-4 border-t border-line pt-4">
-        <div>
-          <p className="text-xs text-faint uppercase tracking-wide">Total Due</p>
-          <p className="text-lg font-semibold text-strong tabular-nums">
-            {totalDueCents != null ? fmtCents(totalDueCents) : "—"}
-          </p>
+        {!isCompleted && (
+          <div className="flex items-center justify-between mt-4 mb-2">
+            <SaveStatus state={saveState} />
+            <button className="btn-secondary" onClick={handleRecompute} disabled={recomputing}>
+              {recomputing ? "Recomputing…" : (party?.recomputeLabel ?? "Recompute")}
+            </button>
+          </div>
+        )}
+
+        <Card className={isCompleted ? "mt-4" : undefined}>
+          {worksheetModule ? (
+            <worksheetModule.Worksheet
+              fields={worksheet.fields}
+              computedAt={computedAt}
+              onFieldsChange={handleFieldsChange}
+              readOnly={isCompleted}
+            />
+          ) : (
+            <p className="text-sm text-faint">No worksheet UI registered for &ldquo;{task.party_key}&rdquo;.</p>
+          )}
+        </Card>
+
+        <div className="flex items-center justify-between mt-4 mb-4 border-t border-line pt-4">
+          <div>
+            <p className="text-xs text-faint uppercase tracking-wide">Total Due</p>
+            <p className="text-lg font-semibold text-strong tabular-nums">
+              {totalDueCents != null ? fmtCents(totalDueCents) : "—"}
+            </p>
+          </div>
         </div>
-      </div>
 
-      <div id="complete-panel">
-        <CompletePanel taskId={taskId} task={task} />
+        <div id="complete-panel">
+          <CompletePanel taskId={taskId} task={task} />
+        </div>
       </div>
     </main>
   );

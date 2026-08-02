@@ -19,7 +19,7 @@ export default async function PeriodCloseLayout({ children }: { children: React.
           description="The month-end checklist and the human act of closing a period — a closed month's balances stop recomputing."
         />
       </div>
-      {children}
+      <div className="flex-1 overflow-auto">{children}</div>
     </div>
   );
 }

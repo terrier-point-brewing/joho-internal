@@ -21,6 +21,8 @@
 import { useState, type ReactNode } from "react";
 import Card from "@/app/components/ui/Card";
 import Banner from "@/app/components/ui/Banner";
+import PageHeader from "@/app/components/PageHeader";
+import StickyHeader from "@/app/components/StickyHeader";
 
 export interface BackfillShellProps<T> {
   title: string;
@@ -96,10 +98,13 @@ export default function BackfillShell<T>({
   const shown = applied ?? previewResult;
 
   return (
-    <div className="flex-1 overflow-auto px-4 sm:px-6 py-4">
+    <div className="flex-1 overflow-auto px-4 sm:px-6">
+      <StickyHeader>
+        <PageHeader title={title} />
+      </StickyHeader>
+      <div className="pb-4 sm:pb-8">
       <Card className="max-w-4xl">
-        <h2 className="text-sm font-semibold text-strong">{title}</h2>
-        <p className="text-xs text-secondary mt-1">{what}</p>
+        <p className="text-xs text-secondary">{what}</p>
         <p className="text-xs text-secondary mt-2">
           <span className="text-muted">Impacts:</span> {impacts}
         </p>
@@ -178,6 +183,7 @@ export default function BackfillShell<T>({
           <div className="mt-3">{children(shown, applied ? "applied" : "preview")}</div>
         )}
       </Card>
+      </div>
     </div>
   );
 }

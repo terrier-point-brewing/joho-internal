@@ -175,8 +175,9 @@ permitted for dense table rows only.) Banned: arbitrary `*-[Npx]` spacing and in
 | Flex/grid gap | `gap-2` (tight) · `gap-3` · `gap-4` |
 | Description top margin | `mt-1` |
 
-Mobile horizontal-bleed: standardize on `-mx-4 sm:mx-0 px-4 sm:px-0`. Sticky offsets
-(`top-11`, `top-[5.25rem]`) become shared constants in the nav primitives, not per-file.
+Mobile horizontal-bleed: standardize on `-mx-4 sm:mx-0 px-4 sm:px-0`. The page-level
+"title + subtabs stay frozen while scrolling" behavior lives in one shared component
+(`<StickyHeader>`, §4) — not per-file sticky offsets.
 
 ---
 
@@ -186,15 +187,26 @@ Production's shell is the model (100% consistent there). Every content page conf
 
 ```tsx
 // page.tsx
-<main className="px-4 sm:px-6 py-4 sm:py-8">
-  <SubNav entries={AREA_NAV} mobile sticky />     {/* area tabs (mobile) */}
-  <PageHeader title="…" description="…" />
-  <SubNav entries={SECTION_NAV} sticky />          {/* sub-tabs, when present */}
-  <div className="mt-4">
+<main className="px-4 sm:px-6">
+  <StickyHeader>
+    <SubNav entries={AREA_NAV} mobile />            {/* area tabs (mobile) */}
+    <PageHeader title="…" description="…" />
+    <SubNav entries={SECTION_NAV} />                 {/* sub-tabs, when present */}
+  </StickyHeader>
+  <div className="mt-4 pb-4 sm:pb-8">
     <FeatureTab />                                  {/* logic lives in a Tab/component */}
   </div>
 </main>
 ```
+
+`<StickyHeader>` (`app/components/StickyHeader.tsx`) pins the whole block — area nav,
+title/description, section sub-tabs — to the top of the page's scroll container so they
+never scroll away, regardless of content height. It's the single shared mechanism for
+this; don't hand-roll a `position: sticky` wrapper or per-element sticky offsets in a
+page. (Full-height shells that already isolate scrolling structurally — `flex flex-col
+h-full` → `shrink-0` header → `flex-1 overflow-auto` content, e.g. Finance's Financials/
+Transactions/Period Close and Settings — get the same frozen-header behavior for free
+from that structure and don't need `<StickyHeader>` too.)
 
 Rules:
 - **Page = shell; feature logic lives in a co-located `*Tab`/component.** (Fix

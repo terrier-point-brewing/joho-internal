@@ -31,6 +31,8 @@
 import { useState } from "react";
 import { useSearchParams } from "next/navigation";
 import TabBar, { type TabDef } from "@/app/components/TabBar";
+import PageHeader from "@/app/components/PageHeader";
+import StickyHeader from "@/app/components/StickyHeader";
 import RevenuePanel from "./RevenuePanel";
 import ExpensesPanel from "./ExpensesPanel";
 import CounterpartiesPanel from "./CounterpartiesPanel";
@@ -67,8 +69,14 @@ export default function GlMappingPage() {
 
   return (
     <>
-      <div className="shrink-0 px-4 sm:px-6 pt-4">
-        <TabBar tabs={TABS} activeKey={panel} onSelect={setPanel} className="mb-0" />
+      <div className="px-4 sm:px-6">
+        <StickyHeader>
+          <PageHeader
+            title="GL Mapping"
+            description="Where an external thing — a Square item, a Ramp charge, a bank feed — is given a chart-of-accounts code."
+          />
+          <TabBar tabs={TABS} activeKey={panel} onSelect={setPanel} className="mb-0" />
+        </StickyHeader>
       </div>
       <Panel />
     </>

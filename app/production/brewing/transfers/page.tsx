@@ -8,6 +8,7 @@ import { fmtBbl2 } from "@/lib/utils/formatting";
 import { fetchJson } from "@/app/production/hooks/queries";
 import { TRANSFER_TYPE_BADGE } from "@/app/production/lib/categoryColors";
 import PageHeader from "@/app/components/PageHeader";
+import StickyHeader from "@/app/components/StickyHeader";
 
 type TransferType = "transfer" | "kegging" | "canning" | "conversion" | "export" | "brewing";
 
@@ -79,12 +80,14 @@ export default function TransferLogPage() {
   function clear()  { const empty = { batch_id: "", from: "", to: "", type: "" }; setFilters(empty); setApplied(empty); }
 
   return (
-    <main className="px-4 sm:px-6 py-4 sm:py-8">
-      <SubNav entries={PRODUCTION_NAV} mobile sticky />
-      <PageHeader title="Brewing" description="Batch tracking, fermentation monitoring, and equipment scheduling" />
-      <SubNav entries={BREWING_NAV} sticky />
+    <main className="px-4 sm:px-6">
+      <StickyHeader>
+        <SubNav entries={PRODUCTION_NAV} mobile />
+        <PageHeader title="Brewing" description="Batch tracking, fermentation monitoring, and equipment scheduling" />
+        <SubNav entries={BREWING_NAV} />
+      </StickyHeader>
 
-      <div className="mt-4 space-y-4">
+      <div className="mt-4 pb-4 sm:pb-8 space-y-4">
         <div className="flex flex-wrap gap-2 items-end">
           <div className="flex flex-col gap-1">
             <label className="text-xs text-muted">From date</label>

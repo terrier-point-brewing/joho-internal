@@ -92,7 +92,11 @@ export default async function RootLayout({
       // expect — it only suppresses <html>'s own attributes, not the tree below.
       suppressHydrationWarning
     >
-      <body className="min-h-screen flex flex-row bg-canvas">
+      {/* h-screen + overflow-hidden caps body to the viewport so the content
+          pane below is the one true scroll container (its own overflow-y-auto
+          then actually engages) instead of the whole document scrolling —
+          which is what let position:sticky headers silently no-op before. */}
+      <body className="h-screen overflow-hidden flex flex-row bg-canvas">
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
         <BrandStyle />
         <BrandFontFace />
