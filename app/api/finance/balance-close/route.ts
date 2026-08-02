@@ -11,7 +11,7 @@
  *   both answerable only by leaving the screen.
  *
  * POST /api/finance/balance-close
- *   { action: "refresh" | "skip" | "reopen" | "unfreeze", ... }
+ *   { action: "refresh" | "skip" | "reopen" | "close-period" | "reopen-period", ... }
  *
  * Admin client, not the server client: balance_close_tasks' RLS is
  * lock-down-only (see 20260905100000_balance_sheet_snapshots.sql), so a
@@ -19,14 +19,14 @@
  * enforced here via requirePermission, same as balance-sources.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { requirePermission, CAP } from "@/lib/auth";
-import { unfreezePeriod } from "@/lib/finance/balances/snapshot";
+import { requirePermission, CAP, getSessionUser } from "@/lib/auth";
 import { monthEnd } from "@/lib/finance/manualEntries";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { apiError } from "@/lib/utils/api";
+import { todayLocalDate } from "@/lib/utils/datetime";
 import {
   listTasksForPeriod,
-  isPeriodClosed,
+  everyTaskAnswered,
   ensureTasksForPeriod,
   reconcileCloseTasks,
   resolveResponsibleEmails,
@@ -36,8 +36,11 @@ import {
   dueDateForPeriod,
   type CloseTask,
 } from "@/lib/finance/balances/closeTasks";
+import { closePeriod, reopenPeriod, readPeriodClose, readPeriodCoverage } from "@/lib/finance/balances/periodClose";
 
 export const dynamic = "force-dynamic";
+/** Closing runs a full recalculation, including live reads against Ramp, Plaid and Square. */
+export const maxDuration = 60;
 
 type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
 
@@ -121,14 +124,28 @@ export async function GET(req: NextRequest) {
     const supabase = createSupabaseAdminClient();
     const tasks = await listTasksForPeriod(supabase, periodEnd);
     const { dueDay } = await readCloseConfig(supabase);
+    const [close, coverage] = await Promise.all([
+      readPeriodClose(supabase, periodEnd),
+      readPeriodCoverage(supabase, periodEnd),
+    ]);
 
     return NextResponse.json({
       periodEnd,
       tasks: await describeTasks(supabase, tasks, periodEnd),
-      closed: isPeriodClosed(tasks),
+      // Two different facts, deliberately named apart. `close` is whether a
+      // PERSON has called this month final and who; `readyToClose` is whether
+      // the checklist has anything left on it. The screen previously had only
+      // the second and called it "closed", which is the conflation the whole
+      // close workflow exists to undo.
+      close,
+      readyToClose: !(close?.closed ?? false) && everyTaskAnswered(tasks),
+      // What closing would be asserting: how many configured accounts actually
+      // produced a figure this month, and which ones did not.
+      coverage,
       // The period's own deadline, which is not necessarily any one task's: an
       // account may carry its own allowance. Shown so the screen can say when
-      // the period as a whole is expected to be done.
+      // the period as a whole is expected to be done. Passing it no longer
+      // freezes anything -- it means late, not finished.
       dueDate: dueDateForPeriod(periodEnd, dueDay),
     });
   } catch (err) {
@@ -144,21 +161,32 @@ interface PostBody {
 }
 
 /**
- * Four write actions, all gated on financeTransactionsManage.
+ * Five write actions, all gated on financeTransactionsManage.
  *
- *   refresh  -- bring the checklist up to date on demand instead of waiting for
- *               the nightly cron. Both halves are idempotent by construction
- *               (see closeTasks.ts), so this is safe to call on every page load
- *               and is what makes the screen truthful the first time an account
- *               is configured rather than the morning after.
- *   skip     -- "this account had no balance this month, and here is why".
- *   reopen   -- the inverse of a skip.
- *   unfreeze -- reopen a frozen PERIOD so its balances recompute.
+ *   refresh       -- bring the checklist up to date on demand instead of
+ *                    waiting for the nightly cron. Both halves are idempotent
+ *                    by construction (see closeTasks.ts), so this is safe to
+ *                    call on every page load and is what makes the screen
+ *                    truthful the first time an account is configured rather
+ *                    than the morning after.
+ *   skip          -- "this account had no balance this month, and here is why".
+ *   reopen        -- the inverse of a skip.
+ *   close-period  -- a PERSON declares the month final. Recalculates, refuses
+ *                    with reasons if anything is outstanding or the
+ *                    recalculation did not finish cleanly, then freezes it with
+ *                    their name on it.
+ *   reopen-period -- the attributed inverse of that, reason required.
  *
- * There is deliberately no "mark done": a task is completed only by
- * reconcileCloseTasks, and only because the balance row now exists. A button
- * that set the status directly would let a period read as closed with nothing
- * behind it, which is the one claim this checklist exists to make honestly.
+ * The last two replace an unattributed `unfreeze` action. Reopening was
+ * reachable while closing was not, so the only way a period ever became final
+ * was the cron's due-date branch -- freezing was automatic and undoing it was
+ * manual, which is exactly backwards.
+ *
+ * There is deliberately no "mark done" on a task and no "close anyway" on a
+ * period. A task is completed only by reconcileCloseTasks, and only because the
+ * balance row now exists; a period is closed only when nothing is outstanding.
+ * Either override would let a month read as final with nothing behind it, which
+ * is the one claim this workflow exists to make honestly.
  */
 export async function POST(req: NextRequest) {
   try { await requirePermission(CAP.financeTransactionsManage); } catch (res) { return res as Response; }
@@ -172,8 +200,8 @@ export async function POST(req: NextRequest) {
       }
       const supabase = createSupabaseAdminClient();
       const created = await ensureTasksForPeriod(supabase, body.periodEnd);
-      const closed = await reconcileCloseTasks(supabase, body.periodEnd);
-      return NextResponse.json({ ok: true, created, closed });
+      const reconciled = await reconcileCloseTasks(supabase, body.periodEnd);
+      return NextResponse.json({ ok: true, created, ...reconciled });
     }
 
     if (body.action === "skip" || body.action === "reopen") {
@@ -204,25 +232,52 @@ export async function POST(req: NextRequest) {
           );
     }
 
-    /**
-     * Reopen a frozen period so its balances recompute on the next snapshot run.
-     *
-     * The cron freezes unconditionally once the due date passes, whether or not
-     * the period's tasks were ever fulfilled. Without a reachable inverse, a
-     * late Ramp bill or a corrected invoice for a closed month is
-     * unrepresentable except by direct database access — and a period frozen in
-     * error stays wrong forever, since resolveSnapshotWrites skips frozen rows
-     * on every subsequent pass. `unfreezePeriod` existed but had no caller;
-     * this is that caller.
-     */
-    if (body.action !== "unfreeze") {
-      return NextResponse.json({ error: 'action must be "refresh", "skip", "reopen" or "unfreeze"' }, { status: 400 });
+    if (body.action !== "close-period" && body.action !== "reopen-period") {
+      return NextResponse.json(
+        { error: 'action must be "refresh", "skip", "reopen", "close-period" or "reopen-period"' },
+        { status: 400 },
+      );
     }
     if (!body.periodEnd || body.periodEnd !== monthEnd(body.periodEnd)) {
       return NextResponse.json({ error: "periodEnd is required and must be a month end" }, { status: 400 });
     }
-    await unfreezePeriod(createSupabaseAdminClient(), body.periodEnd);
-    return NextResponse.json({ ok: true, periodEnd: body.periodEnd });
+
+    // Both period actions are attributed, so both need a real signed-in user.
+    // requirePermission has already established there is one; this reads WHICH,
+    // and refuses rather than recording a close by nobody — an unattributed
+    // close is the thing being replaced, not a fallback for it.
+    const session = await getSessionUser();
+    if (!session) {
+      return NextResponse.json({ error: "Sign in again before closing or reopening a month." }, { status: 401 });
+    }
+
+    const supabase = createSupabaseAdminClient();
+
+    if (body.action === "close-period") {
+      const result = await closePeriod(supabase, {
+        periodEnd: body.periodEnd,
+        actorId: session.user.id,
+        todayIso: todayLocalDate(),
+      });
+      // 409, not 400: the request was well formed and the answer is about the
+      // state of the books. The blockers are full sentences meant to be shown
+      // as they are.
+      return result.ok
+        ? NextResponse.json({ ok: true, close: result.state, snapshot: result.snapshot })
+        : NextResponse.json({ error: result.blockers.join(" "), blockers: result.blockers }, { status: 409 });
+    }
+
+    if (typeof body.reason !== "string" || body.reason.trim() === "") {
+      return NextResponse.json({ error: "Say why this month is being reopened." }, { status: 400 });
+    }
+    const reopened = await reopenPeriod(supabase, {
+      periodEnd: body.periodEnd,
+      actorId: session.user.id,
+      reason: body.reason,
+    });
+    return reopened
+      ? NextResponse.json({ ok: true, close: reopened })
+      : NextResponse.json({ error: "That month is not currently closed." }, { status: 409 });
   } catch (err) {
     return apiError(err);
   }

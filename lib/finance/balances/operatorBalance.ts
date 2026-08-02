@@ -17,6 +17,7 @@
 import type { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { validateManualEntry } from "@/lib/finance/manualEntries";
 import { reconcileCloseTasks } from "./closeTasks";
+import { closedPeriodRefusal } from "./periodClose";
 
 type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
 
@@ -42,6 +43,12 @@ export async function setOperatorBalance(
     amountCents: input.amountCents,
   } as never);
   if (!validation.ok) return { ok: false, error: validation.error };
+
+  // A closed month's figures are final, so writing one is refused rather than
+  // accepted and ignored. The snapshot skips frozen rows, so this used to save
+  // happily and change nothing on the balance sheet.
+  const closed = await closedPeriodRefusal(supabase, input.asOfDate);
+  if (closed) return { ok: false, error: closed };
 
   // Select-then-write rather than upsert: manual_entries' one-balance-per-
   // period guard is a PARTIAL unique index (`where entry_kind = 'balance'`),

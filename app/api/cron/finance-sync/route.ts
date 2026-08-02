@@ -7,6 +7,14 @@
  * statements self-heal within a day. Idempotent (upsert per square_order_id /
  * square_refund_id), so overlap with the webhook is harmless. The run summary
  * lands in cron_runs.detail for the Settings → Cron Jobs monitor.
+ *
+ * ── Which connection this reports against ────────────────────────────────────
+ * The Square one. §6 of docs/finance/balance-methods-handoff.md lists this cron
+ * alongside ramp-expenses-sync under "report sync health through the connection
+ * store", but this job touches no Ramp data at all — it syncs Square orders,
+ * refunds and invoices, and what goes stale when it fails is the Square-derived
+ * balance on GL 1040. Recording it against the Ramp row would put a true
+ * failure on the wrong integration, which is worse than not recording it.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
@@ -16,6 +24,7 @@ import { syncRefundsForRange } from "@/lib/finance/syncRefunds";
 import { reconcileInvoiceStatus } from "@/lib/finance/reconcileInvoiceStatus";
 import { syncSquareInvoicesForYear } from "@/lib/finance/syncSquareInvoices";
 import { autoMapInvoiceLineItems } from "@/lib/finance/autoMap";
+import { recordProviderSyncResult } from "@/lib/finance/balances/connections";
 import { apiError } from "@/lib/utils/api";
 
 export const dynamic = "force-dynamic";
@@ -44,50 +53,73 @@ export async function GET(req: NextRequest) {
 
   const outcome = await runCronJob("finance-sync", async () => {
     const supabase = createSupabaseAdminClient();
-    const now = new Date();
-    const endDate = now.toISOString().slice(0, 10);
-    const startDate = new Date(now.getTime() - WINDOW_DAYS * 86_400_000).toISOString().slice(0, 10);
-
-    const orders = await syncPosTransactionsForRange(supabase, startDate, endDate);
-    const refunds = await syncRefundsForRange(supabase, startDate, endDate);
-
-    // Safety-net for the invoice webhook: re-reconcile every non-terminal Square
-    // invoice so a missed delivery self-heals within a day. Bounded to unpaid
-    // invoices; idempotent (same code path as the webhook).
-    const { data: openInvoices, error: openInvoicesErr } = await supabase
-      .from("invoices")
-      .select("square_invoice_id")
-      .eq("source", "square")
-      .not("square_invoice_id", "is", null)
-      .in("status", ["draft", "open", "partial"]);
-    if (openInvoicesErr) console.error("[finance-sync] failed to load non-terminal invoices", openInvoicesErr);
-
-    let invoicesReconciled = 0;
-    for (const row of openInvoices ?? []) {
-      try {
-        await reconcileInvoiceStatus(supabase, row.square_invoice_id as string);
-        invoicesReconciled++;
-      } catch (e) {
-        console.error("[finance-sync] invoice reconcile failed", { squareInvoiceId: row.square_invoice_id, error: e });
-      }
+    try {
+      return await syncEverything(supabase);
+    } catch (err) {
+      // Recorded and then rethrown: the Square connection needs to say what
+      // went wrong, and cron_runs still needs the run marked failed.
+      const message = err instanceof Error ? err.message : String(err);
+      await recordProviderSyncResult(supabase, "square", {
+        ok: false,
+        error: `Nightly Square sync failed: ${message}`,
+      });
+      throw err;
     }
-
-    // Safety net for the invoice webhook's per-year line-item sync: re-syncs the
-    // current year's invoices + fill-maps any unmapped lines in case a webhook
-    // delivery was missed.
-    const year = new Date().getFullYear();
-    const invoiceLineSync = await syncSquareInvoicesForYear(supabase, year);
-    const invoiceAutoMap = await autoMapInvoiceLineItems(supabase, { year });
-
-    return {
-      windowDays: WINDOW_DAYS,
-      orders,
-      refunds,
-      invoicesReconciled,
-      invoiceLineSync: { synced: invoiceLineSync.synced, updated: invoiceLineSync.updated },
-      invoiceAutoMapped: invoiceAutoMap.mapped,
-    };
   });
 
   return outcome.ok ? NextResponse.json(outcome.detail) : apiError(outcome.error);
+}
+
+/**
+ * The run itself, lifted out of the cron wrapper so the failure path has one
+ * place to catch. Inlining the try/catch around this body would have meant
+ * indenting eighty untouched lines and burying the change in the diff.
+ */
+async function syncEverything(supabase: ReturnType<typeof createSupabaseAdminClient>) {
+  const now = new Date();
+  const endDate = now.toISOString().slice(0, 10);
+  const startDate = new Date(now.getTime() - WINDOW_DAYS * 86_400_000).toISOString().slice(0, 10);
+
+  const orders = await syncPosTransactionsForRange(supabase, startDate, endDate);
+  const refunds = await syncRefundsForRange(supabase, startDate, endDate);
+
+  // Safety-net for the invoice webhook: re-reconcile every non-terminal Square
+  // invoice so a missed delivery self-heals within a day. Bounded to unpaid
+  // invoices; idempotent (same code path as the webhook).
+  const { data: openInvoices, error: openInvoicesErr } = await supabase
+    .from("invoices")
+    .select("square_invoice_id")
+    .eq("source", "square")
+    .not("square_invoice_id", "is", null)
+    .in("status", ["draft", "open", "partial"]);
+  if (openInvoicesErr) console.error("[finance-sync] failed to load non-terminal invoices", openInvoicesErr);
+
+  let invoicesReconciled = 0;
+  for (const row of openInvoices ?? []) {
+    try {
+      await reconcileInvoiceStatus(supabase, row.square_invoice_id as string);
+      invoicesReconciled++;
+    } catch (e) {
+      console.error("[finance-sync] invoice reconcile failed", { squareInvoiceId: row.square_invoice_id, error: e });
+    }
+  }
+
+  // Safety net for the invoice webhook's per-year line-item sync: re-syncs the
+  // current year's invoices + fill-maps any unmapped lines in case a webhook
+  // delivery was missed.
+  const year = new Date().getFullYear();
+  const invoiceLineSync = await syncSquareInvoicesForYear(supabase, year);
+  const invoiceAutoMap = await autoMapInvoiceLineItems(supabase, { year });
+
+  const connectionsReported = await recordProviderSyncResult(supabase, "square", { ok: true });
+
+  return {
+    windowDays: WINDOW_DAYS,
+    orders,
+    refunds,
+    invoicesReconciled,
+    invoiceLineSync: { synced: invoiceLineSync.synced, updated: invoiceLineSync.updated },
+    invoiceAutoMapped: invoiceAutoMap.mapped,
+    connectionsReported,
+  };
 }

@@ -9,9 +9,10 @@
  *   2. snapshotPeriod        -- recompute every non-frozen gl_account_balances
  *      row for the period from the registered providers.
  *   3. reconcileCloseTasks   -- close any task whose manual_entries balance
- *      row has since appeared (the manual-entries route also calls this
- *      immediately on write; this catches anything entered directly in the
- *      DB or between runs).
+ *      row has since appeared, and reopen any whose balance has since been
+ *      deleted (the manual-entries route also calls this immediately on
+ *      write; this catches anything changed directly in the DB or between
+ *      runs).
  *   3b. recordSquareDrift    -- for any Square-derived account now closed,
  *      log what the derivation predicted against what the operator actually
  *      found. Re-anchoring silently absorbs its own errors; this is the only
@@ -20,9 +21,17 @@
  *      alert_lead_days threshold and hasn't been alerted yet, one email to
  *      each responsible person listing their own accounts. Anything with
  *      nobody named still goes to the admin address.
- *   5. freezePeriod once the period is fully closed (every task completed/
- *      skipped) OR its due date has passed -- a period must eventually stop
- *      accepting recomputation even if a task was never fulfilled.
+ * ── What this cron deliberately does NOT do ──────────────────────────────────
+ * It does not freeze anything. It used to, once every task was done OR the due
+ * date had passed, and that second condition turned "the deadline went by" into
+ * "these books are final" -- a claim no unattended job is in a position to
+ * make. June 2026 was frozen that way with 6 of 45 accounts carrying a balance.
+ *
+ * Freezing is now the close action in lib/finance/balances/periodClose.ts,
+ * performed by a person whose name goes on it. What this run contributes is the
+ * evidence they close on: fresh figures, a current checklist, and an email when
+ * something is late. It reports `readyToClose` so a period that is finished but
+ * unclosed is visible rather than silently rolling on.
  *
  * runCronJob wraps the whole thing so a run lands in cron_runs for the
  * Settings > Cron Jobs monitor, success or failure.
@@ -31,18 +40,19 @@ import "@/lib/finance/balances/methods";
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { runCronJob } from "@/lib/cron/runCronJob";
-import { snapshotPeriod, freezePeriod } from "@/lib/finance/balances/snapshot";
+import { snapshotPeriod } from "@/lib/finance/balances/snapshot";
 import {
   ensureTasksForPeriod,
   listTasksForPeriod,
   reconcileCloseTasks,
   tasksNeedingAlert,
   markAlerted,
-  isPeriodClosed,
+  everyTaskAnswered,
   dueDateForPeriod,
   readCloseConfig,
   resolveResponsibleEmails,
 } from "@/lib/finance/balances/closeTasks";
+import { readPeriodClose } from "@/lib/finance/balances/periodClose";
 import { recordSquareDrift, squareBalanceAccountIds } from "@/lib/finance/balances/squareDrift";
 import { renderBalanceCloseEmail } from "@/lib/finance/balances/alertEmail";
 import { sendEmail, ADMIN_EMAIL } from "@/lib/resend";
@@ -67,7 +77,7 @@ export async function GET(req: NextRequest) {
 
     const tasksCreated = await ensureTasksForPeriod(supabase, periodEnd);
     const snapshot = await snapshotPeriod(supabase, periodEnd);
-    const tasksClosed = await reconcileCloseTasks(supabase, periodEnd);
+    const reconciled = await reconcileCloseTasks(supabase, periodEnd);
 
     // Record what re-anchoring absorbed on any Square-derived account that has
     // now been closed. Isolated from the rest of the run: this is an audit
@@ -140,23 +150,23 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Derive the due date from CONFIG, not from tasks[0] -- with zero tasks
-    // there is no tasks[0], which is precisely when the old code fell through
-    // to isPeriodClosed's vacuous truth and froze the month on day one.
-    const pastDueDate = todayIso > dueDateForPeriod(periodEnd, dueDay);
-    let frozen = false;
-    if (isPeriodClosed(tasks) || pastDueDate) {
-      await freezePeriod(supabase, periodEnd);
-      frozen = true;
-    }
+    // Reported, never acted on. A period whose checklist is finished but which
+    // nobody has closed is the state this whole change exists to make visible:
+    // previously it was frozen on the operator's behalf and looked identical to
+    // a month somebody had actually signed off.
+    const closeState = await readPeriodClose(supabase, periodEnd);
+    const closed = closeState?.closed ?? false;
 
     return {
       periodEnd,
       tasksCreated,
-      tasksClosed,
+      tasksClosed: reconciled.completed,
+      tasksReopened: reconciled.reopened,
       driftsRecorded,
       alertsSent,
-      frozen,
+      closed,
+      readyToClose: !closed && everyTaskAnswered(tasks) && snapshot.errors.length === 0,
+      pastDue: todayIso > dueDateForPeriod(periodEnd, dueDay),
       snapshot,
     };
   });

@@ -174,6 +174,57 @@ describe("expandSources", () => {
     expect(seen).toEqual({ accountId: "abc" });
   });
 
+  /**
+   * Backfilling an older month must not ask a provider a question only today
+   * can answer. GL 1100 is the live case and the reason a decision was needed
+   * before any backfill code was written: `openInvoiceAr` sums invoices open
+   * NOW, so run against March it returns March's invoices still unpaid today —
+   * an understatement of March's receivables with nothing in the number to say
+   * so, and `invoices` has no payment date to reconstruct the real answer from.
+   */
+  describe("backfilling an older month", () => {
+    function arSources(): DeclaredSource[] {
+      return [{ coaId: "coa-1100", providerKey: "accountsReceivable", config: {} }];
+    }
+
+    it("leaves out the WHOLE account, not just the step that cannot answer", async () => {
+      registerProvider({ ...fake("openInvoiceAr", 982_188), dependsOnCurrentState: true });
+      registerProvider(fake("transactionPostings", 5_000));
+
+      const out = await expandSources(supabase, PERIOD, arSources(), true);
+
+      expect(out.excluded).toEqual(["coa-1100"]);
+      // Dropping only the step would write the surviving 5,000 as if it were
+      // the whole of A/R — the GL 2220 partial-sum failure, in a month nobody
+      // is watching.
+      expect(out.sources).toEqual([]);
+      expect(out.failedAccounts.has("coa-1100")).toBe(true);
+      // Not an error: declining to guess is a decision, and lumping it in with
+      // failures trains a reader to ignore both.
+      expect(out.errors).toEqual([]);
+    });
+
+    it("asks the same account normally when the month is not historical", async () => {
+      registerProvider({ ...fake("openInvoiceAr", 982_188), dependsOnCurrentState: true });
+      registerProvider(fake("transactionPostings", 5_000));
+
+      const out = await expandSources(supabase, PERIOD, arSources(), false);
+
+      expect(out.excluded).toEqual([]);
+      expect(out.results.get("coa-1100:openInvoiceAr")).toBe(982_188);
+    });
+
+    it("backfills every account whose calculation is genuinely as-at-date", async () => {
+      registerProvider(fake("taxAccrual", -297_509));
+      registerProvider(fake("transactionPostings", 395_483));
+
+      const out = await expandSources(supabase, PERIOD, declared("salesTaxPayable"), true);
+
+      expect(out.excluded).toEqual([]);
+      expect(out.results.get(`${COA}:taxAccrual`)).toBe(-297_509);
+    });
+  });
+
   it("every built-in method resolves against the real provider registry", async () => {
     // Guards the barrel: a method referencing a provider nobody registered
     // would otherwise surface only as a silently skipped account in a cron run.

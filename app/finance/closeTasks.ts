@@ -28,10 +28,37 @@ export interface CloseTaskDetail {
   previousBalance: { asOfDate: string; cents: number } | null;
 }
 
+/** Who called this month final (or took it back), and when. */
+export interface PeriodCloseState {
+  periodEnd: string;
+  closed: boolean;
+  action: "closed" | "reopened";
+  at: string;
+  actorId: string | null;
+  actorEmail: string | null;
+  reason: string | null;
+}
+
+/** What closing this month would be asserting about its accounts. */
+export interface PeriodCoverage {
+  configured: number;
+  withBalance: number;
+  missing: string[];
+}
+
 export interface CloseTasksResponse {
   periodEnd: string;
   tasks: CloseTaskDetail[];
-  closed: boolean;
+  /**
+   * Null when nobody has ever closed or reopened this month. Not the same as a
+   * finished checklist — see `readyToClose`. The two were previously one field
+   * called `closed`, which is precisely the conflation between "the work is
+   * done" and "the books are final" that the close workflow exists to undo.
+   */
+  close: PeriodCloseState | null;
+  /** Nothing left on the checklist, and nobody has closed it yet. */
+  readyToClose: boolean;
+  coverage: PeriodCoverage;
   /** The period's own deadline, from the business-wide close setting. */
   dueDate: string;
 }
@@ -59,12 +86,7 @@ export function recentMonthEnds(count: number, now: Date = new Date()): string[]
   );
 }
 
-/** "2026-07-31" -> "July 2026". Month ends are shown as the month they close. */
-export function formatPeriodLabel(periodEnd: string): string {
-  const [y, m] = periodEnd.split("-").map(Number);
-  return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString("en-US", {
-    month: "long",
-    year: "numeric",
-    timeZone: "UTC",
-  });
-}
+// "2026-07-31" -> "July 2026". Defined in lib/ because the close route writes
+// its refusal sentences server-side and names the month in them; re-exported
+// here so the two close surfaces keep importing it from one place.
+export { formatPeriodLabel } from "@/lib/finance/balances/periods";
