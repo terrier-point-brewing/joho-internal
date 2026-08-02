@@ -15,13 +15,21 @@ import {
   listAssets,
   createAsset,
   BRAND_ASSET_KINDS,
+  MARK_SHAPES,
   type BrandAssetKind,
+  type MarkShape,
   type SupabaseLikeClient,
 } from "@/lib/brand/assets";
 
 export const dynamic = "force-dynamic";
 
 const BUCKET = "brand-assets";
+
+/** A trimmed form field, or null when absent/blank. */
+function text(formData: FormData, field: string): string | null {
+  const raw = formData.get(field);
+  return typeof raw === "string" && raw.trim() ? raw.trim() : null;
+}
 
 export async function GET(req: NextRequest) {
   try {
@@ -72,10 +80,19 @@ export async function POST(req: NextRequest) {
     // Human metadata, both optional. `title` names the asset in pickers, which
     // otherwise show a storage variant; `alt_text` is the description a screen
     // reader gets, and only whoever uploaded the file knows what it depicts.
-    const titleRaw = formData.get("title");
-    const altRaw = formData.get("alt_text");
-    const title = typeof titleRaw === "string" && titleRaw.trim() ? titleRaw.trim() : null;
-    const altText = typeof altRaw === "string" && altRaw.trim() ? altRaw.trim() : null;
+    const title = text(formData, "title");
+    const altText = text(formData, "alt_text");
+
+    // Mark facets — what the guide's Marks cards are built from. All optional:
+    // they are meaningless on a texture or a photo, and a chop with no season
+    // is the generic one rather than an incomplete one.
+    const shapeRaw = text(formData, "shape");
+    if (shapeRaw && !(MARK_SHAPES as readonly string[]).includes(shapeRaw)) {
+      return NextResponse.json(
+        { error: `shape must be one of: ${MARK_SHAPES.join(", ")}` },
+        { status: 400 },
+      );
+    }
 
     // Derive a format/extension from the file name, falling back to the MIME
     // subtype (e.g. "image/svg+xml" -> "svg") when the name has none.
@@ -96,6 +113,11 @@ export async function POST(req: NextRequest) {
       file_meta: { bytes: file.size, mime: file.type },
       title,
       alt_text: altText,
+      season_id: text(formData, "season_id"),
+      description: text(formData, "description"),
+      shape: shapeRaw as MarkShape | null,
+      color_treatment: text(formData, "color_treatment"),
+      background: text(formData, "background"),
     });
     return NextResponse.json(asset, { status: 201 });
   } catch (err) {

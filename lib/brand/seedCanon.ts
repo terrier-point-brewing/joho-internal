@@ -23,7 +23,7 @@ export const seedCanon: BrandCanon = {
       "Roles, not names — every surface binds to one of these thirteen. Edit mode maps roles to the palette (admins only).",
     type: "One family per role. Edit mode assigns the loaded families (admins only).",
     marks:
-      "The fixed identity artifacts and their specifications — the wordmark, logo, and chop.",
+      "The two identity marks and their specifications — the wordmark, cut into variations, and the chop, cut per season.",
     release:
       "How a new release is designed, with the label as the frame. First the card that names it — story, name, menu line — then the fixed chassis every illustration is poured into.",
     agent: "The machine-facing brand rules — reference for agents building on the brand.",
@@ -379,9 +379,13 @@ export const seedCanon: BrandCanon = {
   },
 
   // Verbatim from the founder-approved wordmark specification sheet
-  // (Final Specification · Wordmark, approved 22 Jul 2026). Logo and chop
-  // marks are intentionally absent until their sheets are approved — the
-  // Marks tab shows their approved artifacts without a spec until then.
+  // (Final Specification · Wordmark, approved 22 Jul 2026). The chop's spec is
+  // its own key (`chop`) rather than an entry here, because it is one law every
+  // chop is cut to rather than a sheet per cut.
+  //
+  // These are the WRITTEN rules only. The artwork and the facets that tell one
+  // variation from the next live on the assets themselves — see
+  // lib/brand/marks.ts and migration 20260913090000.
   marks: [
     {
       kind: "wordmark",
@@ -431,7 +435,7 @@ export const seedCanon: BrandCanon = {
         "Orientation decides the cut. Horizontal → 4a descending J. Vertical → 5e cap-height J.",
         "Never show both J's in one lockup. Both are Marcellus — same skeleton, two terminals.",
       ],
-      note: "A cut renders its approved vector once one is attached to the variant, and falls back to a CSS stand-in until then. The descending and cap-height J are cut from a single skeleton so they read as one family.",
+      note: "The descending and cap-height J are cut from a single skeleton so they read as one family. Every variation below is one of these two cuts shipped at a particular proportion, ink and ground — never a third drawing.",
     },
   ],
 

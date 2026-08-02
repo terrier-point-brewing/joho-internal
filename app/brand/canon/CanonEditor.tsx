@@ -222,7 +222,7 @@ export default function CanonEditor({
               {/* Intro → upload artwork → attach it to a cut. The uploader used
                   to render above the whole editor, so the subtab's own
                   introduction appeared below its file inputs. */}
-              <MarksEditor />
+              <MarksEditor draft={draft} />
               <MarksFacet draft={draft} onChange={setDraft} />
               {/* The chop's own spec sheet last: it is a mark, but it is one
                   fixed specification rather than a per-cut artifact, so it reads

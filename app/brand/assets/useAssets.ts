@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
-import type { BrandAsset, BrandAssetKind } from "@/lib/brand/assets";
+import type { BrandAsset, BrandAssetKind, MarkFacets } from "@/lib/brand/assets";
 
 // Shared JSON request helper — same pattern as app/brand/canon/useCanonEditor.ts's
 // request(): throws on non-2xx, surfacing the API's { error } body when present.
@@ -69,15 +69,18 @@ export function useApproveAsset() {
 }
 
 /**
- * Renames an asset or rewrites its alternative text.
+ * Renames an asset, rewrites its alternative text, or re-files its mark facets.
  *
  * Shares the [id] PATCH route with approve/archive, distinguished by body
- * shape: an `action` approves or archives, a `title`/`alt_text` edits metadata.
+ * shape: an `action` approves or archives, any other field edits metadata.
  */
 export function useUpdateAssetMeta() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, ...meta }: { id: string; title?: string; alt_text?: string }) =>
+    mutationFn: ({
+      id,
+      ...meta
+    }: { id: string; title?: string; alt_text?: string } & MarkFacets) =>
       requestJson<{ ok: true }>(`/api/brand/assets/${id}`, {
         method: "PATCH",
         body: JSON.stringify(meta),

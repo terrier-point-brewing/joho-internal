@@ -11,10 +11,23 @@ import {
   approveAsset,
   archiveAsset,
   updateAssetMeta,
+  MARK_SHAPES,
+  type MarkFacets,
   type SupabaseLikeClient,
 } from "@/lib/brand/assets";
 
 export const dynamic = "force-dynamic";
+
+/** Every field this route lets a caller rewrite, besides approve/archive. */
+const META_FIELDS = [
+  "title",
+  "alt_text",
+  "season_id",
+  "description",
+  "shape",
+  "color_treatment",
+  "background",
+] as const;
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -29,20 +42,31 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       action?: string;
       title?: string;
       alt_text?: string;
-    };
+    } & MarkFacets;
     const supabase = createSupabaseAdminClient() as unknown as SupabaseLikeClient;
 
     if (body.action === "approve") {
       await approveAsset(supabase, id);
     } else if (body.action === "archive") {
       await archiveAsset(supabase, id);
-    } else if (body.title !== undefined || body.alt_text !== undefined) {
+    } else if (META_FIELDS.some((field) => body[field] !== undefined)) {
       // Metadata is editable at any point in an asset's life — re-uploading a
-      // file just to name it is not a reasonable ask of a growing library.
-      await updateAssetMeta(supabase, id, { title: body.title, alt_text: body.alt_text });
+      // file just to name it is not a reasonable ask of a growing library, and
+      // a chop uploaded before its season existed has to be able to join it.
+      if (body.shape != null && !(MARK_SHAPES as readonly string[]).includes(body.shape)) {
+        return NextResponse.json(
+          { error: `shape must be one of: ${MARK_SHAPES.join(", ")}` },
+          { status: 400 },
+        );
+      }
+      const patch: Record<string, unknown> = {};
+      for (const field of META_FIELDS) {
+        if (body[field] !== undefined) patch[field] = body[field];
+      }
+      await updateAssetMeta(supabase, id, patch);
     } else {
       return NextResponse.json(
-        { error: "expected action 'approve'/'archive', or a title/alt_text to update" },
+        { error: `expected action 'approve'/'archive', or one of: ${META_FIELDS.join(", ")}` },
         { status: 400 },
       );
     }
