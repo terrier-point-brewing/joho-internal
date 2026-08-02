@@ -18,10 +18,6 @@ import SpecCard from "./blocks/SpecCard";
  * them. Each rule is now ONE card holding both halves, so the failure a rule
  * prevents is always level with the rule itself.
  *
- * Style homage is the exception that proves it: it is a permission with no
- * failure opposite it, so it reads as a line beneath the introduction rather
- * than as a card with an empty half.
- *
  * The chassis appears here for the first time in Phase A. It was stored in the
  * canon and rendered nowhere, which meant the one spec every beer label is built
  * against could not be read by anyone using the guide.
@@ -48,12 +44,6 @@ export default function VisualIdentityView({
 
   return (
     <GuideSection section="visual" intro={resolveGuideIntro(canon, "visual")}>
-      {law?.homage && (
-        <p className="font-brand-body text-sm text-brand-content leading-relaxed mb-6 border-l-2 border-brand-line-strong pl-3">
-          {law.homage}
-        </p>
-      )}
-
       {pairs.length === 0 ? (
         <p className="font-brand-body text-sm text-brand-content-muted">No rules yet.</p>
       ) : (
