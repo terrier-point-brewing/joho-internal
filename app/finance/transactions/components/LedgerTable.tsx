@@ -25,23 +25,42 @@ export function Th({ label, align = "left", className = "" }: { label?: string; 
  * tables whose columns only make sense in bands (Finance → Payroll groups its
  * Gusto figures so the reader can see they sum to a total). Omit it and the
  * header is a single row exactly as before.
+ *
+ * `fill` switches the card from "as tall as its rows" to "as tall as the space
+ * it's given", making the card itself the scroll container and freezing the
+ * column headers at its top. The Transactions subtabs opt in: they are all one
+ * ledger apiece, so scrolling the page and scrolling the rows were the same
+ * gesture, except the page version carried the headers away with it. Callers
+ * that sit inside a normally-scrolling page (Payroll, the Settings backfills,
+ * Period Close) leave it off and are untouched.
  */
 export function LedgerTable({
   head,
   groupHead,
   children,
+  fill = false,
 }: {
   head: React.ReactNode;
   groupHead?: React.ReactNode;
   children: React.ReactNode;
+  fill?: boolean;
 }) {
+  // A sticky <th> inside a border-collapse table drops its own border as it
+  // detaches, so the header row's hairline is drawn as an inset shadow instead
+  // — that travels with the cell.
+  const headRowCls = fill ? "" : "border-b border-line";
   return (
-    <div className="bg-surface border border-line rounded-lg overflow-hidden">
-      <div className="overflow-x-auto">
+    <div className={`bg-surface border border-line rounded-lg overflow-hidden ${fill ? "flex-1 min-h-0 flex flex-col" : ""}`}>
+      <div className={fill ? "flex-1 min-h-0 overflow-auto" : "overflow-x-auto"}>
         <table className="w-full text-xs border-collapse">
-          <thead>
-            {groupHead && <tr className="border-b border-line">{groupHead}</tr>}
-            <tr className="border-b border-line">{head}</tr>
+          <thead
+            className={
+              fill
+                ? "sticky top-0 z-20 [&_th]:bg-surface [&_th]:shadow-[inset_0_-1px_0_var(--color-line)]"
+                : ""
+            }>
+            {groupHead && <tr className={headRowCls}>{groupHead}</tr>}
+            <tr className={headRowCls}>{head}</tr>
           </thead>
           <tbody>{children}</tbody>
         </table>

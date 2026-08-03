@@ -450,7 +450,7 @@ export default function SquareTransactionsPage() {
 
   return (
     <>
-      <div className="shrink-0 px-4 sm:px-6 py-3 border-b border-line">
+      <div className="shrink-0 px-4 sm:px-6 py-2">
         <FilterBar activeCount={activeCount} onClear={reset}>
           <SearchInput value={search.q ?? ""} onChange={(v) => setSearch("q", v)} placeholder="Search orders…" />
           <DateRangeFilter from={from} to={to} onChange={handleRangeChange} />
@@ -486,19 +486,8 @@ export default function SquareTransactionsPage() {
         )}
       </div>
 
-      {total > 0 && (
-        <SummaryStatBar
-          stats={[
-            { label: "Orders", value: total },
-            ...(unmappedTotal > 0
-              ? [{ label: "Unmapped line items", value: unmappedTotal, tone: "accent" as const }]
-              : [{ label: "Line items", value: "all mapped", tone: "secondary" as const }]),
-          ]}
-        />
-      )}
-
       {/* Body */}
-      <div className="flex-1 overflow-auto px-4 sm:px-6 py-4">
+      <div className="flex-1 min-h-0 flex flex-col px-4 sm:px-6 py-4">
         {loading && <p className="text-xs text-faint px-2 py-8 text-center">Loading…</p>}
         {error && <p className="text-xs text-danger px-2 py-4">{error}</p>}
         {!loading && !error && transactions.length === 0 && (
@@ -509,6 +498,7 @@ export default function SquareTransactionsPage() {
         )}
         {!loading && transactions.length > 0 && (
           <LedgerTable
+            fill
             head={
               <>
                 <Th className="w-6" />
@@ -529,6 +519,17 @@ export default function SquareTransactionsPage() {
       </div>
 
       {totalPages > 1 && <Pagination page={page} totalPages={totalPages} total={total} unit="orders" onPageChange={setPage} />}
+
+      {total > 0 && (
+        <SummaryStatBar
+          stats={[
+            { label: "Orders", value: total },
+            ...(unmappedTotal > 0
+              ? [{ label: "Unmapped line items", value: unmappedTotal, tone: "accent" as const }]
+              : [{ label: "Line items", value: "all mapped", tone: "secondary" as const }]),
+          ]}
+        />
+      )}
     </>
   );
 }

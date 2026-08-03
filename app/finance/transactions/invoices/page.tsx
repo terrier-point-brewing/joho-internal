@@ -532,7 +532,7 @@ export default function InvoicesPage() {
 
   return (
     <>
-      <div className="shrink-0 px-4 sm:px-6 pt-4 pb-4 border-b border-line">
+      <div className="shrink-0 px-4 sm:px-6 py-2">
         <FilterBar activeCount={activeCount} onClear={reset}>
           <SearchInput
             value={search.q ?? ""}
@@ -608,18 +608,6 @@ export default function InvoicesPage() {
         </FilterBar>
       </div>
 
-      {/* Summary bar */}
-      {!isFetching && invoices.length > 0 && (
-        <SummaryStatBar
-          stats={[
-            { label: "Invoices", value: invoices.length },
-            { label: "Total value", value: formatCurrencyCents(totalValue, 0) },
-            ...(openValue > 0 ? [{ label: "Open", value: formatCurrencyCents(openValue, 0), tone: "accent" as const }] : []),
-            ...(unlinkedCount > 0 ? [{ label: "Unlinked to batch", value: unlinkedCount, tone: "secondary" as const }] : []),
-          ]}
-        />
-      )}
-
       {error && (
         <Banner className="mx-6 mt-4">
           {error instanceof Error ? error.message : "Failed to load"}
@@ -627,8 +615,9 @@ export default function InvoicesPage() {
       )}
 
       {/* Table */}
-      <div className="flex-1 overflow-auto px-4 sm:px-6 py-4">
+      <div className="flex-1 min-h-0 flex flex-col px-4 sm:px-6 py-4">
         <LedgerTable
+          fill
           head={
             <>
               <Th className="w-6" />
@@ -666,6 +655,18 @@ export default function InvoicesPage() {
         </LedgerTable>
       </div>
       <Pagination page={safePage} totalPages={totalPages} total={invoices.length} unit="invoices" onPageChange={setPage} />
+
+      {/* Summary bar */}
+      {!isFetching && invoices.length > 0 && (
+        <SummaryStatBar
+          stats={[
+            { label: "Invoices", value: invoices.length },
+            { label: "Total value", value: formatCurrencyCents(totalValue, 0) },
+            ...(openValue > 0 ? [{ label: "Open", value: formatCurrencyCents(openValue, 0), tone: "accent" as const }] : []),
+            ...(unlinkedCount > 0 ? [{ label: "Unlinked to batch", value: unlinkedCount, tone: "secondary" as const }] : []),
+          ]}
+        />
+      )}
     </>
   );
 }

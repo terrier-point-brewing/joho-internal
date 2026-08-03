@@ -545,7 +545,7 @@ export default function ExpensesPage() {
 
   return (
     <>
-      <div className="shrink-0 px-4 sm:px-6 py-3 border-b border-line">
+      <div className="shrink-0 px-4 sm:px-6 py-2">
         <FilterBar activeCount={activeCount} onClear={reset}>
           <SearchInput value={search.q ?? ""} onChange={(v) => setSearch("q", v)} placeholder="Search merchant…" />
           <DateRangeFilter from={from} to={to} onChange={(f, t) => setRange({ from: f, to: t })} />
@@ -584,17 +584,6 @@ export default function ExpensesPage() {
         </FilterBar>
       </div>
 
-      {totalCount > 0 && (
-        <SummaryStatBar
-          stats={[
-            { label: "Expenses", value: totalCount },
-            { label: "Mapped", value: `${mappedCount} / ${totalCount}`, tone: mappedCount < totalCount ? "accent" : "secondary" },
-            { label: "In QuickBooks", value: `${inQbCount} / ${totalCount}` },
-            { label: "Total spend", value: formatCurrencyCents(totalSpend) },
-          ]}
-        />
-      )}
-
       {error && <Banner className="mx-4 sm:mx-6 my-2">{error}</Banner>}
 
       <InventoryAlertBanner
@@ -619,8 +608,9 @@ export default function ExpensesPage() {
           </div>
         </div>
       ) : (
-        <div className="flex-1 overflow-auto px-4 sm:px-6 py-4">
+        <div className="flex-1 min-h-0 flex flex-col px-4 sm:px-6 py-4">
           <LedgerTable
+            fill
             head={
               <>
                 <Th className="w-6" />
@@ -656,6 +646,17 @@ export default function ExpensesPage() {
             Mapped totals feed the P&amp;L, Balance Sheet, and Cash Flow statements.
           </p>
         </div>
+      )}
+
+      {totalCount > 0 && (
+        <SummaryStatBar
+          stats={[
+            { label: "Expenses", value: totalCount },
+            { label: "Mapped", value: `${mappedCount} / ${totalCount}`, tone: mappedCount < totalCount ? "accent" : "secondary" },
+            { label: "In QuickBooks", value: `${inQbCount} / ${totalCount}` },
+            { label: "Total spend", value: formatCurrencyCents(totalSpend) },
+          ]}
+        />
       )}
     </>
   );
