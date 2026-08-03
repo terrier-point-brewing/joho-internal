@@ -27,10 +27,10 @@ export function computePayrollEntries(
     (e) => e.employment_type === "hourly" && e.receives_tips && e.square_team_member_id
   );
 
-  type Acc = { hours: number; paycheckTips: number; cashTips: number; basePay: number; bonus: number };
+  type Acc = { hours: number; paycheckTips: number; cashTips: number; bonus: number };
   const accum = new Map<string, Acc>();
   for (const emp of tippedEmployees) {
-    accum.set(emp.id, { hours: 0, paycheckTips: 0, cashTips: 0, basePay: 0, bonus: 0 });
+    accum.set(emp.id, { hours: 0, paycheckTips: 0, cashTips: 0, bonus: 0 });
   }
 
   for (const bucket of buckets) {
@@ -39,15 +39,18 @@ export function computePayrollEntries(
       const hours = bucket.shifts.get(sqId) ?? 0;
       const paycheckTips = bucket.paycheckTipsCents.get(sqId) ?? 0;
       const cashTips = bucket.cashTipsCents.get(sqId) ?? 0;
-      const basePay = Math.round(hours * config.base_rate_cents);
+      // Bucket-scoped base pay exists only to test the guarantee, which is
+      // evaluated once per guarantee bucket and so must compare against that
+      // bucket's own hours. It is deliberately NOT accumulated into reported
+      // base pay — see the period-total rounding below.
+      const bucketBasePay = Math.round(hours * config.base_rate_cents);
       const guaranteedMin = Math.round(hours * config.guaranteed_rate_cents);
-      const bonus = Math.max(0, guaranteedMin - basePay - paycheckTips - cashTips);
+      const bonus = Math.max(0, guaranteedMin - bucketBasePay - paycheckTips - cashTips);
 
       const a = accum.get(emp.id)!;
       a.hours += hours;
       a.paycheckTips += paycheckTips;
       a.cashTips += cashTips;
-      a.basePay += basePay;
       a.bonus += bonus;
     }
   }
@@ -55,6 +58,11 @@ export function computePayrollEntries(
   const divisor = config.reported_cash_tips_divisor;
   return tippedEmployees.map((emp) => {
     const a = accum.get(emp.id)!;
+    // Canonical base-pay rounding: once per employee, on the period's summed
+    // hours. Gusto pays on period totals, and periodSummary.computePeriodBasis
+    // reads the locked snapshot the same way. Rounding each guarantee bucket
+    // and summing those drifts a cent or two per period against both.
+    const basePay = Math.round(a.hours * config.base_rate_cents);
     return {
       employee_id: emp.id,
       hours_worked: a.hours,
@@ -64,8 +72,8 @@ export function computePayrollEntries(
       // Never feeds the bonus above — that uses actual a.cashTips.
       reported_cash_tips_cents: Math.round(a.cashTips / divisor),
       bonus_cents: a.bonus,
-      base_pay_cents: a.basePay,
-      total_compensation_cents: a.basePay + a.paycheckTips + a.cashTips + a.bonus,
+      base_pay_cents: basePay,
+      total_compensation_cents: basePay + a.paycheckTips + a.cashTips + a.bonus,
     };
   });
 }
