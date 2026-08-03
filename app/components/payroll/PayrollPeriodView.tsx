@@ -85,7 +85,7 @@ export function PayrollPeriodView({ periodId, editable, activeTab }: Props) {
 
   // Summary totals (use effective_* so overrides are reflected)
   const totHours    = entries.reduce((s, e) => s + e.effective_hours, 0);
-  const totBase     = entries.reduce((s, e) => s + e.base_pay_cents, 0);
+  const totBase     = entries.reduce((s, e) => s + e.effective_base_pay_cents, 0);
   const totPTips    = entries.reduce((s, e) => s + e.effective_paycheck_tips_cents, 0);
   const totCTips    = entries.reduce((s, e) => s + e.effective_cash_tips_cents, 0);
   const totRCTips   = entries.reduce((s, e) => s + e.effective_reported_cash_tips_cents, 0);
@@ -93,14 +93,10 @@ export function PayrollPeriodView({ periodId, editable, activeTab }: Props) {
   // Toggle-driven basis: actuals drive the bonus/true comp; reported (÷ratio) is the Gusto figure.
   const viewCTips   = cashView === "actual" ? totCTips : totRCTips;
   const viewComp    = totBase + totPTips + viewCTips + totBonus;
-  // Basis for the taproom check, rounded the same way lib/payroll/periodSummary.ts
-  // rounds it: once per employee on their period total. totBase can't be reused —
-  // it comes from calculations.ts, which rounds each shift bucket separately and
-  // accumulates, so the two drift by a cent or two over a full period. Gusto pays
-  // on period totals, so that's the model both views have to agree on.
-  const taproomBasisCents =
-    entries.reduce((s, e) => s + Math.round(e.effective_hours * config.base_rate_cents), 0)
-    + totPTips + totBonus;
+  // Basis for the taproom check. totBase is now safe to reuse: effective_base_pay_cents
+  // is round(effective_hours × base_rate), the same figure periodSummary.computePeriodBasis
+  // derives from the locked snapshot.
+  const taproomBasisCents = totBase + totPTips + totBonus;
   const viewHrlyRate = totHours > 0 ? viewComp / totHours / 100 : null;
   const empName = (id: string) => {
     const e = empById.get(id);

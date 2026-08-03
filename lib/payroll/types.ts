@@ -135,6 +135,11 @@ export interface PayrollEntryMerged extends PayrollEntryComputed {
   adj_bonus_cents: number | null;
   admin_notes: string | null;
   effective_hours: number;
+  /** round(effective_hours × base_rate_cents) — base pay follows the ADJUSTED hours.
+   *  Must be used (not the computed `base_pay_cents`) anywhere a total is shown,
+   *  because the lock route snapshots `effective_hours` and periodSummary's
+   *  `computePeriodBasis` re-derives base pay from that same adjusted figure. */
+  effective_base_pay_cents: number;
   effective_paycheck_tips_cents: number;
   effective_cash_tips_cents: number;
   effective_reported_cash_tips_cents: number;

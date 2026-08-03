@@ -85,7 +85,7 @@ export async function buildPayrollPreview(
       adj_reported_cash_tips_cents: stored?.adj_reported_cash_tips_cents ?? null,
       adj_bonus_cents: stored?.adj_bonus_cents ?? null,
       admin_notes: stored?.admin_notes ?? null,
-    }, config.reported_cash_tips_divisor);
+    }, config.reported_cash_tips_divisor, config.base_rate_cents);
     return { ...merged, has_day_overrides: employeesWithDayOverrides.has(c.employee_id) };
   });
 
