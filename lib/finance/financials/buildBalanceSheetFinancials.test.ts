@@ -18,11 +18,14 @@ vi.mock("@/lib/finance/balances/snapshot", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/finance/balances/snapshot")>();
   return { ...actual, fetchBalances: vi.fn() };
 });
-vi.mock("@/lib/finance/balances/registry", () => ({
-  getProvider: vi.fn(),
-  registerProvider: vi.fn(),
-  listProviders: vi.fn(() => []),
-}));
+// Partial: only the lookup is faked, so this suite can hand expandSources
+// whatever provider a test needs. Everything else (createSharedComputeCache,
+// sharedRead) is the real thing -- a hand-written stand-in for the whole module
+// went stale the moment the registry grew a new export.
+vi.mock("@/lib/finance/balances/registry", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/finance/balances/registry")>();
+  return { ...actual, getProvider: vi.fn(), registerProvider: vi.fn(), listProviders: vi.fn(() => []) };
+});
 // No-op: skip the real provider modules' side-effect registration entirely --
 // this suite controls getProvider's return value directly per test.
 vi.mock("@/lib/finance/balances/providers", () => ({}));

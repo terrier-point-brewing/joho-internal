@@ -17,7 +17,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchAllRows } from "@/lib/supabase/paginate";
-import { registerProvider } from "../registry";
+import { registerProvider, sharedRead } from "../registry";
 import type { BalanceContext, BalanceProvider } from "../registry";
 
 /** Exclusive upper bound: the first instant after periodEnd's calendar day, UTC. Mirrors fetchSources.ts's own range.end construction. */
@@ -220,10 +220,20 @@ export const taxAccrual: BalanceProvider = {
   kind: "derived",
   appliesTo: (coa) => coa.accountNumber === "2220" || coa.accountNumber === "2250",
   async compute(ctx: BalanceContext): Promise<number | null> {
-    const accountByTaxId = await fetchTaxAccountMap(ctx.supabase);
+    // Both reads below answer for EVERY tax account at once, and this provider
+    // is declared on two of them (GL 2220 and GL 2250). Run per account, the
+    // collections scan below paged through 9,692 rows twice -- ~1.2s each --
+    // to build the identical map and keep one key of it. Shared across the run,
+    // the second account reads the first's answer. Neither result is mutated by
+    // a caller, so there is nothing for the two to tread on.
+    const accountByTaxId = await sharedRead(ctx, "taxAccrual:accountByTaxId", () =>
+      fetchTaxAccountMap(ctx.supabase),
+    );
     if (accountByTaxId.size === 0) return null;
 
-    const centsByAccount = await fetchTaxAccrualCentsByAccount(ctx.supabase, ctx.periodEnd, accountByTaxId);
+    const centsByAccount = await sharedRead(ctx, `taxAccrual:centsByAccount:${ctx.periodEnd}`, () =>
+      fetchTaxAccrualCentsByAccount(ctx.supabase, ctx.periodEnd, accountByTaxId),
+    );
     const amountCents = centsByAccount.get(ctx.coaId) ?? 0;
     // Degenerate guard, ported verbatim: the original skips emitting a
     // record for a <= 0 account total rather than signing a negative sum

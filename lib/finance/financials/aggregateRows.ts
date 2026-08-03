@@ -482,7 +482,11 @@ export function aggregateRows(input: AggregateRowsInput): FinancialsRow[] {
 
     out.amountCentsByMonth[r.monthKey] = (out.amountCentsByMonth[r.monthKey] ?? 0) + r.amountCents;
     out.bblByMonth[r.monthKey] = (out.bblByMonth[r.monthKey] ?? 0) + r.bbl;
-    out.sourceRef.ids.push(r.id);
+    // `ids` is optional on the type only because the API strips it before
+    // responding (see wireResponse.ts). Here at the producer it is always a
+    // real array -- seeded `[]` above -- so this is a type narrowing, not a
+    // repair of a case that can happen.
+    (out.sourceRef.ids ??= []).push(r.id);
 
     const acc = coverageAcc.get(key) ?? { total: 0, unknown: 0 };
     const mag = Math.abs(r.amountCents);

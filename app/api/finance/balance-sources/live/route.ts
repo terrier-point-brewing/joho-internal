@@ -5,8 +5,11 @@
  *
  * ── Why this is its own route ────────────────────────────────────────────────
  * This is the expensive half of what the Settings screen shows: it runs every
- * active source, which for integration methods means calling Ramp and Square,
- * one account at a time (see expandSources). It used to run inline inside GET
+ * active source, which for integration methods means calling Ramp and Square.
+ * The accounts run concurrently (see expandSources), so this costs about what
+ * its slowest single account costs rather than the sum of all of them -- but
+ * that slowest account is still a live third-party call, so it stays its own
+ * route. It used to run inline inside GET
  * /api/finance/balance-sources, which meant every save on that screen --
  * flipping a source on, finishing a setup field, excluding an account --
  * re-triggered this same multi-second compute for every OTHER account too,

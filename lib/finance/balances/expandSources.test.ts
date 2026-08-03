@@ -13,7 +13,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import "./methods";
 import { expandSources, resolveSnapshotWrites, type DeclaredSource } from "./snapshot";
-import { registerProvider, __resetRegistry, type BalanceProvider } from "./registry";
+import { registerProvider, sharedRead, __resetRegistry, type BalanceProvider } from "./registry";
 import { getMethod } from "./methods/registry";
 
 type AdminClient = Parameters<typeof expandSources>[0];
@@ -222,6 +222,123 @@ describe("expandSources", () => {
 
       expect(out.excluded).toEqual([]);
       expect(out.results.get(`${COA}:taxAccrual`)).toBe(-297_509);
+    });
+  });
+
+  /**
+   * Accounts used to resolve one after another, and that queueing was 6.2s of
+   * the ~6.9s the balance sheet took to draw. What must not change as a result:
+   * every account still gets asked, order is still declaration order, and one
+   * account's failure still cannot touch another's.
+   */
+  describe("resolving accounts concurrently", () => {
+    /** A provider that blocks until released, so overlap is observable rather than inferred. */
+    function gated(key: string, value: number) {
+      let release!: () => void;
+      const started = { count: 0 };
+      const gate = new Promise<void>((r) => { release = r; });
+      const provider: BalanceProvider = {
+        key,
+        label: key,
+        kind: "derived",
+        async compute() { started.count++; await gate; return value; },
+      };
+      return { provider, release, started };
+    }
+
+    it("starts every account before any of them finishes", async () => {
+      const a = gated("transactionPostings", 10);
+      registerProvider(a.provider);
+
+      const rows: DeclaredSource[] = [
+        { coaId: "coa-1", providerKey: "transactionPostings", config: {} },
+        { coaId: "coa-2", providerKey: "transactionPostings", config: {} },
+        { coaId: "coa-3", providerKey: "transactionPostings", config: {} },
+      ];
+      const pending = expandSources(supabase, PERIOD, rows);
+
+      // Nothing has been released yet. Serially, only the first would have run.
+      await Promise.resolve();
+      expect(a.started.count).toBe(3);
+
+      a.release();
+      const out = await pending;
+      expect(out.sources.map((s) => s.coaId)).toEqual(["coa-1", "coa-2", "coa-3"]);
+    });
+
+    it("returns sources, errors and excluded in DECLARATION order, not completion order", async () => {
+      // The slow account is declared first, so completion order is the reverse
+      // of declaration order and a fold that trusted it would show.
+      const slow = gated("taxAccrual", -100);
+      registerProvider(slow.provider);
+      registerProvider(fake("transactionPostings", 200));
+      registerProvider({ ...fake("openInvoiceAr", 300), dependsOnCurrentState: true });
+
+      const rows: DeclaredSource[] = [
+        { coaId: "coa-slow", providerKey: "taxAccrual", config: {} },
+        { coaId: "coa-fast", providerKey: "transactionPostings", config: {} },
+        { coaId: "coa-bad", providerKey: "notARealThing", config: {} },
+        { coaId: "coa-worse", providerKey: "alsoNotReal", config: {} },
+      ];
+      const pending = expandSources(supabase, PERIOD, rows);
+      await Promise.resolve();
+      slow.release();
+      const out = await pending;
+
+      expect(out.sources).toEqual([
+        { coaId: "coa-slow", providerKey: "taxAccrual" },
+        { coaId: "coa-fast", providerKey: "transactionPostings" },
+      ]);
+      expect(out.errors).toEqual([
+        'Unknown balance method or provider "notARealThing" for account coa-bad',
+        'Unknown balance method or provider "alsoNotReal" for account coa-worse',
+      ]);
+    });
+
+    it("still isolates a throwing account from the ones running alongside it", async () => {
+      // Promise.all fails fast, so an unguarded rejection here would take the
+      // healthy accounts down with it -- silently, as an empty balance sheet.
+      registerProvider(fake("transactionPostings", 40_600));
+      registerProvider(fake("taxAccrual", () => { throw new Error("Square unreachable"); }));
+
+      const rows: DeclaredSource[] = [
+        { coaId: "coa-ok", providerKey: "transactionPostings", config: {} },
+        { coaId: "coa-boom", providerKey: "taxAccrual", config: {} },
+      ];
+
+      const out = await expandSources(supabase, PERIOD, rows);
+
+      expect(out.failedAccounts.has("coa-boom")).toBe(true);
+      expect(out.failedAccounts.has("coa-ok")).toBe(false);
+      expect(out.results.get("coa-ok:transactionPostings")).toBe(40_600);
+      expect(out.errors[0]).toMatch(/Square unreachable/);
+    });
+
+    it("shares one read across the accounts that need it", async () => {
+      // The taxAccrual case: two accounts, one 9.7k-row scan. Asserted through
+      // the real sharedRead rather than by timing.
+      let reads = 0;
+      registerProvider({
+        key: "taxAccrual",
+        label: "taxAccrual",
+        kind: "derived",
+        async compute(ctx) {
+          const byAccount = await sharedRead(ctx, "collections", async () => {
+            reads++;
+            return new Map([["coa-2220", -300_000], ["coa-2250", -26_000]]);
+          });
+          return byAccount.get(ctx.coaId) ?? null;
+        },
+      });
+
+      const out = await expandSources(supabase, PERIOD, [
+        { coaId: "coa-2220", providerKey: "taxAccrual", config: {} },
+        { coaId: "coa-2250", providerKey: "taxAccrual", config: {} },
+      ]);
+
+      expect(reads).toBe(1);
+      expect(out.results.get("coa-2220:taxAccrual")).toBe(-300_000);
+      expect(out.results.get("coa-2250:taxAccrual")).toBe(-26_000);
     });
   });
 

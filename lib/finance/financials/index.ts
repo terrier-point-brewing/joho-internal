@@ -3,6 +3,7 @@
 // files.
 
 export { buildFinancials } from "./buildFinancials";
+export { toWireResponse } from "./wireResponse";
 export type {
   StatementKind,
   Measure,

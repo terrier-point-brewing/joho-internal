@@ -743,3 +743,42 @@ describe("buildTree — manual adjustment posted to a grouping account (4100)", 
     expect(taproomRev.row?.amountCentsByMonth).toEqual({ "2026-01": 25000 });
   });
 });
+
+/**
+ * The shape buildTree actually receives in the browser: the API strips
+ * `sourceRef.ids` (lib/finance/financials/wireResponse.ts), so every row
+ * arriving here has the field absent, not empty. A rollup that spread it
+ * unguarded would throw "undefined is not iterable" on the first section total
+ * — i.e. on every statement, for every user.
+ */
+describe("buildTree — rows as they arrive over the wire", () => {
+  const coaAccounts = [
+    { id: "rev-1", parentId: null, accountName: "Draft Sales", accountNumber: "4000", statementSection: "revenue" },
+  ];
+
+  function wireRow(): FinancialsRow {
+    return {
+      coaId: "rev-1",
+      parentId: null,
+      accountName: "Draft Sales",
+      statementSection: "revenue",
+      channel: "taproom",
+      posCategory: null,
+      kegSize: null,
+      amountCentsByMonth: { "2026-01": 10000 },
+      bblByMonth: { "2026-01": 0 },
+      bblCoverage: "full",
+      mappingSource: "rule",
+      sourceRef: { table: "pos_line_items" },
+    };
+  }
+
+  it("rolls up rows whose sourceRef carries no ids", () => {
+    const tree = buildTree([wireRow(), wireRow()], "pl", coaAccounts);
+    const revenue = tree.find((n) => n.label === "Revenue")!;
+
+    expect(revenue.row?.amountCentsByMonth).toEqual({ "2026-01": 20000 });
+    expect(revenue.row?.sourceRef.table).toBe("pos_line_items");
+    expect(revenue.row?.sourceRef.ids).toEqual([]);
+  });
+});
