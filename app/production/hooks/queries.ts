@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, type QueryClient } from "@tanstack/react-query";
 import {
   Ingredient, StockAdjustment, Recipe, BrewBatch,
   Equipment, BatchTankAssignment, PackagingItem, BatchTransfer,
@@ -158,12 +158,29 @@ export function useRecipeSquareLinksQuery() {
 
 export function useSquareMappingGridQuery() {
   return useQuery({
-    queryKey: ["production", "square-mapping-grid"] as const,
+    queryKey: queryKeys.production.squareMappingGrid(),
     queryFn: () => fetchJson<MappingGridResponse>("/api/production/recipe-square-links?grid=1"),
     // The Square catalog changes out-of-band; recompute suggestions on every visit.
     staleTime: 0,
     refetchOnMount: "always",
   });
+}
+
+/**
+ * Refresh every cache that reads recipe↔Square mappings.
+ *
+ * The mapping grid is only one of them: the flat link list feeds screens well
+ * outside Settings → Catalog (the Draft Stats "Beer on this tap" picker is
+ * built from the draft links, and holds them for 5 minutes). Invalidating just
+ * the grid left those screens showing a pre-mapping list until they happened to
+ * remount past their staleTime — a newly mapped beer looked simply missing.
+ * Call this after any write to recipe_square_links or its ignore list.
+ */
+export function invalidateSquareMappings(qc: QueryClient): Promise<void> {
+  return Promise.all([
+    qc.invalidateQueries({ queryKey: queryKeys.production.squareMappingGrid() }),
+    qc.invalidateQueries({ queryKey: queryKeys.production.recipeSquareLinks() }),
+  ]).then(() => undefined);
 }
 
 export function useTransfersQuery() {

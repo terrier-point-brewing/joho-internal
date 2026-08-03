@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
-import { useSquareMappingGridQuery, fetchJson } from "@/app/production/hooks/queries";
+import { useSquareMappingGridQuery, invalidateSquareMappings, fetchJson } from "@/app/production/hooks/queries";
 import type { MappingCellVariation } from "@/app/production/types";
 import { applyControls } from "@/lib/table/applyControls";
 import type { ControlsConfig } from "@/lib/table/types";
@@ -180,7 +180,7 @@ export default function MappingDrawer({ recipeId, colKey, onClose }: Props) {
         delete n[v.variationId];
         return n;
       });
-      qc.invalidateQueries({ queryKey: ["production", "square-mapping-grid"] });
+      invalidateSquareMappings(qc);
     } catch (err) {
       setErrors((e) => ({ ...e, [v.variationId]: (err as Error).message }));
     } finally {
@@ -196,7 +196,7 @@ export default function MappingDrawer({ recipeId, colKey, onClose }: Props) {
         method: "DELETE",
       });
       if (!res.ok) throw new Error("Remove failed");
-      qc.invalidateQueries({ queryKey: ["production", "square-mapping-grid"] });
+      invalidateSquareMappings(qc);
     } catch (err) {
       setErrors((e) => ({ ...e, [v.variationId]: (err as Error).message }));
     } finally {
@@ -219,7 +219,7 @@ export default function MappingDrawer({ recipeId, colKey, onClose }: Props) {
         const json = await res.json().catch(() => ({}));
         throw new Error((json as { error?: string }).error ?? "Ignore failed");
       }
-      qc.invalidateQueries({ queryKey: ["production", "square-mapping-grid"] });
+      invalidateSquareMappings(qc);
     } catch (err) {
       setErrors((e) => ({ ...e, [v.variationId]: (err as Error).message }));
     } finally {
@@ -235,7 +235,7 @@ export default function MappingDrawer({ recipeId, colKey, onClose }: Props) {
         method: "DELETE",
       });
       if (!res.ok) throw new Error("Un-ignore failed");
-      qc.invalidateQueries({ queryKey: ["production", "square-mapping-grid"] });
+      invalidateSquareMappings(qc);
     } catch (err) {
       setErrors((e) => ({ ...e, [v.variationId]: (err as Error).message }));
     } finally {
