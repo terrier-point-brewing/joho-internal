@@ -60,3 +60,56 @@ describe("fetchAllRows", () => {
     expect(result).toEqual([]);
   });
 });
+
+// The concurrent path exists only to trade sequential round trips for parallel
+// ones; every test here is really asking the same question -- does it return
+// exactly what the sequential loop returns?
+describe("fetchAllRows with concurrency", () => {
+  it("returns the same rows in the same order as the sequential loop", async () => {
+    const allRows = Array.from({ length: 23 }, (_, i) => ({ id: i }));
+    const sequential = await fetchAllRows<{ id: number }>(fakeBuilder(allRows), 4);
+    const concurrent = await fetchAllRows<{ id: number }>(fakeBuilder(allRows), 4, 3);
+    expect(concurrent).toEqual(sequential);
+    expect(concurrent).toEqual(allRows);
+  });
+
+  it("fetches a whole batch of pages at once and keeps going past it", async () => {
+    const allRows = Array.from({ length: 10 }, (_, i) => ({ id: i }));
+    const calls: [number, number][] = [];
+    const result = await fetchAllRows<{ id: number }>(fakeBuilder(allRows, (f, t) => calls.push([f, t])), 2, 3);
+    expect(result).toEqual(allRows);
+    // Two batches of three disjoint windows. The second batch's last page runs
+    // past the end and comes back short, which is what stops the loop.
+    expect(calls).toEqual([
+      [0, 1], [2, 3], [4, 5],
+      [6, 7], [8, 9], [10, 11],
+    ]);
+  });
+
+  it("discards the overshoot pages past the end of the data", async () => {
+    const allRows = [{ id: 1 }, { id: 2 }, { id: 3 }];
+    const result = await fetchAllRows<{ id: number }>(fakeBuilder(allRows), 2, 8);
+    expect(result).toEqual(allRows);
+  });
+
+  it("throws on a failed page rather than returning the batch's surviving rows", async () => {
+    // A short answer assembled around a failed page is precisely the silent
+    // truncation this module exists to prevent, so the error wins over the rows
+    // that did come back.
+    let call = 0;
+    const build = () => ({
+      range: async (from: number, to: number) => {
+        const failing = call++ === 1;
+        return failing
+          ? { data: null, error: { message: "connection reset" } }
+          : { data: [{ id: from }, { id: to }], error: null };
+      },
+    });
+    await expect(fetchAllRows<{ id: number }>(build, 2, 3)).rejects.toThrow("connection reset");
+  });
+
+  it("returns an empty array when the source has no rows", async () => {
+    const result = await fetchAllRows<{ id: number }>(fakeBuilder<{ id: number }>([]), 10, 4);
+    expect(result).toEqual([]);
+  });
+});
