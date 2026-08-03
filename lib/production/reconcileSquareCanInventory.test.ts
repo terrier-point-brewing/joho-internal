@@ -221,7 +221,7 @@ describe("reconcileSquareCanInventory (IO)", () => {
     });
   }
 
-  it("writes cold storage's loose-equivalent onto Square and journals the correction when they drift", async () => {
+  it("plans the loose-equivalent correction but does NOT push it to Square (observe-only)", async () => {
     mockRegularFamilySkus();
     fetchCounts.mockResolvedValue(new Map([["SQ-BASE", 40]]));
     recount.mockResolvedValue(undefined);
@@ -240,19 +240,24 @@ describe("reconcileSquareCanInventory (IO)", () => {
     // 8 loose + 0 packs*4 + 1 case*24 = 32 loose-equivalent; Square was at 40.
     const res = await reconcileSquareCanInventory(supabase, { recipeIds: ["r1"], occurredAt: "2026-07-08T12:00:00Z" });
 
-    expect(recount).toHaveBeenCalledTimes(1);
-    expect(recount).toHaveBeenCalledWith("SQ-BASE", 32, "2026-07-08T12:00:00Z");
-    expect(sink.reconciliations).toEqual([
+    // The drift is fully measured and reported...
+    expect(res.writes).toEqual([
       expect.objectContaining({
-        recipe_id: "r1",
-        base_square_variation_id: "SQ-BASE",
-        cold_storage_cans: 32,
-        square_cans_before: 40,
+        recipeId: "r1",
+        baseSquareVariationId: "SQ-BASE",
+        coldStorageCans: 32,
+        squareCansBefore: 40,
         drift: 8,
       }),
     ]);
-    expect(res.applied).toBe(1);
-    expect(res.writes).toHaveLength(1);
+
+    // ...but nothing is written to Square, and nothing is journalled as applied,
+    // while the push is off. A journal row means "we changed Square"; recording
+    // one for a write we never sent is exactly the lie that hid the stale-link
+    // bug for nine days.
+    expect(recount).not.toHaveBeenCalled();
+    expect(sink.reconciliations).toEqual([]);
+    expect(res.applied).toBe(0);
   });
 
   it("skips a family whose item's matching parent is not inventory-tracked (Be Like Mike)", async () => {
