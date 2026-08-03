@@ -214,13 +214,21 @@ Changes:
 
 Decisions taken 2026-08-03.
 
-1. **Re-map all 18 dead links.** The nine with stock (Epic Hazy, Wiggo!,
-   Groundhog Imperial Stout) are mechanical — the live IDs exist and the variation
-   names match. Do these first.
-2. **Re-map the retired beers too** (Imperial Pilsner, Spring Bock, BBA
-   Groundhog) — do not drop the links.
-3. **Epic Hazy IPA: Square's 111 is authoritative.** Cold storage is corrected
-   down from 158.
+1. ~~**Re-map all 18 dead links.**~~ **Done 2026-08-03.** All 108 links now
+   resolve against Square (verified: 108 alive, 0 dead). Six were re-pointed at
+   surviving variations; the remaining twelve were re-pointed after the missing
+   Square items were recreated. Note two renames to watch for: Wiggo!'s
+   "Regular - 12oz Can" is now "Regular", and BBA Groundhog's draft item is now
+   "BBA Groundhog Imperial Stout (Russell's Reserve 8-Year)".
+2. ~~**Re-map the retired beers too.**~~ Done in the same pass.
+3. **Catalog mirror still needs a sync + prune.** The twelve newly recreated
+   variations are not in `square_catalog_variations` (their `catalog_variation_id`
+   / `catalog_item_id` FKs are deliberately NULL), and ghost rows for the deleted
+   ones remain. Wiggo! is the clearest case: the mirror holds three dead
+   variations and is missing two live ones. This is X2 and is the first task of
+   W1.
+4. **Epic Hazy IPA: Square's 111 is authoritative.** Cold storage is corrected
+   down from 158. **Still outstanding.**
 
    ⚠️ 111 is not reachable by removing whole packages from 2 loose / 3 four-packs
    / 6 cases — 47 cans is neither a whole number of cases nor of available
@@ -228,9 +236,25 @@ Decisions taken 2026-08-03.
    land on the nearest whole-unit figure. It should go through Stock Adjustments
    with a stated reason, by a person, not by a script.
 
-4. After re-mapping, back out the Epic Hazy sales that were dropped (≈93 cans) or
+5. After re-mapping, back out the Epic Hazy sales that were dropped (≈93 cans) or
    accept them as absorbed by the 158 → 111 correction — these are the same beer
-   counted twice, so do **not** apply both.
+   counted twice, so do **not** apply both. Note the three figures do not
+   reconcile to one story (158 − 93 = 65, not 111), which is itself a reason to
+   count the beer rather than book a derived number.
+
+### The app never writes to the Square catalog
+
+Confirmed 2026-08-03, relevant to how deletions should be handled. The app's only
+Square mutations are `POST /orders`, `POST /invoices`, `DELETE /invoices/{id}`
+(draft invoices only), and `POST /inventory/changes/batch-create`. Every
+`/catalog` call is `squareGetAll("/catalog/list", …)` — read-only. There is no
+`batch-upsert`, no `batch-delete`, no `POST /catalog/object`.
+
+Retiring a beer writes `taproom_recipe_settings.is_retired` in Supabase and
+nothing else ([retireRecipe.ts](../lib/taproom/retireRecipe.ts)); unmapping a link
+deletes the `recipe_square_links` row, not the Square object. So catalog
+deletions always originate from a person acting in Square, and the app's job is
+to *notice* them — never to mirror them back.
 
 ---
 
