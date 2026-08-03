@@ -21,7 +21,13 @@
  * below -- it never runs unattended.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { parseGustoPayrollJournal, computeGlBucketTotals, computeExpectedDebits, type GlBucketTotal } from "./gustoParser";
+import {
+  parseGustoPayrollJournal,
+  computeGlBucketTotals,
+  computeExpectedDebits,
+  type GlBucketTotal,
+  type WageSubRowTotal,
+} from "./gustoParser";
 import { recomputePeriodExpenseSplits } from "@/lib/finance/payrollMatching";
 
 const BUCKET = "payroll-gl-reports";
@@ -73,6 +79,17 @@ export interface BackfillPeriodResult {
    * whole review this tool's human gate exists for.
    */
   expectedDebits: { netPayCents: number; taxCents: number; reimbursementsCents: number };
+  /**
+   * The sub-row pay types making up the non-Regular part of this report's gross
+   * wages, itemised by label (gustoParser's `wageSubRowTotals`).
+   *
+   * The backfill screen's write gate blocks on any wage movement it cannot
+   * attribute to a named cause. When the parser starts recognising a pay type it
+   * used to drop, the re-parse legitimately exceeds the stored totals by exactly
+   * that pay type's amount — and this is what lets the gate tell that apart from
+   * drift nobody has explained, without having to trust the operator's read.
+   */
+  wageSubRowTotals: WageSubRowTotal[];
   splitsRecomputed: boolean;
   error?: string;
 }
@@ -252,6 +269,7 @@ export async function backfillGlReports(
         after,
         recoveredAccounts,
         expectedDebits,
+        wageSubRowTotals: parsed.wageSubRowTotals,
         splitsRecomputed,
       });
     } catch (err) {
@@ -262,6 +280,7 @@ export async function backfillGlReports(
         after: emptySummary(),
         recoveredAccounts: [],
         expectedDebits: { netPayCents: 0, taxCents: 0, reimbursementsCents: 0 },
+        wageSubRowTotals: [],
         splitsRecomputed: false,
         error: err instanceof Error ? err.message : String(err),
       });

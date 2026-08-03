@@ -216,6 +216,38 @@ describe("parseGustoPayrollJournal", () => {
     );
   });
 
+  it("itemises the sub-row pay types folded into gross so a backfill can attribute a delta to one", () => {
+    const parsed = parseGustoPayrollJournal(ALL_PAY_TYPES_CSV);
+    const byLabel = Object.fromEntries(parsed.wageSubRowTotals.map((t) => [t.label, t.amountCents]));
+
+    expect(byLabel).toEqual({ Commission: 10000, "Additional Earnings": 5000 });
+    // Tips and the Gross subtotal are not wages and must never appear here.
+    expect(parsed.wageSubRowTotals.map((t) => t.label)).not.toContain("Paycheck Tips");
+    expect(parsed.wageSubRowTotals.map((t) => t.label)).not.toContain("Cash Tips");
+    expect(parsed.wageSubRowTotals.map((t) => t.label)).not.toContain("Gross");
+  });
+
+  it("sums a label across employees and reports Bonus alongside the rest", () => {
+    const parsed = parseGustoPayrollJournal(SAMPLE_CSV);
+    // Carver's 7.67 is SAMPLE_CSV's only Bonus sub-row, and matches the file's
+    // own "Payroll Totals" Bonus row.
+    expect(parsed.wageSubRowTotals).toEqual([{ label: "Bonus", amountCents: 767 }]);
+  });
+
+  it("reports no wage sub-rows when an employee has none", () => {
+    expect(parseGustoPayrollJournal(NO_TIPS_CSV).wageSubRowTotals).toEqual([]);
+    expect(parseGustoPayrollJournal(CASH_TIPS_ONLY_CSV).wageSubRowTotals).toEqual([]);
+  });
+
+  it("the itemised sub-row wages plus each employee's Regular Amount reconstruct gross exactly", () => {
+    const parsed = parseGustoPayrollJournal(ALL_PAY_TYPES_CSV);
+    const gross = parsed.employees.reduce((s, e) => s + e.grossAmountCents, 0);
+    const subRows = parsed.wageSubRowTotals.reduce((s, t) => s + t.amountCents, 0);
+
+    // 500.00 Regular on the employee row + 150.00 of sub-rows = 650.00 gross.
+    expect(gross - subRows).toBe(50000);
+  });
+
   it("ignores an unrecognised sub-row pay type rather than guessing at it", () => {
     const withUnknown = ALL_PAY_TYPES_CSV.replace(`"Commission"`, `"Some New Gusto Pay Type"`);
     const parsed = parseGustoPayrollJournal(withUnknown);
