@@ -80,7 +80,7 @@ export async function GET(req: NextRequest) {
   // second round-trip per row.
   const ids = rows.map((r) => r.id);
   const [matchesResult, splitsResult] = await Promise.all([
-    supabase.from("payroll_period_expense_matches").select("expense_id, pay_period_id").in("expense_id", ids),
+    supabase.from("payroll_period_expense_matches").select("expense_id, pay_period_id, matched_component").in("expense_id", ids),
     supabase
       .from("expense_gl_splits")
       .select("expense_id, chart_of_accounts_id, amount_cents, split_source, memo")
@@ -89,10 +89,16 @@ export async function GET(req: NextRequest) {
   if (matchesResult.error) return NextResponse.json({ error: matchesResult.error.message }, { status: 500 });
   if (splitsResult.error) return NextResponse.json({ error: splitsResult.error.message }, { status: 500 });
 
-  const matchByExpense = new Map<string, string>(
-    (matchesResult.data as { expense_id: string; pay_period_id: string }[]).map((r) => [r.expense_id, r.pay_period_id]),
+  const matchByExpense = new Map<string, { payPeriodId: string; matchedComponent: "net_pay" | "taxes" | null }>(
+    (matchesResult.data as { expense_id: string; pay_period_id: string; matched_component: string | null }[]).map((r) => [
+      r.expense_id,
+      {
+        payPeriodId: r.pay_period_id,
+        matchedComponent: r.matched_component === "net_pay" || r.matched_component === "taxes" ? r.matched_component : null,
+      },
+    ]),
   );
-  const matchedPeriodIds = Array.from(new Set(matchByExpense.values()));
+  const matchedPeriodIds = Array.from(new Set([...matchByExpense.values()].map((m) => m.payPeriodId)));
 
   let activePeriodIds = new Set<string>();
   const periodDatesById = new Map<string, { start: string; end: string }>();
@@ -135,7 +141,8 @@ export async function GET(req: NextRequest) {
   }
 
   const enriched = rows.map((row) => {
-    const payPeriodId = matchByExpense.get(row.id);
+    const match = matchByExpense.get(row.id);
+    const payPeriodId = match?.payPeriodId;
     const dates = payPeriodId ? periodDatesById.get(payPeriodId) : undefined;
     const payrollMatch = payPeriodId
       ? {
@@ -143,6 +150,7 @@ export async function GET(req: NextRequest) {
           periodStart: dates?.start ?? "",
           periodEnd: dates?.end ?? "",
           hasReport: activePeriodIds.has(payPeriodId),
+          matchedComponent: match?.matchedComponent ?? null,
         }
       : null;
     const glLines = resolveExpenseGlLines(splitsByExpense.get(row.id) ?? [], {

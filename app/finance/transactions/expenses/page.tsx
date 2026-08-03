@@ -184,12 +184,47 @@ function ExpenseRowView({
   const mapped = isExpenseMapped(e) ? 1 : 0;
   const state = e.state?.toLowerCase() ?? "";
   const glName = e.chart_of_accounts?.account_name ?? null;
+  // A payroll-routed counterparty is not guaranteed to be payroll. Gusto bills
+  // its software subscription from the same account it debits payroll from, and
+  // the bank feed cannot tell the two apart -- both arrive as "GUSTO" /
+  // "Withdrawal", identical but for the amount (bankLedger.ts's
+  // normalizeCounterparty). So routing decides who codes the row by DEFAULT,
+  // and an unmatched row stays hand-codeable: pin it (mapping_source='manual',
+  // which already outranks the payroll_split skip in resolveExpenseMapping) and
+  // payroll is no longer the thing coding it. A MATCHED row is payroll's, full
+  // stop -- its pay-period splits are the coding, and a second account on top
+  // would double-book it.
+  const codedByHand = isPayrollSplit && !e.payrollMatch && e.mapping_source === "manual";
 
   async function handleChange(coaId: string | null) {
     setSaving(true);
     await onSetExpense(e.id, coaId);
     setSaving(false);
   }
+
+  // The single-account picker. Shared by the ordinary path and by an unmatched
+  // payroll_split row, so the two cannot drift into offering different controls
+  // for the same act of pinning an account.
+  const glAccountRow = (
+    <div className="flex items-center gap-2">
+      <span className="text-2xs text-faint uppercase tracking-wider shrink-0">GL account</span>
+      <AccountSelect
+        value={e.chart_of_accounts_id}
+        onChange={handleChange}
+        accounts={accounts}
+        placeholder={e.mapping_source === "unmapped" ? "— unmapped —" : "— follow account rule —"}
+        shortLabel
+        className="w-full max-w-[360px]"
+      />
+      {e.mapping_source === "manual" && (
+        <span className="text-2xs text-info shrink-0" title="Manually pinned — sync and auto-map leave it alone">pin</span>
+      )}
+      {e.mapping_source === "rule" && (
+        <span className="text-2xs text-faint shrink-0" title="Coded from the source-account rule (Settings → Expense Accounts)">rule</span>
+      )}
+      <SaveHint saving={saving} />
+    </div>
+  );
 
   return (
     <>
@@ -213,7 +248,7 @@ function ExpenseRowView({
         </td>
         <td className="px-4 py-2">
           <div className="flex items-center gap-1.5">
-            {isPayrollSplit ? (
+            {isPayrollSplit && !codedByHand ? (
               <PayrollSplitSummary payrollMatch={e.payrollMatch} glLines={e.glLines} />
             ) : (
               <CategoryBadges items={glName ? [glName] : []} />
@@ -278,16 +313,22 @@ function ExpenseRowView({
                 ))}
               </div>
 
-              {/* GL account mapping — payroll_split expenses code via their pay-period
-                  split (the panel below), so they don't get the single-account select. */}
+              {/* GL account mapping — a MATCHED payroll_split expense codes via its
+                  pay-period split, so it gets the panel and no single-account select.
+                  An UNMATCHED one gets both: the panel's "Match payroll period"
+                  button, and the select, because a payroll-routed counterparty can
+                  still bill something that isn't payroll (see codedByHand above). */}
               {isPayrollSplit ? (
-                <PayrollSplitPanel
-                  expenseId={e.id}
-                  payrollMatch={e.payrollMatch}
-                  glLines={e.glLines}
-                  accounts={accounts}
-                  onUpdated={onPayrollUpdated}
-                />
+                <>
+                  <PayrollSplitPanel
+                    expenseId={e.id}
+                    payrollMatch={e.payrollMatch}
+                    glLines={e.glLines}
+                    accounts={accounts}
+                    onUpdated={onPayrollUpdated}
+                  />
+                  {!e.payrollMatch && glAccountRow}
+                </>
               ) : editingSplit || hasManualSplit ? (
                 <ManualSplitPanel
                   expenseId={e.id}
@@ -298,24 +339,7 @@ function ExpenseRowView({
                   onCancel={() => setEditingSplit(false)}
                 />
               ) : (
-                <div className="flex items-center gap-2">
-                  <span className="text-2xs text-faint uppercase tracking-wider shrink-0">GL account</span>
-                  <AccountSelect
-                    value={e.chart_of_accounts_id}
-                    onChange={handleChange}
-                    accounts={accounts}
-                    placeholder={e.mapping_source === "unmapped" ? "— unmapped —" : "— follow account rule —"}
-                    shortLabel
-                    className="w-full max-w-[360px]"
-                  />
-                  {e.mapping_source === "manual" && (
-                    <span className="text-2xs text-info shrink-0" title="Manually pinned — sync and auto-map leave it alone">pin</span>
-                  )}
-                  {e.mapping_source === "rule" && (
-                    <span className="text-2xs text-faint shrink-0" title="Coded from the source-account rule (Settings → Expense Accounts)">rule</span>
-                  )}
-                  <SaveHint saving={saving} />
-                </div>
+                glAccountRow
               )}
 
               <div className="flex items-center gap-2">
@@ -441,7 +465,22 @@ export default function ExpensesPage() {
     if (!res.ok) return;
     const updated = await res.json() as { chart_of_accounts_id: string | null; mapping_source: ExpenseRow["mapping_source"] };
     setExpenses((es) => es.map((e) => e.id === id
-      ? { ...e, chart_of_accounts_id: updated.chart_of_accounts_id, mapping_source: updated.mapping_source, chart_of_accounts: acctById(updated.chart_of_accounts_id) }
+      ? {
+          ...e,
+          chart_of_accounts_id: updated.chart_of_accounts_id,
+          mapping_source: updated.mapping_source,
+          chart_of_accounts: acctById(updated.chart_of_accounts_id),
+          // The mapped/unmapped pill reads glLines, not chart_of_accounts_id, so
+          // patching the account alone leaves the row reading "unmapped" until the
+          // next full load -- an operator who just coded it sees their own change
+          // reported as not having happened. Mirrors resolveExpenseGlLines: split
+          // rows win where they exist, else one synthesized line from the account.
+          glLines: e.glLines.some((l) => l.splitSource !== null)
+            ? e.glLines
+            : updated.chart_of_accounts_id
+              ? [{ chartOfAccountsId: updated.chart_of_accounts_id, amountCents: e.amount_cents, splitSource: null }]
+              : [],
+        }
       : e));
   }
 

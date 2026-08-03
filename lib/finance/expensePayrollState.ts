@@ -16,6 +16,10 @@ export interface PayrollMatchState {
   periodStart: string; // YYYY-MM-DD
   periodEnd: string;   // YYYY-MM-DD
   hasReport: boolean;  // an un-superseded Gusto GL report exists for the period
+  /** Which of Gusto's two ACH pulls this charge is. Null when a human matched
+   *  it by hand, or when it predates amount matching — both mean nobody has
+   *  established WHICH debit it is, only that it belongs to the period. */
+  matchedComponent: "net_pay" | "taxes" | null;
 }
 
 export interface ExpensePayrollState {
@@ -30,13 +34,16 @@ export async function getExpensePayrollState(
 ): Promise<ExpensePayrollState> {
   const { data: matchRow, error: matchErr } = await sb
     .from("payroll_period_expense_matches")
-    .select("pay_period_id")
+    .select("pay_period_id, matched_component")
     .eq("expense_id", expenseId)
     .maybeSingle();
   if (matchErr) throw new Error(`Load payroll match failed: ${matchErr.message}`);
 
   const glLines = await getExpenseGlLines(sb, expenseId);
-  const payPeriodId = (matchRow as { pay_period_id: string } | null)?.pay_period_id ?? null;
+  const match = matchRow as { pay_period_id: string; matched_component: string | null } | null;
+  const payPeriodId = match?.pay_period_id ?? null;
+  const matchedComponent =
+    match?.matched_component === "net_pay" || match?.matched_component === "taxes" ? match.matched_component : null;
   if (!payPeriodId) return { payrollMatch: null, glLines };
 
   const [{ data: period, error: periodErr }, { data: report, error: reportErr }] = await Promise.all([
@@ -58,6 +65,7 @@ export async function getExpensePayrollState(
       periodStart: periodRow?.start_date ?? "",
       periodEnd: periodRow?.end_date ?? "",
       hasReport: report != null,
+      matchedComponent,
     },
     glLines,
   };

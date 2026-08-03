@@ -21,7 +21,7 @@
  * below -- it never runs unattended.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { parseGustoPayrollJournal, computeGlBucketTotals, type GlBucketTotal } from "./gustoParser";
+import { parseGustoPayrollJournal, computeGlBucketTotals, computeExpectedDebits, type GlBucketTotal } from "./gustoParser";
 import { recomputePeriodExpenseSplits } from "@/lib/finance/payrollMatching";
 
 const BUCKET = "payroll-gl-reports";
@@ -66,6 +66,13 @@ export interface BackfillPeriodResult {
    * not kept.
    */
   recoveredAccounts: RecoveredAccount[];
+  /**
+   * The two ACH pulls this report says to expect, re-derived from the stored
+   * CSV. Reported on dry runs too, so the amounts can be eyeballed against the
+   * period's actual bank charges BEFORE anything is written — which is the
+   * whole review this tool's human gate exists for.
+   */
+  expectedDebits: { netPayCents: number; taxCents: number; reimbursementsCents: number };
   splitsRecomputed: boolean;
   error?: string;
 }
@@ -177,9 +184,26 @@ export async function backfillGlReports(
       const buckets = computeGlBucketTotals(parsed, departmentMap, payrollTaxesAccountId, tipsAccountId);
       const after = summarizeBuckets(buckets);
       const recoveredAccounts = findRecoveredAccounts(buckets, existingRows);
+      // The same download and parse already needed for the buckets also yields
+      // what the report says will LEAVE THE BANK -- the two ACH pulls amount
+      // matching needs (gustoParser's ExpectedDebits). Reports uploaded before
+      // those columns were parsed have NULLs, and a NULL makes
+      // matchPeriodByExpectedDebits skip the period entirely, so this is how a
+      // historical period becomes matchable at all.
+      const expectedDebits = computeExpectedDebits(parsed);
 
       let splitsRecomputed = false;
       if (!opts.dryRun) {
+        const { error: debitsErr } = await sb
+          .from("payroll_gl_reports")
+          .update({
+            expected_net_pay_cents: expectedDebits.netPayCents,
+            expected_tax_cents: expectedDebits.taxCents,
+            expected_reimbursements_cents: expectedDebits.reimbursementsCents,
+          })
+          .eq("id", report.id);
+        if (debitsErr) throw new Error(`Update expected debits failed: ${debitsErr.message}`);
+
         const { error: deleteErr } = await sb.from("payroll_gl_report_totals").delete().eq("report_id", report.id);
         if (deleteErr) throw new Error(`Delete existing totals failed: ${deleteErr.message}`);
 
@@ -227,6 +251,7 @@ export async function backfillGlReports(
         before,
         after,
         recoveredAccounts,
+        expectedDebits,
         splitsRecomputed,
       });
     } catch (err) {
@@ -236,6 +261,7 @@ export async function backfillGlReports(
         before: emptySummary(),
         after: emptySummary(),
         recoveredAccounts: [],
+        expectedDebits: { netPayCents: 0, taxCents: 0, reimbursementsCents: 0 },
         splitsRecomputed: false,
         error: err instanceof Error ? err.message : String(err),
       });

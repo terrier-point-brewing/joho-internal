@@ -17,6 +17,14 @@
  * "Totals" in the "Job" column position (index 6), which is not used here.
  * A "Payroll Totals" row (and everything after it) is the file's own
  * grand-total/by-job-title trailer, not employee data, and is excluded.
+ *
+ * ── Two different questions this file answers ────────────────────────────────
+ * computeGlBucketTotals answers "what did payroll COST" (gross wages by
+ * department, employer tax, tips) — that drives the GL. computeExpectedDebits
+ * answers "what will LEAVE THE BANK" (disbursements, tax remittance) — that is
+ * the only figure a bank charge can be matched against, because it is the shape
+ * Gusto actually pulls the money in. The two are not the same number and are
+ * not meant to be; see ExpectedDebits for why.
  */
 
 // ── Column positions in the per-employee data rows (0-indexed, after the
@@ -28,7 +36,12 @@ const COL = {
   job: 6,
   payType: 7,
   amount: 10,
+  employeeTaxes: 11,
   employerTaxes: 17,
+  netPay: 22,
+  reimbursements: 23,
+  donations: 24,
+  checkAmount: 25,
 } as const;
 
 export interface ParsedGustoEmployee {
@@ -43,6 +56,56 @@ export interface ParsedGustoEmployee {
    *  employee has no Paycheck Tips sub-row. Never folded into grossAmountCents —
    *  tips are a balance-sheet pass-through, not wage expense. */
   paycheckTipsCents: number;
+  // ── Cash-movement columns ────────────────────────────────────────────────
+  // The fields above describe what payroll COST (they drive the GL buckets).
+  // These describe what LEAVES THE BANK, which is a different number and the
+  // only thing a bank debit can be matched against. See computeExpectedDebits.
+  /** "Employee Taxes" — withheld from the employee, remitted by the company. */
+  employeeTaxCents: number;
+  /** "Check Amount" — net pay + reimbursements − donations, i.e. the actual
+   *  disbursement to this employee. Preferred over the "Net Pay" column
+   *  because reimbursements really do leave the bank. */
+  checkAmountCents: number;
+  /** "Reimbursements" — money out, but NOT wage expense, so it appears in the
+   *  disbursement and in no GL bucket. Carried separately so a report whose
+   *  debits exceed its GL total can say why instead of reading as a variance. */
+  reimbursementsCents: number;
+}
+
+/**
+ * What Gusto will actually debit the bank for this payroll, as two separate
+ * ACH pulls — which is how Gusto moves the money and therefore how the bank
+ * feed reports it.
+ *
+ * This is deliberately NOT the GL bucket total. Gross wages + employer tax
+ * (what payroll COST) and disbursement + tax remittance (what MOVED) differ by
+ * employee withholding on one side and reimbursements on the other; they only
+ * coincide when withholding nets out and nobody was reimbursed. Matching bank
+ * charges against the cost figure is what forced the old nearest-date rule,
+ * because the cost figure matches no single debit.
+ */
+export interface ExpectedDebits {
+  /** Σ Check Amount — the direct-deposit pull. */
+  netPayCents: number;
+  /** Σ Employee Taxes + Σ Employer Taxes — the tax-remittance pull. */
+  taxCents: number;
+  /** Σ Reimbursements. Included in netPayCents; surfaced so the gap between
+   *  these debits and the report's GL total is explainable rather than a
+   *  mystery variance. */
+  reimbursementsCents: number;
+}
+
+/** Sums the per-employee cash columns into the two debits Gusto will pull. */
+export function computeExpectedDebits(parsed: ParsedGustoReport): ExpectedDebits {
+  let netPayCents = 0;
+  let taxCents = 0;
+  let reimbursementsCents = 0;
+  for (const e of parsed.employees) {
+    netPayCents += e.checkAmountCents;
+    taxCents += e.employeeTaxCents + e.employerTaxCents;
+    reimbursementsCents += e.reimbursementsCents;
+  }
+  return { netPayCents, taxCents, reimbursementsCents };
 }
 
 export interface ParsedGustoReport {
@@ -155,6 +218,14 @@ export function parseGustoPayrollJournal(csvText: string): ParsedGustoReport {
         grossAmountCents: parseAmountCents(cell(row, COL.amount)),
         employerTaxCents: parseAmountCents(cell(row, COL.employerTaxes)),
         paycheckTipsCents: 0,
+        // Cash columns live ONLY on the employee's own row — the blank-Last-Name
+        // sub-rows leave every one of them empty (verified against the real
+        // export), so they are read here and never accumulated below. That also
+        // means tips need no special handling: Gusto computes Check Amount on
+        // the employee's total earnings, tips included.
+        employeeTaxCents: parseAmountCents(cell(row, COL.employeeTaxes)),
+        checkAmountCents: parseAmountCents(cell(row, COL.checkAmount)),
+        reimbursementsCents: parseAmountCents(cell(row, COL.reimbursements)),
       });
       continue;
     }

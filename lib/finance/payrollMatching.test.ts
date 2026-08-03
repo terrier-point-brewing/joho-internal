@@ -5,6 +5,9 @@ import {
   computeProportionalSplits,
   recomputePeriodExpenseSplits,
   planPayrollMatches,
+  planExpectedDebitMatches,
+  withinPayDayWindow,
+  autoMapPayrollExpenses,
   type MatchedExpenseAmount,
   type PeriodBucket,
 } from "./payrollMatching";
@@ -975,5 +978,205 @@ describe("recomputePeriodExpenseSplits", () => {
     const total = rows.reduce((s, r) => s + r.amountCentsByMonth["2026-07"], 0);
     expect(total).toBe(-80000);
     for (const r of rows) expect(r.amountCentsByMonth["2026-07"]).toBeLessThan(0);
+  });
+});
+
+describe("autoMapPayrollExpenses — hand-pinned rows", () => {
+  interface Row { [k: string]: unknown }
+
+  interface FakeState {
+    counterparties: Row[];
+    expenses: Row[];
+    matches: Row[];
+    periods: Row[];
+    inserted: Row[];
+  }
+
+  /** Minimal PostgREST stub: the filter verbs autoMapPayrollExpenses actually uses. */
+  function makeClient(state: FakeState) {
+    const rowsFor = (table: string): Row[] => {
+      if (table === "expense_counterparty_mappings") return state.counterparties;
+      if (table === "expenses") return state.expenses;
+      if (table === "payroll_period_expense_matches") return state.matches;
+      if (table === "pay_periods") return state.periods;
+      // recomputePeriodExpenseSplits runs after the insert; no active report
+      // means it no-ops, which keeps this test about matching only.
+      if (table === "payroll_gl_reports") return [];
+      throw new Error(`unexpected table ${table}`);
+    };
+
+    const client = {
+      from(table: string) {
+        return {
+          select() {
+            const chain = {
+              _f: [] as { op: string; col: string; val: unknown }[],
+              eq(col: string, val: unknown) { this._f.push({ op: "eq", col, val }); return this; },
+              neq(col: string, val: unknown) { this._f.push({ op: "neq", col, val }); return this; },
+              gte(col: string, val: unknown) { this._f.push({ op: "gte", col, val }); return this; },
+              lte(col: string, val: unknown) { this._f.push({ op: "lte", col, val }); return this; },
+              in(col: string, val: unknown[]) { this._f.push({ op: "in", col, val }); return this; },
+              is(col: string, val: unknown) { this._f.push({ op: "eq", col, val }); return this; },
+              order() { return this; },
+              limit() { return this; },
+              then(resolve: (v: { data: unknown; error: null }) => unknown) {
+                let data = rowsFor(table);
+                for (const f of this._f) {
+                  data = data.filter((r) => {
+                    const v = r[f.col];
+                    if (f.op === "eq") return v === f.val;
+                    if (f.op === "neq") return v !== f.val;
+                    if (f.op === "gte") return (v as string) >= (f.val as string);
+                    if (f.op === "lte") return (v as string) <= (f.val as string);
+                    return (f.val as unknown[]).includes(v);
+                  });
+                }
+                return Promise.resolve({ data, error: null }).then(resolve);
+              },
+            };
+            return chain;
+          },
+          insert(rows: Row[]) {
+            return Promise.resolve().then(() => {
+              if (table === "payroll_period_expense_matches") state.inserted.push(...rows);
+              return { error: null };
+            });
+          },
+        };
+      },
+    };
+    return client as unknown as SupabaseClient;
+  }
+
+  /** Gusto bills its software subscription from the same account it debits
+   *  payroll from, so both rows share counterparty_key 'gusto'. Pinning the
+   *  subscription is how the operator says "not payroll" — the bulk run has to
+   *  respect that, or it silently re-inflates the period's reconciliation. */
+  function state(): FakeState {
+    return {
+      counterparties: [{ counterparty_key: "gusto", routing: "payroll_split" }],
+      expenses: [
+        { id: "payroll-1", ramp_object: "bank", counterparty_key: "gusto", accounting_date: "2026-07-02", transaction_time: null, mapping_source: "unmapped" },
+        { id: "subscription-1", ramp_object: "bank", counterparty_key: "gusto", accounting_date: "2026-07-02", transaction_time: null, mapping_source: "manual" },
+      ],
+      matches: [],
+      periods: [{ id: "period-1", end_date: "2026-06-28" }],
+      inserted: [],
+    };
+  }
+
+  it("skips an expense pinned to an account, and still matches its unpinned sibling", async () => {
+    const s = state();
+    const result = await autoMapPayrollExpenses(makeClient(s), {
+      from: "2026-06-01",
+      to: "2026-07-31",
+      matchedBy: "user-1",
+    });
+
+    expect(result.matched).toBe(1);
+    expect(s.inserted).toHaveLength(1);
+    expect(s.inserted[0]).toMatchObject({ expense_id: "payroll-1", pay_period_id: "period-1" });
+  });
+
+  it("matches the same expense once the pin is removed", async () => {
+    const s = state();
+    (s.expenses[1] as Row).mapping_source = "unmapped";
+
+    const result = await autoMapPayrollExpenses(makeClient(s), {
+      from: "2026-06-01",
+      to: "2026-07-31",
+      matchedBy: "user-1",
+    });
+
+    expect(result.matched).toBe(2);
+    expect(s.inserted.map((r) => r.expense_id).sort()).toEqual(["payroll-1", "subscription-1"]);
+  });
+});
+
+describe("planExpectedDebitMatches", () => {
+  const PAY_DAY = "2026-06-29";
+  const TARGETS: { component: "net_pay" | "taxes"; amountCents: number }[] = [
+    { component: "net_pay", amountCents: 685205 },
+    { component: "taxes", amountCents: 208928 },
+  ];
+
+  it("matches both debits by exact amount and ignores a charge that is neither", () => {
+    // The real Jun 15-28 shape: two payroll pulls plus two charges that are not
+    // payroll at all (the case the old proximity rule swallowed).
+    const plans = planExpectedDebitMatches(TARGETS, [
+      { id: "net", amountCents: 685205, expenseDate: "2026-06-30" },
+      { id: "tax", amountCents: 208928, expenseDate: "2026-06-30" },
+      { id: "other-a", amountCents: 35093, expenseDate: "2026-06-22" },
+      { id: "other-b", amountCents: 6764, expenseDate: "2026-06-22" },
+    ], PAY_DAY);
+
+    expect(plans).toEqual([
+      { expenseId: "net", component: "net_pay" },
+      { expenseId: "tax", component: "taxes" },
+    ]);
+  });
+
+  it("leaves a debit unmatched rather than taking a near miss", () => {
+    const plans = planExpectedDebitMatches(TARGETS, [
+      { id: "net", amountCents: 685205, expenseDate: "2026-06-30" },
+      { id: "tax-off-by-a-dollar", amountCents: 208828, expenseDate: "2026-06-30" },
+    ], PAY_DAY);
+
+    expect(plans).toEqual([{ expenseId: "net", component: "net_pay" }]);
+  });
+
+  it("ignores an exactly-equal charge that falls outside the pay day window", () => {
+    const plans = planExpectedDebitMatches(TARGETS, [
+      { id: "far-future", amountCents: 685205, expenseDate: "2026-07-20" },
+      { id: "far-past", amountCents: 208928, expenseDate: "2026-06-01" },
+    ], PAY_DAY);
+
+    expect(plans).toEqual([]);
+  });
+
+  it("never assigns one charge to both debits when the two amounts coincide", () => {
+    const plans = planExpectedDebitMatches(
+      [{ component: "net_pay", amountCents: 500000 }, { component: "taxes", amountCents: 500000 }],
+      [{ id: "only-one", amountCents: 500000, expenseDate: "2026-06-30" }],
+      PAY_DAY,
+    );
+
+    expect(plans).toEqual([{ expenseId: "only-one", component: "net_pay" }]);
+  });
+
+  it("breaks a same-amount tie toward the charge nearest pay day", () => {
+    const plans = planExpectedDebitMatches(
+      [{ component: "net_pay", amountCents: 685205 }],
+      [
+        { id: "later", amountCents: 685205, expenseDate: "2026-07-06" },
+        { id: "nearer", amountCents: 685205, expenseDate: "2026-06-30" },
+      ],
+      PAY_DAY,
+    );
+
+    expect(plans).toEqual([{ expenseId: "nearer", component: "net_pay" }]);
+  });
+
+  it("skips a zero-amount debit instead of matching a zero-amount charge", () => {
+    const plans = planExpectedDebitMatches(
+      [{ component: "taxes", amountCents: 0 }],
+      [{ id: "zero", amountCents: 0, expenseDate: "2026-06-30" }],
+      PAY_DAY,
+    );
+
+    expect(plans).toEqual([]);
+  });
+});
+
+describe("withinPayDayWindow", () => {
+  it("accepts the observed +1/+2 day settlement lag and rejects the next period's pay day", () => {
+    expect(withinPayDayWindow("2026-06-30", "2026-06-29")).toBe(true);
+    expect(withinPayDayWindow("2026-07-01", "2026-06-29")).toBe(true);
+    expect(withinPayDayWindow("2026-06-26", "2026-06-29")).toBe(true);  // -3, boundary
+    expect(withinPayDayWindow("2026-07-09", "2026-06-29")).toBe(true);  // +10, boundary
+    expect(withinPayDayWindow("2026-06-25", "2026-06-29")).toBe(false);
+    expect(withinPayDayWindow("2026-07-10", "2026-06-29")).toBe(false);
+    // The next period's pay day is 14 days out — must never be in range.
+    expect(withinPayDayWindow("2026-07-13", "2026-06-29")).toBe(false);
   });
 });
