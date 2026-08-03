@@ -257,8 +257,13 @@ export default function DraftStatsTab() {
 
   function startEditTaps() {
     // Pull the latest Square catalog so a just-synced restock item is selectable
-    // without a manual page reload.
+    // without a manual page reload — and the same for the three lists behind the
+    // dropdowns below, each of which is cached for 5 minutes. A beer mapped to
+    // draft in Settings → Catalog moments ago must be pickable here now; waiting
+    // out a staleTime reads as "the beer is missing", not "the cache is warm".
     qc.invalidateQueries({ queryKey: queryKeys.production.squareCatalog() });
+    qc.invalidateQueries({ queryKey: queryKeys.production.recipeSquareLinks() });
+    qc.invalidateQueries({ queryKey: queryKeys.production.recipePackagingVariations() });
     setTapCountInput(String(stats?.tap_count ?? tapConfig?.tap_count ?? 8));
     setRestockItemId(tapConfig?.draft_restock_item_id ?? "");
     const edits: Record<number, {
@@ -397,6 +402,10 @@ export default function DraftStatsTab() {
   const swapKegVolume = swapKegPick ? codedVolumeFor(swapKegPick) : null;
 
   function openSwap(tapNumber: number) {
+    // Same staleness trap as startEditTaps — "Beer going on" is the same draft
+    // list, and a swap is exactly when a just-mapped seasonal gets picked.
+    qc.invalidateQueries({ queryKey: queryKeys.production.recipeSquareLinks() });
+    qc.invalidateQueries({ queryKey: queryKeys.production.recipePackagingVariations() });
     setSwapTap(tapNumber);
     setSwapRecipeId("");
     setSwapKegId("");

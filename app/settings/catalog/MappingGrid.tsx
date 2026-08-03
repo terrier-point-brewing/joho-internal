@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useSquareMappingGridQuery } from "@/app/production/hooks/queries";
+import { useSquareMappingGridQuery, invalidateSquareMappings } from "@/app/production/hooks/queries";
 import { usePermissions } from "@/lib/hooks/useUserRole";
 import { CAP } from "@/lib/auth/capabilities";
 import { queryKeys } from "@/lib/query-keys";
@@ -91,7 +91,7 @@ export default function MappingGrid({
         throw new Error((json as { error?: string }).error ?? "Sync failed");
       }
       await Promise.all([
-        qc.invalidateQueries({ queryKey: ["production", "square-mapping-grid"] }),
+        invalidateSquareMappings(qc),
         qc.invalidateQueries({ queryKey: queryKeys.production.squareCatalog() }),
       ]);
     } catch (err) {
@@ -139,7 +139,7 @@ export default function MappingGrid({
           );
       })
     );
-    qc.invalidateQueries({ queryKey: ["production", "square-mapping-grid"] });
+    invalidateSquareMappings(qc);
   }
 
   async function fillAll() {
@@ -160,7 +160,7 @@ export default function MappingGrid({
       v.variationId === "draft" ? null : v.variationId,
       v.suggestion
     );
-    qc.invalidateQueries({ queryKey: ["production", "square-mapping-grid"] });
+    invalidateSquareMappings(qc);
   }
 
   const syncedLabel = syncedAgo(data.catalogSyncedAt);

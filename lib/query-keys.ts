@@ -58,6 +58,7 @@ export const queryKeys = {
     commitments:          () => ["production", "commitments"] as const,
     squareCatalog:        () => ["production", "square-catalog"] as const,
     recipeSquareLinks:    () => ["production", "recipe-square-links"] as const,
+    squareMappingGrid:    () => ["production", "square-mapping-grid"] as const,
     packagingVariations:  () => ["production", "packaging-variations"] as const,
     recipePackagingVariations: () => ["production", "recipe-packaging-variations"] as const,
     demandCalendar:       () => ["production", "demand-calendar"] as const,
