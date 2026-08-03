@@ -13,6 +13,15 @@ export interface FieldSpec {
   type: "text" | "number" | "email" | "tel" | "money" | "select";
   sensitive?: boolean;               // SSN/FEIN — never returned to the browser
   options?: { value: string; label: string }[];
+  /**
+   * Marks a field whose stored value is a Square catalog tax id. Two consumers
+   * depend on knowing this, and neither can infer it safely from `type`/
+   * `options` alone: the settings form populates the select from Square's live
+   * catalog taxes, and `lib/tax/squareTaxUsage.ts` counts which Square taxes an
+   * active filing depends on so Finance → GL Mapping can warn before one is
+   * excluded out from under a return.
+   */
+  source?: "square_tax";
   required?: boolean;
   help?: string;
 }

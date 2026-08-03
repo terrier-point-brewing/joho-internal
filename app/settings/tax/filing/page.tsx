@@ -69,7 +69,17 @@ export default function TaxFilingSettingsPage() {
             {activeModule.settingsSchema.length > 0 && (
               <section className="flex flex-col gap-2">
                 <h3 className="text-sm font-semibold text-primary">Square Mappings</h3>
+                {/*
+                  Keyed on the module so switching modules REMOUNTS the form.
+                  IdentityForm seeds its state once per mount (`initializedRef`)
+                  and has no notion of the endpoint changing underneath it, so a
+                  shared instance kept the previous module's values: Wake County
+                  showed a blank Prepared Food & Beverage tax while carrying NC
+                  DOR's general sales tax id, and saving would have written that
+                  carried-over id into Wake County's own profile.
+                */}
                 <IdentityForm
+                  key={activeModule.key}
                   schema={activeModule.settingsSchema}
                   endpoint={`/api/tax/profiles/${activeModule.key}`}
                   queryKey={queryKeys.tax.profile(activeModule.key)}

@@ -55,7 +55,7 @@ export default function IdentityForm({
     queryFn: () => fetchJson<Record<string, string>>(endpoint),
   });
 
-  const needsSquareTaxes = schema.some((f) => f.type === "select" && (!f.options || f.options.length === 0));
+  const needsSquareTaxes = schema.some((f) => f.source === "square_tax");
   const squareTaxesQuery = useQuery({
     queryKey: queryKeys.tax.squareTaxes(),
     queryFn: () => fetchJson<SquareTaxOption[]>("/api/tax/square-taxes"),
@@ -240,10 +240,10 @@ function IdentityFieldInput({
   }
 
   if (field.type === "select") {
-    // A schema-declared option list wins; otherwise (e.g. general_sales_tax_id)
-    // the options come from the live Square catalog taxes fetch.
-    const options = field.options && field.options.length > 0
-      ? field.options
+    // `source: "square_tax"` means the options are the live Square catalog
+    // taxes; anything else uses the schema's own static option list.
+    const options = field.source !== "square_tax"
+      ? (field.options ?? [])
       : (squareTaxes ?? []).map((t) => ({
           value: t.id,
           label: t.percentage ? `${t.name} (${t.percentage}%)` : t.name,

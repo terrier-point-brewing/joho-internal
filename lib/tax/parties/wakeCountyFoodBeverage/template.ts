@@ -62,6 +62,7 @@ const settingsSchema: FieldSpec[] = [
     key: "food_beverage_tax_id",
     label: "Square Prepared Food & Beverage Tax",
     type: "select",
+    source: "square_tax",
     required: true,
     help: "The Square catalog tax representing the Wake County Prepared Food & Beverage Tax. Drives Applicable Gross Receipts and Tax Owed. Options are fetched from Square's catalog taxes.",
   },
@@ -69,6 +70,7 @@ const settingsSchema: FieldSpec[] = [
     key: "general_sales_tax_id",
     label: "Square General Sales Tax (for Gross Receipts)",
     type: "select",
+    source: "square_tax",
     help: "Optional — the Square general sales tax, used only to show the Gross Receipts comparison row. Leave blank to omit that row.",
   },
   {
