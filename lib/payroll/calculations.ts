@@ -90,7 +90,8 @@ type AdjustmentSource = {
 export function mergeAdjustments(
   computed: PayrollEntryComputed,
   adjustments: AdjustmentSource,
-  divisor: number
+  divisor: number,
+  baseRateCents: number
 ): PayrollEntryMerged {
   const effectiveHours = adjustments.adj_hours_worked ?? computed.hours_worked;
   const effectivePaycheckTips = adjustments.adj_paycheck_tips_cents ?? computed.paycheck_tips_cents;
@@ -100,14 +101,20 @@ export function mergeAdjustments(
   const effectiveReportedCashTips =
     adjustments.adj_reported_cash_tips_cents ?? Math.round(effectiveCashTips / divisor);
   const effectiveBonus = adjustments.adj_bonus_cents ?? computed.bonus_cents;
+  // Base pay is not independently adjustable — it is a function of hours, so an
+  // adj_hours_worked override must move it. Derived exactly the way
+  // periodSummary.computePeriodBasis derives it from the locked snapshot
+  // (round(hours × baseRate)), so the preview and the periods table agree.
+  const effectiveBasePay = Math.round(effectiveHours * baseRateCents);
   // Total comp uses actual cash (the real dollars); the reported figure is a
   // payroll-reporting construct surfaced separately in the UI/Gusto view.
-  const effectiveTotal = computed.base_pay_cents + effectivePaycheckTips + effectiveCashTips + effectiveBonus;
+  const effectiveTotal = effectiveBasePay + effectivePaycheckTips + effectiveCashTips + effectiveBonus;
 
   return {
     ...computed,
     ...adjustments,
     effective_hours: effectiveHours,
+    effective_base_pay_cents: effectiveBasePay,
     effective_paycheck_tips_cents: effectivePaycheckTips,
     effective_cash_tips_cents: effectiveCashTips,
     effective_reported_cash_tips_cents: effectiveReportedCashTips,

@@ -223,6 +223,46 @@ describe("base-pay rounding agrees across the preview and rollup paths", () => {
     // Bucket 2: 16170 - 12003 - 20000 → 0 (tips more than cover it).
     expect(r[0].bonus_cents).toBe(1134);
   });
+
+  it("still agrees when an adj_hours_worked override is set", () => {
+    const noAdj = {
+      adj_hours_worked: null, adj_paycheck_tips_cents: null, adj_cash_tips_cents: null,
+      adj_reported_cash_tips_cents: null, adj_bonus_cents: null, admin_notes: null,
+    };
+    // Admin overrides e1's hours; e2 rides the Square-computed figure.
+    const merged = entries.map((c) =>
+      mergeAdjustments(
+        c,
+        c.employee_id === "e1" ? { ...noAdj, adj_hours_worked: 25.5 } : noAdj,
+        rateCfg.reported_cash_tips_divisor,
+        rateCfg.base_rate_cents,
+      ),
+    );
+
+    const e1 = merged.find((m) => m.employee_id === "e1")!;
+    // 25.5h × $16.33 — the ADJUSTED hours, not the 22.05h Square computed.
+    expect(e1.effective_base_pay_cents).toBe(41642);
+    expect(e1.base_pay_cents).toBe(36008);
+
+    // The lock route snapshots effective_*; computePeriodBasis re-derives base
+    // pay from the snapshotted (adjusted) hours, so the two must still tie.
+    const snapshot: BasisEntry[] = merged.map((m) => ({
+      hours_worked: m.effective_hours,
+      paycheck_tips_cents: m.effective_paycheck_tips_cents,
+      cash_tips_cents: m.effective_cash_tips_cents,
+      bonus_cents: m.effective_bonus_cents,
+    }));
+    const basis = computePeriodBasis(snapshot, rateCfg.base_rate_cents)!;
+
+    // previewWages is what PayrollPeriodView totals; basis.wagesCents is what
+    // the periods table shows as App Wages.
+    const previewWages = merged.reduce(
+      (s, m) => s + m.effective_base_pay_cents + m.effective_paycheck_tips_cents + m.effective_bonus_cents, 0);
+    const previewTotal = merged.reduce((s, m) => s + m.effective_total_compensation_cents, 0);
+
+    expect(basis.wagesCents).toBe(previewWages);
+    expect(basis.totalCompCents).toBe(previewTotal);
+  });
 });
 
 describe("mergeAdjustments", () => {
@@ -241,30 +281,43 @@ describe("mergeAdjustments", () => {
     adj_reported_cash_tips_cents: null, adj_bonus_cents: null, admin_notes: null,
   };
 
+  // computed.base_pay_cents (1000) = 10h × 100c/hr, so 100 is the base rate that
+  // is internally consistent with the fixture above.
+  const RATE = 100;
+
   it("uses computed values when no adjustments", () => {
-    const merged = mergeAdjustments(computed, noAdj, 10);
+    const merged = mergeAdjustments(computed, noAdj, 10, RATE);
     expect(merged.effective_hours).toBe(10);
     expect(merged.effective_paycheck_tips_cents).toBe(500);
+    expect(merged.effective_base_pay_cents).toBe(1000);
   });
 
   it("uses adjusted value when set", () => {
-    const merged = mergeAdjustments(computed, { ...noAdj, adj_hours_worked: 12 }, 10);
+    const merged = mergeAdjustments(computed, { ...noAdj, adj_hours_worked: 12 }, 10, RATE);
     expect(merged.effective_hours).toBe(12);
   });
 
   it("recomputes total with effective values (total uses actual cash, not reported)", () => {
-    const merged = mergeAdjustments(computed, { ...noAdj, adj_paycheck_tips_cents: 1000 }, 10);
+    const merged = mergeAdjustments(computed, { ...noAdj, adj_paycheck_tips_cents: 1000 }, 10, RATE);
     expect(merged.effective_total_compensation_cents).toBe(1000 + 1000 + 100 + 200);
+  });
+
+  it("base pay follows adjusted hours, and the total follows it", () => {
+    const merged = mergeAdjustments(computed, { ...noAdj, adj_hours_worked: 12 }, 10, RATE);
+    // 12h × 100c, NOT the Square-computed 10h × 100c
+    expect(merged.effective_base_pay_cents).toBe(1200);
+    expect(merged.base_pay_cents).toBe(1000); // computed stays as the pre-adjustment figure
+    expect(merged.effective_total_compensation_cents).toBe(1200 + 500 + 100 + 200);
   });
 
   it("reported cash: override wins, else re-derives from effective actual cash", () => {
     // no reported override → tracks effective actual (100) / divisor (10) = 10
-    expect(mergeAdjustments(computed, noAdj, 10).effective_reported_cash_tips_cents).toBe(10);
+    expect(mergeAdjustments(computed, noAdj, 10, RATE).effective_reported_cash_tips_cents).toBe(10);
     // override actual cash to 5000 → reported default re-derives = 500
-    expect(mergeAdjustments(computed, { ...noAdj, adj_cash_tips_cents: 5000 }, 10)
+    expect(mergeAdjustments(computed, { ...noAdj, adj_cash_tips_cents: 5000 }, 10, RATE)
       .effective_reported_cash_tips_cents).toBe(500);
     // explicit reported override wins regardless of actual
-    expect(mergeAdjustments(computed, { ...noAdj, adj_reported_cash_tips_cents: 111 }, 10)
+    expect(mergeAdjustments(computed, { ...noAdj, adj_reported_cash_tips_cents: 111 }, 10, RATE)
       .effective_reported_cash_tips_cents).toBe(111);
   });
 });

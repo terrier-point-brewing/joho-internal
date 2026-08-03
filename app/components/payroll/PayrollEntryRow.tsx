@@ -118,7 +118,7 @@ export function PayrollEntryRow({ entry, employee, periodId, editable, overrideM
   const rowCash = cashView === "actual"
     ? entry.effective_cash_tips_cents
     : entry.effective_reported_cash_tips_cents;
-  const rowTotal = entry.base_pay_cents + entry.effective_paycheck_tips_cents + rowCash + entry.effective_bonus_cents;
+  const rowTotal = entry.effective_base_pay_cents + entry.effective_paycheck_tips_cents + rowCash + entry.effective_bonus_cents;
 
   return (
     <tr className={`border-b border-line ${entry.effective_hours === 0 ? "opacity-40" : ""}`}>
@@ -147,8 +147,17 @@ export function PayrollEntryRow({ entry, employee, periodId, editable, overrideM
           step="0.25"
         />
       </td>
+      {/* Base pay isn't independently overridable — it tracks the effective hours,
+          so it renders like an overridden ValueCell whenever those hours moved. */}
       <td className="py-2 px-3 text-body text-sm text-right">
-        {fmt(entry.base_pay_cents)}
+        {entry.effective_base_pay_cents !== entry.base_pay_cents ? (
+          <div className="flex flex-col items-end">
+            <span className="text-accent-soft">{fmt(entry.effective_base_pay_cents)}</span>
+            <span className="text-faint text-xs line-through">{fmt(entry.base_pay_cents)}</span>
+          </div>
+        ) : (
+          fmt(entry.base_pay_cents)
+        )}
       </td>
       <td className="py-2 px-3 text-sm text-right">
         <ValueCell

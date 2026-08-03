@@ -422,8 +422,11 @@ describe("buildPayrollPreview — adjustment merge from stored entries", () => {
     expect(e1.effective_reported_cash_tips_cents).toBe(10);
     expect(e1.effective_bonus_cents).toBe(999);
     expect(e1.admin_notes).toBe("manual override");
-    // effective total = base_pay (computed 10000) + effective tips/cash/bonus
-    expect(e1.effective_total_compensation_cents).toBe(10000 + 4000 + 100 + 999);
+    // Base pay follows the ADJUSTED hours (20h × $10), not the computed 10h.
+    expect(e1.base_pay_cents).toBe(10000);
+    expect(e1.effective_base_pay_cents).toBe(20000);
+    // effective total = effective base_pay + effective tips/cash/bonus
+    expect(e1.effective_total_compensation_cents).toBe(20000 + 4000 + 100 + 999);
   });
 
   it("falls back to computed values when stored entry has no adjustments", async () => {
@@ -526,7 +529,10 @@ describe("buildPayrollPreview — day override vs period-level adjustment (spec 
     // Day override (8h) feeds the pre-adjustment computed hours/base pay.
     expect(e1.hours_worked).toBe(8);
     expect(e1.base_pay_cents).toBe(8000); // 8h * $10/hr base_rate_cents
-    // Period-level adj_hours_worked (20) wins for the final effective value.
+    // Period-level adj_hours_worked (20) wins for the final effective value —
+    // and base pay follows it, because that is what the lock snapshot and
+    // periodSummary.computePeriodBasis will re-derive from.
     expect(e1.effective_hours).toBe(20);
+    expect(e1.effective_base_pay_cents).toBe(20000); // 20h * $10/hr
   });
 });
