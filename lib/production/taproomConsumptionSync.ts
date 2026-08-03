@@ -2,7 +2,8 @@ import { SupabaseClient } from "@supabase/supabase-js";
 import { deriveTaproomConsumption, type ConsumptionKind, type AssemblyDiscrepancy } from "@/lib/square/taproomConsumption";
 import { setPhysicalCount, fetchCurrentCounts } from "@/lib/square/inventory";
 import { recordTaproomConsumption } from "@/lib/production/recordTaproomConsumption";
-import { reconcileSquareCanInventory } from "@/lib/production/reconcileSquareCanInventory";
+import { pushInventoryToSquare } from "@/lib/production/pushInventoryToSquare";
+import { PUSH_TO_SQUARE_ENABLED } from "@/lib/square/pushGate";
 import { syncDraftPourConsumption } from "./syncDraftPourConsumption";
 import { buildRetirePayload } from "@/lib/taproom/retireRecipe";
 import { fetchPourFlOzBetweenWith } from "@/lib/taproom/kegPourWindow";
@@ -106,7 +107,13 @@ export interface TaproomSyncResult {
   packsBrokenDown: number;
   packagingWarnings: string[];
   discrepancies: SyncDiscrepancy[];
-  squareWriteback: { applied: number; writes: import("./reconcileSquareCanInventory").ReconcileWrite[]; warnings: string[] };
+  squareWriteback: {
+    applied: number;
+    /** Corrections the push would send; populated whether or not the gate is open. */
+    planned: import("./pushInventoryToSquare").PushOutcome["planned"];
+    warnings: string[];
+    pushEnabled: boolean;
+  };
 }
 
 const EPS = 1e-4;
@@ -392,7 +399,7 @@ export async function runTaproomConsumptionSync(
       shipmentId, windowDays: days, lockSkipped: true,
       recorded: [], recordedUnits: 0, skipped: 0, totalRecordedQty: 0,
       recountsApplied: 0, swapsConsumed: 0, packsBrokenDown: 0, packagingWarnings: [], discrepancies: [],
-      squareWriteback: { applied: 0, writes: [], warnings: [] },
+      squareWriteback: { applied: 0, planned: [], warnings: [], pushEnabled: PUSH_TO_SQUARE_ENABLED },
     };
   }
 
@@ -624,17 +631,30 @@ export async function runTaproomConsumptionSync(
     }
   }
 
-  // Reflect cold storage back onto Square for every can recipe this run touched.
-  // Cold storage trumps: this writes the loose-can total onto each family's base
-  // Square variation. Best-effort — a Square failure is logged, never fatal.
-  const canRecipeIds = [...new Set(units.filter((u) => u.kind === "can_sale").map((u) => u.recipeId))];
-  let squareWriteback = { applied: 0, writes: [] as import("./reconcileSquareCanInventory").ReconcileWrite[], warnings: [] as string[] };
-  if (canRecipeIds.length > 0) {
+  // Reflect cold storage back onto Square for every recipe this run drained.
+  //
+  // Covers KEG sales as well as can sales now. The old call reconciled cans
+  // only, so a keg sold to go depleted cold storage and left Square's keg count
+  // untouched — 55 mapped keg SKUs that were never written.
+  //
+  // Delegates to the shared push so this path and the nightly job cannot drift
+  // apart in what they consider pushable, and so both honour the same gate.
+  // Best-effort — a Square failure is logged, never fatal.
+  const touchedRecipeIds = [...new Set(
+    units.filter((u) => u.kind === "can_sale" || u.kind === "keg_sale").map((u) => u.recipeId),
+  )];
+  let squareWriteback = {
+    applied: 0,
+    planned: [] as import("./pushInventoryToSquare").PushOutcome["planned"],
+    warnings: [] as string[],
+    pushEnabled: PUSH_TO_SQUARE_ENABLED,
+  };
+  if (touchedRecipeIds.length > 0) {
     try {
-      const rc = await reconcileSquareCanInventory(supabase, { recipeIds: canRecipeIds });
-      squareWriteback = { applied: rc.applied, writes: rc.writes, warnings: rc.warnings };
+      const rc = await pushInventoryToSquare(supabase, { recipeIds: touchedRecipeIds });
+      squareWriteback = { applied: rc.applied, planned: rc.planned, warnings: rc.warnings, pushEnabled: rc.pushEnabled };
     } catch (e) {
-      squareWriteback.warnings.push(`reconcile failed: ${e instanceof Error ? e.message : String(e)}`);
+      squareWriteback.warnings.push(`square push failed: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 

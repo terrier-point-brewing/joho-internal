@@ -11,7 +11,8 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { reconcileSquareCanInventory, type FamilyMeasurement } from "./reconcileSquareCanInventory";
-import { measureKegDrift, type KegLink, type KegMeasurement, type KegUnmeasured } from "./kegDrift";
+import { measureKegDrift, type KegMeasurement, type KegUnmeasured } from "./kegDrift";
+import { loadKegLinks } from "./kegLinks";
 import { fetchColdStorageOnHand } from "./coldStorageOnHand";
 import { fetchCurrentCounts } from "@/lib/square/inventory";
 import { findDeadLinks, type DeadLink } from "@/lib/square/linkHealth";
@@ -38,34 +39,6 @@ export interface InventoryDrift {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Db = SupabaseClient | { from: (t: string) => any };
-
-async function loadKegLinks(db: Db): Promise<KegLink[]> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data, error } = await (db as any)
-    .from("recipe_square_links")
-    .select("recipe_id, variation_id, square_variation_id, variation_name, packaging_variations:variation_id ( name )")
-    .eq("packaging", "keg");
-  if (error) throw new Error(error.message);
-
-  const rows = (data ?? []) as {
-    recipe_id: string; variation_id: string | null;
-    square_variation_id: string; variation_name: string | null;
-    packaging_variations: { name: string | null } | null;
-  }[];
-
-  // A keg link with no cold-storage variation cannot be compared — there is no
-  // app-side quantity to hold against Square's. Surfaced by findDeadLinks-adjacent
-  // mapping work rather than silently measured as zero.
-  return rows
-    .filter((r) => r.variation_id)
-    .map((r) => ({
-      recipeId: r.recipe_id,
-      variationId: r.variation_id!,
-      squareVariationId: r.square_variation_id,
-      variationName: r.variation_name,
-      coldStorageLabel: r.packaging_variations?.name ?? null,
-    }));
-}
 
 async function loadRecipeNames(db: Db, recipeIds: string[]): Promise<Record<string, string>> {
   if (recipeIds.length === 0) return {};

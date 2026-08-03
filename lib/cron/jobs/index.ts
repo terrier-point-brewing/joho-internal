@@ -20,6 +20,7 @@ import { runFinanceGapScan } from "./financeGapScan";
 import { runFinanceSync } from "./financeSync";
 import { runPayrollAdvance } from "./payrollAdvance";
 import { runRampExpensesSync } from "./rampExpensesSync";
+import { runSquareInventoryPushJob } from "./squareInventoryPush";
 import { runTaproomConsumptionJob } from "./taproomConsumptionSync";
 import { runTaxTasks } from "./taxTasks";
 
@@ -43,6 +44,7 @@ const WORK_BY_JOB: Record<string, CronJobWork> = {
   "bank-transactions-sync":   runBankTransactionsSync,
   "finance-gap-scan":         runFinanceGapScan,
   "finance-sync":             runFinanceSync,
+  "square-inventory-push":    runSquareInventoryPushJob,
   "payroll-advance":          runPayrollAdvance,
   "ramp-expenses-sync":       runRampExpensesSync,
   "taproom-consumption-sync": runTaproomConsumptionJob,

@@ -4,6 +4,7 @@ import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getAvailableColdStorageQuantity } from "@/lib/production/coldStorageDepletion";
 import { writeColdStorageShipment } from "@/lib/production/shipmentWriter";
+import { triggerSquarePush } from "@/lib/production/triggerSquarePush";
 
 export const dynamic = "force-dynamic";
 
@@ -72,6 +73,10 @@ export async function POST(req: NextRequest) {
     batch_id: d.batchId,
     export_transaction_id: result.exportTransactionIds[i],
   }));
+
+  // Same reasoning as the credited ship route: stock left, and only an absolute
+  // push tells Square about the channels that never decrement themselves.
+  await triggerSquarePush(supabase, [recipe_id], "ad-hoc export ship");
 
   return NextResponse.json({ created }, { status: 201 });
 }

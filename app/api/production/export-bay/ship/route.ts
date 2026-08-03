@@ -5,6 +5,7 @@ import { getAvailableColdStorageQuantity } from "@/lib/production/coldStorageDep
 import { writeColdStorageShipment } from "@/lib/production/shipmentWriter";
 import type { ShipmentWarning } from "@/lib/production/allocationReserve";
 import { normalizeShipLines, dedupeWarnings, type ShipLinesInput } from "@/lib/production/shipLines";
+import { triggerSquarePush } from "@/lib/production/triggerSquarePush";
 
 export const dynamic = "force-dynamic";
 
@@ -92,6 +93,13 @@ export async function POST(req: NextRequest) {
       );
     }
   }
+
+  // Beer physically left the building. Contract-brewing invoices bill fees only,
+  // so Square never learns that shipment happened and would keep offering the
+  // stock for sale; wholesale and distribution decrement themselves at payment,
+  // but the absolute push restates the truth either way and is harmless there.
+  // No-ops while the push gate is shut; never throws.
+  await triggerSquarePush(supabase, [recipe_id], `export ship ${shipmentId}`);
 
   return NextResponse.json(
     { shipment_id: shipmentId, created, warnings: dedupeWarnings(warnings) },

@@ -11,8 +11,8 @@ vi.mock("@/lib/taproom/draftPourConsumption", async (orig) => ({
   ...(await orig<typeof import("@/lib/taproom/draftPourConsumption")>()),
   loadDraftPourVariations: vi.fn(async () => new Map()),
 }));
-vi.mock("@/lib/production/reconcileSquareCanInventory", () => ({
-  reconcileSquareCanInventory: vi.fn(async () => ({ writes: [], skips: [], warnings: [], applied: 0 })),
+vi.mock("@/lib/production/pushInventoryToSquare", () => ({
+  pushInventoryToSquare: vi.fn(async () => ({ planned: [], applied: 0, warnings: [], pushEnabled: false })),
 }));
 
 import {
@@ -24,14 +24,14 @@ import {
 import { deriveTaproomConsumption } from "@/lib/square/taproomConsumption";
 import { recordTaproomConsumption } from "@/lib/production/recordTaproomConsumption";
 import { setPhysicalCount, fetchCurrentCounts, fetchOrderSalesByDay } from "@/lib/square/inventory";
-import { reconcileSquareCanInventory } from "@/lib/production/reconcileSquareCanInventory";
+import { pushInventoryToSquare } from "@/lib/production/pushInventoryToSquare";
 import { loadDraftPourVariations } from "@/lib/taproom/draftPourConsumption";
 
 const derive = vi.mocked(deriveTaproomConsumption);
 const record = vi.mocked(recordTaproomConsumption);
 const recount = vi.mocked(setPhysicalCount);
 const fetchCounts = vi.mocked(fetchCurrentCounts);
-const reconcile = vi.mocked(reconcileSquareCanInventory);
+const push = vi.mocked(pushInventoryToSquare);
 const loadPourVars = vi.mocked(loadDraftPourVariations);
 const pourSales = vi.mocked(fetchOrderSalesByDay);
 
@@ -228,8 +228,8 @@ function fakeSupabaseSwaps(
 
 beforeEach(() => {
   derive.mockReset(); record.mockReset(); recount.mockReset(); fetchCounts.mockReset();
-  reconcile.mockReset(); loadPourVars.mockReset(); pourSales.mockReset();
-  reconcile.mockResolvedValue({ writes: [], measurements: [], skips: [], warnings: [], applied: 0 });
+  push.mockReset(); loadPourVars.mockReset(); pourSales.mockReset();
+  push.mockResolvedValue({ planned: [], applied: 0, warnings: [], pushEnabled: false });
   // Default: no pour variations configured, so measurement falls back to the
   // Square on-hand read. Tests that exercise the pour sum call `armPourSum`.
   loadPourVars.mockResolvedValue(new Map());
@@ -468,32 +468,36 @@ describe("runTaproomConsumptionSync", () => {
       expect.objectContaining({ kind: "shrinkage_capture_failed", sourceRef: "sqtransfer:ord-1:line-1" }));
   });
 
-  it("reconciles Square can inventory for the can-sale recipes this run touched", async () => {
+  it("pushes every recipe this run drained, kegs as well as cans", async () => {
     derive.mockResolvedValue({ units: [unit({ sourceRef: "ref-A" }), canUnit()], discrepancies: [] });
     record.mockResolvedValue({ recordedQty: 1, shortfallQty: 0, exportTransactionIds: ["x"], breaks: [], warnings: [] });
     const res = await runTaproomConsumptionSync(fakeSupabase([]), { days: 2 });
-    expect(reconcile).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ recipeIds: expect.arrayContaining(["r-can"]) }),
-    );
-    // keg-only recipe "r1" should not be swept in — only the can-sale recipeId.
-    expect(reconcile.mock.calls[0]?.[1]?.recipeIds).toEqual(["r-can"]);
-    expect(res.squareWriteback).toEqual({ applied: 0, writes: [], warnings: [] });
+    // "r1" is the keg-sale recipe. It used to be left out, so a keg sold to go
+    // drained cold storage and left Square's keg count untouched.
+    expect(push.mock.calls[0]?.[1]?.recipeIds).toEqual(["r1", "r-can"]);
+    expect(res.squareWriteback).toEqual({ applied: 0, planned: [], warnings: [], pushEnabled: false });
   });
 
-  it("does not call the reconciler when no can_sale units are in this run", async () => {
+  it("pushes for a keg-only run", async () => {
     derive.mockResolvedValue({ units: [unit({ sourceRef: "ref-A" })], discrepancies: [] });
     record.mockResolvedValue({ recordedQty: 1, shortfallQty: 0, exportTransactionIds: ["x"], breaks: [], warnings: [] });
     await runTaproomConsumptionSync(fakeSupabase([]), { days: 2 });
-    expect(reconcile).not.toHaveBeenCalled();
+    expect(push.mock.calls[0]?.[1]?.recipeIds).toEqual(["r1"]);
   });
 
-  it("captures a reconciler failure into squareWriteback.warnings without throwing", async () => {
+  it("does not push when the run drained no keg or can stock", async () => {
+    derive.mockResolvedValue({ units: [swapUnit()], discrepancies: [] });
+    record.mockResolvedValue({ recordedQty: 1, shortfallQty: 0, exportTransactionIds: ["x"], breaks: [], warnings: [] });
+    await runTaproomConsumptionSync(fakeSupabase([]), { days: 2 });
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it("captures a push failure into squareWriteback.warnings without throwing", async () => {
     derive.mockResolvedValue({ units: [canUnit()], discrepancies: [] });
     record.mockResolvedValue({ recordedQty: 1, shortfallQty: 0, exportTransactionIds: ["x"], breaks: [], warnings: [] });
-    reconcile.mockRejectedValue(new Error("Square down"));
+    push.mockRejectedValue(new Error("Square down"));
     const res = await runTaproomConsumptionSync(fakeSupabase([]), { days: 2 });
-    expect(res.squareWriteback.warnings).toEqual(["reconcile failed: Square down"]);
+    expect(res.squareWriteback.warnings).toEqual(["square push failed: Square down"]);
     expect(res.recorded).toHaveLength(1); // sync itself still completes
   });
 

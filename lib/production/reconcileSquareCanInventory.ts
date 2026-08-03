@@ -14,16 +14,9 @@ import { deriveCansEach } from "./coldStorageBreak";
 import { groupCanFamilies, type FamilyPackagingRow } from "./canIdentityFamily";
 import { resolveProductSku } from "@/lib/square/skuMappings";
 import { fetchCurrentCounts, setPhysicalCount } from "@/lib/square/inventory";
+import { PUSH_TO_SQUARE_ENABLED, DRIFT_THRESHOLD } from "@/lib/square/pushGate";
 
-const DRIFT_THRESHOLD = 0.5;
 const INT_EPS = 1e-6;
-
-/**
- * Master switch for the cold-storage → Square push. Off until the reconciler can
- * (a) confirm the mapped variation still exists in Square and (b) verify the
- * written count actually landed. See the comment at the write site below.
- */
-const PUSH_TO_SQUARE_ENABLED = false;
 
 // ── Base-variation resolution (pure) ─────────────────────────────────────────
 
@@ -318,18 +311,9 @@ export async function reconcileSquareCanInventory(
 
   let applied = 0;
   for (const w of plan.writes) {
-    // OBSERVE-ONLY (2026-08-03). The push is planned and reported but not sent.
-    //
-    // Until the mapping layer can prove it is pointed at a live SKU and that a
-    // write actually landed, pushing cold storage onto Square is unsafe: a stale
-    // link made every write a silent no-op for nine days, and repairing those
-    // links re-armed the push against SKUs whose two sides are known to disagree
-    // (Epic Hazy: Square 111, cold storage 158) with no agreed answer yet.
-    //
-    // `plan.writes` still carries every intended correction, so the drift is
-    // fully visible in the run summary and on the taproom Inventory tab; only
-    // the Square mutation is withheld. Re-enable once write-verification lands
-    // (see docs/square-inventory-sync-spec.md, W1/W2).
+    // `plan.writes` carries every intended correction whether or not the gate is
+    // open, so drift stays fully visible in the run summary and on the taproom
+    // Inventory tab; only the Square mutation is withheld. See lib/square/pushGate.
     if (!PUSH_TO_SQUARE_ENABLED) continue;
     try {
       await setPhysicalCount(w.baseSquareVariationId, w.coldStorageCans, occurredAt);
