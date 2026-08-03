@@ -11,8 +11,9 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { productionKeys } from "@/app/production/hooks/queries";
 import ProductCodeInput from "@/app/production/components/ProductCodeInput";
-import { codesComponentStatus } from "@/lib/brand/releases";
+import { RELEASE_COMPONENT_TITLES, codesComponentStatus } from "@/lib/brand/releases";
 import type { ReleaseComponentContext, ReleaseComponentDef } from "./componentDef";
+import GuidePanel from "./GuidePanel";
 
 function CodesEditor({ ctx }: { ctx: ReleaseComponentContext }) {
   const { release, containers } = ctx;
@@ -20,25 +21,32 @@ function CodesEditor({ ctx }: { ctx: ReleaseComponentContext }) {
 
   if (!release.recipe_id) {
     return (
-      <p className="text-sm text-secondary">
-        Link a recipe on the Beer Recipe card first — codes attach to that recipe&apos;s
-        containers.
-      </p>
+      <>
+        <GuidePanel entry={ctx.guide.codes} />
+        <p className="text-sm text-secondary">
+          Link a recipe on the Beer Recipe card first — codes attach to that recipe&apos;s
+          containers.
+        </p>
+      </>
     );
   }
 
   if (containers.length === 0) {
     return (
-      <p className="text-sm text-secondary">
-        No packaging variations on this recipe yet. They&apos;re defined in Production →
-        Recipes, usually once the release card is written; each container then gets its
-        code registered here.
-      </p>
+      <>
+        <GuidePanel entry={ctx.guide.codes} />
+        <p className="text-sm text-secondary">
+          No packaging variations on this recipe yet. They&apos;re defined in Production →
+          Recipes, usually once the release card is written; each container then gets its
+          code registered here.
+        </p>
+      </>
     );
   }
 
   return (
     <div className="flex flex-col gap-3 max-w-xl">
+      <GuidePanel entry={ctx.guide.codes} />
       <p className="text-xs text-muted">
         Register the code for each sellable container (a 4-pack and a keg carry different
         codes). The label&apos;s barcode needs these before the print order goes out.
@@ -64,7 +72,7 @@ function CodesEditor({ ctx }: { ctx: ReleaseComponentContext }) {
 
 export const codesComponent: ReleaseComponentDef = {
   key: "codes",
-  title: "Product Codes",
+  title: RELEASE_COMPONENT_TITLES.codes,
   blurb: "One code per sellable container.",
   status: (ctx) => codesComponentStatus(Boolean(ctx.release.recipe_id), ctx.containers),
   summary: (ctx) => {

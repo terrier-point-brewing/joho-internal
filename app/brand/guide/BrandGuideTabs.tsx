@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, cloneElement, isValidElement, type ReactNode } from "react";
+import { useSearchParams } from "next/navigation";
 import type { BrandCanon } from "@/lib/brand/canon.types";
 import PageHeader from "@/app/components/PageHeader";
 import TabBar from "@/app/components/TabBar";
@@ -55,7 +56,15 @@ export default function BrandGuideTabs({
     release: ReactNode;
   };
 }) {
-  const [active, setActive] = useState<TabKey>("ethos");
+  // `?tab=release` deep-links a subtab — Brand → Releases points its "Read:
+  // Release Design" links here. Read once on mount, not written back on
+  // switch, and validated so an unknown value falls back rather than blanking
+  // the page. Same convention as gl-mapping's `?tab=`.
+  const searchParams = useSearchParams();
+  const [active, setActive] = useState<TabKey>(() => {
+    const requested = searchParams.get("tab");
+    return requested && isCanonSection(requested as TabKey) ? (requested as TabKey) : "ethos";
+  });
   const [mode, setMode] = useState<Mode>("view");
   const [editorMounted, setEditorMounted] = useState(false);
 

@@ -18,11 +18,25 @@ export function StatusChip({ status }: { status: ComponentStatus }) {
   return <Badge tone={meta.tone}>{meta.label}</Badge>;
 }
 
-export const RELEASE_STATUS_TONE: Record<BrandRelease["status"], Tone> = {
-  draft: "accent",
-  released: "success",
-  archived: "neutral",
+/**
+ * How a release's status reads to a human. The stored values are the table's
+ * check constraint (`draft` / `released` / `archived`) and stay that way; the
+ * workbench calls the live state "Published". Rendering `release.status` raw
+ * was the bug this replaces — it put a lowercase enum on screen.
+ *
+ * `draft` was toned `accent`, which is the brand accent and washes out on the
+ * ops surface; `info` reads as an actual state.
+ */
+export const RELEASE_STATUS_META: Record<BrandRelease["status"], { label: string; tone: Tone }> = {
+  draft: { label: "Draft", tone: "info" },
+  released: { label: "Published", tone: "success" },
+  archived: { label: "Archived", tone: "neutral" },
 };
+
+export function ReleaseStatusBadge({ status }: { status: BrandRelease["status"] }) {
+  const meta = RELEASE_STATUS_META[status];
+  return <Badge tone={meta.tone}>{meta.label}</Badge>;
+}
 
 export function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (

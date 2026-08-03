@@ -8,11 +8,24 @@ import {
   listReleases,
   markReleased,
   recipeComponentStatus,
+  recipeGaps,
+  releaseReadiness,
   updateRelease,
   type BrandRelease,
+  type ReleaseContainer,
 } from "./releases";
+import type { BrandLabel } from "./labels";
 
-const CRITERIA = ["Ownable?", "Pronounceable?"];
+/** A recipe Production has fully specified. */
+const SPECIFIED = { style: "Jasmine Peach Lager", abv: 4.8 };
+const canOf = (product_code: string | null = null): ReleaseContainer => ({
+  product_code,
+  packaging_variations: { container: { type: "can" } },
+});
+const kegOf = (product_code: string | null = null): ReleaseContainer => ({
+  product_code,
+  packaging_variations: { container: { type: "keg" } },
+});
 
 const baseRelease = (overrides: Partial<BrandRelease> = {}): BrandRelease => ({
   id: "r1",
@@ -29,13 +42,44 @@ const baseRelease = (overrides: Partial<BrandRelease> = {}): BrandRelease => ({
   ...overrides,
 });
 
-describe("recipeComponentStatus", () => {
-  it("is not_started without a linked recipe", () => {
-    expect(recipeComponentStatus(baseRelease())).toBe("not_started");
+describe("recipeGaps", () => {
+  it("names every fact Production still owes, in fill-in order", () => {
+    expect(recipeGaps(null, [])).toEqual(["beer style", "ABV", "a can variation"]);
+    expect(recipeGaps({ style: "Lager", abv: null }, [canOf()])).toEqual(["ABV"]);
+    expect(recipeGaps(SPECIFIED, [canOf()])).toEqual([]);
   });
 
-  it("is done once a recipe is linked", () => {
-    expect(recipeComponentStatus(baseRelease({ recipe_id: "rec-1" }))).toBe("done");
+  it("does not accept a keg in place of a can", () => {
+    expect(recipeGaps(SPECIFIED, [kegOf()])).toEqual(["a can variation"]);
+  });
+
+  it("treats an unresolved container join as no can, not as a can", () => {
+    // packaging_variations has five FKs to packaging_items; a join without the
+    // explicit hint leaves `container` null. That must never read as ready.
+    expect(recipeGaps(SPECIFIED, [{ product_code: null }])).toEqual(["a can variation"]);
+  });
+
+  it("treats an ABV of 0 as set", () => {
+    expect(recipeGaps({ style: "NA Lager", abv: 0 }, [canOf()])).toEqual([]);
+  });
+});
+
+describe("recipeComponentStatus", () => {
+  it("is not_started without a linked recipe", () => {
+    expect(recipeComponentStatus(baseRelease(), null, [])).toBe("not_started");
+  });
+
+  it("is only in_progress while the recipe is linked but unspecified", () => {
+    const linked = baseRelease({ recipe_id: "rec-1" });
+    expect(recipeComponentStatus(linked, null, [])).toBe("in_progress");
+    expect(recipeComponentStatus(linked, { style: null, abv: 4.8 }, [canOf()])).toBe("in_progress");
+    expect(recipeComponentStatus(linked, { style: "Lager", abv: null }, [canOf()])).toBe("in_progress");
+    expect(recipeComponentStatus(linked, SPECIFIED, [kegOf()])).toBe("in_progress");
+  });
+
+  it("is done with a style, an ABV and at least one can", () => {
+    const linked = baseRelease({ recipe_id: "rec-1" });
+    expect(recipeComponentStatus(linked, SPECIFIED, [kegOf(), canOf()])).toBe("done");
   });
 });
 
@@ -45,47 +89,24 @@ describe("cardComponentStatus", () => {
     menu_description: "A jasmine peach lager.",
     season_id: "s1",
     episode: 4,
-    naming_check: {
-      results: [
-        { criterion: "Ownable?", pass: true },
-        { criterion: "Pronounceable?", pass: true },
-      ],
-    },
   });
 
   it("is not_started on a bare release", () => {
-    expect(cardComponentStatus(baseRelease(), CRITERIA)).toBe("not_started");
+    expect(cardComponentStatus(baseRelease())).toBe("not_started");
   });
 
   it("is in_progress once any card field is filled", () => {
-    expect(cardComponentStatus(baseRelease({ story_line: "…" }), CRITERIA)).toBe("in_progress");
-    expect(cardComponentStatus(baseRelease({ season_id: "s1" }), CRITERIA)).toBe("in_progress");
+    expect(cardComponentStatus(baseRelease({ story_line: "…" }))).toBe("in_progress");
+    expect(cardComponentStatus(baseRelease({ season_id: "s1" }))).toBe("in_progress");
   });
 
-  it("is done when all fields are set and every criterion passes", () => {
-    expect(cardComponentStatus(complete, CRITERIA)).toBe("done");
+  it("is done on the card's own fields, with no naming gate to clear", () => {
+    expect(cardComponentStatus(complete)).toBe("done");
   });
 
-  it("drops back to in_progress when the canon grows a new criterion", () => {
-    expect(cardComponentStatus(complete, [...CRITERIA, "Specific referent?"])).toBe("in_progress");
-  });
-
-  it("is never done with an empty criteria list", () => {
-    expect(cardComponentStatus(complete, [])).toBe("in_progress");
-  });
-
-  it("ignores stale naming results for criteria no longer in the canon", () => {
-    const stale = baseRelease({
-      ...complete,
-      naming_check: {
-        results: [
-          { criterion: "Ownable?", pass: true },
-          { criterion: "Pronounceable?", pass: true },
-          { criterion: "Removed criterion", pass: false },
-        ],
-      },
-    });
-    expect(cardComponentStatus(stale, CRITERIA)).toBe("done");
+  it("still needs a place in a season", () => {
+    expect(cardComponentStatus({ ...complete, episode: null })).toBe("in_progress");
+    expect(cardComponentStatus({ ...complete, season_id: null })).toBe("in_progress");
   });
 });
 
@@ -106,6 +127,58 @@ describe("codesComponentStatus", () => {
 
   it("is done when every container is coded", () => {
     expect(codesComponentStatus(true, [{ product_code: "123" }, { product_code: "456" }])).toBe("done");
+  });
+});
+
+describe("releaseReadiness", () => {
+  // A release with nothing outstanding: card written, recipe specified, every
+  // container coded, and all three label stages done.
+  const readyLabel = {
+    id: "l1",
+    release_id: "r1",
+    illustration: { asset_ids: ["a1"] },
+    regulatory: { approved: true },
+    print_order: { ordered_at: "2026-08-01" },
+  } as unknown as BrandLabel;
+
+  const readyInput = {
+    release: baseRelease({
+      recipe_id: "rec-1",
+      story_line: "The brick stove, the kettle, low light.",
+      menu_description: "A jasmine peach lager.",
+      season_id: "s1",
+      episode: 4,
+    }),
+    recipe: SPECIFIED,
+    containers: [canOf("100"), kegOf("200")],
+    label: readyLabel,
+  };
+
+  it("is ready with nothing outstanding", () => {
+    expect(releaseReadiness(readyInput)).toEqual({ ready: true, outstanding: [] });
+  });
+
+  it("names every outstanding component in card order", () => {
+    expect(releaseReadiness({ release: baseRelease(), recipe: null, containers: [], label: null }))
+      .toEqual({
+        ready: false,
+        outstanding: ["Beer Recipe", "Release Card", "Product Codes", "Label"],
+      });
+  });
+
+  it("blocks on an unspecified recipe even when everything else is done", () => {
+    const { ready, outstanding } = releaseReadiness({ ...readyInput, recipe: { style: "Lager", abv: null } });
+    expect(ready).toBe(false);
+    expect(outstanding).toEqual(["Beer Recipe"]);
+  });
+
+  it("blocks on an uncoded container", () => {
+    const { ready, outstanding } = releaseReadiness({
+      ...readyInput,
+      containers: [canOf("100"), kegOf(null)],
+    });
+    expect(ready).toBe(false);
+    expect(outstanding).toEqual(["Product Codes"]);
   });
 });
 
