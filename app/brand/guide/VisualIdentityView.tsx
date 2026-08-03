@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { BrandAsset } from "@/lib/brand/assets";
 import type { BrandCanon } from "@/lib/brand/canon.types";
 import { resolveGuideIntro } from "@/lib/brand/guideIntros";
@@ -26,10 +27,12 @@ import RulePairCard from "./blocks/RulePairCard";
 export default function VisualIdentityView({
   canon,
   assetsById,
+  topRight,
 }: {
   canon: BrandCanon;
   /** Resolved assets, so illustrated rules can use their authored alt text. */
   assetsById?: Map<string, BrandAsset>;
+  topRight?: ReactNode;
 }) {
   const law = canon.illustrationLaw;
   const pairs = normalizePairs(law);
@@ -42,7 +45,7 @@ export default function VisualIdentityView({
   });
 
   return (
-    <GuideSection section="visual" intro={resolveGuideIntro(canon, "visual")}>
+    <GuideSection section="visual" intro={resolveGuideIntro(canon, "visual")} topRight={topRight}>
       {pairs.length === 0 ? (
         <p className="font-brand-body text-sm text-brand-content-muted">No rules yet.</p>
       ) : (

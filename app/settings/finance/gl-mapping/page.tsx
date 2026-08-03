@@ -17,8 +17,9 @@
  * next. It is not itself a mapping of a thing to an account, which is why it
  * does not come first.
  *
- * The tabs are an inner TabBar rather than a third nav level — the same thing
- * Chart of Accounts does for its Statement/By Type toggle. docs/UI_STANDARD.md
+ * The panels switch via a ButtonGroup, not a second TabBar — the same thing
+ * Chart of Accounts does for its Statement/By Type toggle, so a nested view
+ * switcher never reads as another level of page navigation. docs/UI_STANDARD.md
  * §4 caps settings at one level of sub-tabs.
  *
  * `?tab=` is read once on mount so the Financials data-quality panel can deep
@@ -30,7 +31,8 @@
  */
 import { useState } from "react";
 import { useSearchParams } from "next/navigation";
-import TabBar, { type TabDef } from "@/app/components/TabBar";
+import { type TabDef } from "@/app/components/TabBar";
+import ButtonGroup from "@/app/components/ButtonGroup";
 import SettingsHeader from "@/app/settings/SettingsHeader";
 import RevenuePanel from "./RevenuePanel";
 import ExpensesPanel from "./ExpensesPanel";
@@ -48,7 +50,7 @@ const TABS: TabDef<PanelKey>[] = [
   { key: "sales-tax",      label: "Sales Tax" },
 ];
 
-const PANELS: Record<PanelKey, () => React.ReactElement> = {
+const PANELS: Record<PanelKey, (props: { selector?: React.ReactNode }) => React.ReactElement> = {
   "revenue":        RevenuePanel,
   "expenses":       ExpensesPanel,
   "counterparties": CounterpartiesPanel,
@@ -72,11 +74,9 @@ export default function GlMappingPage() {
         <SettingsHeader
           title="GL Mapping"
           description="Where an external thing — a Square item, a Ramp charge, a bank feed — is given a chart-of-accounts code."
-        >
-          <TabBar tabs={TABS} activeKey={panel} onSelect={setPanel} className="mb-0" />
-        </SettingsHeader>
+        />
       </div>
-      <Panel />
+      <Panel selector={<ButtonGroup tabs={TABS} activeKey={panel} onSelect={setPanel} />} />
     </>
   );
 }

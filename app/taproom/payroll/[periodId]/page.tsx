@@ -31,10 +31,12 @@ export default function TaproomPayrollPage() {
     <main className="px-4 sm:px-6">
       <StickyHeader>
         <SubNav entries={TAPROOM_NAV} mobile />
-        <div className="flex items-center justify-between gap-4">
+        <div className="flex items-start justify-between gap-4">
           <PageHeader title="Payroll" description="Bartender hours, tips, and pay by pay period" />
           {periods && (
-            <PeriodSelector periods={periods} currentId={periodId} basePath="/taproom/payroll" />
+            <div className="shrink-0 mt-4">
+              <PeriodSelector periods={periods} currentId={periodId} basePath="/taproom/payroll" />
+            </div>
           )}
         </div>
         <TabBar

@@ -51,12 +51,11 @@ export default function BusinessSettings() {
 
   return (
     <div className="flex-1 overflow-auto px-4 sm:px-6">
-    <div className="max-w-xl">
       <SettingsHeader
         title="Business"
         description="Location-wide settings that apply across every report and dashboard."
       />
-      <div className="pb-4 sm:pb-8">
+      <div className="pb-4 sm:pb-8 max-w-xl">
       {error && <Banner tone="danger" className="mb-4">{error}</Banner>}
       {success && <Banner tone="success" className="mb-4">Timezone updated. Reports now use {label}.</Banner>}
 
@@ -106,7 +105,6 @@ export default function BusinessSettings() {
         </div>
       </section>
       </div>
-    </div>
     </div>
   );
 }

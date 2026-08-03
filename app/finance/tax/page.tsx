@@ -1,21 +1,33 @@
 "use client";
 
+import { useState } from "react";
 import FinanceNav from "../FinanceNav";
 import PageHeader from "@/app/components/PageHeader";
 import StickyHeader from "@/app/components/StickyHeader";
+import TabBar, { type TabDef } from "@/app/components/TabBar";
 import Banner from "@/app/components/ui/Banner";
 import { useTaxData } from "./hooks/useTaxData";
 import TaskList from "./TaskList";
 import ScheduleList from "./ScheduleList";
 
+type TaxSubtab = "schedules" | "open" | "closed";
+
+const TABS: TabDef<TaxSubtab>[] = [
+  { key: "schedules", label: "Schedules" },
+  { key: "open", label: "Open Tasks" },
+  { key: "closed", label: "Closed Tasks" },
+];
+
 export default function FinanceTaxPage() {
   const { tasks, schedules, parties, isLoading, isError, error } = useTaxData();
+  const [tab, setTab] = useState<TaxSubtab>("schedules");
 
   return (
     <main className="px-4 sm:px-6">
       <StickyHeader>
         <FinanceNav mobile />
         <PageHeader title="Tax" description="Upcoming and completed tax filing tasks." />
+        <TabBar tabs={TABS} activeKey={tab} onSelect={setTab} className="mb-0" />
       </StickyHeader>
 
       <div className="mt-4 pb-4 sm:pb-8">
@@ -24,10 +36,11 @@ export default function FinanceTaxPage() {
           <Banner tone="danger">{error instanceof Error ? error.message : "Failed to load tax tasks."}</Banner>
         )}
         {!isLoading && !isError && (
-          <div className="flex flex-col gap-8">
-            <ScheduleList schedules={schedules} parties={parties} />
-            <TaskList tasks={tasks} schedules={schedules} parties={parties} />
-          </div>
+          <>
+            {tab === "schedules" && <ScheduleList schedules={schedules} parties={parties} />}
+            {tab === "open" && <TaskList tasks={tasks} schedules={schedules} parties={parties} status="open" />}
+            {tab === "closed" && <TaskList tasks={tasks} schedules={schedules} parties={parties} status="closed" />}
+          </>
         )}
       </div>
     </main>

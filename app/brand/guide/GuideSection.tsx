@@ -36,11 +36,14 @@ import {
 export default function GuideSection({
   section,
   intro,
+  topRight,
   children,
 }: {
   /** Which subtab this is — selects the card's purpose label. */
   section: GuideSectionKey;
   intro?: string;
+  /** Admin-only View/Edit toggle, pinned to the intro card's top-right corner. */
+  topRight?: ReactNode;
   children: ReactNode;
 }) {
   const [lede, ...rest] = splitParagraphs(intro ?? "");
@@ -53,9 +56,12 @@ export default function GuideSection({
     <section>
       {lede && (
         <div className="mb-6 rounded-lg border border-brand-line bg-brand-surface p-4 sm:p-5">
-          <p className="font-brand-body text-2xs uppercase tracking-wide text-brand-content-muted">
-            {GUIDE_SECTION_PURPOSE[section]}
-          </p>
+          <div className="flex items-start justify-between gap-4">
+            <p className="font-brand-body text-2xs uppercase tracking-wide text-brand-content-muted">
+              {GUIDE_SECTION_PURPOSE[section]}
+            </p>
+            {topRight}
+          </div>
           <div
             className={`mt-2 gap-x-10 ${
               hasBody ? "lg:grid lg:grid-cols-[minmax(0,4fr)_minmax(0,7fr)]" : ""

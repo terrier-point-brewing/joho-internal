@@ -13,7 +13,7 @@ export default async function PeriodCloseLayout({ children }: { children: React.
   return (
     <div className="flex flex-col h-full bg-canvas text-primary">
       <FinanceNav mobile />
-      <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-8">
+      <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-8 pb-4 border-b border-line">
         <PageHeader
           title="Period Close"
           description="The month-end checklist and the human act of closing a period — a closed month's balances stop recomputing."

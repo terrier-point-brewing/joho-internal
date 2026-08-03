@@ -110,17 +110,17 @@ export default function CronMonitor() {
 
   return (
     <div className="flex-1 overflow-auto px-4 sm:px-6">
-    <div className="max-w-3xl">
       <SettingsHeader
         title="Cron Jobs"
         description="Scheduled jobs and their recent run history. Schedules run in UTC."
-        actions={
-          <button onClick={load} disabled={loading} className="btn-secondary">
-            {loading ? "Loading…" : "Refresh"}
-          </button>
-        }
       />
-      <div className="pb-4 sm:pb-8">
+      <div className="pb-4 sm:pb-8 max-w-3xl">
+
+      <div className="flex justify-end mb-3">
+        <button onClick={load} disabled={loading} className="btn-secondary">
+          {loading ? "Loading…" : "Refresh"}
+        </button>
+      </div>
 
       {error && <Banner className="mb-3">{error}</Banner>}
 
@@ -206,7 +206,6 @@ export default function CronMonitor() {
         </div>
       )}
       </div>
-    </div>
     </div>
   );
 }

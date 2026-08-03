@@ -1,6 +1,7 @@
 "use client";
 import { Fragment, useState, useCallback, useEffect } from "react";
-import TabBar, { type TabDef } from "@/app/components/TabBar";
+import { type TabDef } from "@/app/components/TabBar";
+import ButtonGroup from "@/app/components/ButtonGroup";
 import SettingsHeader from "@/app/settings/SettingsHeader";
 import { ACCOUNT_TYPE_SECTION, type StatementSection } from "@/lib/finance/accountSections";
 import { parseCoaCsv, type ParsedCoaRow } from "@/lib/finance/coaCsv";
@@ -649,29 +650,29 @@ export default function ChartOfAccountsPage() {
         <SettingsHeader
           title="Chart of Accounts"
           description={uploadedAt && !loading ? `${accounts.length} accounts · last uploaded ${fmt(uploadedAt)}` : undefined}
-          actions={
-            step === "idle" && (
-              <>
-                <button
-                  onClick={() => { setShowAddForm((v) => !v); setAddError(null); setEditingId(null); }}
-                  className="btn-secondary">
-                  {showAddForm ? "Cancel" : "Add Account"}
-                </button>
-                <label className="btn-primary cursor-pointer">
-                  Upload CSV
-                  <input type="file" accept=".csv,text/csv" className="sr-only" onChange={handleFile} />
-                </label>
-              </>
-            )
-          }
-        >
-          {!loading && !error && accounts.length > 0 && step === "idle" && (
-            <TabBar tabs={CoA_VIEW_TABS} activeKey={viewMode} onSelect={setViewMode} />
-          )}
-        </SettingsHeader>
+        />
       </div>
 
       <div className="flex-1 overflow-auto px-4 sm:px-6 py-4 sm:py-6 max-w-4xl space-y-6">
+
+        {step === "idle" && (
+          <div className="flex items-center justify-between gap-2">
+            {!loading && !error && accounts.length > 0 ? (
+              <ButtonGroup tabs={CoA_VIEW_TABS} activeKey={viewMode} onSelect={setViewMode} />
+            ) : <div />}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => { setShowAddForm((v) => !v); setAddError(null); setEditingId(null); }}
+                className="btn-secondary">
+                {showAddForm ? "Cancel" : "Add Account"}
+              </button>
+              <label className="btn-primary cursor-pointer">
+                Upload CSV
+                <input type="file" accept=".csv,text/csv" className="sr-only" onChange={handleFile} />
+              </label>
+            </div>
+          </div>
+        )}
 
         {/* Manual add form */}
         {showAddForm && step === "idle" && (

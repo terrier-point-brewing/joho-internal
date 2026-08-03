@@ -23,6 +23,7 @@ import { formatCurrencyCents, formatPercent, EM_DASH } from "@/lib/format";
 import type { FinancialsResponse, FinancialsRow, Measure, StatementKind } from "@/lib/finance/financials/types";
 import type { StatementSection } from "@/lib/finance/accountSections";
 import PageHeader from "@/app/components/PageHeader";
+import StickyHeader from "@/app/components/StickyHeader";
 import Banner from "@/app/components/ui/Banner";
 import Card from "@/app/components/ui/Card";
 import TabBar, { type TabDef } from "@/app/components/TabBar";
@@ -207,31 +208,30 @@ export default function FinancialsClient({
 
   return (
     <div className="flex flex-col h-full bg-canvas text-primary">
-      <FinanceNav mobile />
-      <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-8">
-        <div className="flex items-center justify-between">
-          <PageHeader title="Financials" description="Consolidated P&L, Balance Sheet, and Cash Flow — persisted, CoA-mapped data" />
-          <div className="flex items-center gap-2">
-            {data && (
-              <DataQualityPanel
-                summary={data.dataQuality}
-                onFilterQuality={(bucket) => setFilter("quality", [bucket])}
-              />
-            )}
-            <select
-              value={year}
-              onChange={(e) => setYear(Number(e.target.value))}
-              className="inp-sm w-auto"
-            >
-              {years.map((y) => <option key={y} value={y}>{y}</option>)}
-            </select>
-            <button onClick={() => void refetch()} className="btn-primary">Refresh</button>
+      <div className="shrink-0 px-4 sm:px-6">
+        <StickyHeader>
+          <FinanceNav mobile />
+          <div className="flex items-start justify-between gap-4">
+            <PageHeader title="Financials" description="Consolidated P&L, Balance Sheet, and Cash Flow — persisted, CoA-mapped data" />
+            <div className="flex items-center gap-2 shrink-0 mt-4">
+              {data && (
+                <DataQualityPanel
+                  summary={data.dataQuality}
+                  onFilterQuality={(bucket) => setFilter("quality", [bucket])}
+                />
+              )}
+              <select
+                value={year}
+                onChange={(e) => setYear(Number(e.target.value))}
+                className="inp-sm w-auto"
+              >
+                {years.map((y) => <option key={y} value={y}>{y}</option>)}
+              </select>
+              <button onClick={() => void refetch()} className="btn-primary">Refresh</button>
+            </div>
           </div>
-        </div>
-
-        <div className="flex items-center justify-between flex-wrap gap-2 mt-2">
           <TabBar tabs={STATEMENT_TABS} activeKey={statement} onSelect={handleStatementSelect} className="mb-0" />
-        </div>
+        </StickyHeader>
       </div>
 
       {error && (

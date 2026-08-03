@@ -13,7 +13,7 @@ export default function DepositInvoicesPage() {
         <PageHeader title="Brewing" description="Deposit invoices for contract-brewing allocations" />
         <SubNav entries={BREWING_NAV} />
       </StickyHeader>
-      <div className="mt-4 pb-4 sm:pb-8"><DepositInvoicesTab /></div>
+      <div className="mt-6 pb-4 sm:pb-8"><DepositInvoicesTab /></div>
     </main>
   );
 }
